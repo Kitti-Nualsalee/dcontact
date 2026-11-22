@@ -244,3 +244,38 @@ test('forced-colors: Tabs ยังเห็นเส้นใต้แท็บ
   expect(await underline('ภาพรวม')).toEqual({ content: '""', height: '4px' });
   expect((await underline('ขั้นตอน')).content).toBe('none');
 });
+
+test('forced-colors: Button ที่กดค้าง (aria-pressed) ใช้พื้น Highlight แยกจากปุ่มอื่น', async ({
+  page,
+}) => {
+  await page.emulateMedia({ forcedColors: 'active' });
+  await page.goto('/');
+  const group = page.getByRole('group', { name: 'ภาษา' });
+  const thai = group.getByRole('button', { name: 'ไทย' });
+  const english = group.getByRole('button', { name: 'English' });
+  await expect(thai).toHaveAttribute('aria-pressed', 'true');
+  await expect(english).toHaveAttribute('aria-pressed', 'false');
+  // ปุ่มอื่นอาจเป็นพื้นโปร่งบน Canvas จึงเทียบกับค่า Highlight จริงของระบบ
+  const highlight = await page.evaluate(() => {
+    const probe = document.createElement('div');
+    probe.style.backgroundColor = 'Highlight';
+    document.body.append(probe);
+    const value = getComputedStyle(probe).backgroundColor;
+    probe.remove();
+    return value;
+  });
+  const background = (target: typeof thai) =>
+    target.evaluate((element) => getComputedStyle(element).backgroundColor);
+  expect(await background(thai)).toBe(highlight);
+  expect(await background(english)).not.toBe(highlight);
+
+  // โฟกัสบนปุ่มที่กดค้างยังเห็น outline ด้านนอก (tokens.css) และไม่มี ring สี brand ค้างเพราะปิด adjust
+  await english.focus();
+  await page.keyboard.press('Shift+Tab');
+  await expect(thai).toBeFocused();
+  const focused = await thai.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { outline: style.outlineStyle, offset: style.outlineOffset, shadow: style.boxShadow };
+  });
+  expect(focused).toEqual({ outline: 'solid', offset: '2px', shadow: 'none' });
+});
