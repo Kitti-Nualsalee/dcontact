@@ -68,7 +68,11 @@ Authority: [#979](https://github.com/Kitti-Nualsalee/dcontact/issues/979) ต่
 - คิว managed บันทึกเสียงได้ (#991): Admin เปิด `recordingEnabled` ในหน้ารายละเอียดคิว (คำสั่ง `PATCH /api/v1/tenant-voice/queues/:id`)
   Supervisor ฟัง (#967) และประเมินโดยคน (#971) ได้ แต่การเปิดคิว/เบอร์ managed ยังต้องปิด auto QM และ transcription
   (`dc_voice_managed_activation_check`) และการแก้ recording ทำไม่ได้ขณะคิวมีสายค้าง (`CONFIG_BUSY`) ผลมีกับสายถัดไป
-  ยังไม่ได้ทดลองสายจริงบน FreeSWITCH dev ที่เปิด recording
+  ทดลองสายจริงบน FreeSWITCH dev แล้ว (22 พ.ย. 2569, ฐานแยก `dcontact_991call` คัดลอกจาก `dcontact_979`, SIPp เป็นลูกค้าและ Agent 1100):
+  - คิว Support Line เปิดบันทึก: Agent รับ คุย 15 วินาที ลูกค้าวาง แถว `recordings` เริ่มตอน bridge มี `endedAt` และ `archivedAt`
+    ไฟล์ WAV สเตอริโอ 8 kHz ยาวประมาณ 15 วินาทีอยู่ใน object storage และมี handling attribution ของทีมที่รับสาย
+  - ปิดบันทึกแล้วโทรซ้ำ: Agent รับสายได้ตามเดิมและไม่มีแถว recording
+  - การทดลองนี้พบว่า `createCall` ของ managed runtime ใน router ยังกันคิวที่เปิดบันทึก ทำให้สายไป legacy แก้แล้วในงานเดียวกัน
 - Agent ในการทดลองเป็น SIPp ที่ลงทะเบียนด้วย SIP credential/work-session lease ที่สร้างลงฐานแยกโดยตรง และตั้งสถานะ AVAILABLE
   และปิด wrap-up ผ่านฐาน ไม่ได้ผ่าน Workspace/dphone (ส่วนนั้นผ่านแล้วใน #977) ไม่ได้ตรวจเสียงสองทาง
 - เมื่อลูกค้าวางหลัง bridge ผลจบของ managed runtime เป็น `AGENT_HANGUP` น่าจะเพราะ event วางสายของขา Agent มาถึงก่อน

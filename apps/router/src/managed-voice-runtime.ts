@@ -191,7 +191,7 @@ export class ManagedVoiceRuntime {
       JOIN voice_managed_queue_policies p ON p.tenant_id=q.tenant_id AND p.queue_id=q.id
       WHERE d.tenant_id=${event.tenantId}::uuid AND d.destination=${event.destination} AND d.is_active AND q.is_active
       AND d.entry_mode='DIRECT_QUEUE' AND q.voice_config_version=1 AND p.version=1
-      AND NOT q.recording_enabled AND NOT q.auto_qm_enabled AND q.transcription_mode='OFF' AND q.routing_strategy='LONGEST_AVAILABLE_IDLE'
+      AND NOT q.auto_qm_enabled AND q.transcription_mode='OFF' AND q.routing_strategy='LONGEST_AVAILABLE_IDLE'
       AND p.offer_timeout_sec=20 AND p.max_total_preanswer_sec=60 AND p.terminal_action='HANGUP' AND p.skip_timed_out_agent
       AND EXISTS(SELECT 1 FROM queue_skills WHERE tenant_id=q.tenant_id AND queue_id=q.id)
       AND NOT EXISTS(SELECT 1 FROM queue_skills qs JOIN skills s ON s.tenant_id=qs.tenant_id AND s.id=qs.skill_id
