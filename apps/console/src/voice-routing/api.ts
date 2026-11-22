@@ -10,6 +10,7 @@ export interface CatalogItem {
   revision?: number;
   code?: string | null;
   isActive?: boolean;
+  recordingEnabled?: boolean;
   policy?: { offerTimeoutSec: number; maxTotalPreanswerSec: number; terminalAction: string } | null;
 }
 export interface Capabilities {

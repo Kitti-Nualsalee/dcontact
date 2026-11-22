@@ -361,8 +361,7 @@ test('managed admission rejects inactive queues, non-direct entry and unsupporte
   const { runtime, event, owner, tenantId, queueId } = context;
   for (const data of [
     { isActive: false },
-    { isActive: true, recordingEnabled: true },
-    { recordingEnabled: false, autoQmEnabled: true },
+    { isActive: true, autoQmEnabled: true },
     { autoQmEnabled: false, routingStrategy: 'ROUND_ROBIN' as const },
   ]) {
     await owner.queue.update({ where: { id: queueId }, data });
@@ -375,6 +374,15 @@ test('managed admission rejects inactive queues, non-direct entry and unsupporte
   await owner.voiceDestination.updateMany({ where: { tenantId }, data: { entryMode: 'IVR' } });
   assert.equal(await handleAndFlush(runtime, { ...event, callUuid: randomUUID() }), null);
   assert.equal(await owner.interaction.count({ where: { tenantId } }), 0);
+});
+
+test('managed admission accepts a queue with recording enabled (#991)', async (testContext) => {
+  const context = await fixture();
+  testContext.after(context.close);
+  const { runtime, event, owner, tenantId, queueId } = context;
+  await owner.queue.update({ where: { id: queueId }, data: { recordingEnabled: true } });
+  assert.notEqual(await handleAndFlush(runtime, event), null);
+  assert.equal(await owner.interaction.count({ where: { tenantId, queueId } }), 1);
 });
 
 test('old writer waiting on an interaction cannot win managed answer CAS', async (testContext) => {

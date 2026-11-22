@@ -33,7 +33,7 @@ export function parseConfiguration(raw: unknown, kind: ConfigurationKind) {
     'reasonCode',
     'reason',
     ...(kind === 'queue'
-      ? ['name', 'isActive']
+      ? ['name', 'isActive', 'recordingEnabled']
       : kind === 'binding'
         ? ['queueId', 'isActive']
         : ['items']),
@@ -61,7 +61,14 @@ export function parseConfiguration(raw: unknown, kind: ConfigurationKind) {
   }
   if (body.isActive !== undefined && typeof body.isActive !== 'boolean')
     voiceFail('VALIDATION_FAILED', 400, { field: 'isActive' });
-  if (kind === 'queue' && name === undefined && body.isActive === undefined)
+  if (body.recordingEnabled !== undefined && typeof body.recordingEnabled !== 'boolean')
+    voiceFail('VALIDATION_FAILED', 400, { field: 'recordingEnabled' });
+  if (
+    kind === 'queue' &&
+    name === undefined &&
+    body.isActive === undefined &&
+    body.recordingEnabled === undefined
+  )
     voiceFail('VALIDATION_FAILED', 400);
   if (kind === 'binding' && typeof body.isActive !== 'boolean')
     voiceFail('VALIDATION_FAILED', 400, { field: 'isActive' });
@@ -95,6 +102,7 @@ export function parseConfiguration(raw: unknown, kind: ConfigurationKind) {
     reason: body.reason.trim(),
     name,
     isActive: body.isActive as boolean | undefined,
+    recordingEnabled: body.recordingEnabled as boolean | undefined,
     queueId: kind === 'binding' ? voiceUuid(body.queueId, 'queueId') : undefined,
     items,
   };
@@ -321,6 +329,9 @@ export async function mutateConfiguration(
           data: {
             ...(command.name !== undefined ? { name: command.name } : {}),
             ...(command.isActive !== undefined ? { isActive: command.isActive } : {}),
+            ...(kind === 'queue' && command.recordingEnabled !== undefined
+              ? { recordingEnabled: command.recordingEnabled }
+              : {}),
             configRevision: { increment: 1 },
           },
         });
@@ -334,6 +345,7 @@ export async function mutateConfiguration(
           ? [
               ...(command.name !== undefined ? ['name'] : []),
               ...(command.isActive !== undefined ? ['isActive'] : []),
+              ...(command.recordingEnabled !== undefined ? ['recordingEnabled'] : []),
             ]
           : kind === 'binding'
             ? ['queueId', 'isActive']

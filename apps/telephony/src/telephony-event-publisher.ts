@@ -52,6 +52,7 @@ export interface TelephonyEventPublisherDependencies {
    * เวลาที่ `call.hangup` รอปิดบันทึก (ตั้ง endedAt แล้ว archive) ก่อนส่ง ค่าเริ่มต้น 3 วินาที
    * QM อ่าน recording ที่มี endedAt ตอนได้ interaction.ended และกรณีปกติ object ควรอยู่ใน storage แล้ว
    * จึงรอแบบมีเพดานแทนการไม่รอเลย ขั้นตั้ง endedAt เป็น DB อย่างเดียว ไม่ต้องรอ storage ของขั้นเริ่มบันทึก
+   * 0 = ไม่รอเลย (#991 สาย managed ไม่มี Kafka event ที่ต้องเรียงหลัง archive) งานยังรันต่อใน recordingTasks
    */
   hangupRecordingBudgetMs?: number;
   log?(message: string, details: Record<string, unknown>): void;
@@ -103,6 +104,7 @@ export async function publishTelephonyCallEvent(
       },
       deferred,
     );
+    if (budgetMs <= 0) return;
     const endedInTime = await waitAtMost(ended, budgetMs);
     const archivedInTime =
       endedInTime &&

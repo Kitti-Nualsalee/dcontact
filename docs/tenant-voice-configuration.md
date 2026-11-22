@@ -38,6 +38,11 @@ PUT required-skills, Agent skills และ binding ใช้ `commandId`, `expe
 แล้วถือ command/config/reference fences และ NOWAIT locks ตรวจงานค้างรวม legacy
 ก่อน commit resource/revision/audit/receipt ใน transaction เดียว
 
+PATCH คิว (`/api/v1/tenant-voice/queues/:id`) รับ `name`, `isActive` และ `recordingEnabled` (boolean, #991)
+อย่างน้อยหนึ่งฟิลด์ `recordingEnabled` ผ่าน command/revision/receipt/audit เดียวกัน (`changedKeys` มี `recordingEnabled`)
+และ GET คิวทั้ง catalog และ detail คืน `recordingEnabled` DB guard ยอมให้แก้คอลัมน์ `recording_enabled` ในคำสั่ง `QUEUE_UPDATE`
+คิว managed เปิดใช้ได้เมื่อ auto QM และ transcription ปิด (recording เปิดได้) ไม่เช่นนั้นได้ `RESOURCE_POLICY_NOT_READY` (503)
+
 PUT ทักษะของ Agent แทนเฉพาะทักษะ v1 (#977) ทักษะ legacy ของ Agent (เช่นจาก seed) คงอยู่และใช้กับคิว legacy ต่อ
 GET ยังคืนทักษะ legacy ใน `items` ด้วย client ต้องส่งเฉพาะทักษะ v1 ของทีม ถ้าส่งทักษะ legacy กลับไปจะได้ `REFERENCE_SCOPE_MISMATCH`
 

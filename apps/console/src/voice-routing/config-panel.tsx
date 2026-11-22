@@ -200,7 +200,8 @@ function ConfigSession({ api, identityKey, mode, queue, onQueueRead }: Props) {
   const editableSkillIds = new Set(
     skills.filter((skill) => skill.teamId === teamId && !skill.legacy).map((skill) => skill.id),
   );
-  async function save(activation = false) {
+  async function save(action: 'skills' | 'activation' | 'recording' = 'skills') {
+    const activation = action === 'activation';
     if (disabled || locked.current || !target) return;
     if (activation && !currentQueue?.isActive && !caps?.managedRouting.ready) return;
     if (mode === 'destinations' && bindingActive && !caps?.managedRouting.ready) return;
@@ -211,7 +212,7 @@ function ConfigSession({ api, identityKey, mode, queue, onQueueRead }: Props) {
     const intent = { commandId: crypto.randomUUID(), target };
     const envelope = {
       commandId: intent.commandId,
-      expectedRevision: activation ? currentQueue!.configRevision! : revision!,
+      expectedRevision: action !== 'skills' ? currentQueue!.configRevision! : revision!,
       reasonCode: 'ADMIN_CONFIGURATION',
       reason: reason.trim(),
     };
@@ -226,6 +227,9 @@ function ConfigSession({ api, identityKey, mode, queue, onQueueRead }: Props) {
         await api.bind(target, { ...envelope, queueId: bindingQueue, isActive: bindingActive });
       else if (activation)
         await api.queue(target, { ...envelope, isActive: !currentQueue?.isActive });
+      else if (action === 'recording')
+        // #991: เปิด/ปิดบันทึกเสียงของคิว managed ผ่านคำสั่งแก้คิวเดียวกับการเปิดคิว
+        await api.queue(target, { ...envelope, recordingEnabled: !currentQueue?.recordingEnabled });
       else
         await api.replace(kind, target, {
           ...envelope,
@@ -431,7 +435,7 @@ function ConfigSession({ api, identityKey, mode, queue, onQueueRead }: Props) {
                     <p role="status">{t('activation.skillsRequired')}</p>
                   ) : null}
                   <Button
-                    onPress={() => void save(true)}
+                    onPress={() => void save('activation')}
                     isDisabled={
                       disabled ||
                       !reason.trim() ||
@@ -445,6 +449,24 @@ function ConfigSession({ api, identityKey, mode, queue, onQueueRead }: Props) {
                         : 'activation.activateQueue',
                     )}
                   </Button>
+                  {!currentQueue.legacy && currentQueue.voiceConfigVersion === 1 ? (
+                    <section className="vr-recording" aria-label={t('recording.title')}>
+                      <h3>{t('recording.title')}</h3>
+                      <p>{t('recording.scope')}</p>
+                      <p role="status">
+                        {t(currentQueue.recordingEnabled ? 'recording.on' : 'recording.off')}
+                      </p>
+                      {!reason.trim() ? <p>{t('recording.reasonHint')}</p> : null}
+                      <Button
+                        onPress={() => void save('recording')}
+                        isDisabled={disabled || !reason.trim() || !currentQueue.configRevision}
+                      >
+                        {t(
+                          currentQueue.recordingEnabled ? 'recording.disable' : 'recording.enable',
+                        )}
+                      </Button>
+                    </section>
+                  ) : null}
                 </>
               ) : null}
             </>

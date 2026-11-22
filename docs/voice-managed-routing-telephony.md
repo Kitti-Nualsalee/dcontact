@@ -31,6 +31,11 @@ Authority: [#979](https://github.com/Kitti-Nualsalee/dcontact/issues/979) ต่
   - ขาที่มี `dcontact_offer_id` (ขา Agent และขาลูกค้าหลังตั้ง offer) ไป managed runtime ของ tenant บนช่องสาย ไม่ส่ง Kafka
   - สายฝั่งลูกค้าที่เบอร์ผูกคิว managed v1 (`call.created` ที่ runtime รับ) และ event ต่อจากนั้นของสายนั้น ไป managed runtime
   - คิว legacy, outbound delivery และ event อื่นของสาย legacy ส่ง Kafka ตามเดิม รวม recording lifecycle
+  - **บันทึกเสียงของสาย managed (#991)**: หลัง managed runtime รับ event แล้ว `ManagedRecordingTrigger`
+    (`managed-voice-recording.ts`) แปลง `CHANNEL_BRIDGE` ที่ผูกสายลูกค้ากับ Agent เป็น `call.answered` และ
+    `CHANNEL_HANGUP_COMPLETE` ของขาลูกค้าเป็น `call.hangup` แล้วเรียก `publishTelephonyCallEvent` ที่ publish เป็น no-op
+    (ไม่ส่ง Kafka) วงจร recording เดิมจึงทำงานเหมือน legacy: หา interaction จาก `externalId = call uuid ลูกค้า`
+    เช็ก `queue.recordingEnabled` แล้วสร้างแถว recording, uuid_record และ archive หลังวางสาย bridge ซ้ำจากสองขาไม่เริ่มซ้ำ
   - ถ้า managed runtime ล้มกับสายใหม่ จะลองซ้ำหนึ่งครั้ง ถ้ายังล้มสายนั้นไป legacy เพื่อไม่ให้คิวเดิมเสียเพราะ managed
   - subscribe `CHANNEL_ANSWER` เพิ่ม (managed ต้องรู้ว่า Agent รับ offer) และไม่ส่ง event นี้ให้ legacy
 - **SIP domain ต่อ tenant**: `FreeSwitchManagedVoiceAdapter` หา domain จาก `tenants.sip_domain` ทีละคำสั่ง (แคช 30 วินาที)
@@ -60,8 +65,14 @@ Authority: [#979](https://github.com/Kitti-Nualsalee/dcontact/issues/979) ต่
 
 ## ข้อจำกัด
 
-- คิว managed ยังบันทึกเสียงไม่ได้: การเปิดคิว/เบอร์ managed ต้องปิด recording, auto QM และ transcription
-  (`dc_voice_managed_activation_check`) งาน Supervisor ฟังเสียง (#967) และ QM (#971) จึงใช้ได้กับคิว legacy เท่านั้น
+- คิว managed บันทึกเสียงได้ (#991): Admin เปิด `recordingEnabled` ในหน้ารายละเอียดคิว (คำสั่ง `PATCH /api/v1/tenant-voice/queues/:id`)
+  Supervisor ฟัง (#967) และประเมินโดยคน (#971) ได้ แต่การเปิดคิว/เบอร์ managed ยังต้องปิด auto QM และ transcription
+  (`dc_voice_managed_activation_check`) และการแก้ recording ทำไม่ได้ขณะคิวมีสายค้าง (`CONFIG_BUSY`) ผลมีกับสายถัดไป
+  ทดลองสายจริงบน FreeSWITCH dev แล้ว (22 พ.ย. 2569, ฐานแยก `dcontact_991call` คัดลอกจาก `dcontact_979`, SIPp เป็นลูกค้าและ Agent 1100):
+  - คิว Support Line เปิดบันทึก: Agent รับ คุย 15 วินาที ลูกค้าวาง แถว `recordings` เริ่มตอน bridge มี `endedAt` และ `archivedAt`
+    ไฟล์ WAV สเตอริโอ 8 kHz ยาวประมาณ 15 วินาทีอยู่ใน object storage และมี handling attribution ของทีมที่รับสาย
+  - ปิดบันทึกแล้วโทรซ้ำ: Agent รับสายได้ตามเดิมและไม่มีแถว recording
+  - การทดลองนี้พบว่า `createCall` ของ managed runtime ใน router ยังกันคิวที่เปิดบันทึก ทำให้สายไป legacy แก้แล้วในงานเดียวกัน
 - Agent ในการทดลองเป็น SIPp ที่ลงทะเบียนด้วย SIP credential/work-session lease ที่สร้างลงฐานแยกโดยตรง และตั้งสถานะ AVAILABLE
   และปิด wrap-up ผ่านฐาน ไม่ได้ผ่าน Workspace/dphone (ส่วนนั้นผ่านแล้วใน #977) ไม่ได้ตรวจเสียงสองทาง
 - เมื่อลูกค้าวางหลัง bridge ผลจบของ managed runtime เป็น `AGENT_HANGUP` น่าจะเพราะ event วางสายของขา Agent มาถึงก่อน

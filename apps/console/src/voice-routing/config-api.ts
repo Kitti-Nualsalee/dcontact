@@ -73,7 +73,7 @@ export interface ConfigApi {
   ): Promise<SkillSet>;
   queue(
     id: string,
-    body?: ConfigCommand & { name?: string; isActive?: boolean },
+    body?: ConfigCommand & { name?: string; isActive?: boolean; recordingEnabled?: boolean },
   ): Promise<CatalogItem>;
   runtime(id: string): Promise<ManagedRuntime>;
   bind(id: string, body: ConfigCommand & { queueId: string; isActive: boolean }): Promise<unknown>;

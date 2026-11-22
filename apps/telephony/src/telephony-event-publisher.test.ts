@@ -288,3 +288,22 @@ test('drain waits for work queued while draining and reports work still running'
   stuck.resolve();
   assert.equal(await queue.drain(1_000), true);
 });
+
+test('hangupRecordingBudgetMs 0 ไม่รอปิดบันทึกและไม่ log ว่า publish ก่อน (#991 สาย managed)', async () => {
+  let release!: () => void;
+  const { logs, recordingTasks, dependencies, steps } = harness({
+    end: () => new Promise<void>((resolve) => (release = resolve)),
+  });
+  await publishTelephonyCallEvent(callEvent('call.hangup'), {
+    ...dependencies,
+    hangupRecordingBudgetMs: 0,
+  });
+  assert.equal(steps.includes('recording.ended'), false);
+  release();
+  await recordingTasks.drain(1_000);
+  assert.ok(steps.includes('recording.archived'));
+  assert.equal(
+    logs.some((entry) => entry.message.includes('published before recording finished')),
+    false,
+  );
+});

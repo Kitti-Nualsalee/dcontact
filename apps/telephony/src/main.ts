@@ -15,6 +15,7 @@ import { DatabaseFreeSwitchVoiceTargetResolver } from './freeswitch-voice-target
 import {
   isDeniedAgentDirectOutbound,
   normalizeFreeSwitchEvent,
+  type FreeSwitchEvent,
   parkedCallAsCreated,
 } from './freeswitch-normalizer.js';
 import { E1EslCommandClient } from './e1-esl-command-client.js';
@@ -30,6 +31,10 @@ import {
 } from './managed-voice-telephony.js';
 import { TelephonyRecordingLifecycle } from './recording-lifecycle.js';
 import { S3RecordingArchive } from './s3-recording-archive.js';
+import {
+  ManagedRecordingTrigger,
+  routeManagedOfferLegWithRecording,
+} from './managed-voice-recording.js';
 import { publishTelephonyCallEvent, RecordingTaskQueue } from './telephony-event-publisher.js';
 
 const host = process.env.FREESWITCH_ESL_HOST ?? '127.0.0.1';
@@ -105,6 +110,34 @@ async function main() {
         directory: new TenantSipDomainDirectory(database),
       })
     : undefined;
+  const managedRecording = managed
+    ? new ManagedRecordingTrigger({
+        telephonyNodeId: nodeId,
+        eventId: randomUUID,
+        now: () => new Date().toISOString(),
+      })
+    : undefined;
+  // #991: สาย managed ไม่ส่ง Kafka จึงรันเฉพาะวงจรบันทึกเสียง (publish เป็น no-op)
+  // ความล้มเหลวของวงจรบันทึกเสียงไม่ทำให้ routing ล้ม และ log แยกจาก ignored ESL event
+  const recordManagedCall = async (source: FreeSwitchEvent, tenantId: string) => {
+    try {
+      const event = managedRecording?.decide(source, tenantId);
+      if (!event) return;
+      await publishTelephonyCallEvent(event, {
+        recordings: recordingLifecycle,
+        recordingTasks,
+        publish: async () => {},
+        hangupRecordingBudgetMs: 0,
+      });
+    } catch (error) {
+      console.error('[telephony] managed recording failed', {
+        eventName: source['Event-Name'],
+        callUuid: source['Unique-ID'],
+        tenantId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
   let managedSubscriptionReplied = false;
   const consumer = await createConsumer<TelephonyCommand>({
     clientId: `dcontact-telephony-${nodeId}`,
@@ -192,7 +225,11 @@ async function main() {
     }
     try {
       if (managed && isManagedOfferLeg(source)) {
-        await routeManagedOfferLeg(source, managed.routing);
+        await routeManagedOfferLegWithRecording(
+          source,
+          () => routeManagedOfferLeg(source, managed.routing),
+          recordManagedCall,
+        );
         return;
       }
       const sipDomain = source.variable_domain_name;
@@ -234,8 +271,14 @@ async function main() {
             ? outboundBindingByCallUuid.get(sourceCallUuid)?.tenantId
             : undefined);
       if (!tenantId) return;
-      if (managed && (await routeManagedCall(source, tenantId, managed.routing)) !== 'legacy')
-        return;
+      if (managed) {
+        const route = await routeManagedCall(source, tenantId, managed.routing);
+        if (route !== 'legacy') {
+          // 'ignored' ยังต้องปิดบันทึกถ้าเป็น hangup ของสายที่ managed ถืออยู่ แม้ runtime ประมวลผล event ไม่สำเร็จ
+          await recordManagedCall(source, tenantId);
+          return;
+        }
+      }
       const event = normalizeFreeSwitchEvent(source, {
         telephonyNodeId: nodeId,
         resolveTenantId: (domain) => (domain === sipDomain ? tenantId : undefined),

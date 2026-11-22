@@ -94,8 +94,9 @@ issuer ของ binding ต้องเป็น https หรือ `http://127
 - **SIP domain**: สายเข้าต้องมี SIP domain ของ tenant (`<slug>.<PLATFORM_SIP_BASE_DOMAIN>`) ซึ่ง FreeSWITCH
   ตั้งจาก header `X-DContact-Domain` ที่ Kamailio ใส่ (ADR-038) dialplan dev ของ context `pstn` park เฉพาะ
   เบอร์ 2000–2009 สำหรับสายที่มี header (สายไม่มี header ได้แค่ 2000/2001 #982) จึงต้องจองเบอร์ปลายทางในช่วงนี้
-- **คิว managed ไม่บันทึกเสียง**: การเปิดคิว/เบอร์ managed ต้องมี recording, auto QM และ transcription ปิด
-  (`dc_voice_managed_activation_check`) งาน Supervisor ฟังเสียง (#967) และ QM (#971) จึงยังใช้ได้กับคิว legacy เท่านั้น
+- **คิว managed บันทึกเสียงได้ (#991)**: Admin เปิดบันทึกเสียงของคิวใน Console (หน้ารายละเอียดคิว) ได้ทั้งก่อนและหลังเปิดคิว
+  Supervisor ฟังเสียง (#967) และ QM โดยคน (#971) ใช้ได้ แต่ auto QM และ transcription ของคิว managed ยังต้องปิด
+  (`dc_voice_managed_activation_check`) แก้การบันทึกไม่ได้ขณะคิวมีสายค้าง
 - **ฐานข้อมูลของ API**: API ต้องต่อด้วย role `dcontact_app` เหมือน deployment จริง ถ้าใช้ owner/superuser
   (เช่น `DATABASE_URL` ของ migration) trigger ของ Core Settings ข้ามการบันทึก transaction แล้วสร้างทีมไม่ได้
   (`CORE_TEAM_EFFECT_RECEIPT_REQUIRED`, ตอบ 500)

@@ -44,6 +44,7 @@ interface CatalogRow {
   code?: string | null;
   isActive?: boolean;
   voiceWrapupPolicy?: string;
+  recordingEnabled?: boolean;
 }
 export function voiceFail(
   code: string,
@@ -197,6 +198,7 @@ function dto(row: CatalogRow, kind: CatalogKind) {
           configRevision: row.revision,
           isActive: row.isActive,
           voiceWrapupPolicy: row.voiceWrapupPolicy ?? 'LEGACY',
+          recordingEnabled: row.recordingEnabled ?? false,
           policy:
             row.voiceConfigVersion === 1
               ? {
@@ -211,6 +213,15 @@ function dto(row: CatalogRow, kind: CatalogKind) {
       : { revision: row.revision, code: row.code }),
   };
 }
+/** code ที่ trigger/function ของฐาน RAISE ออกมา ทั้งผ่าน KnownRequestError และ UnknownRequestError */
+const triggerDomainCodes = [
+  'VOICE_CONFIG_V1_REQUIRED',
+  'REVISION_CONFLICT',
+  'REFERENCE_SCOPE_MISMATCH',
+  'CAPABILITY_NOT_READY',
+  'RESOURCE_POLICY_NOT_READY',
+];
+
 function resourceWhere(identity: VoiceActor, actor: Actor) {
   return {
     tenantId: identity.tenantId,
@@ -286,6 +297,7 @@ export function readCatalog(
                 configRevision: true,
                 isActive: true,
                 voiceWrapupPolicy: true,
+                recordingEnabled: true,
               },
               orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
               take: id ? 1 : limit + 1,
@@ -331,16 +343,28 @@ export function mapDatabaseError(error: unknown): never {
     if (['55P03', '57014', '40P01'].includes(code) || error.code === 'P2028')
       voiceFail('CONFIG_BUSY', 409);
     const message = String(error.meta?.message ?? error.message);
-    for (const domainCode of [
-      'VOICE_CONFIG_V1_REQUIRED',
-      'REVISION_CONFLICT',
-      'REFERENCE_SCOPE_MISMATCH',
-      'CAPABILITY_NOT_READY',
-    ]) {
+    for (const domainCode of triggerDomainCodes) {
       if (message.includes(domainCode))
-        voiceFail(domainCode, domainCode === 'CAPABILITY_NOT_READY' ? 503 : 409);
+        voiceFail(
+          domainCode,
+          domainCode === 'CAPABILITY_NOT_READY' || domainCode === 'RESOURCE_POLICY_NOT_READY'
+            ? 503
+            : 409,
+        );
     }
     if (error.code === 'P2003') voiceFail('REFERENCE_SCOPE_MISMATCH', 409);
+  }
+  // trigger ที่ RAISE ระหว่าง tx.queue.update() ออกมาเป็น UnknownRequestError (ไม่มี meta)
+  if (error instanceof Prisma.PrismaClientUnknownRequestError) {
+    for (const domainCode of triggerDomainCodes) {
+      if (error.message.includes(domainCode))
+        voiceFail(
+          domainCode,
+          domainCode === 'CAPABILITY_NOT_READY' || domainCode === 'RESOURCE_POLICY_NOT_READY'
+            ? 503
+            : 409,
+        );
+    }
   }
   throw error;
 }
