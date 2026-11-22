@@ -209,6 +209,9 @@ export function PeopleDisable({
     <section className="tp-panel" aria-label={label('disable.title')} aria-busy={busy}>
       <h3>{label('disable.title')}</h3>
       <p className="tp-muted">{label('disable.warning')}</p>
+      {ready && !eligible && !pending ? (
+        <p className="tp-muted">{label('disable.notEligible')}</p>
+      ) : null}
       {displayedStatus ? <p role="status">{label(`disable.states.${displayedStatus}`)}</p> : null}
       {error ? <p role="alert">{label(`disable.errors.${error}`)}</p> : null}
       {pending ? <p>{label('disable.pending')}</p> : null}

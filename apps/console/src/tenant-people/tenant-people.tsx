@@ -366,12 +366,14 @@ function PeopleSession({ api, identityKey, onSignIn }: Props) {
               <h2 id="tp-profile">{label('form.groups.profile')}</h2>
               <div className="tp-field-row">
                 <TextField
+                  isRequired
                   label={label('name')}
                   value={name}
                   onChange={setName}
                   isDisabled={disabled}
                 />
                 <TextField
+                  isRequired
                   label={label('email')}
                   type="email"
                   value={email}
@@ -386,6 +388,7 @@ function PeopleSession({ api, identityKey, onSignIn }: Props) {
               <h2 id="tp-assignment">{label('form.groups.assignment')}</h2>
               <div className="tp-field-row">
                 <Select
+                  isRequired
                   label={label('team')}
                   placeholder={label('chooseTeam')}
                   selectedKey={teamId || null}
@@ -399,6 +402,7 @@ function PeopleSession({ api, identityKey, onSignIn }: Props) {
                 />
                 {role === 'AGENT' ? (
                   <Select
+                    isRequired
                     label={label('extension')}
                     placeholder={label('chooseExtension')}
                     selectedKey={extension || null}
@@ -439,6 +443,11 @@ function PeopleSession({ api, identityKey, onSignIn }: Props) {
               />
             </section>
             <p className="tp-muted tp-help">{label('notice')}</p>
+            {!canSubmit && !disabled ? (
+              <p id="tp-required-hint" className="tp-required-hint">
+                {label(role === 'AGENT' ? 'form.requiredAgent' : 'form.required')}
+              </p>
+            ) : null}
             <div className="tp-form-actions">
               <Button type="submit" variant="primary" isDisabled={!canSubmit}>
                 {label('create')}

@@ -114,6 +114,8 @@
 .tp-table th {
   position: sticky;
   inset-block-start: 0;
+  white-space: normal;
+  overflow-wrap: normal;
 }
 .tp-table th:nth-child(1) {
   width: 20%;
@@ -240,6 +242,11 @@
 }
 .tp-form-actions > * {
   flex: 1;
+}
+.tp-required-hint {
+  margin: 0;
+  font-size: var(--dc-text-sm);
+  color: var(--dc-text-secondary);
 }
 .tp-panel {
   display: flex;

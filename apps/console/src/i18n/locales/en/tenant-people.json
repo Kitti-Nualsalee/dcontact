@@ -6,7 +6,7 @@
     "start": "Prepare to disable",
     "submit": "Confirm disable",
     "cancel": "Cancel",
-    "refresh": "Check existing command",
+    "refresh": "Check original command",
     "pending": "Checking the existing command. Do not submit again. Unknown outcomes retain local deny and quota reservations.",
     "states": {
       "QUEUED": "Accepted; disabling account",
@@ -22,7 +22,8 @@
       "CONFIG_BUSY": "The user or affected queues have unfinished work. Complete that work first.",
       "REVISION_CONFLICT": "Data changed. Refresh before submitting another command.",
       "PROTECTED_OR_FOREIGN_IDENTITY": "This account is outside the permitted disable scope."
-    }
+    },
+    "notEligible": "This account can't be disabled yet: it isn't active, is still provisioning, or has a pending request."
   },
   "pages": {
     "navigation": "People pages",
@@ -178,7 +179,9 @@
     },
     "extensionNotNeeded": "Supervisors and Admins don't need an extension.",
     "noExtensions": "No free extensions available.",
-    "noTeams": "No teams yet. Create a team first."
+    "noTeams": "No teams yet. Create a team first.",
+    "required": "Enter a name and email and choose a team to create the account.",
+    "requiredAgent": "Enter a name and email and choose a team and extension to create the account."
   },
   "detail": {
     "back": "Back to list",
