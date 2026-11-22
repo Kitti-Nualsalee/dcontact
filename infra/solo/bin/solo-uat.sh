@@ -247,16 +247,53 @@ wait_healthy() { # wait_healthy <service> <tries>
   fail "$1 ไม่ healthy"
 }
 
+RECORDINGS_EXPORT=/srv/dcontact-solo/recordings
+RECORDINGS_MOUNT=/mnt/dcontact-solo-recordings
+
+require_ipv4() { # require_ipv4 <name> <value>
+  [[ "$2" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || fail "$1 ไม่ใช่ IPv4"
+}
+
 export_recordings() { # NFS export ของเสียงบันทึกบน VM voice — รันซ้ำได้ ทั้ง `app` และ `voice` เรียก
-  # เสียงบันทึก: FreeSWITCH (root) เขียนลง directory นี้ Telephony (uid 10001) บน VM app สร้าง directory ของ tenant
-  # และอ่านไฟล์ผ่าน NFS — export เฉพาะ IP ของ VM app และ squash ทุกคำขอเป็น 10001 (ไม่ให้สิทธิ์ root ข้ามเครื่อง)
-  remote "$VOICE_IP" "command -v exportfs >/dev/null || { sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nfs-kernel-server >/dev/null; }
-    sudo install -d -o 10001 -g 10001 -m 0770 /srv/dcontact-solo/recordings
-    sudo install -d -m 0755 /etc/exports.d
-    printf '/srv/dcontact-solo/recordings %s(rw,sync,no_subtree_check,all_squash,anonuid=10001,anongid=10001)\n' '$APP_IP' |
+  # FreeSWITCH (root) เขียน WAV ลง directory นี้ Telephony (uid 10001) บน VM app สร้าง directory ของ tenant
+  # และอ่านไฟล์ผ่าน NFS — export เฉพาะ IP ของ VM app, squash ทุกคำขอเป็น 10001 (ไม่ให้ root ข้ามเครื่อง)
+  # และปิด NFSv3 ให้เหลือ v4 ทางเดียว; restart nfsd เฉพาะเมื่อ config เปลี่ยน (restart ทำให้เข้า grace period 90 วินาที)
+  require_ipv4 SOLO_APP_IP "$APP_IP"
+  remote "$VOICE_IP" "set -eu
+    command -v exportfs >/dev/null || { sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nfs-kernel-server >/dev/null; }
+    sudo install -d -o 10001 -g 10001 -m 0770 $RECORDINGS_EXPORT
+    sudo chown 10001:10001 $RECORDINGS_EXPORT && sudo chmod 0770 $RECORDINGS_EXPORT
+    sudo install -d -m 0755 /etc/exports.d /etc/nfs.conf.d
+    printf '%s %s(rw,sync,no_subtree_check,all_squash,anonuid=10001,anongid=10001)\n' $RECORDINGS_EXPORT '$APP_IP' |
       sudo tee /etc/exports.d/dcontact-solo.exports >/dev/null
-    sudo systemctl enable --now nfs-server >/dev/null 2>&1 && sudo exportfs -ra"
-  log "export เสียงบันทึกที่ /srv/dcontact-solo/recordings ให้ $APP_IP"
+    conf=/etc/nfs.conf.d/dcontact-solo.conf
+    if ! printf '[nfsd]\nvers3=n\n' | sudo cmp -s - \$conf; then
+      printf '[nfsd]\nvers3=n\n' | sudo tee \$conf >/dev/null
+      sudo systemctl enable nfs-server && sudo systemctl restart nfs-server
+    else
+      sudo systemctl enable --now nfs-server
+    fi
+    sudo exportfs -ra
+    test \"\$(stat -c '%u:%g %a' $RECORDINGS_EXPORT)\" = '10001:10001 770'
+    sudo exportfs -s | grep -q '^$RECORDINGS_EXPORT[[:space:]]*$APP_IP('"
+  log "export เสียงบันทึกที่ $RECORDINGS_EXPORT ให้ $APP_IP (NFSv4 เท่านั้น)"
+}
+
+mount_recordings() { # VM app mount export ของ VM voice แบบ systemd automount — รันซ้ำได้
+  # container ของ Telephony bind mount จุดนี้ (rslave) จึงเริ่มได้เสมอแม้ VM voice ยังไม่ขึ้น
+  # ถ้า NFS ไม่ตอบ fs call ได้ error ภายใน ~12 วินาที (soft,timeo=20,retrans=2) แทนการค้าง
+  # แก้ตัวเลือกแล้วต้อง umount จุดนี้เองก่อน (automount ไม่ mount ใหม่ขณะยังใช้อยู่)
+  require_ipv4 SOLO_VOICE_IP "$VOICE_IP"
+  remote "$APP_IP" "set -eu
+    command -v mount.nfs >/dev/null || { sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nfs-common >/dev/null; }
+    sudo install -d -m 0755 $RECORDINGS_MOUNT
+    sudo sed -i '\#[[:space:]]$RECORDINGS_MOUNT[[:space:]]#d' /etc/fstab
+    printf '%s\n' '$VOICE_IP:$RECORDINGS_EXPORT $RECORDINGS_MOUNT nfs4 rw,soft,timeo=20,retrans=2,_netdev,nofail,x-systemd.automount,x-systemd.mount-timeout=10s 0 0' |
+      sudo tee -a /etc/fstab >/dev/null
+    sudo systemctl daemon-reload
+    sudo systemctl start \"\$(systemd-escape -p --suffix=automount $RECORDINGS_MOUNT)\"
+    sudo stat -c '%u:%g %a' $RECORDINGS_MOUNT/. | grep -q '^10001:10001 770\$'"
+  log "mount เสียงบันทึกจาก $VOICE_IP ที่ $RECORDINGS_MOUNT"
 }
 
 cmd_app() {
@@ -271,9 +308,9 @@ cmd_app() {
   cp "$SOLO_ENV" "$work/solo.env"
   ( cd "$work" && COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs -cf - . ) | remote "$APP_IP" "tar -xf - -C $REMOTE_ROOT/app && chmod 600 $REMOTE_ROOT/app/solo.env && chmod 755 $REMOTE_ROOT/app/keycloak-import && chmod 644 $REMOTE_ROOT/app/keycloak-import/realm-dcontact.json $REMOTE_ROOT/app/Caddyfile"
   rm -rf "$work"
-  # Telephony mount เสียงบันทึกจาก VM voice ด้วย NFS ตอน container เริ่ม จึงต้องมี export ก่อน
+  # Telephony อ่านเสียงบันทึกจาก VM voice ผ่าน NFS
   export_recordings
-  remote "$APP_IP" "command -v mount.nfs >/dev/null || { sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nfs-common >/dev/null; }"
+  mount_recordings
   local compose="cd $REMOTE_ROOT/app && docker compose --env-file solo.env"
   remote "$APP_IP" "$compose up -d redis redpanda redpanda-init object-storage mailpit keycloak"
   wait_healthy keycloak 60

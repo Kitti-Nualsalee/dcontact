@@ -167,7 +167,12 @@ services:
       FREESWITCH_RECORDINGS_DIR: /var/lib/freeswitch/recordings
       FREESWITCH_RECORDINGS_HOST_DIR: /recordings
     volumes:
-      - freeswitch-recordings:/recordings
+      # systemd automount ของ NFS บน host (solo-uat.sh mount_recordings) — rslave ให้เห็น mount ที่เกิดหลัง container เริ่ม
+      - type: bind
+        source: /mnt/dcontact-solo-recordings
+        target: /recordings
+        bind:
+          propagation: rslave
     depends_on:
       redpanda-init:
         condition: service_completed_successfully
@@ -192,14 +197,6 @@ services:
       - keycloak
 
 volumes:
-  # NFS จาก VM voice (export เฉพาะ SOLO_APP_IP) — soft เพื่อไม่ให้ fs call ของ Telephony ค้างถ้า VM voice ล่ม
-  # ตัวเลือกถูกจำตอนสร้าง volume ถ้าแก้ต้อง `docker volume rm dcontact-solo_freeswitch-recordings` ก่อน
-  freeswitch-recordings:
-    driver: local
-    driver_opts:
-      type: nfs
-      o: addr=${SOLO_VOICE_IP:?SOLO_VOICE_IP is required},nfsvers=4.2,rw,soft,timeo=100,retrans=3
-      device: ':/srv/dcontact-solo/recordings'
   redis-data:
   redpanda-data:
   object-storage-data:
