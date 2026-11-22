@@ -215,9 +215,9 @@ cmd_data() {
         ON CONFLICT (id) DO UPDATE SET source_ip = EXCLUDED.source_ip, host = EXCLUDED.host, enabled = true;
       INSERT INTO number (e164, tenant_domain, trunk_id, route_to) VALUES
         ('021000001', 'dcontact.local', 'lan-sim', '2000'), ('021000002', 'dcontact.local', 'lan-sim', '2001'),
-        ('021000003', 'dcontact.local', 'lan-sim', '2002')
+        ('021000004', 'dcontact.local', 'lan-sim', '2002')
         ON CONFLICT (e164) DO NOTHING;\""
-    log "trunk จำลอง lan-sim รับสายจาก $sim: 021000001 → คิว (2000), 021000002 → IVR (2001), 021000003 → คิว managed (2002)"
+    log "trunk จำลอง lan-sim รับสายจาก $sim: 021000001 → คิว (2000), 021000002 → IVR (2001), 021000004 → คิว managed (2002)"
   else
     log "ยังไม่ตั้ง SOLO_SIM_TRUNK_IP ใน solo.env — ข้ามการสร้าง trunk จำลอง"
   fi
