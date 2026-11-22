@@ -77,7 +77,7 @@ issuer ของ binding ต้องเป็น https หรือ `http://127
   ที่รับ managed runtime (ใช้กับ tenant เดียวและ SIP domain เดียวต่อ process)
   ส่วน `apps/telephony/src/main.ts` ที่ dev compose และ Solo UAT ใช้ ส่งสายให้ legacy router ผ่าน Kafka เท่านั้น
   legacy router ปฏิเสธคิว managed (`VOICE_CONFIG_V1_REQUIRED`) **คิวที่สร้างใน Console จึงยังรับสายบน Solo ไม่ได้**
-  งานต่อแยกเป็น issue ติดตาม
+  งานต่ออยู่ใน [#979](https://github.com/Kitti-Nualsalee/dcontact/issues/979)
 - **SIP domain**: สายเข้าต้องมี SIP domain ของ tenant (`<slug>.<PLATFORM_SIP_BASE_DOMAIN>`) ซึ่ง FreeSWITCH
   ตั้งจาก header `X-DContact-Domain` ที่ Kamailio ใส่ (ADR-038) dialplan dev ของ context `pstn` park เฉพาะ
   เบอร์ 2000/2001 จึงต้องจองเบอร์ปลายทางเป็น 2000 หรือ 2001 บน dev
