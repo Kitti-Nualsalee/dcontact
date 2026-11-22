@@ -707,4 +707,37 @@ test('B4 authenticated HTTP/PostgreSQL: atomic config, receipts, scoped projecti
       assert.equal(saved.status, 200, await saved.clone().text());
     },
   );
+  await context.test('#977 replacing v1 skills keeps the agent legacy skill', async () => {
+    const legacySkill = await owner.skill.create({
+      data: { tenantId, name: `legacy-${randomUUID()}` },
+    });
+    await owner.agentSkill.create({
+      data: { tenantId, userId: agent, skillId: legacySkill.id, level: 2 },
+    });
+    const current = await (await request(`/people/users/${agent}/skills`)).json();
+    const result = await request(`/people/users/${agent}/skills`, 'PUT', {
+      ...envelope(current.configRevision),
+      items: [{ skillId: skill.id, level: 4 }],
+    });
+    assert.equal(result.status, 200, await result.clone().text());
+    const rows = await owner.agentSkill.findMany({
+      where: { tenantId, userId: agent },
+      select: { skillId: true, level: true },
+    });
+    assert.deepEqual(
+      rows.map((row) => `${row.skillId}:${row.level}`).sort(),
+      [`${legacySkill.id}:2`, `${skill.id}:4`].sort(),
+    );
+    const withLegacy = await request(`/people/users/${agent}/skills`, 'PUT', {
+      ...envelope(current.configRevision + 1),
+      items: [
+        { skillId: skill.id, level: 4 },
+        { skillId: legacySkill.id, level: 2 },
+      ],
+    });
+    assert.equal(withLegacy.status, 409, 'legacy skill is still not writable through v1');
+    await owner.agentSkill.delete({
+      where: { userId_skillId: { userId: agent, skillId: legacySkill.id } },
+    });
+  });
 });
