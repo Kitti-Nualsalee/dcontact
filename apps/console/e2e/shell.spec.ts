@@ -122,6 +122,24 @@ test('#860: Supervisor เห็นเฉพาะหน้าลูกค้า
   await expect(subnav.getByRole('link', { name: 'ลูกค้า' })).toBeVisible();
 });
 
+test('breadcrumb ของหน้าที่ไม่มีแบบเฉพาะใช้ พื้นที่ / แอป ตามเมนู ไม่ใช่ Governance', async ({
+  page,
+}) => {
+  await mockNavigation(page, { status: 200, body: homeNavigation(['agent']) });
+  for (const [view, area, app] of [
+    ['team-cases', 'เคส', 'เคสของทีม'],
+    ['agent-history', 'ประวัติ', 'ประวัติงานของฉัน'],
+  ]) {
+    await page.goto(`/?view=${view}&tenant=demo`);
+    const breadcrumb = page
+      .locator('#dc-main')
+      .getByRole('navigation', { name: 'ตำแหน่งปัจจุบัน' });
+    await expect(breadcrumb).toContainText(area);
+    await expect(breadcrumb.locator('[aria-current=page]')).toHaveText(app);
+    await expect(breadcrumb).not.toContainText('Governance');
+  }
+});
+
 test('flag ปิด → ไม่มี rail และหน้าที่ยังไม่ย้ายไม่โหลด token ของ shell', async ({ page }) => {
   await mockNavigation(page, { status: 200, body: navigation(false) });
   await page.goto('/?view=journeys&tenant=demo');
