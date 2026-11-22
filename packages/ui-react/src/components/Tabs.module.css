@@ -52,3 +52,20 @@
 .panel[data-focus-visible] {
   box-shadow: var(--dc-focus-ring);
 }
+
+/* forced-colors: เส้นใต้แท็บที่เลือกเป็น inset box-shadow ซึ่งโหมดนี้ลบทิ้ง จนบอกไม่ได้ว่าแท็บไหนเปิดอยู่
+   วาดแถบ Highlight ตำแหน่งเดิมด้วย pseudo-element แทน (ไม่ใช้ border เพราะจะดันความสูงแท็บ)
+   หนา 4px เท่าตัวบอกสถานะที่เลือกอื่นในโหมดนี้ (แถว Table, โหนด Journey) ให้แยกจากเส้นใต้ของ list ได้ชัด */
+@media (forced-colors: active) {
+  .tab {
+    position: relative;
+  }
+
+  .tab[data-selected]::after {
+    position: absolute;
+    inset: auto 0 0;
+    height: 4px;
+    background: Highlight;
+    content: '';
+  }
+}

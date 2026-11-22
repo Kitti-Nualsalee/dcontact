@@ -226,3 +226,18 @@ test('forced-colors: แถว Table ที่เลือกมีแถบ Hig
   expect(await marker(row)).toBe('4px');
   expect(await marker(page.getByRole('row', { name: /การเงิน/ }))).toBe('0px');
 });
+
+test('forced-colors: Tabs ยังเห็นเส้นใต้แท็บที่เลือก (inset box-shadow ถูกลบในโหมดนี้)', async ({
+  page,
+}) => {
+  await page.emulateMedia({ forcedColors: 'active' });
+  await page.goto('/');
+  const underline = (name: string) =>
+    page.getByRole('tab', { name }).evaluate((tab) => {
+      const bar = getComputedStyle(tab, '::after');
+      return { content: bar.content, height: bar.height };
+    });
+  await expect(page.getByRole('tab', { name: 'ภาพรวม' })).toHaveAttribute('aria-selected', 'true');
+  expect(await underline('ภาพรวม')).toEqual({ content: '""', height: '4px' });
+  expect((await underline('ขั้นตอน')).content).toBe('none');
+});
