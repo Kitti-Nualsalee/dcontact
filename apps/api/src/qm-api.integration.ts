@@ -222,6 +222,8 @@ test('supervisor starts manual transcription, audits transcript access, and huma
     await owner.qmConsoleContext.deleteMany({ where: { tenantId } });
     await owner.qmAuditEvent.deleteMany({ where: { tenantId } });
     await owner.qmEvaluation.deleteMany({ where: { tenantId } });
+    await owner.qmFormVersion.deleteMany({ where: { tenantId } });
+    await owner.qmForm.deleteMany({ where: { tenantId } });
     await owner.qmTranscriptSegment.deleteMany({ where: { tenantId } });
     await owner.qmTranscript.deleteMany({ where: { tenantId } });
     await owner.qmTranscriptionJob.deleteMany({ where: { tenantId } });
@@ -323,6 +325,51 @@ test('supervisor starts manual transcription, audits transcript access, and huma
       answers: [{ questionId: 'greeting', value: 'YES', evidence: [] }],
     },
   });
+  // #971: ร่างผลประเมินโดยคนของสายเดียวกัน (สร้างทีหลัง) ต้องไม่ถูก route ของ auto-QM หยิบไป
+  const humanForm = await owner.qmForm.create({
+    data: { tenantId, name: `Human form ${tenantId}`, createdByUserId: supervisorId },
+  });
+  const humanVersion = await owner.qmFormVersion.create({
+    data: {
+      tenantId,
+      formId: humanForm.id,
+      version: 1,
+      definition: { sections: [] },
+      createdByUserId: supervisorId,
+    },
+  });
+  const humanDraft = await owner.qmEvaluation.create({
+    data: {
+      tenantId,
+      interactionId,
+      agentId,
+      evaluatorId: supervisorId,
+      source: 'HUMAN',
+      status: 'DRAFT',
+      formVersionId: humanVersion.id,
+      formSnapshot: {
+        formId: humanForm.id,
+        formName: 'x',
+        version: 1,
+        definition: { sections: [] },
+      },
+      answers: [],
+      createdAt: new Date(Date.now() + 60_000),
+    },
+  });
+  for (const [method, path] of [
+    ['GET', `/qm/evaluations/${humanDraft.id}`],
+    ['POST', `/qm/evaluations/${humanDraft.id}/publish`],
+  ] as const) {
+    const response = await fetch(`${root}${path}`, {
+      method,
+      headers: auth('supervisor-token'),
+      ...(method === 'POST'
+        ? { body: JSON.stringify({ commandId: 'b3c1f3a2-6a43-4a8b-9b8a-2f1d7c3e4a51' }) }
+        : {}),
+    });
+    assert.equal(response.status, 404, `${method} ${path}`);
+  }
 
   const consoleContext = await fetch(`${root}/qm/interactions/${interactionId}/console-context`, {
     method: 'POST',

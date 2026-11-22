@@ -447,7 +447,7 @@ export class QmTranscriptionWorker {
   async getDraftEvaluation(tenantId: string, interactionId: string) {
     const evaluation = await withTenantDatabaseTransaction(this.database, tenantId, (transaction) =>
       transaction.qmEvaluation.findFirst({
-        where: { tenantId, interactionId, status: 'DRAFT' },
+        where: { tenantId, interactionId, status: 'DRAFT', source: 'AUTO_DRAFT' },
         select: {
           id: true,
           status: true,

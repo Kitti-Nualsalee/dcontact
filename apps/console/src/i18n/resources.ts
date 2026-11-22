@@ -50,6 +50,8 @@ import casesTh from './locales/th/cases.json' with { type: 'json' };
 import casesEn from './locales/en/cases.json' with { type: 'json' };
 import recordingsTh from './locales/th/recordings.json' with { type: 'json' };
 import recordingsEn from './locales/en/recordings.json' with { type: 'json' };
+import qualityTh from './locales/th/quality.json' with { type: 'json' };
+import qualityEn from './locales/en/quality.json' with { type: 'json' };
 
 export const DEFAULT_NAMESPACE = 'common';
 
@@ -70,6 +72,7 @@ export const resources = {
     customerAccess: customerAccessTh,
     cases: casesTh,
     recordings: recordingsTh,
+    quality: qualityTh,
     journeys: journeysTh,
     integrations: integrationsTh,
     account: accountTh,
@@ -91,6 +94,7 @@ export const resources = {
     customerAccess: customerAccessEn,
     cases: casesEn,
     recordings: recordingsEn,
+    quality: qualityEn,
     journeys: journeysEn,
     integrations: integrationsEn,
     account: accountEn,

@@ -1,0 +1,345 @@
+/* #971 หน้าประเมินคุณภาพ: ฟอร์ม (Admin), ประเมินสายของทีม (Supervisor), คะแนนของฉัน (Agent) */
+.qm-root {
+  padding: var(--dc-space-8);
+  color: var(--dc-text-primary);
+  font-size: var(--dc-text-base);
+}
+.qm-root h1 {
+  margin: 0;
+  font-size: var(--dc-text-xl);
+  font-weight: var(--dc-weight-semibold);
+}
+.qm-root h1:focus-visible {
+  outline: none;
+  box-shadow: var(--dc-focus-ring);
+  border-radius: var(--dc-radius-sm);
+}
+.qm-root h2 {
+  margin: 0;
+  font-size: var(--dc-text-base);
+  font-weight: var(--dc-weight-semibold);
+}
+.qm-root p {
+  margin: 0;
+}
+.qm-head {
+  display: grid;
+  gap: var(--dc-space-3);
+  margin-block: var(--dc-space-4) var(--dc-space-6);
+}
+.qm-muted {
+  color: var(--dc-text-muted);
+  font-size: var(--dc-text-sm);
+}
+.qm-wrap {
+  overflow-wrap: anywhere;
+}
+.qm-nowrap {
+  white-space: nowrap;
+}
+.qm-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--dc-space-6);
+  margin-block-end: var(--dc-space-6);
+}
+.qm-filters-error {
+  flex-basis: 100%;
+}
+.qm-filter-select {
+  min-inline-size: 12rem;
+}
+.qm-name-field {
+  inline-size: min(100%, 24rem);
+}
+.qm-field {
+  display: grid;
+  gap: var(--dc-space-2);
+  align-content: start;
+}
+.qm-field label {
+  color: var(--dc-text-secondary);
+  font-size: var(--dc-text-sm);
+}
+.qm-field input {
+  min-height: var(--dc-control-md);
+  padding: 0 var(--dc-space-4);
+  border: 1px solid var(--dc-border-default);
+  border-radius: var(--dc-radius-md);
+  background: var(--dc-surface-raised);
+  color: var(--dc-text-primary);
+  font: inherit;
+}
+.qm-field input:focus-visible {
+  outline: none;
+  box-shadow: var(--dc-focus-ring);
+}
+.qm-field input:disabled {
+  background: var(--dc-surface-sunken);
+  color: var(--dc-text-disabled);
+}
+.qm-field input[aria-invalid='true'] {
+  border-color: var(--dc-critical-solid);
+}
+.qm-number input {
+  inline-size: 7rem;
+}
+.qm-hint {
+  color: var(--dc-text-muted);
+  font-size: var(--dc-text-xs);
+}
+.qm-field-error {
+  color: var(--dc-critical-fg);
+  font-size: var(--dc-text-sm);
+}
+.qm-scroll {
+  overflow-x: auto;
+  margin-block: var(--dc-space-4) var(--dc-space-6);
+}
+/* ระหว่างโหลดใหม่คงรายการเดิมไว้ ไม่ให้หน้ากระโดด */
+.qm-scroll[data-stale] {
+  opacity: 0.6;
+}
+.qm-empty {
+  margin-block: var(--dc-space-6);
+  color: var(--dc-text-secondary);
+}
+.qm-alert {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--dc-space-4);
+  margin-block: var(--dc-space-4);
+  color: var(--dc-critical-fg);
+}
+.qm-alert-aside {
+  margin-block: 0;
+  font-size: var(--dc-text-sm);
+}
+.qm-more {
+  display: flex;
+  justify-content: center;
+}
+.qm-skeleton {
+  display: flex;
+  flex-direction: column;
+  margin-block: var(--dc-space-4);
+}
+.qm-skeleton-bar {
+  display: block;
+  block-size: var(--dc-space-5);
+  inline-size: 40%;
+  border-radius: var(--dc-radius-sm);
+  background: var(--dc-surface-sunken);
+}
+.qm-skeleton-title {
+  block-size: var(--dc-space-7);
+  inline-size: 30%;
+}
+.qm-skeleton-card {
+  min-block-size: 8rem;
+}
+.qm-skeleton-row {
+  display: block;
+  block-size: var(--dc-row-table);
+  border-block-end: 1px solid var(--dc-border-subtle);
+  background: linear-gradient(var(--dc-surface-sunken), var(--dc-surface-sunken)) no-repeat
+    var(--dc-space-5) center / 40% 12px;
+}
+
+/* เนื้อหาหลักซ้าย สรุปและ action ขวา (หน้าอ้างอิง people.html agent-form) */
+.qm-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 20rem;
+  gap: var(--dc-space-7);
+  align-items: start;
+}
+.qm-main,
+.qm-sections {
+  display: grid;
+  gap: var(--dc-space-6);
+  justify-items: start;
+}
+.qm-main > *,
+.qm-sections > * {
+  justify-self: stretch;
+}
+.qm-main > button {
+  justify-self: start;
+}
+.qm-aside {
+  position: sticky;
+  inset-block-start: var(--dc-space-6);
+}
+.qm-card {
+  display: grid;
+  gap: var(--dc-space-5);
+  padding: var(--dc-space-7);
+  border: 1px solid var(--dc-border-subtle);
+  border-radius: var(--dc-radius-xl);
+  background: var(--dc-surface-raised);
+}
+.qm-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--dc-space-4);
+}
+.qm-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--dc-space-6);
+}
+.qm-grid > :first-child {
+  flex: 1 1 18rem;
+}
+.qm-questions {
+  display: grid;
+  gap: var(--dc-space-5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.qm-questions > li + li {
+  padding-block-start: var(--dc-space-5);
+  border-block-start: 1px solid var(--dc-border-subtle);
+}
+.qm-question {
+  display: grid;
+  gap: var(--dc-space-3);
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.qm-question-text {
+  padding: 0;
+  font-weight: var(--dc-weight-medium);
+  overflow-wrap: anywhere;
+}
+.qm-question-meta {
+  color: var(--dc-text-muted);
+  font-size: var(--dc-text-sm);
+}
+.qm-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--dc-space-3);
+}
+.qm-choice {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--dc-space-2);
+  min-block-size: var(--dc-control-md);
+  padding-inline: var(--dc-space-4);
+  border: 1px solid var(--dc-border-default);
+  border-radius: var(--dc-radius-md);
+  background: var(--dc-surface-raised);
+  cursor: pointer;
+}
+.qm-choice:has(input:checked) {
+  border-color: var(--dc-brand-700);
+  background: var(--dc-surface-selected);
+}
+.qm-choice:has(input:focus-visible) {
+  box-shadow: var(--dc-focus-ring);
+}
+.qm-choice input {
+  margin: 0;
+  accent-color: var(--dc-brand-700);
+}
+.qm-choice input:focus-visible {
+  outline: none;
+}
+.qm-question:disabled .qm-choice {
+  cursor: default;
+  color: var(--dc-text-disabled);
+}
+.qm-answer-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--dc-text-secondary);
+}
+.qm-question-edit {
+  display: grid;
+  gap: var(--dc-space-4);
+}
+.qm-question-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--dc-space-5);
+}
+.qm-type {
+  inline-size: 11rem;
+}
+.qm-question-input {
+  flex: 1 1 18rem;
+}
+.qm-facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--dc-space-3) var(--dc-space-5);
+  margin: 0;
+  font-size: var(--dc-text-sm);
+}
+.qm-facts dt {
+  color: var(--dc-text-muted);
+}
+.qm-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.qm-score {
+  display: grid;
+  gap: var(--dc-space-2);
+  padding-block: var(--dc-space-4);
+  border-block: 1px solid var(--dc-border-subtle);
+}
+/* คะแนนตัวอย่างที่ยังไม่รวมการแก้ล่าสุด */
+.qm-score[data-stale] .qm-score-value {
+  color: var(--dc-text-muted);
+}
+.qm-score-label {
+  color: var(--dc-text-muted);
+  font-size: var(--dc-text-sm);
+}
+.qm-score-value {
+  font-size: var(--dc-text-lg);
+  font-weight: var(--dc-weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+.qm-score-empty {
+  padding-block: var(--dc-space-4);
+}
+.qm-actions {
+  display: grid;
+  gap: var(--dc-space-3);
+}
+.qm-versions {
+  display: grid;
+  gap: var(--dc-space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--dc-text-sm);
+}
+
+/* ring ของ radio ที่ทำเองครอบทั้งปุ่มเหมือนโหมดปกติ (แบบเดียวกับ .j5-segmented) */
+@media (forced-colors: active) {
+  .qm-choice:has(input:focus-visible) {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+  }
+}
+
+@media (width < 1100px) {
+  .qm-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .qm-aside {
+    position: static;
+  }
+}

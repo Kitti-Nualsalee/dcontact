@@ -12,6 +12,7 @@
  * - registry มีเฉพาะหน้าจอที่มีอยู่จริง — แอปใหม่เพิ่มแถวที่นี่พร้อม i18n key ของ launcher
  */
 
+import { resolveQmHumanEvaluation } from './qm-evaluation-config.js';
 import { resolveRecordingSupervisorPlayback } from './recording-playback-config.js';
 
 export const MAX_PINS = 15;
@@ -101,6 +102,43 @@ export const TEAM_RECORDINGS_APP: NavigationAppDefinition = Object.freeze({
   path: '/?view=team-recordings',
   roles: ['supervisor'],
 });
+
+/**
+ * #971 ประเมินคุณภาพโดยคน — อยู่ในเมนูเฉพาะ deployment ที่ตั้ง `QM_HUMAN_EVALUATION=on`
+ * API ตรวจบทบาทจาก DB และทีมที่รับสายเองทุก request
+ */
+export const QM_HUMAN_EVALUATION_APPS: readonly NavigationAppDefinition[] = Object.freeze([
+  {
+    id: 'team-evaluations',
+    area: 'qm',
+    section: 'work',
+    group: 'quality',
+    labelKey: 'navigation.apps.teamEvaluations',
+    hostApp: 'console',
+    path: '/?view=team-evaluations',
+    roles: ['supervisor'],
+  },
+  {
+    id: 'my-quality',
+    area: 'qm',
+    section: 'work',
+    group: 'quality',
+    labelKey: 'navigation.apps.myQuality',
+    hostApp: 'console',
+    path: '/?view=my-quality',
+    roles: ['agent'],
+  },
+  {
+    id: 'qm-forms',
+    area: 'qm',
+    section: 'configuration',
+    group: 'quality',
+    labelKey: 'navigation.apps.qmForms',
+    hostApp: 'console',
+    path: '/?view=qm-forms',
+    roles: ['admin'],
+  },
+]);
 
 const BASE_NAVIGATION_APPS: readonly NavigationAppDefinition[] = Object.freeze([
   {
@@ -367,19 +405,26 @@ const BASE_NAVIGATION_APPS: readonly NavigationAppDefinition[] = Object.freeze([
   },
 ]);
 
-/** รายการแอปของ deployment: เพิ่มเสียงบันทึกของทีมต่อจาก "ทีมสด" เมื่อเปิดใช้ */
-export function navigationApps(recordingPlayback: boolean): readonly NavigationAppDefinition[] {
-  if (!recordingPlayback) return BASE_NAVIGATION_APPS;
-  const after = BASE_NAVIGATION_APPS.findIndex((app) => app.id === 'supervisor-workspace') + 1;
-  return Object.freeze([
-    ...BASE_NAVIGATION_APPS.slice(0, after),
-    TEAM_RECORDINGS_APP,
-    ...BASE_NAVIGATION_APPS.slice(after),
-  ]);
+/**
+ * รายการแอปของ deployment: เพิ่มเสียงบันทึกของทีมต่อจาก "ทีมสด" และแอปประเมินคุณภาพ
+ * ต่อท้ายรายการเมื่อเปิดใช้ (area `qm` อยู่ตามลำดับ `NAVIGATION_AREAS` อยู่แล้ว)
+ */
+export function navigationApps(
+  recordingPlayback: boolean,
+  qmHumanEvaluation = false,
+): readonly NavigationAppDefinition[] {
+  const apps = [...BASE_NAVIGATION_APPS];
+  if (recordingPlayback) {
+    const after = apps.findIndex((app) => app.id === 'supervisor-workspace') + 1;
+    apps.splice(after, 0, TEAM_RECORDINGS_APP);
+  }
+  if (qmHumanEvaluation) apps.push(...QM_HUMAN_EVALUATION_APPS);
+  return Object.freeze(apps);
 }
 
 export const NAVIGATION_APPS: readonly NavigationAppDefinition[] = navigationApps(
   resolveRecordingSupervisorPlayback(process.env),
+  resolveQmHumanEvaluation(process.env),
 );
 
 export interface NavigationAreaItemView {

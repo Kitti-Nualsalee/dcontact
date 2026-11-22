@@ -137,6 +137,12 @@ import {
 import { S3RecordingStorage } from './s3-recording-storage.js';
 import { S3GovernanceExportStorage } from './s3-governance-export-storage.js';
 import { QmController, QM_DATABASE, QM_JOB_PUBLISHER } from './qm-api.js';
+import {
+  QmEvaluationController,
+  QM_EVALUATION_DATABASE,
+  QM_HUMAN_EVALUATION,
+} from './qm-evaluation-api.js';
+import { resolveQmHumanEvaluation } from './qm-evaluation-config.js';
 import { KafkaQmJobPublisher } from './qm-job-publisher.js';
 import {
   AgentWorkspaceController,
@@ -275,6 +281,14 @@ const agentSipCredentials = configuredAgentSipCredentialService(prisma);
 const recordingStorage = new S3RecordingStorage();
 // #967: ปิดเป็นค่าเริ่มต้น เปิดแล้ว route presign เดิมของ recording ตอบ 403
 const recordingSupervisorPlayback = resolveRecordingSupervisorPlayback(process.env);
+// #971: ปิดเป็นค่าเริ่มต้น เปิดแล้วมีฟอร์ม/ผลประเมินโดยคนและเมนูของ Admin, Supervisor, Agent
+const qmHumanEvaluation = resolveQmHumanEvaluation(process.env);
+console.log(
+  JSON.stringify({
+    event: 'qm.human_evaluation.readiness',
+    status: qmHumanEvaluation ? 'ENABLED' : 'DISABLED',
+  }),
+);
 console.log(
   JSON.stringify({
     event: 'recording.supervisor_playback.readiness',
@@ -475,6 +489,7 @@ class WorkspaceSessionController {
     RecordingController,
     RecordingPlaybackController,
     QmController,
+    QmEvaluationController,
     AgentWorkspaceController,
     AgentCasesController,
     TeamSegmentScopeController,
@@ -562,6 +577,8 @@ class WorkspaceSessionController {
     { provide: RECORDING_PLAYBACK_STORAGE, useValue: recordingStorage },
     { provide: RECORDING_SUPERVISOR_PLAYBACK, useValue: recordingSupervisorPlayback },
     { provide: QM_DATABASE, useValue: prisma },
+    { provide: QM_EVALUATION_DATABASE, useValue: prisma },
+    { provide: QM_HUMAN_EVALUATION, useValue: qmHumanEvaluation },
     { provide: QM_JOB_PUBLISHER, useValue: qmJobPublisher },
     { provide: AGENT_WORKSPACE_DATABASE, useValue: prisma },
     { provide: AGENT_CASES_DATABASE, useValue: prisma },

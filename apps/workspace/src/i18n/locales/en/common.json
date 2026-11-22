@@ -34,7 +34,10 @@
       "customerTags": "Manage tags",
       "customerOverview": "Customer overview",
       "customerRules": "Data rules",
-      "customerActivity": "Customer activity"
+      "customerActivity": "Customer activity",
+      "teamEvaluations": "Team quality reviews",
+      "myQuality": "My quality scores",
+      "qmForms": "Quality forms"
     },
     "areas": {
       "home": "Home",
