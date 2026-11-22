@@ -7,7 +7,7 @@ UAT สำหรับให้ dev ทดสอบตามแบบ D-Contact 
 | IP | hostname | บทบาท | สเปก |
 | --- | --- | --- | --- |
 | 192.168.31.206 | `nginx-dcontact` | voice: nginx (TLS), Kamailio, FreeSWITCH | 2 vCPU · 7.4 GB · root 28 GB |
-| 192.168.31.207 | `docker-dcontact` | app: API, Router, Telephony, Console, Workspace, Keycloak, Redpanda, Redis, object storage, Mailpit | 2 vCPU · 7.4 GB · root 97 GB |
+| 192.168.31.207 | `docker-dcontact` | app: API, Router, Telephony, QM worker (เปิดด้วย profile), Console, Workspace, Keycloak, Redpanda, Redis, object storage, Mailpit | 2 vCPU · 7.4 GB · root 97 GB |
 | 192.168.31.208 | `postgresql-dcontact` | data: PostgreSQL 16 (ฐาน `dcontact`, `keycloak`, `dcontact_voice_edge`) | 2 vCPU · 3.4 GB · root 28 GB |
 
 ทุกเครื่องเป็น Ubuntu 26.04 บัญชี `osdadmin` เข้าด้วย SSH key และ sudo ไม่ใช้รหัสผ่าน
@@ -80,6 +80,34 @@ trunk จำลอง `lan-sim` รับสายจาก `SOLO_SIM_TRUNK_IP` 
 - realm ใช้ client ของ dev (`agent-desktop`, `dcontact-dev-readiness`) ที่รองรับ password grant ใช้ใน LAN เท่านั้น
 - ยังไม่เปิด ufw บนเครื่อง การจำกัดอยู่ที่ ACL ของ FreeSWITCH, `pg_hba` และ Caddy
 - เครื่องที่ทดสอบต้องส่ง UDP ถึง 192.168.31.206 ได้ ถ้าอยู่คนละ subnet ต้องให้ router เปิด 5060 และ 16384–16683
+
+## QM worker
+
+service `qm` ใน `infra/solo/app/docker-compose.yml` รัน `apps/qm` (`/app/qm/dist/main.js` ใน image `services`)
+รับ `interaction.ended` จาก `dc.interaction.events` สร้าง transcription job, consume `dc.qm.jobs` และรัน `QmRetryDispatcher` ทุก 5 วินาที
+
+- อยู่หลัง compose profile `qm` ขั้น `app` จึงไม่เริ่ม QM จนกว่า `solo.env` มี `COMPOSE_PROFILES=qm`
+- ต่อฐานด้วย `APPLICATION_DATABASE_URL` (`dcontact_app`, NOBYPASSRLS) ไม่ใช่ owner แบบ API
+- แก้ `solo.env` ที่เครื่อง operator (`~/.config/dcontact-solo/solo.env`) เสมอ เพราะ `solo-uat.sh app` คัดลอกไฟล์นี้ทับไฟล์บน VM ทุกรอบ
+- ก่อนเปิด profile ต้องตั้งค่าใน `solo.env` เป็นของจริง ค่าที่ `init-env` ใส่ไว้ (`*.example.internal`) ใช้ไม่ได้
+  - `QM_TRANSCRIPTION_PROVIDER_ID`, `QM_TRANSCRIPTION_ENDPOINT` (https) และ `QM_TRANSCRIPTION_API_KEY`
+  - `QM_MEDIA_ENDPOINT` (https) ที่ provider ดึงไฟล์จาก bucket `recordings` ได้ด้วย signed URL
+    ต้อง proxy ไป `object-storage:9000` โดยคง `Host` เดิม เพราะ signature ผูกกับ host ใน URL
+    signed URL ลงนามด้วย `S3_ACCESS_KEY` ซึ่งเป็น root credential ของ RustFS proxy จึงควรรับเฉพาะ `GET`/`HEAD`
+    ใต้ `/recordings/` ที่มี `X-Amz-Signature` และจำกัด source IP ของ provider ถ้าทำได้
+    ตอนนี้ nginx บน VM voice ยังไม่มี host นี้
+  - `QM_SCORING_*`: ถ้ายังไม่มี scorer จริง ให้ตั้ง `QM_SCORING_ENDPOINT=` เป็นค่าว่าง จะถอดเสียงอย่างเดียวไม่สร้าง auto-QM draft
+    ถ้าคง placeholder ไว้ คิวที่เปิด `autoQmEnabled` จะถอดเสียงสำเร็จแต่ไม่มี draft เหลือแค่ error log
+- ถ้าเปิดด้วยค่า placeholder job จะล้มครบ `transcriptionMaxAttempts` แล้วเป็น `FAILED` ทั้ง job อัตโนมัติและ job ที่ Supervisor สั่งเอง
+  รวมถึง job ที่ API publish ไว้ก่อนมี worker ซึ่ง dispatcher กวาดขึ้นมาหลังค้างเกิน 5 นาที
+- เปิด: ใส่ `COMPOSE_PROFILES=qm` ใน `solo.env` ของ operator แล้วรัน `solo-uat.sh app`
+  ตรวจว่า compose บน VM เห็น service ด้วย `docker compose --env-file solo.env config --services | grep qm` ใน `/opt/dcontact-solo/app`
+  แล้วดู log ด้วย `docker compose --env-file solo.env logs -f qm`
+- ปิด: ลบ `COMPOSE_PROFILES=qm` ออกจาก `solo.env` ของ operator และของ VM แล้วรัน `docker compose --env-file solo.env --profile qm rm -sf qm` บน VM
+  ถ้าลบค่าแต่ไม่ลบ container `up -d` รอบถัดไปจะไม่ recreate `qm` และ container เดิมรันต่อด้วย image เก่า
+- ข้อจำกัดที่ควรรู้ตอนทดสอบ
+  - consumer เริ่มอ่านที่ offset ล่าสุดทุกครั้งที่ process เริ่ม `interaction.ended` ที่เกิดระหว่าง QM ดับ (รวมช่วง deploy) จึงไม่ได้ job
+  - คิว managed ยังไม่ publish `interaction.ended` ขึ้น Kafka ทางอัตโนมัติจึงใช้ได้เฉพาะคิว legacy 2000/2001 ซึ่งเป็นคิวที่มี recording
 
 ## Tenant People และคิว managed (#977, #979)
 
