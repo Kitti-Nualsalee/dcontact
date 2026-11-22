@@ -288,7 +288,9 @@ mount_recordings() { # VM app mount export ของ VM voice แบบ systemd 
   require_ipv4 SOLO_VOICE_IP "$VOICE_IP"
   remote "$APP_IP" "set -eu
     command -v mount.nfs >/dev/null || { sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nfs-common >/dev/null; }
-    sudo install -d -m 0755 $RECORDINGS_MOUNT_ROOT $RECORDINGS_MOUNT
+    sudo install -d -m 0755 $RECORDINGS_MOUNT_ROOT
+    # สร้างจุด mount เฉพาะครั้งแรก — ถ้า mount อยู่ install -d จะ chmod directory บน VM voice ผ่าน NFS
+    sudo test -d $RECORDINGS_MOUNT || sudo mkdir -m 0755 $RECORDINGS_MOUNT
     sudo sed -i '\#[[:space:]]$RECORDINGS_MOUNT[[:space:]]#d' /etc/fstab
     printf '%s\n' '$VOICE_IP:$RECORDINGS_EXPORT $RECORDINGS_MOUNT nfs4 rw,soft,timeo=20,retrans=2,_netdev,nofail,x-systemd.automount,x-systemd.mount-timeout=10s 0 0' |
       sudo tee -a /etc/fstab >/dev/null
