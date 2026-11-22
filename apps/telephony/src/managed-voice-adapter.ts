@@ -14,6 +14,10 @@ export class ManagedVoiceReconciliationRequiredError extends Error {
   }
 }
 
+/** หา SIP domain ของ tenant ต่อคำสั่ง (#979) ใช้เมื่อ process เดียวรับหลาย tenant */
+export type ManagedVoiceSipDomainResolver = (tenantId: string) => Promise<string | undefined>;
+
+const sipDomainPattern = /^[A-Za-z0-9.-]{1,253}$/;
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export class FreeSwitchManagedVoiceAdapter implements ManagedVoiceDirectPort {
@@ -22,10 +26,21 @@ export class FreeSwitchManagedVoiceAdapter implements ManagedVoiceDirectPort {
   constructor(
     private readonly esl: ManagedVoiceEslTransport,
     private readonly nodeId: string,
-    private readonly sipDomain: string,
+    private readonly sipDomain: string | ManagedVoiceSipDomainResolver,
   ) {
-    if (!/^[A-Za-z0-9_.-]{1,128}$/.test(nodeId) || !/^[A-Za-z0-9.-]{1,253}$/.test(sipDomain))
+    if (
+      !/^[A-Za-z0-9_.-]{1,128}$/.test(nodeId) ||
+      (typeof sipDomain === 'string' && !sipDomainPattern.test(sipDomain))
+    )
       throw new Error('MANAGED_VOICE_INVALID_CONFIGURATION');
+  }
+
+  private async tenantSipDomain(tenantId: string): Promise<string> {
+    if (typeof this.sipDomain === 'string') return this.sipDomain;
+    const domain = await this.sipDomain(tenantId);
+    if (!domain || !sipDomainPattern.test(domain))
+      throw new Error('MANAGED_VOICE_TENANT_SIP_DOMAIN_UNAVAILABLE');
+    return domain;
   }
 
   async ready(): Promise<boolean> {
@@ -49,6 +64,12 @@ export class FreeSwitchManagedVoiceAdapter implements ManagedVoiceDirectPort {
     if (!uuid.test(tenantId) || !uuid.test(callUuid))
       throw new Error('MANAGED_VOICE_INVALID_CALLER');
     if (!(await this.exists(callUuid))) return;
+    // หลาย tenant: ช่องสายต้องมาจาก SIP domain ของ tenant ที่จะผูก ไม่อย่างนั้นอาจผูกสายข้าม tenant
+    if (
+      typeof this.sipDomain !== 'string' &&
+      (await this.variable(callUuid, 'domain_name')) !== (await this.tenantSipDomain(tenantId))
+    )
+      throw new Error('MANAGED_VOICE_CHANNEL_SCOPE_MISMATCH');
     for (const [name, value] of Object.entries({
       dcontact_tenant_id: tenantId,
       dcontact_node_id: this.nodeId,
@@ -184,6 +205,7 @@ export class FreeSwitchManagedVoiceAdapter implements ManagedVoiceDirectPort {
         Math.ceil((Date.parse(command.expiresAt) - Date.now()) / 1000),
       );
       if (remaining <= 0) return { confirmed: false };
+      const sipDomain = await this.tenantSipDomain(command.tenantId);
       const marker = await this.global(this.marker(command));
       if (marker !== '_undef_' && marker !== '') {
         if (marker !== this.fingerprint(command))
@@ -201,7 +223,7 @@ export class FreeSwitchManagedVoiceAdapter implements ManagedVoiceDirectPort {
         dcontact_offer_id: command.offerId,
         dcontact_agent_id: command.agentId,
         dcontact_bleg_uuid: command.blegUuid,
-        domain_name: this.sipDomain,
+        domain_name: sipDomain,
         originate_timeout: String(remaining),
         park_after_bridge: 'true',
         hangup_after_bridge: 'true',
@@ -209,7 +231,7 @@ export class FreeSwitchManagedVoiceAdapter implements ManagedVoiceDirectPort {
       const response = await this.esl.request(
         `bgapi originate {${Object.entries(variables)
           .map(([name, value]) => `${name}=${value}`)
-          .join(',')}}user/${command.agentExtension}@${this.sipDomain} &park()`,
+          .join(',')}}user/${command.agentExtension}@${sipDomain} &park()`,
       );
       if (!response.startsWith('+OK')) throw new Error('MANAGED_VOICE_COMMAND_UNCONFIRMED');
       const jobUuid = /Job-UUID:\s*([0-9a-f-]{36})/i.exec(response)?.[1];

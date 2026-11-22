@@ -17,6 +17,15 @@ import {
   normalizeFreeSwitchEvent,
   parkedCallAsCreated,
 } from './freeswitch-normalizer.js';
+import { E1EslCommandClient } from './e1-esl-command-client.js';
+import {
+  isManagedOfferLeg,
+  isManagedVoiceEnabled,
+  ManagedVoiceTelephony,
+  routeManagedCall,
+  routeManagedOfferLeg,
+  TenantSipDomainDirectory,
+} from './managed-voice-telephony.js';
 import { TelephonyRecordingLifecycle } from './recording-lifecycle.js';
 import { S3RecordingArchive } from './s3-recording-archive.js';
 import { publishTelephonyCallEvent } from './telephony-event-publisher.js';
@@ -74,6 +83,26 @@ async function main() {
     }),
     recordingsDirectory,
   );
+  // #979: managed routing v1 หลาย tenant — ปิดโดยปริยาย ถ้าไม่เปิด ทุกอย่างข้างล่างเป็น legacy ตามเดิม
+  const managedDatabaseUrl = process.env.APPLICATION_DATABASE_URL ?? process.env.DATABASE_URL;
+  const managedDatabases = isManagedVoiceEnabled()
+    ? [0, 1].map(
+        () =>
+          new PrismaClient(
+            managedDatabaseUrl ? { datasources: { db: { url: managedDatabaseUrl } } } : undefined,
+          ),
+      )
+    : [];
+  const managed = isManagedVoiceEnabled()
+    ? new ManagedVoiceTelephony({
+        nodeId,
+        database: managedDatabases[0],
+        dispatchDatabase: managedDatabases[1],
+        esl: new E1EslCommandClient({ host, port, password }),
+        directory: new TenantSipDomainDirectory(database),
+      })
+    : undefined;
+  let managedSubscriptionReplied = false;
   const consumer = await createConsumer<TelephonyCommand>({
     clientId: `dcontact-telephony-${nodeId}`,
     groupId: commandGroupId,
@@ -81,7 +110,7 @@ async function main() {
     idempotency: createInMemoryIdempotencyStore(),
     handler: async ({ event }) => commandAdapter.handle(event.payload, event.tenantId),
   });
-  socket.on('data', async (chunk: Buffer) => {
+  const onData = async (chunk: Buffer) => {
     buffer += chunk.toString();
     while (true) {
       const separator = buffer.search(/\r?\n\r?\n/);
@@ -99,8 +128,20 @@ async function main() {
       if (!authenticated && /\+OK accepted/i.test(frame)) {
         authenticated = true;
         socket.write(
-          'events plain CHANNEL_CREATE CHANNEL_PARK CHANNEL_BRIDGE CHANNEL_HANGUP_COMPLETE DTMF DETECTED_SPEECH BACKGROUND_JOB\n\n',
+          `events plain CHANNEL_CREATE CHANNEL_PARK${managed ? ' CHANNEL_ANSWER' : ''} CHANNEL_BRIDGE CHANNEL_HANGUP_COMPLETE DTMF DETECTED_SPEECH BACKGROUND_JOB\n\n`,
         );
+        continue;
+      }
+      if (
+        managed &&
+        authenticated &&
+        !managedSubscriptionReplied &&
+        /Content-Type:\s*command\/reply/i.test(header)
+      ) {
+        managedSubscriptionReplied = true;
+        const subscribed = /Reply-Text:\s*\+OK/i.test(header);
+        if (!subscribed) console.error('[telephony] ESL event subscription unconfirmed');
+        managed.setSubscribed(subscribed);
         continue;
       }
       const parsed = parseEslEvent(frame);
@@ -108,11 +149,22 @@ async function main() {
       // #562: สายจาก trunk ได้ tenant ตอน park ไม่ใช่ตอน create — PARK อื่นไม่ใช่ call event
       const source =
         parsed['Event-Name'] === 'CHANNEL_PARK'
-          ? parkedCallAsCreated(parsed, (callUuid) => outboundBindingByCallUuid.has(callUuid))
+          ? parkedCallAsCreated(
+              parsed,
+              (callUuid) =>
+                outboundBindingByCallUuid.has(callUuid) || managed?.isKnownCall(callUuid) === true,
+            )
           : parsed;
       if (!source) continue;
       if (source['Event-Name'] === 'BACKGROUND_JOB') {
         const succeeded = typeof source.Body === 'string' && source.Body.startsWith('+OK');
+        if (
+          managed &&
+          typeof source['Job-UUID'] === 'string' &&
+          typeof source.Body === 'string' &&
+          /^(?:\+OK|-ERR)/.test(source.Body)
+        )
+          managed.backgroundJob(source['Job-UUID']);
         console.error('[telephony] FreeSWITCH background job', {
           jobUuid: source['Job-UUID'],
           ok: succeeded,
@@ -135,6 +187,10 @@ async function main() {
         });
       }
       try {
+        if (managed && isManagedOfferLeg(source)) {
+          await routeManagedOfferLeg(source, managed.routing);
+          continue;
+        }
         const sipDomain = source.variable_domain_name;
         const sourceCallUuid =
           source['Event-Name'] === 'CHANNEL_BRIDGE' &&
@@ -174,6 +230,8 @@ async function main() {
               ? outboundBindingByCallUuid.get(sourceCallUuid)?.tenantId
               : undefined);
         if (!tenantId) continue;
+        if (managed && (await routeManagedCall(source, tenantId, managed.routing)) !== 'legacy')
+          continue;
         const event = normalizeFreeSwitchEvent(source, {
           telephonyNodeId: nodeId,
           resolveTenantId: (domain) => (domain === sipDomain ? tenantId : undefined),
@@ -198,7 +256,32 @@ async function main() {
         console.error('[telephony] ignored ESL event', error);
       }
     }
-  });
+  };
+  if (managed) {
+    // managed ต้องได้ event ตามลำดับ (offer ก่อน answer ก่อน bridge) จึงประมวลทีละ chunk
+    let eventChain = Promise.resolve();
+    socket.on('data', (chunk: Buffer) => {
+      eventChain = eventChain
+        .then(() => onData(chunk))
+        .catch((error: unknown) => console.error('[telephony] ignored ESL chunk', error));
+    });
+    let stopping = false;
+    socket.on('close', () => {
+      if (stopping) return;
+      stopping = true;
+      console.error('[telephony] ESL connection closed; withdrawing managed readiness and exiting');
+      void managed.stop().finally(() => process.exit(1));
+    });
+    process.once('SIGINT', () => {
+      stopping = true;
+    });
+    process.once('SIGTERM', () => {
+      stopping = true;
+    });
+    managed.start();
+  } else {
+    socket.on('data', onData);
+  }
   const archiveRetryTimer = setInterval(() => {
     void recordingLifecycle.retryPendingArchives(nodeId).catch((error: unknown) => {
       console.error('[telephony] recording archive retry failed', error);
@@ -209,7 +292,13 @@ async function main() {
     clearInterval(archiveRetryTimer);
     socket.removeAllListeners('data');
     socket.end();
-    await Promise.all([consumer.disconnect(), producer.disconnect(), database.$disconnect()]);
+    await managed?.stop();
+    await Promise.all([
+      consumer.disconnect(),
+      producer.disconnect(),
+      database.$disconnect(),
+      ...managedDatabases.map((client) => client.$disconnect()),
+    ]);
     process.exit(0);
   };
   process.once('SIGINT', shutdown);
