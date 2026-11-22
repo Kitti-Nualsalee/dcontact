@@ -1,5 +1,9 @@
 import { Prisma, PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
-import type { QmTranscriptionJobMessage, QmTranscriptionStatus } from '@d-contact/shared';
+import {
+  QM_RECORDING_FAILURE_CODES,
+  type QmTranscriptionJobMessage,
+  type QmTranscriptionStatus,
+} from '@d-contact/shared';
 
 export type TranscriptSpeaker = 'AGENT' | 'CONTACT' | 'SYSTEM' | 'IVR';
 
@@ -81,8 +85,8 @@ function retryDelayMs(attempts: number): number {
  * worker จึงรอ recording.archivedAt โดยไม่นับ attempt ภายในเพดานนับจากเวลาสร้าง job
  */
 export const RECORDING_ARCHIVE_WAIT_LIMIT_MS = 60 * 60 * 1_000;
-export const RECORDING_NOT_ARCHIVED = 'RECORDING_NOT_ARCHIVED';
-export const RECORDING_DELETED = 'RECORDING_DELETED';
+export const RECORDING_NOT_ARCHIVED = QM_RECORDING_FAILURE_CODES.RECORDING_NOT_ARCHIVED;
+export const RECORDING_DELETED = QM_RECORDING_FAILURE_CODES.RECORDING_DELETED;
 
 function archiveWaitDelayMs(waitedMs: number): number {
   return Math.min(300_000, Math.max(15_000, waitedMs));

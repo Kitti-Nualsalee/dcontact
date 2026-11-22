@@ -20,7 +20,12 @@ Telephony อาจส่ง `call.hangup` ก่อน archive WAV ขึ้น
 - ถ้ารอครบ 1 ชั่วโมงนับจากสร้าง job แล้วยังไม่ archive จะเป็น `FAILED` ด้วย `RECORDING_NOT_ARCHIVED`
 - `recording.deletedAt` มีค่า (เช่น Telephony บันทึก `ARCHIVE_ABANDONED`): เป็น `FAILED` ด้วย `RECORDING_DELETED`
   - audit มีแค่ `TRANSCRIPTION_FAILED` ไม่มี `TRANSCRIPTION_STARTED` นำหน้า
-- job ที่ปิดเป็น `FAILED` แล้ว request ใหม่ผ่าน API จะได้ job เดิมกลับมา ยังสั่งถอดเสียงซ้ำไม่ได้
+- เปิด job ที่ `FAILED` ด้วย `RECORDING_NOT_ARCHIVED` ใหม่ได้ผ่าน `POST qm/interactions/:id/transcription-jobs` (#990)
+  - ทำได้เมื่อ recording archive แล้ว ถ้ายังไม่ archive จะได้ `409` พร้อม `code = RECORDING_NOT_ARCHIVED`
+  - job เดิมกลับเป็น `PENDING` ที่ `attempts = 0`, failureCode ถูกล้าง และ publish attempt แรก
+  - audit เป็น `TRANSCRIPTION_REQUESTED` ที่มี actor และ `reopened: true`
+  - ใช้สิทธิ์เดียวกับ manual request: Admin หรือ Supervisor ของทีมที่รับสาย
+- job `FAILED` แบบอื่นยังเปิดใหม่ไม่ได้ เช่น `RECORDING_DELETED` (recording ถูกลบจึงได้ `404`) หรือ provider ล้มครบ `maxAttempts` ซึ่ง API คืน job เดิม
 
 ## Dispatch
 
