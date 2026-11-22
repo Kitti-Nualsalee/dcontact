@@ -279,24 +279,49 @@ export class QmController {
       },
     );
     if (result.shouldDispatch) {
-      await this.jobs.publish({
-        tenantId: actor.tenantId,
-        job: {
-          kind: 'TRANSCRIBE',
-          jobId: result.job.id,
-          interactionId: result.job.interactionId,
-          recordingId: result.job.recordingId,
-          languageHint: result.job.languageHint,
-          trigger: result.job.trigger,
-          attempt: result.job.attempts + 1,
-        },
-      });
-      await withTenantDatabaseTransaction(this.database, actor.tenantId, (transaction) =>
-        transaction.qmTranscriptionJob.updateMany({
-          where: { id: result.job.id, tenantId: actor.tenantId, dispatchedAt: null },
-          data: { dispatchedAt: new Date() },
-        }),
+      // claim ก่อน publish (เหมือน QmTranscriptionWorkflow ของ apps/qm): ไม่ทับ dispatchedAt ที่ QM worker ล้างไว้
+      // ตอนเลื่อน job ที่รอ recording archive และไม่ publish job ที่มี nextAttemptAt ซึ่ง QmRetryDispatcher ดูแลอยู่
+      const dispatchedAt = new Date();
+      const claimed = await withTenantDatabaseTransaction(
+        this.database,
+        actor.tenantId,
+        (transaction) =>
+          transaction.qmTranscriptionJob.updateMany({
+            where: {
+              id: result.job.id,
+              tenantId: actor.tenantId,
+              status: 'PENDING',
+              attempts: result.job.attempts,
+              dispatchedAt: null,
+              nextAttemptAt: null,
+            },
+            data: { dispatchedAt },
+          }),
       );
+      if (claimed.count === 1) {
+        try {
+          await this.jobs.publish({
+            tenantId: actor.tenantId,
+            job: {
+              kind: 'TRANSCRIBE',
+              jobId: result.job.id,
+              interactionId: result.job.interactionId,
+              recordingId: result.job.recordingId,
+              languageHint: result.job.languageHint,
+              trigger: result.job.trigger,
+              attempt: result.job.attempts + 1,
+            },
+          });
+        } catch (error) {
+          await withTenantDatabaseTransaction(this.database, actor.tenantId, (transaction) =>
+            transaction.qmTranscriptionJob.updateMany({
+              where: { id: result.job.id, tenantId: actor.tenantId, dispatchedAt },
+              data: { dispatchedAt: null },
+            }),
+          );
+          throw error;
+        }
+      }
     }
     return {
       jobId: result.job.id,

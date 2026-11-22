@@ -205,7 +205,9 @@ export class QmTranscriptionWorker {
         }
         if (job.status !== 'PENDING') throw new Error(`transcription job is ${job.status}`);
         if (job.nextAttemptAt && job.nextAttemptAt.getTime() > startedAt.getTime()) {
-          throw new Error('transcription retry is not due yet');
+          // message ที่มาก่อนเวลา (Kafka ส่งซ้ำหรือ publish ซ้ำ) เป็น no-op: QmRetryDispatcher เป็นตัวขับที่ durable
+          // ถ้า throw consumer จะ retry วนและกั้น message อื่นใน partition เดียวกันจนกว่าจะถึงเวลา
+          return { ...job, duplicate: true as const };
         }
         if (job.recording.deletedAt) {
           return {

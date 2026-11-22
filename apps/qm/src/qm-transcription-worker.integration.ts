@@ -2,14 +2,17 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test, { after } from 'node:test';
 import { Prisma, PrismaClient } from '@d-contact/db';
-import type { QmTranscriptionJobMessage } from '@d-contact/shared';
-import { QmRetryDispatcher } from './qm-retry-dispatcher.js';
+import type { KafkaEventEnvelope } from '@d-contact/kafka';
+import type { QmInteractionEndedPayload, QmTranscriptionJobMessage } from '@d-contact/shared';
+import { QM_DISPATCH_STALE_MS, QmRetryDispatcher } from './qm-retry-dispatcher.js';
 import {
   QmTranscriptionWorker,
   RECORDING_ARCHIVE_WAIT_LIMIT_MS,
   RECORDING_DELETED,
   RECORDING_NOT_ARCHIVED,
+  type QmWorkerResult,
 } from './qm-transcription-worker.js';
+import { QmTranscriptionWorkflow } from './qm-transcription-workflow.js';
 
 // QmRetryDispatcher scan ทุก tenant: test ที่ใช้ dispatcher ต้องอยู่ไฟล์เดียวกันเพื่อรันตามลำดับ ไม่หยิบ job ของกันและกัน
 const owner = new PrismaClient();
@@ -163,8 +166,11 @@ const requestedAt = new Date('2026-09-05T03:00:00.000Z');
 async function seedJob(
   t: test.TestContext,
   recording: { archivedAt?: Date; deletedAt?: Date },
+  options: { createJob?: boolean; dispatchedAt?: Date | null } = {},
 ): Promise<{
   tenantId: string;
+  queueId: string;
+  interactionId: string;
   jobId: string;
   message: QmTranscriptionJobMessage;
 }> {
@@ -182,7 +188,15 @@ async function seedJob(
     },
   });
   await owner.queue.create({
-    data: { id: queueId, tenantId, name: `Archive wait queue ${tenantId}`, channels: ['VOICE'] },
+    data: {
+      id: queueId,
+      tenantId,
+      name: `Archive wait queue ${tenantId}`,
+      channels: ['VOICE'],
+      transcriptionMode: 'AUTOMATIC',
+      transcriptionLanguage: 'th-TH',
+      transcriptionMaxAttempts: 1,
+    },
   });
   await owner.$executeRaw(
     Prisma.sql`INSERT INTO interactions
@@ -211,20 +225,22 @@ async function seedJob(
       ...recording,
     },
   });
-  await owner.qmTranscriptionJob.create({
-    data: {
-      id: jobId,
-      tenantId,
-      interactionId,
-      recordingId,
-      trigger: 'AUTOMATIC',
-      languageHint: 'th-TH',
-      // คิวที่ตั้ง transcriptionMaxAttempts = 1 ห้ามเสีย attempt เดียวไปกับ object ที่ยังไม่มี
-      maxAttempts: 1,
-      createdAt: requestedAt,
-      dispatchedAt: requestedAt,
-    },
-  });
+  if (options.createJob !== false) {
+    await owner.qmTranscriptionJob.create({
+      data: {
+        id: jobId,
+        tenantId,
+        interactionId,
+        recordingId,
+        trigger: 'AUTOMATIC',
+        languageHint: 'th-TH',
+        // คิวที่ตั้ง transcriptionMaxAttempts = 1 ห้ามเสีย attempt เดียวไปกับ object ที่ยังไม่มี
+        maxAttempts: 1,
+        createdAt: requestedAt,
+        dispatchedAt: options.dispatchedAt === undefined ? requestedAt : options.dispatchedAt,
+      },
+    });
+  }
   t.after(async () => {
     await owner.qmAuditEvent.deleteMany({ where: { tenantId } });
     await owner.qmTranscriptSegment.deleteMany({ where: { tenantId } });
@@ -237,6 +253,8 @@ async function seedJob(
   });
   return {
     tenantId,
+    queueId,
+    interactionId,
     jobId,
     message: {
       kind: 'TRANSCRIBE',
@@ -315,11 +333,9 @@ test('job รอ recording archive โดยไม่นับ attempt แล้
   assert.equal(job.dispatchedAt, null);
   assert.equal(job.failureCode, RECORDING_NOT_ARCHIVED);
 
-  // message เดิมที่ Kafka ส่งซ้ำก่อนถึงเวลาไม่ claim job
-  await assert.rejects(
-    worker.process(seeded.tenantId, seeded.message),
-    /transcription retry is not due yet/,
-  );
+  // message เดิมที่ Kafka ส่งซ้ำก่อนถึงเวลาเป็น no-op ไม่ throw (throw จะกั้น partition) และไม่ claim job
+  assert.deepEqual(await worker.process(seeded.tenantId, seeded.message), deferred);
+  assert.deepEqual(calls, { media: 0, provider: 0 });
   assert.deepEqual(await retries.dispatchDue(clock.at), []);
 
   // ยังไม่ archive เมื่อถึงเวลา: เลื่อนอีกรอบ attempt ยังเป็น 0
@@ -374,6 +390,8 @@ test('job ที่ recording ไม่ archive ภายในเพดาน�
   assert.deepEqual(await retries.dispatchDue(clock.at), [seeded.jobId]);
   const failed = await worker.process(seeded.tenantId, dispatched[0]!);
   assert.deepEqual(failed, { jobId: seeded.jobId, status: 'FAILED', attempts: 0 });
+  // message ซ้ำหลังปิด job เป็น no-op
+  assert.deepEqual(await worker.process(seeded.tenantId, dispatched[0]!), failed);
   assert.deepEqual(calls, { media: 0, provider: 0 });
   const job = await persistedJob(seeded.jobId);
   assert.equal(job.status, 'FAILED');
@@ -416,4 +434,84 @@ test('job ที่ recording ถูกลบ (เช่น ARCHIVE_ABANDONED) �
     ['TRANSCRIPTION_FAILED'],
   );
   assert.equal((audit[0]!.details as { failureCode?: string }).failureCode, RECORDING_DELETED);
+});
+
+test('worker เลื่อน job ก่อนที่ publish ของ workflow จะ return แล้ว job ไม่ค้าง: dispatcher หยิบต่อได้และ event ซ้ำไม่ publish ซ้ำ', async (t) => {
+  const seeded = await seedJob(t, {}, { createJob: false });
+  // job ที่ workflow สร้างใช้ createdAt ของฐาน จึงใช้เวลาจริงเป็นนาฬิกาของ worker
+  const clock = { at: new Date() };
+  const { worker, retries, dispatched } = harness(clock);
+  const published: QmTranscriptionJobMessage[] = [];
+  const deferrals: QmWorkerResult[] = [];
+  const workflow = new QmTranscriptionWorkflow(owner, {
+    publish: async ({ tenantId, job }) => {
+      published.push(job);
+      // Kafka ส่งถึง worker ได้ก่อนที่ publish ของ workflow จะ return
+      deferrals.push(await worker.process(tenantId, job));
+    },
+  });
+  const event: KafkaEventEnvelope<QmInteractionEndedPayload> = {
+    eventId: randomUUID(),
+    type: 'interaction.ended',
+    tenantId: seeded.tenantId,
+    occurredAt: requestedAt.toISOString(),
+    correlationId: seeded.interactionId,
+    orderingKey: seeded.interactionId,
+    payload: {
+      interactionId: seeded.interactionId,
+      channel: 'VOICE',
+      state: 'WRAPUP',
+      queueId: seeded.queueId,
+    },
+  };
+
+  const created = await workflow.handleInteractionEnded(event);
+  assert.ok(created);
+  assert.equal(published.length, 1);
+  assert.equal(deferrals[0]!.status, 'PENDING');
+  assert.equal(deferrals[0]!.attempts, 0);
+  let job = await persistedJob(created.jobId);
+  // workflow ต้องไม่ตั้ง dispatchedAt ทับหลัง worker ล้างไว้ มิฉะนั้น dispatcher จะไม่หยิบอีกเลย
+  assert.equal(job.dispatchedAt, null);
+  assert.ok(job.nextAttemptAt);
+
+  // interaction.ended ซ้ำระหว่างรอ: job ที่มี nextAttemptAt เป็นหน้าที่ของ dispatcher จึงไม่ publish ซ้ำ
+  await workflow.handleInteractionEnded({ ...event, eventId: randomUUID() });
+  assert.equal(published.length, 1);
+  job = await persistedJob(created.jobId);
+  assert.equal(job.dispatchedAt, null);
+
+  await owner.recording.updateMany({
+    where: { tenantId: seeded.tenantId },
+    data: { archivedAt: new Date(clock.at.getTime() + 1_000) },
+  });
+  clock.at = job.nextAttemptAt!;
+  assert.deepEqual(await retries.dispatchDue(clock.at), [created.jobId]);
+  assert.equal(dispatched[0]!.attempt, 1);
+  assert.equal((await worker.process(seeded.tenantId, dispatched[0]!)).status, 'READY');
+});
+
+test('dispatcher ไม่หยิบ job ใหม่ที่ยังไม่ publish และกวาด job ที่ dispatchedAt ค้างเกินเกณฑ์', async (t) => {
+  const fresh = await seedJob(t, { archivedAt: requestedAt }, { dispatchedAt: null });
+  const { retries, dispatched } = harness({ at: requestedAt });
+
+  // job ใหม่ (attempts = 0, nextAttemptAt = null, dispatchedAt = null) เป็นของ workflow/API ไม่ใช่ dispatcher
+  assert.deepEqual(await retries.dispatchDue(new Date(requestedAt.getTime() + 86_400_000)), []);
+
+  // process ตายระหว่าง claim กับ publish: dispatchedAt ค้างโดยไม่มี message
+  await owner.qmTranscriptionJob.update({
+    where: { id: fresh.jobId },
+    data: { dispatchedAt: requestedAt },
+  });
+  assert.deepEqual(
+    await retries.dispatchDue(new Date(requestedAt.getTime() + QM_DISPATCH_STALE_MS - 1_000)),
+    [],
+  );
+  const sweptAt = new Date(requestedAt.getTime() + QM_DISPATCH_STALE_MS + 1_000);
+  assert.deepEqual(await retries.dispatchDue(sweptAt), [fresh.jobId]);
+  assert.equal(dispatched[0]!.attempt, 1);
+  assert.equal(
+    (await persistedJob(fresh.jobId)).dispatchedAt?.toISOString(),
+    sweptAt.toISOString(),
+  );
 });

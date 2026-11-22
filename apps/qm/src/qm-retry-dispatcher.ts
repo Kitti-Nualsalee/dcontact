@@ -1,6 +1,27 @@
 import { PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
 import type { QmTranscriptionJobMessage } from '@d-contact/shared';
 
+/** job ที่ PENDING แต่ dispatchedAt ค้างเกินนี้ถือว่า message หาย (process ตายระหว่าง claim กับ publish) */
+export const QM_DISPATCH_STALE_MS = 5 * 60 * 1_000;
+
+/**
+ * - ไม่กรอง attempts: job ที่รอ recording archive ถูกเลื่อน nextAttemptAt ทั้งที่ attempts ยังเป็น 0
+ *   job ใหม่ที่ workflow/API กำลัง publish มี nextAttemptAt เป็น null และ dispatchedAt มีค่าก่อน publish จึงไม่ถูกหยิบซ้ำ
+ * - กวาด dispatchedAt ที่ค้าง: message ซ้ำปลอดภัยเพราะ worker ตรวจ attempt ของ job
+ */
+function dueWhere(now: Date) {
+  return {
+    status: 'PENDING' as const,
+    OR: [
+      { dispatchedAt: null, nextAttemptAt: { lte: now } },
+      {
+        dispatchedAt: { lt: new Date(now.getTime() - QM_DISPATCH_STALE_MS) },
+        OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }],
+      },
+    ],
+  };
+}
+
 export interface QmRetryPublisher {
   publish(input: { tenantId: string; job: QmTranscriptionJobMessage }): Promise<void>;
 }
@@ -22,14 +43,7 @@ export class QmRetryDispatcher {
         tenant.id,
         (transaction) =>
           transaction.qmTranscriptionJob.findMany({
-            where: {
-              tenantId: tenant.id,
-              status: 'PENDING',
-              // ไม่กรอง attempts: job ที่รอ archive ถูกเลื่อน nextAttemptAt ทั้งที่ attempts ยังเป็น 0
-              // job ใหม่ที่ workflow กำลัง publish มี nextAttemptAt เป็น null จึงไม่ถูกหยิบซ้ำ
-              dispatchedAt: null,
-              nextAttemptAt: { lte: now },
-            },
+            where: { tenantId: tenant.id, ...dueWhere(now) },
             orderBy: [{ nextAttemptAt: 'asc' }, { id: 'asc' }],
             take: 100,
             select: {
@@ -39,6 +53,7 @@ export class QmRetryDispatcher {
               languageHint: true,
               trigger: true,
               attempts: true,
+              dispatchedAt: true,
             },
           }),
       );
@@ -51,9 +66,8 @@ export class QmRetryDispatcher {
               where: {
                 id: candidate.id,
                 tenantId: tenant.id,
-                status: 'PENDING',
-                dispatchedAt: null,
-                nextAttemptAt: { lte: now },
+                attempts: candidate.attempts,
+                ...dueWhere(now),
               },
               data: { dispatchedAt: now },
             }),
@@ -77,7 +91,8 @@ export class QmRetryDispatcher {
           await withTenantDatabaseTransaction(this.database, tenant.id, (transaction) =>
             transaction.qmTranscriptionJob.updateMany({
               where: { id: candidate.id, tenantId: tenant.id, dispatchedAt: now },
-              data: { dispatchedAt: null },
+              // คืนค่าเดิม: job ที่ถูกกวาดเพราะค้างต้องถูกกวาดได้อีก ไม่ใช่กลายเป็น null ที่ไม่มีใครหยิบ
+              data: { dispatchedAt: candidate.dispatchedAt },
             }),
           );
           throw error;
