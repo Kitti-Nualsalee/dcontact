@@ -144,6 +144,7 @@ export async function configurationRead(
         configRevision: true,
         voiceConfigVersion: true,
         voiceWrapupPolicy: true,
+        recordingEnabled: true,
       },
     });
     return { ...queue, legacy: queue.voiceConfigVersion !== 1 };

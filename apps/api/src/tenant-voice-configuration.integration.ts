@@ -18,6 +18,8 @@ interface Payload {
   code: string;
   configRevision: number;
   name: string;
+  isActive: boolean;
+  recordingEnabled: boolean;
   nextCursor: string;
   result: unknown;
   items: { id: string; teamId: string; email?: unknown }[];
@@ -741,4 +743,57 @@ test('B4 authenticated HTTP/PostgreSQL: atomic config, receipts, scoped projecti
       where: { userId_skillId: { userId: agent, skillId: legacySkill.id } },
     });
   });
+  await context.test(
+    '#991 คิว managed เปิด recording ได้และเปิดใช้ได้; auto QM/transcription ยังกันไว้',
+    async () => {
+      await owner.$executeRaw`UPDATE voice_managed_runtime_readiness SET expires_at=clock_timestamp()+interval '1 minute' WHERE tenant_id=${tenantId}::uuid`;
+      const revisionOf = async () =>
+        (await (await request(`/queues/${queue.id}`)).json()).configRevision;
+      assert.equal((await (await request(`/queues/${queue.id}`)).json()).recordingEnabled, false);
+      const invalid = await request(`/queues/${queue.id}`, 'PATCH', {
+        ...envelope(await revisionOf()),
+        recordingEnabled: 'yes',
+      });
+      assert.equal(invalid.status, 400);
+      const enabled = await request(`/queues/${queue.id}`, 'PATCH', {
+        ...envelope(await revisionOf()),
+        recordingEnabled: true,
+      });
+      assert.equal(enabled.status, 200, await enabled.clone().text());
+      assert.equal((await enabled.json()).recordingEnabled, true);
+      const audit = await owner.$queryRaw<
+        { keys: string[] }[]
+      >`SELECT changed_keys AS keys FROM voice_config_audit WHERE tenant_id=${tenantId}::uuid AND resource_id=${queue.id}::uuid AND outcome='SUCCEEDED' ORDER BY created_at DESC LIMIT 1`;
+      assert.deepEqual(audit[0]?.keys, ['recordingEnabled']);
+      const activated = await request(`/queues/${queue.id}`, 'PATCH', {
+        ...envelope(await revisionOf()),
+        isActive: true,
+      });
+      assert.equal(activated.status, 200, await activated.clone().text());
+      const body = await activated.json();
+      assert.equal(body.isActive, true);
+      assert.equal(body.recordingEnabled, true);
+      const stopped = await request(`/queues/${queue.id}`, 'PATCH', {
+        ...envelope(await revisionOf()),
+        isActive: false,
+        recordingEnabled: false,
+      });
+      assert.equal(stopped.status, 200, await stopped.clone().text());
+      assert.equal((await stopped.json()).recordingEnabled, false);
+      for (const column of ['auto_qm_enabled=true', "transcription_mode='AUTOMATIC'"]) {
+        await owner.$executeRawUnsafe(
+          `UPDATE queues SET recording_enabled=true,${column} WHERE tenant_id='${tenantId}'::uuid AND id='${queue.id}'::uuid`,
+        );
+        const blocked = await request(`/queues/${queue.id}`, 'PATCH', {
+          ...envelope(await revisionOf()),
+          isActive: true,
+        });
+        assert.equal(blocked.status, 503, await blocked.clone().text());
+        assert.equal((await blocked.json()).code, 'RESOURCE_POLICY_NOT_READY');
+        await owner.$executeRawUnsafe(
+          `UPDATE queues SET recording_enabled=false,auto_qm_enabled=false,transcription_mode='OFF' WHERE tenant_id='${tenantId}'::uuid AND id='${queue.id}'::uuid`,
+        );
+      }
+    },
+  );
 });

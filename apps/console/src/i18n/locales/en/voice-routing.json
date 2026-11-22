@@ -26,6 +26,14 @@
       "ACTION_REQUIRED": "Teardown outcome is unknown. An operator must reconcile it before retrying."
     }
   },
+  "recording": {
+    "title": "Call recording",
+    "scope": "Records calls answered by this queue so Supervisors can listen and score them. Automatic QM and transcription stay off for managed queues. The setting applies to the next call, and it cannot be changed while a call is in progress.",
+    "on": "Recording is on",
+    "off": "Recording is off",
+    "enable": "Turn recording on",
+    "disable": "Turn recording off"
+  },
   "config": {
     "navigation": "Routing pages",
     "requirements": "Queue required skills",

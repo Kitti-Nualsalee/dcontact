@@ -39,6 +39,7 @@ async function harness(
     voiceConfigVersion: 1,
     configRevision: 3,
     isActive: !!options.active,
+    recordingEnabled: false,
   };
   await page.route('**/api/v1/me/navigation**', (route) =>
     route.fulfill({ json: homeNavigation(['admin'], false) }),
@@ -52,7 +53,8 @@ async function harness(
         return route.fulfill({ status: 409, json: { code: 'REVISION_CONFLICT' } });
       revision++;
       if (path === `queues/${queueId}`) {
-        queue.isActive = body.isActive;
+        if (body.isActive !== undefined) queue.isActive = body.isActive;
+        if (body.recordingEnabled !== undefined) queue.recordingEnabled = body.recordingEnabled;
         queue.configRevision = revision;
       }
       if (path.endsWith('/binding')) bindingActive = body.isActive;
@@ -508,4 +510,24 @@ test.describe('Thai B5', () => {
     await expect(page.getByRole('button', { name: 'ปิดใช้งานคิว', exact: true })).toBeVisible();
     expect(data.writes[0]).toMatchObject({ isActive: true, reason: 'เปิดเส้นทางรับสาย' });
   });
+});
+
+test('#991 คิว managed เปิดและปิดบันทึกเสียงพร้อมเหตุผลผ่านคำสั่งแก้คิว', async ({ page }) => {
+  const data = await harness(page, { ready: true });
+  await page.goto(`/?view=voice-routing&resource=${queueId}&tenant=demo`);
+  await expect(page.getByText('Recording is off', { exact: true })).toBeVisible();
+  const enable = page.getByRole('button', { name: 'Turn recording on', exact: true });
+  await expect(enable).toBeDisabled();
+  await page.getByRole('textbox', { name: 'Reason (1–500 characters)' }).fill('Enable recording');
+  await enable.click();
+  await expect(page.getByText('Recording is on', { exact: true })).toBeVisible();
+  expect(data.writes[0]).toMatchObject({
+    expectedRevision: 3,
+    recordingEnabled: true,
+    reason: 'Enable recording',
+  });
+  expect(data.writes[0]).not.toHaveProperty('isActive');
+  await page.getByRole('button', { name: 'Turn recording off', exact: true }).click();
+  await expect(page.getByText('Recording is off', { exact: true })).toBeVisible();
+  expect(data.writes[1]).toMatchObject({ recordingEnabled: false });
 });
