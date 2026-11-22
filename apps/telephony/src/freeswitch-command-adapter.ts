@@ -141,6 +141,10 @@ export class FreeSwitchCommandAdapter {
       return;
     }
     if (command.type === 'recording.start') {
+      // uuid_record อ่าน RECORD_STEREO ของ channel ตอน start: STEREO = ผู้โทรซ้าย/สิ่งที่ผู้โทรได้ยินขวา
+      // PER_LEG ยังไม่มีไฟล์แยกขา จึงบันทึก mono ผสมสองฝั่ง และตั้ง false ชัด ๆ กันค่าจาก dialplan
+      const stereo = command.channelLayout === 'STEREO' ? 'true' : 'false';
+      await this.esl.command(`api uuid_setvar ${command.callUuid} RECORD_STEREO ${stereo}`);
       await this.esl.command(`api uuid_record ${command.callUuid} start ${command.recordingPath}`);
       return;
     }

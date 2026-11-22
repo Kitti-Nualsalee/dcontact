@@ -224,6 +224,30 @@ test('recording announcement is sent before the telephony node starts its stereo
 
   assert.deepEqual(commands, [
     'api uuid_broadcast call-100 say:flite.slt:This_call_is_recorded aleg',
+    'api uuid_setvar call-100 RECORD_STEREO true',
     'api uuid_record call-100 start /var/recordings/tenant-a/call-100.wav',
+  ]);
+});
+
+test('PER_LEG queue records mono explicitly so the WAV matches the layout API expects', async () => {
+  const commands: string[] = [];
+  const adapter = new FreeSwitchCommandAdapter(
+    { command: async (value) => void commands.push(value) },
+    'dcontact.local',
+    'fs-bkk-02',
+  );
+
+  await adapter.handle({
+    callUuid: 'call-101',
+    vendor: 'freeswitch',
+    telephonyNodeId: 'fs-bkk-02',
+    type: 'recording.start',
+    recordingPath: '/var/recordings/tenant-a/call-101.wav',
+    channelLayout: 'PER_LEG',
+  } as never);
+
+  assert.deepEqual(commands, [
+    'api uuid_setvar call-101 RECORD_STEREO false',
+    'api uuid_record call-101 start /var/recordings/tenant-a/call-101.wav',
   ]);
 });

@@ -37,6 +37,8 @@ Session ไม่ใช่สิทธิ์ ทุก chunk ตรวจผู�
 การเปิด session บันทึก audit `PLAYBACK_ACCESSED` พร้อม `transport` และ `sessionId`
 
 API รองรับไฟล์ WAV แบบ PCM 16 bit mono หรือ stereo เท่านั้น รูปแบบอื่นตอบ 422
+Telephony ตั้ง `RECORD_STEREO` ของ channel ตาม `recording_channel_layout` ของคิวก่อน `uuid_record start`:
+`STEREO` ได้ไฟล์ stereo (ผู้โทรซ้าย สิ่งที่ผู้โทรได้ยินขวา) ส่วน `PER_LEG` ยังไม่มีไฟล์แยกขา จึงได้ mono ผสมสองฝั่ง
 
 | สถานะ | code                                             | ความหมาย                                              |
 | ----- | ------------------------------------------------ | ----------------------------------------------------- |
@@ -46,6 +48,23 @@ API รองรับไฟล์ WAV แบบ PCM 16 bit mono หรือ st
 | 409   | `RECORDING_NOT_READY`, `PLAYBACK_SESSION_EXPIRED` | ไฟล์ยังไม่ archive หรือ session หมดอายุหรือถูกปิด        |
 | 422   | `RECORDING_FORMAT_UNSUPPORTED`                   | ไฟล์ไม่ใช่ WAV ที่รองรับ                                |
 | 503   | `STORAGE_UNAVAILABLE`                            | อ่าน object storage ไม่ได้                             |
+
+## การ archive ของ Telephony
+
+- `call.answered` ไม่รองานบันทึกเสียง งานเตรียมโฟลเดอร์, ประกาศ และ `uuid_record` ทำหลังส่ง event
+- `call.hangup` รอไม่เกิน 3 วินาที: ตั้ง `endedAt` (DB อย่างเดียว ไม่รอ storage) แล้ว archive ถ้าเกินเพดาน ส่ง event ก่อนแล้ว archive ต่อเบื้องหลัง
+  กรณีปกติ QM เห็น `endedAt` และ object ใน storage แล้วตอนได้ `interaction.ended` เหมือนเดิม
+  แต่ถ้า archive ช้าหรือล้ม `interaction.ended` ไม่รับประกันว่า object มีอยู่แล้ว (QM worker ยังไม่ตรวจ `archivedAt`)
+- การเตรียมโฟลเดอร์ (`prepare`) มี timeout 5 วินาที และ archive มี timeout 60 วินาที ถ้าเตรียมไม่ทันจะไม่เริ่มบันทึกและลบแถวทิ้ง
+  ถ้าลบไม่ได้เพราะ QM สร้าง job อ้างแถวไปแล้ว จะตั้ง `deletedAt` และบันทึก audit `ARCHIVE_ABANDONED` (reason `RECORDING_NOT_STARTED`)
+- รอบ retry ทุก 5 วินาทีลองทีละรายการ รายการที่ล้มเว้นนานขึ้นทีละเท่า (5 วินาที ถึง 5 นาที) และรอบไม่ซ้อนกัน
+- ไฟล์ไม่มี (`ENOENT`) เช่น ผู้โทรวางสายก่อน FreeSWITCH สร้างไฟล์ จะหยุดลองเมื่อครบทุกข้อ: วางสายมาแล้วเกิน 30 นาที,
+  Telephony process เดียวกันเห็นไฟล์หายต่อเนื่องเกิน 10 นาที และมี archive อื่นของ node สำเร็จหลังเห็นไฟล์หายครั้งแรก
+  (กันกรณี mount หายทั้งก้อน) และไม่ติด legal hold จากนั้นตั้ง `deletedAt` และบันทึก audit `ARCHIVE_ABANDONED`
+  (reason `SOURCE_FILE_MISSING`) พร้อม node, `endedAt`, เวลาที่หายไป และจำนวนครั้งที่ลอง
+- กู้แถวที่หยุดลองผิด: หาใน `recording_audit_events` ที่ action `ARCHIVE_ABANDONED` แล้วล้าง `deleted_at` ของแถวนั้น รอบ retry จะลองใหม่
+- ไฟล์ที่อ่านไม่ได้ด้วยเหตุอื่น (NFS ค้าง, storage ล่ม) ลองต่อโดยไม่หยุด
+- คิว `STEREO` (ค่าเริ่มต้นของคิว) ได้ไฟล์ stereo ใหญ่กว่า mono เท่าตัว ทั้งบน NFS, หน่วยความจำตอน archive และ object storage
 
 ## หน้า Console
 
