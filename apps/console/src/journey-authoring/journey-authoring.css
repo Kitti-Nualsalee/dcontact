@@ -255,7 +255,7 @@
 }
 
 .j5-segmented button:focus-visible {
-  box-shadow: inset var(--dc-focus-ring);
+  box-shadow: var(--dc-focus-ring-inset);
 }
 
 /* forced-colors: outline มาจาก tokens.css — วาดด้านในเพราะ .j5-segmented ตัด overflow

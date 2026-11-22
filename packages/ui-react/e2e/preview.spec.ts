@@ -6,6 +6,9 @@ import { expect, test, type Page } from '@playwright/test';
  * พร้อม focus ring ตาม token (`--dc-focus-ring` = วงนอกสี brand-700 #0f766e)
  */
 const FOCUS_RING = 'rgb(15, 118, 110)';
+/** ring ด้านใน (`--dc-focus-ring-inset`) — ทั้งสองชั้นต้องเป็น inset: สีที่ขอบ ขาวด้านใน */
+const FOCUS_RING_INSET =
+  /rgb\(15, 118, 110\) 0px 0px 0px 2px inset, rgb\(255, 255, 255\) 0px 0px 0px 4px inset/;
 
 async function seriousViolations(page: Page) {
   const result = await new AxeBuilder({ page }).analyze();
@@ -129,7 +132,7 @@ test('keyboard: Table เลื่อนแถวด้วยลูกศรแ�
   await page.keyboard.press('ArrowDown');
   const focusedRow = page.getByRole('row', { name: /บริการหลังการขาย/ });
   await expect(focusedRow).toBeFocused();
-  expect(await focusRingOf(page)).toContain(FOCUS_RING);
+  expect(await focusRingOf(page)).toMatch(FOCUS_RING_INSET);
   await page.keyboard.press('Space');
   await expect(focusedRow).toHaveAttribute('aria-selected', 'true');
 });
