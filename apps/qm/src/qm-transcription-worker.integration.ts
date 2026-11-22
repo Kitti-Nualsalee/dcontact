@@ -1,12 +1,22 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import test from 'node:test';
+import test, { after } from 'node:test';
 import { Prisma, PrismaClient } from '@d-contact/db';
 import type { QmTranscriptionJobMessage } from '@d-contact/shared';
 import { QmRetryDispatcher } from './qm-retry-dispatcher.js';
-import { QmTranscriptionWorker } from './qm-transcription-worker.js';
+import {
+  QmTranscriptionWorker,
+  RECORDING_ARCHIVE_WAIT_LIMIT_MS,
+  RECORDING_DELETED,
+  RECORDING_NOT_ARCHIVED,
+} from './qm-transcription-worker.js';
 
+// QmRetryDispatcher scan ทุก tenant: test ที่ใช้ dispatcher ต้องอยู่ไฟล์เดียวกันเพื่อรันตามลำดับ ไม่หยิบ job ของกันและกัน
 const owner = new PrismaClient();
+
+after(async () => {
+  await owner.$disconnect();
+});
 
 test('transcription provider uses encrypted no-training input and stops after bounded retries', async (t) => {
   const tenantId = randomUUID();
@@ -54,6 +64,7 @@ test('transcription provider uses encrypted no-training input and stops after bo
       durationSec: 62,
       startedAt: new Date('2026-09-05T02:58:58.000Z'),
       endedAt: new Date('2026-09-05T03:00:00.000Z'),
+      archivedAt: new Date('2026-09-05T03:00:01.000Z'),
     },
   });
   await owner.qmTranscriptionJob.create({
@@ -75,7 +86,6 @@ test('transcription provider uses encrypted no-training input and stops after bo
     await owner.interaction.deleteMany({ where: { tenantId } });
     await owner.queue.deleteMany({ where: { tenantId } });
     await owner.tenant.delete({ where: { id: tenantId } });
-    await owner.$disconnect();
   });
 
   const providerInputs: unknown[] = [];
@@ -145,4 +155,265 @@ test('transcription provider uses encrypted no-training input and stops after bo
       auditActions,
     })}`,
   );
+});
+
+// Telephony ส่ง call.hangup ได้ก่อน archive WAV เสร็จ (#988): worker ต้องรอ archivedAt โดยไม่เสีย attempt
+const requestedAt = new Date('2026-09-05T03:00:00.000Z');
+
+async function seedJob(
+  t: test.TestContext,
+  recording: { archivedAt?: Date; deletedAt?: Date },
+): Promise<{
+  tenantId: string;
+  jobId: string;
+  message: QmTranscriptionJobMessage;
+}> {
+  const tenantId = randomUUID();
+  const queueId = randomUUID();
+  const interactionId = randomUUID();
+  const recordingId = randomUUID();
+  const jobId = randomUUID();
+  await owner.tenant.create({
+    data: {
+      id: tenantId,
+      name: `Archive wait tenant ${tenantId}`,
+      slug: `archive-wait-${tenantId}`,
+      sipDomain: `${tenantId}.archive-wait.test`,
+    },
+  });
+  await owner.queue.create({
+    data: { id: queueId, tenantId, name: `Archive wait queue ${tenantId}`, channels: ['VOICE'] },
+  });
+  await owner.$executeRaw(
+    Prisma.sql`INSERT INTO interactions
+      (id, tenant_id, channel, direction, state, queue_id, ended_at)
+      VALUES (
+        ${interactionId}::uuid,
+        ${tenantId}::uuid,
+        'VOICE',
+        'INBOUND',
+        'WRAPUP',
+        ${queueId}::uuid,
+        ${requestedAt}
+      )`,
+  );
+  await owner.recording.create({
+    data: {
+      id: recordingId,
+      tenantId,
+      interactionId,
+      storageKey: `recordings/${tenantId}/${recordingId}.wav`,
+      telephonyPath: `/var/recordings/${tenantId}/${recordingId}.wav`,
+      channelLayout: 'STEREO',
+      durationSec: 20,
+      startedAt: new Date(requestedAt.getTime() - 20_000),
+      endedAt: requestedAt,
+      ...recording,
+    },
+  });
+  await owner.qmTranscriptionJob.create({
+    data: {
+      id: jobId,
+      tenantId,
+      interactionId,
+      recordingId,
+      trigger: 'AUTOMATIC',
+      languageHint: 'th-TH',
+      // คิวที่ตั้ง transcriptionMaxAttempts = 1 ห้ามเสีย attempt เดียวไปกับ object ที่ยังไม่มี
+      maxAttempts: 1,
+      createdAt: requestedAt,
+      dispatchedAt: requestedAt,
+    },
+  });
+  t.after(async () => {
+    await owner.qmAuditEvent.deleteMany({ where: { tenantId } });
+    await owner.qmTranscriptSegment.deleteMany({ where: { tenantId } });
+    await owner.qmTranscript.deleteMany({ where: { tenantId } });
+    await owner.qmTranscriptionJob.deleteMany({ where: { tenantId } });
+    await owner.recording.deleteMany({ where: { tenantId } });
+    await owner.interaction.deleteMany({ where: { tenantId } });
+    await owner.queue.deleteMany({ where: { tenantId } });
+    await owner.tenant.delete({ where: { id: tenantId } });
+  });
+  return {
+    tenantId,
+    jobId,
+    message: {
+      kind: 'TRANSCRIBE',
+      jobId,
+      interactionId,
+      recordingId,
+      languageHint: 'th-TH',
+      trigger: 'AUTOMATIC',
+      attempt: 1,
+    },
+  };
+}
+
+function harness(clock: { at: Date }) {
+  const calls = { media: 0, provider: 0 };
+  const worker = new QmTranscriptionWorker(
+    owner,
+    {
+      createEncryptedReadUrl: async ({ storageKey }) => {
+        calls.media += 1;
+        return {
+          url: `https://storage.test/${storageKey}?signature=short-lived`,
+          expiresAt: new Date(clock.at.getTime() + 300_000),
+        };
+      },
+    },
+    {
+      id: 'archive-wait-provider',
+      transcribe: async () => {
+        calls.provider += 1;
+        return {
+          modelId: 'archive-wait-model',
+          language: 'th-TH',
+          confidenceAvg: 0.9,
+          segments: [{ speaker: 'AGENT', startMs: 0, endMs: 1_000, text: 'สวัสดีครับ' }],
+        };
+      },
+    },
+    { now: () => new Date(clock.at) },
+  );
+  const dispatched: QmTranscriptionJobMessage[] = [];
+  const retries = new QmRetryDispatcher(owner, {
+    publish: async ({ job }) => void dispatched.push(job),
+  });
+  return { worker, retries, dispatched, calls };
+}
+
+async function persistedJob(jobId: string) {
+  return owner.qmTranscriptionJob.findUniqueOrThrow({
+    where: { id: jobId },
+    select: {
+      status: true,
+      attempts: true,
+      nextAttemptAt: true,
+      dispatchedAt: true,
+      failureCode: true,
+      completedAt: true,
+    },
+  });
+}
+
+test('job รอ recording archive โดยไม่นับ attempt แล้ว retry dispatcher หยิบมาทำต่อจน READY', async (t) => {
+  const seeded = await seedJob(t, {});
+  const clock = { at: new Date(requestedAt.getTime() + 60_000) };
+  const { worker, retries, dispatched, calls } = harness(clock);
+
+  const deferred = await worker.process(seeded.tenantId, seeded.message);
+  assert.equal(deferred.status, 'PENDING');
+  assert.equal(deferred.attempts, 0);
+  // รอมาแล้ว 60 วินาที จึงเลื่อนอีก 60 วินาที (ขั้นต่ำ 15 วินาที เพดาน 5 นาที)
+  assert.equal(deferred.nextAttemptAt, new Date(clock.at.getTime() + 60_000).toISOString());
+  assert.deepEqual(calls, { media: 0, provider: 0 });
+  let job = await persistedJob(seeded.jobId);
+  assert.equal(job.status, 'PENDING');
+  assert.equal(job.attempts, 0);
+  assert.equal(job.dispatchedAt, null);
+  assert.equal(job.failureCode, RECORDING_NOT_ARCHIVED);
+
+  // message เดิมที่ Kafka ส่งซ้ำก่อนถึงเวลาไม่ claim job
+  await assert.rejects(
+    worker.process(seeded.tenantId, seeded.message),
+    /transcription retry is not due yet/,
+  );
+  assert.deepEqual(await retries.dispatchDue(clock.at), []);
+
+  // ยังไม่ archive เมื่อถึงเวลา: เลื่อนอีกรอบ attempt ยังเป็น 0
+  clock.at = new Date(deferred.nextAttemptAt!);
+  assert.deepEqual(await retries.dispatchDue(clock.at), [seeded.jobId]);
+  assert.equal(dispatched[0]!.attempt, 1);
+  const deferredAgain = await worker.process(seeded.tenantId, dispatched[0]!);
+  assert.equal(deferredAgain.status, 'PENDING');
+  assert.equal(deferredAgain.attempts, 0);
+  assert.equal(deferredAgain.nextAttemptAt, new Date(clock.at.getTime() + 120_000).toISOString());
+
+  // Telephony archive เสร็จ: รอบถัดไปได้ READY ด้วย attempt แรก
+  await owner.recording.updateMany({
+    where: { tenantId: seeded.tenantId },
+    data: { archivedAt: new Date(clock.at.getTime() + 1_000) },
+  });
+  clock.at = new Date(deferredAgain.nextAttemptAt!);
+  assert.deepEqual(await retries.dispatchDue(clock.at), [seeded.jobId]);
+  assert.equal(dispatched[1]!.attempt, 1);
+  const ready = await worker.process(seeded.tenantId, dispatched[1]!);
+  assert.equal(ready.status, 'READY');
+  assert.equal(ready.attempts, 1);
+  assert.deepEqual(calls, { media: 1, provider: 1 });
+  job = await persistedJob(seeded.jobId);
+  assert.equal(job.failureCode, null);
+
+  const audit = await worker.getAuditTrail(seeded.tenantId, seeded.jobId);
+  assert.deepEqual(
+    audit.map((event) => event.action),
+    [
+      'TRANSCRIPTION_RETRY_SCHEDULED',
+      'TRANSCRIPTION_RETRY_SCHEDULED',
+      'TRANSCRIPTION_STARTED',
+      'TRANSCRIPTION_READY',
+    ],
+  );
+  assert.equal((audit[0]!.details as { failureCode?: string }).failureCode, RECORDING_NOT_ARCHIVED);
+});
+
+test('job ที่ recording ไม่ archive ภายในเพดานเป็น FAILED พร้อม RECORDING_NOT_ARCHIVED', async (t) => {
+  const seeded = await seedJob(t, {});
+  const deadline = new Date(requestedAt.getTime() + RECORDING_ARCHIVE_WAIT_LIMIT_MS);
+  const clock = { at: new Date(deadline.getTime() - 30_000) };
+  const { worker, retries, dispatched, calls } = harness(clock);
+
+  // ใกล้เพดาน: เลื่อนได้ไม่เกินเพดาน แม้ช่วงรอปกติจะเป็น 5 นาที
+  const deferred = await worker.process(seeded.tenantId, seeded.message);
+  assert.equal(deferred.status, 'PENDING');
+  assert.equal(deferred.nextAttemptAt, deadline.toISOString());
+
+  clock.at = deadline;
+  assert.deepEqual(await retries.dispatchDue(clock.at), [seeded.jobId]);
+  const failed = await worker.process(seeded.tenantId, dispatched[0]!);
+  assert.deepEqual(failed, { jobId: seeded.jobId, status: 'FAILED', attempts: 0 });
+  assert.deepEqual(calls, { media: 0, provider: 0 });
+  const job = await persistedJob(seeded.jobId);
+  assert.equal(job.status, 'FAILED');
+  assert.equal(job.failureCode, RECORDING_NOT_ARCHIVED);
+  assert.equal(job.dispatchedAt, null);
+  assert.equal(job.nextAttemptAt, null);
+  assert.equal(job.completedAt?.toISOString(), deadline.toISOString());
+  assert.deepEqual(await retries.dispatchDue(new Date(deadline.getTime() + 600_000)), []);
+
+  const audit = await worker.getAuditTrail(seeded.tenantId, seeded.jobId);
+  assert.deepEqual(
+    audit.map((event) => event.action),
+    ['TRANSCRIPTION_RETRY_SCHEDULED', 'TRANSCRIPTION_FAILED'],
+  );
+  assert.equal((audit[1]!.details as { failureCode?: string }).failureCode, RECORDING_NOT_ARCHIVED);
+});
+
+test('job ที่ recording ถูกลบ (เช่น ARCHIVE_ABANDONED) เป็น FAILED พร้อม RECORDING_DELETED แทนการค้าง PENDING', async (t) => {
+  const seeded = await seedJob(t, { deletedAt: new Date(requestedAt.getTime() + 3_000) });
+  const clock = { at: new Date(requestedAt.getTime() + 10_000) };
+  const { worker, retries, calls } = harness(clock);
+
+  const failed = await worker.process(seeded.tenantId, seeded.message);
+  assert.deepEqual(failed, { jobId: seeded.jobId, status: 'FAILED', attempts: 0 });
+  assert.deepEqual(calls, { media: 0, provider: 0 });
+  const job = await persistedJob(seeded.jobId);
+  assert.equal(job.status, 'FAILED');
+  assert.equal(job.failureCode, RECORDING_DELETED);
+  assert.equal(job.dispatchedAt, null);
+  assert.equal(job.nextAttemptAt, null);
+  assert.equal(job.completedAt?.toISOString(), clock.at.toISOString());
+
+  // message ที่ Kafka ส่งซ้ำหลังปิด job ไม่เปลี่ยนสถานะ
+  assert.deepEqual(await worker.process(seeded.tenantId, seeded.message), failed);
+  assert.deepEqual(await retries.dispatchDue(new Date(requestedAt.getTime() + 3_600_000)), []);
+
+  const audit = await worker.getAuditTrail(seeded.tenantId, seeded.jobId);
+  assert.deepEqual(
+    audit.map((event) => event.action),
+    ['TRANSCRIPTION_FAILED'],
+  );
+  assert.equal((audit[0]!.details as { failureCode?: string }).failureCode, RECORDING_DELETED);
 });

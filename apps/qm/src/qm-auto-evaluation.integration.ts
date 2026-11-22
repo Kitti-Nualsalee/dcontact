@@ -66,6 +66,7 @@ test('ready Thai transcript creates only an evidence-backed auto-QM draft', asyn
       durationSec: 12,
       startedAt: new Date('2026-09-05T03:59:48.000Z'),
       endedAt: new Date('2026-09-05T04:00:00.000Z'),
+      archivedAt: new Date('2026-09-05T04:00:01.000Z'),
     },
   });
   await owner.qmTranscriptionJob.create({

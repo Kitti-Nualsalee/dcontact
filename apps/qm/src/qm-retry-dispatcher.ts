@@ -5,7 +5,8 @@ export interface QmRetryPublisher {
   publish(input: { tenantId: string; job: QmTranscriptionJobMessage }): Promise<void>;
 }
 
-/** Durable retry scan: database time controls eligibility; Kafka messages remain idempotent by job/attempt. */
+/** Durable retry scan: database time controls eligibility; Kafka messages remain idempotent by job/attempt.
+ * ครอบทั้ง retry หลัง provider ล้มและ job ที่รอ recording archive (attempts ยังเป็น 0) */
 export class QmRetryDispatcher {
   constructor(
     private readonly database: PrismaClient,
@@ -24,7 +25,8 @@ export class QmRetryDispatcher {
             where: {
               tenantId: tenant.id,
               status: 'PENDING',
-              attempts: { gt: 0 },
+              // ไม่กรอง attempts: job ที่รอ archive ถูกเลื่อน nextAttemptAt ทั้งที่ attempts ยังเป็น 0
+              // job ใหม่ที่ workflow กำลัง publish มี nextAttemptAt เป็น null จึงไม่ถูกหยิบซ้ำ
               dispatchedAt: null,
               nextAttemptAt: { lte: now },
             },
