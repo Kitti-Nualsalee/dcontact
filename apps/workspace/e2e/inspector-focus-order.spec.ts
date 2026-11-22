@@ -155,3 +155,26 @@ test('แถบเครื่องมือด้านขวา: จุดท
   await page.keyboard.press('Space');
   await expect(inspector(page)).toBeVisible();
 });
+
+test('forced-colors: ปุ่มที่เลือกอยู่ในแถบเครื่องมือและตัวเลือกผลสรุปแยกจากปุ่มอื่นได้', async ({
+  page,
+}) => {
+  await openWrapup(page);
+  await page.emulateMedia({ forcedColors: 'active' });
+  const background = (target: ReturnType<Page['locator']>) =>
+    target.evaluate((element) => getComputedStyle(element).backgroundColor);
+
+  // แถบเครื่องมือ: แท็บที่เปิดอยู่ (สรุปผล) ต้องไม่ใช่พื้นเดียวกับปุ่มอื่น
+  const bar = tools(page);
+  const wrapup = bar.getByRole('button', { name: 'สรุปผล' });
+  const events = bar.getByRole('button', { name: 'เหตุการณ์' });
+  await expect(wrapup).toHaveAttribute('aria-pressed', 'true');
+  expect(await background(wrapup)).not.toBe(await background(events));
+
+  // ตัวเลือกผลสรุป (.aw-segmented): ปุ่มที่เลือกต้องแยกจากอีกปุ่ม
+  const choices = page.locator('.aw-segmented button');
+  await choices.first().click();
+  await expect(choices.first()).toHaveAttribute('aria-pressed', 'true');
+  await expect(choices.nth(1)).toHaveAttribute('aria-pressed', 'false');
+  expect(await background(choices.first())).not.toBe(await background(choices.nth(1)));
+});

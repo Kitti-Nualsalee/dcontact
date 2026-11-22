@@ -279,3 +279,24 @@ test('#588: ออกจากระบบระหว่างมีสาย�
   await expect(dialog).toBeHidden();
   expect(await page.evaluate(() => (window as { __signOuts?: number }).__signOuts ?? 0)).toBe(1);
 });
+
+test('forced-colors: ปุ่มขนาดของ dphone ที่เลือกอยู่ใช้พื้น Highlight ของระบบ', async ({
+  page,
+}) => {
+  const dphone = await openWithCall(page);
+  await page.emulateMedia({ forcedColors: 'active' });
+  const pressed = dphone.locator('.dp-icon-button[aria-pressed="true"]');
+  await expect(pressed).toHaveCount(1);
+  // ปุ่มอื่นเป็นพื้นโปร่งบน Canvas จึงเทียบกับค่า Highlight จริงของระบบแทนการเทียบกับปุ่มอื่น
+  const highlight = await page.evaluate(() => {
+    const probe = document.createElement('div');
+    probe.style.backgroundColor = 'Highlight';
+    document.body.append(probe);
+    const value = getComputedStyle(probe).backgroundColor;
+    probe.remove();
+    return value;
+  });
+  expect(await pressed.evaluate((element) => getComputedStyle(element).backgroundColor)).toBe(
+    highlight,
+  );
+});

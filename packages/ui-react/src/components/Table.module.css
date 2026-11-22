@@ -56,6 +56,22 @@
   box-shadow: inset var(--dc-focus-ring);
 }
 
+/* forced-colors: outline มาจาก tokens.css — หัวคอลัมน์ แถว และเซลล์วาดด้านในให้ตรงกับ ring แบบ inset
+   แถวที่เลือกบอกด้วยพื้นสีอย่างเดียว ซึ่งโหมดนี้บังคับเป็น Canvas จึงใส่แถบ Highlight ที่ต้นแถวแทน
+   (ไม่ทาพื้นทั้งแถว เพราะเซลล์มีเนื้อหาหลายสี เช่น badge ที่ต้องให้ระบบจัดสีให้) */
+@media (forced-colors: active) {
+  .column[data-focus-visible],
+  .row[data-focus-visible],
+  .cell[data-focus-visible] {
+    outline-offset: -4px;
+  }
+
+  .row[data-selected] > .cell:first-child {
+    padding-inline-start: calc(var(--dc-space-5) - var(--dc-space-2));
+    border-inline-start: 4px solid Highlight;
+  }
+}
+
 .empty {
   padding: var(--dc-space-8);
   text-align: center;
