@@ -27,6 +27,10 @@ import { createAgentHistoryApi } from './agent-history/api.js';
 import { CasesPage } from './cases/cases-page.js';
 import { createTeamRecordingsApi } from './team-recordings/api.js';
 import { TeamRecordings } from './team-recordings/team-recordings.js';
+import { createQualityApi } from './quality/api.js';
+import { MyQuality } from './quality/my-quality.js';
+import { QmForms } from './quality/qm-forms.js';
+import { TeamEvaluations } from './quality/team-evaluations.js';
 import { createCasesApi } from './cases/api.js';
 import { DphoneEmbedding } from './dphone-embedding/dphone-embedding.js';
 import { createAccountApi, createAccountPolicyApi } from './account/api.js';
@@ -221,6 +225,8 @@ export function ConsoleAuthRoot() {
   const casesView = view === 'team-cases';
   // #967: เสียงบันทึกของทีมสำหรับ Supervisor
   const recordingsView = view === 'team-recordings';
+  // #971: ประเมินคุณภาพ (Supervisor), คะแนนของฉัน (Agent), ฟอร์มประเมิน (Admin)
+  const qualityApp = QUALITY_APPS.find((app) => app === view);
   const preferenceView = view === 'preferences';
   const governanceView = view === 'governance';
   const journeyView = view === 'journeys';
@@ -248,6 +254,7 @@ export function ConsoleAuthRoot() {
       historyView ||
       casesView ||
       recordingsView ||
+      !!qualityApp ||
       preferenceView ||
       governanceView ||
       journeyView ||
@@ -336,6 +343,8 @@ export function ConsoleAuthRoot() {
               <CasesSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
             ) : recordingsView ? (
               <RecordingsSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
+            ) : qualityApp ? (
+              <QualitySurface app={qualityApp} apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
             ) : accountView ? (
               <AccountSurface
                 apiBaseUrl={apiBaseUrl}
@@ -517,6 +526,72 @@ export function CasesSurface({
         viewerUserId={profile.dc_user_id as string}
         onSignIn={() => void signInFromCurrentPage(auth)}
       />
+    </ConsoleShell>
+  );
+}
+
+export const QUALITY_APPS = ['team-evaluations', 'my-quality', 'qm-forms'] as const;
+export type QualityApp = (typeof QUALITY_APPS)[number];
+
+/** #971: หน้าประเมินคุณภาพสามหน้า ใช้ client และการตรวจ identity เดียวกัน; สิทธิ์จริงตรวจที่ API */
+export function QualitySurface({
+  app,
+  apiBaseUrl,
+  tenantAlias,
+}: {
+  app: QualityApp;
+  apiBaseUrl: string;
+  tenantAlias: string;
+}) {
+  const auth = useAuth();
+  const { t } = useTranslation('quality');
+  const accessToken = auth.user?.access_token;
+  const latestToken = useRef(accessToken);
+  latestToken.current = auth.isAuthenticated ? accessToken : undefined;
+  const api = useMemo(
+    () => createQualityApi({ baseUrl: apiBaseUrl, accessToken: () => latestToken.current }),
+    [apiBaseUrl],
+  );
+  if (auth.isLoading)
+    return (
+      <main className="empty" aria-busy="true">
+        {t('loading')}
+      </main>
+    );
+  if (auth.error || !auth.isAuthenticated || !accessToken)
+    return (
+      <main className="empty">
+        <p>{t('unauthorized')}</p>
+        <Button onPress={() => void signInFromCurrentPage(auth)}>{t('signIn')}</Button>
+      </main>
+    );
+  const profile = auth.user?.profile;
+  const identity = [profile?.iss, profile?.tenant_id, profile?.dc_user_id, profile?.sub];
+  if (
+    profile?.iss !== auth.settings.authority ||
+    profile?.tenant_slug !== tenantAlias ||
+    !identity.every((field) => typeof field === 'string' && field.length > 0)
+  ) {
+    return (
+      <main className="empty" role="alert">
+        {t('forbidden')}
+      </main>
+    );
+  }
+  const identityKey = JSON.stringify(identity);
+  const onSignIn = () => void signInFromCurrentPage(auth);
+  const Page =
+    app === 'team-evaluations' ? TeamEvaluations : app === 'my-quality' ? MyQuality : QmForms;
+  return (
+    <ConsoleShell
+      key={identityKey}
+      {...shellUserProps(auth, tenantAlias)}
+      apiBaseUrl={apiBaseUrl}
+      accessToken={() => accessToken}
+      tenantAlias={tenantAlias}
+      appId={app}
+    >
+      <Page api={api} identityKey={identityKey} onSignIn={onSignIn} />
     </ConsoleShell>
   );
 }

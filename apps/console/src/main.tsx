@@ -14,7 +14,15 @@ import { StrictMode, useEffect, useMemo, useState } from 'react';
 import { AuthProvider } from 'react-oidc-context';
 import { User, UserManager, WebStorageStateStore } from 'oidc-client-ts';
 import { createRoot } from 'react-dom/client';
-import { CasesSurface, ConsoleAuthRoot, HistorySurface, RecordingsSurface } from './auth-root.js';
+import {
+  CasesSurface,
+  ConsoleAuthRoot,
+  HistorySurface,
+  QUALITY_APPS,
+  QualitySurface,
+  RecordingsSurface,
+  type QualityApp,
+} from './auth-root.js';
 import { ConsoleApp } from './console-app.js';
 import { createConsoleApi } from './console-api.js';
 import { GovernancePage } from './governance-page.js';
@@ -85,7 +93,11 @@ function e2eShellUser(tenantAlias: string | undefined) {
   };
 }
 
-function HistoryE2eRoot({ surface = 'history' }: { surface?: 'history' | 'cases' | 'recordings' }) {
+function HistoryE2eRoot({
+  surface = 'history',
+}: {
+  surface?: 'history' | 'cases' | 'recordings' | QualityApp;
+}) {
   const url = new URL(window.location.href);
   const [identity, setIdentity] = useState('first');
   const manager = useMemo(
@@ -123,7 +135,13 @@ function HistoryE2eRoot({ surface = 'history' }: { surface?: 'history' | 'cases'
         <button onClick={() => setIdentity('second')}>Switch identity fixture</button>
       ) : null}
       <AuthProvider userManager={manager} skipSigninCallback>
-        {surface === 'recordings' ? (
+        {QUALITY_APPS.includes(surface as QualityApp) ? (
+          <QualitySurface
+            app={surface as QualityApp}
+            apiBaseUrl={window.location.origin}
+            tenantAlias={url.searchParams.get('tenant') ?? 'demo'}
+          />
+        ) : surface === 'recordings' ? (
           <RecordingsSurface
             apiBaseUrl={window.location.origin}
             tenantAlias={url.searchParams.get('tenant') ?? 'demo'}
@@ -192,6 +210,8 @@ function ConsoleE2eRoot() {
   if (view === 'agent-history') return <HistoryE2eRoot />;
   if (view === 'team-cases') return <HistoryE2eRoot surface="cases" />;
   if (view === 'team-recordings') return <HistoryE2eRoot surface="recordings" />;
+  const qualityApp = QUALITY_APPS.find((app) => app === view);
+  if (qualityApp) return <HistoryE2eRoot surface={qualityApp} />;
   if (view === 'tenant-people')
     return (
       <TenantPeoplePage
