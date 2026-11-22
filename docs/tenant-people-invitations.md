@@ -12,6 +12,8 @@ Authority: [V1-B #704](https://github.com/Kitti-Nualsalee/dcontact/issues/704),
 แต่ละ binding ต้องเป็น tenant/Organization ที่ operator อนุมัติ มี service client แบบ narrow authority,
 worker principal แบบ NOINHERIT/NOBYPASSRLS ที่ได้รับ binding และ SMTP ที่ readiness ผ่าน.
 ไม่ใช้ owner/superuser/application connection แทน worker.
+tenant ใหม่เตรียม client, worker binding และค่า env ได้ด้วย `scripts/tenant-voice-onboarding.mjs`
+ตาม [new-tenant-onboarding.md](new-tenant-onboarding.md).
 
 flag นี้ต่อ initial delivery, resend, read-only reconcile และ activation เข้ากับ runtime
 ใน main API และ Workspace UAT composition เดียวกัน. Readiness ปิดเมื่อ runtime หยุด,

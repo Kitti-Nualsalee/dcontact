@@ -37,6 +37,23 @@ export function coreFail(
     ...extra,
   });
 }
+/**
+ * รหัสสำหรับ log ของ error ที่ไม่คาดไว้: Prisma code, SQLSTATE และรหัส EXCEPTION ของ trigger
+ * (เช่น `CORE_TEAM_EFFECT_RECEIPT_REQUIRED`) เฉพาะเมื่อข้อความเป็นรหัสตัวพิมพ์ใหญ่ล้วน — ไม่คืนข้อความอิสระ
+ */
+export function unexpectedErrorCode(error: unknown): string | null {
+  if (!error || typeof error !== 'object') return null;
+  const e = error as { code?: unknown; meta?: { code?: unknown; message?: unknown } };
+  const parts = [e.code, e.meta?.code].filter(
+    (part): part is string => typeof part === 'string' && /^[A-Z0-9]{1,10}$/.test(part),
+  );
+  const raised =
+    typeof e.meta?.message === 'string'
+      ? /^ERROR:\s+([A-Z][A-Z0-9_]{2,80})$/.exec(e.meta.message)?.[1]
+      : undefined;
+  if (raised) parts.push(raised);
+  return parts.length ? parts.join(':') : null;
+}
 export function coreBusy(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false;
   const e = error as { code?: string; meta?: { code?: string } };
@@ -70,6 +87,16 @@ export class TenantCoreErrors implements ExceptionFilter {
         retryable: false,
       };
     }
+    // 500 เดิมไม่มี log เลย จึงหาสาเหตุไม่ได้ (#977) — บันทึกเฉพาะชนิดและรหัส ไม่บันทึกข้อความที่อาจมีข้อมูลผู้ใช้
+    if (status === 500)
+      console.error(
+        JSON.stringify({
+          event: 'tenant_core.request_failed',
+          requestId: coreRequestId(request) ?? null,
+          errorName: error instanceof Error ? error.name : typeof error,
+          errorCode: error instanceof CoreError ? detail.code : unexpectedErrorCode(error),
+        }),
+      );
     response.statusCode = status;
     response.setHeader('Content-Type', 'application/json');
     response.setHeader('Cache-Control', 'no-store');
