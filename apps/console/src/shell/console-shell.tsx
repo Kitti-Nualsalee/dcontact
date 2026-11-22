@@ -403,11 +403,18 @@ export function ConsoleShell({
                                         t('navigation.groups.settings'),
                                         t('navigation.apps.dphoneEmbedding'),
                                       ]
-                                    : [
-                                        t('navigation.groups.quality'),
-                                        t('navigation.apps.contactGovernance'),
-                                        ...(pageLabel ? [pageLabel] : []),
-                                      ]
+                                    : appId === 'contact-governance'
+                                      ? [
+                                          t('navigation.groups.quality'),
+                                          t('navigation.apps.contactGovernance'),
+                                          ...(pageLabel ? [pageLabel] : []),
+                                        ]
+                                      : // หน้าอื่นตามเมนู: พื้นที่ / แอป (เช่น คุณภาพ / ประเมินคุณภาพสายของทีม)
+                                        [
+                                          ...(area ? [area.label] : []),
+                                          nav.apps.find((app) => app.id === appId)?.label ?? '',
+                                          ...(pageLabel ? [pageLabel] : []),
+                                        ].filter(Boolean)
         }
         language={locale}
         onLanguageChange={onLanguageChange}
