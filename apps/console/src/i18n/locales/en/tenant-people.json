@@ -3,7 +3,7 @@
     "title": "Disable account",
     "warning": "Only idle accounts can be disabled. Access stops immediately. The last usable Admin cannot be disabled.",
     "confirm": "Disable this account? History is retained. This page cannot re-enable the account.",
-    "start": "Prepare to disable",
+    "start": "Disable account…",
     "submit": "Confirm disable",
     "cancel": "Cancel",
     "refresh": "Check original command",
@@ -23,7 +23,8 @@
       "REVISION_CONFLICT": "Data changed. Refresh before submitting another command.",
       "PROTECTED_OR_FOREIGN_IDENTITY": "This account is outside the permitted disable scope."
     },
-    "notEligible": "This account can't be disabled yet: it isn't active, is still provisioning, or has a pending request."
+    "notEligible": "This account can't be disabled yet: it isn't active, is still provisioning, or has a pending request.",
+    "dialogTitle": "Disable {{name}}?"
   },
   "pages": {
     "navigation": "People pages",
@@ -189,5 +190,11 @@
     "expiresAt": "Invitation expires",
     "loadFailed": "Couldn't load account details.",
     "help": "Activating an account doesn't put the user on calls. Users set their own password and TOTP."
+  },
+  "invitationDialog": {
+    "titleResend": "Resend invitation to {{name}}",
+    "bodyResend": "A new invitation goes to {{email}}. Up to 3 sends per 60 minutes.",
+    "titleReconcile": "Check invitation delivery",
+    "bodyReconcile": "The last delivery result is unclear. This checks the evidence first and doesn't resend."
   }
 }

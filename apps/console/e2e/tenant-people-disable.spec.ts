@@ -101,26 +101,31 @@ for (const scenario of [
     await open();
     let panel = page.getByRole('region', { name: 'ปิดบัญชี', exact: true });
     if (scenario === 'not-ready') {
-      await expect(
-        panel.getByRole('button', { name: 'เตรียมปิดบัญชี', exact: true }),
-      ).toBeDisabled();
+      await expect(panel.getByRole('button', { name: 'ปิดบัญชี…', exact: true })).toBeDisabled();
       expect(posts).toBe(0);
       return;
     }
-    await panel
-      .getByRole('textbox', { name: 'เหตุผล (1–500 ตัวอักษร)', exact: true })
-      .fill('จบทดสอบบัญชี');
-    await panel.getByRole('button', { name: 'เตรียมปิดบัญชี', exact: true }).click();
+    const dialog = page.getByRole('alertdialog');
+    const confirmDisable = async () => {
+      await panel.getByRole('button', { name: 'ปิดบัญชี…', exact: true }).click();
+      await dialog
+        .getByRole('textbox', { name: 'เหตุผล (1–500 ตัวอักษร)', exact: true })
+        .fill('จบทดสอบบัญชี');
+      await dialog.getByRole('button', { name: 'ยืนยันปิดบัญชี', exact: true }).click();
+    };
+    await panel.getByRole('button', { name: 'ปิดบัญชี…', exact: true }).click();
+    await expect(dialog).toBeVisible();
     expect(posts).toBe(0);
-    await panel.getByRole('button', { name: 'ยืนยันปิดบัญชี', exact: true }).click();
+    await dialog.getByRole('button', { name: 'ยกเลิก', exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    await confirmDisable();
     if (scenario === 'readiness-race') {
       await expect(panel.getByRole('alert')).toContainText('ยังไม่ได้รับคำสั่ง');
       await panel.getByRole('button', { name: 'ตรวจผลคำสั่งเดิม', exact: true }).click();
-      await panel.getByRole('button', { name: 'เตรียมปิดบัญชี', exact: true }).click();
-      await panel.getByRole('button', { name: 'ยืนยันปิดบัญชี', exact: true }).click();
+      await confirmDisable();
     }
     if (scenario === 'last-admin' || scenario === 'busy') {
-      await expect(panel.getByRole('alert')).toContainText(
+      await expect(dialog.getByRole('alert')).toContainText(
         scenario === 'last-admin' ? 'คนสุดท้าย' : 'มีงานค้าง',
       );
       expect(posts).toBe(1);
@@ -132,9 +137,7 @@ for (const scenario of [
       await open();
       panel = page.getByRole('region', { name: 'ปิดบัญชี', exact: true });
       await expect(panel).toContainText('ผลยังไม่ชัดเจน');
-      await expect(
-        panel.getByRole('button', { name: 'เตรียมปิดบัญชี', exact: true }),
-      ).toBeDisabled();
+      await expect(panel.getByRole('button', { name: 'ปิดบัญชี…', exact: true })).toBeDisabled();
     }
     if (scenario === 'poll') {
       await expect(panel).toContainText('รอยืนยัน identity');

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from '@d-contact/i18n/react';
-import { Button, TextField } from '@d-contact/ui-react';
+import { Button, Dialog, TextField } from '@d-contact/ui-react';
 import { CatalogApiError } from '../voice-routing/api.js';
 import { peopleUuid } from './api.js';
 import type { PeopleDirectoryApi, PeopleDirectoryUser } from './directory-api.js';
@@ -37,7 +37,7 @@ export function PeopleInvitation({
   onFailure(error: unknown): void;
 }) {
   const { t: translate } = useTranslation('tenantPeople');
-  const label = translate as (key: string) => string;
+  const label = translate as (key: string, values?: Record<string, unknown>) => string;
   const storageKey = `dc:tenant-invitation:${identityKey}:${user.id}`;
   const [pending, setPending] = useState(() => restore(storageKey));
   const [ready, setReady] = useState(false);
@@ -45,6 +45,7 @@ export function PeopleInvitation({
   const [reason, setReason] = useState('');
   const [error, setError] = useState(false);
   const [limited, setLimited] = useState(false);
+  const [dialog, setDialog] = useState<'resend' | 'reconcile'>();
   const mounted = useRef(false);
   const inFlight = useRef(false);
   const callbacks = useRef({ onUser, onFailure });
@@ -112,15 +113,14 @@ export function PeopleInvitation({
       if (mounted.current) {
         remember({ ...reference, operationId: accepted.operationId });
         setReason('');
+        setDialog(undefined);
       }
     } catch (error) {
-      if (
-        mounted.current &&
-        error instanceof CatalogApiError &&
-        [400, 409, 429].includes(error.status)
-      )
-        remember(undefined);
+      const rejected = error instanceof CatalogApiError && [400, 409, 429].includes(error.status);
+      if (mounted.current && rejected) remember(undefined);
       failed(error);
+      // ผลไม่ชัดเจน: ปิด dialog ให้แผงแสดงคำสั่งค้างและปุ่มตรวจสถานะเดิม
+      if (mounted.current && !rejected) setDialog(undefined);
     } finally {
       inFlight.current = false;
       if (mounted.current) setBusy(false);
@@ -187,44 +187,84 @@ export function PeopleInvitation({
         <dt>{label('invitation.generation')}</dt>
         <dd>{user.invitationGeneration ?? label('directory.none')}</dd>
       </dl>
-      {error ? (
+      {error && !dialog ? (
         <p role="alert">{label(limited ? 'invitation.limited' : 'invitation.failed')}</p>
       ) : null}
       {pending ? <p role="status">{label('invitation.pending')}</p> : null}
       {ready && (resend || reconcile) ? (
-        <>
-          <TextField
-            label={label('invitation.reason')}
-            value={reason}
-            onChange={setReason}
-            isDisabled={busy || !!pending}
-          />
-          <div className="tp-actions">
+        <div className="tp-actions">
+          <Button
+            variant="primary"
+            isDisabled={busy || !!pending || !resend || limited}
+            onPress={() => {
+              setError(false);
+              setDialog('resend');
+            }}
+          >
+            {label('invitation.resend')}
+          </Button>
+          <Button
+            isDisabled={busy || !!pending || !reconcile}
+            onPress={() => {
+              setError(false);
+              setDialog('reconcile');
+            }}
+          >
+            {label('invitation.reconcile')}
+          </Button>
+        </div>
+      ) : null}
+      <Dialog
+        title={
+          dialog === 'reconcile'
+            ? label('invitationDialog.titleReconcile')
+            : label('invitationDialog.titleResend', { name: user.displayName })
+        }
+        isOpen={!!dialog}
+        isDismissable={!busy}
+        onOpenChange={(open) => {
+          if (!open && !busy) setDialog(undefined);
+        }}
+        footer={() => (
+          <>
+            <Button isDisabled={busy} onPress={() => setDialog(undefined)}>
+              {label('disable.cancel')}
+            </Button>
             <Button
               variant="primary"
               isDisabled={
                 busy ||
                 !!pending ||
-                !resend ||
                 !reason.trim() ||
                 [...reason.trim()].length > 500 ||
-                limited
+                (dialog === 'resend' && limited)
               }
-              onPress={() => void submit('resend')}
+              onPress={() => dialog && void submit(dialog)}
             >
-              {label('invitation.resend')}
+              {label(dialog === 'reconcile' ? 'invitation.reconcile' : 'invitation.resend')}
             </Button>
-            <Button
-              isDisabled={
-                busy || !!pending || !reconcile || !reason.trim() || [...reason.trim()].length > 500
-              }
-              onPress={() => void submit('reconcile')}
-            >
-              {label('invitation.reconcile')}
-            </Button>
-          </div>
-        </>
-      ) : null}
+          </>
+        )}
+      >
+        <div className="tp-dialog-body">
+          <p>
+            {dialog === 'reconcile'
+              ? label('invitationDialog.bodyReconcile')
+              : label('invitationDialog.bodyResend', { email: user.email })}
+          </p>
+          <TextField
+            autoFocus
+            label={label('invitation.reason')}
+            value={reason}
+            onChange={setReason}
+            isDisabled={busy}
+            description={`${[...reason.trim()].length}/500`}
+          />
+          {error ? (
+            <p role="alert">{label(limited ? 'invitation.limited' : 'invitation.failed')}</p>
+          ) : null}
+        </div>
+      </Dialog>
       <Button variant="ghost" isDisabled={busy} onPress={() => void recover()}>
         {label('invitation.refresh')}
       </Button>

@@ -115,26 +115,26 @@ for (const scenario of [
       expect(posts).toBe(0);
       return;
     }
-    await invitation
-      .getByRole('textbox', { name: 'เหตุผล (1–500 ตัวอักษร)', exact: true })
-      .fill('ตรวจคำเชิญทดสอบ');
     if (['ambiguous', 'dispatching'].includes(scenario))
       await expect(
         invitation.getByRole('button', { name: 'ส่งคำเชิญรุ่นใหม่', exact: true }),
       ).toBeDisabled();
-    await invitation
-      .getByRole('button', {
-        name: ['ambiguous', 'dispatching'].includes(scenario)
-          ? 'ตรวจหลักฐานการส่ง'
-          : 'ส่งคำเชิญรุ่นใหม่',
-        exact: true,
-      })
-      .click();
+    const action = ['ambiguous', 'dispatching'].includes(scenario)
+      ? 'ตรวจหลักฐานการส่ง'
+      : 'ส่งคำเชิญรุ่นใหม่';
+    await invitation.getByRole('button', { name: action, exact: true }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog
+      .getByRole('textbox', { name: 'เหตุผล (1–500 ตัวอักษร)', exact: true })
+      .fill('ตรวจคำเชิญทดสอบ');
+    expect(posts).toBe(0);
+    await dialog.getByRole('button', { name: action, exact: true }).click();
     if (scenario === 'limited') {
-      await expect(invitation.getByRole('alert')).toContainText('ครบโควตา');
+      await expect(dialog.getByRole('alert')).toContainText('ครบโควตา');
       expect(posts).toBe(1);
       return;
     }
+    await expect(dialog).toHaveCount(0);
     if (scenario === 'lost-reload') {
       await expect(invitation.getByRole('alert')).toBeVisible();
       await page.reload();
