@@ -85,6 +85,7 @@ Kamailio voice edge ของรุ่น Solo บน UAT (#923): [voice-edge.md
 | [voice-recording-supervisor-playback.md](voice-recording-supervisor-playback.md) | Supervisor เปิดฟังเสียงบันทึกของสายที่ทีมตัวเองรับ: สิทธิ์ตามทีมที่รับสาย, endpoint แบบ chunk, หน้า Console, วิธีเปิดใช้ และข้อจำกัด (#967) |
 | [voice-managed-routing-telephony.md](voice-managed-routing-telephony.md) | managed routing v1 ใน telephony หลักแบบหลาย tenant: flag `TELEPHONY_MANAGED_VOICE_ENABLED`, การแยก event managed/legacy, SIP domain ต่อ tenant, ผลทดลอง dev และข้อจำกัด (#979) |
 | [qm-human-evaluation.md](qm-human-evaluation.md) | ประเมินคุณภาพโดยคน: ฟอร์มมีเวอร์ชัน, สูตรคะแนน, สิทธิ์ตามทีมที่รับสาย, endpoint และข้อจำกัด (#971) |
+| [team-history.md](team-history.md) | ประวัติและสรุปงานของทีม: สิทธิ์ตามทีมที่รับสาย (Supervisor ทีมตัวเอง, Admin ทุกทีม), นิยามตัวเลข, endpoint และหน้า Console (#986) |
 | [new-tenant-onboarding.md](new-tenant-onboarding.md) | Tenant ใหม่จาก provisioning ถึง Agent รับสาย: ลำดับงานและผู้ทำ, สคริปต์เตรียม People/Voice ของ operator, เงื่อนไข runtime และผลทดลองบน dev (#977) |
 | [journey-orchestration.md](journey-orchestration.md) | ชั้น CX automation: trigger 4 ชนิด, การกระทำที่สั่งได้, เรียก **Contact Governance** ก่อนทุก action, data model `jr_*`/`sg_*`, ตัววัด (goal conversion · **สายที่ไม่เกิด** · suppression) + holdout, แผนเฟส J1–J5 |
 | [contact-governance.md](contact-governance.md) | **การกำกับสิทธิการติดต่อระดับ CIF**: DNC/restriction, consent/preference, Attempt/Touch, Approved exception, decision trace, reservation กลางและแผนเฟส CG1–CG5 |

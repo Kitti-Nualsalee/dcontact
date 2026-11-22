@@ -21,6 +21,8 @@ export interface WorkFilter {
   to: Date | null;
   /** undefined = ทุกผลบันทึก, null = งานที่ไม่มีผลบันทึก */
   disposition?: string | null;
+  /** #986 เฉพาะงานของ Agent คนนี้ในขอบเขตทีม */
+  agentId?: string;
 }
 
 const PERIOD_DAYS: Record<Exclude<SummaryPeriod, 'all'>, number> = {
@@ -120,15 +122,30 @@ export function dispositionFrom(value: unknown): string | null | undefined {
   throw new BadRequestException({ code: 'INVALID_DISPOSITION' });
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export function uuidFrom(value: unknown, code: string): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value === 'string' && UUID.test(value)) return value.toLowerCase();
+  throw new BadRequestException({ code });
+}
+
 export function workFilterFrom(query: {
   from?: unknown;
   to?: unknown;
   disposition?: unknown;
+  agentId?: unknown;
 }): WorkFilter {
   const from = instantFrom(query.from, 'INVALID_FROM');
   const to = instantFrom(query.to, 'INVALID_TO');
   if (from && to && from >= to) throw new BadRequestException({ code: 'INVALID_RANGE' });
-  return { from, to, disposition: dispositionFrom(query.disposition) };
+  const agentId = uuidFrom(query.agentId, 'INVALID_AGENT');
+  return {
+    from,
+    to,
+    disposition: dispositionFrom(query.disposition),
+    ...(agentId ? { agentId } : {}),
+  };
 }
 
 /** ค่าที่ผูกกับ cursor เพื่อไม่ให้นำ cursor ของตัวกรองหนึ่งไปใช้กับอีกตัวกรอง */
@@ -137,13 +154,29 @@ export function filterKey(filter: WorkFilter): string {
     filter.from?.toISOString() ?? '',
     filter.to?.toISOString() ?? '',
     filter.disposition === undefined ? '*' : (filter.disposition ?? NO_DISPOSITION),
+    // ต่อท้ายเฉพาะเมื่อมี — key ของงานของฉัน (#964) จึงเหมือนเดิม cursor ที่ออกไปแล้วยังใช้ได้
+    ...(filter.agentId ? [filter.agentId] : []),
   ].join('|');
 }
 
+/**
+ * ขอบเขตของงานที่จบ: งานของ Agent คนเดียว หรือ #986 งานที่ทีมรับตามหลักฐาน
+ * `voice_interaction_handling_attributions` (ทีมของ Agent ตอนรับสาย ไม่ใช่ทีมปัจจุบัน)
+ * `teamId: null` = ทุกทีมของ tenant ที่มีหลักฐาน — สายที่ไม่มีหลักฐานหรือ Agent ไม่มีทีมตอนรับไม่ถูกนับ
+ */
+export type WorkScope = { agentId: string } | { teamId: string | null };
+
 /** แถวงานที่จบของ Agent — ใช้เป็น CTE `work` */
 export function completedWorkSql(actor: WorkActor): Prisma.Sql {
+  return completedScopeWorkSql(actor.tenantId, { agentId: actor.userId });
+}
+
+/** นิยามเดียวของงานที่จบ (ADR-019 ข้อ 1) ใช้ทั้งงานของฉัน (#964) และงานของทีม (#986) */
+export function completedScopeWorkSql(tenantId: string, scope: WorkScope): Prisma.Sql {
+  const team = 'teamId' in scope;
   return Prisma.sql`
-    SELECT interaction.id AS interaction_id,
+    SELECT interaction.id AS interaction_id, interaction.agent_id,
+      ${team ? Prisma.sql`attribution.team_id` : Prisma.sql`NULL::uuid`} AS team_id,
       COALESCE(interaction.answered_at, interaction.queued_at) AS started_at,
       interaction.answered_at, interaction.ended_at, interaction.wrap_up_code AS disposition,
       COALESCE(result.recorded_at, completion.created_at AT TIME ZONE 'UTC',
@@ -160,7 +193,16 @@ export function completedWorkSql(actor: WorkActor): Prisma.Sql {
         AND event.type = 'interaction.wrapup_completed'
       ORDER BY event.created_at, event.id LIMIT 1
     ) completion ON interaction.voice_wrapup_policy = 'LEGACY'
-    WHERE interaction.tenant_id = ${actor.tenantId}::uuid AND interaction.agent_id = ${actor.userId}::uuid
+    ${
+      team
+        ? Prisma.sql`JOIN voice_interaction_handling_attributions attribution
+      ON attribution.tenant_id = interaction.tenant_id AND attribution.interaction_id = interaction.id
+        AND attribution.agent_id = interaction.agent_id AND attribution.team_id IS NOT NULL
+        ${scope.teamId === null ? Prisma.empty : Prisma.sql`AND attribution.team_id = ${scope.teamId}::uuid`}`
+        : Prisma.empty
+    }
+    WHERE interaction.tenant_id = ${tenantId}::uuid
+      ${team ? Prisma.empty : Prisma.sql`AND interaction.agent_id = ${(scope as { agentId: string }).agentId}::uuid`}
       AND interaction.channel = 'VOICE' AND interaction.state = 'COMPLETED'
       AND (interaction.voice_wrapup_policy = 'LEGACY' OR result.interaction_id IS NOT NULL)`;
 }
@@ -173,6 +215,7 @@ export function workFilterSql(filter: WorkFilter): Prisma.Sql[] {
   if (filter.disposition === null) conditions.push(Prisma.sql`disposition IS NULL`);
   else if (filter.disposition !== undefined)
     conditions.push(Prisma.sql`disposition = ${filter.disposition}`);
+  if (filter.agentId) conditions.push(Prisma.sql`agent_id = ${filter.agentId}::uuid`);
   return conditions;
 }
 

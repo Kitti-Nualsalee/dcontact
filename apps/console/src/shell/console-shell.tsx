@@ -47,6 +47,7 @@ export type ConsoleShellApp =
   | 'agent-history'
   | 'team-cases'
   | 'team-recordings'
+  | 'team-history'
   | 'team-evaluations'
   | 'my-quality'
   | 'qm-forms'

@@ -1,0 +1,9 @@
+/* #986 ประวัติของทีม — ใช้ส่วนสรุปและรายการเดียวกับ agent-history.css เพิ่มเฉพาะตัวเลือกทีมและหมายเหตุ */
+.th-note {
+  color: var(--dc-text-secondary);
+  font-size: var(--dc-text-sm);
+}
+.th-scope {
+  margin-block: var(--dc-space-4);
+  max-inline-size: 24rem;
+}

@@ -130,6 +130,7 @@ import {
   RecordingPlaybackController,
 } from './recording-playback-api.js';
 import { resolveRecordingSupervisorPlayback } from './recording-playback-config.js';
+import { TEAM_HISTORY_DATABASE, TeamHistoryController } from './team-history.js';
 import {
   TEAM_SEGMENT_SCOPE_DATABASE,
   TeamSegmentScopeController,
@@ -492,6 +493,7 @@ class WorkspaceSessionController {
     QmEvaluationController,
     AgentWorkspaceController,
     AgentCasesController,
+    TeamHistoryController,
     TeamSegmentScopeController,
     FreeSwitchDirectoryController,
     WorkSessionController,
@@ -572,6 +574,7 @@ class WorkspaceSessionController {
     { provide: SUPERVISOR_LIVE_DATABASE, useValue: prisma },
     { provide: SupervisorLiveEventStream, useValue: supervisorLiveEvents },
     { provide: RECORDING_DATABASE, useValue: prisma },
+    { provide: TEAM_HISTORY_DATABASE, useValue: prisma },
     { provide: TELEPHONY_COMMAND_PUBLISHER, useValue: recordingCommandPublisher },
     { provide: RECORDING_STORAGE, useValue: recordingStorage },
     { provide: RECORDING_PLAYBACK_STORAGE, useValue: recordingStorage },
