@@ -36,7 +36,10 @@
       "customerAccess": "สิทธิ์ทีมเห็นลูกค้า",
       "customerOverview": "ภาพรวมข้อมูลลูกค้า",
       "customerRules": "กฎข้อมูล",
-      "customerActivity": "กิจกรรมลูกค้า"
+      "customerActivity": "กิจกรรมลูกค้า",
+      "teamEvaluations": "ประเมินคุณภาพสายของทีม",
+      "myQuality": "คะแนนคุณภาพของฉัน",
+      "qmForms": "ฟอร์มประเมินคุณภาพ"
     },
     "areas": {
       "home": "หน้าแรก",

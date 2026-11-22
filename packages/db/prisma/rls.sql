@@ -91,7 +91,9 @@ BEGIN
     'c360_interaction_customer_changes', 'c360_tags', 'c360_contact_tags', 'c360_work_mutation_auth',
     'c360_actor_capability_grants', 'c360_actor_capability_revocations',
     -- #967: ทีมที่รับสายจริง และ session เปิดฟังของ Supervisor
-    'voice_interaction_handling_attributions', 'recording_playback_sessions'
+    'voice_interaction_handling_attributions', 'recording_playback_sessions',
+    -- #971: ฟอร์มประเมินคุณภาพและเวอร์ชัน
+    'qm_forms', 'qm_form_versions'
   ]
   LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
@@ -145,6 +147,8 @@ REVOKE UPDATE, DELETE ON recording_audit_events FROM dcontact_app;
 REVOKE UPDATE, DELETE ON voice_interaction_handling_attributions FROM dcontact_app;
 REVOKE DELETE ON recording_playback_sessions FROM dcontact_app;
 REVOKE UPDATE, DELETE ON qm_audit_events FROM dcontact_app;
+-- #971: ฟอร์มและเวอร์ชันไม่ถูกลบ (ผลประเมินอ้างถึง); เวอร์ชันที่ publish แล้วกันแก้ด้วย trigger
+REVOKE DELETE ON qm_forms, qm_form_versions FROM dcontact_app;
 REVOKE UPDATE, DELETE ON cg_decision_logs FROM dcontact_app;
 REVOKE UPDATE, DELETE ON cg_attempts FROM dcontact_app;
 REVOKE UPDATE, DELETE ON cg_touches FROM dcontact_app;
