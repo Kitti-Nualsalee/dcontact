@@ -92,6 +92,7 @@ function Preview() {
           <Button
             size="sm"
             variant={instance.language === 'th' ? 'primary' : 'secondary'}
+            aria-pressed={instance.language === 'th'}
             onPress={() => switchLanguage('th')}
           >
             ไทย
@@ -99,6 +100,7 @@ function Preview() {
           <Button
             size="sm"
             variant={instance.language === 'en' ? 'primary' : 'secondary'}
+            aria-pressed={instance.language === 'en'}
             onPress={() => switchLanguage('en')}
           >
             English

@@ -76,3 +76,17 @@
   border-color: var(--dc-border-subtle);
   color: var(--dc-text-disabled);
 }
+
+/* forced-colors: Button ที่ใช้เป็นปุ่มสลับ (aria-pressed) บอกสถานะด้วยพื้นหรือ variant ซึ่งโหมดนี้บังคับเป็น Canvas
+   และขอบ transparent ถูกวาดเป็นเส้นเหมือนกันทุกปุ่ม จึงแยกไม่ออกว่าปุ่มไหนเลือกอยู่
+   ใช้ Highlight/HighlightText ของระบบ (ปิด forced-color-adjust ไม่งั้นแผ่น Canvas หลังข้อความบังข้อความ)
+   ปุ่มที่ disabled ปล่อยให้ระบบจัดสี GrayText ตามปกติ */
+@media (forced-colors: active) {
+  .button[aria-pressed='true']:not([data-disabled]) {
+    forced-color-adjust: none;
+    border-color: Highlight;
+    background: Highlight;
+    color: HighlightText;
+    box-shadow: none;
+  }
+}
