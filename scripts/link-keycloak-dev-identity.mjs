@@ -407,6 +407,18 @@ async function main() {
         throw new Error(`Keycloak user ${databaseUser.email} ต้องมีหนึ่งรายการ`);
       }
       const keycloakUser = matches[0];
+      // ผู้ใช้ที่มี realm role platform-operator (operator@demo.local ของ solo-uat-seed / sales-demo-stack)
+      // มีรหัสผ่านสุ่มของตัวเอง ห้ามตั้งเป็นรหัสผ่านของ Agent และห้ามให้ role ของ tenant เพิ่ม
+      const currentRoles = await request(
+        `/admin/realms/${realm}/users/${keycloakUser.id}/role-mappings/realm`,
+        { token },
+      );
+      if (currentRoles.some((role) => role.name === 'platform-operator')) {
+        console.log(
+          `ข้าม ${databaseUser.email}: เป็น platform-operator ไม่ตั้งรหัสผ่านหรือ role ใหม่`,
+        );
+        continue;
+      }
       await request(`/admin/realms/${realm}/users/${keycloakUser.id}`, {
         method: 'PUT',
         token,
