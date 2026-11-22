@@ -40,6 +40,8 @@ failure path บังคับ provider ล้มเหลวสามครั
 5. `TRANSCRIPTION_STARTED`
 6. `TRANSCRIPTION_FAILED`
 
+ลำดับนี้ใช้กับ provider ล้ม ถ้า recording ยังไม่ archive หรือถูกลบ worker จะไม่นับ attempt และ audit ต่างจากนี้ ดู `apps/qm/README.md`
+
 ตัวเลขนี้เป็น development baseline ของ pipeline และ provider contract แบบ deterministic เท่านั้น
 ไม่ใช่ SLA production และไม่ใช่ผล WER ของ ASR vendor ก่อนใช้จริงต้องวัด corpus ที่มนุษย์ตรวจแล้ว
 ซึ่งสะท้อน noise, codec และศัพท์เฉพาะของแต่ละ tenant เพิ่มเติม

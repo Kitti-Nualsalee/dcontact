@@ -56,6 +56,64 @@ function toView(job: {
   };
 }
 
+/**
+ * claim ก่อน publish: ตั้ง dispatchedAt ก่อนส่ง Kafka เพื่อไม่ให้ทับค่าที่ worker ล้างไว้ตอนเลื่อน job ที่รอ recording archive
+ * job ที่มี nextAttemptAt แล้ว (รอ archive หรือรอ retry) เป็นหน้าที่ของ QmRetryDispatcher จึงไม่ publish ซ้ำ
+ * ถ้า process ตายระหว่าง claim กับ publish dispatcher จะกวาด dispatchedAt ที่ค้างเกิน QM_DISPATCH_STALE_MS
+ */
+export async function dispatchNewTranscriptionJob(
+  database: PrismaClient,
+  publisher: QmJobPublisher,
+  tenantId: string,
+  job: {
+    id: string;
+    interactionId: string;
+    recordingId: string;
+    trigger: QmTranscriptionTrigger;
+    languageHint: string;
+    attempts: number;
+  },
+): Promise<boolean> {
+  const dispatchedAt = new Date();
+  const claimed = await withTenantDatabaseTransaction(database, tenantId, (transaction) =>
+    transaction.qmTranscriptionJob.updateMany({
+      where: {
+        id: job.id,
+        tenantId,
+        status: 'PENDING',
+        attempts: job.attempts,
+        dispatchedAt: null,
+        nextAttemptAt: null,
+      },
+      data: { dispatchedAt },
+    }),
+  );
+  if (claimed.count !== 1) return false;
+  try {
+    await publisher.publish({
+      tenantId,
+      job: {
+        kind: 'TRANSCRIBE',
+        jobId: job.id,
+        interactionId: job.interactionId,
+        recordingId: job.recordingId,
+        languageHint: job.languageHint,
+        trigger: job.trigger,
+        attempt: job.attempts + 1,
+      },
+    });
+  } catch (error) {
+    await withTenantDatabaseTransaction(database, tenantId, (transaction) =>
+      transaction.qmTranscriptionJob.updateMany({
+        where: { id: job.id, tenantId, dispatchedAt },
+        data: { dispatchedAt: null },
+      }),
+    );
+    throw error;
+  }
+  return true;
+}
+
 export class QmTranscriptionWorkflow {
   constructor(
     private readonly database: PrismaClient,
@@ -143,24 +201,7 @@ export class QmTranscriptionWorkflow {
     );
     if (!result) return undefined;
     if (result.shouldDispatch) {
-      await this.publisher.publish({
-        tenantId: event.tenantId,
-        job: {
-          kind: 'TRANSCRIBE',
-          jobId: result.job.id,
-          interactionId: result.job.interactionId,
-          recordingId: result.job.recordingId,
-          languageHint: result.job.languageHint,
-          trigger: result.job.trigger,
-          attempt: result.job.attempts + 1,
-        },
-      });
-      await withTenantDatabaseTransaction(this.database, event.tenantId, (transaction) =>
-        transaction.qmTranscriptionJob.updateMany({
-          where: { id: result.job.id, tenantId: event.tenantId, dispatchedAt: null },
-          data: { dispatchedAt: new Date() },
-        }),
-      );
+      await dispatchNewTranscriptionJob(this.database, this.publisher, event.tenantId, result.job);
     }
     return toView(result.job);
   }

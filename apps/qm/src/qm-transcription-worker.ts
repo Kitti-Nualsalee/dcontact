@@ -76,6 +76,18 @@ function retryDelayMs(attempts: number): number {
   return 30_000 * 2 ** (attempts - 1);
 }
 
+/**
+ * Telephony อาจส่ง call.hangup ก่อน archive WAV ขึ้น object storage เสร็จ (#988)
+ * worker จึงรอ recording.archivedAt โดยไม่นับ attempt ภายในเพดานนับจากเวลาสร้าง job
+ */
+export const RECORDING_ARCHIVE_WAIT_LIMIT_MS = 60 * 60 * 1_000;
+export const RECORDING_NOT_ARCHIVED = 'RECORDING_NOT_ARCHIVED';
+export const RECORDING_DELETED = 'RECORDING_DELETED';
+
+function archiveWaitDelayMs(waitedMs: number): number {
+  return Math.min(300_000, Math.max(15_000, waitedMs));
+}
+
 function failure(error: unknown): { code: string; reason: string } {
   if (error instanceof Error) {
     return { code: error.name || 'TRANSCRIPTION_ERROR', reason: error.message.slice(0, 500) };
@@ -159,11 +171,13 @@ export class QmTranscriptionWorker {
             maxAttempts: true,
             nextAttemptAt: true,
             status: true,
+            createdAt: true,
             recording: {
               select: {
                 storageKey: true,
                 channelLayout: true,
                 durationSec: true,
+                archivedAt: true,
                 deletedAt: true,
               },
             },
@@ -183,14 +197,80 @@ export class QmTranscriptionWorker {
           throw new Error('transcription job message does not match persisted job');
         }
         if (message.attempt <= job.attempts) return { ...job, duplicate: true as const };
+        // FAILED เป็นสถานะสุดท้าย: job ที่ปิดโดยไม่นับ attempt (recording ถูกลบหรือไม่ archive) ยังมี attempts = 0
+        // message ที่ Kafka ส่งซ้ำจึงต้องเป็น no-op ไม่ใช่ throw
+        if (job.status === 'FAILED') return { ...job, duplicate: true as const };
         if (message.attempt !== job.attempts + 1) {
           throw new Error('transcription job attempt is out of sequence');
         }
         if (job.status !== 'PENDING') throw new Error(`transcription job is ${job.status}`);
         if (job.nextAttemptAt && job.nextAttemptAt.getTime() > startedAt.getTime()) {
-          throw new Error('transcription retry is not due yet');
+          // message ที่มาก่อนเวลา (Kafka ส่งซ้ำหรือ publish ซ้ำ) เป็น no-op: QmRetryDispatcher เป็นตัวขับที่ durable
+          // ถ้า throw consumer จะ retry วนและกั้น message อื่นใน partition เดียวกันจนกว่าจะถึงเวลา
+          return { ...job, duplicate: true as const };
         }
-        if (job.recording.deletedAt) throw new Error('recording was deleted');
+        if (job.recording.deletedAt) {
+          return {
+            ...job,
+            duplicate: false as const,
+            settled: await this.failWithoutAttempt(transaction, tenantId, job, startedAt, {
+              code: RECORDING_DELETED,
+              reason: 'recording was deleted before transcription started',
+            }),
+          };
+        }
+        if (!job.recording.archivedAt) {
+          const deadline = new Date(job.createdAt.getTime() + RECORDING_ARCHIVE_WAIT_LIMIT_MS);
+          if (startedAt.getTime() >= deadline.getTime()) {
+            return {
+              ...job,
+              duplicate: false as const,
+              settled: await this.failWithoutAttempt(transaction, tenantId, job, startedAt, {
+                code: RECORDING_NOT_ARCHIVED,
+                reason: 'recording was not archived within the transcription wait limit',
+              }),
+            };
+          }
+          const waitedMs = Math.max(0, startedAt.getTime() - job.createdAt.getTime());
+          const nextAttemptAt = new Date(
+            Math.min(startedAt.getTime() + archiveWaitDelayMs(waitedMs), deadline.getTime()),
+          );
+          // ไม่เพิ่ม attempts: archive ช้าไม่ใช่ความล้มเหลวของ provider; retry dispatcher หยิบต่อเมื่อถึง nextAttemptAt
+          await transaction.qmTranscriptionJob.update({
+            where: { id: job.id },
+            data: {
+              failureCode: RECORDING_NOT_ARCHIVED,
+              failureReason: 'recording is not archived yet',
+              dispatchedAt: null,
+              nextAttemptAt,
+            },
+          });
+          await transaction.qmAuditEvent.create({
+            data: {
+              tenantId,
+              action: 'TRANSCRIPTION_RETRY_SCHEDULED',
+              resourceType: 'TRANSCRIPTION_JOB',
+              resourceId: job.id,
+              details: {
+                attempt: job.attempts,
+                maxAttempts: job.maxAttempts,
+                failureCode: RECORDING_NOT_ARCHIVED,
+                nextAttemptAt: nextAttemptAt.toISOString(),
+                waitDeadline: deadline.toISOString(),
+              },
+            },
+          });
+          return {
+            ...job,
+            duplicate: false as const,
+            settled: {
+              jobId: job.id,
+              status: 'PENDING' as const,
+              attempts: job.attempts,
+              nextAttemptAt: nextAttemptAt.toISOString(),
+            },
+          };
+        }
         await transaction.qmTranscriptionJob.update({
           where: { id: job.id },
           data: {
@@ -210,7 +290,7 @@ export class QmTranscriptionWorker {
             details: { attempt: message.attempt, providerId: this.provider.id },
           },
         });
-        return { ...job, duplicate: false as const };
+        return { ...job, duplicate: false as const, settled: undefined };
       },
     );
 
@@ -222,6 +302,7 @@ export class QmTranscriptionWorker {
         ...(claimed.nextAttemptAt ? { nextAttemptAt: claimed.nextAttemptAt.toISOString() } : {}),
       };
     }
+    if (claimed.settled) return claimed.settled;
 
     let transcription: TranscriptionProviderResult;
     try {
@@ -414,6 +495,41 @@ export class QmTranscriptionWorker {
       status: ready.completed.status,
       attempts: ready.completed.attempts,
     };
+  }
+
+  /** ปิด job ที่ทำต่อไม่ได้เพราะ recording โดยไม่นับ attempt เพื่อไม่ให้ค้าง PENDING ทั้งที่ dispatchedAt มีค่า */
+  private async failWithoutAttempt(
+    transaction: Prisma.TransactionClient,
+    tenantId: string,
+    job: { id: string; attempts: number; maxAttempts: number },
+    failedAt: Date,
+    problem: { code: string; reason: string },
+  ): Promise<QmWorkerResult> {
+    await transaction.qmTranscriptionJob.update({
+      where: { id: job.id },
+      data: {
+        status: 'FAILED',
+        failureCode: problem.code,
+        failureReason: problem.reason,
+        dispatchedAt: null,
+        nextAttemptAt: null,
+        completedAt: failedAt,
+      },
+    });
+    await transaction.qmAuditEvent.create({
+      data: {
+        tenantId,
+        action: 'TRANSCRIPTION_FAILED',
+        resourceType: 'TRANSCRIPTION_JOB',
+        resourceId: job.id,
+        details: {
+          attempt: job.attempts,
+          maxAttempts: job.maxAttempts,
+          failureCode: problem.code,
+        },
+      },
+    });
+    return { jobId: job.id, status: 'FAILED', attempts: job.attempts };
   }
 
   async getTranscript(tenantId: string, interactionId: string) {
