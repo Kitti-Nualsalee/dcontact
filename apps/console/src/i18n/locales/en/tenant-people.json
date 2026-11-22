@@ -71,7 +71,11 @@
     "VALIDATION_FAILED": "Check the name, email, role, team and extension before submitting again.",
     "UNAUTHORIZED": "Sign in again, then check the original command.",
     "FORBIDDEN": "You do not have permission to manage accounts in this scope.",
-    "FAILED": "The outcome is not confirmed. Check the original command instead of creating a duplicate account."
+    "FAILED": "The outcome is not confirmed. Check the original command instead of creating a duplicate account.",
+    "IDENTITY_CONFLICT": "An account with this email already exists",
+    "EXTENSION_CONFLICT": "This extension is taken. Choose another.",
+    "RESOURCE_LIMIT_REACHED": "You've reached your plan's account limit.",
+    "CONFIG_BUSY": "Another configuration change is in progress. Try again."
   },
   "invitation": {
     "title": "Invitation and activation",
@@ -108,5 +112,79 @@
       "ACTIVATED": "Activated",
       "UNKNOWN": "Unconfirmed"
     }
+  },
+  "list": {
+    "subtitle": "Accounts that sign in to Workspace and Console in this tenant",
+    "count": "Showing {{shown}} of {{loaded}} loaded accounts",
+    "countAll": "{{count}} accounts",
+    "openRow": "View",
+    "emptyTitle": "No user accounts yet",
+    "emptyBody": "Create the first account to invite an Agent, Supervisor or Admin.",
+    "noMatch": "No loaded accounts match these filters.",
+    "loadFailed": "Couldn't load accounts.",
+    "moreFailed": "Couldn't load more accounts. Loaded rows are kept.",
+    "retry": "Retry",
+    "unknownTeam": "Team not found"
+  },
+  "columns": {
+    "name": "Name",
+    "status": "Account status",
+    "actions": "Actions"
+  },
+  "filters": {
+    "label": "Account filters",
+    "searchLabel": "Search",
+    "search": "Name, email or extension",
+    "allRoles": "All roles",
+    "status": "Status",
+    "allStatuses": "All statuses",
+    "allTeams": "All teams",
+    "clear": "Clear filters",
+    "loadedOnly": "Searching only the {{count}} loaded accounts. Load more to search all."
+  },
+  "status": {
+    "ACTIVE": "Active",
+    "PENDING_ACTIVATION": "Awaiting activation",
+    "PROVISIONING": "Provisioning",
+    "DISABLING": "Disabling",
+    "DISABLED": "Disabled",
+    "ATTENTION_REQUIRED": "Needs review",
+    "REJECTED": "Provisioning rejected",
+    "UNKNOWN": "Unconfirmed"
+  },
+  "deliveryShort": {
+    "SENT": "Invite sent",
+    "INTENT": "Invite queued",
+    "NOT_STARTED": "Invite not sent",
+    "DISPATCHING": "Checking delivery",
+    "AMBIGUOUS": "Delivery unclear",
+    "FAILED": "Invite failed",
+    "EXPIRED": "Invite expired",
+    "UNKNOWN": "Unconfirmed"
+  },
+  "form": {
+    "title": "New account",
+    "back": "Back to user accounts",
+    "cancel": "Cancel",
+    "groups": {
+      "profile": "User details",
+      "assignment": "Team and extension",
+      "access": "Access"
+    },
+    "roleHelp": {
+      "AGENT": "Handles calls and chats in Workspace. Needs an extension.",
+      "SUPERVISOR": "Supervises teams and queues in Workspace.",
+      "ADMIN": "Configures the tenant in Console."
+    },
+    "extensionNotNeeded": "Supervisors and Admins don't need an extension.",
+    "noExtensions": "No free extensions available.",
+    "noTeams": "No teams yet. Create a team first."
+  },
+  "detail": {
+    "back": "Back to list",
+    "account": "Account details",
+    "expiresAt": "Invitation expires",
+    "loadFailed": "Couldn't load account details.",
+    "help": "Activating an account doesn't put the user on calls. Users set their own password and TOTP."
   }
 }

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from '@d-contact/i18n/react';
-import { Button, Select, TextField, useShellPageNav } from '@d-contact/ui-react';
+import { Button, Select, StatusChip, TextField, useShellPageNav } from '@d-contact/ui-react';
 import { ConfigPanel } from '../voice-routing/config-panel.js';
 import { ConsoleShell, type ConsoleShellProps } from '../shell/console-shell.js';
 import { CatalogApiError } from '../voice-routing/api.js';
@@ -96,6 +96,9 @@ function PeopleSession({ api, identityKey, onSignIn }: Props) {
     [teamId, setTeamId] = useState(''),
     [extension, setExtension] = useState('');
   const [role, setRole] = useState<PeopleRole>('AGENT');
+  const [mode, setMode] = useState<'list' | 'form'>('list');
+  const [detailOpen, setDetailOpen] = useState(false);
+  const formHeading = useRef<HTMLHeadingElement>(null);
   const active = useRef(true);
   const requestActive = useRef(false);
   function remember(value: Pending | undefined) {
@@ -185,6 +188,7 @@ function PeopleSession({ api, identityKey, onSignIn }: Props) {
     setStatus(undefined);
     setError(undefined);
     let admitted = false;
+    let keepForm = false;
     try {
       const accepted = await api.create({
         ...intent,
@@ -216,15 +220,45 @@ function PeopleSession({ api, identityKey, onSignIn }: Props) {
       ) {
         if (active.current) {
           remember(undefined);
+          keepForm = true;
           if ([401, 403].includes(error.status)) failure(error);
           else
-            setError(error.code === 'VALIDATION_FAILED' ? 'VALIDATION_FAILED' : 'CREATE_REJECTED');
+            setError(
+              [
+                'VALIDATION_FAILED',
+                'IDENTITY_CONFLICT',
+                'EXTENSION_CONFLICT',
+                'RESOURCE_LIMIT_REACHED',
+                'CONFIG_BUSY',
+              ].includes(error.code)
+                ? error.code
+                : 'CREATE_REJECTED',
+            );
         }
       } else failure(error);
     } finally {
       requestActive.current = false;
       if (active.current) setBusy(false);
     }
+    // คำสั่งที่ server รับแล้ว (หรือผลไม่ชัดเจน) กลับไปหน้ารายการที่มีแถบสถานะคำสั่ง
+    if (active.current && !keepForm) {
+      if (admitted) {
+        setName('');
+        setEmail('');
+        setExtension('');
+      }
+      setMode('list');
+    }
+  }
+  function openForm() {
+    setError(undefined);
+    setMode('form');
+    requestAnimationFrame(() => formHeading.current?.focus());
+  }
+  function closeForm() {
+    setError(undefined);
+    setMode('list');
+    requestAnimationFrame(() => document.querySelector<HTMLElement>('[data-tp-create]')?.focus());
   }
   const terminal = status && ['SUCCEEDED', 'REJECTED', 'ACTION_REQUIRED'].includes(status.state);
   useEffect(() => {
@@ -247,22 +281,58 @@ function PeopleSession({ api, identityKey, onSignIn }: Props) {
     status.provisioningState === 'PROVISIONED' &&
     status.accountState === 'PENDING_ACTIVATION' &&
     status.activationState === 'PENDING';
+  const operationTone =
+    status?.state === 'SUCCEEDED'
+      ? 'success'
+      : status?.state === 'ACTION_REQUIRED' ||
+          status?.accountState === 'ATTENTION_REQUIRED' ||
+          status?.state === 'REJECTED'
+        ? 'critical'
+        : 'info';
+  const canSubmit =
+    !disabled && !!name.trim() && !!email.trim() && !!teamId && (role !== 'AGENT' || !!extension);
   return (
     <section className="tp-root" aria-busy={busy}>
-      <h1>{label('title')}</h1>
-      <p>{label('notice')}</p>
+      {mode === 'list' && !detailOpen ? (
+        <header className="tp-head">
+          <div>
+            <h1>{label('title')}</h1>
+            <p className="tp-muted">{label('list.subtitle')}</p>
+          </div>
+          <Button variant="primary" data-tp-create isDisabled={disabled} onPress={openForm}>
+            {label('create')}
+          </Button>
+        </header>
+      ) : null}
+      {mode === 'form' ? (
+        <header className="tp-head tp-head-form">
+          <div>
+            <Button variant="ghost" className="tp-back" onPress={closeForm}>
+              ← {label('form.back')}
+            </Button>
+            <h1 ref={formHeading} tabIndex={-1}>
+              {label('form.title')}
+            </h1>
+          </div>
+        </header>
+      ) : null}
       {error ? (
-        <div role="alert">
+        <div role="alert" className="tp-alert">
           <p>{label(`errors.${error}`)}</p>
           {error === 'UNAUTHORIZED' && onSignIn ? (
             <Button onPress={onSignIn}>{label('signIn')}</Button>
           ) : null}
         </div>
       ) : null}
-      {!busy && !options?.ready ? <p role="status">{label('notReady')}</p> : null}
+      {!busy && !options?.ready ? (
+        <p role="status" className="tp-notice">
+          {label('notReady')}
+        </p>
+      ) : null}
       {pending ? (
-        <section aria-label={label('operation')}>
-          <p role="status">
+        <section className="tp-banner" aria-label={label('operation')}>
+          <StatusChip status={operationTone}>{label('operation')}</StatusChip>
+          <p role="status" className="tp-banner-text">
             {status?.state === 'SUCCEEDED' &&
             status.accountState === 'ACTIVE' &&
             status.activationState === 'ACTIVATED'
@@ -276,70 +346,119 @@ function PeopleSession({ api, identityKey, onSignIn }: Props) {
                     ? label('rejected')
                     : label('pending')}
           </p>
-          <Button isDisabled={busy} onPress={() => void recover()}>
+          <Button variant="secondary" isDisabled={busy} onPress={() => void recover()}>
             {label('refresh')}
           </Button>
         </section>
       ) : null}
-      <section className="tp-form" aria-label={label('create')}>
-        <TextField label={label('name')} value={name} onChange={setName} isDisabled={disabled} />
-        <TextField
-          label={label('email')}
-          type="email"
-          value={email}
-          onChange={setEmail}
-          isDisabled={disabled}
-        />
-        <Select
-          label={label('role')}
-          placeholder={label('chooseRole')}
-          selectedKey={role}
-          onSelectionChange={(key) => {
-            if (key === 'AGENT' || key === 'SUPERVISOR' || key === 'ADMIN') {
-              setRole(key);
-              setExtension('');
-            }
+      {mode === 'form' ? (
+        <form
+          className="tp-form"
+          aria-label={label('create')}
+          noValidate
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (canSubmit) void create();
           }}
-          options={(['AGENT', 'SUPERVISOR', 'ADMIN'] as const).map((value) => ({
-            id: value,
-            label: label(`roles.${value}`),
-          }))}
-          isDisabled={disabled}
-        />
-        <Select
-          label={label('team')}
-          placeholder={label('chooseTeam')}
-          selectedKey={teamId || null}
-          onSelectionChange={(key) => setTeamId(String(key ?? ''))}
-          options={(options?.teams ?? []).map((team) => ({ id: team.id, label: team.name }))}
-          isDisabled={disabled}
-        />
-        {role === 'AGENT' ? (
-          <Select
-            label={label('extension')}
-            placeholder={label('chooseExtension')}
-            selectedKey={extension || null}
-            onSelectionChange={(key) => setExtension(String(key ?? ''))}
-            options={(options?.extensions ?? []).map((ref) => ({ id: ref, label: ref }))}
-            isDisabled={disabled}
-          />
-        ) : null}
-        <Button
-          isDisabled={
-            disabled || !name.trim() || !email.trim() || !teamId || (role === 'AGENT' && !extension)
-          }
-          onPress={() => void create()}
         >
-          {label('create')}
-        </Button>
-      </section>
-      {options && api.directory ? (
+          <div className="tp-form-main">
+            <section className="tp-card" aria-labelledby="tp-profile">
+              <h2 id="tp-profile">{label('form.groups.profile')}</h2>
+              <div className="tp-field-row">
+                <TextField
+                  label={label('name')}
+                  value={name}
+                  onChange={setName}
+                  isDisabled={disabled}
+                />
+                <TextField
+                  label={label('email')}
+                  type="email"
+                  value={email}
+                  onChange={setEmail}
+                  isDisabled={disabled}
+                  isInvalid={error === 'IDENTITY_CONFLICT'}
+                  errorMessage={label('errors.IDENTITY_CONFLICT')}
+                />
+              </div>
+            </section>
+            <section className="tp-card" aria-labelledby="tp-assignment">
+              <h2 id="tp-assignment">{label('form.groups.assignment')}</h2>
+              <div className="tp-field-row">
+                <Select
+                  label={label('team')}
+                  placeholder={label('chooseTeam')}
+                  selectedKey={teamId || null}
+                  onSelectionChange={(key) => setTeamId(String(key ?? ''))}
+                  options={(options?.teams ?? []).map((team) => ({
+                    id: team.id,
+                    label: team.name,
+                  }))}
+                  isDisabled={disabled}
+                  description={options && !options.teams.length ? label('form.noTeams') : undefined}
+                />
+                {role === 'AGENT' ? (
+                  <Select
+                    label={label('extension')}
+                    placeholder={label('chooseExtension')}
+                    selectedKey={extension || null}
+                    onSelectionChange={(key) => setExtension(String(key ?? ''))}
+                    options={(options?.extensions ?? []).map((ref) => ({ id: ref, label: ref }))}
+                    isDisabled={disabled}
+                    isInvalid={error === 'EXTENSION_CONFLICT'}
+                    errorMessage={label('errors.EXTENSION_CONFLICT')}
+                    description={
+                      options && !options.extensions.length ? label('form.noExtensions') : undefined
+                    }
+                  />
+                ) : (
+                  <p className="tp-muted tp-help">{label('form.extensionNotNeeded')}</p>
+                )}
+              </div>
+            </section>
+          </div>
+          <aside className="tp-form-side">
+            <section className="tp-card" aria-labelledby="tp-access">
+              <h2 id="tp-access">{label('form.groups.access')}</h2>
+              <Select
+                label={label('role')}
+                placeholder={label('chooseRole')}
+                selectedKey={role}
+                onSelectionChange={(key) => {
+                  if (key === 'AGENT' || key === 'SUPERVISOR' || key === 'ADMIN') {
+                    setRole(key);
+                    setExtension('');
+                  }
+                }}
+                options={(['AGENT', 'SUPERVISOR', 'ADMIN'] as const).map((value) => ({
+                  id: value,
+                  label: label(`roles.${value}`),
+                }))}
+                isDisabled={disabled}
+                description={label(`form.roleHelp.${role}`)}
+              />
+            </section>
+            <p className="tp-muted tp-help">{label('notice')}</p>
+            <div className="tp-form-actions">
+              <Button type="submit" variant="primary" isDisabled={!canSubmit}>
+                {label('create')}
+              </Button>
+              <Button variant="secondary" onPress={closeForm}>
+                {label('form.cancel')}
+              </Button>
+            </div>
+          </aside>
+        </form>
+      ) : null}
+      {mode === 'list' && options && api.directory ? (
         <PeopleDirectory
           identityKey={identityKey}
           api={api.directory}
+          teams={options.teams}
           canOpenOperation={!busy && (!pending || !!terminal)}
           onFailure={failure}
           onOperation={(reference) => void recover(reference)}
+          onDetailChange={setDetailOpen}
         />
       ) : null}
     </section>

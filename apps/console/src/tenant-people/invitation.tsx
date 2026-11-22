@@ -167,9 +167,9 @@ export function PeopleInvitation({
     !!user.operationId &&
     ['DISPATCHING', 'AMBIGUOUS'].includes(user.deliveryState);
   return (
-    <section aria-label={label('invitation.title')} aria-busy={busy}>
-      <h4>{label('invitation.title')}</h4>
-      <dl>
+    <section className="tp-panel" aria-label={label('invitation.title')} aria-busy={busy}>
+      <h3>{label('invitation.title')}</h3>
+      <dl className="tp-dl">
         <dt>{label('invitation.provisioning')}</dt>
         <dd>
           {label(
@@ -199,30 +199,33 @@ export function PeopleInvitation({
             onChange={setReason}
             isDisabled={busy || !!pending}
           />
-          <Button
-            isDisabled={
-              busy ||
-              !!pending ||
-              !resend ||
-              !reason.trim() ||
-              [...reason.trim()].length > 500 ||
-              limited
-            }
-            onPress={() => void submit('resend')}
-          >
-            {label('invitation.resend')}
-          </Button>
-          <Button
-            isDisabled={
-              busy || !!pending || !reconcile || !reason.trim() || [...reason.trim()].length > 500
-            }
-            onPress={() => void submit('reconcile')}
-          >
-            {label('invitation.reconcile')}
-          </Button>
+          <div className="tp-actions">
+            <Button
+              variant="primary"
+              isDisabled={
+                busy ||
+                !!pending ||
+                !resend ||
+                !reason.trim() ||
+                [...reason.trim()].length > 500 ||
+                limited
+              }
+              onPress={() => void submit('resend')}
+            >
+              {label('invitation.resend')}
+            </Button>
+            <Button
+              isDisabled={
+                busy || !!pending || !reconcile || !reason.trim() || [...reason.trim()].length > 500
+              }
+              onPress={() => void submit('reconcile')}
+            >
+              {label('invitation.reconcile')}
+            </Button>
+          </div>
         </>
       ) : null}
-      <Button isDisabled={busy} onPress={() => void recover()}>
+      <Button variant="ghost" isDisabled={busy} onPress={() => void recover()}>
         {label('invitation.refresh')}
       </Button>
     </section>

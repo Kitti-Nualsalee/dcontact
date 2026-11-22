@@ -115,6 +115,7 @@ for (const scenario of [
     });
     await page.goto('/?view=tenant-people&tenant=demo');
     await expect(page.getByRole('heading', { name: 'บัญชีผู้ใช้', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'สร้างบัญชี', exact: true }).click();
     await page.getByRole('textbox', { name: 'ชื่อที่แสดง', exact: true }).fill('ผู้ทดสอบ');
     await page.getByRole('textbox', { name: 'อีเมล', exact: true }).fill('synthetic@example.test');
     if (scenario === 'agent') {
@@ -134,6 +135,7 @@ for (const scenario of [
         scenario === 'preauth-401' ? 'กรุณาเข้าสู่ระบบใหม่' : 'คุณไม่มีสิทธิ์',
       );
       await page.reload();
+      await page.getByRole('button', { name: 'สร้างบัญชี', exact: true }).click();
       await expect(page.getByRole('textbox', { name: 'อีเมล', exact: true })).toBeEnabled();
       expect(commandReads).toBe(0);
       expect(reads).toBe(0);
@@ -233,6 +235,7 @@ for (const ending of ['success', 'auth', 'unmount'])
       return route.fulfill({ status: 404 });
     });
     await page.goto('/?view=tenant-people&tenant=demo');
+    await page.getByRole('button', { name: 'สร้างบัญชี', exact: true }).click();
     await page.getByRole('textbox', { name: 'ชื่อที่แสดง', exact: true }).fill('ผู้ทดสอบ');
     await page.getByRole('textbox', { name: 'อีเมล', exact: true }).fill('synthetic@example.test');
     await page.getByRole('button', { name: 'Agent บทบาท', exact: true }).click();

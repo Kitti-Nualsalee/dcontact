@@ -1,38 +1,131 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from '@d-contact/i18n/react';
-import { Button } from '@d-contact/ui-react';
+import {
+  Badge,
+  Button,
+  Cell,
+  Column,
+  Row,
+  SearchField,
+  Select,
+  StatusChip,
+  Table,
+  TableBody,
+  TableHeader,
+  type BadgeTone,
+} from '@d-contact/ui-react';
 import { CatalogApiError } from '../voice-routing/api.js';
 import type { PeopleDirectoryApi, PeopleDirectoryUser } from './directory-api.js';
 import { PeopleInvitation } from './invitation.js';
 import { PeopleDisable } from './disable.js';
 
+export type AccountStatus =
+  | 'ATTENTION_REQUIRED'
+  | 'REJECTED'
+  | 'DISABLED'
+  | 'DISABLING'
+  | 'PROVISIONING'
+  | 'ACTIVE'
+  | 'PENDING_ACTIVATION'
+  | 'UNKNOWN';
+
+export const ACCOUNT_STATUSES: AccountStatus[] = [
+  'ACTIVE',
+  'PENDING_ACTIVATION',
+  'PROVISIONING',
+  'DISABLING',
+  'DISABLED',
+  'ATTENTION_REQUIRED',
+  'REJECTED',
+  'UNKNOWN',
+];
+
+/** สถานะเดียวของบัญชี ไล่ตามลำดับความสำคัญ — ข้อแรกที่ตรงชนะ */
+export function accountStatus(user: PeopleDirectoryUser): AccountStatus {
+  if (user.accountState === 'ATTENTION_REQUIRED') return 'ATTENTION_REQUIRED';
+  if (user.provisioningState === 'REJECTED') return 'REJECTED';
+  if (user.accountState === 'DISABLED') return 'DISABLED';
+  if (user.accountState === 'DISABLING') return 'DISABLING';
+  if (user.accountState === 'PROVISIONING' || user.provisioningState === 'PENDING')
+    return 'PROVISIONING';
+  if (user.accountState === 'ACTIVE' && user.activationState === 'ACTIVATED' && user.isActive)
+    return 'ACTIVE';
+  if (
+    user.accountState === 'PENDING_ACTIVATION' &&
+    user.provisioningState === 'PROVISIONED' &&
+    user.activationState === 'PENDING'
+  )
+    return 'PENDING_ACTIVATION';
+  return 'UNKNOWN';
+}
+
+const STATUS_TONE: Record<AccountStatus, BadgeTone> = {
+  ATTENTION_REQUIRED: 'critical',
+  REJECTED: 'critical',
+  DISABLED: 'neutral',
+  DISABLING: 'attention',
+  PROVISIONING: 'info',
+  ACTIVE: 'success',
+  PENDING_ACTIVATION: 'info',
+  UNKNOWN: 'neutral',
+};
+
+const DELIVERY_TONE: Record<string, BadgeTone> = {
+  SENT: 'info',
+  INTENT: 'neutral',
+  NOT_STARTED: 'neutral',
+  DISPATCHING: 'attention',
+  AMBIGUOUS: 'attention',
+  EXPIRED: 'attention',
+  FAILED: 'critical',
+  UNKNOWN: 'neutral',
+};
+
+export function AccountStatusChip({ user }: { user: PeopleDirectoryUser }) {
+  const { t: translate } = useTranslation('tenantPeople');
+  const label = translate as (key: string) => string;
+  const status = accountStatus(user);
+  return <StatusChip status={STATUS_TONE[status]}>{label(`status.${status}`)}</StatusChip>;
+}
+
+type Filters = { search: string; role: string; status: string; team: string };
+const NO_FILTERS: Filters = { search: '', role: 'ALL', status: 'ALL', team: 'ALL' };
+
 export function PeopleDirectory({
   api,
   onFailure,
   onOperation,
+  onDetailChange,
   canOpenOperation,
   identityKey,
+  teams,
 }: {
   api: PeopleDirectoryApi;
   identityKey: string;
   canOpenOperation: boolean;
+  teams: { id: string; name: string }[];
   onFailure(error: unknown): void;
   onOperation(reference: { commandId: string; operationId: string }): void;
+  onDetailChange?(open: boolean): void;
 }) {
   const { t: translate } = useTranslation('tenantPeople');
-  const label = translate as (key: string) => string;
+  const label = translate as (key: string, values?: Record<string, unknown>) => string;
   const [items, setItems] = useState<PeopleDirectoryUser[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [selected, setSelected] = useState<PeopleDirectoryUser>();
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState<'list' | 'more' | 'detail'>();
+  const [filters, setFilters] = useState<Filters>(NO_FILTERS);
   const active = useRef(false),
     inFlight = useRef(false);
-  const callbacks = useRef({ onFailure, onOperation });
-  callbacks.current = { onFailure, onOperation };
-  function failed(error: unknown) {
+  const lastOpened = useRef<string | undefined>(undefined);
+  const callbacks = useRef({ onFailure, onOperation, onDetailChange });
+  callbacks.current = { onFailure, onOperation, onDetailChange };
+  const teamName = useMemo(() => new Map(teams.map((team) => [team.id, team.name])), [teams]);
+  function failed(error: unknown, kind: 'list' | 'more' | 'detail') {
     if (!active.current) return;
-    setError(true);
+    setError(kind);
     if (error instanceof CatalogApiError && [401, 403].includes(error.status)) {
       setItems([]);
       setSelected(undefined);
@@ -44,15 +137,16 @@ export function PeopleDirectory({
     if (inFlight.current) return;
     inFlight.current = true;
     setBusy(true);
-    setError(false);
+    setError(undefined);
     try {
       const result = await api.list(cursor);
       if (active.current) {
         setItems((previous) => (cursor ? [...previous, ...result.items] : result.items));
         setNextCursor(result.nextCursor);
+        setLoaded(true);
       }
     } catch (error) {
-      failed(error);
+      failed(error, cursor ? 'more' : 'list');
     } finally {
       inFlight.current = false;
       if (active.current) setBusy(false);
@@ -61,18 +155,32 @@ export function PeopleDirectory({
   async function select(userId: string) {
     if (inFlight.current) return;
     inFlight.current = true;
+    lastOpened.current = userId;
     setBusy(true);
-    setError(false);
+    setError(undefined);
     setSelected(undefined);
     try {
       const value = await api.detail(userId);
-      if (active.current) setSelected(value);
+      if (active.current) {
+        setSelected(value);
+        callbacks.current.onDetailChange?.(true);
+      }
     } catch (error) {
-      failed(error);
+      failed(error, 'detail');
     } finally {
       inFlight.current = false;
       if (active.current) setBusy(false);
     }
+  }
+  function back() {
+    setSelected(undefined);
+    setError(undefined);
+    callbacks.current.onDetailChange?.(false);
+    const id = lastOpened.current;
+    if (id)
+      requestAnimationFrame(() =>
+        document.querySelector<HTMLElement>(`[data-tp-open="${CSS.escape(id)}"]`)?.focus(),
+      );
   }
   useEffect(() => {
     active.current = true;
@@ -81,85 +189,342 @@ export function PeopleDirectory({
       active.current = false;
     };
   }, [api]);
+
+  const filtered = useMemo(() => {
+    const query = filters.search.trim().toLowerCase();
+    return items.filter(
+      (user) =>
+        (!query ||
+          user.displayName.toLowerCase().includes(query) ||
+          user.email.toLowerCase().includes(query) ||
+          (user.extensionRef ?? '').toLowerCase().includes(query)) &&
+        (filters.role === 'ALL' || user.role === filters.role) &&
+        (filters.status === 'ALL' || accountStatus(user) === filters.status) &&
+        (filters.team === 'ALL' || user.teamId === filters.team),
+    );
+  }, [items, filters]);
+  const filtering =
+    filters.search.trim() !== '' ||
+    filters.role !== 'ALL' ||
+    filters.status !== 'ALL' ||
+    filters.team !== 'ALL';
+
+  if (selected)
+    return (
+      <PeopleDetail
+        user={selected}
+        api={api}
+        identityKey={identityKey}
+        teamName={teamName}
+        busy={busy}
+        canOpenOperation={canOpenOperation}
+        onBack={back}
+        onUser={setSelected}
+        onFailure={(error) => failed(error, 'detail')}
+        onOperation={(reference) => callbacks.current.onOperation(reference)}
+      />
+    );
+
   return (
-    <section aria-label={label('directory.title')} aria-busy={busy}>
-      <h2>{label('directory.title')}</h2>
-      {error ? <p role="status">{label('directory.failed')}</p> : null}
-      {!busy && !error && !items.length ? <p>{label('directory.empty')}</p> : null}
-      <Button isDisabled={busy} onPress={() => void load()}>
-        {label('directory.reload')}
-      </Button>
-      <ul>
-        {items.map((user) => (
-          <li key={user.id}>
-            <span>
-              {user.displayName} — {label(`roles.${user.role}`)}
-            </span>
-            <Button isDisabled={busy} onPress={() => void select(user.id)}>
-              {label('directory.open')} {user.displayName}
-            </Button>
-          </li>
-        ))}
-      </ul>
-      {nextCursor ? (
-        <Button isDisabled={busy} onPress={() => void load(nextCursor)}>
-          {label('directory.more')}
-        </Button>
-      ) : null}
-      {selected ? (
-        <section aria-label={label('directory.detail')}>
-          <PeopleDisable
-            key={`disable:${selected.id}`}
-            api={api}
-            user={selected}
-            identityKey={identityKey}
-            onUser={setSelected}
-            onFailure={failed}
-          />
-          <h3>{selected.displayName}</h3>
-          <dl>
-            <dt>{label('email')}</dt>
-            <dd>{selected.email}</dd>
-            <dt>{label('directory.username')}</dt>
-            <dd>{selected.username}</dd>
-            <dt>{label('role')}</dt>
-            <dd>{label(`roles.${selected.role}`)}</dd>
-            <dt>{label('extension')}</dt>
-            <dd>{selected.extensionRef ?? label('directory.none')}</dd>
-          </dl>
-          <p>
-            {selected.accountState === 'ACTIVE' &&
-            selected.activationState === 'ACTIVATED' &&
-            selected.isActive
-              ? label('invitation.active')
-              : selected.accountState === 'PENDING_ACTIVATION' &&
-                  selected.provisioningState === 'PROVISIONED'
-                ? label('provisioned')
-                : label('directory.unverified')}
-          </p>
-          <PeopleInvitation
-            key={selected.id}
-            api={api}
-            user={selected}
-            identityKey={identityKey}
-            onUser={setSelected}
-            onFailure={failed}
-          />
-          {selected.operationId && selected.commandId ? (
-            <Button
-              isDisabled={busy || !canOpenOperation}
-              onPress={() =>
-                callbacks.current.onOperation({
-                  operationId: selected.operationId!,
-                  commandId: selected.commandId!,
-                })
-              }
-            >
-              {label('directory.status')}
+    <section className="tp-directory" aria-label={label('directory.title')} aria-busy={busy}>
+      <h2 className="tp-visually-hidden">{label('directory.title')}</h2>
+      <div className="tp-filters" role="search" aria-label={label('filters.label')}>
+        <SearchField
+          className="tp-search"
+          label={label('filters.searchLabel')}
+          placeholder={label('filters.search')}
+          value={filters.search}
+          onChange={(search) => setFilters((value) => ({ ...value, search }))}
+        />
+        <Select
+          label={label('role')}
+          selectedKey={filters.role}
+          onSelectionChange={(key) => setFilters((value) => ({ ...value, role: String(key) }))}
+          options={[
+            { id: 'ALL', label: label('filters.allRoles') },
+            ...(['AGENT', 'SUPERVISOR', 'ADMIN'] as const).map((role) => ({
+              id: role,
+              label: label(`roles.${role}`),
+            })),
+          ]}
+        />
+        <Select
+          label={label('filters.status')}
+          selectedKey={filters.status}
+          onSelectionChange={(key) => setFilters((value) => ({ ...value, status: String(key) }))}
+          options={[
+            { id: 'ALL', label: label('filters.allStatuses') },
+            ...ACCOUNT_STATUSES.map((status) => ({ id: status, label: label(`status.${status}`) })),
+          ]}
+        />
+        <Select
+          label={label('team')}
+          selectedKey={filters.team}
+          onSelectionChange={(key) => setFilters((value) => ({ ...value, team: String(key) }))}
+          options={[
+            { id: 'ALL', label: label('filters.allTeams') },
+            ...teams.map((team) => ({ id: team.id, label: team.name })),
+          ]}
+        />
+        <div className="tp-filter-actions">
+          {filtering ? (
+            <Button variant="ghost" onPress={() => setFilters(NO_FILTERS)}>
+              {label('filters.clear')}
             </Button>
           ) : null}
-        </section>
+          <Button variant="secondary" isDisabled={busy} onPress={() => void load()}>
+            {label('directory.reload')}
+          </Button>
+        </div>
+      </div>
+
+      {loaded && items.length > 0 ? (
+        <p className="tp-count" role="status">
+          {filtering
+            ? label('list.count', { shown: filtered.length, loaded: items.length })
+            : label('list.countAll', { count: items.length })}
+          {filtering && nextCursor
+            ? ` · ${label('filters.loadedOnly', { count: items.length })}`
+            : ''}
+        </p>
       ) : null}
+
+      {error === 'list' || error === 'detail' ? (
+        <div role="alert" className="tp-alert">
+          <p>{label(error === 'list' ? 'list.loadFailed' : 'detail.loadFailed')}</p>
+          <Button variant="secondary" isDisabled={busy} onPress={() => void load()}>
+            {label('list.retry')}
+          </Button>
+        </div>
+      ) : null}
+
+      {!loaded && busy ? (
+        <div className="tp-skeleton" aria-hidden="true">
+          {Array.from({ length: 6 }, (_, index) => (
+            <span key={index} />
+          ))}
+        </div>
+      ) : null}
+
+      {loaded && !items.length && !error ? (
+        <div className="tp-empty">
+          <p className="tp-empty-title">{label('list.emptyTitle')}</p>
+          <p>{label('list.emptyBody')}</p>
+        </div>
+      ) : null}
+
+      {items.length > 0 && !filtered.length ? (
+        <div className="tp-empty">
+          <p className="tp-empty-title">{label('list.noMatch')}</p>
+          <Button variant="secondary" onPress={() => setFilters(NO_FILTERS)}>
+            {label('filters.clear')}
+          </Button>
+        </div>
+      ) : null}
+
+      {filtered.length > 0 ? (
+        <div className="tp-table-wrap">
+          <Table
+            aria-label={label('directory.title')}
+            className="tp-table"
+            onRowAction={(key) => void select(String(key))}
+          >
+            <TableHeader>
+              <Column isRowHeader>{label('columns.name')}</Column>
+              <Column>{label('email')}</Column>
+              <Column>{label('role')}</Column>
+              <Column>{label('team')}</Column>
+              <Column>{label('extension')}</Column>
+              <Column>{label('columns.status')}</Column>
+              <Column>
+                <span className="tp-visually-hidden">{label('columns.actions')}</span>
+              </Column>
+            </TableHeader>
+            <TableBody>
+              {filtered.map((user) => {
+                const status = accountStatus(user);
+                return (
+                  <Row key={user.id} id={user.id}>
+                    <Cell>
+                      <span className="tp-ellipsis tp-name" title={user.displayName}>
+                        {user.displayName}
+                      </span>
+                    </Cell>
+                    <Cell>
+                      <span className="tp-ellipsis tp-muted" title={user.email}>
+                        {user.email}
+                      </span>
+                    </Cell>
+                    <Cell>{label(`roles.${user.role}`)}</Cell>
+                    <Cell>
+                      <span className="tp-ellipsis">
+                        {user.teamId
+                          ? (teamName.get(user.teamId) ?? label('list.unknownTeam'))
+                          : '—'}
+                      </span>
+                    </Cell>
+                    <Cell>
+                      <span className="tp-num">{user.extensionRef ?? '—'}</span>
+                    </Cell>
+                    <Cell>
+                      <span className="tp-badges">
+                        <AccountStatusChip user={user} />
+                        {status === 'PENDING_ACTIVATION' ? (
+                          <Badge tone={DELIVERY_TONE[user.deliveryState] ?? 'neutral'}>
+                            {label(
+                              `deliveryShort.${user.deliveryState in DELIVERY_TONE ? user.deliveryState : 'UNKNOWN'}`,
+                            )}
+                          </Badge>
+                        ) : null}
+                      </span>
+                    </Cell>
+                    <Cell>
+                      <Button
+                        variant="ghost"
+                        data-tp-open={user.id}
+                        isDisabled={busy}
+                        aria-label={`${label('directory.open')} ${user.displayName}`}
+                        onPress={() => void select(user.id)}
+                      >
+                        {label('list.openRow')}
+                      </Button>
+                    </Cell>
+                  </Row>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </div>
+      ) : null}
+
+      {error === 'more' ? (
+        <div role="alert" className="tp-alert">
+          <p>{label('list.moreFailed')}</p>
+        </div>
+      ) : null}
+      {nextCursor ? (
+        <div className="tp-more">
+          <Button variant="secondary" isDisabled={busy} onPress={() => void load(nextCursor)}>
+            {label('directory.more')}
+          </Button>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function PeopleDetail({
+  user,
+  api,
+  identityKey,
+  teamName,
+  busy,
+  canOpenOperation,
+  onBack,
+  onUser,
+  onFailure,
+  onOperation,
+}: {
+  user: PeopleDirectoryUser;
+  api: PeopleDirectoryApi;
+  identityKey: string;
+  teamName: Map<string, string>;
+  busy: boolean;
+  canOpenOperation: boolean;
+  onBack(): void;
+  onUser(user: PeopleDirectoryUser): void;
+  onFailure(error: unknown): void;
+  onOperation(reference: { commandId: string; operationId: string }): void;
+}) {
+  const { t: translate, i18n } = useTranslation('tenantPeople');
+  const label = translate as (key: string) => string;
+  const heading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => heading.current?.focus(), [user.id]);
+  const team = user.teamId ? (teamName.get(user.teamId) ?? label('list.unknownTeam')) : '—';
+  const expires = user.invitationExpiresAt ? new Date(user.invitationExpiresAt) : undefined;
+  return (
+    <section className="tp-detail" aria-label={label('directory.detail')}>
+      <Button variant="ghost" className="tp-back" onPress={onBack}>
+        ← {label('detail.back')}
+      </Button>
+      <header className="tp-detail-head">
+        <div className="tp-detail-identity">
+          <h2 ref={heading} tabIndex={-1} className="tp-detail-name">
+            {user.displayName}
+          </h2>
+          <span className="tp-badges">
+            <AccountStatusChip user={user} />
+            <Badge tone="accent">{label(`roles.${user.role}`)}</Badge>
+          </span>
+          <p className="tp-muted">
+            {[user.email, user.extensionRef, team].filter(Boolean).join(' · ')}
+          </p>
+        </div>
+        {user.operationId && user.commandId ? (
+          <Button
+            variant="secondary"
+            isDisabled={busy || !canOpenOperation}
+            onPress={() =>
+              onOperation({ operationId: user.operationId!, commandId: user.commandId! })
+            }
+          >
+            {label('directory.status')}
+          </Button>
+        ) : null}
+      </header>
+      <div className="tp-detail-grid">
+        <div className="tp-detail-main">
+          <section className="tp-card" aria-labelledby="tp-account-title">
+            <h3 id="tp-account-title">{label('detail.account')}</h3>
+            <dl className="tp-dl">
+              <dt>{label('name')}</dt>
+              <dd>{user.displayName}</dd>
+              <dt>{label('email')}</dt>
+              <dd>{user.email}</dd>
+              <dt>{label('role')}</dt>
+              <dd>{label(`roles.${user.role}`)}</dd>
+              <dt>{label('team')}</dt>
+              <dd>{team}</dd>
+              <dt>{label('extension')}</dt>
+              <dd>{user.extensionRef ?? label('directory.none')}</dd>
+              {expires && !Number.isNaN(expires.valueOf()) ? (
+                <>
+                  <dt>{label('detail.expiresAt')}</dt>
+                  <dd>
+                    {new Intl.DateTimeFormat(i18n.language, {
+                      dateStyle: 'medium',
+                      timeStyle: 'short',
+                    }).format(expires)}
+                  </dd>
+                </>
+              ) : null}
+            </dl>
+          </section>
+          <div className="tp-card">
+            <PeopleInvitation
+              key={user.id}
+              api={api}
+              user={user}
+              identityKey={identityKey}
+              onUser={onUser}
+              onFailure={onFailure}
+            />
+          </div>
+        </div>
+        <aside className="tp-detail-side">
+          <div className="tp-card">
+            <PeopleDisable
+              key={`disable:${user.id}`}
+              api={api}
+              user={user}
+              identityKey={identityKey}
+              onUser={onUser}
+              onFailure={onFailure}
+            />
+          </div>
+          <p className="tp-muted tp-help">{label('detail.help')}</p>
+        </aside>
+      </div>
     </section>
   );
 }

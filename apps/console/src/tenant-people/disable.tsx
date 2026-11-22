@@ -206,9 +206,9 @@ export function PeopleDisable({
           ? 'WAITING_EXTERNAL'
           : '');
   return (
-    <section aria-label={label('disable.title')} aria-busy={busy}>
-      <h4>{label('disable.title')}</h4>
-      <p>{label('disable.warning')}</p>
+    <section className="tp-panel" aria-label={label('disable.title')} aria-busy={busy}>
+      <h3>{label('disable.title')}</h3>
+      <p className="tp-muted">{label('disable.warning')}</p>
       {displayedStatus ? <p role="status">{label(`disable.states.${displayedStatus}`)}</p> : null}
       {error ? <p role="alert">{label(`disable.errors.${error}`)}</p> : null}
       {pending ? <p>{label('disable.pending')}</p> : null}
@@ -220,16 +220,19 @@ export function PeopleDisable({
       />
       {confirm ? (
         <>
-          <p>{label('disable.confirm')}</p>
-          <Button
-            isDisabled={busy || !!pending || !ready || !eligible || !reason.trim()}
-            onPress={() => void submit()}
-          >
-            {label('disable.submit')}
-          </Button>
-          <Button isDisabled={busy} onPress={() => setConfirm(false)}>
-            {label('disable.cancel')}
-          </Button>
+          <p className="tp-confirm">{label('disable.confirm')}</p>
+          <div className="tp-actions">
+            <Button
+              variant="danger"
+              isDisabled={busy || !!pending || !ready || !eligible || !reason.trim()}
+              onPress={() => void submit()}
+            >
+              {label('disable.submit')}
+            </Button>
+            <Button isDisabled={busy} onPress={() => setConfirm(false)}>
+              {label('disable.cancel')}
+            </Button>
+          </div>
         </>
       ) : (
         <Button
@@ -246,7 +249,7 @@ export function PeopleDisable({
           {label('disable.start')}
         </Button>
       )}
-      <Button isDisabled={busy} onPress={() => void refresh()}>
+      <Button variant="ghost" isDisabled={busy} onPress={() => void refresh()}>
         {label('disable.refresh')}
       </Button>
     </section>
