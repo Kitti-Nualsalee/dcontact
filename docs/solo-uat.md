@@ -54,6 +54,7 @@ owner อนุมัติเมื่อ 19 พฤศจิกายน 2569 �
 | --- | --- |
 | `admin@demo.local` | `SOLO_ADMIN_PASSWORD` ใน `solo.env` |
 | `agent1000@demo.local`, `agent1001@demo.local` | `SOLO_AGENT_PASSWORD` ใน `solo.env` |
+| `supervisor@demo.local` (Supervisor ทีม Customer Care) | `SOLO_AGENT_PASSWORD` ใน `solo.env` |
 
 เปิดด้วย `?tenant=demo` ทุกครั้ง: Console และ Workspace เดา tenant จาก subdomain แรกของ hostname ถ้าไม่ระบุ ซึ่งบน Solo จะได้ `dcontact-solo-uat` / `dcontact-solo-workspace-uat` และ Keycloak ตอบ `invalid_scope`
 
