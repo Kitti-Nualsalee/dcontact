@@ -514,3 +514,31 @@ test('dispatcher ไม่หยิบ job ใหม่ระหว่างท�
   assert.deepEqual(await retries.dispatchDue(secondSweep), [fresh.jobId]);
   assert.equal(dispatched[1]!.attempt, 1);
 });
+
+test('job ที่ API เปิดใหม่หลังเพดานรอ archive (#990) ถอดเสียงได้ทันทีเมื่อ archive แล้ว ไม่ถูกปิดด้วยเพดานซ้ำ', async (t) => {
+  // createdAt ของ job ยังเป็นเวลาเดิม เพดานรอใช้เฉพาะตอน archivedAt เป็น null จึงไม่กระทบ job ที่เปิดใหม่
+  const seeded = await seedJob(t, { archivedAt: new Date(requestedAt.getTime() + 7_200_000) });
+  const clock = { at: new Date(requestedAt.getTime() + 3 * RECORDING_ARCHIVE_WAIT_LIMIT_MS) };
+  const { worker, calls } = harness(clock);
+
+  // job อยู่ในสภาพเดียวกับที่ API เปิดใหม่: PENDING, attempts = 0, ล้าง failure และเวลาปิดแล้ว
+  await owner.qmTranscriptionJob.update({
+    where: { id: seeded.jobId },
+    data: {
+      failureCode: null,
+      failureReason: null,
+      completedAt: null,
+      dispatchedAt: new Date(clock.at.getTime() - 1_000),
+      nextAttemptAt: null,
+    },
+  });
+
+  const ready = await worker.process(seeded.tenantId, seeded.message);
+  assert.equal(ready.status, 'READY');
+  assert.equal(ready.attempts, 1);
+  assert.deepEqual(calls, { media: 1, provider: 1 });
+
+  // message attempt 1 เก่าจากก่อนเปิดใหม่ที่ Kafka ส่งซ้ำ เป็น duplicate no-op ไม่เรียก provider ซ้ำ
+  assert.deepEqual(await worker.process(seeded.tenantId, seeded.message), ready);
+  assert.deepEqual(calls, { media: 1, provider: 1 });
+});

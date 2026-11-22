@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Controller,
   ForbiddenException,
   Get,
@@ -12,7 +13,7 @@ import {
   Req,
 } from '@nestjs/common';
 import { PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
-import type { QmTranscriptionJobMessage } from '@d-contact/shared';
+import { QM_RECORDING_FAILURE_CODES, type QmTranscriptionJobMessage } from '@d-contact/shared';
 import { GatewayRoles, type AuthenticatedGatewayRequest } from './gateway-auth.js';
 
 export const QM_DATABASE = Symbol('QM_DATABASE');
@@ -210,7 +211,7 @@ export class QmController {
             recordings: {
               where: { endedAt: { not: null }, deletedAt: null },
               take: 1,
-              select: { id: true },
+              select: { id: true, archivedAt: true },
             },
           },
         });
@@ -231,19 +232,78 @@ export class QmController {
         }
         const recording = interaction.recordings[0];
         if (!recording) throw new NotFoundException();
+        const jobSelection = {
+          id: true,
+          interactionId: true,
+          recordingId: true,
+          status: true,
+          trigger: true,
+          languageHint: true,
+          attempts: true,
+          dispatchedAt: true,
+          failureCode: true,
+        } as const;
         const existing = await transaction.qmTranscriptionJob.findFirst({
           where: { tenantId: actor.tenantId, interactionId: interaction.id },
-          select: {
-            id: true,
-            interactionId: true,
-            recordingId: true,
-            status: true,
-            trigger: true,
-            languageHint: true,
-            attempts: true,
-            dispatchedAt: true,
-          },
+          select: jobSelection,
         });
+        if (
+          existing?.status === 'FAILED' &&
+          existing.failureCode === QM_RECORDING_FAILURE_CODES.RECORDING_NOT_ARCHIVED
+        ) {
+          // #990: QM worker เลิกรอ archive เมื่อครบเพดาน แต่ Telephony อาจ archive ได้ภายหลัง (storage ล่มนาน)
+          // เปิด job เดิมใหม่แทนการสร้างแถวใหม่ เพราะ job มี unique (tenant_id, interaction_id)
+          if (existing.recordingId !== recording.id || !recording.archivedAt) {
+            throw new ConflictException({
+              code: QM_RECORDING_FAILURE_CODES.RECORDING_NOT_ARCHIVED,
+              message: 'recording is not archived yet',
+            });
+          }
+          const reopened = await transaction.qmTranscriptionJob.updateMany({
+            where: {
+              id: existing.id,
+              tenantId: actor.tenantId,
+              status: 'FAILED',
+              failureCode: QM_RECORDING_FAILURE_CODES.RECORDING_NOT_ARCHIVED,
+            },
+            data: {
+              status: 'PENDING',
+              attempts: 0,
+              failureCode: null,
+              failureReason: null,
+              providerId: null,
+              nextAttemptAt: null,
+              dispatchedAt: null,
+              startedAt: null,
+              completedAt: null,
+            },
+          });
+          if (reopened.count === 1) {
+            await transaction.qmAuditEvent.create({
+              data: {
+                tenantId: actor.tenantId,
+                actorUserId: actor.userId,
+                action: 'TRANSCRIPTION_REQUESTED',
+                resourceType: 'TRANSCRIPTION_JOB',
+                resourceId: existing.id,
+                details: {
+                  // trigger ของ job ไม่เปลี่ยน (เช่น AUTOMATIC) ส่วนการขอเปิดใหม่มาจากคนเสมอ
+                  requestTrigger: 'MANUAL',
+                  jobTrigger: existing.trigger,
+                  reopened: true,
+                  previousStatus: 'FAILED',
+                  previousFailureCode: QM_RECORDING_FAILURE_CODES.RECORDING_NOT_ARCHIVED,
+                  previousAttempts: existing.attempts,
+                },
+              },
+            });
+          }
+          const job = await transaction.qmTranscriptionJob.findFirstOrThrow({
+            where: { id: existing.id, tenantId: actor.tenantId },
+            select: jobSelection,
+          });
+          return { job, shouldDispatch: job.dispatchedAt === null };
+        }
         if (existing) return { job: existing, shouldDispatch: existing.dispatchedAt === null };
         const job = await transaction.qmTranscriptionJob.create({
           data: {
@@ -254,16 +314,7 @@ export class QmController {
             languageHint: interaction.queue.transcriptionLanguage,
             maxAttempts: interaction.queue.transcriptionMaxAttempts,
           },
-          select: {
-            id: true,
-            interactionId: true,
-            recordingId: true,
-            status: true,
-            trigger: true,
-            languageHint: true,
-            attempts: true,
-            dispatchedAt: true,
-          },
+          select: jobSelection,
         });
         await transaction.qmAuditEvent.create({
           data: {
