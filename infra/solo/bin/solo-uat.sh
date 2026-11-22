@@ -120,6 +120,8 @@ S3_FORCE_PATH_STYLE=true
 S3_BUCKET_RECORDINGS=recordings
 S3_BUCKET_GOVERNANCE_EXPORTS=governance-exports
 S3_BUCKET_UAT_EVIDENCE=uat-evidence
+RECORDING_SUPERVISOR_PLAYBACK=on
+QM_HUMAN_EVALUATION=on
 SMTP_HOST=mailpit
 SMTP_PORT=1025
 SMTP_SECURE=false
@@ -245,6 +247,18 @@ wait_healthy() { # wait_healthy <service> <tries>
   fail "$1 ไม่ healthy"
 }
 
+export_recordings() { # NFS export ของเสียงบันทึกบน VM voice — รันซ้ำได้ ทั้ง `app` และ `voice` เรียก
+  # เสียงบันทึก: FreeSWITCH (root) เขียนลง directory นี้ Telephony (uid 10001) บน VM app สร้าง directory ของ tenant
+  # และอ่านไฟล์ผ่าน NFS — export เฉพาะ IP ของ VM app และ squash ทุกคำขอเป็น 10001 (ไม่ให้สิทธิ์ root ข้ามเครื่อง)
+  remote "$VOICE_IP" "command -v exportfs >/dev/null || { sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nfs-kernel-server >/dev/null; }
+    sudo install -d -o 10001 -g 10001 -m 0770 /srv/dcontact-solo/recordings
+    sudo install -d -m 0755 /etc/exports.d
+    printf '/srv/dcontact-solo/recordings %s(rw,sync,no_subtree_check,all_squash,anonuid=10001,anongid=10001)\n' '$APP_IP' |
+      sudo tee /etc/exports.d/dcontact-solo.exports >/dev/null
+    sudo systemctl enable --now nfs-server >/dev/null 2>&1 && sudo exportfs -ra"
+  log "export เสียงบันทึกที่ /srv/dcontact-solo/recordings ให้ $APP_IP"
+}
+
 cmd_app() {
   load_hosts
   [[ "$IMAGE_TAG" != dev ]] || log "SOLO_IMAGE_TAG=dev (ยังไม่ได้ build ด้วยสคริปต์นี้)"
@@ -257,11 +271,14 @@ cmd_app() {
   cp "$SOLO_ENV" "$work/solo.env"
   ( cd "$work" && COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs -cf - . ) | remote "$APP_IP" "tar -xf - -C $REMOTE_ROOT/app && chmod 600 $REMOTE_ROOT/app/solo.env && chmod 755 $REMOTE_ROOT/app/keycloak-import && chmod 644 $REMOTE_ROOT/app/keycloak-import/realm-dcontact.json $REMOTE_ROOT/app/Caddyfile"
   rm -rf "$work"
+  # Telephony mount เสียงบันทึกจาก VM voice ด้วย NFS ตอน container เริ่ม จึงต้องมี export ก่อน
+  export_recordings
+  remote "$APP_IP" "command -v mount.nfs >/dev/null || { sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nfs-common >/dev/null; }"
   local compose="cd $REMOTE_ROOT/app && docker compose --env-file solo.env"
   remote "$APP_IP" "$compose up -d redis redpanda redpanda-init object-storage mailpit keycloak"
   wait_healthy keycloak 60
-  log "migrate, rls, seed ฐานแอป และเชื่อมผู้ใช้ใน Keycloak"
-  ops 'pnpm db:migrate && pnpm db:rls && pnpm db:seed && node scripts/link-keycloak-dev-identity.mjs'
+  log "bucket ของ object storage, migrate, rls, seed ฐานแอป และเชื่อมผู้ใช้ใน Keycloak"
+  ops 'node scripts/object-storage-init.mjs && pnpm db:migrate && pnpm db:rls && pnpm db:seed && node scripts/link-keycloak-dev-identity.mjs'
   remote "$APP_IP" "$compose up -d"
   for _ in $(seq 1 60); do
     if remote "$APP_IP" "docker exec dcontact-solo-api-1 node -e \"fetch('http://127.0.0.1:3000/api/v1/me/navigation').then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))\"" 2>/dev/null; then
@@ -298,6 +315,7 @@ cmd_voice() {
         -addext 'subjectAltName=DNS:$CONSOLE_HOST,DNS:$WORKSPACE_HOST' \
         -keyout tls/server.key -out tls/server.crt 2>/dev/null && echo '# ใช้ cert self-signed ชั่วคราว';
     fi; chmod 644 tls/server.crt; chmod 640 tls/server.key; sudo chgrp 101 tls/server.key"
+  export_recordings
   remote "$VOICE_IP" "cd $REMOTE_ROOT/voice && docker compose up -d && sleep 15 && docker compose ps --format 'table {{.Service}}\t{{.Status}}'"
   # Telephony ต่อ ESL ครั้งเดียวตอนเริ่มและไม่ลองใหม่ จึงเริ่มใหม่หลัง FreeSWITCH ขึ้นแล้ว
   remote "$APP_IP" "docker restart dcontact-solo-telephony-1 >/dev/null"

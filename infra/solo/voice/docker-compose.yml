@@ -50,6 +50,8 @@ services:
       FREESWITCH_DIRECTORY_PASSWORD: ${FREESWITCH_DIRECTORY_PASSWORD:?FREESWITCH_DIRECTORY_PASSWORD is required}
     volumes:
       - ./freeswitch:/solo-freeswitch:ro
+      # เสียงบันทึก: export ด้วย NFS ให้ Telephony บน VM app อ่านแล้วส่งเข้า object storage (solo-uat.sh voice)
+      - /srv/dcontact-solo/recordings:/var/lib/freeswitch/recordings
     tmpfs:
       - /etc/freeswitch:mode=0755
     cap_add:
