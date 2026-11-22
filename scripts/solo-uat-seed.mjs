@@ -129,22 +129,19 @@ async function organizationId(admin) {
  * แล้ว FreeSWITCH วางสายด้วย SUBSCRIBER_ABSENT จึงใส่ OFFLINE เมื่อสถานะล่าสุดไม่ใช่ OFFLINE
  * และไม่มี work session ค้าง (รันซ้ำได้โดยไม่ไล่ Agent ที่กำลังทำงาน)
  *
- * บันทึกเสียงเฉพาะคิว legacy ของ demo (2000/2001): FreeSWITCH (VM voice) เขียนไฟล์ลง directory ที่ export
+ * เปิดบันทึกเสียงให้คิว legacy ของ demo (2000/2001): FreeSWITCH (VM voice) เขียนไฟล์ลง directory ที่ export
  * ด้วย NFS ให้ Telephony (VM app) อ่านแล้วส่งเข้า object storage (`solo-uat.sh` ตั้ง export และ mount)
- * คิว managed (voice v1) ต้องปิด เพราะ Router จับคู่เส้นทาง managed เฉพาะคิวที่ไม่บันทึกเสียง
- * ถ้าเปิดไว้ สายของคิวนั้นถูกส่งไปทาง legacy และไม่มีใครรับ — seed จึงปิดคืนทุกรอบ
+ * คิว managed (voice v1) ไม่แตะ: ตั้งแต่ #991 Admin เปิด/ปิดบันทึกเองผ่าน Console และ Router รับสายได้ทั้งสองแบบ
  */
 function seedVoiceDefaults(tenantId) {
   psql(
     `UPDATE queues SET voice_wrapup_policy = 'VOICE_NOTE_V1'
      WHERE tenant_id = '${tenantId}' AND voice_wrapup_policy <> 'VOICE_NOTE_V1';
-     UPDATE queues q SET recording_enabled = NOT managed.is_managed
-     FROM (SELECT q2.id, (q2.voice_config_version IS NOT DISTINCT FROM 1 OR EXISTS (
-             SELECT 1 FROM voice_managed_queue_policies p
-             WHERE p.tenant_id = q2.tenant_id AND p.queue_id = q2.id)) AS is_managed
-           FROM queues q2 WHERE q2.tenant_id = '${tenantId}') managed
-     WHERE q.id = managed.id AND q.tenant_id = '${tenantId}'
-       AND q.recording_enabled IS DISTINCT FROM NOT managed.is_managed;
+     UPDATE queues q SET recording_enabled = true
+     WHERE q.tenant_id = '${tenantId}' AND NOT q.recording_enabled
+       AND q.voice_config_version IS NULL
+       AND NOT EXISTS (SELECT 1 FROM voice_managed_queue_policies p
+                       WHERE p.tenant_id = q.tenant_id AND p.queue_id = q.id);
      INSERT INTO agent_state_logs (tenant_id, user_id, state, reason)
      SELECT u.tenant_id, u.id, 'OFFLINE', 'solo-uat-seed' FROM users u
      WHERE u.tenant_id = '${tenantId}' AND u.role = 'AGENT'
