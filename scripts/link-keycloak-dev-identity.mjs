@@ -142,7 +142,8 @@ function databaseUsers() {
     '-F',
     '|',
     '-c',
-    "SELECT u.id, u.tenant_id, u.email, lower(u.role::text), t.slug FROM users u JOIN tenants t ON t.id = u.tenant_id WHERE t.slug IN ('demo', 'demo-two') ORDER BY t.slug, u.email;",
+    // #977: ผู้ใช้ที่ Admin เชิญผ่าน Tenant People (มี lifecycle) ตั้งรหัสผ่าน/TOTP เอง — ห้ามตั้งรหัสผ่านหรือ role ทับ
+    "SELECT u.id, u.tenant_id, u.email, lower(u.role::text), t.slug FROM users u JOIN tenants t ON t.id = u.tenant_id WHERE t.slug IN ('demo', 'demo-two') AND NOT EXISTS (SELECT 1 FROM tenant_user_lifecycles l WHERE l.tenant_id = u.tenant_id AND l.user_id = u.id) ORDER BY t.slug, u.email;",
   );
   return output
     .split('\n')
