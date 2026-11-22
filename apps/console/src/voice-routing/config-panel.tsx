@@ -450,12 +450,13 @@ function ConfigSession({ api, identityKey, mode, queue, onQueueRead }: Props) {
                     )}
                   </Button>
                   {!currentQueue.legacy && currentQueue.voiceConfigVersion === 1 ? (
-                    <section aria-label={t('recording.title')}>
+                    <section className="vr-recording" aria-label={t('recording.title')}>
                       <h3>{t('recording.title')}</h3>
                       <p>{t('recording.scope')}</p>
                       <p role="status">
                         {t(currentQueue.recordingEnabled ? 'recording.on' : 'recording.off')}
                       </p>
+                      {!reason.trim() ? <p>{t('recording.reasonHint')}</p> : null}
                       <Button
                         onPress={() => void save('recording')}
                         isDisabled={disabled || !reason.trim() || !currentQueue.configRevision}

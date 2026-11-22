@@ -31,7 +31,10 @@ import {
 } from './managed-voice-telephony.js';
 import { TelephonyRecordingLifecycle } from './recording-lifecycle.js';
 import { S3RecordingArchive } from './s3-recording-archive.js';
-import { ManagedRecordingTrigger } from './managed-voice-recording.js';
+import {
+  ManagedRecordingTrigger,
+  routeManagedOfferLegWithRecording,
+} from './managed-voice-recording.js';
 import { publishTelephonyCallEvent, RecordingTaskQueue } from './telephony-event-publisher.js';
 
 const host = process.env.FREESWITCH_ESL_HOST ?? '127.0.0.1';
@@ -115,14 +118,25 @@ async function main() {
       })
     : undefined;
   // #991: สาย managed ไม่ส่ง Kafka จึงรันเฉพาะวงจรบันทึกเสียง (publish เป็น no-op)
+  // ความล้มเหลวของวงจรบันทึกเสียงไม่ทำให้ routing ล้ม และ log แยกจาก ignored ESL event
   const recordManagedCall = async (source: FreeSwitchEvent, tenantId: string) => {
-    const event = managedRecording?.decide(source, tenantId);
-    if (!event) return;
-    await publishTelephonyCallEvent(event, {
-      recordings: recordingLifecycle,
-      recordingTasks,
-      publish: async () => {},
-    });
+    try {
+      const event = managedRecording?.decide(source, tenantId);
+      if (!event) return;
+      await publishTelephonyCallEvent(event, {
+        recordings: recordingLifecycle,
+        recordingTasks,
+        publish: async () => {},
+        hangupRecordingBudgetMs: 0,
+      });
+    } catch (error) {
+      console.error('[telephony] managed recording failed', {
+        eventName: source['Event-Name'],
+        callUuid: source['Unique-ID'],
+        tenantId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   };
   let managedSubscriptionReplied = false;
   const consumer = await createConsumer<TelephonyCommand>({
@@ -211,10 +225,11 @@ async function main() {
     }
     try {
       if (managed && isManagedOfferLeg(source)) {
-        const route = await routeManagedOfferLeg(source, managed.routing);
-        const offerTenantId = source.variable_dcontact_tenant_id;
-        if (route === 'managed' && typeof offerTenantId === 'string')
-          await recordManagedCall(source, offerTenantId);
+        await routeManagedOfferLegWithRecording(
+          source,
+          () => routeManagedOfferLeg(source, managed.routing),
+          recordManagedCall,
+        );
         return;
       }
       const sipDomain = source.variable_domain_name;

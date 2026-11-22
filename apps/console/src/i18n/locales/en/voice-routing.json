@@ -28,11 +28,12 @@
   },
   "recording": {
     "title": "Call recording",
-    "scope": "Records calls answered by this queue so Supervisors can listen and score them. Automatic QM and transcription stay off for managed queues. The setting applies to the next call, and it cannot be changed while a call is in progress.",
+    "scope": "Records calls answered by this queue so Supervisors can listen and score them. Automatic QM and transcription stay off for managed queues. The setting applies to the next call, and it cannot be changed while a call is in progress. Calls answered while recording is off have no audio to recover later.",
     "on": "Recording is on",
     "off": "Recording is off",
     "enable": "Turn recording on",
-    "disable": "Turn recording off"
+    "disable": "Turn recording off",
+    "reasonHint": "Enter a reason in the reason field above before changing recording."
   },
   "config": {
     "navigation": "Routing pages",

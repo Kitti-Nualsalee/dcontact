@@ -213,6 +213,15 @@ function dto(row: CatalogRow, kind: CatalogKind) {
       : { revision: row.revision, code: row.code }),
   };
 }
+/** code ที่ trigger/function ของฐาน RAISE ออกมา ทั้งผ่าน KnownRequestError และ UnknownRequestError */
+const triggerDomainCodes = [
+  'VOICE_CONFIG_V1_REQUIRED',
+  'REVISION_CONFLICT',
+  'REFERENCE_SCOPE_MISMATCH',
+  'CAPABILITY_NOT_READY',
+  'RESOURCE_POLICY_NOT_READY',
+];
+
 function resourceWhere(identity: VoiceActor, actor: Actor) {
   return {
     tenantId: identity.tenantId,
@@ -334,13 +343,7 @@ export function mapDatabaseError(error: unknown): never {
     if (['55P03', '57014', '40P01'].includes(code) || error.code === 'P2028')
       voiceFail('CONFIG_BUSY', 409);
     const message = String(error.meta?.message ?? error.message);
-    for (const domainCode of [
-      'VOICE_CONFIG_V1_REQUIRED',
-      'REVISION_CONFLICT',
-      'REFERENCE_SCOPE_MISMATCH',
-      'CAPABILITY_NOT_READY',
-      'RESOURCE_POLICY_NOT_READY',
-    ]) {
+    for (const domainCode of triggerDomainCodes) {
       if (message.includes(domainCode))
         voiceFail(
           domainCode,
@@ -352,11 +355,17 @@ export function mapDatabaseError(error: unknown): never {
     if (error.code === 'P2003') voiceFail('REFERENCE_SCOPE_MISMATCH', 409);
   }
   // trigger ที่ RAISE ระหว่าง tx.queue.update() ออกมาเป็น UnknownRequestError (ไม่มี meta)
-  if (
-    error instanceof Prisma.PrismaClientUnknownRequestError &&
-    error.message.includes('RESOURCE_POLICY_NOT_READY')
-  )
-    voiceFail('RESOURCE_POLICY_NOT_READY', 503);
+  if (error instanceof Prisma.PrismaClientUnknownRequestError) {
+    for (const domainCode of triggerDomainCodes) {
+      if (error.message.includes(domainCode))
+        voiceFail(
+          domainCode,
+          domainCode === 'CAPABILITY_NOT_READY' || domainCode === 'RESOURCE_POLICY_NOT_READY'
+            ? 503
+            : 409,
+        );
+    }
+  }
   throw error;
 }
 async function rejection(

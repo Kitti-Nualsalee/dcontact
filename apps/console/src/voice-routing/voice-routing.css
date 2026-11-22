@@ -14,3 +14,7 @@
   background: var(--dc-bg-surface);
   overflow-wrap: anywhere;
 }
+.vr-recording {
+  flex-basis: 100%;
+  max-inline-size: 72ch;
+}

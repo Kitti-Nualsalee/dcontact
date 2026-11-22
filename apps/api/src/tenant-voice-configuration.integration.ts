@@ -773,6 +773,15 @@ test('B4 authenticated HTTP/PostgreSQL: atomic config, receipts, scoped projecti
       const body = await activated.json();
       assert.equal(body.isActive, true);
       assert.equal(body.recordingEnabled, true);
+      // คิวเปิดอยู่แต่ runtime หมดอายุ: trigger RAISE ผ่าน UnknownRequestError ต้องได้ 503 ไม่ใช่ 500
+      await owner.$executeRaw`UPDATE voice_managed_runtime_readiness SET expires_at=clock_timestamp()-interval '1 second' WHERE tenant_id=${tenantId}::uuid`;
+      const notReady = await request(`/queues/${queue.id}`, 'PATCH', {
+        ...envelope(await revisionOf()),
+        recordingEnabled: false,
+      });
+      assert.equal(notReady.status, 503, await notReady.clone().text());
+      assert.equal((await notReady.json()).code, 'CAPABILITY_NOT_READY');
+      await owner.$executeRaw`UPDATE voice_managed_runtime_readiness SET expires_at=clock_timestamp()+interval '1 minute' WHERE tenant_id=${tenantId}::uuid`;
       const stopped = await request(`/queues/${queue.id}`, 'PATCH', {
         ...envelope(await revisionOf()),
         isActive: false,

@@ -3,6 +3,28 @@ import type { TelephonyCallEvent } from '@d-contact/shared';
 import { normalizeFreeSwitchEvent, type FreeSwitchEvent } from './freeswitch-normalizer.js';
 import { normalizeManagedVoiceEvent } from './managed-voice-events.js';
 
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** เพดานของสายที่จำว่าเริ่มบันทึกแล้ว กันกรณี hangup ของขาลูกค้าไม่มาถึง (เช่น ESL หลุด) */
+const maxBegun = 1_000;
+
+/**
+ * #991: event ของขาที่มี `dcontact_offer_id` (หลัง adapter ตั้งบนขาลูกค้าก่อน bridge ก็เข้าทางนี้ด้วย)
+ * วงจรบันทึกเสียงรันเสมอแม้ managed runtime throw เพราะถ้าลูกค้าวางตอนฐานข้อมูลสะดุด
+ * แถว recording จะไม่มี endedAt และ retry archive จะไม่หยิบมาอีก lifecycle ตรวจ tenant/interaction/คิวเองจาก DB
+ */
+export async function routeManagedOfferLegWithRecording<T>(
+  source: FreeSwitchEvent,
+  route: () => Promise<T>,
+  record: (source: FreeSwitchEvent, tenantId: string) => Promise<void>,
+): Promise<T> {
+  const tenantId = source.variable_dcontact_tenant_id;
+  try {
+    return await route();
+  } finally {
+    if (typeof tenantId === 'string' && uuidPattern.test(tenantId)) await record(source, tenantId);
+  }
+}
+
 /**
  * #991: สาย managed ไม่ผ่าน Kafka/legacy router จึงไม่ผ่าน `publishTelephonyCallEvent` ด้วย
  * ตัวนี้ตัดสินว่า event ESL ของสาย managed ตัวไหนเริ่ม/ปิดวงจรบันทึกเสียงเดิม
@@ -40,7 +62,10 @@ export class ManagedRecordingTrigger {
       if (source['Bridge-A-Unique-ID'] !== managed.callUuid) return undefined;
       if (this.begun.has(managed.callUuid)) return undefined;
       const event = this.envelope(source, tenantId, 'call.answered');
-      if (event) this.begun.add(managed.callUuid);
+      if (event) {
+        if (this.begun.size >= maxBegun) this.begun.delete(this.begun.values().next().value!);
+        this.begun.add(managed.callUuid);
+      }
       return event;
     }
     if (managed.type === 'call.hangup' && managed.offerId === undefined) {

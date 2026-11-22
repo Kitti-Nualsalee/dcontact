@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { FreeSwitchEvent } from './freeswitch-normalizer.js';
-import { ManagedRecordingTrigger } from './managed-voice-recording.js';
+import {
+  ManagedRecordingTrigger,
+  routeManagedOfferLegWithRecording,
+} from './managed-voice-recording.js';
 
 const tenantId = '7f6b4b3e-1d0f-4c38-9a8c-9d5b0c6e2a11';
 const caller = 'caller-uuid';
@@ -87,4 +90,47 @@ test('tenant หรือ node ไม่ตรงถูกเมินโดย�
     recording.decide({ ...bridge(caller), variable_dcontact_node_id: 'other-node' }, tenantId),
     undefined,
   );
+});
+
+test('ขา offer ยังปิดบันทึกเมื่อ managed runtime throw และไม่เรียกเมื่อ tenant ไม่ใช่ uuid', async () => {
+  const recorded: string[] = [];
+  const record = async (source: FreeSwitchEvent, tenant: string) => {
+    recorded.push(`${source['Event-Name']}:${tenant}`);
+  };
+  await assert.rejects(
+    routeManagedOfferLegWithRecording(
+      hangup(caller),
+      async () => {
+        throw new Error('lock timeout');
+      },
+      record,
+    ),
+    /lock timeout/,
+  );
+  assert.deepEqual(recorded, [`CHANNEL_HANGUP_COMPLETE:${tenantId}`]);
+  assert.equal(
+    await routeManagedOfferLegWithRecording(
+      hangup(caller, { variable_dcontact_tenant_id: 'not-a-uuid' }),
+      async () => 'ignored',
+      record,
+    ),
+    'ignored',
+  );
+  assert.equal(recorded.length, 1);
+});
+
+test('สายที่จำว่าเริ่มบันทึกแล้วมีเพดาน กันค้างเมื่อ hangup ไม่มา', () => {
+  const subject = trigger();
+  for (let index = 0; index < 1_005; index += 1) {
+    const uuid = `caller-${index}`;
+    subject.decide(
+      {
+        ...bridge(uuid),
+        'Bridge-A-Unique-ID': uuid,
+        variable_dcontact_call_uuid: uuid,
+      },
+      tenantId,
+    );
+  }
+  assert.equal(subject.pending, 1_000);
 });
