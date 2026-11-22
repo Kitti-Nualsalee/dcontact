@@ -21,6 +21,7 @@ interface FakeRecording {
   endedAt: Date | null;
   archivedAt: Date | null;
   deletedAt: Date | null;
+  legalHold?: boolean;
 }
 
 /** จำลองเฉพาะส่วนของ Prisma ที่ retryPendingArchives ใช้ */
@@ -68,7 +69,8 @@ function fakeDatabase(recordings: FakeRecording[], failures: { findManyForTenant
             row.id === where.id &&
             row.tenantId === where.tenantId &&
             (where.archivedAt !== null || row.archivedAt === null) &&
-            (where.deletedAt !== null || row.deletedAt === null),
+            (where.deletedAt !== null || row.deletedAt === null) &&
+            !(where.legalHolds && row.legalHold),
         );
         for (const row of rows) Object.assign(row, data);
         return { count: rows.length };
@@ -190,24 +192,33 @@ test('a failing recording backs off instead of logging every 5 seconds', async (
   );
 });
 
-test('a file that never appeared is abandoned with audit evidence after the grace period', async () => {
+test('a file that never appeared is abandoned with audit evidence once storage is proven visible', async () => {
   const recordings = [row('hung-up-early', tenantA, '2026-11-22T10:00:00.000Z')];
   const { database, audits } = fakeDatabase(recordings);
-  let attempts = 0;
+  let missingAttempts = 0;
   const clock = { now: new Date('2026-11-22T10:29:59.000Z') };
   const { subject, logs } = lifecycle(
     database,
     async (input) => {
-      attempts += 1;
-      throw missingFile(input.telephonyPath);
+      if (input.telephonyPath.includes('hung-up-early')) {
+        missingAttempts += 1;
+        throw missingFile(input.telephonyPath);
+      }
     },
     { clock },
   );
 
-  await subject.retryPendingArchives(nodeId);
-  assert.equal(recordings[0]?.deletedAt, null, 'ยังไม่ครบ grace ต้องลองต่อ');
+  await subject.retryPendingArchives(nodeId); // ยังไม่ครบ 30 นาทีหลังวางสาย
+  assert.equal(recordings[0]?.deletedAt, null);
 
-  clock.now = new Date('2026-11-22T10:30:05.000Z');
+  // สายใหม่ archive สำเร็จ: storage มองเห็น แต่ยังเห็นไฟล์หายไม่ครบ 10 นาที
+  recordings.push(row('later-call', tenantA, '2026-11-22T10:34:00.000Z'));
+  clock.now = new Date('2026-11-22T10:35:00.000Z');
+  await subject.retryPendingArchives(nodeId);
+  assert.ok(recordings[1]?.archivedAt);
+  assert.equal(recordings[0]?.deletedAt, null);
+
+  clock.now = new Date('2026-11-22T10:40:05.000Z');
   await subject.retryPendingArchives(nodeId);
 
   assert.deepEqual(recordings[0]?.deletedAt, clock.now);
@@ -222,8 +233,8 @@ test('a file that never appeared is abandoned with audit evidence after the grac
         errorCode: 'ENOENT',
         telephonyNodeId: nodeId,
         endedAt: '2026-11-22T10:00:00.000Z',
-        missingForSec: 1805,
-        attempts: 2,
+        missingForSec: 2405,
+        attempts: 3,
       },
     },
   ]);
@@ -234,7 +245,80 @@ test('a file that never appeared is abandoned with audit evidence after the grac
 
   clock.now = new Date('2026-11-22T11:00:00.000Z');
   await subject.retryPendingArchives(nodeId);
-  assert.equal(attempts, 2, 'แถวที่หยุดแล้วไม่ถูกลองอีก');
+  assert.equal(missingAttempts, 3, 'แถวที่หยุดแล้วไม่ถูกลองอีก');
+});
+
+test('a missing mount (every file ENOENT, nothing archives) never abandons recordings', async () => {
+  const recordings = [
+    row('call-1', tenantA, '2026-11-22T08:00:00.000Z'),
+    row('call-2', tenantB, '2026-11-22T08:05:00.000Z'),
+  ];
+  const { database, audits } = fakeDatabase(recordings);
+  const clock = { now: new Date('2026-11-22T10:00:00.000Z') };
+  const { subject } = lifecycle(
+    database,
+    async (input) => {
+      throw missingFile(input.telephonyPath);
+    },
+    { clock },
+  );
+
+  for (let minute = 0; minute <= 120; minute += 5) {
+    clock.now = new Date(Date.parse('2026-11-22T10:00:00.000Z') + minute * 60_000);
+    await subject.retryPendingArchives(nodeId);
+  }
+
+  assert.deepEqual(audits, []);
+  assert.deepEqual(
+    recordings.map((recording) => recording.deletedAt),
+    [null, null],
+  );
+});
+
+test('a recording under legal hold is not abandoned', async () => {
+  const recordings = [
+    { ...row('held', tenantA, '2026-11-22T09:00:00.000Z'), legalHold: true },
+    row('ready', tenantA, '2026-11-22T09:59:00.000Z'),
+  ];
+  const { database, audits } = fakeDatabase(recordings);
+  const clock = { now: new Date('2026-11-22T10:00:00.000Z') };
+  const { subject, logs } = lifecycle(
+    database,
+    async (input) => {
+      if (input.telephonyPath.includes('held')) throw missingFile(input.telephonyPath);
+    },
+    { clock, missingFileObservationMs: 0 },
+  );
+
+  await subject.retryPendingArchives(nodeId); // held ล้ม แล้ว ready สำเร็จ
+  clock.now = new Date('2026-11-22T10:01:00.000Z');
+  await subject.retryPendingArchives(nodeId);
+
+  assert.equal(recordings[0]?.deletedAt, null);
+  assert.deepEqual(audits, []);
+  assert.ok(
+    logs.some(
+      (log) =>
+        log.message ===
+        '[telephony] recording archive not abandoned: legal hold or already handled',
+    ),
+  );
+});
+
+test('an archive that hangs times out so later retry runs are not blocked', async () => {
+  const recordings = [row('hung-nfs', tenantA, '2026-11-22T10:00:00.000Z')];
+  const { database } = fakeDatabase(recordings);
+  const clock = { now: new Date('2026-11-22T10:01:00.000Z') };
+  const { subject, logs } = lifecycle(database, () => new Promise<void>(() => undefined), {
+    clock,
+    archiveTimeoutMs: 20,
+  });
+
+  assert.deepEqual(await subject.retryPendingArchives(nodeId), []);
+  assert.equal(logs[0]?.details.errorCode, 'ETIMEDOUT');
+  clock.now = new Date('2026-11-22T10:02:00.000Z');
+  await subject.retryPendingArchives(nodeId);
+  assert.equal(logs.length, 2, 'รอบถัดไปยังทำงาน ไม่ค้างที่รอบแรก');
 });
 
 test('errors other than a missing file keep retrying even after the grace period', async () => {
@@ -320,7 +404,7 @@ test('retry does not archive a recording the hangup path is still archiving', as
 
 test('recording start gives up when storage prepare hangs, and discards the row', async () => {
   const created: string[] = [];
-  const deleted: string[] = [];
+  const deleted: unknown[] = [];
   const commands: unknown[] = [];
   const transaction = {
     $executeRawUnsafe: async () => 0,
@@ -342,7 +426,7 @@ test('recording start gives up when storage prepare hangs, and discards the row'
         return { id: 'recording-1', telephonyPath: data.telephonyPath, channelLayout: 'STEREO' };
       },
       deleteMany: async ({ where }: { where: { id: string } }) => {
-        deleted.push(where.id);
+        deleted.push(where);
         return { count: 1 };
       },
     },
@@ -365,7 +449,8 @@ test('recording start gives up when storage prepare hangs, and discards the row'
       error.code === 'ETIMEDOUT' && /prepare timed out/.test(error.message),
   );
   assert.equal(created.length, 1);
-  assert.deepEqual(deleted, ['recording-1']);
+  // ลบได้แม้ hangup ตั้ง endedAt ไปแล้วระหว่างรอ storage (ไม่มีเงื่อนไข endedAt)
+  assert.deepEqual(deleted, [{ id: 'recording-1', tenantId: tenantA, archivedAt: null }]);
   assert.deepEqual(commands, [], 'ไม่สั่ง uuid_record เมื่อเตรียม storage ไม่ทัน');
 });
 

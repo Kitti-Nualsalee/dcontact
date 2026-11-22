@@ -14,8 +14,15 @@ export interface RecordingArchive {
 export interface TelephonyRecordingLifecycleOptions {
   /** mkdir บน storage ที่ไม่ตอบ (เช่น NFS ค้าง) ต้องไม่ค้างงานเริ่มบันทึกของสาย ค่าเริ่มต้น 5 วินาที */
   prepareTimeoutMs?: number;
-  /** ไฟล์ไม่มี (ENOENT) นานเกินนี้หลังวางสาย ถือว่าไม่มีวันมี แล้วหยุดลอง ค่าเริ่มต้น 30 นาที */
+  /** archive (อ่านไฟล์ + PUT) ที่ค้างนานเกินนี้ถือว่าล้ม ไม่ให้ค้างรอบ retry ค่าเริ่มต้น 60 วินาที */
+  archiveTimeoutMs?: number;
+  /**
+   * หยุดลองไฟล์ที่ไม่มี (ENOENT) เมื่อครบทุกข้อ: วางสายมาแล้วเกิน missingFileGraceMs (30 นาที),
+   * process นี้เห็น ENOENT ต่อเนื่องเกิน missingFileObservationMs (10 นาที) และมี archive อื่นของ node
+   * สำเร็จหลังเห็นไฟล์หายครั้งแรก (พิสูจน์ว่า storage มองเห็น ไม่ใช่ mount หายทั้งก้อน)
+   */
   missingFileGraceMs?: number;
+  missingFileObservationMs?: number;
   /** รอบ retry ที่ล้มจะเว้นรายการนั้นนานขึ้นทีละเท่า เริ่ม 5 วินาที สูงสุด 5 นาที */
   retryBackoffInitialMs?: number;
   retryBackoffMaxMs?: number;
@@ -23,7 +30,7 @@ export interface TelephonyRecordingLifecycleOptions {
   log?: (message: string, details: Record<string, unknown>) => void;
 }
 
-interface PendingArchive {
+export interface PendingArchive {
   id: string;
   storageKey: string;
   telephonyPath: string;
@@ -33,7 +40,9 @@ interface PendingArchive {
 /** Telephony เป็นเจ้าของการสร้าง recording เมื่อ media bridge เริ่มขึ้น. */
 export class TelephonyRecordingLifecycle {
   private readonly prepareTimeoutMs: number;
+  private readonly archiveTimeoutMs: number;
   private readonly missingFileGraceMs: number;
+  private readonly missingFileObservationMs: number;
   private readonly retryBackoffInitialMs: number;
   private readonly retryBackoffMaxMs: number;
   private readonly now: () => Date;
@@ -41,7 +50,17 @@ export class TelephonyRecordingLifecycle {
   /** recording ที่กำลัง archive อยู่ (จาก hangup หรือรอบ retry) กันอ่านไฟล์และ PUT ซ้ำพร้อมกัน */
   private readonly archivesInFlight = new Set<string>();
   /** สถานะ backoff ในหน่วยความจำของรายการที่ retry ล้ม รีสตาร์ทแล้วเริ่มนับใหม่ */
-  private readonly retryFailures = new Map<string, { attempts: number; nextAttemptAt: number }>();
+  private readonly retryFailures = new Map<
+    string,
+    {
+      attempts: number;
+      nextAttemptAt: number;
+      firstMissingAt?: number;
+      successesAtFirstMissing?: number;
+    }
+  >();
+  /** จำนวน archive ที่สำเร็จใน process นี้ ใช้พิสูจน์ว่า storage ยังมองเห็นหลังไฟล์หนึ่งหาย */
+  private archiveSuccesses = 0;
   private retryInProgress = false;
 
   constructor(
@@ -53,7 +72,9 @@ export class TelephonyRecordingLifecycle {
     options: TelephonyRecordingLifecycleOptions = {},
   ) {
     this.prepareTimeoutMs = options.prepareTimeoutMs ?? 5_000;
+    this.archiveTimeoutMs = options.archiveTimeoutMs ?? 60_000;
     this.missingFileGraceMs = options.missingFileGraceMs ?? 30 * 60_000;
+    this.missingFileObservationMs = options.missingFileObservationMs ?? 10 * 60_000;
     this.retryBackoffInitialMs = options.retryBackoffInitialMs ?? 5_000;
     this.retryBackoffMaxMs = options.retryBackoffMaxMs ?? 5 * 60_000;
     this.now = options.now ?? (() => new Date());
@@ -61,7 +82,18 @@ export class TelephonyRecordingLifecycle {
   }
 
   async startForAnsweredCall(event: KafkaEventEnvelope<TelephonyCallEvent>): Promise<void> {
-    if (event.type !== 'call.answered' || event.payload.vendor !== 'freeswitch') return;
+    const start = await this.beginForAnsweredCall(event);
+    await start?.();
+  }
+
+  /**
+   * ขั้นที่ 1 สร้างแถว recording (DB อย่างเดียว เร็ว) แล้วคืนขั้นที่ 2 (เตรียม storage, ประกาศ, uuid_record)
+   * ให้ caller เรียงต่อเอง hangup จึงตั้ง endedAt ได้โดยไม่ต้องรอ storage ที่ช้า
+   */
+  async beginForAnsweredCall(
+    event: KafkaEventEnvelope<TelephonyCallEvent>,
+  ): Promise<(() => Promise<void>) | undefined> {
+    if (event.type !== 'call.answered' || event.payload.vendor !== 'freeswitch') return undefined;
     const recording = await withTenantDatabaseTransaction(
       this.database,
       event.tenantId,
@@ -106,7 +138,20 @@ export class TelephonyRecordingLifecycle {
         };
       },
     );
-    if (!recording) return;
+    if (!recording) return undefined;
+    return () => this.startRecordingMedia(event, recording);
+  }
+
+  private async startRecordingMedia(
+    event: KafkaEventEnvelope<TelephonyCallEvent>,
+    recording: {
+      id: string;
+      telephonyPath: string;
+      channelLayout: 'PER_LEG' | 'STEREO';
+      announcement: string | null;
+      language: string | null;
+    },
+  ): Promise<void> {
     try {
       await withTimeout(
         this.archive.prepare({ tenantId: event.tenantId, telephonyPath: recording.telephonyPath }),
@@ -132,8 +177,8 @@ export class TelephonyRecordingLifecycle {
         channelLayout: recording.channelLayout,
       });
     } catch (error) {
-      // #923: ไม่มีไฟล์เสียงเกิดขึ้น ถ้าปล่อยแถวไว้ hangup จะตั้ง endedAt แล้ว retryPendingArchives
-      // จะวนอ่านไฟล์ที่ไม่มีวันมี (ENOENT) ตลอดไป จึงลบแถวที่เพิ่งสร้างทิ้งก่อนส่ง error ต่อ
+      // #923: ไม่มีไฟล์เสียงเกิดขึ้น ถ้าปล่อยแถวไว้ retryPendingArchives จะวนอ่านไฟล์ที่ไม่มีวันมี (ENOENT)
+      // จึงลบแถวทิ้งก่อนส่ง error ต่อ ลบได้แม้ hangup ตั้ง endedAt ไปแล้วระหว่างรอ storage
       await this.discardUnstartedRecording(event.tenantId, recording.id);
       throw error;
     }
@@ -143,7 +188,7 @@ export class TelephonyRecordingLifecycle {
     try {
       await withTenantDatabaseTransaction(this.database, tenantId, (transaction) =>
         transaction.recording.deleteMany({
-          where: { id: recordingId, tenantId, endedAt: null, archivedAt: null },
+          where: { id: recordingId, tenantId, archivedAt: null },
         }),
       );
     } catch (rollbackError) {
@@ -156,7 +201,15 @@ export class TelephonyRecordingLifecycle {
   }
 
   async finishForHungupCall(event: KafkaEventEnvelope<TelephonyCallEvent>): Promise<void> {
-    if (event.type !== 'call.hangup' || event.payload.vendor !== 'freeswitch') return;
+    const recording = await this.endForHungupCall(event);
+    if (recording) await this.archiveEndedRecording(event.tenantId, recording);
+  }
+
+  /** ตั้ง endedAt (DB อย่างเดียว) และคืนแถวที่ต้อง archive ต่อ QM อ่าน endedAt ตอน interaction.ended */
+  async endForHungupCall(
+    event: KafkaEventEnvelope<TelephonyCallEvent>,
+  ): Promise<PendingArchive | undefined> {
+    if (event.type !== 'call.hangup' || event.payload.vendor !== 'freeswitch') return undefined;
     const endedAt = new Date(event.occurredAt);
     const recording = await withTenantDatabaseTransaction(
       this.database,
@@ -192,8 +245,11 @@ export class TelephonyRecordingLifecycle {
         return current;
       },
     );
-    if (!recording) return;
-    await this.archiveRecording(event.tenantId, recording);
+    return recording ?? undefined;
+  }
+
+  async archiveEndedRecording(tenantId: string, recording: PendingArchive): Promise<void> {
+    await this.archiveRecording(tenantId, recording);
   }
 
   /**
@@ -269,21 +325,40 @@ export class TelephonyRecordingLifecycle {
     const previous = this.retryFailures.get(recording.id);
     const attempts = (previous?.attempts ?? 0) + 1;
     const missingForMs = recording.endedAt ? now.getTime() - recording.endedAt.getTime() : 0;
-    if (errorCode(error) === 'ENOENT' && missingForMs >= this.missingFileGraceMs) {
+    const missing = errorCode(error) === 'ENOENT';
+    const firstMissingAt = missing ? (previous?.firstMissingAt ?? now.getTime()) : undefined;
+    const successesAtFirstMissing = missing
+      ? (previous?.successesAtFirstMissing ?? this.archiveSuccesses)
+      : undefined;
+    const storageVisible =
+      successesAtFirstMissing !== undefined && this.archiveSuccesses > successesAtFirstMissing;
+    if (
+      missing &&
+      missingForMs >= this.missingFileGraceMs &&
+      now.getTime() - firstMissingAt! >= this.missingFileObservationMs &&
+      storageVisible
+    ) {
       try {
         // เช่น ผู้โทรวางสายก่อน FreeSWITCH สร้างไฟล์: ไฟล์ไม่มีวันมี จึงหยุดลองและเก็บหลักฐานไว้ใน audit
-        await this.abandonMissingRecording(tenantId, telephonyNodeId, recording, {
+        const abandoned = await this.abandonMissingRecording(tenantId, telephonyNodeId, recording, {
           attempts,
           missingForMs,
         });
-        this.retryFailures.delete(recording.id);
-        this.log('[telephony] recording archive abandoned: source file missing', {
-          tenantId,
-          recordingId: recording.id,
-          attempts,
-          missingForSec: Math.floor(missingForMs / 1_000),
-        });
-        return;
+        if (!abandoned) {
+          this.log('[telephony] recording archive not abandoned: legal hold or already handled', {
+            tenantId,
+            recordingId: recording.id,
+          });
+        } else {
+          this.retryFailures.delete(recording.id);
+          this.log('[telephony] recording archive abandoned: source file missing', {
+            tenantId,
+            recordingId: recording.id,
+            attempts,
+            missingForSec: Math.floor(missingForMs / 1_000),
+          });
+          return;
+        }
       } catch (abandonError) {
         this.log('[telephony] recording archive abandon failed', {
           tenantId,
@@ -296,7 +371,12 @@ export class TelephonyRecordingLifecycle {
       this.retryBackoffMaxMs,
       this.retryBackoffInitialMs * 2 ** Math.min(attempts - 1, 30),
     );
-    this.retryFailures.set(recording.id, { attempts, nextAttemptAt: now.getTime() + delayMs });
+    this.retryFailures.set(recording.id, {
+      attempts,
+      nextAttemptAt: now.getTime() + delayMs,
+      firstMissingAt,
+      successesAtFirstMissing,
+    });
     this.log('[telephony] recording archive retry failed', {
       tenantId,
       recordingId: recording.id,
@@ -311,14 +391,21 @@ export class TelephonyRecordingLifecycle {
     telephonyNodeId: string,
     recording: PendingArchive,
     evidence: { attempts: number; missingForMs: number },
-  ): Promise<void> {
+  ): Promise<boolean> {
     const now = this.now();
-    await withTenantDatabaseTransaction(this.database, tenantId, async (transaction) => {
+    return withTenantDatabaseTransaction(this.database, tenantId, async (transaction) => {
       const result = await transaction.recording.updateMany({
-        where: { id: recording.id, tenantId, archivedAt: null, deletedAt: null },
+        where: {
+          id: recording.id,
+          tenantId,
+          archivedAt: null,
+          deletedAt: null,
+          // เหมือน retention: recording ที่ติด legal hold ไม่ถูกตั้ง deletedAt
+          legalHolds: { none: { releasedAt: null } },
+        },
         data: { deletedAt: now },
       });
-      if (result.count !== 1) return;
+      if (result.count !== 1) return false;
       await transaction.recordingAuditEvent.create({
         data: {
           tenantId,
@@ -334,6 +421,7 @@ export class TelephonyRecordingLifecycle {
           },
         },
       });
+      return true;
     });
   }
 
@@ -342,11 +430,15 @@ export class TelephonyRecordingLifecycle {
     if (this.archivesInFlight.has(recording.id)) return false;
     this.archivesInFlight.add(recording.id);
     try {
-      await this.archive.archive({
-        tenantId,
-        storageKey: recording.storageKey,
-        telephonyPath: recording.telephonyPath,
-      });
+      await withTimeout(
+        this.archive.archive({
+          tenantId,
+          storageKey: recording.storageKey,
+          telephonyPath: recording.telephonyPath,
+        }),
+        this.archiveTimeoutMs,
+        'recording archive timed out',
+      );
       await withTenantDatabaseTransaction(this.database, tenantId, (transaction) =>
         transaction.recording.updateMany({
           where: { id: recording.id, tenantId, archivedAt: null },
@@ -354,6 +446,7 @@ export class TelephonyRecordingLifecycle {
         }),
       );
       this.retryFailures.delete(recording.id);
+      this.archiveSuccesses += 1;
       return true;
     } finally {
       this.archivesInFlight.delete(recording.id);

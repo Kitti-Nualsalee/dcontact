@@ -34,15 +34,18 @@ function deferred() {
 }
 
 function harness(
-  recordings: {
+  hooks: {
+    begin?: () => Promise<void>;
     start?: () => Promise<void>;
-    finish?: () => Promise<void>;
+    end?: () => Promise<void>;
+    archive?: () => Promise<void>;
   } = {},
 ) {
   const published: string[] = [];
   const steps: string[] = [];
   const logs: { message: string; details: Record<string, unknown> }[] = [];
   const recordingTasks = new RecordingTaskQueue();
+  const recording = { id: 'recording-1', storageKey: 'key', telephonyPath: '/path' };
   return {
     published,
     steps,
@@ -50,13 +53,22 @@ function harness(
     recordingTasks,
     dependencies: {
       recordings: {
-        startForAnsweredCall: async () => {
-          await recordings.start?.();
-          steps.push('recording.started');
+        beginForAnsweredCall: async () => {
+          await hooks.begin?.();
+          steps.push('recording.created');
+          return async () => {
+            await hooks.start?.();
+            steps.push('recording.started');
+          };
         },
-        finishForHungupCall: async () => {
-          await recordings.finish?.();
-          steps.push('recording.finished');
+        endForHungupCall: async () => {
+          await hooks.end?.();
+          steps.push('recording.ended');
+          return recording;
+        },
+        archiveEndedRecording: async () => {
+          await hooks.archive?.();
+          steps.push('recording.archived');
         },
       },
       recordingTasks,
@@ -107,31 +119,54 @@ test('call.answered reaches Router without waiting for slow recording storage (N
 
   // publish เสร็จแล้วทั้งที่ prepare ยังค้าง: Router ไม่เกิน offer timeout
   assert.deepEqual(published, ['call.answered']);
-  assert.equal(recordingTasks.size, 1);
+  assert.ok(recordingTasks.size > 0);
   storage.resolve();
   assert.equal(await recordingTasks.drain(1_000), true);
-  assert.deepEqual(steps, ['published:call.answered', 'recording.started']);
+  assert.deepEqual(steps, ['published:call.answered', 'recording.created', 'recording.started']);
 });
 
-test('call.hangup waits for recording to finish so QM sees endedAt, as before', async () => {
-  const { steps, logs, dependencies } = harness();
+test('call.hangup waits for endedAt and archive in the normal case, as before', async () => {
+  const { steps, logs, recordingTasks, dependencies } = harness();
 
   await publishTelephonyCallEvent(callEvent('call.answered'), dependencies);
+  await recordingTasks.drain(1_000);
   await publishTelephonyCallEvent(callEvent('call.hangup'), dependencies);
 
   assert.deepEqual(steps, [
     'published:call.answered',
+    'recording.created',
     'recording.started',
-    'recording.finished',
+    'recording.ended',
+    'recording.archived',
     'published:call.hangup',
   ]);
   assert.equal(logs.length, 0);
 });
 
+test('short call with slow prepare: endedAt is still set before call.hangup so QM sees it', async () => {
+  const prepare = deferred();
+  const { steps, logs, recordingTasks, dependencies } = harness({ start: () => prepare.promise });
+
+  await publishTelephonyCallEvent(callEvent('call.answered'), dependencies);
+  await publishTelephonyCallEvent(callEvent('call.hangup'), dependencies);
+
+  // ตั้ง endedAt แล้วก่อนส่ง hangup แม้ขั้นเริ่มบันทึกยังค้าง; archive รอหลังขั้นเริ่มบันทึก
+  assert.deepEqual(steps, [
+    'published:call.answered',
+    'recording.created',
+    'recording.ended',
+    'published:call.hangup',
+  ]);
+  assert.equal(logs[0]?.details.pendingStage, 'archive');
+  prepare.resolve();
+  await recordingTasks.drain(1_000);
+  assert.deepEqual(steps.slice(4), ['recording.started', 'recording.archived']);
+});
+
 test('call.hangup is published after the budget when archive storage hangs', async () => {
   const storage = deferred();
   const { published, steps, logs, recordingTasks, dependencies } = harness({
-    finish: () => storage.promise,
+    archive: () => storage.promise,
   });
 
   await publishTelephonyCallEvent(callEvent('call.hangup'), dependencies);
@@ -143,40 +178,51 @@ test('call.hangup is published after the budget when archive storage hangs', asy
     callUuid,
     tenantId,
     budgetMs: 50,
+    pendingStage: 'archive',
   });
   storage.resolve();
   await recordingTasks.drain(1_000);
-  assert.deepEqual(steps, ['published:call.hangup', 'recording.finished']);
+  assert.deepEqual(steps, ['recording.ended', 'published:call.hangup', 'recording.archived']);
 });
 
-test('hangup recording work runs after the answered recording work of the same call', async () => {
+test('call.hangup is published after the budget even if the database step hangs', async () => {
+  const database = deferred();
+  const { published, logs, recordingTasks, dependencies } = harness({
+    end: () => database.promise,
+  });
+
+  await publishTelephonyCallEvent(callEvent('call.hangup'), dependencies);
+
+  assert.deepEqual(published, ['call.hangup']);
+  assert.equal(logs[0]?.details.pendingStage, 'endedAt');
+  database.resolve();
+  await recordingTasks.drain(1_000);
+});
+
+test('other calls do not wait for a slow call', async () => {
   const prepare = deferred();
-  const { steps, recordingTasks, dependencies } = harness({ start: () => prepare.promise });
+  const { published, recordingTasks, dependencies } = harness({ start: () => prepare.promise });
 
   await publishTelephonyCallEvent(callEvent('call.answered'), dependencies);
-  const hangup = publishTelephonyCallEvent(callEvent('call.hangup'), dependencies);
-  // สายอื่นไม่ต้องรอสายนี้
   await publishTelephonyCallEvent(
-    callEvent('call.answered', 'ec6112fc-0000-4000-8000-000000000002'),
+    callEvent('call.hangup', 'ec6112fc-0000-4000-8000-000000000002'),
     dependencies,
   );
-  prepare.resolve();
-  await hangup;
-  await recordingTasks.drain(1_000);
 
-  const ownCall = steps.filter((step) => step !== 'published:call.answered');
-  assert.equal(ownCall.indexOf('recording.started') < ownCall.indexOf('recording.finished'), true);
-  assert.equal(steps.indexOf('recording.finished') < steps.indexOf('published:call.hangup'), true);
+  assert.deepEqual(published, ['call.answered', 'call.hangup']);
+  prepare.resolve();
+  await recordingTasks.drain(1_000);
 });
 
 test('call.hangup is still published when recording archive fails', async () => {
-  const { published, logs, dependencies } = harness({
-    finish: async () => {
+  const { published, logs, recordingTasks, dependencies } = harness({
+    archive: async () => {
       throw Object.assign(new Error('ENOENT: no such file'), { code: 'ENOENT' });
     },
   });
 
   await publishTelephonyCallEvent(callEvent('call.hangup'), dependencies);
+  await recordingTasks.drain(1_000);
 
   assert.deepEqual(published, ['call.hangup']);
   assert.equal(logs[0]?.message, '[telephony] recording archive deferred');
@@ -207,17 +253,38 @@ test('Kafka publish failure still propagates to the ESL loop', async () => {
   );
 });
 
-test('drain reports work still running after its timeout', async () => {
+test('drain waits for work queued while draining and reports work still running', async () => {
   const queue = new RecordingTaskQueue();
+  const first = deferred();
+  const second = deferred();
+  void queue.run(
+    'call',
+    async () => {
+      await first.promise;
+      void queue.run(
+        'call:media',
+        () => second.promise,
+        () => undefined,
+      );
+    },
+    () => undefined,
+  );
+
+  const draining = queue.drain(1_000);
+  first.resolve();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(queue.size, 1, 'งานที่เข้าคิวระหว่าง drain ยังถูกนับ');
+  second.resolve();
+  assert.equal(await draining, true);
+  assert.equal(queue.size, 0);
+
   const stuck = deferred();
   void queue.run(
     'call',
     () => stuck.promise,
     () => undefined,
   );
-
   assert.equal(await queue.drain(10), false);
   stuck.resolve();
   assert.equal(await queue.drain(1_000), true);
-  assert.equal(queue.size, 0);
 });

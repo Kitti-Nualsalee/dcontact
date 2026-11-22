@@ -42,22 +42,19 @@ Telephony ตั้ง `RECORD_STEREO` ของ channel ตาม `recording_ch
 
 ## การ archive ของ Telephony
 
-- `call.answered` ไม่รองานบันทึกเสียง ส่วน `call.hangup` รอปิดบันทึก (ตั้ง `endedAt` แล้ว archive) ไม่เกิน 3 วินาที
-  เพื่อให้ QM เห็น `endedAt` ตอนได้ `interaction.ended` เกินนั้นส่ง event ก่อนแล้ว archive ต่อเบื้องหลัง
-- การเตรียมโฟลเดอร์ (`prepare`) มี timeout 5 วินาที ถ้าไม่ทันจะไม่เริ่มบันทึกและลบแถวที่เพิ่งสร้าง
+- `call.answered` ไม่รองานบันทึกเสียง งานเตรียมโฟลเดอร์, ประกาศ และ `uuid_record` ทำหลังส่ง event
+- `call.hangup` รอไม่เกิน 3 วินาที: ตั้ง `endedAt` (DB อย่างเดียว ไม่รอ storage) แล้ว archive ถ้าเกินเพดาน ส่ง event ก่อนแล้ว archive ต่อเบื้องหลัง
+  กรณีปกติ QM เห็น `endedAt` และ object ใน storage แล้วตอนได้ `interaction.ended` เหมือนเดิม
+  แต่ถ้า archive ช้าหรือล้ม `interaction.ended` ไม่รับประกันว่า object มีอยู่แล้ว (QM worker ยังไม่ตรวจ `archivedAt`)
+- การเตรียมโฟลเดอร์ (`prepare`) มี timeout 5 วินาที และ archive มี timeout 60 วินาที ถ้าเตรียมไม่ทันจะไม่เริ่มบันทึกและลบแถวทิ้ง
 - รอบ retry ทุก 5 วินาทีลองทีละรายการ รายการที่ล้มเว้นนานขึ้นทีละเท่า (5 วินาที ถึง 5 นาที) และรอบไม่ซ้อนกัน
-- ไฟล์ไม่มี (`ENOENT`) นานเกิน 30 นาทีหลังวางสาย เช่น ผู้โทรวางสายก่อน FreeSWITCH สร้างไฟล์ จะหยุดลอง
-  ตั้ง `deletedAt` และบันทึก audit `ARCHIVE_ABANDONED` (reason `SOURCE_FILE_MISSING`) พร้อม node และเวลาที่หายไป
-  ไฟล์ที่อ่านไม่ได้ด้วยเหตุอื่น (NFS ค้าง, storage ล่ม) ลองต่อโดยไม่หยุด
-
-| สถานะ | code                                             | ความหมาย                                              |
-| ----- | ------------------------------------------------ | ----------------------------------------------------- |
-| 400   | `INVALID_REQUEST`                                | ช่วงวันที่ `limit` `cursor` หรือช่วง frame ไม่ถูกต้อง     |
-| 403   | `PLAYBACK_ACCESS_DENIED`                         | ไม่ใช่ Supervisor ที่ active และมีทีม หรือ feature ปิด    |
-| 404   | `RESOURCE_NOT_FOUND`                             | ไม่พบ หรือไม่มีสิทธิ์ฟังรายการนั้น                        |
-| 409   | `RECORDING_NOT_READY`, `PLAYBACK_SESSION_EXPIRED` | ไฟล์ยังไม่ archive หรือ session หมดอายุหรือถูกปิด        |
-| 422   | `RECORDING_FORMAT_UNSUPPORTED`                   | ไฟล์ไม่ใช่ WAV ที่รองรับ                                |
-| 503   | `STORAGE_UNAVAILABLE`                            | อ่าน object storage ไม่ได้                             |
+- ไฟล์ไม่มี (`ENOENT`) เช่น ผู้โทรวางสายก่อน FreeSWITCH สร้างไฟล์ จะหยุดลองเมื่อครบทุกข้อ: วางสายมาแล้วเกิน 30 นาที,
+  Telephony process เดียวกันเห็นไฟล์หายต่อเนื่องเกิน 10 นาที และมี archive อื่นของ node สำเร็จหลังเห็นไฟล์หายครั้งแรก
+  (กันกรณี mount หายทั้งก้อน) และไม่ติด legal hold จากนั้นตั้ง `deletedAt` และบันทึก audit `ARCHIVE_ABANDONED`
+  (reason `SOURCE_FILE_MISSING`) พร้อม node, `endedAt`, เวลาที่หายไป และจำนวนครั้งที่ลอง
+- กู้แถวที่หยุดลองผิด: หาใน `recording_audit_events` ที่ action `ARCHIVE_ABANDONED` แล้วล้าง `deleted_at` ของแถวนั้น รอบ retry จะลองใหม่
+- ไฟล์ที่อ่านไม่ได้ด้วยเหตุอื่น (NFS ค้าง, storage ล่ม) ลองต่อโดยไม่หยุด
+- คิว `STEREO` (ค่าเริ่มต้นของคิว) ได้ไฟล์ stereo ใหญ่กว่า mono เท่าตัว ทั้งบน NFS, หน่วยความจำตอน archive และ object storage
 
 ## หน้า Console
 

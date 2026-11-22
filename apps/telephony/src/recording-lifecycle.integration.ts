@@ -220,7 +220,7 @@ test('recording row is discarded when FreeSWITCH recording cannot start, so arch
   assert.equal(commands.length, 1);
 });
 
-test('retry abandons a recording whose file never appeared, records audit evidence, and still archives the next one', async (t) => {
+test('retry abandons a missing-file recording once storage is proven visible, skips legal holds, and records audit evidence', async (t) => {
   const tenantId = randomUUID();
   const queueId = randomUUID();
   const nodeId = `fs-abandon-${tenantId.slice(0, 8)}`;
@@ -265,10 +265,15 @@ test('retry abandons a recording whose file never appeared, records audit eviden
       },
     });
   };
-  const now = new Date('2026-11-22T12:00:00.000Z');
+  let now = new Date('2026-11-22T12:00:00.000Z');
   const missing = await insertEndedRecording(new Date('2026-11-22T11:00:00.000Z'));
+  const held = await insertEndedRecording(new Date('2026-11-22T11:00:30.000Z'));
   const ready = await insertEndedRecording(new Date('2026-11-22T11:59:00.000Z'));
+  await owner.recordingLegalHold.create({
+    data: { tenantId, recordingId: held.id, reason: 'Dispute', placedByUserId: randomUUID() },
+  });
   t.after(async () => {
+    await owner.recordingLegalHold.deleteMany({ where: { tenantId } });
     await owner.recordingAuditEvent.deleteMany({ where: { tenantId } });
     await owner.recording.deleteMany({ where: { tenantId } });
     await owner.interaction.deleteMany({ where: { tenantId } });
@@ -282,7 +287,7 @@ test('retry abandons a recording whose file never appeared, records audit eviden
     {
       prepare: async () => undefined,
       archive: async (input) => {
-        if (input.storageKey === missing.storageKey) {
+        if (input.storageKey !== ready.storageKey) {
           throw Object.assign(new Error('ENOENT: no such file or directory'), { code: 'ENOENT' });
         }
       },
@@ -291,7 +296,14 @@ test('retry abandons a recording whose file never appeared, records audit eviden
     { now: () => now, log: () => undefined },
   );
 
+  // รอบแรก: ไฟล์หายเพิ่งเห็นครั้งแรก ยังไม่หยุดลอง; ready สำเร็จ = storage มองเห็น
   assert.deepEqual(await lifecycle.retryPendingArchives(nodeId), [ready.id]);
+  assert.equal(
+    (await owner.recording.findUniqueOrThrow({ where: { id: missing.id } })).deletedAt,
+    null,
+  );
+  now = new Date('2026-11-22T12:11:00.000Z');
+  assert.deepEqual(await lifecycle.retryPendingArchives(nodeId), []);
 
   const abandoned = await owner.recording.findUniqueOrThrow({ where: { id: missing.id } });
   assert.equal(abandoned.deletedAt?.toISOString(), now.toISOString());
@@ -306,11 +318,13 @@ test('retry abandons a recording whose file never appeared, records audit eviden
     errorCode: 'ENOENT',
     telephonyNodeId: nodeId,
     endedAt: '2026-11-22T11:00:00.000Z',
-    missingForSec: 3600,
-    attempts: 1,
+    missingForSec: 4260,
+    attempts: 2,
   });
+  const stillHeld = await owner.recording.findUniqueOrThrow({ where: { id: held.id } });
+  assert.equal(stillHeld.deletedAt, null);
+  assert.equal(await owner.recordingAuditEvent.count({ where: { recordingId: held.id } }), 0);
   assert.ok((await owner.recording.findUniqueOrThrow({ where: { id: ready.id } })).archivedAt);
-  assert.deepEqual(await lifecycle.retryPendingArchives(nodeId), []);
 });
 
 test.after(async () => {

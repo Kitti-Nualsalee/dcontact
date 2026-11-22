@@ -3,8 +3,8 @@ import type { TelephonyCallEvent } from '@d-contact/shared';
 import { describeError, type TelephonyRecordingLifecycle } from './recording-lifecycle.js';
 
 /**
- * งานบันทึกเสียงเรียงต่อสาย (เริ่มบันทึกของ answered ต้องเสร็จก่อนปิดบันทึกของ hangup)
- * แต่ไม่ขวางการส่ง call event และสายต่างกันทำพร้อมกันได้
+ * งานบันทึกเสียงเรียงตาม key ตามลำดับที่เข้าคิว สายต่างกันทำพร้อมกันได้ และไม่ขวางการส่ง call event
+ * ลำดับระหว่าง answered กับ hangup ของสายเดียวกันเท่ากับลำดับที่ caller เรียก publishTelephonyCallEvent
  */
 export class RecordingTaskQueue {
   private readonly tails = new Map<string, Promise<void>>();
@@ -26,23 +26,32 @@ export class RecordingTaskQueue {
     return this.running.size;
   }
 
-  /** รองานที่ค้างตอนปิด process ไม่เกิน timeoutMs; คืน false ถ้ายังมีงานเหลือ */
+  /** รองานที่ค้างตอนปิด process รวมงานที่เข้าคิวระหว่างรอ ไม่เกิน timeoutMs; คืน false ถ้ายังมีงานเหลือ */
   async drain(timeoutMs: number): Promise<boolean> {
-    if (this.running.size === 0) return true;
-    return waitAtMost(
-      Promise.all([...this.running]).then(() => undefined),
-      timeoutMs,
-    );
+    const deadline = Date.now() + timeoutMs;
+    while (this.running.size > 0) {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) return false;
+      await waitAtMost(
+        Promise.all([...this.running]).then(() => undefined),
+        remaining,
+      );
+    }
+    return true;
   }
 }
 
 export interface TelephonyEventPublisherDependencies {
-  recordings: Pick<TelephonyRecordingLifecycle, 'startForAnsweredCall' | 'finishForHungupCall'>;
+  recordings: Pick<
+    TelephonyRecordingLifecycle,
+    'beginForAnsweredCall' | 'endForHungupCall' | 'archiveEndedRecording'
+  >;
   recordingTasks: RecordingTaskQueue;
   publish(event: KafkaEventEnvelope<TelephonyCallEvent>): Promise<void>;
   /**
    * เวลาที่ `call.hangup` รอปิดบันทึก (ตั้ง endedAt แล้ว archive) ก่อนส่ง ค่าเริ่มต้น 3 วินาที
-   * QM อ่าน recording ที่มี endedAt ตอนได้ interaction.ended จึงรอแบบมีเพดานแทนการไม่รอเลย
+   * QM อ่าน recording ที่มี endedAt ตอนได้ interaction.ended และกรณีปกติ object ควรอยู่ใน storage แล้ว
+   * จึงรอแบบมีเพดานแทนการไม่รอเลย ขั้นตั้ง endedAt เป็น DB อย่างเดียว ไม่ต้องรอ storage ของขั้นเริ่มบันทึก
    */
   hangupRecordingBudgetMs?: number;
   log?(message: string, details: Record<string, unknown>): void;
@@ -58,27 +67,54 @@ export async function publishTelephonyCallEvent(
   dependencies: TelephonyEventPublisherDependencies,
 ): Promise<void> {
   const log = dependencies.log ?? ((message, details) => console.error(message, details));
+  const { recordings, recordingTasks } = dependencies;
   const { callUuid } = event.payload;
+  // key ของสาย: งาน DB (สร้างแถว, ตั้ง endedAt) ซึ่งเร็ว
+  // key ของ media: งาน storage (prepare, uuid_record, archive) ซึ่งอาจช้า เรียงหลังงาน DB ที่ส่งงานนั้นเข้ามา
+  const mediaKey = `${callUuid}:media`;
   if (event.type === 'call.answered') {
     // ไม่รอ: mkdir/ประกาศ/uuid_record ทำหลัง Router ได้ answered แล้ว
-    void dependencies.recordingTasks.run(
+    const startFailed = (error: unknown) =>
+      log('[telephony] recording start failed', describeFailure(event, error));
+    void recordingTasks.run(
       callUuid,
-      () => dependencies.recordings.startForAnsweredCall(event),
-      (error) => log('[telephony] recording start failed', describeFailure(event, error)),
+      async () => {
+        const start = await recordings.beginForAnsweredCall(event);
+        if (start) void recordingTasks.run(mediaKey, start, startFailed);
+      },
+      startFailed,
     );
   } else if (event.type === 'call.hangup') {
-    const finished = dependencies.recordingTasks.run(
-      callUuid,
-      () => dependencies.recordings.finishForHungupCall(event),
-      (error) => log('[telephony] recording archive deferred', describeFailure(event, error)),
-    );
+    const deferred = (error: unknown) =>
+      log('[telephony] recording archive deferred', describeFailure(event, error));
     const budgetMs = dependencies.hangupRecordingBudgetMs ?? 3_000;
-    if (!(await waitAtMost(finished, budgetMs))) {
+    const startedAt = Date.now();
+    const pending: { archive?: Promise<void> } = {};
+    const ended = recordingTasks.run(
+      callUuid,
+      async () => {
+        const recording = await recordings.endForHungupCall(event);
+        if (!recording) return;
+        pending.archive = recordingTasks.run(
+          mediaKey,
+          () => recordings.archiveEndedRecording(event.tenantId, recording),
+          deferred,
+        );
+      },
+      deferred,
+    );
+    const endedInTime = await waitAtMost(ended, budgetMs);
+    const archivedInTime =
+      endedInTime &&
+      (!pending.archive ||
+        (await waitAtMost(pending.archive, Math.max(0, budgetMs - (Date.now() - startedAt)))));
+    if (!archivedInTime) {
       log('[telephony] call.hangup published before recording finished', {
         eventType: event.type,
         callUuid,
         tenantId: event.tenantId,
         budgetMs,
+        pendingStage: endedInTime ? 'archive' : 'endedAt',
       });
     }
   }

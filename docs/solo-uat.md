@@ -73,7 +73,11 @@ trunk จำลอง `lan-sim` รับสายจาก `SOLO_SIM_TRUNK_IP` 
 - VM เล็กกว่าสเปก Solo ราวครึ่ง ใช้ทดสอบหลายสายพร้อมกันได้ ไม่ได้ load test
 - เสียงบันทึกพึ่ง NFS จาก VM voice:
   - NFS ตอบ error ทันที (เช่น สิทธิ์ไม่พอ): สายยังรับได้แต่ไม่มีเสียงบันทึก
-  - NFS ไม่ตอบ (VM voice ล่ม หรือ nfsd เพิ่ง restart และอยู่ใน grace period 90 วินาที): Telephony รอ mkdir/อ่านไฟล์ (หรือรอ automount ที่ตั้ง timeout 10 วินาที)ได้ถึง ~12 วินาทีก่อนส่ง `call.answered`/`call.hangup` สายที่รับช่วงนั้นอาจเกิน offer timeout และ Agent เป็น BREAK ระหว่างคุย
+  - NFS ไม่ตอบ (VM voice ล่ม หรือ nfsd เพิ่ง restart และอยู่ใน grace period 90 วินาที): `call.answered` ไม่รอ storage แล้ว
+    จึงไม่เกิน offer timeout ส่วน `call.hangup` รอไม่เกิน 3 วินาที ถ้าเตรียมโฟลเดอร์ไม่ทัน 5 วินาที สายนั้นไม่มีเสียงบันทึก
+    ไฟล์ที่ archive ไม่ทันจะถูก retry ต่อ ([voice-recording-supervisor-playback.md](voice-recording-supervisor-playback.md#การ-archive-ของ-telephony))
+  - mount หายทั้งก้อน (ทุกไฟล์ได้ `ENOENT`): Telephony ไม่หยุดลองรายการใด จนกว่าจะมีไฟล์อื่นของ node archive สำเร็จ
+    แก้ mount แล้วรายการค้างจะขึ้นเองในรอบ retry
   - กู้คืน: ตรวจด้วย `sudo ls /mnt/dcontact-solo/recordings` บน VM app แล้วรัน `solo-uat.sh voice` ถ้ายังไม่หาย ปิด `recording_enabled` ของคิวใน Console (seed จะเปิดคืนตอนรัน `app` รอบถัดไป)
 - ใครก็ตามที่ส่ง NFS จาก IP ของ VM app ได้ (รวม container อื่นบน VM นั้น) อ่านและแก้ไฟล์ WAV ก่อน archive ได้ ข้อมูลวิ่งบน LAN แบบไม่เข้ารหัส รับได้สำหรับ UAT ที่ใช้ข้อมูล demo ไม่ใช่แบบสำหรับ production
 - ไฟล์ WAV บน VM voice ไม่ถูกลบหลังส่งเข้า object storage (ยังไม่มี retention) และไม่มีการสำรองข้อมูลนอกเครื่อง
