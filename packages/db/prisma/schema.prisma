@@ -58,6 +58,8 @@ model Tenant {
   qmAuditEvents                QmAuditEvent[]
   qmTranscripts                QmTranscript[]
   qmEvaluations                QmEvaluation[]
+  qmForms                      QmForm[]
+  qmFormVersions               QmFormVersion[]
   qmConsoleContexts            QmConsoleContext[]
   commandReceipts              CommandReceipt[]
   cgRestrictions               CgRestriction[]
@@ -4938,6 +4940,7 @@ enum QmAuditAction {
   AUTO_QM_DRAFT_CREATED
   TRANSCRIPT_ACCESSED
   EVALUATION_PUBLISHED
+  FORM_VERSION_PUBLISHED
 }
 
 enum QmTranscriptSpeaker {
@@ -4955,6 +4958,13 @@ enum QmEvaluationSource {
 enum QmEvaluationStatus {
   DRAFT
   PUBLISHED
+}
+
+/// #971: เวอร์ชันของฟอร์มประเมิน — publish แล้วแก้ไม่ได้ (trigger ใน migration)
+enum QmFormVersionStatus {
+  DRAFT
+  PUBLISHED
+  SUPERSEDED
 }
 
 model QmTranscriptionJob {
@@ -5037,20 +5047,70 @@ model QmEvaluation {
   evaluatorId   String?            @map("evaluator_id") @db.Uuid
   source        QmEvaluationSource @default(AUTO_DRAFT)
   status        QmEvaluationStatus @default(DRAFT)
-  providerId    String             @map("provider_id")
-  modelId       String             @map("model_id")
-  promptVersion String             @map("prompt_version")
+  /// AUTO_DRAFT เท่านั้น; ผลประเมินโดยคนไม่มี provider/model
+  providerId    String?            @map("provider_id")
+  modelId       String?            @map("model_id")
+  promptVersion String?            @map("prompt_version")
   answers       Json
+  /// #971: ฟอร์มที่ใช้และ snapshot ของฟอร์ม (บังคับเมื่อ source = HUMAN)
+  formVersionId String?            @map("form_version_id") @db.Uuid
+  formSnapshot  Json?              @map("form_snapshot")
+  rawScore      Decimal?           @map("raw_score") @db.Decimal(5, 2)
+  finalScore    Decimal?           @map("final_score") @db.Decimal(5, 2)
+  autoFailed    Boolean            @default(false) @map("auto_failed")
+  comment       String?
+  revision      Int                @default(1)
   publishedAt   DateTime?          @map("published_at")
   createdAt     DateTime           @default(now()) @map("created_at")
   updatedAt     DateTime           @updatedAt @map("updated_at")
 
-  tenant      Tenant      @relation(fields: [tenantId], references: [id])
-  interaction Interaction @relation(fields: [interactionId], references: [id])
+  tenant      Tenant         @relation(fields: [tenantId], references: [id])
+  interaction Interaction    @relation(fields: [interactionId], references: [id])
+  formVersion QmFormVersion? @relation(fields: [tenantId, formVersionId], references: [tenantId, id])
 
   @@unique([tenantId, interactionId, source])
   @@index([tenantId, agentId, status])
   @@map("qm_evaluations")
+}
+
+/// #971: ฟอร์มประเมินคุณภาพของ tenant (ชื่อไม่ซ้ำ ไม่สนตัวพิมพ์ — unique index ใน migration)
+model QmForm {
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  name            String
+  createdByUserId String   @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  tenant   Tenant          @relation(fields: [tenantId], references: [id])
+  versions QmFormVersion[]
+
+  @@unique([tenantId, id])
+  @@map("qm_forms")
+}
+
+/// #971: เวอร์ชันของฟอร์ม — ร่างได้หนึ่ง ใช้อยู่ได้หนึ่งต่อฟอร์ม (partial unique ใน migration)
+model QmFormVersion {
+  id                String              @id @default(uuid()) @db.Uuid
+  tenantId          String              @map("tenant_id") @db.Uuid
+  formId            String              @map("form_id") @db.Uuid
+  version           Int
+  status            QmFormVersionStatus @default(DRAFT)
+  definition        Json
+  revision          Int                 @default(1)
+  createdByUserId   String              @map("created_by_user_id") @db.Uuid
+  publishedByUserId String?             @map("published_by_user_id") @db.Uuid
+  publishedAt       DateTime?           @map("published_at")
+  createdAt         DateTime            @default(now()) @map("created_at")
+  updatedAt         DateTime            @updatedAt @map("updated_at")
+
+  tenant      Tenant         @relation(fields: [tenantId], references: [id])
+  form        QmForm         @relation(fields: [tenantId, formId], references: [tenantId, id])
+  evaluations QmEvaluation[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, formId, version])
+  @@map("qm_form_versions")
 }
 
 /// opaque context สำหรับเปิด Console ข้ามแอป: URL ไม่มี Interaction ID หรือ token

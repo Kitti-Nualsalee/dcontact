@@ -176,6 +176,8 @@ pnpm --filter @d-contact/api test:m3-principal:boundary
 
 งานติดตามที่ [#967](https://github.com/Kitti-Nualsalee/dcontact/issues/967) เป็น Use case ถัดไปจาก #888 ให้ Supervisor เปิดฟังเสียงบันทึกของสายที่ทีมตัวเองรับผ่าน API ที่ตรวจสิทธิ์ทุก chunk ปิดเป็นค่าเริ่มต้นและเปิดด้วย `RECORDING_SUPERVISOR_PLAYBACK=on` รายละเอียดสิทธิ์ endpoint และข้อจำกัดอยู่ใน `docs/voice-recording-supervisor-playback.md`
 
+งานติดตามที่ [#971](https://github.com/Kitti-Nualsalee/dcontact/issues/971) ให้ Admin สร้างฟอร์มประเมิน Supervisor ให้คะแนนสายที่ทีมตัวเองรับ และ Agent เห็นคะแนนของตัวเอง ปิดเป็นค่าเริ่มต้นและเปิดด้วย `QM_HUMAN_EVALUATION=on` integration `apps/api/src/qm-evaluation-api.integration.ts` ต้องใช้ฐานแยกที่ migrate และ `db:rls` แล้ว รายละเอียดอยู่ใน `docs/qm-human-evaluation.md`
+
 ```sh
 pnpm --filter @d-contact/api exec tsx --test --test-concurrency=1 src/recording-playback-api.integration.ts
 pnpm --filter @d-contact/console exec playwright test e2e/team-recordings.spec.ts --project=chromium

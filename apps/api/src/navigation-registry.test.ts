@@ -366,3 +366,21 @@ test('#967 เสียงบันทึกของทีมอยู่ใน
     ['supervisor-workspace', 'team-recordings'],
   );
 });
+
+test('#971 แอปประเมินคุณภาพอยู่ในเมนูตามบทบาทเฉพาะ deployment ที่เปิดใช้', () => {
+  const qmIds = ['team-evaluations', 'my-quality', 'qm-forms'];
+  assert.equal(
+    navigationApps(true, false).some((app) => qmIds.includes(app.id)),
+    false,
+  );
+  const enabled = navigationApps(false, true);
+  const visibleTo = (roles: string[]) =>
+    ids(visibleApps({ roles, entitlements: FULL }, enabled)).filter((id) => qmIds.includes(id));
+  assert.deepEqual(visibleTo(['supervisor']), ['team-evaluations']);
+  assert.deepEqual(visibleTo(['agent']), ['my-quality']);
+  assert.deepEqual(visibleTo(['admin']), ['qm-forms']);
+  assert.ok(enabled.filter((app) => qmIds.includes(app.id)).every((app) => app.area === 'qm'));
+  // เปิดทั้งสองสวิตช์: ลำดับเดิมของเสียงบันทึกของทีมไม่เปลี่ยน
+  const both = navigationApps(true, true).map((app) => app.id);
+  assert.equal(both.indexOf('team-recordings'), both.indexOf('supervisor-workspace') + 1);
+});
