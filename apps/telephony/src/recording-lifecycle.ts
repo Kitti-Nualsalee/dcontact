@@ -191,12 +191,51 @@ export class TelephonyRecordingLifecycle {
           where: { id: recordingId, tenantId, archivedAt: null },
         }),
       );
-    } catch (rollbackError) {
-      console.error('[telephony] recording rollback failed', {
-        tenantId,
-        recordingId,
-        reason: rollbackError instanceof Error ? rollbackError.message : String(rollbackError),
-      });
+      return;
+    } catch (deleteError) {
+      // hangup อาจตั้ง endedAt ระหว่างรอ storage แล้ว QM สร้าง job อ้างแถวนี้ (FK RESTRICT) จึงลบไม่ได้
+      // รู้แน่ว่าไม่ได้สั่ง uuid_record จึงหยุดลองทันทีพร้อมหลักฐานแทนการปล่อยให้ retry ไล่ไฟล์ที่ไม่มีวันมี
+      try {
+        const abandoned = await withTenantDatabaseTransaction(
+          this.database,
+          tenantId,
+          async (transaction) => {
+            const result = await transaction.recording.updateMany({
+              where: {
+                id: recordingId,
+                tenantId,
+                archivedAt: null,
+                deletedAt: null,
+                legalHolds: { none: { releasedAt: null } },
+              },
+              data: { deletedAt: this.now() },
+            });
+            if (result.count !== 1) return false;
+            await transaction.recordingAuditEvent.create({
+              data: {
+                tenantId,
+                recordingId,
+                action: 'ARCHIVE_ABANDONED',
+                reason: 'RECORDING_NOT_STARTED',
+                details: { deleteErrorCode: errorCode(deleteError) ?? 'UNKNOWN' },
+              },
+            });
+            return true;
+          },
+        );
+        this.log('[telephony] unstarted recording kept as abandoned', {
+          tenantId,
+          recordingId,
+          abandoned,
+          ...describeError(deleteError),
+        });
+      } catch (rollbackError) {
+        this.log('[telephony] recording rollback failed', {
+          tenantId,
+          recordingId,
+          ...describeError(rollbackError),
+        });
+      }
     }
   }
 
