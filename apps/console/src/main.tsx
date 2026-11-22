@@ -21,6 +21,7 @@ import {
   QUALITY_APPS,
   QualitySurface,
   RecordingsSurface,
+  TeamHistorySurface,
   type QualityApp,
 } from './auth-root.js';
 import { ConsoleApp } from './console-app.js';
@@ -96,7 +97,7 @@ function e2eShellUser(tenantAlias: string | undefined) {
 function HistoryE2eRoot({
   surface = 'history',
 }: {
-  surface?: 'history' | 'cases' | 'recordings' | QualityApp;
+  surface?: 'history' | 'cases' | 'recordings' | 'team-history' | QualityApp;
 }) {
   const url = new URL(window.location.href);
   const [identity, setIdentity] = useState('first');
@@ -143,6 +144,11 @@ function HistoryE2eRoot({
           />
         ) : surface === 'recordings' ? (
           <RecordingsSurface
+            apiBaseUrl={window.location.origin}
+            tenantAlias={url.searchParams.get('tenant') ?? 'demo'}
+          />
+        ) : surface === 'team-history' ? (
+          <TeamHistorySurface
             apiBaseUrl={window.location.origin}
             tenantAlias={url.searchParams.get('tenant') ?? 'demo'}
           />
@@ -210,6 +216,7 @@ function ConsoleE2eRoot() {
   if (view === 'agent-history') return <HistoryE2eRoot />;
   if (view === 'team-cases') return <HistoryE2eRoot surface="cases" />;
   if (view === 'team-recordings') return <HistoryE2eRoot surface="recordings" />;
+  if (view === 'team-history') return <HistoryE2eRoot surface="team-history" />;
   const qualityApp = QUALITY_APPS.find((app) => app === view);
   if (qualityApp) return <HistoryE2eRoot surface={qualityApp} />;
   if (view === 'tenant-people')

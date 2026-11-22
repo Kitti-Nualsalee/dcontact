@@ -20,6 +20,7 @@
     "apps": {
       "agentWorkspace": "Inbox",
       "agentHistory": "My work history",
+      "teamHistory": "Team work history",
       "teamCases": "Team cases",
       "teamRecordings": "Team recordings",
       "supervisorWorkspace": "Team live",

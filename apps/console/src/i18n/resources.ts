@@ -52,6 +52,8 @@ import recordingsTh from './locales/th/recordings.json' with { type: 'json' };
 import recordingsEn from './locales/en/recordings.json' with { type: 'json' };
 import qualityTh from './locales/th/quality.json' with { type: 'json' };
 import qualityEn from './locales/en/quality.json' with { type: 'json' };
+import teamHistoryTh from './locales/th/team-history.json' with { type: 'json' };
+import teamHistoryEn from './locales/en/team-history.json' with { type: 'json' };
 
 export const DEFAULT_NAMESPACE = 'common';
 
@@ -73,6 +75,7 @@ export const resources = {
     cases: casesTh,
     recordings: recordingsTh,
     quality: qualityTh,
+    teamHistory: teamHistoryTh,
     journeys: journeysTh,
     integrations: integrationsTh,
     account: accountTh,
@@ -95,6 +98,7 @@ export const resources = {
     cases: casesEn,
     recordings: recordingsEn,
     quality: qualityEn,
+    teamHistory: teamHistoryEn,
     journeys: journeysEn,
     integrations: integrationsEn,
     account: accountEn,

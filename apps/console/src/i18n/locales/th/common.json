@@ -20,6 +20,7 @@
     "apps": {
       "agentWorkspace": "กล่องงาน",
       "agentHistory": "ประวัติงานของฉัน",
+      "teamHistory": "ประวัติงานของทีม",
       "teamCases": "เคสของทีม",
       "teamRecordings": "เสียงบันทึกของทีม",
       "supervisorWorkspace": "ทีมสด",

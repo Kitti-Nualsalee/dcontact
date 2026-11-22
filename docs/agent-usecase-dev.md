@@ -195,3 +195,13 @@ pnpm --filter @d-contact/api exec tsx --test src/tenant-core-errors.test.ts
 ```
 
 dev stack ที่ใช้ทดลองต้องให้ API ต่อฐานด้วย `dcontact_app` และใช้ telephony `e1-sandbox-main` เพราะคิวที่สร้างใน Console เป็น managed routing
+
+## ประวัติและสรุปงานของทีม — #986
+
+[#986](https://github.com/Kitti-Nualsalee/dcontact/issues/986) ให้ Supervisor ดูงานที่ทีมตัวเองรับ และ Admin ดูทุกทีม ตามข้อตัดสินของ owner บน #859 รายละเอียดสิทธิ์ นิยามตัวเลข และ endpoint อยู่ใน `docs/team-history.md`
+
+```sh
+pnpm --filter @d-contact/api exec tsx --test --test-concurrency=1 src/team-history.integration.ts
+pnpm --filter @d-contact/console exec playwright test e2e/team-history.spec.ts --project=chromium
+```
+

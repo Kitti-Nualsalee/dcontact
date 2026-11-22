@@ -240,6 +240,17 @@ const BASE_NAVIGATION_APPS: readonly NavigationAppDefinition[] = Object.freeze([
     roles: ['agent'],
   },
   {
+    // #986 ประวัติและสรุปงานของทีม — Supervisor เห็นทีมตัวเอง Admin เห็นทุกทีม (API ตรวจจาก DB ทุก request)
+    id: 'team-history',
+    area: 'history',
+    section: 'work',
+    group: 'operations',
+    labelKey: 'navigation.apps.teamHistory',
+    hostApp: 'console',
+    path: '/?view=team-history',
+    roles: ['supervisor', 'admin'],
+  },
+  {
     // #956 เคสที่ Agent ดูแลในทีม — API ตรวจสิทธิ์ราย request เอง (เห็นเฉพาะเคสของทีมตนเอง)
     id: 'team-cases',
     area: 'cases',
