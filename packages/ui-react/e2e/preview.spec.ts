@@ -205,3 +205,24 @@ test('forced-colors: Switch ยังเห็น track/thumb และแยก
   expect(off.thumbBackground).not.toBe(off.trackBackground);
   expect(on.trackBackground).not.toBe(off.trackBackground);
 });
+
+test('forced-colors: แถว Table ที่เลือกมีแถบ Highlight ที่ต้นแถว (พื้นแถวถูกบังคับเป็น Canvas)', async ({
+  page,
+}) => {
+  await page.emulateMedia({ forcedColors: 'active' });
+  await page.goto('/');
+  const table = page.getByRole('grid', { name: 'คิวงาน' });
+  await table.focus();
+  await page.keyboard.press('ArrowDown');
+  const row = page.getByRole('row', { name: /บริการหลังการขาย/ });
+  await expect(row).toBeFocused();
+  await page.keyboard.press('Space');
+  await expect(row).toHaveAttribute('aria-selected', 'true');
+  const marker = (target: typeof row) =>
+    target
+      .locator(':scope > *')
+      .first()
+      .evaluate((cell) => getComputedStyle(cell).getPropertyValue('border-inline-start-width'));
+  expect(await marker(row)).toBe('4px');
+  expect(await marker(page.getByRole('row', { name: /การเงิน/ }))).toBe('0px');
+});

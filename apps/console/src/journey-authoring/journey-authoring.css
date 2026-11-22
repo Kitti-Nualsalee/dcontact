@@ -544,6 +544,17 @@
   box-shadow: var(--dc-focus-ring);
 }
 
+/* forced-colors: โหนดที่เลือกบอกด้วยพื้นสีอย่างเดียว ซึ่งโหมดนี้บังคับเป็น Canvas
+   ใช้ขอบ Highlight หนาขึ้นแทน (ลด padding เท่ากันจึงไม่ขยับเนื้อหา) ไม่ปิด forced-color-adjust
+   เพราะในโหนดมีข้อความหลายสี (ชนิด, จำนวนปัญหา) ที่ต้องให้ระบบจัดสีให้ */
+@media (forced-colors: active) {
+  .j5-node[aria-pressed='true'] {
+    padding: calc(var(--dc-space-4) - var(--dc-space-1)) calc(var(--dc-space-5) - var(--dc-space-1));
+    border-width: 4px;
+    border-color: Highlight;
+  }
+}
+
 .j5-node-unsupported {
   border-style: dashed;
   border-color: var(--dc-border-strong);

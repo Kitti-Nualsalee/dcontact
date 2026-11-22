@@ -152,6 +152,26 @@ for (const mode of ['normal', 'forced'] as const) {
 
       const input = page.getByLabel('ชื่อ Journey');
       await expectFocusIndicator(page, input, 'input', mode, false);
+
+      if (mode === 'forced') {
+        // โหนดที่เลือกใน canvas บอกด้วยพื้นสีอย่างเดียว ในโหมดนี้ต้องมีขอบ Highlight ที่หนากว่าโหนดอื่น
+        const canvas = page.getByRole('group', { name: 'ผังขั้นตอนของ Journey' });
+        const send = canvas.getByRole('button', { name: 'ส่งข้อความ' });
+        await send.focus();
+        await page.keyboard.press('Enter');
+        await expect(send).toHaveAttribute('aria-pressed', 'true');
+        const border = (target: Locator) =>
+          target.evaluate((element) => {
+            const style = getComputedStyle(element);
+            return { width: style.borderTopWidth, color: style.borderTopColor };
+          });
+        await capture(page, send, 'canvas-node-selected', mode);
+        const selected = await border(send);
+        const other = await border(canvas.getByRole('button', { name: 'เริ่มเมื่อเกิด event' }));
+        expect.soft(selected.width).toBe('4px');
+        expect.soft(other.width).toBe('2px');
+        expect.soft(selected.color).not.toBe(other.color);
+      }
     });
   });
 }

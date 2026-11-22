@@ -208,3 +208,15 @@
   display: flex;
   gap: var(--dc-space-2);
 }
+
+/* forced-colors: ปุ่มที่กดค้างบอกด้วยพื้นสีอย่างเดียว ซึ่งโหมดนี้บังคับเป็น Canvas จึงใช้ Highlight ของระบบแทน
+   (ปิด forced-color-adjust ไม่งั้นแผ่น Canvas หลังข้อความบังข้อความ) outline โฟกัสอยู่ด้านนอกบน Canvas จึงใช้สีเดิมได้ */
+@media (forced-colors: active) {
+  .dp-icon-button[aria-pressed='true'] {
+    forced-color-adjust: none;
+    border-color: Highlight;
+    background: Highlight;
+    color: HighlightText;
+    box-shadow: none;
+  }
+}
