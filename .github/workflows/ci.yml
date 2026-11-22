@@ -255,6 +255,9 @@ jobs:
       - name: K8s UAT offline manifest checks
         run: node --test scripts/k8s-uat-render.test.mjs
 
+      - name: Tenant onboarding operator script (#977)
+        run: node --test scripts/tenant-voice-onboarding.test.mjs
+
       - name: Unit tests (no external services)
         run: pnpm test:unit
 

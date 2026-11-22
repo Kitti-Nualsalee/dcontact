@@ -184,3 +184,14 @@ pnpm --filter @d-contact/console exec playwright test e2e/team-recordings.spec.t
 ```
 
 Integration ใช้ฐานแยกและ storage แบบ in-memory ที่เก็บ WAV จริง ส่วน Playwright ใช้ API จำลอง ทั้งสองไม่ใช่หลักฐานของสายจริง FreeSWITCH หรือ object storage จริง
+
+## Tenant ใหม่ถึง Agent รับสาย — #977
+
+[#977](https://github.com/Kitti-Nualsalee/dcontact/issues/977) เดิน flow ตั้งแต่ Platform provisioning ถึง Agent รับสายและบันทึกผลกับ tenant ที่ไม่ได้ seed ลงฐาน ลำดับงาน งานของ operator และผลทดลองอยู่ใน `docs/new-tenant-onboarding.md`
+
+```sh
+node --test scripts/tenant-voice-onboarding.test.mjs
+pnpm --filter @d-contact/api exec tsx --test src/tenant-core-errors.test.ts
+```
+
+dev stack ที่ใช้ทดลองต้องให้ API ต่อฐานด้วย `dcontact_app` และใช้ telephony `e1-sandbox-main` เพราะคิวที่สร้างใน Console เป็น managed routing
