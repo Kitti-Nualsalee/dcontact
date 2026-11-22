@@ -45,7 +45,7 @@ bash infra/solo/bin/solo-uat.sh voice
 - `init-env` สร้าง `~/.config/dcontact-solo/solo.env` (mode 600) ที่เก็บ secret ทั้งหมด ไม่เขียนทับไฟล์เดิม
 - `build` ส่ง working tree ไป build image บน VM app และ VM voice โดยไม่ใช้ registry แล้วตั้ง `SOLO_IMAGE_TAG`
 - `data --reset` ลบฐานของ Solo ทั้งหมดแล้วสร้างใหม่ owner อนุมัติให้ล้างข้อมูล UAT นี้ได้
-- `app` ตั้ง NFS export ของเสียงบันทึก สร้าง bucket, migrate, rls, `db:seed`, เชื่อมผู้ใช้กับ Keycloak แล้ว seed แบบ Demo ด้วย `scripts/solo-uat-seed.mjs` (seed เปิด `recording_enabled` ของคิว legacy และปิดของคิว managed ทุกรอบ)
+- `app` ตั้ง NFS export ของเสียงบันทึก สร้าง bucket, migrate, rls, `db:seed`, เชื่อมผู้ใช้กับ Keycloak แล้ว seed แบบ Demo ด้วย `scripts/solo-uat-seed.mjs` (seed เปิด `recording_enabled` ของคิว legacy ทุกรอบ ส่วนคิว managed Admin เปิด/ปิดเองใน Console ตั้งแต่ #991)
 - `voice` ตั้ง NFS export ซ้ำ (รันซ้ำได้) แล้วเริ่ม nginx, Kamailio และ FreeSWITCH
 - `app` ตั้ง NFS ทั้งสองฝั่งก่อน: ติดตั้ง `nfs-kernel-server` บน VM voice และ `nfs-common` บน VM app แล้วเพิ่มบรรทัดใน `/etc/fstab` ของ VM app
 
