@@ -76,14 +76,14 @@ test('#562: trunk จำลอง pstn-sim รับสายเฉพาะ ACL
   assert.doesNotMatch(list, /0\.0\.0\.0\/0|default="allow"/);
 });
 
-test('#562: context pstn route ได้แค่ DID 2000/2001 ไป park ไม่มี bridge', () => {
+test('#562/#977: context pstn park สายจาก Kamailio ได้ 2000–2009 สายไม่มี header ได้แค่ 2000/2001 ไม่มี bridge', () => {
   const dialplan = read('infra/freeswitch/conf/dialplan/pstn.xml');
   const context = dialplan.match(/<context name="pstn">([\s\S]*?)<\/context>/)?.[1];
   assert.ok(context);
   const expressions = [...context.matchAll(/expression="([^"]+)"/g)].map((match) => match[1]);
   assert.deepEqual(expressions, [
     '^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$',
-    '^200[01]$',
+    '^200[0-9]$',
     '^200[01]$',
   ]);
   const applications = [...context.matchAll(/application="([^"]+)"/g)].map((match) => match[1]);

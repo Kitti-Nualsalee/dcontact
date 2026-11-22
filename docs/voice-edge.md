@@ -22,7 +22,7 @@
 2. ตรวจว่าเบอร์ปลายทางเป็นตัวเลข 3–20 หลัก ไม่ใช่ตอบ 404
 3. หาเบอร์ที่ผูกกับ trunk ของ IP ต้นทาง ไม่เจอตอบ 403 ซึ่งรวม IP ที่ไม่อยู่ในตาราง และเบอร์ของ tenant อื่น
 4. นับเพดานสายพร้อมกันของ tenant เกินตอบ 503
-5. ใส่ `X-DContact-Domain: <SIP domain ของ tenant>` เปลี่ยนเบอร์ปลายทางเป็น `route_to` (2000 คิวตรง หรือ 2001 IVR) แล้วส่งให้ FreeSWITCH ใน dispatcher set 1
+5. ใส่ `X-DContact-Domain: <SIP domain ของ tenant>` เปลี่ยนเบอร์ปลายทางเป็น `route_to` (2000 คิวตรง, 2001 IVR หรือ 2002–2009 สำหรับคิว managed ตาม #977) แล้วส่งให้ FreeSWITCH ใน dispatcher set 1
 
 FreeSWITCH ตั้ง `domain_name` จาก header เพื่อให้ telephony หา tenant จาก `Tenant.sipDomain` ตามเดิม แล้วลบ header ก่อน park
 

@@ -26,6 +26,18 @@ desktop.attributes = {
   'post.logout.redirect.uris': origins.map((origin) => `${origin}/*`).join('##'),
 };
 
+// #977: Tenant People ส่งคำเชิญผ่าน SMTP ของ realm — Solo ใช้ Mailpit ใน network ของ stack (ไม่ส่งออกภายนอก)
+// มีผลเฉพาะตอน import realm ครั้งแรก realm ที่มีอยู่แล้วต้องตั้งผ่าน Admin API (ดู docs/solo-uat.md)
+realm.smtpServer = {
+  host: 'mailpit',
+  port: '1025',
+  from: 'no-reply@dcontact.local',
+  fromDisplayName: 'D-Contact',
+  ssl: 'false',
+  starttls: 'false',
+  auth: 'false',
+};
+
 if (JSON.stringify(realm).includes('localhost')) {
   throw new Error('realm ของ Solo ยังมี localhost เหลืออยู่');
 }

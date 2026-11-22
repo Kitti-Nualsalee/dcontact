@@ -6,6 +6,7 @@ const teamId = '7a33ac96-d87d-4ca4-ab75-f27e40e943bf';
 const userId = '7a33ac96-d87d-4ca4-ab75-f27e40e943b1';
 const skillId = '7a33ac96-d87d-4ca4-ab75-f27e40e943b2';
 const destinationId = '7a33ac96-d87d-4ca4-ab75-f27e40e943b3';
+const legacySkillId = '7a33ac96-d87d-4ca4-ab75-f27e40e943b4';
 test.use({ locale: 'en-US' });
 async function harness(
   page: Page,
@@ -17,13 +18,18 @@ async function harness(
     active?: boolean;
     requiredSkills?: boolean;
     teardown?: 'PENDING' | 'CONFIRMED' | 'ACTION_REQUIRED';
+    legacyAgentSkill?: boolean;
   } = {},
 ) {
   const writes: Record<string, unknown>[] = [];
   const reads: string[] = [];
   let revision = 4;
   let items: { skillId: string; level?: number; minLevel?: number }[] =
-    (options.requiredSkills ?? options.ready) ? [{ skillId, minLevel: 2 }] : [];
+    (options.requiredSkills ?? options.ready)
+      ? [{ skillId, minLevel: 2 }]
+      : options.legacyAgentSkill
+        ? [{ skillId: legacySkillId, level: 2 }]
+        : [];
   let bindingActive = !!options.active;
   const queue = {
     id: queueId,
@@ -72,7 +78,12 @@ async function harness(
     if (path === 'skills')
       return route.fulfill({
         json: {
-          items: [{ id: skillId, name: 'Thai language', teamId, legacy: false }],
+          items: [
+            { id: skillId, name: 'Thai language', teamId, legacy: false },
+            ...(options.legacyAgentSkill
+              ? [{ id: legacySkillId, name: 'Legacy general', teamId: null, legacy: true }]
+              : []),
+          ],
           nextCursor: null,
         },
       });
@@ -196,6 +207,20 @@ test('pending Agent skills ใช้ configRevision และกู้ command �
   await expect(page.getByRole('region', { name: 'Queue eligibility' })).toContainText(
     'Voice queue',
   );
+});
+test('#977 ทักษะ legacy ของ Agent ไม่ถูกส่งไปกับทักษะ v1 ตอนบันทึก', async ({ page }) => {
+  const data = await harness(page, { legacyAgentSkill: true });
+  await page.goto('/?view=tenant-people&section=agent-skills&tenant=demo');
+  await select(page, 'Agent', 'Pending Agent');
+  await expect(page.getByRole('button', { name: /Legacy general/ })).toHaveCount(0);
+  await select(page, 'Thai language', 'Level 3');
+  await page.getByRole('textbox', { name: 'Reason (1–500 characters)' }).fill('Add managed skill');
+  await page.getByRole('button', { name: 'Save configuration', exact: true }).click();
+  await expect(
+    page.getByText('Saved and read back from the server', { exact: true }),
+  ).toBeVisible();
+  expect(data.writes[0]).toMatchObject({ items: [{ skillId, level: 3 }] });
+  expect((data.writes[0] as { items: unknown[] }).items).toHaveLength(1);
 });
 test('Supervisor อ่าน roster โดยไม่เรียก sensitive people APIs หรือแสดง save', async ({ page }) => {
   const data = await harness(page, { readOnly: true });

@@ -266,3 +266,62 @@ test('scramVerifier ได้รูป SCRAM-SHA-256 ที่ PostgreSQL รั
     'wfPLwcE6nTWhTAmQ7tl2KeoiWGPlZqQxSrmfPwDl2dU=',
   );
 });
+
+test('peopleBinding ใส่ backchannelUrl เฉพาะเมื่อระบุ (รูปที่ tenant-people-composition ยอมรับ)', () => {
+  const tenantId = '3c71f624-a141-4060-a025-da026101efbf';
+  const binding = peopleBinding({
+    tenantId,
+    issuer: 'https://uat.example.test/auth/realms/dcontact',
+    node,
+    extensions: ['1100'],
+    backchannelUrl: 'http://keycloak:8080/auth/realms/dcontact',
+  });
+  assert.deepEqual(Object.keys(binding).sort(), [
+    'backchannelUrl',
+    'clientSecretEnv',
+    'issuer',
+    'nodes',
+    'tenantId',
+  ]);
+  const issuer = ['--issuer', 'https://uat.example.test/auth/realms/dcontact'];
+  assert.equal(
+    parseArguments([
+      ...baseArguments,
+      ...issuer,
+      '--backchannel-url',
+      'http://keycloak:8080/auth/realms/dcontact',
+    ]).backchannelUrl,
+    'http://keycloak:8080/auth/realms/dcontact',
+  );
+  assert.throws(
+    () =>
+      parseArguments([
+        ...baseArguments,
+        '--backchannel-url',
+        'http://keycloak:8080/auth/realms/dcontact',
+      ]),
+    /--issuer/,
+  );
+  assert.throws(
+    () =>
+      parseArguments([
+        ...baseArguments,
+        ...issuer,
+        '--backchannel-url',
+        'http://keycloak:8080/realms/dcontact',
+      ]),
+    /backchannel/,
+  );
+  assert.throws(
+    () =>
+      parseArguments([
+        ...baseArguments,
+        '--issuer',
+        'http://x.test/auth/realms/dcontact',
+        '--backchannel-url',
+        'http://keycloak:8080/auth/realms/dcontact',
+      ]),
+    /https/,
+  );
+  assert.throws(() => parseArguments([...baseArguments, '--backchannel-url']), /ต้องมีค่า/);
+});

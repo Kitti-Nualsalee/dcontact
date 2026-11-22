@@ -63,7 +63,7 @@ owner อนุมัติเมื่อ 19 พฤศจิกายน 2569 �
 | Console | `https://dcontact-solo-uat.osd.co.th/?tenant=demo` |
 | Workspace | `https://dcontact-solo-workspace-uat.osd.co.th/?tenant=demo` |
 
-trunk จำลอง `lan-sim` รับสายจาก `SOLO_SIM_TRUNK_IP` เท่านั้น เบอร์ `021000001` เข้าคิวตรง (2000) และ `021000002` เข้า IVR (2001) โทรเข้าด้วย SIPp หรือ softphone จากเครื่องนั้นไปที่ `sip:021000001@192.168.31.206:5060`
+trunk จำลอง `lan-sim` รับสายจาก `SOLO_SIM_TRUNK_IP` เท่านั้น เบอร์ `021000001` เข้าคิวตรง (2000), `021000002` เข้า IVR (2001) และ `021000004` เข้าเบอร์ 2002 ซึ่ง operator จองให้คิว managed ที่ Admin สร้างใน Console ([new-tenant-onboarding.md](new-tenant-onboarding.md), managed routing เปิดด้วย `TELEPHONY_MANAGED_VOICE_ENABLED=true` ใน `solo.env`) โทรเข้าด้วย SIPp หรือ softphone จากเครื่องนั้นไปที่ `sip:021000001@192.168.31.206:5060`
 
 ## ข้อจำกัด
 
@@ -72,3 +72,17 @@ trunk จำลอง `lan-sim` รับสายจาก `SOLO_SIM_TRUNK_IP` 
 - realm ใช้ client ของ dev (`agent-desktop`, `dcontact-dev-readiness`) ที่รองรับ password grant ใช้ใน LAN เท่านั้น
 - ยังไม่เปิด ufw บนเครื่อง การจำกัดอยู่ที่ ACL ของ FreeSWITCH, `pg_hba` และ Caddy
 - เครื่องที่ทดสอบต้องส่ง UDP ถึง 192.168.31.206 ได้ ถ้าอยู่คนละ subnet ต้องให้ router เปิด 5060 และ 16384–16683
+
+## Tenant People และคิว managed (#977, #979)
+
+ทดลองบน Solo วันที่ 22 พ.ย. 2569 (owner อนุมัติ) ด้วย release `bc459bc` และ config ของ voice จาก PR #982
+
+- `solo.env` เปิด `TELEPHONY_MANAGED_VOICE_ENABLED=true` และค่า `TENANT_PEOPLE_*` ที่ได้จาก `scripts/tenant-voice-onboarding.mjs`
+  (รันผ่าน SSH tunnel ไป `.208:5432` และ Keycloak `127.0.0.1:8081` บน `.207`, `--node fs-solo`,
+  `--issuer https://<console host>/auth/realms/dcontact --backchannel-url http://keycloak:8080/auth/realms/dcontact`)
+  ใส่ค่าใน `solo.env` โดยไม่ครอบ quote เพราะ `env_file` ของ docker ไม่ตัด quote ออก
+- เบอร์ 2002 ของ tenant `demo` จองไว้ให้คิว managed ขั้น `data` ใส่ `021000004` → 2002 บน trunk `lan-sim` (`SOLO_SIM_TRUNK_IP`)
+  บน Solo ตอนนี้แถวนี้ถูกใส่มือบน trunk `lan-sim-app` (โทรจาก VM app แบบเดียวกับ `021000003`) และ `ON CONFLICT DO NOTHING` จะคงแถวเดิมไว้
+- realm ที่ import ไปก่อน #977 ไม่มี SMTP ส่วน `render-realm.mjs` ใส่ Mailpit ให้เฉพาะตอน import ครั้งแรก
+  realm เดิมต้องให้ operator ตั้ง SMTP (host `mailpit`, port `1025`) ผ่าน Admin API ก่อนเชิญผู้ใช้ผ่าน Console
+

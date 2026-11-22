@@ -196,6 +196,10 @@ function ConfigSession({ api, identityKey, mode, queue, onQueueRead }: Props) {
   const revision = mode === 'destinations' ? destination?.configRevision : set?.configRevision;
   const disabled =
     busy || !!pending || !caps?.canWrite || !caps.configuration.ready || !revision || !!error;
+  // ชุดเดียวกับ Select ที่แสดงในฟอร์ม — ทักษะของทีมเป้าหมายที่ไม่ใช่ legacy
+  const editableSkillIds = new Set(
+    skills.filter((skill) => skill.teamId === teamId && !skill.legacy).map((skill) => skill.id),
+  );
   async function save(activation = false) {
     if (disabled || locked.current || !target) return;
     if (activation && !currentQueue?.isActive && !caps?.managedRouting.ready) return;
@@ -225,8 +229,9 @@ function ConfigSession({ api, identityKey, mode, queue, onQueueRead }: Props) {
       else
         await api.replace(kind, target, {
           ...envelope,
+          // #977: ส่งเฉพาะทักษะที่แก้ได้ในฟอร์ม (v1) — ทักษะ legacy ของ Agent ให้ server คงไว้ตามเดิม
           items: Object.entries(levels)
-            .filter(([, level]) => level > 0)
+            .filter(([skillId, level]) => level > 0 && editableSkillIds.has(skillId))
             .map(([skillId, level]) => ({
               skillId,
               ...(mode === 'requirements' ? { minLevel: level } : { level }),
