@@ -163,14 +163,15 @@ services:
     command: ['node', 'dist/main.js']
     mem_limit: 384m
     environment:
-      # FreeSWITCH เขียนที่ path นี้บน VM voice; Telephony อ่านไฟล์เดียวกันผ่าน NFS ที่ /recordings
+      # FreeSWITCH เขียนที่ path นี้บน VM voice; Telephony อ่านไฟล์เดียวกันผ่าน NFS ที่ /mnt/dcontact-solo/recordings
       FREESWITCH_RECORDINGS_DIR: /var/lib/freeswitch/recordings
-      FREESWITCH_RECORDINGS_HOST_DIR: /recordings
+      FREESWITCH_RECORDINGS_HOST_DIR: /mnt/dcontact-solo/recordings
     volumes:
-      # systemd automount ของ NFS บน host (solo-uat.sh mount_recordings) — rslave ให้เห็น mount ที่เกิดหลัง container เริ่ม
+      # recordings ข้างในเป็น systemd automount ของ NFS บน host (solo-uat.sh mount_recordings)
+      # bind directory แม่ไม่ใช่จุด automount เพื่อให้ container เริ่มได้แม้ NFS ไม่ตอบ; rslave ให้เห็น mount ที่เกิดภายหลัง
       - type: bind
-        source: /mnt/dcontact-solo-recordings
-        target: /recordings
+        source: /mnt/dcontact-solo
+        target: /mnt/dcontact-solo
         bind:
           propagation: rslave
     depends_on:

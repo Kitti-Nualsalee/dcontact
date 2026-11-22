@@ -248,7 +248,8 @@ wait_healthy() { # wait_healthy <service> <tries>
 }
 
 RECORDINGS_EXPORT=/srv/dcontact-solo/recordings
-RECORDINGS_MOUNT=/mnt/dcontact-solo-recordings
+RECORDINGS_MOUNT_ROOT=/mnt/dcontact-solo
+RECORDINGS_MOUNT=$RECORDINGS_MOUNT_ROOT/recordings
 
 require_ipv4() { # require_ipv4 <name> <value>
   [[ "$2" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || fail "$1 ไม่ใช่ IPv4"
@@ -280,13 +281,14 @@ export_recordings() { # NFS export ของเสียงบันทึกบ
 }
 
 mount_recordings() { # VM app mount export ของ VM voice แบบ systemd automount — รันซ้ำได้
-  # container ของ Telephony bind mount จุดนี้ (rslave) จึงเริ่มได้เสมอแม้ VM voice ยังไม่ขึ้น
+  # container ของ Telephony bind directory แม่ ($RECORDINGS_MOUNT_ROOT, rslave) ไม่ใช่จุด automount เอง
+  # จึงเริ่มได้เสมอแม้ VM voice ยังไม่ขึ้น (bind จุด automount ตรง ๆ ล้มด้วย ENODEV เมื่อ NFS ไม่ตอบ)
   # ถ้า NFS ไม่ตอบ fs call ได้ error ภายใน ~12 วินาที (soft,timeo=20,retrans=2) แทนการค้าง
   # แก้ตัวเลือกแล้วต้อง umount จุดนี้เองก่อน (automount ไม่ mount ใหม่ขณะยังใช้อยู่)
   require_ipv4 SOLO_VOICE_IP "$VOICE_IP"
   remote "$APP_IP" "set -eu
     command -v mount.nfs >/dev/null || { sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nfs-common >/dev/null; }
-    sudo install -d -m 0755 $RECORDINGS_MOUNT
+    sudo install -d -m 0755 $RECORDINGS_MOUNT_ROOT $RECORDINGS_MOUNT
     sudo sed -i '\#[[:space:]]$RECORDINGS_MOUNT[[:space:]]#d' /etc/fstab
     printf '%s\n' '$VOICE_IP:$RECORDINGS_EXPORT $RECORDINGS_MOUNT nfs4 rw,soft,timeo=20,retrans=2,_netdev,nofail,x-systemd.automount,x-systemd.mount-timeout=10s 0 0' |
       sudo tee -a /etc/fstab >/dev/null

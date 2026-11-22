@@ -28,7 +28,7 @@ UAT สำหรับให้ dev ทดสอบตามแบบ D-Contact 
 - สายจำลอง → Kamailio (5060) → FreeSWITCH profile `pstn-sim` (5080) → park ให้ Router ตาม [voice-edge.md](voice-edge.md)
 - Telephony บน VM app → ESL ของ FreeSWITCH (8021) ส่วน FreeSWITCH เรียก directory ของ API ที่ web :8080 `/internal/*`
 - Kamailio อ่านตาราง trunk/เบอร์จาก `dcontact_voice_edge` ด้วย `kamailio_ro`
-- เสียงบันทึก (เฉพาะคิว legacy 2000/2001): FreeSWITCH เขียน WAV ลง `/srv/dcontact-solo/recordings` บน VM voice ซึ่ง export ด้วย NFSv4 ให้ VM app เท่านั้น VM app mount แบบ systemd automount ที่ `/mnt/dcontact-solo-recordings` แล้ว bind เข้า Telephony ที่ `/recordings` Telephony ส่งไฟล์เข้า bucket `recordings` ใน object storage หลังวางสาย
+- เสียงบันทึก (เฉพาะคิว legacy 2000/2001): FreeSWITCH เขียน WAV ลง `/srv/dcontact-solo/recordings` บน VM voice ซึ่ง export ด้วย NFSv4 ให้ VM app เท่านั้น VM app mount แบบ systemd automount ที่ `/mnt/dcontact-solo/recordings` และ bind `/mnt/dcontact-solo` เข้า Telephony Telephony ส่งไฟล์เข้า bucket `recordings` ใน object storage หลังวางสาย
 
 ## ขึ้นระบบ
 
@@ -73,8 +73,8 @@ trunk จำลอง `lan-sim` รับสายจาก `SOLO_SIM_TRUNK_IP` 
 - VM เล็กกว่าสเปก Solo ราวครึ่ง ใช้ทดสอบหลายสายพร้อมกันได้ ไม่ได้ load test
 - เสียงบันทึกพึ่ง NFS จาก VM voice:
   - NFS ตอบ error ทันที (เช่น สิทธิ์ไม่พอ): สายยังรับได้แต่ไม่มีเสียงบันทึก
-  - NFS ไม่ตอบ (VM voice ล่ม หรือ nfsd เพิ่ง restart และอยู่ใน grace period 90 วินาที): Telephony รอ mkdir/อ่านไฟล์ได้ถึง ~12 วินาทีก่อนส่ง `call.answered`/`call.hangup` สายที่รับช่วงนั้นอาจเกิน offer timeout และ Agent เป็น BREAK ระหว่างคุย
-  - กู้คืน: ตรวจด้วย `ls /mnt/dcontact-solo-recordings` บน VM app แล้วรัน `solo-uat.sh voice` ถ้ายังไม่หาย ปิด `recording_enabled` ของคิวใน Console (seed จะเปิดคืนตอนรัน `app` รอบถัดไป)
+  - NFS ไม่ตอบ (VM voice ล่ม หรือ nfsd เพิ่ง restart และอยู่ใน grace period 90 วินาที): Telephony รอ mkdir/อ่านไฟล์ (หรือรอ automount ที่ตั้ง timeout 10 วินาที)ได้ถึง ~12 วินาทีก่อนส่ง `call.answered`/`call.hangup` สายที่รับช่วงนั้นอาจเกิน offer timeout และ Agent เป็น BREAK ระหว่างคุย
+  - กู้คืน: ตรวจด้วย `sudo ls /mnt/dcontact-solo/recordings` บน VM app แล้วรัน `solo-uat.sh voice` ถ้ายังไม่หาย ปิด `recording_enabled` ของคิวใน Console (seed จะเปิดคืนตอนรัน `app` รอบถัดไป)
 - ใครก็ตามที่ส่ง NFS จาก IP ของ VM app ได้ (รวม container อื่นบน VM นั้น) อ่านและแก้ไฟล์ WAV ก่อน archive ได้ ข้อมูลวิ่งบน LAN แบบไม่เข้ารหัส รับได้สำหรับ UAT ที่ใช้ข้อมูล demo ไม่ใช่แบบสำหรับ production
 - ไฟล์ WAV บน VM voice ไม่ถูกลบหลังส่งเข้า object storage (ยังไม่มี retention) และไม่มีการสำรองข้อมูลนอกเครื่อง
 - realm ใช้ client ของ dev (`agent-desktop`, `dcontact-dev-readiness`) ที่รองรับ password grant ใช้ใน LAN เท่านั้น
