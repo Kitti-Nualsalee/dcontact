@@ -4,10 +4,10 @@
 # build จาก root ของ repository: docker build -f infra/solo/app/Dockerfile --target <target> .
 #
 # ต่างจาก apps/api/Dockerfile ของ UAT 3 VM ซึ่งบูตได้เฉพาะ profile `uat` (ไม่มี Router และปิด Kafka)
-# Solo รันระบบเต็มแบบเดียวกับ dev stack: API (`dist/main.js`), Router และ Telephony
+# Solo รันระบบเต็มแบบเดียวกับ dev stack: API (`dist/main.js`), Router, Telephony และ QM worker
 #
 # target:
-#   services — API, Router, Telephony แบบ production dependencies รันเป็น non-root
+#   services — API, Router, Telephony, QM แบบ production dependencies รันเป็น non-root
 #   ops      — repository ทั้งชุดพร้อม dev dependencies สำหรับ migrate, rls, seed และ script ของ operator
 #
 # base image pin ด้วย digest เหมือน image ของ UAT
@@ -34,9 +34,11 @@ RUN DATABASE_URL=postgresql://build@localhost:5432/build pnpm --filter @d-contac
   && pnpm --filter "@d-contact/api..." build \
   && pnpm --filter "@d-contact/router..." build \
   && pnpm --filter "@d-contact/telephony..." build \
+  && pnpm --filter "@d-contact/qm..." build \
   && test -f apps/api/dist/main.js \
   && test -f apps/router/dist/main.js \
-  && test -f apps/telephony/dist/main.js
+  && test -f apps/telephony/dist/main.js \
+  && test -f apps/qm/dist/main.js
 
 # ops: ใช้ build stage ทั้งชุด เพิ่ม psql สำหรับ script ของ operator
 FROM build AS ops
@@ -50,11 +52,12 @@ FROM build AS deploy
 RUN pnpm --filter @d-contact/api deploy --prod /out/api \
   && pnpm --filter @d-contact/router deploy --prod /out/router \
   && pnpm --filter @d-contact/telephony deploy --prod /out/telephony \
+  && pnpm --filter @d-contact/qm deploy --prod /out/qm \
   && node -e "const { cpSync, realpathSync, rmSync } = require('node:fs'); \
        const { resolve } = require('node:path'); \
        const client = (from) => resolve(require.resolve('@prisma/client/package.json', { paths: [realpathSync(from)] }), '../../../.prisma'); \
        const generated = client('/repo/packages/db'); \
-       for (const target of ['/out/api/node_modules/@d-contact/db', '/out/router/node_modules/@d-contact/db', '/out/telephony/node_modules/@d-contact/db']) { \
+       for (const target of ['/out/api/node_modules/@d-contact/db', '/out/router/node_modules/@d-contact/db', '/out/telephony/node_modules/@d-contact/db', '/out/qm/node_modules/@d-contact/db']) { \
          rmSync(client(target), { recursive: true, force: true }); \
          cpSync(generated, client(target), { recursive: true }); \
        }"
@@ -68,6 +71,7 @@ ENV NODE_ENV=production \
 COPY --from=deploy /out/api /app/api
 COPY --from=deploy /out/router /app/router
 COPY --from=deploy /out/telephony /app/telephony
+COPY --from=deploy /out/qm /app/qm
 USER 10001:10001
 # compose เลือก working_dir และคำสั่งต่อ service: /app/<service> + node dist/main.js
 WORKDIR /app/api

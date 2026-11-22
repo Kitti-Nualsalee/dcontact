@@ -178,6 +178,25 @@ services:
       redpanda-init:
         condition: service_completed_successfully
 
+  qm:
+    <<: *service
+    # QM worker: รับ interaction.ended สร้าง transcription job, consume dc.qm.jobs และรัน QmRetryDispatcher ทุก 5 วินาที
+    # อยู่หลัง profile `qm` — `docker compose up -d` ของ solo-uat.sh ไม่เริ่ม service นี้จนกว่า operator
+    # ใส่ COMPOSE_PROFILES=qm ใน solo.env หลังตั้ง QM_MEDIA_ENDPOINT และ QM_TRANSCRIPTION_* เป็น provider จริง (https)
+    # ถ้าเริ่มด้วยค่า placeholder ทุก job (อัตโนมัติและ manual) จะล้มครบ maxAttempts แล้วเป็น FAILED
+    # วิธีเปิด/ปิดอยู่ใน docs/solo-uat.md หัวข้อ QM worker
+    profiles: ['qm']
+    image: dcontact-solo/services:${SOLO_IMAGE_TAG}
+    working_dir: /app/qm
+    command: ['node', 'dist/main.js']
+    environment:
+      # ใช้ role แอป NOBYPASSRLS: ทุก query ของ QM อยู่ใน withTenantDatabaseTransaction ยกเว้นอ่าน tenants (ไม่มี RLS)
+      DATABASE_URL: ${APPLICATION_DATABASE_URL:?APPLICATION_DATABASE_URL is required}
+    mem_limit: 384m
+    depends_on:
+      redpanda-init:
+        condition: service_completed_successfully
+
   web:
     <<: *service
     image: dcontact-solo/web:${SOLO_IMAGE_TAG}
