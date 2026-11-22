@@ -62,6 +62,10 @@ class Switch implements ManagedVoiceEslTransport {
       if (!this.retainOnKill) this.channels.delete(channel);
       return '+OK';
     }
+    if (action === 'uuid_answer') {
+      this.channels.get(channel)!.answer_state = 'answered';
+      return '+OK';
+    }
     if (action === 'uuid_bridge') {
       this.channels.get(channel)!.bridge_uuid = name;
       return '+OK';
@@ -81,6 +85,11 @@ test('offer replay ใช้ stable B-leg และ exact variables โดยไ
   assert.deepEqual(await adapter.execute({ ...command, type: 'call.bridge' }), { confirmed: true });
   assert.deepEqual(await adapter.execute({ ...command, type: 'call.bridge' }), { confirmed: true });
   assert.equal(transport.commands.filter((value) => value.startsWith('api uuid_bridge')).length, 1);
+  // ลูกค้าถูก answer ก่อน bridge ทุกครั้ง (dialplan dev park โดยไม่ answer)
+  const answer = transport.commands.indexOf(`api uuid_answer ${command.callUuid}`);
+  assert.ok(answer >= 0);
+  assert.ok(answer < transport.commands.findIndex((value) => value.startsWith('api uuid_bridge')));
+  assert.equal(transport.channels.get(command.callUuid)?.answer_state, 'answered');
 });
 
 test('cancel ตรวจ teardown จริงและไม่ฆ่า caller; restart adapter reconcile จาก switch', async () => {

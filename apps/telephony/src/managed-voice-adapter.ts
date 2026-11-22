@@ -259,6 +259,9 @@ export class FreeSwitchManagedVoiceAdapter implements ManagedVoiceDirectPort {
         dcontact_bleg_uuid: command.blegUuid,
       }))
         await this.accepted(`api uuid_setvar ${command.callUuid} ${name} ${value}`);
+      // #979: ลูกค้ารอแบบ pre-answer จน Agent รับ; ถ้า dialplan ไม่ได้ answer ไว้ (เช่น context pstn)
+      // uuid_bridge กับขาที่ยังไม่ answer ทำให้ FreeSWITCH ตัดลูกค้าด้วย DESTINATION_OUT_OF_ORDER
+      await this.accepted(`api uuid_answer ${command.callUuid}`);
       await this.accepted(`api uuid_bridge ${command.callUuid} ${command.blegUuid}`);
       return {
         confirmed: (await this.variable(command.callUuid, 'bridge_uuid')) === command.blegUuid,

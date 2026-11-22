@@ -168,6 +168,7 @@ export class ManagedVoiceTelephony {
   private readonly runtime: ManagedVoiceRuntime;
   private readonly tenants = new Set<string>();
   private readonly backgroundJobs = new Set<string>();
+  private readonly failedCommands = new Map<string, string>();
   private readonly log: (message: string, error?: unknown) => void;
   private subscribed = false;
   private portReady = false;
@@ -189,8 +190,20 @@ export class ManagedVoiceTelephony {
         },
         execute: async (command: ManagedVoiceDirectCommand) => {
           if (!this.portReady) throw new Error('MANAGED_VOICE_PORT_UNAVAILABLE');
-          await this.adapter.bindCaller(command.tenantId, command.callUuid);
-          return this.adapter.execute(command);
+          try {
+            await this.adapter.bindCaller(command.tenantId, command.callUuid);
+            return await this.adapter.execute(command);
+          } catch (error) {
+            // runtime เก็บแค่ DIRECT_PORT_UNCONFIRMED จึง log สาเหตุจริงครั้งเดียวต่อคำสั่ง
+            const reason = error instanceof Error ? error.message : String(error);
+            if (this.failedCommands.get(command.commandId) !== reason) {
+              if (this.failedCommands.size >= 1000)
+                this.failedCommands.delete(this.failedCommands.keys().next().value!);
+              this.failedCommands.set(command.commandId, reason);
+              this.log(`managed command ${command.type} ${command.commandId} unconfirmed`, reason);
+            }
+            throw error;
+          }
         },
       },
       options.dispatchDatabase,
