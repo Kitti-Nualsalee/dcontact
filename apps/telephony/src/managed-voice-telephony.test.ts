@@ -5,6 +5,8 @@ import type { FreeSwitchEvent } from './freeswitch-normalizer.js';
 import {
   isManagedOfferLeg,
   isManagedVoiceEnabled,
+  KeyedSerialQueue,
+  managedEventKey,
   routeManagedCall,
   routeManagedOfferLeg,
   TenantSipDomainDirectory,
@@ -134,7 +136,8 @@ test('managed runtime ล้ม: สายที่ไม่รู้จัก�
     ),
     'ignored',
   );
-  assert.equal(route.errors.length, 2);
+  // call.created ล้มสองครั้ง (ครั้งแรก + ลองซ้ำ) และ hangup อีกหนึ่ง
+  assert.equal(route.errors.length, 3);
   // ช่องสายที่ถูกผูก tenant อื่นไว้แล้ว: normalize ปฏิเสธและไม่ส่งข้าม tenant ให้ managed
   const mismatch = routing({ [tenantA]: ['2000'] });
   assert.equal(
@@ -229,10 +232,111 @@ test('TenantSipDomainDirectory ใช้ SIP domain ของแต่ละ ten
   assert.equal(await directory.sipDomain(tenantA), 'alpha.tenants.test');
   assert.equal(findUnique, 0);
   assert.equal(await directory.sipDomain(tenantB), undefined);
+  // tenant ที่ถูกพักยังตรวจช่องสายได้ เพื่อให้คำสั่งเก็บกวาดของสายที่ค้างทำงาน แต่ originate ไม่ได้
+  assert.equal(await directory.sipDomain(tenantB, 'bind'), 'beta.tenants.test');
+  assert.equal(await directory.sipDomain(tenantB, 'originate'), undefined);
   assert.equal(await directory.sipDomain('not-a-uuid'), undefined);
   assert.equal(findUnique, 1);
   rows[0].sipDomain = 'alpha2.tenants.test';
   assert.equal(await directory.sipDomain(tenantA), 'alpha.tenants.test');
   now = 1_001;
   assert.equal(await directory.sipDomain(tenantA), 'alpha2.tenants.test');
+});
+
+test('สายใหม่ที่ runtime ล้มชั่วคราวถูกลองซ้ำหนึ่งครั้งก่อนกลับไป legacy', async () => {
+  const route = routing({ [tenantA]: ['2000'] });
+  const handle = route.handle;
+  let failures = 1;
+  route.handle = async (event) => {
+    if (failures-- > 0) throw new Error('serialization failure');
+    return handle(event);
+  };
+  assert.equal(await routeManagedCall(parked('2000'), tenantA, route), 'managed');
+  assert.equal(route.calls.has(caller), true);
+  assert.equal(route.errors.length, 1);
+});
+
+test('hangup ที่ประมวลล้มยังลบสายออกจากชุดที่ managed ถือ (ไม่รั่ว)', async () => {
+  const route = routing();
+  route.calls.add(caller);
+  route.handle = async () => {
+    throw new Error('database unavailable');
+  };
+  assert.equal(
+    await routeManagedCall(
+      { 'Event-Name': 'CHANNEL_HANGUP_COMPLETE', 'Unique-ID': caller },
+      tenantA,
+      route,
+    ),
+    'ignored',
+  );
+  assert.equal(route.calls.has(caller), false);
+  route.calls.add(caller);
+  await assert.rejects(
+    routeManagedOfferLeg(
+      {
+        'Event-Name': 'CHANNEL_HANGUP_COMPLETE',
+        'Unique-ID': caller,
+        variable_dcontact_tenant_id: tenantA,
+        variable_dcontact_call_uuid: caller,
+        variable_dcontact_offer_id: offerId,
+      },
+      route,
+    ),
+  );
+  assert.equal(route.calls.has(caller), false);
+});
+
+test('managedEventKey: ขา Agent ของ managed ใช้ key เดียวกับสายลูกค้า', () => {
+  assert.equal(managedEventKey(undefined), 'control');
+  assert.equal(managedEventKey({ 'Event-Name': 'BACKGROUND_JOB' }), 'background-job');
+  assert.equal(managedEventKey({ 'Event-Name': 'CHANNEL_CREATE', 'Unique-ID': caller }), caller);
+  assert.equal(
+    managedEventKey({
+      'Event-Name': 'CHANNEL_ANSWER',
+      'Unique-ID': bleg,
+      variable_dcontact_call_uuid: caller,
+    }),
+    caller,
+  );
+  assert.equal(
+    managedEventKey({
+      'Event-Name': 'CHANNEL_BRIDGE',
+      'Unique-ID': bleg,
+      'Bridge-A-Unique-ID': caller,
+    }),
+    caller,
+  );
+});
+
+test('KeyedSerialQueue เรียงงานในสายเดียวกัน แต่สายที่ช้าไม่ขวางสายอื่น', async () => {
+  const order: string[] = [];
+  const errors: unknown[] = [];
+  const queue = new KeyedSerialQueue((error) => errors.push(error));
+  let releaseSlow!: () => void;
+  const slow = new Promise<void>((resolve) => (releaseSlow = resolve));
+  const legacy = queue.run('legacy-call', async () => {
+    order.push('legacy:hangup-start');
+    await slow; // เช่น archive เสียงขึ้น S3 ช้า
+    order.push('legacy:hangup-end');
+  });
+  const legacyNext = queue.run('legacy-call', async () => {
+    order.push('legacy:next');
+  });
+  await queue.run('managed-call', async () => {
+    order.push('managed:created');
+  });
+  await queue.run('managed-call', async () => {
+    throw new Error('ignored event');
+  });
+  await queue.run('managed-call', async () => {
+    order.push('managed:answered');
+  });
+  assert.deepEqual(order, ['legacy:hangup-start', 'managed:created', 'managed:answered']);
+  releaseSlow();
+  await Promise.all([legacy, legacyNext]);
+  assert.deepEqual(order.slice(3), ['legacy:hangup-end', 'legacy:next']);
+  assert.equal(errors.length, 1);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(queue.size, 0);
 });

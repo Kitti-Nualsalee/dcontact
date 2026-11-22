@@ -14,8 +14,14 @@ export class ManagedVoiceReconciliationRequiredError extends Error {
   }
 }
 
+/** originate ต้องการ tenant ที่ ACTIVE; bind ตรวจช่องสายของสายที่มีอยู่แล้ว (รวมคำสั่งเก็บกวาด) */
+export type ManagedVoiceSipDomainPurpose = 'originate' | 'bind';
+
 /** หา SIP domain ของ tenant ต่อคำสั่ง (#979) ใช้เมื่อ process เดียวรับหลาย tenant */
-export type ManagedVoiceSipDomainResolver = (tenantId: string) => Promise<string | undefined>;
+export type ManagedVoiceSipDomainResolver = (
+  tenantId: string,
+  purpose: ManagedVoiceSipDomainPurpose,
+) => Promise<string | undefined>;
 
 const sipDomainPattern = /^[A-Za-z0-9.-]{1,253}$/;
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -35,9 +41,12 @@ export class FreeSwitchManagedVoiceAdapter implements ManagedVoiceDirectPort {
       throw new Error('MANAGED_VOICE_INVALID_CONFIGURATION');
   }
 
-  private async tenantSipDomain(tenantId: string): Promise<string> {
+  private async tenantSipDomain(
+    tenantId: string,
+    purpose: ManagedVoiceSipDomainPurpose,
+  ): Promise<string> {
     if (typeof this.sipDomain === 'string') return this.sipDomain;
-    const domain = await this.sipDomain(tenantId);
+    const domain = await this.sipDomain(tenantId, purpose);
     if (!domain || !sipDomainPattern.test(domain))
       throw new Error('MANAGED_VOICE_TENANT_SIP_DOMAIN_UNAVAILABLE');
     return domain;
@@ -67,7 +76,8 @@ export class FreeSwitchManagedVoiceAdapter implements ManagedVoiceDirectPort {
     // หลาย tenant: ช่องสายต้องมาจาก SIP domain ของ tenant ที่จะผูก ไม่อย่างนั้นอาจผูกสายข้าม tenant
     if (
       typeof this.sipDomain !== 'string' &&
-      (await this.variable(callUuid, 'domain_name')) !== (await this.tenantSipDomain(tenantId))
+      (await this.variable(callUuid, 'domain_name')) !==
+        (await this.tenantSipDomain(tenantId, 'bind'))
     )
       throw new Error('MANAGED_VOICE_CHANNEL_SCOPE_MISMATCH');
     for (const [name, value] of Object.entries({
@@ -205,7 +215,7 @@ export class FreeSwitchManagedVoiceAdapter implements ManagedVoiceDirectPort {
         Math.ceil((Date.parse(command.expiresAt) - Date.now()) / 1000),
       );
       if (remaining <= 0) return { confirmed: false };
-      const sipDomain = await this.tenantSipDomain(command.tenantId);
+      const sipDomain = await this.tenantSipDomain(command.tenantId, 'originate');
       const marker = await this.global(this.marker(command));
       if (marker !== '_undef_' && marker !== '') {
         if (marker !== this.fingerprint(command))

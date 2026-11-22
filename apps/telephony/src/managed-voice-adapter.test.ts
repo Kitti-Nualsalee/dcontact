@@ -360,3 +360,21 @@ test('#979 bindCaller หลาย tenant ผูกเฉพาะช่อง�
   );
   assert.equal(legacy.channels.get(command.callUuid)?.dcontact_tenant_id, command.tenantId);
 });
+
+test('#979 tenant ที่ถูกพักระหว่างสาย: คำสั่งเก็บกวาดยังผูกและวางสายได้ แต่ originate ใหม่ไม่ได้', async () => {
+  const resolver = async (_tenantId: string, purpose: 'originate' | 'bind') =>
+    purpose === 'bind' ? 'alpha.tenants.test' : undefined;
+  const transport = new Switch();
+  transport.channels.set(command.callUuid, { domain_name: 'alpha.tenants.test' });
+  const adapter = new FreeSwitchManagedVoiceAdapter(transport, 'fs-test', resolver);
+  await adapter.bindCaller(command.tenantId, command.callUuid);
+  await assert.rejects(adapter.execute(command), /MANAGED_VOICE_TENANT_SIP_DOMAIN_UNAVAILABLE/);
+  assert.equal(
+    transport.commands.some((value) => value.startsWith('bgapi originate')),
+    false,
+  );
+  const hangup = { ...command, type: 'call.hangup' as const };
+  await adapter.bindCaller(hangup.tenantId, hangup.callUuid);
+  assert.deepEqual(await adapter.execute(hangup), { confirmed: true });
+  assert.equal(transport.channels.has(command.callUuid), false);
+});

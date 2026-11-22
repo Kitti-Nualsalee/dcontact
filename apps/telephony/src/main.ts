@@ -21,6 +21,8 @@ import { E1EslCommandClient } from './e1-esl-command-client.js';
 import {
   isManagedOfferLeg,
   isManagedVoiceEnabled,
+  KeyedSerialQueue,
+  managedEventKey,
   ManagedVoiceTelephony,
   routeManagedCall,
   routeManagedOfferLeg,
@@ -110,160 +112,172 @@ async function main() {
     idempotency: createInMemoryIdempotencyStore(),
     handler: async ({ event }) => commandAdapter.handle(event.payload, event.tenantId),
   });
-  const onData = async (chunk: Buffer) => {
-    buffer += chunk.toString();
-    while (true) {
-      const separator = buffer.search(/\r?\n\r?\n/);
-      if (separator < 0) return;
-      const header = buffer.slice(0, separator);
-      const length = Number(/^Content-Length:\s*(\d+)$/im.exec(header)?.[1] ?? 0);
-      const separatorLength = buffer.startsWith('\r\n', separator) ? 4 : 2;
-      if (buffer.length < separator + separatorLength + length) return;
-      const frame = buffer.slice(0, separator + separatorLength + length);
-      buffer = buffer.slice(separator + separatorLength + length);
-      if (!authenticated && /auth\/request/i.test(header)) {
-        socket.write(`auth ${password}\n\n`);
-        continue;
-      }
-      if (!authenticated && /\+OK accepted/i.test(frame)) {
-        authenticated = true;
-        socket.write(
-          `events plain CHANNEL_CREATE CHANNEL_PARK${managed ? ' CHANNEL_ANSWER' : ''} CHANNEL_BRIDGE CHANNEL_HANGUP_COMPLETE DTMF DETECTED_SPEECH BACKGROUND_JOB\n\n`,
-        );
-        continue;
-      }
+  const nextFrame = (): { header: string; frame: string } | undefined => {
+    const separator = buffer.search(/\r?\n\r?\n/);
+    if (separator < 0) return undefined;
+    const header = buffer.slice(0, separator);
+    const length = Number(/^Content-Length:\s*(\d+)$/im.exec(header)?.[1] ?? 0);
+    const separatorLength = buffer.startsWith('\r\n', separator) ? 4 : 2;
+    if (buffer.length < separator + separatorLength + length) return undefined;
+    const frame = buffer.slice(0, separator + separatorLength + length);
+    buffer = buffer.slice(separator + separatorLength + length);
+    return { header, frame };
+  };
+  const handleFrame = async (header: string, frame: string): Promise<void> => {
+    if (!authenticated && /auth\/request/i.test(header)) {
+      socket.write(`auth ${password}\n\n`);
+      return;
+    }
+    if (!authenticated && /\+OK accepted/i.test(frame)) {
+      authenticated = true;
+      socket.write(
+        `events plain CHANNEL_CREATE CHANNEL_PARK${managed ? ' CHANNEL_ANSWER' : ''} CHANNEL_BRIDGE CHANNEL_HANGUP_COMPLETE DTMF DETECTED_SPEECH BACKGROUND_JOB\n\n`,
+      );
+      return;
+    }
+    if (
+      managed &&
+      authenticated &&
+      !managedSubscriptionReplied &&
+      /Content-Type:\s*command\/reply/i.test(header)
+    ) {
+      managedSubscriptionReplied = true;
+      const subscribed = /Reply-Text:\s*\+OK/i.test(header);
+      if (!subscribed) console.error('[telephony] ESL event subscription unconfirmed');
+      managed.setSubscribed(subscribed);
+      return;
+    }
+    const parsed = parseEslEvent(frame);
+    if (!parsed) return;
+    // #562: สายจาก trunk ได้ tenant ตอน park ไม่ใช่ตอน create — PARK อื่นไม่ใช่ call event
+    const source =
+      parsed['Event-Name'] === 'CHANNEL_PARK'
+        ? parkedCallAsCreated(
+            parsed,
+            (callUuid) =>
+              outboundBindingByCallUuid.has(callUuid) || managed?.isKnownCall(callUuid) === true,
+          )
+        : parsed;
+    if (!source) return;
+    if (source['Event-Name'] === 'BACKGROUND_JOB') {
+      const succeeded = typeof source.Body === 'string' && source.Body.startsWith('+OK');
       if (
         managed &&
-        authenticated &&
-        !managedSubscriptionReplied &&
-        /Content-Type:\s*command\/reply/i.test(header)
-      ) {
-        managedSubscriptionReplied = true;
-        const subscribed = /Reply-Text:\s*\+OK/i.test(header);
-        if (!subscribed) console.error('[telephony] ESL event subscription unconfirmed');
-        managed.setSubscribed(subscribed);
-        continue;
+        typeof source['Job-UUID'] === 'string' &&
+        typeof source.Body === 'string' &&
+        /^(?:\+OK|-ERR)/.test(source.Body)
+      )
+        managed.backgroundJob(source['Job-UUID']);
+      console.error('[telephony] FreeSWITCH background job', {
+        jobUuid: source['Job-UUID'],
+        ok: succeeded,
+        reason: succeeded ? 'accepted' : 'rejected',
+      });
+      return;
+    }
+    if (isDeniedAgentDirectOutbound(source)) return;
+    if (
+      process.env.E1_18_VERBOSE &&
+      (source.variable_dcontact_delivery_id || source.variable_dcontact_tenant_id)
+    ) {
+      console.error('[telephony] outbound event binding', {
+        eventName: source['Event-Name'],
+        callUuid: source['Unique-ID'],
+        bridgeUuid: source['Bridge-A-Unique-ID'],
+        tenantId: source.variable_dcontact_tenant_id,
+        deliveryId: source.variable_dcontact_delivery_id,
+        providerRequestKey: source.variable_dcontact_provider_request_key,
+      });
+    }
+    try {
+      if (managed && isManagedOfferLeg(source)) {
+        await routeManagedOfferLeg(source, managed.routing);
+        return;
       }
-      const parsed = parseEslEvent(frame);
-      if (!parsed) continue;
-      // #562: สายจาก trunk ได้ tenant ตอน park ไม่ใช่ตอน create — PARK อื่นไม่ใช่ call event
-      const source =
-        parsed['Event-Name'] === 'CHANNEL_PARK'
-          ? parkedCallAsCreated(
-              parsed,
-              (callUuid) =>
-                outboundBindingByCallUuid.has(callUuid) || managed?.isKnownCall(callUuid) === true,
-            )
-          : parsed;
-      if (!source) continue;
-      if (source['Event-Name'] === 'BACKGROUND_JOB') {
-        const succeeded = typeof source.Body === 'string' && source.Body.startsWith('+OK');
-        if (
-          managed &&
-          typeof source['Job-UUID'] === 'string' &&
-          typeof source.Body === 'string' &&
-          /^(?:\+OK|-ERR)/.test(source.Body)
-        )
-          managed.backgroundJob(source['Job-UUID']);
-        console.error('[telephony] FreeSWITCH background job', {
-          jobUuid: source['Job-UUID'],
-          ok: succeeded,
-          reason: succeeded ? 'accepted' : 'rejected',
-        });
-        continue;
-      }
-      if (isDeniedAgentDirectOutbound(source)) continue;
-      if (
-        process.env.E1_18_VERBOSE &&
-        (source.variable_dcontact_delivery_id || source.variable_dcontact_tenant_id)
-      ) {
-        console.error('[telephony] outbound event binding', {
-          eventName: source['Event-Name'],
-          callUuid: source['Unique-ID'],
-          bridgeUuid: source['Bridge-A-Unique-ID'],
-          tenantId: source.variable_dcontact_tenant_id,
-          deliveryId: source.variable_dcontact_delivery_id,
-          providerRequestKey: source.variable_dcontact_provider_request_key,
-        });
-      }
-      try {
-        if (managed && isManagedOfferLeg(source)) {
-          await routeManagedOfferLeg(source, managed.routing);
-          continue;
-        }
-        const sipDomain = source.variable_domain_name;
-        const sourceCallUuid =
-          source['Event-Name'] === 'CHANNEL_BRIDGE' &&
-          typeof source['Bridge-A-Unique-ID'] === 'string'
-            ? source['Bridge-A-Unique-ID']
-            : typeof source['Unique-ID'] === 'string'
-              ? source['Unique-ID']
-              : undefined;
-        const knownBinding = sourceCallUuid
-          ? outboundBindingByCallUuid.get(sourceCallUuid)
-          : undefined;
-        if (knownBinding) {
-          source.variable_dcontact_tenant_id ??= knownBinding.tenantId;
-          source.variable_dcontact_delivery_id ??= knownBinding.deliveryId;
-          source.variable_dcontact_provider_request_key ??= knownBinding.providerRequestKey;
-        }
-        const outboundTenantId =
-          typeof source.variable_dcontact_tenant_id === 'string' &&
-          /^[0-9a-f-]{36}$/i.test(source.variable_dcontact_tenant_id)
-            ? (
-                await database.tenant.findUnique({
-                  where: { id: source.variable_dcontact_tenant_id },
-                  select: { id: true },
-                })
-              )?.id
+      const sipDomain = source.variable_domain_name;
+      const sourceCallUuid =
+        source['Event-Name'] === 'CHANNEL_BRIDGE' &&
+        typeof source['Bridge-A-Unique-ID'] === 'string'
+          ? source['Bridge-A-Unique-ID']
+          : typeof source['Unique-ID'] === 'string'
+            ? source['Unique-ID']
             : undefined;
-        const tenantId =
-          outboundTenantId ??
-          (typeof sipDomain === 'string'
-            ? (
-                await database.tenant.findUnique({
-                  where: { sipDomain },
-                  select: { id: true },
-                })
-              )?.id
-            : sourceCallUuid
-              ? outboundBindingByCallUuid.get(sourceCallUuid)?.tenantId
-              : undefined);
-        if (!tenantId) continue;
-        if (managed && (await routeManagedCall(source, tenantId, managed.routing)) !== 'legacy')
-          continue;
-        const event = normalizeFreeSwitchEvent(source, {
-          telephonyNodeId: nodeId,
-          resolveTenantId: (domain) => (domain === sipDomain ? tenantId : undefined),
-          resolveTenantIdForCall: (callUuid) =>
-            outboundBindingByCallUuid.get(callUuid)?.tenantId ?? tenantId,
-          eventId: randomUUID,
-          now: () => new Date().toISOString(),
-        });
-        await publishTelephonyCallEvent(event, {
-          recordings: recordingLifecycle,
-          publish: (callEvent) => producer.send(KAFKA_TOPICS.TELEPHONY_EVENTS, callEvent),
-        });
-        if (event.type === 'call.created') {
-          outboundBindingByCallUuid.set(event.payload.callUuid, {
-            tenantId: event.tenantId,
-            deliveryId: event.payload.deliveryId,
-            providerRequestKey: event.payload.providerRequestKey,
-          });
-        }
-        if (event.type === 'call.hangup') outboundBindingByCallUuid.delete(event.payload.callUuid);
-      } catch (error) {
-        console.error('[telephony] ignored ESL event', error);
+      const knownBinding = sourceCallUuid
+        ? outboundBindingByCallUuid.get(sourceCallUuid)
+        : undefined;
+      if (knownBinding) {
+        source.variable_dcontact_tenant_id ??= knownBinding.tenantId;
+        source.variable_dcontact_delivery_id ??= knownBinding.deliveryId;
+        source.variable_dcontact_provider_request_key ??= knownBinding.providerRequestKey;
       }
+      const outboundTenantId =
+        typeof source.variable_dcontact_tenant_id === 'string' &&
+        /^[0-9a-f-]{36}$/i.test(source.variable_dcontact_tenant_id)
+          ? (
+              await database.tenant.findUnique({
+                where: { id: source.variable_dcontact_tenant_id },
+                select: { id: true },
+              })
+            )?.id
+          : undefined;
+      const tenantId =
+        outboundTenantId ??
+        (typeof sipDomain === 'string'
+          ? (
+              await database.tenant.findUnique({
+                where: { sipDomain },
+                select: { id: true },
+              })
+            )?.id
+          : sourceCallUuid
+            ? outboundBindingByCallUuid.get(sourceCallUuid)?.tenantId
+            : undefined);
+      if (!tenantId) return;
+      if (managed && (await routeManagedCall(source, tenantId, managed.routing)) !== 'legacy')
+        return;
+      const event = normalizeFreeSwitchEvent(source, {
+        telephonyNodeId: nodeId,
+        resolveTenantId: (domain) => (domain === sipDomain ? tenantId : undefined),
+        resolveTenantIdForCall: (callUuid) =>
+          outboundBindingByCallUuid.get(callUuid)?.tenantId ?? tenantId,
+        eventId: randomUUID,
+        now: () => new Date().toISOString(),
+      });
+      await publishTelephonyCallEvent(event, {
+        recordings: recordingLifecycle,
+        publish: (callEvent) => producer.send(KAFKA_TOPICS.TELEPHONY_EVENTS, callEvent),
+      });
+      if (event.type === 'call.created') {
+        outboundBindingByCallUuid.set(event.payload.callUuid, {
+          tenantId: event.tenantId,
+          deliveryId: event.payload.deliveryId,
+          providerRequestKey: event.payload.providerRequestKey,
+        });
+      }
+      if (event.type === 'call.hangup') outboundBindingByCallUuid.delete(event.payload.callUuid);
+    } catch (error) {
+      console.error('[telephony] ignored ESL event', error);
     }
   };
+  const onData = async (chunk: Buffer) => {
+    buffer += chunk.toString();
+    for (let next = nextFrame(); next; next = nextFrame())
+      await handleFrame(next.header, next.frame);
+  };
   if (managed) {
-    // managed ต้องได้ event ตามลำดับ (offer ก่อน answer ก่อน bridge) จึงประมวลทีละ chunk
-    let eventChain = Promise.resolve();
+    // managed ต้องได้ event ของสายเดียวกันตามลำดับ (offer ก่อน answer ก่อน bridge) จึงเรียงต่อสาย
+    // สายต่างกันยังทำพร้อมกันได้ งานช้าของสาย legacy (archive เสียง, Kafka) จึงไม่ขวางสายอื่น
+    const eventQueue = new KeyedSerialQueue((error) =>
+      console.error('[telephony] ignored ESL event', error),
+    );
     socket.on('data', (chunk: Buffer) => {
-      eventChain = eventChain
-        .then(() => onData(chunk))
-        .catch((error: unknown) => console.error('[telephony] ignored ESL chunk', error));
+      buffer += chunk.toString();
+      for (let next = nextFrame(); next; next = nextFrame()) {
+        const { header, frame } = next;
+        void eventQueue.run(managedEventKey(parseEslEvent(frame)), () =>
+          handleFrame(header, frame),
+        );
+      }
     });
     let stopping = false;
     socket.on('close', () => {

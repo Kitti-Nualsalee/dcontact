@@ -8,6 +8,7 @@ import type { FreeSwitchEvent } from './freeswitch-normalizer.js';
 import {
   FreeSwitchManagedVoiceAdapter,
   type ManagedVoiceEslTransport,
+  type ManagedVoiceSipDomainPurpose,
 } from './managed-voice-adapter.js';
 import { runManagedVoiceDue, runManagedVoiceReadiness } from './managed-voice-due.js';
 import { normalizeManagedVoiceEvent } from './managed-voice-events.js';
@@ -38,9 +39,16 @@ export interface TenantSipDomainSource {
   };
 }
 
-/** tenant ที่ ACTIVE พร้อม SIP domain จาก `tenants.sip_domain` แคชสั้น ๆ เพื่อไม่ query ทุกคำสั่ง */
+/**
+ * SIP domain ของ tenant จาก `tenants.sip_domain` แคชสั้น ๆ เพื่อไม่ query ทุกคำสั่ง
+ * originate ใช้ได้เฉพาะ tenant ที่ ACTIVE ส่วนการตรวจช่องสาย (bind) ใช้ domain แม้ tenant ถูกพัก
+ * เพื่อให้คำสั่งเก็บกวาดของสายที่ค้างยังทำงานได้
+ */
 export class TenantSipDomainDirectory {
-  private readonly cache = new Map<string, { sipDomain: string | undefined; expiresAt: number }>();
+  private readonly cache = new Map<
+    string,
+    { sipDomain: string | undefined; active: boolean; expiresAt: number }
+  >();
 
   constructor(
     private readonly database: TenantSipDomainSource,
@@ -55,22 +63,61 @@ export class TenantSipDomainDirectory {
     });
     const expiresAt = this.now() + this.ttlMs;
     for (const tenant of tenants)
-      this.cache.set(tenant.id, { sipDomain: tenant.sipDomain, expiresAt });
+      this.cache.set(tenant.id, { sipDomain: tenant.sipDomain, active: true, expiresAt });
     return tenants.map((tenant) => tenant.id);
   }
 
-  async sipDomain(tenantId: string): Promise<string | undefined> {
-    const cached = this.cache.get(tenantId);
-    if (cached && cached.expiresAt > this.now()) return cached.sipDomain;
-    if (!uuidPattern.test(tenantId)) return undefined;
-    const tenant = await this.database.tenant.findUnique({
-      where: { id: tenantId },
-      select: { sipDomain: true, lifecycleStatus: true },
-    });
-    const sipDomain = tenant?.lifecycleStatus === 'ACTIVE' ? tenant.sipDomain : undefined;
-    this.cache.set(tenantId, { sipDomain, expiresAt: this.now() + this.ttlMs });
-    return sipDomain;
+  async sipDomain(
+    tenantId: string,
+    purpose: ManagedVoiceSipDomainPurpose = 'originate',
+  ): Promise<string | undefined> {
+    let entry = this.cache.get(tenantId);
+    if (!entry || entry.expiresAt <= this.now()) {
+      if (!uuidPattern.test(tenantId)) return undefined;
+      const tenant = await this.database.tenant.findUnique({
+        where: { id: tenantId },
+        select: { sipDomain: true, lifecycleStatus: true },
+      });
+      entry = {
+        sipDomain: tenant?.sipDomain,
+        active: tenant?.lifecycleStatus === 'ACTIVE',
+        expiresAt: this.now() + this.ttlMs,
+      };
+      this.cache.set(tenantId, entry);
+    }
+    return purpose === 'bind' || entry.active ? entry.sipDomain : undefined;
   }
+}
+
+/**
+ * คิวที่เรียงงานต่อ key: key เดียวกันทำทีละงานตามลำดับ key ต่างกันทำพร้อมกัน
+ * main.ts ใช้เรียง event ของสายเดียวกัน (managed ต้องได้ offer → answer → bridge → hangup ตามลำดับ)
+ * โดยไม่ให้งานช้าของสายหนึ่ง (เช่น archive เสียงของสาย legacy หรือ Kafka ช้า) ขวางสายอื่น
+ */
+export class KeyedSerialQueue {
+  private readonly tails = new Map<string, Promise<void>>();
+
+  constructor(private readonly onError: (error: unknown) => void) {}
+
+  run(key: string, work: () => Promise<void>): Promise<void> {
+    const next = (this.tails.get(key) ?? Promise.resolve()).then(work).catch(this.onError);
+    this.tails.set(key, next);
+    void next.then(() => {
+      if (this.tails.get(key) === next) this.tails.delete(key);
+    });
+    return next;
+  }
+
+  get size() {
+    return this.tails.size;
+  }
+}
+
+/** key ของ event: สายฝั่งลูกค้า (ขา Agent ของ managed มี `dcontact_call_uuid` ชี้สายลูกค้า) */
+export function managedEventKey(event: FreeSwitchEvent | undefined): string {
+  if (!event) return 'control';
+  if (event['Event-Name'] === 'BACKGROUND_JOB') return 'background-job';
+  return callerUuid(event) ?? 'control';
 }
 
 export type ManagedVoiceRoute = 'managed' | 'legacy' | 'ignored';
@@ -109,8 +156,11 @@ export async function routeManagedOfferLeg(
   if (typeof tenantId !== 'string' || !uuidPattern.test(tenantId)) return 'ignored';
   const event = normalizeManagedVoiceEvent(source, tenantId, routing.nodeId);
   if (event) {
-    await routing.handle(event);
-    if (event.type === 'call.hangup' && !event.offerId) routing.calls.delete(event.callUuid);
+    try {
+      await routing.handle(event);
+    } finally {
+      if (event.type === 'call.hangup' && !event.offerId) routing.calls.delete(event.callUuid);
+    }
   }
   return 'managed';
 }
@@ -132,9 +182,24 @@ export async function routeManagedCall(
   let handled: unknown = null;
   try {
     event = normalizeManagedVoiceEvent(source, tenantId, routing.nodeId);
-    if (event) handled = await routing.handle(event);
+    if (event) {
+      try {
+        handled = await routing.handle(event);
+      } catch (error) {
+        // สายใหม่ที่ไปผิดทางจะไม่กลับมา managed อีก (PARK ถัดไปไม่ถูกแปลงเป็น CREATE) จึงลองซ้ำหนึ่งครั้ง
+        if (event.type !== 'call.created') throw error;
+        routing.onError(error);
+        handled = await routing.handle(event);
+      }
+    }
   } catch (error) {
     routing.onError(error);
+    if (
+      known &&
+      source['Event-Name'] === 'CHANNEL_HANGUP_COMPLETE' &&
+      source['Unique-ID'] === callUuid
+    )
+      routing.calls.delete(callUuid);
     return known ? 'ignored' : 'legacy';
   }
   if (event && handled) {
@@ -178,8 +243,10 @@ export class ManagedVoiceTelephony {
 
   constructor(private readonly options: ManagedVoiceTelephonyOptions) {
     this.log = options.log ?? ((message, error) => console.error(`[telephony] ${message}`, error));
-    this.adapter = new FreeSwitchManagedVoiceAdapter(options.esl, options.nodeId, (tenantId) =>
-      options.directory.sipDomain(tenantId),
+    this.adapter = new FreeSwitchManagedVoiceAdapter(
+      options.esl,
+      options.nodeId,
+      (tenantId, purpose) => options.directory.sipDomain(tenantId, purpose),
     );
     this.runtime = new ManagedVoiceRuntime(
       options.database,
@@ -250,7 +317,11 @@ export class ManagedVoiceTelephony {
     every(0, () => this.readiness());
     every(1, () =>
       runManagedVoiceDue({
-        tenantIds: () => this.activeTenantIds(),
+        // tenant ที่เคย ACTIVE ยัง tick ต่อ เพื่อให้สายที่ค้างถึง deadline และถูกวางแม้ tenant ถูกพักระหว่างสาย
+        tenantIds: async () => {
+          await this.activeTenantIds();
+          return [...this.tenants];
+        },
         tick: (tenantId) => this.runtime.tick(tenantId, this.options.nodeId),
         onError: (error) => this.log('managed due-work failed', error),
       }),
