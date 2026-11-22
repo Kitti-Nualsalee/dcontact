@@ -62,6 +62,10 @@ class Switch implements ManagedVoiceEslTransport {
       if (!this.retainOnKill) this.channels.delete(channel);
       return '+OK';
     }
+    if (action === 'uuid_answer') {
+      this.channels.get(channel)!.answer_state = 'answered';
+      return '+OK';
+    }
     if (action === 'uuid_bridge') {
       this.channels.get(channel)!.bridge_uuid = name;
       return '+OK';
@@ -81,6 +85,11 @@ test('offer replay ใช้ stable B-leg และ exact variables โดยไ
   assert.deepEqual(await adapter.execute({ ...command, type: 'call.bridge' }), { confirmed: true });
   assert.deepEqual(await adapter.execute({ ...command, type: 'call.bridge' }), { confirmed: true });
   assert.equal(transport.commands.filter((value) => value.startsWith('api uuid_bridge')).length, 1);
+  // ลูกค้าถูก answer ก่อน bridge ทุกครั้ง (dialplan dev park โดยไม่ answer)
+  const answer = transport.commands.indexOf(`api uuid_answer ${command.callUuid}`);
+  assert.ok(answer >= 0);
+  assert.ok(answer < transport.commands.findIndex((value) => value.startsWith('api uuid_bridge')));
+  assert.equal(transport.channels.get(command.callUuid)?.answer_state, 'answered');
 });
 
 test('cancel ตรวจ teardown จริงและไม่ฆ่า caller; restart adapter reconcile จาก switch', async () => {
@@ -268,4 +277,104 @@ test('ACTIVE readback ปฏิเสธ unknown probe และ foreign scope �
     transport.commands.some((value) => value.includes('uuid_kill')),
     false,
   );
+});
+
+test('#979 หลาย tenant: originate ใช้ SIP domain ของ tenant ในคำสั่ง ไม่ใช่ค่าเดียวของ process', async () => {
+  const otherTenant = 'a0000000-0000-4000-8000-0000000000aa';
+  const domains: Record<string, string> = {
+    [command.tenantId]: 'alpha.tenants.test',
+    [otherTenant]: 'beta.tenants.test',
+  };
+  const lookups: string[] = [];
+  const resolver = async (tenantId: string) => {
+    lookups.push(tenantId);
+    return domains[tenantId];
+  };
+  const transport = new Switch();
+  const adapter = new FreeSwitchManagedVoiceAdapter(transport, 'fs-test', resolver);
+  assert.deepEqual(await adapter.execute(command), { confirmed: true });
+  const originate = transport.commands.find((value) => value.startsWith('bgapi originate'))!;
+  assert.match(originate, /domain_name=alpha\.tenants\.test[,}]/);
+  assert.match(originate, /user\/1101@alpha\.tenants\.test &park\(\)$/);
+  assert.doesNotMatch(originate, /beta\.tenants\.test/);
+  assert.deepEqual(lookups, [command.tenantId]);
+
+  const beta = {
+    ...command,
+    tenantId: otherTenant,
+    commandId: 'a0000000-0000-4000-8000-0000000000b1',
+    callUuid: 'a0000000-0000-4000-8000-0000000000b4',
+    blegUuid: 'a0000000-0000-4000-8000-0000000000b6',
+  };
+  transport.channels.set(beta.callUuid, {
+    dcontact_tenant_id: otherTenant,
+    dcontact_node_id: 'fs-test',
+    dcontact_call_uuid: beta.callUuid,
+  });
+  assert.deepEqual(await adapter.execute(beta), { confirmed: true });
+  const second = transport.commands.filter((value) => value.startsWith('bgapi originate'))[1];
+  assert.match(second, /user\/1101@beta\.tenants\.test &park\(\)$/);
+});
+
+test('#979 tenant ที่ไม่มี SIP domain (ไม่ ACTIVE) ถูกปฏิเสธก่อนตั้ง marker หรือ originate', async () => {
+  const transport = new Switch();
+  const adapter = new FreeSwitchManagedVoiceAdapter(transport, 'fs-test', async () => undefined);
+  await assert.rejects(adapter.execute(command), /MANAGED_VOICE_TENANT_SIP_DOMAIN_UNAVAILABLE/);
+  assert.equal(
+    transport.commands.some(
+      (value) => value.startsWith('api global_setvar') || value.startsWith('bgapi originate'),
+    ),
+    false,
+  );
+  const injected = new FreeSwitchManagedVoiceAdapter(
+    transport,
+    'fs-test',
+    async () => 'evil.test} &bridge(x)',
+  );
+  await assert.rejects(injected.execute(command), /MANAGED_VOICE_TENANT_SIP_DOMAIN_UNAVAILABLE/);
+});
+
+test('#979 bindCaller หลาย tenant ผูกเฉพาะช่องสายที่ domain_name ตรง SIP domain ของ tenant', async () => {
+  const resolver = async (tenantId: string) =>
+    tenantId === command.tenantId ? 'alpha.tenants.test' : undefined;
+  const transport = new Switch();
+  transport.channels.set(command.callUuid, { domain_name: 'beta.tenants.test' });
+  const adapter = new FreeSwitchManagedVoiceAdapter(transport, 'fs-test', resolver);
+  await assert.rejects(
+    adapter.bindCaller(command.tenantId, command.callUuid),
+    /MANAGED_VOICE_CHANNEL_SCOPE_MISMATCH/,
+  );
+  assert.equal(transport.channels.get(command.callUuid)?.dcontact_tenant_id, undefined);
+
+  transport.channels.set(command.callUuid, { domain_name: 'alpha.tenants.test' });
+  await adapter.bindCaller(command.tenantId, command.callUuid);
+  assert.equal(transport.channels.get(command.callUuid)?.dcontact_tenant_id, command.tenantId);
+  assert.equal(transport.channels.get(command.callUuid)?.dcontact_node_id, 'fs-test');
+
+  // ค่าเดียวแบบเดิม (e1-sandbox) ไม่ตรวจ domain_name เพื่อคงพฤติกรรมเดิม
+  const legacy = new Switch();
+  legacy.channels.set(command.callUuid, { domain_name: 'other.test' });
+  await new FreeSwitchManagedVoiceAdapter(legacy, 'fs-test', 'test.local').bindCaller(
+    command.tenantId,
+    command.callUuid,
+  );
+  assert.equal(legacy.channels.get(command.callUuid)?.dcontact_tenant_id, command.tenantId);
+});
+
+test('#979 tenant ที่ถูกพักระหว่างสาย: คำสั่งเก็บกวาดยังผูกและวางสายได้ แต่ originate ใหม่ไม่ได้', async () => {
+  const resolver = async (_tenantId: string, purpose: 'originate' | 'bind') =>
+    purpose === 'bind' ? 'alpha.tenants.test' : undefined;
+  const transport = new Switch();
+  transport.channels.set(command.callUuid, { domain_name: 'alpha.tenants.test' });
+  const adapter = new FreeSwitchManagedVoiceAdapter(transport, 'fs-test', resolver);
+  await adapter.bindCaller(command.tenantId, command.callUuid);
+  await assert.rejects(adapter.execute(command), /MANAGED_VOICE_TENANT_SIP_DOMAIN_UNAVAILABLE/);
+  assert.equal(
+    transport.commands.some((value) => value.startsWith('bgapi originate')),
+    false,
+  );
+  const hangup = { ...command, type: 'call.hangup' as const };
+  await adapter.bindCaller(hangup.tenantId, hangup.callUuid);
+  assert.deepEqual(await adapter.execute(hangup), { confirmed: true });
+  assert.equal(transport.channels.has(command.callUuid), false);
 });
