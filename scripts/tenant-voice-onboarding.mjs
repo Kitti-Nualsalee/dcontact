@@ -40,7 +40,7 @@ const usage = `ใช้: node scripts/tenant-voice-onboarding.mjs --tenant <slu
   --accounts <n> --agents <n> --voice-queues <n> --skills <n>
   --node <telephonyNodeId> --release-digest <sha256> --dialplan-digest <sha256>
   --extensions <1000-1009|1000,1001> --destination <เบอร์> --worker-principal <role>
-  [--create-worker-principal | --rotate-worker-password] [--issuer <url>]
+  [--create-worker-principal | --rotate-worker-password] [--issuer <url> [--backchannel-url <url>]]
   [--apply --env-out <ไฟล์>]`;
 
 function integerFlag(value, name) {
@@ -126,6 +126,7 @@ export function parseArguments(argv) {
     createWorkerPrincipal: flags['create-worker-principal'] === true,
     rotateWorkerPassword: flags['rotate-worker-password'] === true,
     issuer: typeof flags.issuer === 'string' ? flags.issuer : null,
+    backchannelUrl: typeof flags['backchannel-url'] === 'string' ? flags['backchannel-url'] : null,
     envOut: flags['env-out'] ?? null,
     apply,
   };
@@ -142,10 +143,12 @@ export function extensionPool(extensions, node) {
 }
 
 /** รายการ binding ของ tenant ใน TENANT_PEOPLE_BINDINGS_JSON (secret อยู่ใน env ชื่อ clientSecretEnv) */
-export function peopleBinding({ tenantId, issuer, node, extensions }) {
+export function peopleBinding({ tenantId, issuer, node, extensions, backchannelUrl = null }) {
   return {
     tenantId,
     issuer,
+    // deployment ที่ issuer เป็นโดเมนภายนอก (เช่น Solo) ให้ API เรียก Keycloak ใน network ภายใน (tenant-people-backchannel.ts)
+    ...(backchannelUrl ? { backchannelUrl } : {}),
     clientSecretEnv: `TENANT_PEOPLE_SECRET_${tenantId.replaceAll('-', '_').toUpperCase()}`,
     nodes: [{ ...node, extensions }],
   };
@@ -594,6 +597,7 @@ async function main() {
       issuer,
       node: plan.node,
       extensions: plan.extensions,
+      backchannelUrl: plan.backchannelUrl,
     });
     log(`env: เพิ่ม ${JSON.stringify(binding)} ใน TENANT_PEOPLE_BINDINGS_JSON`);
     log(`env: ตั้ง ${binding.clientSecretEnv} และ restart API (ค่าอ่านตอน start)`);

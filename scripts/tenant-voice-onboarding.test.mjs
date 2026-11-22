@@ -266,3 +266,29 @@ test('scramVerifier ได้รูป SCRAM-SHA-256 ที่ PostgreSQL รั
     'wfPLwcE6nTWhTAmQ7tl2KeoiWGPlZqQxSrmfPwDl2dU=',
   );
 });
+
+test('peopleBinding ใส่ backchannelUrl เฉพาะเมื่อระบุ (รูปที่ tenant-people-composition ยอมรับ)', () => {
+  const tenantId = '3c71f624-a141-4060-a025-da026101efbf';
+  const binding = peopleBinding({
+    tenantId,
+    issuer: 'https://uat.example.test/auth/realms/dcontact',
+    node,
+    extensions: ['1100'],
+    backchannelUrl: 'http://keycloak:8080/auth/realms/dcontact',
+  });
+  assert.deepEqual(Object.keys(binding).sort(), [
+    'backchannelUrl',
+    'clientSecretEnv',
+    'issuer',
+    'nodes',
+    'tenantId',
+  ]);
+  assert.equal(
+    parseArguments([
+      ...baseArguments,
+      '--backchannel-url',
+      'http://keycloak:8080/auth/realms/dcontact',
+    ]).backchannelUrl,
+    'http://keycloak:8080/auth/realms/dcontact',
+  );
+});

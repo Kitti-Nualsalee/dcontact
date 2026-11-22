@@ -4,10 +4,12 @@
   <context name="pstn">
     <!-- ADR-038: สายที่ผ่าน Kamailio มี X-DContact-Domain = SIP domain ของ tenant ที่ Kamailio ระบุจาก trunk/เบอร์
          Kamailio ลบ header นี้จากภายนอกก่อนใส่เอง และ profile นี้ต้องรับเฉพาะ IP ของ Kamailio ใน deployment จริง
-         ลบ header ออกจากตัวแปรก่อน park เพื่อไม่ให้ติดไปกับขา bridge ไปหา agent -->
+         ลบ header ออกจากตัวแปรก่อน park เพื่อไม่ให้ติดไปกับขา bridge ไปหา agent
+         #977: สายที่ Kamailio ระบุ tenant แล้วรับเบอร์ 2000–2009 เพื่อให้ tenant มีเบอร์ของคิว managed (เช่น 2002)
+         แยกจากคิว legacy ได้ Kamailio เป็นผู้คุมว่าเบอร์ไหนเข้ามาได้จากตาราง number ส่วนสายที่ไม่มี header ยังรับแค่ 2000/2001 -->
     <extension name="dcontact-inbound-voice-edge">
       <condition field="${sip_h_X-DContact-Domain}" expression="^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$"/>
-      <condition field="destination_number" expression="^200[01]$">
+      <condition field="destination_number" expression="^200[0-9]$">
         <action application="set" data="domain_name=${sip_h_X-DContact-Domain}"/>
         <action application="unset" data="sip_h_X-DContact-Domain"/>
         <action application="park"/>

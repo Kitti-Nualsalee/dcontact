@@ -63,7 +63,7 @@ owner อนุมัติเมื่อ 19 พฤศจิกายน 2569 �
 | Console | `https://dcontact-solo-uat.osd.co.th/?tenant=demo` |
 | Workspace | `https://dcontact-solo-workspace-uat.osd.co.th/?tenant=demo` |
 
-trunk จำลอง `lan-sim` รับสายจาก `SOLO_SIM_TRUNK_IP` เท่านั้น เบอร์ `021000001` เข้าคิวตรง (2000) และ `021000002` เข้า IVR (2001) โทรเข้าด้วย SIPp หรือ softphone จากเครื่องนั้นไปที่ `sip:021000001@192.168.31.206:5060`
+trunk จำลอง `lan-sim` รับสายจาก `SOLO_SIM_TRUNK_IP` เท่านั้น เบอร์ `021000001` เข้าคิวตรง (2000), `021000002` เข้า IVR (2001) และ `021000003` เข้าเบอร์ 2002 ซึ่ง operator จองให้คิว managed ที่ Admin สร้างใน Console ([new-tenant-onboarding.md](new-tenant-onboarding.md), managed routing เปิดด้วย `TELEPHONY_MANAGED_VOICE_ENABLED=true` ใน `solo.env`) โทรเข้าด้วย SIPp หรือ softphone จากเครื่องนั้นไปที่ `sip:021000001@192.168.31.206:5060`
 
 ## ข้อจำกัด
 
