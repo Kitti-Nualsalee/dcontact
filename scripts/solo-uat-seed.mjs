@@ -8,6 +8,10 @@
  * รันใน container ops ของ Solo หลัง `db:migrate`, `db:rls`, `db:seed` และ `infra:identity:link`
  * (infra/solo/bin/solo-uat.sh เรียกให้) ทุกขั้น idempotent รันซ้ำได้
  *
+ * เพิ่ม `supervisor@demo.local` (SUPERVISOR ของทีม Customer Care) ให้ทดสอบงานของ Supervisor ได้
+ * เช่น ฟังเสียงของทีม (#967) และประเมินคุณภาพ (#971) — `db:seed` ไม่มีผู้ใช้นี้ จึงสร้างที่นี่
+ * แล้วเชื่อม Keycloak ด้วยสคริปต์ link ตัวเดิม (รหัสผ่านเดียวกับ Agent: `DCONTACT_LINK_AGENT_PASSWORD`)
+ *
  * env:
  *   DATABASE_URL                       owner ของฐานแอป
  *   KEYCLOAK_ADMIN_URL                 เช่น http://keycloak:8080/auth
@@ -33,7 +37,14 @@ const apiOrigin = required('SOLO_API_ORIGIN').replace(/\/$/, '');
 const c360ClientId = required('KEYCLOAK_C360_CLIENT_ID');
 const c360ClientSecret = required('KEYCLOAK_C360_CLIENT_SECRET');
 const teamId = '7d3f1c1e-2b7a-4c55-9a40-5a1e5de00001';
-const demoUsers = ['admin@demo.local', 'agent1000@demo.local', 'agent1001@demo.local'];
+const supervisorId = '7d3f1c1e-2b7a-4c55-9a40-5a1e5de00002';
+const supervisorEmail = 'supervisor@demo.local';
+const demoUsers = [
+  'admin@demo.local',
+  'agent1000@demo.local',
+  'agent1001@demo.local',
+  supervisorEmail,
+];
 const uuid = /^[0-9a-f-]{36}$/i;
 
 /** ส่งการเชื่อมต่อผ่าน PG* env ไม่ใส่ URL ใน argv — ข้อความ error ของ execFileSync จะไม่มีรหัสผ่าน */
@@ -138,14 +149,32 @@ function seedVoiceDefaults(tenantId) {
   );
 }
 
+/**
+ * ทีม Customer Care และ Supervisor ของทีม — ต้องมีก่อนอ่าน claims เพราะ Supervisor ต้องเชื่อม Keycloak ก่อน
+ * เชื่อมด้วยสคริปต์ link ตัวเดิมเฉพาะเมื่อยังไม่มี keycloak_id (รอบแรก) ไม่ไปตั้งรหัสผ่านคนอื่นซ้ำทุกรอบ
+ */
+function seedSupervisor() {
+  const tenantId = psql(`SELECT id FROM tenants WHERE slug = 'demo';`);
+  if (!uuid.test(tenantId)) throw new Error('ไม่พบ tenant demo — รัน db:seed ก่อน');
+  const linked = psql(
+    `BEGIN;
+     INSERT INTO teams (id, tenant_id, name)
+     SELECT '${teamId}', '${tenantId}', 'Customer Care'
+     WHERE NOT EXISTS (SELECT 1 FROM teams WHERE tenant_id = '${tenantId}' AND id = '${teamId}');
+     INSERT INTO users (id, tenant_id, email, password_hash, display_name, role, team_id)
+     VALUES ('${supervisorId}', '${tenantId}', '${supervisorEmail}', '-', 'Demo Supervisor', 'SUPERVISOR', '${teamId}')
+     ON CONFLICT (id) DO UPDATE SET role = 'SUPERVISOR', team_id = EXCLUDED.team_id, is_active = true;
+     COMMIT;
+     SELECT keycloak_id IS NOT NULL FROM users WHERE id = '${supervisorId}';`,
+  );
+  if (!linked.endsWith('t')) run('node', ['scripts/link-keycloak-dev-identity.mjs']);
+}
+
 function seedAccess(claims, organization) {
   const tenantId = claims[0].tenantId;
   const emails = claims.map((claim) => `'${claim.username}'`).join(', ');
   psql(
     `BEGIN;
-     INSERT INTO teams (id, tenant_id, name)
-     SELECT '${teamId}', '${tenantId}', 'Customer Care'
-     WHERE NOT EXISTS (SELECT 1 FROM teams WHERE tenant_id = '${tenantId}' AND id = '${teamId}');
      UPDATE users SET team_id = '${teamId}'
      WHERE tenant_id = '${tenantId}' AND role = 'AGENT' AND team_id IS NULL;
      INSERT INTO tenant_voice_identity_bindings
@@ -352,6 +381,7 @@ async function grantCustomerCreate(admin, claims, organization) {
 }
 
 async function main() {
+  seedSupervisor();
   const admin = await keycloakAdmin();
   const claims = await claimsOf(admin);
   const tenantId = claims[0].tenantId;
