@@ -10,6 +10,7 @@ const VIEWS = new Set([
   'home',
   'agent-history',
   'team-cases',
+  'team-recordings',
   'governance',
   'journeys',
   'dphone-embedding',

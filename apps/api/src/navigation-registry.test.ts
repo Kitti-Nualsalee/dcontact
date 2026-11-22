@@ -6,6 +6,7 @@ import {
   NAVIGATION_AREAS,
   NAVIGATION_GROUPS,
   effectivePins,
+  navigationApps,
   pinValidationError,
   tenantAvailableApps,
   visibleApps,
@@ -345,5 +346,23 @@ test('#658: Governance และ Voice ส่งหน้าย่อยจา�
   assert.deepEqual(
     voice.pages!.map((p) => p.id),
     ['queues', 'skills', 'destinations', 'agent-skills'],
+  );
+});
+
+test('#967 เสียงบันทึกของทีมอยู่ในเมนูของ Supervisor เฉพาะ deployment ที่เปิดใช้', () => {
+  assert.equal(
+    navigationApps(false).some((app) => app.id === 'team-recordings'),
+    false,
+  );
+  const enabled = navigationApps(true);
+  const enabledIds = enabled.map((app) => app.id);
+  const visibleTo = (roles: string[]) =>
+    ids(visibleApps({ roles, entitlements: FULL }, enabled)).includes('team-recordings');
+  assert.equal(visibleTo(['supervisor']), true);
+  assert.equal(visibleTo(['agent']), false);
+  assert.equal(visibleTo(['admin']), false);
+  assert.deepEqual(
+    enabledIds.slice(enabledIds.indexOf('supervisor-workspace'), enabledIds.indexOf('journeys')),
+    ['supervisor-workspace', 'team-recordings'],
   );
 });

@@ -8,6 +8,7 @@ import {
   HttpCode,
   Inject,
   NotFoundException,
+  Optional,
   Param,
   Post,
   Req,
@@ -19,6 +20,11 @@ import { GatewayRoles, type AuthenticatedGatewayRequest } from './gateway-auth.j
 export const RECORDING_DATABASE = Symbol('RECORDING_DATABASE');
 export const TELEPHONY_COMMAND_PUBLISHER = Symbol('TELEPHONY_COMMAND_PUBLISHER');
 export const RECORDING_STORAGE = Symbol('RECORDING_STORAGE');
+/**
+ * #967: true เมื่อ `RECORDING_SUPERVISOR_PLAYBACK=on` (ไม่ provide = ปิด)
+ * เปิดแล้ว Supervisor ฟังผ่าน `recording-playback-api.ts` และ route presign เดิมในไฟล์นี้ตอบ 403
+ */
+export const RECORDING_SUPERVISOR_PLAYBACK = Symbol('RECORDING_SUPERVISOR_PLAYBACK');
 
 export interface TelephonyCommandPublisher {
   publish(input: { tenantId: string; command: TelephonyCommand }): Promise<void>;
@@ -150,6 +156,9 @@ export class RecordingController {
     @Inject(TELEPHONY_COMMAND_PUBLISHER)
     private readonly commandPublisher: TelephonyCommandPublisher,
     @Inject(RECORDING_STORAGE) private readonly storage: RecordingStorage,
+    @Optional()
+    @Inject(RECORDING_SUPERVISOR_PLAYBACK)
+    private readonly supervisorPlayback: boolean = false,
   ) {}
 
   @Post('retention/run')
@@ -293,6 +302,8 @@ export class RecordingController {
     @Param('recordingId') recordingId: string,
     @Body() body: RecordingPlaybackBody,
   ) {
+    // #967: เมื่อเปิดฟังผ่าน API แบบตรวจสิทธิ์ทุก chunk ต้องไม่มีทางออก presigned URL เหลืออยู่
+    if (this.supervisorPlayback) throw new ForbiddenException({ code: 'PLAYBACK_ACCESS_DENIED' });
     if (typeof body.download !== 'boolean')
       throw new BadRequestException('download must be a boolean');
     const download = body.download;

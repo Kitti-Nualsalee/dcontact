@@ -6,6 +6,7 @@ import {
 } from '@d-contact/db';
 import { KAFKA_TOPICS, type TelephonyCallEvent, type TelephonyCommand } from '@d-contact/shared';
 import type { KafkaEventEnvelope } from '@d-contact/kafka';
+import { recordVoiceHandlingAttribution } from './handling-attribution.js';
 
 type PublishedEvent = KafkaEventEnvelope<Record<string, unknown>>;
 
@@ -1132,6 +1133,8 @@ export class InboundVoiceRouter {
             id: existing.id,
             tenantId: event.tenantId,
             state: 'ASSIGNED',
+            // #967: สายที่ถูกเสนอให้ Agent คนใหม่ระหว่างนี้ต้องไม่ถูกรับด้วยคำตอบของคนเดิม
+            agentId: existing.agentId,
             ...(existing.offerExpiresAt ? { offerExpiresAt: { gt: answeredAt } } : {}),
           },
           data: { state: 'ACTIVE', answeredAt, offerExpiresAt: null },
@@ -1143,6 +1146,12 @@ export class InboundVoiceRouter {
           });
           return { ...current, transitioned: false as const };
         }
+        await recordVoiceHandlingAttribution(transaction, {
+          tenantId: event.tenantId,
+          interactionId: existing.id,
+          agentId: existing.agentId,
+          sourceEventId: event.eventId,
+        });
         await transaction.agentStateLog.create({
           data: {
             tenantId: event.tenantId,
