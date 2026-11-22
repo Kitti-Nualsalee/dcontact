@@ -360,6 +360,10 @@ test('Admin สร้าง แก้ร่าง publish และออกเ�
     }),
     /QM_FORM_VERSION_IMMUTABLE/,
   );
+  await assert.rejects(
+    owner.qmFormVersion.deleteMany({ where: { tenantId: f.tenantId, formId, version: 1 } }),
+    /QM_FORM_VERSION_IMMUTABLE/,
+  );
 
   // ออกร่างเวอร์ชันใหม่จากเวอร์ชันที่ใช้อยู่ แล้ว publish แทน
   const draft2 = await f.http(f.tokens.admin, 'POST', `/forms/${formId}/draft`, {
@@ -645,6 +649,10 @@ test('Supervisor ประเมินสายที่ทีมตัวเอ
     owner.qmEvaluation.update({ where: { id: evaluation.evaluationId }, data: { comment: 'x' } }),
     /QM_EVALUATION_IMMUTABLE/,
   );
+  await assert.rejects(
+    owner.qmEvaluation.delete({ where: { id: evaluation.evaluationId } }),
+    /QM_EVALUATION_IMMUTABLE/,
+  );
   const audit = await owner.qmAuditEvent.findFirstOrThrow({
     where: {
       tenantId: f.tenantId,
@@ -710,17 +718,30 @@ test('Agent ไม่เห็นร่าง และ Supervisor ที่ย�
     team: f.ids.teamA,
     acceptedAt: '2026-11-20T03:00:00.000Z',
   });
+  const draftCommand = randomUUID();
   const draft = await f.http(
     f.tokens.supervisorA,
     'PUT',
     `/interactions/${teamCall}/human-evaluation`,
     {
-      commandId: randomUUID(),
+      commandId: draftCommand,
       formVersionId: form.current.versionId,
       answers: { greet: { value: true }, verify: { value: true }, tone: { na: true } },
     },
   );
   assert.equal(draft.status, 200);
+  // retry ที่ลำดับ key ของคำตอบต่างกันยังเป็นคำสั่งเดิม
+  const reordered = await f.http(
+    f.tokens.supervisorA,
+    'PUT',
+    `/interactions/${teamCall}/human-evaluation`,
+    {
+      answers: { tone: { na: true }, verify: { value: true }, greet: { value: true } },
+      formVersionId: form.current.versionId,
+      commandId: draftCommand,
+    },
+  );
+  assert.deepEqual(reordered.json, draft.json);
   assert.deepEqual((await f.http(f.tokens.agentA, 'GET', '/my-evaluations')).json.items, []);
   assert.equal(
     (await f.http(f.tokens.agentA, 'GET', `/my-evaluations/${draft.json.evaluation.evaluationId}`))
@@ -729,6 +750,18 @@ test('Agent ไม่เห็นร่าง และ Supervisor ที่ย�
   );
 
   await owner.user.update({ where: { id: f.ids.supervisorA }, data: { teamId: f.ids.teamB } });
+  // receipt เดิมไม่คืนผลให้ผู้ที่เสียสิทธิ์แล้ว
+  const replayAfterMove = await f.http(
+    f.tokens.supervisorA,
+    'PUT',
+    `/interactions/${teamCall}/human-evaluation`,
+    {
+      commandId: draftCommand,
+      formVersionId: form.current.versionId,
+      answers: { greet: { value: true }, verify: { value: true }, tone: { na: true } },
+    },
+  );
+  assert.equal(replayAfterMove.status, 404);
   assert.equal(
     (await f.http(f.tokens.supervisorA, 'GET', `/interactions/${teamCall}/human-evaluation`))
       .status,

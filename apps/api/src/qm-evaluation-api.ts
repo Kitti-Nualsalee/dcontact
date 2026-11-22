@@ -112,6 +112,17 @@ function revisionOf(body: Record<string, unknown>, required: boolean): number | 
   return value as number;
 }
 
+/** เรียง key ของ object ก่อนทำ digest: retry ที่ลำดับ key ต่างกันยังถือเป็นคำสั่งเดิม */
+function canonical(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (typeof value !== 'object' || value === null) return value;
+  return Object.fromEntries(
+    Object.keys(value)
+      .sort()
+      .map((key) => [key, canonical((value as Record<string, unknown>)[key])]),
+  );
+}
+
 function digest(parts: unknown[]): string {
   return createHash('sha256')
     .update(JSON.stringify([1, ...parts]), 'utf8')
@@ -259,9 +270,10 @@ export class QmEvaluationController {
     const payloadDigest = digest([actor.tenantId, actor.userId, name, definition]);
     return this.transaction(actor, async (tx) => {
       await this.lock(tx, `qm-command:${actor.tenantId}:${commandId}`);
+      // ตรวจสิทธิ์ปัจจุบันก่อนคืนผลเดิม: ผู้ที่เสียสิทธิ์แล้วต้องไม่ได้ผลจาก receipt
+      await this.requireAdmin(tx, actor);
       const replay = await this.replay(tx, actor, commandId, 'QM_FORM_CREATE', payloadDigest);
       if (replay) return replay.result;
-      await this.requireAdmin(tx, actor);
       await this.lock(tx, `qm-form-name:${actor.tenantId}:${name.toLowerCase()}`);
       await this.assertNameFree(tx, actor, name);
       const form = await tx.qmForm.create({
@@ -347,6 +359,7 @@ export class QmEvaluationController {
     const payloadDigest = digest([actor.tenantId, actor.userId, formId]);
     return this.transaction(actor, async (tx) => {
       await this.lock(tx, `qm-command:${actor.tenantId}:${commandId}`);
+      await this.requireAdmin(tx, actor);
       const replay = await this.replay(
         tx,
         actor,
@@ -356,7 +369,6 @@ export class QmEvaluationController {
         formId,
       );
       if (replay) return replay.result;
-      await this.requireAdmin(tx, actor);
       await this.lockForm(tx, actor, formId);
       const versions = await tx.qmFormVersion.findMany({
         where: { tenantId: actor.tenantId, formId },
@@ -406,6 +418,7 @@ export class QmEvaluationController {
     const payloadDigest = digest([actor.tenantId, actor.userId, formId, revision]);
     return this.transaction(actor, async (tx) => {
       await this.lock(tx, `qm-command:${actor.tenantId}:${commandId}`);
+      await this.requireAdmin(tx, actor);
       const replay = await this.replay(
         tx,
         actor,
@@ -415,7 +428,6 @@ export class QmEvaluationController {
         formId,
       );
       if (replay) return replay.result;
-      await this.requireAdmin(tx, actor);
       const draft = await this.lockedDraft(tx, actor, formId);
       if (draft.revision !== revision) throw conflict('STALE_REVISION');
       const definition = this.validate(() => parseFormDefinition(draft.definition, 'publish'));
@@ -602,12 +614,14 @@ export class QmEvaluationController {
       actor.userId,
       interactionId,
       formVersionId,
-      body.answers ?? null,
+      canonical(body.answers ?? null),
       comment,
       revision ?? null,
     ]);
     return this.transaction(actor, async (tx) => {
       await this.lock(tx, `qm-command:${actor.tenantId}:${commandId}`);
+      await this.lock(tx, `qm-evaluation:${actor.tenantId}:${interactionId}`);
+      const interaction = await this.authorizeInteraction(tx, actor, interactionId);
       const replay = await this.replay(
         tx,
         actor,
@@ -617,8 +631,6 @@ export class QmEvaluationController {
         interactionId,
       );
       if (replay) return replay.result;
-      await this.lock(tx, `qm-evaluation:${actor.tenantId}:${interactionId}`);
-      const interaction = await this.authorizeInteraction(tx, actor, interactionId);
       const existing = await this.humanEvaluation(tx, actor, interactionId);
       if (existing?.status === 'PUBLISHED') throw conflict('EVALUATION_PUBLISHED');
       if ((existing?.revision ?? undefined) !== revision) throw conflict('STALE_REVISION');
@@ -684,6 +696,8 @@ export class QmEvaluationController {
     const payloadDigest = digest([actor.tenantId, actor.userId, interactionId, revision]);
     return this.transaction(actor, async (tx) => {
       await this.lock(tx, `qm-command:${actor.tenantId}:${commandId}`);
+      await this.lock(tx, `qm-evaluation:${actor.tenantId}:${interactionId}`);
+      const interaction = await this.authorizeInteraction(tx, actor, interactionId);
       const replay = await this.replay(
         tx,
         actor,
@@ -693,8 +707,6 @@ export class QmEvaluationController {
         interactionId,
       );
       if (replay) return replay.result;
-      await this.lock(tx, `qm-evaluation:${actor.tenantId}:${interactionId}`);
-      const interaction = await this.authorizeInteraction(tx, actor, interactionId);
       const existing = await this.humanEvaluation(tx, actor, interactionId);
       if (!existing) throw notFound();
       if (existing.status === 'PUBLISHED') throw conflict('EVALUATION_PUBLISHED');

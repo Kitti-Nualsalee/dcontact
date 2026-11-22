@@ -66,16 +66,18 @@ CREATE UNIQUE INDEX "qm_form_versions_one_draft_key"
 CREATE UNIQUE INDEX "qm_form_versions_one_published_key"
   ON "qm_form_versions"("tenant_id", "form_id") WHERE "status" = 'PUBLISHED';
 
--- เวอร์ชันที่ publish แล้วเปลี่ยนได้อย่างเดียวคือถูกแทนที่ (PUBLISHED → SUPERSEDED)
+-- เวอร์ชันที่ publish แล้วเปลี่ยนได้อย่างเดียวคือถูกแทนที่ (PUBLISHED → SUPERSEDED) และลบไม่ได้
 CREATE FUNCTION "qm_form_versions_guard_immutable"() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
   IF OLD."status" = 'DRAFT' THEN
-    RETURN NEW;
+    RETURN COALESCE(NEW, OLD);
   END IF;
-  IF OLD."status" = 'PUBLISHED' AND NEW."status" = 'SUPERSEDED'
+  IF TG_OP = 'UPDATE' AND OLD."status" = 'PUBLISHED' AND NEW."status" = 'SUPERSEDED'
     AND NEW."definition" = OLD."definition" AND NEW."version" = OLD."version"
     AND NEW."form_id" = OLD."form_id" AND NEW."tenant_id" = OLD."tenant_id"
+    AND NEW."revision" = OLD."revision"
+    AND NEW."created_by_user_id" = OLD."created_by_user_id"
     AND NEW."published_at" = OLD."published_at"
     AND NEW."published_by_user_id" = OLD."published_by_user_id" THEN
     RETURN NEW;
@@ -85,7 +87,7 @@ END;
 $$;
 
 CREATE TRIGGER "qm_form_versions_guard_immutable"
-  BEFORE UPDATE ON "qm_form_versions"
+  BEFORE UPDATE OR DELETE ON "qm_form_versions"
   FOR EACH ROW EXECUTE FUNCTION "qm_form_versions_guard_immutable"();
 
 -- ผลประเมินโดยคน: ไม่มี provider/model; ต้องมีฟอร์มและ snapshot เสมอ

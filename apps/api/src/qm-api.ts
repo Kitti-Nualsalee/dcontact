@@ -436,7 +436,9 @@ export class QmController {
               },
             },
           },
+          // #971: route นี้เป็นของ auto-QM เท่านั้น ผลประเมินโดยคนใช้ /api/v1/qm/interactions/:id/human-evaluation
           qmEvaluations: {
+            where: { source: 'AUTO_DRAFT' },
             orderBy: { createdAt: 'desc' },
             take: 1,
             select: { id: true, status: true, source: true, answers: true },
@@ -571,7 +573,11 @@ export class QmController {
     const actor = identity(request);
     return withTenantDatabaseTransaction(this.database, actor.tenantId, async (transaction) => {
       const evaluation = await transaction.qmEvaluation.findFirst({
-        where: { id: uuid(evaluationId, 'evaluationId'), tenantId: actor.tenantId },
+        where: {
+          id: uuid(evaluationId, 'evaluationId'),
+          tenantId: actor.tenantId,
+          source: 'AUTO_DRAFT',
+        },
         select: {
           id: true,
           interactionId: true,
@@ -637,6 +643,7 @@ export class QmController {
           id: requestedEvaluationId,
           tenantId: actor.tenantId,
           status: 'DRAFT',
+          source: 'AUTO_DRAFT',
         },
         select: {
           id: true,
