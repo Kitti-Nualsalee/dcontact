@@ -59,6 +59,7 @@
     "agentCountNoTalk": "{{agent}}: {{count}} items",
     "listTitle": "Work · {{period}} · {{agent}} · {{disposition}} · {{count}} items",
     "emptyPeriod": "No Voice work closed in this period",
-    "emptyFiltered": "No work matches this filter in this period"
+    "emptyFiltered": "No work matches this filter in this period",
+    "listTitleNoCount": "Work · {{period}} · {{agent}} · {{disposition}}"
   }
 }

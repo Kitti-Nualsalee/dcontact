@@ -87,6 +87,7 @@ function TeamHistorySession({ api, onSignIn }: Props) {
   const [teamId, setTeamId] = useState<string | undefined>(() => uuidParam(initial.get('team')));
   const [agentId, setAgentId] = useState<string | undefined>(() => uuidParam(initial.get('agent')));
   const [teams, setTeams] = useState<{ allTeams: boolean; items: TeamOption[] }>();
+  const [teamsError, setTeamsError] = useState<number>();
   const [summaryState, setSummaryState] = useState<SummaryState>({ phase: 'loading' });
   const [items, setItems] = useState<TeamHistoryItem[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -116,17 +117,23 @@ function TeamHistorySession({ api, onSignIn }: Props) {
   const agentName = (agent: AgentRef) => agent.displayName ?? t('unknownAgent');
 
   useEffect(() => {
+    // โหลดใหม่เมื่อกด "ลองอีกครั้ง" หลังโหลดรายชื่อทีมไม่สำเร็จเท่านั้น
+    if (teams) return;
     let active = true;
+    setTeamsError(undefined);
     void api
       .teams()
       .then((result) => {
         if (active) setTeams(result);
       })
-      .catch(() => undefined);
+      .catch((failure: unknown) => {
+        if (active) setTeamsError(statusOf(failure));
+      });
     return () => {
       active = false;
     };
-  }, [api]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [api, revision]);
 
   useEffect(() => {
     if (selected) return;
@@ -219,6 +226,26 @@ function TeamHistorySession({ api, onSignIn }: Props) {
     setPageCursor(undefined);
   }
   if (!ready) return null;
+  // รอรายชื่อทีมก่อนแสดงเนื้อหา: ข้อความตามบทบาทและตัวเลือกทีมอยู่เหนือสรุป ถ้าแสดงทีหลังหน้าจะกระโดด
+  if (!teams)
+    return (
+      <main className="ah-root">
+        <h1>{t('title')}</h1>
+        {teamsError ? (
+          <section role="alert">
+            <p>
+              {t(teamsError === 401 ? 'unauthorized' : teamsError === 403 ? 'forbidden' : 'failed')}
+            </p>
+            {teamsError === 401 && onSignIn ? (
+              <Button onPress={onSignIn}>{t('signIn')}</Button>
+            ) : null}
+            <Button onPress={() => setRevision((current) => current + 1)}>{t('retry')}</Button>
+          </section>
+        ) : (
+          <p role="status">{t('loading')}</p>
+        )}
+      </main>
+    );
   const failure = summaryState.phase === 'error' ? summaryState.status : error;
   const errorKey =
     failure === 401
@@ -257,7 +284,7 @@ function TeamHistorySession({ api, onSignIn }: Props) {
   return (
     <main className="ah-root">
       <h1>{t('title')}</h1>
-      <p>{teams?.allTeams ? t('readOnlyAdmin') : t('readOnlySupervisor')}</p>
+      <p>{teams.allTeams ? t('readOnlyAdmin') : t('readOnlySupervisor')}</p>
       <p className="th-note">{t('evidenceNote')}</p>
       {selected ? (
         <Button onPress={() => open()}>{t('back')}</Button>
@@ -430,12 +457,13 @@ function TeamHistorySession({ api, onSignIn }: Props) {
       ) : null}
       {!selected && shownSummary && !failure ? (
         <h2 className="ah-list-title">
-          {t('summary.listTitle', {
+          {/* เลือกทั้ง Agent และผลบันทึก: สรุปไม่มีจำนวนของคู่นี้ จึงไม่แสดงจำนวนแทนการเดาจากหน้าที่โหลด */}
+          {t(filterCount === undefined ? 'summary.listTitleNoCount' : 'summary.listTitle', {
             period: periodLabel(period),
             agent: selectedAgent ? agentName(selectedAgent.agent) : t('allAgents'),
             disposition:
               disposition === undefined ? t('summary.allDispositions') : groupLabel(disposition),
-            count: filterCount ?? items.length,
+            count: filterCount,
           })}
         </h2>
       ) : null}
@@ -504,6 +532,10 @@ function TeamHistorySession({ api, onSignIn }: Props) {
             {detail.team.name ?? t('unavailable')}
           </p>
           <p>{dispositionLabel(detail.disposition)}</p>
+          <p>
+            {t('talk')}:{' '}
+            {detail.talkSeconds === null ? t('unavailable') : formatTalk(detail.talkSeconds)}
+          </p>
           <time dateTime={detail.recordedAt}>{format(detail.recordedAt)}</time>
           {detail.legacy ? <p>{t('legacy')}</p> : null}
           <h3>{t('note')}</h3>

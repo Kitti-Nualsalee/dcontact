@@ -88,6 +88,13 @@ async function teamScope(
 
 const scopeKey = (teamId: string | null) => teamId ?? '*';
 
+/** เวลาสนทนา = วางสาย − รับสาย (นิยามเดียวกับค่าเฉลี่ยในสรุป) */
+function talkSecondsOf(answeredAt: Date | null, endedAt: Date | null): number | null {
+  return answeredAt && endedAt && endedAt >= answeredAt
+    ? Math.round((endedAt.getTime() - answeredAt.getTime()) / 1000)
+    : null;
+}
+
 function cursorFrom(value: unknown, actor: Actor, scope: string, filter: string) {
   if (value === undefined) return undefined;
   try {
@@ -198,10 +205,7 @@ export async function readTeamHistory(
       team: { id: row.team_id, name: row.team_name },
       startedAt: row.started_at.toISOString(),
       endedAt: row.ended_at?.toISOString() ?? null,
-      talkSeconds:
-        row.answered_at && row.ended_at && row.ended_at >= row.answered_at
-          ? Math.round((row.ended_at.getTime() - row.answered_at.getTime()) / 1000)
-          : null,
+      talkSeconds: talkSecondsOf(row.answered_at, row.ended_at),
       disposition: row.disposition,
       recordedAt: row.recorded_at.toISOString(),
       recordedAtSource: row.recorded_at_source,
@@ -338,6 +342,7 @@ export async function readTeamHistoryItem(
         team_id: string;
         team_name: string | null;
         started_at: Date;
+        answered_at: Date | null;
         ended_at: Date | null;
         disposition: string | null;
         note: string | null;
@@ -363,6 +368,7 @@ export async function readTeamHistoryItem(
       team: { id: row.team_id, name: row.team_name },
       startedAt: row.started_at.toISOString(),
       endedAt: row.ended_at?.toISOString() ?? null,
+      talkSeconds: talkSecondsOf(row.answered_at, row.ended_at),
       disposition: row.disposition,
       note: row.note,
       recordedAt: row.recorded_at.toISOString(),

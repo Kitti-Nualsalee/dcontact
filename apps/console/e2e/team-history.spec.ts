@@ -105,7 +105,7 @@ async function harness(page: Page, role: 'supervisor' | 'admin') {
     }
     if (path === `items/${callA2}`)
       return route.fulfill({
-        json: { ...rows[1], note: 'ลูกค้าขอให้โทรกลับพรุ่งนี้\nก่อน 10 โมง' },
+        json: { ...rows[1], talkSeconds: 125, note: 'ลูกค้าขอให้โทรกลับพรุ่งนี้\nก่อน 10 โมง' },
       });
     return route.fulfill({ status: 404, json: { code: 'RESOURCE_NOT_FOUND' } });
   });
@@ -122,9 +122,7 @@ test('Supervisor เห็นสรุปของทีมตัวเอง �
   await expect(page.getByRole('combobox', { name: 'ทีม' })).toHaveCount(0);
   const summary = page.getByRole('region', { name: 'สรุปงานของทีม' });
   await expect(summary.getByRole('button', { name: 'แสดงงานที่จบทั้งหมด 2 งาน' })).toBeVisible();
-  await expect(page.getByRole('grid', { name: 'รายการงานของทีม' }).getByRole('row')).toHaveCount(
-    3,
-  );
+  await expect(page.getByRole('grid', { name: 'รายการงานของทีม' }).getByRole('row')).toHaveCount(3);
   await summary.getByRole('button', { name: /^สมหญิง: 1 งาน/ }).click();
   await expect(summary.getByRole('button', { name: /^สมหญิง: 1 งาน/ })).toHaveAttribute(
     'aria-pressed',
@@ -138,8 +136,14 @@ test('Supervisor เห็นสรุปของทีมตัวเอง �
   await page.getByRole('button', { name: `เปิดงาน ${callA2} ของ สมหญิง` }).click();
   await expect(page.getByRole('heading', { name: 'ผลที่บันทึก' })).toBeVisible();
   await expect(page.getByText(/ลูกค้าขอให้โทรกลับพรุ่งนี้/)).toBeVisible();
+  await expect(page.getByText('เวลาสนทนา: 2:05')).toBeVisible();
   await page.getByRole('button', { name: 'กลับรายการ' }).click();
   await expect(page.getByRole('heading', { name: /สมหญิง · ทุกผลบันทึก · 1 งาน/ })).toBeVisible();
+  // เลือกทั้ง Agent และผลบันทึก: สรุปไม่มีจำนวนของคู่นี้ หัวรายการจึงไม่แสดงจำนวน
+  await summary.getByRole('button', { name: /^ต้องติดตามต่อ/ }).click();
+  await expect(
+    page.getByRole('heading', { name: 'รายการงาน · 7 วัน · สมหญิง · ต้องติดตามต่อ', exact: true }),
+  ).toBeVisible();
   expect(requests.every((request) => !request.includes(`teamId=${teamB}`))).toBe(true);
 });
 
@@ -167,4 +171,21 @@ test('API ปฏิเสธสิทธิ์แล้วแสดงข้อ�
   await page.goto('/?view=team-history&tenant=demo');
   await expect(page.getByRole('alert')).toContainText('ไม่มีสิทธิ์ดูประวัติของทีม');
   await expect(page.getByRole('button', { name: 'ลองอีกครั้ง' })).toBeVisible();
+});
+
+test('โหลดรายชื่อทีมไม่สำเร็จแสดงข้อความแทนหน้าที่ผิดบทบาท และลองใหม่ได้', async ({ page }) => {
+  await harness(page, 'admin');
+  let fail = true;
+  await page.route('**/api/v1/team-history/teams', (route) =>
+    fail
+      ? route.fulfill({ status: 500, json: { code: 'INTERNAL' } })
+      : route.fulfill({ json: { allTeams: true, items: [{ ...A, isActive: true }] } }),
+  );
+  await page.goto('/?view=team-history&tenant=demo');
+  await expect(page.getByRole('alert')).toContainText('โหลดประวัติของทีมไม่สำเร็จ');
+  await expect(page.getByText(/ซึ่งทีมของคุณรับ/)).toHaveCount(0);
+  fail = false;
+  await page.getByRole('button', { name: 'ลองอีกครั้ง' }).click();
+  await expect(page.getByText(/ของทุกทีม/)).toBeVisible();
+  await expect(page.getByRole('region', { name: 'สรุปงานของทีม' })).toBeVisible();
 });

@@ -38,6 +38,7 @@ export interface TeamHistoryDetail {
   team: TeamRef;
   startedAt: string;
   endedAt: string | null;
+  talkSeconds: number | null;
   disposition: string | null;
   note: string | null;
   recordedAt: string;

@@ -59,6 +59,7 @@
     "agentCountNoTalk": "{{agent}}: {{count}} งาน",
     "listTitle": "รายการงาน · {{period}} · {{agent}} · {{disposition}} · {{count}} งาน",
     "emptyPeriod": "ไม่มีงาน Voice ที่จบในช่วงเวลานี้",
-    "emptyFiltered": "ไม่มีงานที่ตรงกับตัวกรองนี้ในช่วงเวลานี้"
+    "emptyFiltered": "ไม่มีงานที่ตรงกับตัวกรองนี้ในช่วงเวลานี้",
+    "listTitleNoCount": "รายการงาน · {{period}} · {{agent}} · {{disposition}}"
   }
 }

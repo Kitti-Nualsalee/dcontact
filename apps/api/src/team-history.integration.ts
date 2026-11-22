@@ -311,6 +311,7 @@ test('#986 ประวัติและสรุปของทีม: ขอ�
       const detail = await get(`/items/${a2}`, supervisorA);
       assert.equal(detail.status, 200);
       assert.equal(detail.body.note, 'ต้องโทรกลับ A2');
+      assert.equal(detail.body.talkSeconds, 120);
       assert.deepEqual(detail.body.team, { id: ids.teamA, name: 'Team A' });
       assert.equal((await get(`/items/${b1}`, admin)).body.note, 'ของทีม B');
       assert.equal((await get(`/items/${noEvidence}`, admin)).status, 404);
