@@ -521,8 +521,24 @@ test('job ที่ API เปิดใหม่หลังเพดานร�
   const clock = { at: new Date(requestedAt.getTime() + 3 * RECORDING_ARCHIVE_WAIT_LIMIT_MS) };
   const { worker, calls } = harness(clock);
 
+  // job อยู่ในสภาพเดียวกับที่ API เปิดใหม่: PENDING, attempts = 0, ล้าง failure และเวลาปิดแล้ว
+  await owner.qmTranscriptionJob.update({
+    where: { id: seeded.jobId },
+    data: {
+      failureCode: null,
+      failureReason: null,
+      completedAt: null,
+      dispatchedAt: new Date(clock.at.getTime() - 1_000),
+      nextAttemptAt: null,
+    },
+  });
+
   const ready = await worker.process(seeded.tenantId, seeded.message);
   assert.equal(ready.status, 'READY');
   assert.equal(ready.attempts, 1);
+  assert.deepEqual(calls, { media: 1, provider: 1 });
+
+  // message attempt 1 เก่าจากก่อนเปิดใหม่ที่ Kafka ส่งซ้ำ เป็น duplicate no-op ไม่เรียก provider ซ้ำ
+  assert.deepEqual(await worker.process(seeded.tenantId, seeded.message), ready);
   assert.deepEqual(calls, { media: 1, provider: 1 });
 });

@@ -49,18 +49,35 @@ test('manual request เปิด job ที่ FAILED เพราะ recording
   const tenantId = randomUUID();
   const teamId = randomUUID();
   const otherTeamId = randomUUID();
+  const adminId = randomUUID();
   const supervisorId = randomUUID();
   const otherSupervisorId = randomUUID();
   const agentId = randomUUID();
   const queueId = randomUUID();
+  const fixture = (
+    failureCode: string,
+    recording: { archivedAt?: Date; deletedAt?: Date } = {},
+    attempts = 0,
+  ) => ({
+    interactionId: randomUUID(),
+    recordingId: randomUUID(),
+    jobId: randomUUID(),
+    failureCode,
+    recording,
+    attempts,
+  });
+  const archivedLater = { archivedAt: new Date(endedAt.getTime() + 7_200_000) };
   const cases = {
-    notArchived: { interactionId: randomUUID(), recordingId: randomUUID(), jobId: randomUUID() },
-    deleted: { interactionId: randomUUID(), recordingId: randomUUID(), jobId: randomUUID() },
-    providerFailed: {
-      interactionId: randomUUID(),
-      recordingId: randomUUID(),
-      jobId: randomUUID(),
-    },
+    notArchived: fixture('RECORDING_NOT_ARCHIVED'),
+    byAdmin: fixture('RECORDING_NOT_ARCHIVED', archivedLater),
+    publishFails: fixture('RECORDING_NOT_ARCHIVED', archivedLater),
+    concurrent: fixture('RECORDING_NOT_ARCHIVED', archivedLater),
+    // FAILED เพราะไม่ archive แล้ว Telephony เลิกลอง (ARCHIVE_ABANDONED) ภายหลัง
+    abandonedLater: fixture('RECORDING_NOT_ARCHIVED', {
+      deletedAt: new Date(endedAt.getTime() + 7_200_000),
+    }),
+    deleted: fixture('RECORDING_DELETED', { deletedAt: new Date(endedAt.getTime() + 1_800_000) }),
+    providerFailed: fixture('Error', { archivedAt: new Date(endedAt.getTime() + 1_000) }, 1),
   };
 
   await owner.tenant.create({
@@ -79,6 +96,14 @@ test('manual request เปิด job ที่ FAILED เพราะ recording
   });
   await owner.user.createMany({
     data: [
+      {
+        id: adminId,
+        tenantId,
+        email: `admin-${tenantId}@test.local`,
+        passwordHash: 'test',
+        displayName: 'Admin',
+        role: 'ADMIN',
+      },
       {
         id: supervisorId,
         tenantId,
@@ -119,7 +144,7 @@ test('manual request เปิด job ที่ FAILED เพราะ recording
       transcriptionMaxAttempts: 1,
     },
   });
-  for (const [name, fixture] of Object.entries(cases)) {
+  for (const fixture of Object.values(cases)) {
     await owner.$executeRaw(
       Prisma.sql`INSERT INTO interactions
         (id, tenant_id, channel, direction, state, queue_id, agent_id, ended_at)
@@ -136,16 +161,9 @@ test('manual request เปิด job ที่ FAILED เพราะ recording
         durationSec: 10,
         startedAt: new Date(endedAt.getTime() - 10_000),
         endedAt,
-        ...(name === 'deleted' ? { deletedAt: new Date(endedAt.getTime() + 1_800_000) } : {}),
-        ...(name === 'providerFailed' ? { archivedAt: new Date(endedAt.getTime() + 1_000) } : {}),
+        ...fixture.recording,
       },
     });
-    const failureCode =
-      name === 'notArchived'
-        ? 'RECORDING_NOT_ARCHIVED'
-        : name === 'deleted'
-          ? 'RECORDING_DELETED'
-          : 'Error';
     await owner.qmTranscriptionJob.create({
       data: {
         id: fixture.jobId,
@@ -155,9 +173,9 @@ test('manual request เปิด job ที่ FAILED เพราะ recording
         trigger: 'AUTOMATIC',
         languageHint: 'th-TH',
         status: 'FAILED',
-        attempts: name === 'providerFailed' ? 1 : 0,
+        attempts: fixture.attempts,
         maxAttempts: 1,
-        failureCode,
+        failureCode: fixture.failureCode,
         failureReason: 'fixture',
         completedAt: new Date(endedAt.getTime() + 3_600_000),
         createdAt: endedAt,
@@ -166,8 +184,10 @@ test('manual request เปิด job ที่ FAILED เพราะ recording
   }
 
   const publishedJobs: Array<{ tenantId: string; job: QmTranscriptionJobMessage }> = [];
+  let failNextPublish = false;
   const verifier = {
     verifyAccessToken: async (token: string) => {
+      if (token === 'admin-token') return claims(tenantId, adminId, 'admin');
       if (token === 'supervisor-token') return claims(tenantId, supervisorId, 'supervisor');
       if (token === 'other-supervisor-token') {
         return claims(tenantId, otherSupervisorId, 'supervisor');
@@ -183,8 +203,13 @@ test('manual request เปิด job ที่ FAILED เพราะ recording
       {
         provide: QM_JOB_PUBLISHER,
         useValue: {
-          publish: async (input: { tenantId: string; job: QmTranscriptionJobMessage }) =>
-            void publishedJobs.push(input),
+          publish: async (input: { tenantId: string; job: QmTranscriptionJobMessage }) => {
+            if (failNextPublish) {
+              failNextPublish = false;
+              throw new Error('kafka unavailable');
+            }
+            publishedJobs.push(input);
+          },
         },
       },
       { provide: OIDC_ACCESS_TOKEN_VERIFIER, useValue: verifier },
@@ -232,7 +257,17 @@ test('manual request เปิด job ที่ FAILED เพราะ recording
         trigger: true,
       },
     });
-  const { notArchived, deleted, providerFailed } = cases;
+  const {
+    notArchived,
+    byAdmin,
+    publishFails,
+    concurrent,
+    abandonedLater,
+    deleted,
+    providerFailed,
+  } = cases;
+  const auditCount = (jobId: string) =>
+    owner.qmAuditEvent.count({ where: { tenantId, resourceId: jobId } });
   const before = await persisted(notArchived.jobId);
 
   // ยังไม่ archive: ปฏิเสธด้วย 409 และ job ไม่เปลี่ยน
@@ -290,7 +325,8 @@ test('manual request เปิด job ที่ FAILED เพราะ recording
       action: 'TRANSCRIPTION_REQUESTED',
       actorUserId: supervisorId,
       details: {
-        trigger: 'MANUAL',
+        requestTrigger: 'MANUAL',
+        jobTrigger: 'AUTOMATIC',
         reopened: true,
         previousStatus: 'FAILED',
         previousFailureCode: 'RECORDING_NOT_ARCHIVED',
@@ -304,10 +340,45 @@ test('manual request เปิด job ที่ FAILED เพราะ recording
   assert.equal(repeated.status, 201);
   assert.equal(((await repeated.json()) as { status: string }).status, 'PENDING');
   assert.equal(publishedJobs.length, 1);
-  assert.equal(
-    await owner.qmAuditEvent.count({ where: { tenantId, resourceId: notArchived.jobId } }),
-    1,
+  assert.equal(await auditCount(notArchived.jobId), 1);
+
+  // Admin เปิดใหม่ได้ทุกทีม
+  const adminReopened = await request(byAdmin.interactionId, 'admin-token');
+  assert.equal(adminReopened.status, 201);
+  assert.equal(((await adminReopened.json()) as { status: string }).status, 'PENDING');
+  assert.equal(publishedJobs.length, 2);
+  assert.equal(publishedJobs[1]!.job.jobId, byAdmin.jobId);
+
+  // publish ล้มหลังเปิดใหม่: client ได้ 500 แต่ job เปิดใหม่แล้วและ dispatchedAt ถูกคืนเป็น null
+  // QmRetryDispatcher จะหยิบไปทำต่อเมื่อค้างเกินเกณฑ์ (createdAt เก่า) และกดซ้ำก็ publish ได้
+  failNextPublish = true;
+  assert.equal((await request(publishFails.interactionId)).status, 500);
+  let failedPublishJob = await persisted(publishFails.jobId);
+  assert.equal(failedPublishJob.status, 'PENDING');
+  assert.equal(failedPublishJob.dispatchedAt, null);
+  assert.equal(await auditCount(publishFails.jobId), 1);
+  assert.equal((await request(publishFails.interactionId)).status, 201);
+  failedPublishJob = await persisted(publishFails.jobId);
+  assert.ok(failedPublishJob.dispatchedAt);
+  assert.equal(publishedJobs.length, 3);
+  assert.equal(await auditCount(publishFails.jobId), 1);
+
+  // กดพร้อมกัน: เปิดใหม่และ publish ครั้งเดียว
+  const parallel = await Promise.all([
+    request(concurrent.interactionId),
+    request(concurrent.interactionId),
+  ]);
+  assert.deepEqual(
+    parallel.map((response) => response.status),
+    [201, 201],
   );
+  assert.equal(publishedJobs.filter((input) => input.job.jobId === concurrent.jobId).length, 1);
+  assert.equal(await auditCount(concurrent.jobId), 1);
+
+  // FAILED เพราะไม่ archive แล้ว recording ถูกลบภายหลัง: 404 และ job ไม่เปลี่ยน
+  const abandonedBefore = await persisted(abandonedLater.jobId);
+  assert.equal((await request(abandonedLater.interactionId)).status, 404);
+  assert.deepEqual(await persisted(abandonedLater.jobId), abandonedBefore);
 
   // recording ถูกลบ: ไม่มี recording ให้ถอดเสียง จึงได้ 404 และ job RECORDING_DELETED ไม่เปลี่ยน
   const deletedBefore = await persisted(deleted.jobId);
@@ -320,5 +391,5 @@ test('manual request เปิด job ที่ FAILED เพราะ recording
   assert.equal(providerResponse.status, 201);
   assert.equal(((await providerResponse.json()) as { status: string }).status, 'FAILED');
   assert.deepEqual(await persisted(providerFailed.jobId), providerBefore);
-  assert.equal(publishedJobs.length, 1);
+  assert.equal(publishedJobs.length, 4);
 });

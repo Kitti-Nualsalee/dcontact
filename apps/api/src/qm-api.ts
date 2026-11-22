@@ -287,7 +287,9 @@ export class QmController {
                 resourceType: 'TRANSCRIPTION_JOB',
                 resourceId: existing.id,
                 details: {
-                  trigger: 'MANUAL',
+                  // trigger ของ job ไม่เปลี่ยน (เช่น AUTOMATIC) ส่วนการขอเปิดใหม่มาจากคนเสมอ
+                  requestTrigger: 'MANUAL',
+                  jobTrigger: existing.trigger,
                   reopened: true,
                   previousStatus: 'FAILED',
                   previousFailureCode: QM_RECORDING_FAILURE_CODES.RECORDING_NOT_ARCHIVED,
