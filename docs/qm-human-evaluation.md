@@ -65,6 +65,21 @@ SCALE         = points × (ค่า − ต่ำสุด) / (สูงสุ�
 
 คำสั่งที่มี `commandId` ใช้ `command_receipts`: ส่งซ้ำด้วย payload เดิมได้ผลเดิม payload ต่างได้ `409 COMMAND_PAYLOAD_MISMATCH`
 
+## หน้า Console
+
+เมนูอยู่ใน area "คุณภาพ" ตามบทบาท (แสดงเมื่อเปิดสวิตช์):
+
+| หน้า | ผู้ใช้ | สาระ |
+|---|---|---|
+| `/?view=qm-forms` | Admin | รายการฟอร์ม สร้างฟอร์ม แก้ร่าง publish ผ่าน Dialog และออกร่างเวอร์ชันใหม่ เวอร์ชันที่ใช้อยู่แสดงแบบอ่านอย่างเดียว |
+| `/?view=team-evaluations` | Supervisor | สายของทีมตามช่วงวันที่ (ค่าเริ่มต้น 7 วัน) และสถานะ → เลือกฟอร์ม ตอบ บันทึกร่าง → publish ผ่าน Dialog ที่ระบุชื่อ Agent |
+| `/?view=my-quality` | Agent | ผลที่ publish แล้วของตัวเอง และรายละเอียดคำตอบรายข้อ ความเห็น คะแนนรายหมวด |
+
+- Publish ผลประเมินบันทึกการแก้ล่าสุดก่อน แล้วใช้ revision ใหม่
+- ร่างล้าสมัย (`STALE_REVISION`) มีปุ่มโหลดฉบับล่าสุด ส่วนออกจากหน้าที่ยังไม่บันทึกต้องยืนยัน
+- เสียงบันทึกของสายฟังได้ที่หน้า "เสียงบันทึกของทีม" (#967) หน้าประเมินบอกเพียงว่ามีเสียงหรือไม่
+- ปุ่มเลือกคำตอบเป็น radio ของ browser และช่องตัวเลขเป็น `input type="number"` เพราะ `ui-react` ยังไม่มี `RadioGroup`/`NumberField`
+
 ## Audit
 
 `qm_audit_events` บันทึก `FORM_VERSION_PUBLISHED` และ `EVALUATION_PUBLISHED` (`details.source = HUMAN`, คะแนนสุดท้าย, auto-fail)
