@@ -226,6 +226,10 @@ test('Supervisor เลือกฟอร์ม บันทึกร่าง �
   expect(state.publishes[0]).toMatchObject({ revision: 2 });
   expect(state.saves[0]!.commandId).not.toBe(state.saves[1]!.commandId);
 
+  // focus ไปที่หัวข้อหลัง Dialog ปิด ไม่หลุดไป body
+  await expect(
+    page.getByRole('heading', { name: 'ประเมินสายของ สมหญิง ใจดี', level: 1 }),
+  ).toBeFocused();
   // หลัง publish เป็นอ่านอย่างเดียว พร้อมคะแนนและเหตุผลที่ตกเกณฑ์
   await expect(page.getByRole('radio')).toHaveCount(0);
   await expect(page.getByText('คะแนนสุดท้าย')).toBeVisible();
@@ -259,7 +263,7 @@ test('บันทึกไม่ผ่าน: error อยู่ใต้ข้
     },
   };
   await page.getByRole('button', { name: 'บันทึกร่าง' }).click();
-  await expect(page.getByRole('alert')).toContainText('ตรวจข้อที่มีข้อความสีแดง');
+  await expect(page.getByRole('alert')).toContainText('ตรวจข้อที่มีข้อความแจ้งเตือน');
   const greet = page.getByRole('group', { name: 'กล่าวชื่อบริษัทและชื่อตัวเอง' });
   await expect(greet).toContainText('เลือก ใช่ หรือ ไม่ใช่');
   await expect(greet.getByRole('radio', { name: 'ใช่', exact: true })).toBeChecked();
@@ -458,6 +462,7 @@ test('Admin สร้างฟอร์ม เพิ่มหมวดและ�
   // แก้ที่ยังไม่บันทึกถูกบันทึกก่อน publish
   expect(calls.filter((call) => call.method === 'PUT').at(-1)?.body).toMatchObject({ revision: 2 });
   await expect(page.getByText('เวอร์ชัน 1 ที่ใช้อยู่ (อ่านอย่างเดียว)')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'ฟอร์มใหม่', level: 1 })).toBeFocused();
   await expect(page.getByRole('button', { name: 'ออกร่างเวอร์ชันใหม่' })).toBeVisible();
   await expect(page.getByRole('textbox', { name: 'คำถามข้อ 1' })).toBeDisabled();
 });

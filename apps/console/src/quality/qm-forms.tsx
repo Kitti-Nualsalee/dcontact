@@ -34,6 +34,7 @@ import {
   updateQuestion,
   updateSection,
 } from './model.js';
+import { EditorSkeleton, ListSkeleton } from './skeleton.js';
 import './quality.css';
 
 interface Props {
@@ -172,13 +173,7 @@ function QmFormsSession({ api, onSignIn }: Props) {
           {t('forms.create')}
         </Button>
       </form>
-      {loading && items.length === 0 ? (
-        <div className="qm-skeleton" role="status" aria-label={t('loading')}>
-          {Array.from({ length: 3 }, (_, i) => (
-            <span key={i} className="qm-skeleton-row" />
-          ))}
-        </div>
-      ) : null}
+      {loading && items.length === 0 ? <ListSkeleton label={t('loading')} rows={3} /> : null}
       {errorKey ? (
         <section role="alert" className="qm-alert">
           <p>{t(errorKey)}</p>
@@ -271,8 +266,26 @@ function FormEditor({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [failure, setFailure] = useState<{ status: number } | { code: string }>();
   const [busy, setBusy] = useState<'save' | 'publish' | 'draft'>();
-  const [dialog, setDialog] = useState<'publish' | 'leave'>();
+  const [dialog, setDialog] = useState<'publish' | 'leave' | 'removeSection'>();
+  const [pendingSection, setPendingSection] = useState<number>();
+  const [focusHeading, setFocusHeading] = useState(false);
   const [reload, setReload] = useState(0);
+
+  // ย้าย focus ไปที่หัวข้อหลัง Dialog ปิดแล้วจริง (ปุ่ม publish หายไปหลังเปลี่ยนเป็นอ่านอย่างเดียว)
+  useEffect(() => {
+    if (!focusHeading || dialog) return;
+    let inner = 0;
+    const outer = requestAnimationFrame(() => {
+      inner = requestAnimationFrame(() => {
+        heading.current?.focus();
+        setFocusHeading(false);
+      });
+    });
+    return () => {
+      cancelAnimationFrame(outer);
+      cancelAnimationFrame(inner);
+    };
+  }, [focusHeading, dialog]);
 
   const apply = (next: FormDetail) => {
     setForm(next);
@@ -290,7 +303,7 @@ function FormEditor({
       .then((loaded) => {
         if (!active) return;
         apply(loaded);
-        requestAnimationFrame(() => heading.current?.focus());
+        setFocusHeading(true);
       })
       .catch((error: unknown) => {
         if (active) setFailure({ status: statusOf(error) });
@@ -347,7 +360,7 @@ function FormEditor({
         },
         { timeout: TOAST_MS },
       );
-      heading.current?.focus();
+      setFocusHeading(true);
     } catch (error) {
       setDialog(undefined);
       handle(error);
@@ -395,12 +408,7 @@ function FormEditor({
     );
   }
   if (!form || !definition) {
-    return (
-      <div className="qm-skeleton" role="status" aria-label={t('loading')}>
-        <span className="qm-skeleton-row" />
-        <span className="qm-skeleton-row" />
-      </div>
-    );
+    return <EditorSkeleton label={t('loading')} backLabel={t('forms.back')} onBack={onBack} />;
   }
 
   const editable = !!form.draft;
@@ -428,16 +436,6 @@ function FormEditor({
             : t('forms.viewingCurrent', { version: form.current?.version })}
         </p>
       </header>
-      {failure && 'code' in failure ? (
-        <section role="alert" className="qm-alert">
-          <p>{t(`forms.failure.${failure.code}`, { defaultValue: t('forms.failure.FAILED') })}</p>
-          {failure.code === 'STALE_REVISION' ? (
-            <Button onPress={() => setReload((current) => current + 1)}>
-              {t('editor.reload')}
-            </Button>
-          ) : null}
-        </section>
-      ) : null}
       <div className="qm-layout">
         <div className="qm-main">
           <section className="qm-card">
@@ -487,7 +485,14 @@ function FormEditor({
                     variant="ghost"
                     isDisabled={saving}
                     aria-label={t('forms.removeSectionItem', { n: s + 1 })}
-                    onPress={() => change(removeSection(definition, s))}
+                    onPress={() => {
+                      // หมวดที่มีคำถามแล้วต้องยืนยันก่อนลบ
+                      if (section.questions.length === 0) change(removeSection(definition, s));
+                      else {
+                        setPendingSection(s);
+                        setDialog('removeSection');
+                      }
+                    }}
                   >
                     {t('forms.removeSection')}
                   </Button>
@@ -697,6 +702,18 @@ function FormEditor({
                 </li>
               ))}
             </ul>
+            {failure && 'code' in failure ? (
+              <section role="alert" className="qm-alert qm-alert-aside">
+                <p>
+                  {t(`forms.failure.${failure.code}`, { defaultValue: t('forms.failure.FAILED') })}
+                </p>
+                {failure.code === 'STALE_REVISION' ? (
+                  <Button onPress={() => setReload((current) => current + 1)}>
+                    {t('editor.reload')}
+                  </Button>
+                ) : null}
+              </section>
+            ) : null}
             <div className="qm-actions">
               {editable ? (
                 <>
@@ -760,6 +777,41 @@ function FormEditor({
       </Dialog>
       <Dialog
         role="alertdialog"
+        isOpen={dialog === 'removeSection'}
+        onOpenChange={(open) => !open && setDialog(undefined)}
+        title={t('forms.removeSectionDialog.title', {
+          name:
+            (pendingSection !== undefined && definition.sections[pendingSection]?.name) ||
+            t('forms.section', { n: (pendingSection ?? 0) + 1 }),
+        })}
+        footer={(close) => (
+          <>
+            <Button autoFocus variant="ghost" onPress={close}>
+              {t('cancel')}
+            </Button>
+            <Button
+              variant="danger"
+              onPress={() => {
+                if (pendingSection !== undefined) change(removeSection(definition, pendingSection));
+                setDialog(undefined);
+              }}
+            >
+              {t('forms.removeSection')}
+            </Button>
+          </>
+        )}
+      >
+        <p>
+          {t('forms.removeSectionDialog.body', {
+            count:
+              pendingSection !== undefined
+                ? (definition.sections[pendingSection]?.questions.length ?? 0)
+                : 0,
+          })}
+        </p>
+      </Dialog>
+      <Dialog
+        role="alertdialog"
         isOpen={dialog === 'leave'}
         onOpenChange={(open) => !open && setDialog(undefined)}
         title={t('editor.leaveDialog.title')}
@@ -803,7 +855,13 @@ function NumberInput({
   onChange: (value: number | null) => void;
 }) {
   const id = useId();
-  const described = [hint ? `${id}-hint` : null, error ? `${id}-error` : null]
+  const { t } = useTranslation('quality');
+  const [touched, setTouched] = useState(false);
+  // ตรวจช่วงเองหลังผู้ใช้ออกจากช่อง error จาก server มาก่อนเสมอ
+  const outOfRange =
+    value === null ? !optional : !Number.isInteger(value) || value < min || value > max;
+  const shown = error ?? (touched && outOfRange ? t('errors.RANGE', { min, max }) : undefined);
+  const described = [hint ? `${id}-hint` : null, shown ? `${id}-error` : null]
     .filter(Boolean)
     .join(' ');
   return (
@@ -819,8 +877,9 @@ function NumberInput({
         value={value ?? ''}
         required={!optional}
         disabled={disabled}
-        aria-invalid={error ? true : undefined}
+        aria-invalid={shown ? true : undefined}
         aria-describedby={described || undefined}
+        onBlur={() => setTouched(true)}
         onChange={(event) => {
           const raw = event.target.value;
           onChange(raw === '' ? null : Number(raw));
@@ -831,9 +890,9 @@ function NumberInput({
           {hint}
         </span>
       ) : null}
-      {error ? (
+      {shown ? (
         <span id={`${id}-error`} className="qm-field-error">
-          {error}
+          {shown}
         </span>
       ) : null}
     </div>

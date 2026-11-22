@@ -30,6 +30,7 @@ import {
 import { EvaluationForm } from './evaluation-form.js';
 import { cleanAnswers, errorMap, formatScore, scoredQuestions, unanswered } from './model.js';
 import { ScoreSummary } from './score-summary.js';
+import { EditorSkeleton, ListSkeleton } from './skeleton.js';
 import './quality.css';
 
 interface Props {
@@ -279,16 +280,6 @@ function TeamEvaluationsSession({ api, onSignIn }: Props) {
   );
 }
 
-function ListSkeleton({ label }: { label: string }) {
-  return (
-    <div className="qm-skeleton" role="status" aria-label={label}>
-      {Array.from({ length: 5 }, (_, i) => (
-        <span key={i} className="qm-skeleton-row" />
-      ))}
-    </div>
-  );
-}
-
 type EditorError = { kind: 'load'; status: number } | { kind: 'save'; code: string } | undefined;
 
 function EvaluationEditor({
@@ -318,8 +309,26 @@ function EvaluationEditor({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [failure, setFailure] = useState<EditorError>();
   const [busy, setBusy] = useState<'save' | 'publish' | 'form'>();
-  const [dialog, setDialog] = useState<'publish' | 'leave'>();
+  const [dialog, setDialog] = useState<'publish' | 'leave' | 'switch'>();
+  const [pendingForm, setPendingForm] = useState<string>();
+  const [focusHeading, setFocusHeading] = useState(false);
   const [reload, setReload] = useState(0);
+
+  // ย้าย focus ไปที่หัวข้อหลัง Dialog ปิดแล้วจริง (ปุ่มที่เปิด Dialog อาจหายไปหลัง publish)
+  useEffect(() => {
+    if (!focusHeading || dialog) return;
+    let inner = 0;
+    const outer = requestAnimationFrame(() => {
+      inner = requestAnimationFrame(() => {
+        heading.current?.focus();
+        setFocusHeading(false);
+      });
+    });
+    return () => {
+      cancelAnimationFrame(outer);
+      cancelAnimationFrame(inner);
+    };
+  }, [focusHeading, dialog]);
 
   const apply = (next: Evaluation | null) => {
     setEvaluation(next);
@@ -341,7 +350,7 @@ function EvaluationEditor({
         setInteraction(loaded.interaction);
         setForms(list.items.filter((form) => form.current));
         apply(loaded.evaluation);
-        requestAnimationFrame(() => heading.current?.focus());
+        setFocusHeading(true);
       })
       .catch((error: unknown) => {
         if (active) setFailure({ kind: 'load', status: statusOf(error) });
@@ -350,6 +359,14 @@ function EvaluationEditor({
       active = false;
     };
   }, [api, interactionId, reload]);
+
+  /** เปลี่ยนฟอร์มล้างคำตอบที่ตอบไว้ จึงถามก่อนเมื่อมีคำตอบแล้ว */
+  const requestForm = (versionId: string) => {
+    if (Object.keys(answers).length > 0 && versionId !== formVersionId) {
+      setPendingForm(versionId);
+      setDialog('switch');
+    } else chooseForm(versionId);
+  };
 
   const chooseForm = (versionId: string) => {
     setFormVersionId(versionId);
@@ -360,6 +377,7 @@ function EvaluationEditor({
       .then((version) => {
         setDefinition(version.definition);
         setAnswers({});
+        setDirty(true);
       })
       .catch((error: unknown) => setFailure({ kind: 'load', status: statusOf(error) }))
       .finally(() => setBusy(undefined));
@@ -417,7 +435,7 @@ function EvaluationEditor({
         { title: t('editor.toast.published'), tone: 'success' },
         { timeout: TOAST_MS },
       );
-      heading.current?.focus();
+      setFocusHeading(true);
     } catch (error) {
       setDialog(undefined);
       handle(error);
@@ -454,7 +472,14 @@ function EvaluationEditor({
       </main>
     );
   }
-  if (!interaction) return <ListSkeleton label={t('loading')} />;
+  if (!interaction)
+    return (
+      <EditorSkeleton
+        label={t('loading')}
+        backLabel={t('editor.back')}
+        onBack={() => onBack(changed)}
+      />
+    );
 
   const agent = interaction.agentName ?? t('unknownAgent');
   const published = evaluation?.status === 'PUBLISHED';
@@ -484,16 +509,6 @@ function EvaluationEditor({
           ].join(' · ')}
         </p>
       </header>
-      {failure?.kind === 'save' ? (
-        <section role="alert" className="qm-alert">
-          <p>{t(`editor.failure.${failure.code}`, { defaultValue: t('editor.failure.FAILED') })}</p>
-          {failure.code === 'STALE_REVISION' ? (
-            <Button onPress={() => setReload((current) => current + 1)}>
-              {t('editor.reload')}
-            </Button>
-          ) : null}
-        </section>
-      ) : null}
       <div className="qm-layout">
         <div className="qm-main">
           {!evaluation ? (
@@ -507,7 +522,7 @@ function EvaluationEditor({
                   placeholder={t('editor.chooseFormPlaceholder')}
                   selectedKey={formVersionId ?? null}
                   isDisabled={busy === 'form' || saving}
-                  onSelectionChange={(key) => key && chooseForm(String(key))}
+                  onSelectionChange={(key) => key && requestForm(String(key))}
                   options={forms.map((form) => ({
                     id: form.current!.versionId,
                     label: t('editor.formName', {
@@ -608,6 +623,20 @@ function EvaluationEditor({
               ) : null}
             </dl>
             <ScoreSummary score={evaluation?.score ?? null} stale={dirty} />
+            {failure?.kind === 'save' ? (
+              <section role="alert" className="qm-alert qm-alert-aside">
+                <p>
+                  {t(`editor.failure.${failure.code}`, {
+                    defaultValue: t('editor.failure.FAILED'),
+                  })}
+                </p>
+                {failure.code === 'STALE_REVISION' ? (
+                  <Button onPress={() => setReload((current) => current + 1)}>
+                    {t('editor.reload')}
+                  </Button>
+                ) : null}
+              </section>
+            ) : null}
             {!published && definition ? (
               <div className="qm-actions">
                 <Button
@@ -666,6 +695,30 @@ function EvaluationEditor({
         )}
       >
         <p>{t('editor.publishDialog.body', { agent })}</p>
+      </Dialog>
+      <Dialog
+        role="alertdialog"
+        isOpen={dialog === 'switch'}
+        onOpenChange={(open) => !open && setDialog(undefined)}
+        title={t('editor.switchDialog.title')}
+        footer={(close) => (
+          <>
+            <Button autoFocus variant="ghost" onPress={close}>
+              {t('cancel')}
+            </Button>
+            <Button
+              variant="danger"
+              onPress={() => {
+                setDialog(undefined);
+                if (pendingForm) chooseForm(pendingForm);
+              }}
+            >
+              {t('editor.switchDialog.confirm')}
+            </Button>
+          </>
+        )}
+      >
+        <p>{t('editor.switchDialog.body')}</p>
       </Dialog>
       <Dialog
         role="alertdialog"

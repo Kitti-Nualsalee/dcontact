@@ -54,7 +54,7 @@
     "hasRecording": "Recording available (play it in Team recordings)",
     "noRecording": "No recording",
     "failure": {
-      "VALIDATION_FAILED": "Can't save yet. Check the items marked in red and try again.",
+      "VALIDATION_FAILED": "Can't save yet. Check the messages under the questions and try again.",
       "STALE_REVISION": "Someone changed this review before you. Load the latest version and check again (unsaved changes will be lost).",
       "EVALUATION_PUBLISHED": "This review is already published and can't be changed.",
       "FORM_VERSION_NOT_AVAILABLE": "That form version was replaced. Choose the form again.",
@@ -98,6 +98,11 @@
       "body": "Unsaved changes will be lost.",
       "stay": "Stay",
       "leave": "Leave without saving"
+    },
+    "switchDialog": {
+      "title": "Change review form?",
+      "body": "Answers given for the current form will be cleared.",
+      "confirm": "Change form"
     }
   },
   "evaluation": {
@@ -146,7 +151,8 @@
     "TEXT_NOT_SCORED": "Text questions aren't scored",
     "UNSUPPORTED": "Not supported yet",
     "QM_ACCESS_DENIED": "This account can't do this",
-    "FEATURE_DISABLED": "Quality reviews aren't enabled for your organization"
+    "FEATURE_DISABLED": "Quality reviews aren't enabled for your organization",
+    "RANGE": "Enter a whole number {{min}}–{{max}}"
   },
   "mine": {
     "title": "My quality scores",
@@ -188,7 +194,7 @@
     "editingDraft": "Editing draft version {{version}}",
     "viewingCurrent": "Current version {{version}} (read only)",
     "failure": {
-      "VALIDATION_FAILED": "Can't save or publish yet. Check the fields marked in red.",
+      "VALIDATION_FAILED": "Can't save or publish yet. Check the fields with messages.",
       "STALE_REVISION": "Someone changed this draft before you. Load the latest and edit again.",
       "DRAFT_EXISTS": "This form already has a draft.",
       "NO_DRAFT": "This form has no draft. Create a new version first.",
@@ -244,6 +250,11 @@
       "title": "Publish {{name}} version {{version}}?",
       "body": "This version replaces the current one and can't be changed. Draft reviews started on the old version can still be finished.",
       "confirm": "Publish"
+    },
+    "removeSectionDialog": {
+      "title": "Remove section {{name}}?",
+      "body_one": "Its {{count}} question will be removed too (undo by leaving without saving).",
+      "body_other": "Its {{count}} questions will be removed too (undo by leaving without saving)."
     }
   }
 }

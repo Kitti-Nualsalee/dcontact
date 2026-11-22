@@ -15,6 +15,7 @@ import { QualityApiError, type Evaluation, type MyEvaluationItem, type QualityAp
 import { EvaluationForm } from './evaluation-form.js';
 import { formatScore } from './model.js';
 import { ScoreSummary } from './score-summary.js';
+import { ListSkeleton } from './skeleton.js';
 import './quality.css';
 
 interface Props {
@@ -96,13 +97,7 @@ function MyQualitySession({ api, onSignIn }: Props) {
         </h1>
         <p className="qm-muted">{t('mine.scope')}</p>
       </header>
-      {loading && items.length === 0 ? (
-        <div className="qm-skeleton" role="status" aria-label={t('loading')}>
-          {Array.from({ length: 4 }, (_, i) => (
-            <span key={i} className="qm-skeleton-row" />
-          ))}
-        </div>
-      ) : null}
+      {loading && items.length === 0 ? <ListSkeleton label={t('loading')} rows={4} /> : null}
       {errorKey ? (
         <section role="alert" className="qm-alert">
           <p>{t(errorKey)}</p>
@@ -196,6 +191,18 @@ function MyEvaluationDetail({
   const [evaluation, setEvaluation] = useState<Evaluation>();
   const [error, setError] = useState<number>();
   const [reload, setReload] = useState(0);
+  // focus หัวข้อหลังวาดรายละเอียดเสร็จแล้ว (รอสอง frame ให้ปุ่มที่กดในรายการถูกถอดออกก่อน)
+  useEffect(() => {
+    if (!evaluation) return;
+    let inner = 0;
+    const outer = requestAnimationFrame(() => {
+      inner = requestAnimationFrame(() => heading.current?.focus());
+    });
+    return () => {
+      cancelAnimationFrame(outer);
+      cancelAnimationFrame(inner);
+    };
+  }, [evaluation]);
   useEffect(() => {
     let active = true;
     setError(undefined);
@@ -204,7 +211,6 @@ function MyEvaluationDetail({
       .then((loaded) => {
         if (!active) return;
         setEvaluation(loaded);
-        requestAnimationFrame(() => heading.current?.focus());
       })
       .catch((failure: unknown) => {
         if (active) setError(statusOf(failure));
