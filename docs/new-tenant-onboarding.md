@@ -39,9 +39,13 @@ node scripts/tenant-voice-onboarding.mjs --tenant <slug> \
   --accounts <n> --agents <n> --voice-queues <n> --skills <n> \
   --node <telephonyNodeId> --release-digest <sha256> --dialplan-digest <sha256> \
   --extensions 1100-1109 --destination 2000 \
-  --worker-principal <role> [--create-worker-principal] \
+  --worker-principal <role> [--create-worker-principal | --rotate-worker-password] \
   --env-out <ไฟล์ env> --apply
 ```
+
+ลำดับในสคริปต์: อ่าน tenant แล้วตรวจ Keycloak แบบอ่านอย่างเดียวก่อน (Organization ที่ผูก `tenant_id` ต้องมีรายการเดียว,
+service account ของ client เดิมต้องไม่มีสิทธิ์เกิน) จากนั้นเขียนฐานใน transaction เดียว แล้วจึงเขียน Keycloak
+ถ้าการตรวจ Keycloak ล้ม ฐานจะไม่ถูกแก้ `--apply` ต้องมี `--env-out` เสมอ เพราะ secret ออกจากสคริปต์ได้ทางไฟล์นี้ทางเดียว
 
 สิ่งที่สคริปต์ทำ
 
@@ -56,10 +60,18 @@ node scripts/tenant-voice-onboarding.mjs --tenant <slug> \
 - **เบอร์ปลายทาง**: แถว `voice_destinations` แบบ managed v1 ที่ inactive ผูกคิวแรกจาก bootstrap ไว้ก่อน
   Admin เปลี่ยนเป็นคิวจริงและเปิดใช้เองใน Console
 - **Worker binding**: `tenant_people_worker_bindings` ของ principal ที่เป็น LOGIN NOINHERIT NOBYPASSRLS
-  และเป็นสมาชิก `dcontact_tenant_people_worker` (`--create-worker-principal` สร้าง role และรหัสผ่านใหม่ให้)
+  ไม่มีสิทธิ์ superuser/createrole/createdb/replication และเป็นสมาชิก `dcontact_tenant_people_worker`
+  API มี `TENANT_PEOPLE_WORKER_DATABASE_URL` ได้ค่าเดียว ทุก tenant ใน deployment จึงต้องใช้ principal เดียวกัน
+  สคริปต์ปฏิเสธ principal ใหม่เมื่อมี principal อื่นผูกอยู่แล้ว `--create-worker-principal` ใช้ครั้งแรกของ deployment เท่านั้น
+  และ `--rotate-worker-password` ใช้ออกรหัสใหม่เมื่อรหัสเดิมหาย รหัสผ่านถูกเขียนลงไฟล์ก่อน commit
+  และส่งให้ PostgreSQL เป็น SCRAM verifier จึงไม่มี plaintext ใน server log
+- extension และเบอร์ปลายทางใน pool เดิมคงไว้เสมอ การรันด้วยช่วงใหม่เพิ่มเข้าไปโดยไม่เอาหมายเลขที่ Agent ใช้อยู่ออก
 - ไม่สร้างคิว ทักษะ ผู้ใช้ หรือ identity binding รายคน และไม่เปิดเบอร์ปลายทาง
 
-หลัง `--apply` ไฟล์ `--env-out` (mode 600) มีค่าที่ต้องใส่ใน env ของ API แล้ว restart (API อ่านตอน start)
+บัญชี operator ต้องอ่านตาราง People/Voice ที่เปิด FORCE RLS ได้ (superuser หรือ BYPASSRLS) และ GRANT
+`dcontact_tenant_people_worker` ได้ (มี ADMIN OPTION) ซึ่งยังไม่ได้ตรวจกับบัญชีที่ไม่ใช่ superuser
+
+หลัง `--apply` ไฟล์ `--env-out` (mode 600 เขียนรวมกับค่าเดิมในไฟล์) มีค่าที่ต้องใส่ใน env ของ API แล้ว restart (API อ่านตอน start)
 
 - รวมค่า `TENANT_PEOPLE_BINDING_<SLUG>` เข้า array ของ `TENANT_PEOPLE_BINDINGS_JSON` (หนึ่งรายการต่อ tenant)
 - `TENANT_PEOPLE_SECRET_<TENANT_ID>` เป็น secret ของ client ข้างบน

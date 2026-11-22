@@ -94,7 +94,7 @@ export class TenantCoreErrors implements ExceptionFilter {
           event: 'tenant_core.request_failed',
           requestId: coreRequestId(request) ?? null,
           errorName: error instanceof Error ? error.name : typeof error,
-          errorCode: unexpectedErrorCode(error),
+          errorCode: error instanceof CoreError ? detail.code : unexpectedErrorCode(error),
         }),
       );
     response.statusCode = status;

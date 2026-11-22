@@ -1,8 +1,18 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 import {
+  clientDrift,
   envLine,
+  mergeEnvFile,
+  mergeExtensionPool,
+  profileChanges,
+  scramVerifier,
+  withPeopleProfile,
+  workerDatabaseUrl,
   extensionPool,
   parseArguments,
   parseExtensions,
@@ -61,7 +71,7 @@ test('parseArguments เป็น dry-run โดยปริยายและ�
   assert.equal(plan.apply, false);
   assert.deepEqual(plan.caps, { accounts: 20, agents: 10, voiceQueues: 5, skills: 10 });
   assert.deepEqual(plan.extensions, ['1100', '1101', '1102']);
-  assert.equal(parseArguments([...baseArguments, '--apply']).apply, true);
+  assert.equal(parseArguments([...baseArguments, '--apply', '--env-out', '/tmp/e']).apply, true);
   const withoutSkills = baseArguments.filter(
     (_, index, all) => all[index] !== '--skills' && all[index - 1] !== '--skills',
   );
@@ -140,4 +150,119 @@ test('envLine อ่านกลับได้ด้วย shell แม้ค�
     encoding: 'utf8',
   });
   assert.equal(output, value);
+});
+
+test('--apply ต้องมี --env-out และเลือก create/rotate ได้อย่างเดียว', () => {
+  assert.throws(() => parseArguments([...baseArguments, '--apply']), /--env-out/);
+  assert.equal(parseArguments([...baseArguments, '--apply', '--env-out', '/tmp/x']).apply, true);
+  assert.throws(
+    () =>
+      parseArguments([...baseArguments, '--create-worker-principal', '--rotate-worker-password']),
+    /อย่างใดอย่างหนึ่ง/,
+  );
+});
+
+test('mergeEnvFile คงค่าเดิมที่ไม่ได้ตั้งรอบนี้ (เช่นรหัสผ่าน worker) และบังคับ mode 600', () => {
+  const path = join(mkdtempSync(join(tmpdir(), 'tvo-')), 'people.env');
+  writeFileSync(
+    path,
+    "# old\nTENANT_PEOPLE_WORKER_DATABASE_URL='postgresql://w:p@h/db'\nOTHER='1'\n",
+    { mode: 0o644 },
+  );
+  mergeEnvFile(
+    path,
+    [
+      ['OTHER', '2'],
+      ['NEW_KEY', 'v&w'],
+    ],
+    '# header',
+  );
+  const text = readFileSync(path, 'utf8');
+  assert.match(text, /TENANT_PEOPLE_WORKER_DATABASE_URL='postgresql:\/\/w:p@h\/db'/);
+  assert.match(text, /^OTHER='2'$/m);
+  assert.match(text, /^NEW_KEY='v&w'$/m);
+  assert.equal(text.match(/OTHER=/g).length, 1);
+  assert.equal(statSync(path).mode & 0o777, 0o600);
+});
+
+test('mergeExtensionPool ไม่เอา extension เดิมออกเมื่อรันด้วยช่วงใหม่', () => {
+  const current = extensionPool(['1100', '1101'], node);
+  const merged = mergeExtensionPool(current, extensionPool(['1101', '1110'], node));
+  assert.deepEqual(
+    merged.map((entry) => entry.ref),
+    ['1100', '1101', '1110'],
+  );
+});
+
+test('withPeopleProfile คง displayName/validators เดิมและแก้เฉพาะสิทธิ์', () => {
+  const profile = {
+    attributes: [
+      {
+        name: 'tenant_id',
+        displayName: 'Tenant',
+        validations: { length: { max: 36 } },
+        permissions: { view: ['admin', 'user'], edit: ['admin'] },
+      },
+    ],
+  };
+  const names = profileChanges(profile);
+  assert.ok(names.includes('tenant_id') && names.includes('dc_identity_class'));
+  const next = withPeopleProfile(profile, names);
+  const tenant = next.attributes.find((attribute) => attribute.name === 'tenant_id');
+  assert.equal(tenant.displayName, 'Tenant');
+  assert.deepEqual(tenant.validations, { length: { max: 36 } });
+  assert.deepEqual(tenant.permissions, { view: ['admin'], edit: ['admin'] });
+  assert.deepEqual(profileChanges(next), []);
+});
+
+test('clientDrift จับ flow ที่เปิดเกินและ audience mapper ที่หายไป', () => {
+  const attributes = { dc_service_purpose: 'TENANT_PEOPLE_V1' };
+  const narrow = {
+    enabled: true,
+    publicClient: false,
+    serviceAccountsEnabled: true,
+    standardFlowEnabled: false,
+    directAccessGrantsEnabled: false,
+    implicitFlowEnabled: false,
+    fullScopeAllowed: false,
+    attributes,
+    protocolMappers: [
+      {
+        protocolMapper: 'oidc-audience-mapper',
+        config: { 'included.custom.audience': 'dc-tenant-people', 'access.token.claim': 'true' },
+      },
+    ],
+  };
+  assert.deepEqual(clientDrift(narrow, attributes), []);
+  assert.deepEqual(
+    clientDrift({ ...narrow, directAccessGrantsEnabled: true, protocolMappers: [] }, attributes),
+    ['directAccessGrantsEnabled', 'people-audience'],
+  );
+});
+
+test('workerDatabaseUrl คง sslmode และ parameter เดิมของ URL operator', () => {
+  const url = new URL(
+    workerDatabaseUrl(
+      'postgresql://op:secret@db:5432/app?sslmode=require&schema=public',
+      'worker_x',
+      'pw',
+    ),
+  );
+  assert.equal(url.username, 'worker_x');
+  assert.equal(url.password, 'pw');
+  assert.equal(url.searchParams.get('sslmode'), 'require');
+  assert.equal(url.searchParams.get('options'), '-c role=dcontact_tenant_people_worker');
+});
+
+test('scramVerifier ได้รูป SCRAM-SHA-256 ที่ PostgreSQL รับ และตรงกับ test vector ของ RFC 7677', () => {
+  assert.match(
+    scramVerifier('pw'),
+    /^SCRAM-SHA-256\$4096:[A-Za-z0-9+/=]+\$[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+$/,
+  );
+  // RFC 7677: password "pencil", salt W22ZaJ0SNY7soEsUEjb6gQ==, i=4096
+  const verifier = scramVerifier('pencil', Buffer.from('W22ZaJ0SNY7soEsUEjb6gQ==', 'base64'));
+  assert.equal(
+    verifier.split('$')[2].split(':')[1],
+    'wfPLwcE6nTWhTAmQ7tl2KeoiWGPlZqQxSrmfPwDl2dU=',
+  );
 });

@@ -1,5 +1,5 @@
-import { randomBytes } from 'node:crypto';
-import { writeFileSync } from 'node:fs';
+import { createHash, createHmac, pbkdf2Sync, randomBytes } from 'node:crypto';
+import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -40,7 +40,8 @@ const usage = `ใช้: node scripts/tenant-voice-onboarding.mjs --tenant <slu
   --accounts <n> --agents <n> --voice-queues <n> --skills <n>
   --node <telephonyNodeId> --release-digest <sha256> --dialplan-digest <sha256>
   --extensions <1000-1009|1000,1001> --destination <เบอร์> --worker-principal <role>
-  [--create-worker-principal] [--env-out <ไฟล์>] [--apply]`;
+  [--create-worker-principal | --rotate-worker-password] [--issuer <url>]
+  [--apply --env-out <ไฟล์>]`;
 
 function integerFlag(value, name) {
   if (!/^\d{1,7}$/.test(value ?? '') || Number(value) > 1_000_000)
@@ -72,7 +73,8 @@ export function parseArguments(argv) {
     const key = argv[index];
     if (!key.startsWith('--')) throw new Error(usage);
     const name = key.slice(2);
-    if (['apply', 'create-worker-principal'].includes(name)) flags[name] = true;
+    if (['apply', 'create-worker-principal', 'rotate-worker-password'].includes(name))
+      flags[name] = true;
     else flags[name] = argv[++index];
   }
   const required = (name) => {
@@ -98,6 +100,14 @@ export function parseArguments(argv) {
     if (value.length > max) throw new Error(`--${name} ยาวเกิน ${max} ตัวอักษร`);
     return value;
   };
+  const apply = flags.apply === true;
+  // secret (client secret และรหัสผ่าน worker) มีทางเดียวที่จะออกจากสคริปต์ คือไฟล์นี้
+  if (apply && (typeof flags['env-out'] !== 'string' || !flags['env-out'].trim()))
+    throw new Error('--apply ต้องใช้คู่กับ --env-out เพื่อเก็บ secret');
+  if (flags['create-worker-principal'] && flags['rotate-worker-password'])
+    throw new Error(
+      'เลือก --create-worker-principal หรือ --rotate-worker-password อย่างใดอย่างหนึ่ง',
+    );
   return {
     tenant,
     approvalRef: text('approval-ref', 200),
@@ -114,9 +124,10 @@ export function parseArguments(argv) {
     destination,
     workerPrincipal,
     createWorkerPrincipal: flags['create-worker-principal'] === true,
+    rotateWorkerPassword: flags['rotate-worker-password'] === true,
     issuer: typeof flags.issuer === 'string' ? flags.issuer : null,
     envOut: flags['env-out'] ?? null,
-    apply: flags.apply === true,
+    apply,
   };
 }
 
@@ -200,9 +211,30 @@ async function keycloakAdmin(baseUrl) {
   };
 }
 
-async function prepareKeycloak(kc, { tenant, tenantId, apply, log }) {
-  const profile = await kc('/users/profile');
-  const missing = PEOPLE_PROFILE_ATTRIBUTES.filter((name) => {
+const FORBIDDEN_SERVICE_ROLES = /^(?:admin|supervisor|agent|create-realm|platform_.*)$/;
+const AUDIENCE_MAPPER = {
+  name: 'people-audience',
+  protocol: 'openid-connect',
+  protocolMapper: 'oidc-audience-mapper',
+  config: {
+    'included.custom.audience': 'dc-tenant-people',
+    'access.token.claim': 'true',
+    'id.token.claim': 'false',
+  },
+};
+const CLIENT_FLAGS = {
+  enabled: true,
+  publicClient: false,
+  serviceAccountsEnabled: true,
+  standardFlowEnabled: false,
+  directAccessGrantsEnabled: false,
+  implicitFlowEnabled: false,
+  fullScopeAllowed: false,
+};
+
+/** attribute ที่ยังไม่เป็น single value + admin-only ตามที่ extension tenant-people ตรวจ (PeopleResource.authorize) */
+export function profileChanges(profile) {
+  return PEOPLE_PROFILE_ATTRIBUTES.filter((name) => {
     const field = profile.attributes.find((attribute) => attribute.name === name);
     return (
       !field ||
@@ -211,108 +243,176 @@ async function prepareKeycloak(kc, { tenant, tenantId, apply, log }) {
       JSON.stringify(field.permissions?.edit) !== '["admin"]'
     );
   });
-  if (missing.length) {
-    log(`keycloak.profile: เพิ่ม/แก้ attribute ${missing.join(', ')}`);
-    if (apply) {
-      profile.attributes = profile.attributes.filter(
-        (attribute) => !missing.includes(attribute.name),
-      );
-      for (const name of missing)
-        profile.attributes.push({
-          name,
-          multivalued: false,
-          permissions: { view: ['admin'], edit: ['admin'] },
-        });
-      await kc('/users/profile', { method: 'PUT', body: profile });
-    }
-  } else log('keycloak.profile: ครบแล้ว');
+}
 
-  const organizations = await kc(`/organizations?search=${encodeURIComponent(tenant)}&exact=true`);
-  const candidates = [];
-  for (const organization of organizations)
-    candidates.push(await kc(`/organizations/${organization.id}`));
-  const organization = candidates.filter(
-    (candidate) => candidate.alias === tenant && candidate.attributes?.tenant_id?.[0] === tenantId,
+/** คง displayName/validators/annotations เดิม แก้เฉพาะ multivalued และ permissions */
+export function withPeopleProfile(profile, names) {
+  const attributes = profile.attributes.map((attribute) =>
+    names.includes(attribute.name)
+      ? { ...attribute, multivalued: false, permissions: { view: ['admin'], edit: ['admin'] } }
+      : attribute,
   );
-  if (organization.length !== 1 || !organization[0].enabled)
-    throw new Error('ไม่พบ Organization ที่ enabled และผูก tenant_id นี้แบบเดียว');
+  for (const name of names)
+    if (!attributes.some((attribute) => attribute.name === name))
+      attributes.push({
+        name,
+        multivalued: false,
+        permissions: { view: ['admin'], edit: ['admin'] },
+      });
+  return { ...profile, attributes };
+}
 
+/** ส่วนของ client ที่ไม่ตรงสัญญา narrow service client (ADR-035) */
+export function clientDrift(client, attributes) {
+  const drift = Object.entries(attributes)
+    .filter(([key, value]) => client.attributes?.[key] !== value)
+    .map(([key]) => key);
+  for (const [key, value] of Object.entries(CLIENT_FLAGS))
+    if (client[key] !== value) drift.push(key);
+  const audience = (client.protocolMappers ?? []).some(
+    (mapper) =>
+      mapper.protocolMapper === AUDIENCE_MAPPER.protocolMapper &&
+      mapper.config?.['included.custom.audience'] === 'dc-tenant-people' &&
+      mapper.config?.['access.token.claim'] === 'true',
+  );
+  if (!audience) drift.push('people-audience');
+  return drift;
+}
+
+/** ตรวจ Keycloak แบบอ่านอย่างเดียวก่อนแตะฐานข้อมูล — ล้มที่นี่จะไม่มีอะไรถูกเขียน */
+async function inspectKeycloak(kc, { tenant, tenantId }) {
+  const profile = await kc('/users/profile');
+  const organizations = [];
+  for (const { id } of await kc(
+    `/organizations?${new URLSearchParams({ q: `tenant_id:${tenantId}` })}`,
+  ))
+    organizations.push(await kc(`/organizations/${id}`));
+  // extension ค้น Organization ด้วย tenant_id และต้องได้รายการเดียว (PeopleResource.authorize)
+  const matches = organizations.filter(
+    (organization) => organization.attributes?.tenant_id?.[0] === tenantId,
+  );
+  if (matches.length !== 1 || !matches[0].enabled || matches[0].alias !== tenant)
+    throw new Error(
+      'ต้องมี Organization ที่ enabled ผูก tenant_id นี้เพียงรายการเดียวและ alias ตรง slug',
+    );
   const clientId = `dcontact-tenant-people-${tenantId}`;
   const attributes = {
     dc_service_purpose: 'TENANT_PEOPLE_V1',
     tenant_id: tenantId,
     tenant_slug: tenant,
-    dc_organization_id: organization[0].id,
+    dc_organization_id: matches[0].id,
     dc_allowed_roles: 'AGENT,SUPERVISOR,ADMIN',
   };
-  let [client] = await kc(`/clients?clientId=${encodeURIComponent(clientId)}`);
+  const [client] = await kc(`/clients?clientId=${encodeURIComponent(clientId)}`);
+  if (client) {
+    // สิทธิ์เกินของ service account ไม่แก้อัตโนมัติ — ให้ operator ตรวจที่มาก่อน
+    const account = await kc(`/clients/${client.id}/service-account-user`);
+    const realmRoles = await kc(`/users/${account.id}/role-mappings/realm/composite`);
+    const mappings = await kc(`/users/${account.id}/role-mappings`);
+    const forbidden = realmRoles
+      .map((role) => role.name)
+      .filter((name) => FORBIDDEN_SERVICE_ROLES.test(name));
+    if (forbidden.length || mappings.clientMappings?.['realm-management'])
+      throw new Error(
+        `service account ของ ${clientId} มีสิทธิ์เกิน (${forbidden.join(', ') || 'realm-management'})`,
+      );
+  }
+  return { profile, profileChanges: profileChanges(profile), clientId, client, attributes };
+}
+
+async function applyKeycloak(kc, inspected, { apply, log }) {
+  const { profile, profileChanges: changes, clientId, attributes } = inspected;
+  if (changes.length) {
+    log(`keycloak.profile: เพิ่ม/แก้ attribute ${changes.join(', ')}`);
+    if (apply)
+      await kc('/users/profile', { method: 'PUT', body: withPeopleProfile(profile, changes) });
+  } else log('keycloak.profile: ครบแล้ว');
+  let { client } = inspected;
   if (!client) {
     log(`keycloak.client: สร้าง ${clientId}`);
-    if (!apply) return { clientId, secret: null };
+    if (!apply) return { secret: null };
     await kc('/clients', {
       method: 'POST',
-      body: {
-        clientId,
-        enabled: true,
-        publicClient: false,
-        serviceAccountsEnabled: true,
-        standardFlowEnabled: false,
-        directAccessGrantsEnabled: false,
-        implicitFlowEnabled: false,
-        fullScopeAllowed: false,
-        attributes,
-        protocolMappers: [
-          {
-            name: 'people-audience',
-            protocol: 'openid-connect',
-            protocolMapper: 'oidc-audience-mapper',
-            config: {
-              'included.custom.audience': 'dc-tenant-people',
-              'access.token.claim': 'true',
-              'id.token.claim': 'false',
-            },
-          },
-        ],
-      },
+      body: { clientId, ...CLIENT_FLAGS, attributes, protocolMappers: [AUDIENCE_MAPPER] },
     });
     [client] = await kc(`/clients?clientId=${encodeURIComponent(clientId)}`);
   } else {
-    const drift = Object.entries(attributes).filter(
-      ([key, value]) => client.attributes?.[key] !== value,
-    );
-    if (
-      drift.length ||
-      client.publicClient ||
-      !client.serviceAccountsEnabled ||
-      client.fullScopeAllowed
-    ) {
-      log(`keycloak.client: แก้ ${clientId} (${drift.map(([key]) => key).join(', ') || 'flags'})`);
-      if (apply)
+    const drift = clientDrift(client, attributes);
+    if (drift.length) {
+      log(`keycloak.client: แก้ ${clientId} (${drift.join(', ')})`);
+      if (apply) {
         await kc(`/clients/${client.id}`, {
           method: 'PUT',
-          body: {
-            ...client,
-            publicClient: false,
-            serviceAccountsEnabled: true,
-            fullScopeAllowed: false,
-            attributes: { ...client.attributes, ...attributes },
-          },
+          body: { ...client, ...CLIENT_FLAGS, attributes: { ...client.attributes, ...attributes } },
         });
+        if (drift.includes('people-audience'))
+          await kc(`/clients/${client.id}/protocol-mappers/models`, {
+            method: 'POST',
+            body: AUDIENCE_MAPPER,
+          });
+      }
     } else log(`keycloak.client: ${clientId} ตรงแล้ว`);
   }
   const { value: secret } = await kc(`/clients/${client.id}/client-secret`);
-  return { clientId, secret };
+  return { secret };
 }
 
-async function prepareDatabase(db, plan, log) {
+/** รวม extension เดิมกับใหม่ — ไม่เอาหมายเลขที่ Agent อาจใช้อยู่ออกจาก pool */
+export function mergeExtensionPool(current, desired) {
+  const seen = new Set(current.map((entry) => entry.ref));
+  return [...current, ...desired.filter((entry) => !seen.has(entry.ref))];
+}
+
+/** SCRAM-SHA-256 verifier — ส่งให้ PostgreSQL แทนรหัสผ่านจริง จึงไม่มี plaintext ใน server log */
+export function scramVerifier(password, salt = randomBytes(16), iterations = 4096) {
+  const salted = pbkdf2Sync(password, salt, iterations, 32, 'sha256');
+  const hmac = (key, text) => createHmac('sha256', key).update(text).digest();
+  const storedKey = createHash('sha256').update(hmac(salted, 'Client Key')).digest();
+  const serverKey = hmac(salted, 'Server Key');
+  return `SCRAM-SHA-256$${iterations}:${salt.toString('base64')}$${storedKey.toString('base64')}:${serverKey.toString('base64')}`;
+}
+
+/** ใช้ host/port/database/parameter ของ URL operator เปลี่ยนเฉพาะผู้ใช้ รหัสผ่าน และ role ของ worker */
+export function workerDatabaseUrl(operatorUrl, principal, password) {
+  const url = new URL(operatorUrl);
+  url.username = principal;
+  url.password = password;
+  if (!url.searchParams.has('schema')) url.searchParams.set('schema', 'public');
+  url.searchParams.set('options', '-c role=dcontact_tenant_people_worker');
+  return url.toString();
+}
+
+/** เขียน env แบบรวมกับไฟล์เดิม (แทนเฉพาะ key ที่ตั้ง) และบังคับ mode 600 ทุกครั้ง */
+export function mergeEnvFile(path, entries, header) {
+  const existing = existsSync(path) ? readFileSync(path, 'utf8').split('\n') : [header];
+  const pending = new Map(entries);
+  const lines = existing
+    .filter((line, index, all) => line !== '' || index < all.length - 1)
+    .map((line) => {
+      const key = /^([A-Z0-9_]+)=/.exec(line)?.[1];
+      if (!key || !pending.has(key)) return line;
+      const value = pending.get(key);
+      pending.delete(key);
+      return envLine(key, value);
+    });
+  for (const [key, value] of pending) lines.push(envLine(key, value));
+  writeFileSync(path, `${lines.join('\n')}\n`, { mode: 0o600 });
+  chmodSync(path, 0o600);
+}
+
+async function findTenant(db, slug) {
+  const tenants = await db.$queryRaw`SELECT t.id::text AS id, t.lifecycle_status::text AS status,
+      b.snapshot_digest AS "planDigest"
+    FROM tenants t LEFT JOIN tenant_plan_bindings b ON b.tenant_id = t.id
+    WHERE t.slug = ${slug}`;
+  if (tenants.length !== 1) throw new Error('ไม่พบ tenant');
+  if (tenants[0].status !== 'ACTIVE')
+    throw new Error(`tenant ยังไม่ ACTIVE (${tenants[0].status})`);
+  return tenants[0];
+}
+
+async function prepareDatabase(db, plan, tenant, { log, persistWorkerUrl }) {
   return db.$transaction(async (tx) => {
-    const tenants = await tx.$queryRaw`SELECT t.id::text AS id, t.lifecycle_status::text AS status,
-        b.snapshot_digest AS "planDigest"
-      FROM tenants t LEFT JOIN tenant_plan_bindings b ON b.tenant_id = t.id
-      WHERE t.slug = ${plan.tenant}`;
-    if (tenants.length !== 1) throw new Error('ไม่พบ tenant');
-    const [tenant] = tenants;
-    if (tenant.status !== 'ACTIVE') throw new Error(`tenant ยังไม่ ACTIVE (${tenant.status})`);
     await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
 
     // เบอร์ปลายทางที่ operator reserve: inactive, managed v1, ชี้คิวที่มีอยู่แล้ว (Admin ผูกคิวจริงเองใน Console)
@@ -351,11 +451,12 @@ async function prepareDatabase(db, plan, log) {
         destination_pool AS "destinationPool"
       FROM tenant_voice_provisioning_policies WHERE tenant_id = ${tenant.id}::uuid`;
     if (current) {
-      // เก็บ destination อื่นใน pool เดิมไว้ — operator อาจ reserve ไว้หลายเบอร์
+      // pool เดิมคงไว้เสมอ — operator อาจ reserve หลายเบอร์ และ Agent อาจใช้ extension เดิมอยู่
       const others = current.destinationPool.filter(
         (item) => item.destinationId !== destination.id,
       );
       desired.destinationPool = [...others, ...desired.destinationPool];
+      desired.extensionPool = mergeExtensionPool(current.extensionPool, desired.extensionPool);
     }
     if (!current || policyDiffers(current, desired)) {
       const revision = (current?.revision ?? 0) + 1;
@@ -399,34 +500,53 @@ async function prepareDatabase(db, plan, log) {
       }
     } else log(`db.policy: revision ${current.revision} ตรงแล้ว`);
 
+    // API มี TENANT_PEOPLE_WORKER_DATABASE_URL ได้ค่าเดียว และ RLS ผูกแถวกับ session_user —
+    // ทุก tenant ใน deployment ต้องใช้ principal เดียวกัน
+    const others = await tx.$queryRaw`SELECT DISTINCT database_principal::text AS principal
+      FROM tenant_people_worker_bindings WHERE enabled AND database_principal <> ${plan.workerPrincipal}`;
+    if (others.length)
+      throw new Error(
+        `deployment นี้ใช้ worker principal ${others.map((row) => row.principal).join(', ')} อยู่แล้ว — ใช้ --worker-principal เดิม`,
+      );
     const [principal] = await tx.$queryRaw`SELECT r.rolcanlogin AS login, r.rolinherit AS inherit,
-        r.rolbypassrls AS bypass, r.rolsuper AS super,
+        r.rolbypassrls AS bypass, r.rolsuper AS super, r.rolcreaterole AS "createRole",
+        r.rolcreatedb AS "createDb", r.rolreplication AS replication,
         pg_has_role(r.oid, 'dcontact_tenant_people_worker', 'MEMBER') AS member
       FROM pg_roles r WHERE r.rolname = ${plan.workerPrincipal}`;
-    let workerPassword = null;
     if (!principal) {
       if (!plan.createWorkerPrincipal)
         throw new Error('ไม่มี worker principal นี้ — ใส่ --create-worker-principal เพื่อสร้าง');
       log(`db.worker: สร้าง login role ${plan.workerPrincipal}`);
-      if (plan.apply) {
-        workerPassword = randomBytes(24).toString('base64url');
-        await tx.$executeRawUnsafe(
-          `CREATE ROLE "${plan.workerPrincipal}" LOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS PASSWORD '${workerPassword}'`,
-        );
-        await tx.$executeRawUnsafe(
-          `GRANT dcontact_tenant_people_worker TO "${plan.workerPrincipal}"`,
-        );
-      }
     } else if (
       !principal.login ||
       principal.inherit ||
       principal.bypass ||
       principal.super ||
+      principal.createRole ||
+      principal.createDb ||
+      principal.replication ||
       !principal.member
     )
       throw new Error(
-        'worker principal ต้องเป็น LOGIN NOINHERIT NOBYPASSRLS ที่เป็นสมาชิก dcontact_tenant_people_worker',
+        'worker principal ต้องเป็น LOGIN NOINHERIT NOBYPASSRLS ที่ไม่มีสิทธิ์ superuser/createrole/createdb/replication และเป็นสมาชิก dcontact_tenant_people_worker',
       );
+    else if (plan.rotateWorkerPassword)
+      log(`db.worker: เปลี่ยนรหัสผ่านของ ${plan.workerPrincipal}`);
+    if (plan.apply && (!principal || plan.rotateWorkerPassword)) {
+      const password = randomBytes(24).toString('base64url');
+      // เก็บรหัสผ่านลงไฟล์ก่อน commit: ถ้าล้มหลังจากนี้ role ยังไม่เกิด และรอบถัดไปออกรหัสใหม่
+      persistWorkerUrl(workerDatabaseUrl(process.env.DATABASE_URL, plan.workerPrincipal, password));
+      const verifier = scramVerifier(password);
+      await tx.$executeRawUnsafe(
+        principal
+          ? `ALTER ROLE "${plan.workerPrincipal}" PASSWORD '${verifier}'`
+          : `CREATE ROLE "${plan.workerPrincipal}" LOGIN NOINHERIT NOSUPERUSER NOCREATEROLE NOCREATEDB NOREPLICATION NOBYPASSRLS PASSWORD '${verifier}'`,
+      );
+      if (!principal)
+        await tx.$executeRawUnsafe(
+          `GRANT dcontact_tenant_people_worker TO "${plan.workerPrincipal}"`,
+        );
+    }
     const [binding] = await tx.$queryRaw`SELECT enabled FROM tenant_people_worker_bindings
       WHERE tenant_id = ${tenant.id}::uuid AND database_principal = ${plan.workerPrincipal}`;
     if (binding && !binding.enabled)
@@ -438,7 +558,7 @@ async function prepareDatabase(db, plan, log) {
             (tenant_id, database_principal, approval_ref)
           VALUES (${tenant.id}::uuid, ${plan.workerPrincipal}, ${plan.approvalRef})`;
     } else log('db.worker: ผูกแล้ว');
-    return { tenantId: tenant.id, destinationId: destination.id, workerPassword };
+    return { destinationId: destination.id };
   });
 }
 
@@ -450,52 +570,41 @@ async function main() {
   const require = createRequire(resolve('apps/api/package.json'));
   const { PrismaClient } = require('@d-contact/db');
   const db = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
+  const header = `# สร้างโดย scripts/tenant-voice-onboarding.mjs (#977) — รวม TENANT_PEOPLE_BINDING_* เข้า array ของ TENANT_PEOPLE_BINDINGS_JSON`;
+  const persist = (entries) => {
+    mergeEnvFile(plan.envOut, entries, header);
+    log(`env: เขียน ${entries.map(([key]) => key).join(', ')} ลง ${plan.envOut} (mode 600)`);
+  };
   try {
-    const database = await prepareDatabase(db, plan, log);
+    const tenant = await findTenant(db, plan.tenant);
     const keycloakUrl = process.env.KEYCLOAK_ADMIN_URL ?? 'http://localhost:8081';
+    const kc = await keycloakAdmin(keycloakUrl);
+    // ตรวจ Keycloak ให้ผ่านก่อนเขียนฐาน — Organization ผิดตัวหรือ service account สิทธิ์เกินจะหยุดที่นี่
+    const inspected = await inspectKeycloak(kc, { tenant: plan.tenant, tenantId: tenant.id });
+    await prepareDatabase(db, plan, tenant, {
+      log,
+      persistWorkerUrl: (url) => persist([['TENANT_PEOPLE_WORKER_DATABASE_URL', url]]),
+    });
+    const identity = await applyKeycloak(kc, inspected, { apply: plan.apply, log });
     // People runtime รับเฉพาะ https หรือ http://127.0.0.1 (tenant-people-keycloak.ts) — dev ใช้ 127.0.0.1
     const issuer =
       plan.issuer ?? `${keycloakUrl.replace('//localhost:', '//127.0.0.1:')}/realms/dcontact`;
-    const identity = await prepareKeycloak(await keycloakAdmin(keycloakUrl), {
-      tenant: plan.tenant,
-      tenantId: database.tenantId,
-      apply: plan.apply,
-      log,
-    });
     const binding = peopleBinding({
-      tenantId: database.tenantId,
+      tenantId: tenant.id,
       issuer,
       node: plan.node,
       extensions: plan.extensions,
     });
     log(`env: เพิ่ม ${JSON.stringify(binding)} ใน TENANT_PEOPLE_BINDINGS_JSON`);
     log(`env: ตั้ง ${binding.clientSecretEnv} และ restart API (ค่าอ่านตอน start)`);
-    if (plan.apply && plan.envOut) {
-      const workerUrl = database.workerPassword
-        ? (() => {
-            const url = new URL(databaseUrl);
-            url.username = plan.workerPrincipal;
-            url.password = database.workerPassword;
-            url.search = '';
-            url.searchParams.set('schema', 'public');
-            url.searchParams.set('options', '-c role=dcontact_tenant_people_worker');
-            return url.toString();
-          })()
-        : null;
-      const lines = [
-        `# tenant ${plan.tenant} — สร้างโดย scripts/tenant-voice-onboarding.mjs (#977)`,
-        `# รวมค่า binding เข้า array ของ TENANT_PEOPLE_BINDINGS_JSON (หนึ่งรายการต่อ tenant)`,
-        envLine(
+    if (plan.apply)
+      persist([
+        [
           `TENANT_PEOPLE_BINDING_${plan.tenant.replaceAll('-', '_').toUpperCase()}`,
           JSON.stringify(binding),
-        ),
-        ...(identity.secret ? [envLine(binding.clientSecretEnv, identity.secret)] : []),
-        ...(workerUrl ? [envLine('TENANT_PEOPLE_WORKER_DATABASE_URL', workerUrl)] : []),
-        '',
-      ];
-      writeFileSync(plan.envOut, lines.join('\n'), { mode: 0o600 });
-      log(`env: เขียน secret ลง ${plan.envOut} (mode 600)`);
-    }
+        ],
+        ...(identity.secret ? [[binding.clientSecretEnv, identity.secret]] : []),
+      ]);
     log(plan.apply ? 'TENANT_VOICE_ONBOARDING_APPLIED' : 'TENANT_VOICE_ONBOARDING_PLAN_ONLY');
   } finally {
     await db.$disconnect();
