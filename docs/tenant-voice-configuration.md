@@ -38,6 +38,9 @@ PUT required-skills, Agent skills และ binding ใช้ `commandId`, `expe
 แล้วถือ command/config/reference fences และ NOWAIT locks ตรวจงานค้างรวม legacy
 ก่อน commit resource/revision/audit/receipt ใน transaction เดียว
 
+PUT ทักษะของ Agent แทนเฉพาะทักษะ v1 (#977) ทักษะ legacy ของ Agent (เช่นจาก seed) คงอยู่และใช้กับคิว legacy ต่อ
+GET ยังคืนทักษะ legacy ใน `items` ด้วย client ต้องส่งเฉพาะทักษะ v1 ของทีม ถ้าส่งทักษะ legacy กลับไปจะได้ `REFERENCE_SCOPE_MISMATCH`
+
 `CONFIG_BUSY` หรือ `REVISION_CONFLICT` ไม่บันทึกบางส่วน คำสั่งเดิมที่ payload ตรง
 อ่าน receipt เดิมได้ผ่าน `GET /api/v1/tenant-voice/commands/:commandId`
 ผล eligibility เป็น projection ที่มี `evaluatedAt` และ queue `configRevision`

@@ -283,12 +283,45 @@ test('peopleBinding ใส่ backchannelUrl เฉพาะเมื่อร�
     'nodes',
     'tenantId',
   ]);
+  const issuer = ['--issuer', 'https://uat.example.test/auth/realms/dcontact'];
   assert.equal(
     parseArguments([
       ...baseArguments,
+      ...issuer,
       '--backchannel-url',
       'http://keycloak:8080/auth/realms/dcontact',
     ]).backchannelUrl,
     'http://keycloak:8080/auth/realms/dcontact',
   );
+  assert.throws(
+    () =>
+      parseArguments([
+        ...baseArguments,
+        '--backchannel-url',
+        'http://keycloak:8080/auth/realms/dcontact',
+      ]),
+    /--issuer/,
+  );
+  assert.throws(
+    () =>
+      parseArguments([
+        ...baseArguments,
+        ...issuer,
+        '--backchannel-url',
+        'http://keycloak:8080/realms/dcontact',
+      ]),
+    /backchannel/,
+  );
+  assert.throws(
+    () =>
+      parseArguments([
+        ...baseArguments,
+        '--issuer',
+        'http://x.test/auth/realms/dcontact',
+        '--backchannel-url',
+        'http://keycloak:8080/auth/realms/dcontact',
+      ]),
+    /https/,
+  );
+  assert.throws(() => parseArguments([...baseArguments, '--backchannel-url']), /ต้องมีค่า/);
 });

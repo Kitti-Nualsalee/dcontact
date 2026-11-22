@@ -101,6 +101,23 @@ export function parseArguments(argv) {
     return value;
   };
   const apply = flags.apply === true;
+  for (const name of ['issuer', 'backchannel-url', 'env-out'])
+    if (name in flags && (typeof flags[name] !== 'string' || !flags[name].trim()))
+      throw new Error(`--${name} ต้องมีค่า`);
+  if (flags['backchannel-url'] !== undefined) {
+    // ต้องตรงรูปที่ API ยอมรับ (tenant-people-backchannel.ts) ไม่งั้น API ไม่ start หลังเขียน env ไปแล้ว
+    if (flags.issuer === undefined) throw new Error('--backchannel-url ต้องใช้คู่กับ --issuer');
+    const issuer = new URL(flags.issuer);
+    const realmPath = issuer.pathname.replace(/\/$/, '');
+    if (
+      issuer.protocol !== 'https:' ||
+      !/^\/(?:auth\/)?realms\/[A-Za-z0-9._-]+$/.test(realmPath) ||
+      flags['backchannel-url'] !== `http://keycloak:8080${realmPath}`
+    )
+      throw new Error(
+        '--issuer ต้องเป็น https และ --backchannel-url ต้องเป็น http://keycloak:8080<path ของ realm>',
+      );
+  }
   // secret (client secret และรหัสผ่าน worker) มีทางเดียวที่จะออกจากสคริปต์ คือไฟล์นี้
   if (apply && (typeof flags['env-out'] !== 'string' || !flags['env-out'].trim()))
     throw new Error('--apply ต้องใช้คู่กับ --env-out เพื่อเก็บ secret');

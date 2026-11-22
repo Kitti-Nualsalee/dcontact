@@ -81,7 +81,8 @@ trunk จำลอง `lan-sim` รับสายจาก `SOLO_SIM_TRUNK_IP` 
   (รันผ่าน SSH tunnel ไป `.208:5432` และ Keycloak `127.0.0.1:8081` บน `.207`, `--node fs-solo`,
   `--issuer https://<console host>/auth/realms/dcontact --backchannel-url http://keycloak:8080/auth/realms/dcontact`)
   ใส่ค่าใน `solo.env` โดยไม่ครอบ quote เพราะ `env_file` ของ docker ไม่ตัด quote ออก
-- เบอร์ 2002 ของ tenant `demo` จองไว้ให้คิว managed และผูกกับเบอร์จำลอง `021000004` บน trunk `lan-sim-app` (โทรจาก VM app)
+- เบอร์ 2002 ของ tenant `demo` จองไว้ให้คิว managed ขั้น `data` ใส่ `021000004` → 2002 บน trunk `lan-sim` (`SOLO_SIM_TRUNK_IP`)
+  บน Solo ตอนนี้แถวนี้ถูกใส่มือบน trunk `lan-sim-app` (โทรจาก VM app แบบเดียวกับ `021000003`) และ `ON CONFLICT DO NOTHING` จะคงแถวเดิมไว้
 - realm ที่ import ไปก่อน #977 ไม่มี SMTP ส่วน `render-realm.mjs` ใส่ Mailpit ให้เฉพาะตอน import ครั้งแรก
   realm เดิมต้องให้ operator ตั้ง SMTP (host `mailpit`, port `1025`) ผ่าน Admin API ก่อนเชิญผู้ใช้ผ่าน Console
 

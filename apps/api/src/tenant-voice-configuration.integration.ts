@@ -736,6 +736,7 @@ test('B4 authenticated HTTP/PostgreSQL: atomic config, receipts, scoped projecti
       ],
     });
     assert.equal(withLegacy.status, 409, 'legacy skill is still not writable through v1');
+    assert.equal((await withLegacy.json()).code, 'REFERENCE_SCOPE_MISMATCH');
     await owner.agentSkill.delete({
       where: { userId_skillId: { userId: agent, skillId: legacySkill.id } },
     });

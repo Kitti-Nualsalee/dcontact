@@ -79,6 +79,7 @@ service account ของ client เดิมต้องไม่มีสิ�
 - ตั้ง `TENANT_PEOPLE_INVITATIONS_ENABLED=true` และให้ `SIP_BROWSER_NODES_JSON` มี node ที่ระบุ
 
 `--release-digest` และ `--dialplan-digest` ต้องตรงกับ node ใน `TENANT_PEOPLE_BINDINGS_JSON` ทุกตัว
+deployment ที่ issuer เป็นโดเมนภายนอกและ API เรียก Keycloak ผ่าน network ภายใน (เช่น Solo) ใส่ `--issuer https://<host>/auth/realms/dcontact --backchannel-url http://keycloak:8080/auth/realms/dcontact`
 issuer ของ binding ต้องเป็น https หรือ `http://127.0.0.1` (dev ใช้ `http://127.0.0.1:8081/realms/dcontact`
 ซึ่งสคริปต์ตั้งให้เมื่อ `KEYCLOAK_ADMIN_URL` เป็น localhost)
 
@@ -92,7 +93,7 @@ issuer ของ binding ต้องเป็น https หรือ `http://127
   งานต่ออยู่ใน [#979](https://github.com/Kitti-Nualsalee/dcontact/issues/979)
 - **SIP domain**: สายเข้าต้องมี SIP domain ของ tenant (`<slug>.<PLATFORM_SIP_BASE_DOMAIN>`) ซึ่ง FreeSWITCH
   ตั้งจาก header `X-DContact-Domain` ที่ Kamailio ใส่ (ADR-038) dialplan dev ของ context `pstn` park เฉพาะ
-  เบอร์ 2000/2001 จึงต้องจองเบอร์ปลายทางเป็น 2000 หรือ 2001 บน dev
+  เบอร์ 2000–2009 สำหรับสายที่มี header (สายไม่มี header ได้แค่ 2000/2001 #982) จึงต้องจองเบอร์ปลายทางในช่วงนี้
 - **คิว managed ไม่บันทึกเสียง**: การเปิดคิว/เบอร์ managed ต้องมี recording, auto QM และ transcription ปิด
   (`dc_voice_managed_activation_check`) งาน Supervisor ฟังเสียง (#967) และ QM (#971) จึงยังใช้ได้กับคิว legacy เท่านั้น
 - **ฐานข้อมูลของ API**: API ต้องต่อด้วย role `dcontact_app` เหมือน deployment จริง ถ้าใช้ owner/superuser
