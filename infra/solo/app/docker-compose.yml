@@ -195,10 +195,34 @@ services:
     environment:
       # ใช้ role แอป NOBYPASSRLS: ทุก query ของ QM อยู่ใน withTenantDatabaseTransaction ยกเว้นอ่าน tenants (ไม่มี RLS)
       DATABASE_URL: ${APPLICATION_DATABASE_URL:?APPLICATION_DATABASE_URL is required}
+    # host ของ ASR (QM_TRANSCRIPTION_ENDPOINT) ไม่มีใน DNS: ชี้ไป nginx บน VM voice ที่ถือ cert *.osd.co.th
+    # ใช้ :- ไม่ใช้ :? เพราะ compose ตรวจตัวแปรของ service ที่ profile ปิดด้วย
+    extra_hosts:
+      - '${SOLO_ASR_HOST:-asr.invalid}:${SOLO_VOICE_IP:?SOLO_VOICE_IP is required}'
     mem_limit: 384m
     depends_on:
       redpanda-init:
         condition: service_completed_successfully
+
+  qm-asr-simulator:
+    <<: *service
+    # ASR จำลองตาม D-Contact ASR Provider Protocol v1 (docs/qm-asr-provider-protocol.md) ใช้ระหว่างที่ยังไม่มีโมเดลจริง
+    # ดาวน์โหลดไฟล์เสียงจริงผ่าน signed URL และหาช่วงที่มีเสียง แต่ข้อความเป็นประโยคจำลองขึ้นต้น "[จำลอง]"
+    # อยู่หลัง profile `qm` เดียวกับ QM; เข้าถึงผ่าน https://SOLO_ASR_HOST (nginx → web) เท่านั้น ไม่เปิด port ออก host
+    profiles: ['qm']
+    image: dcontact-solo/services:${SOLO_IMAGE_TAG}
+    # ไม่ส่ง solo.env ทั้งไฟล์: simulator ได้แค่ token และ host ของ media
+    env_file: []
+    working_dir: /app/qm
+    command: ['node', 'dist/asr-simulator-main.js']
+    environment:
+      PORT: '8090'
+      # ค่าว่างทำให้ simulator ไม่ยอมเริ่ม (ตรวจในโค้ด)
+      ASR_SIMULATOR_API_KEY: ${QM_TRANSCRIPTION_API_KEY:-}
+      ASR_SIMULATOR_MEDIA_HOSTS: ${SOLO_MEDIA_HOST:-}
+    extra_hosts:
+      - '${SOLO_MEDIA_HOST:-media.invalid}:${SOLO_VOICE_IP:?SOLO_VOICE_IP is required}'
+    mem_limit: 448m
 
   web:
     <<: *service
@@ -208,6 +232,9 @@ services:
       SOLO_CONSOLE_HOST: ${SOLO_CONSOLE_HOST}
       SOLO_WORKSPACE_HOST: ${SOLO_WORKSPACE_HOST:?SOLO_WORKSPACE_HOST is required}
       SOLO_VOICE_IP: ${SOLO_VOICE_IP:?SOLO_VOICE_IP is required}
+      # host ของ QM: ถ้ายังไม่ตั้งใช้ชื่อ .invalid ที่ไม่มีคำขอไหนตรง
+      SOLO_MEDIA_HOST: ${SOLO_MEDIA_HOST:-media.invalid}
+      SOLO_ASR_HOST: ${SOLO_ASR_HOST:-asr.invalid}
     cap_drop:
       - ALL
     mem_limit: 128m

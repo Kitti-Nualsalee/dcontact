@@ -18,8 +18,10 @@ UAT สำหรับให้ dev ทดสอบตามแบบ D-Contact 
 | --- | --- |
 | `dcontact-solo-uat.osd.co.th` | Console, `/api`, `/auth` (Keycloak) |
 | `dcontact-solo-workspace-uat.osd.co.th` | Workspace และ `/sip-ws` ของ D-Phone |
+| `dcontact-solo-media-uat.osd.co.th` | signed URL ของไฟล์เสียงที่ ASR provider ดาวน์โหลด (`SOLO_MEDIA_HOST`) รับเฉพาะ VM app |
+| `dcontact-solo-asr-uat.osd.co.th` | ASR provider ตาม [qm-asr-provider-protocol.md](qm-asr-provider-protocol.md) ตอนนี้เป็น simulator (`SOLO_ASR_HOST`) รับเฉพาะ VM app |
 
-ทั้งสองชื่อชี้ที่ 192.168.31.206 cert จริงคือ `star.osd.co.th` วางที่ `/opt/dcontact-solo/voice/tls/server.crt` และ `server.key` ถ้ายังไม่มี `solo-uat.sh voice` สร้าง cert self-signed ชั่วคราวให้ ซึ่ง browser จะเตือนก่อนเข้า
+สองชื่อแรกชี้ที่ 192.168.31.206 ส่วนชื่อของ QM ไม่ต้องมีใน DNS เพราะ container ของ QM และ simulator ชี้ไป 192.168.31.206 ด้วย `extra_hosts` cert จริงคือ `star.osd.co.th` วางที่ `/opt/dcontact-solo/voice/tls/server.crt` และ `server.key` ถ้ายังไม่มี `solo-uat.sh voice` สร้าง cert self-signed ชั่วคราวให้ ซึ่ง browser จะเตือนก่อนเข้า
 
 ## เส้นทาง
 
@@ -93,25 +95,41 @@ service `qm` ใน `infra/solo/app/docker-compose.yml` รัน `apps/qm` (`/a
 - อยู่หลัง compose profile `qm` ขั้น `app` จึงไม่เริ่ม QM จนกว่า `solo.env` มี `COMPOSE_PROFILES=qm`
 - ต่อฐานด้วย `APPLICATION_DATABASE_URL` (`dcontact_app`, NOBYPASSRLS) ไม่ใช่ owner แบบ API
 - แก้ `solo.env` ที่เครื่อง operator (`~/.config/dcontact-solo/solo.env`) เสมอ เพราะ `solo-uat.sh app` คัดลอกไฟล์นี้ทับไฟล์บน VM ทุกรอบ
-- ก่อนเปิด profile ต้องตั้งค่าใน `solo.env` เป็นของจริง ค่าที่ `init-env` ใส่ไว้ (`*.example.internal`) ใช้ไม่ได้
-  - `QM_TRANSCRIPTION_PROVIDER_ID`, `QM_TRANSCRIPTION_ENDPOINT` (https) และ `QM_TRANSCRIPTION_API_KEY`
-  - `QM_MEDIA_ENDPOINT` (https) ที่ provider ดึงไฟล์จาก bucket `recordings` ได้ด้วย signed URL
-    ต้อง proxy ไป `object-storage:9000` โดยคง `Host` เดิม เพราะ signature ผูกกับ host ใน URL
-    signed URL ลงนามด้วย `S3_ACCESS_KEY` ซึ่งเป็น root credential ของ RustFS proxy จึงควรรับเฉพาะ `GET`/`HEAD`
-    ใต้ `/recordings/` ที่มี `X-Amz-Signature` และจำกัด source IP ของ provider ถ้าทำได้
-    ตอนนี้ nginx บน VM voice ยังไม่มี host นี้
-  - `QM_SCORING_*`: ถ้ายังไม่มี scorer จริง ให้ตั้ง `QM_SCORING_ENDPOINT=` เป็นค่าว่าง จะถอดเสียงอย่างเดียวไม่สร้าง auto-QM draft
-    ถ้าคง placeholder ไว้ คิวที่เปิด `autoQmEnabled` จะถอดเสียงสำเร็จแต่ไม่มี draft เหลือแค่ error log
-- ถ้าเปิดด้วยค่า placeholder job จะล้มครบ `transcriptionMaxAttempts` แล้วเป็น `FAILED` ทั้ง job อัตโนมัติและ job ที่ Supervisor สั่งเอง
+- QM เรียก ASR ตาม [D-Contact ASR Provider Protocol v1](qm-asr-provider-protocol.md) ระหว่างที่ยังไม่มีโมเดลจริงใช้ service `qm-asr-simulator`
+  ซึ่งอยู่หลัง profile `qm` เดียวกัน ดาวน์โหลดไฟล์เสียงจริงแต่คืนข้อความจำลองขึ้นต้น `[จำลอง]` (ห้ามใช้เป็นหลักฐานประเมินจริง)
+- เส้นทาง (ทุกขาเป็น HTTPS ด้วย cert `*.osd.co.th` จบที่ nginx บน VM voice แล้วส่งต่อให้ web บน VM app)
+  - QM → `https://SOLO_ASR_HOST/v1/transcriptions` → web → `qm-asr-simulator:8090`
+  - simulator → `https://SOLO_MEDIA_HOST/recordings/...?X-Amz-Signature=...` → web → `object-storage:9000` โดยคง `Host` เดิม เพราะ signature ผูกกับ host
+  - nginx รับสอง host นี้เฉพาะจาก IP ของ VM app ส่วน web รับ media เฉพาะ `GET`/`HEAD` ใต้ `/recordings/` ที่มี `X-Amz-Signature` และ ASR เฉพาะ `/v1/transcriptions`, `/v1/health`
+  - signed URL ลงนามด้วย `S3_ACCESS_KEY` ซึ่งเป็น root credential ของ RustFS ถ้าเปลี่ยนไปใช้ provider ภายนอกต้องเพิ่ม IP ของ provider ใน nginx และทบทวนการเปิด host media
+- ค่าใน `solo.env` ของ operator ก่อนเปิด (`init-env` ของ `solo.env` ใหม่ใส่ให้แล้ว ยกเว้น `COMPOSE_PROFILES`; `solo.env` เดิมต้องแก้เอง)
+
+  ```bash
+  SOLO_MEDIA_HOST=dcontact-solo-media-uat.osd.co.th
+  SOLO_ASR_HOST=dcontact-solo-asr-uat.osd.co.th
+  QM_MEDIA_ENDPOINT=https://dcontact-solo-media-uat.osd.co.th
+  QM_TRANSCRIPTION_PROVIDER_ID=dcontact-asr-simulator
+  QM_TRANSCRIPTION_ENDPOINT=https://dcontact-solo-asr-uat.osd.co.th/v1/transcriptions
+  QM_TRANSCRIPTION_API_KEY=<ค่าสุ่มใหม่ เช่น openssl rand -hex 24>
+  QM_SCORING_ENDPOINT=
+  COMPOSE_PROFILES=qm
+  ```
+
+  - simulator ใช้ `QM_TRANSCRIPTION_API_KEY` เป็น token ที่รับ จึงไม่ต้องมี secret เพิ่ม ถ้าค่าว่าง simulator ไม่ยอมเริ่ม
+  - `QM_SCORING_ENDPOINT=` ค่าว่าง = ถอดเสียงอย่างเดียว ไม่สร้าง auto-QM draft ถ้าคง placeholder ไว้ คิวที่เปิด `autoQmEnabled` จะถอดเสียงสำเร็จแต่ไม่มี draft เหลือแค่ error log
+  - เมื่อมีโมเดลจริงเปลี่ยน `QM_TRANSCRIPTION_PROVIDER_ID`, `QM_TRANSCRIPTION_ENDPOINT` และ key ไปที่ gateway ของโมเดลนั้น (ต้องผ่าน contract test ก่อน) แล้วลบ `qm-asr-simulator` ออก
+- ถ้าเปิดด้วยค่า placeholder (`*.example.internal`) job จะล้มครบ `transcriptionMaxAttempts` แล้วเป็น `FAILED` ทั้ง job อัตโนมัติและ job ที่ Supervisor สั่งเอง
   รวมถึง job ที่ API publish ไว้ก่อนมี worker ซึ่ง dispatcher กวาดขึ้นมาหลังค้างเกิน 5 นาที
-- เปิด: ใส่ `COMPOSE_PROFILES=qm` ใน `solo.env` ของ operator แล้วรัน `solo-uat.sh app`
+- เปิด: แก้ `solo.env` ของ operator ตามด้านบน รัน `solo-uat.sh build` (image ต้องมี simulator) แล้ว `solo-uat.sh app` และ `solo-uat.sh voice` (nginx ได้ host ใหม่)
   ตรวจว่า compose บน VM เห็น service ด้วย `docker compose --env-file solo.env config --services | grep qm` ใน `/opt/dcontact-solo/app`
-  แล้วดู log ด้วย `docker compose --env-file solo.env logs -f qm`
-- ปิด: ลบ `COMPOSE_PROFILES=qm` ออกจาก `solo.env` ของ operator และของ VM แล้วรัน `docker compose --env-file solo.env --profile qm rm -sf qm` บน VM
-  ถ้าลบค่าแต่ไม่ลบ container `up -d` รอบถัดไปจะไม่ recreate `qm` และ container เดิมรันต่อด้วย image เก่า
+  แล้วดู log ด้วย `docker compose --env-file solo.env logs -f qm qm-asr-simulator`
+  simulator log หนึ่งบรรทัดต่อคำขอ (`asr-simulator request` พร้อม status, ความยาวเสียง และจำนวน segment) ไม่ log URL ของไฟล์เสียง
+- ปิด: ลบ `COMPOSE_PROFILES=qm` ออกจาก `solo.env` ของ operator และของ VM แล้วรัน `docker compose --env-file solo.env --profile qm rm -sf qm qm-asr-simulator` บน VM
+  ถ้าลบค่าแต่ไม่ลบ container `up -d` รอบถัดไปจะไม่ recreate service ของ profile `qm` และ container เดิมรันต่อด้วย image เก่า
 - ข้อจำกัดที่ควรรู้ตอนทดสอบ
   - consumer เริ่มอ่านที่ offset ล่าสุดทุกครั้งที่ process เริ่ม `interaction.ended` ที่เกิดระหว่าง QM ดับ (รวมช่วง deploy) จึงไม่ได้ job
-  - คิว managed ยังไม่ publish `interaction.ended` ขึ้น Kafka ทางอัตโนมัติจึงใช้ได้เฉพาะคิว legacy 2000/2001 ซึ่งเป็นคิวที่มี recording
+  - คิว managed ยังไม่ publish `interaction.ended` ขึ้น Kafka ทางอัตโนมัติจึงใช้ได้เฉพาะคิว legacy 2000/2001 คิว managed ที่เปิดบันทึกเสียงใช้ manual request (`POST qm/interactions/:id/transcription-jobs`) แทน
+  - SIPp เล่นเสียงฝั่งลูกค้าอย่างเดียว ถ้า Agent ไม่พูด simulator จะเห็นเสียงแค่ channel ซ้าย (`CONTACT`)
 
 ## Tenant People และคิว managed (#977, #979)
 

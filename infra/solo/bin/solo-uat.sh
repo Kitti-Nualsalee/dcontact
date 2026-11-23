@@ -40,6 +40,9 @@ load_hosts() {
   DATA_IP="$(env_value SOLO_DATA_IP)"
   CONSOLE_HOST="$(env_value SOLO_CONSOLE_HOST)"
   WORKSPACE_HOST="$(env_value SOLO_WORKSPACE_HOST)"
+  # host ของ QM media/ASR ไม่บังคับ: solo.env เดิมไม่มีค่าเหล่านี้ จึงใช้ชื่อ .invalid ที่ไม่มีคำขอไหนตรง
+  MEDIA_HOST="$(env_value SOLO_MEDIA_HOST)"; MEDIA_HOST="${MEDIA_HOST:-media.invalid}"
+  ASR_HOST="$(env_value SOLO_ASR_HOST)"; ASR_HOST="${ASR_HOST:-asr.invalid}"
   IMAGE_TAG="$(env_value SOLO_IMAGE_TAG)"
 }
 
@@ -55,6 +58,7 @@ cmd_init_env() {
   mkdir -p "$(dirname "$SOLO_ENV")"
   local voice=192.168.31.206 app=192.168.31.207 data=192.168.31.208
   local console=dcontact-solo-uat.osd.co.th workspace=dcontact-solo-workspace-uat.osd.co.th
+  local media=dcontact-solo-media-uat.osd.co.th asr=dcontact-solo-asr-uat.osd.co.th
   local owner app_db platform provisioner directory esl
   owner="$(secret)"; app_db="$(secret)"; platform="$(secret)"; provisioner="$(secret)"
   directory="$(secret)"; esl="$(secret)"
@@ -65,6 +69,9 @@ SOLO_APP_IP=$app
 SOLO_DATA_IP=$data
 SOLO_CONSOLE_HOST=$console
 SOLO_WORKSPACE_HOST=$workspace
+# host ของ QM (เข้าได้จาก VM app เท่านั้น ไม่ต้องมีใน DNS: container ใช้ extra_hosts)
+SOLO_MEDIA_HOST=$media
+SOLO_ASR_HOST=$asr
 SOLO_IMAGE_TAG=dev
 # IP ของเครื่องใน LAN ที่ใช้เป็นสายจำลอง (softphone/SIPp) — Kamailio รับสายเข้าจาก IP นี้เท่านั้น
 SOLO_SIM_TRUNK_IP=${SOLO_SIM_TRUNK_IP:-}
@@ -132,12 +139,14 @@ LINE_WEBHOOK_SECRET_SOURCE=disabled
 LINE_WEBHOOK_CHANNEL_ACCOUNT_ID=solo-disabled
 LINE_WEBHOOK_DESTINATION=solo-disabled
 LINE_WEBHOOK_PAYLOAD_KEY_REF=solo-disabled
-QM_MEDIA_ENDPOINT=https://object-storage.example.internal
-QM_TRANSCRIPTION_PROVIDER_ID=deployment-asr
-QM_TRANSCRIPTION_ENDPOINT=https://asr.example.internal/transcribe
-QM_TRANSCRIPTION_API_KEY=not-configured-in-solo-uat
+# QM ใช้ ASR simulator ตาม protocol v1 จนกว่าจะมีโมเดลจริง; QM ยังไม่เริ่มจนกว่าจะใส่ COMPOSE_PROFILES=qm
+QM_MEDIA_ENDPOINT=https://$media
+QM_TRANSCRIPTION_PROVIDER_ID=dcontact-asr-simulator
+QM_TRANSCRIPTION_ENDPOINT=https://$asr/v1/transcriptions
+QM_TRANSCRIPTION_API_KEY=$(secret)
 QM_SCORING_PROVIDER_ID=deployment-scorer
-QM_SCORING_ENDPOINT=https://scoring.example.internal/score
+# ยังไม่มี scorer: ค่าว่าง = ถอดเสียงอย่างเดียว ไม่สร้าง auto-QM draft
+QM_SCORING_ENDPOINT=
 QM_SCORING_MODEL_ID=not-configured
 QM_SCORING_PROMPT_VERSION=not-configured
 QM_SCORING_API_KEY=not-configured-in-solo-uat
@@ -343,7 +352,8 @@ cmd_voice() {
   cp "$ROOT/infra/solo/voice/freeswitch/entrypoint.sh" "$work/freeswitch/"
   cp "$ROOT/infra/solo/voice/docker-compose.yml" "$work/"
   sed -e "s/__SOLO_APP_IP__/$APP_IP/g" -e "s/__SOLO_CONSOLE_HOST__/$CONSOLE_HOST/g" \
-    -e "s/__SOLO_WORKSPACE_HOST__/$WORKSPACE_HOST/g" "$ROOT/infra/solo/voice/nginx.conf" >"$work/nginx.conf"
+    -e "s/__SOLO_WORKSPACE_HOST__/$WORKSPACE_HOST/g" -e "s/__SOLO_MEDIA_HOST__/$MEDIA_HOST/g" \
+    -e "s/__SOLO_ASR_HOST__/$ASR_HOST/g" "$ROOT/infra/solo/voice/nginx.conf" >"$work/nginx.conf"
   printf '# set 1 = FreeSWITCH profile pstn-sim บน VM เดียวกัน\n1 sip:%s:5080 0 0\n' "$VOICE_IP" >"$work/dispatcher.list"
   # voice ได้เฉพาะค่าที่ใช้ ไม่ได้ secret ของฐานแอป
   grep -E '^(SOLO_VOICE_IP|SOLO_APP_IP|SOLO_DATA_IP|SOLO_IMAGE_TAG|SOLO_KAMAILIO_DB_PASSWORD|TELEPHONY_NODE_ID|FREESWITCH_ESL_PASSWORD|FREESWITCH_DIRECTORY_PASSWORD)=' \

@@ -39,7 +39,25 @@ Telephony อาจส่ง `call.hangup` ก่อน archive WAV ขึ้น
 
 ## Provider contract
 
-กำหนด `QM_MEDIA_ENDPOINT` และ `QM_TRANSCRIPTION_ENDPOINT` เป็น `https:` เท่านั้น ค่า credential/API key ต้องมาจาก environment-specific secret boundary ค่า response ของ transcription provider ต้องมี `modelId`, `language`, `confidenceAvg` และ `segments` พร้อม speaker/timestamp/text
+QM เรียก ASR ตาม [D-Contact ASR Provider Protocol v1](../../docs/qm-asr-provider-protocol.md) ซึ่งเป็นสัญญากลางของทุก provider
+
+- `QM_MEDIA_ENDPOINT` และ `QM_TRANSCRIPTION_ENDPOINT` เป็น `https:` เท่านั้น ค่า credential/API key ต้องมาจาก environment-specific secret boundary
+- `QM_TRANSCRIPTION_TIMEOUT_MS` เวลารอ provider ต่อคำขอ ค่าเริ่มต้น 300000 (5 นาที)
+- response ต้องผ่าน `parseTranscriptionResult()` ใน `src/asr-provider-protocol.ts`: `modelId`, `language`, `confidenceAvg` และ `segments` ที่มี speaker/timestamp/text
+- provider ใหม่ต้องผ่าน `runAsrProviderContract()` ใน `src/asr-provider-contract.ts`
+
+## ASR simulator
+
+ระหว่างที่ยังไม่มีโมเดลจริง ใช้ `src/asr-simulator-main.ts` (`dist/asr-simulator-main.js`) ซึ่งผ่าน contract เดียวกัน
+ดาวน์โหลดไฟล์เสียงจริงและหาช่วงที่มีเสียงของแต่ละ channel แต่ข้อความเป็นประโยคจำลองที่ขึ้นต้นด้วย `[จำลอง]`
+
+```bash
+ASR_SIMULATOR_API_KEY=<token เดียวกับ QM_TRANSCRIPTION_API_KEY> \
+ASR_SIMULATOR_MEDIA_HOSTS=<host ของ QM_MEDIA_ENDPOINT> \
+pnpm --filter @d-contact/qm asr-simulator
+```
+
+simulator ฟัง HTTP ที่ `PORT` (ค่าเริ่มต้น 8090) ต้องมี reverse proxy ที่จบ TLS อยู่ข้างหน้า เพราะ QM เรียกเฉพาะ HTTPS
 
 ถ้าต้องการ auto-QM ให้กำหนด `QM_SCORING_*` ด้วย ทุกคำตอบที่ไม่มีหลักฐานอ้างอิง transcript segment จะถูกแปลงเป็น `INSUFFICIENT_EVIDENCE` และผลจะยังเป็น `DRAFT` จน Supervisor/Admin ที่มีสิทธิ์กด publish
 
