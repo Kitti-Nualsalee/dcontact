@@ -6,7 +6,7 @@
     "start": "Disable account…",
     "submit": "Confirm disable",
     "cancel": "Cancel",
-    "refresh": "Check original command",
+    "refresh": "Check disable result",
     "pending": "Checking the existing command. Do not submit again. Unknown outcomes retain local deny and quota reservations.",
     "states": {
       "QUEUED": "Accepted; disabling account",
@@ -25,7 +25,8 @@
     },
     "notEligible": "This account can't be disabled yet: it isn't active, is still provisioning, or has a pending request.",
     "dialogTitle": "Disable {{name}}?",
-    "submitting": "Disabling…"
+    "submitting": "Disabling…",
+    "closed": "This account is disabled. To restore access, use the “Re-enable account” card."
   },
   "pages": {
     "navigation": "People pages",
