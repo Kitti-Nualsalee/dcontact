@@ -148,6 +148,7 @@ export function catalogCapabilities(db: PrismaClient, identity: VoiceActor) {
       peopleProvisioning: { ready: false, reasons: ['CAPABILITY_NOT_READY'] },
       invitation: { ready: false, reasons: ['CAPABILITY_NOT_READY'] },
       disable: { ready: false, reasons: ['CAPABILITY_NOT_READY'] },
+      accountChange: { ready: false, reasons: ['CAPABILITY_NOT_READY'] },
       policyRevision: p.policy?.revision ?? null,
       sourceKind: p.policy?.sourceKind ?? null,
       limits:

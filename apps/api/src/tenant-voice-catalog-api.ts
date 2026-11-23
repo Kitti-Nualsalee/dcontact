@@ -155,6 +155,12 @@ export class TenantVoiceCatalogController {
       (await this.people?.canDisable?.(identity.tenantId))
     )
       result.disable = { ready: true, reasons: [] };
+    if (
+      result.canWrite &&
+      result.configuration.ready &&
+      (await this.people?.canChangeAccount?.(identity.tenantId))
+    )
+      result.accountChange = { ready: true, reasons: [] };
     return result;
   }
   @Get('teams') @Header('Cache-Control', 'no-store') teams(@Req() r: AuthenticatedGatewayRequest) {

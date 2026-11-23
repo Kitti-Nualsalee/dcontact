@@ -1,7 +1,24 @@
 import { CatalogApiError } from '../voice-routing/api.js';
 import { peopleUuid, type PeopleRole } from './api.js';
 
+export type PeopleAccountChangeKind = 'UPDATE_PROFILE' | 'ENABLE_ACCOUNT';
+export const PEOPLE_ACCOUNT_CHANGE_STATES = [
+  'QUEUED',
+  'WAITING_EXTERNAL',
+  'SUCCEEDED',
+  'REJECTED',
+  'ACTION_REQUIRED',
+] as const;
+export type PeopleAccountChangeState = (typeof PEOPLE_ACCOUNT_CHANGE_STATES)[number];
+/** #998 1B/2: คำสั่งแก้ชื่อ/เปิดบัญชีกลับล่าสุดของผู้ใช้ */
+export interface PeopleAccountChange {
+  operationId: string;
+  commandId: string;
+  kind: PeopleAccountChangeKind;
+  state: PeopleAccountChangeState;
+}
 export interface PeopleDirectoryUser {
+  accountChange?: PeopleAccountChange | null;
   disableOperationId?: string | null;
   disableCommandId?: string | null;
   id: string;
@@ -65,6 +82,25 @@ export interface PeopleDirectoryApi {
   disableOperation?(operationId: string, userId: string): Promise<string>;
   /** #998 1A: ย้ายทีม — ตอบผลทันที (ไม่มี operation) และ replay ได้ด้วย commandId เดิม */
   changeTeam?(userId: string, command: TeamChangeCommand): Promise<{ configRevision: number }>;
+  /** #998 1B/2: แก้ชื่อที่แสดง/เปิดบัญชีกลับ — รับคำสั่ง (202) แล้วตามผลที่ operations/:id */
+  accountChangeReady?(): Promise<boolean>;
+  changeAccount?(
+    userId: string,
+    kind: PeopleAccountChangeKind,
+    command: AccountChangeCommand,
+  ): Promise<{ operationId: string }>;
+  accountChangeOperation?(
+    operationId: string,
+    userId: string,
+    kind: PeopleAccountChangeKind,
+  ): Promise<PeopleAccountChangeState>;
+}
+export interface AccountChangeCommand {
+  commandId: string;
+  expectedRevision: number;
+  reason: string;
+  /** เฉพาะ UPDATE_PROFILE */
+  displayName?: string;
 }
 export interface TeamChangeCommand {
   commandId: string;
@@ -101,8 +137,22 @@ function account(raw: unknown): PeopleDirectoryUser {
     (value.operationId === null) !== (value.commandId === null)
   )
     throw new CatalogApiError(502, 'FAILED');
+  const change = value.accountChange ? object(value.accountChange) : null;
   return {
     id: value.id,
+    accountChange:
+      change &&
+      peopleUuid(change.operationId) &&
+      peopleUuid(change.commandId) &&
+      (change.kind === 'UPDATE_PROFILE' || change.kind === 'ENABLE_ACCOUNT') &&
+      (PEOPLE_ACCOUNT_CHANGE_STATES as readonly unknown[]).includes(change.state)
+        ? {
+            operationId: change.operationId,
+            commandId: change.commandId,
+            kind: change.kind,
+            state: change.state as PeopleAccountChangeState,
+          }
+        : null,
     disableOperationId: peopleUuid(value.disableOperationId) ? value.disableOperationId : null,
     disableCommandId: peopleUuid(value.disableCommandId) ? value.disableCommandId : null,
     displayName: value.displayName,
@@ -227,6 +277,53 @@ export function createPeopleDirectoryApi(options: {
       )
         throw new CatalogApiError(502, 'FAILED');
       return { configRevision: result.configRevision };
+    },
+    async accountChangeReady() {
+      const capability = await request('capabilities');
+      const ready = capability.accountChange;
+      return (
+        capability.canWrite === true &&
+        !!ready &&
+        typeof ready === 'object' &&
+        'ready' in ready &&
+        ready.ready === true
+      );
+    },
+    async changeAccount(userId, kind, command) {
+      if (!peopleUuid(userId) || !peopleUuid(command.commandId))
+        throw new CatalogApiError(400, 'FAILED');
+      const body =
+        kind === 'UPDATE_PROFILE'
+          ? {
+              commandId: command.commandId,
+              expectedRevision: command.expectedRevision,
+              displayName: command.displayName,
+              reason: command.reason,
+            }
+          : {
+              commandId: command.commandId,
+              expectedRevision: command.expectedRevision,
+              reason: command.reason,
+            };
+      const accepted =
+        kind === 'UPDATE_PROFILE'
+          ? await request(`people/users/${userId}/profile`, body, 202, 'PATCH')
+          : await request(`people/users/${userId}/enable`, body);
+      if (!peopleUuid(accepted.operationId) || accepted.userId !== userId || accepted.kind !== kind)
+        throw new CatalogApiError(502, 'FAILED');
+      return { operationId: accepted.operationId };
+    },
+    async accountChangeOperation(operationId, userId, kind) {
+      if (!peopleUuid(operationId) || !peopleUuid(userId)) throw new CatalogApiError(400, 'FAILED');
+      const operation = await request(`operations/${operationId}`);
+      if (
+        operation.operationId !== operationId ||
+        operation.userId !== userId ||
+        operation.step !== kind ||
+        !(PEOPLE_ACCOUNT_CHANGE_STATES as readonly unknown[]).includes(operation.state)
+      )
+        throw new CatalogApiError(502, 'FAILED');
+      return operation.state as PeopleAccountChangeState;
     },
     async disableReady() {
       const capability = await request('capabilities');

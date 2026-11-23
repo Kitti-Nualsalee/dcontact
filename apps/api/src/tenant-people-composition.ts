@@ -28,6 +28,13 @@ function parsePeopleConfiguration(environment: NodeJS.ProcessEnv, request: typeo
   if (disableFlag !== undefined && !['true', 'false'].includes(disableFlag))
     throw new Error('INVALID_PEOPLE_CONFIGURATION');
   const disableEnabled = disableFlag === 'true';
+  // #998 1B/2: แก้ชื่อและเปิดบัญชีกลับ ปิดโดยปริยายจนกว่า extension ที่มี accountReady จะ deploy
+  const accountFlag = environment.TENANT_PEOPLE_ACCOUNT_CHANGES_ENABLED;
+  if (accountFlag !== undefined && !['true', 'false'].includes(accountFlag))
+    throw new Error('INVALID_PEOPLE_CONFIGURATION');
+  const accountChangesEnabled = accountFlag === 'true';
+  if (accountChangesEnabled && (!raw || !workerUrl))
+    throw new Error('INVALID_PEOPLE_CONFIGURATION');
   if (disableEnabled && (!raw || !workerUrl)) throw new Error('INVALID_PEOPLE_CONFIGURATION');
   if (invitationFlag !== undefined && !['true', 'false'].includes(invitationFlag))
     throw new Error('INVALID_PEOPLE_CONFIGURATION');
@@ -57,6 +64,7 @@ function parsePeopleConfiguration(environment: NodeJS.ProcessEnv, request: typeo
     workerUrl,
     invitationsEnabled,
     disableEnabled,
+    accountChangesEnabled,
     bindings: bindings.map((value) => {
       const entry = object(value);
       if (
@@ -130,12 +138,20 @@ class OwnedPeopleRuntime extends TenantPeopleRuntime {
     invitationsEnabled: boolean,
     disableEnabled: boolean,
     disableFlush?: PeopleDisableFlushPort,
+    accountChangesEnabled = false,
   ) {
     super(
       workerDatabase,
       new Map(bindings.map((binding) => [binding.tenantId, binding.identity])),
       {
         nodes: new Map(bindings.map((binding) => [binding.tenantId, binding.nodes])),
+        ...(accountChangesEnabled
+          ? {
+              accounts: new Map(
+                bindings.map((binding) => [binding.tenantId, binding.identity.accountPort()]),
+              ),
+            }
+          : {}),
         ...(disableEnabled
           ? {
               disables: new Map(
@@ -179,5 +195,6 @@ export function configuredPeopleRuntime(
     configuration.invitationsEnabled,
     configuration.disableEnabled,
     disableFlush,
+    configuration.accountChangesEnabled,
   );
 }

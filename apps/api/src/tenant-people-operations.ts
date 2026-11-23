@@ -218,6 +218,17 @@ export function readPeopleOperation(db: PrismaClient, identity: VoiceActor, oper
       FROM tenant_people_disables operation LEFT JOIN tenant_user_lifecycles lifecycle ON lifecycle.tenant_id=operation.tenant_id AND lifecycle.user_id=operation.user_id
       WHERE operation.tenant_id=${identity.tenantId}::uuid AND operation.id=${id}::uuid`;
     if (disables[0]) return disables[0];
+    // #998 1B/2: step คือ UPDATE_PROFILE หรือ ENABLE_ACCOUNT; accountState สะท้อนสถานะที่ app ใช้จริง (ไม่คาดเดาผลที่ยังไม่รู้)
+    const accountChanges = await transaction.$queryRaw<typeof rows>`
+      SELECT operation.id AS "operationId",operation.user_id AS "userId",operation.state,operation.kind AS step,operation.revision,
+        CASE WHEN operation.kind='ENABLE_ACCOUNT' AND operation.state='ACTION_REQUIRED' THEN 'ATTENTION_REQUIRED'
+          ELSE COALESCE(lifecycle.account_state,CASE WHEN users.is_active THEN 'ACTIVE' ELSE 'DISABLED' END) END AS "accountState",
+        COALESCE(lifecycle.activation_state,'UNKNOWN') AS "activationState",COALESCE(lifecycle.provisioning_state,'UNKNOWN') AS "provisioningState",
+        operation.error_code AS "errorCode",operation.created_at AS "createdAt",operation.updated_at AS "updatedAt"
+      FROM tenant_people_account_changes operation JOIN users ON users.tenant_id=operation.tenant_id AND users.id=operation.user_id
+      LEFT JOIN tenant_user_lifecycles lifecycle ON lifecycle.tenant_id=operation.tenant_id AND lifecycle.user_id=operation.user_id
+      WHERE operation.tenant_id=${identity.tenantId}::uuid AND operation.id=${id}::uuid`;
+    if (accountChanges[0]) return accountChanges[0];
     const reconciles = await transaction.$queryRaw<typeof rows>`
       SELECT operation.id AS "operationId",operation.user_id AS "userId",operation.state,'RECONCILE_INVITATION' AS step,operation.revision,
         lifecycle.account_state AS "accountState",lifecycle.activation_state AS "activationState",lifecycle.provisioning_state AS "provisioningState",

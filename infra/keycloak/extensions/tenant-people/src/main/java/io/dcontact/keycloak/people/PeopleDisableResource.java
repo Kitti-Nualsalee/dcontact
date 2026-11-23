@@ -63,7 +63,7 @@ public class PeopleDisableResource {
     return new Command(tenant,user,identity,digest,fence,role,admins,String.join(",",pairs));
   }
 
-  private boolean identityMatches(Binding binding,String tenantId,String userId,UserModel user,String role) {
+  boolean identityMatches(Binding binding,String tenantId,String userId,UserModel user,String role) {
     if(user==null||user.getServiceAccountClientLink()!=null)return false;
     String classification=user.getFirstAttribute("dc_identity_class");
     if(classification!=null&&!"TENANT_USER".equals(classification))return false;
@@ -106,7 +106,7 @@ public class PeopleDisableResource {
         .anyMatch(credential->"totp".equals(OTPCredentialModel.createFromCredentialModel(credential).getOTPCredentialData().getSubType()));
   }
 
-  private boolean identityEnabled(Binding binding,String identityId) {
+  boolean identityEnabled(Binding binding,String identityId) {
     var manager=session.getProvider(JpaConnectionProvider.class).getEntityManager();
     var rows=manager.createNativeQuery("SELECT ENABLED FROM USER_ENTITY WHERE REALM_ID=:realm AND ID=:identity")
       .setParameter("realm",binding.realm().getId()).setParameter("identity",identityId).getResultList();

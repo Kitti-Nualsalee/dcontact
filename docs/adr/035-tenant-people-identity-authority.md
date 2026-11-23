@@ -1,6 +1,6 @@
 # ADR 035: Tenant People ใช้ narrow identity authority และ Keycloak-owned receipt
 
-- **สถานะ:** Accepted ตามสัญญา [V1-B #704](https://github.com/Kitti-Nualsalee/dcontact/issues/704); implementation และ acceptance อยู่ใน [B2 #709](https://github.com/Kitti-Nualsalee/dcontact/issues/709)
+- **สถานะ:** Accepted ตามสัญญา [V1-B #704](https://github.com/Kitti-Nualsalee/dcontact/issues/704); implementation และ acceptance อยู่ใน [B2 #709](https://github.com/Kitti-Nualsalee/dcontact/issues/709); ขยาย UPDATE_PROFILE/ENABLE_ACCOUNT ตาม [#998](https://github.com/Kitti-Nualsalee/dcontact/issues/998)
 
 Tenant Admin ส่ง intent ผ่าน application API เท่านั้น worker ใช้ client-credentials ของ tenant service client แยกชื่อ `dcontact-tenant-people-<tenantId>` กับ resource `dc-tenant-people` ไม่ขยายสิทธิ์ `dcontact-account-service`, browser หรือ Platform API และไม่ให้ `realm-management` แก่ worker การผูก tenant/Organization/audience/role allowlist เป็น operator-owned configuration ไม่ใช่ payload ที่ Admin เลือกได้
 
@@ -9,6 +9,17 @@ Tenant Admin ส่ง intent ผ่าน application API เท่านั้
 Identity ที่ provision ใหม่ต้องมี positive classification และ attributes ที่ User Profile อนุญาตเฉพาะ admin แก้ได้ ตรวจ role/Organization/correlation/protected identity ก่อนแต่ละขั้น ไม่ล้างสิทธิ์หรือย้าย Organization เพื่อให้ conflict ผ่าน `PROVISIONED` หมายถึง mapping และ required actions ครบ แต่ domain user ยัง inactive และ `PENDING_ACTIVATION`; B2 ไม่ส่ง email ไม่ตั้ง password/TOTP แทนผู้ใช้ ไม่สร้าง SIP credential หรือ presence การตั้ง password/TOTP ด้วยตนเองใน ADR-033 ไม่เปลี่ยน
 
 Domain คง local-part ของ normalized email ตาม contract แต่ JPA `UserAdapter` ของ pinned Keycloak เก็บ email/username เป็น lowercase จึงตรวจ representation ด้วย `KeycloakModelUtils.toLowerCaseSafe` ตัวเดียวกับ distribution ไม่เปลี่ยน accepted payload/digest หรือใช้ lookup เพื่อ adopt identity การทดสอบต้องมี mixed-case local-part ผ่านจนจบ provisioning ด้วย
+
+## ขยายขอบเขต #998: แก้ชื่อที่แสดงและเปิดบัญชีกลับ
+
+Owner อนุมัติใน [#998](https://github.com/Kitti-Nualsalee/dcontact/issues/998) (23 พ.ย. 2569) ให้ `dc-tenant-people` มีสอง step เพิ่มจากสัญญา #704 ซึ่งเดิมห้ามแก้ผู้ใช้และเปิดบัญชีกลับ:
+
+- `UPDATE_PROFILE` เปลี่ยน `firstName` เป็น `displayName` ที่ application normalize แล้วเท่านั้น ไม่แตะ email/username, role, Organization, attributes หรือ credentials และทำได้เฉพาะ identity ที่ยัง enabled
+- `ENABLE_ACCOUNT` เป็นด้านกลับของ `DISABLE_ACCOUNT`: ตั้ง enabled กลับเฉพาะ identity ที่ปิดอยู่และมี password, TOTP, email ยืนยันแล้วและไม่มี required action ค้าง ไม่ตั้งหรือ reset password/TOTP แทนผู้ใช้ ไม่ส่ง email และไม่สร้าง session
+
+ทั้งสอง step ใช้ tenant gate (pessimistic lock), operation descriptor (service client, step, target, identity, role, ชื่อ, Organization และ digest), monotonic fence และ immutable receipt `<step>:0` ใน JPA transaction เดียวกับ mutation เหมือน disable ล็อกแถว identity ก่อนตรวจ positive classification/role/Organization จาก local JPA provider ทุกครั้ง การปฏิเสธก่อนแตะ identity เป็น `REJECTED_NO_EFFECT` ส่วน receipt สำเร็จต้อง readback ว่าชื่อหรือสถานะ enabled พร้อม credentials ยังตรง ถ้า drift หลัง receipt คืน `UNKNOWN` ไม่คืน marker เก่า ไม่ต้องเพิ่ม Liquibase changeSet เพราะใช้ตาราง operation/receipt เดิม readiness เพิ่ม `accountReady`
+
+ฝั่ง application เปลี่ยน `users.display_name` หรือ `User.isActive=true` + lifecycle `ACTIVE` ภายใน definer function เดียวกับที่บันทึก receipt และเฉพาะเมื่อ receipt สำเร็จ, identity ตรงคำสั่ง และ local state ยังตรงกับตอนรับคำสั่ง ผลไม่ชัดเจนคงชื่อเดิม/`DISABLED` เป็น `ACTION_REQUIRED` แล้ว reconcile ด้วย GET อย่างเดียว ไม่ส่ง mutation ซ้ำหลัง attempted การเปิดกลับจอง seat ตั้งแต่รับคำสั่ง ตรวจโควตา Agent ทีม active และหมายเลขภายในเดิมยังเป็นของผู้ใช้ การแก้ชื่อไม่รับบัญชี `PENDING_ACTIVATION` เพราะ invitation resend ผูก `firstName` กับ payload ตอนสร้าง การเปลี่ยนบทบาทและหมายเลขภายในยังอยู่นอกขอบเขต ADR นี้
 
 ## Compatibility และ release gate
 

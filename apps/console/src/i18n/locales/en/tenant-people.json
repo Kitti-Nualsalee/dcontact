@@ -2,7 +2,7 @@
   "disable": {
     "title": "Disable account",
     "warning": "Only idle accounts can be disabled. Access stops immediately. The last usable Admin cannot be disabled.",
-    "confirm": "Disable this account? History is retained. This page cannot re-enable the account.",
+    "confirm": "Disable this account? History is retained. The user cannot sign in until an Admin re-enables the account.",
     "start": "Disable account…",
     "submit": "Confirm disable",
     "cancel": "Cancel",
@@ -235,6 +235,56 @@
       "UNKNOWN": "We couldn't confirm the team change. The latest details are loaded; check the team before trying again.",
       "ACCOUNT_STATE_CONFLICT": "This account can't change team in its current state (disabled, disabling or needs review).",
       "AGENT_SESSION_ACTIVE": "The Agent is still signed in to Workspace. Ask them to leave Workspace, then try again."
+    }
+  },
+  "profile": {
+    "start": "Edit display name…",
+    "title": "Edit display name for {{name}}",
+    "body": "The new name is used in the app and on the sign-in page. It changes after the identity service confirms it; until then the current name is shown.",
+    "newName": "New display name",
+    "submit": "Save name",
+    "saving": "Sending…",
+    "pending": "Changing the name. The new name appears once the result is confirmed.",
+    "notEligible": "Only active accounts without a pending command can be renamed.",
+    "states": {
+      "QUEUED": "Rename request accepted",
+      "WAITING_EXTERNAL": "Updating the name in the identity service",
+      "SUCCEEDED": "Display name updated",
+      "REJECTED": "Name not changed. The current name is still in use.",
+      "ACTION_REQUIRED": "Could not confirm the rename yet. The current name is still shown and the result is being checked."
+    }
+  },
+  "enable": {
+    "title": "Re-enable account",
+    "help": "This account can be re-enabled. The user signs in with their existing password and authenticator code.",
+    "start": "Re-enable account…",
+    "dialogTitle": "Re-enable {{name}}?",
+    "body": "The user can sign in again with their existing password and authenticator (TOTP), stays in team {{team}} and keeps extension {{extension}}. The account counts toward your quota again.",
+    "submit": "Re-enable account",
+    "submitting": "Sending…",
+    "pending": "Re-enabling. The account stays disabled until confirmed. Do not send the command again.",
+    "states": {
+      "QUEUED": "Request accepted, re-enabling the account",
+      "WAITING_EXTERNAL": "Enabling in the identity service. The account is still disabled.",
+      "SUCCEEDED": "Account re-enabled. The user can sign in.",
+      "REJECTED": "Account not re-enabled. It stays disabled.",
+      "ACTION_REQUIRED": "Could not confirm the result yet. The account stays disabled while the original command is checked."
+    }
+  },
+  "accountChange": {
+    "refresh": "Check original command",
+    "errors": {
+      "CONFIG_BUSY": "Other work or a command is pending. Try again when it finishes.",
+      "REVISION_CONFLICT": "This account was changed. Check the latest details and try again.",
+      "ACCOUNT_STATE_CONFLICT": "This action is not available for the account's current status.",
+      "EXTENSION_CONFLICT": "The original extension no longer belongs to this user, so the account cannot be re-enabled.",
+      "REFERENCE_SCOPE_MISMATCH": "The user's team is inactive, so the account cannot be re-enabled.",
+      "RESOURCE_LIMIT_REACHED": "The account or agent quota is full.",
+      "CREDENTIALS_NOT_READY": "The user has not finished setting a password or authenticator, so the account cannot be re-enabled.",
+      "PROTECTED_OR_FOREIGN_IDENTITY": "This account is outside the scope you can change.",
+      "IDENTITY_STATE_CONFLICT": "The identity service state does not match the app. Contact your system administrator.",
+      "NOT_ACCEPTED": "The command was not accepted because the service is not ready. Try again later.",
+      "FAILED": "Could not confirm the result. Check the original command before trying again."
     }
   }
 }

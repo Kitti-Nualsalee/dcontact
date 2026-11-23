@@ -421,6 +421,11 @@ GRANT SELECT ON tenant_people_disables,tenant_people_disable_receipts,tenant_peo
 -- #998 1A: ledger การย้ายทีมเขียนผ่าน dc_people_apply_team_change เท่านั้น app อ่านได้อย่างเดียว
 REVOKE ALL ON tenant_people_team_changes FROM dcontact_app;
 GRANT SELECT ON tenant_people_team_changes TO dcontact_app;
+-- #998 1B/2: app insert คำสั่งแล้ว accept ผ่าน dc_people_accept_account_change; worker แก้สถานะผ่าน definer เท่านั้น
+REVOKE ALL ON tenant_people_account_changes,tenant_people_account_change_receipts FROM dcontact_app,dcontact_tenant_people_worker;
+GRANT SELECT,INSERT ON tenant_people_account_changes TO dcontact_app;
+GRANT SELECT ON tenant_people_account_change_receipts TO dcontact_app;
+GRANT SELECT ON tenant_people_account_changes,tenant_people_account_change_receipts TO dcontact_tenant_people_worker;
 REVOKE ALL ON tenant_people_operations, tenant_identity_reservations, tenant_user_lifecycles, tenant_people_step_receipts FROM dcontact_app;
 GRANT SELECT, INSERT ON tenant_people_operations, tenant_identity_reservations, tenant_user_lifecycles TO dcontact_app;
 GRANT SELECT ON tenant_people_step_receipts TO dcontact_app;
