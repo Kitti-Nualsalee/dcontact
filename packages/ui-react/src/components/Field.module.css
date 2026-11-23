@@ -87,6 +87,12 @@
   color: var(--dc-text-muted);
 }
 
+/* input type=search มีปุ่ม × ของ browser เอง ซ่อนไว้ให้เหลือปุ่มล้างของ SearchField ปุ่มเดียว */
+.input::-webkit-search-cancel-button,
+.input::-webkit-search-decoration {
+  display: none;
+}
+
 .clear {
   display: inline-flex;
   align-items: center;

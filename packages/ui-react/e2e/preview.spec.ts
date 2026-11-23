@@ -78,6 +78,26 @@ test('keyboard: TextField/SearchField — พิมพ์, Esc ล้างค�
   await expect(page.getByRole('button', { name: 'ล้างคำค้นหา' })).toBeHidden();
   await page.keyboard.type('สมชาย');
   await expect(search).toHaveValue('สมชาย');
+  // มีปุ่มล้างของเราปุ่มเดียว ปุ่ม × ของ browser (input type=search) ต้องไม่แสดงซ้อน
+  await expect(page.getByRole('button', { name: 'ล้างคำค้นหา' })).toBeVisible();
+  // getComputedStyle อ่าน pseudo แบบ vendor ไม่ได้ จึงตรวจว่ามีกฎ display:none ที่ตรงกับ input นี้
+  expect(
+    await search.evaluate((el) =>
+      Array.from(document.styleSheets).some((sheet) =>
+        Array.from(sheet.cssRules).some((rule) => {
+          if (!(rule instanceof CSSStyleRule) || rule.style.display !== 'none') return false;
+          return rule.selectorText
+            .split(',')
+            .map((part) => part.trim())
+            .some(
+              (part) =>
+                part.endsWith('::-webkit-search-cancel-button') &&
+                el.matches(part.replace('::-webkit-search-cancel-button', '')),
+            );
+        }),
+      ),
+    ),
+  ).toBe(true);
   await page.keyboard.press('Escape');
   await expect(search).toHaveValue('');
 
