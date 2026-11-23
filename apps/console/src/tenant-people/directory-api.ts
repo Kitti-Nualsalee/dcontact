@@ -63,6 +63,14 @@ export interface PeopleDirectoryApi {
   disableReady?(): Promise<boolean>;
   disable?(userId: string, command: InvitationCommand): Promise<{ operationId: string }>;
   disableOperation?(operationId: string, userId: string): Promise<string>;
+  /** #998 1A: ย้ายทีม — ตอบผลทันที (ไม่มี operation) และ replay ได้ด้วย commandId เดิม */
+  changeTeam?(userId: string, command: TeamChangeCommand): Promise<{ configRevision: number }>;
+}
+export interface TeamChangeCommand {
+  commandId: string;
+  expectedRevision: number;
+  teamId: string;
+  reason: string;
 }
 
 function object(raw: unknown): Record<string, unknown> {
@@ -142,13 +150,18 @@ export function createPeopleDirectoryApi(options: {
   baseUrl: string;
   accessToken(): string | undefined;
 }): PeopleDirectoryApi {
-  async function request(path: string, body?: InvitationCommand | object, expected?: number) {
+  async function request(
+    path: string,
+    body?: InvitationCommand | object,
+    expected?: number,
+    method?: 'PATCH',
+  ) {
     const token = options.accessToken();
     if (!token) throw new CatalogApiError(401, 'UNAUTHORIZED');
     const response = await fetch(
       `${options.baseUrl.replace(/\/$/, '')}/api/v1/tenant-voice/${path}`,
       {
-        method: body ? 'POST' : 'GET',
+        method: method ?? (body ? 'POST' : 'GET'),
         cache: 'no-store',
         redirect: 'error',
         headers: {
@@ -201,6 +214,19 @@ export function createPeopleDirectoryApi(options: {
       )
         throw new CatalogApiError(502, 'FAILED');
       return { items: value.items.map(account), nextCursor: value.nextCursor };
+    },
+    async changeTeam(userId, command) {
+      if (!peopleUuid(userId) || !peopleUuid(command.commandId) || !peopleUuid(command.teamId))
+        throw new CatalogApiError(400, 'FAILED');
+      const result = await request(`people/users/${userId}/team`, command, 200, 'PATCH');
+      if (
+        result.userId !== userId ||
+        result.teamId !== command.teamId ||
+        typeof result.configRevision !== 'number' ||
+        !Number.isSafeInteger(result.configRevision)
+      )
+        throw new CatalogApiError(502, 'FAILED');
+      return { configRevision: result.configRevision };
     },
     async disableReady() {
       const capability = await request('capabilities');

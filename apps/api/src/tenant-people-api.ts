@@ -6,6 +6,7 @@ import {
   HttpCode,
   Inject,
   Param,
+  Patch,
   Post,
   Query,
   Req,
@@ -26,6 +27,7 @@ import {
 } from './tenant-people-operations.js';
 import { TENANT_PEOPLE_READINESS, type TenantPeopleReadiness } from './tenant-people-readiness.js';
 import { readPeopleDirectory, searchPeopleDirectory } from './tenant-people-directory.js';
+import { acceptPeopleTeamChange } from './tenant-people-team-change.js';
 import { acceptPeopleInvitationReconcile } from './tenant-people-invitation-reconcile.js';
 import { acceptPeopleInvitationResend } from './tenant-people-invitation-resend.js';
 import { acceptPeopleDisable } from './tenant-people-disable.js';
@@ -131,6 +133,18 @@ export class TenantPeopleController {
     const accepted = await acceptPeopleDisable(this.database, identity, id, body, port);
     response.setHeader('Location', accepted.location);
     return accepted;
+  }
+
+  /** #998 1A: ย้ายทีม — ไม่แตะ Keycloak จึงไม่ต้องรอ identity readiness */
+  @Patch('people/users/:id/team')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  team(
+    @Req() request: AuthenticatedGatewayRequest,
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ) {
+    return acceptPeopleTeamChange(this.database, actor(request), id, body);
   }
 
   @Post('people/users/:id/reconcile')

@@ -215,5 +215,26 @@
       "REJECTED": "The command was rejected and no account was activated. Check the details and create it again.",
       "FINISHED": "This command finished, but the account isn't in a recognized state. Check the account details for its latest status."
     }
+  },
+  "teamChange": {
+    "start": "Change team…",
+    "title": "Change team for {{name}}",
+    "newTeam": "New team",
+    "chooseTeam": "Choose a team",
+    "submit": "Confirm team change",
+    "saving": "Changing team…",
+    "body": "Currently in {{team}}. After the change, what this account can see and access follows the new team immediately.",
+    "bodyAgent": "Currently in {{team}}. After the change, this Agent takes calls from the new team's queues, and skills from the old team are removed. Assign new skills on the Agent skills page. Only possible when the Agent has left Workspace and has no active call.",
+    "done": "Moved to {{team}}.",
+    "notMovable": "Only active or pending accounts with no pending command can change team.",
+    "errors": {
+      "CONFIG_BUSY": "Can't change team yet because a call or command is in progress. Try again when idle.",
+      "REVISION_CONFLICT": "This account was changed by someone else. The latest details are loaded; check and try again.",
+      "REFERENCE_SCOPE_MISMATCH": "The selected team is no longer available. Choose another team.",
+      "FAILED": "Invalid details. Check the team and reason and try again.",
+      "UNKNOWN": "We couldn't confirm the team change. The latest details are loaded; check the team before trying again.",
+      "ACCOUNT_STATE_CONFLICT": "This account can't change team in its current state (disabled, disabling or needs review).",
+      "AGENT_SESSION_ACTIVE": "The Agent is still signed in to Workspace. Ask them to leave Workspace, then try again."
+    }
   }
 }
