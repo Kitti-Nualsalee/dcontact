@@ -58,17 +58,79 @@ function projection(row: DirectoryRow) {
   };
 }
 
+/**
+ * สถานะเดียวที่ Console แสดงต่อบัญชี (ลำดับเดียวกับ `accountStatus()` ใน Console — ข้อแรกที่ตรงชนะ)
+ * search กรองด้วยค่านี้เพื่อให้ผลตรงกับ chip ที่ผู้ใช้เห็น; GET `state` ยังกรองด้วย accountState ดิบตามเดิม
+ */
+export const DISPLAY_STATUSES = [
+  'ATTENTION_REQUIRED',
+  'REJECTED',
+  'DISABLED',
+  'DISABLING',
+  'PROVISIONING',
+  'ACTIVE',
+  'PENDING_ACTIVATION',
+  'UNKNOWN',
+] as const;
+const DISPLAY_STATUS_SQL = Prisma.sql`(CASE
+  WHEN "accountState"='ATTENTION_REQUIRED' THEN 'ATTENTION_REQUIRED'
+  WHEN "provisioningState"='REJECTED' THEN 'REJECTED'
+  WHEN "accountState"='DISABLED' THEN 'DISABLED'
+  WHEN "accountState"='DISABLING' THEN 'DISABLING'
+  WHEN "accountState"='PROVISIONING' OR "provisioningState"='PENDING' THEN 'PROVISIONING'
+  WHEN "accountState"='ACTIVE' AND "activationState"='ACTIVATED' AND "isActive" THEN 'ACTIVE'
+  WHEN "accountState"='PENDING_ACTIVATION' AND "provisioningState"='PROVISIONED'
+    AND "activationState"='PENDING' THEN 'PENDING_ACTIVATION'
+  ELSE 'UNKNOWN' END)`;
+
+/** แปลง LIKE wildcard ในคำค้นเป็นตัวอักษรธรรมดา */
+function likePattern(value: string) {
+  return `%${value.replace(/[\\%_]/g, (character) => `\\${character}`).toLowerCase()}%`;
+}
+
+/**
+ * คำค้น `q` รับเฉพาะใน body ของ POST search เพื่อไม่ให้ชื่อหรือ email อยู่ใน URL/access log
+ * ค่าที่ผ่านต้องเป็นข้อความ 1–100 ตัวอักษรหลัง trim และไม่มี control character
+ */
+function searchText(value: unknown) {
+  if (value === undefined) return null;
+  if (typeof value !== 'string') voiceFail('VALIDATION_FAILED', 400, { field: 'q' });
+  const text = value.trim().normalize('NFC');
+  const length = [...text].length;
+  if (length === 0) return null;
+  if (length > 100 || /\p{Cc}/u.test(text)) voiceFail('VALIDATION_FAILED', 400, { field: 'q' });
+  return text;
+}
+
+/** POST /people/users/search: ตัวกรองเดียวกับ GET list บวกคำค้น `q` ใน body */
+export function searchPeopleDirectory(database: PrismaClient, identity: VoiceActor, body: unknown) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) voiceFail('VALIDATION_FAILED', 400);
+  const input: Record<string, unknown> = { ...body };
+  if (typeof input.limit === 'number') input.limit = String(input.limit);
+  if (input.cursor === null) delete input.cursor;
+  return readPeopleDirectory(database, identity, input, undefined, true);
+}
+
 export function readPeopleDirectory(
   database: PrismaClient,
   identity: VoiceActor,
   query: Record<string, unknown>,
   userId?: string,
+  searchable = false,
 ) {
   return withTenantDatabaseTransaction(database, identity.tenantId, async (transaction) => {
     const actor = await catalogActor(transaction, identity, true);
     if (
       Object.keys(query).some(
-        (key) => !['limit', 'cursor', 'teamId', 'role', 'state'].includes(key),
+        (key) =>
+          ![
+            'limit',
+            'cursor',
+            'teamId',
+            'role',
+            'state',
+            ...(searchable ? ['q', 'status'] : []),
+          ].includes(key),
       )
     )
       voiceFail('VALIDATION_FAILED', 400);
@@ -98,7 +160,14 @@ export function readPeopleDirectory(
     )
       voiceFail('VALIDATION_FAILED', 400, { field: 'state' });
     const id = userId === undefined ? null : voiceUuid(userId, 'id');
-    const filterDigest = digest(['tenant-people-users', teamId, role, state]);
+    const q = searchable ? searchText(query.q) : null;
+    const status = searchable ? (query.status ?? null) : null;
+    if (
+      status !== null &&
+      (typeof status !== 'string' || !(DISPLAY_STATUSES as readonly string[]).includes(status))
+    )
+      voiceFail('VALIDATION_FAILED', 400, { field: 'status' });
+    const filterDigest = digest(['tenant-people-users', teamId, role, state, q, status]);
     let after: { at: Date; id: string } | undefined;
     if (query.cursor !== undefined) {
       try {
@@ -166,6 +235,14 @@ export function readPeopleDirectory(
         ${teamId ? Prisma.sql`AND "teamId"=${teamId}::uuid` : Prisma.empty}
         ${role ? Prisma.sql`AND role=${role}` : Prisma.empty}
         ${state ? Prisma.sql`AND "accountState"=${state}` : Prisma.empty}
+        ${status ? Prisma.sql`AND ${DISPLAY_STATUS_SQL}=${status}` : Prisma.empty}
+        ${
+          q
+            ? Prisma.sql`AND (lower("displayName") LIKE ${likePattern(q)} ESCAPE '\\'
+                OR lower(email) LIKE ${likePattern(q)} ESCAPE '\\'
+                OR lower(COALESCE(extension,'')) LIKE ${likePattern(q)} ESCAPE '\\')`
+            : Prisma.empty
+        }
         ${after ? Prisma.sql`AND ("createdAt",id)>(${after.at},${after.id}::uuid)` : Prisma.empty}
         ORDER BY "createdAt",id LIMIT ${id ? 1 : limit + 1}`);
     if (id) {

@@ -281,14 +281,33 @@ function PeopleSession({ api, identityKey, onSignIn }: Props) {
     status.provisioningState === 'PROVISIONED' &&
     status.accountState === 'PENDING_ACTIVATION' &&
     status.activationState === 'PENDING';
+  // ขั้นของคำสั่งสร้างบัญชีที่แถบด้านบนแสดง: ยังไม่รู้ผล → กำลังทำ → ผลสุดท้าย
+  const phase =
+    status?.state === 'SUCCEEDED' &&
+    status.accountState === 'ACTIVE' &&
+    status.activationState === 'ACTIVATED'
+      ? 'ACTIVE'
+      : provisioned
+        ? 'PROVISIONED'
+        : status?.state === 'ACTION_REQUIRED' || status?.accountState === 'ATTENTION_REQUIRED'
+          ? 'ATTENTION'
+          : status?.state === 'REJECTED'
+            ? 'REJECTED'
+            : terminal
+              ? 'FINISHED'
+              : status
+                ? 'IN_PROGRESS'
+                : 'CHECKING';
   const operationTone =
-    status?.state === 'SUCCEEDED'
-      ? 'success'
-      : status?.state === 'ACTION_REQUIRED' ||
-          status?.accountState === 'ATTENTION_REQUIRED' ||
-          status?.state === 'REJECTED'
-        ? 'critical'
-        : 'info';
+    phase === 'FINISHED'
+      ? 'neutral'
+      : status?.state === 'SUCCEEDED'
+        ? 'success'
+        : status?.state === 'ACTION_REQUIRED' ||
+            status?.accountState === 'ATTENTION_REQUIRED' ||
+            status?.state === 'REJECTED'
+          ? 'critical'
+          : 'info';
   const canSubmit =
     !disabled && !!name.trim() && !!email.trim() && !!teamId && (role !== 'AGENT' || !!extension);
   return (
@@ -330,25 +349,30 @@ function PeopleSession({ api, identityKey, onSignIn }: Props) {
         </p>
       ) : null}
       {pending ? (
-        <section className="tp-banner" aria-label={label('operation')}>
-          <StatusChip status={operationTone}>{label('operation')}</StatusChip>
-          <p role="status" className="tp-banner-text">
-            {status?.state === 'SUCCEEDED' &&
-            status.accountState === 'ACTIVE' &&
-            status.activationState === 'ACTIVATED'
-              ? label('invitation.active')
-              : provisioned
-                ? label('provisioned')
-                : status?.state === 'ACTION_REQUIRED' ||
-                    status?.accountState === 'ATTENTION_REQUIRED'
-                  ? label('attention')
-                  : status?.state === 'REJECTED'
-                    ? label('rejected')
-                    : label('pending')}
-          </p>
-          <Button variant="secondary" isDisabled={busy} onPress={() => void recover()}>
-            {label('refresh')}
-          </Button>
+        <section className="tp-banner" aria-labelledby="tp-banner-title">
+          <StatusChip status={operationTone}>{label(`banner.chip.${phase}`)}</StatusChip>
+          <div className="tp-banner-text">
+            <p id="tp-banner-title" className="tp-banner-title">
+              {label('banner.title')}
+            </p>
+            <p role="status">{label(`banner.body.${phase}`)}</p>
+          </div>
+          {terminal ? (
+            <Button
+              variant="secondary"
+              isDisabled={busy}
+              onPress={() => {
+                remember(undefined);
+                setStatus(undefined);
+              }}
+            >
+              {label('banner.dismiss')}
+            </Button>
+          ) : (
+            <Button variant="secondary" isDisabled={busy} onPress={() => void recover()}>
+              {label('refresh')}
+            </Button>
+          )}
         </section>
       ) : null}
       {mode === 'form' ? (

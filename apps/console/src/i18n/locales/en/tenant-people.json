@@ -36,10 +36,6 @@
   "attention": "This account requires attention. Contact an administrator; it is not activated.",
   "notice": "Provisioning, invitation delivery and activation are separate states. Users set their own password/TOTP; activation does not open calls automatically.",
   "notReady": "Account provisioning is unavailable or you do not have permission to create accounts.",
-  "operation": "Account provisioning status",
-  "provisioned": "Account provisioned — awaiting user activation",
-  "pending": "The outcome is not yet confirmed. Check the original command before creating another account.",
-  "rejected": "The command was rejected. The account is not activated.",
   "refresh": "Check original command",
   "name": "Display name",
   "email": "Email",
@@ -93,7 +89,6 @@
     "pending": "Checking the original command. Do not submit a duplicate.",
     "failed": "Outcome not confirmed. Check the original command before submitting again.",
     "limited": "The limit of 3 resends per rolling 60 minutes has been reached. Wait before trying again.",
-    "active": "Account activated — calls are not opened automatically.",
     "provisioningStates": {
       "PENDING": "Provisioning",
       "PROVISIONED": "Provisioned",
@@ -118,16 +113,17 @@
   },
   "list": {
     "subtitle": "Accounts that sign in to Workspace and Console in this tenant",
-    "count": "Showing {{shown}} of {{loaded}} loaded accounts",
     "countAll": "{{count}} accounts",
     "openRow": "View",
     "emptyTitle": "No user accounts yet",
     "emptyBody": "Create the first account to invite an Agent, Supervisor or Admin.",
-    "noMatch": "No loaded accounts match these filters.",
+    "noMatch": "No accounts match this search or these filters.",
     "loadFailed": "Couldn't load accounts.",
     "moreFailed": "Couldn't load more accounts. Loaded rows are kept.",
     "retry": "Retry",
-    "unknownTeam": "Team not found"
+    "unknownTeam": "Team not found",
+    "countMatched": "Matching accounts: {{count}}",
+    "countMore": "Showing the first {{count}} accounts. More are available."
   },
   "columns": {
     "name": "Name",
@@ -142,8 +138,7 @@
     "status": "Status",
     "allStatuses": "All statuses",
     "allTeams": "All teams",
-    "clear": "Clear filters",
-    "loadedOnly": "Searching only the {{count}} loaded accounts. Load more to search all."
+    "clear": "Clear filters"
   },
   "status": {
     "ACTIVE": "Active",
@@ -198,5 +193,27 @@
     "titleReconcile": "Check invitation delivery",
     "bodyReconcile": "The last delivery result is unclear. This checks the evidence first and doesn't resend.",
     "sending": "Sending…"
+  },
+  "banner": {
+    "title": "Latest account creation",
+    "dismiss": "Dismiss",
+    "chip": {
+      "CHECKING": "Checking",
+      "IN_PROGRESS": "Provisioning",
+      "PROVISIONED": "Awaiting activation",
+      "ACTIVE": "Activated",
+      "ATTENTION": "Needs review",
+      "REJECTED": "Not completed",
+      "FINISHED": "Finished"
+    },
+    "body": {
+      "CHECKING": "We haven't received this command's outcome yet. We're checking the original command and won't create a duplicate. You can't create another account until then.",
+      "IN_PROGRESS": "Setting up the account and invitation. We check every 5 seconds. You can't create another account until then.",
+      "PROVISIONED": "Account provisioned — awaiting user activation. The user must open the email invitation to set a password and verify their identity.",
+      "ACTIVE": "The user activated the account. Calls aren't opened on the user's behalf.",
+      "ATTENTION": "This account requires attention. Contact an administrator; it is not activated.",
+      "REJECTED": "The command was rejected and no account was activated. Check the details and create it again.",
+      "FINISHED": "This command finished, but the account isn't in a recognized state. Check the account details for its latest status."
+    }
   }
 }

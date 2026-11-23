@@ -175,25 +175,30 @@ for (const scenario of [
       expect(creates).toBe(1);
       return;
     }
-    await expect(
-      page.getByText('จัดเตรียมบัญชีแล้ว — ยังรอผู้ใช้เปิดใช้งาน', { exact: true }),
-    ).toBeVisible();
+    await expect(page.getByText(/^จัดเตรียมบัญชีแล้ว — ยังรอผู้ใช้เปิดใช้งาน/)).toBeVisible();
     const storage = await page.evaluate(() => JSON.stringify(sessionStorage));
     expect(storage).not.toContain('synthetic@example.test');
     expect(storage).not.toContain('e2e-access-token');
     await page.reload();
-    await expect(
-      page.getByText('จัดเตรียมบัญชีแล้ว — ยังรอผู้ใช้เปิดใช้งาน', { exact: true }),
-    ).toBeVisible();
+    await expect(page.getByText(/^จัดเตรียมบัญชีแล้ว — ยังรอผู้ใช้เปิดใช้งาน/)).toBeVisible();
     expect(creates).toBe(['validation', 'quota', 'conflict'].includes(scenario) ? 2 : 1);
     expect(reads).toBeGreaterThanOrEqual(2);
     expect(forbidden).toEqual([]);
+    const banner = page.getByRole('region', { name: 'คำสั่งสร้างบัญชีล่าสุด' });
+    await expect(banner).toContainText('รอเปิดใช้งาน');
+    await expect(banner.getByRole('button', { name: 'ตรวจผลคำสั่งเดิม' })).toHaveCount(0);
     const accessibility = await new AxeBuilder({ page }).analyze();
     expect(
       accessibility.violations.filter(
         (item) => item.impact === 'serious' || item.impact === 'critical',
       ),
     ).toEqual([]);
+    // ผลสุดท้ายแล้วปิดแถบได้ และไม่กลับมาหลัง reload
+    await banner.getByRole('button', { name: 'ปิดแถบนี้', exact: true }).click();
+    await expect(banner).toHaveCount(0);
+    await page.reload();
+    await expect(page.getByRole('button', { name: 'สร้างบัญชี', exact: true })).toBeEnabled();
+    await expect(page.getByRole('region', { name: 'คำสั่งสร้างบัญชีล่าสุด' })).toHaveCount(0);
   });
 
 for (const ending of ['success', 'auth', 'unmount'])
@@ -286,9 +291,7 @@ for (const ending of ['success', 'auth', 'unmount'])
         await page.evaluate(() => sessionStorage.getItem('dc:tenant-people:pending:e2e-people')),
       ).toContain(operationId);
     } else
-      await expect(
-        page.getByText('จัดเตรียมบัญชีแล้ว — ยังรอผู้ใช้เปิดใช้งาน', { exact: true }),
-      ).toBeVisible();
+      await expect(page.getByText(/^จัดเตรียมบัญชีแล้ว — ยังรอผู้ใช้เปิดใช้งาน/)).toBeVisible();
     await page.clock.runFor(15_000);
     expect(reads).toBe(3);
   });

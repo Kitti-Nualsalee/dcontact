@@ -25,7 +25,7 @@ import {
   readPeopleExtensionPool,
 } from './tenant-people-operations.js';
 import { TENANT_PEOPLE_READINESS, type TenantPeopleReadiness } from './tenant-people-readiness.js';
-import { readPeopleDirectory } from './tenant-people-directory.js';
+import { readPeopleDirectory, searchPeopleDirectory } from './tenant-people-directory.js';
 import { acceptPeopleInvitationReconcile } from './tenant-people-invitation-reconcile.js';
 import { acceptPeopleInvitationResend } from './tenant-people-invitation-resend.js';
 import { acceptPeopleDisable } from './tenant-people-disable.js';
@@ -68,6 +68,14 @@ export class TenantPeopleController {
   @Header('Cache-Control', 'no-store')
   users(@Req() request: AuthenticatedGatewayRequest, @Query() query: Record<string, unknown>) {
     return readPeopleDirectory(this.database, actor(request), query);
+  }
+
+  /** ค้นหาด้วยชื่อ/email/extension ผ่าน body เพื่อไม่ให้คำค้นอยู่ใน URL หรือ access log */
+  @Post('people/users/search')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  search(@Req() request: AuthenticatedGatewayRequest, @Body() body: unknown) {
+    return searchPeopleDirectory(this.database, actor(request), body);
   }
 
   @Get('people/users/:id')
