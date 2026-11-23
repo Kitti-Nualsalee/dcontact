@@ -334,3 +334,22 @@
   justify-content: space-between;
   gap: var(--dc-space-5);
 }
+/* #998 1B/2: การ์ดเปิดบัญชีกลับซ่อนเมื่อไม่มีเนื้อหา; ปุ่มแก้ชื่อเรียงกับข้อความสถานะของตัวเอง */
+.tp-card-optional:empty {
+  display: none;
+}
+.tp-account-change {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--dc-space-3);
+}
+.tp-account-change > p {
+  margin: 0;
+}
+/* #998 ui-review: หน้ารายละเอียดเป็นคอลัมน์เดียวบนจอแคบ (aside ตามหลัง main) ไม่ให้คอลัมน์ข้อมูลบีบจนอ่านไม่ได้ */
+@media (max-width: 48rem) {
+  .tp-detail-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

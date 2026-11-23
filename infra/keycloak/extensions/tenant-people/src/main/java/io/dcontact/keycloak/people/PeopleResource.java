@@ -110,6 +110,9 @@ public class PeopleResource {
   @Path("disable")
   public PeopleDisableResource disable() { return new PeopleDisableResource(session,this); }
 
+  @Path("account")
+  public PeopleAccountResource account() { return new PeopleAccountResource(session,this); }
+
   @GET @Path("readiness")
   public Response readiness(@QueryParam("tenantId") String tenantId) {
     uuid(tenantId);
@@ -120,7 +123,7 @@ public class PeopleResource {
       var configured=binding.realm().getRole(role.toLowerCase(Locale.ROOT));
       if(!TenantRoles.valid(binding.realm(),configured))throw denied(503,"TENANT_ROLE_NOT_READY");
     }
-    return json(200,Map.of("version",1,"ready",true,"tenantId",tenantId,"invitationReady",invitationReady(binding.realm()),"disableReady",true));
+    return json(200,Map.of("version",1,"ready",true,"tenantId",tenantId,"invitationReady",invitationReady(binding.realm()),"disableReady",true,"accountReady",true));
   }
 
   @POST @Path("operations/{operationId}/steps/CREATE_IDENTITY") @Consumes(MediaType.APPLICATION_JSON)

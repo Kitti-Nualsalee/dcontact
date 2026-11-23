@@ -35,6 +35,7 @@ export async function runPeopleIdentityEvidenceCli(
   try {
     const sources = configuration.bindings.map((binding) => {
       const disable = binding.identity.disablePort();
+      const account = binding.identity.accountPort();
       const invitations = binding.identity.invitationPort();
       const scoped =
         <T extends unknown[], R>(call: (...args: T) => Promise<R>) =>
@@ -52,10 +53,12 @@ export async function runPeopleIdentityEvidenceCli(
         readInvitation: scoped((attempt) => invitations.readOutcome(attempt)),
         readPreparation: scoped((attempt) => invitations.readPreparation(attempt)),
         readDisable: scoped((attempt) => disable.readOutcome(attempt)),
+        readAccountChange: scoped((attempt) => account.readOutcome(attempt)),
         requestFailures: () => failures.get(binding.tenantId) ?? 0,
         requiredReadiness: [
           ...(configuration.invitationsEnabled ? (['invitationReady'] as const) : []),
           ...(configuration.disableEnabled ? (['disableReady'] as const) : []),
+          ...(configuration.accountChangesEnabled ? (['accountReady'] as const) : []),
         ],
       } satisfies Parameters<typeof collectPeopleIdentityEvidence>[1][number];
     });

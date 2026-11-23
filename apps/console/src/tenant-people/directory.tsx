@@ -24,6 +24,7 @@ import {
 import { PeopleInvitation } from './invitation.js';
 import { PeopleDisable } from './disable.js';
 import { PeopleTeamChange } from './team-change.js';
+import { PeopleEnable, PeopleProfileEdit } from './account-change.js';
 
 export type AccountStatus =
   | 'ATTENTION_REQUIRED'
@@ -525,6 +526,14 @@ function PeopleDetail({
               ) : null}
             </dl>
             <div className="tp-panel">
+              <PeopleProfileEdit
+                key={`profile:${user.id}`}
+                api={api}
+                user={user}
+                identityKey={identityKey}
+                onUser={onUser}
+                onFailure={onFailure}
+              />
               <PeopleTeamChange
                 key={`team:${user.id}`}
                 api={api}
@@ -547,6 +556,14 @@ function PeopleDetail({
           </div>
         </div>
         <aside className="tp-detail-side">
+          <PeopleEnableCard
+            api={api}
+            user={user}
+            identityKey={identityKey}
+            teamName={team}
+            onUser={onUser}
+            onFailure={onFailure}
+          />
           <div className="tp-card">
             <PeopleDisable
               key={`disable:${user.id}`}
@@ -561,5 +578,14 @@ function PeopleDetail({
         </aside>
       </div>
     </section>
+  );
+}
+
+/** การ์ดแยกจาก "ปิดบัญชี" แสดงเมื่อ PeopleEnable มีเนื้อหา (บัญชีปิดแล้วหรือมีคำสั่งเปิดกลับค้าง) */
+function PeopleEnableCard(props: Parameters<typeof PeopleEnable>[0]) {
+  return (
+    <div className="tp-card tp-card-optional">
+      <PeopleEnable key={`enable:${props.user.id}`} {...props} />
+    </div>
   );
 }

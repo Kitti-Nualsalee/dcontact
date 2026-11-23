@@ -44,6 +44,22 @@ Focused identity loop ใช้ `B6_DISABLE_BOUNDARY_ONLY=1 pnpm voice:tenant-pe
 คำสั่งปกติยังรันทุกกรณีรวม real session revoke, concurrent last-Admin, manual identity drift,
 protected/bootstrap classification, response readback และ receipt-failure rollback
 
+## #998: แก้ชื่อที่แสดงและเปิดบัญชีกลับ
+
+`POST dc-tenant-people/account/{UPDATE_PROFILE|ENABLE_ACCOUNT}/check` ตรวจโดยไม่แตะ identity และ
+`POST .../account/{step}/:operationId` ทำ mutation พร้อม immutable receipt ใน transaction เดียวกับ tenant gate
+`GET .../account/{step}/:operationId` ต้องส่ง tenant/target/identity/role/digest (และ `displayNameDigest` = SHA-256 ของชื่อ สำหรับ UPDATE_PROFILE ไม่ส่งชื่อใน URL)
+ให้ตรง descriptor เดิม ไม่งั้น `409 CORRELATION_CONFLICT`; receipt สำเร็จต้อง readback ชื่อ หรือ enabled + password + TOTP
+
+- email verified + ไม่มี required action ถ้าไม่ตรงคืน `UNKNOWN`
+  UPDATE_PROFILE แก้เฉพาะ `firstName` ของ identity ที่ enabled; ENABLE_ACCOUNT ไม่ตั้ง password/TOTP แทนผู้ใช้
+  และปฏิเสธ `CREDENTIALS_NOT_READY` เมื่อผู้ใช้ยังตั้งไม่ครบ
+
+ฝั่ง API เปิดด้วย `TENANT_PEOPLE_ACCOUNT_CHANGES_ENABLED=true` (ค่าเริ่มต้นปิด) และต้องมี readiness `accountReady=true`
+`PATCH /api/v1/tenant-voice/people/users/:id/profile` และ `POST .../enable` รับคำสั่ง (202) แล้ว worker ทำต่อ
+Focused loop: `P998_ACCOUNT_BOUNDARY_ONLY=1 pnpm voice:tenant-people:boundary` พิมพ์ `P998_FOCUSED_ACCOUNT_BOUNDARY_PASS`
+ครอบ drift หลัง receipt, protected identity, concurrent enable, login ด้วย password/TOTP เดิม และ receipt fault rollback
+
 ## ทดสอบ boundary
 
 Tenant roles รองรับทั้งสาม leaf roles เดิม และ hierarchy ตาม ADR-004 เท่านั้น:

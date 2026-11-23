@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { runPeopleDisable, type PeopleDisableFlushPort } from './tenant-people-disable.js';
 import type { TenantPeopleDisablePort } from './tenant-people-disable-keycloak.js';
+import { runPeopleAccountChange } from './tenant-people-account-change.js';
+import type { TenantPeopleAccountPort } from './tenant-people-account-keycloak.js';
 import { withTenantDatabaseTransaction, type PrismaClient } from '@d-contact/db';
 import {
   DatabaseTenantPeopleReadiness,
@@ -57,6 +59,11 @@ export class TenantPeopleRuntime {
   >;
   private readonly disableTurns = new Map<string, boolean>();
   private readonly disableFlush: PeopleDisableFlushPort | undefined;
+  private readonly accounts: ReadonlyMap<
+    string,
+    TenantPeopleAccountPort & TenantPeopleIdentityReadiness
+  >;
+  private readonly accountTurns = new Map<string, boolean>();
 
   constructor(
     private readonly database: PrismaClient,
@@ -70,6 +77,7 @@ export class TenantPeopleRuntime {
       activations?: ReadonlyMap<string, TenantPeopleActivationPort & TenantPeopleIdentityReadiness>;
       disables?: ReadonlyMap<string, TenantPeopleDisablePort & TenantPeopleIdentityReadiness>;
       disableFlush?: PeopleDisableFlushPort;
+      accounts?: ReadonlyMap<string, TenantPeopleAccountPort & TenantPeopleIdentityReadiness>;
     } = {},
   ) {
     this.intervalMs = options.intervalMs ?? 1_000;
@@ -80,6 +88,18 @@ export class TenantPeopleRuntime {
     this.activations = new Map(options.activations);
     this.disables = new Map(options.disables);
     this.disableFlush = options.disableFlush;
+    this.accounts = new Map(options.accounts);
+    for (const [tenantId, port] of this.accounts) {
+      if (
+        !identities.has(tenantId) ||
+        !port ||
+        typeof port.isReady !== 'function' ||
+        typeof port.probe !== 'function' ||
+        typeof port.mutate !== 'function' ||
+        typeof port.readOutcome !== 'function'
+      )
+        throw new Error('INVALID_PEOPLE_ACCOUNT_RUNTIME_CONFIGURATION');
+    }
     for (const [tenantId, port] of this.disables) {
       if (
         !identities.has(tenantId) ||
@@ -181,6 +201,21 @@ export class TenantPeopleRuntime {
     );
   }
 
+  accountPortForTenant(tenantId: string): TenantPeopleAccountPort | undefined {
+    return this.accounts.get(tenantId);
+  }
+
+  async canChangeAccount(tenantId: string): Promise<boolean> {
+    const port = this.accounts.get(tenantId);
+    return (
+      !!port &&
+      (await this.isReady(tenantId)) &&
+      (await port.isReady(tenantId)) &&
+      this.running &&
+      this.healthy
+    );
+  }
+
   onModuleInit(): void {
     if (this.running) return;
     this.running = true;
@@ -248,13 +283,15 @@ export class TenantPeopleRuntime {
         (this.invitations.has(tenantId) ||
           this.resends.has(tenantId) ||
           this.activations.has(tenantId) ||
-          this.disables.has(tenantId)) &&
+          this.disables.has(tenantId) ||
+          this.accounts.has(tenantId)) &&
         (this.invitationTurns.get(tenantId) ?? true);
       if (
         this.invitations.has(tenantId) ||
         this.resends.has(tenantId) ||
         this.activations.has(tenantId) ||
-        this.disables.has(tenantId)
+        this.disables.has(tenantId) ||
+        this.accounts.has(tenantId)
       )
         this.invitationTurns.set(tenantId, !invitationFirst);
       if (invitationFirst && (await this.tryInvitation(tenantId, deferred, invitationChecked))) {
@@ -320,6 +357,46 @@ export class TenantPeopleRuntime {
   }
 
   private async tryInvitation(
+    tenantId: string,
+    deferred: Set<string>,
+    checked: Map<string, boolean>,
+  ): Promise<boolean> {
+    // สลับ turn ระหว่างคำสั่งแก้บัญชี (#998) กับงานเดิม เพื่อไม่ให้อย่างใดอย่างหนึ่งกิน batch ทั้งหมด
+    const accountFirst = this.accounts.has(tenantId) && (this.accountTurns.get(tenantId) ?? true);
+    if (this.accounts.has(tenantId)) this.accountTurns.set(tenantId, !accountFirst);
+    if (accountFirst && (await this.tryAccountChange(tenantId, deferred, checked))) return true;
+    if (await this.tryExistingWork(tenantId, deferred, checked)) return true;
+    return !accountFirst && (await this.tryAccountChange(tenantId, deferred, checked));
+  }
+
+  private async tryAccountChange(
+    tenantId: string,
+    deferred: Set<string>,
+    checked: Map<string, boolean>,
+  ): Promise<boolean> {
+    const port = this.accounts.get(tenantId);
+    if (!this.running || !port) return false;
+    const readinessKey = `account:${tenantId}`;
+    if (!checked.has(readinessKey)) checked.set(readinessKey, await port.isReady(tenantId));
+    if (!this.running || !checked.get(readinessKey)) return false;
+    const [candidate] = await withTenantDatabaseTransaction(
+      this.database,
+      tenantId,
+      (transaction) => transaction.$queryRaw<{ id: string }[]>`
+      SELECT id FROM tenant_people_account_changes WHERE tenant_id=${tenantId}::uuid
+        AND state IN ('QUEUED','WAITING_EXTERNAL','ACTION_REQUIRED') AND (lease_expires_at IS NULL OR lease_expires_at<=clock_timestamp())
+        AND (state='QUEUED' OR (state='WAITING_EXTERNAL' AND updated_at<clock_timestamp()-interval '10 seconds')
+          OR updated_at<clock_timestamp()-interval '60 seconds')
+        AND ('account:'||id::text) NOT IN (SELECT value FROM jsonb_array_elements_text(${JSON.stringify([...deferred])}::jsonb) AS skipped(value))
+      ORDER BY updated_at,id LIMIT 1`,
+    );
+    if (!this.running || !candidate) return false;
+    deferred.add(`account:${candidate.id}`);
+    await runPeopleAccountChange(this.database, port, tenantId, candidate.id);
+    return true;
+  }
+
+  private async tryExistingWork(
     tenantId: string,
     deferred: Set<string>,
     checked: Map<string, boolean>,

@@ -217,6 +217,8 @@ jobs:
         run: pnpm --filter @d-contact/api exec tsx --test src/tenant-people-directory.integration.ts
       - name: ตรวจการย้ายทีมของบัญชี (#998) ด้วย revision/idle fence ภายใต้ RLS จริง
         run: pnpm --filter @d-contact/api exec tsx --test src/tenant-people-team-change.integration.ts
+      - name: ตรวจแก้ชื่อที่แสดงและเปิดบัญชีกลับ (#998) ด้วย fenced worker, receipt และโควตาภายใต้ RLS จริง
+        run: pnpm --filter @d-contact/api exec tsx --test src/tenant-people-account-change.integration.ts
       - name: ตรวจ B4 skills, binding, scope และ idle guards ผ่าน HTTP กับ RLS จริง
         run: |
           pnpm --filter @d-contact/api exec tsx --test src/tenant-voice-configuration.integration.ts
@@ -569,7 +571,7 @@ jobs:
         run: pnpm --filter @d-contact/console exec playwright install --with-deps chromium
 
       - name: Console i18n + shell e2e
-        run: pnpm --filter @d-contact/console exec playwright test e2e/i18n.spec.ts e2e/shell.spec.ts e2e/journey-authoring.spec.ts e2e/home.spec.ts e2e/agent-history.spec.ts e2e/voice-routing.spec.ts e2e/voice-configuration.spec.ts e2e/tenant-people.spec.ts e2e/tenant-people-directory.spec.ts e2e/tenant-people-invitation.spec.ts e2e/tenant-people-disable.spec.ts
+        run: pnpm --filter @d-contact/console exec playwright test e2e/i18n.spec.ts e2e/shell.spec.ts e2e/journey-authoring.spec.ts e2e/home.spec.ts e2e/agent-history.spec.ts e2e/voice-routing.spec.ts e2e/voice-configuration.spec.ts e2e/tenant-people.spec.ts e2e/tenant-people-directory.spec.ts e2e/tenant-people-invitation.spec.ts e2e/tenant-people-disable.spec.ts e2e/tenant-people-account.spec.ts
 
       - name: Workspace shell e2e
         run: pnpm --filter @d-contact/workspace exec playwright test e2e/shell.spec.ts e2e/dphone.spec.ts e2e/dphone-embed.spec.ts e2e/dphone-host-reference.spec.ts e2e/agent-availability.spec.ts e2e/dphone-owner.spec.ts e2e/wrapup.spec.ts e2e/wrapup-recovery.spec.ts

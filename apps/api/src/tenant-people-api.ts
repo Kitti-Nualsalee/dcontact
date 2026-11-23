@@ -31,6 +31,8 @@ import { acceptPeopleTeamChange } from './tenant-people-team-change.js';
 import { acceptPeopleInvitationReconcile } from './tenant-people-invitation-reconcile.js';
 import { acceptPeopleInvitationResend } from './tenant-people-invitation-resend.js';
 import { acceptPeopleDisable } from './tenant-people-disable.js';
+import { acceptPeopleAccountChange } from './tenant-people-account-change.js';
+import type { PeopleAccountStep } from './tenant-people-account-keycloak.js';
 export { TENANT_PEOPLE_READINESS, type TenantPeopleReadiness } from './tenant-people-readiness.js';
 
 function actor(request: AuthenticatedGatewayRequest): VoiceActor {
@@ -131,6 +133,49 @@ export class TenantPeopleController {
     const port = this.readiness.disablePortForTenant?.(identity.tenantId);
     if (!port) voiceFail('CAPABILITY_NOT_READY', 503);
     const accepted = await acceptPeopleDisable(this.database, identity, id, body, port);
+    response.setHeader('Location', accepted.location);
+    return accepted;
+  }
+
+  /** #998 1B: แก้ชื่อที่แสดงทั้ง app และ Keycloak firstName ผ่าน worker (202 แล้วตามผลที่ operations/:id) */
+  @Patch('people/users/:id/profile')
+  @HttpCode(202)
+  @Header('Cache-Control', 'no-store')
+  profile(
+    @Req() request: AuthenticatedGatewayRequest,
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @Res({ passthrough: true }) response: { setHeader(name: string, value: string): void },
+  ) {
+    return this.accountChange('UPDATE_PROFILE', request, id, body, response);
+  }
+
+  /** #998 2: เปิดบัญชีที่ปิดแล้วกลับ ผู้ใช้ใช้รหัสผ่าน/TOTP เดิม */
+  @Post('people/users/:id/enable')
+  @HttpCode(202)
+  @Header('Cache-Control', 'no-store')
+  enable(
+    @Req() request: AuthenticatedGatewayRequest,
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @Res({ passthrough: true }) response: { setHeader(name: string, value: string): void },
+  ) {
+    return this.accountChange('ENABLE_ACCOUNT', request, id, body, response);
+  }
+
+  private async accountChange(
+    kind: PeopleAccountStep,
+    request: AuthenticatedGatewayRequest,
+    id: string,
+    body: unknown,
+    response: { setHeader(name: string, value: string): void },
+  ) {
+    const identity = actor(request);
+    if (!(await this.readiness.canChangeAccount?.(identity.tenantId)))
+      voiceFail('CAPABILITY_NOT_READY', 503);
+    const port = this.readiness.accountPortForTenant?.(identity.tenantId);
+    if (!port) voiceFail('CAPABILITY_NOT_READY', 503);
+    const accepted = await acceptPeopleAccountChange(this.database, identity, kind, id, body, port);
     response.setHeader('Location', accepted.location);
     return accepted;
   }

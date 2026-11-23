@@ -126,7 +126,7 @@ Overlay `infra/uat/docker-compose.uat.workspace.yml` ส่ง environment แ�
 - `UAT_TENANT_PEOPLE_BINDINGS_JSON`: server-owned bindings และ approved node/pool refs
 - `UAT_TENANT_PEOPLE_WORKER_DATABASE_URL`: connection ของ dedicated worker login เท่านั้น
 - `UAT_TENANT_PEOPLE_SECRET_UAT`: secret ฝั่ง server; binding ใช้ `clientSecretEnv=TENANT_PEOPLE_SECRET_UAT`
-- `UAT_TENANT_PEOPLE_INVITATIONS_ENABLED` และ `UAT_TENANT_PEOPLE_DISABLE_ENABLED`: ค่าเริ่มต้น `false`
+- `UAT_TENANT_PEOPLE_INVITATIONS_ENABLED`, `UAT_TENANT_PEOPLE_DISABLE_ENABLED` และ `UAT_TENANT_PEOPLE_ACCOUNT_CHANGES_ENABLED` (#998 แก้ชื่อ/เปิดบัญชีกลับ ต้องใช้ extension ที่ readiness มี `accountReady`): ค่าเริ่มต้น `false`
 
 ค่าจริงอยู่ใน private operator env ไม่ใส่ issue, release JSON, command line หรือ frontend
 Workspace ส่ง SIP flush ผ่าน direct `E1VoiceCommandPublisher` ไม่ใช่ Kafka

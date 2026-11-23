@@ -1,6 +1,7 @@
 import { withTenantDatabaseTransaction, type PrismaClient } from '@d-contact/db';
 import type { PeopleTelephonyNode } from './tenant-people-infrastructure.js';
 import type { TenantPeopleDisablePort } from './tenant-people-disable-keycloak.js';
+import type { TenantPeopleAccountPort } from './tenant-people-account-keycloak.js';
 
 export const TENANT_PEOPLE_READINESS = Symbol('TENANT_PEOPLE_READINESS');
 export interface TenantPeopleReadiness {
@@ -9,6 +10,9 @@ export interface TenantPeopleReadiness {
   canResendInvitation?(tenantId: string): Promise<boolean>;
   canDisable?(tenantId: string): Promise<boolean>;
   disablePortForTenant?(tenantId: string): TenantPeopleDisablePort | undefined;
+  /** #998 1B/2: แก้ชื่อที่แสดงและเปิดบัญชีกลับ */
+  canChangeAccount?(tenantId: string): Promise<boolean>;
+  accountPortForTenant?(tenantId: string): TenantPeopleAccountPort | undefined;
   nodesForTenant?(tenantId: string): readonly PeopleTelephonyNode[];
 }
 

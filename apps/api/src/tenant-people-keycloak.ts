@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { TenantPeopleDisableKeycloak } from './tenant-people-disable-keycloak.js';
+import { TenantPeopleAccountKeycloak } from './tenant-people-account-keycloak.js';
 import type {
   PeopleActivationClaim,
   PeopleActivationOutcome,
@@ -473,10 +474,22 @@ export class TenantPeopleKeycloak implements TenantPeopleIdentityPort, TenantPeo
     };
   }
 
+  /** #998 1B/2: port ของ UPDATE_PROFILE/ENABLE_ACCOUNT ใช้ client และ backchannel เดียวกัน */
+  accountPort() {
+    const adapter = new TenantPeopleAccountKeycloak(this.configuration, this.request);
+    return {
+      isReady: (tenantId: string) => this.readReadiness(tenantId, false, false, true),
+      probe: adapter.probe.bind(adapter),
+      mutate: adapter.mutate.bind(adapter),
+      readOutcome: adapter.readOutcome.bind(adapter),
+    };
+  }
+
   private async readReadiness(
     tenantId: string,
     invitation: boolean,
     disable = false,
+    account = false,
   ): Promise<boolean> {
     const result = await this.readReadinessEvidence(tenantId);
     return (
@@ -485,7 +498,8 @@ export class TenantPeopleKeycloak implements TenantPeopleIdentityPort, TenantPeo
       result.version === 1 &&
       result.tenantId === this.configuration.tenantId &&
       (!invitation || result.invitationReady === true) &&
-      (!disable || result.disableReady === true)
+      (!disable || result.disableReady === true) &&
+      (!account || result.accountReady === true)
     );
   }
 
@@ -496,6 +510,7 @@ export class TenantPeopleKeycloak implements TenantPeopleIdentityPort, TenantPeo
     tenantId: unknown;
     invitationReady?: unknown;
     disableReady?: unknown;
+    accountReady?: unknown;
   } | null> {
     if (tenantId !== this.configuration.tenantId) return null;
     try {
@@ -538,6 +553,7 @@ export class TenantPeopleKeycloak implements TenantPeopleIdentityPort, TenantPeo
         tenantId: fields.tenantId,
         ...('invitationReady' in fields ? { invitationReady: fields.invitationReady } : {}),
         ...('disableReady' in fields ? { disableReady: fields.disableReady } : {}),
+        ...('accountReady' in fields ? { accountReady: fields.accountReady } : {}),
       };
     } catch {
       return null;
