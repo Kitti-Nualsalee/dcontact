@@ -3,10 +3,10 @@
     "title": "Disable account",
     "warning": "Only idle accounts can be disabled. Access stops immediately. The last usable Admin cannot be disabled.",
     "confirm": "Disable this account? History is retained. This page cannot re-enable the account.",
-    "start": "Prepare to disable",
+    "start": "Disable account…",
     "submit": "Confirm disable",
     "cancel": "Cancel",
-    "refresh": "Check existing command",
+    "refresh": "Check original command",
     "pending": "Checking the existing command. Do not submit again. Unknown outcomes retain local deny and quota reservations.",
     "states": {
       "QUEUED": "Accepted; disabling account",
@@ -22,7 +22,10 @@
       "CONFIG_BUSY": "The user or affected queues have unfinished work. Complete that work first.",
       "REVISION_CONFLICT": "Data changed. Refresh before submitting another command.",
       "PROTECTED_OR_FOREIGN_IDENTITY": "This account is outside the permitted disable scope."
-    }
+    },
+    "notEligible": "This account can't be disabled yet: it isn't active, is still provisioning, or has a pending request.",
+    "dialogTitle": "Disable {{name}}?",
+    "submitting": "Disabling…"
   },
   "pages": {
     "navigation": "People pages",
@@ -71,7 +74,11 @@
     "VALIDATION_FAILED": "Check the name, email, role, team and extension before submitting again.",
     "UNAUTHORIZED": "Sign in again, then check the original command.",
     "FORBIDDEN": "You do not have permission to manage accounts in this scope.",
-    "FAILED": "The outcome is not confirmed. Check the original command instead of creating a duplicate account."
+    "FAILED": "The outcome is not confirmed. Check the original command instead of creating a duplicate account.",
+    "IDENTITY_CONFLICT": "An account with this email already exists",
+    "EXTENSION_CONFLICT": "This extension is taken. Choose another.",
+    "RESOURCE_LIMIT_REACHED": "You've reached your plan's account limit.",
+    "CONFIG_BUSY": "Another configuration change is in progress. Try again."
   },
   "invitation": {
     "title": "Invitation and activation",
@@ -80,7 +87,7 @@
     "activation": "Activation",
     "generation": "Invitation generation",
     "reason": "Reason (1–500 characters)",
-    "resend": "Send new invitation generation",
+    "resend": "Resend invitation",
     "reconcile": "Check delivery evidence",
     "refresh": "Check original invitation status",
     "pending": "Checking the original command. Do not submit a duplicate.",
@@ -108,5 +115,88 @@
       "ACTIVATED": "Activated",
       "UNKNOWN": "Unconfirmed"
     }
+  },
+  "list": {
+    "subtitle": "Accounts that sign in to Workspace and Console in this tenant",
+    "count": "Showing {{shown}} of {{loaded}} loaded accounts",
+    "countAll": "{{count}} accounts",
+    "openRow": "View",
+    "emptyTitle": "No user accounts yet",
+    "emptyBody": "Create the first account to invite an Agent, Supervisor or Admin.",
+    "noMatch": "No loaded accounts match these filters.",
+    "loadFailed": "Couldn't load accounts.",
+    "moreFailed": "Couldn't load more accounts. Loaded rows are kept.",
+    "retry": "Retry",
+    "unknownTeam": "Team not found"
+  },
+  "columns": {
+    "name": "Name",
+    "status": "Account status",
+    "actions": "Actions"
+  },
+  "filters": {
+    "label": "Account filters",
+    "searchLabel": "Search",
+    "search": "Name, email or extension",
+    "allRoles": "All roles",
+    "status": "Status",
+    "allStatuses": "All statuses",
+    "allTeams": "All teams",
+    "clear": "Clear filters",
+    "loadedOnly": "Searching only the {{count}} loaded accounts. Load more to search all."
+  },
+  "status": {
+    "ACTIVE": "Active",
+    "PENDING_ACTIVATION": "Awaiting activation",
+    "PROVISIONING": "Provisioning",
+    "DISABLING": "Disabling",
+    "DISABLED": "Disabled",
+    "ATTENTION_REQUIRED": "Needs review",
+    "REJECTED": "Provisioning rejected",
+    "UNKNOWN": "Unconfirmed"
+  },
+  "deliveryShort": {
+    "SENT": "Invite sent",
+    "INTENT": "Invite queued",
+    "NOT_STARTED": "Invite not sent",
+    "DISPATCHING": "Checking delivery",
+    "AMBIGUOUS": "Delivery unclear",
+    "FAILED": "Invite failed",
+    "EXPIRED": "Invite expired",
+    "UNKNOWN": "Unconfirmed"
+  },
+  "form": {
+    "title": "New account",
+    "back": "Back to user accounts",
+    "cancel": "Cancel",
+    "groups": {
+      "profile": "User details",
+      "assignment": "Team and extension",
+      "access": "Access"
+    },
+    "roleHelp": {
+      "AGENT": "Handles calls and chats in Workspace. Needs an extension.",
+      "SUPERVISOR": "Supervises teams and queues in Workspace.",
+      "ADMIN": "Configures the tenant in Console."
+    },
+    "extensionNotNeeded": "Supervisors and Admins don't need an extension.",
+    "noExtensions": "No free extensions available.",
+    "noTeams": "No teams yet. Create a team first.",
+    "required": "Enter a name and email and choose a team to create the account.",
+    "requiredAgent": "Enter a name and email and choose a team and extension to create the account."
+  },
+  "detail": {
+    "back": "Back to list",
+    "account": "Account details",
+    "expiresAt": "Invitation expires",
+    "loadFailed": "Couldn't load account details.",
+    "help": "Activating an account doesn't put the user on calls. Users set their own password and TOTP."
+  },
+  "invitationDialog": {
+    "titleResend": "Resend invitation to {{name}}",
+    "bodyResend": "A new invitation goes to {{email}}. Up to 3 sends per 60 minutes.",
+    "titleReconcile": "Check invitation delivery",
+    "bodyReconcile": "The last delivery result is unclear. This checks the evidence first and doesn't resend.",
+    "sending": "Sending…"
   }
 }

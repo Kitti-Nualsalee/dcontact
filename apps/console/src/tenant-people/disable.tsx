@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from '@d-contact/i18n/react';
-import { Button, TextField } from '@d-contact/ui-react';
+import { Button, Dialog, TextField } from '@d-contact/ui-react';
 import { CatalogApiError } from '../voice-routing/api.js';
 import { peopleUuid } from './api.js';
 import type { PeopleDirectoryApi, PeopleDirectoryUser } from './directory-api.js';
@@ -37,7 +37,7 @@ export function PeopleDisable({
   onFailure(error: unknown): void;
 }) {
   const { t: translate } = useTranslation('tenantPeople');
-  const label = translate as (key: string) => string;
+  const label = translate as (key: string, values?: Record<string, unknown>) => string;
   const storageKey = `dc:tenant-disable:${identityKey}:${user.id}`;
   const existing = () =>
     restore(storageKey) ??
@@ -57,6 +57,11 @@ export function PeopleDisable({
     inFlight = useRef(false);
   const callbacks = useRef({ onUser, onFailure });
   callbacks.current = { onUser, onFailure };
+  function closeConfirm() {
+    setConfirm(false);
+    setReason('');
+    setError('');
+  }
   function remember(value: PendingDisable | undefined) {
     if (value) sessionStorage.setItem(storageKey, JSON.stringify(value));
     else sessionStorage.removeItem(storageKey);
@@ -175,13 +180,12 @@ export function PeopleDisable({
         value instanceof CatalogApiError &&
         value.status === 503 &&
         ['CAPABILITY_NOT_READY', 'IDENTITY_UNAVAILABLE'].includes(value.code);
-      if (
-        mounted.current &&
-        value instanceof CatalogApiError &&
-        ([400, 409, 429].includes(value.status) || notAccepted)
-      )
-        remember(undefined);
+      const rejected =
+        value instanceof CatalogApiError && ([400, 409, 429].includes(value.status) || notAccepted);
+      if (mounted.current && rejected) remember(undefined);
       failed(value);
+      // ผลไม่ชัดเจน: ปิด dialog ให้แผงแสดงคำสั่งค้างและปุ่มตรวจผลเดิม
+      if (mounted.current && !rejected) setConfirm(false);
       if (mounted.current && notAccepted) {
         setReady(false);
         setConfirm(false);
@@ -206,47 +210,70 @@ export function PeopleDisable({
           ? 'WAITING_EXTERNAL'
           : '');
   return (
-    <section aria-label={label('disable.title')} aria-busy={busy}>
-      <h4>{label('disable.title')}</h4>
-      <p>{label('disable.warning')}</p>
+    <section className="tp-panel" aria-label={label('disable.title')} aria-busy={busy}>
+      <h3>{label('disable.title')}</h3>
+      {ready && !eligible && !pending ? (
+        <p className="tp-muted">{label('disable.notEligible')}</p>
+      ) : null}
       {displayedStatus ? <p role="status">{label(`disable.states.${displayedStatus}`)}</p> : null}
-      {error ? <p role="alert">{label(`disable.errors.${error}`)}</p> : null}
+      {error && !confirm ? <p role="alert">{label(`disable.errors.${error}`)}</p> : null}
       {pending ? <p>{label('disable.pending')}</p> : null}
-      <TextField
-        label={label('invitation.reason')}
-        value={reason}
-        onChange={setReason}
+      <Button
+        variant="danger"
         isDisabled={busy || !!pending || !ready || !eligible}
-      />
-      {confirm ? (
-        <>
-          <p>{label('disable.confirm')}</p>
-          <Button
-            isDisabled={busy || !!pending || !ready || !eligible || !reason.trim()}
-            onPress={() => void submit()}
-          >
-            {label('disable.submit')}
-          </Button>
-          <Button isDisabled={busy} onPress={() => setConfirm(false)}>
-            {label('disable.cancel')}
-          </Button>
-        </>
-      ) : (
-        <Button
-          isDisabled={
-            busy ||
-            !!pending ||
-            !ready ||
-            !eligible ||
-            !reason.trim() ||
-            [...reason.trim()].length > 500
-          }
-          onPress={() => setConfirm(true)}
-        >
-          {label('disable.start')}
-        </Button>
-      )}
-      <Button isDisabled={busy} onPress={() => void refresh()}>
+        onPress={() => {
+          setError('');
+          setReason('');
+          setConfirm(true);
+        }}
+      >
+        {label('disable.start')}
+      </Button>
+      <Dialog
+        role="alertdialog"
+        title={label('disable.dialogTitle', { name: user.displayName })}
+        isOpen={confirm}
+        isDismissable={false}
+        onOpenChange={(open) => {
+          if (!open && !busy) closeConfirm();
+        }}
+        footer={() => (
+          <>
+            <Button isDisabled={busy} onPress={closeConfirm}>
+              {label('disable.cancel')}
+            </Button>
+            <Button
+              variant="danger"
+              isDisabled={
+                busy ||
+                !!pending ||
+                !ready ||
+                !eligible ||
+                !reason.trim() ||
+                [...reason.trim()].length > 500
+              }
+              onPress={() => void submit()}
+            >
+              {busy ? label('disable.submitting') : label('disable.submit')}
+            </Button>
+          </>
+        )}
+      >
+        <div className="tp-dialog-body">
+          <p>{label('disable.warning')}</p>
+          <p className="tp-confirm">{label('disable.confirm')}</p>
+          <TextField
+            autoFocus
+            label={label('invitation.reason')}
+            value={reason}
+            onChange={setReason}
+            isDisabled={busy}
+            description={`${[...reason.trim()].length}/500`}
+          />
+          {error ? <p role="alert">{label(`disable.errors.${error}`)}</p> : null}
+        </div>
+      </Dialog>
+      <Button variant="ghost" isDisabled={busy} onPress={() => void refresh()}>
         {label('disable.refresh')}
       </Button>
     </section>
