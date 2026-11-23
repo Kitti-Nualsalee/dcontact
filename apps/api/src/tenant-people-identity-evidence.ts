@@ -20,6 +20,11 @@ import type {
   PeopleDisableAttempt,
   PeopleDisableOutcome,
 } from './tenant-people-disable-keycloak.js';
+import type {
+  PeopleAccountAttempt,
+  PeopleAccountOutcome,
+  PeopleAccountStep,
+} from './tenant-people-account-keycloak.js';
 
 export const PEOPLE_STEPS: readonly PeopleStep[] = [
   'CREATE_IDENTITY',
@@ -41,15 +46,17 @@ export interface PeopleIdentityEvidenceSource {
   readInvitation(attempt: PeopleInvitationAttempt): Promise<PeopleInvitationOutcome>;
   readPreparation(attempt: PeopleInvitationAttempt): Promise<PeopleInvitationPreparation>;
   readDisable(attempt: PeopleDisableAttempt): Promise<PeopleDisableOutcome>;
+  /** #998: receipt ของ UPDATE_PROFILE/ENABLE_ACCOUNT; ไม่มี reader แต่มีคำสั่งที่ attempted แล้ว = PROVIDER_UNREADABLE */
+  readAccountChange?(attempt: PeopleAccountAttempt): Promise<PeopleAccountOutcome>;
   /** จำนวน HTTP ที่ไม่ใช่ 2xx หรือ exception; adapter คืน UNKNOWN ทั้งกรณีไม่มี receipt และอ่านไม่ได้ */
   requestFailures(): number;
   /** readiness ที่ต้องเป็น true ตาม flag ของ runtime เช่น invitationReady เมื่อเปิด invitation */
-  requiredReadiness?: readonly ('invitationReady' | 'disableReady')[];
+  requiredReadiness?: readonly ('invitationReady' | 'disableReady' | 'accountReady')[];
 }
 
 type Recorded = { outcome: string; receiptRef: string | null; reasonCode?: string };
 export interface PeopleIdentityMismatch {
-  kind: 'BINDING' | 'STEP' | 'INVITATION' | 'PREPARATION' | 'DISABLE';
+  kind: 'BINDING' | 'STEP' | 'INVITATION' | 'PREPARATION' | 'DISABLE' | 'ACCOUNT_CHANGE';
   operationId: string | null;
   step?: PeopleStep;
   generation?: number;
@@ -109,6 +116,19 @@ interface DisableRow {
   outcome: string | null;
   receiptRef: string | null;
 }
+interface AccountChangeRow {
+  operationId: string;
+  kind: PeopleAccountStep;
+  userId: string;
+  identityId: string;
+  role: 'AGENT' | 'SUPERVISOR' | 'ADMIN';
+  payloadDigest: string;
+  fencingToken: string;
+  displayName: string | null;
+  attempted: boolean;
+  outcome: string | null;
+  receiptRef: string | null;
+}
 
 const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
 
@@ -159,8 +179,23 @@ async function readApplication(database: PrismaClient, tenantId: string) {
         AND NOT EXISTS(SELECT 1 FROM tenant_people_account_changes c WHERE c.tenant_id=s.tenant_id AND c.user_id=s.user_id
           AND c.kind='ENABLE_ACCOUNT' AND c.state='SUCCEEDED' AND c.created_at>s.created_at)
       ORDER BY s.id,r.fencing_token DESC NULLS LAST`;
+      // #998: ข้ามคำสั่งที่ readback เป็น UNKNOWN โดยชอบเพราะมีผลใหม่กว่ามาแทน — แก้ชื่อที่ถูกแก้ชื่อสำเร็จอีกครั้ง
+      // และเปิดกลับที่ถูกปิดบัญชีสำเร็จภายหลัง; แก้ชื่อที่ถูกปิดแทน (SUPERSEDED_BY_DISABLE) ยังเทียบเพื่อจับชื่อที่ Keycloak เปลี่ยนแต่ app ไม่เปลี่ยน
+      const accountChanges = await transaction.$queryRaw<AccountChangeRow[]>`
+      SELECT DISTINCT ON (c.id) c.id::text AS "operationId",c.kind,c.user_id::text AS "userId",c.identity_id::text AS "identityId",
+        c.role,c.payload_digest AS "payloadDigest",c.fencing_token::text AS "fencingToken",c.display_name AS "displayName",
+        c.attempted,r.outcome,r.provider_receipt_ref AS "receiptRef"
+      FROM tenant_people_account_changes c
+      LEFT JOIN tenant_people_account_change_receipts r ON r.tenant_id=c.tenant_id AND r.operation_id=c.id AND r.outcome<>'UNKNOWN'
+      WHERE c.tenant_id=${tenantId}::uuid
+        AND NOT (c.kind='UPDATE_PROFILE' AND EXISTS(SELECT 1 FROM tenant_people_account_changes later WHERE later.tenant_id=c.tenant_id
+          AND later.user_id=c.user_id AND later.kind='UPDATE_PROFILE' AND later.state='SUCCEEDED' AND later.created_at>c.created_at))
+        AND NOT (c.kind='ENABLE_ACCOUNT' AND EXISTS(SELECT 1 FROM tenant_people_disables d WHERE d.tenant_id=c.tenant_id
+          AND d.user_id=c.user_id AND d.state='SUCCEEDED' AND d.created_at>c.created_at))
+      ORDER BY c.id,r.fencing_token DESC NULLS LAST`;
       return {
         bindingEnabled: binding?.enabled === true,
+        accountChanges,
         operations,
         steps,
         dispatches,
@@ -208,7 +243,14 @@ export async function collectTenantPeopleIdentityEvidence(
   const readiness = await source.readReadiness();
   const application = await readApplication(database, tenantId);
   const mismatches: PeopleIdentityMismatch[] = [];
-  const counts = { operations: 0, steps: 0, invitations: 0, preparations: 0, disables: 0 };
+  const counts = {
+    operations: 0,
+    steps: 0,
+    invitations: 0,
+    preparations: 0,
+    disables: 0,
+    accountChanges: 0,
+  };
   if (!application.bindingEnabled)
     mismatches.push({
       kind: 'BINDING',
@@ -428,6 +470,39 @@ export async function collectTenantPeopleIdentityEvidence(
       mismatches.push({
         kind: 'DISABLE',
         operationId: disable.operationId,
+        reason,
+        application: local,
+        provider,
+      });
+  }
+  for (const change of application.accountChanges) {
+    if (!change.attempted && !change.outcome) continue;
+    counts.accountChanges++;
+    const local = change.outcome
+      ? { outcome: change.outcome, receiptRef: change.receiptRef }
+      : null;
+    const provider = recorded(
+      source.readAccountChange
+        ? await source.readAccountChange({
+            step: change.kind,
+            tenantId,
+            operationId: change.operationId,
+            userId: change.userId,
+            identityId: change.identityId,
+            payloadDigest: change.payloadDigest,
+            fencingToken: change.fencingToken,
+            role: change.role,
+            displayName: change.kind === 'UPDATE_PROFILE' ? change.displayName : null,
+            reconcileOnly: true,
+          })
+        : { outcome: 'UNKNOWN' },
+    );
+    const reason =
+      !local && provider.outcome === 'UNKNOWN' ? 'PROVIDER_UNREADABLE' : compare(local, provider);
+    if (reason)
+      mismatches.push({
+        kind: 'ACCOUNT_CHANGE',
+        operationId: change.operationId,
         reason,
         application: local,
         provider,

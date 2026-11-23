@@ -74,6 +74,21 @@ function fixture() {
       },
     ],
     bindingEnabled: true,
+    accountChanges: [
+      {
+        operationId: '13131313-1313-4313-8313-131313131313',
+        kind: 'UPDATE_PROFILE' as 'UPDATE_PROFILE' | 'ENABLE_ACCOUNT',
+        userId,
+        identityId: userId,
+        role: 'AGENT' as const,
+        payloadDigest: ref('f'),
+        fencingToken: '3',
+        displayName: 'ชื่อใหม่' as string | null,
+        attempted: true,
+        outcome: 'SUCCEEDED' as string | null,
+        receiptRef: ref('9') as string | null,
+      },
+    ],
     disables: [
       {
         operationId: disableId,
@@ -103,6 +118,7 @@ function fixture() {
       if (sql.includes('FROM tenant_people_operations')) return rows.operations;
       if (sql.includes('FROM tenant_people_step_receipts')) return rows.steps;
       if (sql.includes('FROM tenant_people_invitation_dispatches')) return rows.dispatches;
+      if (sql.includes('tenant_people_account_change_receipts')) return rows.accountChanges;
       if (sql.includes('FROM tenant_people_disables')) return rows.disables;
       throw new Error(`unexpected ${sql}`);
     },
@@ -138,6 +154,10 @@ function fixture() {
       outcome: string;
       receiptRef?: string;
     },
+    account: { outcome: 'SUCCEEDED', receiptRef: ref('9') } as {
+      outcome: string;
+      receiptRef?: string;
+    },
     preparation: {
       outcome: 'INTENT',
       intentRef: ref('b'),
@@ -147,7 +167,7 @@ function fixture() {
     } as Record<string, unknown>,
     failures: 0,
   };
-  const seen: Record<string, unknown[]> = { step: [], invitation: [], disable: [] };
+  const seen: Record<string, unknown[]> = { step: [], invitation: [], disable: [], account: [] };
   const source: PeopleIdentityEvidenceSource = {
     tenantId,
     issuer: 'https://uat.example.test/auth/realms/dcontact',
@@ -167,6 +187,10 @@ function fixture() {
       seen.disable!.push(value);
       return provider.disable as never;
     },
+    readAccountChange: async (value) => {
+      seen.account!.push(value);
+      return provider.account as never;
+    },
     requestFailures: () => provider.failures,
   };
   return { rows, provider, source, database, statements, seen };
@@ -184,6 +208,7 @@ test('#868 identity evidence: receipt ทุกชนิดตรงกันเ
     invitations: 1,
     preparations: 1,
     disables: 1,
+    accountChanges: 1,
   });
   assert.ok(statements.includes('ISOLATION RepeatableRead'));
   assert.equal(tenant?.clientSecretSha256.length, 64);
@@ -366,4 +391,37 @@ test('#868 identity evidence: disable ที่ยังไม่ attempted แ�
   assert.equal(evidence.status, 'CONSISTENT');
   assert.equal(evidence.tenants[0]?.counts.disables, 0);
   assert.equal(value.seen.disable!.length, 0);
+});
+
+test('#998 identity evidence: เทียบ receipt ของแก้ชื่อ/เปิดกลับ อ่าน GET อย่างเดียว และจับผลที่ไม่ตรง', async () => {
+  const value = fixture();
+  let evidence = await collectPeopleIdentityEvidence(value.database, [value.source]);
+  assert.equal(evidence.status, 'CONSISTENT');
+  const attempt = value.seen.account![0] as Record<string, unknown>;
+  assert.equal(attempt.step, 'UPDATE_PROFILE');
+  assert.equal(attempt.displayName, 'ชื่อใหม่');
+  assert.equal(attempt.reconcileOnly, true);
+  assert.doesNotMatch(JSON.stringify(evidence), /ชื่อใหม่/);
+  // Keycloak มี receipt แต่ app ไม่มี (เช่นแก้ชื่อถูกปิดแทนด้วย disable หลัง Keycloak เปลี่ยนชื่อแล้ว)
+  value.rows.accountChanges[0]!.outcome = null;
+  value.rows.accountChanges[0]!.receiptRef = null;
+  evidence = await collectPeopleIdentityEvidence(value.database, [value.source]);
+  assert.equal(evidence.status, 'INCONSISTENT');
+  assert.equal(evidence.tenants[0]?.mismatches[0]?.kind, 'ACCOUNT_CHANGE');
+  assert.equal(evidence.tenants[0]?.mismatches[0]?.reason, 'UNRECORDED_PROVIDER_RECEIPT');
+  // ไม่มี reader แต่มีคำสั่ง attempted = อ่านไม่ได้ ไม่ใช่ความสอดคล้อง
+  const missing = fixture();
+  delete missing.source.readAccountChange;
+  evidence = await collectPeopleIdentityEvidence(missing.database, [missing.source]);
+  assert.equal(evidence.tenants[0]?.mismatches[0]?.reason, 'PROVIDER_UNREADABLE');
+  // เปิดกลับไม่ส่งชื่อ และคำสั่งที่ยังไม่ attempted ไม่ถูกอ่าน
+  const enable = fixture();
+  enable.rows.accountChanges[0]!.kind = 'ENABLE_ACCOUNT';
+  enable.rows.accountChanges[0]!.displayName = null;
+  evidence = await collectPeopleIdentityEvidence(enable.database, [enable.source]);
+  assert.equal((enable.seen.account![0] as Record<string, unknown>).displayName, null);
+  enable.rows.accountChanges[0]!.attempted = false;
+  enable.rows.accountChanges[0]!.outcome = null;
+  evidence = await collectPeopleIdentityEvidence(enable.database, [enable.source]);
+  assert.equal(evidence.tenants[0]?.counts.accountChanges, 0);
 });
