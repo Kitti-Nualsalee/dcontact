@@ -16,7 +16,7 @@ import {
 } from '@d-contact/ui-react';
 import { CatalogApiError } from '../voice-routing/api.js';
 import {
-  PEOPLE_DIRECTORY_STATES,
+  PEOPLE_DIRECTORY_STATUSES,
   type PeopleDirectoryApi,
   type PeopleDirectoryFilters,
   type PeopleDirectoryUser,
@@ -93,7 +93,7 @@ function serverFilters(filters: Filters, search: string): PeopleDirectoryFilters
       ? { role: filters.role }
       : {}),
     ...(filters.team !== 'ALL' ? { teamId: filters.team } : {}),
-    ...(filters.status !== 'ALL' ? { state: filters.status } : {}),
+    ...(filters.status !== 'ALL' ? { status: filters.status } : {}),
   };
 }
 
@@ -119,14 +119,18 @@ export function PeopleDirectory({
   const [items, setItems] = useState<PeopleDirectoryUser[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [selected, setSelected] = useState<PeopleDirectoryUser>();
-  const [busy, setBusy] = useState(false);
+  const [listBusy, setListBusy] = useState(false);
+  const [detailBusy, setDetailBusy] = useState(false);
+  const busy = listBusy || detailBusy;
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<'list' | 'more' | 'detail'>();
   const [filters, setFilters] = useState<Filters>(NO_FILTERS);
   // คำค้นรอผู้ใช้หยุดพิมพ์ก่อนส่ง ตัวกรองอื่นส่งทันที
   const [search, setSearch] = useState('');
+  // รายการกับรายละเอียดแยก ref กัน เพื่อให้การเปิดรายละเอียดไม่ปลดล็อก "โหลดเพิ่ม" ของรายการที่ยังโหลดอยู่
   const active = useRef(false),
-    inFlight = useRef(false),
+    listInFlight = useRef(false),
+    detailInFlight = useRef(false),
     generation = useRef(0);
   const lastOpened = useRef<string | undefined>(undefined);
   const callbacks = useRef({ onFailure, onOperation, onDetailChange });
@@ -144,11 +148,13 @@ export function PeopleDirectory({
   }
   /** โหลดหน้าแรกใหม่ทุกครั้งที่ตัวกรองเปลี่ยน ผลของคำขอเก่าที่ตอบช้าถูกทิ้ง */
   async function load(cursor?: string) {
-    if (cursor && inFlight.current) return;
+    if (cursor && listInFlight.current) return;
     const current = ++generation.current;
-    inFlight.current = true;
-    setBusy(true);
+    listInFlight.current = true;
+    setListBusy(true);
     setError(undefined);
+    // cursor ของตัวกรองเดิมใช้กับตัวกรองใหม่ไม่ได้
+    if (!cursor) setNextCursor(null);
     try {
       const result = await api.list(cursor, serverFilters(filters, search));
       if (active.current && current === generation.current) {
@@ -160,16 +166,16 @@ export function PeopleDirectory({
       if (current === generation.current) failed(error, cursor ? 'more' : 'list');
     } finally {
       if (current === generation.current) {
-        inFlight.current = false;
-        if (active.current) setBusy(false);
+        listInFlight.current = false;
+        if (active.current) setListBusy(false);
       }
     }
   }
   async function select(userId: string) {
-    if (inFlight.current) return;
-    inFlight.current = true;
+    if (detailInFlight.current) return;
+    detailInFlight.current = true;
     lastOpened.current = userId;
-    setBusy(true);
+    setDetailBusy(true);
     setError(undefined);
     setSelected(undefined);
     try {
@@ -181,8 +187,8 @@ export function PeopleDirectory({
     } catch (error) {
       failed(error, 'detail');
     } finally {
-      inFlight.current = false;
-      if (active.current) setBusy(false);
+      detailInFlight.current = false;
+      if (active.current) setDetailBusy(false);
     }
   }
   function back() {
@@ -209,11 +215,17 @@ export function PeopleDirectory({
     void load();
   }, [api, search, filters.role, filters.status, filters.team]);
 
-  const filtering =
+  // ป้ายจำนวนและผลว่างอ้างตัวกรองที่ส่งไปจริง (คำค้นหลัง debounce) ส่วนปุ่มล้างอ้างค่าที่ผู้ใช้ตั้ง
+  const filtering = Object.keys(serverFilters(filters, search)).length > 0;
+  const dirty =
     filters.search.trim() !== '' ||
     filters.role !== 'ALL' ||
     filters.status !== 'ALL' ||
     filters.team !== 'ALL';
+  function clearFilters() {
+    setFilters(NO_FILTERS);
+    setSearch('');
+  }
 
   if (selected)
     return (
@@ -260,7 +272,7 @@ export function PeopleDirectory({
           onSelectionChange={(key) => setFilters((value) => ({ ...value, status: String(key) }))}
           options={[
             { id: 'ALL', label: label('filters.allStatuses') },
-            ...PEOPLE_DIRECTORY_STATES.map((status) => ({
+            ...PEOPLE_DIRECTORY_STATUSES.map((status) => ({
               id: status,
               label: label(`status.${status}`),
             })),
@@ -276,8 +288,8 @@ export function PeopleDirectory({
           ]}
         />
         <div className="tp-filter-actions">
-          {filtering ? (
-            <Button variant="ghost" onPress={() => setFilters(NO_FILTERS)}>
+          {dirty ? (
+            <Button variant="ghost" onPress={clearFilters}>
               {label('filters.clear')}
             </Button>
           ) : null}
@@ -323,7 +335,7 @@ export function PeopleDirectory({
       {loaded && !items.length && !error && filtering ? (
         <div className="tp-empty">
           <p className="tp-empty-title">{label('list.noMatch')}</p>
-          <Button variant="secondary" onPress={() => setFilters(NO_FILTERS)}>
+          <Button variant="secondary" onPress={clearFilters}>
             {label('filters.clear')}
           </Button>
         </div>

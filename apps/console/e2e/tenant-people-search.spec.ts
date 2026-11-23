@@ -94,3 +94,59 @@ test('ค้นหาและกรองฝั่ง server: คำค้น�
   await expect(page.getByText('3 บัญชี', { exact: true })).toBeVisible();
   await expect(search).toHaveValue('');
 });
+
+test('ผลของคำค้นเก่าที่ตอบช้าถูกทิ้ง และโหลดเพิ่มส่งตัวกรองเดิมพร้อม cursor', async ({ page }) => {
+  const agents = Array.from({ length: 25 }, (_, index) =>
+    account(index + 10, `Agent ${index + 10}`),
+  );
+  const searches: Record<string, unknown>[] = [];
+  let releaseSlow: (() => void) | undefined;
+  await page.route('**/api/v1/me/navigation**', (route) =>
+    route.fulfill({ json: homeNavigation(['admin'], true) }),
+  );
+  await page.route('**/api/v1/tenant-voice/**', async (route) => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname.split('/tenant-voice/')[1];
+    if (path === 'capabilities')
+      return route.fulfill({ json: { canWrite: true, peopleProvisioning: { ready: true } } });
+    if (path === 'teams')
+      return route.fulfill({ json: { items: [{ id: TEAM_ID, name: 'ทีมขาย', isActive: true }] } });
+    if (path === 'extension-pool') return route.fulfill({ json: { items: [] } });
+    if (path === 'people/users' && request.method() === 'GET')
+      return route.fulfill({ json: { items: agents.slice(0, 20), nextCursor: 'all-page-2' } });
+    if (path === 'people/users/search') {
+      const body = request.postDataJSON() as Record<string, unknown>;
+      searches.push(body);
+      if (body.q === 'slow') {
+        // คำค้นแรกตอบช้ากว่าคำค้นถัดไป
+        await new Promise<void>((resolve) => (releaseSlow = resolve));
+        return route.fulfill({
+          json: { items: [account(90, 'ผลเก่าที่ต้องทิ้ง')], nextCursor: null },
+        });
+      }
+      if (body.cursor === 'agent-page-2')
+        return route.fulfill({ json: { items: agents.slice(20), nextCursor: null } });
+      return route.fulfill({ json: { items: agents.slice(0, 20), nextCursor: 'agent-page-2' } });
+    }
+    return route.fulfill({ status: 404, json: { code: 'RESOURCE_NOT_FOUND' } });
+  });
+
+  await page.goto('/?view=tenant-people&tenant=demo');
+  await expect(page.getByText('แสดง 20 บัญชีแรก มีบัญชีเพิ่มเติม')).toBeVisible();
+  const search = page.getByRole('searchbox', { name: 'ค้นหา' });
+  await search.fill('slow');
+  await expect.poll(() => searches.length).toBe(1);
+  await search.fill('agent');
+  await expect.poll(() => searches.length).toBe(2);
+  await expect(page.getByText('แสดง 20 บัญชีแรก มีบัญชีเพิ่มเติม')).toBeVisible();
+  releaseSlow!();
+  await expect(page.getByRole('button', { name: 'ดูบัญชี ผลเก่าที่ต้องทิ้ง' })).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'ดูบัญชีเพิ่มเติม', exact: true }).click();
+  await expect(page.getByText('พบ 25 บัญชี', { exact: true })).toBeVisible();
+  expect(searches.at(-1)).toEqual({ limit: 20, cursor: 'agent-page-2', q: 'agent' });
+
+  await page.getByRole('button', { name: /สถานะ/ }).click();
+  await page.getByRole('option', { name: 'จัดเตรียมไม่สำเร็จ', exact: true }).click();
+  await expect.poll(() => searches.at(-1)).toEqual({ limit: 20, q: 'agent', status: 'REJECTED' });
+});

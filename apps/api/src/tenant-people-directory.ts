@@ -58,6 +58,31 @@ function projection(row: DirectoryRow) {
   };
 }
 
+/**
+ * สถานะเดียวที่ Console แสดงต่อบัญชี (ลำดับเดียวกับ `accountStatus()` ใน Console — ข้อแรกที่ตรงชนะ)
+ * search กรองด้วยค่านี้เพื่อให้ผลตรงกับ chip ที่ผู้ใช้เห็น; GET `state` ยังกรองด้วย accountState ดิบตามเดิม
+ */
+export const DISPLAY_STATUSES = [
+  'ATTENTION_REQUIRED',
+  'REJECTED',
+  'DISABLED',
+  'DISABLING',
+  'PROVISIONING',
+  'ACTIVE',
+  'PENDING_ACTIVATION',
+  'UNKNOWN',
+] as const;
+const DISPLAY_STATUS_SQL = Prisma.sql`(CASE
+  WHEN "accountState"='ATTENTION_REQUIRED' THEN 'ATTENTION_REQUIRED'
+  WHEN "provisioningState"='REJECTED' THEN 'REJECTED'
+  WHEN "accountState"='DISABLED' THEN 'DISABLED'
+  WHEN "accountState"='DISABLING' THEN 'DISABLING'
+  WHEN "accountState"='PROVISIONING' OR "provisioningState"='PENDING' THEN 'PROVISIONING'
+  WHEN "accountState"='ACTIVE' AND "activationState"='ACTIVATED' AND "isActive" THEN 'ACTIVE'
+  WHEN "accountState"='PENDING_ACTIVATION' AND "provisioningState"='PROVISIONED'
+    AND "activationState"='PENDING' THEN 'PENDING_ACTIVATION'
+  ELSE 'UNKNOWN' END)`;
+
 /** แปลง LIKE wildcard ในคำค้นเป็นตัวอักษรธรรมดา */
 function likePattern(value: string) {
   return `%${value.replace(/[\\%_]/g, (character) => `\\${character}`).toLowerCase()}%`;
@@ -98,9 +123,14 @@ export function readPeopleDirectory(
     if (
       Object.keys(query).some(
         (key) =>
-          !['limit', 'cursor', 'teamId', 'role', 'state', ...(searchable ? ['q'] : [])].includes(
-            key,
-          ),
+          ![
+            'limit',
+            'cursor',
+            'teamId',
+            'role',
+            'state',
+            ...(searchable ? ['q', 'status'] : []),
+          ].includes(key),
       )
     )
       voiceFail('VALIDATION_FAILED', 400);
@@ -131,7 +161,13 @@ export function readPeopleDirectory(
       voiceFail('VALIDATION_FAILED', 400, { field: 'state' });
     const id = userId === undefined ? null : voiceUuid(userId, 'id');
     const q = searchable ? searchText(query.q) : null;
-    const filterDigest = digest(['tenant-people-users', teamId, role, state, q]);
+    const status = searchable ? (query.status ?? null) : null;
+    if (
+      status !== null &&
+      (typeof status !== 'string' || !(DISPLAY_STATUSES as readonly string[]).includes(status))
+    )
+      voiceFail('VALIDATION_FAILED', 400, { field: 'status' });
+    const filterDigest = digest(['tenant-people-users', teamId, role, state, q, status]);
     let after: { at: Date; id: string } | undefined;
     if (query.cursor !== undefined) {
       try {
@@ -199,6 +235,7 @@ export function readPeopleDirectory(
         ${teamId ? Prisma.sql`AND "teamId"=${teamId}::uuid` : Prisma.empty}
         ${role ? Prisma.sql`AND role=${role}` : Prisma.empty}
         ${state ? Prisma.sql`AND "accountState"=${state}` : Prisma.empty}
+        ${status ? Prisma.sql`AND ${DISPLAY_STATUS_SQL}=${status}` : Prisma.empty}
         ${
           q
             ? Prisma.sql`AND (lower("displayName") LIKE ${likePattern(q)} ESCAPE '\\'

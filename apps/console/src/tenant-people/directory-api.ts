@@ -33,15 +33,17 @@ export interface PeopleDirectoryFilters {
   q?: string;
   role?: PeopleRole;
   teamId?: string;
-  state?: string;
+  /** สถานะเดียวกับ chip ใน Console (server คำนวณลำดับเดียวกับ `accountStatus()`) */
+  status?: string;
 }
-export const PEOPLE_DIRECTORY_STATES = [
+export const PEOPLE_DIRECTORY_STATUSES = [
   'ACTIVE',
   'PENDING_ACTIVATION',
   'PROVISIONING',
   'DISABLING',
   'DISABLED',
   'ATTENTION_REQUIRED',
+  'REJECTED',
   'UNKNOWN',
 ] as const;
 export interface PeopleDirectoryApi {
@@ -177,8 +179,9 @@ export function createPeopleDirectoryApi(options: {
         ...(q ? { q } : {}),
         ...(filters.role ? { role: filters.role } : {}),
         ...(filters.teamId && peopleUuid(filters.teamId) ? { teamId: filters.teamId } : {}),
-        ...(filters.state && (PEOPLE_DIRECTORY_STATES as readonly string[]).includes(filters.state)
-          ? { state: filters.state }
+        ...(filters.status &&
+        (PEOPLE_DIRECTORY_STATUSES as readonly string[]).includes(filters.status)
+          ? { status: filters.status }
           : {}),
       };
       // มีตัวกรองใช้ POST search ให้คำค้น (ชื่อ/email) อยู่ใน body ไม่อยู่ใน URL

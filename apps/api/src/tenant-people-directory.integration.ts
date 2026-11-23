@@ -368,7 +368,52 @@ test('People directory HTTP/RLS: pagination/detail และ positive tenant aut
           await search({ q: 'page-', limit: 20, cursor: pageQuery.nextCursor }),
         );
         assert.equal(nextQuery.items.length, 1);
+        // fixture ตั้ง state ขอบโดยตรง ข้าม trigger ของ lifecycle เฉพาะใน transaction นี้
+        const lifecycleState = (state: string) =>
+          owner.$transaction([
+            owner.$executeRawUnsafe(`SET LOCAL session_replication_role = replica`),
+            owner.$executeRaw`UPDATE tenant_user_lifecycles SET account_state=${state} WHERE tenant_id=${tenantId}::uuid AND user_id=${target.userId}::uuid`,
+          ]);
+        // status กรองด้วยสถานะเดียวกับ chip ของ Console ไม่ใช่ accountState ดิบ
+        await lifecycleState('PENDING_ACTIVATION');
+        assert.deepEqual(
+          (await readPage(await search({ q: 'ค้นเจอ', status: 'PROVISIONING' }))).items.map(
+            (item) => item.id,
+          ),
+          [target.userId],
+        );
+        assert.deepEqual(
+          await readPage(await search({ q: 'ค้นเจอ', status: 'PENDING_ACTIVATION' })),
+          {
+            items: [],
+            nextCursor: null,
+          },
+        );
+        await lifecycleState('PROVISIONING');
+        const bootstrapIds = (await readPage(await search({ status: 'UNKNOWN', limit: 100 }))).items
+          .map((item) => item.id)
+          .sort();
+        assert.deepEqual(bootstrapIds, [adminId, secondAdminId].sort());
+        // cursor ผูกกับ teamId/status ด้วย
+        const teamPage = await readPage(
+          await search({ teamId, status: 'PROVISIONING', limit: 20 }),
+        );
+        assert.equal(teamPage.items.length, 20);
+        assert.equal(
+          (await search({ teamId, status: 'UNKNOWN', cursor: teamPage.nextCursor })).status,
+          400,
+        );
+        assert.equal(
+          (
+            await readPage(
+              await search({ teamId, status: 'PROVISIONING', cursor: teamPage.nextCursor }),
+            )
+          ).items.length,
+          2,
+        );
+        assert.equal((await request('?status=ACTIVE')).status, 400);
         for (const body of [
+          { status: 'READY' },
           { q: 'x'.repeat(101) },
           { q: 'a\u0000b' },
           { q: 42 },

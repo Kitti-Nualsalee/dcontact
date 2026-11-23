@@ -203,7 +203,8 @@
       "PROVISIONED": "Awaiting activation",
       "ACTIVE": "Activated",
       "ATTENTION": "Needs review",
-      "REJECTED": "Not completed"
+      "REJECTED": "Not completed",
+      "FINISHED": "Finished"
     },
     "body": {
       "CHECKING": "We haven't received this command's outcome yet. We're checking the original command and won't create a duplicate. You can't create another account until then.",
@@ -211,7 +212,8 @@
       "PROVISIONED": "Account provisioned — awaiting user activation. The user must open the email invitation to set a password and verify their identity.",
       "ACTIVE": "The user activated the account. Calls aren't opened on the user's behalf.",
       "ATTENTION": "This account requires attention. Contact an administrator; it is not activated.",
-      "REJECTED": "The command was rejected and no account was activated. Check the details and create it again."
+      "REJECTED": "The command was rejected and no account was activated. Check the details and create it again.",
+      "FINISHED": "This command finished, but the account isn't in a recognized state. Check the account details for its latest status."
     }
   }
 }

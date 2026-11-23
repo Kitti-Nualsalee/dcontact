@@ -293,17 +293,21 @@ function PeopleSession({ api, identityKey, onSignIn }: Props) {
           ? 'ATTENTION'
           : status?.state === 'REJECTED'
             ? 'REJECTED'
-            : status
-              ? 'IN_PROGRESS'
-              : 'CHECKING';
+            : terminal
+              ? 'FINISHED'
+              : status
+                ? 'IN_PROGRESS'
+                : 'CHECKING';
   const operationTone =
-    status?.state === 'SUCCEEDED'
-      ? 'success'
-      : status?.state === 'ACTION_REQUIRED' ||
-          status?.accountState === 'ATTENTION_REQUIRED' ||
-          status?.state === 'REJECTED'
-        ? 'critical'
-        : 'info';
+    phase === 'FINISHED'
+      ? 'neutral'
+      : status?.state === 'SUCCEEDED'
+        ? 'success'
+        : status?.state === 'ACTION_REQUIRED' ||
+            status?.accountState === 'ATTENTION_REQUIRED' ||
+            status?.state === 'REJECTED'
+          ? 'critical'
+          : 'info';
   const canSubmit =
     !disabled && !!name.trim() && !!email.trim() && !!teamId && (role !== 'AGENT' || !!extension);
   return (
