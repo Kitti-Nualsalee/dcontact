@@ -418,6 +418,9 @@ REVOKE ALL ON tenant_people_disables,tenant_people_disable_receipts,tenant_peopl
 GRANT SELECT,INSERT ON tenant_people_disables TO dcontact_app;
 GRANT SELECT ON tenant_people_disable_receipts,tenant_people_disable_flushes TO dcontact_app;
 GRANT SELECT ON tenant_people_disables,tenant_people_disable_receipts,tenant_people_disable_flushes TO dcontact_tenant_people_worker;
+-- #998 1A: ledger การย้ายทีมเขียนผ่าน dc_people_apply_team_change เท่านั้น app อ่านได้อย่างเดียว
+REVOKE ALL ON tenant_people_team_changes FROM dcontact_app;
+GRANT SELECT ON tenant_people_team_changes TO dcontact_app;
 REVOKE ALL ON tenant_people_operations, tenant_identity_reservations, tenant_user_lifecycles, tenant_people_step_receipts FROM dcontact_app;
 GRANT SELECT, INSERT ON tenant_people_operations, tenant_identity_reservations, tenant_user_lifecycles TO dcontact_app;
 GRANT SELECT ON tenant_people_step_receipts TO dcontact_app;

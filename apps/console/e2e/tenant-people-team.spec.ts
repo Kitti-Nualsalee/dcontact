@@ -7,7 +7,7 @@ const TEAM_A = '10000000-0000-4000-8000-000000000401';
 const TEAM_B = '10000000-0000-4000-8000-000000000402';
 const USER_ID = '10000000-0000-4000-8000-000000000411';
 
-for (const scenario of ['success', 'busy', 'disabled'] as const)
+for (const scenario of ['success', 'busy', 'session', 'unknown', 'disabled'] as const)
   test(`ย้ายทีม ${scenario}: ยืนยันใน Dialog ส่ง revision/เหตุผล และไม่ส่งซ้ำเมื่อถูกปฏิเสธ`, async ({
     page,
   }) => {
@@ -28,6 +28,7 @@ for (const scenario of ['success', 'busy', 'disabled'] as const)
       commandId: null,
     };
     const patches: Record<string, unknown>[] = [];
+    let details = 0;
     await page.route('**/api/v1/me/navigation**', (route) =>
       route.fulfill({ json: homeNavigation(['admin'], true) }),
     );
@@ -48,13 +49,18 @@ for (const scenario of ['success', 'busy', 'disabled'] as const)
       if (path === 'extension-pool') return route.fulfill({ json: { items: [] } });
       if (path === 'people/users' && request.method() === 'GET')
         return route.fulfill({ json: { items: [user], nextCursor: null } });
-      if (path === `people/users/${USER_ID}` && request.method() === 'GET')
+      if (path === `people/users/${USER_ID}` && request.method() === 'GET') {
+        details++;
         return route.fulfill({ json: user });
+      }
       if (path === `people/users/${USER_ID}/team` && request.method() === 'PATCH') {
         const body = request.postDataJSON() as Record<string, unknown>;
         patches.push(body);
         if (scenario === 'busy')
           return route.fulfill({ status: 409, json: { code: 'CONFIG_BUSY' } });
+        if (scenario === 'session')
+          return route.fulfill({ status: 409, json: { code: 'AGENT_SESSION_ACTIVE' } });
+        if (scenario === 'unknown') return route.fulfill({ status: 502, body: '' });
         user = { ...user, teamId: TEAM_B, configRevision: 5 };
         return route.fulfill({
           json: { userId: USER_ID, teamId: TEAM_B, configRevision: 5, removedSkills: 1 },
@@ -95,6 +101,21 @@ for (const scenario of ['success', 'busy', 'disabled'] as const)
       teamId: TEAM_B,
       reason: 'ย้ายไปดูแลงานบริการ',
     });
+    if (scenario === 'unknown') {
+      // ไม่รู้ผล: ปิด Dialog อ่านรายละเอียดจริง และไม่ส่งซ้ำเอง
+      await expect(dialog).toHaveCount(0);
+      await expect(
+        page.getByRole('status').filter({ hasText: 'ยังยืนยันผลการย้ายทีมไม่ได้' }),
+      ).toBeVisible();
+      await expect.poll(() => details).toBeGreaterThanOrEqual(2);
+      expect(patches).toHaveLength(1);
+      return;
+    }
+    if (scenario === 'session') {
+      await expect(dialog.getByRole('alert')).toContainText('ออกจาก Workspace ก่อน');
+      expect(patches).toHaveLength(1);
+      return;
+    }
     if (scenario === 'busy') {
       await expect(dialog.getByRole('alert')).toContainText('มีสายหรือคำสั่งค้างอยู่');
       await expect(dialog.getByRole('textbox', { name: /เหตุผล/ })).toHaveValue(

@@ -5,8 +5,14 @@ import { CatalogApiError } from '../voice-routing/api.js';
 import type { PeopleDirectoryApi, PeopleDirectoryUser } from './directory-api.js';
 import { accountStatus } from './directory.js';
 
-type Failure =
-  'CONFIG_BUSY' | 'REVISION_CONFLICT' | 'REFERENCE_SCOPE_MISMATCH' | 'FAILED' | 'UNKNOWN';
+const KNOWN = [
+  'CONFIG_BUSY',
+  'REVISION_CONFLICT',
+  'REFERENCE_SCOPE_MISMATCH',
+  'ACCOUNT_STATE_CONFLICT',
+  'AGENT_SESSION_ACTIVE',
+] as const;
+type Failure = (typeof KNOWN)[number] | 'FAILED' | 'UNKNOWN';
 
 /** สถานะที่ย้ายทีมได้ — ตรงกับที่ server ยอม (กำลังจัดเตรียม/ปิด/ต้องตรวจสอบ ถูกปฏิเสธ) */
 const MOVABLE = new Set(['ACTIVE', 'PENDING_ACTIVATION', 'UNKNOWN']);
@@ -90,7 +96,7 @@ export function PeopleTeamChange({
       const known =
         value instanceof CatalogApiError &&
         value.status === 409 &&
-        ['CONFIG_BUSY', 'REVISION_CONFLICT', 'REFERENCE_SCOPE_MISMATCH'].includes(value.code);
+        (KNOWN as readonly string[]).includes(value.code);
       if (known) setError(value.code as Failure);
       else if (value instanceof CatalogApiError && value.status === 400) setError('FAILED');
       else {

@@ -10,6 +10,7 @@ import { TenantPeopleController, TENANT_PEOPLE_READINESS } from './tenant-people
 import { TENANT_VOICE_DATABASE } from './tenant-voice-catalog-api.js';
 import { configuredPeopleRuntime } from './tenant-people-composition.js';
 import { acceptPeopleTeamChange } from './tenant-people-team-change.js';
+import { acceptPeopleCreate } from './tenant-people-operations.js';
 import type { VoiceActor } from './tenant-voice-catalog.js';
 import {
   OidcGlobalGuard,
@@ -48,6 +49,7 @@ test('#998 1A: Admin ย้ายทีมของบัญชีด้วย r
     agentId = randomUUID(),
     supervisorId = randomUUID(),
     unboundId = randomUUID(),
+    legacyDisabledId = randomUUID(),
     foreignId = randomUUID();
   const skillA = randomUUID(),
     skillB = randomUUID();
@@ -87,6 +89,7 @@ test('#998 1A: Admin ย้ายทีมของบัญชีด้วย r
       [agentId, tenantId, 'AGENT', teamA],
       [supervisorId, tenantId, 'SUPERVISOR', teamA],
       [unboundId, tenantId, 'AGENT', teamA],
+      [legacyDisabledId, tenantId, 'SUPERVISOR', teamA],
       [foreignId, foreignTenantId, 'ADMIN', foreignTeam],
     ];
     for (const [id, scope, role, team] of people)
@@ -101,12 +104,14 @@ test('#998 1A: Admin ย้ายทีมของบัญชีด้วย r
           role,
           extension: role === 'AGENT' ? (id === agentId ? '1201' : '1202') : null,
           passwordHash: '!keycloak-managed',
+          isActive: id !== legacyDisabledId,
         },
       });
     for (const [id, scope] of [
       [adminId, tenantId],
       [agentId, tenantId],
       [supervisorId, tenantId],
+      [legacyDisabledId, tenantId],
       [foreignId, foreignTenantId],
     ])
       await owner.$executeRaw`INSERT INTO tenant_voice_identity_bindings(tenant_id,user_id,issuer,subject_id,client_id,tenant_slug,organization_id,identity_class,source_kind,evidence_ref,evidence_digest,verified_by_operator_subject,verified_at,revision,is_active)
@@ -140,10 +145,38 @@ test('#998 1A: Admin ย้ายทีมของบัญชีด้วย r
         const result = await acceptPeopleTeamChange(application, actor(), agentId, body);
         assert.deepEqual(result, {
           userId: agentId,
+          fromTeamId: teamA,
           teamId: teamB,
           configRevision: 2,
           removedSkills: 1,
         });
+        // ledger append-only บอกว่าใครย้ายใครจากทีมไหนไปทีมไหนเพราะอะไร
+        const ledger = await owner.$queryRaw<Record<string, unknown>[]>`
+          SELECT user_id,actor_user_id,from_team_id,to_team_id,before_revision,removed_skill_ids,reason
+          FROM tenant_people_team_changes WHERE tenant_id=${tenantId}::uuid AND command_id=${body.commandId}::uuid`;
+        assert.deepEqual(ledger, [
+          {
+            user_id: agentId,
+            actor_user_id: adminId,
+            from_team_id: teamA,
+            to_team_id: teamB,
+            before_revision: 1,
+            removed_skill_ids: [skillA],
+            reason: 'ย้ายไปดูแลลูกค้ากลุ่มใหม่',
+          },
+        ]);
+        await assert.rejects(
+          owner.$executeRaw`UPDATE tenant_people_team_changes SET reason='แก้' WHERE tenant_id=${tenantId}::uuid`,
+          /VOICE_CONFIG_APPEND_ONLY/,
+        );
+        await assert.rejects(
+          application.$transaction(async (transaction) => {
+            await transaction.$executeRaw`SELECT set_config('app.tenant_id',${tenantId},true)`;
+            await transaction.$executeRaw`INSERT INTO tenant_people_team_changes(tenant_id,command_id,user_id,actor_user_id,to_team_id,before_revision,reason)
+              VALUES(${tenantId}::uuid,${randomUUID()}::uuid,${agentId}::uuid,${adminId}::uuid,${teamA}::uuid,1,'x')`;
+          }),
+          /permission denied/,
+        );
         const agent = await owner.user.findUniqueOrThrow({ where: { id: agentId } });
         assert.equal(agent.teamId, teamB);
         assert.equal(agent.configRevision, 2);
@@ -224,6 +257,59 @@ test('#998 1A: Admin ย้ายทีมของบัญชีด้วย r
       },
     );
 
+    await suite.test(
+      'ปฏิเสธบัญชีที่ปิดแล้ว กำลังจัดเตรียม หรือ Agent ที่ยังเปิด Workspace',
+      async () => {
+        await rejectsWith(
+          acceptPeopleTeamChange(application, actor(), legacyDisabledId, command(1)),
+          409,
+          'ACCOUNT_STATE_CONFLICT',
+        );
+        const created = await acceptPeopleCreate(application, actor(), {
+          commandId: randomUUID(),
+          displayName: 'บัญชีกำลังจัดเตรียม',
+          email: 'provisioning-team@example.test',
+          role: 'SUPERVISOR',
+          teamId: teamA,
+        });
+        // บัญชี B2 ที่ยังไม่ PROVISIONED ไม่ผ่าน positive proof ของ disable snapshot จึงเหมือนไม่มีบัญชีนี้
+        await rejectsWith(
+          acceptPeopleTeamChange(application, actor(), created.userId, command(1)),
+          404,
+          'RESOURCE_NOT_FOUND',
+        );
+        const leaseId = randomUUID();
+        await owner.$executeRaw`INSERT INTO agent_work_session_leases(id,tenant_id,user_id,surface,acquired_at,heartbeat_at,expires_at)
+        VALUES(${leaseId}::uuid,${tenantId}::uuid,${agentId}::uuid,'workspace',now() AT TIME ZONE 'UTC',now() AT TIME ZONE 'UTC',(now()+interval '5 minutes') AT TIME ZONE 'UTC')`;
+        const current = await owner.user.findUniqueOrThrow({ where: { id: agentId } });
+        await rejectsWith(
+          acceptPeopleTeamChange(
+            application,
+            actor(),
+            agentId,
+            command(current.configRevision, teamB),
+          ),
+          409,
+          'AGENT_SESSION_ACTIVE',
+        );
+        await owner.$executeRaw`UPDATE agent_work_session_leases SET released_at=now() AT TIME ZONE 'UTC',release_reason='released' WHERE id=${leaseId}::uuid`;
+      },
+    );
+
+    await suite.test(
+      'definer ปฏิเสธการเรียกตรงด้วย scope ผิดหรือคำสั่งที่ไม่ได้สร้างผ่าน API',
+      async () => {
+        for (const scope of [foreignTenantId, tenantId])
+          await assert.rejects(
+            application.$transaction(async (transaction) => {
+              await transaction.$executeRaw`SELECT set_config('app.tenant_id',${tenantId},true)`;
+              await transaction.$queryRaw`SELECT dc_people_apply_team_change(${scope}::uuid,${randomUUID()}::uuid,${teamB}::uuid,'x',${issuer},'dcontact-console',${`team-change-${tenantId}`})`;
+            }),
+            /PEOPLE_UPDATE_SCOPE_DENIED/,
+          );
+      },
+    );
+
     await suite.test('ตรวจ body: ไม่รับ role/extension/email และเหตุผลต้องมี', async () => {
       for (const extra of [
         { role: 'ADMIN' },
@@ -241,66 +327,70 @@ test('#998 1A: Admin ย้ายทีมของบัญชีด้วย r
         );
     });
 
-    await suite.test('HTTP: PATCH เฉพาะ Admin และ Supervisor ย้ายทีมได้', async () => {
-      @Module({
-        controllers: [TenantPeopleController],
-        providers: [
-          { provide: TENANT_VOICE_DATABASE, useValue: application },
-          { provide: TENANT_PEOPLE_READINESS, useValue: configuredPeopleRuntime({}) },
-          {
-            provide: OIDC_ACCESS_TOKEN_VERIFIER,
-            useValue: {
-              verifyAccessToken: async (token: string) => {
-                if (!['admin', 'supervisor'].includes(token)) throw Error('invalid fixture token');
-                const userId = token === 'admin' ? adminId : supervisorId;
-                const alias = `team-change-${tenantId}`;
-                return {
-                  iss: issuer,
-                  sub: userId,
-                  azp: 'dcontact-console',
-                  tenant_id: tenantId,
-                  tenant_slug: alias,
-                  organization: { [alias]: { tenant_id: [tenantId] } },
-                  dc_user_id: userId,
-                  sid: randomUUID(),
-                  exp: 2_000_000_000,
-                  realm_access: { roles: [token] },
-                  dc_identity_class: 'TENANT_USER',
-                };
+    await suite.test(
+      'HTTP: Supervisor เรียก PATCH ไม่ได้ ส่วน Admin ย้ายทีมของ Supervisor ได้',
+      async () => {
+        @Module({
+          controllers: [TenantPeopleController],
+          providers: [
+            { provide: TENANT_VOICE_DATABASE, useValue: application },
+            { provide: TENANT_PEOPLE_READINESS, useValue: configuredPeopleRuntime({}) },
+            {
+              provide: OIDC_ACCESS_TOKEN_VERIFIER,
+              useValue: {
+                verifyAccessToken: async (token: string) => {
+                  if (!['admin', 'supervisor'].includes(token))
+                    throw Error('invalid fixture token');
+                  const userId = token === 'admin' ? adminId : supervisorId;
+                  const alias = `team-change-${tenantId}`;
+                  return {
+                    iss: issuer,
+                    sub: userId,
+                    azp: 'dcontact-console',
+                    tenant_id: tenantId,
+                    tenant_slug: alias,
+                    organization: { [alias]: { tenant_id: [tenantId] } },
+                    dc_user_id: userId,
+                    sid: randomUUID(),
+                    exp: 2_000_000_000,
+                    realm_access: { roles: [token] },
+                    dc_identity_class: 'TENANT_USER',
+                  };
+                },
               },
             },
-          },
-          {
-            provide: TENANT_LIFECYCLE,
-            useValue: {
-              isActive: async (id: string) =>
-                !!(await application.tenant.findFirst({
-                  where: { id, lifecycleStatus: 'ACTIVE' },
-                })),
+            {
+              provide: TENANT_LIFECYCLE,
+              useValue: {
+                isActive: async (id: string) =>
+                  !!(await application.tenant.findFirst({
+                    where: { id, lifecycleStatus: 'ACTIVE' },
+                  })),
+              },
             },
-          },
-          { provide: GATEWAY_DIAGNOSTICS, useValue: { write: () => undefined } },
-          { provide: APP_GUARD, useClass: OidcGlobalGuard },
-        ],
-      })
-      class TeamChangeModule {}
-      app = await NestFactory.create(TeamChangeModule, { logger: false });
-      await app.listen(0, '127.0.0.1');
-      const url = `http://127.0.0.1:${(app.getHttpServer().address() as AddressInfo).port}/api/v1/tenant-voice/people/users/${supervisorId}/team`;
-      const patch = (token: string) =>
-        fetch(url, {
-          method: 'PATCH',
-          headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-          body: JSON.stringify(command(1)),
-        });
-      assert.equal((await patch('supervisor')).status, 403);
-      const response = await patch('admin');
-      assert.equal(response.status, 200);
-      assert.equal(response.headers.get('cache-control'), 'no-store');
-      const body = (await response.json()) as Record<string, unknown>;
-      assert.equal(body.teamId, teamB);
-      assert.equal(body.configRevision, 2);
-    });
+            { provide: GATEWAY_DIAGNOSTICS, useValue: { write: () => undefined } },
+            { provide: APP_GUARD, useClass: OidcGlobalGuard },
+          ],
+        })
+        class TeamChangeModule {}
+        app = await NestFactory.create(TeamChangeModule, { logger: false });
+        await app.listen(0, '127.0.0.1');
+        const url = `http://127.0.0.1:${(app.getHttpServer().address() as AddressInfo).port}/api/v1/tenant-voice/people/users/${supervisorId}/team`;
+        const patch = (token: string) =>
+          fetch(url, {
+            method: 'PATCH',
+            headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+            body: JSON.stringify(command(1)),
+          });
+        assert.equal((await patch('supervisor')).status, 403);
+        const response = await patch('admin');
+        assert.equal(response.status, 200);
+        assert.equal(response.headers.get('cache-control'), 'no-store');
+        const body = (await response.json()) as Record<string, unknown>;
+        assert.equal(body.teamId, teamB);
+        assert.equal(body.configRevision, 2);
+      },
+    );
   } finally {
     await app?.close();
     await owner.$disconnect();

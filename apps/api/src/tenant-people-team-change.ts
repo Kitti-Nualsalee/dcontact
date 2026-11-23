@@ -19,6 +19,7 @@ import type { DisableSnapshot } from './tenant-people-disable.js';
 
 export interface TeamChangeResult {
   userId: string;
+  fromTeamId: string | null;
   teamId: string;
   configRevision: number;
   removedSkills: number;
@@ -123,9 +124,11 @@ async function applyTeamChange(
     await transaction.$executeRaw`INSERT INTO voice_config_commands(tenant_id,command_id,actor_user_id,action,resource_id,payload_digest,expected_revision,command_kind)
       VALUES(${identity.tenantId}::uuid,${command.commandId}::uuid,${identity.userId}::uuid,'PEOPLE_TEAM_CHANGE',${userId}::uuid,${payloadDigest},${command.expectedRevision},'PEOPLE_UPDATE')`;
     const [applied] = await transaction.$queryRaw<{ revision: number }[]>`
-      SELECT dc_people_apply_team_change(${identity.tenantId}::uuid,${command.commandId}::uuid,${command.teamId}::uuid) AS revision`;
+      SELECT dc_people_apply_team_change(${identity.tenantId}::uuid,${command.commandId}::uuid,${command.teamId}::uuid,
+        ${command.reason},${identity.caller!.issuer},${identity.caller!.clientId},${identity.caller!.tenantSlug}) AS revision`;
     const result: TeamChangeResult = {
       userId,
+      fromTeamId: target.team_id,
       teamId: command.teamId,
       configRevision: applied.revision,
       removedSkills: removed,
@@ -134,7 +137,18 @@ async function applyTeamChange(
     await transaction.$executeRaw`INSERT INTO voice_config_audit(id,tenant_id,actor_user_id,resource_id,command_id,action,outcome,before_revision,after_revision,changed_keys,reason_code,correlation_id)
       VALUES(${randomUUID()}::uuid,${identity.tenantId}::uuid,${identity.userId}::uuid,${userId}::uuid,${command.commandId}::uuid,'PEOPLE_TEAM_CHANGE','SUCCEEDED',${command.expectedRevision},${applied.revision},${removed ? ['teamId', 'agentSkills'] : ['teamId']},'OPERATOR_REQUEST',${identity.correlationId ?? command.commandId})`;
     return result;
-  }).catch(mapDatabaseError);
+  }).catch(mapTeamChangeError);
+}
+
+/** code ของ definer ที่ไม่อยู่ใน mapDatabaseError กลาง: แยกสถานะบัญชีและ session ออกจาก CONFIG_BUSY */
+function mapTeamChangeError(error: unknown): never {
+  if (!(error instanceof HttpException)) {
+    const message = error instanceof Error ? error.message : '';
+    if (message.includes('PEOPLE_UPDATE_SCOPE_DENIED')) voiceFail('FORBIDDEN', 403);
+    if (message.includes('ACCOUNT_STATE_CONFLICT')) voiceFail('ACCOUNT_STATE_CONFLICT', 409);
+    if (message.includes('AGENT_SESSION_ACTIVE')) voiceFail('AGENT_SESSION_ACTIVE', 409);
+  }
+  return mapDatabaseError(error);
 }
 
 export async function acceptPeopleTeamChange(
@@ -160,7 +174,7 @@ export async function acceptPeopleTeamChange(
           await catalogActor(transaction, identity, true);
           await transaction.$executeRaw`INSERT INTO voice_config_audit(id,tenant_id,actor_user_id,resource_id,command_id,action,outcome,reason_code,correlation_id)
             VALUES(${randomUUID()}::uuid,${identity.tenantId}::uuid,${identity.userId}::uuid,${userId}::uuid,${command.commandId}::uuid,'PEOPLE_TEAM_CHANGE','REJECTED',${code},${identity.correlationId ?? randomUUID()})`;
-        }).catch(() => undefined);
+        });
     }
     throw error;
   }
