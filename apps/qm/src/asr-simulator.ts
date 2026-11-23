@@ -224,7 +224,12 @@ export class AsrSimulator {
     } catch {
       throw new SimulatorError(400, 'INVALID_REQUEST', 'mediaUrl is not a URL');
     }
-    if (url.protocol !== 'https:' || !this.mediaHosts.has(url.hostname.toLowerCase())) {
+    // บังคับ port 443: host เดียวกันอาจมีบริการอื่นที่ port อื่น
+    if (
+      url.protocol !== 'https:' ||
+      url.port !== '' ||
+      !this.mediaHosts.has(url.hostname.toLowerCase())
+    ) {
       throw new SimulatorError(
         400,
         'MEDIA_URL_NOT_ALLOWED',

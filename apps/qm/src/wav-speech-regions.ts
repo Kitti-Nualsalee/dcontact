@@ -50,8 +50,10 @@ export function parsePcmWav(buffer: Buffer): PcmWav {
         bitsPerSample: buffer.readUInt16LE(body + 14),
       };
     } else if (id === 'data') {
-      // FreeSWITCH หรือ writer ที่ถูกตัดกลางคันอาจเขียนขนาดเกินไฟล์จริง: ใช้เท่าที่มี
-      data = { offset: body, length: Math.min(size, buffer.length - body) };
+      // writer ที่ยังไม่ปิดไฟล์เขียนขนาดเป็น 0 หรือ 0xFFFFFFFF และไฟล์ที่ถูกตัดกลางคันอาจมีขนาดเกินจริง: อ่านเท่าที่มี
+      const available = buffer.length - body;
+      const streaming = size === 0 || size === 0xffffffff;
+      data = { offset: body, length: streaming ? available : Math.min(size, available) };
       break;
     }
     offset = body + size + (size % 2);
@@ -93,6 +95,8 @@ export interface SpeechRegionOptions {
   minRegionMs?: number;
   /** ช่วงที่ยาวกว่านี้ถูกแบ่งเป็นหลาย segment */
   maxRegionMs?: number;
+  /** เพดานของเกณฑ์: channel ที่มีเสียงเกือบทั้งสาย (เพลงรอสาย, เสียงวน) noise floor จะสูงจนไม่เจอเสียงพูดเลย */
+  maxThresholdRms?: number;
 }
 
 const DEFAULTS: Required<SpeechRegionOptions> = {
@@ -101,9 +105,10 @@ const DEFAULTS: Required<SpeechRegionOptions> = {
   mergeGapMs: 300,
   minRegionMs: 250,
   maxRegionMs: 15_000,
+  maxThresholdRms: 1_500,
 };
 
-/** หาช่วงที่มีเสียงของ channel เดียว: เกณฑ์ = max(minRms, 4 เท่าของ noise floor ที่ percentile 20) */
+/** หาช่วงที่มีเสียงของ channel เดียว: เกณฑ์ = 4 เท่าของ noise floor ที่ percentile 20 อยู่ระหว่าง minRms ถึง maxThresholdRms */
 export function detectSpeechRegions(
   wav: PcmWav,
   channel: number,
@@ -125,7 +130,7 @@ export function detectSpeechRegions(
   }
   const sorted = Float64Array.from(rms).sort();
   const noiseFloor = sorted[Math.floor(sorted.length * 0.2)] ?? 0;
-  const threshold = Math.max(settings.minRms, noiseFloor * 4);
+  const threshold = Math.max(settings.minRms, Math.min(settings.maxThresholdRms, noiseFloor * 4));
   const toMs = (window: number) => Math.round((window * frameSamples * 1_000) / wav.sampleRate);
 
   const raw: SpeechRegion[] = [];

@@ -309,3 +309,25 @@ test('ASR simulator HTTP server answers health and rejects oversized bodies', as
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 });
+
+test('detectSpeechRegions still finds speech on a channel that is loud for most of the call', () => {
+  // เพลงรอสายหรือเสียงวน: เสียงดังเกิน 80% ของสาย ทำให้ noise floor สูงเท่าเสียงพูด
+  const looped = parsePcmWav(
+    buildWav({
+      channels: 1,
+      durationMs: 6_000,
+      bursts: [{ channel: 0, startMs: 0, endMs: 5_600 }],
+    }),
+  );
+  const regions = detectSpeechRegions(looped, 0);
+  assert.equal(regions.length, 1, JSON.stringify(regions));
+  assert.ok(regions[0]!.endMs - regions[0]!.startMs >= 5_000);
+});
+
+test('parsePcmWav reads to the end of the file when the data size is unset', () => {
+  for (const size of [0, 0xffffffff]) {
+    const unfinished = Buffer.from(STEREO);
+    unfinished.writeUInt32LE(size, 40);
+    assert.equal(parsePcmWav(unfinished).durationMs, 6_000);
+  }
+});

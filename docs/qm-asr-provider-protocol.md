@@ -27,7 +27,7 @@ POST {QM_TRANSCRIPTION_ENDPOINT}
 | `content-type` | `application/json` | |
 | `authorization` | `Bearer {QM_TRANSCRIPTION_API_KEY}` | QM ไม่ส่งถ้าไม่ได้ตั้ง key; provider ที่ต้องใช้ key ต้องตอบ `401` |
 | `x-dcontact-data-use` | `no-training` | ห้ามนำเสียงหรือข้อความไปฝึกโมเดล ไม่มี header นี้ต้องตอบ `400 DATA_USE_REQUIRED` |
-| `x-dcontact-asr-protocol` | `1` | major version ไม่ตรงต้องตอบ `400 PROTOCOL_UNSUPPORTED`; ไม่มี header ให้ถือว่าเป็น `1` |
+| `x-dcontact-asr-protocol` | `1` | เลขจำนวนเต็มของ major version เท่านั้น (ไม่มี minor) ค่าที่ไม่รองรับต้องตอบ `400 PROTOCOL_UNSUPPORTED`; ไม่มี header ให้ถือว่าเป็น `1` |
 
 Body:
 
@@ -99,7 +99,7 @@ Body:
 | 400 | `INVALID_REQUEST` | body ไม่ใช่ JSON หรือ field ไม่ครบ |
 | 400 | `DATA_USE_REQUIRED` | ไม่มี `x-dcontact-data-use: no-training` หรือ `dataUse` ไม่ใช่ `NO_TRAINING` |
 | 400 | `PROTOCOL_UNSUPPORTED` | major version ของ `x-dcontact-asr-protocol` ไม่รองรับ |
-| 400 | `MEDIA_URL_NOT_ALLOWED` | `mediaUrl` ไม่ใช่ HTTPS หรือ host ไม่อยู่ในรายการที่ provider อนุญาต |
+| 400 | `MEDIA_URL_NOT_ALLOWED` | `mediaUrl` ไม่ใช่ HTTPS, ไม่ใช่ port 443 หรือ host ไม่อยู่ในรายการที่ provider อนุญาต |
 | 400 | `MEDIA_URL_EXPIRED` | `mediaUrlExpiresAt` ผ่านไปแล้ว |
 | 401 | `UNAUTHORIZED` | ไม่มี bearer token หรือ token ผิด |
 | 413 | `REQUEST_TOO_LARGE` | body เกิน 64 KiB |
@@ -116,6 +116,9 @@ QM บันทึก `HTTP {status} {code}` เป็นเหตุผลข�
 - QM รอ response ไม่เกิน `QM_TRANSCRIPTION_TIMEOUT_MS` (ค่าเริ่มต้น 300000 = 5 นาที) แล้วนับเป็น attempt ที่ล้ม
 - signed URL มีอายุ 5 นาที ไฟล์เสียงจึงต้องเริ่มดาวน์โหลดทันทีที่รับคำขอ
 - reverse proxy ข้างหน้า provider ต้องตั้ง read timeout มากกว่า `QM_TRANSCRIPTION_TIMEOUT_MS`
+- ข้อจำกัดของ QM ตอนนี้: worker เรียก provider ภายใน handler ของ Kafka consumer ซึ่งใช้ session timeout เริ่มต้น 30 วินาทีและไม่ส่ง heartbeat ระหว่างรอ
+  provider ที่ตอบช้ากว่าราว 30 วินาทีจะทำให้ consumer rebalance และ message ถูกส่งซ้ำ (ข้อมูลไม่เสีย เพราะ job ที่ `PROCESSING` อยู่ถูกนับเป็น duplicate)
+  ต้องแก้ฝั่ง QM ก่อนใช้โมเดลจริงที่ถอดไฟล์ยาวช้ากว่านั้น
 
 ## Health (ไม่บังคับ)
 
@@ -128,15 +131,16 @@ GET /v1/health  →  200 {"status":"ok","protocolVersion":"1","modelId":"..."}
 ## ความปลอดภัย
 
 - endpoint ของ provider และ `mediaUrl` เป็น HTTPS เสมอ QM ไม่ยอมส่งถ้าไม่ใช่
-- provider ต้องดาวน์โหลดเฉพาะ host ที่กำหนด (กัน SSRF) ไม่ตาม redirect และจำกัดขนาดไฟล์
-- ห้าม log `mediaUrl` ทั้ง URL, bearer token หรือข้อความที่ถอดได้
+- provider ต้องดาวน์โหลดเฉพาะ host ที่กำหนดบน port 443 (กัน SSRF) ไม่ตาม redirect และจำกัดขนาดไฟล์
+- ห้าม log `mediaUrl` ทั้ง URL, bearer token หรือข้อความที่ถอดได้ รวมถึง access log ของ reverse proxy ข้างหน้า media และ provider
 - signed URL ของ Solo ลงนามด้วย credential ของ object storage reverse proxy ของ media จึงรับเฉพาะ `GET`/`HEAD` ใต้ `/recordings/` ที่มี `X-Amz-Signature`
 
 ## Contract test
 
 `runAsrProviderContract()` ใน `apps/qm/src/asr-provider-contract.ts` ตรวจ provider แบบ black-box ผ่าน HTTP:
 
-- ปฏิเสธคำขอที่ไม่มี token, ไม่มี no-training (ทั้ง header และ body), version ไม่รองรับ, media URL ไม่ใช่ HTTPS และ URL หมดอายุ ด้วย status และ `code` ตามตาราง
+- ปฏิเสธคำขอที่ไม่มี token, ไม่มี no-training (ทั้ง header และ body), version ไม่รองรับ, media URL ไม่ใช่ HTTPS, host นอกรายการ, port อื่น และ URL หมดอายุ ด้วย status และ `code` ตามตาราง
+- ยังไม่ตรวจว่า provider ไม่ตาม redirect เพราะต้องมี media host ที่ตอบ redirect ผู้ตรวจ provider จริงต้องตรวจข้อนี้เอง
 - ถอดไฟล์ STEREO แล้วได้ response ที่ผ่าน `parseTranscriptionResult()` (validator เดียวกับที่ QM ใช้)
 - segment อยู่ในความยาวไฟล์และเรียงตามเวลา
 - ถ้าผู้เรียกระบุช่วงเวลาที่รู้ว่าใครพูด speaker ต้องตรงกับ channel

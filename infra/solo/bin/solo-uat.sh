@@ -367,7 +367,8 @@ cmd_voice() {
         -keyout tls/server.key -out tls/server.crt 2>/dev/null && echo '# ใช้ cert self-signed ชั่วคราว';
     fi; chmod 644 tls/server.crt; chmod 640 tls/server.key; sudo chgrp 101 tls/server.key"
   export_recordings
-  remote "$VOICE_IP" "cd $REMOTE_ROOT/voice && docker compose up -d && sleep 15 && docker compose ps --format 'table {{.Service}}\t{{.Status}}'"
+  # nginx.conf ถูกแตกทับเป็นไฟล์ใหม่ (inode ใหม่) container ที่รันอยู่ยังเห็นไฟล์เดิมและ compose ไม่ recreate เพราะ config ไม่เปลี่ยน
+  remote "$VOICE_IP" "cd $REMOTE_ROOT/voice && docker compose up -d && docker compose up -d --force-recreate --no-deps nginx && sleep 15 && docker compose ps --format 'table {{.Service}}\t{{.Status}}'"
   # Telephony ต่อ ESL ครั้งเดียวตอนเริ่มและไม่ลองใหม่ จึงเริ่มใหม่หลัง FreeSWITCH ขึ้นแล้ว
   remote "$APP_IP" "docker restart dcontact-solo-telephony-1 >/dev/null"
   log "เริ่ม Telephony ใหม่ให้ต่อ ESL ของ FreeSWITCH"

@@ -100,7 +100,7 @@ service `qm` ใน `infra/solo/app/docker-compose.yml` รัน `apps/qm` (`/a
 - เส้นทาง (ทุกขาเป็น HTTPS ด้วย cert `*.osd.co.th` จบที่ nginx บน VM voice แล้วส่งต่อให้ web บน VM app)
   - QM → `https://SOLO_ASR_HOST/v1/transcriptions` → web → `qm-asr-simulator:8090`
   - simulator → `https://SOLO_MEDIA_HOST/recordings/...?X-Amz-Signature=...` → web → `object-storage:9000` โดยคง `Host` เดิม เพราะ signature ผูกกับ host
-  - nginx รับสอง host นี้เฉพาะจาก IP ของ VM app ส่วน web รับ media เฉพาะ `GET`/`HEAD` ใต้ `/recordings/` ที่มี `X-Amz-Signature` และ ASR เฉพาะ `/v1/transcriptions`, `/v1/health`
+  - nginx รับสอง host นี้เฉพาะจาก IP ของ VM app และ access log ของสอง host นี้ไม่บันทึก path/query (signed URL มี access key และ signature) ส่วน web รับ media เฉพาะ `GET`/`HEAD` ใต้ `/recordings/` ที่มี `X-Amz-Signature` และ ASR เฉพาะ `/v1/transcriptions`, `/v1/health`
   - signed URL ลงนามด้วย `S3_ACCESS_KEY` ซึ่งเป็น root credential ของ RustFS ถ้าเปลี่ยนไปใช้ provider ภายนอกต้องเพิ่ม IP ของ provider ใน nginx และทบทวนการเปิด host media
 - ค่าใน `solo.env` ของ operator ก่อนเปิด (`init-env` ของ `solo.env` ใหม่ใส่ให้แล้ว ยกเว้น `COMPOSE_PROFILES`; `solo.env` เดิมต้องแก้เอง)
 
@@ -120,7 +120,7 @@ service `qm` ใน `infra/solo/app/docker-compose.yml` รัน `apps/qm` (`/a
   - เมื่อมีโมเดลจริงเปลี่ยน `QM_TRANSCRIPTION_PROVIDER_ID`, `QM_TRANSCRIPTION_ENDPOINT` และ key ไปที่ gateway ของโมเดลนั้น (ต้องผ่าน contract test ก่อน) แล้วลบ `qm-asr-simulator` ออก
 - ถ้าเปิดด้วยค่า placeholder (`*.example.internal`) job จะล้มครบ `transcriptionMaxAttempts` แล้วเป็น `FAILED` ทั้ง job อัตโนมัติและ job ที่ Supervisor สั่งเอง
   รวมถึง job ที่ API publish ไว้ก่อนมี worker ซึ่ง dispatcher กวาดขึ้นมาหลังค้างเกิน 5 นาที
-- เปิด: แก้ `solo.env` ของ operator ตามด้านบน รัน `solo-uat.sh build` (image ต้องมี simulator) แล้ว `solo-uat.sh app` และ `solo-uat.sh voice` (nginx ได้ host ใหม่)
+- เปิด: แก้ `solo.env` ของ operator ตามด้านบน รัน `solo-uat.sh build` (image ต้องมี simulator) แล้ว `solo-uat.sh app` และ `solo-uat.sh voice` (ขั้น `voice` สร้าง container nginx ใหม่ทุกครั้งเพื่อให้โหลด `nginx.conf` ใหม่ Console/Workspace จะสะดุดไม่กี่วินาที)
   ตรวจว่า compose บน VM เห็น service ด้วย `docker compose --env-file solo.env config --services | grep qm` ใน `/opt/dcontact-solo/app`
   แล้วดู log ด้วย `docker compose --env-file solo.env logs -f qm qm-asr-simulator`
   simulator log หนึ่งบรรทัดต่อคำขอ (`asr-simulator request` พร้อม status, ความยาวเสียง และจำนวน segment) ไม่ log URL ของไฟล์เสียง

@@ -130,6 +130,22 @@ export async function runAsrProviderContract(
     400,
     'MEDIA_URL_NOT_ALLOWED',
   );
+  const disallowedHost = new URL(input.stereoMediaUrl);
+  disallowedHost.hostname = 'asr-contract-disallowed.invalid';
+  await expectRejected(
+    'rejects a media URL on a host outside its allow-list (400 MEDIA_URL_NOT_ALLOWED)',
+    post(headers(), body({ mediaUrl: disallowedHost.toString() })),
+    400,
+    'MEDIA_URL_NOT_ALLOWED',
+  );
+  const otherPort = new URL(input.stereoMediaUrl);
+  otherPort.port = '8443';
+  await expectRejected(
+    'rejects a media URL on a non-default port (400 MEDIA_URL_NOT_ALLOWED)',
+    post(headers(), body({ mediaUrl: otherPort.toString() })),
+    400,
+    'MEDIA_URL_NOT_ALLOWED',
+  );
   await expectRejected(
     'rejects an expired media URL (400 MEDIA_URL_EXPIRED)',
     post(headers(), body({ mediaUrlExpiresAt: new Date(now().getTime() - 1_000).toISOString() })),
