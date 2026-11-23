@@ -157,6 +157,7 @@ for (const respond of ['success', 'busy', 'unknown'] as const)
     if (respond === 'unknown') {
       // ไม่รู้ว่ารับคำสั่งหรือยัง: แสดงคำสั่งค้างและปุ่มตรวจผล ไม่ส่งซ้ำ ชื่อเดิมยังอยู่
       await expect(page.getByText(/กำลังเปลี่ยนชื่อ/)).toBeVisible();
+      await expect(page.getByRole('alert').filter({ hasText: 'ยังยืนยันผลไม่ได้' })).toBeVisible();
       await expect(
         page.getByRole('button', { name: 'แก้ชื่อที่แสดง…', exact: true }),
       ).toBeDisabled();
@@ -164,7 +165,7 @@ for (const respond of ['success', 'busy', 'unknown'] as const)
       expect(writes).toHaveLength(1);
       return;
     }
-    await page.getByRole('button', { name: 'ตรวจผลคำสั่งเดิม', exact: true }).first().click();
+    await page.getByRole('button', { name: 'ตรวจผลการแก้ชื่อ', exact: true }).click();
     await expect(
       page.getByRole('status').filter({ hasText: 'เปลี่ยนชื่อที่แสดงแล้ว' }),
     ).toBeVisible();
@@ -179,7 +180,7 @@ for (const respond of ['success', 'credentials', 'unknown', 'rejected'] as const
     const writes = await mockPeople(page, { disabled: true, respond });
     await expect(page.getByRole('button', { name: 'แก้ชื่อที่แสดง…', exact: true })).toBeDisabled();
     const panel = page.getByRole('region', { name: 'เปิดบัญชีกลับ' });
-    await expect(panel).toContainText('รหัสผ่านและรหัสยืนยันตัวตนเดิม');
+    await expect(panel).toContainText('รหัสยืนยันตัวตน (TOTP) เดิม');
     await panel.getByRole('button', { name: 'เปิดบัญชีกลับ…', exact: true }).click();
     const dialog = page.getByRole('alertdialog', { name: 'เปิดบัญชี สมหญิง เดิม กลับ?' });
     await expect(dialog).toContainText('ทีมขาย');
@@ -201,7 +202,7 @@ for (const respond of ['success', 'credentials', 'unknown', 'rejected'] as const
     ]);
     if (respond === 'credentials') {
       await expect(dialog.getByRole('alert')).toContainText(
-        'ยังตั้งรหัสผ่านหรือรหัสยืนยันตัวตนไม่ครบ',
+        'ยังตั้งรหัสผ่านหรือรหัสยืนยันตัวตน (TOTP) ไม่ครบ',
       );
       expect(writes).toHaveLength(1);
       return;
@@ -209,13 +210,14 @@ for (const respond of ['success', 'credentials', 'unknown', 'rejected'] as const
     await expect(dialog).toHaveCount(0);
     if (respond === 'unknown') {
       await expect(panel).toContainText('ห้ามส่งคำสั่งซ้ำ');
+      await expect(panel.getByRole('alert')).toContainText('ยังยืนยันผลไม่ได้');
       await expect(
         panel.getByRole('button', { name: 'เปิดบัญชีกลับ…', exact: true }),
       ).toBeDisabled();
       expect(writes).toHaveLength(1);
       return;
     }
-    await panel.getByRole('button', { name: 'ตรวจผลคำสั่งเดิม', exact: true }).click();
+    await panel.getByRole('button', { name: 'ตรวจผลการเปิดบัญชีกลับ', exact: true }).click();
     if (respond === 'rejected') {
       await expect(panel.getByRole('status')).toContainText('บัญชียังปิดอยู่');
       await expect(

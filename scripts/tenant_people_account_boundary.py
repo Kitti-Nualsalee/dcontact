@@ -75,7 +75,8 @@ def check_account_boundary(call, expect, adminbase, admin, tenant, foreign, sql)
     def read(step, operation, body):
         query = {key: body[key] for key in ('tenantId', 'targetUserId', 'identityId', 'payloadDigest', 'role')}
         if 'displayName' in body:
-            query['displayName'] = body['displayName']
+            # ชื่อไม่อยู่ใน URL: ส่ง SHA-256 แทน
+            query['displayNameDigest'] = hashlib.sha256(body['displayName'].encode('utf-8')).hexdigest()
         return expect(resource + '/account/' + step + '/' + operation + '?' + urllib.parse.urlencode(query),
                       token, status=200)[0]
 
@@ -126,8 +127,12 @@ def check_account_boundary(call, expect, adminbase, admin, tenant, foreign, sql)
         raise RuntimeError('P998_PROFILE_REPLAY_CHANGED')
     # descriptor เดิมแต่ชื่อ/identity ต่าง = correlation conflict; fence ย้อนหลังถูกปฏิเสธ
     expect(profile_path, token, {**profile, 'displayName': 'ชื่ออื่น'}, status=409)
-    expect(profile_path + '?' + urllib.parse.urlencode({**{k: profile[k] for k in ('tenantId', 'targetUserId', 'identityId', 'payloadDigest', 'role')}, 'displayName': 'ชื่ออื่น'}),
-           token, status=409)
+    profile_query = {k: profile[k] for k in ('tenantId', 'targetUserId', 'identityId', 'payloadDigest', 'role')}
+    expect(profile_path + '?' + urllib.parse.urlencode({**profile_query,
+           'displayNameDigest': hashlib.sha256('ชื่ออื่น'.encode('utf-8')).hexdigest()}), token, status=409)
+    # ชื่อดิบใน query ไม่ถูกยอมรับ
+    expect(profile_path + '?' + urllib.parse.urlencode({**profile_query, 'displayName': profile['displayName']}),
+           token, status=400)
     expect(profile_path, token, {**profile, 'fencingToken': '2'}, status=200)
     expect(profile_path, token, profile, status=409)
     # แก้ชื่อนอกระบบหลัง receipt: readback ต้องเป็น UNKNOWN ไม่คืน marker เก่า

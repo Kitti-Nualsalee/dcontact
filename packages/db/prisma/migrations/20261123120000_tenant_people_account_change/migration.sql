@@ -118,6 +118,17 @@ END $$;
 CREATE TRIGGER people_account_change_descriptor BEFORE UPDATE OR DELETE ON tenant_people_account_changes
   FOR EACH ROW EXECUTE FUNCTION dc_people_account_change_descriptor();
 
+-- แถวใหม่เริ่มที่สถานะรับคำสั่งเสมอ (revision=1) และ app UPDATE ไม่ได้ จึงมีเพียง dc_people_accept_account_change
+-- ที่เลื่อนเป็น revision=2 ได้ — ใช้เป็นหลักฐานว่าผ่าน accept function (ตรวจใน admission_final และ claim)
+CREATE FUNCTION dc_people_account_change_initial() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF NEW.state<>'QUEUED' OR NEW.revision<>1 OR NEW.fencing_token<>0 OR NEW.attempted OR NEW.lease_owner IS NOT NULL
+    OR NEW.error_code IS NOT NULL THEN RAISE EXCEPTION 'PEOPLE_ACCOUNT_CHANGE_IMMUTABLE' USING ERRCODE='23514'; END IF;
+  RETURN NEW;
+END $$;
+CREATE TRIGGER people_account_change_initial BEFORE INSERT ON tenant_people_account_changes
+  FOR EACH ROW EXECUTE FUNCTION dc_people_account_change_initial();
+
 -- seat ของบัญชีที่กำลังเปิดกลับถูกจองตั้งแต่ accept เพื่อไม่ให้สองคำสั่งเปิดกลับเกิน quota พร้อมกัน
 CREATE OR REPLACE FUNCTION dc_people_reserved_accounts(scope uuid,agents_only boolean DEFAULT false) RETURNS bigint
 LANGUAGE sql STABLE SET search_path=pg_catalog,public AS $$
@@ -170,11 +181,13 @@ BEGIN
       OR (accepted.role='AGENT' AND public.dc_people_reserved_accounts(scope,true)>limits.agents_limit)
       THEN RAISE EXCEPTION 'RESOURCE_LIMIT_REACHED' USING ERRCODE='23514'; END IF;
   END IF;
+  UPDATE public.tenant_people_account_changes SET revision=revision+1,updated_at=clock_timestamp() WHERE tenant_id=scope AND id=operation;
 END $$;
 
 CREATE FUNCTION dc_people_account_change_admission_final() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
-  IF NOT EXISTS(SELECT 1 FROM voice_config_command_receipts WHERE tenant_id=NEW.tenant_id AND command_id=NEW.command_id)
+  IF NOT EXISTS(SELECT 1 FROM tenant_people_account_changes WHERE tenant_id=NEW.tenant_id AND id=NEW.id AND revision>=2)
+    OR NOT EXISTS(SELECT 1 FROM voice_config_command_receipts WHERE tenant_id=NEW.tenant_id AND command_id=NEW.command_id)
     OR NOT EXISTS(SELECT 1 FROM voice_config_audit WHERE tenant_id=NEW.tenant_id AND command_id=NEW.command_id
       AND resource_id=NEW.user_id AND action=NEW.kind AND outcome='ACCEPTED')
     THEN RAISE EXCEPTION 'PEOPLE_ACCOUNT_CHANGE_ADMISSION_REQUIRED' USING ERRCODE='23514'; END IF;
@@ -202,11 +215,12 @@ DECLARE accepted public.tenant_people_account_changes%ROWTYPE; previous_attempt 
 BEGIN
   PERFORM public.dc_people_activation_authorize(scope);
   SELECT * INTO accepted FROM public.tenant_people_account_changes WHERE tenant_id=scope AND id=operation
-    AND state IN ('QUEUED','WAITING_EXTERNAL','ACTION_REQUIRED') AND (lease_expires_at IS NULL OR lease_expires_at<=clock_timestamp()) FOR UPDATE SKIP LOCKED;
+    AND revision>=2 AND state IN ('QUEUED','WAITING_EXTERNAL','ACTION_REQUIRED') AND (lease_expires_at IS NULL OR lease_expires_at<=clock_timestamp()) FOR UPDATE SKIP LOCKED;
   IF NOT FOUND THEN RETURN; END IF;
   previous_attempt:=accepted.attempted;
   UPDATE public.tenant_people_account_changes SET revision=revision+1,fencing_token=fencing_token+1,attempted=true,state='WAITING_EXTERNAL',
-    lease_owner=owner_id,lease_expires_at=clock_timestamp()+interval '30 seconds',updated_at=clock_timestamp()
+    -- 60 วินาที: ครอบ mutate (token+request 20s) และ readOutcome สำรองอีก 20s
+    lease_owner=owner_id,lease_expires_at=clock_timestamp()+interval '60 seconds',updated_at=clock_timestamp()
     WHERE tenant_id=scope AND id=operation RETURNING * INTO accepted;
   RETURN QUERY SELECT jsonb_build_object('kind',accepted.kind,'user_id',accepted.user_id,'identity_id',accepted.identity_id,
     'role',accepted.role,'payload_digest',accepted.payload_digest,'fencing_token',accepted.fencing_token::text,
@@ -259,6 +273,9 @@ BEGIN
     error_code=CASE WHEN result_state='SUCCEEDED' THEN NULL WHEN provider_outcome='SUCCEEDED' THEN 'ACCOUNT_CHANGE_RECONCILIATION_REQUIRED'
       ELSE coalesce(reason_value,'IDENTITY_OUTCOME_UNKNOWN') END,updated_at=clock_timestamp()
     WHERE tenant_id=scope AND id=operation;
+  -- reconcile ที่ยังไม่รู้ผลซ้ำ ๆ ไม่เพิ่ม audit ทุกรอบ: บันทึกเมื่อจบ หรือครั้งแรกที่เป็น ACTION_REQUIRED
+  IF result_state='ACTION_REQUIRED' AND accepted.error_code IS NOT DISTINCT FROM coalesce(CASE WHEN provider_outcome='SUCCEEDED'
+      THEN 'ACCOUNT_CHANGE_RECONCILIATION_REQUIRED' END,reason_value,'IDENTITY_OUTCOME_UNKNOWN') THEN RETURN result_state; END IF;
   INSERT INTO public.voice_config_audit(id,tenant_id,actor_user_id,resource_id,command_id,action,outcome,before_revision,after_revision,changed_keys,reason_code,correlation_id)
     VALUES(gen_random_uuid(),scope,accepted.actor_user_id,accepted.user_id,NULL,accepted.kind,result_state,
       NULL,NULL,CASE accepted.kind WHEN 'UPDATE_PROFILE' THEN ARRAY['displayName','identityOutcome'] ELSE ARRAY['isActive','accountState','identityOutcome'] END,
@@ -274,7 +291,7 @@ GRANT EXECUTE ON FUNCTION dc_people_account_snapshot(uuid,uuid,text,text,text),d
 GRANT EXECUTE ON FUNCTION dc_people_claim_account_change(uuid,uuid,uuid),
   dc_people_record_account_change(uuid,uuid,uuid,bigint,text,uuid,text,text,text) TO dcontact_tenant_people_worker;
 
--- ย้ายทีมและปิดบัญชีต้องไม่แทรกระหว่างคำสั่งที่ค้างของผู้ใช้คนเดียวกัน
+-- ปิดบัญชีตรวจคำสั่งค้างของผู้ใช้คนเดียวกันก่อนรับคำสั่ง (ใน API); ย้ายทีมระหว่างแก้ชื่อค้างได้ เพราะ record ของแก้ชื่อไม่ผูก revision
 CREATE FUNCTION dc_people_account_change_pending(scope uuid,target uuid) RETURNS boolean
 LANGUAGE sql STABLE SET search_path=pg_catalog,public AS $$
   SELECT EXISTS(SELECT 1 FROM public.tenant_people_account_changes WHERE tenant_id=scope AND user_id=target
@@ -282,3 +299,28 @@ LANGUAGE sql STABLE SET search_path=pg_catalog,public AS $$
 $$;
 REVOKE ALL ON FUNCTION dc_people_account_change_pending(uuid,uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION dc_people_account_change_pending(uuid,uuid) TO dcontact_app;
+
+-- ปิดบัญชีต้องทำได้เสมอแม้คำสั่งแก้ชื่อค้างไม่รู้ผล: ปิดคำสั่งแก้ชื่อที่ไม่มี worker ถืออยู่เป็น REJECTED ก่อนรับคำสั่งปิด
+-- ปลอดภัยเพราะ UPDATE_PROFILE ใน Keycloak รับเฉพาะ identity ที่ enabled และ app ไม่เปลี่ยนชื่อจาก receipt ของคำสั่งที่ปิดแล้ว
+-- (ถ้า Keycloak เปลี่ยนชื่อไปแล้ว ชื่อใน app ยังเป็นชื่อเดิมจนกว่า Admin จะแก้ใหม่)
+CREATE FUNCTION dc_people_supersede_profile_change(scope uuid,target uuid) RETURNS integer
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public AS $$
+DECLARE pending public.tenant_people_account_changes%ROWTYPE;
+BEGIN
+  IF scope IS DISTINCT FROM nullif(current_setting('app.tenant_id',true),'')::uuid
+    OR NOT pg_has_role(session_user,'dcontact_app','MEMBER')
+    OR EXISTS(SELECT 1 FROM pg_roles WHERE rolname=session_user AND (rolsuper OR rolbypassrls))
+    THEN RAISE EXCEPTION 'PEOPLE_ACCOUNT_CHANGE_SCOPE_DENIED' USING ERRCODE='42501'; END IF;
+  SELECT * INTO pending FROM public.tenant_people_account_changes WHERE tenant_id=scope AND user_id=target
+    AND state IN ('QUEUED','WAITING_EXTERNAL','ACTION_REQUIRED') FOR UPDATE NOWAIT;
+  IF NOT FOUND THEN RETURN 0; END IF;
+  IF pending.kind<>'UPDATE_PROFILE' OR pending.lease_expires_at>clock_timestamp() THEN
+    RAISE EXCEPTION 'CONFIG_BUSY' USING ERRCODE='55P03'; END IF;
+  UPDATE public.tenant_people_account_changes SET revision=revision+1,state='REJECTED',error_code='SUPERSEDED_BY_DISABLE',
+    lease_owner=NULL,lease_expires_at=NULL,updated_at=clock_timestamp() WHERE tenant_id=scope AND id=pending.id;
+  INSERT INTO public.voice_config_audit(id,tenant_id,actor_user_id,resource_id,command_id,action,outcome,changed_keys,reason_code,correlation_id)
+    VALUES(gen_random_uuid(),scope,pending.actor_user_id,target,NULL,'UPDATE_PROFILE','REJECTED',ARRAY['identityOutcome'],'SUPERSEDED_BY_DISABLE',pending.id::text);
+  RETURN 1;
+END $$;
+REVOKE ALL ON FUNCTION dc_people_supersede_profile_change(uuid,uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION dc_people_supersede_profile_change(uuid,uuid) TO dcontact_app;

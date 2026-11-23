@@ -235,6 +235,11 @@ export function PeopleProfileEdit({
     setReason('');
     change.setError(undefined);
   }
+  /** ปิดหลังส่งคำสั่ง: คงข้อความ error (เช่นผลไม่ชัดเจน) ให้แสดงนอก Dialog */
+  function dismiss() {
+    setOpen(false);
+    setReason('');
+  }
   return (
     <div className="tp-account-change">
       <Button
@@ -258,9 +263,12 @@ export function PeopleProfileEdit({
         <p className="tp-muted tp-help">
           {label('profile.pending')}{' '}
           <Button variant="ghost" isDisabled={change.busy} onPress={() => void change.refresh()}>
-            {label('accountChange.refresh')}
+            {label('profile.refresh')}
           </Button>
         </p>
+      ) : null}
+      {!change.ready && !change.busy && !change.pending ? (
+        <p className="tp-muted tp-help">{label('accountChange.notReady')}</p>
       ) : null}
       {change.ready && !eligible && !change.pending ? (
         <p className="tp-muted tp-help">{label('profile.notEligible')}</p>
@@ -280,7 +288,7 @@ export function PeopleProfileEdit({
         footer={() => (
           <>
             <Button isDisabled={change.busy} onPress={close}>
-              {label('disable.cancel')}
+              {label('accountChange.cancel')}
             </Button>
             <Button
               variant="primary"
@@ -289,7 +297,7 @@ export function PeopleProfileEdit({
                 void change
                   .submit({ displayName: normalized, reason: reason.trim() })
                   .then((closeDialog) => {
-                    if (closeDialog) close();
+                    if (closeDialog) dismiss();
                   })
               }
             >
@@ -307,10 +315,14 @@ export function PeopleProfileEdit({
             value={name}
             onChange={setName}
             isDisabled={change.busy}
-            description={`${textLength(name)}/120`}
+            description={
+              normalized === user.displayName
+                ? `${label('profile.unchanged')} · ${textLength(name)}/120`
+                : `${textLength(name)}/120`
+            }
           />
           <TextField
-            label={label('invitation.reason')}
+            label={label('accountChange.reason')}
             isRequired
             value={reason}
             onChange={setReason}
@@ -357,9 +369,14 @@ export function PeopleEnable({
     setReason('');
     change.setError(undefined);
   }
+  /** ปิดหลังส่งคำสั่ง: คงข้อความ error (เช่นผลไม่ชัดเจน) ให้แสดงนอก Dialog */
+  function dismiss() {
+    setOpen(false);
+    setReason('');
+  }
   return (
-    <section className="tp-panel" aria-label={label('enable.title')} aria-busy={change.busy}>
-      <h3>{label('enable.title')}</h3>
+    <section className="tp-panel" aria-labelledby="tp-enable-title" aria-busy={change.busy}>
+      <h3 id="tp-enable-title">{label('enable.title')}</h3>
       {change.status ? <p role="status">{label(`enable.states.${change.status}`)}</p> : null}
       {change.error && !open ? (
         <p role="alert">{label(`accountChange.errors.${change.error}`)}</p>
@@ -388,14 +405,14 @@ export function PeopleEnable({
         footer={() => (
           <>
             <Button isDisabled={change.busy} onPress={close}>
-              {label('disable.cancel')}
+              {label('accountChange.cancel')}
             </Button>
             <Button
               variant="primary"
               isDisabled={change.busy || !valid}
               onPress={() =>
                 void change.submit({ reason: reason.trim() }).then((closeDialog) => {
-                  if (closeDialog) close();
+                  if (closeDialog) dismiss();
                 })
               }
             >
@@ -413,7 +430,7 @@ export function PeopleEnable({
           </p>
           <TextField
             autoFocus
-            label={label('invitation.reason')}
+            label={label('accountChange.reason')}
             isRequired
             value={reason}
             onChange={setReason}
@@ -427,7 +444,7 @@ export function PeopleEnable({
       </Dialog>
       {change.pending ? (
         <Button variant="ghost" isDisabled={change.busy} onPress={() => void change.refresh()}>
-          {label('accountChange.refresh')}
+          {label('enable.refresh')}
         </Button>
       ) : null}
     </section>

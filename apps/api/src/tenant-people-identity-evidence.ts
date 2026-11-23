@@ -154,7 +154,11 @@ async function readApplication(database: PrismaClient, tenantId: string) {
         s.fencing_token::text AS "fencingToken",s.attempted,r.outcome,r.provider_receipt_ref AS "receiptRef"
       FROM tenant_people_disables s
       LEFT JOIN tenant_people_disable_receipts r ON r.tenant_id=s.tenant_id AND r.operation_id=s.id AND r.outcome<>'UNKNOWN'
-      WHERE s.tenant_id=${tenantId}::uuid ORDER BY s.id,r.fencing_token DESC NULLS LAST`;
+      WHERE s.tenant_id=${tenantId}::uuid
+        -- #998: disable ที่ถูกเปิดกลับสำเร็จภายหลังมี readback เป็น UNKNOWN โดยชอบ (identity enabled แล้ว) จึงไม่นำมาเทียบ
+        AND NOT EXISTS(SELECT 1 FROM tenant_people_account_changes c WHERE c.tenant_id=s.tenant_id AND c.user_id=s.user_id
+          AND c.kind='ENABLE_ACCOUNT' AND c.state='SUCCEEDED' AND c.created_at>s.created_at)
+      ORDER BY s.id,r.fencing_token DESC NULLS LAST`;
       return {
         bindingEnabled: binding?.enabled === true,
         operations,

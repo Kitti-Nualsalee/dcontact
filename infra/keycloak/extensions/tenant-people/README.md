@@ -48,7 +48,7 @@ protected/bootstrap classification, response readback และ receipt-failure 
 
 `POST dc-tenant-people/account/{UPDATE_PROFILE|ENABLE_ACCOUNT}/check` ตรวจโดยไม่แตะ identity และ
 `POST .../account/{step}/:operationId` ทำ mutation พร้อม immutable receipt ใน transaction เดียวกับ tenant gate
-`GET .../account/{step}/:operationId` ต้องส่ง tenant/target/identity/role/digest (และ `displayName` สำหรับ UPDATE_PROFILE)
+`GET .../account/{step}/:operationId` ต้องส่ง tenant/target/identity/role/digest (และ `displayNameDigest` = SHA-256 ของชื่อ สำหรับ UPDATE_PROFILE ไม่ส่งชื่อใน URL)
 ให้ตรง descriptor เดิม ไม่งั้น `409 CORRELATION_CONFLICT`; receipt สำเร็จต้อง readback ชื่อ หรือ enabled + password + TOTP
 
 - email verified + ไม่มี required action ถ้าไม่ตรงคืน `UNKNOWN`

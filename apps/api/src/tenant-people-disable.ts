@@ -166,9 +166,8 @@ async function acceptPeopleDisableCommand(
       SELECT id FROM tenant_people_disables WHERE tenant_id=${identity.tenantId}::uuid AND state IN ('QUEUED','WAITING_EXTERNAL','ACTION_REQUIRED')
         AND (user_id=${userId}::uuid OR (${snapshot.target.role === 'ADMIN'} AND role='ADMIN')) LIMIT 1`;
     if (pending) voiceFail('CONFIG_BUSY', 409);
-    const [accountChange] = await transaction.$queryRaw<{ pending: boolean }[]>`
-      SELECT dc_people_account_change_pending(${identity.tenantId}::uuid,${userId}::uuid) AS pending`;
-    if (accountChange?.pending) voiceFail('CONFIG_BUSY', 409);
+    // #998: คำสั่งแก้ชื่อที่ค้างต้องไม่ขวางการปิดบัญชี — ปิดคำสั่งนั้นเป็น REJECTED (SUPERSEDED_BY_DISABLE) ใน transaction เดียวกัน
+    await transaction.$queryRaw`SELECT dc_people_supersede_profile_change(${identity.tenantId}::uuid,${userId}::uuid)`;
     const [closure] = await transaction.$queryRaw<{ queue_ids: string[]; user_ids: string[] }[]>`
       SELECT * FROM dc_people_disable_closure(${identity.tenantId}::uuid,${userId}::uuid)`;
     await transaction.$executeRaw`INSERT INTO voice_config_commands(tenant_id,command_id,actor_user_id,action,resource_id,payload_digest,expected_revision,command_kind)

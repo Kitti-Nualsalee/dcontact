@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 /**
  * #998 1B/2: client ของ `dc-tenant-people/account/{step}` (ADR-035) สำหรับ UPDATE_PROFILE และ ENABLE_ACCOUNT
  * แบบเดียวกับ TenantPeopleDisableKeycloak: ทุกคำตอบที่ไม่ตรงสัญญาเป๊ะถือเป็น UNKNOWN และไม่ยิง mutation ซ้ำหลัง attempted
@@ -169,7 +171,18 @@ export class TenantPeopleAccountKeycloak implements TenantPeopleAccountPort {
         role: attempt.role,
         ...(attempt.displayName === null ? {} : { displayName: attempt.displayName }),
       };
-      if (mode === 'read') endpoint.search = new URLSearchParams(correlation).toString();
+      // ชื่อจริงไม่อยู่ใน URL (access log/tracing): GET ส่งเฉพาะ SHA-256 ของชื่อ ซึ่ง descriptor ผูกไว้แล้ว
+      if (mode === 'read') {
+        const { displayName, ...query } = correlation;
+        endpoint.search = new URLSearchParams({
+          ...query,
+          ...(displayName === undefined
+            ? {}
+            : {
+                displayNameDigest: createHash('sha256').update(displayName, 'utf8').digest('hex'),
+              }),
+        }).toString();
+      }
       const response = await this.request(endpoint, {
         ...options,
         method: mode === 'read' ? 'GET' : 'POST',

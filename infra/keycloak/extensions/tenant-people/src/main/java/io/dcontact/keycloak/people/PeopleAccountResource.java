@@ -39,7 +39,8 @@ public class PeopleAccountResource {
     this.session=session;this.authority=authority;this.identities=new PeopleDisableResource(session,authority);
   }
 
-  private record Command(String step,String tenantId,String userId,String identityId,String digest,long fence,String role,String displayName) {}
+  /** displayName มีเฉพาะ POST ของ UPDATE_PROFILE; nameDigest (SHA-256) ใช้ใน descriptor และ GET เพื่อไม่ให้ชื่ออยู่ใน URL */
+  private record Command(String step,String tenantId,String userId,String identityId,String digest,long fence,String role,String displayName,String nameDigest) {}
 
   private static String step(String value) {
     if(value==null||!STEPS.contains(value))throw denied(404,"NOT_FOUND");
@@ -73,12 +74,12 @@ public class PeopleAccountResource {
     catch(IllegalArgumentException failure) { throw denied(400,"INVALID_REQUEST"); }
     String name=null;
     if("UPDATE_PROFILE".equals(step)) { name=text(body,"displayName");displayName(name); }
-    return new Command(step,tenant,user,identity,digest,fence,role,name);
+    return new Command(step,tenant,user,identity,digest,fence,role,name,name==null?"":hash(name));
   }
 
   private String fingerprint(Binding binding,Command command) {
     return hash(String.join("\n",command.step(),command.tenantId(),command.userId(),command.identityId(),command.digest(),command.role(),
-      command.displayName()==null?"":command.displayName(),binding.organization().getId()));
+      command.nameDigest(),binding.organization().getId()));
   }
 
   /** ผู้ใช้ตั้ง password และ TOTP เองแล้ว ยืนยัน email และไม่มี required action ค้าง (เกณฑ์เดียวกับ activation probe) */
@@ -117,7 +118,7 @@ public class PeopleAccountResource {
       UserModel user=local(binding,proof.identityId);
       boolean matches=identities.identityMatches(binding,operation.tenantId,operation.targetUserId,user,command.role());
       boolean current="UPDATE_PROFILE".equals(command.step())
-        ?matches&&command.displayName().equals(user.getFirstName())
+        ?matches&&user.getFirstName()!=null&&command.nameDigest().equals(hash(user.getFirstName()))
         :matches&&user.isEnabled()&&identities.identityEnabled(binding,proof.identityId)&&credentialsReady(user);
       if(!current)return json(200,Map.of("outcome","UNKNOWN"));
     }
@@ -181,10 +182,11 @@ public class PeopleAccountResource {
   @GET @Path("{step}/{operationId}")
   public Response read(@PathParam("step") String rawStep,@PathParam("operationId") String operationId,@QueryParam("tenantId") String tenantId,
     @QueryParam("targetUserId") String target,@QueryParam("identityId") String identityId,@QueryParam("payloadDigest") String digest,
-    @QueryParam("role") String role,@QueryParam("displayName") String name) {
+    @QueryParam("role") String role,@QueryParam("displayNameDigest") String nameDigest) {
     String step=step(rawStep);uuid(operationId);common(tenantId,target,identityId,digest,role);
-    if("UPDATE_PROFILE".equals(step))displayName(name);else if(name!=null)throw denied(400,"INVALID_REQUEST");
-    Command command=new Command(step,tenantId,target,identityId,digest,1,role,name);
+    if("UPDATE_PROFILE".equals(step)) { if(nameDigest==null||!nameDigest.matches("[a-f0-9]{64}"))throw denied(400,"INVALID_REQUEST"); }
+    else if(nameDigest!=null)throw denied(400,"INVALID_REQUEST");
+    Command command=new Command(step,tenantId,target,identityId,digest,1,role,null,nameDigest==null?"":nameDigest);
     Binding binding=authority.authorize(tenantId);
     EntityManager manager=session.getProvider(JpaConnectionProvider.class).getEntityManager();
     String key=authority.operationKey(binding,operationId);

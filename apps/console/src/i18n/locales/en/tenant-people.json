@@ -252,7 +252,9 @@
       "SUCCEEDED": "Display name updated",
       "REJECTED": "Name not changed. The current name is still in use.",
       "ACTION_REQUIRED": "Could not confirm the rename yet. The current name is still shown and the result is being checked."
-    }
+    },
+    "refresh": "Check rename result",
+    "unchanged": "Change the name to save"
   },
   "enable": {
     "title": "Re-enable account",
@@ -269,7 +271,8 @@
       "SUCCEEDED": "Account re-enabled. The user can sign in.",
       "REJECTED": "Account not re-enabled. It stays disabled.",
       "ACTION_REQUIRED": "Could not confirm the result yet. The account stays disabled while the original command is checked."
-    }
+    },
+    "refresh": "Check re-enable result"
   },
   "accountChange": {
     "refresh": "Check original command",
@@ -285,6 +288,9 @@
       "IDENTITY_STATE_CONFLICT": "The identity service state does not match the app. Contact your system administrator.",
       "NOT_ACCEPTED": "The command was not accepted because the service is not ready. Try again later.",
       "FAILED": "Could not confirm the result. Check the original command before trying again."
-    }
+    },
+    "cancel": "Cancel",
+    "reason": "Reason (1–500 characters)",
+    "notReady": "Renaming is unavailable right now because the identity service is not ready."
   }
 }

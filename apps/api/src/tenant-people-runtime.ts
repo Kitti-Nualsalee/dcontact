@@ -385,7 +385,8 @@ export class TenantPeopleRuntime {
       (transaction) => transaction.$queryRaw<{ id: string }[]>`
       SELECT id FROM tenant_people_account_changes WHERE tenant_id=${tenantId}::uuid
         AND state IN ('QUEUED','WAITING_EXTERNAL','ACTION_REQUIRED') AND (lease_expires_at IS NULL OR lease_expires_at<=clock_timestamp())
-        AND (state='QUEUED' OR updated_at<clock_timestamp()-interval '10 seconds')
+        AND (state='QUEUED' OR (state='WAITING_EXTERNAL' AND updated_at<clock_timestamp()-interval '10 seconds')
+          OR updated_at<clock_timestamp()-interval '60 seconds')
         AND ('account:'||id::text) NOT IN (SELECT value FROM jsonb_array_elements_text(${JSON.stringify([...deferred])}::jsonb) AS skipped(value))
       ORDER BY updated_at,id LIMIT 1`,
     );

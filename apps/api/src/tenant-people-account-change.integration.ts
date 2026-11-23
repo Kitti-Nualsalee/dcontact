@@ -314,6 +314,9 @@ test('#998 แก้ชื่อและเปิดบัญชีกลับ
       ),
       rejectsWith(409, 'CONFIG_BUSY'),
     );
+    // worker ถือ lease อยู่: ปิดบัญชีต้องรอ (CONFIG_BUSY) ไม่ตัดคำสั่งที่กำลังทำ
+    await owner.$executeRaw`UPDATE tenant_people_account_changes SET revision=revision+1,lease_owner=gen_random_uuid(),lease_expires_at=clock_timestamp()+interval '1 minute'
+      WHERE tenant_id=${tenantId}::uuid AND id=${renameOperation}::uuid`;
     await assert.rejects(
       acceptPeopleDisable(
         application,
@@ -329,6 +332,8 @@ test('#998 แก้ชื่อและเปิดบัญชีกลับ
       ),
       rejectsWith(409, 'CONFIG_BUSY'),
     );
+    await owner.$executeRaw`UPDATE tenant_people_account_changes SET revision=revision+1,lease_owner=NULL,lease_expires_at=NULL
+      WHERE tenant_id=${tenantId}::uuid AND id=${renameOperation}::uuid`;
     // ผลไม่ชัดเจน: คงชื่อเดิมเป็น ACTION_REQUIRED
     assert.equal(
       await runPeopleAccountChange(worker, provider, tenantId, renameOperation),
@@ -674,13 +679,95 @@ test('#998 แก้ชื่อและเปิดบัญชีกลับ
     );
     assert.equal(Number(leaked), 0);
 
-    // runtime หยิบคำสั่งค้าง (แก้ชื่อรอบสอง) ไปทำผ่าน worker binding
-    mutateResult = (identityId) => ({
+    // app ข้าม accept function ไม่ได้: แถวที่ไม่ผ่าน accept (revision=1) commit ไม่ผ่าน และสร้างด้วยสถานะอื่นไม่ได้
+    const bypassCommand = randomUUID(),
+      bypassOperation = randomUUID();
+    await assert.rejects(
+      withTenantDatabaseTransaction(application, tenantId, async (transaction) => {
+        await transaction.$executeRaw`INSERT INTO voice_config_commands(tenant_id,command_id,actor_user_id,action,resource_id,payload_digest,expected_revision,command_kind)
+          VALUES(${tenantId}::uuid,${bypassCommand}::uuid,${adminId}::uuid,'UPDATE_PROFILE',${secondId}::uuid,${'1'.repeat(64)},1,'PEOPLE_ACCOUNT_CHANGE')`;
+        await transaction.$executeRaw`INSERT INTO tenant_people_account_changes(tenant_id,id,kind,command_id,actor_user_id,user_id,identity_id,role,expected_revision,snapshot,display_name,payload_digest,issuer,client_id,tenant_slug,reason)
+          VALUES(${tenantId}::uuid,${bypassOperation}::uuid,'UPDATE_PROFILE',${bypassCommand}::uuid,${adminId}::uuid,${secondId}::uuid,${secondId}::uuid,'AGENT',1,'{}'::jsonb,'ข้าม',${'2'.repeat(64)},'x','x','x','ข้าม')`;
+        await transaction.$executeRaw`INSERT INTO voice_config_command_receipts(tenant_id,command_id,result_summary) VALUES(${tenantId}::uuid,${bypassCommand}::uuid,'{}'::jsonb)`;
+        await transaction.$executeRaw`INSERT INTO voice_config_audit(id,tenant_id,actor_user_id,resource_id,command_id,action,outcome,reason_code,correlation_id)
+          VALUES(${randomUUID()}::uuid,${tenantId}::uuid,${adminId}::uuid,${secondId}::uuid,${bypassCommand}::uuid,'UPDATE_PROFILE','ACCEPTED','OPERATOR_REQUEST','bypass')`;
+      }),
+      /ADMISSION_REQUIRED/,
+    );
+    await assert.rejects(
+      withTenantDatabaseTransaction(
+        application,
+        tenantId,
+        (transaction) =>
+          transaction.$executeRaw`INSERT INTO tenant_people_account_changes(tenant_id,id,kind,command_id,actor_user_id,user_id,identity_id,role,expected_revision,snapshot,display_name,payload_digest,issuer,client_id,tenant_slug,reason,state,revision)
+          VALUES(${tenantId}::uuid,${randomUUID()}::uuid,'UPDATE_PROFILE',${randomUUID()}::uuid,${adminId}::uuid,${secondId}::uuid,${secondId}::uuid,'AGENT',1,'{}'::jsonb,'ข้าม',${'2'.repeat(64)},'x','x','x','ข้าม','QUEUED',2)`,
+      ),
+      /IMMUTABLE/,
+    );
+
+    // แก้ชื่อค้างไม่รู้ผล: reconcile ซ้ำไม่เพิ่ม audit ทุกรอบ
+    mutateResult = () => ({ outcome: 'UNKNOWN' });
+    readResult = () => ({ outcome: 'UNKNOWN' });
+    assert.equal(
+      await runPeopleAccountChange(worker, provider, tenantId, secondRename.operationId),
+      'ACTION_REQUIRED',
+    );
+    const audits = async () =>
+      Number(
+        (
+          await owner.$queryRaw<
+            { count: bigint }[]
+          >`SELECT count(*) AS count FROM voice_config_audit
+            WHERE tenant_id=${tenantId}::uuid AND correlation_id=${secondRename.operationId}`
+        )[0].count,
+      );
+    const firstAudits = await audits();
+    assert.equal(
+      await runPeopleAccountChange(worker, provider, tenantId, secondRename.operationId),
+      'ACTION_REQUIRED',
+    );
+    assert.equal(await audits(), firstAudits, 'reconcile ที่ไม่รู้ผลซ้ำไม่เพิ่ม audit');
+    // ปิดบัญชีต้องไม่ถูกขวางถาวร: คำสั่งแก้ชื่อที่ค้างถูกปิดเป็น REJECTED (SUPERSEDED_BY_DISABLE) แล้วปิดบัญชีได้
+    await disable(agentId);
+    const [superseded] = await owner.$queryRaw<{ state: string; error_code: string }[]>`
+      SELECT state,error_code FROM tenant_people_account_changes WHERE tenant_id=${tenantId}::uuid AND id=${secondRename.operationId}::uuid`;
+    assert.deepEqual(superseded, { state: 'REJECTED', error_code: 'SUPERSEDED_BY_DISABLE' });
+    assert.equal((await user(agentId)).isActive, false);
+    assert.equal(
+      await runPeopleAccountChange(worker, provider, tenantId, secondRename.operationId),
+      'NOT_ELIGIBLE',
+    );
+    assert.equal((await user(agentId)).displayName, 'สมชาย ใจดี');
+
+    // คำสั่งค้างที่ไม่รู้ผล: runtime reconcile ด้วย GET หลังพัก 60 วินาที (ทดสอบโดยเลื่อน updated_at)
+    const adminRename = await acceptPeopleAccountChange(
+      application,
+      actor,
+      'UPDATE_PROFILE',
+      adminId,
+      {
+        commandId: randomUUID(),
+        expectedRevision: (await user(adminId)).configRevision,
+        displayName: 'Admin ชื่อใหม่',
+        reason: 'ทดสอบ runtime',
+      },
+      provider,
+    );
+    assert.equal(
+      await runPeopleAccountChange(worker, provider, tenantId, adminRename.operationId),
+      'ACTION_REQUIRED',
+    );
+    await owner.$executeRaw`UPDATE tenant_people_account_changes SET revision=revision+1,updated_at=clock_timestamp()-interval '2 minutes'
+      WHERE tenant_id=${tenantId}::uuid AND id=${adminRename.operationId}::uuid`;
+    const mutationsBeforeRuntime = mutations;
+    readResult = (identityId) => ({
       outcome: 'SUCCEEDED',
       reasonCode: 'PROFILE_UPDATED',
       identityId,
       receiptRef: '7'.repeat(64),
     });
+
+    // runtime หยิบคำสั่งค้างไปทำผ่าน worker binding และอ่าน receipt อย่างเดียว
     runtime = new TenantPeopleRuntime(
       worker,
       new Map([
@@ -718,7 +805,12 @@ test('#998 แก้ชื่อและเปิดบัญชีกลับ
     runtime.onModuleInit();
     await runtime.runOnce();
     assert.equal(await runtime.canChangeAccount(tenantId), true);
-    assert.equal((await user(agentId)).displayName, 'สมชาย กลับมา');
+    assert.equal((await user(adminId)).displayName, 'Admin ชื่อใหม่');
+    assert.equal(
+      mutations,
+      mutationsBeforeRuntime,
+      'runtime ไม่ส่ง UPDATE_PROFILE ซ้ำหลัง attempted',
+    );
     await runtime.onModuleDestroy();
     assert.equal(await runtime.canChangeAccount(tenantId), false);
   } finally {

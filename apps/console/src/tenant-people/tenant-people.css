@@ -347,3 +347,9 @@
 .tp-account-change > p {
   margin: 0;
 }
+/* #998 ui-review: หน้ารายละเอียดเป็นคอลัมน์เดียวบนจอแคบ (aside ตามหลัง main) ไม่ให้คอลัมน์ข้อมูลบีบจนอ่านไม่ได้ */
+@media (max-width: 48rem) {
+  .tp-detail-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
