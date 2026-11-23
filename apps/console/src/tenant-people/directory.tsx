@@ -23,6 +23,7 @@ import {
 } from './directory-api.js';
 import { PeopleInvitation } from './invitation.js';
 import { PeopleDisable } from './disable.js';
+import { PeopleTeamChange } from './team-change.js';
 
 export type AccountStatus =
   | 'ATTENTION_REQUIRED'
@@ -234,6 +235,7 @@ export function PeopleDirectory({
         api={api}
         identityKey={identityKey}
         teamName={teamName}
+        teams={teams}
         busy={busy}
         canOpenOperation={canOpenOperation}
         onBack={back}
@@ -437,6 +439,7 @@ function PeopleDetail({
   api,
   identityKey,
   teamName,
+  teams,
   busy,
   canOpenOperation,
   onBack,
@@ -448,6 +451,7 @@ function PeopleDetail({
   api: PeopleDirectoryApi;
   identityKey: string;
   teamName: Map<string, string>;
+  teams: { id: string; name: string }[];
   busy: boolean;
   canOpenOperation: boolean;
   onBack(): void;
@@ -494,7 +498,9 @@ function PeopleDetail({
       <div className="tp-detail-grid">
         <div className="tp-detail-main">
           <section className="tp-card" aria-labelledby="tp-account-title">
-            <h3 id="tp-account-title">{label('detail.account')}</h3>
+            <div className="tp-card-head">
+              <h3 id="tp-account-title">{label('detail.account')}</h3>
+            </div>
             <dl className="tp-dl">
               <dt>{label('name')}</dt>
               <dd>{user.displayName}</dd>
@@ -518,6 +524,16 @@ function PeopleDetail({
                 </>
               ) : null}
             </dl>
+            <div className="tp-panel">
+              <PeopleTeamChange
+                key={`team:${user.id}`}
+                api={api}
+                user={user}
+                teams={teams}
+                onUser={onUser}
+                onFailure={onFailure}
+              />
+            </div>
           </section>
           <div className="tp-card">
             <PeopleInvitation

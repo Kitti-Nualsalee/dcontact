@@ -215,6 +215,8 @@ jobs:
         run: pnpm --filter @d-contact/api exec tsx --test src/tenant-provisioned-authority.integration.ts
       - name: ตรวจ People directory, pagination และ positive identity authority ผ่าน HTTP กับ RLS จริง
         run: pnpm --filter @d-contact/api exec tsx --test src/tenant-people-directory.integration.ts
+      - name: ตรวจการย้ายทีมของบัญชี (#998) ด้วย revision/idle fence ภายใต้ RLS จริง
+        run: pnpm --filter @d-contact/api exec tsx --test src/tenant-people-team-change.integration.ts
       - name: ตรวจ B4 skills, binding, scope และ idle guards ผ่าน HTTP กับ RLS จริง
         run: |
           pnpm --filter @d-contact/api exec tsx --test src/tenant-voice-configuration.integration.ts

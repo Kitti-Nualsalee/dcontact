@@ -328,3 +328,9 @@
 .tp-dialog-body [role='alert'] {
   color: var(--dc-critical-fg-strong);
 }
+.tp-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--dc-space-5);
+}
