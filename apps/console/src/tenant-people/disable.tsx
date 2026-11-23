@@ -200,8 +200,10 @@ export function PeopleDisable({
   const eligible =
     user.isActive &&
     !['DISABLING', 'DISABLED', 'ATTENTION_REQUIRED', 'PROVISIONING'].includes(user.accountState);
+  // บัญชีปิดแล้วและไม่มีคำสั่งค้าง: การ์ดนี้ย่อเหลือบรรทัดเดียว ให้การ์ด "เปิดบัญชีกลับ" เป็นจุดทำงานต่อ
+  const closed = user.accountState === 'DISABLED' && !user.isActive && !pending;
   const displayedStatus =
-    status ||
+    (status === 'SUCCEEDED' && user.isActive ? '' : status) ||
     (user.accountState === 'DISABLED'
       ? 'SUCCEEDED'
       : user.accountState === 'ATTENTION_REQUIRED'
@@ -209,26 +211,36 @@ export function PeopleDisable({
         : user.accountState === 'DISABLING'
           ? 'WAITING_EXTERNAL'
           : '');
+  const unresolved =
+    !!pending || ['QUEUED', 'WAITING_EXTERNAL', 'ACTION_REQUIRED'].includes(displayedStatus);
+  const canRefresh = !closed && (unresolved || (!!error && !confirm));
   return (
     <section className="tp-panel" aria-label={label('disable.title')} aria-busy={busy}>
       <h3>{label('disable.title')}</h3>
-      {ready && !eligible && !pending ? (
+      {ready && !eligible && !pending && !closed ? (
         <p className="tp-muted">{label('disable.notEligible')}</p>
       ) : null}
-      {displayedStatus ? <p role="status">{label(`disable.states.${displayedStatus}`)}</p> : null}
+      {closed && !status ? <p className="tp-muted">{label('disable.closed')}</p> : null}
+      {displayedStatus && (!closed || status) ? (
+        <p role="status" className={closed ? 'tp-muted' : undefined}>
+          {label(`disable.states.${displayedStatus}`)}
+        </p>
+      ) : null}
       {error && !confirm ? <p role="alert">{label(`disable.errors.${error}`)}</p> : null}
       {pending ? <p>{label('disable.pending')}</p> : null}
-      <Button
-        variant="danger"
-        isDisabled={busy || !!pending || !ready || !eligible}
-        onPress={() => {
-          setError('');
-          setReason('');
-          setConfirm(true);
-        }}
-      >
-        {label('disable.start')}
-      </Button>
+      {closed ? null : (
+        <Button
+          variant="danger"
+          isDisabled={busy || !!pending || !ready || !eligible}
+          onPress={() => {
+            setError('');
+            setReason('');
+            setConfirm(true);
+          }}
+        >
+          {label('disable.start')}
+        </Button>
+      )}
       <Dialog
         role="alertdialog"
         title={label('disable.dialogTitle', { name: user.displayName })}
@@ -273,9 +285,11 @@ export function PeopleDisable({
           {error ? <p role="alert">{label(`disable.errors.${error}`)}</p> : null}
         </div>
       </Dialog>
-      <Button variant="ghost" isDisabled={busy} onPress={() => void refresh()}>
-        {label('disable.refresh')}
-      </Button>
+      {canRefresh ? (
+        <Button variant="ghost" isDisabled={busy} onPress={() => void refresh()}>
+          {label('disable.refresh')}
+        </Button>
+      ) : null}
     </section>
   );
 }

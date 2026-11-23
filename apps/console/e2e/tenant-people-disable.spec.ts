@@ -105,6 +105,10 @@ for (const scenario of [
       expect(posts).toBe(0);
       return;
     }
+    const refreshDisable = panel.getByRole('button', { name: 'ตรวจผลการปิดบัญชี', exact: true });
+    // ยังไม่มีคำสั่งค้าง: ไม่แสดงปุ่มตรวจผล
+    await expect(panel.getByRole('button', { name: 'ปิดบัญชี…', exact: true })).toBeEnabled();
+    await expect(refreshDisable).toHaveCount(0);
     const dialog = page.getByRole('alertdialog');
     const confirmDisable = async () => {
       await panel.getByRole('button', { name: 'ปิดบัญชี…', exact: true }).click();
@@ -128,7 +132,7 @@ for (const scenario of [
     await confirmDisable();
     if (scenario === 'readiness-race') {
       await expect(panel.getByRole('alert')).toContainText('ยังไม่ได้รับคำสั่ง');
-      await panel.getByRole('button', { name: 'ตรวจผลคำสั่งเดิม', exact: true }).click();
+      await panel.getByRole('button', { name: 'ตรวจผลการปิดบัญชี', exact: true }).click();
       await confirmDisable();
     }
     if (scenario === 'last-admin' || scenario === 'busy') {
@@ -145,6 +149,9 @@ for (const scenario of [
       panel = page.getByRole('region', { name: 'ปิดบัญชี', exact: true });
       await expect(panel).toContainText('ผลยังไม่ชัดเจน');
       await expect(panel.getByRole('button', { name: 'ปิดบัญชี…', exact: true })).toBeDisabled();
+      await expect(
+        panel.getByRole('button', { name: 'ตรวจผลการปิดบัญชี', exact: true }),
+      ).toBeVisible();
     }
     if (scenario === 'poll') {
       await expect(panel).toContainText('รอยืนยัน identity');
@@ -161,8 +168,11 @@ for (const scenario of [
         });
         document.dispatchEvent(new Event('visibilitychange'));
       });
-    } else await panel.getByRole('button', { name: 'ตรวจผลคำสั่งเดิม', exact: true }).click();
+    } else await panel.getByRole('button', { name: 'ตรวจผลการปิดบัญชี', exact: true }).click();
     await expect(panel).toContainText('ปิดบัญชีและ session สำเร็จแล้ว');
+    // ปิดสำเร็จแล้ว: ไม่มีคำสั่งค้าง จึงไม่เหลือปุ่มตรวจผลหรือปุ่มปิดบัญชีซ้อนกับการ์ดเปิดบัญชีกลับ
+    await expect(panel.getByRole('button')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /^ตรวจผล/ })).toHaveCount(0);
     expect(posts).toBe(scenario === 'readiness-race' ? 2 : 1);
     if (scenario === 'poll') {
       expect(checks).toBe(1);
@@ -181,3 +191,65 @@ for (const scenario of [
     ).toEqual([]);
   });
 }
+
+test('บัญชีปิดอยู่แล้ว: การ์ดปิดบัญชีย่อเหลือบรรทัดเดียวและไม่มีปุ่ม', async ({ page }) => {
+  const user = {
+    id: userId,
+    displayName: 'ผู้ใช้ปิดอยู่แล้ว',
+    email: 'disabled@example.test',
+    username: 'disabled@example.test',
+    role: 'AGENT',
+    teamId: null,
+    extensionRef: null,
+    configRevision: 3,
+    accountState: 'DISABLED',
+    provisioningState: 'PROVISIONED',
+    activationState: 'ACTIVATED',
+    isActive: false,
+    operationId: null,
+    commandId: null,
+    disableOperationId: operationId,
+    disableCommandId: '10000000-0000-4000-8000-000000000715',
+    deliveryState: 'UNKNOWN',
+    invitationGeneration: null,
+    invitationExpiresAt: null,
+  };
+  let checks = 0;
+  await page.route('**/api/v1/me/navigation**', (route) =>
+    route.fulfill({ json: homeNavigation(['admin'], true) }),
+  );
+  await page.route('**/api/v1/tenant-voice/**', async (route) => {
+    const path = new URL(route.request().url()).pathname.split('/tenant-voice/')[1];
+    if (path === 'capabilities')
+      return route.fulfill({
+        json: {
+          canWrite: true,
+          peopleProvisioning: { ready: true },
+          invitation: { ready: false },
+          disable: { ready: true },
+          accountChange: { ready: true },
+        },
+      });
+    if (path === 'teams' || path === 'extension-pool')
+      return route.fulfill({ json: { items: [] } });
+    if (path === 'people/users')
+      return route.fulfill({ json: { items: [user], nextCursor: null } });
+    if (path === `people/users/${userId}`) return route.fulfill({ json: user });
+    if (path?.startsWith('operations/')) checks++;
+    return route.fulfill({ status: 404, json: { code: 'RESOURCE_NOT_FOUND' } });
+  });
+  await page.goto('/?view=tenant-people&tenant=demo');
+  await page.getByRole('button', { name: 'ดูบัญชี ผู้ใช้ปิดอยู่แล้ว', exact: true }).click();
+  const panel = page.getByRole('region', { name: 'ปิดบัญชี', exact: true });
+  await expect(panel).toContainText('บัญชีนี้ปิดอยู่');
+  await expect(panel).not.toContainText('ปิดบัญชีและ session สำเร็จแล้ว');
+  await expect(panel).not.toContainText('ยังปิดไม่ได้');
+  await expect(panel.getByRole('button')).toHaveCount(0);
+  await expect(panel.getByRole('status')).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'เปิดบัญชีกลับ' })).toBeVisible();
+  expect(checks).toBe(0);
+  const axe = await new AxeBuilder({ page }).analyze();
+  expect(
+    axe.violations.filter((issue) => ['serious', 'critical'].includes(issue.impact ?? '')),
+  ).toEqual([]);
+});
