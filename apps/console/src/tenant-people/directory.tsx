@@ -15,7 +15,12 @@ import {
   type BadgeTone,
 } from '@d-contact/ui-react';
 import { CatalogApiError } from '../voice-routing/api.js';
-import type { PeopleDirectoryApi, PeopleDirectoryUser } from './directory-api.js';
+import {
+  PEOPLE_DIRECTORY_STATES,
+  type PeopleDirectoryApi,
+  type PeopleDirectoryFilters,
+  type PeopleDirectoryUser,
+} from './directory-api.js';
 import { PeopleInvitation } from './invitation.js';
 import { PeopleDisable } from './disable.js';
 
@@ -28,17 +33,6 @@ export type AccountStatus =
   | 'ACTIVE'
   | 'PENDING_ACTIVATION'
   | 'UNKNOWN';
-
-export const ACCOUNT_STATUSES: AccountStatus[] = [
-  'ACTIVE',
-  'PENDING_ACTIVATION',
-  'PROVISIONING',
-  'DISABLING',
-  'DISABLED',
-  'ATTENTION_REQUIRED',
-  'REJECTED',
-  'UNKNOWN',
-];
 
 /** สถานะเดียวของบัญชี ไล่ตามลำดับความสำคัญ — ข้อแรกที่ตรงชนะ */
 export function accountStatus(user: PeopleDirectoryUser): AccountStatus {
@@ -90,6 +84,18 @@ export function AccountStatusChip({ user }: { user: PeopleDirectoryUser }) {
 
 type Filters = { search: string; role: string; status: string; team: string };
 const NO_FILTERS: Filters = { search: '', role: 'ALL', status: 'ALL', team: 'ALL' };
+const SEARCH_DELAY_MS = 300;
+
+function serverFilters(filters: Filters, search: string): PeopleDirectoryFilters {
+  return {
+    ...(search.trim() ? { q: search.trim() } : {}),
+    ...(filters.role === 'AGENT' || filters.role === 'SUPERVISOR' || filters.role === 'ADMIN'
+      ? { role: filters.role }
+      : {}),
+    ...(filters.team !== 'ALL' ? { teamId: filters.team } : {}),
+    ...(filters.status !== 'ALL' ? { state: filters.status } : {}),
+  };
+}
 
 export function PeopleDirectory({
   api,
@@ -117,8 +123,11 @@ export function PeopleDirectory({
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<'list' | 'more' | 'detail'>();
   const [filters, setFilters] = useState<Filters>(NO_FILTERS);
+  // คำค้นรอผู้ใช้หยุดพิมพ์ก่อนส่ง ตัวกรองอื่นส่งทันที
+  const [search, setSearch] = useState('');
   const active = useRef(false),
-    inFlight = useRef(false);
+    inFlight = useRef(false),
+    generation = useRef(0);
   const lastOpened = useRef<string | undefined>(undefined);
   const callbacks = useRef({ onFailure, onOperation, onDetailChange });
   callbacks.current = { onFailure, onOperation, onDetailChange };
@@ -133,23 +142,27 @@ export function PeopleDirectory({
       callbacks.current.onFailure(error);
     }
   }
+  /** โหลดหน้าแรกใหม่ทุกครั้งที่ตัวกรองเปลี่ยน ผลของคำขอเก่าที่ตอบช้าถูกทิ้ง */
   async function load(cursor?: string) {
-    if (inFlight.current) return;
+    if (cursor && inFlight.current) return;
+    const current = ++generation.current;
     inFlight.current = true;
     setBusy(true);
     setError(undefined);
     try {
-      const result = await api.list(cursor);
-      if (active.current) {
+      const result = await api.list(cursor, serverFilters(filters, search));
+      if (active.current && current === generation.current) {
         setItems((previous) => (cursor ? [...previous, ...result.items] : result.items));
         setNextCursor(result.nextCursor);
         setLoaded(true);
       }
     } catch (error) {
-      failed(error, cursor ? 'more' : 'list');
+      if (current === generation.current) failed(error, cursor ? 'more' : 'list');
     } finally {
-      inFlight.current = false;
-      if (active.current) setBusy(false);
+      if (current === generation.current) {
+        inFlight.current = false;
+        if (active.current) setBusy(false);
+      }
     }
   }
   async function select(userId: string) {
@@ -184,25 +197,18 @@ export function PeopleDirectory({
   }
   useEffect(() => {
     active.current = true;
-    void load();
     return () => {
       active.current = false;
     };
-  }, [api]);
+  }, []);
+  useEffect(() => {
+    const timer = setTimeout(() => setSearch(filters.search), SEARCH_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [filters.search]);
+  useEffect(() => {
+    void load();
+  }, [api, search, filters.role, filters.status, filters.team]);
 
-  const filtered = useMemo(() => {
-    const query = filters.search.trim().toLowerCase();
-    return items.filter(
-      (user) =>
-        (!query ||
-          user.displayName.toLowerCase().includes(query) ||
-          user.email.toLowerCase().includes(query) ||
-          (user.extensionRef ?? '').toLowerCase().includes(query)) &&
-        (filters.role === 'ALL' || user.role === filters.role) &&
-        (filters.status === 'ALL' || accountStatus(user) === filters.status) &&
-        (filters.team === 'ALL' || user.teamId === filters.team),
-    );
-  }, [items, filters]);
   const filtering =
     filters.search.trim() !== '' ||
     filters.role !== 'ALL' ||
@@ -254,7 +260,10 @@ export function PeopleDirectory({
           onSelectionChange={(key) => setFilters((value) => ({ ...value, status: String(key) }))}
           options={[
             { id: 'ALL', label: label('filters.allStatuses') },
-            ...ACCOUNT_STATUSES.map((status) => ({ id: status, label: label(`status.${status}`) })),
+            ...PEOPLE_DIRECTORY_STATES.map((status) => ({
+              id: status,
+              label: label(`status.${status}`),
+            })),
           ]}
         />
         <Select
@@ -280,12 +289,10 @@ export function PeopleDirectory({
 
       {loaded && items.length > 0 ? (
         <p className="tp-count" role="status">
-          {filtering
-            ? label('list.count', { shown: filtered.length, loaded: items.length })
-            : label('list.countAll', { count: items.length })}
-          {filtering && nextCursor
-            ? ` · ${label('filters.loadedOnly', { count: items.length })}`
-            : ''}
+          {label(
+            nextCursor ? 'list.countMore' : filtering ? 'list.countMatched' : 'list.countAll',
+            { count: items.length },
+          )}
         </p>
       ) : null}
 
@@ -306,14 +313,14 @@ export function PeopleDirectory({
         </div>
       ) : null}
 
-      {loaded && !items.length && !error ? (
+      {loaded && !items.length && !error && !filtering ? (
         <div className="tp-empty">
           <p className="tp-empty-title">{label('list.emptyTitle')}</p>
           <p>{label('list.emptyBody')}</p>
         </div>
       ) : null}
 
-      {items.length > 0 && !filtered.length ? (
+      {loaded && !items.length && !error && filtering ? (
         <div className="tp-empty">
           <p className="tp-empty-title">{label('list.noMatch')}</p>
           <Button variant="secondary" onPress={() => setFilters(NO_FILTERS)}>
@@ -322,7 +329,7 @@ export function PeopleDirectory({
         </div>
       ) : null}
 
-      {filtered.length > 0 ? (
+      {items.length > 0 ? (
         <div className="tp-table-wrap">
           <Table
             aria-label={label('directory.title')}
@@ -341,7 +348,7 @@ export function PeopleDirectory({
               </Column>
             </TableHeader>
             <TableBody>
-              {filtered.map((user) => {
+              {items.map((user) => {
                 const status = accountStatus(user);
                 return (
                   <Row key={user.id} id={user.id}>

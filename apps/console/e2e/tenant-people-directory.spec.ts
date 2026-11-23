@@ -76,7 +76,7 @@ for (const unresolved of [false, true])
     }
     await page.getByRole('button', { name: 'ดูสถานะการจัดเตรียม', exact: true }).click();
     await expect(
-      page.getByText('จัดเตรียมบัญชีแล้ว — ยังรอผู้ใช้เปิดใช้งาน', { exact: true }).first(),
+      page.getByText(/^จัดเตรียมบัญชีแล้ว — ยังรอผู้ใช้เปิดใช้งาน/).first(),
     ).toBeVisible();
     expect(details).toBe(1);
     await page.reload();

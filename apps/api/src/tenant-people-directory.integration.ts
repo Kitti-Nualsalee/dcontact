@@ -324,6 +324,72 @@ test('People directory HTTP/RLS: pagination/detail และ positive tenant aut
       assert.equal(maximum.nextCursor, null);
     });
 
+    await suite.test(
+      'POST search ค้นชื่อ/email/extension แบบไม่สนตัวพิมพ์ ผูก cursor กับคำค้น และไม่รับคำค้นใน URL',
+      async () => {
+        const search = (body: unknown, token = 'admin') =>
+          fetch(`${base}/search`, {
+            method: 'POST',
+            headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+        await owner.$executeRaw`UPDATE users SET display_name='สมหญิง ค้นเจอ', extension='1042' WHERE tenant_id=${tenantId}::uuid AND id=${target.userId}::uuid`;
+        const byName = await search({ q: '  ค้นเจอ ' });
+        assert.equal(byName.headers.get('cache-control'), 'no-store');
+        assert.deepEqual(
+          (await readPage(byName)).items.map((item) => item.id),
+          [target.userId],
+        );
+        assert.deepEqual(
+          (await readPage(await search({ q: 'NEW.user@EXAMPLE' }))).items.map((item) => item.id),
+          [target.userId],
+        );
+        assert.deepEqual(
+          (await readPage(await search({ q: '104', role: 'SUPERVISOR', teamId }))).items.map(
+            (item) => item.id,
+          ),
+          [target.userId],
+        );
+        assert.deepEqual(await readPage(await search({ q: '104', role: 'ADMIN' })), {
+          items: [],
+          nextCursor: null,
+        });
+        // wildcard ของ LIKE ถูกตีความเป็นตัวอักษรธรรมดา
+        assert.deepEqual(await readPage(await search({ q: '%' })), { items: [], nextCursor: null });
+        assert.deepEqual(await readPage(await search({ q: '_' })), { items: [], nextCursor: null });
+        // คำค้นว่างเท่ากับไม่กรอง และ cursor ผูกกับคำค้น
+        const page = await readPage(await search({ q: ' ', limit: 20 }));
+        assert.equal(page.items.length, 20);
+        assert.equal(typeof page.nextCursor, 'string');
+        assert.equal((await search({ q: 'page', cursor: page.nextCursor })).status, 400);
+        const pageQuery = await readPage(await search({ q: 'page-', limit: 20 }));
+        assert.equal(pageQuery.items.length, 20);
+        const nextQuery = await readPage(
+          await search({ q: 'page-', limit: 20, cursor: pageQuery.nextCursor }),
+        );
+        assert.equal(nextQuery.items.length, 1);
+        for (const body of [
+          { q: 'x'.repeat(101) },
+          { q: 'a\u0000b' },
+          { q: 42 },
+          { tenantId: foreignTenantId },
+          [],
+          { role: 'platform_admin' },
+        ]) {
+          const response = await search(body);
+          assert.equal(response.status, 400);
+          assert.equal(JSON.stringify(await readObject(response)).includes('xxxxxxxx'), false);
+        }
+        assert.equal((await request('?q=ค้นเจอ')).status, 400);
+        for (const token of ['agent', 'supervisor', 'protected'])
+          assert.equal((await search({ q: 'ค้นเจอ' }, token)).status, 403);
+        assert.deepEqual(await readPage(await search({ q: 'ค้นเจอ' }, 'foreign')), {
+          items: [],
+          nextCursor: null,
+        });
+      },
+    );
+
     await suite.test('revoke positive proof มีผลต่อ caller และ target ทุก request', async () => {
       await owner.$executeRaw`UPDATE tenant_voice_identity_bindings SET revision=revision+1,is_active=false WHERE tenant_id=${tenantId}::uuid AND user_id=${secondAdminId}::uuid`;
       assert.equal((await request(`/${secondAdminId}`)).status, 404);

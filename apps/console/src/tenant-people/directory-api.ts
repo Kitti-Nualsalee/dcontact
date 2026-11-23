@@ -28,8 +28,27 @@ export interface InvitationCommand {
   reasonCode: string;
   reason: string;
 }
+/** ตัวกรองที่ server ใช้ — ค่าว่าง/undefined คือไม่กรอง */
+export interface PeopleDirectoryFilters {
+  q?: string;
+  role?: PeopleRole;
+  teamId?: string;
+  state?: string;
+}
+export const PEOPLE_DIRECTORY_STATES = [
+  'ACTIVE',
+  'PENDING_ACTIVATION',
+  'PROVISIONING',
+  'DISABLING',
+  'DISABLED',
+  'ATTENTION_REQUIRED',
+  'UNKNOWN',
+] as const;
 export interface PeopleDirectoryApi {
-  list(cursor?: string): Promise<{ items: PeopleDirectoryUser[]; nextCursor: string | null }>;
+  list(
+    cursor?: string,
+    filters?: PeopleDirectoryFilters,
+  ): Promise<{ items: PeopleDirectoryUser[]; nextCursor: string | null }>;
   detail(userId: string): Promise<PeopleDirectoryUser>;
   invitationReady(): Promise<boolean>;
   invitation(
@@ -121,7 +140,7 @@ export function createPeopleDirectoryApi(options: {
   baseUrl: string;
   accessToken(): string | undefined;
 }): PeopleDirectoryApi {
-  async function request(path: string, body?: InvitationCommand) {
+  async function request(path: string, body?: InvitationCommand | object, expected?: number) {
     const token = options.accessToken();
     if (!token) throw new CatalogApiError(401, 'UNAUTHORIZED');
     const response = await fetch(
@@ -147,13 +166,31 @@ export function createPeopleDirectoryApi(options: {
       } catch {}
       throw new CatalogApiError(response.status, code);
     }
-    if (response.status !== (body ? 202 : 200)) throw new CatalogApiError(502, 'FAILED');
+    if (response.status !== (expected ?? (body ? 202 : 200)))
+      throw new CatalogApiError(502, 'FAILED');
     return object(await response.json());
   }
   return {
-    async list(cursor) {
-      const query = new URLSearchParams({ limit: '20', ...(cursor ? { cursor } : {}) });
-      const value = await request(`people/users?${query}`);
+    async list(cursor, filters = {}) {
+      const q = filters.q?.trim() ?? '';
+      const narrowed = {
+        ...(q ? { q } : {}),
+        ...(filters.role ? { role: filters.role } : {}),
+        ...(filters.teamId && peopleUuid(filters.teamId) ? { teamId: filters.teamId } : {}),
+        ...(filters.state && (PEOPLE_DIRECTORY_STATES as readonly string[]).includes(filters.state)
+          ? { state: filters.state }
+          : {}),
+      };
+      // มีตัวกรองใช้ POST search ให้คำค้น (ชื่อ/email) อยู่ใน body ไม่อยู่ใน URL
+      const value = Object.keys(narrowed).length
+        ? await request(
+            'people/users/search',
+            { limit: 20, ...(cursor ? { cursor } : {}), ...narrowed },
+            200,
+          )
+        : await request(
+            `people/users?${new URLSearchParams({ limit: '20', ...(cursor ? { cursor } : {}) })}`,
+          );
       if (
         !Array.isArray(value.items) ||
         (value.nextCursor !== null &&
