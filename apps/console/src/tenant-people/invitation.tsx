@@ -95,6 +95,11 @@ export function PeopleInvitation({
       if (mounted.current) setBusy(false);
     }
   }
+  function closeDialog() {
+    setDialog(undefined);
+    setReason('');
+    setError(false);
+  }
   async function submit(kind: 'resend' | 'reconcile') {
     if (inFlight.current || pending || !ready || !reason.trim() || [...reason.trim()].length > 500)
       return;
@@ -198,6 +203,7 @@ export function PeopleInvitation({
             isDisabled={busy || !!pending || !resend || limited}
             onPress={() => {
               setError(false);
+              setReason('');
               setDialog('resend');
             }}
           >
@@ -207,6 +213,7 @@ export function PeopleInvitation({
             isDisabled={busy || !!pending || !reconcile}
             onPress={() => {
               setError(false);
+              setReason('');
               setDialog('reconcile');
             }}
           >
@@ -223,11 +230,11 @@ export function PeopleInvitation({
         isOpen={!!dialog}
         isDismissable={!busy}
         onOpenChange={(open) => {
-          if (!open && !busy) setDialog(undefined);
+          if (!open && !busy) closeDialog();
         }}
         footer={() => (
           <>
-            <Button isDisabled={busy} onPress={() => setDialog(undefined)}>
+            <Button isDisabled={busy} onPress={closeDialog}>
               {label('disable.cancel')}
             </Button>
             <Button
@@ -241,7 +248,9 @@ export function PeopleInvitation({
               }
               onPress={() => dialog && void submit(dialog)}
             >
-              {label(dialog === 'reconcile' ? 'invitation.reconcile' : 'invitation.resend')}
+              {busy
+                ? label('invitationDialog.sending')
+                : label(dialog === 'reconcile' ? 'invitation.reconcile' : 'invitation.resend')}
             </Button>
           </>
         )}

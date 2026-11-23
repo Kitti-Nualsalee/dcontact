@@ -115,8 +115,15 @@ for (const scenario of [
     };
     await panel.getByRole('button', { name: 'ปิดบัญชี…', exact: true }).click();
     await expect(dialog).toBeVisible();
+    const reason = dialog.getByRole('textbox', { name: 'เหตุผล (1–500 ตัวอักษร)', exact: true });
+    await reason.fill('เหตุผลที่ยกเลิก');
     expect(posts).toBe(0);
     await dialog.getByRole('button', { name: 'ยกเลิก', exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    // เปิดใหม่ต้องเริ่มจากช่องเหตุผลว่าง ไม่ให้เหตุผลเก่าตามไปยืนยันครั้งใหม่
+    await panel.getByRole('button', { name: 'ปิดบัญชี…', exact: true }).click();
+    await expect(reason).toHaveValue('');
+    await page.keyboard.press('Escape');
     await expect(dialog).toHaveCount(0);
     await confirmDisable();
     if (scenario === 'readiness-race') {

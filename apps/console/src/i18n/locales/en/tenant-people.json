@@ -24,7 +24,8 @@
       "PROTECTED_OR_FOREIGN_IDENTITY": "This account is outside the permitted disable scope."
     },
     "notEligible": "This account can't be disabled yet: it isn't active, is still provisioning, or has a pending request.",
-    "dialogTitle": "Disable {{name}}?"
+    "dialogTitle": "Disable {{name}}?",
+    "submitting": "Disabling…"
   },
   "pages": {
     "navigation": "People pages",
@@ -86,7 +87,7 @@
     "activation": "Activation",
     "generation": "Invitation generation",
     "reason": "Reason (1–500 characters)",
-    "resend": "Send new invitation generation",
+    "resend": "Resend invitation",
     "reconcile": "Check delivery evidence",
     "refresh": "Check original invitation status",
     "pending": "Checking the original command. Do not submit a duplicate.",
@@ -195,6 +196,7 @@
     "titleResend": "Resend invitation to {{name}}",
     "bodyResend": "A new invitation goes to {{email}}. Up to 3 sends per 60 minutes.",
     "titleReconcile": "Check invitation delivery",
-    "bodyReconcile": "The last delivery result is unclear. This checks the evidence first and doesn't resend."
+    "bodyReconcile": "The last delivery result is unclear. This checks the evidence first and doesn't resend.",
+    "sending": "Sending…"
   }
 }

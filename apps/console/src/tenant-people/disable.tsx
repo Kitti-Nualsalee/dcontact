@@ -57,6 +57,11 @@ export function PeopleDisable({
     inFlight = useRef(false);
   const callbacks = useRef({ onUser, onFailure });
   callbacks.current = { onUser, onFailure };
+  function closeConfirm() {
+    setConfirm(false);
+    setReason('');
+    setError('');
+  }
   function remember(value: PendingDisable | undefined) {
     if (value) sessionStorage.setItem(storageKey, JSON.stringify(value));
     else sessionStorage.removeItem(storageKey);
@@ -207,7 +212,6 @@ export function PeopleDisable({
   return (
     <section className="tp-panel" aria-label={label('disable.title')} aria-busy={busy}>
       <h3>{label('disable.title')}</h3>
-      <p className="tp-muted">{label('disable.warning')}</p>
       {ready && !eligible && !pending ? (
         <p className="tp-muted">{label('disable.notEligible')}</p>
       ) : null}
@@ -219,6 +223,7 @@ export function PeopleDisable({
         isDisabled={busy || !!pending || !ready || !eligible}
         onPress={() => {
           setError('');
+          setReason('');
           setConfirm(true);
         }}
       >
@@ -228,22 +233,13 @@ export function PeopleDisable({
         role="alertdialog"
         title={label('disable.dialogTitle', { name: user.displayName })}
         isOpen={confirm}
-        isDismissable={!busy}
+        isDismissable={false}
         onOpenChange={(open) => {
-          if (!open && !busy) {
-            setConfirm(false);
-            setError('');
-          }
+          if (!open && !busy) closeConfirm();
         }}
         footer={() => (
           <>
-            <Button
-              isDisabled={busy}
-              onPress={() => {
-                setConfirm(false);
-                setError('');
-              }}
-            >
+            <Button isDisabled={busy} onPress={closeConfirm}>
               {label('disable.cancel')}
             </Button>
             <Button
@@ -258,7 +254,7 @@ export function PeopleDisable({
               }
               onPress={() => void submit()}
             >
-              {label('disable.submit')}
+              {busy ? label('disable.submitting') : label('disable.submit')}
             </Button>
           </>
         )}
