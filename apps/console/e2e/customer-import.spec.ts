@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
+import { th } from './support/catalog';
 import { homeNavigation } from './support/home-navigation.js';
 
 /**
@@ -8,21 +9,21 @@ import { homeNavigation } from './support/home-navigation.js';
  */
 test.use({ locale: 'th-TH', viewport: { width: 1280, height: 900 } });
 
-const CSV =
-  'ชื่อ,บริษัท,เบอร์โทร,อีเมล\nสมชาย ใจดี,บริษัท เอ,0812345678,a@example.test\nแถวเสีย,,123,\n';
+const HEADERS = ['ชื่อ', 'บริษัท', 'เบอร์โทร', 'อีเมล']; // allow-thai: Thai header names are what the column guess recognizes
+const CSV = `${HEADERS.join(',')}\nSomchai Jaidee,Company A,0812345678,a@example.test\nBad row,,123,\n`;
 const PLAN = 'a'.repeat(64);
 const counts = { valid: 1, invalid: 1, warning: 0 };
 const rowsOut = [
   {
     rowNo: 1,
-    cells: ['สมชาย ใจดี', 'บริษัท เอ', '0812345678', 'a@example.test'],
+    cells: ['Somchai Jaidee', 'Company A', '0812345678', 'a@example.test'],
     valid: true,
     fieldErrors: [],
     warnings: [],
   },
   {
     rowNo: 2,
-    cells: ['แถวเสีย', '', '123', ''],
+    cells: ['Bad row', '', '123', ''],
     valid: false,
     fieldErrors: [{ field: 'phone', code: 'PHONE_INVALID' }],
     warnings: [],
@@ -32,7 +33,9 @@ const rowsOut = [
 async function open(page: Page) {
   await page.route('**/api/v1/me/navigation', (route) => route.fulfill({ json: homeNavigation() }));
   await page.goto('/?view=customer-import&tenant=demo');
-  await expect(page.getByRole('heading', { name: 'นำเข้าลูกค้าจาก CSV', level: 1 })).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: th('customerImport:title'), level: 1 }),
+  ).toBeVisible();
   await page.locator('input[type=file]').setInputFiles({
     name: 'customers.csv',
     mimeType: 'text/csv',
@@ -50,7 +53,7 @@ test('upload → map → check → confirm → per-row result', async ({ page })
       json: {
         rulesVersion: 'v1',
         planHash: PLAN,
-        headers: ['ชื่อ', 'บริษัท', 'เบอร์โทร', 'อีเมล'],
+        headers: HEADERS,
         counts,
         rows: rowsOut,
       },
@@ -84,20 +87,26 @@ test('upload → map → check → confirm → per-row result', async ({ page })
   });
   await open(page);
   // the mapping was already guessed from the Thai column headers: can send immediately
-  await expect(page.getByRole('button', { name: 'ตรวจไฟล์' })).toBeEnabled();
-  await page.getByRole('button', { name: 'ตรวจไฟล์' }).click();
-  await expect(page.getByText('ผ่าน 1 แถว', { exact: true })).toBeVisible();
-  await expect(page.getByText('ไม่ผ่าน 1 แถว')).toBeVisible();
-  const grid = page.getByRole('grid', { name: 'ผลการตรวจ' });
-  await expect(grid).toContainText('สมชาย ใจดี');
-  await expect(grid).toContainText('เบอร์โทร: เบอร์โทรไม่ถูกต้อง');
-  await page.getByRole('button', { name: 'นำเข้า 1 แถวที่ผ่าน' }).click();
+  await expect(page.getByRole('button', { name: th('customerImport:preview') })).toBeEnabled();
+  await page.getByRole('button', { name: th('customerImport:preview') }).click();
+  await expect(
+    page.getByText(th('customerImport:countValid', { count: 1 }), { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText(th('customerImport:countInvalid', { count: 1 }))).toBeVisible();
+  const grid = page.getByRole('grid', { name: th('customerImport:stepPreview') });
+  await expect(grid).toContainText('Somchai Jaidee');
+  await expect(grid).toContainText(
+    `${th('customerImport:fields.phone')}: ${th('customerImport:fieldCodes.PHONE_INVALID')}`,
+  );
+  await page.getByRole('button', { name: th('customerImport:confirm', { count: 1 }) }).click();
   const dialog = page.getByRole('alertdialog');
-  await expect(dialog).toContainText('ระบบจะสร้างลูกค้าใหม่ 1 ราย');
-  await dialog.getByRole('button', { name: 'นำเข้า 1 แถวที่ผ่าน' }).click();
-  await expect(page.getByText('นำเข้าเสร็จสิ้น')).toBeVisible();
-  await expect(page.getByRole('grid', { name: 'ผลการนำเข้า' })).toContainText('สร้างแล้ว');
-  await expect(page.getByRole('button', { name: 'ส่งต่อ' })).toHaveCount(0);
+  await expect(dialog).toContainText(th('customerImport:confirmBody', { count: 1 }));
+  await dialog.getByRole('button', { name: th('customerImport:confirm', { count: 1 }) }).click();
+  await expect(page.getByText(th('customerImport:resultDone'))).toBeVisible();
+  await expect(page.getByRole('grid', { name: th('customerImport:stepResult') })).toContainText(
+    th('customerImport:resultState.APPLIED'),
+  );
+  await expect(page.getByRole('button', { name: th('customerImport:resume') })).toHaveCount(0);
   expect(posts[1]).toMatch(/name="planHash"\r\n\r\na{64}/);
   expect(errors).toEqual([]);
   const axe = await new AxeBuilder({ page }).analyze();
@@ -115,7 +124,7 @@ test('incomplete result: continue with the original commandId, and a non-CSV fil
       json: {
         rulesVersion: 'v1',
         planHash: PLAN,
-        headers: ['ชื่อ', 'บริษัท', 'เบอร์โทร', 'อีเมล'],
+        headers: HEADERS,
         counts,
         rows: rowsOut,
       },
@@ -141,22 +150,25 @@ test('incomplete result: continue with the original commandId, and a non-CSV fil
     });
   });
   await open(page);
-  await page.getByRole('button', { name: 'ตรวจไฟล์' }).click();
-  await page.getByRole('button', { name: 'นำเข้า 1 แถวที่ผ่าน' }).click();
-  await page.getByRole('alertdialog').getByRole('button', { name: 'นำเข้า 1 แถวที่ผ่าน' }).click();
-  await expect(page.getByText('ยังนำเข้าไม่ครบ')).toBeVisible();
-  await page.getByRole('button', { name: 'ส่งต่อ' }).click();
-  await expect(page.getByText('นำเข้าเสร็จสิ้น')).toBeVisible();
+  await page.getByRole('button', { name: th('customerImport:preview') }).click();
+  await page.getByRole('button', { name: th('customerImport:confirm', { count: 1 }) }).click();
+  await page
+    .getByRole('alertdialog')
+    .getByRole('button', { name: th('customerImport:confirm', { count: 1 }) })
+    .click();
+  await expect(page.getByText(th('customerImport:resultIncomplete'))).toBeVisible();
+  await page.getByRole('button', { name: th('customerImport:resume') }).click();
+  await expect(page.getByText(th('customerImport:resultDone'))).toBeVisible();
   const id = (body: string) => /name="commandId"\r\n\r\n([0-9a-f-]{36})/.exec(body)?.[1];
   expect(id(confirms[0]!)).toBeTruthy();
   expect(id(confirms[1]!)).toBe(id(confirms[0]!));
 
-  await page.getByRole('button', { name: 'นำเข้าไฟล์ใหม่' }).click();
+  await page.getByRole('button', { name: th('customerImport:startOver') }).click();
   await page.locator('input[type=file]').setInputFiles({
     name: 'bad.csv',
     mimeType: 'text/csv',
     buffer: Buffer.from([0xff, 0xfe, 0x41]),
   });
-  await expect(page.getByRole('alert')).toContainText('อ่านเป็น CSV แบบ UTF-8 ไม่ได้');
-  await expect(page.getByRole('button', { name: 'ตรวจไฟล์' })).toHaveCount(0);
+  await expect(page.getByRole('alert')).toContainText(th('customerImport:fileErrors.NOT_CSV'));
+  await expect(page.getByRole('button', { name: th('customerImport:preview') })).toHaveCount(0);
 });

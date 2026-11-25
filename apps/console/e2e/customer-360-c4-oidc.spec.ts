@@ -3,6 +3,13 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 
+import { en, th } from './support/catalog';
+
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/** the same catalog text in either language: the sign-in screen appears before the session locale is known */
+const either = (key: string) => new RegExp(`^(${escapeRegExp(th(key))}|${escapeRegExp(en(key))})$`);
+const T = (key: string, options?: Record<string, unknown>) => th(`customers:${key}`, options);
+
 async function login(page: Page, request: APIRequestContext, alias = 'admin') {
   const config = (await (await request.get('/__core_test/config')).json()) as {
     tenant: string;
@@ -10,7 +17,7 @@ async function login(page: Page, request: APIRequestContext, alias = 'admin') {
     users: Record<string, string>;
   };
   await page.goto(`/?tenant=${config.tenant}&view=customers`);
-  await page.getByRole('button', { name: /^(เข้าสู่ระบบอีกครั้ง|Sign in again)$/ }).click();
+  await page.getByRole('button', { name: either('customers:signIn') }).click();
   await page.getByLabel('Username or email').fill(config.users[alias]!);
   if (!(await page.getByLabel('Password', { exact: true }).count()))
     await page.getByRole('button', { name: 'Sign In', exact: true }).click();
@@ -40,13 +47,13 @@ test('real OIDC: create a customer and read it back without keeping a draft in t
   request,
 }, info) => {
   await login(page, request);
-  const name = `ลูกค้า OIDC ${randomUUID()}`;
-  await page.getByRole('button', { name: 'สร้างลูกค้า' }).click();
-  await page.getByLabel('ชื่อลูกค้า').fill(name);
+  const name = `OIDC customer ${randomUUID()}`;
+  await page.getByRole('button', { name: T('write.create') }).click();
+  await page.getByLabel(T('write.name')).fill(name);
   await expectDraftPrivate(page, name);
-  await page.getByRole('button', { name: 'บันทึกลูกค้า' }).click();
+  await page.getByRole('button', { name: T('write.save') }).click();
   await expect(page.getByRole('heading', { name })).toBeVisible();
-  await expect(page.getByText('บันทึกและอ่านข้อมูลลูกค้ากลับแล้ว')).toBeVisible();
+  await expect(page.getByText(T('write.saved'))).toBeVisible();
   await expectDraftPrivate(page, name);
   await page.reload();
   await expect(page.getByRole('heading', { name })).toBeVisible();
@@ -69,9 +76,9 @@ test('real OIDC: a lost answer after commit, then reload, recovers the original 
   request,
 }) => {
   await login(page, request);
-  const name = `กู้ลูกค้า OIDC ${randomUUID()}`;
-  await page.getByRole('button', { name: 'สร้างลูกค้า' }).click();
-  await page.getByLabel('ชื่อลูกค้า').fill(name);
+  const name = `OIDC recovery customer ${randomUUID()}`;
+  await page.getByRole('button', { name: T('write.create') }).click();
+  await page.getByLabel(T('write.name')).fill(name);
   await expectDraftPrivate(page, name);
   let dropped = false;
   let delivered!: () => void;
@@ -86,14 +93,14 @@ test('real OIDC: a lost answer after commit, then reload, recovers the original 
       delivered();
     } else await route.continue();
   });
-  await page.getByRole('button', { name: 'บันทึกลูกค้า' }).click();
+  await page.getByRole('button', { name: T('write.save') }).click();
   await disconnected;
-  await expect(page.getByRole('button', { name: 'ตรวจสถานะการบันทึก' })).toBeVisible();
+  await expect(page.getByRole('button', { name: T('write.checkResult') })).toBeVisible();
   await expectDraftPrivate(page, name);
   await page.unrouteAll({ behavior: 'wait' });
   page.once('dialog', (dialog) => void dialog.accept());
   await page.reload();
-  await page.getByRole('button', { name: 'ตรวจสถานะการบันทึก' }).click();
+  await page.getByRole('button', { name: T('write.checkResult') }).click();
   await expect(page.getByRole('heading', { name })).toBeVisible();
   await expectDraftPrivate(page, name);
 });
@@ -103,8 +110,8 @@ test('real OIDC: a Supervisor has no permission to create a customer from the ca
   request,
 }) => {
   await login(page, request, 'supervisor');
-  await expect(page.getByRole('heading', { name: 'ลูกค้า', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'สร้างลูกค้า' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: T('title'), exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: T('write.create') })).toHaveCount(0);
 });
 
 test('real OIDC: saving unchanged data is a no-op and reads the result back', async ({
@@ -112,14 +119,14 @@ test('real OIDC: saving unchanged data is a no-op and reads the result back', as
   request,
 }) => {
   await login(page, request);
-  const name = `ตรวจ no-op OIDC ${randomUUID()}`;
-  await page.getByRole('button', { name: 'สร้างลูกค้า' }).click();
-  await page.getByLabel('ชื่อลูกค้า').fill(name);
-  await page.getByRole('button', { name: 'บันทึกลูกค้า' }).click();
+  const name = `OIDC no-op check ${randomUUID()}`;
+  await page.getByRole('button', { name: T('write.create') }).click();
+  await page.getByLabel(T('write.name')).fill(name);
+  await page.getByRole('button', { name: T('write.save') }).click();
   await expect(page.getByRole('heading', { name })).toBeVisible();
-  await page.getByRole('button', { name: 'แก้ไขลูกค้า' }).click();
-  await page.getByRole('button', { name: 'บันทึกลูกค้า' }).click();
-  await expect(page.getByText('ข้อมูลไม่เปลี่ยนแปลง อ่านข้อมูลล่าสุดกลับแล้ว')).toBeVisible();
+  await page.getByRole('button', { name: T('write.edit') }).click();
+  await page.getByRole('button', { name: T('write.save') }).click();
+  await expect(page.getByText(T('write.unchanged'))).toBeVisible();
 });
 
 test('real OIDC: revoking permission closes the draft and recovers it only when permission returns', async ({
@@ -127,15 +134,18 @@ test('real OIDC: revoking permission closes the draft and recovers it only when 
   request,
 }) => {
   await login(page, request);
-  const name = `ร่างหลังถอนสิทธิ์ ${randomUUID()}`;
-  await page.getByRole('button', { name: 'สร้างลูกค้า' }).click();
-  await page.getByLabel('ชื่อลูกค้า').fill(name);
+  const name = `Draft after revoke ${randomUUID()}`;
+  await page.getByRole('button', { name: T('write.create') }).click();
+  await page.getByLabel(T('write.name')).fill(name);
   await request.post('/__core_test/revoke');
-  await page.getByRole('button', { name: 'บันทึกลูกค้า' }).click();
-  await expect(page.getByRole('alert')).toContainText('ไม่สามารถแสดงข้อมูลลูกค้าได้');
-  await expect(page.getByLabel('ชื่อลูกค้า')).toHaveCount(0);
+  await page.getByRole('button', { name: T('write.save') }).click();
+  await expect(page.getByRole('alert')).toContainText(T('write.access'));
+  await expect(page.getByLabel(T('write.name'))).toHaveCount(0);
   await expectDraftPrivate(page, name);
   await request.post('/__core_test/restore');
-  await page.getByRole('alert').getByRole('button', { name: 'ลองอีกครั้ง' }).click();
-  await expect(page.getByLabel('ชื่อลูกค้า')).toHaveValue(name);
+  await page
+    .getByRole('alert')
+    .getByRole('button', { name: T('retry') })
+    .click();
+  await expect(page.getByLabel(T('write.name'))).toHaveValue(name);
 });

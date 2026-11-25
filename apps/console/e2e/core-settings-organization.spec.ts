@@ -1,5 +1,11 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
+import { en, th } from './support/catalog';
+
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/** the same catalog text in either language, for steps that run before the session locale is known */
+const either = (key: string) => new RegExp(`^(${escapeRegExp(th(key))}|${escapeRegExp(en(key))})$`);
+const USER_MENU = new RegExp(`^${escapeRegExp(th('ui:userMenu.open', { name: '' }))}`);
 test.beforeAll(async ({ browser }) => {
   mkdirSync('../../artifacts/core-settings', { recursive: true });
   writeFileSync(
@@ -40,16 +46,14 @@ async function login(page: Page, request: APIRequestContext, alias = 'admin') {
   await page.goto(
     `/?tenant=${alias === 'foreign' ? config.otherTenant : config.tenant}&view=core-settings&page=organization`,
   );
-  await page
-    .getByRole('button', { name: /^(เข้าสู่ระบบอีกครั้ง|Sign in again)$/, exact: true })
-    .click();
+  await page.getByRole('button', { name: either('coreSettings:signIn'), exact: true }).click();
   await page.getByLabel('Username or email').fill(config.users[alias]);
   if ((await page.getByLabel('Password', { exact: true }).count()) === 0)
     await page.getByRole('button', { name: 'Sign In', exact: true }).click();
   await page.getByLabel('Password', { exact: true }).fill(config.password);
   await page.getByRole('button', { name: 'Sign In', exact: true }).click();
   await expect(
-    page.getByRole('heading', { name: /^(ตั้งค่าองค์กร|Organization settings)$/, exact: true }),
+    page.getByRole('heading', { name: either('coreSettings:title'), exact: true }),
   ).toBeVisible();
   await expect(page).toHaveURL(
     (url) => !url.searchParams.has('code') && !url.searchParams.has('state'),
@@ -68,16 +72,16 @@ test('Rail: switching Home/organization and back/forward keeps the same document
     if (req.isNavigationRequest() && req.frame() === page.mainFrame()) documents++;
     if (req.url().startsWith(config.issuer)) identityRequests++;
   });
-  const rail = page.getByRole('navigation', { name: /^(เมนูหลัก|Main navigation)$/ });
-  await rail.getByRole('link', { name: /^(หน้าแรก|Home)$/ }).click();
+  const rail = page.getByRole('navigation', { name: either('ui:shell.mainNav') });
+  await rail.getByRole('link', { name: either('common:navigation.apps.home') }).click();
   await expect(
     page.getByRole('heading', {
-      name: /^(วันนี้ต้องการทำอะไร\?|What would you like to do today\?)$/,
+      name: either('home:title'),
     }),
   ).toBeVisible();
-  await rail.getByRole('link', { name: /^(ตั้งค่าองค์กร|Organization settings)$/ }).click();
+  await rail.getByRole('link', { name: either('coreSettings:title') }).click();
   await expect(
-    page.getByRole('heading', { name: /^(ตั้งค่าองค์กร|Organization settings)$/, exact: true }),
+    page.getByRole('heading', { name: either('coreSettings:title'), exact: true }),
   ).toBeVisible();
   await page.goBack();
   await expect(page).toHaveURL(/view=home/);
@@ -92,12 +96,12 @@ test('Rail: the organization draft stays when Rail/forward is cancelled, and con
   request,
 }) => {
   await login(page, request);
-  const rail = page.getByRole('navigation', { name: /^(เมนูหลัก|Main navigation)$/ });
-  const home = rail.getByRole('link', { name: /^(หน้าแรก|Home)$/ });
+  const rail = page.getByRole('navigation', { name: either('ui:shell.mainNav') });
+  const home = rail.getByRole('link', { name: either('common:navigation.apps.home') });
   const name = page.getByRole('textbox', {
-    name: /^(ชื่อแสดงขององค์กร|Organization display name)$/,
+    name: either('coreSettings:name'),
   });
-  const draft = 'ร่างสำหรับตรวจ Rail';
+  const draft = 'Draft for Rail check';
   await name.fill(draft);
   page.once('dialog', (dialog) => dialog.dismiss());
   await home.click();
@@ -123,20 +127,23 @@ test('Rail: the Governance sub-page keeps the tenant and back/forward before swi
 }) => {
   const config = await login(page, request);
   const timeOrigin = await page.evaluate(() => performance.timeOrigin);
-  const rail = page.getByRole('navigation', { name: /^(เมนูหลัก|Main navigation)$/ });
+  const rail = page.getByRole('navigation', { name: either('ui:shell.mainNav') });
   await rail.getByRole('link', { name: /Governance/ }).click();
   const nav = page.getByRole('navigation', { name: /^(Governance|Contact Governance)$/ });
-  await nav.getByRole('link', { name: /^(นโยบาย|Policies)$/ }).click();
+  await nav
+    .getByRole('link', { name: either('common:navigation.pages.contactGovernance.policies') })
+    .click();
   await expect(page).toHaveURL(/section=policies/);
-  await nav.getByRole('link', { name: /^(ภาพรวม|Overview)$/ }).click();
+  await nav
+    .getByRole('link', { name: either('common:navigation.pages.contactGovernance.overview') })
+    .click();
   await expect(page).toHaveURL(/section=overview/);
   await page.goBack();
-  await expect(nav.getByRole('link', { name: /^(นโยบาย|Policies)$/ })).toHaveAttribute(
-    'aria-current',
-    'page',
-  );
+  await expect(
+    nav.getByRole('link', { name: either('common:navigation.pages.contactGovernance.policies') }),
+  ).toHaveAttribute('aria-current', 'page');
   expect(new URL(page.url()).searchParams.get('tenant')).toBe(config.tenant);
-  await rail.getByRole('link', { name: /^(หน้าแรก|Home)$/ }).click();
+  await rail.getByRole('link', { name: either('common:navigation.apps.home') }).click();
   await expect(page).toHaveURL(/view=home/);
   expect(await page.evaluate(() => performance.timeOrigin)).toBe(timeOrigin);
 });
@@ -145,27 +152,31 @@ test('organization: real login → edit the name → readback and set defaults t
   request,
 }) => {
   await login(page, request);
-  const name = page.getByRole('textbox', { name: 'ชื่อแสดงขององค์กร', exact: true });
-  await name.fill('องค์กรทดสอบ Browser');
-  await page.getByRole('button', { name: 'บันทึกการเปลี่ยนแปลง', exact: true }).click();
-  await expect(page.getByRole('status')).toContainText('บันทึกและตรวจข้อมูลเรียบร้อยแล้ว');
-  await expect(name).toHaveValue('องค์กรทดสอบ Browser');
+  const name = page.getByRole('textbox', { name: th('coreSettings:name'), exact: true });
+  await name.fill('Browser test organization');
+  await page.getByRole('button', { name: th('coreSettings:save'), exact: true }).click();
+  await expect(page.getByRole('status')).toContainText(th('coreSettings:status.SAVED'));
+  await expect(name).toHaveValue('Browser test organization');
   if (process.env.CORE_SETTINGS_VISUAL_EVIDENCE === '1')
     await page.screenshot({
       path: '../../artifacts/core-settings/organization-desktop.png',
       fullPage: true,
     });
-  await page.getByRole('checkbox', { name: 'ตั้งค่าเริ่มต้นภาษาและเวลา' }).check();
-  await page.getByRole('button', { name: 'ภาษาเริ่มต้น' }).click();
-  await page.getByRole('option', { name: 'อังกฤษ', exact: true }).click();
-  await page.getByRole('textbox', { name: 'เขตเวลาเริ่มต้น', exact: true }).fill('Asia/Bangkok');
-  await page.getByRole('button', { name: 'บันทึกการเปลี่ยนแปลง', exact: true }).click();
-  await expect(page.getByRole('status')).toContainText('บันทึกและตรวจข้อมูลเรียบร้อยแล้ว');
-  await expect(page.getByRole('heading', { name: 'ตั้งค่าองค์กร', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'ภาษาเริ่มต้น' }).click();
-  await page.getByRole('option', { name: 'ไทย', exact: true }).click();
-  await page.getByRole('button', { name: 'บันทึกการเปลี่ยนแปลง', exact: true }).click();
-  await expect(page.getByRole('status')).toContainText('บันทึกและตรวจข้อมูลเรียบร้อยแล้ว');
+  await page.getByRole('checkbox', { name: th('coreSettings:initializeDefaults') }).check();
+  await page.getByRole('button', { name: th('coreSettings:locale') }).click();
+  await page.getByRole('option', { name: th('coreSettings:english'), exact: true }).click();
+  await page
+    .getByRole('textbox', { name: th('coreSettings:timeZone'), exact: true })
+    .fill('Asia/Bangkok');
+  await page.getByRole('button', { name: th('coreSettings:save'), exact: true }).click();
+  await expect(page.getByRole('status')).toContainText(th('coreSettings:status.SAVED'));
+  await expect(
+    page.getByRole('heading', { name: th('coreSettings:title'), exact: true }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: th('coreSettings:locale') }).click();
+  await page.getByRole('option', { name: th('coreSettings:thai'), exact: true }).click();
+  await page.getByRole('button', { name: th('coreSettings:save'), exact: true }).click();
+  await expect(page.getByRole('status')).toContainText(th('coreSettings:status.SAVED'));
 });
 
 test('organization: validation near the field, and a no-op after normalize does not report a data change', async ({
@@ -173,14 +184,14 @@ test('organization: validation near the field, and a no-op after normalize does 
   request,
 }) => {
   await login(page, request);
-  const name = page.getByRole('textbox', { name: 'ชื่อแสดงขององค์กร', exact: true });
+  const name = page.getByRole('textbox', { name: th('coreSettings:name'), exact: true });
   const current = await name.inputValue();
   await name.fill(' ');
-  await page.getByRole('button', { name: 'บันทึกการเปลี่ยนแปลง', exact: true }).click();
-  await expect(page.getByText('กรอกชื่อ 2–120 ตัวอักษร โดยไม่ใช้อักขระควบคุม')).toBeVisible();
+  await page.getByRole('button', { name: th('coreSettings:save'), exact: true }).click();
+  await expect(page.getByText(th('coreSettings:validation.name'))).toBeVisible();
   await name.fill(` ${current} `);
-  await page.getByRole('button', { name: 'บันทึกการเปลี่ยนแปลง', exact: true }).click();
-  await expect(page.getByRole('status')).toContainText('ข้อมูลเหมือนเดิม ตรวจผลเรียบร้อยแล้ว');
+  await page.getByRole('button', { name: th('coreSettings:save'), exact: true }).click();
+  await expect(page.getByRole('status')).toContainText(th('coreSettings:status.NO_OP'));
 });
 test('organization: two Admins editing in a clash must be asked to check the latest and keep the draft', async ({
   page,
@@ -193,23 +204,25 @@ test('organization: two Admins editing in a clash must be asked to check the lat
   try {
     await login(other, request, 'admin-two');
     await page
-      .getByRole('textbox', { name: 'ชื่อแสดงขององค์กร', exact: true })
-      .fill('Admin หนึ่งบันทึก');
+      .getByRole('textbox', { name: th('coreSettings:name'), exact: true })
+      .fill('Admin one saved');
     await other
-      .getByRole('textbox', { name: 'ชื่อแสดงขององค์กร', exact: true })
-      .fill('ร่างของ Admin สอง');
-    await page.getByRole('button', { name: 'บันทึกการเปลี่ยนแปลง', exact: true }).click();
-    await expect(page.getByRole('status')).toContainText('บันทึกและตรวจข้อมูลเรียบร้อยแล้ว');
-    await other.getByRole('button', { name: 'บันทึกการเปลี่ยนแปลง', exact: true }).click();
-    await expect(other.getByRole('status')).toContainText('ข้อมูลถูกแก้ไขแล้ว');
+      .getByRole('textbox', { name: th('coreSettings:name'), exact: true })
+      .fill('Admin two draft');
+    await page.getByRole('button', { name: th('coreSettings:save'), exact: true }).click();
+    await expect(page.getByRole('status')).toContainText(th('coreSettings:status.SAVED'));
+    await other.getByRole('button', { name: th('coreSettings:save'), exact: true }).click();
+    await expect(other.getByRole('status')).toContainText(
+      th('coreSettings:status.REVISION_CONFLICT'),
+    );
     await expect(
-      other.getByRole('textbox', { name: 'ชื่อแสดงขององค์กร', exact: true }),
-    ).toHaveValue('ร่างของ Admin สอง');
+      other.getByRole('textbox', { name: th('coreSettings:name'), exact: true }),
+    ).toHaveValue('Admin two draft');
     other.once('dialog', (d) => d.accept());
-    await other.getByRole('button', { name: 'โหลดค่าล่าสุดและเริ่มแก้ใหม่' }).click();
+    await other.getByRole('button', { name: th('coreSettings:loadLatest') }).click();
     await expect(
-      other.getByRole('textbox', { name: 'ชื่อแสดงขององค์กร', exact: true }),
-    ).toHaveValue('Admin หนึ่งบันทึก');
+      other.getByRole('textbox', { name: th('coreSettings:name'), exact: true }),
+    ).toHaveValue('Admin one saved');
   } finally {
     await otherContext.close();
   }
@@ -221,10 +234,10 @@ test('organization: a lost response uses command-only recovery after reload and 
   await login(page, request);
   await request.post('/__core_test/fault/lost-response');
   await page
-    .getByRole('textbox', { name: 'ชื่อแสดงขององค์กร', exact: true })
-    .fill('ยืนยันผลหลัง reload');
-  await page.getByRole('button', { name: 'บันทึกการเปลี่ยนแปลง', exact: true }).click();
-  await expect(page.getByRole('status')).toContainText('ยังยืนยันผลบันทึกไม่ได้');
+    .getByRole('textbox', { name: th('coreSettings:name'), exact: true })
+    .fill('Confirm result after reload');
+  await page.getByRole('button', { name: th('coreSettings:save'), exact: true }).click();
+  await expect(page.getByRole('status')).toContainText(th('coreSettings:status.UNKNOWN'));
   const refs = await page.evaluate(() =>
     Object.entries(sessionStorage).filter(([key]) => key.startsWith('dc:core-settings:command:')),
   );
@@ -233,10 +246,10 @@ test('organization: a lost response uses command-only recovery after reload and 
   page.once('dialog', (d) => d.accept());
   await page.reload();
   // userStore is in memory: boot restores SSO then checks the original command before editing, without asking to log in again
-  await expect(page.getByRole('status')).toContainText('บันทึกและตรวจข้อมูลเรียบร้อยแล้ว');
-  await expect(page.getByRole('textbox', { name: 'ชื่อแสดงขององค์กร', exact: true })).toHaveValue(
-    'ยืนยันผลหลัง reload',
-  );
+  await expect(page.getByRole('status')).toContainText(th('coreSettings:status.SAVED'));
+  await expect(
+    page.getByRole('textbox', { name: th('coreSettings:name'), exact: true }),
+  ).toHaveValue('Confirm result after reload');
   expect(
     await page.evaluate(() =>
       Object.keys(sessionStorage).filter((key) => key.startsWith('dc:core-settings:command:')),
@@ -250,12 +263,12 @@ test('organization: a missing readback stays UNKNOWN, then checking the original
   await login(page, request);
   await request.post('/__core_test/fault/readback');
   await page
-    .getByRole('textbox', { name: 'ชื่อแสดงขององค์กร', exact: true })
-    .fill('อ่านกลับภายหลัง');
-  await page.getByRole('button', { name: 'บันทึกการเปลี่ยนแปลง', exact: true }).click();
-  await expect(page.getByRole('status')).toContainText('ยังยืนยันผลบันทึกไม่ได้');
-  await page.getByRole('button', { name: 'ตรวจผลบันทึกอีกครั้ง' }).click();
-  await expect(page.getByRole('status')).toContainText('บันทึกและตรวจข้อมูลเรียบร้อยแล้ว');
+    .getByRole('textbox', { name: th('coreSettings:name'), exact: true })
+    .fill('Readback later');
+  await page.getByRole('button', { name: th('coreSettings:save'), exact: true }).click();
+  await expect(page.getByRole('status')).toContainText(th('coreSettings:status.UNKNOWN'));
+  await page.getByRole('button', { name: th('coreSettings:checkResult') }).click();
+  await expect(page.getByRole('status')).toContainText(th('coreSettings:status.SAVED'));
 });
 test('organization: narrow keeps the draft, warns before leaving, and revoke does not use a cached capability', async ({
   page,
@@ -263,37 +276,35 @@ test('organization: narrow keeps the draft, warns before leaving, and revoke doe
 }) => {
   await login(page, request);
   await page
-    .getByRole('textbox', { name: 'ชื่อแสดงขององค์กร', exact: true })
-    .fill('ร่างยังอยู่ในหน้า');
+    .getByRole('textbox', { name: th('coreSettings:name'), exact: true })
+    .fill('Draft stays on page');
   await page.setViewportSize({ width: 760, height: 800 });
   if (process.env.CORE_SETTINGS_VISUAL_EVIDENCE === '1')
     await page.screenshot({
       path: '../../artifacts/core-settings/organization-narrow.png',
       fullPage: true,
     });
-  await expect(page.getByRole('button', { name: 'บันทึกการเปลี่ยนแปลง', exact: true })).toHaveCount(
-    0,
-  );
   await expect(
-    page.getByText('ร่างยังอยู่ในหน้านี้ เมื่อขยายจอจะตรวจข้อมูลและสิทธิ์ล่าสุดก่อนแก้ต่อ'),
-  ).toBeVisible();
+    page.getByRole('button', { name: th('coreSettings:save'), exact: true }),
+  ).toHaveCount(0);
+  await expect(page.getByText(th('coreSettings:draftKept'))).toBeVisible();
   await page.setViewportSize({ width: 1280, height: 900 });
-  await expect(page.getByRole('textbox', { name: 'ชื่อแสดงขององค์กร', exact: true })).toHaveValue(
-    'ร่างยังอยู่ในหน้า',
-  );
-  await page.getByRole('button', { name: /^เมนูผู้ใช้ / }).click();
+  await expect(
+    page.getByRole('textbox', { name: th('coreSettings:name'), exact: true }),
+  ).toHaveValue('Draft stays on page');
+  await page.getByRole('button', { name: USER_MENU }).click();
   page.once('dialog', (d) => d.dismiss());
-  await page.getByRole('menuitem', { name: 'บัญชีของฉัน', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'ตั้งค่าองค์กร', exact: true })).toBeVisible();
+  await page.getByRole('menuitem', { name: th('ui:userMenu.account'), exact: true }).click();
+  await expect(
+    page.getByRole('heading', { name: th('coreSettings:title'), exact: true }),
+  ).toBeVisible();
   await request.post('/__core_test/revoke');
   try {
-    await page.getByRole('button', { name: 'บันทึกการเปลี่ยนแปลง', exact: true }).click();
-    await expect(page.getByRole('status')).toContainText(
-      'ไม่สามารถเข้าถึงการตั้งค่าองค์กรด้วยสิทธิ์ปัจจุบัน',
-    );
-    await expect(page.getByRole('textbox', { name: 'ชื่อแสดงขององค์กร', exact: true })).toHaveCount(
-      0,
-    );
+    await page.getByRole('button', { name: th('coreSettings:save'), exact: true }).click();
+    await expect(page.getByRole('status')).toContainText(th('coreSettings:status.FORBIDDEN'));
+    await expect(
+      page.getByRole('textbox', { name: th('coreSettings:name'), exact: true }),
+    ).toHaveCount(0);
   } finally {
     await request.post('/__core_test/restore');
   }
@@ -303,14 +314,13 @@ test('organization: a Supervisor is read-only and has a real way into the Team p
   request,
 }) => {
   await login(page, request, 'supervisor');
-  await expect(page.getByText('คุณมีสิทธิ์ดูข้อมูลเท่านั้น')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'บันทึกการเปลี่ยนแปลง', exact: true })).toHaveCount(
-    0,
-  );
-  await expect(page.getByRole('link', { name: 'ทีม', exact: true })).toHaveAttribute(
-    'href',
-    /page=teams/,
-  );
+  await expect(page.getByText(th('coreSettings:readOnly'))).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: th('coreSettings:save'), exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole('link', { name: th('common:navigation.pages.coreSettings.teams'), exact: true }),
+  ).toHaveAttribute('href', /page=teams/);
 });
 
 test('organization: same-identity reauth stays on the same page keeping the draft, then checks the command before editing again', async ({
@@ -319,16 +329,18 @@ test('organization: same-identity reauth stays on the same page keeping the draf
 }) => {
   await login(page, request);
   await page.reload();
-  await expect(page.getByRole('textbox', { name: 'ชื่อแสดงขององค์กร', exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('textbox', { name: th('coreSettings:name'), exact: true }),
+  ).toBeVisible();
   await request.post('/__core_test/fault/reauth');
-  const name = page.getByRole('textbox', { name: 'ชื่อแสดงขององค์กร', exact: true });
-  await name.fill('ร่างก่อน session หมด');
-  await page.getByRole('button', { name: 'บันทึกการเปลี่ยนแปลง', exact: true }).click();
-  await expect(page.getByRole('status')).toContainText('session หมดอายุ');
-  await expect(name).toHaveValue('ร่างก่อน session หมด');
-  await page.getByRole('button', { name: 'เข้าสู่ระบบอีกครั้ง', exact: true }).click();
-  await expect(page.getByRole('status')).toContainText('คำสั่งนี้ไม่ได้เปลี่ยนข้อมูล');
-  await expect(name).toHaveValue('ร่างก่อน session หมด');
+  const name = page.getByRole('textbox', { name: th('coreSettings:name'), exact: true });
+  await name.fill('Draft before session expiry');
+  await page.getByRole('button', { name: th('coreSettings:save'), exact: true }).click();
+  await expect(page.getByRole('status')).toContainText(th('coreSettings:status.REAUTH'));
+  await expect(name).toHaveValue('Draft before session expiry');
+  await page.getByRole('button', { name: th('coreSettings:signIn'), exact: true }).click();
+  await expect(page.getByRole('status')).toContainText(th('coreSettings:status.NOT_APPLIED'));
+  await expect(name).toHaveValue('Draft before session expiry');
 });
 test('organization: the keyboard warning cancels sign-out and keeps the draft, then sign-out clears the draft and command reference', async ({
   page,
@@ -337,19 +349,21 @@ test('organization: the keyboard warning cancels sign-out and keeps the draft, t
   await login(page, request);
   await request.post('/__core_test/fault/readback');
   await page
-    .getByRole('textbox', { name: 'ชื่อแสดงขององค์กร', exact: true })
-    .fill('ข้อมูลบัญชีก่อนหน้า');
-  await page.getByRole('button', { name: 'บันทึกการเปลี่ยนแปลง', exact: true }).click();
-  await expect(page.getByRole('status')).toContainText('ยังยืนยันผลบันทึกไม่ได้');
-  await page.getByRole('button', { name: /^เมนูผู้ใช้ / }).click();
+    .getByRole('textbox', { name: th('coreSettings:name'), exact: true })
+    .fill('Previous account data');
+  await page.getByRole('button', { name: th('coreSettings:save'), exact: true }).click();
+  await expect(page.getByRole('status')).toContainText(th('coreSettings:status.UNKNOWN'));
+  await page.getByRole('button', { name: USER_MENU }).click();
   page.once('dialog', (d) => d.dismiss());
-  await page.getByRole('menuitem', { name: 'ออกจากระบบ', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'ตั้งค่าองค์กร', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: /^เมนูผู้ใช้ / }).click();
-  page.once('dialog', (d) => d.accept());
-  await page.getByRole('menuitem', { name: 'ออกจากระบบ', exact: true }).click();
+  await page.getByRole('menuitem', { name: th('ui:userMenu.signOut'), exact: true }).click();
   await expect(
-    page.getByRole('button', { name: 'เข้าสู่ระบบอีกครั้ง', exact: true }),
+    page.getByRole('heading', { name: th('coreSettings:title'), exact: true }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: USER_MENU }).click();
+  page.once('dialog', (d) => d.accept());
+  await page.getByRole('menuitem', { name: th('ui:userMenu.signOut'), exact: true }).click();
+  await expect(
+    page.getByRole('button', { name: th('common:auth.signedOut.action'), exact: true }),
   ).toBeVisible();
   expect(
     await page.evaluate(() =>
@@ -358,8 +372,8 @@ test('organization: the keyboard warning cancels sign-out and keeps the draft, t
   ).toHaveLength(0);
   await login(page, request, 'foreign');
   await expect(
-    page.getByRole('textbox', { name: 'ชื่อแสดงขององค์กร', exact: true }),
-  ).not.toHaveValue('ข้อมูลบัญชีก่อนหน้า');
+    page.getByRole('textbox', { name: th('coreSettings:name'), exact: true }),
+  ).not.toHaveValue('Previous account data');
 });
 
 test('organization: English UI through real OIDC/API in a separate tenant', async ({
@@ -385,24 +399,25 @@ test('Console session: switching menus and reload must restore SSO without askin
   request,
 }) => {
   await login(page, request);
-  await page.getByRole('button', { name: /^เมนูผู้ใช้ / }).click();
-  await page.getByRole('menuitem', { name: 'บัญชีของฉัน', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'บัญชีของฉัน', exact: true })).toBeVisible();
-  await page.getByRole('link', { name: 'หน้าแรก', exact: true }).first().click();
+  await page.getByRole('button', { name: USER_MENU }).click();
+  await page.getByRole('menuitem', { name: th('ui:userMenu.account'), exact: true }).click();
   await expect(
-    page.getByRole('heading', { name: 'วันนี้ต้องการทำอะไร?', exact: true }),
+    page.getByRole('heading', { name: th('account:page.title'), exact: true }),
   ).toBeVisible();
+  await page
+    .getByRole('link', { name: th('common:navigation.apps.home'), exact: true })
+    .first()
+    .click();
+  await expect(page.getByRole('heading', { name: th('home:title'), exact: true })).toBeVisible();
   await page.goBack();
-  await expect(page.getByRole('heading', { name: 'บัญชีของฉัน', exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: th('account:page.title'), exact: true }),
+  ).toBeVisible();
   await page.goForward();
-  await expect(
-    page.getByRole('heading', { name: 'วันนี้ต้องการทำอะไร?', exact: true }),
-  ).toBeVisible();
+  await expect(page.getByRole('heading', { name: th('home:title'), exact: true })).toBeVisible();
   await page.reload();
-  await expect(
-    page.getByRole('heading', { name: 'วันนี้ต้องการทำอะไร?', exact: true }),
-  ).toBeVisible();
-  await expect(page.getByRole('button', { name: /^เมนูผู้ใช้ / })).toBeVisible();
+  await expect(page.getByRole('heading', { name: th('home:title'), exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: USER_MENU })).toBeVisible();
   expect(
     await page.evaluate(() =>
       [localStorage, sessionStorage].some((storage) =>
@@ -432,7 +447,7 @@ test('Console session: unusable SSO ends at the login UI and does not loop auth 
   });
   await page.reload();
   await expect(
-    page.getByRole('button', { name: /^(เข้าสู่ระบบอีกครั้ง|Sign in again)$/, exact: true }),
+    page.getByRole('button', { name: either('coreSettings:signIn'), exact: true }),
   ).toBeVisible({ timeout: 15000 });
   expect(attempts).toBe(1);
   expect(new URL(page.url()).pathname).toBe('/');
@@ -452,14 +467,18 @@ test('Console session: explicit sign-out and reload must not restore SSO back in
     )
       attempts++;
   });
-  await page.getByRole('button', { name: /^เมนูผู้ใช้ / }).click();
-  await page.getByRole('menuitem', { name: 'ออกจากระบบ', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'ออกจากระบบแล้ว', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: USER_MENU }).click();
+  await page.getByRole('menuitem', { name: th('ui:userMenu.signOut'), exact: true }).click();
+  await expect(
+    page.getByRole('heading', { name: th('common:auth.signedOut.title'), exact: true }),
+  ).toBeVisible();
   await page.reload();
-  await expect(page.getByRole('heading', { name: 'ออกจากระบบแล้ว', exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: th('common:auth.signedOut.title'), exact: true }),
+  ).toBeVisible();
   await page.goto(`/?tenant=${config.tenant}&view=core-settings&page=organization`);
   await expect(
-    page.getByRole('button', { name: /^(เข้าสู่ระบบอีกครั้ง|Sign in again)$/, exact: true }),
+    page.getByRole('button', { name: either('coreSettings:signIn'), exact: true }),
   ).toBeVisible();
   expect(attempts).toBe(0);
 });
@@ -472,7 +491,7 @@ test('Console session: a hanging discovery must end at the login UI per the netw
   await page.route('**/.well-known/openid-configuration', () => {});
   await page.reload();
   await expect(
-    page.getByRole('button', { name: /^(เข้าสู่ระบบอีกครั้ง|Sign in again)$/, exact: true }),
+    page.getByRole('button', { name: either('coreSettings:signIn'), exact: true }),
   ).toBeVisible({ timeout: 12000 });
 });
 
@@ -484,6 +503,6 @@ test('Console session: a hanging token request must end at the login UI per the 
   await page.route('**/protocol/openid-connect/token', () => {});
   await page.reload();
   await expect(
-    page.getByRole('button', { name: /^(เข้าสู่ระบบอีกครั้ง|Sign in again)$/, exact: true }),
+    page.getByRole('button', { name: either('coreSettings:signIn'), exact: true }),
   ).toBeVisible({ timeout: 12000 });
 });

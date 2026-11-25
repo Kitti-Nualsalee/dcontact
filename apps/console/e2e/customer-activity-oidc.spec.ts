@@ -2,12 +2,20 @@ import { expect, test, type Page, type APIRequestContext } from '@playwright/tes
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { en, th } from './support/catalog';
+
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/** the same catalog text in either language: the sign-in screen appears before the session locale is known */
+const either = (key: string) => new RegExp(`^(${escapeRegExp(th(key))}|${escapeRegExp(en(key))})$`);
+const T = (key: string, options?: Record<string, unknown>) =>
+  th(`customerActivity:${key}`, options);
+
 async function login(page: Page, request: APIRequestContext, alias = 'admin') {
   const config = await (await request.get('/__core_test/config')).json();
   await page.goto(
     `/?tenant=${alias === 'foreign' ? config.otherTenant : config.tenant}&view=customer-activity`,
   );
-  await page.getByRole('button', { name: /^(เข้าสู่ระบบอีกครั้ง|Sign in again)$/ }).click();
+  await page.getByRole('button', { name: either('customerActivity:signIn') }).click();
   await page.getByLabel('Username or email').fill(config.users[alias]);
   if (!(await page.getByLabel('Password', { exact: true }).count()))
     await page.getByRole('button', { name: 'Sign In', exact: true }).click();
@@ -27,8 +35,8 @@ test('Activity OIDC: another tenant sees UNKNOWN and an empty that evidence cann
   request,
 }) => {
   await login(page, request, 'foreign');
-  await expect(page.getByText('ยังยืนยันความครอบคลุมของหลักฐานในช่วงที่เลือกไม่ได้')).toBeVisible();
-  await expect(page.getByText('ยังไม่พบกิจกรรมที่แสดงได้ในช่วงนี้')).toBeVisible();
+  await expect(page.getByText(T('coverage.UNKNOWN'))).toBeVisible();
+  await expect(page.getByText(T('emptyUnconfirmed'))).toBeVisible();
 });
 
 test('Activity OIDC: filter by keyboard and paginate from real owner events without showing raw data', async ({
@@ -37,15 +45,17 @@ test('Activity OIDC: filter by keyboard and paginate from real owner events with
 }, info) => {
   expect((await request.post('/__core_test/activity/seed')).ok()).toBe(true);
   await login(page, request);
-  const grid = page.getByRole('grid', { name: 'กิจกรรมลูกค้า' });
+  const grid = page.getByRole('grid', { name: T('title') });
   await expect(grid.getByRole('row')).toHaveCount(51);
-  await page.getByRole('button', { name: 'โหลดเพิ่ม' }).focus();
+  await page.getByRole('button', { name: T('more') }).focus();
   await page.keyboard.press('Enter');
   await expect(grid.getByRole('row')).toHaveCount(52);
-  await expect(page.getByText('ไม่ทราบผู้ดำเนินการ').first()).toBeVisible();
+  await expect(page.getByText(T('unknownActor')).first()).toBeVisible();
   await expect(grid.getByText(/Synthetic private tag/)).toHaveCount(0);
   await page.setViewportSize({ width: 768, height: 900 });
-  const tableRegion = page.getByRole('region', { name: /ตารางกิจกรรม/ });
+  const tableRegion = page.getByRole('region', {
+    name: new RegExp(escapeRegExp(T('tableRegion'))),
+  });
   await tableRegion.focus();
   await expect(tableRegion).toBeFocused();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -59,11 +69,11 @@ test('Activity OIDC: filter by keyboard and paginate from real owner events with
     });
   }
 
-  await page.getByRole('button', { name: /เหตุการณ์/ }).click();
-  await page.getByRole('option', { name: 'สร้างลูกค้า', exact: true }).click();
-  await page.getByRole('button', { name: 'ใช้ตัวกรอง' }).focus();
+  await page.getByRole('button', { name: new RegExp(escapeRegExp(T('operation'))) }).click();
+  await page.getByRole('option', { name: T('operations.CONTACT_CREATED'), exact: true }).click();
+  await page.getByRole('button', { name: T('apply') }).focus();
   await page.keyboard.press('Enter');
-  await expect(page.getByText('ยังไม่พบกิจกรรมที่แสดงได้ในช่วงนี้')).toBeVisible();
+  await expect(page.getByText(T('emptyUnconfirmed'))).toBeVisible();
   await page.setViewportSize({ width: 768, height: 900 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.getByRole('button', { name: 'English', exact: true }).click();
@@ -76,7 +86,7 @@ test('Activity OIDC: a response held before permission revoke does not return ol
 }) => {
   expect((await request.post('/__core_test/activity/seed')).ok()).toBe(true);
   await login(page, request);
-  const grid = page.getByRole('grid', { name: 'กิจกรรมลูกค้า' });
+  const grid = page.getByRole('grid', { name: T('title') });
   await expect(grid.getByRole('row')).toHaveCount(51);
   let release!: () => void;
   let arrived!: () => void;
@@ -96,12 +106,12 @@ test('Activity OIDC: a response held before permission revoke does not return ol
     await held;
     await route.fulfill({ response }).catch(() => undefined);
   });
-  await page.getByRole('button', { name: 'อ่านข้อมูลใหม่' }).click();
+  await page.getByRole('button', { name: T('refresh') }).click();
   await reached;
   try {
     expect((await request.post('/__core_test/revoke')).ok()).toBe(true);
-    const denied = page.getByRole('alert').filter({ hasText: 'โปรดติดต่อผู้ดูแล tenant' });
-    const apply = page.getByRole('button', { name: 'ใช้ตัวกรอง' });
+    const denied = page.getByRole('alert').filter({ hasText: T('access') });
+    const apply = page.getByRole('button', { name: T('apply') });
     // when OIDC renews by itself during revoke the page may close the data before the user presses a filter
     await apply.or(denied).first().waitFor();
     if (await apply.isVisible()) {
@@ -119,8 +129,8 @@ test('Activity OIDC: a response held before permission revoke does not return ol
 
 test('Activity OIDC: a Supervisor cannot open the deep link', async ({ page, request }) => {
   await login(page, request, 'supervisor');
-  await expect(page.getByRole('alert')).toContainText('โปรดติดต่อผู้ดูแล tenant');
-  await expect(page.getByRole('grid', { name: 'กิจกรรมลูกค้า' })).toHaveCount(0);
+  await expect(page.getByRole('alert')).toContainText(T('access'));
+  await expect(page.getByRole('grid', { name: T('title') })).toHaveCount(0);
 });
 
 test('Activity OIDC: returning to the same page after permission revoke must read the new permission', async ({
@@ -129,7 +139,7 @@ test('Activity OIDC: returning to the same page after permission revoke must rea
 }) => {
   expect((await request.post('/__core_test/activity/seed')).ok()).toBe(true);
   await login(page, request);
-  const grid = page.getByRole('grid', { name: 'กิจกรรมลูกค้า' });
+  const grid = page.getByRole('grid', { name: T('title') });
   await expect(grid.getByRole('row')).toHaveCount(51);
   let release!: () => void;
   let arrived!: () => void;
@@ -149,7 +159,7 @@ test('Activity OIDC: returning to the same page after permission revoke must rea
     await held;
     await route.fulfill({ response }).catch(() => undefined);
   });
-  await page.getByRole('button', { name: 'อ่านข้อมูลใหม่' }).click();
+  await page.getByRole('button', { name: T('refresh') }).click();
   await reached;
   try {
     await page.evaluate(() => {
@@ -162,7 +172,7 @@ test('Activity OIDC: returning to the same page after permission revoke must rea
       Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
       document.dispatchEvent(new Event('visibilitychange'));
     });
-    await expect(page.getByRole('alert')).toContainText('โปรดติดต่อผู้ดูแล tenant');
+    await expect(page.getByRole('alert')).toContainText(T('access'));
   } finally {
     release();
     await page.unrouteAll({ behavior: 'wait' });
