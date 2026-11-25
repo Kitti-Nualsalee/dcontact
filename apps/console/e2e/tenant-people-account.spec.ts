@@ -7,11 +7,19 @@ const TEAM = '10000000-0000-4000-8000-000000000501';
 const USER_ID = '10000000-0000-4000-8000-000000000511';
 const OPERATION_ID = '10000000-0000-4000-8000-000000000521';
 
-type Scenario = 'success' | 'busy' | 'credentials' | 'unknown' | 'rejected';
+type Scenario = 'success' | 'busy' | 'credentials' | 'unknown' | 'rejected' | 'forbidden';
 
 async function mockPeople(
   page: Page,
-  options: { disabled: boolean; ready?: boolean; respond: Scenario },
+  options: {
+    disabled: boolean;
+    ready?: boolean;
+    respond: Scenario;
+    /** บัญชีจาก seed: ไม่มี lifecycle ของ People (directory ตอบ UNKNOWN) */
+    unmanaged?: boolean;
+    /** หน่วง capabilities จนกว่า promise จะ resolve */
+    capabilities?: Promise<void>;
+  },
 ) {
   let user: Record<string, unknown> = {
     id: USER_ID,
@@ -22,9 +30,9 @@ async function mockPeople(
     teamId: TEAM,
     extensionRef: '1501',
     configRevision: 6,
-    accountState: options.disabled ? 'DISABLED' : 'ACTIVE',
-    provisioningState: 'PROVISIONED',
-    activationState: 'ACTIVATED',
+    accountState: options.unmanaged ? 'UNKNOWN' : options.disabled ? 'DISABLED' : 'ACTIVE',
+    provisioningState: options.unmanaged ? 'UNKNOWN' : 'PROVISIONED',
+    activationState: options.unmanaged ? 'UNKNOWN' : 'ACTIVATED',
     isActive: !options.disabled,
     operationId: null,
     commandId: null,
@@ -35,9 +43,15 @@ async function mockPeople(
   await page.route('**/api/v1/me/navigation**', (route) =>
     route.fulfill({ json: homeNavigation(['admin'], true) }),
   );
-  await page.route('**/api/v1/tenant-voice/**', (route) => {
+  const lookups: string[] = [];
+  let detailOpened = false;
+  await page.route('**/api/v1/tenant-voice/**', async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname.split('/tenant-voice/')[1];
+    if (path?.startsWith('commands/')) lookups.push(path);
+    // หน่วงเฉพาะ capabilities ที่หน้ารายละเอียดขอ (หลังเปิดบัญชี) ไม่บล็อกหน้ารายการ
+    if (path === `people/users/${USER_ID}`) detailOpened = true;
+    if (path === 'capabilities' && detailOpened) await options.capabilities;
     if (path === 'capabilities')
       return route.fulfill({
         json: {
@@ -71,6 +85,9 @@ async function mockPeople(
       if (options.respond === 'credentials')
         return route.fulfill({ status: 409, json: { code: 'CREDENTIALS_NOT_READY' } });
       if (options.respond === 'unknown') return route.fulfill({ status: 502, body: '' });
+      // UAT 25 พ.ย. 2569: API ต่อฐานด้วย owner แล้ว PATCH ตอบ 403 FORBIDDEN
+      if (options.respond === 'forbidden')
+        return route.fulfill({ status: 403, json: { code: 'FORBIDDEN' } });
       const kind = write[1] === 'profile' ? 'UPDATE_PROFILE' : 'ENABLE_ACCOUNT';
       user = {
         ...user,
@@ -105,7 +122,22 @@ async function mockPeople(
   });
   await page.goto('/?view=tenant-people&tenant=demo');
   await page.getByRole('button', { name: 'ดูบัญชี สมหญิง เดิม', exact: true }).click();
-  return writes;
+  return Object.assign(writes, { lookups });
+}
+
+async function fillRename(page: Page) {
+  await page.getByRole('button', { name: 'แก้ชื่อที่แสดง…', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'แก้ชื่อที่แสดงของ สมหญิง เดิม' });
+  await dialog.getByRole('textbox', { name: /ชื่อที่แสดงใหม่/ }).fill('สมหญิง ใหม่');
+  await dialog.getByRole('textbox', { name: /เหตุผล/ }).fill('ผู้ใช้แจ้งเปลี่ยนชื่อ');
+  await dialog.getByRole('button', { name: 'บันทึกชื่อ', exact: true }).click();
+  return dialog;
+}
+
+async function pendingKeys(page: Page) {
+  return page.evaluate(() =>
+    Object.keys(sessionStorage).filter((key) => key.startsWith('dc:tenant-account:')),
+  );
 }
 
 async function axe(page: Page) {
@@ -238,5 +270,80 @@ test('ยังไม่พร้อม: ปุ่มแก้ชื่อแล
       .getByRole('button', { name: 'เปิดบัญชีกลับ…' }),
   ).toBeDisabled();
   await expect(page.getByRole('button', { name: 'แก้ชื่อที่แสดง…', exact: true })).toBeDisabled();
-  expect(writes).toEqual([]);
+  expect(writes).toHaveLength(0);
+});
+
+test('แก้ชื่อได้ 403: แสดง error ใน Dialog หน้ารายละเอียดยังอยู่ ไม่ค้างคำสั่ง และลองใหม่ได้', async ({
+  page,
+}) => {
+  const writes = await mockPeople(page, { disabled: false, respond: 'forbidden' });
+  const dialog = await fillRename(page);
+  await expect(dialog.getByRole('alert')).toContainText('คุณไม่มีสิทธิ์ทำรายการนี้กับบัญชีนี้');
+  // ไม่แทนทั้งหน้าด้วย FORBIDDEN: รายละเอียดบัญชียังอยู่หลัง Dialog
+  await expect(page.getByRole('region', { name: 'รายละเอียดบัญชี' })).toBeVisible();
+  await expect(page.getByText(/ไม่มีสิทธิ์จัดการบัญชี/)).toHaveCount(0);
+  expect(await pendingKeys(page)).toEqual([]);
+  await dialog.getByRole('button', { name: 'ยกเลิก', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByText(/กำลังเปลี่ยนชื่อ/)).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'ตรวจผลการแก้ชื่อ' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'แก้ชื่อที่แสดง…', exact: true })).toBeEnabled();
+  expect(writes).toHaveLength(1);
+  expect(writes.lookups).toEqual([]);
+});
+
+test('คำสั่งค้างแต่ server ไม่พบคำสั่ง (404): ล้างคำสั่งค้าง แจ้งผล และเปิดให้แก้ชื่อใหม่', async ({
+  page,
+}) => {
+  const writes = await mockPeople(page, { disabled: false, respond: 'unknown' });
+  const dialog = await fillRename(page);
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByText(/กำลังเปลี่ยนชื่อ/)).toBeVisible();
+  expect(await pendingKeys(page)).toHaveLength(1);
+  // ผลไม่ชัดเจน: ตรวจคำสั่งเดิม server ตอบ 404 = ไม่ได้บันทึกคำสั่งนี้
+  await page.getByRole('button', { name: 'ตรวจผลการแก้ชื่อ', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('ไม่พบคำสั่งเดิมในระบบ');
+  await expect(page.getByText(/กำลังเปลี่ยนชื่อ/)).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'ตรวจผลการแก้ชื่อ' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'แก้ชื่อที่แสดง…', exact: true })).toBeEnabled();
+  expect(await pendingKeys(page)).toEqual([]);
+  expect(writes.lookups).toHaveLength(1);
+  // ไม่ poll ต่อหลังล้างคำสั่งค้าง
+  await page.waitForTimeout(5_500);
+  expect(writes.lookups).toHaveLength(1);
+  expect(writes).toHaveLength(1);
+});
+
+test('บัญชีจาก seed ที่ People แก้ไม่ได้: ปุ่มแก้ชื่อและปิดบัญชีกดไม่ได้พร้อมคำอธิบาย ก่อนกรอกอะไร', async ({
+  page,
+}) => {
+  const writes = await mockPeople(page, { disabled: false, unmanaged: true, respond: 'success' });
+  await expect(page.getByRole('region', { name: 'รายละเอียดบัญชี' })).toContainText(
+    'บัญชีนี้ไม่ได้สร้างหรือเปิดใช้งานผ่านหน้า People',
+  );
+  await expect(page.getByRole('button', { name: 'แก้ชื่อที่แสดง…', exact: true })).toBeDisabled();
+  await expect(page.getByText(/บริการยืนยันตัวตนยังไม่พร้อม/)).toHaveCount(0);
+  // ปิดบัญชีก็ทำผ่าน People ไม่ได้เช่นกัน
+  const disable = page.getByRole('region', { name: 'ปิดบัญชี', exact: true });
+  await expect(disable).toContainText(
+    'ปิดบัญชีที่นี่ไม่ได้ เพราะบัญชีนี้ไม่ได้สร้างหรือเปิดใช้งานผ่านหน้า People',
+  );
+  await expect(disable.getByRole('button', { name: 'ปิดบัญชี…', exact: true })).toBeDisabled();
+  await expect(disable).not.toContainText('ยังปิดไม่ได้');
+  expect(writes).toHaveLength(0);
+});
+
+test('ระหว่างโหลด capabilities: แสดงกำลังตรวจความพร้อม ไม่ใช่ “ยังไม่พร้อม”', async ({ page }) => {
+  let release!: () => void;
+  const capabilities = new Promise<void>((resolve) => (release = resolve));
+  await mockPeople(page, { disabled: false, respond: 'success', capabilities });
+  const detail = page.getByRole('region', { name: 'รายละเอียดบัญชี' });
+  await expect(
+    detail.getByRole('status').filter({ hasText: 'กำลังตรวจความพร้อม' }).first(),
+  ).toBeVisible();
+  await expect(page.getByText(/บริการยืนยันตัวตนยังไม่พร้อม/)).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'แก้ชื่อที่แสดง…', exact: true })).toBeDisabled();
+  release();
+  await expect(page.getByRole('button', { name: 'แก้ชื่อที่แสดง…', exact: true })).toBeEnabled();
+  await expect(page.getByText(/กำลังตรวจความพร้อม/)).toHaveCount(0);
 });
