@@ -2,6 +2,8 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from './fixtures';
 import type { Page } from '@playwright/test';
 import { homeNavigation } from '../../console/e2e/support/home-navigation.js';
+import { th } from './catalog';
+import { bothLocales, escapeRegExp, thRegExp } from './locale-match';
 
 /**
  * D1.13 (#452): flag `ui.shell.v2` of Workspace — the shell decides before WorkspaceApp mounts
@@ -68,7 +70,7 @@ async function mockApis(page: Page, shellV2: boolean) {
       json: {
         agent: {
           id: 'agent-1000',
-          displayName: 'สมชาย ใจดี',
+          displayName: 'Somchai Jaidee',
           extension: '1000',
           state: 'AVAILABLE',
         },
@@ -78,7 +80,8 @@ async function mockApis(page: Page, shellV2: boolean) {
   );
 }
 
-const rail = (page: Page) => page.getByRole('navigation', { name: /เมนูหลัก|Main navigation/ });
+const rail = (page: Page) =>
+  page.getByRole('navigation', { name: new RegExp(bothLocales('ui:shell.mainNav')) });
 
 test('#860: the customer area from Workspace opens Console with the language and tenant', async ({
   page,
@@ -88,17 +91,27 @@ test('#860: the customer area from Workspace opens Console with the language and
     route.fulfill({ status: 200, json: homeNavigation(['admin']) }),
   );
   await page.goto('/?tenant=demo');
-  const customers = rail(page).getByRole('link', { name: /ลูกค้า/ });
+  const customers = rail(page).getByRole('link', {
+    name: thRegExp('common:navigation.areas.customers'),
+  });
   await expect(customers).toHaveAttribute(
     'href',
     'http://localhost:5174/?view=customers&tenant=demo',
   );
   await expect(customers).toHaveAttribute('target', '_blank');
-  await rail(page).getByRole('button', { name: 'แอปทั้งหมด' }).click();
-  const launcher = page.getByRole('dialog', { name: 'แอป D-Contact' });
-  await expect(launcher.getByRole('link', { name: /ภาพรวมข้อมูลลูกค้า/ })).toBeVisible();
-  await expect(launcher.getByRole('link', { name: /กฎข้อมูล/ })).toBeVisible();
-  await expect(launcher.getByRole('link', { name: /กิจกรรมลูกค้า/ })).toBeVisible();
+  await rail(page)
+    .getByRole('button', { name: th('ui:shell.allApps') })
+    .click();
+  const launcher = page.getByRole('dialog', { name: th('ui:launcher.title') });
+  await expect(
+    launcher.getByRole('link', { name: thRegExp('common:navigation.apps.customerOverview') }),
+  ).toBeVisible();
+  await expect(
+    launcher.getByRole('link', { name: thRegExp('common:navigation.apps.customerRules') }),
+  ).toBeVisible();
+  await expect(
+    launcher.getByRole('link', { name: thRegExp('common:navigation.apps.customerActivity') }),
+  ).toBeVisible();
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'English' }).click();
   await expect(rail(page).getByRole('link', { name: /Customers/ })).toBeVisible();
@@ -112,7 +125,7 @@ test('#860: the customer area from Workspace opens Console with the language and
 test('flag off → the old Workspace has no rail', async ({ page }) => {
   await mockApis(page, false);
   await page.goto('/?tenant=demo');
-  await expect(page.getByText('สมชาย ใจดี')).toBeVisible();
+  await expect(page.getByText('Somchai Jaidee')).toBeVisible();
   await expect(rail(page)).toHaveCount(0);
 });
 
@@ -122,7 +135,7 @@ test('flag on → the rail has no SubNav, Journeys opens a new tab to Console, a
   await mockApis(page, true);
   await page.goto('/?tenant=demo');
   await expect(rail(page)).toBeVisible();
-  await expect(page.getByText('สมชาย ใจดี')).toBeVisible();
+  await expect(page.getByText('Somchai Jaidee')).toBeVisible();
   await expect(page.getByRole('navigation')).toHaveCount(2); // rail + breadcrumb (no SubNav)
   const journeys = rail(page).getByRole('link', { name: /Journeys/ });
   await expect(journeys).toHaveAttribute(
@@ -130,10 +143,9 @@ test('flag on → the rail has no SubNav, Journeys opens a new tab to Console, a
     'http://localhost:5174/?view=journeys&tenant=demo',
   );
   await expect(journeys).toHaveAttribute('target', '_blank');
-  await expect(rail(page).getByRole('link', { name: 'พื้นที่ทำงาน' })).toHaveAttribute(
-    'aria-current',
-    'page',
-  );
+  await expect(
+    rail(page).getByRole('link', { name: th('common:navigation.areas.workspace') }),
+  ).toHaveAttribute('aria-current', 'page');
 
   const axe = await new AxeBuilder({ page }).include('nav').include('header').analyze();
   expect(
@@ -172,7 +184,7 @@ test('#651: the rail shows work areas from the Navigation API and Workspace stil
 test('flag on → switching language neither reloads nor remounts WorkspaceApp', async ({ page }) => {
   await mockApis(page, true);
   await page.goto('/?tenant=demo');
-  const agentName = page.getByText('สมชาย ใจดี');
+  const agentName = page.getByText('Somchai Jaidee');
   await expect(agentName).toBeVisible();
   const before = await page.evaluate(() => performance.timeOrigin);
   // marker on the WorkspaceApp DOM node — if it remounts the new node has no marker
@@ -182,8 +194,10 @@ test('flag on → switching language neither reloads nor remounts WorkspaceApp',
 
   await page.getByRole('button', { name: 'English' }).click();
   await expect(rail(page).getByRole('link', { name: 'Workspace' })).toBeVisible();
-  await page.getByRole('button', { name: 'ไทย' }).click();
-  await expect(rail(page).getByRole('link', { name: 'พื้นที่ทำงาน' })).toBeVisible();
+  await page.getByRole('button', { name: th('ui:shell.languageNames.th') }).click();
+  await expect(
+    rail(page).getByRole('link', { name: th('common:navigation.areas.workspace') }),
+  ).toBeVisible();
 
   expect(await page.evaluate(() => performance.timeOrigin)).toBe(before);
   expect(await agentName.evaluate((el) => (el as HTMLElement & { __d113?: string }).__d113)).toBe(
@@ -194,7 +208,8 @@ test('flag on → switching language neither reloads nor remounts WorkspaceApp',
 /**
  * #588: user menu — the harness user is "Workspace Tester" (agent); sign-outs are counted in `__signOuts`
  */
-const userMenu = (page: Page) => page.getByRole('button', { name: 'เมนูผู้ใช้ Workspace Tester' });
+const userMenu = (page: Page) =>
+  page.getByRole('button', { name: th('ui:userMenu.open', { name: 'Workspace Tester' }) });
 const signOuts = (page: Page) =>
   page.evaluate(() => (window as unknown as { __signOuts?: number }).__signOuts ?? 0);
 
@@ -203,9 +218,9 @@ test('flag off → no user menu, and the old sign-out button stays in the status
 }) => {
   await mockApis(page, false);
   await page.goto('/?tenant=demo');
-  await expect(page.getByText('สมชาย ใจดี')).toBeVisible();
+  await expect(page.getByText('Somchai Jaidee')).toBeVisible();
   await expect(userMenu(page)).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'ออกจากระบบ' })).toBeVisible();
+  await expect(page.getByRole('button', { name: th('workspace:status.signOut') })).toBeVisible();
 });
 
 test('flag on → the user menu shows name/organization/role, there is no duplicate sign-out button, and with no call you can sign out at once', async ({
@@ -213,18 +228,20 @@ test('flag on → the user menu shows name/organization/role, there is no duplic
 }) => {
   await mockApis(page, true);
   await page.goto('/?tenant=demo');
-  await expect(page.getByText('สมชาย ใจดี')).toBeVisible();
+  await expect(page.getByText('Somchai Jaidee')).toBeVisible();
   // the old button in the status bar is hidden — sign out only at the user menu
-  await expect(page.getByRole('button', { name: 'ออกจากระบบ' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: th('workspace:status.signOut') })).toHaveCount(0);
   await userMenu(page).click();
   await expect(page.getByRole('menu')).toHaveAccessibleName(
-    /Workspace Tester.*workspace-e2e@demo\.example.*องค์กร demo.*เอเจนต์/,
+    new RegExp(
+      `Workspace Tester.*workspace-e2e@demo\\.example.*${escapeRegExp(th('ui:userMenu.organization', { organization: 'demo' }))}.*${escapeRegExp(th('ui:userMenu.roles.agent'))}`,
+    ),
   );
   // AC5 (#598): "My account" opens Console in a new tab — Workspace does not remount during a call (ADR-026)
-  const account = page.getByRole('menuitem', { name: 'บัญชีของฉัน' });
+  const account = page.getByRole('menuitem', { name: th('ui:userMenu.account') });
   await expect(account).toHaveAttribute('href', 'http://localhost:5174/?tenant=demo&view=account');
   await expect(account).toHaveAttribute('target', '_blank');
-  await page.getByRole('menuitem', { name: 'ออกจากระบบ' }).click();
+  await page.getByRole('menuitem', { name: th('ui:userMenu.signOut') }).click();
   await expect(page.getByRole('alertdialog')).toHaveCount(0);
   expect(await signOuts(page)).toBe(1);
 });
@@ -239,13 +256,13 @@ test('flag on → with an unsaved wrap-up, confirm before signing out, and after
     route.fulfill({
       status: 200,
       json: {
-        agent: { id: 'agent-1000', displayName: 'สมชาย ใจดี', extension: '1000', state: 'ACW' },
+        agent: { id: 'agent-1000', displayName: 'Somchai Jaidee', extension: '1000', state: 'ACW' },
         interaction: {
           id: '9a8a5477-aa53-4254-ae68-a21ab64cc2bb',
           state: 'WRAPUP',
           version: '19',
           caller: '081-234-5678',
-          queue: { id: 'queue-service', name: 'บริการลูกค้า' },
+          queue: { id: 'queue-service', name: 'Customer Service' },
           offerExpiresAt: null,
           answeredAt: '2026-09-06T10:00:00.000Z',
           endedAt: '2026-09-06T10:03:00.000Z',
@@ -254,14 +271,14 @@ test('flag on → with an unsaved wrap-up, confirm before signing out, and after
     }),
   );
   await page.goto('/?tenant=demo');
-  const wrapup = page.getByRole('heading', { name: 'สรุปผลหลังสาย' });
+  const wrapup = page.getByRole('heading', { name: th('workspace:wrapup.title') });
   await expect(wrapup).toBeVisible();
 
   await userMenu(page).click();
-  await page.getByRole('menuitem', { name: 'ออกจากระบบ' }).click();
-  const dialog = page.getByRole('alertdialog', { name: 'ออกจากระบบทั้งที่ยังมีงานค้าง?' });
-  await expect(dialog).toContainText('wrap-up ที่ยังไม่บันทึกจะหายไป');
-  await dialog.getByRole('button', { name: 'ยกเลิก' }).click();
+  await page.getByRole('menuitem', { name: th('ui:userMenu.signOut') }).click();
+  const dialog = page.getByRole('alertdialog', { name: th('common:shell.signOutConfirm.title') });
+  await expect(dialog).toContainText(th('common:shell.signOutConfirm.description'));
+  await dialog.getByRole('button', { name: th('ui:userMenu.cancel') }).click();
   await expect(dialog).toBeHidden();
   await expect(wrapup).toBeVisible();
   expect(await signOuts(page)).toBe(0);
@@ -279,7 +296,7 @@ test('#588: with a call offered (ASSIGNED) even though dphone is not yet ringing
       json: {
         agent: {
           id: 'agent-1000',
-          displayName: 'สมชาย ใจดี',
+          displayName: 'Somchai Jaidee',
           extension: '1000',
           state: 'RESERVED',
         },
@@ -288,7 +305,7 @@ test('#588: with a call offered (ASSIGNED) even though dphone is not yet ringing
           state: 'ASSIGNED',
           version: '3',
           caller: '081-234-5678',
-          queue: { id: 'queue-service', name: 'บริการลูกค้า' },
+          queue: { id: 'queue-service', name: 'Customer Service' },
           offerExpiresAt: '2099-01-01T00:00:20.000Z',
           answeredAt: null,
           endedAt: null,
@@ -297,11 +314,11 @@ test('#588: with a call offered (ASSIGNED) even though dphone is not yet ringing
     }),
   );
   await page.goto('/?tenant=demo');
-  await expect(page.getByText('สมชาย ใจดี')).toBeVisible();
+  await expect(page.getByText('Somchai Jaidee')).toBeVisible();
   await userMenu(page).click();
-  await page.getByRole('menuitem', { name: 'ออกจากระบบ' }).click();
+  await page.getByRole('menuitem', { name: th('ui:userMenu.signOut') }).click();
   await expect(
-    page.getByRole('alertdialog', { name: 'ออกจากระบบทั้งที่ยังมีงานค้าง?' }),
+    page.getByRole('alertdialog', { name: th('common:shell.signOutConfirm.title') }),
   ).toBeVisible();
   expect(await signOuts(page)).toBe(0);
 });
@@ -314,7 +331,10 @@ for (const width of [390, 768, 950, 1280, 1440]) {
     await mockApis(page, true);
     await page.goto('/?tenant=demo');
     for (const [language, triggerName] of [
-      ['ไทย', /เมนูผู้ใช้/],
+      [
+        th('ui:shell.languageNames.th'),
+        new RegExp(escapeRegExp(th('ui:userMenu.open', { name: '' }).trim())),
+      ],
       ['English', /User menu/],
     ] as const) {
       await page.getByRole('button', { name: language, exact: true }).click();
@@ -326,10 +346,12 @@ for (const width of [390, 768, 950, 1280, 1440]) {
       await page.keyboard.press('Escape');
       await expect(trigger).toBeFocused();
       const main = page.locator('#dc-main');
-      const child = await page.getByText('สมชาย ใจดี', { exact: true }).elementHandle();
+      const child = await page.getByText('Somchai Jaidee', { exact: true }).elementHandle();
       const original = await main.elementHandle();
       if (width <= 768) {
-        const navigation = page.getByRole('button', { name: /เปิดเมนูนำทาง|Open navigation/ });
+        const navigation = page.getByRole('button', {
+          name: new RegExp(bothLocales('ui:shell.openNavigation')),
+        });
         await navigation.click();
         await expect(rail(page)).toBeVisible();
         await page.keyboard.press('Escape');

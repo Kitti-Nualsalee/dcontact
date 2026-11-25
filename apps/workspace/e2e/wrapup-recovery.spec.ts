@@ -1,5 +1,7 @@
 import { expect, test } from './fixtures';
 import type { Page } from '@playwright/test';
+import { th } from './catalog';
+import { thRegExp } from './locale-match';
 
 const originalId = '7a33ac96-d87d-4ca4-ab75-f27e40e943be';
 const nextId = '7a33ac96-d87d-4ca4-ab75-f27e40e943bf';
@@ -29,11 +31,15 @@ for (const fixture of ['Wrong tenant fixture', 'Missing claim fixture', 'Wrong i
   }) => {
     await recoveryPage(page);
     await page.getByRole('button', { name: fixture, exact: true }).click();
-    await expect(page.getByRole('textbox', { name: 'โน้ตสรุป' })).not.toBeVisible();
+    await expect(
+      page.getByRole('textbox', { name: th('workspace:wrapup.note') }),
+    ).not.toBeVisible();
     await expect(page.locator('textarea')).toHaveValue('');
-    await expect(page.getByRole('status').filter({ hasText: 'บัญชีเปลี่ยน' })).toBeVisible();
+    await expect(
+      page.getByRole('status').filter({ hasText: th('workspace:recovery.identityChanged') }),
+    ).toBeVisible();
     await page.getByRole('button', { name: 'Sign in fixture', exact: true }).click();
-    await expect(page.getByRole('textbox', { name: 'โน้ตสรุป' })).toHaveValue('');
+    await expect(page.getByRole('textbox', { name: th('workspace:wrapup.note') })).toHaveValue('');
   });
 }
 
@@ -52,8 +58,8 @@ async function recoveryPage(page: Page, current: () => string = () => originalId
   );
   await page.goto('/?authHarness=1&tenant=demo');
   await page.getByRole('button', { name: 'Sign in fixture', exact: true }).click();
-  await page.getByRole('button', { name: 'ลูกค้าได้รับความช่วยเหลือ', exact: true }).click();
-  await page.getByRole('textbox', { name: 'โน้ตสรุป' }).fill('ร่างสังเคราะห์');
+  await page.getByRole('button', { name: th('workspace:wrapup.assisted'), exact: true }).click();
+  await page.getByRole('textbox', { name: th('workspace:wrapup.note') }).fill('Synthetic draft');
 }
 
 test('the POST answer of an old identity does not return a draft or saved summary after switching accounts', async ({
@@ -73,21 +79,21 @@ test('the POST answer of an old identity does not return a draft or saved summar
         policyVersion: 1,
         state: 'COMPLETED',
         disposition: 'CUSTOMER_ASSISTED',
-        note: 'ร่างสังเคราะห์',
+        note: 'Synthetic draft',
         recordedAt: '2026-10-17T07:00:00.000Z',
         legacy: false,
       },
     });
   });
   await recoveryPage(page);
-  await page.getByRole('button', { name: 'บันทึกผล', exact: true }).click();
+  await page.getByRole('button', { name: th('workspace:wrapup.submit'), exact: true }).click();
   await expect.poll(() => received).toBe(true);
   await page.getByRole('button', { name: 'Other fixture', exact: true }).click();
-  await expect(page.getByRole('textbox', { name: 'โน้ตสรุป' })).not.toBeVisible();
+  await expect(page.getByRole('textbox', { name: th('workspace:wrapup.note') })).not.toBeVisible();
   release?.();
   await page.getByRole('button', { name: 'Sign in fixture', exact: true }).click();
-  await expect(page.getByRole('textbox', { name: 'โน้ตสรุป' })).toHaveValue('');
-  await expect(page.getByRole('heading', { name: 'บันทึกผลแล้ว' })).toHaveCount(0);
+  await expect(page.getByRole('textbox', { name: th('workspace:wrapup.note') })).toHaveValue('');
+  await expect(page.getByRole('heading', { name: th('workspace:wrapup.saved') })).toHaveCount(0);
   const stored = await page.evaluate(() =>
     JSON.stringify({
       local: { ...localStorage },
@@ -95,7 +101,7 @@ test('the POST answer of an old identity does not return a draft or saved summar
       url: location.href,
     }),
   );
-  expect(stored).not.toContain('ร่างสังเคราะห์');
+  expect(stored).not.toContain('Synthetic draft');
 });
 
 test('refresh/expire/locale during a call keeps the same SIP session and lease, then wrap-up is filled in', async ({
@@ -182,14 +188,14 @@ test('refresh/expire/locale during a call keeps the same SIP session and lease, 
   );
   await page.goto('/?authHarness=1&tenant=demo');
   await page.getByRole('button', { name: 'Sign in fixture', exact: true }).click();
-  await page.getByRole('button', { name: 'ตรวจอุปกรณ์เสียง', exact: true }).click();
+  await page.getByRole('button', { name: th('workspace:media.check'), exact: true }).click();
   expect(customerReads).toBe(0);
-  await page.getByRole('button', { name: 'รับสาย', exact: true }).click();
+  await page.getByRole('button', { name: th('dphone:accept'), exact: true }).click();
   await expect(
     page.getByRole('region', { name: 'dphone' }).getByRole('status', { name: 'dphone' }),
-  ).toHaveText('กำลังสนทนา');
+  ).toHaveText(th('dphone:phase.ACTIVE'));
   state = 'ACTIVE';
-  await expect(page.getByText('งานนี้ยังไม่เชื่อมกับลูกค้า')).toBeVisible();
+  await expect(page.getByText(th('workspace:customer.unlinked'))).toBeVisible();
   const original = await page.evaluate(() => ({
     sip: window.__dcontactDphone?.sipSessionId(),
     lease: window.__dcontactDphone?.workSessionLeaseId(),
@@ -218,7 +224,9 @@ test('refresh/expire/locale during a call keeps the same SIP session and lease, 
   await expect(page.getByRole('textbox', { name: 'Summary note' })).toBeVisible();
   await page.getByRole('textbox', { name: 'Summary note' }).fill('synthetic draft');
   await page.getByRole('button', { name: 'Locale fixture', exact: true }).click();
-  await expect(page.getByRole('textbox', { name: 'โน้ตสรุป' })).toHaveValue('synthetic draft');
+  await expect(page.getByRole('textbox', { name: th('workspace:wrapup.note') })).toHaveValue(
+    'synthetic draft',
+  );
 });
 
 test('unknown after refresh/reconnect uses the same intent and does not carry the draft over to new work', async ({
@@ -237,7 +245,7 @@ test('unknown after refresh/reconnect uses the same intent and does not carry th
         policyVersion: 1,
         state: 'COMPLETED',
         disposition: 'CUSTOMER_ASSISTED',
-        note: 'ร่างสังเคราะห์',
+        note: 'Synthetic draft',
         recordedAt: '2026-10-17T07:00:00.000Z',
         legacy: false,
       },
@@ -250,19 +258,21 @@ test('unknown after refresh/reconnect uses the same intent and does not carry th
     route.fulfill({ status: 409, json: { code: 'RESULT_NOT_COMMITTED' } }),
   );
   await recoveryPage(page, () => currentId);
-  await page.getByRole('button', { name: 'บันทึกผล', exact: true }).click();
-  await expect(page.getByText(/ยังไม่ทราบผลบันทึก/)).toBeVisible();
+  await page.getByRole('button', { name: th('workspace:wrapup.submit'), exact: true }).click();
+  await expect(page.getByText(thRegExp('workspace:wrapup.unknown'))).toBeVisible();
   currentId = nextId;
   await page.getByRole('button', { name: 'Refresh fixture', exact: true }).click();
   await page.evaluate(() => window.dispatchEvent(new Event('online')));
   await expect(
-    page.getByText(`คำสั่งที่ยังไม่จบเป็นของงาน ${originalId} ไม่ใช่งานใหม่`),
+    page.getByText(th('workspace:wrapup.recoveringInteraction', { interactionId: originalId })),
   ).toBeVisible();
-  await expect(page.getByRole('textbox', { name: 'โน้ตสรุป' })).toBeDisabled();
-  await expect(page.getByRole('button', { name: 'บันทึกผล', exact: true })).toBeEnabled();
-  await page.getByRole('button', { name: 'บันทึกผล', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'บันทึกผลแล้ว' })).toBeVisible();
-  await expect(page.getByRole('textbox', { name: 'โน้ตสรุป' })).toHaveValue('');
+  await expect(page.getByRole('textbox', { name: th('workspace:wrapup.note') })).toBeDisabled();
+  await expect(
+    page.getByRole('button', { name: th('workspace:wrapup.submit'), exact: true }),
+  ).toBeEnabled();
+  await page.getByRole('button', { name: th('workspace:wrapup.submit'), exact: true }).click();
+  await expect(page.getByRole('heading', { name: th('workspace:wrapup.saved') })).toBeVisible();
+  await expect(page.getByRole('textbox', { name: th('workspace:wrapup.note') })).toHaveValue('');
   expect(attempts).toHaveLength(2);
   expect(attempts[1]).toEqual(attempts[0]);
   expect(tokens).toEqual(['Bearer token-one', 'Bearer token-two']);
@@ -286,9 +296,13 @@ test('a blocked popup keeps the draft, with a warning before navigation/reload/s
   await page.evaluate(() => {
     window.open = () => null;
   });
-  await page.getByRole('button', { name: 'เข้าสู่ระบบอีกครั้ง', exact: true }).click();
-  await expect(page.getByRole('alert').filter({ hasText: 'หน้าต่างเข้าสู่ระบบ' })).toBeVisible();
-  await expect(page.getByRole('textbox', { name: 'โน้ตสรุป' })).toHaveValue('ร่างสังเคราะห์');
+  await page.getByRole('button', { name: th('workspace:recovery.signIn'), exact: true }).click();
+  await expect(
+    page.getByRole('alert').filter({ hasText: th('workspace:recovery.popupFailed') }),
+  ).toBeVisible();
+  await expect(page.getByRole('textbox', { name: th('workspace:wrapup.note') })).toHaveValue(
+    'Synthetic draft',
+  );
   await page.evaluate(() => {
     const anchor = document.createElement('a');
     anchor.href = '/?view=supervisor&tenant=demo';
@@ -303,7 +317,9 @@ test('a blocked popup keeps the draft, with a warning before navigation/reload/s
   await navigate;
   expect(page.url()).toContain('authHarness=1');
   const signoutWarning = page.waitForEvent('dialog');
-  const signout = page.getByRole('button', { name: 'ออกจากระบบ', exact: true }).click();
+  const signout = page
+    .getByRole('button', { name: th('workspace:status.signOut'), exact: true })
+    .click();
   await (await signoutWarning).dismiss();
   await signout;
   const reloadWarning = page.waitForEvent('dialog');
@@ -312,7 +328,9 @@ test('a blocked popup keeps the draft, with a warning before navigation/reload/s
   expect(reloadDialog.type()).toBe('beforeunload');
   await reloadDialog.dismiss();
   await reload;
-  await expect(page.getByRole('textbox', { name: 'โน้ตสรุป' })).toHaveValue('ร่างสังเคราะห์');
+  await expect(page.getByRole('textbox', { name: th('workspace:wrapup.note') })).toHaveValue(
+    'Synthetic draft',
+  );
 });
 
 for (const invalid of ['nonce', 'state', 'cancel'] as const) {
@@ -381,7 +399,7 @@ for (const invalid of ['nonce', 'state', 'cancel'] as const) {
     await page.getByRole('button', { name: 'Expire fixture', exact: true }).click();
     const before = leaseRequests;
     const opened = page.waitForEvent('popup');
-    await page.getByRole('button', { name: 'เข้าสู่ระบบอีกครั้ง', exact: true }).click();
+    await page.getByRole('button', { name: th('workspace:recovery.signIn'), exact: true }).click();
     const popup = await opened;
     if (invalid === 'cancel') {
       await expect(popup.getByText('Cancel fixture')).toBeVisible();
@@ -391,17 +409,23 @@ for (const invalid of ['nonce', 'state', 'cancel'] as const) {
       await expect.poll(() => invalidCallbackSeen).toBe(true);
       await popup.close().catch(() => undefined);
     }
-    await expect(page.getByRole('alert').filter({ hasText: 'หน้าต่างเข้าสู่ระบบ' })).toBeVisible();
-    await expect(page.getByRole('textbox', { name: 'โน้ตสรุป' })).toHaveValue('ร่างสังเคราะห์');
+    await expect(
+      page.getByRole('alert').filter({ hasText: th('workspace:recovery.popupFailed') }),
+    ).toBeVisible();
+    await expect(page.getByRole('textbox', { name: th('workspace:wrapup.note') })).toHaveValue(
+      'Synthetic draft',
+    );
     valid = true;
     const retried = page.waitForEvent('popup');
-    await page.getByRole('button', { name: 'เข้าสู่ระบบอีกครั้ง', exact: true }).click();
+    await page.getByRole('button', { name: th('workspace:recovery.signIn'), exact: true }).click();
     const retryPopup = await retried;
     await expect.poll(() => retryPopup.isClosed()).toBe(true);
     await expect(
-      page.getByRole('button', { name: 'เข้าสู่ระบบอีกครั้ง', exact: true }),
+      page.getByRole('button', { name: th('workspace:recovery.signIn'), exact: true }),
     ).toHaveCount(0);
-    await expect(page.getByRole('textbox', { name: 'โน้ตสรุป' })).toHaveValue('ร่างสังเคราะห์');
+    await expect(page.getByRole('textbox', { name: th('workspace:wrapup.note') })).toHaveValue(
+      'Synthetic draft',
+    );
     expect(leaseRequests).toBe(before);
   });
 }
@@ -427,20 +451,22 @@ test('token refresh creates no new lease, and after auth is lost the draft is st
   });
   await page.goto('/?authHarness=1&tenant=demo');
   await page.getByRole('button', { name: 'Sign in fixture', exact: true }).click();
-  const note = page.getByRole('textbox', { name: 'โน้ตสรุป' });
-  await note.fill('ร่างสังเคราะห์ที่ต้องไม่สูญหาย');
+  const note = page.getByRole('textbox', { name: th('workspace:wrapup.note') });
+  await note.fill('Synthetic draft that must not be lost');
   await expect.poll(() => leaseReads).toBeGreaterThan(0);
   const before = leaseReads;
   await page.getByRole('button', { name: 'Refresh fixture', exact: true }).click();
-  await expect(note).toHaveValue('ร่างสังเคราะห์ที่ต้องไม่สูญหาย');
+  await expect(note).toHaveValue('Synthetic draft that must not be lost');
   await page.getByRole('button', { name: 'Expire fixture', exact: true }).click();
   await expect(note).toBeVisible();
-  await expect(note).toHaveValue('ร่างสังเคราะห์ที่ต้องไม่สูญหาย');
+  await expect(note).toHaveValue('Synthetic draft that must not be lost');
   expect(leaseReads).toBe(before);
   expect(tokens[0]).toBe('Bearer token-one');
   await page.getByRole('button', { name: 'Other fixture', exact: true }).click();
   await expect(note).not.toBeVisible();
   await expect(page.locator('textarea')).toHaveValue('');
-  await expect(page.getByRole('status').filter({ hasText: 'บัญชีเปลี่ยน' })).toBeVisible();
+  await expect(
+    page.getByRole('status').filter({ hasText: th('workspace:recovery.identityChanged') }),
+  ).toBeVisible();
   expect(leaseReads).toBe(before);
 });

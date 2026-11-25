@@ -6,11 +6,11 @@
   of the tenant, then open this page from an origin that is in the allowlist of Console › Integrations › dphone embedding
   See the full guide at docs/dphone-embed/README.md
 -->
-<html lang="th">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>CRM ตัวอย่าง — dphone</title>
+    <title>Sample CRM — dphone</title>
     <style>
       body {
         font-family: system-ui, sans-serif;
@@ -38,25 +38,25 @@
   </head>
   <body>
     <main>
-      <h1>CRM ตัวอย่าง</h1>
+      <h1>Sample CRM</h1>
 
       <section aria-labelledby="call-title">
-        <h2 id="call-title">โทรหาลูกค้า</h2>
+        <h2 id="call-title">Call a customer</h2>
         <form id="call-form">
-          <label>เบอร์โทร <input name="number" inputmode="tel" required /></label>
-          <label>รหัสลูกค้า (ไม่บังคับ) <input name="contactId" /></label>
-          <button type="submit">ส่งเบอร์ให้ dphone</button>
+          <label>Phone number <input name="number" inputmode="tel" required /></label>
+          <label>Customer ID (optional) <input name="contactId" /></label>
+          <button type="submit">Send number to dphone</button>
         </form>
         <p id="call-result" role="status"></p>
       </section>
 
       <section aria-labelledby="pop-title">
-        <h2 id="pop-title">Screen-pop ล่าสุด</h2>
-        <pre id="screenpop">ยังไม่มีสาย</pre>
+        <h2 id="pop-title">Latest screen-pop</h2>
+        <pre id="screenpop">No call yet</pre>
       </section>
 
       <section aria-labelledby="activity-title">
-        <h2 id="activity-title">กิจกรรมที่บันทึกแล้ว</h2>
+        <h2 id="activity-title">Recorded activity</h2>
         <ul id="activities"></ul>
       </section>
     </main>
@@ -97,7 +97,7 @@
             if (saved.has(event.detail.interactionId)) return;
             saved.add(event.detail.interactionId);
             const item = document.createElement('li');
-            item.textContent = `${event.detail.interactionId} · ${event.detail.disposition ?? '-'} · ${event.detail.durationSeconds} วินาที`; // allow-thai: asserted by the workspace e2e (unit label)
+            item.textContent = `${event.detail.interactionId} · ${event.detail.disposition ?? '-'} · ${event.detail.durationSeconds} seconds`;
             document.getElementById('activities').append(item);
           })(),
         );
@@ -107,14 +107,14 @@
         event.preventDefault();
         const form = new FormData(event.currentTarget);
         const result = document.getElementById('call-result');
-        result.textContent = 'ส่งเบอร์ให้ dphone แล้ว — รอ agent กดโทร'; // allow-thai: asserted by the workspace e2e
+        result.textContent = 'Number sent to dphone — waiting for the agent to press call';
         try {
           const outcome = await dphone.call(String(form.get('number')), {
             contactId: String(form.get('contactId') || '') || undefined,
           });
-          result.textContent = `ผล: ${outcome.status}${outcome.reasonCode ? ` (${outcome.reasonCode})` : ''}`; // allow-thai: asserted by the workspace e2e
+          result.textContent = `Result: ${outcome.status}${outcome.reasonCode ? ` (${outcome.reasonCode})` : ''}`;
         } catch (error) {
-          result.textContent = `ส่งไม่สำเร็จ: ${error.message}`; // allow-thai: sample CRM UI text
+          result.textContent = `Send failed: ${error.message}`;
         }
       });
     </script>

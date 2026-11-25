@@ -1,4 +1,5 @@
 import { expect, test } from './fixtures';
+import { th } from './catalog';
 
 test('Workspace shows an incoming offer from the authoritative Agent snapshot', async ({
   page,
@@ -11,7 +12,7 @@ test('Workspace shows an incoming offer from the authoritative Agent snapshot', 
       body: JSON.stringify({
         agent: {
           id: 'agent-1000',
-          displayName: 'สมชาย ใจดี',
+          displayName: 'Somchai Jaidee',
           extension: '1000',
           state: 'RESERVED',
         },
@@ -20,7 +21,7 @@ test('Workspace shows an incoming offer from the authoritative Agent snapshot', 
           state: 'ASSIGNED',
           version: '17',
           caller: '081-234-5678',
-          queue: { id: 'queue-service', name: 'บริการลูกค้า' },
+          queue: { id: 'queue-service', name: 'Customer Service' },
           offerExpiresAt: '2026-09-06T10:00:20.000Z',
           answeredAt: null,
           endedAt: null,
@@ -31,23 +32,29 @@ test('Workspace shows an incoming offer from the authoritative Agent snapshot', 
 
   await page.goto('/');
 
-  await expect(page.getByRole('heading', { name: 'สายเรียกเข้า' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: th('workspace:offer.title') })).toBeVisible();
   await expect(page.getByText('081-234-5678')).toBeVisible();
-  await expect(page.getByText('บริการลูกค้า')).toBeVisible();
-  await expect(page.getByText('สมชาย ใจดี')).toBeVisible();
+  await expect(page.getByText('Customer Service')).toBeVisible();
+  await expect(page.getByText('Somchai Jaidee')).toBeVisible();
   await expect(page.getByText('Interaction v17')).toBeVisible();
 
-  await page.getByRole('button', { name: 'ตรวจอุปกรณ์เสียง' }).click();
-  await expect(page.getByRole('button', { name: 'รับสาย', exact: true })).toBeEnabled();
-  await page.getByRole('button', { name: 'รับสาย', exact: true }).click();
-  await expect(page.getByRole('status', { name: 'สถานะ dphone' })).toHaveText('กำลังสนทนา');
-  await expect(page.getByRole('button', { name: 'รับสาย', exact: true })).toBeDisabled();
-  await page.getByRole('button', { name: 'ปิดไมค์' }).click();
-  await expect(page.getByRole('button', { name: 'เปิดไมค์' })).toBeVisible();
-  await page.getByRole('button', { name: 'ส่ง DTMF 5' }).click();
-  await page.getByRole('button', { name: 'พักสาย' }).click();
-  await expect(page.getByRole('status', { name: 'สถานะ dphone' })).toHaveText('พักสาย');
-  await page.getByRole('button', { name: 'กลับเข้าสาย' }).click();
-  await page.getByRole('button', { name: 'วางสาย' }).click();
-  await expect(page.getByRole('status', { name: 'สถานะ dphone' })).toHaveText('โทรศัพท์พร้อม');
+  await page.getByRole('button', { name: th('workspace:media.check') }).click();
+  await expect(page.getByRole('button', { name: th('dphone:accept'), exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: th('dphone:accept'), exact: true }).click();
+  await expect(page.getByRole('status', { name: th('workspace:status.dphone') })).toHaveText(
+    th('dphone:phase.ACTIVE'),
+  );
+  await expect(page.getByRole('button', { name: th('dphone:accept'), exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: th('dphone:mute') }).click();
+  await expect(page.getByRole('button', { name: th('dphone:unmute') })).toBeVisible();
+  await page.getByRole('button', { name: th('dphone:dtmf', { value: '5' }) }).click();
+  await page.getByRole('button', { name: th('dphone:hold') }).click();
+  await expect(page.getByRole('status', { name: th('workspace:status.dphone') })).toHaveText(
+    th('dphone:phase.HELD'),
+  );
+  await page.getByRole('button', { name: th('dphone:resume') }).click();
+  await page.getByRole('button', { name: th('dphone:hangup') }).click();
+  await expect(page.getByRole('status', { name: th('workspace:status.dphone') })).toHaveText(
+    th('dphone:phase.READY'),
+  );
 });

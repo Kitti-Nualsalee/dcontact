@@ -1,6 +1,8 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from './fixtures';
 import type { Page } from '@playwright/test';
+import { th } from './catalog';
+import { bothLocales, escapeRegExp } from './locale-match';
 
 /**
  * Agent Workspace in the shell (`ui.shell.v2`) per V3 (mockups/d-contact-agent-workspace-v3.html):
@@ -9,6 +11,7 @@ import type { Page } from '@playwright/test';
  * `D813_EVIDENCE_DIR=<dir>` = save evidence screenshots for the PR
  */
 test.use({ locale: 'th-TH', viewport: { width: 1440, height: 900 } });
+const durationLabel = th('workspace:layout.duration', { duration: '' }).trim();
 
 type Interaction = Record<string, unknown> | null;
 
@@ -47,7 +50,7 @@ async function open(page: Page, interaction: Interaction, agentState = 'AVAILABL
       json: {
         agent: {
           id: 'agent-1000',
-          displayName: 'สมชาย ใจดี',
+          displayName: 'Somchai Jaidee',
           extension: '1000',
           state: agentState,
         },
@@ -56,7 +59,7 @@ async function open(page: Page, interaction: Interaction, agentState = 'AVAILABL
     }),
   );
   await page.goto('/?tenant=demo');
-  await expect(page.getByText('สมชาย ใจดี')).toBeVisible();
+  await expect(page.getByText('Somchai Jaidee')).toBeVisible();
 }
 
 const call = (overrides: Record<string, unknown>) => ({
@@ -65,19 +68,23 @@ const call = (overrides: Record<string, unknown>) => ({
   direction: 'INBOUND',
   version: '7',
   caller: '081-234-5678',
-  queue: { id: 'queue-service', name: 'บริการลูกค้า' },
+  queue: { id: 'queue-service', name: 'Customer Service' },
   offerExpiresAt: null,
   answeredAt: new Date(Date.now() - 95_000).toISOString(),
   endedAt: null,
   ...overrides,
 });
 
-const work = (page: Page) => page.getByRole('region', { name: /^(งานของฉัน|My work)$/ });
-const current = (page: Page) => page.getByRole('region', { name: /^(งานปัจจุบัน|Current work)$/ });
+const work = (page: Page) =>
+  page.getByRole('region', { name: new RegExp(`^${bothLocales('workspace:layout.work')}$`) });
+const current = (page: Page) =>
+  page.getByRole('region', { name: new RegExp(`^${bothLocales('workspace:layout.current')}$`) });
 const inspector = (page: Page) =>
-  page.getByRole('complementary', { name: /^(แผงรายละเอียดงาน|Work detail panel)$/ });
+  page.getByRole('complementary', {
+    name: new RegExp(`^${bothLocales('workspace:layout.inspector.label')}$`),
+  });
 const readiness = (page: Page) =>
-  page.getByRole('region', { name: /^(ความพร้อมรับงาน|Readiness)$/ });
+  page.getByRole('region', { name: new RegExp(`^${bothLocales('workspace:layout.readiness')}$`) });
 
 async function evidence(page: Page, name: string) {
   const dir = process.env.D813_EVIDENCE_DIR;
@@ -97,14 +104,17 @@ test('no work → work list · current work · work panel in left-to-right order
   page,
 }) => {
   await open(page, null);
-  await expect(work(page)).toContainText('ยังไม่มีงานในมือ');
-  await expect(current(page)).toContainText('ไม่มีสายที่กำลังทำ');
-  await expect(inspector(page).getByRole('tab', { name: 'ความพร้อม' })).toHaveAttribute(
-    'aria-selected',
-    'true',
-  );
-  await expect(readiness(page).getByRole('heading', { name: 'เตรียมอุปกรณ์เสียง' })).toBeVisible();
-  await expect(page.getByRole('region', { name: /ลูกค้า|Customer/ })).toHaveCount(0);
+  await expect(work(page)).toContainText(th('workspace:layout.workEmpty'));
+  await expect(current(page)).toContainText(th('workspace:layout.noCurrent'));
+  await expect(
+    inspector(page).getByRole('tab', { name: th('workspace:layout.inspector.tabs.readiness') }),
+  ).toHaveAttribute('aria-selected', 'true');
+  await expect(
+    readiness(page).getByRole('heading', { name: th('workspace:media.title') }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('region', { name: new RegExp(bothLocales('workspace:case.customer')) }),
+  ).toHaveCount(0);
 
   const [left, middle, right] = await Promise.all(
     [work(page), current(page), inspector(page)].map((region) => region.boundingBox()),
@@ -120,11 +130,17 @@ test('during a call → the work is in the list and call bar, call time ticks, e
 }) => {
   await open(page, call({}), 'BUSY');
   await expect(work(page).getByRole('listitem')).toContainText('081-234-5678');
-  await expect(work(page).getByRole('listitem')).toContainText('กำลังสนทนา · บริการลูกค้า');
-  await expect(work(page).getByRole('tab', { name: 'เปิดอยู่ (1)' })).toBeVisible();
-  await expect(current(page)).toContainText('สายเข้า · บริการลูกค้า · ควบคุมสายที่ dphone');
+  await expect(work(page).getByRole('listitem')).toContainText(
+    `${th('workspace:layout.state.ACTIVE')} · Customer Service`,
+  );
+  await expect(
+    work(page).getByRole('tab', { name: th('workspace:layout.list.open', { count: 1 }) }),
+  ).toBeVisible();
+  await expect(current(page)).toContainText(
+    `${th('workspace:layout.direction.INBOUND')} · Customer Service · ${th('workspace:layout.inDphone')}`,
+  );
   const timer = current(page).getByRole('timer');
-  await expect(timer).toHaveText(/เวลาในสาย 0[1-9]:\d\d/);
+  await expect(timer).toHaveText(new RegExp(`${escapeRegExp(durationLabel)} 0[1-9]:\\d\\d`));
   const first = await timer.textContent();
   await expect(timer).not.toHaveText(first!);
 
@@ -135,14 +151,23 @@ test('during a call → the work is in the list and call bar, call time ticks, e
   );
   await expect(current(page).getByRole('tab', { name: 'Customer 360' })).toHaveCount(0);
   // opening a new page during a call, audio devices not checked yet → the work panel opens at readiness so they can be checked first
-  await expect(inspector(page).getByRole('tab', { name: 'ความพร้อม' })).toHaveAttribute(
-    'aria-selected',
-    'true',
-  );
-  await inspector(page).getByRole('tab', { name: 'รายละเอียด' }).click();
-  await expect(inspector(page).getByRole('heading', { name: 'สถานะปัจจุบัน' })).toBeVisible();
-  await inspector(page).getByRole('tab', { name: 'เหตุการณ์' }).click();
-  await expect(inspector(page).getByRole('listitem').filter({ hasText: 'รับสาย' })).toBeVisible();
+  await expect(
+    inspector(page).getByRole('tab', { name: th('workspace:layout.inspector.tabs.readiness') }),
+  ).toHaveAttribute('aria-selected', 'true');
+  await inspector(page)
+    .getByRole('tab', { name: th('workspace:layout.inspector.tabs.details') })
+    .click();
+  await expect(
+    inspector(page).getByRole('heading', { name: th('workspace:authority.title') }),
+  ).toBeVisible();
+  await inspector(page)
+    .getByRole('tab', { name: th('workspace:layout.inspector.tabs.events') })
+    .click();
+  await expect(
+    inspector(page)
+      .getByRole('listitem')
+      .filter({ hasText: th('workspace:layout.event.answered') }),
+  ).toBeVisible();
   await expectNoSeriousAxe(page);
   await evidence(page, 'workspace-th-call');
 });
@@ -155,17 +180,31 @@ test('WRAPUP → the work panel opens the summary tab itself, and can switch to 
     call({ state: 'WRAPUP', endedAt: new Date(Date.now() - 5_000).toISOString() }),
     'ACW',
   );
-  const tab = inspector(page).getByRole('tab', { name: 'สรุปผล' });
+  const tab = inspector(page).getByRole('tab', {
+    name: th('workspace:layout.inspector.tabs.wrapup'),
+  });
   await expect(tab).toHaveAttribute('aria-selected', 'true');
-  await expect(inspector(page).getByRole('heading', { name: 'สรุปผลหลังสาย' })).toBeVisible();
-  await expect(current(page).getByRole('timer')).toHaveText(/เวลาในสาย 01:3\d/);
+  await expect(
+    inspector(page).getByRole('heading', { name: th('workspace:wrapup.title') }),
+  ).toBeVisible();
+  await expect(current(page).getByRole('timer')).toHaveText(
+    new RegExp(`${escapeRegExp(durationLabel)} 01:3\\d`),
+  );
   await expectNoSeriousAxe(page);
   await evidence(page, 'workspace-th-wrapup');
 
-  await inspector(page).getByRole('tab', { name: 'เหตุการณ์' }).click();
-  await expect(inspector(page).getByRole('listitem').filter({ hasText: 'สายจบ' })).toBeVisible();
-  await work(page).getByRole('tab', { name: 'ปิดแล้ว (0)' }).click();
-  await expect(work(page)).toContainText('ยังไม่มีงานที่ปิดในรอบนี้');
+  await inspector(page)
+    .getByRole('tab', { name: th('workspace:layout.inspector.tabs.events') })
+    .click();
+  await expect(
+    inspector(page)
+      .getByRole('listitem')
+      .filter({ hasText: th('workspace:layout.event.ended') }),
+  ).toBeVisible();
+  await work(page)
+    .getByRole('tab', { name: th('workspace:layout.list.closed', { count: 0 }) })
+    .click();
+  await expect(work(page)).toContainText(th('workspace:layout.list.closedEmpty'));
 });
 
 test('EN → text in every panel changes with the language without a reload', async ({ page }) => {
@@ -173,7 +212,7 @@ test('EN → text in every panel changes with the language without a reload', as
   const before = await page.evaluate(() => performance.timeOrigin);
   await page.getByRole('button', { name: 'English' }).click();
   await expect(work(page).getByRole('heading', { name: 'My work' })).toBeVisible();
-  await expect(current(page)).toContainText('Inbound · บริการลูกค้า · Call controls in dphone');
+  await expect(current(page)).toContainText('Inbound · Customer Service · Call controls in dphone');
   await expect(current(page).getByRole('timer')).toHaveText(/Call time \d\d:\d\d/);
   await inspector(page).getByRole('tab', { name: 'Readiness' }).click();
   await expect(
@@ -188,16 +227,15 @@ test('close/open the work panel from the tool bar, and resize the list with the 
   page,
 }) => {
   await open(page, call({}), 'BUSY');
-  const tools = page.getByRole('toolbar', { name: 'เครื่องมือด้านขวา' });
-  await tools.getByRole('button', { name: 'ปิดแผงรายละเอียด' }).click();
+  const tools = page.getByRole('toolbar', { name: th('workspace:layout.utility') });
+  await tools.getByRole('button', { name: th('workspace:layout.inspector.close') }).click();
   await expect(inspector(page)).toHaveCount(0);
-  await tools.getByRole('button', { name: 'เหตุการณ์' }).click();
-  await expect(inspector(page).getByRole('tab', { name: 'เหตุการณ์' })).toHaveAttribute(
-    'aria-selected',
-    'true',
-  );
+  await tools.getByRole('button', { name: th('workspace:layout.inspector.tabs.events') }).click();
+  await expect(
+    inspector(page).getByRole('tab', { name: th('workspace:layout.inspector.tabs.events') }),
+  ).toHaveAttribute('aria-selected', 'true');
 
-  const separator = page.getByRole('separator', { name: 'ปรับความกว้างรายการงาน' });
+  const separator = page.getByRole('separator', { name: th('workspace:layout.resize.list') });
   const before = (await work(page).boundingBox())!.width;
   await separator.focus();
   await page.keyboard.press('ArrowRight');
