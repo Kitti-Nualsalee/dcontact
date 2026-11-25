@@ -1,8 +1,8 @@
 /**
- * Owner: Delivery/Channels — evidence manifest ของ LINE in-memory simulation (S1.6, decision #102 §7)
+ * Owner: Delivery/Channels — evidence manifest of the LINE in-memory simulation (S1.6, decision #102 §7)
  *
- * marker เดียวที่ออกได้คือ `LINE_IN_MEMORY_SIMULATION_ACCEPTED` พร้อม flag ทั้งสี่คงที่
- * ห้ามอ้างหรือออก `OUTBOUND_DELIVERY_LINE_PILOT_READY` จาก manifest นี้เด็ดขาด
+ * The only marker that may be emitted is `LINE_IN_MEMORY_SIMULATION_ACCEPTED` with all four flags constant.
+ * Never claim or emit `OUTBOUND_DELIVERY_LINE_PILOT_READY` from this manifest
  */
 import { createHash } from 'node:crypto';
 import { LINE_SIMULATION_PROFILE, PILOT_SCOPE } from './line-simulation-fixture.js';
@@ -18,7 +18,7 @@ export const LINE_SIMULATION_FLAGS = {
   accountEvidence: false,
 } as const;
 
-/** dependency/credential/network token ที่ manifest/source ต้อง "ไม่พบ" เด็ดขาด */
+/** dependency/credential/network tokens that the manifest/source must absolutely "not contain" */
 const FORBIDDEN_TOKENS = [
   '@line/bot-sdk',
   'line-bot-sdk',
@@ -41,7 +41,7 @@ export interface LineNegativeScanResult {
   clean: boolean;
 }
 
-/** pure text scan — caller (test) ป้อน source ไฟล์จริงเข้ามาเอง ไม่มี fs I/O ในโมดูลนี้ */
+/** pure text scan — the caller (test) feeds in the real source files itself, no fs I/O in this module */
 export function scanForForbiddenTokens(sourceTexts: readonly string[]): LineNegativeScanResult {
   const found = new Set<string>();
   for (const text of sourceTexts) {
@@ -77,13 +77,13 @@ export interface BuildLineManifestInput {
 }
 
 /**
- * evidenceHash ครอบ evidence ทุกใบแบบ sorted-by-deliveryId เพื่อให้ scenario เดิม
- * (seed/config เดิม) ให้ hash เดิมซ้ำได้ทุกครั้งไม่ว่าจะรันกี่รอบ — ดู #102 §5 restart/replay
+ * evidenceHash covers all evidence sorted by deliveryId so the same scenario
+ * (same seed/config) yields the same hash every time however many runs — see #102 §5 restart/replay
  */
 export function buildLineSimulationManifest(input: BuildLineManifestInput): LineSimulationManifest {
   if (!input.negativeScan.clean) {
     throw new Error(
-      `ออก manifest ไม่ได้: negative scan พบ forbidden token ${input.negativeScan.forbiddenTokensFound.join(', ')}`,
+      `cannot emit a manifest: negative scan found forbidden token ${input.negativeScan.forbiddenTokensFound.join(', ')}`,
     );
   }
   const sortedEvidence = [...input.evidence].sort((a, b) =>

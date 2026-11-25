@@ -198,8 +198,8 @@ export class VoiceOriginateRepository {
   }
 
   /**
-   * Interaction และ voice extension ต้องอยู่ใน transaction เดียวกับ generic outbox
-   * เพื่อไม่ให้ click-to-call ตอบ QUEUED แล้วเหลือแถวใดแถวหนึ่งกำพร้า.
+   * The interaction and voice extension must be in the same transaction as the generic outbox
+   * so that click-to-call does not answer QUEUED and leave one of the rows orphaned.
    */
   async createWith<T>(
     input: CreateVoiceOriginateInput,

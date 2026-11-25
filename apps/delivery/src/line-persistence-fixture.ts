@@ -1,9 +1,9 @@
 /**
- * Test support ของ S2.1 (#365) เท่านั้น — production path ไม่ import ไฟล์นี้
+ * Test support for S2.1 (#365) only — no production path imports this file
  *
- * สร้าง tenant สองรายพร้อม reservation + outbox แถว LINE_MESSAGING_API ผ่าน owner connection
- * (LINE adapter จริงมาใน S2.4) แล้วให้ repository ทั้งหมดใช้ application role ที่ RLS ทำงานจริง
- * ค่าในนี้เป็น fixture สังเคราะห์: ไม่มี LINE user ID, token หรือเนื้อหาข้อความจริง
+ * Creates two tenants with a reservation + an outbox LINE_MESSAGING_API row through the owner connection
+ * (the real LINE adapter arrives in S2.4) then has every repository use the application role with RLS really in effect.
+ * The values here are synthetic fixtures: no LINE user ID, token or real message content
  */
 import { createHash, randomUUID } from 'node:crypto';
 import { PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
@@ -17,7 +17,7 @@ const APPLICATION_DATABASE_URL =
   process.env.APPLICATION_DATABASE_URL ??
   'postgresql://dcontact_app:dcontact_app@localhost:5433/dcontact?schema=public';
 
-/** Channel ID ของ test OA ตาม #356 — เป็น identifier สาธารณะของ channel ไม่ใช่ credential */
+/** Channel ID of the test OA per #356 — a public identifier of the channel, not a credential */
 export const PILOT_CHANNEL_ACCOUNT_ID = '2007056595';
 export const PILOT_SENDER = 'sender-approved-test-only';
 
@@ -52,11 +52,11 @@ export async function createLinePersistenceFixture() {
 
   let sequence = 0;
 
-  /** outbox แถว LINE พร้อม reservation ที่ผูกกัน — ค่า key เป็น UUID ตามรูปแบบ X-Line-Retry-Key */
+  /** An outbox LINE row with a bound reservation — the key values are UUIDs in the form of X-Line-Retry-Key */
   async function seedDelivery(
     tenantId: string,
     adapter: 'LINE_MESSAGING_API' | 'TEST_ADAPTER' = 'LINE_MESSAGING_API',
-    /** S2.4 รันด้วยเวลาปัจจุบัน จึงต้องเลื่อน lease/expiry ตามนาฬิกาของเทสต์นั้น */
+    /** S2.4 runs with the current time, so the lease/expiry must be shifted by that test's clock */
     at?: Date,
   ) {
     sequence += 1;
@@ -78,7 +78,7 @@ export async function createLinePersistenceFixture() {
         inputHash: digest(actionKey),
         expiresAt: new Date((at ?? new Date('2026-09-22T10:00:00.000Z')).getTime() + 15 * 60_000),
         settlementStatus: 'CLAIMED',
-        // S2.4 เรียก beginProviderSubmission ซึ่ง CAS กับ leaseVersion ของ reservation จริง
+        // S2.4 calls beginProviderSubmission, which CASes against the real reservation leaseVersion
         leaseVersion: 1,
         leaseExpiresAt: new Date(
           (at ?? new Date('2026-09-22T10:00:00.000Z')).getTime() + 10 * 60_000,
@@ -112,13 +112,13 @@ export async function createLinePersistenceFixture() {
   }
 
   /**
-   * S2.6b (#403): reservation ที่ Governance อนุมัติแล้วแต่ยังไม่มี delivery ผูก — ปลายทางของ
-   * `LineDeliveryEnqueue` ซึ่งต้อง claim ผ่าน Governance เอง
+   * S2.6b (#403): a reservation Governance already approved but with no delivery bound yet — the target of
+   * `LineDeliveryEnqueue`, which must claim through Governance itself
    */
   async function seedReservation(
     tenantId: string,
     at = new Date(),
-    /** #567: actionKey ที่ผู้เรียกกำหนด (trial ใช้ `s2-trial-<sendId>`) */
+    /** #567: actionKey set by the caller (trial uses `s2-trial-<sendId>`) */
     fixedActionKey?: string,
   ) {
     sequence += 1;
@@ -141,7 +141,7 @@ export async function createLinePersistenceFixture() {
     return { tenantId, reservationId, actionKey, contactId: contactIds.get(tenantId)! };
   }
 
-  /** Attempt ที่ Governance เขียนหลัง provider accepted — ใช้เป็นปลายทางของ Touch correlation */
+  /** The Attempt Governance writes after the provider accepted — used as the target of Touch correlation */
   async function seedAcceptedAttempt(delivery: Awaited<ReturnType<typeof seedDelivery>>) {
     const id = randomUUID();
     await owner.cgAttempt.create({
@@ -175,18 +175,18 @@ export async function createLinePersistenceFixture() {
 
   const control = new LineControlRepository(application);
 
-  /** gate + allowlist + credential + run authorization ที่อนุมัติครบ พร้อม consume */
+  /** gate + allowlist + credential + run authorization fully approved, with consume */
   async function seedApprovedRun(
     tenantId: string,
     label = 'run',
-    /** S2.4 ผูก allowlist กับ digest ของ fixture จริง จึงเปิดให้ override ได้แบบ additive */
+    /** S2.4 binds the allowlist to the digest of the real fixture, so it can be overridden additively */
     overrides: {
       contentRef?: string;
       contentDigest?: string;
       configDigest?: string;
-      /** run มี TTL 30 นาที — เทสต์ที่ใช้เวลาปัจจุบันต้องเสนอ run ที่เวลานั้นด้วย */
+      /** a run has a 30-minute TTL — a test using the current time must propose the run at that time too */
       proposedAt?: Date;
-      /** S2.6b: recipient ที่ fingerprint ตรงผู้ส่ง webhook และ ref ของ Keychain */
+      /** S2.6b: a recipient whose fingerprint matches the webhook sender and the Keychain ref */
       recipientFingerprint?: string;
       recipientProtectedRef?: string;
     } = {},
@@ -248,7 +248,7 @@ export async function createLinePersistenceFixture() {
     return { gate, allowlist, credential, run: approved!, proposedAt };
   }
 
-  /** SQL ในฐานะ application role ภายใต้ tenant context — ใช้พิสูจน์ grant/trigger/RLS */
+  /** SQL as the application role under a tenant context — used to prove grant/trigger/RLS */
   function asApplication(tenantId: string, sql: string) {
     return withTenantDatabaseTransaction(application, tenantId, (transaction) =>
       transaction.$executeRawUnsafe(sql),
@@ -276,7 +276,7 @@ export async function createLinePersistenceFixture() {
     async dispose() {
       for (const tenantId of tenantIds) {
         const where = { where: { tenantId } };
-        // #567: trial send อ้าง inbox/run จึงต้องลบก่อน
+        // #567: a trial send references an inbox/run so it must be deleted first
         await owner.dlLineTrialSend.deleteMany(where);
         await owner.dlLineTouchCorrelation.deleteMany(where);
         await owner.dlLineInboundMessage.deleteMany(where);
@@ -290,7 +290,7 @@ export async function createLinePersistenceFixture() {
         await owner.dlLineScopeGate.deleteMany(where);
         await owner.dlLineAuditEvent.deleteMany(where);
         await owner.dlProviderSubmissionAttempt.deleteMany(where);
-        // S2.4 เรียก CG command จริงจึงมี receipt ผูกกับ reservation ต้องล้างก่อน
+        // S2.4 calls the real CG command so there is a receipt bound to the reservation that must be cleared first
         await owner.cgReservationCommandReceipt.deleteMany(where);
         await owner.cgTouch.deleteMany(where);
         await owner.cgAttempt.deleteMany(where);

@@ -18,7 +18,7 @@ function source(values: Record<string, string>) {
   };
 }
 
-test('S2-LINE webhook secrets: ค่าเริ่มต้น disabled สุ่มในหน่วยความจำทุกครั้งและไม่แตะ Keychain', async () => {
+test('S2-LINE webhook secrets: the default disabled randomizes in memory every time and does not touch the Keychain', async () => {
   const keychain = source({});
   const first = await resolveLineWebhookSecrets({
     mode: undefined,
@@ -36,7 +36,7 @@ test('S2-LINE webhook secrets: ค่าเริ่มต้น disabled สุ
   assert.equal(keychain.reads.length, 0);
 });
 
-test('S2-LINE webhook secrets: keychain อ่าน secret/payload key จาก service ของ channel', async () => {
+test('S2-LINE webhook secrets: keychain reads the secret/payload key from the channel service', async () => {
   const key = Buffer.alloc(32, 7).toString('base64');
   const keychain = source({
     'channel-secret': 'synthetic-channel-secret',
@@ -55,7 +55,7 @@ test('S2-LINE webhook secrets: keychain อ่าน secret/payload key จา�
   );
 });
 
-test('S2-LINE webhook secrets: โหมดแปลก, Keychain ไม่มีค่า หรือ key ผิดขนาด = fail closed', async () => {
+test('S2-LINE webhook secrets: an odd mode, a Keychain with no value or a wrong-size key = fail closed', async () => {
   const code = async (mode: string, values: Record<string, string>) => {
     try {
       await resolveLineWebhookSecrets({ mode, channelAccountId: CHANNEL, source: source(values) });

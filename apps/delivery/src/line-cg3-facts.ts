@@ -1,10 +1,10 @@
 /**
- * Owner: Delivery/Channels — mutable CG3 fact registry ของ LINE simulation (S1.6)
+ * Owner: Delivery/Channels — mutable CG3 fact registry of the LINE simulation (S1.6)
  *
- * ห่อ `evaluateCg3Policy` (pure function ของ Contact Governance, #106) ด้วย facts ที่
- * test เปลี่ยนได้ระหว่าง scenario เพื่อจำลอง realtime opt-out/quiet-hours mid-flight
- * โดยไม่แตะ database หรือ import service ของ Contact Governance โดยตรง — เรียกเฉพาะ
- * evaluator ที่เป็น pure function ตามสัญญาข้าม domain ของ #98
+ * Wraps `evaluateCg3Policy` (a pure function of Contact Governance, #106) with facts that a
+ * test can change during a scenario to simulate realtime opt-out/quiet-hours mid-flight,
+ * without touching the database or importing a Contact Governance service directly — it calls only the
+ * evaluator that is a pure function, per the cross-domain contract of #98.
  */
 import {
   evaluateCg3Policy,
@@ -27,8 +27,8 @@ export interface LineCg3ScopeFacts {
 }
 
 /**
- * key เป็น (tenantId, identityId) เท่านั้น — S1.6 pilot ผูก contact เดียวต่อ identity
- * ในทุก scenario ตาม #100 (ไม่มีหลาย identity ต่อ pilot tenant)
+ * The key is (tenantId, identityId) only — the S1.6 pilot binds one contact per identity
+ * in every scenario per #100 (no multiple identities per pilot tenant)
  */
 export class LineCg3FactsRegistry {
   private readonly facts = new Map<string, LineCg3ScopeFacts>();
@@ -41,7 +41,7 @@ export class LineCg3FactsRegistry {
     this.facts.set(this.key(tenantId, facts.identityId), structuredClone(facts));
   }
 
-  /** ใช้จำลอง realtime opt-out/quiet-hours transition ระหว่างงานยัง queued/claimed */
+  /** Used to simulate a realtime opt-out/quiet-hours transition while a job is still queued/claimed */
   mutate(
     tenantId: string,
     identityId: string | undefined,
@@ -49,14 +49,14 @@ export class LineCg3FactsRegistry {
   ): void {
     const key = this.key(tenantId, identityId);
     const current = this.facts.get(key);
-    if (!current) throw new Error(`ไม่มี CG3 facts ของ tenant/identity นี้: ${key}`);
+    if (!current) throw new Error(`no CG3 facts for this tenant/identity: ${key}`);
     this.facts.set(key, { ...current, ...structuredClone(patch) });
   }
 
   evaluate(tenantId: string, identityId: string | undefined, now: Date): Cg3GateOutcome {
     const facts = this.facts.get(this.key(tenantId, identityId));
     if (!facts)
-      throw new Error(`ไม่มี CG3 facts ของ tenant/identity นี้: ${this.key(tenantId, identityId)}`);
+      throw new Error(`no CG3 facts for this tenant/identity: ${this.key(tenantId, identityId)}`);
     return evaluateCg3Policy({
       now,
       identityId: facts.identityId,
@@ -74,7 +74,7 @@ export class LineCg3FactsRegistry {
   }
 }
 
-/** fixture เริ่มต้น: ไม่มี preference/policy/callback ใด ๆ ผ่านทุก gate เป็น ALLOW เสมอ */
+/** Starting fixture: no preference/policy/callback at all, passes every gate as ALLOW always */
 export function allowAllFacts(senderIdentityId: string, identityId?: string): LineCg3ScopeFacts {
   return { identityId, senderIdentityId, preferences: [] };
 }

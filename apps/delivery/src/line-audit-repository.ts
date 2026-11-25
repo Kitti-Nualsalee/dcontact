@@ -1,8 +1,8 @@
 /**
- * Owner: Delivery/Channels — append-only audit ของ LINE control plane (S2.1 #365, #358 §H)
+ * Owner: Delivery/Channels — append-only audit of the LINE control plane (S2.1 #365, #358 §H)
  *
- * eventId คงที่ต่อการกระทำเดิม: เขียนซ้ำด้วยเนื้อหาเดิมคืนแถวเดิม เนื้อหาต่างเป็น conflict
- * เก็บได้เฉพาะ machine code, opaque actor/subject ref และ digest — ไม่มีช่อง free-form
+ * eventId stays constant per action: writing again with the same content returns the original row, different content is a conflict.
+ * Can hold only a machine code, opaque actor/subject ref and digest — there is no free-form field
  */
 import {
   type DlLineActorKind,

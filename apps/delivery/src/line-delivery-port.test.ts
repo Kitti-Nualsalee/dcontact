@@ -1,6 +1,6 @@
 /**
- * S1.6 acceptance: S1-LINE-SIM01/02 บน `LineDeliveryPort` — deterministic lifecycle,
- * binding, caps, tenant isolation และ kill ดูสัญญาที่ #102 §2-§6
+ * S1.6 acceptance: S1-LINE-SIM01/02 on `LineDeliveryPort` — deterministic lifecycle,
+ * binding, caps, tenant isolation and kill; see the contract in #102 §2-§6
  */
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -233,7 +233,7 @@ test('out-of-order callbacks scheduled later-first are still applied by virtual 
   const startMs = harness.clock.nowMs();
   harness.port.scheduleCallback(command.tenantId, id, 'ACCEPTED', startMs + 2_000, 'later');
   const first = await harness.port.runNext('corr-1');
-  assert.equal(first, undefined, 'ยังไม่ถึงเวลา due ตาม virtual clock');
+  assert.equal(first, undefined, 'the due time per the virtual clock has not arrived');
 
   harness.clock.advanceTo(startMs + 5_000);
   const applied = await harness.port.runNext('corr-1');
@@ -349,7 +349,7 @@ test('per-window submission cap blocks the 21st submission in the same window', 
     const { deliveryId: id } = queued as { deliveryId: DeliveryId };
     harness.port.claim(command.tenantId, id);
     const submitted = await harness.port.submit(command.tenantId, id, 'corr-cap');
-    assert.equal(submitted.status, 'AWAITING_CALLBACK', `submission ${i} ควรผ่าน cap`);
+    assert.equal(submitted.status, 'AWAITING_CALLBACK', `submission ${i} should pass the cap`);
     await harness.port.deliverCallback(
       command.tenantId,
       id,
@@ -489,7 +489,11 @@ test('CG3 mutation to BLOCK cancels a pre-barrier delivery and never resurrects 
 
   harness.cg3.mutate(command.tenantId, command.identityId, { preferences: [] });
   const replay = await harness.port.applyCg3Mutation(command.tenantId, id, 'corr-cg3', harness.cg3);
-  assert.equal(replay.state, 'CANCELLED', 'ผ่อนกฎแล้ว replay ห้าม resurrect งานที่ cancel ไปแล้ว');
+  assert.equal(
+    replay.state,
+    'CANCELLED',
+    'after the rules are relaxed, a replay must not resurrect a job that was cancelled',
+  );
 });
 
 test('CG3 mutation to BLOCK after the barrier reconciles instead of releasing', async () => {

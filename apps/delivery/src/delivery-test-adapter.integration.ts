@@ -1,9 +1,9 @@
 /**
- * C1.3 acceptance: adapter จริงที่ต่อ Postgres และ ContactGovernanceService ตัวจริง
+ * C1.3 acceptance: the real adapter backed by Postgres and the real ContactGovernanceService.
  *
- * `@d-contact/contact-governance` เป็น devDependency เท่านั้น — production code ของ
- * app นี้รู้จักแค่ `ContactGovernancePort` ส่วน test เป็น composition root ที่ประกอบ
- * ของจริงสองฝั่งเข้าด้วยกันเพื่อพิสูจน์ boundary ไม่ใช่เพื่อยืมโค้ดข้าม app
+ * `@d-contact/contact-governance` is a devDependency only: production code in
+ * this app knows only `ContactGovernancePort`, while the test is the composition root that wires
+ * the two real sides together to prove the boundary, not to borrow code across apps.
  */
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -37,7 +37,7 @@ test('enqueue persists a durable outbox row before returning QUEUED', async (t) 
   const queued = await enqueued(context);
 
   const row = await context.outboxRow(queued.deliveryId);
-  assert.ok(row, 'outbox row ต้องถูก persist แล้ว');
+  assert.ok(row, 'the outbox row must be persisted');
   assert.equal(row.state, 'QUEUED');
   assert.equal(row.adapter, 'TEST_ADAPTER');
   assert.equal(row.providerRequestKey, queued.providerRequestKey);
@@ -46,7 +46,7 @@ test('enqueue persists a durable outbox row before returning QUEUED', async (t) 
   const reservation = await context.reservationRow(row.reservationId);
   assert.equal(reservation?.settlementStatus, 'CLAIMED');
   assert.equal(reservation?.deliveryId, queued.deliveryId);
-  assert.equal(context.transport.requests.length, 0, 'enqueue ต้องไม่แตะ transport');
+  assert.equal(context.transport.requests.length, 0, 'enqueue must not touch the transport');
 });
 
 test('a failed claim leaves no outbox row behind', async (t) => {
@@ -81,11 +81,11 @@ test('same actionKey with different input never opens a second delivery', async 
 test('an enqueue retried after a crash before persistence keeps the same delivery id', async (t) => {
   const context = await fixture(t);
   const queued = await enqueued(context);
-  // จำลอง crash หลัง claim แต่ก่อน insert: reservation ถูก claim ไปแล้ว แต่ outbox ว่าง
+  // Simulate a crash after claim but before insert: the reservation is already claimed but the outbox is empty
   await context.owner.dlOutboxEntry.deleteMany({ where: { tenantId: context.rawTenantId } });
 
   const retried = await context.delivery.enqueue(context.command);
-  assert.deepEqual(retried, queued, 'retry ต้อง mint ค่าเดิมและ replay claim เดิม');
+  assert.deepEqual(retried, queued, 'retry must mint the same values and replay the same claim');
   assert.equal(await context.outboxCount(), 1);
 });
 
@@ -98,7 +98,7 @@ test('submit crosses the durable barrier before touching transport', async (t) =
   assert.equal(context.transport.submissionsFor(queued.providerRequestKey), 1);
   const row = await context.outboxRow(queued.deliveryId);
   assert.equal(row?.state, 'SUBMITTED');
-  assert.ok(row?.submittedAt, 'submittedAt ต้องถูกบันทึกก่อนเรียก transport');
+  assert.ok(row?.submittedAt, 'submittedAt must be recorded before calling the transport');
   const reservation = await context.reservationRow(row!.reservationId);
   assert.equal(reservation?.settlementStatus, 'ACCEPTED');
   assert.equal(reservation?.providerRequestKey, queued.providerRequestKey);
@@ -108,7 +108,7 @@ test('a delivery stuck in SUBMITTING is reconciled, never resubmitted', async (t
   const context = await fixture(t);
   const queued = await enqueued(context);
   await submitted(context, queued.deliveryId);
-  // จำลอง crash ระหว่างรอผล: แถวค้างที่สถานะ "อาจส่งไปแล้ว"
+  // Simulate a crash while awaiting the result: the row stays in the "may have been sent" state
   await context.owner.dlOutboxEntry.updateMany({
     where: { tenantId: context.rawTenantId, deliveryId: queued.deliveryId },
     data: { state: 'SUBMITTING' },
@@ -120,7 +120,11 @@ test('a delivery stuck in SUBMITTING is reconciled, never resubmitted', async (t
     correlationId: 'corr-retry',
   });
   assert.equal(retry.status, 'RECONCILE_REQUIRED');
-  assert.equal(context.transport.submissionsFor(queued.providerRequestKey), 1, 'ห้ามส่งซ้ำ');
+  assert.equal(
+    context.transport.submissionsFor(queued.providerRequestKey),
+    1,
+    'must not send twice',
+  );
 });
 
 test('provider timeout reconciles instead of releasing the reservation', async (t) => {
@@ -132,9 +136,9 @@ test('provider timeout reconciles instead of releasing the reservation', async (
   const row = await context.outboxRow(queued.deliveryId);
   assert.equal(row?.state, 'RECONCILING');
   const reservation = await context.reservationRow(row!.reservationId);
-  assert.equal(reservation?.state, 'RESERVED', 'หลัง barrier ห้าม release');
+  assert.equal(reservation?.state, 'RESERVED', 'must not release after the barrier');
   assert.equal(reservation?.settlementStatus, 'UNKNOWN_RECONCILING');
-  assert.equal(await context.attemptCount(), 0, 'reconcile ยังไม่ใช่ terminal outcome');
+  assert.equal(await context.attemptCount(), 0, 'reconcile is not a terminal outcome yet');
 });
 
 test('provider rejection settles once through Governance', async (t) => {
@@ -170,7 +174,7 @@ test('a delivered outcome records exactly one Attempt and one Touch', async (t) 
   assert.equal(settled.outcome, 'DELIVERED');
 
   const replay = await context.delivery.recordOutcome(outcome);
-  assert.deepEqual(replay, settled, 'duplicate outcome ต้องคืน snapshot เดิม');
+  assert.deepEqual(replay, settled, 'a duplicate outcome must return the same snapshot');
 
   assert.equal(await context.attemptCount(), 1);
   assert.equal(await context.touchCount(), 1);
@@ -197,7 +201,7 @@ test('a late second outcome never re-settles or adds facts', async (t) => {
     outcomeRef: `ocr-late-${queued.providerRequestKey}`,
   });
 
-  assert.equal(late.outcome, 'DELIVERED', 'terminal outcome แรกชนะ');
+  assert.equal(late.outcome, 'DELIVERED', 'the first terminal outcome wins');
   assert.deepEqual(late, first);
   assert.equal(await context.attemptCount(), 1);
   assert.equal(await context.touchCount(), 1);
@@ -207,7 +211,7 @@ test('expired leases past the barrier are reconciled without resubmitting', asyn
   const context = await fixture(t, [{ status: 'TIMEOUT' }]);
   const queued = await enqueued(context);
   await submitted(context, queued.deliveryId);
-  // จำลอง crash หลัง barrier ก่อนบันทึกผล: แถวค้างอยู่ที่ SUBMITTING จนกว่า lease จะหมด
+  // Simulate a crash after the barrier but before the result is recorded: the row stays at SUBMITTING until the lease expires
   await context.owner.dlOutboxEntry.updateMany({
     where: { tenantId: context.rawTenantId, deliveryId: queued.deliveryId },
     data: { state: 'SUBMITTING' },
@@ -222,7 +226,7 @@ test('expired leases past the barrier are reconciled without resubmitting', asyn
   const row = await context.outboxRow(queued.deliveryId);
   const reservation = await context.reservationRow(row!.reservationId);
   assert.equal(reservation?.settlementStatus, 'UNKNOWN_RECONCILING');
-  assert.equal(reservation?.state, 'RESERVED', 'sweeper ห้าม release หรือ refund');
+  assert.equal(reservation?.state, 'RESERVED', 'the sweeper must not release or refund');
 });
 
 test('running the reconcile sweeper twice is a replay, not a second settlement', async (t) => {
@@ -236,8 +240,8 @@ test('running the reconcile sweeper twice is a replay, not a second settlement',
 
   context.advance(30 * 60_000);
   await context.delivery.reconcileExpired(context.rawTenantId, 'corr-sweeper-1');
-  // crash อีกครั้งหลัง sweeper รอบแรก: แถวกลับมาเข้าเงื่อนไข sweeper อีกหน และรอบสอง
-  // ต้องไม่ชน IDEMPOTENCY_CONFLICT แม้นาฬิกาจะเดินไปไกลแล้ว
+  // Crash again after the first sweeper pass: the row meets the sweeper condition once more, and the second pass
+  // must not hit IDEMPOTENCY_CONFLICT even though the clock has advanced a long way
   await context.owner.dlOutboxEntry.updateMany({
     where: { tenantId: context.rawTenantId, deliveryId: queued.deliveryId },
     data: { state: 'SUBMITTING' },
@@ -258,14 +262,18 @@ test('a lease that expires after the provider accepted stays ACCEPTED in Governa
   context.advance(30 * 60_000);
 
   const evidence = await context.delivery.reconcileExpired(context.rawTenantId, 'corr-sweeper');
-  assert.equal(evidence[0]?.state, 'RECONCILING', 'ฝั่ง outbox ยังไม่รู้ผลจึงต้อง reconcile');
+  assert.equal(
+    evidence[0]?.state,
+    'RECONCILING',
+    'the outbox side does not know the outcome yet so it must reconcile',
+  );
 
   const row = await context.outboxRow(queued.deliveryId);
   const reservation = await context.reservationRow(row!.reservationId);
   assert.equal(
     reservation?.settlementStatus,
     'ACCEPTED',
-    'provider รับงานไปแล้ว lease หมดทีหลังห้ามถอย reservation กลับเป็น UNKNOWN',
+    'the provider accepted the job; a lease that expires later must not roll the reservation back to UNKNOWN',
   );
 });
 
@@ -277,7 +285,7 @@ test('evidence for a live delivery stays inside the PII allowlist', async (t) =>
 
   assert.equal(evidence.deliveryId, queued.deliveryId);
   for (const secret of [context.command.contentRef, context.command.senderIdentityId]) {
-    assert.equal(serialized.includes(secret), false, `evidence ยังมี ${secret}`);
+    assert.equal(serialized.includes(secret), false, `evidence still contains ${secret}`);
   }
 });
 
@@ -285,17 +293,17 @@ test('reading the outbox without a tenant context fails closed', async (t) => {
   const context = await fixture(t);
   const queued = await enqueued(context);
 
-  // นอก withTenantDatabaseTransaction จะไม่มี app.tenant_id ให้ policy ใช้ ซึ่งจบได้สองแบบ
-  // ขึ้นกับว่า connection ที่ pool หยิบมาเคยรัน tenant transaction มาก่อนหรือยัง:
+  // Outside withTenantDatabaseTransaction there is no app.tenant_id for the policy to use, which ends one of two ways
+  // depending on whether the connection the pool picked up has run a tenant transaction before:
   //
-  //   connection ใหม่เอี่ยม      -> current_setting(...) = NULL -> policy เป็น NULL -> คืน 0 แถว
-  //   เคยผ่าน transaction แล้ว   -> set_config(..., true) ย้อนกลับเป็น '' -> ''::uuid พังทั้ง statement
+  //   brand-new connection       -> current_setting(...) = NULL -> policy is NULL -> returns 0 rows
+  //   already ran a transaction  -> set_config(..., true) reverts to '' -> ''::uuid fails the whole statement
   //
-  // เดิม test นี้ assert เฉพาะกรณีหลัง จึงผ่านบนเครื่อง dev ที่ pool อุ่นแล้ว แต่ fail บน CI
-  // ที่ DB สร้างใหม่ — และที่สำคัญกว่าคือมันไปผูกกับผลข้างเคียงของการ cast '' แทนที่จะตรวจ
-  // คุณสมบัติความปลอดภัยจริง ซึ่งคือ "ไม่มีแถวของ tenant ไหนรั่วออกมา" และเป็นจริงทั้งสองแบบ
+  // This test used to assert only the latter case, so it passed on a dev machine with a warm pool but failed on CI
+  // with a freshly created DB, and more importantly it was tied to the side effect of casting '' instead of checking
+  // the real safety property, which is "no row of any tenant leaks out" and holds in both cases
   const leaked = await context.application.dlOutboxEntry
     .findMany({ where: { deliveryId: queued.deliveryId } })
     .catch(() => []);
-  assert.deepEqual(leaked, [], 'RLS ต้องไม่ปล่อยแถวออกมาเมื่อไม่มี tenant context');
+  assert.deepEqual(leaked, [], 'RLS must not release rows when there is no tenant context');
 });

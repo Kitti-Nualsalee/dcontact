@@ -17,7 +17,7 @@ function fakeFetch(respond: (call: Call) => Response) {
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
-test('S2-LINE-PR01 verifyToken คืน client_id และอายุที่เหลือ', async () => {
+test('S2-LINE-PR01 verifyToken returns client_id and the remaining lifetime', async () => {
   const { fetchImpl } = fakeFetch(() => json({ client_id: '2007056595', expires_in: 3600 }));
   const transport = new HttpLineProviderTransport('https://line.test', 1_000, fetchImpl);
   assert.deepEqual(await transport.verifyToken('t'), {
@@ -27,7 +27,7 @@ test('S2-LINE-PR01 verifyToken คืน client_id และอายุที�
   });
 });
 
-test('S2-LINE-PR01 webhook endpoint/test อ่านเฉพาะ field ที่รู้จัก และ HTTP error = ไม่ผ่าน', async () => {
+test('S2-LINE-PR01 webhook endpoint/test reads only known fields, and an HTTP error = fail', async () => {
   const ok = fakeFetch((call) =>
     call.url.endsWith('/test')
       ? json({ success: true, statusCode: 200, reason: 'OK', detail: 'ignored' })
@@ -54,7 +54,7 @@ test('S2-LINE-PR01 webhook endpoint/test อ่านเฉพาะ field ท�
   );
 });
 
-test('S2-LINE-RB01 revokeToken: v2.1 ใช้ client credentials, long-lived ใช้ token เดียว, network error = ไม่ revoke', async () => {
+test('S2-LINE-RB01 revokeToken: v2.1 uses client credentials, long-lived uses the token alone, a network error = not revoked', async () => {
   const { calls, fetchImpl } = fakeFetch(() => new Response(null, { status: 200 }));
   const transport = new HttpLineProviderTransport('https://line.test', 1_000, fetchImpl);
   assert.deepEqual(

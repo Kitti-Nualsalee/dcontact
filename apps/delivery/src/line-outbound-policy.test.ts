@@ -23,7 +23,7 @@ const accepted = (overrides = {}) => ({
   response: { httpStatus: 200, requestId: 'req-1', sentMessageIds: ['461230'], ...overrides },
 });
 
-test('S2-LINE-F01 ตาราง #357 §3: 2xx และ 409+accepted id เท่านั้นที่เป็น accepted', () => {
+test('S2-LINE-F01 table #357 §3: only 2xx and 409+accepted id are accepted', () => {
   assert.deepEqual(classifyLineResponse(accepted()), {
     outcomeCode: 'LINE_ACCEPTED',
     accepted: true,
@@ -36,20 +36,20 @@ test('S2-LINE-F01 ตาราง #357 §3: 2xx และ 409+accepted id เท
     }),
     { outcomeCode: 'LINE_ACCEPTED_REPLAY', accepted: true, reconcile: false },
   );
-  // 2xx ที่ไม่มี sentMessages ผิด contract — ห้ามเดาว่าส่งสำเร็จ
+  // a 2xx without sentMessages violates the contract — never guess it succeeded
   assert.deepEqual(classifyLineResponse(accepted({ sentMessageIds: undefined })), {
     outcomeCode: 'LINE_RESPONSE_INVALID',
     accepted: false,
     reconcile: true,
   });
-  // 409 ที่ไม่มี accepted request id ก็เช่นกัน
+  // likewise a 409 without an accepted request id
   assert.equal(
     classifyLineResponse({ kind: 'RESPONSE', response: { httpStatus: 409 } }).outcomeCode,
     'LINE_RESPONSE_INVALID',
   );
 });
 
-test('S2-LINE-F01 4xx เป็น terminal และแยก scope ถูกต้อง ส่วน 5xx/timeout เป็น unknown', () => {
+test('S2-LINE-F01 4xx is terminal and separates scope correctly while 5xx/timeout is unknown', () => {
   const cases: Array<[number, string, string | undefined, boolean]> = [
     [400, 'LINE_REQUEST_REJECTED', 'RECIPIENT', false],
     [404, 'LINE_REQUEST_REJECTED', 'RECIPIENT', false],
@@ -85,7 +85,7 @@ test('S2-LINE-F01 4xx เป็น terminal และแยก scope ถูก�
   }
 });
 
-test('S2-LINE-F02 acceptance = Attempt 1 / Touch 0 / refund 0 และ operational rejection ไม่นับ Attempt', () => {
+test('S2-LINE-F02 acceptance = Attempt 1 / Touch 0 / refund 0 and an operational rejection does not count an Attempt', () => {
   assert.deepEqual(lineProviderSettlement('LINE_ACCEPTED'), {
     countsAsAttempt: true,
     countsAsSuccessfulTouch: false,
@@ -99,22 +99,26 @@ test('S2-LINE-F02 acceptance = Attempt 1 / Touch 0 / refund 0 และ operatio
   assert.equal(lineProviderSettlement('LINE_REQUEST_REJECTED', 'RECIPIENT').countsAsAttempt, true);
   assert.equal(lineProviderSettlement('LINE_AUTH_INVALID', 'OPERATIONAL').countsAsAttempt, false);
   assert.equal(lineProviderSettlement('LINE_RATE_LIMITED', 'OPERATIONAL').countsAsAttempt, false);
-  // unknown ยังไม่ terminal จึงไม่แปลงเป็น failure
+  // unknown is not terminal so it is not converted into a failure
   assert.equal(lineNormalizedOutcome('LINE_UNKNOWN_OUTCOME'), 'UNKNOWN_RECONCILING');
   assert.equal(lineNormalizedOutcome('LINE_RETRY_WINDOW_EXPIRED'), 'UNKNOWN_RECONCILING');
   assert.equal(LINE_PROVIDER_OUTCOME_CLASS.LINE_RETRY_WINDOW_EXPIRED, 'QUARANTINED');
 });
 
-test('S2-LINE-ID01 retry key เป็น hex UUID ที่ deterministic ต่อ delivery เดิม', () => {
+test('S2-LINE-ID01 the retry key is a hex UUID that is deterministic per the same delivery', () => {
   const key = deriveLineRetryKey('tenant-a', 'dlv-1');
   assert.ok(isLineRetryKey(key), key);
-  assert.equal(key, deriveLineRetryKey('tenant-a', 'dlv-1'), 'restart แล้วต้องได้ค่าเดิม');
+  assert.equal(
+    key,
+    deriveLineRetryKey('tenant-a', 'dlv-1'),
+    'after restart must get the same value',
+  );
   assert.notEqual(key, deriveLineRetryKey('tenant-a', 'dlv-2'));
   assert.notEqual(key, deriveLineRetryKey('tenant-b', 'dlv-1'));
-  assert.ok(!isLineRetryKey('line-prq_abc'), 'key รูปแบบเก่าใช้กับ LINE ไม่ได้');
+  assert.ok(!isLineRetryKey('line-prq_abc'), 'the old-format key cannot be used with LINE');
 });
 
-test('S2-LINE-ID01 canonical payload ผูกกับ fixture + ผู้รับ และไม่มี userId ใน digest input', () => {
+test('S2-LINE-ID01 the canonical payload is bound to the fixture + recipient and has no userId in the digest input', () => {
   const a = buildLineCanonicalRequest({
     contentRef: 'fixture:service-notification/v1',
     recipientFingerprint: 'a'.repeat(64),
@@ -137,11 +141,18 @@ test('S2-LINE-ID01 canonical payload ผูกกับ fixture + ผู้ร�
   );
 });
 
-test('S2-LINE-RC01 backoff มีเพดานและ window ปิดก่อน 24 ชั่วโมงของ LINE', () => {
+test("S2-LINE-RC01 backoff has a ceiling and the window closes before LINE's 24 hours", () => {
   const delays = [1, 2, 3, 4].map((attemptNo) => lineBackoffMs(attemptNo));
   assert.deepEqual(delays, [30_000, 60_000, 120_000, 240_000]);
-  assert.equal(lineBackoffMs(20), 15 * 60_000, 'ต้องมีเพดานเพราะทุก retry นับ rate limit');
-  assert.ok(LINE_RETRY_WINDOW_MS < 24 * 60 * 60 * 1000, 'ต้องหยุดก่อนเส้น 24 ชม. ของ LINE');
+  assert.equal(
+    lineBackoffMs(20),
+    15 * 60_000,
+    'a ceiling is required because every retry counts toward the rate limit',
+  );
+  assert.ok(
+    LINE_RETRY_WINDOW_MS < 24 * 60 * 60 * 1000,
+    'must stop before the 24-hour line of LINE',
+  );
 
   const first = new Date('2026-09-23T00:00:00.000Z');
   assert.equal(lineRetryWindowExpired(first, new Date('2026-09-23T22:00:00.000Z')), false);

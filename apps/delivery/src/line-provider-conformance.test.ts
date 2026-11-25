@@ -20,7 +20,7 @@ const TOKEN = 'synthetic-conformance-token-value';
 const ENDPOINT = 'https://pilot.example.test/webhook/line';
 const NOW = new Date('2026-09-23T10:00:00.000Z');
 
-/** provider double ของ PR01: บันทึกทุก call และไม่มี push ที่ใช้ได้ */
+/** PR01 provider double: records every call and has no usable push */
 class ConformanceDouble implements LineProviderTransport {
   readonly calls: string[] = [];
   clientId = LINE_PILOT_CHANNEL_ACCOUNT_ID;
@@ -47,7 +47,7 @@ class ConformanceDouble implements LineProviderTransport {
   }
   async push(): Promise<LineTransportResult> {
     this.calls.push('push');
-    throw new Error('PR01 ต้องไม่ push');
+    throw new Error('PR01 must not push');
   }
   async getWebhookEndpoint() {
     this.calls.push('endpoint');
@@ -101,7 +101,7 @@ function input(
 const failed = (evidence: { steps: Array<{ id: string; status: string; code?: string }> }) =>
   evidence.steps.filter((step) => step.status === 'FAIL').map((step) => `${step.id}:${step.code}`);
 
-test('S2-LINE-PR01: account พร้อมครบ = PASS ทุก step โดยไม่มี push และไม่มีค่า token ใน evidence', async () => {
+test('S2-LINE-PR01: a fully ready account = PASS on every step with no push and no token value in the evidence', async () => {
   const transport = new ConformanceDouble();
   const request = input(transport);
   const evidence = await runLineProviderConformance(request);
@@ -117,18 +117,18 @@ test('S2-LINE-PR01: account พร้อมครบ = PASS ทุก step โ�
   assert.ok(!serialized.includes(TOKEN));
   assert.ok(!serialized.includes(LINE_PILOT_CHANNEL_ACCOUNT_ID));
   assert.ok(!serialized.includes(ENDPOINT));
-  assert.ok(!serialized.includes('แจ้งเตือน'));
+  assert.ok(!serialized.includes('แจ้งเตือน')); // allow-thai: asserts the Thai fixture message body is absent from evidence
   assert.equal(transport.calls[0], 'verify:true');
 });
 
-test('S2-LINE-PR01: token ใช้ได้ครั้งเดียว — handle ถูก consume หลัง PR01', async () => {
+test('S2-LINE-PR01: the token is single-use — the handle is consumed after PR01', async () => {
   const request = input(new ConformanceDouble());
   await runLineProviderConformance(request);
   assert.equal(request.accessToken.consumed, true);
   await assert.rejects(() => runLineProviderConformance(request));
 });
 
-test('S2-LINE-PR01: client_id ไม่ตรง Channel ID ของ pilot = FAIL', async () => {
+test('S2-LINE-PR01: client_id not matching the pilot Channel ID = FAIL', async () => {
   const transport = new ConformanceDouble();
   transport.clientId = '1234567890';
   const evidence = await runLineProviderConformance(input(transport));
@@ -137,7 +137,7 @@ test('S2-LINE-PR01: client_id ไม่ตรง Channel ID ของ pilot = FA
   assert.equal(evidence.token.clientIdMatches, false);
 });
 
-test('S2-LINE-PR01: quota ที่เหลือไม่พอหรืออ่านไม่ได้ = fail closed', async () => {
+test('S2-LINE-PR01: insufficient remaining quota or unreadable quota = fail closed', async () => {
   const exhausted = new ConformanceDouble();
   exhausted.usage = 200;
   assert.deepEqual(failed(await runLineProviderConformance(input(exhausted))), [
@@ -150,7 +150,7 @@ test('S2-LINE-PR01: quota ที่เหลือไม่พอหรืออ
   ]);
 });
 
-test('S2-LINE-PR01: endpoint ที่ LINE ตั้งไว้ไม่ตรง digest ที่อนุมัติ = ไม่ probe URL นั้นเลย', async () => {
+test('S2-LINE-PR01: an endpoint set at LINE that does not match the approved digest = that URL is never probed', async () => {
   const transport = new ConformanceDouble();
   transport.endpoint = 'https://other.example.test/webhook/line';
   const request = input(transport);
@@ -162,7 +162,7 @@ test('S2-LINE-PR01: endpoint ที่ LINE ตั้งไว้ไม่ตร
   assert.deepEqual(request.probes, []);
 });
 
-test('S2-LINE-PR01: webhook test ไม่ได้ 200, signature ปลอมผ่าน หรือไม่มี signed message = FAIL', async () => {
+test('S2-LINE-PR01: a webhook test not 200, a forged signature that passes, or no signed message = FAIL', async () => {
   const transport = new ConformanceDouble();
   transport.webhookStatus = 500;
   const evidence = await runLineProviderConformance(
@@ -178,7 +178,7 @@ test('S2-LINE-PR01: webhook test ไม่ได้ 200, signature ปลอม�
   ]);
 });
 
-test('S2-LINE-PR01: provider call ที่ throw เป็น FAIL ของ step นั้น ไม่ใช่ข้ามไป', async () => {
+test('S2-LINE-PR01: a provider call that throws is a FAIL of that step, not skipped', async () => {
   const transport = new ConformanceDouble();
   transport.verifyToken = async () => {
     throw new Error(`network ${TOKEN}`);
@@ -188,7 +188,7 @@ test('S2-LINE-PR01: provider call ที่ throw เป็น FAIL ของ st
   assert.ok(!JSON.stringify(evidence).includes(TOKEN));
 });
 
-test('S2-LINE-PR01: v2.1 เกิน 30 วัน และ long-lived ไม่มี exception ไม่ผ่าน credential policy', async () => {
+test('S2-LINE-PR01: v2.1 over 30 days and long-lived without an exception fail the credential policy', async () => {
   const tooLong = await runLineProviderConformance(
     input(new ConformanceDouble(), {
       credential: credential({ expiresAt: new Date('2026-12-01T00:00:00.000Z') }),
@@ -208,7 +208,7 @@ test('S2-LINE-PR01: v2.1 เกิน 30 วัน และ long-lived ไม�
   ]);
 });
 
-test('S2-LINE-OB02: exact-value scan จับ secret จริงใน evidence โดยไม่บอกค่า', () => {
+test('S2-LINE-OB02: the exact-value scan catches a real secret in evidence without revealing the value', () => {
   assert.throws(
     () => assertNoSecretValue({ nested: [`x${TOKEN}y`] }, [TOKEN]),
     (error: Error) => error.message.includes('secret') && !error.message.includes(TOKEN),

@@ -1,8 +1,8 @@
 /**
- * #566 — รายการข้อความขาเข้าของ LINE pilot บน PostgreSQL/RLS จริง
+ * #566 — list of inbound messages of the LINE pilot on real PostgreSQL/RLS
  *
- * ingress (signature ถูก) → reader เห็นข้อความทันทีโดยไม่มี worker, redelivery event เดิมไม่ซ้ำ,
- * ไม่มี userId/replyToken/webhookEventId ดิบใน item และ audit หนึ่งแถวต่อการอ่านโดยไม่มีเนื้อหา
+ * ingress (valid signature) → the reader sees the message immediately without a worker, redelivery of the same event is not duplicated,
+ * no raw userId/replyToken/webhookEventId in an item, and one audit row per read with no content
  */
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
@@ -45,7 +45,7 @@ function request(events: unknown[]) {
   return { rawBody, signature: lineSignature(rawBody, SECRET), receivedAt: new Date() };
 }
 
-test('#566 reader: ข้อความจาก ingress เห็นทันที ไม่มี ID ดิบ redelivery ไม่ซ้ำ และ audit ทุกการอ่าน', async (t) => {
+test('#566 reader: a message from ingress is visible immediately, no raw IDs, redelivery is not duplicated, and every read is audited', async (t) => {
   const fixture = await createLinePersistenceFixture();
   t.after(() => fixture.dispose());
   const tenantId = fixture.tenantA;
@@ -59,7 +59,7 @@ test('#566 reader: ข้อความจาก ingress เห็นทัน�
   });
   const text = event(
     '01JW566TEXT001',
-    { id: '566000000001', type: 'text', text: 'ทดสอบรับ' },
+    { id: '566000000001', type: 'text', text: 'test receive' },
     1_790_000_000_001,
   );
   const sticker = event(
@@ -68,7 +68,7 @@ test('#566 reader: ข้อความจาก ingress เห็นทัน�
     1_790_000_000_002,
   );
   assert.equal((await ingress.handle(request([text, sticker]))).status, 200);
-  // redelivery ของ event เดิม
+  // redelivery of the same event
   assert.equal(
     (await ingress.handle(request([{ ...text, deliveryContext: { isRedelivery: true } }]))).status,
     200,
@@ -89,7 +89,7 @@ test('#566 reader: ข้อความจาก ingress เห็นทัน�
   assert.equal(page.quarantined, 0);
   assert.equal(page.nextCursor, null);
   const byType = Object.fromEntries(page.items.map((item) => [item.messageType, item]));
-  assert.equal(byType.text?.text, 'ทดสอบรับ');
+  assert.equal(byType.text?.text, 'test receive');
   assert.equal(byType.sticker?.text, null);
   assert.equal(byType.text?.senderFingerprint?.length, 12);
   const serialized = JSON.stringify(page);
@@ -97,7 +97,7 @@ test('#566 reader: ข้อความจาก ingress เห็นทัน�
     assert.ok(!serialized.includes(forbidden), forbidden);
   }
 
-  // หน้าละ 1 รายการ: cursor พาไปรายการถัดไปและหมดที่หน้า 2
+  // 1 item per page: the cursor leads to the next item and runs out at page 2
   const first = await reader.list({ actorRef, limit: 1 });
   assert.ok(first.nextCursor);
   const second = await reader.list({ actorRef, limit: 1, before: first.nextCursor! });
@@ -118,7 +118,7 @@ test('#566 reader: ข้อความจาก ingress เห็นทัน�
     assert.match(audit.evidenceDigest ?? '', /^[a-f0-9]{64}$/);
   }
 
-  // tenant อื่นไม่เห็นข้อมูลของ binding นี้ (RLS)
+  // another tenant cannot see this binding's data (RLS)
   const other = new LinePilotInboundReader(
     fixture.application,
     vault,

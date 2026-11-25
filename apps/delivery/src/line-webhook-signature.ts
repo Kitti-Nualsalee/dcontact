@@ -1,15 +1,15 @@
 /**
- * Owner: Delivery/Channels — raw-body security boundary ของ LINE webhook (S2.5 #369, #359 §B)
+ * Owner: Delivery/Channels — raw-body security boundary of the LINE webhook (S2.5 #369, #359 §B)
  *
- * ลำดับบังคับ: จำกัด method/size → อ่าน raw bytes ตามที่ได้รับ → HMAC-SHA256 ด้วย channel secret
- * → compare แบบ constant-time เท่านั้น จึงจะ decode/parse ได้
+ * Mandatory order: limit method/size → read the raw bytes as received → HMAC-SHA256 with the channel secret
+ * → compare in constant time only, and only then may it decode/parse
  *
- * ห้าม reserialize หรือ normalize body ก่อน verify เพราะ whitespace/emoji ทำให้ digest เปลี่ยน
- * และห้าม log signature หรือ body ในทุกกรณี — ฟังก์ชันที่นี่คืนแค่ boolean กับ code
+ * Never re-serialize or normalize the body before verify because whitespace/emoji change the digest,
+ * and never log the signature or body in any case — the functions here return only a boolean and a code
  */
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
-/** LINE ส่ง body ได้ถึงระดับ MB; ขนาดเกินนี้ปฏิเสธก่อนอ่านเพื่อไม่ให้ ingress เป็นช่องทางถล่ม memory */
+/** LINE can send a body up to MB scale; beyond this size it is rejected before reading so ingress is not a channel for flooding memory */
 export const LINE_WEBHOOK_MAX_BODY_BYTES = 1024 * 1024;
 
 export function lineSignature(rawBody: Buffer, channelSecret: string): string {
@@ -17,8 +17,8 @@ export function lineSignature(rawBody: Buffer, channelSecret: string): string {
 }
 
 /**
- * เทียบ signature แบบ constant-time — ความยาวต่างกันถือว่าไม่ตรงโดยไม่ leak ว่าต่างตรงไหน
- * และไม่โยน error เพื่อไม่ให้ timing ของ exception กลายเป็น oracle
+ * compare signatures in constant time — a different length counts as a mismatch without leaking where it differs
+ * and does not throw so that the timing of an exception does not become an oracle
  */
 export function verifyLineSignature(
   rawBody: Buffer,

@@ -1,8 +1,8 @@
 /**
- * Owner: Channels/Dialer — durable submission boundary ของ server originate (E1.18 #520).
+ * Owner: Channels/Dialer — durable submission boundary of the server originate (E1.18 #520).
  *
- * Dispatcher ไม่แตะ Kafka หรือ ESL โดยตรง: port ที่ inject เข้ามาเป็น transport boundary
- * เพื่อให้ `beginProviderSubmission` และ outbox `SUBMITTING` เกิดก่อน publish เสมอ.
+ * The dispatcher does not touch Kafka or ESL directly: the injected port is the transport boundary
+ * so that `beginProviderSubmission` and the outbox `SUBMITTING` always happen before publish.
  */
 import type { PrismaClient } from '@d-contact/db';
 import {
@@ -21,7 +21,7 @@ import {
 } from './voice-originate-repository.js';
 import type { VoiceRolloutAuthority } from './voice-rollout-control.js';
 
-/** ตรงกับ `TelephonyOriginateCommand`; ไม่มี runtime dependency ของ Delivery กับ Kafka/Telephony. */
+/** Matches `TelephonyOriginateCommand`; Delivery has no runtime dependency on Kafka/Telephony. */
 export interface VoiceOriginateCommand extends Record<string, unknown> {
   type: 'call.originate';
   vendor: 'freeswitch';
@@ -62,7 +62,7 @@ export type VoiceOriginateDispatchResult =
   | { status: 'NOT_FOUND' };
 
 export interface VoiceOriginateDispatcherOptions {
-  /** default-off: ต้องมี rollout control plane ก่อนเปิดส่ง command จริง */
+  /** default-off: a rollout control plane is needed before sending real commands is enabled */
   enabled?: boolean;
   now?: () => Date;
   rollout?: VoiceRolloutAuthority;

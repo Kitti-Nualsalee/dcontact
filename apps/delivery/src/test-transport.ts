@@ -1,10 +1,10 @@
 /**
- * Owner: Channels/Dialer — transport ของ TEST_ADAPTER
+ * Owner: Channels/Dialer — transport of the TEST_ADAPTER
  *
- * C1 ไม่เปิด provider traffic: transport นี้ไม่มี credential, ไม่เปิด socket และไม่
- * import provider SDK ใด ๆ ผลลัพธ์มาจาก script ที่ test ป้อนเข้ามาเท่านั้น ทุก request
- * ต้องประกาศ `adapter: 'TEST_ADAPTER'` — ถ้ามีคนต่อ transport นี้เข้ากับ adapter อื่น
- * ในอนาคต จะพังทันทีแทนที่จะเงียบแล้วส่งของจริง
+ * C1 opens no provider traffic: this transport has no credential, opens no socket and does not
+ * import any provider SDK. Results come only from the script the test feeds in; every request
+ * must declare `adapter: 'TEST_ADAPTER'` — if someone wires this transport to another adapter
+ * in the future, it breaks immediately instead of silently sending real traffic
  */
 import type { ContactChannel } from '@d-contact/cxa-contracts';
 
@@ -17,11 +17,11 @@ export interface TransportRequest {
   deliveryId: string;
   providerRequestKey: string;
   channel: ContactChannel;
-  /** reference เท่านั้น — transport ไม่เคยเห็นเนื้อหาหรือปลายทางจริง */
+  /** a reference only — the transport never sees the content or the real destination */
   contentRef: string;
 }
 
-/** ผลจาก provider ที่ยังไม่ normalize; `TIMEOUT` แปลว่าไม่รู้ผล ห้ามเดาว่าไม่ได้ส่ง */
+/** a provider result not yet normalized; `TIMEOUT` means the outcome is unknown, never guess it was not sent */
 export type TransportResponse =
   { status: 'ACCEPTED' } | { status: 'REJECTED'; reasonCode: string } | { status: 'TIMEOUT' };
 
@@ -33,14 +33,14 @@ export class ProviderTrafficNotAllowedError extends Error {
   readonly code = 'PROVIDER_TRAFFIC_NOT_ALLOWED';
 
   constructor(adapter: string) {
-    super(`transport นี้รับได้เฉพาะ TEST_ADAPTER ไม่ใช่ ${adapter}`);
+    super(`this transport accepts only TEST_ADAPTER, not ${adapter}`);
     this.name = 'ProviderTrafficNotAllowedError';
   }
 }
 
 /**
- * บันทึกทุก request ที่เข้ามาเพื่อให้ test ยืนยันได้ว่า retry/crash ไม่ทำให้ส่งซ้ำ
- * ค่า default คือ ACCEPTED; `script` ป้อนผลรายครั้งตามลำดับ
+ * records every request that comes in so tests can confirm that a retry/crash does not cause a duplicate send
+ * the default is ACCEPTED; `script` feeds per-call results in order
  */
 export class ScriptedTestTransport implements DeliveryTransport {
   readonly requests: TransportRequest[] = [];
@@ -50,7 +50,7 @@ export class ScriptedTestTransport implements DeliveryTransport {
     this.script = [...script];
   }
 
-  /** จำนวนครั้งที่ providerRequestKey นี้ถูกส่งเข้า transport — ต้องไม่เกิน 1 เสมอ */
+  /** how many times this providerRequestKey was sent into the transport — must never exceed 1 */
   submissionsFor(providerRequestKey: string): number {
     return this.requests.filter((request) => request.providerRequestKey === providerRequestKey)
       .length;

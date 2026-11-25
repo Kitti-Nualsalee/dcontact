@@ -41,7 +41,7 @@ async function fixture(t: TestContext) {
   return { context, repository, input };
 }
 
-test('voice extension และ generic outbox ถูก persist เป็น transaction เดียวโดยไม่เก็บ dial target', async (t) => {
+test('the voice extension and generic outbox are persisted as a single transaction without keeping the dial target', async (t) => {
   const { context, repository, input } = await fixture(t);
   const voice = await repository.create(input);
   assert.equal(voice.deliveryId, input.outbox.deliveryId);
@@ -54,7 +54,7 @@ test('voice extension และ generic outbox ถูก persist เป็น tr
   assert.equal(outbox.channel, 'VOICE');
 });
 
-test('actionKey ซ้ำไม่สร้าง voice extension ที่สอง', async (t) => {
+test('a duplicate actionKey does not create a second voice extension', async (t) => {
   const { context, repository, input } = await fixture(t);
   await repository.create(input);
   await assert.rejects(
@@ -67,7 +67,7 @@ test('actionKey ซ้ำไม่สร้าง voice extension ที่ส�
   );
 });
 
-test('origination UUID ซ้ำไม่ถูกตีความเป็น actionKey ซ้ำและ rollback outbox ใหม่', async (t) => {
+test('a duplicate origination UUID is not interpreted as a duplicate actionKey and the new outbox rolls back', async (t) => {
   const { context, repository, input } = await fixture(t);
   await repository.create(input);
   await assert.rejects(
@@ -95,7 +95,7 @@ test('origination UUID ซ้ำไม่ถูกตีความเป็น
   );
 });
 
-test('extension ที่ไม่ผ่าน validation rollback generic outbox ไปพร้อมกัน', async (t) => {
+test('an extension that fails validation rolls back the generic outbox together', async (t) => {
   const { context, repository, input } = await fixture(t);
   await assert.rejects(() => repository.create({ ...input, agentExtension: 'invalid extension' }));
   assert.equal(

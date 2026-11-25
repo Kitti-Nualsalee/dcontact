@@ -1,9 +1,9 @@
 /**
- * Owner: Delivery/Channels — synthetic pilot tuple ของ LINE in-memory simulation (S1.6)
+ * Owner: Delivery/Channels — synthetic pilot tuple of the LINE in-memory simulation (S1.6)
  *
- * ค่าเหล่านี้ freeze ตามคำตัดสิน #100/#102: pilot tenant + guard tenant สังเคราะห์ 1 คู่,
- * sender identity สังเคราะห์สถานะ APPROVED ผูก pilot tenant เท่านั้น, purpose/kind คงที่
- * ห้ามขยายเป็นหลาย tenant/sender/channel ใน S1 — เพิ่ม scope ใหม่ต้องเปิด decision ใหม่
+ * These values are frozen per decisions #100/#102: one synthetic pair of pilot tenant + guard tenant,
+ * a synthetic sender identity in APPROVED state bound to the pilot tenant only, constant purpose/kind.
+ * Must not be expanded to multiple tenants/senders/channels in S1 — adding a new scope needs a new decision
  */
 
 export const LINE_SIMULATION_PROFILE = 's1-line-sim-v1';
@@ -18,7 +18,7 @@ export const LINE_CONTACT_KIND = 'SERVICE';
 export const PILOT_SENDER_IDENTITY_ID = 'line-sender-pilot-approved';
 export const PILOT_SENDER_STATUS = 'APPROVED' as const;
 
-/** allowlisted synthetic fixtures เท่านั้น — ไม่มี contact/content จริงในทุก scenario */
+/** allowlisted synthetic fixtures only — no real contact/content in any scenario */
 export const ALLOWLISTED_CONTACT_IDS = ['line-contact-a', 'line-contact-b', 'line-contact-c'];
 export const ALLOWLISTED_CONTENT_REFS = ['line-content-ref-a', 'line-content-ref-b'];
 
@@ -42,7 +42,7 @@ export function isAllowlistedScope(scope: LineScopeTuple): boolean {
   return scopeKey(scope) === scopeKey(PILOT_SCOPE);
 }
 
-/** fixture cap: test-harness contract ของ S1 ไม่ใช่ LINE quota/SLA จริง */
+/** fixture cap: the S1 test-harness contract, not the real LINE quota/SLA */
 export const LINE_SIMULATION_CAPS = {
   windowMs: 15 * 60_000,
   maxSubmissionsPerWindow: 20,

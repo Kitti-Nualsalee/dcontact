@@ -1,9 +1,9 @@
 /**
- * Owner: Delivery/Channels — deterministic virtual clock ของ LINE simulation (S1.6)
+ * Owner: Delivery/Channels — deterministic virtual clock of the LINE simulation (S1.6)
  *
- * ไม่มี `setTimeout`/`Date.now()` จริงที่ใดในโมดูล LINE simulation ทั้งหมด — เวลาขยับ
- * ได้เฉพาะผ่าน `advanceTo`/`advanceBy` ที่ test เรียกเอง เพื่อให้ scenario เดิม replay
- * ได้ trace เดิมเสมอ ลำดับ tie-break ของ event เวลาเท่ากันใช้ `nextSequence()`
+ * There is no real `setTimeout`/`Date.now()` anywhere in the whole LINE simulation module — time can move
+ * only through `advanceTo`/`advanceBy` that the test calls itself, so that the same scenario replays
+ * the same trace every time. The tie-break order of events at the same time uses `nextSequence()`
  */
 export class ManualClock {
   private currentMs: number;
@@ -12,7 +12,7 @@ export class ManualClock {
   constructor(startAt: string | number) {
     this.currentMs = typeof startAt === 'string' ? Date.parse(startAt) : startAt;
     if (!Number.isFinite(this.currentMs)) {
-      throw new TypeError(`ManualClock: startAt ไม่ใช่เวลาที่ถูกต้อง: ${startAt}`);
+      throw new TypeError(`ManualClock: startAt is not a valid time: ${startAt}`);
     }
   }
 
@@ -27,17 +27,17 @@ export class ManualClock {
   advanceTo(target: string | number): void {
     const ms = typeof target === 'string' ? Date.parse(target) : target;
     if (!Number.isFinite(ms) || ms < this.currentMs) {
-      throw new TypeError(`ManualClock: ไม่สามารถย้อนเวลาไป ${target}`);
+      throw new TypeError(`ManualClock: cannot move time back to ${target}`);
     }
     this.currentMs = ms;
   }
 
   advanceBy(deltaMs: number): void {
-    if (deltaMs < 0) throw new TypeError('ManualClock: deltaMs ต้องไม่เป็นลบ');
+    if (deltaMs < 0) throw new TypeError('ManualClock: deltaMs must not be negative');
     this.currentMs += deltaMs;
   }
 
-  /** monotonic, ไม่ผูกกับเวลา — ใช้ตัดสิน ordering ของ event ที่ virtual timestamp ชนกัน */
+  /** monotonic, not tied to time — used to decide the ordering of events whose virtual timestamps collide */
   nextSequence(): number {
     this.sequenceCounter += 1;
     return this.sequenceCounter;

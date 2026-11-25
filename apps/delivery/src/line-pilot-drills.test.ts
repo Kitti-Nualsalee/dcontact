@@ -23,23 +23,23 @@ const facts = {
   proposalPresentationDigest: 'b'.repeat(64),
 };
 
-test('S2-LINE-PR02 evidence: 200 + 409 เดิม + delivery 1 / Attempt 1 / Touch 1 / refund 0 = PASS', () => {
+test('S2-LINE-PR02 evidence: 200 + the original 409 + delivery 1 / Attempt 1 / Touch 1 / refund 0 = PASS', () => {
   const evidence = buildLineCappedPilotEvidence(probe, facts);
   assert.equal(evidence.status, 'PASS');
   assert.equal(evidence.duplicateObserved, false);
-  // evidence ไม่พา request/message ID ดิบของ replay ออกไป — เหลือ digest ของ probe
+  // the evidence does not carry the raw request/message ID of the replay out — only the probe digest remains
   assert.equal(evidence.replayEvidenceDigest, probe.evidenceDigest);
 });
 
-test('S2-LINE-PR02 evidence: ไม่มี Touch, Touch ซ้ำ, refund, receipt ซ้ำ หรือ probe ล้ม = FAIL', () => {
+test('S2-LINE-PR02 evidence: no Touch, a duplicate Touch, refund, a duplicate receipt or a failed probe = FAIL', () => {
   for (const [label, override, probeOverride] of [
-    ['ยังไม่มี quoted reply', { touches: 0 }, {}],
-    ['Touch ซ้ำ', { touches: 2 }, {}],
+    ['no quoted reply yet', { touches: 0 }, {}],
+    ['duplicate Touch', { touches: 2 }, {}],
     ['refund', { refunds: 1 }, {}],
-    ['accepted สองครั้ง', { acceptedReceipts: 2 }, {}],
-    ['logical delivery สองใบ', { logicalDeliveries: 2 }, {}],
-    ['probe ไม่ได้ 409', {}, { status: 'FAIL' as const, replayStatus: 200 }],
-    ['ไม่มี proposal digest', { proposalPresentationDigest: 'short' }, {}],
+    ['accepted twice', { acceptedReceipts: 2 }, {}],
+    ['two logical deliveries', { logicalDeliveries: 2 }, {}],
+    ['probe was not 409', {}, { status: 'FAIL' as const, replayStatus: 200 }],
+    ['no proposal digest', { proposalPresentationDigest: 'short' }, {}],
   ] as const) {
     const evidence = buildLineCappedPilotEvidence(
       { ...probe, ...probeOverride },

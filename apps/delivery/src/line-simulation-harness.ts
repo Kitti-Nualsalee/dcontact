@@ -1,8 +1,8 @@
 /**
- * Owner: Delivery/Channels — shared test harness ของ LINE simulation (S1.6)
+ * Owner: Delivery/Channels — shared test harness of the LINE simulation (S1.6)
  *
- * ไม่ใช่ test ไฟล์เอง (ไม่ตรง `*.test.ts`/`*.integration.ts`) — เป็น scaffolding ที่
- * ทุก scenario เรียกใช้ร่วมกัน คล้าย `delivery-fixture.ts` ของ C1.3 แต่ไม่แตะ Postgres
+ * Not a test file itself (does not match `*.test.ts`/`*.integration.ts`) — scaffolding that
+ * every scenario shares, similar to `delivery-fixture.ts` of C1.3 but without touching Postgres
  */
 import {
   actionKey,
@@ -73,7 +73,7 @@ export class LineSimulationHarness {
     });
   }
 
-  /** จำลอง process restart: instance ใหม่ผูกกับ store/gate/caps/governance เดิมทั้งหมด */
+  /** simulate a process restart: a new instance bound to the same store/gate/caps/governance as before */
   restartPort(): LineDeliveryPort {
     return this.buildPort();
   }
@@ -132,7 +132,7 @@ export class LineSimulationHarness {
     };
   }
 
-  /** เลื่อน pilot scope ให้ครบ DISABLED -> DRY_RUN -> SIMULATED_CAPPED_PILOT ผ่าน maker-checker + switch */
+  /** promote the pilot scope through DISABLED -> DRY_RUN -> SIMULATED_CAPPED_PILOT via maker-checker + switch */
   openPilotTo(
     target: 'DRY_RUN' | 'SIMULATED_CAPPED_PILOT',
     scope: LineScopeTuple = PILOT_SCOPE,

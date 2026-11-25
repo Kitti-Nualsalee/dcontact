@@ -40,11 +40,11 @@ function snapshot(overrides: Partial<LineObservabilitySnapshot> = {}): LineObser
   };
 }
 
-test('S2-LINE-OB01: สถานะปกติไม่มี alert', () => {
+test('S2-LINE-OB01: normal state has no alert', () => {
   assert.deepEqual(evaluateLineAlerts(snapshot()), []);
 });
 
-test('S2-LINE-OB01: stuck settlement, signature, cap, quota, auth และ kill มี alert ของตัวเอง', () => {
+test('S2-LINE-OB01: stuck settlement, signature, cap, quota, auth and kill each have their own alert', () => {
   const alerts = evaluateLineAlerts(
     snapshot({
       settlement: { inFlight: 1, reconciling: 1, oldestInFlightAgeSeconds: 1_900 },
@@ -93,7 +93,7 @@ test('S2-LINE-OB01: stuck settlement, signature, cap, quota, auth และ kill
   });
 });
 
-test('S2-LINE-OB01: settlement ที่ยังอยู่ใน backoff ไม่ถือว่าค้าง และไม่มี ingress counter = ไม่ alert', () => {
+test('S2-LINE-OB01: a settlement still in backoff is not considered stuck, and no ingress counter = no alert', () => {
   const alerts = evaluateLineAlerts(
     snapshot({
       settlement: { inFlight: 1, reconciling: 0, oldestInFlightAgeSeconds: 900 },
@@ -103,7 +103,7 @@ test('S2-LINE-OB01: settlement ที่ยังอยู่ใน backoff ไ�
   assert.deepEqual(alerts, []);
 });
 
-test('S2-LINE-OB01: metric มี label แค่ tenant_id และชื่อขึ้นต้น line_', () => {
+test('S2-LINE-OB01: metrics have only the tenant_id label and names starting with line_', () => {
   const samples = lineMetricSamples(snapshot());
   assert.ok(samples.length > 20);
   for (const sample of samples) {

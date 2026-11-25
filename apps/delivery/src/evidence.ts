@@ -1,15 +1,15 @@
 /**
- * Owner: Channels/Dialer — PII boundary ของ delivery outbox
+ * Owner: Channels/Dialer — PII boundary of the delivery outbox
  *
- * C1 ห้าม contact reference, เบอร์, อีเมล, LINE id หรือ CRM id ปรากฏใน key, header,
- * log หรือ evidence ใด ๆ ของ delivery ไฟล์นี้เป็นที่เดียวที่ตัดสินว่า field ไหน
- * ปล่อยออกไปข้างนอกได้ — ทุก log/evidence ต้องผ่าน `deliveryEvidence` ห้าม serialize
- * outbox row ตรง ๆ เพราะ row เก็บ contentRef และ binding ที่ไม่ต้องออกไป
+ * C1 forbids a contact reference, phone number, email, LINE id or CRM id from appearing in any key, header,
+ * log or evidence of delivery. This file is the only place that decides which field
+ * may be released outside — every log/evidence must pass through `deliveryEvidence`; never serialize
+ * an outbox row directly because the row holds contentRef and bindings that must not leave
  */
 import { createHash } from 'node:crypto';
 import type { DlDeliveryState, DlOutboxEntry } from '@d-contact/db';
 
-/** field ที่ปล่อยออก log/evidence ได้: opaque id, enum และ timestamp เท่านั้น */
+/** Fields that may be released to log/evidence: opaque ids, enums and timestamps only */
 export const DELIVERY_EVIDENCE_FIELDS = [
   'tenantId',
   'deliveryId',
@@ -33,9 +33,9 @@ export type DeliveryEvidence = Record<DeliveryEvidenceField, string | null> & {
 };
 
 /**
- * contentRef ถูก resolve เป็นเนื้อหาโดย channel owner ตอนส่งจริงเท่านั้น adapter จึง
- * รับได้เฉพาะ reference สั้น ๆ ที่ไม่มีช่องว่างและไม่มี `@` — พอสำหรับปฏิเสธเคสที่
- * ผู้เรียกเผลอส่ง message body หรืออีเมลลูกค้าเข้ามาเป็น contentRef
+ * contentRef is resolved into content only by the channel owner at real send time, so the adapter
+ * accepts only a short reference with no whitespace and no `@` — enough to reject the case where a
+ * caller mistakenly passes a message body or a customer email as the contentRef
  */
 const CONTENT_REFERENCE_PATTERN = /^[A-Za-z0-9._:\-/]{1,200}$/;
 
@@ -43,7 +43,7 @@ export class InlineContentRejectedError extends Error {
   readonly code = 'INLINE_CONTENT_REJECTED';
 
   constructor() {
-    super('contentRef ต้องเป็น opaque reference ไม่ใช่เนื้อหาหรือ contact identifier');
+    super('contentRef must be an opaque reference, not content or a contact identifier');
     this.name = 'InlineContentRejectedError';
   }
 }
@@ -71,9 +71,9 @@ export function deliveryEvidence(entry: DlOutboxEntry): DeliveryEvidence {
 }
 
 /**
- * deliveryId และ providerRequestKey derive จาก (tenantId, actionKey, inputHash) แบบ
- * deterministic: retry หลัง crash จึง mint ค่าเดิมและได้ claim/begin เดิมกลับมาเป็น
- * replay แทนที่จะเปิด delivery ใบใหม่ ค่าที่ได้เป็น digest จึงไม่พา PII ออกไปกับ key
+ * deliveryId and providerRequestKey are derived from (tenantId, actionKey, inputHash) deterministically:
+ * a retry after a crash therefore mints the same values and gets the same claim/begin back as a
+ * replay instead of opening a new delivery. The values are digests, so they carry no PII out with the key
  */
 export function mintOpaqueKey(
   kind: 'delivery' | 'provider-request',

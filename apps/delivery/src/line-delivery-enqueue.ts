@@ -1,14 +1,14 @@
 /**
- * Owner: Delivery/Channels — สร้าง LINE delivery จาก reservation ที่ Governance อนุมัติ (S2.6b #403)
+ * Owner: Delivery/Channels — create a LINE delivery from a reservation Governance approved (S2.6b #403)
  *
- * Authority: #357 §2 (providerRequestKey), #362 §4 (UUID key persist ก่อนตอบ QUEUED), #57 (binding)
+ * Authority: #357 §2 (providerRequestKey), #362 §4 (UUID key persisted before answering QUEUED), #57 (binding)
  *
- * - `providerRequestKey` เป็น hexadecimal UUID ที่สร้างครั้งเดียวแล้ว persist พร้อมแถว outbox;
- *   replay `actionKey` เดิมคืน delivery/key เดิมเสมอ ไม่ mint ใหม่ (#357)
- * - binding กับ reservation ผ่าน `claimReservationForDelivery` ของ Governance เท่านั้น — Delivery
- *   ไม่อ่าน/เขียน `cg_*` เอง
- * - content ต้องเป็น approved fixture ของ S2 (ชุดปิด) — free text ถูกปฏิเสธตั้งแต่ enqueue
- * - enqueue ไม่แตะ network และไม่ข้าม barrier; การส่งจริงอยู่ที่ `LineOutboundAdapter.submit`
+ * - `providerRequestKey` is a hexadecimal UUID created once and persisted with the outbox row;
+ *   replaying the same `actionKey` always returns the same delivery/key, never minting a new one (#357)
+ * - binds to the reservation only through `claimReservationForDelivery` of Governance — Delivery
+ *   never reads/writes `cg_*` itself
+ * - content must be an approved S2 fixture (closed set) — free text is rejected at enqueue
+ * - enqueue touches no network and does not cross the barrier; the real send is in `LineOutboundAdapter.submit`
  */
 import { createHash, randomUUID } from 'node:crypto';
 import type { PrismaClient } from '@d-contact/db';
@@ -49,13 +49,13 @@ export type EnqueueLineDeliveryResult =
 
 export interface LineDeliveryEnqueueOptions {
   id?: () => string;
-  /** inject ได้เพื่อให้เทสต์ deterministic; production ใช้ `randomUUID` (hex UUID ตัวพิมพ์เล็ก) */
+  /** Injectable to make tests deterministic; production uses `randomUUID` (lowercase hex UUID) */
   requestKey?: () => string;
-  /** #567: contentRef ที่รับได้ — ไม่ระบุ = fixture ชุดปิดของ S2 เท่านั้น */
+  /** #567: accepted contentRef — unspecified = only the closed S2 fixture set */
   approvedContent?: (contentRef: string) => boolean;
 }
 
-/** business identity ของคำสั่ง — correlation/causation เป็น trace จึงไม่อยู่ใน hash */
+/** The business identity of the command — correlation/causation are traces so they are not in the hash */
 function lineInputHash(command: EnqueueLineDeliveryCommand): string {
   const canonical = [
     command.tenantId,
@@ -149,7 +149,7 @@ export class LineDeliveryEnqueue {
       });
     } catch (error) {
       if (!(error instanceof OutboxEntryAlreadyExistsError)) throw error;
-      // ผู้ชนะ race ของ actionKey เดียวกันเขียนไปก่อน — คืนแถวของผู้ชนะ ไม่ใช่ key ของเรา
+      // The winner of a race on the same actionKey wrote first — return the winner's row, not our key
       const winner = await this.outbox.findByActionKey(command.tenantId, command.actionKey);
       return winner
         ? this.replay(winner, inputHash)

@@ -1,9 +1,9 @@
 /**
- * #567 — LINE team trial บน Postgres/RLS จริงกับ provider double
+ * #567 — LINE team trial on real Postgres/RLS with a provider double
  *
- * ตอบกลับข้อความขาเข้า → Governance → outbox → adapter เดิม (gate/cap/barrier) → push text ไปหาผู้ส่ง
- * ครอบ: idempotency, ผู้รับนอก allowlist ของ trial, text ไม่ถูกต้อง, cap ต่อผู้รับ/24 ชม., kill จาก
- * Tenant Admin, เพดานของ DB และ authorization ของ S2 ที่ยังถูกบังคับแบบเดิม
+ * reply to an inbound message → Governance → outbox → the existing adapter (gate/cap/barrier) → push text to the sender.
+ * Covers: idempotency, a recipient outside the trial allowlist, invalid text, per-recipient/24-hour cap, kill from
+ * the Tenant Admin, the DB ceiling and the S2 authorization that is still enforced as before
  */
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -109,7 +109,7 @@ async function setup(t: TestContext, caps = { perRecipientPer24h: 3, per24h: 10,
   let gate = await control.ensureScope(OPERATOR, scope);
   for (const state of ['DRY_RUN', 'PROVIDER_CONFORMANCE', 'CAPPED_PILOT'] as const) {
     const advanced = await control.advanceState(COMPLIANCE, gate, state, CONFIG_DIGEST, now);
-    assert.equal(advanced.status, 'APPLIED', `advance ไป ${state}`);
+    assert.equal(advanced.status, 'APPLIED', `advance to ${state}`);
     if (advanced.status === 'APPLIED') gate = advanced.value;
   }
   const switched = await control.setTechnicalSwitch(OPERATOR, gate, true, now);
@@ -120,7 +120,7 @@ async function setup(t: TestContext, caps = { perRecipientPer24h: 3, per24h: 10,
     id: randomUUID(),
     tenantId,
     channelAccountId: PILOT_CHANNEL_ACCOUNT_ID,
-    // v2.1 หมดอายุ ≤30 วันจึงครอบ trial 30 วันไม่ได้ — trial เต็มช่วงต้องใช้ long-lived พร้อม exception (#358)
+    // a v2.1 token that expires in ≤30 days cannot cover a 30-day trial — a full-span trial needs long-lived with an exception (#358)
     credentialKind: 'CHANNEL_ACCESS_TOKEN_LONG_LIVED',
     longLivedExceptionRef: 'exception:line-team-trial-567',
     version: Number.parseInt(randomUUID().slice(0, 6), 16) + 1,
@@ -139,7 +139,7 @@ async function setup(t: TestContext, caps = { perRecipientPer24h: 3, per24h: 10,
   );
   assert.equal(activated.status, 'APPLIED');
 
-  // ผู้รับของ trial: allowlist แบบ content class ครอบคลุม 31 วัน + recipient ใน protected store
+  // trial recipient: a content-class allowlist covering 31 days + the recipient in the protected store
   const keychain = new Map<string, string>();
   const recipientProtectedRef = `kc-recipient-${randomUUID()}`;
   const reference = lineRecipientKeychainReference(PILOT_CHANNEL_ACCOUNT_ID, recipientProtectedRef);
@@ -189,7 +189,7 @@ async function setup(t: TestContext, caps = { perRecipientPer24h: 3, per24h: 10,
     payloadKey: PAYLOAD_KEY,
   });
   let sequence = 0;
-  /** ข้อความขาเข้าแบบ one-to-one จากผู้ใช้หนึ่งคน → id ของแถว inbox */
+  /** an inbound one-to-one message from one user → the id of the inbox row */
   const inbound = async (userId: string) => {
     sequence += 1;
     const webhookEventId = `01JW567${randomUUID().slice(0, 8)}${sequence}`;
@@ -204,7 +204,7 @@ async function setup(t: TestContext, caps = { perRecipientPer24h: 3, per24h: 10,
             deliveryContext: { isRedelivery: false },
             timestamp: now.getTime(),
             source: { type: 'user', userId },
-            message: { id: `${567_000_000_000 + sequence}`, type: 'text', text: 'ทดสอบ' },
+            message: { id: `${567_000_000_000 + sequence}`, type: 'text', text: 'test' },
           },
         ],
       }),
@@ -232,9 +232,9 @@ async function setup(t: TestContext, caps = { perRecipientPer24h: 3, per24h: 10,
     database: fixture.application,
     control,
     governance: {
-      // policy ของ Governance ทดสอบที่ CG แล้ว — ที่นี่จำลองการอนุญาต/ปฏิเสธและจอง reservation จริงใน DB
+      // the Governance policy was tested at CG — here we simulate allow/deny and reserve a real reservation in the DB
       authorizeAndReserve: async (_tenant, input) => {
-        // ผลแบบย่อของ AuthorizationOutcome — trial อ่านแค่ decision/reservationId/expiresAt
+        // a condensed form of AuthorizationOutcome — the trial reads only decision/reservationId/expiresAt
         if (!consent) return { decision: 'DENY', reasonCode: 'CONSENT_REQUIRED' } as never;
         const reservation = await fixture.seedReservation(
           tenantId,
@@ -288,10 +288,10 @@ async function setup(t: TestContext, caps = { perRecipientPer24h: 3, per24h: 10,
   };
 }
 
-test('#567 ตอบกลับ: push text ไปหาผู้ส่งผ่าน adapter เดิม, text เข้ารหัสใน DB และ idempotent', async (t) => {
+test('#567 reply: push text to the sender through the existing adapter, the text is encrypted in the DB and idempotent', async (t) => {
   const { fixture, tenantId, replies, transport, inbound } = await setup(t);
   const inboxEntryId = await inbound(MEMBER);
-  const text = 'สวัสดีครับ ทีมรับข้อความแล้ว\nบรรทัดที่สอง';
+  const text = 'Hello, the team received your message\nSecond line';
   const sent = await replies.reply({
     inboxEntryId,
     text: `  ${text}  `,
@@ -304,10 +304,10 @@ test('#567 ตอบกลับ: push text ไปหาผู้ส่งผ่
   assert.deepEqual(transport.requests[0]?.messages, [{ type: 'text', text }]);
 
   const row = await fixture.owner.dlLineTrialSend.findFirstOrThrow({ where: { tenantId } });
-  assert.ok(!row.ciphertext.toString('utf8').includes('สวัสดี'));
+  assert.ok(!row.ciphertext.toString('utf8').includes('Hello'));
   assert.equal(row.actorRef, 'admin-user-1');
 
-  // key เดิม + text เดิม = ผลเดิมโดยไม่ push ซ้ำ; text ต่าง = conflict
+  // the same key + the same text = the same result without pushing again; different text = conflict
   const replay = await replies.reply({
     inboxEntryId,
     text,
@@ -319,7 +319,7 @@ test('#567 ตอบกลับ: push text ไปหาผู้ส่งผ่
   assert.deepEqual(
     await replies.reply({
       inboxEntryId,
-      text: 'ข้อความอื่น',
+      text: 'Another message',
       idempotencyKey: 'reply-key-0001',
       actorRef: 'admin-user-1',
     }),
@@ -327,7 +327,7 @@ test('#567 ตอบกลับ: push text ไปหาผู้ส่งผ่
   );
 });
 
-test('#567 ตอบกลับ: text ผิด, ผู้ส่งนอก allowlist ของ trial และ consent ไม่ผ่าน = ไม่ส่ง', async (t) => {
+test('#567 reply: bad text, a sender outside the trial allowlist and a failed consent = not sent', async (t) => {
   const { replies, transport, inbound, setConsent } = await setup(t);
   const member = await inbound(MEMBER);
   for (const text of ['', '   ', 'x'.repeat(501), 'bell\u0007', 42]) {
@@ -345,7 +345,7 @@ test('#567 ตอบกลับ: text ผิด, ผู้ส่งนอก al
     (
       await replies.reply({
         inboxEntryId: member,
-        text: 'ก'.repeat(500),
+        text: 'a'.repeat(500),
         idempotencyKey: `max-${randomUUID()}`,
         actorRef: 'admin-user-1',
       })
@@ -385,7 +385,7 @@ test('#567 ตอบกลับ: text ผิด, ผู้ส่งนอก al
   assert.equal(transport.requests.length, 1);
 });
 
-test('#567 cap ต่อผู้รับต่อ 24 ชม. มาจาก authorization ของ trial และ kill ของ Tenant Admin หยุดทันที', async (t) => {
+test('#567 the per-recipient 24-hour cap comes from the trial authorization and a Tenant Admin kill stops immediately', async (t) => {
   const { fixture, tenantId, replies, transport, inbound } = await setup(t);
   const member = await inbound(MEMBER);
   const send = () =>
@@ -418,7 +418,7 @@ test('#567 cap ต่อผู้รับต่อ 24 ชม. มาจาก a
   assert.equal(audit?.actorRef, 'admin-user-2');
 });
 
-test('#567 เพดานของ trial และ S2 ถูกบังคับทั้งที่ control plane และ DB', async (t) => {
+test('#567 the trial and S2 ceilings are enforced at both the control plane and the DB', async (t) => {
   const { fixture, tenantId, control, gate, credential, allowlist } = await setup(t);
   const now = new Date();
   const fresh = (await fixture.control.findCredentialRef(tenantId, credential.id))!;
@@ -457,7 +457,7 @@ test('#567 เพดานของ trial และ S2 ถูกบังคั�
     proposedBy: 'platform-operator-1',
     proposedAt: now,
   };
-  // DB: trial เกิน 30 วัน / เกินเพดาน และ S2 ที่พยายามใช้ cap ของ trial = constraint ปฏิเสธ
+  // DB: a trial over 30 days / over the ceiling and an S2 trying to use the trial cap = the constraint rejects
   const rejects = (data: Record<string, unknown>) =>
     assert.rejects(
       fixture.owner.dlLineRunAuthorization.create({

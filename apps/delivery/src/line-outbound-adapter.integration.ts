@@ -1,10 +1,10 @@
 /**
- * S2.4 (#370) — LINE outbound adapter บน PostgreSQL/RLS จริงกับ provider double
+ * S2.4 (#370) — LINE outbound adapter on real PostgreSQL/RLS with a provider double
  *
- * ไม่มี network I/O จริงตาม stop condition ของ #370: `FakeLineTransport` เป็น deterministic double
- * ที่สคริปต์ผลได้ทั้ง 2xx/409/4xx/5xx/timeout และนับจำนวน request ที่ถูกยิงจริง
+ * No real network I/O per the stop condition of #370: `FakeLineTransport` is a deterministic double
+ * whose results can be scripted as 2xx/409/4xx/5xx/timeout and which counts the requests actually fired.
  *
- * ครอบ `S2-LINE-F01/F02`, `ID01`, `RC01/RC02`, `OB01`
+ * Covers `S2-LINE-F01/F02`, `ID01`, `RC01/RC02`, `OB01`
  */
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -25,12 +25,12 @@ import type {
   LineTransportResult,
 } from './line-provider-transport.js';
 
-/** #358 §E แยกสิทธิ์: Compliance เลื่อนขั้น, Platform Operator เปิด switch และสั่งรัน */
+/** #358 §E separates rights: Compliance promotes, Platform Operator opens the switch and orders the run */
 const OPERATOR: LineControlActor = { role: 'PLATFORM_OPERATOR', ref: 'platform-operator-1' };
 const COMPLIANCE: LineControlActor = { role: 'COMPLIANCE', ref: 'compliance-1' };
 const CONFIG_DIGEST = digest('config-v1');
 
-/** provider double: บันทึกทุก request แล้วคืนผลตามสคริปต์ — ไม่มี socket, ไม่มี retry ซ่อน */
+/** provider double: records every request then returns the scripted result — no socket, no hidden retry */
 class FakeLineTransport implements LineProviderTransport {
   readonly requests: LinePushRequest[] = [];
   private readonly scripted: LineTransportResult[] = [];
@@ -107,7 +107,7 @@ async function setup(t: TestContext, options: { now?: () => Date } = {}) {
   const governance = new ContactGovernanceService(fixture.application);
   const transport = new FakeLineTransport();
 
-  /** เปิด gate ให้ถึง CAPPED_PILOT ตามลำดับที่ #358 บังคับ (ข้ามขั้นไม่ได้) */
+  /** Open the gate up to CAPPED_PILOT in the order #358 enforces (steps cannot be skipped) */
   const openGate = async (tenantId: string) => {
     let gate = await fixture.control.findGate(fixture.scope(tenantId));
     for (const state of ['DRY_RUN', 'PROVIDER_CONFORMANCE', 'CAPPED_PILOT'] as const) {
@@ -118,7 +118,7 @@ async function setup(t: TestContext, options: { now?: () => Date } = {}) {
         CONFIG_DIGEST,
         new Date(),
       );
-      assert.equal(advanced.status, 'APPLIED', `advance ไป ${state}`);
+      assert.equal(advanced.status, 'APPLIED', `advance to ${state}`);
       gate = advanced.status === 'APPLIED' ? advanced.value : gate;
     }
     const switched = await control.setTechnicalSwitch(OPERATOR, gate!, true, new Date());
@@ -131,7 +131,7 @@ async function setup(t: TestContext, options: { now?: () => Date } = {}) {
       proposedAt: options.now ? options.now() : new Date(),
     });
     await openGate(tenantId);
-    // credential ต้องถูก verify + activate ก่อน PUSH (#358 §G) — fixture สร้างไว้เป็น CANDIDATE
+    // the credential must be verified + activated before PUSH (#358 §G) — the fixture creates it as CANDIDATE
     const activated = await control.verifyAndActivateCredential(
       OPERATOR,
       tenantId,
@@ -153,7 +153,7 @@ async function setup(t: TestContext, options: { now?: () => Date } = {}) {
       recipientFingerprint: digest(`recipient-${label}`),
       recipientProtectedRef: run.allowlist.recipientProtectedRef,
       correlationId: `corr-${delivery.deliveryId}`,
-      // observedAt ต้องเป็นนาฬิกาเดียวกับ adapter ไม่งั้น advisory เป็น STALE (#358 §A)
+      // observedAt must be the same clock as the adapter otherwise the advisory is STALE (#358 §A)
       quota: {
         type: 'limited',
         targetLimit: 500,
@@ -186,7 +186,7 @@ async function setup(t: TestContext, options: { now?: () => Date } = {}) {
 const outboxOf = (f: Awaited<ReturnType<typeof setup>>, tenantId: string, deliveryId: string) =>
   f.fixture.owner.dlOutboxEntry.findFirstOrThrow({ where: { tenantId, deliveryId } });
 
-test('S2-LINE-F01 2xx ทำให้ accepted: receipt ครบ, outbox SETTLED และ Attempt 1 ที่ Governance', async (t) => {
+test('S2-LINE-F01 2xx makes it accepted: full receipt, outbox SETTLED and Attempt 1 at Governance', async (t) => {
   const f = await setup(t);
   const { command, delivery } = await f.prepare(f.fixture.tenantA);
   f.transport.script(ok('req-1'));
@@ -197,7 +197,7 @@ test('S2-LINE-F01 2xx ทำให้ accepted: receipt ครบ, outbox SETTLE
     ['ACCEPTED', 'LINE_ACCEPTED'],
   );
   assert.equal(f.transport.requests.length, 1);
-  // retry key ที่ยิงออกไปคือค่าที่ persist ไว้ตั้งแต่ enqueue
+  // the retry key fired is the value persisted since enqueue
   assert.equal(f.transport.requests[0]!.retryKey, delivery.providerRequestKey);
 
   const entry = await outboxOf(f, f.fixture.tenantA, command.deliveryId);
@@ -212,20 +212,20 @@ test('S2-LINE-F01 2xx ทำให้ accepted: receipt ครบ, outbox SETTLE
     [1, 'LINE_ACCEPTED', 200],
   );
   assert.deepEqual(receipts[0]!.sentMessageIds, ['461230']);
-  // Governance เขียน Attempt PROVIDER_ACCEPTED หนึ่งใบ ไม่มี Touch
+  // Governance writes one PROVIDER_ACCEPTED Attempt, no Touch
   const attempts = await f.fixture.owner.cgAttempt.findMany({
     where: { tenantId: f.fixture.tenantA, deliveryId: command.deliveryId },
   });
   assert.equal(attempts.length, 1);
   assert.equal(attempts[0]!.outcome, 'PROVIDER_ACCEPTED');
   assert.equal(await f.fixture.owner.cgTouch.count({ where: { tenantId: f.fixture.tenantA } }), 0);
-  // evidence ไม่มี recipient/token/เนื้อหา
+  // evidence has no recipient/token/content
   const serialized = JSON.stringify(receipts);
   assert.ok(!serialized.includes('U') || !/U[e]{32}/.test(serialized));
   assert.ok(!serialized.includes('synthetic-channel-access-token'));
 });
 
-test('S2-LINE-ID01 409 + accepted request id เป็น replay ที่ไม่ยิงซ้ำและไม่สร้าง Attempt ที่สอง', async (t) => {
+test('S2-LINE-ID01 409 + accepted request id is a replay that does not fire again and creates no second Attempt', async (t) => {
   const f = await setup(t);
   const { command } = await f.prepare(f.fixture.tenantA);
   f.transport.script(timeout, replay('req-first'));
@@ -238,7 +238,7 @@ test('S2-LINE-ID01 409 + accepted request id เป็น replay ที่ไม
     ['ACCEPTED', 'LINE_ACCEPTED_REPLAY'],
   );
 
-  // retry ใช้ key เดิมและ payload เดิมทุก byte
+  // the retry uses the same key and the same payload byte for byte
   assert.equal(f.transport.requests.length, 2);
   assert.equal(f.transport.requests[0]!.retryKey, f.transport.requests[1]!.retryKey);
   assert.deepEqual(f.transport.requests[0]!.messages, f.transport.requests[1]!.messages);
@@ -259,10 +259,10 @@ test('S2-LINE-ID01 409 + accepted request id เป็น replay ที่ไม
   const attempts = await f.fixture.owner.cgAttempt.findMany({
     where: { tenantId: f.fixture.tenantA, deliveryId: command.deliveryId },
   });
-  assert.equal(attempts.length, 1, 'acceptance ครั้งเดียวแม้ผ่าน reconciliation');
+  assert.equal(attempts.length, 1, 'acceptance exactly once even through reconciliation');
 });
 
-test('S2-LINE-RC01 แถวที่ผ่าน barrier แล้วห้าม submit ซ้ำ — ทำได้แค่ reconcile', async (t) => {
+test('S2-LINE-RC01 a row that has crossed the barrier must not submit again — it can only reconcile', async (t) => {
   const f = await setup(t);
   const { command } = await f.prepare(f.fixture.tenantA);
   f.transport.script(timeout);
@@ -271,7 +271,7 @@ test('S2-LINE-RC01 แถวที่ผ่าน barrier แล้วห้า�
   const entry = await outboxOf(f, f.fixture.tenantA, command.deliveryId);
   assert.equal(entry.state, 'RECONCILING');
 
-  // เรียก submit ซ้ำหลัง restart: ต้องไม่ยิง request ใหม่แบบ blind resend
+  // calling submit again after restart: must not fire a new request as a blind resend
   f.transport.script(ok('req-2'));
   const again = await f.adapter.submit(command);
   assert.equal(again.status, 'ACCEPTED');
@@ -279,7 +279,7 @@ test('S2-LINE-RC01 แถวที่ผ่าน barrier แล้วห้า�
   assert.equal(f.transport.requests[1]!.retryKey, f.transport.requests[0]!.retryKey);
 });
 
-test('S2-LINE-F02 4xx recipient นับ Attempt ส่วน 401 เป็น operational และดึง kill switch', async (t) => {
+test('S2-LINE-F02 4xx recipient counts an Attempt while 401 is operational and pulls the kill switch', async (t) => {
   const f = await setup(t);
   const recipientCase = await f.prepare(f.fixture.tenantA);
   f.transport.script(failure(400));
@@ -304,11 +304,11 @@ test('S2-LINE-F02 4xx recipient นับ Attempt ส่วน 401 เป็น 
   const gate = await f.fixture.owner.dlLineScopeGate.findFirstOrThrow({
     where: { tenantId: f.fixture.tenantB },
   });
-  assert.equal(gate.killed, true, '401 ต้องดึง kill switch ของบัญชี');
+  assert.equal(gate.killed, true, '401 must pull the account kill switch');
 });
 
-test('S2-LINE-RC02 เลย retry window แล้ว quarantine โดยไม่ยิงซ้ำและไม่ mint key ใหม่', async (t) => {
-  // Governance ใช้นาฬิกาจริง จึงต้องเริ่มจากเวลาปัจจุบันแล้วเลื่อนไปข้างหน้าเกิน retry window
+test('S2-LINE-RC02 past the retry window it quarantines without firing again and without minting a new key', async (t) => {
+  // Governance uses the real clock, so we must start from the current time then advance beyond the retry window
   const base = new Date();
   let now = base;
   const f = await setup(t, { now: () => now });
@@ -319,7 +319,7 @@ test('S2-LINE-RC02 เลย retry window แล้ว quarantine โดยไ�
   assert.equal(first.status, 'RECONCILING', JSON.stringify(first));
   assert.equal(f.transport.requests.length, 1);
   const afterFirst = await outboxOf(f, f.fixture.tenantA, command.deliveryId);
-  assert.equal(afterFirst.state, 'RECONCILING', `state หลัง submit = ${afterFirst.state}`);
+  assert.equal(afterFirst.state, 'RECONCILING', `state after submit = ${afterFirst.state}`);
 
   now = new Date(base.getTime() + 23.5 * 60 * 60 * 1000);
   const expired = await f.adapter.reconcile(command);
@@ -327,19 +327,19 @@ test('S2-LINE-RC02 เลย retry window แล้ว quarantine โดยไ�
     [expired.status, expired.status === 'QUARANTINED' ? expired.outcomeCode : ''],
     ['QUARANTINED', 'LINE_RETRY_WINDOW_EXPIRED'],
   );
-  assert.equal(f.transport.requests.length, 1, 'หมด window แล้วห้ามยิงเพิ่ม');
+  assert.equal(f.transport.requests.length, 1, 'once the window is over, no more firing');
   const gate = await f.fixture.owner.dlLineScopeGate.findFirstOrThrow({
     where: { tenantId: f.fixture.tenantA },
   });
   assert.equal(gate.killed, true);
-  // reservation ยังไม่ terminal — sweeper ห้าม release
+  // the reservation is not terminal yet — the sweeper must not release
   const reservation = await f.fixture.owner.cgReservation.findFirstOrThrow({
     where: { tenantId: f.fixture.tenantA, deliveryId: command.deliveryId },
   });
   assert.notEqual(reservation.settlementStatus, 'RELEASED');
 });
 
-test('S2-LINE-OB01 lifecycle events เป็น PII-safe และเรียงตาม state ที่เกิดจริง', async (t) => {
+test('S2-LINE-OB01 lifecycle events are PII-safe and ordered by the state that actually occurred', async (t) => {
   const f = await setup(t);
   const { command } = await f.prepare(f.fixture.tenantA);
   f.transport.script(ok('req-1'));
@@ -354,20 +354,20 @@ test('S2-LINE-OB01 lifecycle events เป็น PII-safe และเรีย�
     ['PRE_BARRIER', 'POST_BARRIER', 'ACCEPTED', 'SETTLED'],
   );
   const serialized = JSON.stringify(events);
-  assert.ok(!/U[e]{32}/.test(serialized), 'ห้ามมี recipient ใน event');
+  assert.ok(!/U[e]{32}/.test(serialized), 'no recipient in events');
   assert.ok(!serialized.includes('synthetic-channel-access-token'));
-  assert.ok(!serialized.includes('แจ้งเตือน'), 'ห้ามมีเนื้อหาข้อความ');
+  assert.ok(!serialized.includes('แจ้งเตือน'), 'no message content'); // allow-thai: asserts the Thai fixture message body is absent
 });
 
-test('S2-LINE-TI01 gate ของอีก tenant ไม่ให้สิทธิ์ และ cap ของ tenant หนึ่งไม่กระทบอีกราย', async (t) => {
+test("S2-LINE-TI01 gate of another tenant grants no rights and one tenant's cap does not affect another", async (t) => {
   const f = await setup(t);
   const a = await f.prepare(f.fixture.tenantA);
   const b = await f.prepare(f.fixture.tenantB, 'tenant-b-run');
 
-  // ใช้ run ของ tenant A กับ delivery ของ tenant B ต้องถูกปฏิเสธ
+  // using tenant A's run with tenant B's delivery must be rejected
   const crossed = await f.adapter.submit({ ...b.command, runAuthorizationId: a.run.run.id });
   assert.equal(crossed.status, 'DENIED');
-  assert.equal(f.transport.requests.length, 0, 'ถูกปฏิเสธก่อนแตะ transport');
+  assert.equal(f.transport.requests.length, 0, 'rejected before touching the transport');
 
   f.transport.script(ok('req-a'), ok('req-b'));
   assert.equal((await f.adapter.submit(a.command)).status, 'ACCEPTED');

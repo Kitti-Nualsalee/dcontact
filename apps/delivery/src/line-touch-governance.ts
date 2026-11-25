@@ -3,13 +3,13 @@
  *
  * Authority: #361 §D/§F, #362 §2/§4/§8
  *
- * worker ถามว่า "provider message ID นี้เป็นของ accepted delivery ใบไหน และส่งถึงใคร" คำตอบประกอบจาก:
- * - Delivery เอง: attempt receipt ที่ accepted และมี `sentMessageIds` ตรง → deliveryId;
- *   cap ledger ของ logical delivery → recipient fingerprint + gate (ต้องเป็น channel เดียวกับ webhook)
- * - Governance: `findAcceptedAttempt` → attemptId/reservation/actionKey (ไม่อ่าน `cg_*` เอง)
+ * the worker asks "which accepted delivery does this provider message ID belong to, and who was it sent to"; the answer is assembled from:
+ * - Delivery itself: an accepted attempt receipt with a matching `sentMessageIds` → deliveryId;
+ *   the logical delivery cap ledger → recipient fingerprint + gate (must be the same channel as the webhook)
+ * - Governance: `findAcceptedAttempt` → attemptId/reservation/actionKey (never reads `cg_*` itself)
  *
- * ไม่พบส่วนใดส่วนหนึ่ง = `null` ให้ worker คง correlation เป็น PENDING/quarantine ตาม window
- * ไม่มี userId/body ผ่าน port นี้ — ผู้ส่ง response เทียบกันด้วย fingerprint เท่านั้น
+ * Any part not found = `null` so the worker keeps the correlation as PENDING/quarantine per the window
+ * No userId/body passes through this port — the response sender is compared by fingerprint only
  */
 import { withTenantDatabaseTransaction, type PrismaClient } from '@d-contact/db';
 import {
@@ -58,7 +58,7 @@ export class LineTouchGovernanceAdapter implements LineTouchGovernancePort {
           where: { tenantId: input.tenantId, id: ledger.gateId },
           select: { channelAccountId: true },
         });
-        // message ID ของอีก channel ที่บังเอิญซ้ำกันต้องไม่ผูกข้าม channel
+        // a message ID of another channel that happens to collide must not bind across channels
         if (gate?.channelAccountId !== input.channelAccountId) return null;
         return {
           deliveryId: receipt.deliveryId,

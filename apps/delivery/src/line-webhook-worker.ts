@@ -1,17 +1,17 @@
 /**
- * Owner: Delivery/Channels — async worker ของ webhook inbox (S2.5 #369, #359 §D/§E, #361 §D/§F)
+ * Owner: Delivery/Channels — async worker of the webhook inbox (S2.5 #369, #359 §D/§E, #361 §D/§F)
  *
- * ingress ตอบ 200 ทันทีที่ durable commit ส่วนงานที่ทำซ้ำไม่ได้อยู่ที่นี่ทั้งหมด:
+ * ingress answers 200 as soon as the durable commit happens, and all non-repeatable work is here:
  *
- * - projection dedupe ชั้นที่สอง `(tenantId, channelAccountId, providerMessageId)` ตาม ADR-024
- *   เกิดก่อน side effect ใด ๆ — message object เดิมที่มาคนละ webhookEventId ถูก project ครั้งเดียว
- * - Touch เกิดจาก explicit binding เท่านั้น: quoted response ที่ตรง `sentMessages.id` ของ accepted
- *   Attempt หรือ signed postback token ที่ consume ได้ครั้งเดียว — ไม่มี time-window inference
- * - response ที่มาก่อน acceptance commit เก็บเป็น correlation `PENDING` แล้ว retry จน window ปิด
- *   จึง quarantine เป็น `USER_RESPONSE_UNBOUND` (#361 §F) ไม่เดา candidate
- * - unknown event type ไม่ทำให้ endpoint ล้ม แต่ quarantine เป็น `WEBHOOK_UNSUPPORTED_EVENT_TYPE`
+ * - second-layer projection dedupe `(tenantId, channelAccountId, providerMessageId)` per ADR-024
+ *   happens before any side effect — the same message object arriving under different webhookEventIds is projected once
+ * - a Touch arises only from explicit binding: a quoted response matching `sentMessages.id` of an accepted
+ *   Attempt or a signed postback token that can be consumed once — no time-window inference
+ * - a response that arrives before the acceptance commit is stored as a `PENDING` correlation and retried until the window closes,
+ *   then quarantined as `USER_RESPONSE_UNBOUND` (#361 §F) without guessing a candidate
+ * - an unknown event type does not make the endpoint fail but is quarantined as `WEBHOOK_UNSUPPORTED_EVENT_TYPE`
  *
- * worker ไม่เคยเห็น plaintext body: ทุกอย่างที่ใช้ตัดสินมาจาก projection/refs ที่ ingress เขียนไว้
+ * the worker never sees the plaintext body: everything used to decide comes from the projection/refs ingress wrote
  */
 import { createHash, randomUUID } from 'node:crypto';
 import {
@@ -32,10 +32,10 @@ import {
 import { LineEventOutboxRepository } from './line-event-outbox.js';
 import { LineWebhookRepository } from './line-webhook-repository.js';
 
-/** เวลาที่ response ยังผูกกับ Attempt ได้ (#361 §D) — ตัดด้วย provider timestamp ไม่ใช่เวลาที่รับ */
+/** the time a response can still bind to an Attempt (#361 §D) — cut by the provider timestamp, not the receipt time */
 export const LINE_TOUCH_WINDOW_MS = 24 * 60 * 60 * 1000;
 
-/** event type ที่ S2 รู้จัก — นอกเหนือจากนี้ ack ได้แต่ quarantine เป็น unsupported */
+/** event types S2 knows — anything else is acked but quarantined as unsupported */
 export const LINE_SUPPORTED_EVENT_TYPES = Object.freeze([
   'message',
   'postback',
@@ -44,15 +44,15 @@ export const LINE_SUPPORTED_EVENT_TYPES = Object.freeze([
 ]);
 
 /**
- * เนื้อหาที่ worker ต้องใช้จาก event หนึ่งแถว — ingress เก็บ ciphertext ไว้ ผู้เรียกจึงต้องส่ง
- * decrypted projection เข้ามา (production ใช้ vault reader, test ใช้ fixture เดียวกัน)
+ * the content the worker needs from one event row — ingress stores the ciphertext, so the caller must pass in
+ * the decrypted projection (production uses the vault reader, tests use the same fixture)
  */
 export interface LineInboundProjection {
   providerMessageId?: string;
   quotedMessageId?: string;
-  /** SHA-256 ของ userId + channel account — ใช้เทียบ recipient binding โดยไม่ถือ userId */
+  /** SHA-256 of userId + channel account — used to compare the recipient binding without holding the userId */
   sourceFingerprint: string;
-  /** หนึ่งต่อหนึ่งเท่านั้น; group/room ไม่มีสิทธิ์สร้าง Touch (#361 §D) */
+  /** one-to-one only; a group/room has no right to create a Touch (#361 §D) */
   isOneToOne: boolean;
   postbackToken?: string;
 }
@@ -66,14 +66,14 @@ export interface LineAcceptedAttempt {
   attemptId: string;
   reservationId: string;
   actionKey: string;
-  /** fingerprint ของผู้รับที่ accepted delivery นี้ส่งไป — ต้องตรงกับผู้ส่ง response */
+  /** fingerprint of the recipient this accepted delivery was sent to — must match the sender of the response */
   recipientFingerprint: string;
   acceptedAt: Date;
 }
 
 /**
- * Governance เป็น single writer ของ Attempt/Touch — Channels เห็นแค่ binding ที่จำเป็นและส่ง
- * evidence ref กลับไป ไม่มี raw user ID/body ผ่าน port นี้
+ * Governance is the single writer of Attempt/Touch — Channels sees only the bindings it needs and sends
+ * the evidence ref back, no raw user ID/body passes through this port
  */
 export interface LineTouchGovernancePort {
   findAcceptedAttemptByMessage(input: {
@@ -84,7 +84,7 @@ export interface LineTouchGovernancePort {
   recordCorrelatedTouch(input: RecordCorrelatedTouchInput): Promise<void>;
 }
 
-/** postback token ที่ fixture ฝังไว้ — verify/consume แบบ atomic ครั้งเดียว (#361 §D) */
+/** the postback token the fixture embeds — verify/consume atomically once (#361 §D) */
 export interface LinePostbackTokenPort {
   consume(input: {
     tenantId: string;
@@ -184,7 +184,7 @@ export class LineWebhookWorker {
 
     const evidence = this.evidenceOf(entry, projection);
     if (!evidence) {
-      // follow/unfollow, plain message, group/room: เก็บ inbound signal ไว้แต่ไม่มี Touch
+      // follow/unfollow, plain message, group/room: keep the inbound signal but no Touch
       await this.inbox.complete(tenantId, entry.id, this.options.leaseOwner, this.now());
       return;
     }
@@ -195,7 +195,7 @@ export class LineWebhookWorker {
     await this.inbox.complete(tenantId, entry.id, this.options.leaseOwner, this.now());
   }
 
-  /** projection dedupe ชั้นที่ 2 — unique violation แปลว่ามีคน project message นี้ไปแล้ว */
+  /** second-layer projection dedupe — a unique violation means someone already projected this message */
   private async project(
     tenantId: string,
     entry: DlLineWebhookInboxEntry,
@@ -240,8 +240,8 @@ export class LineWebhookWorker {
   }
 
   /**
-   * เปิด correlation ก่อนเสมอ (durable) แล้วค่อยพยายาม bind — ถ้า acceptance ยังไม่ commit
-   * correlation ค้างเป็น PENDING ให้ `resolvePending` ตามต่อภายใน window
+   * always open the correlation first (durably) then try to bind — if the acceptance has not committed
+   * the correlation stays PENDING for `resolvePending` to follow up within the window
    */
   private async correlate(
     tenantId: string,
@@ -321,7 +321,7 @@ export class LineWebhookWorker {
     return this.commitTouch(tenantId, correlation.id, input, projection, entry);
   }
 
-  /** ผูก correlation → Attempt แล้วให้ Governance append Touch; Channels ไม่เขียน cg_* เอง */
+  /** bind the correlation → Attempt then have Governance append the Touch; Channels does not write cg_* itself */
   private async commitTouch(
     tenantId: string,
     correlationId: string,
@@ -334,7 +334,7 @@ export class LineWebhookWorker {
     entry: DlLineWebhookInboxEntry,
   ): Promise<boolean> {
     const attempt = input.attempt!;
-    // ผู้ตอบต้องเป็นผู้รับคนเดียวกับที่ accepted delivery ส่งไป (#361 §D)
+    // the responder must be the same recipient the accepted delivery was sent to (#361 §D)
     if (attempt.recipientFingerprint !== projection.sourceFingerprint) {
       await this.inbox.quarantineCorrelation(
         tenantId,
@@ -396,8 +396,8 @@ export class LineWebhookWorker {
   }
 
   /**
-   * correlation ที่ยัง PENDING: ลอง bind ใหม่ (acceptance อาจ commit ไปแล้ว) และ quarantine เมื่อ
-   * window ปิด — redelivery ที่มาช้ายัง bind ได้ถ้า provider timestamp เดิมยังอยู่ใน window
+   * correlations still PENDING: try binding again (the acceptance may have committed) and quarantine when
+   * the window closes — a late redelivery can still bind if the original provider timestamp is still in the window
    */
   async resolvePending(tenantId: string, limit = 50): Promise<LineWebhookWorkerResult> {
     const result: LineWebhookWorkerResult = {

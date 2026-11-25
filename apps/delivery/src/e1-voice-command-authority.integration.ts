@@ -92,7 +92,7 @@ async function createGatewayFixture(context: { after(callback: () => Promise<voi
   };
 }
 
-test('E1 gateway claim ต้องผ่าน submission barrier/cap แล้ว durable เพียงครั้งเดียวแม้ restart/concurrent', async (context) => {
+test('E1 gateway claim must pass the submission barrier/cap and be durable exactly once even across restart/concurrent', async (context) => {
   const fixture = await createGatewayFixture(context);
   const voice = await fixture.owner.dlVoiceOriginate.findFirstOrThrow({
     where: {
@@ -155,7 +155,7 @@ test('E1 gateway claim ต้องผ่าน submission barrier/cap แล้
   assert.equal(await fixture.authority().claim(input), false);
 });
 
-test('E1 gateway ปฏิเสธ external target และ technical switch ที่ปิดหลัง dispatch', async (context) => {
+test('E1 gateway rejects an external target and a technical switch turned off after dispatch', async (context) => {
   const fixture = await createGatewayFixture(context);
   assert.equal((await fixture.dispatch()).status, 'PUBLISHED');
   await fixture.owner.contactIdentity.update({
@@ -177,7 +177,7 @@ test('E1 gateway ปฏิเสธ external target และ technical switch �
   assert.equal(await fixture.authority().claim(fixture.input()), false);
 });
 
-test('E1 gateway cancel ต้องมี durable CANCEL_REQUESTED และ binding ตรง; ใช้ได้เมื่อปิด switch แล้ว', async (context) => {
+test('E1 gateway cancel needs a durable CANCEL_REQUESTED and a matching binding; works even after the switch is turned off', async (context) => {
   const fixture = await createGatewayFixture(context);
   assert.equal((await fixture.dispatch()).status, 'PUBLISHED');
   const originate = fixture.input();
