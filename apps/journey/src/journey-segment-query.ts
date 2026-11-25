@@ -1,12 +1,12 @@
 /**
- * J3.8 (#219) — sanitized read ของ segment membership stream สำหรับงาน forensic
+ * J3.8 (#219) — sanitized read of the segment membership stream for forensic work
  *
- * "sanitized" ที่นี่ไม่ได้แปลว่ากรอง PII ออกทีหลัง แต่แปลว่า **ไม่เคยอ่านคอลัมน์ที่อาจมี PII
- * ขึ้นมาเลย** — ทุก select ระบุ field ชัดเจน ไม่มี `findMany()` เปล่า ๆ ที่ลากทั้งแถวขึ้นมาแล้ว
- * ค่อยหวังว่าจะ map ออกครบ เพราะวันที่มีคนเพิ่มคอลัมน์ใหม่ วิธีหลังจะรั่วเงียบ ๆ
+ * "sanitized" here does not mean filtering PII out afterwards but means **never reading a column that may hold PII
+ * in the first place** — every select names its fields explicitly, with no bare `findMany()` that pulls the whole row up and
+ * then hopes it is all mapped out, because the day someone adds a new column the latter leaks silently
  *
- * payload ของ outbox กับ reason ของ intent ไม่ถูกคืนออกไปเลย: intent เก็บแค่ ref/version/digest
- * อยู่แล้วก็จริง แต่ digest คือค่าที่ใช้ยืนยันความถูกต้อง ไม่ใช่ค่าที่ operator ต้องเห็น
+ * the outbox payload and the intent reason are not returned at all: the intent keeps only a ref/version/digest
+ * to begin with, but a digest is a value used to confirm correctness, not a value an operator needs to see
  */
 import { withTenantDatabaseTransaction, type PrismaClient } from '@d-contact/db';
 
@@ -59,8 +59,8 @@ export interface SegmentStreamView {
   terminalReasonCode: string | null;
   updatedAt: string;
   /**
-   * revision ที่ยังไม่ถูก apply และไม่มี receipt รองรับ — คือรูที่ operator ต้องตามหา
-   * คำนวณจาก receipt ที่มีอยู่จริง ไม่ใช่เดาจาก head อย่างเดียว
+   * a revision that has not been applied and has no receipt behind it — the hole the operator needs to hunt for
+   * computed from receipts that really exist, not guessed from the head alone
    */
   gaps: number[];
   receipts: SegmentReceiptView[];
@@ -72,7 +72,7 @@ export interface SegmentStreamView {
 export class JourneySegmentQuery {
   constructor(private readonly database: PrismaClient) {}
 
-  /** คืน undefined เมื่อไม่มี stream นี้ — caller ต้องแปลงเป็น 404 แบบเดียวกับที่ไม่เคยมีอยู่จริง */
+  /** returns undefined when this stream does not exist — the caller must convert it to a 404 the same as for something that never existed */
   async readStream(
     tenantId: string,
     contactId: string,
@@ -215,10 +215,10 @@ export class JourneySegmentQuery {
 }
 
 /**
- * รูของ stream คือ revision ที่ไม่มี receipt เลย ระหว่างตัวแรกกับตัวสุดท้ายที่เห็น
+ * a hole in a stream is a revision with no receipt at all, between the first and the last one seen
  *
- * ไม่ไล่จาก 1 เสมอ เพราะ retention อาจลบ revision เก่าไปแล้วอย่างถูกต้อง การรายงานว่ามันคือรู
- * จะทำให้ operator ไล่ตามสิ่งที่ตั้งใจลบทิ้ง
+ * it does not always start from 1, because retention may have correctly deleted old revisions; reporting them as holes
+ * would make the operator chase something that was deliberately deleted
  */
 function findGaps(revisions: readonly number[]): number[] {
   if (revisions.length === 0) return [];

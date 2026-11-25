@@ -1,23 +1,23 @@
 /**
- * J2.8 (#136) — Kafka transport ของ owner command
+ * J2.8 (#136) — Kafka transport of the owner command
  *
- * `JourneyOwnerCommandRelay` รับ `J2OwnerPort` เข้ามาตรง ๆ จึงเปลี่ยน transport ได้โดย
- * ไม่แตะ relay เลย ก่อนหน้านี้มีแต่ port ที่เรียก Cases/Dialer แบบ in-process (J2.4–J2.6)
- * ทำให้ #136 ข้อแรก "relay `dc.case.commands`/`dc.dialer.commands` แบบ at-least-once และ
- * mark dispatch หลัง broker ack" ยังไม่เคยมีของจริง
+ * `JourneyOwnerCommandRelay` takes a `J2OwnerPort` directly, so the transport can be changed without
+ * touching the relay at all. Before this there were only ports that called Cases/Dialer in-process (J2.4–J2.6),
+ * so the first item of #136, "relay `dc.case.commands`/`dc.dialer.commands` at-least-once and
+ * mark dispatch after the broker ack", never really existed
  *
- * สองครึ่งของ port แยกหน้าที่กันชัดเจน:
+ * The two halves of the port have clearly separate jobs:
  *
- *   persistCommand — publish ลง topic แล้วรอ broker ack ก่อนคืน `PERSISTED`
- *     ตรงตามสัญญาที่ `J2OwnerCommandPersistedV1` เขียนไว้เองว่า "Dispatch success confirms
- *     durable command/outbox persistence, not the business effect" — broker ack คือ durable
- *     persistence จริง ส่วน effect ฝั่ง owner เป็นคนละเรื่องที่ตามมาทีหลัง relay จึง mark
- *     SENT ได้อย่างซื่อสัตย์โดยไม่ได้อ้างว่า owner ทำงานเสร็จแล้ว
+ *   persistCommand — publishes to the topic and waits for the broker ack before returning `PERSISTED`
+ *     exactly per the contract that `J2OwnerCommandPersistedV1` writes itself: "Dispatch success confirms
+ *     durable command/outbox persistence, not the business effect" — the broker ack is real durable
+ *     persistence, while the owner-side effect is a separate matter that follows later, so the relay can mark
+ *     SENT honestly without claiming the owner has finished the work
  *
- *   queryAction — publish owner action query แล้วคืน undefined ผลจริงกลับมาทาง result consumer
+ *   queryAction — publishes an owner action query and returns undefined; the real result comes back through the result consumer
  *
- * ordering key ใช้ actionKey (ตาม envelope contract ของ J2.1) เพื่อให้ command ของ action เดียวกันไปอยู่ partition เดียวกัน
- * เสมอ — owner จึงเห็นลำดับ CANCEL/SUPERSEDE หลัง command ต้นเรื่องแน่นอน
+ * the ordering key uses actionKey (per the J2.1 envelope contract) so that commands of the same action always go to the same partition
+ * — the owner therefore surely sees CANCEL/SUPERSEDE after the original command
  */
 import { randomUUID } from 'node:crypto';
 import type { DcProducer } from '@d-contact/kafka';
@@ -50,10 +50,10 @@ export function createKafkaOwnerCommandPort<TCommand extends J2OwnerCommandPaylo
 
   return {
     async persistCommand(tenant: TenantId, command: TCommand): Promise<J2OwnerCommandPersistedV1> {
-      // validate ก่อน publish เสมอ — payload/envelope ที่ผิด contract ต้องไม่หลุดลง topic
-      // owner ตรวจด้วย assertOwnerCommandEnvelope ตัวเดียวกัน (J2.1): eventId = commandId เพื่อให้
-      // retry ของ command เดิมเป็น event เดิม, orderingKey = actionKey เพื่อให้ CANCEL/SUPERSEDE
-      // ซึ่งใช้ actionKey เดิมตาม contract ตกอยู่ partition เดียวกับ command ต้นเรื่องเสมอ
+      // always validate before publishing — a payload/envelope that violates the contract must not leak onto the topic
+      // the owner checks with the same assertOwnerCommandEnvelope (J2.1): eventId = commandId so that
+      // a retry of the same command is the same event, orderingKey = actionKey so that CANCEL/SUPERSEDE,
+      // which use the same actionKey per the contract, always land in the same partition as the original command
       const validated = assertOwnerRequestHash(tenant, command);
       const envelope = assertOwnerCommandEnvelope({
         schemaVersion: 2,
@@ -84,13 +84,13 @@ export function createKafkaOwnerCommandPort<TCommand extends J2OwnerCommandPaylo
     },
 
     /**
-     * ถาม owner แบบ async: publish `journey.owner_action_query_requested` ไปยัง topic ของ owner แล้ว
-     * คืน `undefined` ทันที ("ยังไม่มีผลในมือ") — owner ตอบจาก receipt ที่มีอยู่ด้วย result event เดิม
-     * ซึ่งไหลกลับมาทาง result consumer และ apply แบบ idempotent เหมือนผลปกติ
+     * asks the owner asynchronously: publishes `journey.owner_action_query_requested` to the owner's topic and
+     * returns `undefined` immediately ("no result in hand yet") — the owner answers from an existing receipt with the original result event
+     * which flows back through the result consumer and is applied idempotently like a normal result
      *
-     * ไม่ synthesize ผลจาก `jr_owner_result_inbox` ในบ้าน และไม่ retry command เดิมแทนการถาม: owner
-     * ที่ไม่เคยได้รับ command จะไม่ตอบอะไร ปล่อยให้ bounded escalation ส่งต่อให้คนตัดสินผ่าน replay
-     * ที่ audit ไว้ (#123)
+     * does not synthesize a result from `jr_owner_result_inbox` in-house and does not retry the original command instead of asking: an owner
+     * that never received the command will answer nothing, leaving bounded escalation to hand over to a person to decide through an audited
+     * replay (#123)
      */
     async queryAction(
       tenant: TenantId,

@@ -34,7 +34,7 @@ async function fixture(t: TestContext) {
   t.after(async () => {
     await owner.jrSegmentOutbox.deleteMany({ where: { tenantId } });
     await owner.jrSegmentRefilterCursor.deleteMany({ where: { tenantId } });
-    // enrollment อ้าง intent ด้วย FK จึงต้องลบก่อน
+    // an enrollment references an intent by FK so it must be deleted first
     await owner.jrEnrollment.deleteMany({ where: { tenantId } });
     await owner.jrSegmentEnrollmentIntent.deleteMany({ where: { tenantId } });
     await owner.jrSegmentHead.deleteMany({ where: { tenantId } });
@@ -112,11 +112,11 @@ async function waitForReceipts(
     if (rows.length >= expected) return rows;
     await new Promise((resolve) => setTimeout(resolve, 200));
   }
-  throw new Error(`ไม่พบ receipt ครบ ${expected} ใบภายในเวลาที่กำหนด`);
+  throw new Error(`did not find all ${expected} receipts within the allotted time`);
 }
 
 test(
-  'consumer รับ customer.segment.changed จาก Redpanda จริงแล้วสร้าง receipt แบบ idempotent',
+  'the consumer receives customer.segment.changed from real Redpanda and creates a receipt idempotently',
   { timeout: 60_000 },
   async (t) => {
     const f = await fixture(t);
@@ -140,7 +140,11 @@ test(
 
       const [receipt] = await waitForReceipts(f, 1);
       assert.ok(receipt);
-      assert.equal(receipt.state, 'READY', 'revision แรกของ stream ต้องพร้อม apply ทันที');
+      assert.equal(
+        receipt.state,
+        'READY',
+        'the first revision of a stream must be ready to apply immediately',
+      );
       assert.equal(receipt.source, 'CUSTOMER_360');
       assert.equal(receipt.eventId, eventId);
       assert.equal(receipt.contactId, f.contactId);
@@ -149,19 +153,19 @@ test(
       assert.equal(
         receipt.payloadHash,
         canonicalSegmentMembershipHash(contractTenantId(f.tenantId), payload),
-        'hash ต้องคำนวณจาก canonical payload ไม่ใช่จาก envelope',
+        'the hash must be computed from the canonical payload, not the envelope',
       );
 
-      // ส่ง event เดิมซ้ำจาก broker — ต้องไม่เกิด receipt ใบที่สอง
+      // send the same event again from the broker — a second receipt must not be created
       await producer.send(KAFKA_TOPICS.CUSTOMER_EVENTS, envelope(f, payload, eventId));
       await new Promise((resolve) => setTimeout(resolve, 3_000));
       assert.equal(
         await f.owner.jrSegmentReceipt.count({ where: { tenantId: f.tenantId } }),
         1,
-        'redelivery ต้อง dedup ที่ transport identity',
+        'redelivery must dedup at the transport identity',
       );
 
-      // revision ถัดไปของ stream เดียวกันต้องเข้าคิวต่อได้ตามปกติ
+      // the next revision of the same stream must queue up as normal
       const second = changePayload(f, 2, entryId);
       await producer.send(KAFKA_TOPICS.CUSTOMER_EVENTS, envelope(f, second, randomUUID()));
       const rows = await waitForReceipts(f, 2);
@@ -169,13 +173,13 @@ test(
       assert.equal(
         rows[1]?.state,
         'WAITING_FOR_GAP',
-        'revision 1 ยังไม่ apply head จึงยังอยู่ที่ 0',
+        'revision 1 is not applied yet so the head is still at 0',
       );
 
-      // ไม่มี PII หรือค่า attribute หลุดลงแถวเลย
+      // no PII or attribute value leaks into the row at all
       const wire = JSON.stringify(rows);
       for (const forbidden of ['attributes', 'tier', 'phone', 'email', 'displayName']) {
-        assert.doesNotMatch(wire, new RegExp(forbidden, 'i'), `${forbidden} ต้องไม่ถูก persist`);
+        assert.doesNotMatch(wire, new RegExp(forbidden, 'i'), `${forbidden} must not be persisted`);
       }
     } finally {
       await producer.disconnect();
@@ -185,7 +189,7 @@ test(
 );
 
 test(
-  'event ชนิดอื่นบน topic เดียวกันถูกข้ามเงียบ ไม่ทำให้ consumer ล้ม',
+  'an event of another type on the same topic is skipped silently and does not crash the consumer',
   { timeout: 60_000 },
   async (t) => {
     const f = await fixture(t);
@@ -202,7 +206,7 @@ test(
     try {
       await consumer.ready();
 
-      // Customer 360 เป็นเจ้าของ topic นี้และมีสิทธิ์ประกาศ event อื่นที่ Journey ไม่เกี่ยวข้อง
+      // Customer 360 owns this topic and has the right to announce other events Journey does not care about
       await producer.send(KAFKA_TOPICS.CUSTOMER_EVENTS, {
         schemaVersion: 2,
         eventKind: 'CANONICAL',
@@ -218,12 +222,12 @@ test(
         payload: { contractVersion: 1 },
       });
 
-      // แล้วตามด้วย event ที่ Journey สนใจจริง — ต้องยังทำงานต่อได้
+      // then followed by an event Journey really cares about — it must keep working
       const payload = changePayload(f, 1, `entry-${f.suffix}`);
       await producer.send(KAFKA_TOPICS.CUSTOMER_EVENTS, envelope(f, payload, randomUUID()));
 
       const rows = await waitForReceipts(f, 1);
-      assert.equal(rows.length, 1, 'event ชนิดอื่นต้องไม่สร้าง receipt');
+      assert.equal(rows.length, 1, 'an event of another type must not create a receipt');
       assert.equal(rows[0]?.changeKind, 'ENTERED');
     } finally {
       await producer.disconnect();

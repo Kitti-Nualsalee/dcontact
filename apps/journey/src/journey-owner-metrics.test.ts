@@ -1,9 +1,9 @@
 /**
- * J2.8 (#136) — พิสูจน์ว่า observability ของ owner path ไม่พา PII หรือ identifier ออกไป
+ * J2.8 (#136) — proves that the observability of the owner path carries no PII or identifier out
  *
- * metric backend มี retention ยาวกว่าและสิทธิ์เข้าถึงกว้างกว่าฐานข้อมูลมาก อะไรที่หลุดไป
- * ที่นั่นถือว่าหลุดถาวร — test ชุดนี้จึงตรวจ "สิ่งที่ถูกปล่อยออกไปจริง" ไม่ใช่แค่ว่า
- * interface หน้าตาถูกต้อง
+ * the metric backend has longer retention and broader access than the database; anything that leaks
+ * there is leaked permanently — so this suite checks "what is really emitted", not just that the
+ * interface has the right shape
  */
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -31,7 +31,7 @@ const GAUGES: JourneyOwnerGaugeMetric[] = [
   'journey_owner_ack_attempts',
 ];
 
-/** ดัก console.info เพื่อดูสิ่งที่ปล่อยออกไปจริง */
+/** intercepts console.info to see what is really emitted */
 function captureEmitted(run: (metrics: JsonJourneyOwnerMetrics) => void): string[] {
   const emitted: string[] = [];
   const original = console.info;
@@ -46,7 +46,7 @@ function captureEmitted(run: (metrics: JsonJourneyOwnerMetrics) => void): string
   return emitted;
 }
 
-test('ทุก metric ปล่อยเฉพาะ metric name กับ value ไม่มี key อื่นเลย', () => {
+test('every metric emits only the metric name and value, with no other key', () => {
   const emitted = captureEmitted((metrics) => {
     for (const counter of COUNTERS) metrics.increment(counter);
     for (const gauge of GAUGES) metrics.observe(gauge, 1_234);
@@ -58,31 +58,31 @@ test('ทุก metric ปล่อยเฉพาะ metric name กับ valu
     assert.deepEqual(
       Object.keys(parsed).sort(),
       ['metric', 'value'],
-      `metric payload ต้องมีแค่ metric กับ value แต่ได้ ${line}`,
+      `a metric payload must have only metric and value but got ${line}`,
     );
     assert.equal(typeof parsed.metric, 'string');
     assert.equal(typeof parsed.value, 'number');
   }
 });
 
-test('ชื่อ metric ไม่มี identifier ฝังอยู่ในตัวเอง', () => {
-  // ชื่อต้องเป็น snake_case คงที่เท่านั้น — ถ้ามีใคร interpolate id เข้าไปจะจับได้ตรงนี้
+test('a metric name has no identifier embedded in it', () => {
+  // the name must be a fixed snake_case only — if anyone interpolates an id into it, it is caught here
   for (const metric of [...COUNTERS, ...GAUGES]) {
-    assert.match(metric, /^journey_owner_[a-z_]+$/, `ชื่อ metric ผิดรูป: ${metric}`);
+    assert.match(metric, /^journey_owner_[a-z_]+$/, `malformed metric name: ${metric}`);
   }
 });
 
-test('observe ไม่ปล่อยค่าติดลบออกไป', () => {
+test('observe does not emit a negative value', () => {
   const emitted = captureEmitted((metrics) => {
     metrics.observe('journey_owner_dispatch_to_result_ms', -5_000);
   });
   assert.equal((JSON.parse(emitted[0]!) as { value: number }).value, 0);
 });
 
-test('label ที่แอบส่งเข้ามาเกิน signature ก็ยังไม่หลุดออกไป', () => {
-  // TypeScript กันไว้ที่ compile time แต่ JS ยอมให้ส่ง argument เกินได้เสมอ — โค้ดที่
-  // ถูก transpile หรือเรียกจาก JS ตรง ๆ จึงยังแอบยัด label เข้ามาได้ ยืนยันว่าต่อให้
-  // ยัดเข้ามาจริง payload ที่ปล่อยออกก็ยังมีแค่ metric กับ value
+test('a label smuggled in beyond the signature still does not leak out', () => {
+  // TypeScript guards at compile time but JS always lets extra arguments through — code that
+  // is transpiled or called directly from JS can therefore still sneak a label in; this confirms that even if
+  // it is really sneaked in the emitted payload still has only metric and value
   const sneaky = { tenantId: 'tenant-1', contactId: 'contact-1' };
   const emitted = captureEmitted((metrics) => {
     (metrics.increment as (m: string, extra?: unknown) => void)(
@@ -103,7 +103,7 @@ test('label ที่แอบส่งเข้ามาเกิน signature 
   }
 });
 
-test('no-op ไม่ปล่อยอะไรออกไปเลย', () => {
+test('no-op emits nothing at all', () => {
   const emitted: string[] = [];
   const original = console.info;
   console.info = (line: unknown) => void emitted.push(String(line));

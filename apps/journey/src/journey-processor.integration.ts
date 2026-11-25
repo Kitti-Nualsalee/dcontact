@@ -59,7 +59,7 @@ async function createTenantFixture(t: TestContext) {
   return { owner, application, tenantId };
 }
 
-test('CRM_ID ที่ resolve ไม่ได้ให้ REVIEW evidence โดยไม่สร้าง action และ retry ได้ผลเดิม', async (t) => {
+test('a CRM_ID that cannot be resolved gives REVIEW evidence without creating an action and a retry gives the same result', async (t) => {
   const { owner, application, tenantId } = await createTenantFixture(t);
   const receiptId = '10000000-0000-4000-8000-000000000001';
   const decisionId = '20000000-0000-4000-8000-000000000001';
@@ -120,7 +120,7 @@ test('CRM_ID ที่ resolve ไม่ได้ให้ REVIEW evidence โ�
   );
 });
 
-test('identity ที่ไม่พบผ่าน Customer Context ให้ REVIEW evidence โดยไม่สร้าง action', async (t) => {
+test('an identity not found through Customer Context gives REVIEW evidence without creating an action', async (t) => {
   const { owner, application, tenantId } = await createTenantFixture(t);
   const receiptId = randomUUID();
   const decisionId = randomUUID();
@@ -163,7 +163,7 @@ test('identity ที่ไม่พบผ่าน Customer Context ให้ R
   assert.equal(await owner.jrAction.count({ where: { tenantId } }), 0);
 });
 
-test('C3 bridge: identity ที่ยังไม่ import ไม่ถูกตัดสินถาวร ไม่สร้าง enrollment/decision และ retry ได้หลัง import', async (t) => {
+test('C3 bridge: an identity not yet imported is not decided permanently, creates no enrollment/decision and can retry after import', async (t) => {
   const { owner, application, tenantId } = await createTenantFixture(t);
   const receiptId = randomUUID();
   const contactId = randomUUID();
@@ -196,7 +196,7 @@ test('C3 bridge: identity ที่ยังไม่ import ไม่ถูก�
     policyVersion: 1,
   };
 
-  // ช่วง rollout ก่อน import: retry ได้ ไม่มี enrollment หรือ Governance decision ค้าง
+  // the rollout period before import: can retry, with no enrollment or Governance decision left dangling
   await assert.rejects(
     processor.processEvent(tenantId, input),
     (error) =>
@@ -210,7 +210,7 @@ test('C3 bridge: identity ที่ยังไม่ import ไม่ถูก�
     'PROCESSED',
   );
 
-  // import ครบแล้ว event เดิมประมวลผลด้วย contact จริง (ไม่ใช่ NOT_FOUND จากช่วง rollout)
+  // after the import is complete the original event is processed with the real contact (not the NOT_FOUND from the rollout period)
   await importLegacyContactPoints(tenantId);
   const processed = await processor.processEvent(tenantId, input);
   assert.notEqual(processed.reasonCode, 'IDENTITY_NOT_FOUND');
@@ -221,7 +221,7 @@ test('C3 bridge: identity ที่ยังไม่ import ไม่ถูก�
   );
 });
 
-test('C3 bridge: identity ที่ยังไม่ import เกินช่วง retry บันทึก REVIEW ด้วย IDENTITY_MAPPING_PENDING ไม่ขวาง partition', async (t) => {
+test('C3 bridge: an identity not imported past the retry window records REVIEW with IDENTITY_MAPPING_PENDING and does not block the partition', async (t) => {
   const { owner, application, tenantId } = await createTenantFixture(t);
   const receiptId = randomUUID();
   const event: InboundBusinessEvent = {
@@ -257,14 +257,14 @@ test('C3 bridge: identity ที่ยังไม่ import เกินช่�
     policyVersion: 1,
   };
 
-  // ยังอยู่ในช่วง: retry ได้ (occurredAt ของ producer ที่เก่ากว่าช่วงไม่ทำให้หมดเวลาทันที)
+  // still within the window: can retry (a producer occurredAt older than the window does not time out immediately)
   await assert.rejects(
     processorAt(59_999).processEvent(tenantId, input),
     JourneyIdentityMappingPendingError,
   );
   assert.equal(await owner.cgDecisionLog.count({ where: { tenantId } }), 0);
 
-  // พ้นช่วง: REVIEW ที่แยกจาก NOT_FOUND จึง query หา event ที่ต้อง re-drive หลัง import ได้
+  // past the window: a REVIEW separate from NOT_FOUND, so events to re-drive after import can be queried
   const result = await processorAt(60_000).processEvent(tenantId, input);
   assert.equal(result.decision, 'REVIEW');
   assert.equal(result.reasonCode, 'IDENTITY_MAPPING_PENDING');
@@ -281,7 +281,7 @@ test('C3 bridge: identity ที่ยังไม่ import เกินช่�
   assert.equal(await owner.jrAction.count({ where: { tenantId } }), 0);
 });
 
-test('event ที่ resolve contact ได้สร้าง action ที่เชื่อม decision และ reservation เดิมข้าม retry', async (t) => {
+test('an event that resolves a contact creates an action linked to the same decision and reservation across retries', async (t) => {
   const { owner, application, tenantId } = await createTenantFixture(t);
   const contactId = '30000000-0000-4000-8000-000000000001';
   const identityId = '40000000-0000-4000-8000-000000000001';
@@ -433,7 +433,7 @@ test('event ที่ resolve contact ได้สร้าง action ที่�
   assert.equal(await owner.jrAction.count({ where: { tenantId } }), 1);
 });
 
-test('scope ที่ปฏิเสธจบ Journey ก่อน Contact Governance และเก็บ inbox เป็นผลลัพธ์ terminal', async (t) => {
+test('a rejecting scope ends the Journey before Contact Governance and keeps the inbox as a terminal result', async (t) => {
   const { owner, application, tenantId } = await createTenantFixture(t);
   const contactId = randomUUID();
   const identityId = randomUUID();
@@ -506,7 +506,7 @@ test('scope ที่ปฏิเสธจบ Journey ก่อน Contact Gover
   );
 });
 
-test('scope ที่ stale ไม่สร้าง enrollment หรือเรียก Governance และปล่อย inbox ให้ retry', async (t) => {
+test('a stale scope creates no enrollment or Governance call and releases the inbox to retry', async (t) => {
   const { owner, application, tenantId } = await createTenantFixture(t);
   const contactId = randomUUID();
   const identityId = randomUUID();
@@ -568,7 +568,7 @@ test('scope ที่ stale ไม่สร้าง enrollment หรือเ�
   );
 });
 
-test('สอง tenant ใช้ identity เดียวกันแต่ได้ policy ของตนเองและไม่ประมวลผล receipt ข้ามกัน', async (t) => {
+test('two tenants using the same identity get their own policy and do not process receipts across each other', async (t) => {
   const tenantA = await createTenantFixture(t);
   const tenantB = await createTenantFixture(t);
   const email = 'shared-identity@example.test';

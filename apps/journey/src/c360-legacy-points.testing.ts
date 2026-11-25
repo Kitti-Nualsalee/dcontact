@@ -2,15 +2,17 @@ import { importAllC360LegacyContactPoints } from '@d-contact/customer-360';
 import { PrismaClient } from '@d-contact/db';
 
 /**
- * Cus360 C3 (#793) S4: ลำดับ rollout จริงของ fixture — legacy ContactIdentity ต้องถูก import เป็น
- * contact point ผ่าน operator command ก่อน resolver ของ journey-composition จะ resolve ได้
+ * Cus360 C3 (#793) S4: the real rollout order for the fixture — legacy ContactIdentity must be imported as
+ * a contact point through the operator command before the journey-composition resolver can resolve it.
  */
-// ไม่มี default ไป DB ร่วม (port 5433): import ต้องลง DB แยกของงานเท่านั้น สร้าง client ตอนใช้ครั้งแรก
+// No default to the shared DB (port 5433): the import must target the task's own DB only. The client is created on first use.
 let client: PrismaClient | undefined;
 function application(): PrismaClient {
   const url = process.env.APPLICATION_DATABASE_URL;
   if (!url)
-    throw new Error('ต้องตั้ง APPLICATION_DATABASE_URL ของ DB แยกก่อน import legacy fixture');
+    throw new Error(
+      'APPLICATION_DATABASE_URL of a separate DB must be set before importing the legacy fixture',
+    );
   client ??= new PrismaClient({ datasources: { db: { url } } });
   return client;
 }
@@ -23,7 +25,7 @@ export async function importLegacyContactPoints(tenantId: string): Promise<void>
   );
 }
 
-/** แถวของ Cus360 อ้าง ContactIdentity ผ่าน FK จึงต้องลบก่อน cleanup ของ fixture */
+/** Cus360 rows reference ContactIdentity through an FK, so they must be deleted before the fixture cleanup */
 export async function deleteC360Fixtures(owner: PrismaClient, tenantId: string): Promise<void> {
   for (const table of [
     'c360_profile_audits',

@@ -63,7 +63,7 @@ async function fixture(t: TestContext) {
 
 type Fixture = Awaited<ReturnType<typeof fixture>>;
 
-/** เดินไปจนถึง stage ที่ต้องการทีละขั้น */
+/** walks to the desired stage one step at a time */
 async function advanceTo(f: Fixture, target: SegmentRolloutStage) {
   let view = await f.rollout.read(f.tenantId);
   for (const stage of FORWARD) {
@@ -78,7 +78,7 @@ async function advanceTo(f: Fixture, target: SegmentRolloutStage) {
   return view;
 }
 
-test('tenant ที่ไม่เคยเปิดถือว่า DISABLED และยังสร้าง effect ไม่ได้', async (t) => {
+test('a tenant that was never enabled counts as DISABLED and cannot create effects yet', async (t) => {
   const f = await fixture(t);
   const view = await f.rollout.read(f.tenantId);
   assert.equal(view.stage, 'DISABLED');
@@ -86,16 +86,16 @@ test('tenant ที่ไม่เคยเปิดถือว่า DISABLED 
   assert.equal(await f.rollout.canEmitEffects(f.tenantId), false);
 });
 
-test('stage เดินหน้าทีละขั้นจนเปิดเต็มรูปแบบ', async (t) => {
+test('the stage moves forward one step at a time until fully enabled', async (t) => {
   const f = await fixture(t);
   const view = await advanceTo(f, 'SCOPED_INTERNAL_ENABLED');
   assert.equal(view.stage, 'SCOPED_INTERNAL_ENABLED');
-  assert.ok(view.shadowStartedAt, 'ต้องบันทึกว่าเริ่ม shadow เมื่อไร');
-  assert.ok(view.switchedAt, 'ต้องบันทึกว่าสลับเมื่อไร');
+  assert.ok(view.shadowStartedAt, 'it must record when shadow started');
+  assert.ok(view.switchedAt, 'it must record when the switch happened');
   assert.equal(await f.rollout.canEmitEffects(f.tenantId), true);
 });
 
-test('ข้ามขั้นไม่ได้ — shadow มีไว้เพื่อดูว่าคำนวณตรงกับ Customer 360 ไหม', async (t) => {
+test('stages cannot be skipped — shadow exists to see whether the computation matches Customer 360', async (t) => {
   const f = await fixture(t);
   const backfill = await advanceTo(f, 'OWNER_BACKFILL');
 
@@ -116,11 +116,11 @@ test('ข้ามขั้นไม่ได้ — shadow มีไว้เ�
   assert.equal((await f.rollout.read(f.tenantId)).stage, 'OWNER_BACKFILL');
 });
 
-test('ย้อน stage ไม่ได้ทั้งที่ชั้นโค้ดและที่ฐานข้อมูล', async (t) => {
+test('a stage cannot go backwards in either the code layer or the database', async (t) => {
   const f = await fixture(t);
   const enabled = await advanceTo(f, 'SCOPED_INTERNAL_ENABLED');
 
-  // ชั้นโค้ดปฏิเสธก่อน
+  // the code layer rejects first
   await assert.rejects(
     () =>
       f.rollout.advance({
@@ -132,19 +132,19 @@ test('ย้อน stage ไม่ได้ทั้งที่ชั้นโ�
     SegmentRolloutTransitionError,
   );
 
-  // และถึงจะเขียนตรงเข้าฐานข้อมูล trigger ก็ยังกัน
+  // and even a direct write into the database is still blocked by the trigger
   await assert.rejects(
     () =>
       f.owner.jrSegmentRolloutState.update({
         where: { tenantId: f.tenantId },
         data: { stage: 'SHADOW_MEMBERSHIP', version: { increment: 1 } },
       }),
-    // Prisma escape ภาษาไทยใน error string จึงจับด้วยชื่อตารางที่เป็น ASCII แทนข้อความ
+    // Prisma escapes Thai in the error string, so match on the ASCII table name instead of the message
     /jr_segment_rollout_state/,
   );
 });
 
-test('version ที่ไม่ตรงถูกปฏิเสธ — operator สองคนแก้พร้อมกันไม่ได้', async (t) => {
+test('a mismatched version is rejected — two operators cannot edit at the same time', async (t) => {
   const f = await fixture(t);
   const view = await advanceTo(f, 'OWNER_BACKFILL');
 
@@ -164,7 +164,7 @@ test('version ที่ไม่ตรงถูกปฏิเสธ — operato
   );
 });
 
-test('rollback คือ freeze ไม่ใช่ย้อน stage และเปิดกลับได้', async (t) => {
+test('rollback is a freeze, not going back a stage, and it can be turned back on', async (t) => {
   const f = await fixture(t);
   const enabled = await advanceTo(f, 'SCOPED_INTERNAL_ENABLED');
   assert.equal(await f.rollout.canEmitEffects(f.tenantId), true);
@@ -176,8 +176,8 @@ test('rollback คือ freeze ไม่ใช่ย้อน stage และ�
     updatedByRef: 'operator:incident',
   });
   assert.equal(frozen.mutationFrozen, true);
-  assert.equal(frozen.stage, 'SCOPED_INTERNAL_ENABLED', 'freeze ต้องไม่แตะ stage');
-  assert.equal(await f.rollout.canEmitEffects(f.tenantId), false, 'effect ใหม่ต้องหยุด');
+  assert.equal(frozen.stage, 'SCOPED_INTERNAL_ENABLED', 'freeze must not touch the stage');
+  assert.equal(await f.rollout.canEmitEffects(f.tenantId), false, 'new effects must stop');
 
   const thawed = await f.rollout.setFrozen({
     tenantId: f.tenantId,
@@ -186,10 +186,14 @@ test('rollback คือ freeze ไม่ใช่ย้อน stage และ�
     updatedByRef: 'operator:resolved',
   });
   assert.equal(thawed.mutationFrozen, false);
-  assert.equal(await f.rollout.canEmitEffects(f.tenantId), true, 'แก้เสร็จแล้วเปิดกลับได้');
+  assert.equal(
+    await f.rollout.canEmitEffects(f.tenantId),
+    true,
+    'once fixed it can be turned back on',
+  );
 });
 
-test('shadow mismatch บันทึกเฉพาะตอนไม่ตรง และไม่บันทึกซ้ำทุกรอบ', async (t) => {
+test('a shadow mismatch is recorded only when it does not match and is not recorded again every round', async (t) => {
   const f = await fixture(t);
   await advanceTo(f, 'SHADOW_MEMBERSHIP');
 
@@ -205,7 +209,7 @@ test('shadow mismatch บันทึกเฉพาะตอนไม่ตร�
   assert.equal(
     await f.owner.jrSegmentShadowMismatch.count({ where: { tenantId: f.tenantId } }),
     0,
-    'ตรงกันแล้วไม่ต้องบันทึกอะไร',
+    'once they match nothing needs to be recorded',
   );
 
   const first = await f.rollout.recordMismatch({
@@ -218,7 +222,7 @@ test('shadow mismatch บันทึกเฉพาะตอนไม่ตร�
   });
   assert.equal(first, 'RECORDED');
 
-  // shadow วนรอบอีกครั้งเจอ mismatch เดิม — ต้องไม่ทำให้รายงานบวม
+  // shadow goes round again and finds the same mismatch — must not bloat the report
   const again = await f.rollout.recordMismatch({
     tenantId: f.tenantId,
     contactId: f.contactId,
@@ -231,7 +235,7 @@ test('shadow mismatch บันทึกเฉพาะตอนไม่ตร�
   assert.equal(await f.owner.jrSegmentShadowMismatch.count({ where: { tenantId: f.tenantId } }), 1);
 });
 
-test('mismatch report เก็บได้แค่ digest ไม่มีค่า attribute และแก้ย้อนหลังไม่ได้', async (t) => {
+test('a mismatch report keeps only a digest, no attribute values, and cannot be edited retroactively', async (t) => {
   const f = await fixture(t);
   await advanceTo(f, 'SHADOW_MEMBERSHIP');
   await f.rollout.recordMismatch({
@@ -250,10 +254,10 @@ test('mismatch report เก็บได้แค่ digest ไม่มีค�
   assert.equal(row.mismatchKind, 'STATE_DIGEST');
   const wire = JSON.stringify(row);
   for (const forbidden of ['attributes', 'tier', 'phone', 'email', 'payload']) {
-    assert.doesNotMatch(wire, new RegExp(forbidden, 'i'), `${forbidden} ต้องไม่อยู่ใน report`);
+    assert.doesNotMatch(wire, new RegExp(forbidden, 'i'), `${forbidden} must not be in the report`);
   }
 
-  // หลักฐานของ incident ต้องแก้ย้อนหลังไม่ได้
+  // incident evidence must not be editable retroactively
   await assert.rejects(
     () =>
       f.owner.jrSegmentShadowMismatch.update({

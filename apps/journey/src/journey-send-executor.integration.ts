@@ -1,8 +1,8 @@
 import { teamWriterRace } from '@d-contact/db/testing/team-reference-races.js';
 /**
- * C1.6 acceptance: SEND composition ต่อ ContactGovernanceService และ DeliveryTestAdapter
- * ตัวจริงบน Postgres — พิสูจน์ boundary ข้าม app ไม่ใช่ยืมโค้ด (`@d-contact/contact-governance`
- * และ `@d-contact/delivery` เป็น dependency สำหรับ compose ใน test เท่านั้น)
+ * C1.6 acceptance: SEND composition against the real ContactGovernanceService and DeliveryTestAdapter
+ * on real Postgres — proves the cross-app boundary rather than borrowing code (`@d-contact/contact-governance`
+ * and `@d-contact/delivery` are dependencies for composing in tests only)
  */
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -59,7 +59,7 @@ class DeferredScope implements TeamContactScopeAuthorizer {
   }
 }
 
-/** จำลอง cancel ที่แซงเข้ามาทันทีหลัง reservation ถูกจอง แต่ก่อน enqueue — ต่อ port จริงทุกจุดอื่น */
+/** simulates a cancel that cuts in right after the reservation is held but before enqueue — wired to the real ports everywhere else */
 class CancelAfterReserveGovernance implements ContactGovernancePort {
   constructor(
     private readonly inner: ContactGovernancePort,
@@ -105,7 +105,7 @@ class CancelAfterReserveGovernance implements ContactGovernancePort {
 
 class UnreachableDelivery implements DeliveryPort {
   async enqueue(_command: EnqueueDeliveryCommand): Promise<EnqueueDeliveryResult> {
-    throw new Error('enqueue ต้องไม่ถูกเรียกหลัง cancel แซงเข้ามา');
+    throw new Error('enqueue must not be called after a cancel cuts in');
   }
 }
 
@@ -125,7 +125,7 @@ function sendThenExitGraph(): JourneyGraph {
   };
 }
 
-/** BRANCH ตัดสินจาก `vars.stillUnpaid` แบบ deterministic ผ่าน DC_EXPR:1 ก่อนถึง SEND */
+/** BRANCH decides deterministically from `vars.stillUnpaid` through DC_EXPR:1 before reaching SEND */
 function branchThenSendGraph(): JourneyGraph {
   return {
     entryStepId: 'branch-unpaid',
@@ -294,7 +294,7 @@ async function fixture(t: TestContext) {
   };
 }
 
-test('SEND ที่ scope ALLOW เรียก authorize/reserve ก่อน enqueue แล้วเดิน cursor ต่อ', async (t) => {
+test('a SEND whose scope is ALLOW calls authorize/reserve before enqueue and then advances the cursor', async (t) => {
   const f = await fixture(t);
   const parked = await f.enrollAndAdvanceToSend();
   const executor = new JourneySendExecutor(
@@ -322,7 +322,7 @@ test('SEND ที่ scope ALLOW เรียก authorize/reserve ก่อน 
   assert.equal(reservation?.contactId, f.rawContactId);
 });
 
-test('SEND ที่ scope DENY ไม่ authorize/reserve หรือ enqueue แต่ยังเดิน cursor ต่อ', async (t) => {
+test('a SEND whose scope is DENY does not authorize/reserve or enqueue but still advances the cursor', async (t) => {
   const f = await fixture(t);
   const parked = await f.enrollAndAdvanceToSend();
   const executor = new JourneySendExecutor(
@@ -349,7 +349,7 @@ test('SEND ที่ scope DENY ไม่ authorize/reserve หรือ enqueue
   assert.equal(await f.owner.cgReservation.count({ where: { tenantId: f.rawTenantId } }), 0);
 });
 
-test('IAM CONTACT grant ที่ถูก revoke หยุด SEND ก่อน Governance reservation และ Delivery', async (t) => {
+test('a revoked IAM CONTACT grant stops SEND before the Governance reservation and Delivery', async (t) => {
   const f = await fixture(t);
   const scope = new IamTeamSegmentScopeRepository(f.application);
   const scopeSegment = `send-scope-${f.suffix}`;
@@ -378,7 +378,7 @@ test('IAM CONTACT grant ที่ถูก revoke หยุด SEND ก่อน
       stateDigest: 'c'.repeat(64),
     },
   });
-  if (grant.outcome !== 'GRANTED') throw new Error('fixture ต้องสร้าง CONTACT grant ใหม่');
+  if (grant.outcome !== 'GRANTED') throw new Error('the fixture must create a new CONTACT grant');
   await scope.revoke({
     tenantId: f.rawTenantId,
     grantId: grant.grant.id,
@@ -408,7 +408,7 @@ test('IAM CONTACT grant ที่ถูก revoke หยุด SEND ก่อน
   assert.equal(await f.owner.dlOutboxEntry.count({ where: { tenantId: f.rawTenantId } }), 0);
 });
 
-test('SEND ที่ scope stale ไม่ reserve หรือ enqueue และคง cursor เพื่อ resolve IAM ใหม่', async (t) => {
+test('a SEND whose scope is stale does not reserve or enqueue and keeps the cursor to resolve IAM again', async (t) => {
   const f = await fixture(t);
   const parked = await f.enrollAndAdvanceToSend();
   const executor = new JourneySendExecutor(
@@ -437,7 +437,7 @@ test('SEND ที่ scope stale ไม่ reserve หรือ enqueue แล�
   assert.equal(await f.owner.cgReservation.count({ where: { tenantId: f.rawTenantId } }), 0);
 });
 
-test('SEND ที่ไม่มี consent ถูก Governance suppress แต่ยังเดิน cursor ต่อโดยไม่ enqueue', async (t) => {
+test('a SEND with no consent is suppressed by Governance but still advances the cursor without enqueue', async (t) => {
   const f = await fixture(t);
   await f.owner.cgConsent.deleteMany({ where: { tenantId: f.rawTenantId } });
   const parked = await f.enrollAndAdvanceToSend();
@@ -463,7 +463,7 @@ test('SEND ที่ไม่มี consent ถูก Governance suppress แต
   assert.equal(await f.owner.dlOutboxEntry.count({ where: { tenantId: f.rawTenantId } }), 0);
 });
 
-test('เรียก handleSend ซ้ำหลัง completeSend สำเร็จแล้วไม่ enqueue ซ้ำ (idempotent retry)', async (t) => {
+test('calling handleSend again after completeSend has succeeded does not enqueue again (idempotent retry)', async (t) => {
   const f = await fixture(t);
   const parked = await f.enrollAndAdvanceToSend();
   const executor = new JourneySendExecutor(
@@ -490,7 +490,7 @@ test('เรียก handleSend ซ้ำหลัง completeSend สำเร
   assert.equal(await f.owner.dlOutboxEntry.count({ where: { tenantId: f.rawTenantId } }), 1);
 });
 
-test('cancel ที่แซงเข้ามาหลังจองแต่ก่อน enqueue ทำให้ reservation ถูก release แทนการส่ง', async (t) => {
+test('a cancel that cuts in after the reservation but before enqueue makes the reservation be released instead of sending', async (t) => {
   const f = await fixture(t);
   const parked = await f.enrollAndAdvanceToSend();
 
@@ -520,7 +520,7 @@ test('cancel ที่แซงเข้ามาหลังจองแต่�
   assert.equal(await f.owner.dlOutboxEntry.count({ where: { tenantId: f.rawTenantId } }), 0);
 });
 
-test('SEND บน journey ที่ยังไม่ publish ทำให้ advance ปฏิเสธก่อนถึง C1.6', async (t) => {
+test('a SEND on a journey that is not published makes advance reject before reaching C1.6', async (t) => {
   const f = await fixture(t);
   const secondJourneyId = randomUUID();
   const draft = await f.definitions.createVersion({
@@ -555,7 +555,7 @@ test('SEND บน journey ที่ยังไม่ publish ทำให้ ad
   );
 });
 
-test('BRANCH ตัดสินผ่าน DC_EXPR:1 ก่อนถึง SEND — ทาง true enqueue จริง ทาง false ไม่แตะ Governance เลย', async (t) => {
+test('BRANCH decides through DC_EXPR:1 before reaching SEND — the true path really enqueues, the false path does not touch Governance at all', async (t) => {
   const f = await fixture(t);
   const branchJourneyId = randomUUID();
   const draft = await f.definitions.createVersion({
@@ -588,8 +588,8 @@ test('BRANCH ตัดสินผ่าน DC_EXPR:1 ก่อนถึง SEND
     f.delivery,
   );
 
-  // ทาง whenFalse: advance() แรกเดิน BRANCH ไปยัง exit-paid (ADVANCED) แล้วเรียกซ้ำอีกครั้ง
-  // เพื่อประมวลผล EXIT นั้น — เอนจินนี้เดินทีละ node ต่อการเรียกหนึ่งครั้งเสมอ
+  // the whenFalse path: the first advance() walks BRANCH to exit-paid (ADVANCED) and then calls again
+  // to process that EXIT — this engine always walks one node per call
   const paidEnrollment = await f.execution.enrollFromSchedule(f.rawTenantId, {
     journeyId: branchJourneyId,
     journeyVersion: 1,
@@ -609,8 +609,8 @@ test('BRANCH ตัดสินผ่าน DC_EXPR:1 ก่อนถึง SEND
   assert.equal(await f.owner.dlOutboxEntry.count({ where: { tenantId: f.rawTenantId } }), 0);
   assert.equal(await f.owner.cgReservation.count({ where: { tenantId: f.rawTenantId } }), 0);
 
-  // ทาง whenTrue: advance() แรกเดิน BRANCH ไปยัง send-reminder (ADVANCED) แล้วเรียกซ้ำเพื่อ
-  // ประมวลผล SEND นั้นและได้ AWAITING_SEND ให้ C1.6 เข้าคุม
+  // the whenTrue path: the first advance() walks BRANCH to send-reminder (ADVANCED) and then calls again to
+  // process that SEND and get AWAITING_SEND for C1.6 to take over
   const unpaidEnrollment = await f.execution.enrollFromSchedule(f.rawTenantId, {
     journeyId: branchJourneyId,
     journeyVersion: 1,

@@ -9,7 +9,7 @@ import {
 } from '@d-contact/cxa-contracts';
 
 /**
- * J5.2 (#340): error, state guard และ port ของ authoring ที่ไม่มี I/O
+ * J5.2 (#340): errors, state guards and ports of authoring that have no I/O
  */
 
 export class JourneyAuthoringError extends Error {
@@ -27,8 +27,8 @@ export class JourneyAuthoringError extends Error {
   }
 
   /**
-   * ผลที่ deterministic ต่อ request เดิม (auth/validation/conflict) ถูกจำไว้ใน receipt เพื่อให้ key เดิม
-   * ได้คำตอบเดิม — ส่วน 404/503 อาจเปลี่ยนได้เมื่อ retry จึงไม่จำ
+   * Results that are deterministic for the same request (auth/validation/conflict) are remembered in the receipt so the same key
+   * gets the same answer — 404/503 may change on retry so they are not remembered
    */
   get storedInReceipt(): boolean {
     return [403, 409, 422].includes(this.httpStatus);
@@ -41,7 +41,7 @@ export function assertJourneyLifecycleTransition(from: JourneyLifecycle, to: Jou
   }
 }
 
-/** PAUSED/DEPRECATED หยุด enrollment ใหม่เท่านั้น; enrollment เดิมเดินต่อจนจบ (Phase Contract §5) */
+/** PAUSED/DEPRECATED only stop new enrollment; existing enrollments continue to the end (Phase Contract §5) */
 export function lifecycleAcceptsNewEnrollments(lifecycle: JourneyLifecycle | undefined): boolean {
   return lifecycle !== 'PAUSED' && lifecycle !== 'DEPRECATED';
 }
@@ -54,11 +54,11 @@ export type {
 export interface JourneyAuthoringActor {
   readonly subjectId: string;
   readonly correlationId: string;
-  /** จาก verified token เท่านั้น — ใช้ตัดสิน strong/recent auth ไม่ใช่ใช้แทน authorization */
+  /** From a verified token only — used to decide strong/recent auth, not as a substitute for authorization */
   readonly authentication?: JourneyAuthoringAuthentication;
 }
 
-/** env kill switch ของแต่ละ feature — effective = env AND tenant rollout field (Phase Spec §9) */
+/** Env kill switch of each feature — effective = env AND tenant rollout field (Phase Spec §9) */
 export interface JourneyAuthoringFeatureFlags {
   readonly canvasWrite: boolean;
   readonly publishUi: boolean;

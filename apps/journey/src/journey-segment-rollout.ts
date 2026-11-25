@@ -1,15 +1,15 @@
 /**
- * J3.10 (#221) — rollout stage ของ J3 ต่อ tenant และ shadow evaluation
+ * J3.10 (#221) — the rollout stage of J3 per tenant, and shadow evaluation
  *
- * ลำดับ: DISABLED → OWNER_BACKFILL → SHADOW_MEMBERSHIP → SHADOW_RECEIPT_REFILTER →
+ * Order: DISABLED → OWNER_BACKFILL → SHADOW_MEMBERSHIP → SHADOW_RECEIPT_REFILTER →
  * SCOPED_INTERNAL_ENABLED
  *
- * สองอย่างที่แยกกันชัดเจนและมักถูกสับสน:
+ * Two things that are clearly separate and often confused:
  *
- * - **stage เดินหน้าอย่างเดียว** ย้อนกลับเท่ากับปลุก writer ที่ถูกปลดไปแล้วให้กลับมาเขียนทับ
- *   ของใหม่ ซึ่งฐานข้อมูลปฏิเสธผ่าน `jr_segment_rollout_guard`
- * - **rollback คือ freeze** ไม่ใช่ย้อน stage — หยุด effect ใหม่โดยไม่แตะของที่เกิดไปแล้ว
- *   และย้อนกลับได้เมื่อแก้ปัญหาเสร็จ (stop condition ห้าม destructive down migration)
+ * - **the stage only moves forward** — going back would wake a writer that was already retired to write over
+ *   new data, which the database rejects through `jr_segment_rollout_guard`
+ * - **rollback is a freeze**, not going back a stage — it stops new effects without touching what already happened
+ *   and can be reversed once the problem is fixed (the stop condition forbids a destructive down migration)
  */
 import { withTenantDatabaseTransaction, type PrismaClient } from '@d-contact/db';
 
@@ -35,7 +35,7 @@ export class SegmentRolloutTransitionError extends Error {
     readonly from: SegmentRolloutStage,
     readonly to: SegmentRolloutStage,
   ) {
-    super(`เปลี่ยน rollout stage จาก ${from} ไป ${to} ไม่ได้`);
+    super(`cannot change the rollout stage from ${from} to ${to}`);
     this.name = 'SegmentRolloutTransitionError';
   }
 }
@@ -47,7 +47,7 @@ export class SegmentRolloutVersionConflictError extends Error {
     readonly expectedVersion: number,
     readonly actualVersion: number,
   ) {
-    super(`rollout state ขยับไปแล้ว: ${expectedVersion} -> ${actualVersion}`);
+    super(`rollout state has moved: ${expectedVersion} -> ${actualVersion}`);
     this.name = 'SegmentRolloutVersionConflictError';
   }
 }
@@ -65,16 +65,16 @@ export interface ShadowComparisonInput {
   contactId: string;
   segmentId: string;
   membershipRevision: number;
-  /** digest ที่ Customer 360 ประกาศมากับ event */
+  /** the digest Customer 360 announced with the event */
   expectedDigest: string;
-  /** digest ที่ J3 คำนวณได้เองจาก receipt ที่เก็บไว้ */
+  /** the digest J3 computed itself from the receipts it keeps */
   observedDigest: string;
 }
 
 export class JourneySegmentRollout {
   constructor(private readonly database: PrismaClient) {}
 
-  /** ไม่มีแถว = ยังไม่เคยเปิด แปลว่า DISABLED */
+  /** no row = never enabled, meaning DISABLED */
   async read(tenantId: string): Promise<SegmentRolloutView> {
     return withTenantDatabaseTransaction(this.database, tenantId, async (transaction) => {
       const row = await transaction.jrSegmentRolloutState.findUnique({
@@ -107,11 +107,11 @@ export class JourneySegmentRollout {
   }
 
   /**
-   * เลื่อน stage ไปข้างหน้าทีละขั้นเท่านั้น
+   * moves the stage forward one step at a time only
    *
-   * ห้ามข้ามขั้นเพราะแต่ละขั้นมีไว้เพื่อสังเกตผลก่อนเปิดขั้นถัดไป การกระโดดจาก OWNER_BACKFILL
-   * ไป SCOPED_INTERNAL_ENABLED เลยแปลว่าไม่เคยมี shadow ให้ดูว่าระบบคำนวณตรงกับ Customer 360
-   * ไหม ซึ่งทำให้ทั้งกระบวนการไม่มีความหมาย
+   * steps must not be skipped because each exists to observe the result before opening the next; jumping from OWNER_BACKFILL
+   * straight to SCOPED_INTERNAL_ENABLED would mean there was never a shadow to see whether the system computes the same as Customer 360,
+   * which would make the whole process meaningless
    */
   async advance(input: {
     tenantId: string;
@@ -177,10 +177,10 @@ export class JourneySegmentRollout {
   }
 
   /**
-   * หยุดหรือปล่อย effect ใหม่โดยไม่แตะ stage
+   * stops or releases new effects without touching the stage
    *
-   * นี่คือปุ่ม rollback จริง ๆ: ของที่เกิดไปแล้ว (receipt, enrollment, audit) ยังอยู่ครบ
-   * และเปิดกลับได้เมื่อแก้ปัญหาเสร็จ ต่างจากการย้อน stage ที่ทำไม่ได้และไม่ควรทำ
+   * this is the real rollback button: what already happened (receipt, enrollment, audit) stays intact
+   * and can be turned back on once the problem is fixed, unlike going back a stage, which cannot and should not be done
    */
   async setFrozen(input: {
     tenantId: string;
@@ -213,10 +213,10 @@ export class JourneySegmentRollout {
   }
 
   /**
-   * enrollment เกิดได้ก็ต่อเมื่อเปิดเต็มรูปแบบและไม่ถูก freeze
+   * an enrollment can happen only when fully enabled and not frozen
    *
-   * รวมสองเงื่อนไขไว้ที่เดียวเพราะถ้าแยกกันถาม ผู้เรียกจะลืมข้อใดข้อหนึ่งได้ และผลของการลืม
-   * คือ effect ที่ไม่ควรเกิดหลุดออกไปหาลูกค้าจริง
+   * both conditions are combined in one place because if asked separately a caller could forget one of them, and the result of forgetting
+   * is an effect that should not happen escaping to a real customer
    */
   async canEmitEffects(tenantId: string): Promise<boolean> {
     const view = await this.read(tenantId);
@@ -224,10 +224,10 @@ export class JourneySegmentRollout {
   }
 
   /**
-   * บันทึก mismatch ระหว่าง shadow — เก็บได้แค่ digest ไม่มีค่า attribute
+   * records a mismatch during shadow — keeps only a digest, no attribute values
    *
-   * ซ้ำได้ไม่จำกัดเพราะ unique key กันไว้: shadow วนรอบหลายครั้งต่อ revision เดียวกัน การ
-   * บันทึกซ้ำทุกรอบจะทำให้รายงานบวมจนอ่านไม่ออกและซ่อน mismatch ตัวใหม่
+   * can be repeated without limit because a unique key guards it: shadow goes round many times per the same revision, and
+   * recording again every round would bloat the report until it is unreadable and hide new mismatches
    */
   async recordMismatch(
     input: ShadowComparisonInput,

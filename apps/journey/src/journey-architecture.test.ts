@@ -16,27 +16,27 @@ async function runtimeSources(): Promise<Array<{ file: string; content: string }
   );
 }
 
-test('CG4-REG02: Journey runtime ไม่เขียน canonical Contact Governance state และไม่เห็น approval internals', async () => {
+test('CG4-REG02: Journey runtime does not write canonical Contact Governance state or see approval internals', async () => {
   for (const { file, content } of await runtimeSources()) {
     assert.doesNotMatch(
       content,
       /\.cg[A-Z][A-Za-z0-9]*\./,
-      `${file} ต้องไม่เข้าถึง Governance table ผ่าน Prisma`,
+      `${file} must not access Governance tables through Prisma`,
     );
     assert.doesNotMatch(
       content,
       /\b(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+"?cg_/i,
-      `${file} ต้องไม่เขียน Governance table ด้วย SQL`,
+      `${file} must not write Governance tables with SQL`,
     );
     assert.doesNotMatch(
       content,
       /Cg4Exception(?!s)|Cg4Policy(?!Id)|Cg4Quorum|Cg4Authorization|approvalDigest|quorum/,
-      `${file} ต้องรับเฉพาะ final Governance result ไม่ใช่ approval/exception internals`,
+      `${file} must accept only the final Governance result, not approval/exception internals`,
     );
   }
 });
 
-test('CG4-REG02: J2 internal actions ไม่เรียก authorizeAndReserve มีเพียง direct SEND ที่ขอ reservation', async () => {
+test('CG4-REG02: J2 internal actions do not call authorizeAndReserve; only direct SEND requests a reservation', async () => {
   const sources = await runtimeSources();
   const reserving = sources
     .filter(({ content }) => /\.authorizeAndReserve\(/.test(content))
@@ -49,12 +49,12 @@ test('CG4-REG02: J2 internal actions ไม่เรียก authorizeAndReserv
     assert.doesNotMatch(
       content,
       /authorizeAndReserve|reservationId/,
-      `${file} (ENSURE_CASE/ADMIT_CAMPAIGN_TARGET/SCHEDULE_CALLBACK) ต้องไม่สร้างหรือถือ reservation`,
+      `${file} (ENSURE_CASE/ADMIT_CAMPAIGN_TARGET/SCHEDULE_CALLBACK) must not create or hold a reservation`,
     );
   }
 });
 
-test('Journey runtime source ไม่มี import ไปยังแอป Contact Governance โดยตรง', async () => {
+test('Journey runtime source has no direct import of the Contact Governance app', async () => {
   const sourceDirectory = new URL('.', import.meta.url);
   const sourceFiles = (await readdir(sourceDirectory)).filter(
     (file) =>
@@ -71,7 +71,7 @@ test('Journey runtime source ไม่มี import ไปยังแอป Con
     assert.equal(
       content.includes('@d-contact/contact-governance'),
       false,
-      `${file} ต้องพึ่งพา ContactAuthorizationPort แทน concrete app`,
+      `${file} must depend on ContactAuthorizationPort instead of the concrete app`,
     );
   }
 });

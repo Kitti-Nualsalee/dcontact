@@ -140,7 +140,7 @@ async function fixture(t: TestContext) {
   return { owner, application, tenantId, contactId, identityId, actionKey };
 }
 
-test('CG3 restrictive event cancel งาน Journey ก่อน barrier แบบ idempotent และเขียน acknowledgement outbox', async (t) => {
+test('a CG3 restrictive event cancels Journey work before the barrier idempotently and writes the acknowledgement outbox', async (t) => {
   const f = await fixture(t);
   let revalidated = 0;
   const revalidator: JourneyCanonicalRevalidator = {
@@ -155,7 +155,7 @@ test('CG3 restrictive event cancel งาน Journey ก่อน barrier แบ
       releases.push(input.actionKey);
     },
     async requestReconcile() {
-      throw new Error('งานก่อน barrier ต้องไม่ reconcile');
+      throw new Error('work before the barrier must not reconcile');
     },
   };
   const service = new JourneyGovernanceInvalidationService(f.application, revalidator, settlement, {
@@ -218,7 +218,7 @@ test('CG3 restrictive event cancel งาน Journey ก่อน barrier แบ
   assert.equal(revalidated, 1);
 });
 
-test('CG3 restrictive event หลัง barrier เปลี่ยน Journey action เป็น CANCEL_REQUESTED และ reconcile เท่านั้น', async (t) => {
+test('a CG3 restrictive event after the barrier changes the Journey action to CANCEL_REQUESTED and only reconciles', async (t) => {
   const f = await fixture(t);
   const deliveryId = randomUUID();
   const providerRequestKey = `provider-${randomUUID()}`;
@@ -259,7 +259,7 @@ test('CG3 restrictive event หลัง barrier เปลี่ยน Journey a
   assert.deepEqual(reconciles, [`${deliveryId}:${providerRequestKey}`]);
 });
 
-test('Journey adapter ส่ง binding ที่ immutable ไปยัง canonical re-evaluation และแปลง DEFER ที่มีเวลา', async () => {
+test('the Journey adapter sends an immutable binding to canonical re-evaluation and converts a timed DEFER', async () => {
   let received: Record<string, unknown> | undefined;
   const revalidator = createJourneyCanonicalRevalidator({
     async revalidateAuthorizedAction(input) {
@@ -311,7 +311,7 @@ test('Journey adapter ส่ง binding ที่ immutable ไปยัง cano
   assert.equal(received?.contactKind, 'LEAD');
 });
 
-test('Delivery lifecycle ต้องเข้า Journey inbox ตามลำดับ และ eventId ซ้ำที่ binding เปลี่ยนถูกปฏิเสธ', async (t) => {
+test('Delivery lifecycle must enter the Journey inbox in order, and a repeated eventId with a changed binding is rejected', async (t) => {
   const f = await fixture(t);
   const lifecycle = new JourneyActionLifecycleInboxService(f.application);
   const action = await f.owner.jrAction.findFirstOrThrow({ where: { tenantId: f.tenantId } });
@@ -338,7 +338,7 @@ test('Delivery lifecycle ต้องเข้า Journey inbox ตามลำ�
   );
   await assert.rejects(
     () => lifecycle.record({ ...pre, state: 'POST_BARRIER' }),
-    /immutable binding ที่ขัดแย้งกัน/,
+    /conflicting immutable binding/,
   );
   await lifecycle.record({ ...pre, eventId: randomUUID(), state: 'POST_BARRIER' });
   await lifecycle.record({ ...pre, eventId: randomUUID(), state: 'ACCEPTED' });
@@ -348,7 +348,7 @@ test('Delivery lifecycle ต้องเข้า Journey inbox ตามลำ�
   );
 });
 
-test('CG3 version gap ครั้งแรก fail closed โดย hold action และไม่ส่ง acknowledgement APPLIED', async (t) => {
+test('the first CG3 version gap fails closed by holding the action and does not send an APPLIED acknowledgement', async (t) => {
   const f = await fixture(t);
   const service = new JourneyGovernanceInvalidationService(
     f.application,
@@ -383,7 +383,7 @@ test('CG3 version gap ครั้งแรก fail closed โดย hold action
   );
 });
 
-test('release ที่แพ้ barrier เปลี่ยนเป็น CANCEL_REQUESTED แล้วส่ง reconcile command', async (t) => {
+test('a release that loses the barrier changes to CANCEL_REQUESTED and then sends a reconcile command', async (t) => {
   const f = await fixture(t);
   const releaseError = Object.assign(new Error('barrier won'), {
     code: 'DELIVERY_RECONCILIATION_REQUIRED',
@@ -426,7 +426,7 @@ test('release ที่แพ้ barrier เปลี่ยนเป็น CANCE
   );
 });
 
-test('post-barrier ที่ไม่มี immutable binding ถูก HOLD และ acknowledgement เป็น FAILED', async (t) => {
+test('a post-barrier action without an immutable binding is HELD and the acknowledgement is FAILED', async (t) => {
   const f = await fixture(t);
   await f.owner.jrAction.updateMany({
     where: { tenantId: f.tenantId },

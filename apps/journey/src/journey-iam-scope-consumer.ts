@@ -10,7 +10,7 @@ import {
 import { KAFKA_TOPICS } from '@d-contact/shared';
 import type { JourneyIamScopeInvalidationService } from './journey-iam-scope-invalidation.js';
 
-/** Event inbox คือ durable completion boundary; cursor และ inbox ต้อง commit พร้อมกันเสมอ. */
+/** The event inbox is the durable completion boundary; the cursor and inbox must always commit together. */
 export function createDurableJourneyIamScopeIdempotencyStore(
   database: PrismaClient,
 ): EventIdempotencyStore<Prisma.TransactionClient> {
@@ -44,7 +44,9 @@ export function createDurableJourneyIamScopeIdempotencyStore(
           select: { eventId: true },
         });
         if (!completed) {
-          throw new Error('Journey IAM handler ต้อง commit owner-local inbox ก่อนสำเร็จ');
+          throw new Error(
+            'Journey IAM handler must commit the owner-local inbox before succeeding',
+          );
         }
         return 'processed';
       });
@@ -61,7 +63,7 @@ export interface CreateJourneyIamScopeConsumerOptions {
   dlq?: DlqPublisher;
 }
 
-/** รับเฉพาะ IAM canonical facts จาก ADMIN_EVENTS; malformed contract จะ throw/fail closed ไป DLQ. */
+/** Accepts only canonical IAM facts from ADMIN_EVENTS; a malformed contract throws/fails closed to the DLQ. */
 export function createJourneyIamScopeConsumer(
   options: CreateJourneyIamScopeConsumerOptions,
 ): Promise<DcConsumer> {
@@ -77,7 +79,7 @@ export function createJourneyIamScopeConsumer(
     idempotency: createDurableJourneyIamScopeIdempotencyStore(options.database),
     handler: async ({ event }, transaction) => {
       if (!isKafkaEventEnvelopeV2(event)) {
-        throw new TypeError('Journey IAM consumer ไม่รับ Kafka V1 event');
+        throw new TypeError('Journey IAM consumer does not accept Kafka V1 events');
       }
       await options.service.apply(event, options.groupId, transaction);
     },

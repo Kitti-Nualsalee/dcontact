@@ -11,7 +11,7 @@ const MAX_DURATION_DAYS = 3650;
 const KNOWN_EXIT_RULE_KINDS = new Set(['GOAL', 'EVENT', 'HIGHER_PRIORITY_JOURNEY']);
 const KNOWN_OUTCOME_TYPES = new Set<string>(INTERACTION_OUTCOME_TYPES);
 
-/** opaque internal ID เท่านั้น — ปฏิเสธ free text, email, เบอร์โทร หรือช่องว่าง (#121) */
+/** opaque internal ID only — rejects free text, email, phone number or whitespace (#121) */
 const OPAQUE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 
 function isNonEmptyString(value: unknown): value is string {
@@ -26,15 +26,15 @@ const OUTCOME_TRIGGER_FIELDS = new Set(['kind', 'outcomeType', 'outcomeCode', 'c
 const SEGMENT_TRIGGER_FIELDS = new Set(['kind', 'segmentId', 'coalescingPolicy']);
 
 /**
- * J3.4 (#215): trigger ต้องเป็น closed shape — field ที่ไม่รู้จักถือว่าไม่ผ่าน
+ * J3.4 (#215): a trigger must be a closed shape — an unknown field counts as failing.
  *
- * ไม่ใช่แค่ความเข้มงวดทางรูปแบบ แต่เป็นขอบเขตความเชื่อถือ: ถ้าปล่อยผ่าน caller จะแนบ
- * segment expression, member list, ค่า attribute ดิบ หรือ snapshot ที่ตัวเองคำนวณมาไว้ใน
- * trigger ได้ แล้วของพวกนั้นจะถูก persist ลง definition และติดไปกับ published version
- * ตลอดไป ทั้งที่ Journey ไม่ใช่เจ้าของนิยาม segment และห้ามเก็บ PII (#215)
+ * This is not just formal strictness but a trust boundary: if let through, a caller could attach
+ * a segment expression, member list, raw attribute values or a snapshot it computed itself to the
+ * trigger, and those would be persisted into the definition and carried along with the published version
+ * forever, even though Journey does not own the segment definition and must not keep PII (#215)
  *
- * เงียบ ๆ ทิ้ง field แปลกปลอมไปก็ไม่ได้ เพราะ content hash คำนวณจากสิ่งที่ caller ส่งมา
- * ผู้เรียกจะเข้าใจว่าของที่แนบมามีผล ทั้งที่ระบบไม่เคยอ่านมันเลย
+ * silently dropping a foreign field is not an option either, because the content hash is computed from what the caller sent, so
+ * the caller would believe the attached data has an effect when the system never reads it at all
  */
 function unknownTriggerFields(
   trigger: object,
@@ -168,9 +168,9 @@ function stepSuccessors(step: JourneyGraphStep): string[] {
 }
 
 /**
- * ตรวจ target reference ของ action intent step แยกจาก shape เพราะเป็นคนละความหมาย:
- * shape ผิด (ขาด field) กับ shape ถูกแต่ค่าไม่ใช่ opaque internal ID (เช่น free text
- * หรือ PII) ต้องแยก reason code ให้ operator แก้ถูกจุด (#121 internal-ID shape)
+ * Checks the target reference of an action intent step separately from shape because they mean different things:
+ * a wrong shape (missing field) versus a correct shape whose value is not an opaque internal ID (e.g. free text
+ * or PII) need separate reason codes so the operator fixes the right thing (#121 internal-ID shape)
  */
 function validateActionIntentReferences(
   steps: readonly JourneyGraphStep[],
@@ -201,9 +201,9 @@ const ACTION_INTENT_STEP_TYPES = new Set([
 ]);
 
 /**
- * J2.7: enrollment/action intent ต้องถูกสร้าง atomic กับ receipt transition — ผูก
- * entry step ของ trigger ประเภทนี้ให้เป็น action-intent step โดยตรง แทนที่จะสร้าง step
- * runner ที่สองสำหรับ mid-graph action intent ซึ่งไม่อยู่ใน scope ของ J2.7 (ดู #135)
+ * J2.7: the enrollment/action intent must be created atomically with the receipt transition — bind
+ * the entry step of this trigger type directly to an action-intent step, instead of building a second step
+ * runner for a mid-graph action intent, which is outside the scope of J2.7 (see #135)
  */
 function validateOutcomeTriggerEntryStep(
   content: JourneyDefinitionContent,
@@ -283,11 +283,11 @@ function dedupe(codes: JourneyDefinitionValidationCode[]): JourneyDefinitionVali
 }
 
 /**
- * ตรวจ DC_EXPR:1 ของทุก BRANCH step ผ่าน evaluator กลาง โดยไม่ใช้ context จริง —
- * grammar/version/limit/forbidden-reference ทุกอย่างถูกตรวจก่อน evaluateNode รันเสมอ
- * (ดู `packages/expression/src/evaluator.ts`) จึงใช้ error code เหล่านี้เป็นสัญญาณ
- * โครงสร้างพัง ส่วน TYPE_MISMATCH/EVALUATION_TIMEOUT ที่มาจาก context ว่างไม่ใช่หลักฐานว่า
- * expression ผิดโครงสร้างจึงไม่ reject ด้วยเหตุนี้อย่างเดียว
+ * Checks DC_EXPR:1 of every BRANCH step through the central evaluator without a real context —
+ * grammar/version/limit/forbidden-reference are all checked before evaluateNode always runs
+ * (see `packages/expression/src/evaluator.ts`), so these error codes are used as a signal of a
+ * broken structure, while TYPE_MISMATCH/EVALUATION_TIMEOUT caused by an empty context are not evidence that the
+ * expression is structurally wrong, so they are not rejected on that basis alone
  */
 function validateBranchExpressions(
   branchSteps: readonly JourneyGraphStep[],
