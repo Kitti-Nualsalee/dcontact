@@ -27,7 +27,7 @@ class ForwardAuthorizeTests(unittest.TestCase):
     def setUp(self):
         api = fixtures.ApiRollbackTests()
         api.setUp()
-        # release แบบ workspace ต้องมี E1 overlay และ host ตาม uat-deploy.sh
+        # a workspace release must have the E1 overlay and host per uat-deploy.sh
         api.package += b'UAT_WORKSPACE_HOST=workspace.example.test\n'
         api.rehearsal['candidateReleaseEnvSha256'] = api.raw_digest(api.package)
         self.api = api
@@ -97,7 +97,7 @@ class ForwardAuthorizeTests(unittest.TestCase):
             allowed = self.deploy(action)
             self.assertEqual(allowed.returncode, 0, action + allowed.stderr)
 
-        # current เปลี่ยน (เช่น record ของ candidate ถูกเขียน) → authorization ใช้ซ้ำไม่ได้
+        # current changes (e.g. the candidate's record was written) → the authorization cannot be reused
         current = self.root / 'deployments' / 'current.json'
         current.write_bytes(self.current + b' ')
         again = self.deploy()
@@ -174,7 +174,7 @@ class ForwardAuthorizeTests(unittest.TestCase):
                 path.chmod(0o600)
                 self.assertEqual(self.run_authorize()['status'], 'FORWARD_DEPLOY_AUTHORIZED')
                 self.assertEqual(json.loads(path.read_bytes())['targetSha'], original['targetSha'])
-                # ชื่อ retired ผูกเวลาเป็นวินาที ย้ายออกเพื่อให้รอบถัดไปในวินาทีเดียวกันเก็บได้
+                # the retired name binds the time in seconds; move it out so the next round in the same second can archive
                 for retired in (self.root / 'operator').glob('uat-forward-deploy-retired-*.json'):
                     retired.rename(retired.with_name('kept-' + list(change)[0]))
 

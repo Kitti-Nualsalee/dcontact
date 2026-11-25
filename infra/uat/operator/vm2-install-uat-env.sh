@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# #537: รันจากเครื่อง operator ที่ SSH เข้า VM2/VM3 ได้ เพื่อส่ง credential bundle โดยไม่พิมพ์ secret
+# #537: run from an operator machine that can SSH into VM2/VM3, to send the credential bundle without printing secrets
 set -euo pipefail
 umask 077
 
@@ -17,9 +17,9 @@ ssh "${ssh_opts[@]}" "${SSH_USER}@${VM3}" \
 ssh "${ssh_opts[@]}" "${SSH_USER}@${VM2}" \
   "test -x '$HELPER' && test ! -e /opt/dcontact-uat/uat.env"
 
-# -3 บังคับให้ scp ส่งผ่านเครื่อง operator; ไม่ต้องมี SSH key ระหว่าง VM และไม่บันทึก bundle ใน filesystem ของเครื่องนี้
+# -3 forces scp to relay through the operator machine; no SSH key is needed between VMs and the bundle is not saved on this machine's filesystem
 scp -3 -q "${ssh_opts[@]}" "${SSH_USER}@${VM3}:$BUNDLE" "${SSH_USER}@${VM2}:$VM2_BUNDLE"
 ssh "${ssh_opts[@]}" "${SSH_USER}@${VM2}" \
   "python3 '$HELPER' '$VM2_BUNDLE'; stat -c '%a %U:%G %n' /opt/dcontact-uat/uat.env"
 
-echo "VM2 พร้อมแล้ว; เมื่อตรวจผลข้างต้นผ่าน ให้รันบน VM3: shred -u $BUNDLE"
+echo "VM2 is ready; once the check above passes, run on VM3: shred -u $BUNDLE"

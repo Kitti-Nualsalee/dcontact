@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# ตรวจความพร้อมของ VM ทั้ง 3 ก่อนติดตั้ง UAT (read-only — ไม่แก้ไขอะไรบน VM)
+# Check that all 3 VMs are ready before installing UAT (read-only; changes nothing on the VMs)
 #
-#   VM1 nginx      osdadmin@192.168.102.114  (หน้าเว็บ / reverse proxy / TLS)
+#   VM1 nginx      osdadmin@192.168.102.114  (web front / reverse proxy / TLS)
 #   VM2 docker     osdadmin@192.168.102.112  (compose stack)
 #   VM3 postgresql osdadmin@192.168.102.113  (database)
 #
-# ใช้งาน (รันจากเครื่องที่ ssh เข้าทั้ง 3 VM ได้แบบไม่ใช้ password):
+# Usage (run from a machine that can ssh into all 3 VMs without a password):
 #   bash infra/uat/bin/uat-3vm-precheck.sh
-#   PG_PASSWORD='...' bash infra/uat/bin/uat-3vm-precheck.sh   # ตรวจ login/สิทธิ์ของ Postgres ด้วย
+#   PG_PASSWORD='...' bash infra/uat/bin/uat-3vm-precheck.sh   # also checks Postgres login/privileges
 #
-# ตัวแปรที่ override ได้: VM_NGINX VM_DOCKER VM_PG SSH_USER UAT_HOST PG_USER PG_PORT SSH_OPTS
-# password ไม่ถูกเขียนลงไฟล์ และไม่ส่งผ่าน argv (ส่งทาง stdin ของ ssh เท่านั้น)
+# Overridable variables: VM_NGINX VM_DOCKER VM_PG SSH_USER UAT_HOST PG_USER PG_PORT SSH_OPTS
+# the password is never written to a file and never passed through argv (only over ssh's stdin)
 set -u
 
 VM_NGINX="${VM_NGINX:-192.168.102.114}"
@@ -29,10 +29,10 @@ bad()  { FAIL=$((FAIL + 1)); printf '  [FAIL] %s\n' "$*"; }
 info() { printf '  [info] %s\n' "$*"; }
 head_() { printf '\n== %s ==\n' "$*"; }
 
-# rmt <host> <script...> : รันสคริปต์ bash บน VM (อ่านจาก stdin)
+# rmt <host> <script...> : run a bash script on the VM (read from stdin)
 rmt() { local h="$1"; shift; ssh $SSH_OPTS "${SSH_USER}@${h}" 'bash -s' "$@" 2>&1; }
 
-# tcp <from-host> <to-host> <port> : ทดสอบ TCP จาก VM หนึ่งไปอีก VM
+# tcp <from-host> <to-host> <port> : test TCP from one VM to another VM
 tcp() {
   local from="$1" to="$2" port="$3"
   rmt "$from" <<EOF >/dev/null
@@ -43,9 +43,9 @@ EOF
 reach() {
   local name="$1" host="$2"
   if ssh $SSH_OPTS "${SSH_USER}@${host}" true 2>/dev/null; then
-    ok "$name ($host): ssh ด้วย key ได้"; return 0
+    ok "$name ($host): ssh with key works"; return 0
   fi
-  bad "$name ($host): ssh ไม่ได้ (ตรวจ key/เครือข่าย) — ข้ามการตรวจ VM นี้"; return 1
+  bad "$name ($host): ssh failed (check key/network); skipping the checks for this VM"; return 1
 }
 
 common_checks() {
@@ -67,9 +67,9 @@ EOF
   local v
   get() { printf '%s\n' "$out" | sed -n "s/^$1=//p" | head -1; }
   info "OS: $(get os) / kernel $(get kernel)"
-  info "CPU $(get cpu) core, RAM $(get mem_mb) MB, disk ว่าง / $(get disk_free_gb) GB, timezone $(get tz)"
-  v=$(get ntp); [ "$v" = yes ] && ok "เวลา sync (NTP)" || warn "NTP ยังไม่ sync ($v) — TLS/TOTP ของ Keycloak ไวต่อเวลา"
-  v=$(get sudo); [ "$v" = nopasswd ] && ok "sudo แบบไม่ถาม password" || warn "sudo ต้องใช้ password หรือไม่มีสิทธิ์ — ขั้นติดตั้งอาจต้องใช้"
+  info "CPU $(get cpu) core, RAM $(get mem_mb) MB, free disk / $(get disk_free_gb) GB, timezone $(get tz)"
+  v=$(get ntp); [ "$v" = yes ] && ok "time synced (NTP)" || warn "NTP is not synced ($v); Keycloak TLS/TOTP is sensitive to time"
+  v=$(get sudo); [ "$v" = nopasswd ] && ok "sudo without a password" || warn "sudo needs a password or is not permitted; the install step may need it"
   info "firewall: ufw=$(get ufw) pkgs=$(get fw_pkgs)"
 }
 
@@ -97,20 +97,20 @@ EOF
 )
   out=${out//UAT_HOST_PLACEHOLDER/$UAT_HOST}
   get() { printf '%s\n' "$out" | sed -n "s/^$1=//p" | head -1; }
-  case "$(get docker)" in missing) bad "ไม่พบ docker";; *) ok "$(get docker)";; esac
-  case "$(get compose)" in missing) bad "ไม่พบ docker compose plugin";; *) ok "$(get compose)";; esac
-  [ "$(get daemon_active)" = active ] && ok "docker daemon active" || bad "docker daemon ไม่ active ($(get daemon_active))"
-  [ "$(get in_docker_group)" = yes ] && ok "${SSH_USER} อยู่ในกลุ่ม docker" || warn "${SSH_USER} ไม่อยู่ในกลุ่ม docker (ต้องใช้ sudo หรือเพิ่ม user)"
-  [ "$(get docker_cli)" = ok ] || warn "รัน docker CLI ไม่ได้ในฐานะ ${SSH_USER} ($(get docker_cli))"
+  case "$(get docker)" in missing) bad "docker not found";; *) ok "$(get docker)";; esac
+  case "$(get compose)" in missing) bad "docker compose plugin not found";; *) ok "$(get compose)";; esac
+  [ "$(get daemon_active)" = active ] && ok "docker daemon active" || bad "docker daemon is not active ($(get daemon_active))"
+  [ "$(get in_docker_group)" = yes ] && ok "${SSH_USER} is in the docker group" || warn "${SSH_USER} is not in the docker group (needs sudo or add the user)"
+  [ "$(get docker_cli)" = ok ] || warn "cannot run the docker CLI as ${SSH_USER} ($(get docker_cli))"
   if [ "$(get userland_proxy_false)" = yes ]; then
-    ok "daemon.json ตั้ง userland-proxy=false แล้ว"
+    ok "daemon.json already sets userland-proxy=false"
   else
-    warn "ยังไม่ตั้ง \"userland-proxy\": false ใน /etc/docker/daemon.json (daemon.json=$(get daemon_json))"
+    warn "\"userland-proxy\": false is not yet set in /etc/docker/daemon.json (daemon.json=$(get daemon_json))"
   fi
-  case "$(get opt_dir)" in missing) warn "ยังไม่มี /opt/dcontact-uat (ต้องสร้างตามข้อ 4.3 ของ runbook)";; *) ok "$(get opt_dir)";; esac
-  info "containers ที่รันอยู่: $(get running_containers); port 80 listen=$(get port80), 443 listen=$(get port443)"
-  case "$(get ghcr)" in 200|401|403) ok "เข้าถึง ghcr.io ได้ (HTTP $(get ghcr))";; *) bad "เข้า ghcr.io ไม่ได้ ($(get ghcr)) — ต้อง pull image (proxy/firewall?)";; esac
-  [ -n "$(get dns_uat)" ] && info "DNS ${UAT_HOST} จาก VM นี้ -> $(get dns_uat)" || info "VM นี้ resolve ${UAT_HOST} ไม่ได้"
+  case "$(get opt_dir)" in missing) warn "/opt/dcontact-uat does not exist yet (create it per section 4.3 of the runbook)";; *) ok "$(get opt_dir)";; esac
+  info "running containers: $(get running_containers); port 80 listen=$(get port80), 443 listen=$(get port443)"
+  case "$(get ghcr)" in 200|401|403) ok "ghcr.io reachable (HTTP $(get ghcr))";; *) bad "cannot reach ghcr.io ($(get ghcr)); images must be pulled (proxy/firewall?)";; esac
+  [ -n "$(get dns_uat)" ] && info "DNS ${UAT_HOST} from this VM -> $(get dns_uat)" || info "this VM cannot resolve ${UAT_HOST}"
 }
 
 # ---------------------------------------------------------------- VM1 nginx
@@ -131,20 +131,20 @@ echo "ws_upgrade_map=$(grep -rqs 'Upgrade' /etc/nginx 2>/dev/null && echo yes ||
 EOF
 )
   get() { printf '%s\n' "$out" | sed -n "s/^$1=//p" | head -1; }
-  case "$(get nginx)" in *nginx/*) ok "$(get nginx)";; *) bad "ไม่พบ nginx";; esac
-  [ "$(get active)" = active ] && ok "nginx active" || warn "nginx ไม่ active ($(get active))"
+  case "$(get nginx)" in *nginx/*) ok "$(get nginx)";; *) bad "nginx not found";; esac
+  [ "$(get active)" = active ] && ok "nginx active" || warn "nginx is not active ($(get active))"
   info "nginx -t: $(get conf_test)"
   info "listen: 80=$(get port80) 443=$(get port443); sites: $(get sites)"
-  [ -n "$(get certs)" ] && info "ไฟล์ cert ที่พบ: $(get certs)" || warn "ไม่พบไฟล์ cert ใต้ /etc/nginx|/etc/ssl|/etc/letsencrypt (ต้องมี cert ของ ${UAT_HOST})"
-  # DNS ของ UAT_HOST ต้องชี้มาที่ VM1
+  [ -n "$(get certs)" ] && info "cert files found: $(get certs)" || warn "no cert files found under /etc/nginx|/etc/ssl|/etc/letsencrypt (a cert for ${UAT_HOST} is required)"
+  # the DNS of UAT_HOST must point to VM1
   local resolved
   resolved=$(getent hosts "$UAT_HOST" 2>/dev/null | awk '{print $1}' | head -1)
   if [ -z "$resolved" ]; then
-    warn "เครื่องที่รันสคริปต์ resolve ${UAT_HOST} ไม่ได้ (ต้องตั้ง DNS/hosts ให้ชี้ ${VM_NGINX})"
+    warn "the machine running the script cannot resolve ${UAT_HOST} (set DNS/hosts to point to ${VM_NGINX})"
   elif [ "$resolved" = "$VM_NGINX" ]; then
     ok "DNS ${UAT_HOST} -> ${resolved}"
   else
-    warn "DNS ${UAT_HOST} -> ${resolved} (ไม่ใช่ ${VM_NGINX})"
+    warn "DNS ${UAT_HOST} -> ${resolved} (not ${VM_NGINX})"
   fi
 }
 
@@ -166,17 +166,17 @@ EOF
 )
   get() { printf '%s\n' "$out" | sed -n "s/^$1=//p" | head -1; }
   info "$(get psql); service=$(get active); listen=$(get listen)"
-  [ "$(get active)" = active ] || warn "service postgresql ไม่ active ($(get active)) — ถ้าเป็น cluster ชื่ออื่นให้ตรวจเอง"
-  [ -n "$(get listen)" ] || warn "ไม่พบ port ${PG_PORT} listen"
+  [ "$(get active)" = active ] || warn "service postgresql is not active ($(get active)); if the cluster has another name, check it yourself"
+  [ -n "$(get listen)" ] || warn "nothing listening on port ${PG_PORT}"
   info "$(get listen_addresses) $(get max_connections)"
-  [ -n "$(get hba)" ] && info "pg_hba: $(get hba)" || info "อ่าน pg_hba.conf ไม่ได้ (ต้อง sudo หรือ path ต่าง)"
-  info "disk ว่างที่ /var/lib/postgresql: $(get disk_pg_gb) GB"
+  [ -n "$(get hba)" ] && info "pg_hba: $(get hba)" || info "cannot read pg_hba.conf (needs sudo or a different path)"
+  info "free disk at /var/lib/postgresql: $(get disk_pg_gb) GB"
 
   if [ -z "${PG_PASSWORD:-}" ]; then
-    info "ไม่ได้ตั้ง PG_PASSWORD — ข้ามตรวจ login/สิทธิ์ (ตั้งแล้วรันใหม่เพื่อตรวจ)"
+    info "PG_PASSWORD is not set; skipping the login/privilege check (set it and rerun to check)"
     return
   fi
-  # ส่ง password ทาง stdin บรรทัดแรก ไม่ผ่าน argv/ไฟล์
+  # send the password over stdin on the first line, not through argv/a file
   local q
   q=$(printf '%s\n' "$PG_PASSWORD" | ssh $SSH_OPTS "${SSH_USER}@${VM_PG}" "IFS= read -r PGPASSWORD; export PGPASSWORD; psql -X -A -t -F'|' -h 127.0.0.1 -p ${PG_PORT} -U ${PG_USER} -d postgres -v ON_ERROR_STOP=1 <<'SQL'
 select 'version|'||version();
@@ -186,52 +186,52 @@ select 'roles|'||string_agg(rolname, ',' order by rolname) from pg_roles where r
 select 'ext|'||string_agg(name, ',' order by name) from pg_available_extensions where name in ('pgcrypto','uuid-ossp','citext','pg_trgm','btree_gin','btree_gist');
 SQL" 2>&1)
   if printf '%s' "$q" | grep -q '^version|'; then
-    ok "login Postgres ด้วย ${PG_USER} สำเร็จ"
+    ok "Postgres login with ${PG_USER} succeeded"
     printf '%s\n' "$q" | sed -n 's/^version|/  [info] /p'
     local r; r=$(printf '%s\n' "$q" | sed -n 's/^role|//p')
-    info "สิทธิ์ ${PG_USER}: $r"
+    info "privileges of ${PG_USER}: $r"
     case "$r" in
-      *super=true*|*createrole=true*) ok "${PG_USER} สร้าง role ได้ (db-roles.sh ใช้ได้)";;
-      *) bad "${PG_USER} ไม่มี superuser/createrole — สร้าง role dcontact_app/keycloak ไม่ได้";;
+      *super=true*|*createrole=true*) ok "${PG_USER} can create roles (db-roles.sh is usable)";;
+      *) bad "${PG_USER} has no superuser/createrole; cannot create the dcontact_app/keycloak roles";;
     esac
     case "$r" in
-      *super=true*|*createdb=true*) ok "${PG_USER} สร้าง database ได้";;
-      *) bad "${PG_USER} ไม่มี createdb";;
+      *super=true*|*createdb=true*) ok "${PG_USER} can create databases";;
+      *) bad "${PG_USER} has no createdb";;
     esac
     info "databases: $(printf '%s\n' "$q" | sed -n 's/^databases|//p')"
     info "roles: $(printf '%s\n' "$q" | sed -n 's/^roles|//p')"
-    info "extensions ที่พร้อมใช้: $(printf '%s\n' "$q" | sed -n 's/^ext|//p')"
+    info "extensions available: $(printf '%s\n' "$q" | sed -n 's/^ext|//p')"
   else
-    bad "login Postgres ไม่สำเร็จ: $(printf '%s' "$q" | tail -2 | tr '\n' ' ')"
+    bad "Postgres login failed: $(printf '%s' "$q" | tail -2 | tr '\n' ' ')"
   fi
 }
 
-# ---------------------------------------------------------------- เครือข่ายระหว่าง VM
+# ---------------------------------------------------------------- network between VMs
 check_links() {
-  head_ "การเชื่อมต่อระหว่าง VM"
+  head_ "Connectivity between VMs"
   local h
   for h in "$VM_NGINX" "$VM_DOCKER" "$VM_PG"; do
     if ! ssh $SSH_OPTS "${SSH_USER}@${h}" true 2>/dev/null; then
-      warn "ssh เข้า ${h} ไม่ได้ — ข้ามการตรวจการเชื่อมต่อระหว่าง VM (ผลจะไม่น่าเชื่อถือ)"
+      warn "ssh to ${h} failed; skipping the connectivity checks between VMs (results would be unreliable)"
       return
     fi
   done
   if tcp "$VM_DOCKER" "$VM_PG" "$PG_PORT"; then
     ok "VM2 (docker) -> VM3 (postgres) :${PG_PORT}"
   else
-    bad "VM2 (docker) เข้า VM3 :${PG_PORT} ไม่ได้ (pg_hba/listen_addresses/firewall)"
+    bad "VM2 (docker) cannot reach VM3 :${PG_PORT} (pg_hba/listen_addresses/firewall)"
   fi
   for p in 80 443; do
     if tcp "$VM_NGINX" "$VM_DOCKER" "$p"; then
-      ok "VM1 (nginx) -> VM2 (docker) :${p} (เปิดอยู่)"
+      ok "VM1 (nginx) -> VM2 (docker) :${p} (open)"
     else
-      info "VM1 -> VM2 :${p} ยังไม่เปิด (ปกติถ้ายังไม่ deploy — ต้องกำหนดพอร์ตที่ proxy ของ stack จะ publish)"
+      info "VM1 -> VM2 :${p} is not open yet (normal before deploy; the port the stack's proxy will publish must be decided)"
     fi
   done
   if tcp "$VM_NGINX" "$VM_PG" "$PG_PORT"; then
-    warn "VM1 (nginx) เข้า Postgres :${PG_PORT} ได้ — ควรจำกัดให้เฉพาะ VM2"
+    warn "VM1 (nginx) can reach Postgres :${PG_PORT}; it should be restricted to VM2 only"
   else
-    ok "VM1 (nginx) เข้า Postgres ตรง ๆ ไม่ได้ (ดีแล้ว)"
+    ok "VM1 (nginx) cannot reach Postgres directly (good)"
   fi
 }
 
@@ -241,6 +241,6 @@ check_nginx
 check_pg
 check_links
 
-head_ "สรุป"
+head_ "Summary"
 printf '  OK=%d  WARN=%d  FAIL=%d\n' "$PASS" "$WARN" "$FAIL"
 [ "$FAIL" -eq 0 ]

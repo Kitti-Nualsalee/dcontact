@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""#901: authorization ใช้ครั้งเดียวให้ uat-deploy.sh deploy release ที่ migration เป็น additive ทับ deploy record ปกติ
+"""#901: single-use authorization for uat-deploy.sh to deploy a release whose migration is additive over the normal deploy record
 
-ข้อยุติ owner วันที่ 13 พ.ย. 2569: release ที่ migration guard (UAT-M01) ผ่าน และ current เป็น deploy/rollback record
-ปกติ ไม่ต้องซ้อม isolated API rollback แบบ #868 ทางย้อนกลับคือ deploy SHA เดิม เพราะ schema ที่เพิ่มแบบ additive
-ไม่ทำให้ API เดิมพัง authorization ผูก candidate SHA, release.env, migration guard ของ release directory,
-current/previous record bytes และอายุ window ภายใต้ lock เดียวกับ deploy เมื่อ record ของ candidate ถูกเขียน
-current hash เปลี่ยน authorization จึงใช้ซ้ำไม่ได้ ไม่เปลี่ยน runtime, DB หรือ record และไม่รับรอง rollback
+Owner decision of 13 Nov 2569 (2026): a release whose migration guard (UAT-M01) passes and whose current is a normal deploy/rollback record
+does not need an isolated API rollback rehearsal like #868; the way back is to deploy the previous SHA, because an additive schema
+does not break the previous API. The authorization binds the candidate SHA, release.env, the release directory's migration guard,
+the current/previous record bytes and the window's age under the same lock as deploy; once the candidate's record is written
+the current hash changes so the authorization is non-reusable; does not change the runtime, DB or record and does not certify rollback
 """
 import argparse
 from datetime import datetime, timedelta, timezone
@@ -33,7 +33,7 @@ SHA = re.compile(r'[0-9a-f]{40}')
 
 
 def read_release_file(path, limit=1048576):
-    # ไฟล์ใน release directory ที่ deploy อ่านจริง (ไม่ใช่ secret จึงไม่บังคับ 0600 แต่ห้ามคนอื่นเขียน)
+    # a file in the release directory that deploy actually reads (not a secret, so 0600 is not enforced, but nobody else may write it)
     descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     with os.fdopen(descriptor, 'rb') as stream:
         info = os.fstat(stream.fileno())
@@ -157,7 +157,7 @@ def authorize(root, sha, actor, window_minutes=FORWARD.WINDOW_DEFAULT, now=None)
 
 def main():
     parser = argparse.ArgumentParser(
-        description='ออก authorization ให้ deploy release ที่ migration เป็น additive ทับ deploy record ปกติ')
+        description='Issue an authorization to deploy a release whose migration is additive over the normal deploy record')
     parser.add_argument('sha')
     parser.add_argument('--actor', required=True)
     parser.add_argument('--window-minutes', type=int, default=FORWARD.WINDOW_DEFAULT)

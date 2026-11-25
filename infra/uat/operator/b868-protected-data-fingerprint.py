@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""#868: fingerprint ของข้อมูลใน application DB ก่อน/หลังสลับ API เพื่อพิสูจน์ว่า user/identity/result/history/outbox/audit คงเดิม
+"""#868: fingerprint of application DB data before/after the API switch, to prove user/identity/result/history/outbox/audit stay unchanged
 
-`capture` อ่านทุกตารางใน schema public ด้วย statement เดียว (snapshot เดียว) ใน transaction read-only ของ owner ที่ BYPASSRLS
-เก็บเฉพาะจำนวนแถวและ hash ต่อตาราง ไม่มีค่าข้อมูลออกจาก DB; `compare` รายงานตารางที่ต่างและแยกกลุ่มที่ต้องคุ้มครอง
-ไม่เขียน DB, runtime หรือ deployment record และไม่รับรอง rollback
+`capture` reads every table in the public schema with a single statement (one snapshot) in a read-only transaction of the BYPASSRLS owner
+and keeps only the row count and a hash per table, so no data values leave the DB; `compare` reports the tables that differ and groups the ones that must be protected
+Does not write the DB, runtime or deployment record and does not certify rollback
 """
 import hashlib
 import importlib.util
@@ -19,7 +19,7 @@ SCOPE_QUERY = """SELECT json_build_object('database',current_database(),'princip
 'readonly',current_setting('transaction_read_only'),
 'bypassRls',(SELECT rolbypassrls FROM pg_roles WHERE rolname=current_user),
 'tables',(SELECT COALESCE(json_agg(tablename ORDER BY tablename),'[]'::json) FROM pg_tables WHERE schemaname='public'));"""
-# ชื่อกลุ่มตามเกณฑ์ #868: ตารางที่เข้ากลุ่มใดกลุ่มหนึ่งต้องไม่เปลี่ยนระหว่างสลับ API
+# group names per the #868 criteria: a table in any group must not change during the API switch
 PROTECTED = (
     ('ledger', re.compile(r'_prisma_migrations')),
     ('user', re.compile(r'users|teams|tenants')),
@@ -51,7 +51,7 @@ def fingerprint_query(tables):
 
 
 def capture(read):
-    """`read(sql) -> bytes|str` ต้องรันใน transaction read-only ของ DB principal ที่ review แล้ว"""
+    """`read(sql) -> bytes|str` must run in a read-only transaction of a reviewed DB principal"""
     scope = json.loads(read(SCOPE_QUERY))
     if (scope.get('database'), scope.get('principal'), scope.get('readonly')) != (
             'dcontact_uat', 'dcontact_uat_owner', 'on'):
@@ -66,7 +66,7 @@ def capture(read):
     result = json.loads(read(fingerprint_query(tables)))
     rows = result.get('tables')
     if (result.get('readonly') != 'on' or not isinstance(rows, list)
-            # ลำดับจาก DB ขึ้นกับ collation จึงเทียบเป็นชุดชื่อที่เรียงฝั่ง Python
+            # the order from the DB depends on collation, so compare as a set of names sorted on the Python side
             or sorted(str(row.get('name')) for row in rows if isinstance(row, dict)) != sorted(tables)
             or len(rows) != len(tables)
             or any(type(row.get('rows')) is not int or row['rows'] < 0

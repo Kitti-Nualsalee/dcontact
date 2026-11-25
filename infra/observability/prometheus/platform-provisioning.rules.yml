@@ -1,5 +1,5 @@
-# A1.8 (#413) alert ของ Platform provisioning ตาม #388 checkpoint 2
-# ทดสอบด้วย `pnpm a1:alerts:test` (promtool test rules) — แก้ rule ต้องแก้ test คู่กัน
+# A1.8 (#413) Platform provisioning alerts per #388 checkpoint 2
+# Tested with `pnpm a1:alerts:test` (promtool test rules); a rule change must be paired with a test change
 groups:
   - name: platform-provisioning-critical
     rules:
@@ -9,7 +9,7 @@ groups:
         labels:
           severity: critical
         annotations:
-          summary: 'invariant {{ $labels.invariant }} ถูกละเมิด ({{ $value }} แถว)'
+          summary: 'invariant {{ $labels.invariant }} violated ({{ $value }} rows)'
           runbook: docs/platform-provisioning-rollout.md#rollback
 
       - alert: PlatformMixedTokenAccepted
@@ -17,7 +17,7 @@ groups:
         labels:
           severity: critical
         annotations:
-          summary: 'token ที่มี tenant context ผ่าน identity check ของ Platform API (tripwire ปฏิเสธไว้แล้ว)'
+          summary: 'A token with tenant context passed the Platform API identity check (the tripwire already rejected it)'
           runbook: docs/platform-provisioning-rollout.md#rollback
 
   - name: platform-provisioning-warning
@@ -27,42 +27,42 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: 'มีคำขอ PENDING ค้างเกิน 5 นาที — worker หยุดหรือ rollout ปิดอยู่?'
+          summary: 'A PENDING request has been stuck for more than 5 minutes; is the worker stopped or the rollout off?'
 
       - alert: PlatformInvitationOutboxStale
         expr: max(dcontact_platform_oldest_age_seconds{queue="invitation_outbox"}) > 300
         labels:
           severity: warning
         annotations:
-          summary: 'invitation outbox ค้าง (INTENT/AMBIGUOUS) เกิน 5 นาที'
+          summary: 'invitation outbox stuck (INTENT/AMBIGUOUS) for more than 5 minutes'
 
       - alert: PlatformActionRequiredStale
         expr: max(dcontact_platform_oldest_age_seconds{queue="action_required"}) > 1800
         labels:
           severity: warning
         annotations:
-          summary: 'มีคำขอ ACTION_REQUIRED รอ operator เกิน 30 นาที'
+          summary: 'An ACTION_REQUIRED request has been waiting on an operator for more than 30 minutes'
 
       - alert: PlatformOperatorCommandStale
         expr: max(dcontact_platform_oldest_age_seconds{queue="operator_command"}) > 300
         labels:
           severity: warning
         annotations:
-          summary: 'operator command QUEUED ค้างเกิน 5 นาที'
+          summary: 'operator command QUEUED for more than 5 minutes'
 
       - alert: PlatformRetryExhausted
         expr: sum(increase(dcontact_platform_worker_results_total{code="ATTEMPTS_EXHAUSTED"}[15m])) > 0
         labels:
           severity: warning
         annotations:
-          summary: 'step ใช้ retry ครบแล้วส่งให้ operator'
+          summary: 'A step used up its retries and was handed to an operator'
 
       - alert: PlatformLeaseChurn
         expr: sum(increase(dcontact_platform_worker_results_total{code="LEASE_LOST"}[15m])) > 3
         labels:
           severity: warning
         annotations:
-          summary: 'worker เสีย lease บ่อย (>3 ครั้งใน 15 นาที)'
+          summary: 'worker loses its lease often (>3 times in 15 minutes)'
 
       - alert: PlatformHealthScrapeFailing
         expr: max(dcontact_platform_health_scrape_success) == 0
@@ -70,4 +70,4 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: 'อ่านสถานะ control plane จาก DB ไม่ได้ — invariant/backlog ไม่ถูกตรวจ'
+          summary: 'Cannot read control plane state from the DB; invariants/backlog are not being checked'

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ซ้อมสลับ API และ recovery ใน Docker sandbox ของ #868."""
+"""Rehearse the API switch and recovery in the #868 Docker sandbox."""
 
 import argparse
 import fcntl
@@ -47,7 +47,7 @@ def docker(*args, timeout=20):
 
 
 def docker_mutate(lock, *args, input=None, timeout=25):
-    # ให้ Docker CLI ถือ lock ต่อหาก Python process ถูกขัดจังหวะระหว่าง mutation
+    # let the Docker CLI keep holding the lock if the Python process is interrupted during a mutation
     process = subprocess.Popen(['docker', *args], text=True, stdin=subprocess.PIPE if input else subprocess.DEVNULL,
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=docker_environment(),
                                pass_fds=(lock,), start_new_session=True)
@@ -103,7 +103,7 @@ def snapshot(project):
     if api:
         labels = api['Config'].get('Labels') or {}
         api_networks = api['NetworkSettings']['Networks']
-        # Compose อาจทิ้ง container ที่ยังไม่ start ไว้หากคำสั่งถูกขัดจังหวะ
+        # Compose may leave behind a container that never started if the command is interrupted
         if (api['Id'] != containers[0] or api['Name'] != '/' + api_name
                 or labels.get(COMPOSE_PROJECT) != project or labels.get('com.docker.compose.service') != 'api'
                 or labels.get(OWNER) != project or api['Mounts'] or api['HostConfig'].get('PortBindings')
@@ -143,8 +143,8 @@ def compose_api(project, image, lock):
 def replace_api(project, protected, api, image, lock):
     if snapshot(project) != (protected, api):
         raise RehearsalError('SANDBOX_CHANGED_BEFORE_SWITCH')
-    # ลบเฉพาะ ID เดิมที่หยุดแล้ว ก่อน Compose สร้าง container ชื่อเดิม
-    # recovery จึงอ่านสถานะได้แม้ขัดจังหวะระหว่าง stop, remove และ start
+    # remove only the old, already stopped ID before Compose creates a container with the same name
+    # so recovery can read the state even if interrupted between stop, remove and start
     if api is not None:
         identifier = api['Id']
         if api['State']['Running']:
@@ -278,7 +278,7 @@ def switch_locked(project, action, candidate_ref, target_ref, pending_path, lock
     if action == 'start':
         should_switch = api is None
     else:
-        # Docker Engine อาจยังทำ stop ต่อหลัง CLI timeout แม้ container จะยังตอบ smoke
+        # Docker Engine may continue the stop after the CLI times out, even while the container still answers the smoke check
         stop_may_be_pending = action == 'recover' and api is not None and api['Id'] == intent['stoppingApiId']
         should_switch = stop_may_be_pending or not healthy(api, wanted)
     if should_switch:
@@ -310,7 +310,7 @@ def switch_locked(project, action, candidate_ref, target_ref, pending_path, lock
 
 
 def main():
-    parser = argparse.ArgumentParser(description='สลับ API รุ่นเดิมและ recovery ใน Docker sandbox ของ #868')
+    parser = argparse.ArgumentParser(description='Switch the previous API release and recover in the #868 Docker sandbox')
     parser.add_argument('action', choices=('start', 'rollback', 'recover'))
     parser.add_argument('--project', required=True)
     parser.add_argument('--candidate-image', required=True)

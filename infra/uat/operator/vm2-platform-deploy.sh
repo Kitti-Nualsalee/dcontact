@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# A1.9 (#574): deploy Platform UAT บน VM2; U1 release เดิม immutable
+# A1.9 (#574): deploy Platform UAT on VM2; the existing U1 release stays immutable
 set -euo pipefail
 umask 077
 action="${1:-}"
@@ -7,9 +7,9 @@ sha="${2:-}"
 [[ "$action" =~ ^(check|pull|keycloak|configure|start|update|operator|canary|rollback|status)$ ]] || {
   echo 'usage: vm2-platform-deploy.sh <check|pull|keycloak|configure|start|update|operator|canary|rollback|status> <source-sha> [platform-subject-uuid]' >&2; exit 64;
 }
-[[ "$sha" =~ ^[a-f0-9]{40}$ ]] || { echo 'source SHA ไม่ถูกต้อง' >&2; exit 64; }
-[[ "$(id -un)" == osdadmin ]] || { echo 'รันเป็น osdadmin บน VM2' >&2; exit 1; }
-ip -4 -o addr show | grep -F '192.168.102.112/' >/dev/null || { echo 'เครื่องนี้ไม่ใช่ VM2' >&2; exit 1; }
+[[ "$sha" =~ ^[a-f0-9]{40}$ ]] || { echo 'invalid source SHA' >&2; exit 64; }
+[[ "$(id -un)" == osdadmin ]] || { echo 'run as osdadmin on VM2' >&2; exit 1; }
+ip -4 -o addr show | grep -F '192.168.102.112/' >/dev/null || { echo 'this machine is not VM2' >&2; exit 1; }
 
 root=/opt/dcontact-uat
 platform="$root/platform"
@@ -19,15 +19,15 @@ metadata="$release/platform-release.env"
 current_sha="$(python3 -c 'import json; print(json.load(open("/opt/dcontact-uat/deployments/current.json"))["sourceSha"])')"
 uat_release="$root/releases/$current_sha"
 [[ -f "$env_file" && -f "$metadata" && -f "$release/docker-compose.platform.3vm.yml" && -f "$release/docker-compose.platform-keycloak.3vm.yml" ]] || {
-  echo 'ไฟล์ release/platform.env ยังไม่ครบ' >&2; exit 1;
+  echo 'release/platform.env files are incomplete' >&2; exit 1;
 }
-[[ "$(stat -c %a "$env_file")" == 600 ]] || { echo 'platform.env ต้อง mode 600' >&2; exit 1; }
-[[ -f "$uat_release/docker-compose.uat.3vm.yml" ]] || { echo 'U1 release ไม่มี 3VM overlay' >&2; exit 1; }
-[[ "$(sed -n 's/^SOURCE_SHA=//p' "$metadata")" == "$sha" ]] || { echo 'release SHA ไม่ตรง' >&2; exit 1; }
+[[ "$(stat -c %a "$env_file")" == 600 ]] || { echo 'platform.env must have mode 600' >&2; exit 1; }
+[[ -f "$uat_release/docker-compose.uat.3vm.yml" ]] || { echo 'the U1 release has no 3VM overlay' >&2; exit 1; }
+[[ "$(sed -n 's/^SOURCE_SHA=//p' "$metadata")" == "$sha" ]] || { echo 'release SHA mismatch' >&2; exit 1; }
 for image in PLATFORM_API_IMAGE PLATFORM_CONSOLE_IMAGE PLATFORM_KEYCLOAK_IMAGE; do
   value="$(sed -n "s/^$image=//p" "$metadata")"
   [[ "$value" =~ ^[a-z0-9.-]+(:[0-9]+)?/[a-z0-9._/-]+@sha256:[a-f0-9]{64}$ ]] || {
-    echo "$image ไม่ใช่ digest ref" >&2; exit 1;
+    echo "$image is not a digest ref" >&2; exit 1;
   }
 done
 
@@ -40,7 +40,7 @@ platform_compose() {
 uat_compose() {
   local files=(-f "$uat_release/docker-compose.uat.yml" -f "$uat_release/docker-compose.uat.3vm.yml")
   if [[ -f "$root/line-pilot.enabled" ]]; then
-    [[ -f "$uat_release/docker-compose.uat.line.yml" ]] || { echo 'U1 LINE overlay หาย' >&2; exit 1; }
+    [[ -f "$uat_release/docker-compose.uat.line.yml" ]] || { echo 'the U1 LINE overlay is missing' >&2; exit 1; }
     files+=(-f "$uat_release/docker-compose.uat.line.yml")
   fi
   "$root/bin/docker-compose" --project-name dcontact-uat \
@@ -60,15 +60,15 @@ uat_keycloak_overlay() {
     "${files[@]}" "$@"
 }
 
-# Compose อาจหยุด dependent proxy ระหว่าง recreate Keycloak แม้ระบุ --no-deps (#804).
-# เริ่ม container เดิมเท่านั้น: compose ไฟล์ฐานของ helper ไม่มี E1/Workspace overlay ของ proxy.
+# Compose may stop the dependent proxy while recreating Keycloak even with --no-deps (#804).
+# start the existing container only: the helper's base compose file has no E1/Workspace proxy overlay.
 uat_proxy=dcontact-uat-proxy-1
 check_uat_proxy() {
   local expected actual
   expected="$(sed -n 's/^CONSOLE_IMAGE=//p' "$uat_release/release.env")"
-  [[ "$expected" =~ @sha256:[a-f0-9]{64}$ ]] || { echo 'Tenant Console digest ไม่ครบ' >&2; return 1; }
+  [[ "$expected" =~ @sha256:[a-f0-9]{64}$ ]] || { echo 'Tenant Console digest is incomplete' >&2; return 1; }
   actual="$(docker inspect --format '{{.Config.Image}}' "$uat_proxy")" || return 1
-  [[ "$actual" == "$expected" ]] || { echo 'Tenant proxy image ไม่ตรง current release; หยุดก่อนเปลี่ยน Keycloak' >&2; return 1; }
+  [[ "$actual" == "$expected" ]] || { echo 'Tenant proxy image does not match the current release; stopping before changing Keycloak' >&2; return 1; }
 }
 resume_uat_proxy() {
   docker start "$uat_proxy" >/dev/null || return 1
@@ -76,7 +76,7 @@ resume_uat_proxy() {
   for attempt in {1..15}; do
     ready=true
     for endpoint in /api/v1/runtime-profile /auth/realms/dcontact/.well-known/openid-configuration; do
-      # VM2 ไม่มี DNS entry ของ UAT; ยังคงตรวจ TLS certificate และผ่าน nginx/allowlist ของ VM1 จริง.
+      # VM2 has no DNS entry for UAT; still verifies the TLS certificate and goes through the real nginx/allowlist of VM1.
       status="$(curl --silent --max-time 5 --output /dev/null --write-out '%{http_code}' \
         --resolve dcontact-uat.osd.co.th:443:192.168.102.114 \
         "https://dcontact-uat.osd.co.th$endpoint")" || status=000
@@ -85,13 +85,13 @@ resume_uat_proxy() {
     if [[ "$ready" == true ]]; then return 0; fi
     sleep 2
   done
-  echo 'Tenant HTTP/OIDC ผ่าน VM1 ยังไม่พร้อม; ห้ามเปิด canary' >&2
+  echo 'Tenant HTTP/OIDC through VM1 is not ready; do not enable the canary' >&2
   return 1
 }
 switch_keycloak() {
   local result=0
   "$@" || result=$?
-  # คืน proxy แม้ Compose ล้มหลังหยุด dependent แล้ว; failure ของการสลับยังต้องคงอยู่.
+  # restore the proxy even if Compose fails after stopping the dependent; the failure of the switch must still remain.
   resume_uat_proxy || return 1
   return "$result"
 }
@@ -100,58 +100,58 @@ case "$action" in
   check)
     platform_compose --profile ops config --quiet
     uat_keycloak_overlay config --quiet
-    echo "CHECK ผ่าน: Platform release $sha; U1 release $current_sha; ยังไม่เปลี่ยน container"
+    echo "CHECK passed: Platform release $sha; U1 release $current_sha; containers not changed yet"
     ;;
   pull)
     platform_compose --profile ops pull --quiet
     uat_keycloak_overlay pull --quiet keycloak
-    echo 'PULL ผ่าน: image ตาม digest ครบ'
+    echo 'PULL passed: all images by digest are present'
     ;;
   keycloak)
     check_uat_proxy
     switch_keycloak uat_keycloak_overlay up -d --no-deps --wait keycloak
-    echo 'KEYCLOAK ผ่าน: image ใหม่ healthy; Tenant HTTP/OIDC พร้อมผ่าน VM1'
+    echo 'KEYCLOAK passed: the new image is healthy; Tenant HTTP/OIDC is ready through VM1'
     ;;
   configure)
     platform_compose up -d --wait mailpit
     platform_compose --profile ops run --rm --no-deps -T platform-keycloak-config
     platform_compose --profile ops run --rm --no-deps -T platform-catalog-seed
-    echo 'CONFIGURE ผ่าน: platform identity, invitation guard, SMTP และ catalog'
+    echo 'CONFIGURE passed: platform identity, invitation guard, SMTP and catalog'
     ;;
   start)
     grep -qx 'PLATFORM_PROVISIONING_ENABLED=false' "$env_file" || {
-      echo 'เปิด rollout ก่อนตรวจ preflight; หยุด' >&2; exit 1;
+      echo 'rollout enabled before the preflight check; stopping' >&2; exit 1;
     }
     platform_compose up -d --wait platform-api platform-worker platform-console mailpit
-    echo 'START ผ่าน: Platform stack เปิดอยู่; provisioning ยังปิด'
+    echo 'START passed: the Platform stack is up; provisioning is still off'
     ;;
   update)
-    # #901: อัปเดต Platform API/worker/Console ไป release นี้ระหว่างที่ stack เปิดอยู่
-    # ไม่แตะ Keycloak, platform.env หรือค่า rollout; ย้อนกลับด้วย `update <SHA เดิม>`
-    # การเปลี่ยน Keycloak ยังต้องใช้ keycloak/rollback ตามเดิม
+    # #901: update the Platform API/worker/Console to this release while the stack is up
+    # does not touch Keycloak, platform.env or the rollout values; roll back with `update <previous SHA>`
+    # changing Keycloak still requires keycloak/rollback as before
     platform_compose config --quiet
     platform_compose pull --quiet platform-api platform-worker platform-console
     platform_compose up -d --no-deps --force-recreate --wait platform-api platform-worker platform-console
-    echo "UPDATE ผ่าน: Platform API/worker/Console ใช้ release $sha; rollout และ Keycloak คงเดิม"
+    echo "UPDATE passed: Platform API/worker/Console use release $sha; rollout and Keycloak unchanged"
     ;;
   operator)
-    # รับ temporary password จาก stdin; ห้ามส่งทาง argument หรือ environment
+    # takes the temporary password from stdin; never pass it as an argument or environment variable
     platform_compose --profile ops run --rm --no-deps -T platform-operator-setup
     ;;
   canary)
     subject="${3:-}"
     [[ "$subject" =~ ^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$ ]] || {
-      echo 'platform subject UUID ไม่ถูกต้อง' >&2; exit 64;
+      echo 'invalid platform subject UUID' >&2; exit 64;
     }
-    [[ -f "$platform/drill-$sha.ok" ]] || { echo 'rollback drill ยังไม่ผ่าน' >&2; exit 1; }
-    grep -qx 'PLATFORM_PROVISIONING_ENABLED=false' "$env_file" || { echo 'rollout ไม่ได้ปิดอยู่' >&2; exit 1; }
+    [[ -f "$platform/drill-$sha.ok" ]] || { echo 'the rollback drill has not passed' >&2; exit 1; }
+    grep -qx 'PLATFORM_PROVISIONING_ENABLED=false' "$env_file" || { echo 'the rollout is not off' >&2; exit 1; }
     python3 - "$env_file" "$subject" <<'PY'
 import os, sys, tempfile
 from pathlib import Path
 path = Path(sys.argv[1]); subject = sys.argv[2]
 lines = path.read_text().splitlines()
 if sum(line.startswith('PLATFORM_OPERATOR_ALLOWLIST=') for line in lines) != 1 or sum(line.startswith('PLATFORM_PROVISIONING_ENABLED=') for line in lines) != 1:
-    raise SystemExit('platform.env มี rollout key ซ้ำหรือขาด')
+    raise SystemExit('platform.env has a duplicated or missing rollout key')
 lines = [f'PLATFORM_OPERATOR_ALLOWLIST={subject}' if line.startswith('PLATFORM_OPERATOR_ALLOWLIST=') else
          'PLATFORM_PROVISIONING_ENABLED=true' if line.startswith('PLATFORM_PROVISIONING_ENABLED=') else line for line in lines]
 fd, temporary = tempfile.mkstemp(prefix='.platform.env.', dir=path.parent)
@@ -164,7 +164,7 @@ finally:
     if os.path.exists(temporary): os.unlink(temporary)
 PY
     if ! platform_compose up -d --no-deps --force-recreate --wait platform-api platform-worker; then
-      echo 'เปิด canary ไม่ผ่าน; ปิด rollout กลับทันที' >&2
+      echo 'enabling the canary failed; turning the rollout back off immediately' >&2
       python3 - "$env_file" <<'PY'
 from pathlib import Path
 import sys
@@ -174,11 +174,11 @@ PY
       platform_compose up -d --no-deps --force-recreate platform-api platform-worker
       exit 1
     fi
-    echo "CANARY ผ่าน: subject $subject; API และ worker ใช้ rollout เดียวกัน"
+    echo "CANARY passed: subject $subject; API and worker use the same rollout"
     ;;
   rollback)
     rm -f "$platform/drill-$sha.ok"
-    # ปิด mutation/claim ก่อน แล้วคืน Keycloak digest ของ U1; ledger/tenant ไม่ถูกลบ
+    # turn off mutation/claim first, then restore the U1 Keycloak digest; the ledger/tenant are not deleted
     python3 - "$env_file" <<'PY'
 import os, sys, tempfile
 from pathlib import Path
@@ -199,7 +199,7 @@ PY
     check_uat_proxy
     switch_keycloak uat_compose up -d --no-deps --wait keycloak
     printf '%s\n' "$sha" > "$platform/drill-$sha.ok"
-    echo 'ROLLBACK ผ่าน: Platform หยุด; Keycloak U1 digest เดิมกลับมา; DB/ledger คงเดิม'
+    echo 'ROLLBACK passed: Platform stopped; the previous U1 Keycloak digest is back; DB/ledger unchanged'
     ;;
   status)
     platform_compose ps

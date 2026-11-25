@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# A1.9 (#574): รันจากเครื่อง operator ที่ SSH เข้า VM2/VM3 ได้หลัง vm3-platform-db-uat.sh --apply
-# ส่ง bundle ผ่าน scp -3 แล้วรวมเป็น env บน VM2 (mode 600); ไม่พิมพ์ secret
+# A1.9 (#574): run from an operator machine that can SSH into VM2/VM3, after vm3-platform-db-uat.sh --apply
+# send the bundle via scp -3 then merge it into an env on VM2 (mode 600); does not print secrets
 set -euo pipefail
 ssh_opts=(-o BatchMode=yes -o ConnectTimeout=8 -o StrictHostKeyChecking=accept-new)
 user=osdadmin
@@ -21,29 +21,29 @@ transfer = root / 'db-credentials.transfer'
 env = root / 'platform.env'
 uat = Path('/opt/dcontact-uat/uat.env')
 if transfer.stat().st_mode & 0o077:
-    raise SystemExit('credential transfer permission ไม่ใช่ 600')
+    raise SystemExit('credential transfer permission is not 600')
 if env.exists():
-    raise SystemExit('platform.env มีอยู่แล้ว; หยุดก่อนเขียนทับ')
+    raise SystemExit('platform.env already exists; stopping before overwriting')
 def read_values(path):
     values = {}
     for line in path.read_text().splitlines():
         if not line or line.startswith('#'): continue
         key, separator, value = line.partition('=')
-        if not separator: raise SystemExit('รูปแบบ env ไม่ถูกต้อง')
+        if not separator: raise SystemExit('invalid env format')
         values[key] = value.strip().strip('"')
     return values
 db = read_values(transfer)
 existing = read_values(uat)
 if set(db) != {'PLATFORM_DB_PASSWORD', 'PROVISIONER_DB_PASSWORD'}:
-    raise SystemExit('credential bundle มี key ไม่ตรงที่คาดไว้')
+    raise SystemExit('credential bundle has keys that do not match what is expected')
 if not all(v.isalnum() and len(v) == 48 for v in db.values()):
-    raise SystemExit('credential bundle มีค่าไม่ตรงรูปแบบ')
+    raise SystemExit('credential bundle has values that do not match the expected format')
 allowed = existing.get('UAT_ALLOWED_CIDRS', '')
 if not allowed:
-    raise SystemExit('UAT_ALLOWED_CIDRS ว่าง')
+    raise SystemExit('UAT_ALLOWED_CIDRS is empty')
 alphabet = string.ascii_letters + string.digits
 secret = ''.join(secrets.choice(alphabet) for _ in range(48))
-# #592: service account ของ self-service บัญชี (#589) — secret แยกจาก provisioner
+# #592: the service account for account self-service (#589); a secret separate from the provisioner
 account_secret = ''.join(secrets.choice(alphabet) for _ in range(48))
 content = '\n'.join([
     f'PLATFORM_DB_PASSWORD={db["PLATFORM_DB_PASSWORD"]}',
@@ -65,4 +65,4 @@ with os.fdopen(fd, 'w') as out:
 transfer.unlink()
 print(f'platform.env installed: {env} (mode 600; rollout disabled)')
 PY
-echo 'VM2 env พร้อม; หลังตรวจว่า platform.env มีแล้ว ให้ลบ credential bundle ต้นทางบน VM3'
+echo 'VM2 env is ready; after checking that platform.env exists, delete the source credential bundle on VM3'

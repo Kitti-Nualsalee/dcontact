@@ -20,7 +20,7 @@
     {
       "id": 1,
       "type": "timeseries",
-      "title": "Backlog ตามสถานะ",
+      "title": "Backlog by status",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -41,7 +41,7 @@
     {
       "id": 2,
       "type": "timeseries",
-      "title": "อายุคิวที่เก่าที่สุด (วินาที)",
+      "title": "Age of the oldest queue item (seconds)",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -68,7 +68,7 @@
     {
       "id": 3,
       "type": "stat",
-      "title": "Invariant violations (ต้องเป็น 0)",
+      "title": "Invariant violations (must be 0)",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -89,7 +89,7 @@
     {
       "id": 4,
       "type": "timeseries",
-      "title": "เวลา end-to-end p50/p95",
+      "title": "End-to-end time p50/p95",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -120,7 +120,7 @@
     {
       "id": 5,
       "type": "timeseries",
-      "title": "เวลาต่อหน่วยงานของ worker p95",
+      "title": "Worker time per unit of work p95",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -210,7 +210,7 @@
     {
       "id": 9,
       "type": "timeseries",
-      "title": "Audit / security events ของ Platform API",
+      "title": "Audit / security events of the Platform API",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -231,7 +231,7 @@
     {
       "id": 10,
       "type": "stat",
-      "title": "Worker รับงาน (rollout)",
+      "title": "Worker picks up work (rollout)",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"

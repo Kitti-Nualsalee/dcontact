@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""เติม observation ลง record เดิมแบบรักษา layout/previous; ไม่รับรอง rollback."""
+"""Fill observations into an existing record while preserving layout/previous; does not certify rollback."""
 import argparse
 from datetime import datetime, timezone
 import importlib.util

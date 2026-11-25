@@ -139,7 +139,7 @@ class JournalRetireTest(unittest.TestCase):
         self.assertEqual(self.contents(self.deployments), pointers)
 
     def test_process_exit_after_gate_removal_preserves_all_committed_evidence(self):
-        # process exit ตรวจขอบเขต cleanup เท่านั้น ไม่จำลอง power loss ของ filesystem
+        # process exit checks only the cleanup boundary; it does not simulate filesystem power loss
         journal, pointers = self.contents(self.journal), self.contents(self.deployments)
         code = '''
 import importlib.util, os, sys

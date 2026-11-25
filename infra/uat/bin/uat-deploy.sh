@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# U1.6 (#434): ขั้นตอน deploy/rollback ของ UAT บน VM — workflow `uat-preview` เรียกทีละขั้นผ่าน SSH
+# U1.6 (#434): UAT deploy/rollback steps on the VM; the `uat-preview` workflow calls them one at a time over SSH
 #
-# โครงบน VM (ดู docs/u1-uat-deployment.md):
-#   $UAT_ROOT/uat.env                 secret + ค่าของ provisioning gate (operator วาง, chmod 600, ไม่อยู่ใน Git)
-#   $UAT_ROOT/releases/<sha>/         compose + bin/ + release.env (digest ของ image) ของแต่ละ release
+# layout on the VM (see docs/u1-uat-deployment.md):
+#   $UAT_ROOT/uat.env                 secrets + provisioning gate values (placed by the operator, chmod 600, not in Git)
+#   $UAT_ROOT/releases/<sha>/         compose + bin/ + release.env (image digests) of each release
 #   $UAT_ROOT/deployments/            deployment record (current.json, previous.json, <time>-<sha>.json)
-#   $UAT_ROOT/backups/                pg_dump ก่อน migrate ทุกครั้ง
-#   $UAT_ROOT/line-pilot.enabled      มีไฟล์ = ใส่ overlay `uat-line` (#565, ADR-031); ลบแล้ว deploy = ถอด LINE ออก
-#   $UAT_ROOT/secrets/line/           secret ของ LINE (operator/vm2-line-secrets.sh) — ใช้เมื่อเปิด overlay เท่านั้น
+#   $UAT_ROOT/backups/                pg_dump before every migrate
+#   $UAT_ROOT/line-pilot.enabled      file present = apply the `uat-line` overlay (#565, ADR-031); remove it and deploy = take LINE out
+#   $UAT_ROOT/secrets/line/           LINE secrets (operator/vm2-line-secrets.sh); used only when the overlay is on
 #
-# ไม่มีขั้น down migration และ rollback ไม่แตะฐานข้อมูล (redeploy digest เดิมของ Console/api เท่านั้น)
-# ไม่พิมพ์ค่า secret: compose อ่านจาก env file เอง, script พิมพ์เฉพาะสถานะ/ชื่อไฟล์/digest
+# there is no down migration step and rollback does not touch the database (it only redeploys the previous Console/api digests)
+# never prints secret values: compose reads the env file itself; the script prints only status/file names/digests
 set -euo pipefail
 umask 077
 
@@ -18,9 +18,9 @@ UAT_ROOT="${UAT_ROOT:-/opt/dcontact-uat}"
 PROJECT=dcontact-uat
 DIGEST_REF='^[a-z0-9.-]+(:[0-9]+)?/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$'
 
-# #565: overlay `uat-line` เปิดด้วยไฟล์ flag นอก release — release มีไฟล์ overlay เสมอแต่ไม่ถูกใช้ถ้าไม่มี flag
+# #565: the `uat-line` overlay is enabled by a flag file outside the release; a release always contains the overlay file but does not use it without the flag
 LINE_FLAG="$UAT_ROOT/line-pilot.enabled"
-# #567: team trial ซ้อนบน overlay `uat-line` — ต้องมีทั้งสอง flag
+# #567: the team trial stacks on the `uat-line` overlay; both flags are required
 TRIAL_FLAG="$UAT_ROOT/line-team-trial.enabled"
 E1_FLAG="$UAT_ROOT/e1-acceptance.enabled"
 E1_LAUNCHER_FLAG="$UAT_ROOT/e1-launcher-hosting.enabled"
@@ -47,7 +47,7 @@ is_3vm() {
   [[ -f "$1/docker-compose.uat.3vm.yml" ]]
 }
 
-# LINE ต้องการ 3 VM (db-relay) และ overlay ใน release; flag มีแต่ release ไม่มี overlay = ล้ม ไม่ deploy แบบเงียบ
+# LINE needs 3 VMs (db-relay) and the overlay in the release; flag present but no overlay in the release = fail, never a silent deploy
 is_line() {
   [[ -f "$LINE_FLAG" ]] || return 1
   is_3vm "$1" || fail 'LINE_REQUIRES_3VM'
@@ -81,7 +81,7 @@ is_workspace() {
   [[ -n "$(release_value "$1" UAT_WORKSPACE_HOST)" ]] || fail 'WORKSPACE_HOST_MISSING'
 }
 
-# ตั้ง array `prefix` ของผู้เรียก (dynamic scope) เป็นคำสั่ง compose ของ release นี้ ไม่รวม subcommand
+# sets the caller's `prefix` array (dynamic scope) to this release's compose command, without the subcommand
 compose_prefix() {
   local dir="$1"
   if is_3vm "$dir"; then
@@ -127,7 +127,7 @@ release_value() {
   sed -n "s/^${name}=//p" "$dir/release.env" | tail -n 1
 }
 
-# GNU (VM/runner) กับ BSD (macOS — ซ้อมบนเครื่องด้วย uat-local.sh) ใช้ option ของ stat/sha256 ต่างกัน
+# GNU (VM/runner) and BSD (macOS; rehearsal on a laptop with uat-local.sh) use different stat/sha256 options
 file_mode() {
   stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"
 }
@@ -145,7 +145,7 @@ check_release_env() {
   [[ "$(release_value "$dir" SOURCE_SHA)" =~ ^[0-9a-f]{40}$ ]] || fail 'SOURCE_SHA_INVALID'
 }
 
-# ใช้ lock เดียวกับ reconciliation สำหรับคำสั่ง deploy ที่เปลี่ยน runtime หรือ record
+# uses the same lock as reconciliation for deploy commands that change the runtime or a record
 uat_mutation_lock() {
   [[ ! -L "$UAT_ROOT/operator" ]] || fail 'UAT_LOCK_DIRECTORY_INVALID'
   mkdir -p -m 700 "$UAT_ROOT/operator"
@@ -174,18 +174,18 @@ PY
   [[ ! -e "$UAT_ROOT/operator/b714-reconciliation.pending" && ! -L "$UAT_ROOT/operator/b714-reconciliation.pending" ]] || fail 'UAT_RECONCILIATION_PENDING'
   [[ ! -e "$UAT_ROOT/operator/uat-record-transaction" && ! -L "$UAT_ROOT/operator/uat-record-transaction" ]] || fail 'UAT_RECORD_TRANSACTION_PENDING'
   [[ ! -e "$UAT_ROOT/operator/uat-record-retirement.pending" && ! -L "$UAT_ROOT/operator/uat-record-retirement.pending" ]] || fail 'UAT_RECORD_RETIREMENT_PENDING'
-  # #868: ระหว่างสลับ API runtime ไม่ตรง current record จึงห้าม deploy/record ทุกชนิดจน recover
+  # #868: during an API switch the runtime does not match the current record, so every kind of deploy/record is forbidden until recovery
   [[ ! -e "$UAT_ROOT/operator/uat-api-switch.pending" && ! -L "$UAT_ROOT/operator/uat-api-switch.pending" ]] || fail 'UAT_API_SWITCH_PENDING'
   if [[ "${1:-}" != allow-rollback-record ]]; then
     [[ ! -e "$UAT_ROOT/operator/uat-rollback.pending" && ! -L "$UAT_ROOT/operator/uat-rollback.pending" ]] || fail 'UAT_ROLLBACK_PENDING'
   fi
 }
 
-# ตรวจตั้งแต่ก่อน migrate/deploy เพื่อไม่ให้ runtime เปลี่ยนก่อนพบว่า record เขียนไม่ได้
-# #868: authorization จาก operator/b868-forward-authorize.py ใช้ได้กับ candidate เดียว, current/previous bytes เดิม,
-# release.env ที่ prepare แล้ว และก่อน expiresAt เท่านั้น เมื่อ record ของ candidate ถูกเขียน current hash เปลี่ยน
-# #901: operator/uat-additive-authorize.py ออก authorization แบบเบาให้ release ที่ migration guard ผ่าน
-# ทับ deploy/rollback record ปกติ โดยผูก release.env, migration-guard.json และ current/previous bytes ชุดเดียวกัน
+# check before migrate/deploy so the runtime does not change before we find out the record cannot be written
+# #868: an authorization from operator/b868-forward-authorize.py is valid only for a single candidate, the same current/previous bytes,
+# a release.env that has been prepared, and before expiresAt; once the candidate's record is written the current hash changes
+# #901: operator/uat-additive-authorize.py issues a lightweight authorization for a release whose migration guard passes
+# over the normal deploy/rollback record, binding the same release.env, migration-guard.json and current/previous bytes
 uat_forward_authorized() {
   local sha="${1:-}"
   [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || return 1
@@ -221,7 +221,7 @@ try:
               and when(data.get('authorizedAt')).timestamp() <= now.timestamp() + 30
               and now < when(data.get('expiresAt')))
     if data.get('schema') == 'UatAdditiveDeployAuthorizationV1':
-        # #901: release ที่ migration guard ผ่านทับ deploy/rollback record ปกติ ไม่ต้องซ้อม #868
+        # #901: a release whose migration guard passes overrides the normal deploy/rollback record; no need for the #868 rehearsal
         guard_raw = private(os.path.join(root, 'releases', sha, 'migration-guard.json'), 0o022)
         guard = json.loads(guard_raw)
         checks = guard.get('checks') or [{}]
@@ -283,7 +283,7 @@ if os.path.lexists(path):
 PY
 }
 
-# release ที่เคย deploy แล้วต้องใช้ rollback guard ไม่ใช่สั่ง deploy ย้อนตรง
+# a release that was deployed before must go through the rollback guard, not be deployed backwards directly
 uat_require_nonhistorical_target() {
   local sha="$1" current='' recorded
   if [[ -f "$UAT_ROOT/deployments/current.json" ]]; then
@@ -298,13 +298,13 @@ uat_require_nonhistorical_target() {
   for recorded in "$UAT_ROOT"/deployments/*-"$sha".json; do
     [[ ! -e "$recorded" && ! -L "$recorded" ]] || fail 'UAT_PREVIOUS_RELEASE_REQUIRES_ROLLBACK'
   done
-  # ยังไม่มีหลักฐาน compatibility ที่ผูกกับ target: ปฏิเสธไว้ก่อน ไม่เดาว่า SHA ที่ไม่รู้จักใหม่กว่า
-  # ยกเว้น authorization ของ #868 ที่ผูกหลักฐาน candidate กับ current record ปัจจุบัน
+  # no compatibility evidence is bound to the target yet: refuse for now; do not guess that an unknown SHA is newer
+  # except for a #868 authorization that binds the candidate's evidence to the present current record
   uat_forward_authorized "$sha" && return 0
   fail 'UAT_TARGET_COMPATIBILITY_EVIDENCE_REQUIRED'
 }
 
-# ตรวจ record และ image ที่รันจริงก่อนเขียน pointer; ไม่พิมพ์ Docker configuration
+# check the record and the images actually running before writing the pointer; does not print the Docker configuration
 uat_verify_record_runtime() {
   local dir="$1" sha="$2" record="$3" mode="${4:-record}" e1=false
   if is_e1 "$dir"; then e1=true; fi
@@ -381,7 +381,7 @@ except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
 PY
 }
 
-# ไม่ถือ proposal หรือ record schema ที่ไม่รู้จักว่าเป็น rollback target
+# an unrecognized proposal or record schema is not treated as a rollback target
 uat_resolve_rollback_record() {
   local target="$1" expected_sha="${2:-}"
   if [[ $# -ge 2 ]]; then shift 2; else shift; fi
@@ -421,7 +421,7 @@ print(json.dumps(record))
 PY
 }
 
-# Archive ใหม่มีสิทธิ์เป็น target เมื่อบันทึก pointer และ marker ที่ผูก bytes ครบแล้วเท่านั้น
+# a new archive is eligible as a target only once its pointer and the marker binding all its bytes have been recorded
 uat_require_committed_archive() {
   python3 - "$1" <<'PY'
 import hashlib, os, stat, sys
@@ -583,7 +583,7 @@ shift
 [[ -f "$UAT_ROOT/uat.env" ]] || fail 'UAT_ENV_MISSING'
 if [[ "$(file_mode "$UAT_ROOT/uat.env")" != '600' ]]; then fail 'UAT_ENV_PERMISSIONS'; fi
 mkdir -p "$UAT_ROOT/deployments" "$UAT_ROOT/backups"
-# #868: directory ของ admission fence ต้องมีก่อน proxy mount; ไม่สร้างไฟล์ fence ให้อัตโนมัติ
+# #868: the admission fence directory must exist before the proxy mounts it; the fence file is not created automatically
 mkdir -p -m 755 "$UAT_ROOT/admission-fence"
 
 case "$cmd" in
@@ -599,8 +599,8 @@ case "$cmd" in
     fi
     chmod 700 "$dir/bin"/*.sh
     if [[ -d "$dir/e1-freeswitch" ]]; then chmod 0555 "$dir/e1-freeswitch/entrypoint.sh"; fi
-    # #540: entrypoint ของ object storage ถูก mount เข้า container ที่รันเป็น uid 1000 (ไม่ใช่ root) — ต้องอ่านได้
-    # ไฟล์ไม่มี secret (secret มาจาก env ของ container) และรันผ่าน `sh` จึงไม่ต้อง execute
+    # #540: the object storage entrypoint is mounted into a container that runs as uid 1000 (not root); it must be readable
+    # the file holds no secret (secrets come from the container env) and is run through `sh`, so it does not need execute permission
     chmod 0444 "$dir/bin/object-storage-entrypoint.sh"
     compose "$dir" config --quiet
     compose "$dir" --profile ops pull --quiet
@@ -611,7 +611,7 @@ case "$cmd" in
     dir="$(release_dir "${1:?sha}")"
     stamp="$(date -u +%Y%m%dT%H%M%SZ)"
     if is_3vm "$dir"; then
-      # VM3 ใช้ PostgreSQL 15.4: dump ผ่าน relay ด้วย client v15 เท่านั้น
+      # VM3 uses PostgreSQL 15.4: dump through the relay with the v15 client only
       compose "$dir" up -d --wait db-relay
       for database in dcontact_uat keycloak_uat; do
         file="$UAT_ROOT/backups/pg-${database}-${stamp}.dump"
@@ -652,7 +652,7 @@ case "$cmd" in
     compose "$dir" up -d --wait "$(database_service "$dir")"
     compose "$dir" --profile ops run --rm -T db-roles >/dev/null
     compose "$dir" --profile ops run --rm -T migrate
-    # rls.sql สร้าง role ที่ยังไม่มีด้วยรหัสผ่านของ dev — ตั้งทับ/ปิด login ทุกครั้งหลัง migrate
+    # rls.sql creates roles that do not exist yet with the dev password; overwrite/disable login after every migrate
     compose "$dir" --profile ops run --rm -T db-roles
     ;;
 
@@ -666,9 +666,9 @@ case "$cmd" in
     ;;
 
   provision)
-    # U1.8 (#502): tenant/บัญชี maker-reviewer/rollout/fixture pack จากไฟล์ `UatProvisionV1` ของ operator
-    # ไฟล์มีอีเมลจริง → ต้อง chmod 600 และส่งทาง stdin (ไม่ mount เข้า container, ไม่ผ่าน command line)
-    # `--check` = validate + preflight แบบ read-only; ผลเป็น JSON lines ที่มีแค่ id/สถานะ/digest
+    # U1.8 (#502): tenant/maker-reviewer accounts/rollout/fixture pack from the operator's `UatProvisionV1` file
+    # the file holds real emails, so chmod 600 and send it over stdin (not mounted into the container, not on a command line)
+    # `--check` = read-only validate + preflight; the output is JSON lines with only id/status/digest
     dir="$(release_dir "${1:?sha}")"
     file="${2:?provision input file}"
     [[ -f "$file" ]] || fail 'PROVISION_INPUT_MISSING'
@@ -683,7 +683,7 @@ case "$cmd" in
     ;;
 
   ui-flag)
-    # E1.16 (#490): ใช้ domain CLI เดิมเพื่อให้ flag และ audit เปลี่ยนใน transaction เดียว
+    # E1.16 (#490): use the existing domain CLI so the flag and audit change in one transaction
     dir="$(release_dir "${1:?sha}")"
     tenant="${2:?tenant slug}"
     action="${3:?on or off}"
@@ -709,16 +709,16 @@ case "$cmd" in
     uat_mutation_lock
     uat_require_recordable_current "${1:?sha}"
     uat_require_nonhistorical_target "${1:?sha}"
-    # #540: object storage (SeaweedFS; s3.json + policy ของ API สร้างใน entrypoint) → bucket private
-    # ก่อน api บูต (U1.5 #433: api ไม่บูตถ้า bucket ไม่พร้อม) แล้ว lifecycle ที่รันต่อเนื่อง
+    # #540: object storage (SeaweedFS; s3.json + the API policy are created in the entrypoint) → private bucket
+    # before api boots (U1.5 #433: api does not boot if the bucket is not ready), then the continuously running lifecycle
     compose "$dir" up -d --wait object-storage
     compose "$dir" run --rm -T object-storage-init
-    # --no-deps: object-storage-init จบไปแล้วข้างบน และไม่ให้ `--wait` ไปรอ container one-shot ที่ exit แล้ว
-    # #565: ไม่มี flag = container line-* เป็น orphan และถูกถอดที่นี่; runner/relay ไม่รันค้าง (profile line-pilot)
+    # --no-deps: object-storage-init already finished above, and this keeps `--wait` from waiting on a one-shot container that has exited
+    # #565: no flag = the line-* containers are orphans and are removed here; the runner/relay do not stay running (profile line-pilot)
     services=(object-storage-lifecycle api proxy)
     if is_e1 "$dir"; then services+=(freeswitch e1-sandbox); fi
     if is_line "$dir"; then services+=(line-webhook); fi
-    # #567: trial = relay รันตลอด; ไม่มี trial = ถอด relay ที่อาจค้างจาก trial ก่อนหน้า (runner เรียกขึ้นใหม่เองได้)
+    # #567: trial = the relay runs all the time; no trial = remove a relay that may be left over from an earlier trial (the runner can bring it up again itself)
     if is_trial "$dir"; then
       services+=(line-egress)
     elif is_line "$dir"; then
@@ -731,18 +731,18 @@ case "$cmd" in
   smoke)
     dir="$(release_dir "${1:?sha}")"
     uat_host="$(sed -n 's/^UAT_HOST=//p' "$UAT_ROOT/uat.env" | tail -n 1)"
-    # token ของบัญชีทดสอบ (ถ้ามี) รับทาง stdin เท่านั้น — ไม่ผ่าน command line/env ของ SSH
+    # the test account token (if any) is accepted over stdin only, not through the SSH command line/env
     if [[ "${2:-}" == '--token-stdin' ]]; then
       IFS= read -r UAT_SMOKE_ACCESS_TOKEN || true
       export UAT_SMOKE_ACCESS_TOKEN
     fi
-    # โหมด 3 VM: TLS อยู่ที่ nginx VM1; โหมดเครื่องเดียว: TLS อยู่ใน proxy บน host เดียวกัน
+    # 3-VM mode: TLS is at nginx on VM1; single-machine mode: TLS is in the proxy on the same host
     local_connect_host=127.0.0.1
     if is_3vm "$dir"; then local_connect_host=192.168.102.114; fi
     expected_profile=uat
     if is_e1 "$dir"; then expected_profile=uat-e1; fi
     if is_workspace "$dir"; then expected_profile=uat-workspace; fi
-    # Docker Desktop (uat-local.sh บน macOS) ใช้ host.docker.internal ผ่าน env override
+    # Docker Desktop (uat-local.sh on macOS) uses host.docker.internal via an env override
     docker run --rm --network "${UAT_SMOKE_DOCKER_NETWORK:-host}" \
       -e "UAT_BASE_URL=https://${uat_host}" \
       -e "UAT_CONNECT_HOST=${UAT_SMOKE_CONNECT_HOST:-$local_connect_host}" \
@@ -754,7 +754,7 @@ case "$cmd" in
     ;;
 
   record)
-    # file = deployment record ที่ workflow สร้าง (JSON) — เก็บคู่ current/previous สำหรับ rollback
+    # file = the deployment record the workflow creates (JSON); keep the current/previous pair for rollback
     sha="${1:?sha}"
     file="${2:?record file}"
     dir="$(release_dir "$sha")"
@@ -794,8 +794,8 @@ if (pending.get("schema") != "UatRollbackPendingV1" or pending.get("targetSha") 
         or not isinstance(record.get("smoke"), dict) or record["smoke"].get("status") != "PASS"):
     sys.exit("UAT_ROLLBACK_PENDING_MISMATCH")
 ' "$UAT_ROOT/operator/uat-rollback.pending" "$UAT_ROOT/deployments/current.json" "$sha"
-      # status จาก record ที่ส่งมาไม่ใช่หลักฐาน smoke จาก runtime; ห้าม commit
-      # จนกว่าจะมี receipt ที่ผูกกับ runtime และ recovery ของ pointer transaction
+      # the status in the submitted record is not smoke evidence from the runtime; do not commit
+      # until there is a receipt bound to the runtime and recovery of the pointer transaction
       fail 'UAT_ROLLBACK_SMOKE_RECEIPT_AND_RECOVERY_REQUIRED'
     fi
     target="$UAT_ROOT/deployments/$(date -u +%Y%m%dT%H%M%SZ)-${sha}.json"
@@ -912,7 +912,7 @@ PY
     ;;
 
   compose-argv)
-    # #868: คำสั่ง compose ของ release เป็น JSON (มีแต่ path ไม่มีค่า secret) ให้ b868-api-switch.py ใช้ชุดไฟล์เดียวกับ deploy
+    # #868: the release's compose command as JSON (paths only, no secret values) so b868-api-switch.py uses the same file set as deploy
     dir="$(release_dir "${1:?sha}")"
     prefix=()
     compose_prefix "$dir"
@@ -921,7 +921,7 @@ PY
 
   current)
     uat_mutation_lock
-    # record ปัจจุบัน (ไม่มี secret) — workflow ใช้หา SHA ฐานของ migration guard
+    # the current record (no secrets); the workflow uses it to find the base SHA for the migration guard
     if [[ -f "$UAT_ROOT/deployments/current.json" ]]; then
       cat "$UAT_ROOT/deployments/current.json"
     else
@@ -955,7 +955,7 @@ PY
     uat_mutation_lock
     dir="$(release_dir "${1:?sha}")"
     [[ "$(release_value "$dir" UAT_WORKSPACE_ENABLED)" != true ]] || fail 'WORKSPACE_REQUIRES_E1_ROLLBACK_FIRST'
-    # ต้องถอด daemon ขณะ overlay ยัง active; หลังลบ flag compose จะไม่รู้จัก service นี้แล้ว
+    # the daemon must be removed while the overlay is still active; once the flag is deleted compose no longer knows this service
     if is_e1 "$dir"; then compose "$dir" rm -sf e1-sandbox freeswitch >/dev/null || true; fi
     rm -f "$E1_FLAG"
     compose "$dir" up -d --wait --no-deps --force-recreate api proxy
@@ -963,7 +963,7 @@ PY
     ;;
 
   e1-voice-control|e1-voice-on|e1-voice-off)
-    # คำสั่งปิดฉุกเฉินต้องทำงานได้แม้มี transaction ค้าง
+    # the emergency shutdown command must work even with a transaction left pending
     if [[ "$cmd" == e1-voice-on || ( "$cmd" == e1-voice-control && "${2:-}" != off && "${2:-}" != status && "${2:-}" != idle ) ]]; then
       uat_mutation_lock
     fi
@@ -1001,7 +1001,7 @@ PY
           fail 'E1_VOICE_ENABLE_FAILED'
         fi
       else
-        # ปิด switch ก่อนเสมอ แม้ lock ถูกถืออยู่; recreate ต้องรอ transaction อื่นจบ
+        # always turn the switch off first, even if the lock is held; recreate must wait for other transactions to finish
         (
           uat_mutation_lock
           for service in api e1-sandbox; do
@@ -1068,7 +1068,7 @@ PY
     ;;
 
   line-status)
-    # #565: สถานะ overlay ของ release ที่ระบุ (ไม่มีค่า secret) — enabled ต้องตรงกับ container ที่รันอยู่
+    # #565: the overlay state of the given release (no secret values); enabled must match the running containers
     dir="$(release_dir "${1:?sha}")"
     if is_line "$dir"; then enabled=true; else enabled=false; fi
     if is_trial "$dir"; then trial=true; else trial=false; fi
@@ -1078,8 +1078,8 @@ PY
     ;;
 
   line-run)
-    # #565: runner ของ LINE pilot — uat-deploy.sh line-run <sha> <line-pilot-setup|line-provider-runner|line-pilot-cli> <command> [...]
-    # relay line-egress ขึ้นตาม depends_on และไม่รันค้าง (profile line-pilot); stdout มีแค่ ID/digest ตาม CLI
+    # #565: the LINE pilot runner: uat-deploy.sh line-run <sha> <line-pilot-setup|line-provider-runner|line-pilot-cli> <command> [...]
+    # the line-egress relay comes up via depends_on and does not stay running (profile line-pilot); stdout has only IDs/digests per the CLI
     dir="$(release_dir "${1:?sha}")"
     shift
     is_line "$dir" || fail 'LINE_NOT_ENABLED'
@@ -1088,7 +1088,7 @@ PY
 
   line-reload)
     uat_mutation_lock
-    # #565: หลัง vm2-line-secrets.sh --rotate — ไฟล์ secret เปลี่ยนแต่ compose config ไม่เปลี่ยน จึงต้อง recreate เอง
+    # #565: after vm2-line-secrets.sh --rotate the secret files change but the compose config does not, so recreate must be done explicitly
     dir="$(release_dir "${1:?sha}")"
     is_line "$dir" || fail 'LINE_NOT_ENABLED'
     compose "$dir" up -d --wait --no-deps --force-recreate line-webhook
@@ -1097,7 +1097,7 @@ PY
 
   rollback-target)
     uat_mutation_lock
-    # ไม่ระบุ sha = record ก่อนหน้า (previous.json); ระบุ sha = record ล่าสุดของ sha นั้นที่เคย deploy สำเร็จ
+    # no sha = the previous record (previous.json); with a sha = the latest record of that sha that was deployed successfully
     if [[ -n "${1:-}" ]]; then
       [[ "$1" =~ ^[0-9a-f]{40}$ ]] || fail 'SOURCE_SHA_INVALID'
       target="$(ls -1 "$UAT_ROOT/deployments/"*"-$1.json" 2>/dev/null | sort | tail -n 1 || true)"
@@ -1112,13 +1112,13 @@ PY
     ;;
 
   rollback)
-    # redeploy digest ของ release ก่อนหน้า — Console/proxy + api เท่านั้น ไม่ migrate ไม่ restore DB
+    # redeploy the previous release's digests: Console/proxy + api only; no migrate, no DB restore
     sha="${1:?previous sha}"
     dir="$(release_dir "$sha")"
     check_release_env "$dir"
     uat_mutation_lock
-    # Record จาก reconciliation ไม่ได้พิสูจน์ compatibility ของ schema/identity สำหรับ rollback
-    # แม้ operator ระบุ SHA ตรงก็ต้องหยุดจนกว่าจะมีเกต recovery ที่รับรองครบ
+    # a record from reconciliation does not prove schema/identity compatibility for rollback
+    # even if the operator gives the exact SHA, stop until a fully certified recovery gate exists
     if [[ ! -e "$UAT_ROOT/deployments/current.json" && ! -L "$UAT_ROOT/deployments/current.json" ]]; then
       fail 'ROLLBACK_CURRENT_RECORD_REQUIRED'
     fi
@@ -1172,11 +1172,11 @@ if record["images"] != dict(zip(("api", "console", "ops", "keycloak"), sys.argv[
 ' "$(release_value "$dir" API_IMAGE)" "$(release_value "$dir" CONSOLE_IMAGE)" \
       "$(release_value "$dir" OPS_IMAGE)" "$(release_value "$dir" KEYCLOAK_IMAGE)"
     rollback_preflight "$dir"
-    # V1 record ไม่รองรับ mixed release; หยุดก่อนสลับ API หาก component ที่ไม่ rollback ต่างจาก target
+    # a V1 record does not support a mixed release; stop before switching the API if a component that is not rolled back differs from the target
     uat_verify_record_runtime "$dir" "$sha" '' untouched
-    # หยุดก่อนแตะ runtime จนกว่าจะมี smoke receipt และ recovery ที่ตรวจสอบได้ครบ
+    # stop before touching the runtime until there is a smoke receipt and fully verifiable recovery
     fail 'UAT_ROLLBACK_TRANSACTION_NOT_CERTIFIED'
-    # คง pending แม้ compose ถูกขัดจังหวะ: ห้ามงานอื่นเขียน record ที่ไม่ตรง runtime
+    # keep pending even if compose is interrupted: no other work may write a record that does not match the runtime
     UAT_ROLLBACK_SELECTED_RECORD="$candidate_record" python3 - "$UAT_ROOT/operator/uat-rollback.pending" "$UAT_ROOT/deployments/current.json" "$sha" "$expected_target_hash" <<'PY'
 import hashlib, json, os, sys
 marker, current, target, target_hash = sys.argv[1:]

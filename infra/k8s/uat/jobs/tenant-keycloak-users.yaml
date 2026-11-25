@@ -1,4 +1,4 @@
-# accounts.json เป็นข้อมูลผู้ทดสอบ/รหัสผ่านชั่วคราวใน Secret นอก Git
+# accounts.json holds test-user data/temporary passwords in a Secret outside Git
 apiVersion: batch/v1
 kind: Job
 metadata:

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ผูก observation ของ runtime กับ migration ledger โดยไม่รับรอง rollback."""
+"""Bind the runtime observation to the migration ledger without certifying rollback."""
 import hashlib
 import importlib.util
 import json
