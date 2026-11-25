@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { TenantClientRateLimiter } from './tenant-client-rate-limiter.js';
 
-test('rate limiter แยก tenant/client และคืน Retry-After จนกว่าจะขึ้น window ใหม่', () => {
+test('the rate limiter separates tenant/client and returns Retry-After until a new window starts', () => {
   let now = new Date('2026-09-20T00:00:00.000Z');
   const limiter = new TenantClientRateLimiter(() => now);
   assert.equal(limiter.consume({ tenantId: 'a', clientId: 'one', limitPerMinute: 2 }), null);
@@ -16,7 +16,7 @@ test('rate limiter แยก tenant/client และคืน Retry-After จน
   assert.equal(limiter.consume({ tenantId: 'a', clientId: 'one', limitPerMinute: 2 }), null);
 });
 
-test('AC4 (#597): window กำหนดได้ เช่น 5 ครั้งต่อชั่วโมง', () => {
+test('AC4 (#597): the window is configurable, e.g. 5 times per hour', () => {
   let now = new Date('2026-10-06T00:00:00.000Z');
   const limiter = new TenantClientRateLimiter(() => now);
   const hourly = {

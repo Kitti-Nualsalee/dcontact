@@ -214,7 +214,7 @@ function dto(row: CatalogRow, kind: CatalogKind) {
       : { revision: row.revision, code: row.code }),
   };
 }
-/** code ที่ trigger/function ของฐาน RAISE ออกมา ทั้งผ่าน KnownRequestError และ UnknownRequestError */
+/** the code the database trigger/function RAISEs, through both KnownRequestError and UnknownRequestError */
 const triggerDomainCodes = [
   'VOICE_CONFIG_V1_REQUIRED',
   'REVISION_CONFLICT',
@@ -355,7 +355,7 @@ export function mapDatabaseError(error: unknown): never {
     }
     if (error.code === 'P2003') voiceFail('REFERENCE_SCOPE_MISMATCH', 409);
   }
-  // trigger ที่ RAISE ระหว่าง tx.queue.update() ออกมาเป็น UnknownRequestError (ไม่มี meta)
+  // a trigger that RAISEs during tx.queue.update() comes out as UnknownRequestError (no meta)
   if (error instanceof Prisma.PrismaClientUnknownRequestError) {
     for (const domainCode of triggerDomainCodes) {
       if (error.message.includes(domainCode))
@@ -376,7 +376,7 @@ async function rejection(
   action: string,
   code: string,
 ) {
-  // แยก transaction หลัง rollback: ไม่เก็บ payload หรือชื่อทรัพยากรที่ส่งมา
+  // a separate transaction after the rollback: does not keep the payload or the name of the resource sent
   await withTenantDatabaseTransaction(db, identity.tenantId, async (tx) => {
     await catalogActor(tx, identity, true);
     await tx.$executeRaw`INSERT INTO voice_config_audit(id,tenant_id,actor_user_id,command_id,action,outcome,reason_code,correlation_id) VALUES(${randomUUID()}::uuid,${identity.tenantId}::uuid,${identity.userId}::uuid,${commandId}::uuid,${action},'REJECTED',${code},${identity.correlationId ?? randomUUID()})`;
@@ -515,7 +515,7 @@ export async function createCatalog(
       try {
         await rejection(db, identity, command.commandId, action, code);
       } catch {
-        /* คง mutation error เดิม; ไม่เปลี่ยน DB failure เป็น success */
+        /* keep the original mutation error; do not turn a DB failure into success */
       }
     }
     throw mapped;

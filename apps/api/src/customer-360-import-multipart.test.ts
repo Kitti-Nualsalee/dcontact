@@ -34,15 +34,15 @@ async function parse(parts: Buffer[], headers?: Record<string, string>) {
   return result;
 }
 
-test('multipart รับ file และ commandId สลับลำดับได้โดยไม่เก็บ filename', async () => {
+test('multipart accepts file and commandId in either order without keeping the filename', async () => {
   const id = randomUUID();
-  const result = await parse([file('file', Buffer.from('name\nก')), field('commandId', id), end]);
+  const result = await parse([file('file', Buffer.from('name\nก')), field('commandId', id), end]); // allow-thai: Thai UTF-8 bytes through multipart
   assert.equal(result.fields.commandId, id);
-  assert.equal(result.bytes.toString(), 'name\nก');
+  assert.equal(result.bytes.toString(), 'name\nก'); // allow-thai: Thai UTF-8 bytes through multipart
   assert.ok(!('filename' in result));
 });
 
-test('multipart รับไฟล์ 1 MiB พอดีและปฏิเสธเมื่อเกินหนึ่ง byte', async () => {
+test('multipart accepts a file of exactly 1 MiB and rejects one byte over', async () => {
   const id = randomUUID();
   const max = Buffer.alloc(1024 * 1024, 0x61);
   assert.equal(
@@ -55,7 +55,7 @@ test('multipart รับไฟล์ 1 MiB พอดีและปฏิเส
   );
 });
 
-test('multipart ปฏิเสธ field/file ซ้ำ, unknown, closing boundary ผิดและ body encoding', async () => {
+test('multipart rejects a duplicate field/file, unknown, a wrong closing boundary and the body encoding', async () => {
   const id = randomUUID();
   for (const parts of [
     [field('commandId', id), field('commandId', id), file('file', Buffer.from('a')), end],
@@ -75,7 +75,7 @@ test('multipart ปฏิเสธ field/file ซ้ำ, unknown, closing bounda
   await assert.rejects(parse([], { 'content-encoding': 'gzip' }), { code: 'CSV_INVALID' });
 });
 
-test('multipart จำกัด concurrency และคืนสิทธิ์เมื่อ timeout', async () => {
+test('multipart limits concurrency and returns the permit on timeout', async () => {
   const streams = Array.from({ length: 4 }, () => request());
   const pending = Promise.allSettled(streams.map((stream) => read(stream, 80)));
   await assert.rejects(read(request(), 80), { code: 'RESOURCE_BUSY' });
@@ -92,21 +92,21 @@ test('multipart จำกัด concurrency และคืนสิทธิ์
   );
 });
 
-test('multipart อ่าน boundary และ UTF-8 ที่แบ่งเป็นหลาย chunk โดยคง bytes', async () => {
+test('multipart reads the boundary and UTF-8 split across several chunks while keeping the bytes', async () => {
   const id = randomUUID();
   const body = Buffer.concat([
     field('commandId', id),
-    file('file', Buffer.from('ชื่อ\nสมชาย')),
+    file('file', Buffer.from('ชื่อ\nสมชาย')), // allow-thai: Thai UTF-8 bytes split across chunks
     end,
   ]);
   const stream = request();
   const result = read(stream);
   for (let i = 0; i < body.length; i++) stream.write(body.subarray(i, i + 1));
   stream.end();
-  assert.equal((await result).bytes.toString('utf8'), 'ชื่อ\nสมชาย');
+  assert.equal((await result).bytes.toString('utf8'), 'ชื่อ\nสมชาย'); // allow-thai: Thai UTF-8 bytes split across chunks
 });
 
-test('multipart รับ mapping/planHash เป็น text field พร้อม file', async () => {
+test('multipart accepts mapping/planHash as text fields together with the file', async () => {
   const result = await parse([
     field('mapping', '{"version":1}'),
     field('planHash', 'a'.repeat(64)),
@@ -116,7 +116,7 @@ test('multipart รับ mapping/planHash เป็น text field พร้อ�
   assert.deepEqual(result.fields, { mapping: '{"version":1}', planHash: 'a'.repeat(64) });
 });
 
-test('multipart คืน error แบบไม่สะท้อน input เมื่อ client abort', async () => {
+test('multipart returns an error that does not echo the input when the client aborts', async () => {
   const stream = request();
   const result = read(stream);
   stream.write(Buffer.from(`--${boundary}\r\n`));
@@ -127,7 +127,7 @@ test('multipart คืน error แบบไม่สะท้อน input เ�
   await assert.rejects(read(alreadyClosed), { code: 'CSV_INVALID' });
 });
 
-test('HTTP จริงส่ง 400/413/408 ก่อนปิด connection เมื่อ input ถูกปฏิเสธ', async (t) => {
+test('real HTTP sends 400/413/408 before closing the connection when the input is rejected', async (t) => {
   const { createServer, request: httpRequest } = await import('node:http');
   const server = createServer((req, res) => {
     readC360ImportMultipart(req, { timeoutMs: 100 }).then(

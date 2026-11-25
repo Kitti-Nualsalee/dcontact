@@ -7,11 +7,11 @@ import { deliverToIam, ownerCommit, setup, type Fixture } from './customer-360-t
 import { contact, grant, head, point } from './customer-360-read-test-fixtures.js';
 
 /**
- * Cus360 C2 (#792) S1: HTTP จริง → predicate ของ C1 → PostgreSQL/RLS ด้วย application role
- * ข้อมูลทดสอบทั้งหมด synthetic; point ใส่ผ่าน owner connection ใต้ command สังเคราะห์ (C3 ยังไม่มี writer)
+ * Cus360 C2 (#792) S1: real HTTP → the C1 predicate → PostgreSQL/RLS with the application role
+ * all test data is synthetic; points go in through the owner connection under a synthetic command (C3 has no writer yet)
  */
 
-// ใช้ key ชุดเดียวกับ server เพื่อสร้าง cursor หมดอายุจริงในการทดสอบ
+// use the same key as the server to create a genuinely expired cursor in the test
 const CURSOR_KEY = randomBytes(32);
 process.env.CUSTOMER_360_CURSOR_KEYS = `test:${CURSOR_KEY.toString('base64')}`;
 
@@ -57,12 +57,12 @@ const profile = async (f: Fixture, token: string, contactId: string) => {
 
 const idsOf = (body: SearchBody) => body.items.map((item) => item.contactId);
 
-test('C2 S1: Admin เห็นเฉพาะ contact ที่มี custodian grant; list/detail/count ใช้ predicate เดียวกัน; tenant อื่นไม่เห็น', async () => {
+test('C2 S1: an Admin sees only contacts with a custodian grant; list/detail/count use the same predicate; another tenant sees nothing', async () => {
   const f = await setup([Customer360ReadController]);
   try {
-    const own = await contact(f, { displayName: 'สมชาย ใจดี', company: 'บริษัท ก' });
+    const own = await contact(f, { displayName: 'Somchai Jaidee', company: 'Company A' });
     const legacy = await contact(f, { displayName: 'Legacy Lee' });
-    const hidden = await contact(f, { displayName: 'ซ่อน' });
+    const hidden = await contact(f, { displayName: 'Concealed' });
     const ambiguous = await contact(f, { displayName: 'Ambiguous Amy' });
     await head(f, own, 'ACTIVE');
     await head(f, ambiguous, 'AMBIGUOUS');
@@ -70,7 +70,7 @@ test('C2 S1: Admin เห็นเฉพาะ contact ที่มี custodian
     await grant(f, 'admin', legacy, 'READ');
     await grant(f, 'admin', ambiguous, 'READ');
     const foreignContact = await contact(f, {
-      displayName: 'ต่าง tenant',
+      displayName: 'Other tenant',
       tenantId: f.otherTenantId,
     });
 
@@ -84,9 +84,9 @@ test('C2 S1: Admin เห็นเฉพาะ contact ที่มี custodian
     assert.equal(byId.get(legacy)!.identity, 'LEGACY_MISSING_HEAD');
     assert.equal(byId.get(ambiguous)!.reviewRequired, true);
     assert.equal(byId.get(own)!.reviewRequired, false);
-    assert.equal(JSON.stringify(directory.body).includes('ซ่อน'), false);
+    assert.equal(JSON.stringify(directory.body).includes('Concealed'), false);
 
-    // ทุกรายการใน list เปิด detail ได้; ที่ไม่อยู่ใน list ได้ 404 แบบเดียวกับไม่พบ
+    // every item in the list opens a detail; one not in the list gets the same 404 as not found
     for (const id of idsOf(directory.body))
       assert.equal((await profile(f, 'admin', id)).status, 200, id);
     const denied = await profile(f, 'admin', hidden);
@@ -98,17 +98,17 @@ test('C2 S1: Admin เห็นเฉพาะ contact ที่มี custodian
     }
     assert.equal((await profile(f, 'admin', foreignContact)).status, 404);
 
-    // Admin อีกคนไม่มี grant → ว่างและ count = 0 (ไม่ใช่ error); tenant อื่นไม่เห็นของ tenant แรก
+    // another Admin has no grant → empty and count = 0 (not an error); another tenant does not see the first tenant's
     const other = await search(f, 'admin-two');
     assert.deepEqual(other.body.items, []);
     assert.deepEqual(other.body.accessibleCount, { state: 'AVAILABLE', value: 0 });
     const foreign = await search(f, 'foreign');
     assert.deepEqual(foreign.body.items, []);
-    assert.equal(JSON.stringify(foreign.body).includes('สมชาย'), false);
+    assert.equal(JSON.stringify(foreign.body).includes('Somchai'), false);
 
     // detail
     const detail = await profile(f, 'admin', own);
-    assert.equal(detail.body.contact.displayName, 'สมชาย ใจดี');
+    assert.equal(detail.body.contact.displayName, 'Somchai Jaidee');
     assert.deepEqual(detail.body.capabilities, { read: true, manage: true });
     assert.equal(detail.body.identity.state, 'ACTIVE');
     const legacyDetail = await profile(f, 'admin', legacy);
@@ -123,7 +123,7 @@ test('C2 S1: Admin เห็นเฉพาะ contact ที่มี custodian
   }
 });
 
-test('C2 S1: Agent, Compliance, unbound, disabled ไม่มี generic directory/profile; GET/search ไม่สร้าง head หรือหลักฐาน', async () => {
+test('C2 S1: Agent, Compliance, unbound, disabled have no generic directory/profile; GET/search create no head or evidence', async () => {
   const f = await setup([Customer360ReadController]);
   try {
     const legacy = await contact(f, { displayName: 'Legacy Only' });
@@ -146,7 +146,7 @@ test('C2 S1: Agent, Compliance, unbound, disabled ไม่มี generic direct
     assert.equal((await search(f, 'admin', { type: 'NAME', query: 'Legacy' })).status, 200);
     assert.equal((await profile(f, 'admin', legacy)).status, 200);
     assert.deepEqual(await counts(), before);
-    // C4 เปิด PATCH แล้ว แต่ request ที่ไม่ถูกต้องต้องไม่สร้างผล; PUT/DELETE ยังไม่มี route
+    // C4 opened PATCH, but an invalid request must produce no effect; PUT/DELETE still have no route
     assert.equal(
       (await f.request(`customer-360/contacts/${legacy}`, 'admin', {}, 'PATCH')).status,
       400,
@@ -163,7 +163,7 @@ test('C2 S1: Agent, Compliance, unbound, disabled ไม่มี generic direct
   }
 });
 
-test('C2 S1: NAME prefix, ตัวอักษรพิเศษเป็นตัวอักษรธรรมดา, PHONE/EMAIL เต็มค่า และ shared/retired/review ไม่หลุดสิทธิ์', async () => {
+test('C2 S1: NAME prefix, special characters are ordinary characters, PHONE/EMAIL are full-value, and shared/retired/review do not leak permission', async () => {
   const f = await setup([Customer360ReadController]);
   try {
     const names = [
@@ -185,7 +185,7 @@ test('C2 S1: NAME prefix, ตัวอักษรพิเศษเป็นต
       idsOf((await search(f, 'admin', { type: 'NAME', query })).body);
     assert.deepEqual(await names_('som'), [ids.somsri, ids.Somchai]);
     assert.deepEqual(await names_('SOMS'), [ids.somsri]);
-    // wildcard/regex/substring ไม่มีผล
+    // wildcard/regex/substring have no effect
     assert.deepEqual(await names_('%'.padEnd(2, '%')), []);
     assert.deepEqual(await names_('100%'), [ids['100%_Done']]);
     assert.deepEqual(await names_('A_'), [ids.A_B]);
@@ -198,7 +198,7 @@ test('C2 S1: NAME prefix, ตัวอักษรพิเศษเป็นต
       'NAME_TOO_SHORT',
     );
 
-    // PHONE/EMAIL: เฉพาะ point ACTIVE ของ contact ที่อ่านได้; shared กับ contact ที่ซ่อนอยู่ไม่เปิดเผย
+    // PHONE/EMAIL: only ACTIVE points of a readable contact; a shared one and a hidden contact are not revealed
     await point(f, ids.Somchai, 'PHONE', '+12133734253');
     await point(f, sharedHidden, 'PHONE', '+12133734253');
     await point(f, ids.somsri, 'PHONE', '+66812345678', 'RETIRED');
@@ -218,17 +218,17 @@ test('C2 S1: NAME prefix, ตัวอักษรพิเศษเป็นต
       idsOf((await search(f, 'admin', { type: 'PHONE', query: '+66 89 999 9999' })).body),
       [],
     );
-    // เบอร์ที่ไม่สมบูรณ์ถูกปฏิเสธก่อนค้นหา
+    // an incomplete phone number is rejected before searching
     assert.equal((await search(f, 'admin', { type: 'PHONE', query: '+1 213 373 42' })).status, 400);
     const email = await search(f, 'admin', { type: 'EMAIL', query: ' User.Name+Tag@EXAMPLE.com ' });
     assert.deepEqual(idsOf(email.body), [ids.Somchai]);
     assert.equal(JSON.stringify(email.body).includes('example.com'), true);
     assert.equal(JSON.stringify(email.body).includes('User.Name'), false);
 
-    // validation ไม่สะท้อนค่าที่กรอกและไม่ค้นแบบเดา
+    // validation does not echo the entered value and does not guess-search
     for (const query of ['0812345678', '911', 'Call: +12133734253']) {
-      // ค่า sentinel สั้นอย่าง 911 อาจบังเอิญตรงกับ random UUID requestId ได้
-      // ใช้ correlation คงที่เพื่อให้ assertion ทั้ง payload ตรวจเฉพาะการสะท้อน input จริง
+      // a short sentinel such as 911 may coincidentally match a random UUID requestId
+      // use a fixed correlation so the whole-payload assertion checks only genuine input reflection
       const bad = await f.request(
         'customer-360/contacts/search',
         'admin',
@@ -246,14 +246,14 @@ test('C2 S1: NAME prefix, ตัวอักษรพิเศษเป็นต
     }
     assert.equal((await search(f, 'admin', { type: 'NAME', query: 'ab', extra: 1 })).status, 400);
     assert.equal((await search(f, 'admin', { type: 'EMAIL', query: 'not-an-email' })).status, 400);
-    // directory ที่ไม่ใส่ query ได้เฉพาะ Admin/Supervisor; Supervisor ที่ไม่มี scope ได้ว่าง
+    // a directory without a query is only for Admin/Supervisor; a Supervisor without scope gets empty
     assert.equal((await search(f, 'supervisor')).body.items.length, 0);
   } finally {
     await f.close();
   }
 });
 
-test('C2 S1: cursor แบบ opaque แบ่งหน้าไม่ซ้ำ; tamper/ข้าม actor/ข้าม filter/หมดอายุ/scope เปลี่ยน ถูกปฏิเสธ', async () => {
+test('C2 S1: an opaque cursor paginates without repeats; tamper/cross actor/cross filter/expired/scope change are rejected', async () => {
   const f = await setup([Customer360ReadController]);
   try {
     const created: string[] = [];
@@ -280,7 +280,7 @@ test('C2 S1: cursor แบบ opaque แบ่งหน้าไม่ซ้ำ;
       pages += 1;
     } while (cursor && pages < 10);
     assert.equal(pages, 3);
-    // newest-first, ไม่ซ้ำ
+    // newest-first, no repeats
     assert.deepEqual(seen, [...created].reverse());
 
     const first = await search(f, 'admin', { limit: 2 });
@@ -293,7 +293,7 @@ test('C2 S1: cursor แบบ opaque แบ่งหน้าไม่ซ้ำ;
       assert.equal(rejected.status, 400);
       assert.equal(rejected.body.error.code, 'CURSOR_INVALID');
     }
-    // actor อื่น (แม้เห็นรายการเดียวกัน) และ filter อื่นใช้ cursor นี้ไม่ได้
+    // another actor (even seeing the same items) and another filter cannot use this cursor
     assert.equal(
       (await search(f, 'admin-two', { limit: 2, cursor: token })).body.error.code,
       'CURSOR_INVALID',
@@ -305,7 +305,7 @@ test('C2 S1: cursor แบบ opaque แบ่งหน้าไม่ซ้ำ;
     );
     assert.equal((await search(f, 'admin', { cursor: token })).status, 200);
 
-    // หมดอายุ: ออก token ด้วย key เดียวกับ server แต่นาฬิกาเก่า → 410 typed expiry
+    // expired: a token issued with the same key as the server but an old clock → 410 typed expiry
     const admin = f.actors.get('admin')!;
     const actor = {
       tenantId: f.tenantId,
@@ -328,7 +328,7 @@ test('C2 S1: cursor แบบ opaque แบ่งหน้าไม่ซ้ำ;
     assert.equal(expired.status, 410);
     assert.equal(expired.body.error.code, 'CURSOR_EXPIRED');
 
-    // ถอน grant ของรายการหน้าแรกระหว่างหน้า ต้องปฏิเสธ cursor เดิม
+    // revoke the grant of a first-page item between pages; the original cursor must be rejected
     const revokeGrant = await f.owner.c360ContactCustodianGrant.findFirstOrThrow({
       where: { tenantId: f.tenantId, contactId: created[4], granteeUserId: admin.id },
     });
@@ -347,7 +347,7 @@ test('C2 S1: cursor แบบ opaque แบ่งหน้าไม่ซ้ำ;
     assert.equal(revoked.status, 400);
     assert.equal(revoked.body.error.code, 'CURSOR_INVALID');
 
-    // scope เปลี่ยนระหว่างหน้า (ย้ายทีม): cursor เดิมใช้ไม่ได้ ต้องค้นใหม่
+    // scope changes between pages (team move): the original cursor is unusable and the search must restart
     const otherTeam = randomUUID();
     await f.owner.team.create({ data: { id: otherTeam, tenantId: f.tenantId, name: 'Other' } });
     await f.owner.user.update({ where: { id: admin.id }, data: { teamId: otherTeam } });
@@ -359,7 +359,7 @@ test('C2 S1: cursor แบบ opaque แบ่งหน้าไม่ซ้ำ;
   }
 });
 
-test('C2 S1: Supervisor อ่านผ่าน IAM VIEW; projection lag = INCOMPLETE/503 ไม่ใช่ว่างหรือ 0; Admin custodian ไม่ได้สิทธิ์ทั้ง tenant', async () => {
+test('C2 S1: a Supervisor reads via IAM VIEW; projection lag = INCOMPLETE/503 not empty or 0; an Admin custodian does not get the whole tenant', async () => {
   const f = await setup([Customer360ReadController]);
   try {
     await f.scopes.grant({
@@ -369,8 +369,8 @@ test('C2 S1: Supervisor อ่านผ่าน IAM VIEW; projection lag = INCO
       permission: 'VIEW',
       correlationId: 'c2-s1-grant',
     });
-    const outside = await contact(f, { displayName: 'นอก segment' });
-    // owner บอกว่า f.contactId เป็นสมาชิกแล้วแต่ IAM ยังไม่รับ event → DEFER
+    const outside = await contact(f, { displayName: 'Outside segment' });
+    // the owner says f.contactId is already a member but IAM has not yet accepted the event → DEFER
     await ownerCommit(f, 'GOLD');
     const lagging = await search(f, 'supervisor');
     assert.equal(lagging.status, 200);
@@ -382,7 +382,7 @@ test('C2 S1: Supervisor อ่านผ่าน IAM VIEW; projection lag = INCO
       (await profile(f, 'supervisor', f.contactId)).body.error.code,
       'SCOPE_UNAVAILABLE',
     );
-    // filter ที่ไม่เกี่ยวกับรายการ DEFER ไม่ถูกทำเป็น INCOMPLETE
+    // a filter unrelated to the DEFER item is not made INCOMPLETE
     assert.equal(
       (await search(f, 'supervisor', { type: 'NAME', query: 'zzzz' })).body.scope.state,
       'COMPLETE',
@@ -397,13 +397,13 @@ test('C2 S1: Supervisor อ่านผ่าน IAM VIEW; projection lag = INCO
     assert.deepEqual(detail.body.capabilities, { read: true, manage: false });
     assert.equal((await profile(f, 'supervisor', outside)).status, 404);
 
-    // Admin ในทีมเดียวกันอ่านผ่าน VIEW ได้แต่ไม่ได้สิทธิ์แก้; Admin ไม่ได้ทั้ง tenant จาก role
+    // an Admin in the same team reads via VIEW but gets no edit permission; an Admin does not get the whole tenant from the role
     const admin = await search(f, 'admin');
     assert.deepEqual(idsOf(admin.body), [f.contactId]);
     assert.equal((await profile(f, 'admin', f.contactId)).body.capabilities.manage, false);
     assert.equal((await profile(f, 'admin', outside)).status, 404);
 
-    // owner ออกจาก segment แต่ IAM ยังไม่ตามทัน → ไม่คืนข้อมูลจาก projection เก่า
+    // the owner leaves the segment but IAM has not caught up → no data is returned from the old projection
     await ownerCommit(f, 'SILVER');
     const stale = await search(f, 'supervisor');
     assert.deepEqual(stale.body.items, []);
@@ -417,7 +417,7 @@ test('C2 S1: Supervisor อ่านผ่าน IAM VIEW; projection lag = INCO
   }
 });
 
-test('C2 S1: MERGED predecessor ไม่ซ้ำใน directory, ไม่ redirect, เปิด canonical ref เมื่อ current authorization อนุญาตเท่านั้น', async () => {
+test('C2 S1: a MERGED predecessor does not repeat in the directory, does not redirect, and opens the canonical ref only when current authorization allows', async () => {
   const f = await setup([Customer360ReadController]);
   try {
     const source = await contact(f, { displayName: 'Predecessor' });
@@ -432,7 +432,7 @@ test('C2 S1: MERGED predecessor ไม่ซ้ำใน directory, ไม่ re
       expectedSourceLineageRevision: 0,
       correlationId: 'c2-s1-merge',
     });
-    // grant ของ source ไม่ตามไป target; directory ไม่แสดง predecessor ที่ merged แล้ว
+    // the source grant does not follow to the target; the directory does not show a merged predecessor
     assert.deepEqual((await search(f, 'admin')).body.items, []);
     assert.deepEqual(
       (await search(f, 'admin', { type: 'NAME', query: 'Predecessor' })).body.items,
@@ -457,7 +457,7 @@ test('C2 S1: MERGED predecessor ไม่ซ้ำใน directory, ไม่ re
   }
 });
 
-test('C2 S1: profile รวม point ที่เปิดอ่านได้ (ไม่รวม RETIRED), tag ที่ผูกอยู่ และ revisions', async () => {
+test('C2 S1: the profile includes readable points (not RETIRED), attached tags and revisions', async () => {
   const f = await setup([Customer360ReadController]);
   try {
     const id = await contact(f, { displayName: 'Profile One', company: 'Acme' });
@@ -483,8 +483,8 @@ test('C2 S1: profile รวม point ที่เปิดอ่านได้ 
       data: {
         id: tagId,
         tenantId: f.tenantId,
-        name: 'ลูกค้าสำคัญ',
-        nameKey: 'ลูกค้าสำคัญ',
+        name: 'Important customer',
+        nameKey: 'Important customer',
         actorIdentityKey: 'operator-fixture',
         commandId,
       },
@@ -504,11 +504,13 @@ test('C2 S1: profile รวม point ที่เปิดอ่านได้ 
       response.body.contactPoints.map((p) => `${p.kind}:${p.value}:${p.state}`),
       ['EMAIL:A@Example.COM:REVIEW_REQUIRED', 'PHONE:+12133734253:ACTIVE'],
     );
-    assert.deepEqual(response.body.tags, [{ id: tagId, name: 'ลูกค้าสำคัญ', state: 'ACTIVE' }]);
+    assert.deepEqual(response.body.tags, [
+      { id: tagId, name: 'Important customer', state: 'ACTIVE' },
+    ]);
     assert.equal(typeof response.body.revisions.profile, 'string');
     assert.equal(response.body.revisions.lineage, 0);
     assert.deepEqual(response.body.capabilities, { read: true, manage: true });
-    // core profile ไม่มี supplementary data (timeline / governance) ติดมา
+    // the core profile carries no supplementary data (timeline / governance)
     assert.equal('timeline' in response.body, false);
     assert.equal('governance' in response.body, false);
   } finally {
@@ -516,7 +518,7 @@ test('C2 S1: profile รวม point ที่เปิดอ่านได้ 
   }
 });
 
-test('C2 S1: rate limit ของ search ต่อ actor ตอบ 429 พร้อม Retry-After และไม่กระทบ actor อื่น', async () => {
+test('C2 S1: the search rate limit per actor answers 429 with Retry-After and does not affect another actor', async () => {
   const f = await setup([Customer360ReadController]);
   try {
     let last = await search(f, 'admin');
@@ -526,7 +528,7 @@ test('C2 S1: rate limit ของ search ต่อ actor ตอบ 429 พร้
     assert.equal(limited.status, 429);
     assert.equal(limited.body.error.code, 'RATE_LIMITED');
     assert.equal(limited.body.error.retryable, true);
-    // ค่าจริงของ limiter (เหลือของ window 60 วินาที) ไม่ใช่ค่าเริ่มต้น 1
+    // the real limiter value (what remains of the 60-second window), not the default 1
     const retryAfter = Number(limited.headers.get('retry-after'));
     assert.ok(retryAfter > 1 && retryAfter <= 60, `retry-after ${retryAfter}`);
     assert.equal((await search(f, 'admin-two')).status, 200);

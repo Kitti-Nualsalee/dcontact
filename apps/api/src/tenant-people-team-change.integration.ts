@@ -29,11 +29,11 @@ async function rejectsWith(promise: Promise<unknown>, status: number, code: stri
   });
 }
 
-test('#998 1A: Admin ย้ายทีมของบัญชีด้วย revision/idle fence และถอดทักษะของทีมเดิม', async (suite) => {
-  assert.ok(process.env.DATABASE_URL, 'ต้องตั้ง DATABASE_URL ของ isolated fixture DB');
+test('#998 1A: an Admin moves an account to another team with a revision/idle fence and removes the old team skills', async (suite) => {
+  assert.ok(process.env.DATABASE_URL, 'DATABASE_URL of the isolated fixture DB must be set');
   assert.ok(
     process.env.APPLICATION_DATABASE_URL,
-    'ต้องตั้ง APPLICATION_DATABASE_URL ที่บังคับ RLS',
+    'APPLICATION_DATABASE_URL that enforces RLS must be set',
   );
   const owner = new PrismaClient();
   const application = new PrismaClient({
@@ -78,10 +78,10 @@ test('#998 1A: Admin ย้ายทีมของบัญชีด้วย r
       });
     await owner.team.createMany({
       data: [
-        { id: teamA, tenantId, name: 'ทีม A' },
-        { id: teamB, tenantId, name: 'ทีม B' },
-        { id: inactiveTeam, tenantId, name: 'ทีมปิด', isActive: false },
-        { id: foreignTeam, tenantId: foreignTenantId, name: 'ทีม tenant อื่น' },
+        { id: teamA, tenantId, name: 'Team A' },
+        { id: teamB, tenantId, name: 'Team B' },
+        { id: inactiveTeam, tenantId, name: 'Closed team', isActive: false },
+        { id: foreignTeam, tenantId: foreignTenantId, name: 'Team of another tenant' },
       ],
     });
     const people: [string, string, 'ADMIN' | 'AGENT' | 'SUPERVISOR', string | null][] = [
@@ -100,7 +100,7 @@ test('#998 1A: Admin ย้ายทีมของบัญชีด้วย r
           teamId: team,
           keycloakId: id,
           email: `${id}@example.test`,
-          displayName: `ผู้ใช้ ${role}`,
+          displayName: `User ${role}`,
           role,
           extension: role === 'AGENT' ? (id === agentId ? '1201' : '1202') : null,
           passwordHash: '!keycloak-managed',
@@ -118,11 +118,11 @@ test('#998 1A: Admin ย้ายทีมของบัญชีด้วย r
         VALUES(${scope}::uuid,${id}::uuid,${issuer},${id},'dcontact-console',${`team-change-${scope}`},${scope}::uuid,'TENANT_USER','BOOTSTRAP_MANIFEST','team-change-fixture',${'b'.repeat(64)},'fixture-operator',now(),1,true)`;
     for (const scope of [tenantId, foreignTenantId])
       await owner.$executeRaw`INSERT INTO tenant_voice_provisioning_policies(tenant_id,revision,source_kind,accounts_limit,agents_limit,voice_queues_limit,skills_limit,approved_by_operator_subject,approved_at,approval_ref,reason,extension_pool)
-        VALUES(${scope}::uuid,1,'UAT_EXPLICIT',100,100,2,5,'fixture-operator',now(),'team-change-fixture','ทดสอบย้ายทีม','[]'::jsonb)`;
+        VALUES(${scope}::uuid,1,'UAT_EXPLICIT',100,100,2,5,'fixture-operator',now(),'team-change-fixture','Team change test','[]'::jsonb)`;
     await owner.skill.createMany({
       data: [
-        { id: skillA, tenantId, teamId: teamA, name: 'ทักษะทีม A', voiceConfigVersion: 1 },
-        { id: skillB, tenantId, teamId: teamB, name: 'ทักษะทีม B', voiceConfigVersion: 1 },
+        { id: skillA, tenantId, teamId: teamA, name: 'Team A skill', voiceConfigVersion: 1 },
+        { id: skillB, tenantId, teamId: teamB, name: 'Team B skill', voiceConfigVersion: 1 },
       ],
     });
     await owner.agentSkill.createMany({
@@ -135,11 +135,11 @@ test('#998 1A: Admin ย้ายทีมของบัญชีด้วย r
       commandId: randomUUID(),
       expectedRevision,
       teamId,
-      reason: 'ย้ายไปดูแลลูกค้ากลุ่มใหม่',
+      reason: 'Moved to look after a new customer group',
     });
 
     await suite.test(
-      'Agent ที่ว่างย้ายทีมได้ revision +1 ถอดทักษะทีมเดิม และ replay ได้ผลเดิม',
+      'an idle Agent can move team with revision +1, the old team skills are removed, and a replay gives the same result',
       async () => {
         const body = command(1);
         const result = await acceptPeopleTeamChange(application, actor(), agentId, body);
@@ -150,7 +150,7 @@ test('#998 1A: Admin ย้ายทีมของบัญชีด้วย r
           configRevision: 2,
           removedSkills: 1,
         });
-        // ledger append-only บอกว่าใครย้ายใครจากทีมไหนไปทีมไหนเพราะอะไร
+        // the append-only ledger says who moved whom from which team to which team and why
         const ledger = await owner.$queryRaw<Record<string, unknown>[]>`
           SELECT user_id,actor_user_id,from_team_id,to_team_id,before_revision,removed_skill_ids,reason
           FROM tenant_people_team_changes WHERE tenant_id=${tenantId}::uuid AND command_id=${body.commandId}::uuid`;
@@ -162,11 +162,11 @@ test('#998 1A: Admin ย้ายทีมของบัญชีด้วย r
             to_team_id: teamB,
             before_revision: 1,
             removed_skill_ids: [skillA],
-            reason: 'ย้ายไปดูแลลูกค้ากลุ่มใหม่',
+            reason: 'Moved to look after a new customer group',
           },
         ]);
         await assert.rejects(
-          owner.$executeRaw`UPDATE tenant_people_team_changes SET reason='แก้' WHERE tenant_id=${tenantId}::uuid`,
+          owner.$executeRaw`UPDATE tenant_people_team_changes SET reason='Edit' WHERE tenant_id=${tenantId}::uuid`,
           /VOICE_CONFIG_APPEND_ONLY/,
         );
         await assert.rejects(
@@ -202,7 +202,7 @@ test('#998 1A: Admin ย้ายทีมของบัญชีด้วย r
     );
 
     await suite.test(
-      'ปฏิเสธ revision เก่า ทีมเดิม ทีมปิด ทีม tenant อื่น และบัญชีที่ไม่มี positive proof',
+      'rejects an old revision, the same team, a closed team, a team of another tenant, and an account without positive proof',
       async () => {
         await rejectsWith(
           acceptPeopleTeamChange(application, actor(), agentId, command(1, teamA)),
@@ -232,7 +232,7 @@ test('#998 1A: Admin ย้ายทีมของบัญชีด้วย r
     );
 
     await suite.test(
-      'Agent ที่มีสายค้างย้ายทีมไม่ได้ และบันทึกการปฏิเสธโดยไม่เก็บเหตุผล',
+      'an Agent with a pending call cannot move team, and the rejection is recorded without keeping the reason',
       async () => {
         const interactionId = randomUUID();
         await owner.$executeRaw`INSERT INTO interactions(id,tenant_id,channel,direction,state,agent_id)
@@ -258,7 +258,7 @@ test('#998 1A: Admin ย้ายทีมของบัญชีด้วย r
     );
 
     await suite.test(
-      'ปฏิเสธบัญชีที่ปิดแล้ว กำลังจัดเตรียม หรือ Agent ที่ยังเปิด Workspace',
+      'rejects a disabled account, one being provisioned, or an Agent who still has a Workspace open',
       async () => {
         await rejectsWith(
           acceptPeopleTeamChange(application, actor(), legacyDisabledId, command(1)),
@@ -267,12 +267,12 @@ test('#998 1A: Admin ย้ายทีมของบัญชีด้วย r
         );
         const created = await acceptPeopleCreate(application, actor(), {
           commandId: randomUUID(),
-          displayName: 'บัญชีกำลังจัดเตรียม',
+          displayName: 'Account being provisioned',
           email: 'provisioning-team@example.test',
           role: 'SUPERVISOR',
           teamId: teamA,
         });
-        // บัญชี B2 ที่ยังไม่ PROVISIONED ไม่ผ่าน positive proof ของ disable snapshot จึงเหมือนไม่มีบัญชีนี้
+        // a B2 account that is not yet PROVISIONED does not pass the positive proof of the disable snapshot, so it looks like the account does not exist
         await rejectsWith(
           acceptPeopleTeamChange(application, actor(), created.userId, command(1)),
           404,
@@ -297,7 +297,7 @@ test('#998 1A: Admin ย้ายทีมของบัญชีด้วย r
     );
 
     await suite.test(
-      'definer ปฏิเสธการเรียกตรงด้วย scope ผิดหรือคำสั่งที่ไม่ได้สร้างผ่าน API',
+      'the definer rejects a direct call with the wrong scope or a command not created through the API',
       async () => {
         for (const scope of [foreignTenantId, tenantId])
           await assert.rejects(
@@ -310,25 +310,28 @@ test('#998 1A: Admin ย้ายทีมของบัญชีด้วย r
       },
     );
 
-    await suite.test('ตรวจ body: ไม่รับ role/extension/email และเหตุผลต้องมี', async () => {
-      for (const extra of [
-        { role: 'ADMIN' },
-        { extensionRef: '1203' },
-        { email: 'x@example.test' },
-      ])
-        await assert.rejects(
-          acceptPeopleTeamChange(application, actor(), supervisorId, { ...command(1), ...extra }),
-          (error: unknown) => error instanceof HttpException && error.getStatus() === 400,
-        );
-      for (const reason of ['', '   ', 'x'.repeat(501), 'มี\u0000ตัวควบคุม'])
-        await assert.rejects(
-          acceptPeopleTeamChange(application, actor(), supervisorId, { ...command(1), reason }),
-          (error: unknown) => error instanceof HttpException && error.getStatus() === 400,
-        );
-    });
+    await suite.test(
+      'check the body: no role/extension/email is accepted and a reason is required',
+      async () => {
+        for (const extra of [
+          { role: 'ADMIN' },
+          { extensionRef: '1203' },
+          { email: 'x@example.test' },
+        ])
+          await assert.rejects(
+            acceptPeopleTeamChange(application, actor(), supervisorId, { ...command(1), ...extra }),
+            (error: unknown) => error instanceof HttpException && error.getStatus() === 400,
+          );
+        for (const reason of ['', '   ', 'x'.repeat(501), 'has\x00control'])
+          await assert.rejects(
+            acceptPeopleTeamChange(application, actor(), supervisorId, { ...command(1), reason }),
+            (error: unknown) => error instanceof HttpException && error.getStatus() === 400,
+          );
+      },
+    );
 
     await suite.test(
-      'HTTP: Supervisor เรียก PATCH ไม่ได้ ส่วน Admin ย้ายทีมของ Supervisor ได้',
+      'HTTP: a Supervisor cannot call PATCH, while an Admin can move a Supervisor to another team',
       async () => {
         @Module({
           controllers: [TenantPeopleController],

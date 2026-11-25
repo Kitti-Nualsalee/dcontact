@@ -361,7 +361,7 @@ export class TenantPeopleRuntime {
     deferred: Set<string>,
     checked: Map<string, boolean>,
   ): Promise<boolean> {
-    // สลับ turn ระหว่างคำสั่งแก้บัญชี (#998) กับงานเดิม เพื่อไม่ให้อย่างใดอย่างหนึ่งกิน batch ทั้งหมด
+    // alternate turns between account-edit commands (#998) and the original work, so neither consumes the whole batch
     const accountFirst = this.accounts.has(tenantId) && (this.accountTurns.get(tenantId) ?? true);
     if (this.accounts.has(tenantId)) this.accountTurns.set(tenantId, !accountFirst);
     if (accountFirst && (await this.tryAccountChange(tenantId, deferred, checked))) return true;

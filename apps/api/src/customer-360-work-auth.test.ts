@@ -3,7 +3,7 @@ import test from 'node:test';
 import { createServer } from 'node:http';
 import { KeycloakC360TokenIntrospector } from './customer-360-work-auth.js';
 
-test('introspection ส่ง exact token ผ่าน confidential backend โดยไม่ redirect หรือ cache', async (t) => {
+test('introspection sends the exact token through a confidential backend without redirect or cache', async (t) => {
   let calls = 0;
   const client = new KeycloakC360TokenIntrospector({
     issuer: 'https://idp.test/realms/test',
@@ -38,7 +38,7 @@ test('introspection ส่ง exact token ผ่าน confidential backend โ�
   );
 });
 
-test('HTTP introspection timeout จริงต้อง fail closed และไม่เปิด token ใน error', async (t) => {
+test('a real HTTP introspection timeout must fail closed and not expose the token in an error', async (t) => {
   const server = createServer((_req, res) => {
     setTimeout(() => res.end('{"active":true}'), 150).unref();
   });

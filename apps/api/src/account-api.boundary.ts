@@ -1,12 +1,12 @@
 /**
- * AC4 (#597) ครบทุก endpoint ของ `/api/v1/me/account` กับ Keycloak 26.7.5 จริง + Postgres (`dcontact_app`, RLS)
- * ต้องมี dev stack + `pnpm infra:bootstrap` (org/tenant `demo`, `demo-two`) + extension `dc-account`
+ * AC4 (#597) every endpoint of `/api/v1/me/account` against real Keycloak 26.7.5 + Postgres (`dcontact_app`, RLS)
+ * needs the dev stack + `pnpm infra:bootstrap` (org/tenant `demo`, `demo-two`) + the `dc-account` extension
  *
- * - ชื่อ: `users.display_name` + Keycloak; identity ล้ม = DB ไม่เปลี่ยน (compensation)
- * - รหัสผ่าน: policy → `PASSWORD_POLICY_VIOLATION` + rules[], สำเร็จ = audit + email แจ้ง, rate limit 5/ชม.
- * - email: VERIFY (token hash, ยืนยัน, หมดอายุ, ใช้ซ้ำไม่ได้), IMMEDIATE, ADMIN_ONLY, EMAIL_IN_USE, ยกเลิก
- * - TOTP: enrolment เข้ารหัส, code ผิด, ครบ 5 ครั้ง, หมดอายุ, สำเร็จ, ห้ามลบอุปกรณ์สุดท้ายเมื่อบังคับ 2FA
- * - ข้ามผู้ใช้/ข้าม tenant ไม่ได้; agent ใช้ได้ทุก endpoint; ไม่มีรหัสผ่าน/secret/token/email ใน audit
+ * - name: `users.display_name` + Keycloak; identity fails = DB unchanged (compensation)
+ * - password: policy → `PASSWORD_POLICY_VIOLATION` + rules[], success = audit + notification email, rate limit 5/hour
+ * - email: VERIFY (token hash, confirmation, expiry, no reuse), IMMEDIATE, ADMIN_ONLY, EMAIL_IN_USE, cancel
+ * - TOTP: encrypted enrolment, wrong code, 5 attempts, expiry, success, the last device cannot be removed when 2FA is enforced
+ * - no crossing users/tenants; an agent can use every endpoint; no password/secret/token/email in audit
  */
 import 'reflect-metadata';
 import assert from 'node:assert/strict';
@@ -77,7 +77,7 @@ function claims(token: string): VerifiedOidcClaims {
   };
 }
 
-/** RFC 6238 จาก secret Base32 ที่ API คืนให้แอป authenticator */
+/** RFC 6238 from the Base32 secret that the API returns to the authenticator app */
 function totpFromBase32(secret: string, at = Date.now()) {
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
   let bits = 0;
@@ -128,12 +128,16 @@ async function tenant(slug: string): Promise<Tenant> {
     '/organizations?first=0&max=100',
   );
   const organization = body.find((candidate) => candidate.alias === slug);
-  assert.ok(organization, `ต้องมี org ${slug} (pnpm infra:bootstrap)`);
+  assert.ok(organization, `org ${slug} is required (pnpm infra:bootstrap)`);
   const { body: full } = await admin<{ attributes?: Record<string, string[]> }>(
     'GET',
     `/organizations/${organization.id}`,
   );
-  assert.equal(full.attributes?.tenant_id?.[0], row.id, `org ${slug} ต้องผูกกับ tenant ใน DB`);
+  assert.equal(
+    full.attributes?.tenant_id?.[0],
+    row.id,
+    `org ${slug} must be bound to the tenant in the DB`,
+  );
   return { id: row.id, slug, organizationId: organization.id };
 }
 
@@ -273,7 +277,7 @@ after(async () => {
   await application.$disconnect();
 });
 
-test('GET: ข้อมูลของเจ้าของ token, agent ใช้ได้, ไม่มี role ของ tenant = 403', async () => {
+test('GET: data of the token owner, an agent can use it, no tenant role = 403', async () => {
   await setPolicy(state.demo, { emailChangePolicy: 'VERIFY', mfaRequired: false });
   const me = await account(state.demo, 'get');
   const response = await call('GET', '', token(me));
@@ -288,23 +292,23 @@ test('GET: ข้อมูลของเจ้าของ token, agent ใช�
   });
   assert.equal((await call('GET', '')).status, 401);
   assert.equal((await call('GET', '', token(me, 'platform-operator'))).status, 403);
-  // dc_user_id ของผู้ใช้ tenant demo แต่ token ของ tenant demo-two → ไม่พบผู้ใช้ใน tenant นั้น (RLS)
+  // dc_user_id of a tenant demo user but a tenant demo-two token → the user is not found in that tenant (RLS)
   const crossTenant = await call('GET', '', `${state.demoTwo.id}|${me.id}|agent`);
   assert.deepEqual([crossTenant.status, crossTenant.body], [503, { code: 'IDENTITY_UNAVAILABLE' }]);
 });
 
-test('PATCH profile: users.display_name + Keycloak; identity ล้ม = DB ไม่เปลี่ยน', async () => {
+test('PATCH profile: users.display_name + Keycloak; identity fails = DB unchanged', async () => {
   const me = await account(state.demo, 'profile');
   const updated = await call('PATCH', '/profile', token(me), {
-    firstName: '  สมชาย ',
-    lastName: 'ใจดี',
+    firstName: '  สมชาย ', // allow-thai: Thai name round-trips through Keycloak (UTF-8)
+    lastName: 'ใจดี', // allow-thai: Thai name round-trips through Keycloak (UTF-8)
   });
   assert.equal(updated.status, 200, JSON.stringify(updated.body));
-  assert.deepEqual(updated.body, { firstName: 'สมชาย', lastName: 'ใจดี' });
+  assert.deepEqual(updated.body, { firstName: 'สมชาย', lastName: 'ใจดี' }); // allow-thai: Thai name round-trips through Keycloak (UTF-8)
   const row = await owner.user.findUniqueOrThrow({ where: { id: me.id } });
-  assert.equal(row.displayName, 'สมชาย ใจดี');
+  assert.equal(row.displayName, 'สมชาย ใจดี'); // allow-thai: Thai name round-trips through Keycloak (UTF-8)
   const kc = await keycloakUser(me);
-  assert.deepEqual([kc.firstName, kc.lastName], ['สมชาย', 'ใจดี']);
+  assert.deepEqual([kc.firstName, kc.lastName], ['สมชาย', 'ใจดี']); // allow-thai: Thai name round-trips through Keycloak (UTF-8)
 
   for (const [body, field] of [
     [{ lastName: 'x' }, 'firstName'],
@@ -315,7 +319,7 @@ test('PATCH profile: users.display_name + Keycloak; identity ล้ม = DB ไ�
     assert.equal(invalid.body?.field, field);
   }
 
-  // ผู้ใช้ที่ identity หายไป: Keycloak ปฏิเสธ → transaction ถูกยกเลิก
+  // a user whose identity is missing: Keycloak rejects → the transaction is cancelled
   const orphan = await account(state.demo, 'orphan');
   await admin('DELETE', `/users/${orphan.keycloakId}`);
   const failed = await call('PATCH', '/profile', token(orphan), { firstName: 'X', lastName: 'Y' });
@@ -333,7 +337,7 @@ test('PATCH profile: users.display_name + Keycloak; identity ล้ม = DB ไ�
   );
 });
 
-test('POST password: policy → rules[], สำเร็จ = audit + email แจ้ง, เกิน 5 ครั้ง/ชม. = 429', async () => {
+test('POST password: policy → rules[], success = audit + notification email, over 5 per hour = 429', async () => {
   const me = await account(state.demo, 'password');
   await admin('PUT', '', { passwordPolicy: 'length(12) and upperCase(1) and digits(1)' });
   try {
@@ -359,7 +363,7 @@ test('POST password: policy → rules[], สำเร็จ = audit + email แ�
     );
     const createdOf = (list: typeof before) =>
       list.find((item) => item.type === 'password')!.createdDate;
-    assert.ok(createdOf(afterChange) > createdOf(before), 'รหัสผ่านใหม่ถูกตั้งใน Keycloak');
+    assert.ok(createdOf(afterChange) > createdOf(before), 'the new password is set in Keycloak');
 
     const outbox = await owner.accountEmailOutbox.findMany({ where: { userId: me.id } });
     assert.deepEqual(
@@ -374,7 +378,7 @@ test('POST password: policy → rules[], สำเร็จ = audit + email แ�
     assert.ok(!JSON.stringify(audit).includes(strong));
     assert.ok(!JSON.stringify(outbox).includes(strong));
 
-    // AC6 (#599): รหัสใหม่ login ได้จริง รหัสเดิมใช้ไม่ได้
+    // AC6 (#599): the new password can really log in and the old one cannot
     const login = (password: string) =>
       fetch(`${ISSUER}/protocol/openid-connect/token`, {
         method: 'POST',
@@ -386,12 +390,12 @@ test('POST password: policy → rules[], สำเร็จ = audit + email แ�
           password,
         }),
       });
-    assert.equal((await login(strong)).status, 200, 'login ด้วยรหัสผ่านใหม่');
+    assert.equal((await login(strong)).status, 200, 'login with the new password');
     const old = await login(PASSWORD);
-    assert.equal(old.status, 400, 'รหัสผ่านเดิมใช้ไม่ได้แล้ว');
+    assert.equal(old.status, 400, 'the old password no longer works');
     assert.equal(((await old.json()) as { error: string }).error, 'invalid_grant');
 
-    // AC6 (#599): อีเมลแจ้งเปลี่ยนรหัสผ่านถึง mailpit จริง (ผ่าน dispatcher + SMTP) และไม่มีรหัสผ่าน/ร่องรอยของ IdP
+    // AC6 (#599): the password-change notification email reaches the real mailpit (via dispatcher + SMTP) with no password or IdP trace
     const dispatcher = new AccountEmailDispatcher(
       application,
       new SmtpEmailSender({
@@ -410,7 +414,7 @@ test('POST password: policy → rules[], สำเร็จ = audit + email แ�
         `${mailpitApi}/api/v1/search?${new URLSearchParams({ query: `to:"${me.email}"` })}`,
       )
     ).json()) as { messages: Array<{ ID: string }> };
-    assert.equal(found.messages.length, 1, 'อีเมลแจ้งเตือนถึง mailpit');
+    assert.equal(found.messages.length, 1, 'the notification email reaches mailpit');
     const message = (await (
       await fetch(`${mailpitApi}/api/v1/message/${found.messages[0]!.ID}`)
     ).json()) as {
@@ -439,7 +443,7 @@ test('POST password: policy → rules[], สำเร็จ = audit + email แ�
   assert.ok(Number(sixth.headers.get('retry-after')) > 0);
 });
 
-test('email VERIFY: ส่งลิงก์ไป email ใหม่, ยืนยันแล้วเปลี่ยนทั้ง Keycloak/DB, แจ้ง email เดิม, token ใช้ซ้ำไม่ได้', async () => {
+test('email VERIFY: sends a link to the new email, confirming changes both Keycloak/DB, notifies the old email, a token cannot be reused', async () => {
   await setPolicy(state.demo, { emailChangePolicy: 'VERIFY', mfaRequired: false });
   const me = await account(state.demo, 'verify');
   const other = await account(state.demo, 'other');
@@ -452,7 +456,7 @@ test('email VERIFY: ส่งลิงก์ไป email ใหม่, ยืน
   assert.equal(requested.body?.status, 'PENDING');
   assert.equal(requested.body?.pendingEmail, newEmail);
   assert.equal((await call('GET', '', token(me))).body?.pendingEmail, newEmail);
-  assert.equal((await keycloakUser(me)).email, me.email, 'ยังไม่เปลี่ยนจนกว่าจะยืนยัน');
+  assert.equal((await keycloakUser(me)).email, me.email, 'unchanged until confirmed');
 
   const [verify] = await owner.accountEmailOutbox.findMany({
     where: { userId: me.id, template: 'verify-new-email' },
@@ -461,10 +465,10 @@ test('email VERIFY: ส่งลิงก์ไป email ใหม่, ยืน
   const linkToken = (verify!.variables as { token: string }).token;
   state.secrets.push(linkToken);
   const change = await owner.accountEmailChange.findFirstOrThrow({ where: { userId: me.id } });
-  assert.equal(change.tokenHash, tokenHash(linkToken), 'DB เก็บแค่ hash');
+  assert.equal(change.tokenHash, tokenHash(linkToken), 'the DB stores only the hash');
   assert.ok(change.expiresAt.getTime() - change.requestedAt.getTime() === 24 * 60 * 60 * 1000);
 
-  // ผู้ใช้อื่นใช้ token นี้ไม่ได้ และ token ผิดตอบแบบเดียวกัน
+  // another user cannot use this token, and a wrong token gets the same response
   for (const [who, value] of [
     [other, linkToken],
     [me, 'not-the-token'],
@@ -487,13 +491,13 @@ test('email VERIFY: ส่งลิงก์ไป email ใหม่, ยืน
   const reused = await call('POST', '/email-change/confirm', token(me), { token: linkToken });
   assert.equal(reused.status, 410);
 
-  // email ซ้ำกับผู้ใช้อื่น / เหมือนเดิม
+  // email duplicates another user / same as the current one
   const inUse = await call('POST', '/email-change', token(other), { newEmail });
   assert.deepEqual([inUse.status, inUse.body], [409, { code: 'EMAIL_IN_USE' }]);
   const same = await call('POST', '/email-change', token(other), { newEmail: other.email });
   assert.deepEqual([same.status, same.body?.reason], [400, 'SAME']);
 
-  // หมดอายุ: แถวถูกปิดเป็น EXPIRED
+  // expired: the row is closed as EXPIRED
   const late = await account(state.demo, 'late');
   await call('POST', '/email-change', token(late), {
     newEmail: `ac4-late-${randomUUID().slice(0, 6)}@demo.local`,
@@ -517,7 +521,7 @@ test('email VERIFY: ส่งลิงก์ไป email ใหม่, ยืน
     'EXPIRED',
   );
 
-  // ยกเลิก
+  // cancel
   const cancel = await account(state.demo, 'cancel');
   await call('POST', '/email-change', token(cancel), {
     newEmail: `ac4-c-${randomUUID().slice(0, 6)}@demo.local`,
@@ -535,7 +539,7 @@ test('email VERIFY: ส่งลิงก์ไป email ใหม่, ยืน
   );
 });
 
-test('email IMMEDIATE เปลี่ยนทันที; ADMIN_ONLY = 403; เกิน 3 ครั้ง/ชม. = 429', async () => {
+test('email IMMEDIATE changes at once; ADMIN_ONLY = 403; over 3 per hour = 429', async () => {
   const me = await account(state.demo, 'immediate');
   await setPolicy(state.demo, { emailChangePolicy: 'IMMEDIATE', mfaRequired: false });
   const newEmail = `ac4-imm-${randomBytes(3).toString('hex')}@demo.local`;
@@ -550,7 +554,7 @@ test('email IMMEDIATE เปลี่ยนทันที; ADMIN_ONLY = 403; �
     newEmail: `ac4-x-${randomUUID().slice(0, 6)}@demo.local`,
   });
   assert.deepEqual([denied.status, denied.body], [403, { code: 'EMAIL_CHANGE_NOT_ALLOWED' }]);
-  // ครั้งที่ 3 ยังอยู่ในโควตา (ถูกปฏิเสธด้วยนโยบาย) — ครั้งที่ 4 ใน 1 ชม. ถูกจำกัด
+  // the 3rd attempt is still within quota (rejected by policy) — the 4th within 1 hour is limited
   const third = await call('POST', '/email-change', token(me), {
     newEmail: `ac4-z-${randomUUID().slice(0, 6)}@demo.local`,
   });
@@ -562,7 +566,7 @@ test('email IMMEDIATE เปลี่ยนทันที; ADMIN_ONLY = 403; �
   await setPolicy(state.demo, { emailChangePolicy: 'VERIFY', mfaRequired: false });
 });
 
-test('TOTP: secret เข้ารหัส, code ผิด, ครบ 5 ครั้ง, หมดอายุ, สำเร็จ, ห้ามลบอุปกรณ์สุดท้ายเมื่อบังคับ 2FA', async () => {
+test('TOTP: encrypted secret, wrong code, 5 attempts, expiry, success, the last device cannot be removed when 2FA is enforced', async () => {
   await setPolicy(state.demo, { emailChangePolicy: 'VERIFY', mfaRequired: false });
   const me = await account(state.demo, 'totp');
   const other = await account(state.demo, 'totp-other');
@@ -578,7 +582,7 @@ test('TOTP: secret เข้ารหัส, code ผิด, ครบ 5 คร�
   assert.ok(stored.secretCiphertext.startsWith('v1.'));
   assert.ok(stored.expiresAt.getTime() - stored.createdAt.getTime() === 10 * 60 * 1000);
 
-  // ผู้ใช้อื่นยืนยัน enrolment นี้ไม่ได้
+  // another user cannot confirm this enrolment
   const foreign = await call('POST', `/mfa/totp/enrolments/${enrolmentId}/confirm`, token(other), {
     code: totpFromBase32(secret!),
     label: 'x',
@@ -587,12 +591,12 @@ test('TOTP: secret เข้ารหัส, code ผิด, ครบ 5 คร�
 
   const wrong = await call('POST', `/mfa/totp/enrolments/${enrolmentId}/confirm`, token(me), {
     code: wrongCode(secret!),
-    label: 'โทรศัพท์',
+    label: 'Phone',
   });
   assert.deepEqual([wrong.status, wrong.body], [400, { code: 'INVALID_OTP_CODE' }]);
   const created = await call('POST', `/mfa/totp/enrolments/${enrolmentId}/confirm`, token(me), {
     code: totpFromBase32(secret!),
-    label: 'โทรศัพท์',
+    label: 'Phone',
   });
   assert.equal(created.status, 201, JSON.stringify(created.body));
   const firstDevice = created.body!.credentialId as string;
@@ -604,10 +608,10 @@ test('TOTP: secret เข้ารหัส, code ผิด, ครบ 5 คร�
       device.id,
       device.label,
     ]),
-    [[firstDevice, 'โทรศัพท์']],
+    [[firstDevice, 'Phone']],
   );
 
-  // ครบ 5 ครั้ง → 429 แม้ code ถูก
+  // 5 attempts → 429 even if the code is correct
   const second = (await call('POST', '/mfa/totp/enrolments', token(me))).body as Record<
     string,
     string
@@ -615,7 +619,7 @@ test('TOTP: secret เข้ารหัส, code ผิด, ครบ 5 คร�
   for (let attempt = 0; attempt < 5; attempt += 1) {
     await call('POST', `/mfa/totp/enrolments/${second.enrolmentId}/confirm`, token(me), {
       code: wrongCode(second.secret!),
-      label: 'แท็บเล็ต',
+      label: 'Tablet',
     });
   }
   const exhausted = await call(
@@ -624,12 +628,12 @@ test('TOTP: secret เข้ารหัส, code ผิด, ครบ 5 คร�
     token(me),
     {
       code: totpFromBase32(second.secret!),
-      label: 'แท็บเล็ต',
+      label: 'Tablet',
     },
   );
   assert.deepEqual([exhausted.status, exhausted.body?.code], [429, 'RATE_LIMITED']);
 
-  // หมดอายุ
+  // expired
   const third = (await call('POST', '/mfa/totp/enrolments', token(me))).body as Record<
     string,
     string
@@ -640,11 +644,11 @@ test('TOTP: secret เข้ารหัส, code ผิด, ครบ 5 คร�
   });
   const late = await call('POST', `/mfa/totp/enrolments/${third.enrolmentId}/confirm`, token(me), {
     code: totpFromBase32(third.secret!),
-    label: 'แท็บเล็ต',
+    label: 'Tablet',
   });
   assert.deepEqual([late.status, late.body], [410, { code: 'ENROLMENT_EXPIRED' }]);
 
-  // อุปกรณ์ที่สอง แล้วบังคับ 2FA: ลบได้จนเหลือเครื่องสุดท้าย
+  // a second device, then enforce 2FA: can delete until only the last one remains
   const fourth = (await call('POST', '/mfa/totp/enrolments', token(me))).body as Record<
     string,
     string
@@ -655,19 +659,19 @@ test('TOTP: secret เข้ารหัส, code ผิด, ครบ 5 คร�
     token(me),
     {
       code: totpFromBase32(fourth.secret!),
-      label: 'โทรศัพท์',
+      label: 'Phone',
     },
   );
   assert.deepEqual([duplicate.status, duplicate.body?.reason], [400, 'DUPLICATE']);
   const secondDevice = (
     await call('POST', `/mfa/totp/enrolments/${fourth.enrolmentId}/confirm`, token(me), {
       code: totpFromBase32(fourth.secret!),
-      label: 'แท็บเล็ต',
+      label: 'Tablet',
     })
   ).body!.credentialId as string;
 
   await setPolicy(state.demo, { emailChangePolicy: 'VERIFY', mfaRequired: true });
-  // ผู้ใช้อื่นลบอุปกรณ์ของคนอื่นไม่ได้
+  // another user cannot delete someone else's device
   const notMine = await call('DELETE', `/mfa/totp/${firstDevice}`, token(other));
   assert.deepEqual([notMine.status, notMine.body], [404, { code: 'DEVICE_NOT_FOUND' }]);
   assert.equal((await call('DELETE', `/mfa/totp/${firstDevice}`, token(me))).status, 204);
@@ -689,7 +693,7 @@ test('TOTP: secret เข้ารหัส, code ผิด, ครบ 5 คร�
   );
 });
 
-test('audit ไม่มีรหัสผ่าน, secret, token หรือ email', async () => {
+test('audit has no password, secret, token or email', async () => {
   const userIds = state.accounts.map((item) => item.id);
   const audit = JSON.stringify(
     await owner.accountAuditEvent.findMany({ where: { userId: { in: userIds } } }),

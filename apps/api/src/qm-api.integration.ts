@@ -306,7 +306,7 @@ test('supervisor starts manual transcription, audits transcript access, and huma
           speaker: 'AGENT',
           startMs: 1_000,
           endMs: 3_000,
-          text: 'สวัสดีค่ะ ยินดีให้บริการค่ะ',
+          text: 'สวัสดีค่ะ ยินดีให้บริการค่ะ', // allow-thai: Thai transcript text
           confidence: 0.9,
         },
       },
@@ -325,7 +325,7 @@ test('supervisor starts manual transcription, audits transcript access, and huma
       answers: [{ questionId: 'greeting', value: 'YES', evidence: [] }],
     },
   });
-  // #971: ร่างผลประเมินโดยคนของสายเดียวกัน (สร้างทีหลัง) ต้องไม่ถูก route ของ auto-QM หยิบไป
+  // #971: a human evaluation draft of the same call (created later) must not be picked up by the auto-QM route
   const humanForm = await owner.qmForm.create({
     data: { tenantId, name: `Human form ${tenantId}`, createdByUserId: supervisorId },
   });
@@ -404,7 +404,7 @@ test('supervisor starts manual transcription, audits transcript access, and huma
           speaker: 'AGENT',
           startMs: 1_000,
           endMs: 3_000,
-          text: 'สวัสดีค่ะ ยินดีให้บริการค่ะ',
+          text: 'สวัสดีค่ะ ยินดีให้บริการค่ะ', // allow-thai: Thai transcript text
         },
       ],
     },

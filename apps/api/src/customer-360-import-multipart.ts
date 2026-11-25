@@ -5,7 +5,7 @@ import Busboy from 'busboy';
 const FILE_LIMIT = 1024 * 1024;
 const ENVELOPE_LIMIT = FILE_LIMIT + 64 * 1024;
 const MAX_IN_FLIGHT = 4;
-/** field text ที่รับได้: ค่าจำกัดขนาดเพื่อไม่ให้ envelope โตโดยไม่ตรวจ */
+/** an accepted text field: the value is size-limited so the envelope does not grow unchecked */
 const FIELD_LIMITS = { commandId: 36, mapping: 4096, planHash: 64 } as const;
 export type C360ImportFieldName = keyof typeof FIELD_LIMITS;
 export interface C360ImportMultipart {
@@ -24,7 +24,7 @@ export class C360ImportIntakeError extends Error {
   }
 }
 
-/** หยุดอ่านทันที ให้ caller ส่ง error พร้อม Connection: close ก่อน watchdog ปิด socket */
+/** stop reading at once, so the caller sends an error with Connection: close before the watchdog closes the socket */
 function stopRejectedInput(request: IncomingMessage): void {
   request.pause();
   const watchdog = setTimeout(() => request.destroy(), 2_000);
@@ -33,9 +33,9 @@ function stopRejectedInput(request: IncomingMessage): void {
 }
 
 /**
- * อ่านเฉพาะหลัง gateway และ active ADMIN/proof/capability ผ่านแล้ว;
- * caller ต้องตรวจสิทธิ์ใหม่ก่อน attach และห้ามบันทึก filename/body ใน log.
- * เมื่อ stream ผิดหรือ timeout จะหยุดอ่าน; caller ต้องส่ง error พร้อม Connection: close
+ * read only after the gateway and an active ADMIN/proof/capability have passed;
+ * the caller must recheck permission before attaching and must not log the filename/body.
+ * when the stream is wrong or times out, reading stops; the caller must send an error with Connection: close
  */
 export async function readC360ImportMultipart(
   request: IncomingMessage,
@@ -92,7 +92,7 @@ function parse(request: IncomingMessage, timeoutMs: number): Promise<C360ImportM
       done = true;
       cleanup();
       stopRejectedInput(request);
-      // Busboy อาจกำลังส่ง event จาก parser ภายใน; ปิดหลัง callback กลับเพื่อลด re-entrancy
+      // Busboy may be emitting an event from an internal parser; close after the callback returns to reduce re-entrancy
       queueMicrotask(() => {
         request.unpipe(counter);
         counter.unpipe(parser);

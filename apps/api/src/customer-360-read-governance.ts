@@ -9,13 +9,13 @@ import {
 } from '@d-contact/customer-360';
 
 /**
- * Cus360 C2 (#792) S2: สรุปสถานะ Contact Governance ของโปรไฟล์ (R1 J, E1 I) แบบอ่านอย่างเดียว
+ * Cus360 C2 (#792) S2: a read-only Contact Governance status summary of the profile (R1 J, E1 I)
  *
- * - ไม่เรียก authorize/reserve, ไม่เขียน audit/touch/attempt และไม่ใช้ service credential ของ adapter:
- *   อ่านผ่าน fact loader ของ CG (read) ภายใต้สิทธิ์ลูกค้าของ actor เท่านั้น
- * - สถานะ: CONTEXT_REQUIRED (ยังไม่ระบุ channel + purpose) / READY / UNAVAILABLE (owner ล้ม หรือ identity
- *   ยังไม่ canonical) — ทุกสถานะมี asOf และไม่มีสถานะไหนแปลว่า "อนุญาตให้ติดต่อ" (`contactPermission` เป็น
- *   NOT_EVALUATED เสมอ; การอนุญาตจริงเกิดที่ authorize ของ CG เมื่อจะติดต่อ)
+ * - does not call authorize/reserve, writes no audit/touch/attempt and does not use the adapter's service credential:
+ *   reads through the CG fact loader (read) under the actor's customer permission only
+ * - status: CONTEXT_REQUIRED (channel + purpose not given yet) / READY / UNAVAILABLE (owner fails or the identity
+ *   is not canonical yet) — every status has asOf and no status means "allowed to contact" (`contactPermission` is
+ *   always NOT_EVALUATED; real permission happens at the CG authorize when contacting)
  */
 
 const CHANNELS = new Set<string>(['VOICE', 'WEBCHAT', 'LINE', 'FACEBOOK', 'WHATSAPP', 'EMAIL']);
@@ -78,7 +78,7 @@ export async function readC360GovernanceSummary(
   const access = await requireReadableC360Contact(tx, actor, contactId);
   const asOf = new Date().toISOString();
   if (!context) return { state: 'CONTEXT_REQUIRED', asOf, requires: ['channel', 'purpose'] };
-  // CG ผูกกับ contact canonical: MERGED/AMBIGUOUS ยังไม่มีสถานะที่ตีความได้ → unavailable ไม่ใช่ allowed
+  // CG binds to the canonical contact: MERGED/AMBIGUOUS has no interpretable status yet → unavailable, not allowed
   if (access.identity === 'MERGED' || access.identity === 'AMBIGUOUS')
     return { state: 'UNAVAILABLE', asOf, reason: 'IDENTITY_NOT_CANONICAL', retryable: false };
   const section = await runC360OwnerSection(tx, async () => {
@@ -96,9 +96,9 @@ export async function readC360GovernanceSummary(
       purpose: context.purpose,
       preferences: facts.preferences,
     });
-    // predicate เดียวกับที่ CG owner ใช้ตอนตัดสิน (contact-governance-service.ts: authorizeAndReserve/reservation):
-    // รวมข้อจำกัดระดับ tenant (contactId null) และ null ของ channel/purpose = ใช้กับทุกค่า; ไม่มี identity ในบริบทนี้
-    // จึงนับเฉพาะ identityId null. CG ยังไม่ export read function ของส่วนนี้ — ซ้ำ predicate ไว้ชั่วคราว (ดู PR)
+    // the same predicate the CG owner uses when deciding (contact-governance-service.ts: authorizeAndReserve/reservation):
+    // includes tenant-level restrictions (contactId null) and a null channel/purpose = applies to every value; there is no identity in this context
+    // so only identityId null is counted. CG does not yet export a read function for this part — the predicate is temporarily duplicated (see the PR)
     const activeRestrictionCount = await tx.cgRestriction.count({
       where: {
         tenantId: actor.tenantId,

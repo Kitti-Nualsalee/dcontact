@@ -41,7 +41,7 @@ export function coreTransaction<T>(
     async (tx) => {
       await tx.$executeRaw`SELECT set_config('lock_timeout','250ms',true),set_config('statement_timeout','2s',true)`;
       const result = await work(tx);
-      // บังคับ deferred constraints ภายใน callback ก่อนนำผลไปตอบผู้เรียก
+      // force deferred constraints inside the callback before the result is returned to the caller
       await tx.$executeRawUnsafe('SET CONSTRAINTS ALL IMMEDIATE');
       return result;
     },
@@ -183,7 +183,7 @@ export interface CorePreparedCommand {
   payloadDigest: string;
 }
 export interface CoreCommandOptions {
-  /** Checkpoints ควบคุมโดย server/tests เท่านั้น ห้ามรับค่าจาก HTTP input */
+  /** Checkpoints are controlled by the server/tests only, and must never take a value from HTTP input */
   afterAdmission?: () => Promise<void>;
   afterCommandLock?: () => Promise<void>;
   afterEffect?: () => Promise<void>;
@@ -282,7 +282,7 @@ function mutationResult(
   };
 }
 
-/** Engine สำหรับ resource APIs: admission อยู่ถาวร และ execution แต่ละรอบเป็น atomic unit */
+/** the Engine for resource APIs: admission is permanent and each execution round is an atomic unit */
 export async function executeCoreCommand(
   db: PrismaClient,
   identity: CoreIdentity,
@@ -290,7 +290,7 @@ export async function executeCoreCommand(
   perform: (tx: Prisma.TransactionClient) => Promise<CoreExecution>,
   options: CoreCommandOptions = {},
 ) {
-  // เตรียมข้อมูลใหม่ที่ขอบเขต engine เพื่อไม่เชื่อ digest/metadata จาก object ที่ผู้เรียกเปลี่ยนได้
+  // prepare fresh data at the engine boundary so the digest/metadata of an object the caller can change is not trusted
   const prepared = prepareCoreCommand(command);
   const key = {
     tenantId: coreUuid(identity.tenantId),

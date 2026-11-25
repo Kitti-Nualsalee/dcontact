@@ -1,14 +1,14 @@
 /**
- * #967: อ่าน header ของไฟล์ WAV ที่ Telephony archive และสร้าง WAV ช่วงสั้นสำหรับส่งให้ browser
+ * #967: reads the header of a WAV file that Telephony archived and builds a short WAV range to send to the browser
  *
- * รองรับเฉพาะ PCM 16 bit แบบ mono หรือ stereo รูปแบบอื่นปฏิเสธ ไม่เดา offset
+ * supports only 16-bit PCM mono or stereo; other formats are rejected, with no guessing of offsets
  */
 export const RECORDING_CHUNK_SECONDS = 2;
-/** ขนาดที่อ่านเพื่อหา chunk `fmt ` และ `data` ไฟล์จาก FreeSWITCH มี header ราว 44–100 byte */
+/** the size read to find the `fmt ` and `data` chunks; a FreeSWITCH file has a header of roughly 44–100 bytes */
 export const WAV_HEADER_PROBE_BYTES = 4096;
 
 export interface WavFormat {
-  /** byte แรกของ PCM ในไฟล์ต้นทาง */
+  /** the first byte of PCM in the source file */
   dataOffset: number;
   sampleRate: number;
   channels: 1 | 2;
@@ -19,7 +19,7 @@ export class WavFormatError extends Error {}
 
 const ascii = (bytes: Buffer, offset: number) => bytes.toString('latin1', offset, offset + 4);
 
-/** `objectBytes` คือขนาดไฟล์จริงใน storage ใช้ตัดความยาว data ที่ header อ้างเกินไฟล์ */
+/** `objectBytes` is the real file size in storage, used to cut a data length that the header claims beyond the file */
 export function parseWavHeader(bytes: Buffer, objectBytes: number): WavFormat {
   if (bytes.length < 12 || ascii(bytes, 0) !== 'RIFF' || ascii(bytes, 8) !== 'WAVE') {
     throw new WavFormatError('not a RIFF/WAVE file');
@@ -44,7 +44,7 @@ export function parseWavHeader(bytes: Buffer, objectBytes: number): WavFormat {
       format = { sampleRate, channels };
     } else if (id === 'data') {
       if (!format) throw new WavFormatError('data chunk precedes fmt chunk');
-      // FreeSWITCH ที่หยุดกะทันหันอาจทิ้งขนาด data เป็น 0 หรือเกินไฟล์ จึงยึดขนาดไฟล์จริง
+      // a FreeSWITCH that stopped abruptly may leave the data size as 0 or beyond the file, so the real file size is used
       const available = Math.max(0, objectBytes - body);
       const dataBytes = size === 0 || size > available ? available : size;
       const frameBytes = format.channels * 2;
@@ -55,7 +55,7 @@ export function parseWavHeader(bytes: Buffer, objectBytes: number): WavFormat {
   throw new WavFormatError('data chunk not found in header probe');
 }
 
-/** WAV ที่เล่นได้ด้วยตัวเอง: header 44 byte ตามด้วย PCM ของช่วงที่ขอ */
+/** a self-playable WAV: a 44-byte header followed by the PCM of the requested range */
 export function wavChunk(format: Pick<WavFormat, 'sampleRate' | 'channels'>, pcm: Buffer): Buffer {
   const frameBytes = format.channels * 2;
   const header = Buffer.alloc(44);
@@ -75,7 +75,7 @@ export function wavChunk(format: Pick<WavFormat, 'sampleRate' | 'channels'>, pcm
   return Buffer.concat([header, pcm]);
 }
 
-/** ช่วง byte ในไฟล์ต้นทางของ frame ที่ขอ ตัดปลายตามความยาวไฟล์ */
+/** the byte range in the source file of the requested frames, clipped to the file length */
 export function frameByteRange(
   format: WavFormat,
   startFrame: number,

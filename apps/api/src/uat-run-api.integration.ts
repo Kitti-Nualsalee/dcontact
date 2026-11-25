@@ -1,6 +1,6 @@
 /**
- * U1.1 (#429) acceptance — UAT fixture pack, run record และ `เริ่มรอบใหม่` ผ่าน HTTP จริง
- * (guard + IAM grant + RLS บน Postgres); mock ได้เฉพาะ token verifier และความล้มของ port ภายนอก
+ * U1.1 (#429) acceptance — the UAT fixture pack, the run record and `start a new round` over real HTTP
+ * (guard + IAM grant + RLS on Postgres); only the token verifier and the failure of an external port may be mocked
  */
 import 'reflect-metadata';
 import assert from 'node:assert/strict';
@@ -110,7 +110,7 @@ async function harness(t: TestContext) {
 
   const verifier = {
     verifyAccessToken: async (token: string): Promise<VerifiedOidcClaims> => {
-      if (!(token in users)) throw new Error('token ไม่ถูกต้อง');
+      if (!(token in users)) throw new Error('invalid token');
       const persona = token as Persona;
       const tenant = persona === 'foreign' ? otherTenantId : tenantId;
       const slug = `u1-1-${tenant.slice(0, 8)}`;
@@ -134,7 +134,7 @@ async function harness(t: TestContext) {
     flags: { canvasWrite: true, publishUi: true, templateCatalog: false, templateUpgrade: false },
     writeGuard: new UatJourneyWriteGuard(),
   });
-  // port ของ J5 ที่ inject ความล้มได้ — จำลอง crash ระหว่างช่วงที่ 1 กับ 3 ของ `เริ่มรอบใหม่`
+  // J5 port that can inject failure — simulates a crash between stage 1 and 3 of `start a new round`
   const port = {
     failNext: false,
     async createJourneyDraft(...args: Parameters<UatJourneyAuthoringPort['createJourneyDraft']>) {
@@ -203,11 +203,16 @@ async function harness(t: TestContext) {
       context: {},
     },
     steps: [
-      { stepId: 'LOGIN', title: 'Login', expected: 'เห็น Journey list', stateLabel: 'REAL_STATE' },
+      {
+        stepId: 'LOGIN',
+        title: 'Login',
+        expected: 'Sees the Journey list',
+        stateLabel: 'REAL_STATE',
+      },
       {
         stepId: 'SIMULATE',
         title: 'Simulate',
-        expected: 'เห็น transitions ที่ติดป้ายจำลอง',
+        expected: 'Sees transitions labelled as simulated',
         stateLabel: 'SIMULATION_ONLY',
       },
     ],
@@ -215,7 +220,7 @@ async function harness(t: TestContext) {
   });
   const provisioner = new UatFixtureProvisioner(owner);
 
-  /** provision pack แล้วเปิด run แรก */
+  /** provisions the pack then opens the first run */
   const started = async () => {
     await provisioner.provision(manifest());
     const run = await call('POST', 'uat-runs/start', 'maker', {
@@ -225,7 +230,7 @@ async function harness(t: TestContext) {
     return run.body as { runId: string; journeyId: string; revision: number };
   };
 
-  /** compile + submit review ของ Journey ใน run */
+  /** compile + submit the Journey of the run for review */
   const submitReview = async (journeyId: string) => {
     const state = (await call('GET', `journey-authoring/journeys/${journeyId}`, 'maker')).body;
     const binding = {
@@ -270,7 +275,7 @@ async function harness(t: TestContext) {
   };
 }
 
-test('U1.1 provision: idempotent, digest ต่าง fail closed, preflight และ manifest ที่มี PII ถูกปฏิเสธ', async (t) => {
+test('U1.1 provision: idempotent, a different digest fails closed, a preflight and a manifest with PII are rejected', async (t) => {
   const f = await harness(t);
   const created = await f.provisioner.provision(f.manifest());
   assert.equal(created.status, 'CREATED');
@@ -308,11 +313,11 @@ test('U1.1 provision: idempotent, digest ต่าง fail closed, preflight แ
     'FIXTURE_MANIFEST_INVALID',
     { field: 'reviewerSubjectId' },
   );
-  // ไม่มีอะไรถูกเขียนจาก pack ที่ถูกปฏิเสธ
+  // nothing is written from a rejected pack
   assert.equal(await f.owner.uatFixturePack.count({ where: { tenantId: f.tenantId } }), 1);
 });
 
-test('U1.1 เริ่มรอบใหม่: เฉพาะ maker, idempotent, revision CAS, resume หลัง crash และไม่รั่วข้าม tenant', async (t) => {
+test('U1.1 start a new round: maker only, idempotent, revision CAS, resume after a crash and no leak across tenants', async (t) => {
   const f = await harness(t);
   await f.provisioner.provision(f.manifest());
   assert.deepEqual((await f.call('GET', 'uat-runs/current', 'maker')).body, {
@@ -323,7 +328,7 @@ test('U1.1 เริ่มรอบใหม่: เฉพาะ maker, idempote
   const byReviewer = await f.call('POST', 'uat-runs/start', 'reviewer', { body });
   assert.deepEqual([byReviewer.status, byReviewer.body.code], [403, 'UAT_CAPABILITY_REQUIRED']);
 
-  // crash หลังเปิด run ก่อนสร้าง Journey → key เดิมทำต่อจนจบ ได้ run เดียว Journey เดียว
+  // a crash after opening the run but before creating the Journey → the same key continues to the end, giving one run and one Journey
   const key = `start-${randomUUID()}`;
   f.port.failNext = true;
   const crashed = await f.call('POST', 'uat-runs/start', 'maker', { key, body });
@@ -344,7 +349,7 @@ test('U1.1 เริ่มรอบใหม่: เฉพาะ maker, idempote
     body: { ...body, expectedRevision: 5 },
   });
   assert.deepEqual([conflict.status, conflict.body.code], [409, 'IDEMPOTENCY_CONFLICT']);
-  // key เดิมจากผู้ทดสอบอีกคนไม่ได้ผลของ maker
+  // the same key from another tester has no effect on the maker
   const borrowed = await f.call('POST', 'uat-runs/start', 'reviewer', { key, body });
   assert.deepEqual([borrowed.status, borrowed.body.code], [409, 'IDEMPOTENCY_CONFLICT']);
   const stale = await f.call('POST', 'uat-runs/start', 'maker', { body });
@@ -355,7 +360,7 @@ test('U1.1 เริ่มรอบใหม่: เฉพาะ maker, idempote
 
   const current = await f.call('GET', 'uat-runs/current', 'reviewer');
   assert.deepEqual(current.body, first.body);
-  // Journey ของ run เป็น draft จริงของ J5
+  // the Journey of the run is a real J5 draft
   const journey = await f.call(
     'GET',
     `journey-authoring/journeys/${first.body.journeyId}`,
@@ -369,7 +374,7 @@ test('U1.1 เริ่มรอบใหม่: เฉพาะ maker, idempote
   }
 });
 
-test('U1.1 fixture ที่ server ตรึงให้ simulation ซ้ำได้ผลเดิม และ step result มาจาก catalog', async (t) => {
+test('U1.1 the fixture the server pins makes a repeated simulation give the same result, and a step result comes from the catalog', async (t) => {
   const f = await harness(t);
   const run = await f.started();
 
@@ -392,15 +397,15 @@ test('U1.1 fixture ที่ server ตรึงให้ simulation ซ้ำ�
   const key = `step-${randomUUID()}`;
   const recorded = await f.call('POST', `uat-runs/${run.runId}/step-results`, 'reviewer', {
     key,
-    body: { stepId: 'SIMULATE', outcome: 'PASS', actual: 'เห็นป้ายจำลองเท่านั้น' },
+    body: { stepId: 'SIMULATE', outcome: 'PASS', actual: 'Sees only the simulated label' },
   });
   assert.equal(recorded.status, 200, JSON.stringify(recorded.body));
   assert.equal(recorded.body.stateLabel, 'SIMULATION_ONLY');
-  assert.equal(recorded.body.expected, 'เห็น transitions ที่ติดป้ายจำลอง');
+  assert.equal(recorded.body.expected, 'Sees transitions labelled as simulated');
   assert.deepEqual(
     await f.call('POST', `uat-runs/${run.runId}/step-results`, 'reviewer', {
       key,
-      body: { stepId: 'SIMULATE', outcome: 'PASS', actual: 'เห็นป้ายจำลองเท่านั้น' },
+      body: { stepId: 'SIMULATE', outcome: 'PASS', actual: 'Sees only the simulated label' },
     }),
     recorded,
   );
@@ -409,7 +414,7 @@ test('U1.1 fixture ที่ server ตรึงให้ simulation ซ้ำ�
   });
   assert.deepEqual([unknownStep.status, unknownStep.body.safeParams], [400, { field: 'stepId' }]);
   const failWithoutSeverity = await f.call('POST', `uat-runs/${run.runId}/step-results`, 'maker', {
-    body: { stepId: 'LOGIN', outcome: 'FAIL', actual: 'ล็อกอินไม่ได้' },
+    body: { stepId: 'LOGIN', outcome: 'FAIL', actual: 'Cannot log in' },
   });
   assert.deepEqual(
     [failWithoutSeverity.status, failWithoutSeverity.body.safeParams],
@@ -419,7 +424,7 @@ test('U1.1 fixture ที่ server ตรึงให้ simulation ซ้ำ�
   assert.equal(current.body.stepResults.length, 1);
 });
 
-test('U1.1 run ที่มีงานค้างปิดไม่ได้; run ที่ abandoned ถูกแช่แข็งแต่หลักฐานยังอ่านได้; publish แล้ว = COMPLETED', async (t) => {
+test('U1.1 a run with pending work cannot be closed; an abandoned run is frozen but its evidence can still be read; published = COMPLETED', async (t) => {
   const f = await harness(t);
   const run1 = await f.started();
   const restart = (expectedRevision: number) =>
@@ -451,7 +456,7 @@ test('U1.1 run ที่มีงานค้างปิดไม่ได้; 
   const pendingPublish = await restart(run1.revision);
   assert.equal(pendingPublish.body.code, 'UAT_RUN_PENDING_PUBLISH');
 
-  // publish แล้วเริ่มรอบใหม่ → run 1 COMPLETED
+  // publish then start a new round → run 1 COMPLETED
   const published = await f.call(
     'POST',
     `journey-authoring/journeys/${run1.journeyId}/publish`,
@@ -466,21 +471,25 @@ test('U1.1 run ที่มีงานค้างปิดไม่ได้; 
   );
   assert.equal(published.status, 200, JSON.stringify(published.body));
   await f.call('POST', `uat-runs/${run1.runId}/step-results`, 'maker', {
-    body: { stepId: 'LOGIN', outcome: 'PASS', actual: 'เห็น Journey list' },
+    body: { stepId: 'LOGIN', outcome: 'PASS', actual: 'Sees the Journey list' },
   });
   const run2 = await restart(run1.revision);
   assert.equal(run2.status, 200, JSON.stringify(run2.body));
   assert.equal(run2.body.sequence, 2);
   const closed1 = await f.call('GET', `uat-runs/${run1.runId}`, 'reviewer');
   assert.equal(closed1.body.lifecycle, 'COMPLETED');
-  assert.equal(closed1.body.stepResults.length, 1, 'หลักฐานรอบเดิมยังอยู่');
+  assert.equal(
+    closed1.body.stepResults.length,
+    1,
+    'the evidence of the previous round is still there',
+  );
 
-  // run 2 ไม่ได้ publish → เริ่มรอบใหม่ = ABANDONED และ Journey ของมันถูกแช่แข็ง
+  // run 2 is not published → start a new round = ABANDONED and its Journey is frozen
   const run3 = await restart(run2.body.revision);
   assert.equal(run3.status, 200, JSON.stringify(run3.body));
   const closed2 = await f.call('GET', `uat-runs/${run2.body.runId}`, 'maker');
   assert.equal(closed2.body.lifecycle, 'ABANDONED');
-  // compile อ่านอย่างเดียวยังทำได้ แต่ส่งตรวจ (และ mutation อื่นที่ผ่าน lock ของ J5) ไม่ได้
+  // a read-only compile still works, but submit for review (and other mutations that pass the J5 lock) does not
   const frozen = await f.submitReview(run2.body.journeyId);
   assert.deepEqual(
     [frozen.review.status, frozen.review.body],
@@ -509,7 +518,7 @@ test('U1.1 run ที่มีงานค้างปิดไม่ได้; 
     body: { stepId: 'LOGIN', outcome: 'PASS', actual: 'x' },
   });
   assert.deepEqual([lateResult.status, lateResult.body.code], [409, 'UAT_RUN_CLOSED']);
-  // audit ของ Journey รอบเดิมยังอ่านได้ผ่าน API
+  // the Journey audit of the previous round can still be read through the API
   const audit = await f.call('GET', `journey-authoring/journeys/${run1.journeyId}/audit`, 'maker');
   assert.equal(audit.status, 200);
 

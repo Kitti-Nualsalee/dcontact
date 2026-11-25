@@ -1,9 +1,9 @@
 /**
- * S2.5 (#369) — `POST /webhook/line` ผ่าน HTTP จริง
+ * S2.5 (#369) — `POST /webhook/line` over real HTTP
  *
- * พิสูจน์ขอบที่มีเฉพาะตอนเป็น HTTP: raw body ถึง handler โดยไม่ถูก reserialize, route เป็น public
- * (ไม่มี bearer token) แต่ยังปฏิเสธ signature ที่ไม่ผ่าน, และ ack กลับภายใน 2 วินาทีหลัง durable
- * commit ตาม `S2-LINE-F03`
+ * proves the edges that exist only over HTTP: the raw body reaches the handler without being reserialized, the route is public
+ * (no bearer token) but still rejects a signature that fails, and acks within 2 seconds after the durable
+ * commit per `S2-LINE-F03`
  */
 import 'reflect-metadata';
 import assert from 'node:assert/strict';
@@ -22,7 +22,7 @@ import {
 } from './gateway-auth.js';
 import { LINE_WEBHOOK_INGRESS, LineWebhookController } from './line-webhook-api.js';
 
-/** Channel ID ของ test OA ตาม #356 — identifier สาธารณะ ไม่ใช่ credential */
+/** the Channel ID of the test OA per #356 — a public identifier, not a credential */
 const PILOT_CHANNEL_ACCOUNT_ID = '2007056595';
 const SECRET = 's2-synthetic-channel-secret';
 const DESTINATION = 'U1234567890abcdef1234567890abcdef';
@@ -32,7 +32,7 @@ const APPLICATION_DATABASE_URL =
   process.env.APPLICATION_DATABASE_URL ??
   'postgresql://dcontact_app:dcontact_app@localhost:5433/dcontact?schema=public';
 
-/** tenant สังเคราะห์หนึ่งรายพอสำหรับขอบ HTTP — business fixture ของ LINE อยู่ใน @d-contact/delivery */
+/** one synthetic tenant is enough for the HTTP edge — the LINE business fixture is in @d-contact/delivery */
 async function createTenantFixture() {
   const owner = new PrismaClient();
   const application = new PrismaClient({ datasources: { db: { url: APPLICATION_DATABASE_URL } } });
@@ -81,7 +81,7 @@ async function harness(t: TestContext) {
         provide: OIDC_ACCESS_TOKEN_VERIFIER,
         useValue: {
           verifyAccessToken: async () => {
-            throw new Error('webhook route ต้องไม่เรียก token verifier');
+            throw new Error('the webhook route must not call the token verifier');
           },
         },
       },
@@ -129,10 +129,10 @@ const messageEvent = (index: number) => ({
   deliveryContext: { isRedelivery: false },
   timestamp: 1_790_100_000_000 + index,
   source: { type: 'user', userId: `U${'d'.repeat(32)}` },
-  message: { id: `${700_000_000_000 + index}`, type: 'text', text: 'ขอบคุณครับ 🙏' },
+  message: { id: `${700_000_000_000 + index}`, type: 'text', text: 'ขอบคุณครับ 🙏' }, // allow-thai: Thai LINE text round-trips through the raw body
 });
 
-test('S2-LINE-F03 route เป็น public แต่ signature ที่ไม่ผ่านตอบ 401 และไม่เขียนอะไรเลย', async (t) => {
+test('S2-LINE-F03 the route is public but a failing signature answers 401 and writes nothing at all', async (t) => {
   const f = await harness(t);
   const body = requestBody([messageEvent(1)]);
 
@@ -148,15 +148,15 @@ test('S2-LINE-F03 route เป็น public แต่ signature ที่ไม�
   );
 });
 
-test('S2-LINE-F03 raw body ถึง handler โดยไม่ถูก reserialize และ ack ภายใน 2 วินาที', async (t) => {
+test('S2-LINE-F03 the raw body reaches the handler without being reserialized and acks within 2 seconds', async (t) => {
   const f = await harness(t);
-  // whitespace และ emoji ต้องคงอยู่ — ถ้า framework reserialize signature จะไม่ผ่าน
+  // whitespace and emoji must survive — if the framework reserializes, the signature fails
   const body = `{"destination":"${DESTINATION}",\n  "events": [${JSON.stringify(messageEvent(2))}]\n}`;
   const accepted = await f.signed(body);
 
   assert.equal(accepted.status, 200);
   assert.deepEqual(accepted.body, { code: 'WEBHOOK_ACCEPTED' });
-  assert.ok(accepted.elapsedMs < 2000, `ack ใช้เวลา ${accepted.elapsedMs}ms`);
+  assert.ok(accepted.elapsedMs < 2000, `the ack took ${accepted.elapsedMs}ms`);
 
   const rows = await f.fixture.owner.dlLineWebhookInboxEntry.findMany({
     where: { tenantId: f.fixture.tenantA },
@@ -164,7 +164,7 @@ test('S2-LINE-F03 raw body ถึง handler โดยไม่ถูก reseria
   assert.equal(rows.length, 1);
   assert.equal(rows[0]!.state, 'PENDING');
 
-  // verify request ของ LINE Console
+  // a verify request from the LINE Console
   const empty = await f.signed(requestBody([]));
   assert.deepEqual([empty.status, empty.body], [200, { code: 'WEBHOOK_EMPTY_VERIFICATION' }]);
   assert.equal(
@@ -173,7 +173,7 @@ test('S2-LINE-F03 raw body ถึง handler โดยไม่ถูก reseria
   );
 });
 
-test('S2-LINE-ID01 redelivery ผ่าน HTTP เป็น duplicate และไม่เพิ่มแถว', async (t) => {
+test('S2-LINE-ID01 a redelivery over HTTP is a duplicate and adds no rows', async (t) => {
   const f = await harness(t);
   const body = requestBody([messageEvent(3)]);
 
@@ -186,7 +186,7 @@ test('S2-LINE-ID01 redelivery ผ่าน HTTP เป็น duplicate และ
   );
 });
 
-test('S2-LINE-OB02 คำตอบมีแค่ machine code ไม่มี payload หรือ event ID กลับไป', async (t) => {
+test('S2-LINE-OB02 the answer has only a machine code, with no payload or event ID going back', async (t) => {
   const f = await harness(t);
   const event = messageEvent(4);
   const result = await f.signed(requestBody([event]));
@@ -195,12 +195,12 @@ test('S2-LINE-OB02 คำตอบมีแค่ machine code ไม่มี p
   assert.deepEqual(Object.keys(result.body), ['code']);
   assert.ok(!serialized.includes(event.webhookEventId));
   assert.ok(!serialized.includes(event.source.userId));
-  assert.ok(!serialized.includes('ขอบคุณครับ'));
+  assert.ok(!serialized.includes('ขอบคุณครับ')); // allow-thai: Thai LINE text round-trips through the raw body
 });
 
-test('S2-LINE-F03 prisma ที่ล่มทำให้ตอบ 503 ไม่ใช่ 2xx', async (t) => {
+test('S2-LINE-F03 a prisma outage makes it answer 503, not 2xx', async (t) => {
   const fixture = await createTenantFixture();
-  // client ที่ชี้ไป port ที่ไม่มีใครฟัง: commit ไม่มีทางสำเร็จ
+  // a client pointing at a port nobody listens on: the commit can never succeed
   const broken = new PrismaClient({
     datasources: { db: { url: 'postgresql://dcontact_app:dcontact_app@127.0.0.1:1/dcontact' } },
   });

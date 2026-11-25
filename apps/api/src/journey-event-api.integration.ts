@@ -16,7 +16,7 @@ import {
 } from './gateway-auth.js';
 import { JOURNEY_EVENT_INBOX, JourneyEventController } from './journey-event-api.js';
 
-test('event ingress ใช้ tenant จาก client credentials และบังคับ idempotency', async (t) => {
+test('event ingress uses the tenant from client credentials and enforces idempotency', async (t) => {
   const owner = new PrismaClient();
   const application = new PrismaClient({
     datasources: {
@@ -59,7 +59,7 @@ test('event ingress ใช้ tenant จาก client credentials และบ�
           sid: 'user-session',
         };
       }
-      throw new Error('token ไม่ถูกต้อง');
+      throw new Error('invalid token');
     },
   };
 

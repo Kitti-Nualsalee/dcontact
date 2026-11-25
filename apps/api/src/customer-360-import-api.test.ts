@@ -6,7 +6,7 @@ import { c360ImportChildCommandId, c360ImportRowResult } from './customer-360-im
 
 const plan = 'a'.repeat(64);
 
-test('child commandId คงที่ต่อ request/plan/แถว และเป็น UUID ที่ command ยอมรับ', () => {
+test('the child commandId is fixed per request/plan/row and is a UUID the command accepts', () => {
   const id = randomUUID();
   const first = c360ImportChildCommandId(id, plan, 1);
   assert.equal(first, c360ImportChildCommandId(id, plan, 1));
@@ -40,13 +40,13 @@ const receipt = (over: Record<string, unknown>) =>
     },
   }) as never;
 
-test('ผล command เป็นสถานะรายแถวโดยไม่มีค่า raw และ UNKNOWN ไม่ถูกนับเป็นล้ม', () => {
+test('a command result is a per-row status with no raw value, and UNKNOWN is not counted as a failure', () => {
   const contact = randomUUID();
   assert.deepEqual(
     c360ImportRowResult(3, receipt({ resourceRefs: [{ type: 'CONTACT', id: contact }] })),
     { rowNo: 3, state: 'APPLIED', contactId: contact },
   );
-  // ref ที่ผู้อ่านไม่มีสิทธิ์ถูกกรองออกแล้ว: ยัง APPLIED แต่ไม่มี contactId
+  // a ref the reader has no permission for is filtered out: still APPLIED but without a contactId
   assert.deepEqual(c360ImportRowResult(4, receipt({})), { rowNo: 4, state: 'APPLIED' });
   assert.deepEqual(
     c360ImportRowResult(5, receipt({ outcome: 'REJECTED', code: 'FIELD_INVALID' })),

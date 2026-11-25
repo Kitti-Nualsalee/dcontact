@@ -21,7 +21,7 @@ type WorkTestBody = {
   revisions: { profile: string; lineage: string };
   canEdit: boolean;
 };
-/** HTTP/PG/RLS ใช้ verifier/introspection สังเคราะห์; actual Keycloak อยู่ boundary แยก */
+/** HTTP/PG/RLS uses a synthetic verifier/introspection; the actual Keycloak is in a separate boundary */
 async function fixture(options: { voiceNoteWrapup?: boolean } = {}) {
   let online = true;
   let shortProof = false;
@@ -155,7 +155,7 @@ async function fixture(options: { voiceNoteWrapup?: boolean } = {}) {
   };
 }
 
-test('C5 HTTP/PG/RLS: explicit opaque candidate, link/replay, จำกัด fields และ completed read-only', async (t) => {
+test('C5 HTTP/PG/RLS: explicit opaque candidate, link/replay, limited fields and completed read-only', async (t) => {
   const f = await fixture();
   t.after(() => f.close());
   const initial = await f.call('customer');
@@ -177,7 +177,7 @@ test('C5 HTTP/PG/RLS: explicit opaque candidate, link/replay, จำกัด fi
   const linked = await f.call('customer-link', payload);
   assert.equal(linked.status, 200);
   assert.equal(linked.body.command.outcome, 'APPLIED');
-  // Ref ผูก linkageRevision=0; replay หลัง link=1 ต้องไม่เปิด ref ใหม่หรือ execute ซ้ำ
+  // the Ref binds linkageRevision=0; a replay after link=1 must not open a new ref or execute again
   assert.deepEqual((await f.call('customer-link', payload)).body, linked.body);
   assert.equal(
     await f.owner.c360InteractionCustomerChange.count({ where: { tenantId: f.tenantId } }),
@@ -191,8 +191,8 @@ test('C5 HTTP/PG/RLS: explicit opaque candidate, link/replay, จำกัด fi
     expectedLinkageRevision: '1',
     expectedProfileRevision: current.body.revisions.profile,
     expectedLineageRevision: current.body.revisions.lineage,
-    displayName: 'ชื่อจากงาน',
-    company: 'บริษัทจากงาน',
+    displayName: 'Name from the work',
+    company: 'Company from the work',
   };
   assert.equal((await f.call('customer', update, 'PATCH')).status, 200);
   const audits = await f.owner.c360ProfileAudit.count({ where: { tenantId: f.tenantId } });
@@ -220,14 +220,14 @@ test('C5 HTTP/PG/RLS: explicit opaque candidate, link/replay, จำกัด fi
   current = await f.call('customer');
   assert.equal(current.status, 200);
   assert.equal(current.body.canEdit, false);
-  assert.equal(current.body.contact.displayName, 'ชื่อจากงาน');
+  assert.equal(current.body.contact.displayName, 'Name from the work');
   assert.equal(
     (
       await f.call('customer-link', {
         commandId: randomUUID(),
         expectedLinkageRevision: '1',
         candidateRef: null,
-        reason: 'จบงาน',
+        reason: 'Work finished',
         confirmed: true,
       })
     ).status,
@@ -235,11 +235,11 @@ test('C5 HTTP/PG/RLS: explicit opaque candidate, link/replay, จำกัด fi
   );
 });
 
-test('C5 deadline หมดระหว่าง receipt INSERT ต้อง rollback link/history/audit/receipt ทั้งชุด', async (t) => {
+test('C5 a deadline that expires during the receipt INSERT must roll back link/history/audit/receipt as a whole', async (t) => {
   const f = await fixture();
   const candidate = (await f.search()).body.items[0]!.candidateRef;
   const commandId = randomUUID();
-  // ใช้ trigger wait จริงใน PostgreSQL หลัง effect/audit ก่อน receipt เพื่อพิสูจน์ last-moment check
+  // use a real wait trigger in PostgreSQL after the effect/audit and before the receipt to prove the last-moment check
   await f.owner.$executeRawUnsafe(
     `CREATE FUNCTION c5_receipt_wait() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.command_id='${commandId}'::uuid THEN PERFORM pg_sleep(0.9); END IF; RETURN NEW; END $$`,
   );
@@ -282,7 +282,7 @@ test('C5 deadline หมดระหว่าง receipt INSERT ต้อง rol
   );
 });
 
-test('C5 reauth/IdP fault: ปิด Cus360 แต่ไม่แก้ Voice state/lease แล้วกู้ binding เดิม', async (t) => {
+test('C5 reauth/IdP fault: closes Cus360 but does not touch the Voice state/lease, then recovers the original binding', async (t) => {
   const f = await fixture();
   t.after(() => f.close());
   f.setOnline(false);
@@ -311,7 +311,7 @@ test('C5 reauth/IdP fault: ปิด Cus360 แต่ไม่แก้ Voice st
 });
 
 for (const mode of ['search', 'receipt'] as const) {
-  test(`C5 ${mode}: owner membership รอก่อนเปลี่ยน head ระหว่างส่งผลที่มีสิทธิ์`, async (t) => {
+  test(`C5 ${mode}: the owner membership waits before changing the head while delivering a permitted result`, async (t) => {
     const f = await fixture();
     t.after(() => f.close());
     let commandId = '';
@@ -365,7 +365,7 @@ for (const mode of ['search', 'receipt'] as const) {
         }
         await new Promise((resolve) => setTimeout(resolve, 10));
       }
-      assert.equal(waiting, true, 'actual membership writer ต้องรอ fence ของ reader');
+      assert.equal(waiting, true, 'the actual membership writer must wait for the reader fence');
     } finally {
       release();
     }
@@ -373,12 +373,16 @@ for (const mode of ['search', 'receipt'] as const) {
     await writer;
     f.service.assertOnlineProof = original;
     const stale = mode === 'search' ? await f.search() : await f.call(`commands/${commandId}`);
-    assert.equal(stale.status, 503, 'head ที่เปลี่ยนก่อนอ่านต้อง DEFER จน IAM ตามทัน');
+    assert.equal(
+      stale.status,
+      503,
+      'a head changed before the read must DEFER until IAM catches up',
+    );
     assert.doesNotMatch(JSON.stringify(stale.body), new RegExp(f.contactId));
   });
 }
 
-test('C5 relink/detach: reason+confirmation, history/audit atomically และไม่คืน receipt ข้ามงาน', async (t) => {
+test('C5 relink/detach: reason+confirmation, history/audit atomically and no receipt returned across work items', async (t) => {
   const f = await fixture();
   t.after(() => f.close());
   const candidate = (await f.search()).body.items[0].candidateRef;
@@ -407,7 +411,7 @@ test('C5 relink/detach: reason+confirmation, history/audit atomically และ�
     commandId: randomUUID(),
     expectedLinkageRevision: '1',
     candidateRef: null,
-    reason: 'ผู้ใช้เลือกยกเลิกการเชื่อม',
+    reason: 'The user chose to cancel the link',
     confirmed: true,
   });
   assert.equal(detached.status, 200);
@@ -440,7 +444,7 @@ test('C5 relink/detach: reason+confirmation, history/audit atomically และ�
   );
 });
 
-test('C5 กับ Voice wrap-up owner: link ก่อนจบงานได้ แต่คำสั่งใหม่หลังจบงานถูกปฏิเสธ', async (t) => {
+test('C5 with the Voice wrap-up owner: linking before the work ends is allowed, but a new command after the work ends is rejected', async (t) => {
   const f = await fixture({ voiceNoteWrapup: true });
   t.after(() => f.close());
   const actor = { tenantId: f.tenantId, userId: f.actors.get('agent')!.id };
@@ -449,7 +453,7 @@ test('C5 กับ Voice wrap-up owner: link ก่อนจบงานได�
     saveAgentWrapup(f.db, actor, id, {
       commandId: randomUUID(),
       disposition: 'CUSTOMER_ASSISTED',
-      note: 'ผลทดสอบการจบงาน',
+      note: 'Wrap-up test result',
     });
   await f.owner.interaction.update({
     where: { id: f.interactionId },
@@ -472,7 +476,7 @@ test('C5 กับ Voice wrap-up owner: link ก่อนจบงานได�
     commandId: rejectedId,
     expectedLinkageRevision: '1',
     candidateRef: null,
-    reason: 'ทดสอบหลังจบงาน',
+    reason: 'Test after the work ended',
     confirmed: true,
   });
   assert.equal(rejected.status, 409);
@@ -491,7 +495,7 @@ test('C5 กับ Voice wrap-up owner: link ก่อนจบงานได�
   assert.equal(read.body.canEdit, false);
 });
 
-test('C5 candidate keyset ใช้ ID ตัดสินเมื่อ timestamp เท่ากันและกรองสิทธิ์ก่อนตัดหน้า', async (t) => {
+test('C5 candidate keyset uses the ID as the tiebreaker when timestamps are equal and filters permission before cutting the page', async (t) => {
   const f = await fixture();
   t.after(() => f.close());
   const original = await f.owner.c360ContactPoint.findFirstOrThrow({
@@ -544,7 +548,7 @@ test('C5 candidate keyset ใช้ ID ตัดสินเมื่อ timesta
     commandId: randomUUID(),
     expectedLinkageRevision: '1',
     candidateRef: next.candidateRef,
-    reason: 'เลือกลูกค้าที่ถูกต้อง',
+    reason: 'Chose the correct customer',
     confirmed: true,
   });
   assert.equal(relink.status, 200);
@@ -559,10 +563,10 @@ test('C5 candidate keyset ใช้ ID ตัดสินเมื่อ timesta
   );
 });
 
-// เส้นทางหลักรอบแรก: ใช้ HTTP owner API จริงร่วมกับ wrap-up/history writers บน application role + RLS
-// จำลอง ACTIVE→WRAPUP ที่ fixture เท่านั้น ไม่ใช่หลักฐาน SIP/เสียงจริง
+// the main first-round path: uses the real HTTP owner API together with the wrap-up/history writers on the application role + RLS
+// simulates ACTIVE→WRAPUP at the fixture only, not evidence of real SIP/audio
 for (const linked of [true, false]) {
-  test(`Use case Agent ${linked ? 'linked' : 'unlinked'}: บันทึกโน้ต อ่านประวัติ และ retry ไม่ซ้ำ`, async (t) => {
+  test(`Use case Agent ${linked ? 'linked' : 'unlinked'}: save a note, read history, and a retry does not duplicate`, async (t) => {
     const f = await fixture({ voiceNoteWrapup: true });
     t.after(() => f.close());
     const actor = { tenantId: f.tenantId, userId: f.actors.get('agent')!.id };
@@ -593,15 +597,15 @@ for (const linked of [true, false]) {
               expectedLinkageRevision: '1',
               expectedProfileRevision: current.revisions.profile,
               expectedLineageRevision: current.revisions.lineage,
-              displayName: 'ลูกค้ารอบแรก',
-              company: 'บริษัททดสอบ',
+              displayName: 'First-round customer',
+              company: 'Test company',
             },
             'PATCH',
           )
         ).status,
         200,
       );
-      assert.equal((await f.call('customer')).body.contact.displayName, 'ลูกค้ารอบแรก');
+      assert.equal((await f.call('customer')).body.contact.displayName, 'First-round customer');
     } else {
       assert.equal((await f.call('customer')).body.state, 'UNLINKED');
     }
@@ -612,7 +616,7 @@ for (const linked of [true, false]) {
     const input = {
       commandId: randomUUID(),
       disposition: 'CUSTOMER_ASSISTED',
-      note: 'สรุปผลการติดต่อรอบแรก',
+      note: 'Summary of the first contact',
     };
     const saved = await saveAgentWrapup(f.db, actor, f.interactionId, input);
     assert.equal(saved.state, 'COMPLETED');

@@ -1,15 +1,15 @@
 /**
- * Owner: IAM — email บัญชีของ D-Contact: outbox + ตัวส่ง SMTP (AC3 #596, #589, ADR-033)
+ * Owner: IAM — D-Contact account email: outbox + the SMTP sender (AC3 #596, #589, ADR-033)
  *
- * - ผู้เรียก (AC4) เรียก `enqueueAccountEmail` ใน transaction ของ tenant เดียวกับการเปลี่ยนบัญชี
- *   — `dedupeKey` ซ้ำไม่เพิ่มแถว (เรียกซ้ำได้ ไม่ซ้ำผล)
- * - `AccountEmailDispatcher` จองทีละแถวด้วย lease (`SENDING`) แล้วส่งนอก transaction
- *   - ล้มชั่วคราว (เครือข่าย, 4xx) = retry แบบ exponential backoff สูงสุด `maxAttempts` ครั้ง
- *   - ล้มถาวร (5xx เช่นผู้รับนอกองค์กรบน M365 direct send, template ผิด) = `DEAD` ทันที
- *   - process ตายระหว่างส่ง = lease หมดแล้วแถวถูกจองใหม่ (at-least-once) — `Message-ID` คงที่ต่อแถว
- *     ให้ปลายทางตัดฉบับซ้ำได้
- * - จบแล้ว (`SENT`/`DEAD`) ล้างผู้รับและตัวแปร (token ยืนยัน) ออกจากแถว
- * - log มีแค่ id/template/สถานะ/รหัส error — ไม่มีอีเมล, token หรือข้อความจาก SMTP server
+ * - the caller (AC4) calls `enqueueAccountEmail` in the same tenant transaction as the account change
+ *   — a repeated `dedupeKey` adds no row (can be called again without a duplicate result)
+ * - `AccountEmailDispatcher` claims one row at a time with a lease (`SENDING`) and sends outside the transaction
+ *   - temporary failure (network, 4xx) = retry with exponential backoff up to `maxAttempts` times
+ *   - permanent failure (5xx e.g. an outside recipient on M365 direct send, a bad template) = `DEAD` at once
+ *   - the process dies while sending = the lease expires and the row is claimed again (at-least-once) — the `Message-ID` is fixed per row
+ *     so the destination can drop the duplicate
+ * - when finished (`SENT`/`DEAD`) the recipient and variables (the confirmation token) are cleared from the row
+ * - the log has only id/template/status/error code — no email, token or message from the SMTP server
  */
 import { randomUUID } from 'node:crypto';
 import nodemailer, { type Transporter } from 'nodemailer';
@@ -33,31 +33,31 @@ export const ACCOUNT_EMAIL_SENDER_NAME = 'D-Contact';
 export interface SmtpConfig {
   host: string;
   port: number;
-  /** true = TLS ตั้งแต่ต้น (465); false = plain แล้ว STARTTLS ถ้า server รองรับ */
+  /** true = TLS from the start (465); false = plain then STARTTLS if the server supports it */
   secure: boolean;
   user?: string;
   password?: string;
-  /** ที่อยู่ผู้ส่ง — ชื่อที่แสดงเป็น "D-Contact" เสมอ (#589 Q2) */
+  /** the sender address — the display name is always "D-Contact" (#589 Q2) */
   fromAddress: string;
-  /** ชื่อ host ที่ประกาศใน EHLO/HELO (M365 direct send ใช้ domain ขององค์กร) */
+  /** the host name announced in EHLO/HELO (M365 direct send uses the organization's domain) */
   helo?: string;
 }
 
 export class AccountEmailConfigError extends Error {
   constructor(readonly variable: string) {
-    super(`ค่า ${variable} ไม่ถูกต้อง`);
+    super(`Invalid value for ${variable}`);
     this.name = 'AccountEmailConfigError';
   }
 }
 
-/** `"D-Contact" <no-reply@x>` หรือ `no-reply@x` → `no-reply@x` */
+/** `"D-Contact" <no-reply@x>` or `no-reply@x` → `no-reply@x` */
 export function fromAddressOf(value: string): string {
   const address = (/<([^<>]+)>\s*$/.exec(value)?.[1] ?? value).trim();
   if (!/^[^\s@<>"]+@[^\s@<>"]+$/.test(address)) throw new AccountEmailConfigError('SMTP_FROM');
   return address;
 }
 
-/** `undefined` = ไม่ได้ตั้ง SMTP (ไม่เปิดตัวส่ง) */
+/** `undefined` = SMTP is not set (the sender is not enabled) */
 export function smtpConfigFromEnvironment(
   environment: Record<string, string | undefined>,
 ): SmtpConfig | undefined {
@@ -87,7 +87,7 @@ export interface OutgoingEmail extends RenderedEmail {
   messageId: string;
 }
 
-/** ล้มส่ง — `permanent` = ส่งซ้ำไม่มีประโยชน์ (SMTP 5xx) */
+/** send failure — `permanent` = resending is pointless (SMTP 5xx) */
 export class EmailSendError extends Error {
   constructor(
     readonly code: string,
@@ -132,7 +132,7 @@ export class SmtpEmailSender implements EmailSender {
         headers: { 'Auto-Submitted': 'auto-generated' },
       });
     } catch (error) {
-      // ไม่ส่งต่อข้อความของ server/nodemailer — อาจมีอีเมลผู้รับ
+      // do not forward the server/nodemailer message — it may contain the recipient email
       const responseCode = (error as { responseCode?: unknown }).responseCode;
       if (typeof responseCode === 'number') {
         throw new EmailSendError(
@@ -154,11 +154,11 @@ export interface EnqueueAccountEmail<T extends AccountEmailTemplate = AccountEma
   locale: AccountEmailLocale;
   recipient: string;
   variables: AccountEmailVariables[T];
-  /** เรียกซ้ำด้วยค่าเดิม = แถวเดิม (เช่น `email-change:{changeId}:verify`) */
+  /** calling again with the same value = the same row (e.g. `email-change:{changeId}:verify`) */
   dedupeKey: string;
 }
 
-/** เขียนงานส่ง email ใน transaction ของ tenant — คืน id ของแถว (ใหม่หรือเดิม) */
+/** writes a send-email job in the tenant transaction — returns the row id (new or existing) */
 export async function enqueueAccountEmail<T extends AccountEmailTemplate>(
   tx: Prisma.TransactionClient,
   input: EnqueueAccountEmail<T>,
@@ -245,12 +245,12 @@ export class AccountEmailDispatcher {
     this.log = options.log ?? ((event) => console.log(JSON.stringify(event)));
   }
 
-  /** backoff ก่อนลองครั้งถัดไปหลังล้มครั้งที่ `attempts` */
+  /** backoff before the next attempt after failure number `attempts` */
   backoffMs(attempts: number) {
     return Math.min(this.baseBackoffMs * 2 ** Math.max(attempts - 1, 0), this.maxBackoffMs);
   }
 
-  /** ส่งงานที่ถึงเวลาของ tenant หนึ่งทีละแถว — คืนผลของแต่ละแถวที่จับได้ */
+  /** sends the due jobs of one tenant one row at a time — returns the result of each row it claimed */
   async drainTenant(tenantId: string, limit = 50): Promise<DispatchOutcome[]> {
     const outcomes: DispatchOutcome[] = [];
     for (let handled = 0; handled < limit; handled += 1) {
@@ -382,7 +382,7 @@ export class AccountEmailDispatcher {
     return dead ? 'DEAD' : 'RETRY';
   }
 
-  /** ปิดงานเฉพาะเมื่อ lease ยังเป็นของรอบนี้ (attempts ตรง) — lease หมดแล้วมีคนจองใหม่ = ไม่ทับ */
+  /** closes the job only when the lease still belongs to this round (attempts match) — a lease that expired and was claimed by someone else is not overwritten */
   private async finish(
     tenantId: string,
     row: ClaimedRow,

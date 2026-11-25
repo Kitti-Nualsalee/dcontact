@@ -8,7 +8,7 @@ test('B4 canonical set normalization preserves idempotency across item order and
     commandId: randomUUID(),
     expectedRevision: 1,
     reasonCode: 'CONFIG_CHANGE',
-    reason: '  เตรียมทีม  ',
+    reason: '  Prepare the team  ',
   };
   const skillIds = [randomUUID(), randomUUID()].sort();
   const first = parseConfiguration(
@@ -25,7 +25,7 @@ test('B4 canonical set normalization preserves idempotency across item order and
     'requirements',
   );
   assert.deepEqual(first, reversed);
-  assert.equal(first.reason, 'เตรียมทีม');
+  assert.equal(first.reason, 'Prepare the team');
   for (const body of [
     { ...envelope, tenantId: randomUUID(), items: [] },
     { ...envelope, expectedRevision: 0, items: [] },

@@ -78,7 +78,7 @@ async function start(t: test.TestContext, trial?: unknown) {
   return { base: `http://127.0.0.1:${port}`, received, routeGuard, listed };
 }
 
-test('#565 line-webhook ส่ง raw body + signature ให้ ingress และตอบแค่ machine code', async (t) => {
+test('#565 line-webhook passes the raw body + signature to the ingress and answers only a machine code', async (t) => {
   const { base, received } = await start(t);
   const body = '{"destination":"x","events":[]}';
   const response = await fetch(`${base}/webhook/line`, {
@@ -94,7 +94,7 @@ test('#565 line-webhook ส่ง raw body + signature ให้ ingress แล�
   assert.equal(unsigned.status, 401);
 });
 
-test('#565 line-webhook ไม่มี route อื่น: /api/ นอก runtime profile ถูกบล็อกและนับ', async (t) => {
+test('#565 line-webhook has no other route: /api/ outside the runtime profile is blocked and counted', async (t) => {
   const { base, routeGuard } = await start(t);
   const profile = await fetch(`${base}/api/v1/runtime-profile`);
   assert.equal(profile.status, 200);
@@ -113,7 +113,7 @@ test('#565 line-webhook ไม่มี route อื่น: /api/ นอก runt
   assert.equal((await fetch(`${base}/webhook/other`, { method: 'POST' })).status, 404);
 });
 
-test('#566 read API ต้อง login + role admin + tenant ของ pilot และส่ง actor ให้ reader', async (t) => {
+test('#566 the read API needs login + the admin role + the pilot tenant and passes the actor to the reader', async (t) => {
   const { base, listed } = await start(t);
   const get = (token?: string, query = '') =>
     fetch(`${base}/api/v1/line-pilot/inbound${query}`, {
@@ -127,7 +127,7 @@ test('#566 read API ต้อง login + role admin + tenant ของ pilot แ
   assert.equal((await access('maker')).status, 403);
   assert.equal((await access('other-admin')).status, 403);
   assert.equal((await access('admin')).status, 204);
-  // ตรวจสิทธิ์อย่างเดียว: ไม่เรียก reader (ไม่อ่านข้อความ ไม่ audit)
+  // permission check only: the reader is not called (no message read, no audit)
   assert.equal(listed.length, 0);
   assert.equal((await get()).status, 401);
   assert.equal((await get('forged')).status, 401);
@@ -142,7 +142,7 @@ test('#566 read API ต้อง login + role admin + tenant ของ pilot แ
   for (const limit of ['0', '101', 'abc']) {
     assert.equal((await get('admin', `?limit=${limit}`)).status, 400, limit);
   }
-  // webhook ยังเป็น public แม้มี OIDC guard
+  // the webhook stays public even with the OIDC guard
   const webhook = await fetch(`${base}/webhook/line`, {
     method: 'POST',
     headers: { 'x-line-signature': 'valid' },
@@ -151,7 +151,7 @@ test('#566 read API ต้อง login + role admin + tenant ของ pilot แ
   assert.equal(webhook.status, 200);
 });
 
-test('#565/#566 composition root ของ line-webhook ไม่พึ่ง Kafka/Journey/voice/object storage', () => {
+test('#565/#566 the composition root of line-webhook does not depend on Kafka/Journey/voice/object storage', () => {
   const code = (file: string) =>
     readFileSync(join(__dirname, file), 'utf8')
       .replace(/\/\*[\s\S]*?\*\//g, '')
@@ -176,7 +176,7 @@ test('#565/#566 composition root ของ line-webhook ไม่พึ่ง Ka
     '@d-contact/delivery',
     '@d-contact/workspace-session',
   ]);
-  // #567: ทางออกไป LINE สร้างได้เฉพาะใน trial ที่เปิดด้วย LINE_TEAM_TRIAL=on
+  // #567: the path out to LINE can be created only in the trial enabled with LINE_TEAM_TRIAL=on
   const app = code('line-webhook-app.ts');
   const transport = app.indexOf('new HttpLineProviderTransport');
   assert.ok(transport > app.indexOf('function createTeamTrial'));
@@ -184,7 +184,7 @@ test('#565/#566 composition root ของ line-webhook ไม่พึ่ง Ka
   assert.match(app, /trialEnabled \? createTeamTrial\(\) : undefined/);
 });
 
-test('#567 route ของ trial ไม่มีเมื่อไม่ได้เปิด และเปิดแล้วต้องเป็น admin ของ tenant pilot', async (t) => {
+test('#567 the trial route is absent when not enabled, and once enabled it must be an admin of the pilot tenant', async (t) => {
   const off = await start(t);
   const post = (base: string, path: string, token: string, body: unknown = {}) =>
     fetch(`${base}${path}`, {

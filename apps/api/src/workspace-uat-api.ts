@@ -3,7 +3,7 @@ import { TenantVoiceCatalogController, TENANT_VOICE_DATABASE } from './tenant-vo
 import { TenantPeopleController } from './tenant-people-api.js';
 import { TENANT_PEOPLE_READINESS } from './tenant-people-readiness.js';
 import { configuredPeopleRuntime } from './tenant-people-composition.js';
-/** #684: เพิ่ม UI APIs บน E1 sandbox โดยไม่ import default composition root */
+/** #684: adds UI APIs on the E1 sandbox without importing the default composition root */
 import { createE1UatApiModule, type E1UatApiDependencies } from './e1-uat-api.js';
 import {
   NavigationController,
@@ -18,7 +18,7 @@ import {
   SUPERVISOR_LIVE_DATABASE,
 } from './supervisor-live-api.js';
 
-/** ส่งเฉพาะแอปที่ profile นี้ mount backend จริง; role/entitlement ยังตรวจใน controller */
+/** sends only apps whose backend this profile really mounts; role/entitlement is still checked in the controller */
 export const WORKSPACE_UAT_APPS = NAVIGATION_APPS.filter((app) =>
   [
     'home',

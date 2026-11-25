@@ -64,7 +64,7 @@ async function bind(f: Fixture) {
   return { identity, id, command };
 }
 
-test('M3-A HTTP: non-domain operator อ่าน receipt และ reconcile ได้เฉพาะ actor namespace ของตน', async () => {
+test('M3-A HTTP: a non-domain operator reads receipts and reconciles only in its own actor namespace', async () => {
   const f = await setup([Customer360OperatorController]);
   try {
     const operatorId = f.actors.get('operator')!.id;
@@ -162,7 +162,7 @@ test('M3-A HTTP: non-domain operator อ่าน receipt และ reconcile �
   }
 });
 
-test('M3-A HTTP: human และ operator ที่มี identity เดียวกันใช้ commandId เดียวกันได้โดยไม่แตะ receipt ข้ามประเภท', async () => {
+test('M3-A HTTP: a human and an operator with the same identity can use the same commandId without touching receipts across kinds', async () => {
   const f = await setup([Customer360OperatorController]);
   try {
     const admin = f.actors.get('admin')!;
@@ -248,7 +248,7 @@ test('M3-A HTTP: human และ operator ที่มี identity เดีย�
       clientId: 'dual-841',
       custodianAdminId: f.actors.get('supervisor')!.id,
     };
-    // ใช้ custodian คนละ User จาก operator ใน tenant เดียวกัน
+    // use a custodian that is a different User from the operator in the same tenant
     await f.owner.user.update({
       where: { id: command.custodianAdminId },
       data: { role: 'ADMIN' },
@@ -274,7 +274,7 @@ test('M3-A HTTP: human และ operator ที่มี identity เดีย�
   }
 });
 
-test('M3-A HTTP: operator-only, dry-run zero effect, idempotency และ provenance/epoch', async () => {
+test('M3-A HTTP: operator-only, dry-run zero effect, idempotency and provenance/epoch', async () => {
   const f = await setup([Customer360OperatorController]);
   try {
     const command = {
@@ -348,7 +348,7 @@ test('M3-A HTTP: operator-only, dry-run zero effect, idempotency และ prove
   }
 });
 
-test('M3-A: explicit grants/current custodian, stale epoch, no-op, revoke และ ไม่มี tenant-wide READ', async () => {
+test('M3-A: explicit grants/current custodian, stale epoch, no-op, revoke and no tenant-wide READ', async () => {
   const f = await setup([Customer360OperatorController]);
   try {
     const { identity, id } = await bind(f);
@@ -450,7 +450,7 @@ test('M3-A: explicit grants/current custodian, stale epoch, no-op, revoke แล
   }
 });
 
-test('M3-A: tenant RLS/FK และ append-only evidence หลัง reapply RLS', async () => {
+test('M3-A: tenant RLS/FK and append-only evidence after reapplying RLS', async () => {
   const f = await setup([Customer360OperatorController]);
   try {
     const { id } = await bind(f);
@@ -520,7 +520,7 @@ test('M3-A: tenant RLS/FK และ append-only evidence หลัง reapply RL
   }
 });
 
-test('M3-A: actual authorization guard แข่ง operator revoke ทั้งสองลำดับ', async () => {
+test('M3-A: the actual authorization guard races an operator revoke in both orders', async () => {
   const f = await setup([Customer360OperatorController]);
   try {
     const { id, identity } = await bind(f);
@@ -555,7 +555,7 @@ test('M3-A: actual authorization guard แข่ง operator revoke ทั้ง
   }
 });
 
-test('M3-A: rebind และ current User disable serialize กับ locked authorization', async () => {
+test('M3-A: rebind and the current User disable serialize with the locked authorization', async () => {
   const f = await setup([Customer360OperatorController]);
   try {
     const { id, identity } = await bind(f);
@@ -597,7 +597,7 @@ test('M3-A: rebind และ current User disable serialize กับ locked aut
       assert.equal(p.custodian_admin_id, f.actors.get('admin-two')!.id);
       assert.equal(await authorizeC360ServiceCapability(tx, p), false);
     });
-    // Disable/revoke ต้องทำได้แม้ custodian ใช้งานไม่ได้แล้ว
+    // Disable/revoke must work even when the custodian is no longer usable
     assert.equal(
       (await operate(f, { action: 'SERVICE_BIND_DISABLE', bindingId: id, expectedAuthzEpoch: '2' }))
         .status,
@@ -608,7 +608,7 @@ test('M3-A: rebind และ current User disable serialize กับ locked aut
   }
 });
 
-test('M3-A: INTEGRATION custody ต้อง exact create-purpose ledger ไม่ใช่ operator/คนละ Contact/tombstone', async () => {
+test('M3-A: INTEGRATION custody needs an exact create-purpose ledger, not an operator/a different Contact/a tombstone', async () => {
   const f = await setup([Customer360OperatorController]);
   try {
     const { id, identity } = await bind(f);

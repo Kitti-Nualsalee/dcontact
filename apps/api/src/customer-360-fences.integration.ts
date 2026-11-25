@@ -19,11 +19,11 @@ import {
 } from './customer-360-test-fixtures.js';
 
 /**
- * Cus360 C1 (#791) S4: owner fences ตาม E1 G แข่งกับ actual owner writers ทั้งสองลำดับ
+ * Cus360 C1 (#791) S4: owner fences per E1 G racing against the actual owner writers in both orders
  *
- * ลำดับที่ 1: Cus360 ถือ fence อยู่ แล้ว owner writer เริ่ม
- * ลำดับที่ 2: owner writer ถูกหยุดกลาง transaction (trigger barrier หลังได้ lock แล้ว) แล้ว Cus360 เริ่ม
- * ตรวจ final DB state/revisions ไม่ใช่แค่ status และไม่มี unsafe ALLOW หรือ tenant-wide exclusive lock
+ * order 1: Cus360 holds the fence, then an owner writer starts
+ * order 2: an owner writer is stopped mid-transaction (a trigger barrier after taking the lock), then Cus360 starts
+ * check the final DB state/revisions, not only the status, and that there is no unsafe ALLOW or tenant-wide exclusive lock
  */
 
 function actor(f: Fixture, token: 'admin' | 'supervisor'): C360VerifiedActor {
@@ -41,7 +41,7 @@ function gate() {
   return { promise, open };
 }
 
-/** เปิด Cus360 transaction ที่ถือ fence ค้างไว้จนกว่าจะ release */
+/** opens a Cus360 transaction that holds the fence until released */
 async function holdFence(f: Fixture, who: C360VerifiedActor, contactIds: string[]) {
   const ready = gate();
   const release = gate();
@@ -60,7 +60,7 @@ async function holdFence(f: Fixture, who: C360VerifiedActor, contactIds: string[
   );
   done.catch(() => ready.open());
   await ready.promise;
-  assert.ok(access, 'Cus360 ต้องได้ fence ก่อนเริ่ม owner writer');
+  assert.ok(access, 'Cus360 must get the fence before the owner writer starts');
   return {
     access,
     pid,
@@ -79,7 +79,7 @@ const fence = (f: Fixture, who: C360VerifiedActor, contactIds: string[]) =>
 const isBusy = (error: unknown) =>
   error instanceof C360ProfileCommandError && error.code === 'RESOURCE_BUSY' && error.retryable;
 
-/** ตรวจว่ามี session ที่ถูก `blocker` กันอยู่จริง (owner writer รอ fence ไม่ได้แค่ช้า) */
+/** checks that a session really is blocked by `blocker` (the owner writer cannot wait on the fence, not merely slow) */
 async function waitUntilBlocked(f: Fixture, blocker: number, settled: () => boolean) {
   const deadline = performance.now() + 3000;
   while (performance.now() < deadline && !settled()) {
@@ -89,12 +89,12 @@ async function waitUntilBlocked(f: Fixture, blocker: number, settled: () => bool
     if (row?.waiting) return;
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
-  assert.fail('owner writer ต้องรอ fence ของ Cus360 แต่ไม่ได้รอ');
+  assert.fail('the owner writer must wait for the Cus360 fence but did not wait');
 }
 
 /**
- * หยุด actual owner writer หลัง INSERT/UPDATE แถวแรกของ table ใน tenant นี้ (หลังได้ fences แล้ว)
- * แล้วรัน `during` ระหว่างที่ writer ยังถือ lock อยู่
+ * stops the actual owner writer after the first INSERT/UPDATE of a row of the table in this tenant (after taking the fences)
+ * then runs `during` while the writer still holds the lock
  */
 async function pausedWriter<T>(
   f: Fixture,
@@ -106,7 +106,7 @@ async function pausedWriter<T>(
   const fn = `c360_test_pause_${suffix}`;
   const trigger = `zz_c360_test_pause_${suffix}`;
   const barrier = randomInt(1_000_000, 1_000_000_000);
-  // identifiers/literals ทั้งหมดสร้างใน test (UUID ที่ตรวจแล้วและ integer สุ่ม) ไม่มี input ภายนอก
+  // identifiers/literals are all built in the test (validated UUIDs and random integers), with no external input
   await f.owner.$executeRawUnsafe(
     `CREATE FUNCTION public.${fn}() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $$ BEGIN IF NEW.tenant_id='${f.tenantId}'::uuid THEN PERFORM set_config('lock_timeout','10s',true); PERFORM pg_advisory_xact_lock(${barrier}::bigint); END IF; RETURN NEW; END $$`,
   );
@@ -139,7 +139,8 @@ async function pausedWriter<T>(
         break;
       }
       if (settled) return await running;
-      if (performance.now() > deadline) assert.fail(`writer ไม่ถึง barrier ของ ${table}`);
+      if (performance.now() > deadline)
+        assert.fail(`the writer did not reach the barrier of ${table}`);
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
     await during(writerPid);
@@ -184,15 +185,15 @@ const membershipHead = (f: Fixture, contactId = f.contactId) =>
     },
   });
 
-test('S4: canonical MERGE กับ Cus360 identity fence ทั้งสองลำดับ; contact อื่นไม่ถูกล็อกทั้ง tenant', async () => {
+test('S4: canonical MERGE with the Cus360 identity fence in both orders; other contacts are not locked tenant-wide', async () => {
   const f = await setup();
   try {
     await grantCustodian(f, 'admin', 'MANAGE');
     await activeHead(f);
-    const target = await contact(f, 'ปลายทาง');
+    const target = await contact(f, 'Target');
     const admin = actor(f, 'admin');
 
-    // ลำดับ 1: Cus360 ถือ shared identity fence → canonical writer ได้ RESOURCE_BUSY ไม่เขียนอะไร
+    // order 1: Cus360 holds the shared identity fence → the canonical writer gets RESOURCE_BUSY and writes nothing
     const held = await holdFence(f, admin, [f.contactId]);
     assert.deepEqual(held.access.get(f.contactId), {
       decision: 'ALLOW',
@@ -201,8 +202,8 @@ test('S4: canonical MERGE กับ Cus360 identity fence ทั้งสอง�
       basis: 'CUSTODIAN_MANAGE',
       identity: 'ACTIVE',
     });
-    const otherSource = await contact(f, 'ไม่เกี่ยว ก');
-    const otherTarget = await contact(f, 'ไม่เกี่ยว ข');
+    const otherSource = await contact(f, 'Unrelated A');
+    const otherTarget = await contact(f, 'Unrelated B');
     try {
       await assert.rejects(
         merge(f, f.contactId, target),
@@ -210,7 +211,7 @@ test('S4: canonical MERGE กับ Cus360 identity fence ทั้งสอง�
       );
       assert.equal(await f.owner.c360IdentityLineage.count({ where: { tenantId: f.tenantId } }), 0);
       assert.equal((await identityHead(f, f.contactId)).state, 'ACTIVE');
-      // ไม่มี tenant-wide exclusive lock: transition ของ contact คู่อื่นผ่านได้ระหว่างนั้น
+      // no tenant-wide exclusive lock: transitions of another pair of contacts pass meanwhile
       await merge(f, otherSource, otherTarget);
     } finally {
       await held.release();
@@ -227,8 +228,8 @@ test('S4: canonical MERGE กับ Cus360 identity fence ทั้งสอง�
       identity: 'MERGED',
     });
 
-    // ลำดับ 2: canonical writer ถือ exclusive identity fence กลาง transaction → Cus360 fail fast
-    const third = await contact(f, 'ปลายทางสอง');
+    // order 2: the canonical writer holds the exclusive identity fence mid-transaction → Cus360 fails fast
+    const third = await contact(f, 'Target two');
     const started = performance.now();
     await pausedWriter(
       f,
@@ -236,11 +237,14 @@ test('S4: canonical MERGE กับ Cus360 identity fence ทั้งสอง�
       () => merge(f, target, third),
       async () => {
         await assert.rejects(fence(f, admin, [target]), isBusy);
-        assert.ok(performance.now() - started < 2500, 'Cus360 ต้อง fail fast ไม่รอ canonical');
+        assert.ok(
+          performance.now() - started < 2500,
+          'Cus360 must fail fast and not wait for the canonical writer',
+        );
       },
     );
     assert.equal((await identityHead(f, target)).state, 'MERGED');
-    // descendant ที่ merge ไว้ใต้ target ถูก repoint ตามไปที่ third ไม่ชี้ค้างที่ contact ที่ไม่ใช่ canonical
+    // a descendant merged under the target is repointed to third and does not stay pointing at a contact that is not canonical
     const repointed = await identityHead(f, f.contactId);
     assert.equal(repointed.canonicalContactId, third);
     assert.equal(repointed.lineageRevision, 2);
@@ -249,15 +253,15 @@ test('S4: canonical MERGE กับ Cus360 identity fence ทั้งสอง�
   }
 });
 
-test('S4: fence ของ descendant กัน canonical ทั้ง closure และ membership commit แข่ง MERGE ทั้งสองลำดับ', async () => {
+test('S4: the descendant fence stops the whole canonical closure and a membership commit racing MERGE in both orders', async () => {
   const f = await setup();
   try {
     const admin = actor(f, 'admin');
     const anchor = await contact(f, 'anchor');
     const target = await contact(f, 'target');
-    await merge(f, f.contactId, anchor); // f.contactId เป็น descendant ของ anchor
+    await merge(f, f.contactId, anchor); // f.contactId is a descendant of anchor
 
-    // Cus360 ถือ fence เฉพาะ descendant: MERGE anchor→target ต้อง busy เพราะ closure รวม descendant
+    // Cus360 holds a fence on the descendant only: MERGE anchor→target must be busy because the closure includes the descendant
     const held = await holdFence(f, admin, [f.contactId]);
     try {
       await assert.rejects(
@@ -269,8 +273,8 @@ test('S4: fence ของ descendant กัน canonical ทั้ง closure �
       await held.release();
     }
 
-    // ลำดับ 1: membership commit ของ anchor ถือ identity(shared)+stream แล้วหยุด → MERGE busy
-    // หลัง commit แล้ว MERGE ต้องเห็น head ใหม่และ invalidate ต่อจาก revision ล่าสุด
+    // order 1: the membership commit of anchor holds identity(shared)+stream then stops → MERGE is busy
+    // after the commit MERGE must see the new head and invalidate following the latest revision
     const commitFor = (contactId: string, snapshotVersion: number, expected: number) =>
       f.segments
         .recordFactSnapshot({
@@ -334,8 +338,8 @@ test('S4: fence ของ descendant กัน canonical ทั้ง closure �
     assert.equal(anchorHead?.lineageRevision, transition.lineageRevision);
     assert.equal((await identityHead(f, f.contactId)).canonicalContactId, target);
 
-    // ลำดับ 2: MERGE ถือ exclusive closure กลาง transaction → membership commit ของ source รอ
-    // แล้วเห็น MERGED จึง quarantine ไม่เขียน head ทับ invalidation
+    // order 2: MERGE holds the exclusive closure mid-transaction → the membership commit of the source waits
+    // then sees MERGED so it quarantines and does not write a head over the invalidation
     const source = await contact(f, 'source');
     const sink = await contact(f, 'sink');
     let commit: ReturnType<typeof commitFor> | undefined;
@@ -365,7 +369,7 @@ test('S4: fence ของ descendant กัน canonical ทั้ง closure �
   }
 });
 
-test('S4: IAM projection consumer กับ Cus360 freshness fence ทั้งสองลำดับ รวม membership change ก่อน Kafka', async () => {
+test('S4: the IAM projection consumer with the Cus360 freshness fence in both orders, including a membership change before Kafka', async () => {
   const f = await setup();
   try {
     const supervisor = actor(f, 'supervisor');
@@ -380,14 +384,14 @@ test('S4: IAM projection consumer กับ Cus360 freshness fence ทั้ง�
     await deliverToIam(f);
     assert.equal((await fence(f, supervisor, [f.contactId])).get(f.contactId)?.decision, 'ALLOW');
 
-    // owner ออกจาก segment ก่อน Kafka: Cus360 ที่ตัดสินหลังจากนั้นต้อง DEFER แม้ projection ยัง IN
+    // the owner leaves the segment before Kafka: a Cus360 that decides after that must DEFER even though the projection is still IN
     await ownerCommit(f, 'SILVER');
     const lagging = await holdFence(f, supervisor, [f.contactId]);
     assert.deepEqual(lagging.access.get(f.contactId), {
       decision: 'DEFER',
       reasonCode: 'SCOPE_CONTEXT_STALE',
     });
-    // ลำดับ 1: Cus360 ถือ projection fence → consumer รอจน Cus360 จบ แล้วจึง apply
+    // order 1: Cus360 holds the projection fence → the consumer waits until Cus360 finishes, then applies
     let settled = false;
     const delivered = deliverToIam(f).finally(() => (settled = true));
     try {
@@ -399,7 +403,7 @@ test('S4: IAM projection consumer กับ Cus360 freshness fence ทั้ง�
     await delivered;
     assert.equal((await fence(f, supervisor, [f.contactId])).get(f.contactId)?.decision, 'DENY');
 
-    // ลำดับ 2: consumer ถือ projection fence กลาง upsert → Cus360 fail fast; หลัง commit ตัดสินจากค่าใหม่
+    // order 2: the consumer holds the projection fence mid-upsert → Cus360 fails fast; after the commit it decides from the new value
     await ownerCommit(f, 'GOLD');
     await pausedWriter(
       f,
@@ -426,7 +430,7 @@ test('S4: IAM projection consumer กับ Cus360 freshness fence ทั้ง�
   }
 });
 
-test('S4: IAM grant revoke กับ scope-version fence ทั้งสองลำดับ ไม่มี ALLOW หลัง revoke commit', async () => {
+test('S4: IAM grant revoke with the scope-version fence in both orders, no ALLOW after the revoke commits', async () => {
   const f = await setup();
   try {
     const supervisor = actor(f, 'supervisor');
@@ -440,7 +444,7 @@ test('S4: IAM grant revoke กับ scope-version fence ทั้งสอง�
     await ownerCommit(f, 'GOLD');
     await deliverToIam(f);
 
-    // ลำดับ 1: Cus360 ถือ scope-version FOR SHARE → revoke UPDATE รอจน Cus360 จบ
+    // order 1: Cus360 holds the scope-version FOR SHARE → the revoke UPDATE waits until Cus360 finishes
     const held = await holdFence(f, supervisor, [f.contactId]);
     assert.equal(held.access.get(f.contactId)?.decision, 'ALLOW');
     let settled = false;
@@ -461,7 +465,7 @@ test('S4: IAM grant revoke กับ scope-version fence ทั้งสอง�
     assert.equal((await revoked).outcome, 'REVOKED');
     assert.equal((await fence(f, supervisor, [f.contactId])).get(f.contactId)?.decision, 'DENY');
 
-    // ลำดับ 2: grant ใหม่ถูกหยุดหลัง UPDATE scope-version → Cus360 fail fast; หลัง commit เห็น grant ใหม่
+    // order 2: a new grant is stopped after the scope-version UPDATE → Cus360 fails fast; after the commit it sees the new grant
     await pausedWriter(
       f,
       'iam_team_segment_scope_grants',

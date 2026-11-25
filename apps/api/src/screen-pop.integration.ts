@@ -1,8 +1,8 @@
 /**
- * E1.14 (#488) บน Postgres จริงด้วย role ของแอป (`dcontact_app`, RLS):
- * - ตั้งระดับ screen-pop ต่อ origin: ค่าเริ่มต้นปิด, ต้องมีเหตุผล, audit `SCREEN_POP_CHANGED`, `custom` ยังตั้งไม่ได้
- * - payload ไม่มี field เกินระดับ; ลดระดับเมื่อไม่มี scope `VIEW` และเมื่อมี restriction/objection
- * - origin มาจาก lease `embedded` เท่านั้น; งานของ agent อื่น/lease อื่นไม่ได้ข้อมูล
+ * E1.14 (#488) on real Postgres with the app role (`dcontact_app`, RLS):
+ * - set the screen-pop level per origin: default off, a reason is required, audit `SCREEN_POP_CHANGED`, `custom` cannot be set yet
+ * - the payload has no field beyond the level; reduced when there is no `VIEW` scope and when there is a restriction/objection
+ * - the origin comes only from an `embedded` lease; another agent's work/another lease gets no data
  */
 import 'reflect-metadata';
 import assert from 'node:assert/strict';
@@ -112,7 +112,7 @@ async function setup(t: TestContext, viewScope: TeamSegmentViewScope) {
   const lease = await leases.acquire(agent, { surface: 'embedded', hostOrigin: HOST }, 'l1');
 
   const contactId = randomUUID();
-  await owner.contact.create({ data: { id: contactId, tenantId, displayName: 'ลูกค้า ทดสอบ' } });
+  await owner.contact.create({ data: { id: contactId, tenantId, displayName: 'Test Customer' } });
   const interaction = async (input: { agentId?: string; contactId?: string | null }) => {
     const id = randomUUID();
     const contact = input.contactId === undefined ? contactId : input.contactId;
@@ -121,7 +121,7 @@ async function setup(t: TestContext, viewScope: TeamSegmentViewScope) {
       dnis: '021234567',
       recordingUrl: 'https://rec.test/1.wav',
     });
-    // raw SQL: ไม่ผูกกับคอลัมน์ที่ไม่เกี่ยว (DB ของ dev บางเครื่องยังไม่มี conversation_id)
+    // raw SQL: not tied to unrelated columns (the dev DB on some machines does not yet have conversation_id)
     await owner.$executeRaw`
       INSERT INTO interactions (id, tenant_id, channel, direction, state, agent_id, contact_id, metadata)
       VALUES (${id}::uuid, ${tenantId}::uuid, 'VOICE', 'INBOUND', 'ACTIVE',
@@ -196,7 +196,7 @@ async function setup(t: TestContext, viewScope: TeamSegmentViewScope) {
     const updated = await origins.update(
       admin,
       origin.id,
-      { expectedRevision: revision, screenPopLevel, reason: 'ทดสอบระดับข้อมูล' },
+      { expectedRevision: revision, screenPopLevel, reason: 'Data level test' },
       'c-level',
     );
     revision = updated.revision;
@@ -235,7 +235,7 @@ async function setup(t: TestContext, viewScope: TeamSegmentViewScope) {
 const allowView: TeamSegmentViewScope = { canView: async () => true };
 const common = ['decisionId', 'interactionId', 'level', 'policyVersion', 'requestId', 'type', 'v'];
 
-test('ตั้งระดับต่อ origin: ค่าเริ่มต้นปิด, ต้องมีเหตุผล, custom ยังตั้งไม่ได้, audit ก่อน/หลัง; SUPERVISOR แก้ไม่ได้', async (t) => {
+test('set the level per origin: default off, a reason is required, custom cannot be set yet, before/after audit; a SUPERVISOR cannot edit', async (t) => {
   const f = await setup(t, allowView);
   const path = `/api/v1/tenant/embed-origins/${f.origin.id}`;
   const listed = await f.call('GET', '/api/v1/tenant/embed-origins', 'admin');
@@ -252,7 +252,7 @@ test('ตั้งระดับต่อ origin: ค่าเริ่มต�
   const custom = await f.call('PATCH', path, 'admin', {
     expectedRevision: 1,
     screenPopLevel: 'custom',
-    reason: 'ต้องการ field เพิ่ม',
+    reason: 'Needs extra fields',
   });
   assert.deepEqual(custom.body, {
     code: 'VALIDATION_FAILED',
@@ -263,20 +263,20 @@ test('ตั้งระดับต่อ origin: ค่าเริ่มต�
     expectedRevision: 1,
     screenPopLevel: 'ids',
     enabled: false,
-    reason: 'รวมคำสั่ง',
+    reason: 'Combined command',
   });
   assert.equal(combined.status, 400);
   const supervisor = await f.call('PATCH', path, 'supervisor', {
     expectedRevision: 1,
     screenPopLevel: 'ids',
-    reason: 'ผู้ดูแลทีม',
+    reason: 'Team supervisor',
   });
   assert.equal(supervisor.status, 403);
 
   const changed = await f.call('PATCH', path, 'admin', {
     expectedRevision: 1,
     screenPopLevel: 'contact',
-    reason: 'CRM ต้องแสดงชื่อลูกค้า',
+    reason: 'CRM must show the customer name',
   });
   assert.equal(changed.status, 200);
   assert.equal(changed.body.screenPopLevel, 'contact');
@@ -285,12 +285,12 @@ test('ตั้งระดับต่อ origin: ค่าเริ่มต�
   });
   assert.equal((audit.before as any).screenPopLevel, 'off');
   assert.equal((audit.after as any).screenPopLevel, 'contact');
-  assert.equal(audit.reason, 'CRM ต้องแสดงชื่อลูกค้า');
+  assert.equal(audit.reason, 'CRM must show the customer name');
   assert.equal(audit.actorUserId, f.users.admin);
   assert.equal(audit.correlationId, 'corr-pop');
 });
 
-test('origin ปิด screen-pop (ค่าเริ่มต้น) → off ไม่มีข้อมูลสาย', async (t) => {
+test('origin turns screen-pop off (default) → off with no call data', async (t) => {
   const f = await setup(t, allowView);
   const interactionId = await f.interaction({});
   assert.deepEqual(
@@ -299,7 +299,7 @@ test('origin ปิด screen-pop (ค่าเริ่มต้น) → off �
   );
 });
 
-test('payload มีเฉพาะ field ของระดับที่ตั้ง (ids / contact) และไม่มีข้อมูลนอกระดับ', async (t) => {
+test('the payload has only the fields of the level that is set (ids / contact) and no data beyond the level', async (t) => {
   const f = await setup(t, allowView);
   const interactionId = await f.interaction({});
   const input = { leaseId: f.lease.leaseId, interactionId, requestId: 'r1' };
@@ -329,7 +329,7 @@ test('payload มีเฉพาะ field ของระดับที่ต�
   assert.notEqual(contact.message.decisionId, ids.message.decisionId);
 });
 
-test('ไม่มี scope VIEW (IAM ยังไม่มี VIEW → fail closed) → เหลือ interactionId + TEAM_SEGMENT_NOT_ALLOWED', async (t) => {
+test('no VIEW scope (IAM has no VIEW yet → fail closed) → only interactionId + TEAM_SEGMENT_NOT_ALLOWED remain', async (t) => {
   const f = await setup(t, new UnavailableTeamSegmentViewScope());
   const interactionId = await f.interaction({});
   await f.setLevel('contact');
@@ -345,7 +345,7 @@ test('ไม่มี scope VIEW (IAM ยังไม่มี VIEW → fail clo
   assert.equal(outcome.message.reasonCode, 'TEAM_SEGMENT_NOT_ALLOWED');
 });
 
-test('VIEW scope จาก IAM อนุญาตเฉพาะ team ของ agent และ revoke กลับเป็น fail closed', async (t) => {
+test('the VIEW scope from IAM allows only the agent team and a revoke returns to fail closed', async (t) => {
   const viewScope = new IamTeamSegmentViewScope(application);
   const f = await setup(t, viewScope);
   const teamId = randomUUID();
@@ -392,7 +392,7 @@ test('VIEW scope จาก IAM อนุญาตเฉพาะ team ของ 
   assert.equal(revoked.message.reasonCode, 'TEAM_SEGMENT_NOT_ALLOWED');
 });
 
-test('HTTP: ADMIN จัดการ VIEW scope ได้โดยไม่ขยายสิทธิ์ให้ SUPERVISOR และ revoke แล้ว list ไม่คืน active grant', async (t) => {
+test('HTTP: an ADMIN manages the VIEW scope without extending permission to a SUPERVISOR, and after a revoke the list returns no active grant', async (t) => {
   const f = await setup(t, allowView);
   const teamId = randomUUID();
   await owner.team.create({ data: { id: teamId, tenantId: f.tenantId, name: 'Scope API team' } });
@@ -433,7 +433,7 @@ test('HTTP: ADMIN จัดการ VIEW scope ได้โดยไม่ข�
   assert.deepEqual(await f.call('GET', path, 'admin'), { status: 200, body: { scopes: [] } });
 });
 
-test('restriction/objection ที่ยังมีผล → ลดเหลือ ids; หมดอายุแล้วหรือ DNC ไม่ลด', async (t) => {
+test('a restriction/objection still in effect → reduced to ids; expired or DNC does not reduce', async (t) => {
   const f = await setup(t, allowView);
   const interactionId = await f.interaction({});
   const input = { leaseId: f.lease.leaseId, interactionId, requestId: 'r1' };
@@ -454,7 +454,7 @@ test('restriction/objection ที่ยังมีผล → ลดเหล�
   assert.equal('displayName' in reduced.message, false);
 });
 
-test('ยังระบุ contact ไม่ได้: ANI ส่งได้เฉพาะระดับ contact ขึ้นไป', async (t) => {
+test('the contact cannot be identified yet: ANI can be sent only at contact level or above', async (t) => {
   const f = await setup(t, new UnavailableTeamSegmentViewScope());
   const interactionId = await f.interaction({ contactId: null });
   const input = { leaseId: f.lease.leaseId, interactionId, requestId: 'r1' };
@@ -466,7 +466,7 @@ test('ยังระบุ contact ไม่ได้: ANI ส่งได้�
   assert.equal(contact.status === 'sent' && contact.message.ani, '0812345678');
 });
 
-test('HTTP: ต้องมี lease embedded ของตัวเอง; งานของ agent อื่นหรือ lease ผิดไม่ได้ข้อมูล', async (t) => {
+test("HTTP: must have the own embedded lease; another agent's work or a wrong lease gets no data", async (t) => {
   const f = await setup(t, allowView);
   await f.setLevel('ids');
   const mine = await f.interaction({});
@@ -508,7 +508,7 @@ test('HTTP: ต้องมี lease embedded ของตัวเอง; ง�
   assert.equal(admin.status, 403);
 });
 
-test('ปิด origin ระหว่างใช้งาน → lease ไม่ current จึงไม่ได้ screen-pop อีก', async (t) => {
+test('disabling the origin during use → the lease is not current so there is no more screen-pop', async (t) => {
   const f = await setup(t, allowView);
   await f.setLevel('ids');
   const interactionId = await f.interaction({});

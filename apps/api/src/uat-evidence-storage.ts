@@ -1,14 +1,14 @@
 /**
- * Owner: API bootstrap — object storage ของหลักฐาน UAT (U1.5 #433)
+ * Owner: API bootstrap — object storage for UAT evidence (U1.5 #433)
  *
- * Authority: Phase Contract #374 (ภาพหน้าจอเก็บใน object storage ส่วนตัวภายใน UAT stack, retention 90 วัน),
+ * Authority: Phase Contract #374 (screenshots are kept in a private object storage inside the UAT stack, 90-day retention),
  * evidence/defect #379
  *
- * - bucket ส่วนตัว: adapter นี้ไม่ตั้ง bucket policy/ACL และไม่มีทางสร้าง presigned/public URL
- *   (ไม่ import `s3-request-presigner`) — byte เข้าออกผ่าน API ที่ตรวจสิทธิ์เท่านั้น
- * - ตอนบูตสร้าง bucket แบบ idempotent แล้วตั้ง lifecycle ให้ object ใต้ `uat-evidence/` หมดอายุใน 90 วัน
- *   และปฏิเสธการบูตถ้า bucket มี policy อยู่ (อาจเปิด public ไว้นอกระบบ) — fail closed
- * - เป็น module เดียวที่ composition root ของ UAT ใช้แตะ object storage
+ * - a private bucket: this adapter sets no bucket policy/ACL and has no way to create a presigned/public URL
+ *   (it does not import `s3-request-presigner`) — bytes go in and out only through an API that checks permission
+ * - at boot it creates the bucket idempotently, then sets a lifecycle so objects under `uat-evidence/` expire in 90 days
+ *   and refuses to boot if the bucket has a policy (it may have been made public outside the system) — fail closed
+ * - the only module the UAT composition root uses to touch object storage
  */
 import {
   CreateBucketCommand,
@@ -30,7 +30,7 @@ import {
 export const UAT_EVIDENCE_RETENTION_DAYS = 90;
 export const UAT_EVIDENCE_LIFECYCLE_RULE_ID = 'uat-evidence-retention-90d';
 
-/** ส่วนของ S3 client ที่ adapter ใช้ — เทสต์ส่ง client ปลอมมาตรวจ command ได้ */
+/** the part of the S3 client the adapter uses — tests pass a fake client to inspect the commands */
 export interface UatEvidenceS3Client {
   send(command: object): Promise<unknown>;
 }
@@ -52,8 +52,8 @@ export class UatEvidenceObjectStorage implements UatEvidenceStorage {
   ) {}
 
   /**
-   * client จาก env ของ object storage (`S3_*`, ADR-029) + `S3_BUCKET_UAT_EVIDENCE`
-   * endpoint/credential ต้องระบุเสมอ ไม่มีค่า default (UAT ห้ามใช้ default credential — #374)
+   * a client from the object storage env (`S3_*`, ADR-029) + `S3_BUCKET_UAT_EVIDENCE`
+   * the endpoint/credential must always be given, with no default (UAT must not use a default credential — #374)
    */
   static fromEnvironment(environment: NodeJS.ProcessEnv = process.env): UatEvidenceObjectStorage {
     const configuration = readS3Configuration({
@@ -74,10 +74,10 @@ export class UatEvidenceObjectStorage implements UatEvidenceStorage {
   }
 
   /**
-   * เรียกตอนบูต: bucket + lifecycle 90 วัน (idempotent) และยืนยันว่าไม่มี bucket policy
-   * ตรวจด้วย HeadBucket ก่อน (#540): bucket ที่ bootstrap สร้างด้วย root แล้วให้สิทธิ์ API ใช้ได้เลย —
-   * storage ที่มีเจ้าของ bucket (SeaweedFS) ตอบ CreateBucket ซ้ำว่า BucketAlreadyExists
-   * ส่วน CreateBucket ที่แข่งกับเจ้าของอื่นหลัง Head 404 ยังต้องล้ม
+   * called at boot: bucket + 90-day lifecycle (idempotent) and confirms there is no bucket policy
+   * checks with HeadBucket first (#540): a bucket that bootstrap created with root and granted the API access to is usable as is —
+   * a storage with a bucket owner (SeaweedFS) answers a repeated CreateBucket with BucketAlreadyExists
+   * while a CreateBucket that races another owner after a Head 404 must still fail
    */
   async ensureBucket(): Promise<void> {
     let exists = true;

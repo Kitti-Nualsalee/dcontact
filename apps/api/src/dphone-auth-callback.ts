@@ -1,11 +1,11 @@
 /**
- * E1.13 (#487): หน้า OIDC callback ของ dphone ที่ถูกฝัง (`/dphone/auth/callback`, E1.4 #460 ข้อ 2)
+ * E1.13 (#487): the OIDC callback page of the embedded dphone (`/dphone/auth/callback`, E1.4 #460 item 2)
  *
- * popup (เปิดจาก iframe บน dphone origin เดียวกัน) กลับมาที่นี่พร้อม `code`/`state` แล้วหน้านี้:
- * - ส่งเฉพาะ `code`/`state`/`error` ไปที่ `window.opener` ด้วย `targetOrigin` = origin ของตัวเองแบบ exact
- *   (opener ต้องอยู่บน dphone origin เดียวกัน — host ภายนอกรับข้อความนี้ไม่ได้)
- * - ลบ query ออกจาก URL ทันทีแล้วปิดตัวเอง — ไม่มีการแลก token ที่นี่ (verifier อยู่ใน memory ของ iframe)
- * - CSP เข้มงวด, `frame-ancestors 'none'`, `no-store`, `Referrer-Policy: no-referrer`
+ * the popup (opened from an iframe on the same dphone origin) returns here with `code`/`state` and this page:
+ * - sends only `code`/`state`/`error` to `window.opener` with `targetOrigin` = its own origin, exactly
+ *   (the opener must be on the same dphone origin — an outside host cannot receive this message)
+ * - removes the query from the URL at once then closes itself — no token exchange happens here (the verifier is in the iframe's memory)
+ * - strict CSP, `frame-ancestors 'none'`, `no-store`, `Referrer-Policy: no-referrer`
  */
 import { randomBytes } from 'node:crypto';
 import type { ServerResponse } from 'node:http';
@@ -15,7 +15,7 @@ import { GatewayPublic } from './gateway-auth.js';
 export const DPHONE_AUTH_CALLBACK_MESSAGE = 'dphone.auth.callback';
 
 export function dphoneAuthCallbackHtml(nonce: string): string {
-  // ไม่ฝังค่าจาก request ลงใน HTML — script อ่านจาก location เองแล้วส่งเฉพาะ field ที่รู้จัก
+  // no values from the request are embedded in the HTML — the script reads from location itself and sends only known fields
   return `<!doctype html>
 <html lang="th">
 <head>
@@ -56,7 +56,7 @@ export function dphoneAuthCallbackHeaders(nonce: string): Record<string, string>
     ].join('; '),
     'referrer-policy': 'no-referrer',
     'x-content-type-options': 'nosniff',
-    // popup ต้องคุยกับ opener ได้ — ห้ามตั้ง COOP ที่ตัดความสัมพันธ์
+    // the popup must be able to talk to the opener — do not set a COOP that severs the relationship
     'cross-origin-opener-policy': 'unsafe-none',
   };
 }

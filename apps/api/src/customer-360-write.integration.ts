@@ -9,7 +9,7 @@ import { Customer360OperatorController } from './customer-360-operator-api.js';
 import { Customer360ReadController } from './customer-360-read-api.js';
 import { setup } from './customer-360-test-fixtures.js';
 
-test('production writer เปิดเฉพาะ release manifest ที่ตรง runtime, image และ lockfile', () => {
+test('the production writer is enabled only for a release manifest that matches the runtime, image and lockfile', () => {
   const parser = assertC360ContactPointRuntime();
   const imageDigest = `sha256:${'a'.repeat(64)}`;
   const release = {
@@ -53,11 +53,11 @@ test('production writer เปิดเฉพาะ release manifest ที่�
 });
 
 /** C4: public HTTP → current authorization → command/receipt → PostgreSQL RLS */
-test('Admin สร้างลูกค้าได้เมื่อมี capability; creator อ่านกลับได้และ replay ไม่สร้างซ้ำ', async (t) => {
+test('an Admin can create a customer when they have the capability; the creator can read it back and a replay does not duplicate', async (t) => {
   const f = await setup([Customer360OperatorController, Customer360ReadController]);
   t.after(() => f.close());
   const commandId = randomUUID();
-  const payload = { commandId, displayName: '  ลูกค้าทดสอบ  ', company: '  บริษัทตัวอย่าง  ' };
+  const payload = { commandId, displayName: '  Test customer  ', company: '  Example company  ' };
   const denied = await f.request('customer-360/contacts', 'admin', payload);
   assert.equal(denied.status, 403);
   const grant = await f.request('customer-360/operator/commands', 'operator', {
@@ -85,17 +85,20 @@ test('Admin สร้างลูกค้าได้เมื่อมี capa
   assert.equal(profile.status, 200);
   const contact = (profile.body as unknown as { contact: { displayName: string; company: string } })
     .contact;
-  assert.equal(contact.displayName, 'ลูกค้าทดสอบ');
-  assert.equal(contact.company, 'บริษัทตัวอย่าง');
+  assert.equal(contact.displayName, 'Test customer');
+  assert.equal(contact.company, 'Example company');
   assert.equal((await f.request(`customer-360/contacts/${id}`, 'admin-two')).status, 404);
   const replay = await f.request('customer-360/contacts', 'admin', payload);
   assert.equal(replay.status, 201);
   assert.deepEqual(replay.body, result.body);
   assert.equal(await f.owner.contact.count({ where: { id, tenantId: f.tenantId } }), 1);
-  assert.ok(!JSON.stringify(result.body).includes('ลูกค้าทดสอบ'), 'receipt ไม่มี snapshot PII');
+  assert.ok(
+    !JSON.stringify(result.body).includes('Test customer'),
+    'the receipt has no PII snapshot',
+  );
 });
 
-test('สร้างลูกค้าพร้อมเบอร์และอีเมลแบบ atomic; ข้อมูลผิดไม่สร้าง contact หรือ receipt', async (t) => {
+test('create a customer with phone and email atomically; invalid data creates no contact or receipt', async (t) => {
   const f = await setup([Customer360OperatorController, Customer360ReadController]);
   t.after(() => f.close());
   const granted = await f.request('customer-360/operator/commands', 'operator', {
@@ -122,7 +125,7 @@ test('สร้างลูกค้าพร้อมเบอร์และ�
   );
   const invalid = await f.request('customer-360/contacts', 'admin', {
     commandId: invalidCommand,
-    displayName: 'ข้อมูลไม่ถูก',
+    displayName: 'Invalid data',
     points: [{ kind: 'PHONE', value: '123' }],
   });
   assert.equal(invalid.status, 400);
@@ -135,7 +138,7 @@ test('สร้างลูกค้าพร้อมเบอร์และ�
   );
   const created = await f.request('customer-360/contacts', 'admin', {
     commandId: randomUUID(),
-    displayName: 'ลูกค้าพร้อมช่องทาง',
+    displayName: 'Customer with channels',
     vip: true,
     points: [
       { kind: 'PHONE', value: '+1 213 373 4253' },
@@ -169,7 +172,7 @@ test('สร้างลูกค้าพร้อมเบอร์และ�
   );
 });
 
-test('แก้โปรไฟล์ตรวจสิทธิ์และ revision: conflict ไม่ทับข้อมูล และ no-op ไม่เพิ่ม revision', async (t) => {
+test('profile edit checks permission and revision: a conflict does not overwrite and a no-op does not add a revision', async (t) => {
   const f = await setup([Customer360OperatorController, Customer360ReadController]);
   t.after(() => f.close());
   const grant = await f.request('customer-360/operator/commands', 'operator', {
@@ -185,7 +188,7 @@ test('แก้โปรไฟล์ตรวจสิทธิ์และ revi
   assert.equal(grant.status, 201);
   const created = await f.request('customer-360/contacts', 'admin', {
     commandId: randomUUID(),
-    displayName: 'ชื่อเดิม',
+    displayName: 'Old name',
   });
   const refs = (
     created.body as unknown as { command: { resourceRefs: { type: string; id: string }[] } }
@@ -197,7 +200,7 @@ test('แก้โปรไฟล์ตรวจสิทธิ์และ revi
     commandId,
     expectedProfileRevision: '0',
     expectedLineageRevision: '0',
-    displayName: 'ชื่อใหม่',
+    displayName: 'New name',
     vip: true,
   };
   const changed = await f.request(`customer-360/contacts/${id}`, 'admin', update, 'PATCH');
@@ -213,7 +216,7 @@ test('แก้โปรไฟล์ตรวจสิทธิ์และ revi
   const conflict = await f.request(
     `customer-360/contacts/${id}`,
     'admin',
-    { ...update, commandId: randomUUID(), displayName: 'ห้ามทับ' },
+    { ...update, commandId: randomUUID(), displayName: 'Do not overwrite' },
     'PATCH',
   );
   assert.equal(conflict.status, 409);
@@ -245,12 +248,12 @@ test('แก้โปรไฟล์ตรวจสิทธิ์และ revi
     contact: { displayName: string; vip: boolean };
     revisions: { profile: string };
   };
-  assert.equal(data.contact.displayName, 'ชื่อใหม่');
+  assert.equal(data.contact.displayName, 'New name');
   assert.equal(data.contact.vip, true);
   assert.equal(data.revisions.profile, '1');
 });
 
-test('จัดการ contact points ผ่าน command เดิม: replace เก็บประวัติและใช้ revision ปัจจุบัน', async (t) => {
+test('manage contact points through the existing command: replace keeps history and uses the current revision', async (t) => {
   const f = await setup([Customer360OperatorController, Customer360ReadController]);
   t.after(() => f.close());
   await f.request('customer-360/operator/commands', 'operator', {
@@ -265,7 +268,7 @@ test('จัดการ contact points ผ่าน command เดิม: repla
   });
   const created = await f.request('customer-360/contacts', 'admin', {
     commandId: randomUUID(),
-    displayName: 'ลูกค้าทดสอบ',
+    displayName: 'Test customer',
     points: [{ kind: 'PHONE', value: '+1 213 373 4253' }],
   });
   const refs = (
@@ -305,7 +308,7 @@ test('จัดการ contact points ผ่าน command เดิม: repla
   );
 });
 
-test('เพิ่มและยกเลิกช่องทางติดต่อด้วย revision และไม่สร้าง identity', async (t) => {
+test('add and cancel contact channels with a revision and without creating an identity', async (t) => {
   const f = await setup([Customer360OperatorController, Customer360ReadController]);
   t.after(() => f.close());
   await f.request('customer-360/operator/commands', 'operator', {
@@ -320,7 +323,7 @@ test('เพิ่มและยกเลิกช่องทางติด�
   });
   const created = await f.request('customer-360/contacts', 'admin', {
     commandId: randomUUID(),
-    displayName: 'ลูกค้าช่องทาง',
+    displayName: 'Channel customer',
   });
   const refs = (
     created.body as unknown as { command: { resourceRefs: { type: string; id: string }[] } }
@@ -361,7 +364,7 @@ test('เพิ่มและยกเลิกช่องทางติด�
   );
 });
 
-test('tag selector ใช้ catalog ที่อนุมัติแล้ว; attach/detach ตรวจ revision และไม่ attach RETIRED', async (t) => {
+test('the tag selector uses the approved catalog; attach/detach check the revision and do not attach RETIRED', async (t) => {
   const f = await setup([Customer360OperatorController, Customer360ReadController]);
   t.after(() => f.close());
   const op = (command: unknown) =>
@@ -376,13 +379,13 @@ test('tag selector ใช้ catalog ที่อนุมัติแล้ว;
     granteeUserId: f.actors.get('admin')!.id,
     capability: 'CONTACT_CREATE',
   });
-  await op({ action: 'TAG_SEED', names: ['พิเศษ'] });
+  await op({ action: 'TAG_SEED', names: ['Special'] });
   const tag = await f.owner.c360Tag.findFirstOrThrow({
-    where: { tenantId: f.tenantId, name: 'พิเศษ' },
+    where: { tenantId: f.tenantId, name: 'Special' },
   });
   const created = await f.request('customer-360/contacts', 'admin', {
     commandId: randomUUID(),
-    displayName: 'ลูกค้าแท็ก',
+    displayName: 'Tag customer',
   });
   const refs = (
     created.body as unknown as { command: { resourceRefs: { type: string; id: string }[] } }
@@ -452,7 +455,7 @@ test('tag selector ใช้ catalog ที่อนุมัติแล้ว;
   assert.equal((await f.owner.contact.findUniqueOrThrow({ where: { id } })).tagRevision, 2n);
 });
 
-test('receipt มี budget แยก; Redis ล่มกู้เฉพาะ receipt ที่ commit แล้วโดยไม่สร้าง tombstone', async (t) => {
+test('the receipt has a separate budget; a Redis outage recovers only committed receipts without creating a tombstone', async (t) => {
   let receiptMode: 'normal' | 'limited' | 'down' = 'normal';
   const limiter: import('./shared-rate-limiter.js').SharedRateLimiter = {
     async consume({ policy }) {
@@ -476,7 +479,7 @@ test('receipt มี budget แยก; Redis ล่มกู้เฉพาะ r
   const commandId = randomUUID();
   const created = await f.request('customer-360/contacts', 'admin', {
     commandId,
-    displayName: 'ลูกค้ากู้ผล',
+    displayName: 'Recovery customer',
   });
   assert.equal(created.status, 201);
   receiptMode = 'limited';
@@ -504,7 +507,7 @@ test('receipt มี budget แยก; Redis ล่มกู้เฉพาะ r
   );
 });
 
-test('profile readback ใช้ budget แยกจาก search/write และ fail closed เมื่อ Redis ใช้ไม่ได้', async (t) => {
+test('profile readback uses a budget separate from search/write and fails closed when Redis is unusable', async (t) => {
   let mode: 'limited' | 'down' = 'limited';
   const limiter: import('./shared-rate-limiter.js').SharedRateLimiter = {
     async consume({ policy }) {
@@ -525,7 +528,7 @@ test('profile readback ใช้ budget แยกจาก search/write แล�
   assert.equal(unavailable.body.error.code, 'RATE_LIMITER_UNAVAILABLE');
 });
 
-test('capability hint แสดงสร้างเฉพาะ Admin ที่ได้รับสิทธิ์และ runtime พร้อม', async (t) => {
+test('the capability hint shows create only for Admins who are granted it and when the runtime is ready', async (t) => {
   const f = await setup([Customer360OperatorController]);
   t.after(() => f.close());
   const before = await f.request('customer-360/capabilities', 'admin');
@@ -557,7 +560,7 @@ test('capability hint แสดงสร้างเฉพาะ Admin ที่
   assert.equal((supervisor.body as unknown as { writeReady: boolean }).writeReady, false);
 });
 
-test('runtime parser ไม่พร้อมปิด write hint และ route เขียน แต่ไม่ปิด navigation', async (t) => {
+test('a runtime parser that is not ready closes the write hint and the write route, but not navigation', async (t) => {
   const f = await setup([Customer360ReadController], undefined, { ready: false });
   t.after(() => f.close());
   const caps = await f.request('customer-360/capabilities', 'admin');
@@ -572,7 +575,7 @@ test('runtime parser ไม่พร้อมปิด write hint และ rout
   assert.equal((await f.request('me/navigation', 'admin')).status, 200);
 });
 
-test('capability revoke ที่ถือ User lock ก่อน create ปิดการสร้างและไม่มีผลข้างเคียง', async (t) => {
+test('a capability revoke holding the User lock before create disables creation with no side effects', async (t) => {
   const f = await setup([Customer360OperatorController, Customer360ReadController]);
   t.after(() => f.close());
   const operate = (command: unknown) =>
@@ -615,10 +618,14 @@ test('capability revoke ที่ถือ User lock ก่อน create ปิ�
           }
           await new Promise((resolve) => setTimeout(resolve, 10));
         }
-        assert.equal(waiting, true, 'operator revoke ต้องรออยู่ใน transaction จริง');
+        assert.equal(
+          waiting,
+          true,
+          'the operator revoke must be waiting inside a real transaction',
+        );
         const blocked = await f.request('customer-360/contacts', 'admin', {
           commandId: createId,
-          displayName: 'ห้ามสร้างระหว่างถอน',
+          displayName: 'No create during revoke',
         });
         assert.equal(blocked.status, 503);
       },
@@ -627,7 +634,7 @@ test('capability revoke ที่ถือ User lock ก่อน create ปิ�
     assert.equal((await revoke!).status, 201);
     const denied = await f.request('customer-360/contacts', 'admin', {
       commandId: createId,
-      displayName: 'ห้ามสร้างระหว่างถอน',
+      displayName: 'No create during revoke',
     });
     assert.equal(denied.status, 403);
     assert.equal(await f.owner.contact.count({ where: { tenantId: f.tenantId } }), baseline);
@@ -639,7 +646,7 @@ test('capability revoke ที่ถือ User lock ก่อน create ปิ�
   }
 });
 
-test('create ที่ถือ User lock ก่อน revoke commit ได้ครั้งเดียว และ revoke เดิม retry ได้', async (t) => {
+test('a create holding the User lock before the revoke commits exactly once, and the original revoke can retry', async (t) => {
   const f = await setup([Customer360OperatorController, Customer360ReadController]);
   t.after(() => f.close());
   const operate = (commandId: string, command: unknown) =>
@@ -684,7 +691,7 @@ test('create ที่ถือ User lock ก่อน revoke commit ได้�
           }
           await new Promise((resolve) => setTimeout(resolve, 10));
         }
-        assert.equal(waiting, true, 'create ต้องรออยู่ใน transaction จริง');
+        assert.equal(waiting, true, 'the create must be waiting inside a real transaction');
         const blocked = await operate(revokeId, {
           action: 'CAPABILITY_REVOKE',
           grantId: capability.id,
@@ -710,7 +717,7 @@ test('create ที่ถือ User lock ก่อน revoke commit ได้�
   }
 });
 
-test('custodian revoke ที่ได้ fence ก่อน edit ปิดการแก้โดยไม่เปลี่ยน revision', async (t) => {
+test('a custodian revoke that takes the fence before an edit disables the edit without changing the revision', async (t) => {
   const f = await setup([Customer360OperatorController, Customer360ReadController]);
   t.after(() => f.close());
   const operate = (commandId: string, command: unknown) =>
@@ -727,7 +734,7 @@ test('custodian revoke ที่ได้ fence ก่อน edit ปิดก�
   });
   const created = await f.request('customer-360/contacts', 'admin', {
     commandId: randomUUID(),
-    displayName: 'C4 สิทธิ์ก่อนแก้',
+    displayName: 'C4 permission before edit',
   });
   const refs = (
     created.body as unknown as { command: { resourceRefs: { type: string; id: string }[] } }
@@ -749,7 +756,7 @@ test('custodian revoke ที่ได้ fence ก่อน edit ปิดก�
       commandId: randomUUID(),
       expectedProfileRevision: '0',
       expectedLineageRevision: '0',
-      displayName: 'C4 ห้ามแก้',
+      displayName: 'C4 no edit',
     };
     await f.owner.$transaction(
       async (blocker) => {
@@ -780,7 +787,7 @@ test('custodian revoke ที่ได้ fence ก่อน edit ปิดก�
       404,
     );
     const contact = await f.owner.contact.findUniqueOrThrow({ where: { id } });
-    assert.equal(contact.displayName, 'C4 สิทธิ์ก่อนแก้');
+    assert.equal(contact.displayName, 'C4 permission before edit');
     assert.equal(contact.profileRevision, 0n);
   } finally {
     await f.owner.$executeRawUnsafe(
@@ -790,7 +797,7 @@ test('custodian revoke ที่ได้ fence ก่อน edit ปิดก�
   }
 });
 
-test('edit ที่ได้ fence ก่อน custodian revoke commit ได้ครั้งเดียว และ revoke เดิม retry ได้', async (t) => {
+test('an edit that takes the fence before a custodian revoke commits exactly once, and the original revoke can retry', async (t) => {
   const f = await setup([Customer360OperatorController, Customer360ReadController]);
   t.after(() => f.close());
   const operate = (commandId: string, command: unknown) =>
@@ -807,7 +814,7 @@ test('edit ที่ได้ fence ก่อน custodian revoke commit ได�
   });
   const created = await f.request('customer-360/contacts', 'admin', {
     commandId: randomUUID(),
-    displayName: 'C4 ก่อนแก้',
+    displayName: 'C4 before edit',
   });
   const refs = (
     created.body as unknown as { command: { resourceRefs: { type: string; id: string }[] } }
@@ -818,7 +825,7 @@ test('edit ที่ได้ fence ก่อน custodian revoke commit ได�
     where: { tenantId: f.tenantId, contactId: id, origin: 'CREATOR' },
   });
   await f.owner.$executeRawUnsafe(
-    `CREATE FUNCTION c4_test_hold_contact_update() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.display_name = 'C4 ชนะการแก้' THEN PERFORM pg_advisory_xact_lock(794, 504); END IF; RETURN NEW; END $$`,
+    `CREATE FUNCTION c4_test_hold_contact_update() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.display_name = 'C4 wins edit' THEN PERFORM pg_advisory_xact_lock(794, 504); END IF; RETURN NEW; END $$`,
   );
   await f.owner.$executeRawUnsafe(
     `CREATE TRIGGER c4_test_hold_contact_update BEFORE UPDATE ON contacts FOR EACH ROW EXECUTE FUNCTION c4_test_hold_contact_update()`,
@@ -836,7 +843,7 @@ test('edit ที่ได้ fence ก่อน custodian revoke commit ได�
             commandId: randomUUID(),
             expectedProfileRevision: '0',
             expectedLineageRevision: '0',
-            displayName: 'C4 ชนะการแก้',
+            displayName: 'C4 wins edit',
           },
           'PATCH',
         );
@@ -865,7 +872,7 @@ test('edit ที่ได้ fence ก่อน custodian revoke commit ได�
       201,
     );
     const contact = await f.owner.contact.findUniqueOrThrow({ where: { id } });
-    assert.equal(contact.displayName, 'C4 ชนะการแก้');
+    assert.equal(contact.displayName, 'C4 wins edit');
     assert.equal(contact.profileRevision, 1n);
   } finally {
     await f.owner.$executeRawUnsafe('DROP TRIGGER c4_test_hold_contact_update ON contacts');
@@ -873,7 +880,7 @@ test('edit ที่ได้ fence ก่อน custodian revoke commit ได�
   }
 });
 
-test('identity merge ที่ได้ fence ก่อน edit ทำให้ edit หยุดและแก้ predecessor ไม่ได้', async (t) => {
+test('an identity merge that takes the fence before an edit stops the edit, and the predecessor cannot be edited', async (t) => {
   const f = await setup([Customer360OperatorController, Customer360ReadController]);
   t.after(() => f.close());
   await f.request('customer-360/operator/commands', 'operator', {
@@ -963,7 +970,7 @@ test('identity merge ที่ได้ fence ก่อน edit ทำให้ 
   }
 });
 
-test('edit ที่ได้ identity fence ก่อน merge commit ก่อนและ merge retry สำเร็จ', async (t) => {
+test('an edit that takes the identity fence before a merge commits first and the merge retry succeeds', async (t) => {
   const f = await setup([Customer360OperatorController, Customer360ReadController]);
   t.after(() => f.close());
   await f.request('customer-360/operator/commands', 'operator', {
@@ -1047,7 +1054,7 @@ test('edit ที่ได้ identity fence ก่อน merge commit ก่อ
           (value) => ({ ok: true as const, value }),
           (error: unknown) => ({ ok: false as const, error }),
         );
-        // เปิดให้ owner เริ่มแข่ง แต่ไม่รอจนเกิน mutation transaction timeout
+        // let the owner start racing, but do not wait past the mutation transaction timeout
         await new Promise((resolve) => setTimeout(resolve, 50));
       },
       { timeout: 10000 },
@@ -1077,7 +1084,7 @@ test('edit ที่ได้ identity fence ก่อน merge commit ก่อ
   }
 });
 
-test('ครบ quota 10 ช่องทางยัง replace 10→10 ได้โดยเก็บ history และปฏิเสธเพิ่มช่องที่ 11', async (t) => {
+test('at the 10-channel quota replace 10→10 still works keeping history, and an 11th channel is rejected', async (t) => {
   const f = await setup([Customer360OperatorController, Customer360ReadController]);
   t.after(() => f.close());
   await f.request('customer-360/operator/commands', 'operator', {
@@ -1139,7 +1146,7 @@ test('ครบ quota 10 ช่องทางยัง replace 10→10 ได�
   assert.equal((await f.owner.contact.findUniqueOrThrow({ where: { id } })).profileRevision, 1n);
 });
 
-test('audit ล้มหลังสร้าง contact/point ต้อง rollback effect ทั้งหมด และ retry คำสั่งเดิมได้ครั้งเดียว', async (t) => {
+test('an audit failure after creating a contact/point must roll back the whole effect, and the original command can retry exactly once', async (t) => {
   const f = await setup([Customer360OperatorController, Customer360ReadController]);
   t.after(() => f.close());
   await f.request('customer-360/operator/commands', 'operator', {
@@ -1207,7 +1214,7 @@ test('audit ล้มหลังสร้าง contact/point ต้อง roll
   );
 });
 
-test('transaction ที่ retire tag ก่อน attach กันการเขียนซ้อนและปฏิเสธ tag ที่เลิกใช้', async (t) => {
+test('a transaction that retires a tag before attach prevents concurrent writes and rejects the retired tag', async (t) => {
   const f = await setup([Customer360OperatorController, Customer360ReadController]);
   t.after(() => f.close());
   const op = (command: unknown) =>
@@ -1240,7 +1247,7 @@ test('transaction ที่ retire tag ก่อน attach กันการเ
     attachTagIds: [tag.id],
     detachTagIds: [],
   };
-  // ยังไม่มี production owner command สำหรับ TAG_RETIRE; ทดสอบเฉพาะ row lock ของ DB owner ที่รอ command นั้นในอนาคต
+  // there is no production owner command for TAG_RETIRE yet; this tests only the row lock of the DB owner that awaits that command in future
   await f.owner.$transaction(
     async (owner) => {
       await owner.c360Tag.update({

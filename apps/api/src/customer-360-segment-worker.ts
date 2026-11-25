@@ -23,7 +23,7 @@ import { startBackgroundLoop, type BackgroundLoop } from './background-loop.js';
 type Log = (entry: Record<string, unknown>) => void;
 const defaultLog: Log = (entry) => console.log(JSON.stringify(entry));
 
-/** จำนวนงานต่อ tenant ต่อรอบ: จำกัดเวลาที่ loop ถือ DB โดยไม่ต้องมีคิวแยก */
+/** jobs per tenant per round: bounds the time the loop holds the DB without needing a separate queue */
 const EVALUATE_PER_TENANT = 100;
 const PUBLISH_PER_TENANT = 200;
 
@@ -38,17 +38,17 @@ export interface C360SegmentWorkerOptions {
   log?: Log;
   evaluateIntervalMs?: number;
   publishIntervalMs?: number;
-  /** backoff ก่อนลองเชื่อม Kafka ใหม่ (ms) ตามจำนวนครั้งที่ล้ม */
+  /** backoff before retrying the Kafka connection (ms) by number of failures */
   reconnectDelayMs?: (failures: number) => number;
-  /** แทนที่ได้ใน test; ค่าเริ่มต้นเปิด IAM consumer (พร้อมก่อน) แล้ว producer ของ relay */
+  /** replaceable in tests; the default starts the IAM consumer (ready first) then the relay's producer */
   connectKafka?: () => Promise<C360SegmentKafka>;
-  /** แทนที่ได้ใน test */
+  /** replaceable in tests */
   runtime?: Pick<C360SegmentRuntime, 'evaluatePending'>;
 }
 
 export interface C360SegmentWorker {
   evaluateOnce(): Promise<boolean>;
-  /** false เมื่อยังไม่มี Kafka หรือรอบนั้นล้ม */
+  /** false when there is no Kafka yet or that round failed */
   publishOnce(): Promise<boolean>;
   readonly kafkaConnected: boolean;
   stop(): Promise<void>;
@@ -71,7 +71,7 @@ async function connectDefaultKafka(
       groupId: env.IAM_SEGMENT_PROJECTION_GROUP_ID ?? 'dcontact-iam-segment-projection-v1',
       dlq,
     });
-    // consumer ต้องพร้อมก่อน relay ส่ง event แรก (group ใหม่เริ่มที่ offset ล่าสุด)
+    // the consumer must be ready before the relay sends the first event (a new group starts at the latest offset)
     await consumer.ready();
     producer = await createProducer('dcontact-api-c360-segment-relay');
   } catch (error) {
@@ -92,9 +92,9 @@ async function connectDefaultKafka(
 }
 
 /**
- * #911: ประเมิน segment ระบบ → outbox → Kafka `dc.customer.events` → IAM projection ใน process ของ API
- * evaluator ใช้แค่ DB จึงเริ่มทันที ส่วน Kafka (relay + IAM consumer) เชื่อมแบบ retry/backoff
- * ทุกขั้นล้มได้โดยไม่ทำให้ API ล้ม ปิดทั้งหมดด้วย `C360_SEGMENT_WORKER=off`
+ * #911: evaluate the system segment → outbox → Kafka `dc.customer.events` → IAM projection inside the API process
+ * the evaluator uses only the DB so it starts at once, while Kafka (the relay + IAM consumer) connects with retry/backoff
+ * every step may fail without making the API fail, and all of it is turned off with `C360_SEGMENT_WORKER=off`
  */
 export function startC360SegmentWorker(
   options: C360SegmentWorkerOptions,
@@ -167,7 +167,7 @@ export function startC360SegmentWorker(
       });
       log({ event: 'c360.segment_worker.kafka_connected', failures });
     } catch (error) {
-      // ไม่ log message: อาจมี connection detail; ชื่อ error พอสำหรับวินิจฉัย
+      // the message is not logged: it may contain connection detail; the error name is enough for diagnosis
       log({
         event: 'c360.segment_worker.kafka_connect_failed',
         error: error instanceof Error ? error.name : 'Unknown',

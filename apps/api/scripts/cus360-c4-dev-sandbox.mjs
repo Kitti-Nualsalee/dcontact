@@ -1,4 +1,4 @@
-/** Local dev trial แยก: Chrome/Edge + Keycloak จริง + Redis + PostgreSQL/RLS */
+/** a separate local dev trial: Chrome/Edge + real Keycloak + Redis + PostgreSQL/RLS */
 import { execFileSync, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -18,13 +18,13 @@ let interrupted;
 let interruptedChildPid;
 let escalation;
 let completed = false;
-// คง event loop ระหว่าง fetch readiness และ top-level await แม้ socket ของ runtime ถูก unref
+// keep the event loop alive between the readiness fetch and the top-level await even when the runtime socket is unref'd
 const keepAlive = setInterval(() => {}, 1000);
 const stopGroup = (pid, signal) => {
   try {
     process.kill(-pid, signal);
   } catch {
-    /* process อาจจบแล้ว */
+    /* the process may already have ended */
   }
 };
 for (const signal of ['SIGINT', 'SIGTERM'])
@@ -65,7 +65,7 @@ async function ready(check, attempts = 120) {
     try {
       if (await check()) return;
     } catch {
-      /* service ยังไม่พร้อม */
+      /* the service is not ready yet */
     }
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
@@ -175,7 +175,7 @@ try {
     env,
   );
   await run('pnpm', ['--filter', '@d-contact/api', 'test:customer-360-m1-c4:race'], env);
-  // แต่ละ browser/รอบเริ่ม server และ fixture ใหม่: suite มี mutation ที่ต้องไม่รั่วข้ามรอบ
+  // each browser/round starts a new server and fixture: the suite has mutations that must not leak across rounds
   for (const browser of ['chrome', 'edge']) {
     for (let round = 1; round <= 2; round++) {
       const trialEnv = {
@@ -214,7 +214,7 @@ try {
     try {
       execFileSync('docker', ['rm', '-f', name], { cwd: root, stdio: 'ignore', timeout: 5000 });
     } catch {
-      /* ตรวจสถานะซ้ำด้านล่าง: container อาจถูกลบแล้ว */
+      /* check the status again below: the container may already be removed */
     }
     try {
       execFileSync('docker', ['inspect', name], { cwd: root, stdio: 'pipe', timeout: 5000 });
@@ -225,7 +225,7 @@ try {
     }
   }
   if (cleanupFailures.length) {
-    console.error('C360 sandbox cleanup ไม่สำเร็จ', { containers: cleanupFailures });
+    console.error('C360 sandbox cleanup failed', { containers: cleanupFailures });
     if (!interrupted) process.exitCode = 1;
   } else if (completed && !interrupted) console.log('C360_C4_LOCAL_DEV_TRIAL_PASS');
 }

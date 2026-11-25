@@ -2,14 +2,14 @@ import { findTenantConfigurationActor } from './tenant-config-identity.js';
 import { findCatalogActor } from './tenant-voice-catalog.js';
 import { voiceCatalogCaller, type VoiceCaller } from './tenant-voice-identity.js';
 /**
- * D1.12 (#451): Navigation API ของ app shell (Phase Contract D1.8 #428, D1.2 #422)
+ * D1.12 (#451): the Navigation API of the app shell (Phase Contract D1.8 #428, D1.2 #422)
  *
- * - `GET  /api/v1/me/navigation`                แอปที่มองเห็น + หมุดที่มีผล
- * - `PUT  /api/v1/me/navigation/pins`            หมุดของผู้ใช้ (≤15, เฉพาะแอปที่มองเห็น, expectedRevision)
- * - `PUT  /api/v1/tenant/navigation/default-pins` ชุดเริ่มต้นของ tenant (ADMIN เท่านั้น + audit)
+ * - `GET  /api/v1/me/navigation`                the visible apps + the effective pins
+ * - `PUT  /api/v1/me/navigation/pins`            the user's pins (≤15, only visible apps, expectedRevision)
+ * - `PUT  /api/v1/tenant/navigation/default-pins` the tenant's starter set (ADMIN only + audit)
  *
- * tenant/actor/role มาจาก bearer token เท่านั้น และทุก query อยู่ใน tenant transaction (RLS, ADR-005)
- * error envelope เดียวกับ API อื่น: `{ code, safeParams? }`
+ * tenant/actor/role come only from the bearer token and every query runs in a tenant transaction (RLS, ADR-005)
+ * the same error envelope as other APIs: `{ code, safeParams? }`
  */
 import {
   Body,
@@ -57,7 +57,7 @@ export interface NavigationV1 {
     hostApp: NavigationHostApp;
     path: string;
   }[];
-  /** #651: พื้นที่งานบน rail + เมนูย่อย (อ้างรายการด้วย `appId` ใน `apps`) — คัดตาม role/plan แล้ว พื้นที่ว่างไม่ส่ง */
+  /** #651: work areas on the rail + submenu (items refer to apps by `appId` in `apps`) — already filtered by role/plan, empty areas are not sent */
   areas: {
     id: string;
     labelKey: string;
@@ -68,10 +68,10 @@ export interface NavigationV1 {
     }[];
   }[];
   pins: { appIds: string[]; source: PinSource; revision: number };
-  /** เฉพาะผู้เรียกที่เป็น ADMIN — ใช้ตั้ง expectedRevision ของชุดเริ่มต้น */
+  /** only for callers who are ADMIN — used to set expectedRevision of the starter set */
   tenantDefaultPins?: { appIds: string[]; revision: number };
   limits: { maxPins: number };
-  /** D1.13 (#452): UI flag ระดับ tenant — platform operator เป็นผู้เปลี่ยน; อ่านตอนโหลดหน้าเท่านั้น */
+  /** D1.13 (#452): a tenant-level UI flag — the platform operator changes it; read only when the page loads */
   features: { shellV2: boolean };
 }
 
@@ -86,7 +86,7 @@ function fail(code: NavigationErrorCode, status: number, safeParams?: Record<str
 
 const APP_ID = /^[a-z][a-z0-9-]{1,47}$/;
 
-/** body เข้มงวด: มีแค่ `appIds` กับ `expectedRevision` */
+/** a strict body: only `appIds` and `expectedRevision` */
 export function parsePinsBody(body: unknown): { appIds: string[]; expectedRevision: number } {
   if (typeof body !== 'object' || body === null || Array.isArray(body)) {
     throw fail('REQUEST_MALFORMED', 400, { field: 'body' });
@@ -95,7 +95,7 @@ export function parsePinsBody(body: unknown): { appIds: string[]; expectedRevisi
   const extra = Object.keys(record).find((key) => key !== 'appIds' && key !== 'expectedRevision');
   if (extra) throw fail('REQUEST_MALFORMED', 400, { field: extra });
   const { appIds, expectedRevision } = record;
-  // จำกัดขนาดก่อนตรวจรายตัว — 422 เฉพาะความยาวเกินเพดาน ส่วน payload ใหญ่ผิดปกติเป็น 400
+  // limit the size before per-item checks — 422 only for a length over the cap, while an abnormally large payload is 400
   if (
     !Array.isArray(appIds) ||
     appIds.length > 256 ||
@@ -252,7 +252,7 @@ export class NavigationController {
             }
           : {}),
         limits: { maxPins: MAX_PINS },
-        // ไม่มีแถว = ปิด (Phase Contract: flag ปิดโดย default)
+        // no row = off (Phase Contract: the flag is off by default)
         features: { shellV2: shellFlag?.enabled === true },
       };
     });
@@ -278,7 +278,7 @@ export class NavigationController {
 
         const revision = expectedRevision + 1;
         if (expectedRevision === 0) {
-          // สร้างแถวแรก: ชนกับคำขอพร้อมกันจะได้ unique violation → REVISION_CONFLICT
+          // create the first row: colliding with a concurrent request gets a unique violation → REVISION_CONFLICT
           await tx.navigationUserPins.create({ data: { tenantId, userId, appIds, revision } });
         } else {
           const updated = await tx.navigationUserPins.updateMany({
@@ -329,7 +329,7 @@ export class NavigationController {
             data: { appIds, revision, updatedByUserId: userId, updatedAt: new Date() },
           });
           if (updated.count === 0) {
-            // อ่านใหม่หลังชน — `before` อาจเก่าถ้า admin อีกคน commit ระหว่างทาง
+            // read again after a collision — `before` may be stale if another admin committed in the meantime
             const current = await tx.navigationTenantDefaultPins.findUnique({
               where: { tenantId },
               select: { revision: true },

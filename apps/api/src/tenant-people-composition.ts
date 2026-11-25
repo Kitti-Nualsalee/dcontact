@@ -28,7 +28,7 @@ function parsePeopleConfiguration(environment: NodeJS.ProcessEnv, request: typeo
   if (disableFlag !== undefined && !['true', 'false'].includes(disableFlag))
     throw new Error('INVALID_PEOPLE_CONFIGURATION');
   const disableEnabled = disableFlag === 'true';
-  // #998 1B/2: แก้ชื่อและเปิดบัญชีกลับ ปิดโดยปริยายจนกว่า extension ที่มี accountReady จะ deploy
+  // #998 1B/2: rename and re-enable are off by default until an extension with accountReady is deployed
   const accountFlag = environment.TENANT_PEOPLE_ACCOUNT_CHANGES_ENABLED;
   if (accountFlag !== undefined && !['true', 'false'].includes(accountFlag))
     throw new Error('INVALID_PEOPLE_CONFIGURATION');

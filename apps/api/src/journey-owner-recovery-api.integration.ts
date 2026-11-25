@@ -1,9 +1,9 @@
 /**
  * J2.8 follow-up (#136) — admin recovery API
  *
- * ครอบ acceptance ที่ #136 ระบุไว้: บังคับ `Idempotency-Key`/`expectedVersion`/structured
- * reason, generic cross-tenant `404 RESOURCE_NOT_FOUND`, forensic view ไม่เปิด payload
- * และ blind retry ถูกปฏิเสธ
+ * covers the acceptance that #136 states: enforce `Idempotency-Key`/`expectedVersion`/structured
+ * reason, generic cross-tenant `404 RESOURCE_NOT_FOUND`, a forensic view that does not expose the payload
+ * and a blind retry is rejected
  */
 import 'reflect-metadata';
 import assert from 'node:assert/strict';
@@ -65,7 +65,7 @@ async function harness(t: TestContext) {
       if (token === 'admin-token') return claims(['admin'], tenantId);
       if (token === 'agent-token') return claims(['agent'], tenantId);
       if (token === 'other-tenant-admin') return claims(['admin'], otherTenantId);
-      throw new Error('token ไม่ถูกต้อง');
+      throw new Error('invalid token');
     },
   };
 
@@ -108,7 +108,7 @@ async function harness(t: TestContext) {
       requestHash: 'a'.repeat(64),
       correlationId: 'corr-seed',
       commandId: randomUUID(),
-      commandPayload: { secretBusinessField: 'ห้ามหลุดออก API' },
+      commandPayload: { secretBusinessField: 'must not leak out of the API' },
     });
     return action;
   }
@@ -132,7 +132,7 @@ async function harness(t: TestContext) {
   return { owner, application, tenantId, otherTenantId, adminUserId, repository, seedAction, call };
 }
 
-test('query คืนเฉพาะ metadata ที่ sanitized แล้ว ไม่มี payload หรือ hash หลุด', async (t) => {
+test('the query returns only already sanitized metadata, with no payload or hash leaking', async (t) => {
   const h = await harness(t);
   const actionKey = `action-${randomUUID()}`;
   await h.seedAction(h.tenantId, actionKey);
@@ -141,8 +141,12 @@ test('query คืนเฉพาะ metadata ที่ sanitized แล้ว �
   assert.equal(response.status, 200);
   const raw = await response.text();
 
-  assert.equal(raw.includes('ห้ามหลุดออก API'), false, 'command payload ต้องไม่หลุดออก API');
-  assert.equal(raw.includes('a'.repeat(64)), false, 'requestHash ต้องไม่หลุดออก API');
+  assert.equal(
+    raw.includes('must not leak out of the API'),
+    false,
+    'the command payload must not leak out of the API',
+  );
+  assert.equal(raw.includes('a'.repeat(64)), false, 'requestHash must not leak out of the API');
 
   const view = JSON.parse(raw) as { actionKey: string; state: string; version: number };
   assert.equal(view.actionKey, actionKey);
@@ -150,7 +154,7 @@ test('query คืนเฉพาะ metadata ที่ sanitized แล้ว �
   assert.equal(view.version, 1);
 });
 
-test('role ที่ไม่ใช่ admin/compliance เข้าไม่ได้', async (t) => {
+test('a role that is not admin/compliance cannot enter', async (t) => {
   const h = await harness(t);
   const actionKey = `action-${randomUUID()}`;
   await h.seedAction(h.tenantId, actionKey);
@@ -158,7 +162,7 @@ test('role ที่ไม่ใช่ admin/compliance เข้าไม่ไ
   assert.equal((await h.call('GET', actionKey, 'agent-token')).status, 403);
 });
 
-test('action ของ tenant อื่นตอบ 404 RESOURCE_NOT_FOUND เหมือนที่ไม่เคยมีอยู่จริง', async (t) => {
+test('an action of another tenant answers 404 RESOURCE_NOT_FOUND just like one that never existed', async (t) => {
   const h = await harness(t);
   const foreignKey = `action-${randomUUID()}`;
   await h.seedAction(h.otherTenantId, foreignKey);
@@ -169,11 +173,11 @@ test('action ของ tenant อื่นตอบ 404 RESOURCE_NOT_FOUND เ�
 
   assert.equal(foreign.status, 404);
   assert.equal(missing.status, 404);
-  // ต้องแยกไม่ออกจริง ๆ ทั้ง status และ body
+  // it must be genuinely indistinguishable in both status and body
   assert.deepEqual(await foreign.json(), await missing.json());
 });
 
-test('mutation ที่ไม่มี Idempotency-Key, expectedVersion หรือ reasonCode ถูกปฏิเสธ', async (t) => {
+test('a mutation without Idempotency-Key, expectedVersion or reasonCode is rejected', async (t) => {
   const h = await harness(t);
   const actionKey = `action-${randomUUID()}`;
   await h.seedAction(h.tenantId, actionKey);
@@ -191,7 +195,7 @@ test('mutation ที่ไม่มี Idempotency-Key, expectedVersion หร�
   });
   const freeTextReason = await h.call('POST', `${actionKey}/replay`, 'admin-token', {
     idempotencyKey: randomUUID(),
-    body: { expectedVersion: 1, reasonCode: 'ลูกค้าโทรมาบอกว่าไม่ได้รับ' },
+    body: { expectedVersion: 1, reasonCode: 'Customer called to say they did not receive it' },
   });
 
   assert.equal(noKey.status, 400);
@@ -201,7 +205,7 @@ test('mutation ที่ไม่มี Idempotency-Key, expectedVersion หร�
   assert.equal(await h.owner.jrRecoveryAudit.count({ where: { tenantId: h.tenantId } }), 0);
 });
 
-test('replay ด้วย expectedVersion ที่ไม่ตรงถูกปฏิเสธเป็น 409 — blind retry ทำไม่ได้', async (t) => {
+test('a replay with a mismatched expectedVersion is rejected as 409 — a blind retry is impossible', async (t) => {
   const h = await harness(t);
   const actionKey = `action-${randomUUID()}`;
   const action = await h.seedAction(h.tenantId, actionKey);
@@ -224,7 +228,7 @@ test('replay ด้วย expectedVersion ที่ไม่ตรงถูก�
   assert.equal(await h.owner.jrRecoveryAudit.count({ where: { tenantId: h.tenantId } }), 0);
 });
 
-test('replay ที่ version ตรงคืน command เข้าคิวด้วย commandId เดิม และบันทึก audit', async (t) => {
+test('a replay with a matching version returns a queued command with the original commandId and records an audit', async (t) => {
   const h = await harness(t);
   const actionKey = `action-${randomUUID()}`;
   await h.seedAction(h.tenantId, actionKey);
@@ -240,7 +244,7 @@ test('replay ที่ version ตรงคืน command เข้าคิว�
 
   assert.equal(response.status, 201);
   const result = (await response.json()) as { replayedCommandIds: string[]; version: number };
-  // commandId เดิมถูก reuse — owner dedupe ได้ ไม่ใช่ effect ใหม่
+  // the original commandId is reused — the owner can dedupe, it is not a new effect
   assert.deepEqual(result.replayedCommandIds, [command.commandId]);
   assert.equal(result.version, 3);
 
@@ -259,7 +263,7 @@ test('replay ที่ version ตรงคืน command เข้าคิว�
   assert.equal(audit.evidenceRef, 'replay-key-1');
 });
 
-test('cancel ผ่าน API ของ action ที่ command ยังไม่ออกจาก Journey ยกเลิกในบ้านและ audit เป็น CANCEL', async (t) => {
+test('cancel via the API of an action whose command has not left the Journey cancels in-house and audits as CANCEL', async (t) => {
   const h = await harness(t);
   const actionKey = `action-${randomUUID()}`;
   await h.seedAction(h.tenantId, actionKey);
@@ -288,7 +292,7 @@ test('cancel ผ่าน API ของ action ที่ command ยังไม
   assert.equal(audit.reasonCode, 'OPERATOR_ABORT');
 });
 
-test('reconcile บันทึก audit โดยไม่แตะ canonical state', async (t) => {
+test('reconcile records an audit without touching the canonical state', async (t) => {
   const h = await harness(t);
   const actionKey = `action-${randomUUID()}`;
   await h.seedAction(h.tenantId, actionKey);
@@ -311,7 +315,7 @@ test('reconcile บันทึก audit โดยไม่แตะ canonical s
   assert.equal(audit.operation, 'RECONCILE');
 });
 
-test('mutation ข้าม tenant ตอบ 404 และไม่เขียน audit ให้ tenant เจ้าของจริง', async (t) => {
+test('a cross-tenant mutation answers 404 and writes no audit for the real owner tenant', async (t) => {
   const h = await harness(t);
   const actionKey = `action-${randomUUID()}`;
   await h.seedAction(h.tenantId, actionKey);

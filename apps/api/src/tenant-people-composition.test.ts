@@ -28,7 +28,7 @@ test('People composition defaults off without opening a database connection', as
   assert.equal(await configuredPeopleRuntime({}).isReady(tenantId), false);
 });
 
-test('People binding เปิด backchannel เฉพาะ Keycloak ภายใน realm เดิมโดยคง issuer และ default-off', () => {
+test('the People binding opens the backchannel only to Keycloak within the same realm while keeping the issuer and default-off', () => {
   const configuration = peopleConfiguration({
     ...environment,
     TENANT_PEOPLE_BINDINGS_JSON: JSON.stringify([
@@ -54,7 +54,7 @@ test('People binding เปิด backchannel เฉพาะ Keycloak ภาย
     );
 });
 
-test('composition ใช้ backchannel เดียวกันกับ provisioning/invitation/disable readiness', async () => {
+test('composition uses the same backchannel as provisioning/invitation/disable readiness', async () => {
   const calls: string[] = [];
   const originalFetch = globalThis.fetch;
   let configuration: ReturnType<typeof peopleConfiguration>;
@@ -87,7 +87,7 @@ test('composition ใช้ backchannel เดียวกันกับ provis
   assert.equal(calls.length, 6);
 });
 
-test('disable ต้อง opt in และมี flush port ก่อนประกอบ runtime', () => {
+test('disable must opt in and have a flush port before the runtime is composed', () => {
   assert.equal(peopleConfiguration(environment)?.disableEnabled, false);
   assert.throws(() => peopleConfiguration({ TENANT_PEOPLE_DISABLE_ENABLED: 'true' }));
   assert.throws(() =>

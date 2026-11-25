@@ -1,14 +1,14 @@
 /**
- * S2.5 (#369): `POST /webhook/line` — public HTTP เดียวของ S2 (#362 §4)
+ * S2.5 (#369): `POST /webhook/line` — the single public HTTP of S2 (#362 §4)
  *
- * controller ทำแค่สามอย่าง: หยิบ raw bytes, ส่งให้ ingress ของ owner และแปลงผลเป็น HTTP status
- * การ verify signature, dedupe, persist และตัดสิน code ทั้งหมดอยู่ใน `LineWebhookIngress`
+ * the controller does only three things: take the raw bytes, hand them to the owner's ingress and map the result to an HTTP status
+ * signature verification, dedupe, persistence and deciding the code all live in `LineWebhookIngress`
  *
- * - ไม่มี bearer token: provider ไม่ได้ถือ token ของเรา authority คือ HMAC บน raw body (#359 §B)
- *   route จึงประกาศ `@GatewayPublic()` และ ingress verify เองก่อนแตะ payload
- * - ต้องใช้ raw body ที่ไม่ถูก reserialize — `main.ts` เปิด `rawBody: true` ให้ Nest เก็บไว้
- * - ห้าม log signature/body และไม่คืนรายละเอียดของ payload กลับไปให้ผู้เรียก
- * - singleton binding ของ S2 เท่านั้น; production multi-account ต้องเปลี่ยนเป็น opaque endpoint key
+ * - no bearer token: the provider does not hold our token, the authority is an HMAC over the raw body (#359 §B)
+ *   so the route declares `@GatewayPublic()` and the ingress verifies itself before touching the payload
+ * - needs a raw body that is not reserialized — `main.ts` turns on `rawBody: true` for Nest to keep it
+ * - never log the signature/body and never return payload details to the caller
+ * - the S2 singleton binding only; production multi-account must change to an opaque endpoint key
  */
 import { Controller, HttpCode, Inject, Post, Req, Res } from '@nestjs/common';
 import type { LineWebhookIngress } from '@d-contact/delivery';
@@ -43,7 +43,7 @@ export class LineWebhookController {
       signature: Array.isArray(signature) ? signature[0] : signature,
       receivedAt: new Date(),
     });
-    // ตอบเฉพาะ machine code — ไม่มี event ID, payload หรือเหตุผลเชิงเนื้อหากลับไปหาผู้เรียก
+    // answers only a machine code — no event ID, payload or content-level reason goes back to the caller
     response.status(result.status).json({ code: result.code });
   }
 }

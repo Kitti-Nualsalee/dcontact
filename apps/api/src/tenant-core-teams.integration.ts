@@ -4,14 +4,14 @@ import test from 'node:test';
 import { withTenantDatabaseTransaction } from '@d-contact/db';
 import { coreFixture } from './tenant-core-test-fixtures.js';
 
-test('ทีม: Admin สร้างผ่าน HTTP แล้วอ่านกลับ UUID เดิมและ revision1 โดยไม่เปิด Voice policy', async (t) => {
+test('Team: an Admin creates via HTTP and reads back the same UUID and revision 1 without enabling a Voice policy', async (t) => {
   const f = await coreFixture();
   t.after(() => f.close());
   const teamId = randomUUID();
   const result = await f.request('tenant/core-settings/teams', 'admin', {
     commandId: randomUUID(),
     teamId,
-    name: ' ทีมบริการใหม่ ',
+    name: ' New service team ',
   });
   assert.equal(result.status, 201);
   assert.equal(result.body.command.outcome, 'APPLIED');
@@ -19,17 +19,17 @@ test('ทีม: Admin สร้างผ่าน HTTP แล้วอ่าน
   assert.equal(read.status, 200);
   assert.deepEqual((read.body as unknown as { team: unknown }).team, {
     id: teamId,
-    name: 'ทีมบริการใหม่',
+    name: 'New service team',
     isActive: true,
     revision: '1',
   });
 });
 
-test('ทีม: เปลี่ยนชื่อด้วย CAS และ replay เดิม ไม่เพิ่ม revision เมื่อ no-op และปฏิเสธ revision เก่า', async (t) => {
+test('Team: rename with CAS and replay of the original, no revision increase on a no-op, and an old revision is rejected', async (t) => {
   const f = await coreFixture();
   t.after(() => f.close());
   const path = `tenant/core-settings/teams/${f.teamId}`;
-  const body = { commandId: randomUUID(), expectedRevision: '1', patch: { name: 'ทีมดูแลใหม่' } };
+  const body = { commandId: randomUUID(), expectedRevision: '1', patch: { name: 'New care team' } };
   const changed = await f.request(path, 'admin', body, 'PATCH');
   assert.equal(changed.status, 200);
   assert.equal(changed.body.command.committedRevision, '2');
@@ -48,13 +48,13 @@ test('ทีม: เปลี่ยนชื่อด้วย CAS และ rep
   const read = await f.request(path);
   assert.deepEqual((read.body as unknown as { team: unknown }).team, {
     id: f.teamId,
-    name: 'ทีมดูแลใหม่',
+    name: 'New care team',
     isActive: true,
     revision: '2',
   });
 });
 
-test('ทีม: รายการ UUID keyset มี signed cursor ผูก tenant/live scope และ Supervisor เห็นทีมตนเอง', async (t) => {
+test('Team: the UUID keyset list has a signed cursor bound to tenant/live scope and a Supervisor sees their own team', async (t) => {
   const f = await coreFixture();
   t.after(() => f.close());
   for (let i = 0; i < 2; i++)
@@ -63,7 +63,7 @@ test('ทีม: รายการ UUID keyset มี signed cursor ผูก t
         await f.request('tenant/core-settings/teams', 'admin', {
           commandId: randomUUID(),
           teamId: randomUUID(),
-          name: `ทีม ${i}`,
+          name: `Team ${i}`,
         })
       ).status,
       201,
@@ -96,7 +96,7 @@ test('ทีม: รายการ UUID keyset มี signed cursor ผูก t
   assert.equal(invalid.status, 400);
 });
 
-test('ทีม DB: no-op DML หลัง Core command ไม่เพิ่ม revision และไม่บังคับ receipt เก่าซ้ำ', async (t) => {
+test('Team DB: a no-op DML after a Core command does not increase the revision and does not force an old receipt again', async (t) => {
   const f = await coreFixture();
   t.after(() => f.close());
   const teamId = randomUUID();
@@ -105,25 +105,25 @@ test('ทีม DB: no-op DML หลัง Core command ไม่เพิ่ม
       await f.request('tenant/core-settings/teams', 'admin', {
         commandId: randomUUID(),
         teamId,
-        name: 'ชื่อเดิม',
+        name: 'Old name',
       })
     ).status,
     201,
   );
   await withTenantDatabaseTransaction(f.db, f.tenantId, (tx) =>
-    tx.team.update({ where: { id: teamId }, data: { name: 'ชื่อเดิม' } }),
+    tx.team.update({ where: { id: teamId }, data: { name: 'Old name' } }),
   );
   const renamed = await f.request(
     `tenant/core-settings/teams/${teamId}`,
     'admin',
-    { commandId: randomUUID(), expectedRevision: '1', patch: { name: 'ชื่อใหม่' } },
+    { commandId: randomUUID(), expectedRevision: '1', patch: { name: 'New name' } },
     'PATCH',
   );
   assert.equal(renamed.status, 200);
   assert.equal(renamed.body.command.committedRevision, '2');
 });
 
-test('ทีม DB: app ลบ UUID หรือแก้ metadata revision และเปลี่ยนชื่อโดยไม่มี effect receipt ไม่ได้', async (t) => {
+test('Team DB: the app cannot delete a UUID, edit revision metadata or rename without an effect receipt', async (t) => {
   const f = await coreFixture();
   t.after(() => f.close());
   const teamId = randomUUID();
@@ -132,7 +132,7 @@ test('ทีม DB: app ลบ UUID หรือแก้ metadata revision แ�
       await f.request('tenant/core-settings/teams', 'admin', {
         commandId: randomUUID(),
         teamId,
-        name: 'เก็บ UUID เดิม',
+        name: 'Keep original UUID',
       })
     ).status,
     201,
@@ -151,22 +151,22 @@ test('ทีม DB: app ลบ UUID หรือแก้ metadata revision แ�
   );
   await assert.rejects(
     withTenantDatabaseTransaction(f.db, f.tenantId, (tx) =>
-      tx.team.update({ where: { id: teamId }, data: { name: 'ห้ามเปลี่ยนทางลัด' } }),
+      tx.team.update({ where: { id: teamId }, data: { name: 'No shortcut rename' } }),
     ),
     /CORE_TEAM_EFFECT_RECEIPT_REQUIRED/,
   );
   assert.deepEqual(
     ((await f.request(`tenant/core-settings/teams/${teamId}`)).body as unknown as { team: unknown })
       .team,
-    { id: teamId, name: 'เก็บ UUID เดิม', isActive: true, revision: '1' },
+    { id: teamId, name: 'Keep original UUID', isActive: true, revision: '1' },
   );
 });
 
-test('ทีม: ปิดทีมว่างด้วย CAS เก็บ receipt/audit แล้ว replay/no-op ได้; ยังเปลี่ยนชื่อทีมปิดได้', async (t) => {
+test('Team: deactivate an empty team with CAS, keep receipt/audit, then replay/no-op works; a deactivated team can still be renamed', async (t) => {
   const f = await coreFixture();
   t.after(() => f.close());
   const teamId = randomUUID();
-  const create = { commandId: randomUUID(), teamId, name: 'ทีมพร้อมปิด' };
+  const create = { commandId: randomUUID(), teamId, name: 'Team ready to close' };
   assert.equal((await f.request('tenant/core-settings/teams', 'admin', create)).status, 201);
   const path = `tenant/core-settings/teams/${teamId}`;
   const body = { commandId: randomUUID(), expectedRevision: '1' };
@@ -191,14 +191,18 @@ test('ทีม: ปิดทีมว่างด้วย CAS เก็บ rec
   const renamed = await f.request(
     path,
     'admin',
-    { commandId: randomUUID(), expectedRevision: '2', patch: { name: 'ทีมปิดเปลี่ยนชื่อได้' } },
+    {
+      commandId: randomUUID(),
+      expectedRevision: '2',
+      patch: { name: 'Closed team can be renamed' },
+    },
     'PATCH',
   );
   assert.equal(renamed.status, 200);
   const read = await f.request(path);
   assert.deepEqual((read.body as unknown as { team: unknown }).team, {
     id: teamId,
-    name: 'ทีมปิดเปลี่ยนชื่อได้',
+    name: 'Closed team can be renamed',
     isActive: false,
     revision: '3',
   });
@@ -210,7 +214,7 @@ test('ทีม: ปิดทีมว่างด้วย CAS เก็บ rec
   );
 });
 
-test('ทีม: ปิดทีมที่มี User รวม inactive ไม่ได้ เก็บ rejection เดิม และส่งเฉพาะชนิดกับจำนวน', async (t) => {
+test('Team: cannot deactivate a team that has Users including inactive ones, keeps the original rejection, and sends only the kind and count', async (t) => {
   const f = await coreFixture();
   t.after(() => f.close());
   const path = `tenant/core-settings/teams/${f.teamId}/deactivate`;
@@ -234,7 +238,7 @@ test('ทีม: ปิดทีมที่มี User รวม inactive ไ�
   assert.equal((await f.owner.team.findUniqueOrThrow({ where: { id: f.teamId } })).isActive, true);
 });
 
-test('ทีม: unknown legacy ระงับเฉพาะปิดทีม; create/rename ทำได้ และ inactive no-op ไม่ตรวจ closure ซ้ำ', async (t) => {
+test('Team: unknown legacy suppresses only deactivation; create/rename work and an inactive no-op does not recheck the closure', async (t) => {
   const f = await coreFixture();
   t.after(() => f.close());
   const teamId = randomUUID();
@@ -243,7 +247,7 @@ test('ทีม: unknown legacy ระงับเฉพาะปิดทีม
       await f.request('tenant/core-settings/teams', 'admin', {
         commandId: randomUUID(),
         teamId,
-        name: 'ทีมเก่า',
+        name: 'Old team',
       })
     ).status,
     201,
@@ -258,7 +262,7 @@ test('ทีม: unknown legacy ระงับเฉพาะปิดทีม
     ).status,
     200,
   );
-  // owner-only fault fixture แทน legacy current work ที่มีอยู่ก่อน guard; ไม่มี self-attestation ใน API
+  // owner-only fault fixture standing in for legacy current work that existed before the guard; there is no self-attestation in the API
   await f.owner.$transaction(async (tx) => {
     await tx.$executeRawUnsafe("SET LOCAL session_replication_role='replica'");
     await tx.jrEnrollment.create({
@@ -277,7 +281,7 @@ test('ทีม: unknown legacy ระงับเฉพาะปิดทีม
       await f.request('tenant/core-settings/teams', 'admin', {
         commandId: randomUUID(),
         teamId: newId,
-        name: 'ทีมใหม่ขณะตรวจงานเก่า',
+        name: 'New team during legacy check',
       })
     ).status,
     201,
@@ -296,7 +300,7 @@ test('ทีม: unknown legacy ระงับเฉพาะปิดทีม
       await f.request(
         path,
         'admin',
-        { commandId: randomUUID(), expectedRevision: '2', patch: { name: 'ยังเปลี่ยนชื่อได้' } },
+        { commandId: randomUUID(), expectedRevision: '2', patch: { name: 'Can still rename' } },
         'PATCH',
       )
     ).status,
@@ -304,7 +308,7 @@ test('ทีม: unknown legacy ระงับเฉพาะปิดทีม
   );
 });
 
-test('ทีม: validation ใช้ UTF-16/trim/อักขระควบคุม และชื่อ unique รวม inactive แบบ case-sensitive', async (t) => {
+test('Team: validation uses UTF-16/trim/control characters, and the name is unique including inactive, case-sensitive', async (t) => {
   const f = await coreFixture();
   t.after(() => f.close());
   const create = (name: unknown, extra = {}) =>
@@ -390,11 +394,11 @@ test('ทีม: validation ใช้ UTF-16/trim/อักขระควบค
   );
 });
 
-test('ทีม: ทุก endpoint ใช้ live proof/role และไม่เปิดเผยข้อมูล resource ต่าง tenant หรือทีม Supervisor อื่น', async (t) => {
+test('Team: every endpoint uses live proof/role and does not reveal data of a resource in another tenant or another Supervisor team', async (t) => {
   const f = await coreFixture();
   t.after(() => f.close());
   const teamId = randomUUID();
-  const body = { commandId: randomUUID(), teamId, name: 'ทีมสิทธิ์' };
+  const body = { commandId: randomUUID(), teamId, name: 'Permission team' };
   assert.equal((await f.request('tenant/core-settings/teams', 'admin', body)).status, 201);
   const path = `tenant/core-settings/teams/${teamId}`;
   for (const token of ['agent', 'compliance', 'unbound', 'disabled']) {
@@ -412,7 +416,7 @@ test('ทีม: ทุก endpoint ใช้ live proof/role และไม่
           {
             commandId: randomUUID(),
             expectedRevision: '1',
-            ...(method === 'PATCH' ? { patch: { name: 'ไม่ได้' } } : {}),
+            ...(method === 'PATCH' ? { patch: { name: 'Not allowed' } } : {}),
           },
           method,
         )
@@ -437,7 +441,7 @@ test('ทีม: ทุก endpoint ใช้ live proof/role และไม่
   );
 });
 
-test('ทีม: reference fence busy คง admission ไว้ ไม่มี effect และ retry command เดิมสำเร็จหลังปล่อย lock', async (t) => {
+test('Team: a busy reference fence keeps the admission, has no effect, and retrying the original command succeeds after the lock is released', async (t) => {
   const f = await coreFixture();
   t.after(() => f.close());
   const teamId = randomUUID();
@@ -446,7 +450,7 @@ test('ทีม: reference fence busy คง admission ไว้ ไม่มี
       await f.request('tenant/core-settings/teams', 'admin', {
         commandId: randomUUID(),
         teamId,
-        name: 'ทีม busy',
+        name: 'Busy team',
       })
     ).status,
     201,
@@ -483,7 +487,7 @@ test('ทีม: reference fence busy คง admission ไว้ ไม่มี
   assert.equal(closed.body.command.outcome, 'APPLIED');
 });
 
-test('ทีม: read/list คืน X-Request-Id ที่ตรวจแล้ว และไม่ cache ผลตามสิทธิ์ผู้ใช้', async (t) => {
+test('Team: read/list return a validated X-Request-Id and do not cache results that depend on user permission', async (t) => {
   const f = await coreFixture();
   t.after(() => f.close());
   for (const path of ['tenant/core-settings/teams', `tenant/core-settings/teams/${f.teamId}`]) {
@@ -496,7 +500,7 @@ test('ทีม: read/list คืน X-Request-Id ที่ตรวจแล้
   }
 });
 
-test('ทีม: เปลี่ยนชื่อยังทำได้ขณะ reference fence ถูกถือ ไม่ต้องรอ tenant ว่าง', async (t) => {
+test('Team: rename still works while the reference fence is held, without waiting for the tenant to be idle', async (t) => {
   const f = await coreFixture();
   t.after(() => f.close());
   let enter!: () => void, release!: () => void;
@@ -516,7 +520,7 @@ test('ทีม: เปลี่ยนชื่อยังทำได้ขณ
       {
         commandId: randomUUID(),
         expectedRevision: '1',
-        patch: { name: 'เปลี่ยนชื่อระหว่างงานได้' },
+        patch: { name: 'Rename during work' },
       },
       'PATCH',
     );

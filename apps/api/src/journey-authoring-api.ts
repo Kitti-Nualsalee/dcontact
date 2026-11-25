@@ -1,15 +1,15 @@
 /**
- * J5.5 (#343): REST adapter ของ Journey authoring (Phase Spec #337 §5)
+ * J5.5 (#343): the REST adapter of Journey authoring (Phase Spec #337 §5)
  *
- * controller ทำแค่สี่อย่าง: auth context, strict body parsing, header/CAS extraction และ error
- * mapping — policy, authorization และ transaction ทั้งหมดอยู่ใน `JourneyTemplateRepository`
+ * the controller does only four things: auth context, strict body parsing, header/CAS extraction and error
+ * mapping — all policy, authorization and transactions live in `JourneyTemplateRepository`
  *
- * - tenant/subject มาจาก verified token เท่านั้น ไม่รับจาก body/query
- * - body ที่มี field ไม่รู้จักหรือชนิดผิดตอบ `400 REQUEST_MALFORMED` ก่อนถึง domain
- * - ทุก mutation ต้องมี `Idempotency-Key`; GET ไม่รับ key
- * - error ส่งแค่ `code`/`safeParams`/diagnostics ที่มีขอบเขต ไม่มีข้อความ localized หรือ detail ดิบ
- * - publish ที่ไม่รู้ผล (commit แล้วหรือยังไม่รู้) ตอบ `202 PUBLISH_OUTCOME_UNKNOWN` พร้อม key เดิม
- *   ให้ resolve — ไม่ตอบสำเร็จแบบ optimistic และไม่ retry เอง
+ * - tenant/subject come only from the verified token, never from the body/query
+ * - a body with an unknown field or a wrong type answers `400 REQUEST_MALFORMED` before reaching the domain
+ * - every mutation needs an `Idempotency-Key`; GET does not accept a key
+ * - an error sends only `code`/`safeParams`/bounded diagnostics, with no localized message or raw detail
+ * - a publish with unknown outcome (committed or not known) answers `202 PUBLISH_OUTCOME_UNKNOWN` with the original key
+ *   to resolve — never an optimistic success and never retries on its own
  */
 import {
   Body,
@@ -42,7 +42,7 @@ import type { AuthenticatedGatewayRequest } from './gateway-auth.js';
 
 export const JOURNEY_AUTHORING_REPOSITORY = Symbol('JOURNEY_AUTHORING_REPOSITORY');
 
-/** diagnostics ในคำตอบ error มีเพดาน เพื่อไม่ให้ payload โตตาม graph ที่ส่งเข้ามา */
+/** diagnostics in an error answer have a ceiling so the payload does not grow with the graph sent in */
 export const MAX_ERROR_DIAGNOSTICS = 50;
 
 // ── Strict DTO parsing ──────────────────────────────────────────────────────
@@ -92,7 +92,7 @@ export const parse = {
       throw new RequestMalformed(field);
     return value;
   }) as FieldParser<string>,
-  /** document/schema ถูก validate เชิงลึกโดย domain — ที่นี่แค่บังคับรูป JSON ชั้นนอก */
+  /** the document/schema is deeply validated by the domain — here only the outer JSON shape is enforced */
   object: ((value, field) => {
     if (!isPlainObject(value)) throw new RequestMalformed(field);
     return value;
@@ -134,7 +134,7 @@ export const parse = {
 
 type Parsed<S extends Record<string, FieldParser>> = { [K in keyof S]: ReturnType<S[K]> };
 
-/** field ที่ไม่รู้จักหรือขาด field บังคับ → 400 ทันที; optional ที่ไม่ส่งมาไม่ปรากฏในผล */
+/** an unknown field or a missing required field → 400 at once; an optional field not sent does not appear in the result */
 export function strictBody<
   R extends Record<string, FieldParser>,
   O extends Record<string, FieldParser> = Record<never, FieldParser>,
@@ -172,7 +172,7 @@ export function queryLimit(value: string | undefined): number | undefined {
 
 // ── Auth context ────────────────────────────────────────────────────────────
 
-/** workspace identity เท่านั้น — service principal ไม่มี subject ที่ถือ capability ของ authoring */
+/** workspace identity only — a service principal has no subject that holds the authoring capability */
 export function authoringActor(request: AuthenticatedGatewayRequest): {
   tenantId: string;
   actor: JourneyAuthoringActor;
@@ -311,7 +311,7 @@ export class JourneyAuthoringController {
     return handle(() => this.repository.listVisibleJourneys(tenantId, actor, filters));
   }
 
-  /** U1.3 (#431): review ที่รอตรวจซึ่งผู้เรียกตัดสินได้ — reviewer หา candidate เองโดยไม่ต้องรู้ id */
+  /** U1.3 (#431): a pending review that the caller can decide — the reviewer finds candidates themselves without knowing the id */
   @Get('reviews')
   pendingReviews(
     @Req() request: AuthenticatedGatewayRequest,
@@ -335,7 +335,7 @@ export class JourneyAuthoringController {
     return handle(() => this.repository.createJourneyDraft(context, input));
   }
 
-  /** state + notice ของ template ต้นทาง (ข้อมูลเท่านั้น ไม่ auto-apply) */
+  /** state + notice of the source template (data only, no auto-apply) */
   @Get('journeys/:journeyId')
   get(@Req() request: AuthenticatedGatewayRequest, @Param('journeyId') journeyId: string) {
     const { tenantId, actor } = authoringActor(request);
@@ -403,7 +403,7 @@ export class JourneyAuthoringController {
         draftRevision: input.draftRevision,
         draftDigest: input.draftDigest,
       });
-      // runtime definition เป็นรายละเอียดภายใน — API คืนแค่ digest/diagnostics ที่ใช้ผูก review/publish
+      // the runtime definition is an internal detail — the API returns only the digest/diagnostics used to bind review/publish
       const artifact = result.artifact
         ? {
             compileDigest: result.artifact.compileDigest,
@@ -519,7 +519,7 @@ export class JourneyAuthoringController {
         if (error instanceof JourneyAuthoringError || error instanceof HttpException) {
           mapAuthoringError(error);
         }
-        // commit อาจเกิดแล้วหรือยังไม่เกิด — บอกตามจริงและให้ resolve ด้วย key เดิมเท่านั้น
+        // the commit may or may not have happened — say so truthfully and let it resolve only with the original key
         throw new HttpException(
           {
             code: 'PUBLISH_OUTCOME_UNKNOWN',
@@ -531,7 +531,7 @@ export class JourneyAuthoringController {
     })();
   }
 
-  /** อ่าน receipt ของ key เดิมอย่างเดียว — ไม่ publish ซ้ำ จึงไม่ต้องมี Idempotency-Key ใหม่ */
+  /** reads only the receipt of the original key — does not publish again, so no new Idempotency-Key is needed */
   @Post('journeys/:journeyId/publish-resolution')
   @HttpCode(200)
   resolvePublish(

@@ -1,6 +1,6 @@
 /**
- * CSV import (#909) และ segment ระบบ (#911, `--segment`): ตรวจ HTTP→PostgreSQL/RLS ด้วย PostgreSQL
- * ชั่วคราวตัวเดียว ไม่แตะฐาน dcontact ร่วม
+ * CSV import (#909) and the system segment (#911, `--segment`): checks HTTP→PostgreSQL/RLS with a single temporary
+ * PostgreSQL, without touching the shared dcontact database
  */
 import { execFileSync, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
@@ -54,7 +54,7 @@ try {
       )
         break;
     } catch {
-      /* ยังไม่พร้อม */
+      /* not ready yet */
     }
     if (i > 60) throw new Error('postgres readiness timeout');
     await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -106,14 +106,14 @@ try {
   try {
     execFileSync('docker', ['rm', '-f', pg], { stdio: 'ignore', timeout: 10000 });
   } catch {
-    /* ตรวจด้านล่าง */
+    /* checked below */
   }
   try {
     execFileSync('docker', ['inspect', pg], { stdio: 'pipe', timeout: 5000 });
-    console.error('sandbox cleanup ไม่สำเร็จ', pg);
+    console.error('sandbox cleanup failed', pg);
     process.exitCode = 1;
   } catch {
-    /* ไม่พบ container = ลบแล้ว */
+    /* container not found = already removed */
   }
   if (completed && !process.exitCode)
     console.log(segment ? 'C360_SEGMENT_RUNTIME_DB_TRIAL_PASS' : 'CSV_IMPORT_DB_TRIAL_PASS');

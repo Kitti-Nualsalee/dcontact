@@ -1,13 +1,13 @@
 /**
- * Owner: Integrations — screen-pop ของ dphone ที่ถูกฝัง (E1.14 #488)
+ * Owner: Integrations — screen-pop of the embedded dphone (E1.14 #488)
  *
- * Authority: E1.6 #462 ข้อ 1–2, 5; Phase Contract E1.8 #464
+ * Authority: E1.6 #462 items 1–2, 5; Phase Contract E1.8 #464
  *
- * - origin มาจาก lease `embedded` ที่ยัง current เท่านั้น (ไม่รับจาก browser) แล้วอ่านระดับที่ตั้งไว้แบบไม่ cache
- * - ตรวจ disclosure ของ Contact Governance ทุกครั้งก่อนส่ง แล้วลดระดับ (ไม่ปิดทั้งหมด):
- *   ทีมไม่มี scope `VIEW` บน segment → เหลือ `interactionId`; restriction/objection → ไม่เกิน `ids`
- * - payload สร้างด้วย `projectScreenPop` (allowlist ต่อระดับ) + `policyVersion`/`decisionId`
- * - ไม่มี disclosure log ต่อ screen-pop (ข้อจำกัดที่ยอมรับแล้วใน E1.6 ข้อ 5)
+ * - the origin comes only from a still-current `embedded` lease (not accepted from the browser), then the configured level is read without a cache
+ * - checks the Contact Governance disclosure every time before sending, then reduces the level (does not close it entirely):
+ *   a team with no `VIEW` scope on the segment → only `interactionId` remains; restriction/objection → no more than `ids`
+ * - the payload is built with `projectScreenPop` (an allowlist per level) + `policyVersion`/`decisionId`
+ * - there is no disclosure log per screen-pop (a limitation already accepted in E1.6 item 5)
  */
 import { randomUUID } from 'node:crypto';
 import { withTenantDatabaseTransaction, type PrismaClient } from '@d-contact/db';
@@ -28,9 +28,9 @@ import { IamTeamContactScopeAuthorizer } from '@d-contact/iam';
 export const SCREEN_POP_POLICY_VERSION = 'e1.screen-pop.disclosure/v1';
 
 /**
- * สิทธิ์ `VIEW` ของทีมบน segment ของ contact — IAM เป็นเจ้าของ
- * ADR-027 ออกแบบ `VIEW` ไว้ แต่ IAM ยังมีแค่ `WORK`/`CONTACT` จึงใช้ `UnavailableTeamSegmentViewScope`
- * (fail closed: ไม่มี scope เสมอ) จนกว่า IAM จะเพิ่ม `VIEW` — ห้ามใช้ permission อื่นแทน
+ * the team's `VIEW` permission on the contact's segment — owned by IAM
+ * ADR-027 designs `VIEW` but IAM still has only `WORK`/`CONTACT`, so `UnavailableTeamSegmentViewScope` is used
+ * (fail closed: there is never a scope) until IAM adds `VIEW` — no other permission may stand in
  */
 export interface TeamSegmentViewScope {
   canView(input: { tenantId: string; agentUserId: string; contactId: string }): Promise<boolean>;
@@ -76,12 +76,12 @@ export class IamTeamSegmentViewScope implements TeamSegmentViewScope {
 }
 
 /**
- * restriction ที่ถือว่าเป็น "restriction of processing หรือ objection ต่อการเปิดเผย" (E1.6 ข้อ 2)
- * DNC/CONSENT_REVOKED เป็นข้อห้ามการติดต่อตามช่องทาง ไม่ใช่การเปิดเผยข้อมูล จึงไม่อยู่ในรายการ
+ * restrictions treated as a "restriction of processing or an objection to disclosure" (E1.6 item 2)
+ * DNC/CONSENT_REVOKED are bans on contact per channel, not on disclosing data, so they are not in the list
  */
 export const DISCLOSURE_RESTRICTION_TYPES = ['OBJECTION', 'REGULATORY', 'INBOUND_SAFETY'] as const;
 
-/** disclosure check ของ Contact Governance (port ใหม่ตาม E1.8) */
+/** the Contact Governance disclosure check (a new port per E1.8) */
 export interface ScreenPopDisclosurePort {
   check(input: {
     tenantId: string;
@@ -104,7 +104,7 @@ export class ContactGovernanceDisclosureCheck implements ScreenPopDisclosurePort
   }): Promise<DisclosureDecision> {
     const decisionId = (this.options.id ?? randomUUID)();
     const base = { policyVersion: SCREEN_POP_POLICY_VERSION, decisionId };
-    // ยังระบุ contact ไม่ได้: ไม่มี segment ให้ตรวจ และไม่มี restriction ระดับ contact
+    // the contact cannot be identified yet: no segment to check and no contact-level restriction
     if (!input.contactId) return { ...base, teamSegmentView: true, restricted: false };
     const contactId = input.contactId;
     const now = (this.options.now ?? (() => new Date()))();
@@ -138,7 +138,7 @@ export interface ScreenPopActor {
 
 export type ScreenPopOutcome =
   | { status: 'sent'; message: ScreenPopMessage; hostOrigin: string }
-  /** origin ปิด screen-pop (ค่าเริ่มต้น) — ไม่ส่งอะไรให้ host */
+  /** the origin has screen-pop off (the default) — nothing is sent to the host */
   | { status: 'off' }
   | { status: 'not_found' };
 
@@ -183,7 +183,7 @@ export class ScreenPopService {
     };
   }
 
-  /** งานของ agent คนนี้เท่านั้น (voice) */
+  /** only this agent's work (voice) */
   private source(actor: ScreenPopActor, interactionId: string): Promise<ScreenPopSource | null> {
     return withTenantDatabaseTransaction(this.database, actor.tenantId, async (tx) => {
       const row = await tx.interaction.findFirst({
@@ -223,7 +223,7 @@ export class ScreenPopService {
   }
 }
 
-/** สถานะพักสายอยู่ฝั่ง SIP ของ iframe — server รู้แค่ ringing/active/จบ */
+/** the call-hold state lives on the iframe's SIP side — the server knows only ringing/active/ended */
 function callStateOf(state: string): ScreenPopSource['callState'] {
   if (state === 'QUEUED' || state === 'ASSIGNED') return 'RINGING';
   if (state === 'ACTIVE') return 'ACTIVE';

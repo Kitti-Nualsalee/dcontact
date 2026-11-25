@@ -1,12 +1,12 @@
 /**
- * E1.15 (#489): hosting ของ `<dphone-launcher>` บน dphone origin (E1.7 #463 ข้อ 1, 5)
+ * E1.15 (#489): hosting of `<dphone-launcher>` on the dphone origin (E1.7 #463 items 1, 5)
  *
- * - `GET /embed/vX.Y.Z/dphone-launcher.js` — release ที่ตรึงเวอร์ชัน: `immutable` 1 ปี ใช้คู่กับ SRI ได้
- * - `GET /embed/vN/dphone-launcher.js`     — alias ของ major: cache 5 นาที; rollback = ชี้ alias กลับ
- *   (`pnpm --filter @d-contact/dphone-embed launcher:alias v1 <X.Y.Z>`) มีผลภายใน 5 นาทีโดยไม่ต้อง deploy API
- * - `GET /embed/releases.json`             — version, integrity และ alias ปัจจุบัน (สำหรับทำ SRI ฝั่ง host)
- * - เป็นไฟล์สาธารณะ (ไม่มีข้อมูล tenant): CORS `*` เพราะ host โหลดเป็น module script ข้าม origin
- * - ส่งเฉพาะไฟล์ที่อยู่ใน `releases/index.json` และตรงกับ integrity — ไม่อ่าน path จาก request ตรงๆ
+ * - `GET /embed/vX.Y.Z/dphone-launcher.js` — a version-pinned release: `immutable` for 1 year, usable with SRI
+ * - `GET /embed/vN/dphone-launcher.js`     — a major alias: cached 5 minutes; rollback = point the alias back
+ *   (`pnpm --filter @d-contact/dphone-embed launcher:alias v1 <X.Y.Z>`) takes effect within 5 minutes without deploying the API
+ * - `GET /embed/releases.json`             — the version, integrity and current alias (for building SRI on the host side)
+ * - a public file (no tenant data): CORS `*` because the host loads it as a cross-origin module script
+ * - sends only files listed in `releases/index.json` and matching the integrity — never reads a path straight from the request
  */
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -21,7 +21,7 @@ export const ALIAS_MAX_AGE_SECONDS = 300;
 export const IMMUTABLE_MAX_AGE_SECONDS = 31_536_000;
 
 export interface DphoneLauncherOptions {
-  /** โฟลเดอร์ `releases/` ของ `@d-contact/dphone-embed` (มี `index.json` + `<version>/dphone-launcher.js`) */
+  /** the `releases/` folder of `@d-contact/dphone-embed` (has `index.json` + `<version>/dphone-launcher.js`) */
   releasesDir: string;
 }
 
@@ -48,7 +48,7 @@ export type LauncherResolution =
   | { status: 'ok'; body: Buffer; version: string; integrity: string; cacheControl: string }
   | { status: 'not_found' };
 
-/** หาไฟล์ของ `v1` หรือ `v1.2.3` จาก index — ไม่มีใน index/ไฟล์ถูกแก้ = not_found (fail closed) */
+/** finds the file of `v1` or `v1.2.3` from the index — not in the index/file edited = not_found (fail closed) */
 export async function resolveLauncher(
   releasesDir: string,
   requested: string,

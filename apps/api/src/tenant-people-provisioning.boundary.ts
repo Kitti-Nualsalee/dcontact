@@ -33,7 +33,7 @@ function required(name: string): string {
   return value;
 }
 
-test('real JWT HTTP → RLS worker → Keycloak/SMTP: สาม roles ยัง PENDING หลัง response loss และ read-only reconcile', async () => {
+test('real JWT HTTP → RLS worker → Keycloak/SMTP: the three roles stay PENDING after a response loss and a read-only reconcile', async () => {
   const issuer = required('B2_KEYCLOAK_ISSUER');
   const tenantId = required('B2_KEYCLOAK_TENANT_ID');
   const adminId = required('B2_KEYCLOAK_ADMIN_SUBJECT');
@@ -105,7 +105,7 @@ test('real JWT HTTP → RLS worker → Keycloak/SMTP: สาม roles ยัง 
       },
     });
     await owner.$executeRaw`INSERT INTO tenant_voice_identity_bindings(tenant_id,user_id,issuer,subject_id,client_id,tenant_slug,organization_id,identity_class,source_kind,evidence_ref,evidence_digest,verified_by_operator_subject,verified_at,revision,is_active) VALUES(${tenantId}::uuid,${adminId}::uuid,${issuer},${adminId},'b2-boundary-console',${slug},${required('B2_KEYCLOAK_ORGANIZATION_ID')}::uuid,'TENANT_USER','BOOTSTRAP_MANIFEST','isolated-boundary-bootstrap',${'a'.repeat(64)},'sandbox-operator',now(),1,true)`;
-    await owner.$executeRaw`INSERT INTO tenant_voice_provisioning_policies(tenant_id,revision,source_kind,accounts_limit,agents_limit,voice_queues_limit,skills_limit,approved_by_operator_subject,approved_at,approval_ref,reason,extension_pool) VALUES(${tenantId}::uuid,1,'UAT_EXPLICIT',4,1,1,1,'sandbox-operator',now(),'isolated-boundary','ทดสอบ provisioning',${JSON.stringify(pool)}::jsonb)`;
+    await owner.$executeRaw`INSERT INTO tenant_voice_provisioning_policies(tenant_id,revision,source_kind,accounts_limit,agents_limit,voice_queues_limit,skills_limit,approved_by_operator_subject,approved_at,approval_ref,reason,extension_pool) VALUES(${tenantId}::uuid,1,'UAT_EXPLICIT',4,1,1,1,'sandbox-operator',now(),'isolated-boundary','Provisioning test',${JSON.stringify(pool)}::jsonb)`;
     await owner.$executeRaw`INSERT INTO tenant_people_worker_bindings(tenant_id,database_principal,approval_ref) VALUES(${tenantId}::uuid,${workerPrincipal},'isolated-boundary')`;
     assert.equal(await readiness.isReady(tenantId), true);
     assert.equal(await readiness.isReady(randomUUID()), false);
@@ -400,7 +400,7 @@ test('real JWT HTTP → RLS worker → Keycloak/SMTP: สาม roles ยัง 
               commandId: randomUUID(),
               expectedRevision: 1,
               reasonCode: 'DELIVERY_CHECK',
-              reason: 'ตรวจ receipt จริงโดยไม่ส่งเมลใหม่',
+              reason: 'Check the real receipt without sending new mail',
             }),
           },
         );
@@ -461,7 +461,7 @@ test('real JWT HTTP → RLS worker → Keycloak/SMTP: สาม roles ยัง 
               commandId: randomUUID(),
               expectedRevision: 1,
               reasonCode: 'REQUEST_RESEND',
-              reason: 'ทดสอบ preparation จริงโดยยังไม่ส่งเมล',
+              reason: 'Test the real preparation without sending mail yet',
             }),
           },
         );
@@ -596,7 +596,7 @@ test('real JWT HTTP → RLS worker → Keycloak/SMTP: สาม roles ยัง 
               commandId: randomUUID(),
               expectedRevision: 1,
               reasonCode: 'REQUEST_RESEND',
-              reason: 'ทดสอบ scheduler จริงและกู้ response loss โดยไม่ส่งซ้ำ',
+              reason: 'Test the real scheduler and recover from a response loss without resending',
             }),
           },
         );
@@ -819,7 +819,7 @@ test('real JWT HTTP → RLS worker → Keycloak/SMTP: สาม roles ยัง 
           commandId: randomUUID(),
           expectedRevision: 1,
           reasonCode: 'OPERATOR_REQUEST',
-          reason: 'ปิดบัญชีสังเคราะห์หลังทดสอบ activation',
+          reason: 'Disable the synthetic account after the activation test',
         }),
       },
     );
@@ -838,7 +838,7 @@ test('real JWT HTTP → RLS worker → Keycloak/SMTP: สาม roles ยัง 
     await disableRuntime.onModuleDestroy();
     disableRuntime = undefined;
     console.log('B6_HTTP_RLS_KEYCLOAK_DISABLE_RESPONSE_LOSS_PASS');
-    // #868: หลักฐาน identity ก่อนสลับ API อ่าน receipt ทุก operation/step/generation ผ่าน GET ของ extension จริง
+    // #868: identity evidence before switching the API reads the receipt of every operation/step/generation through GET of the real extension
     const evidenceEnvironment = {
       TENANT_PEOPLE_WORKER_DATABASE_URL: workerUrl.toString(),
       TENANT_PEOPLE_BINDINGS_JSON: JSON.stringify([
@@ -862,7 +862,7 @@ test('real JWT HTTP → RLS worker → Keycloak/SMTP: สาม roles ยัง 
           const body = (await response.json()) as Record<string, unknown>;
           if (body.outcome !== 'SUCCEEDED') return Response.json(body, { status: response.status });
           tampered = url.pathname.split('/operations/')[1]?.split('/')[0];
-          // จำลอง provider receipt ที่ต่างจาก application โดยไม่แก้ข้อมูลใน DB
+          // simulates a provider receipt that differs from the application without editing data in the DB
           return Response.json(
             { ...body, receiptRef: 'f'.repeat(64) },
             { status: response.status },
@@ -886,7 +886,7 @@ test('real JWT HTTP → RLS worker → Keycloak/SMTP: สาม roles ยัง 
     assert.ok(evidenceTenant.counts.operations >= 3, JSON.stringify(evidenceTenant.counts));
     assert.ok(evidenceTenant.counts.invitations >= 1, JSON.stringify(evidenceTenant.counts));
     assert.ok(evidenceTenant.counts.disables >= 1, JSON.stringify(evidenceTenant.counts));
-    // POST มีเฉพาะการขอ service token; การอ่าน receipt ต้องเป็น GET ทั้งหมด
+    // POST is only for requesting a service token; reading receipts must be GET throughout
     assert.equal(
       consistent.methods.filter((method) => method === 'POST').length,
       consistent.methods.length / 2,
@@ -910,7 +910,7 @@ test('real JWT HTTP → RLS worker → Keycloak/SMTP: สาม roles ยัง 
     );
     console.log('UAT868_IDENTITY_EVIDENCE_PASS');
     await owner.$executeRaw`UPDATE tenant_people_worker_bindings SET enabled=false WHERE tenant_id=${tenantId}::uuid AND database_principal=${workerPrincipal}`;
-    // #868: binding ที่ปิดทำให้ RLS ซ่อนทุกแถว ต้องไม่ได้ CONSISTENT จาก 0 rows
+    // #868: a closed binding makes RLS hide every row, so it must not get CONSISTENT from 0 rows
     const hidden = await readEvidence();
     assert.equal(hidden.code, 2);
     assert.deepEqual(

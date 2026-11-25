@@ -311,7 +311,7 @@ test('Activity authorization before keyset limit, exact time bounds, encrypted c
   assert.equal(page((await f.request(path, 'admin')).body).items.length, 0);
 });
 
-test('Activity keyset อ่าน event ที่เพิ่มระหว่างหน้าโดยไม่อ้าง snapshot', async (t) => {
+test('the Activity keyset reads an event added between pages without relying on a snapshot', async (t) => {
   const f = await fixture();
   t.after(() => f.close());
   const id = await contact(f);

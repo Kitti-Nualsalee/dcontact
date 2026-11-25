@@ -5,9 +5,9 @@ import { Customer360OperatorController } from '../src/customer-360-operator-api.
 import { Customer360TagCatalogController } from '../src/customer-360-tag-catalog-api.js';
 import { setup } from '../src/customer-360-test-fixtures.js';
 
-/** ต้องรันบน tree ที่รวม C4 #794 และ M1-A #819 แล้ว: ใช้ HTTP owner writers จริงทั้งสองฝั่ง */
+/** must run on a tree that has merged C4 #794 and M1-A #819: uses the real HTTP owner writers on both sides */
 for (const winner of ['retire', 'attach'] as const) {
-  test(`actual M1 retire กับ C4 attach: ${winner} ถือ owner lock ก่อน`, async (t) => {
+  test(`actual M1 retire vs C4 attach: ${winner} holds the owner lock first`, async (t) => {
     const f = await setup([Customer360OperatorController, Customer360TagCatalogController]);
     t.after(() => f.close());
     const grant = await f.request('customer-360/operator/commands', 'operator', {
@@ -83,7 +83,11 @@ for (const winner of ['retire', 'attach'] as const) {
             }
             await new Promise((resolve) => setTimeout(resolve, 10));
           }
-          assert.equal(waiting, true, 'owner writer ต้องถึง trigger หลังถือ lock จริง');
+          assert.equal(
+            waiting,
+            true,
+            'the owner writer must reach the trigger after really holding the lock',
+          );
           assert.equal((await (winner === 'retire' ? attach() : retire())).status, 503);
         },
         { timeout: 10000 },

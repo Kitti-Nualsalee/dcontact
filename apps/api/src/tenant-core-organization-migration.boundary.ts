@@ -1,4 +1,4 @@
-/** ซ้อมจาก image ops/schema รุ่นก่อน → legacy data + backup/restore → additive schema/RLS ปัจจุบัน */
+/** a rehearsal from the previous ops/schema image → legacy data + backup/restore → the current additive schema/RLS */
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { randomUUID, createHash } from 'node:crypto';
@@ -15,9 +15,11 @@ function docker(args: string[], options: { input?: Buffer; env?: NodeJS.ProcessE
   });
 }
 test(
-  'องค์กร migration: old ops สร้าง legacy จริงก่อน migration พร้อม backup/restore และ data conservation',
+  'Organization migration: old ops creates real legacy data before the migration with backup/restore and data conservation',
   {
-    skip: !image ? 'NOT_RUN: ต้องระบุ CORE_COMPAT_OLD_OPS_IMAGE/owned PostgreSQL container' : false,
+    skip: !image
+      ? 'NOT_RUN: CORE_COMPAT_OLD_OPS_IMAGE/an owned PostgreSQL container must be given'
+      : false,
     timeout: 120_000,
   },
   async (t) => {

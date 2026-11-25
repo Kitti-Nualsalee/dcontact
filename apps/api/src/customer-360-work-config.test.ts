@@ -4,7 +4,7 @@ import { c360WorkReadiness, resolveC360WorkConfig } from './customer-360-work-co
 
 const SECRET = 'unit-test-only-secret';
 
-test('#916 ไม่ตั้ง client = ปิด Cus360 work และ log บอกสาเหตุกับ env ที่ขาด', () => {
+test('#916 no client set = Cus360 work is off and the log states the cause and the missing env', () => {
   for (const env of [{}, { KEYCLOAK_C360_CLIENT_ID: '', KEYCLOAK_C360_CLIENT_SECRET: '' }]) {
     const config = resolveC360WorkConfig(env);
     assert.deepEqual(config, { configured: false });
@@ -16,7 +16,7 @@ test('#916 ไม่ตั้ง client = ปิด Cus360 work และ log �
   }
 });
 
-test('#916 ตั้งไม่ครบ = หยุดตั้งแต่เริ่ม โดยระบุชื่อ env ที่ขาดและไม่พิมพ์ secret', () => {
+test('#916 incompletely set = stop at start, naming the missing env and not printing a secret', () => {
   assert.throws(
     () => resolveC360WorkConfig({ KEYCLOAK_C360_CLIENT_ID: 'c360-client' }),
     /incomplete: missing KEYCLOAK_C360_CLIENT_SECRET$/,
@@ -28,7 +28,7 @@ test('#916 ตั้งไม่ครบ = หยุดตั้งแต่เ
   );
 });
 
-test('#916 ตั้งครบและ write runtime พร้อม = ENABLED โดย diagnostic มีแค่ client id', () => {
+test('#916 fully set and the write runtime ready = ENABLED with a diagnostic that has only the client id', () => {
   const config = resolveC360WorkConfig({
     KEYCLOAK_C360_CLIENT_ID: 'c360-client',
     KEYCLOAK_C360_CLIENT_SECRET: SECRET,
@@ -43,7 +43,7 @@ test('#916 ตั้งครบและ write runtime พร้อม = ENABLE
   assert.ok(!JSON.stringify(status).includes(SECRET));
 });
 
-test('#916 write runtime ไม่พร้อม = DISABLED แม้ตั้ง client แล้ว และไม่พิมพ์ secret', () => {
+test('#916 the write runtime not ready = DISABLED even when the client is set, and no secret is printed', () => {
   const configured = resolveC360WorkConfig({
     KEYCLOAK_C360_CLIENT_ID: 'c360-client',
     KEYCLOAK_C360_CLIENT_SECRET: SECRET,

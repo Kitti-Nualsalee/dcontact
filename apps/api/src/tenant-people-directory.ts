@@ -59,7 +59,7 @@ function projection(row: DirectoryRow) {
     commandId: row.commandId,
     disableOperationId: row.disableOperationId,
     disableCommandId: row.disableCommandId,
-    // #998 1B/2: คำสั่งแก้ชื่อ/เปิดบัญชีกลับล่าสุด เพื่อให้ Console กู้ผลหลัง reload ได้
+    // #998 1B/2: the latest rename/re-enable command so the Console can recover the result after a reload
     accountChange: row.accountChangeOperationId
       ? {
           operationId: row.accountChangeOperationId,
@@ -72,8 +72,8 @@ function projection(row: DirectoryRow) {
 }
 
 /**
- * สถานะเดียวที่ Console แสดงต่อบัญชี (ลำดับเดียวกับ `accountStatus()` ใน Console — ข้อแรกที่ตรงชนะ)
- * search กรองด้วยค่านี้เพื่อให้ผลตรงกับ chip ที่ผู้ใช้เห็น; GET `state` ยังกรองด้วย accountState ดิบตามเดิม
+ * the single status the Console shows per account (the same order as `accountStatus()` in the Console — the first match wins)
+ * search filters by this value so results match the chip the user sees; GET `state` still filters by the raw accountState as before
  */
 export const DISPLAY_STATUSES = [
   'ATTENTION_REQUIRED',
@@ -96,14 +96,14 @@ const DISPLAY_STATUS_SQL = Prisma.sql`(CASE
     AND "activationState"='PENDING' THEN 'PENDING_ACTIVATION'
   ELSE 'UNKNOWN' END)`;
 
-/** แปลง LIKE wildcard ในคำค้นเป็นตัวอักษรธรรมดา */
+/** converts LIKE wildcards in the query to ordinary characters */
 function likePattern(value: string) {
   return `%${value.replace(/[\\%_]/g, (character) => `\\${character}`).toLowerCase()}%`;
 }
 
 /**
- * คำค้น `q` รับเฉพาะใน body ของ POST search เพื่อไม่ให้ชื่อหรือ email อยู่ใน URL/access log
- * ค่าที่ผ่านต้องเป็นข้อความ 1–100 ตัวอักษรหลัง trim และไม่มี control character
+ * the query `q` is accepted only in the body of POST search so names or emails are not in the URL/access log
+ * a value that passes must be text of 1–100 characters after trim with no control characters
  */
 function searchText(value: unknown) {
   if (value === undefined) return null;
@@ -115,7 +115,7 @@ function searchText(value: unknown) {
   return text;
 }
 
-/** POST /people/users/search: ตัวกรองเดียวกับ GET list บวกคำค้น `q` ใน body */
+/** POST /people/users/search: the same filters as GET list plus the query `q` in the body */
 export function searchPeopleDirectory(database: PrismaClient, identity: VoiceActor, body: unknown) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) voiceFail('VALIDATION_FAILED', 400);
   const input: Record<string, unknown> = { ...body };

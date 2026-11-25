@@ -1,14 +1,14 @@
 /**
- * Owner: Integrations — allowlist ของ origin ที่ฝัง dphone (E1.11 #485)
+ * Owner: Integrations — the allowlist of origins that embed dphone (E1.11 #485)
  *
  * Authority: E1.5 #461, Phase Contract E1.8 #464
  *
- * - ตัวตัดสินรูปแบบ origin คือ `normalizeEmbedOrigin` (ใช้ร่วมกับ Console) สูงสุด 10 ต่อ tenant
- * - ฝังได้เมื่อครบทั้ง 3: entitlement `module_api_cti` (`modules.api.cti`), flag `dphone.embed.enabled`
- *   และ origin อยู่ใน allowlist ที่ `enabled` — ขาดข้อใด = `frame-ancestors 'none'` (fail closed)
- * - tenant ที่ไม่มี plan binding เลย (ก่อน A1) ใช้กติกาเดียวกับ navigation (#451): ไม่ถูกตัดด้วย entitlement
- *   แต่ยังต้องเปิด flag ต่อ tenant เอง
- * - cache ผลของ shell ≤ 30 วินาที; ปิด/ลบ origin → ล้าง cache และแจ้ง iframe ผ่าน WS ทันที
+ * - the origin format authority is `normalizeEmbedOrigin` (shared with the Console), max 10 per tenant
+ * - embedding works only when all 3 hold: entitlement `module_api_cti` (`modules.api.cti`), flag `dphone.embed.enabled`
+ *   and the origin is in an `enabled` allowlist — any missing = `frame-ancestors 'none'` (fail closed)
+ * - a tenant with no plan binding at all (pre-A1) uses the same rule as navigation (#451): not cut by entitlement
+ *   but the per-tenant flag must still be turned on
+ * - shell result cache ≤ 30 seconds; disabling/deleting an origin → clears the cache and notifies the iframe through WS at once
  */
 import { randomUUID } from 'node:crypto';
 import { Prisma, withTenantDatabaseTransaction, type PrismaClient } from '@d-contact/db';
@@ -43,7 +43,7 @@ export class EmbedOriginError extends Error {
   }
 }
 
-/** E1.14: ระดับ screen-pop ที่ตั้งได้ตอนนี้ — `custom` รอรายการ field ที่ระบบกำหนด (decision gap #464) */
+/** E1.14: the screen-pop levels that can be set now — `custom` waits for a system-defined field list (decision gap #464) */
 export type EmbedScreenPopLevel = 'off' | 'ids' | 'contact';
 const SCREEN_POP_LEVELS: readonly EmbedScreenPopLevel[] = ['off', 'ids', 'contact'];
 
@@ -56,7 +56,7 @@ export interface EmbedOriginView {
   revision: number;
   createdAt: string;
   updatedAt: string;
-  /** dphone ที่ฝังจาก origin นี้และยังถือ lease อยู่ — แสดงก่อนยืนยันปิด/ลบ */
+  /** dphone embedded from this origin that still holds a lease — shown before confirming disable/delete */
   activeSessions: number;
 }
 
@@ -65,7 +65,7 @@ export interface EmbedOriginActor {
   userId: string;
 }
 
-/** ปิด/ลบ origin → iframe ที่ล็อก origin นั้นไว้ต้องหยุดรับ postMessage ทันที (E1.5 ข้อ 3) */
+/** disabling/deleting an origin → an iframe locked to that origin must stop accepting postMessage at once (E1.5 item 3) */
 export interface EmbedOriginRevocationSink {
   revoked(tenantId: string, origin: string): void;
 }
@@ -76,9 +76,9 @@ type Row = Prisma.TenantEmbedOriginGetPayload<object>;
 export interface EmbedShellPolicy {
   tenantId: string;
   tenantAlias: string;
-  /** ว่าง = ห้ามฝัง (`frame-ancestors 'none'`) */
+  /** empty = embedding forbidden (`frame-ancestors 'none'`) */
   origins: string[];
-  /** E1.14: ระดับ screen-pop ต่อ origin — iframe ใช้แจ้ง host ใน `dphone.ready` (server ตรวจซ้ำตอนส่งจริง) */
+  /** E1.14: the screen-pop level per origin — the iframe uses it to tell the host in `dphone.ready` (the server rechecks when actually sending) */
   screenPopLevels: Record<string, EmbedScreenPopLevel>;
 }
 
@@ -95,9 +95,9 @@ export class EmbedOriginService {
     private readonly options: {
       now?: () => Date;
       id?: () => string;
-      /** dev เท่านั้น: อนุญาต http://localhost และ 127.0.0.1 */
+      /** dev only: allow http://localhost and 127.0.0.1 */
       allowLocalhost?: boolean;
-      /** origin ของ D-Contact เอง (Workspace/Console/API) — ห้ามใส่ใน allowlist */
+      /** D-Contact's own origins (Workspace/Console/API) — must not go in the allowlist */
       reservedOrigins?: readonly string[];
       cacheMs?: number;
       revocations?: EmbedOriginRevocationSink;
@@ -205,7 +205,7 @@ export class EmbedOriginService {
     if (label === undefined && enabled === undefined && screenPopLevel === undefined) {
       throw new EmbedOriginError('VALIDATION_FAILED', { field: 'body', reason: 'REQUIRED' });
     }
-    // เปลี่ยนระดับข้อมูลเป็น audit แยก (SCREEN_POP_CHANGED) — ไม่รวมกับการปิด/เปิด origin
+    // a data-level change is a separate audit (SCREEN_POP_CHANGED) — not merged with disabling/enabling an origin
     if (screenPopLevel !== undefined && enabled !== undefined) {
       throw new EmbedOriginError('VALIDATION_FAILED', { field: 'body', reason: 'INVALID' });
     }
@@ -213,10 +213,10 @@ export class EmbedOriginService {
     let revokedOrigin: string | null = null;
     const result = await this.transaction(actor, async (tx) => {
       const before = await this.locked(tx, actor, id, expectedRevision);
-      // เปิดใหม่ต้องมี entitlement; ปิด/เปลี่ยนชื่อทำได้เสมอ (ทาง rollback)
+      // enabling again needs the entitlement; disabling/renaming is always allowed (the rollback path)
       if (enabled === true && !before.enabled) await this.requireEntitlement(tx, actor.tenantId);
       const levelChanged = screenPopLevel !== undefined && screenPopLevel !== before.screenPopLevel;
-      // เปิดหรือเปลี่ยนระดับข้อมูลต้องยืนยันพร้อมเหตุผล (E1.6 ข้อ 1)
+      // enabling or changing the data level must be confirmed with a reason (E1.6 item 1)
       if (levelChanged && (reason === null || reason.length < 3)) {
         throw new EmbedOriginError('VALIDATION_FAILED', { field: 'reason', reason: 'REQUIRED' });
       }
@@ -285,8 +285,8 @@ export class EmbedOriginService {
   }
 
   /**
-   * นโยบายของ `/dphone/embed?tenant=<alias>` — cache ≤ 30 วินาที; tenant ไม่มีอยู่/ไม่ ACTIVE,
-   * ไม่มี entitlement, flag ปิด หรือ DB ใช้ไม่ได้ = ไม่มี origin (ห้ามฝัง)
+   * policy of `/dphone/embed?tenant=<alias>` — cache ≤ 30 seconds; a tenant that does not exist/is not ACTIVE,
+   * has no entitlement, flag off or an unusable DB = no origin (embedding forbidden)
    */
   async shellPolicy(
     alias: string,
@@ -310,7 +310,7 @@ export class EmbedOriginService {
         }));
       }
     } catch {
-      policy = null; // fail closed — ไม่ cache ความล้มเหลว
+      policy = null; // fail closed — failures are not cached
       return null;
     }
     this.shellCache.set(key, {
@@ -321,7 +321,7 @@ export class EmbedOriginService {
   }
 
   /**
-   * E1.14: ระดับ screen-pop ของ origin ตอนส่งจริง (ไม่ใช้ cache) — ฝังไม่ได้แล้ว/ไม่อยู่ใน allowlist = `off`
+   * E1.14: the screen-pop level of the origin at actual send time (no cache) — can no longer embed/not in the allowlist = `off`
    */
   async screenPopLevel(tenantId: string, origin: string): Promise<EmbedScreenPopLevel> {
     return withTenantDatabaseTransaction(this.database, tenantId, async (tx) => {
@@ -334,7 +334,7 @@ export class EmbedOriginService {
     });
   }
 
-  /** lease ของ surface `embedded` ใช้ตรวจ host origin ซ้ำฝั่ง server (E1.5 ข้อ 5) — ไม่ใช้ cache */
+  /** the lease of the `embedded` surface is used to recheck the host origin on the server side (E1.5 item 5) — no cache */
   async isEmbeddable(tenantId: string, origin: string): Promise<boolean> {
     return withTenantDatabaseTransaction(this.database, tenantId, (tx) =>
       this.isEmbeddableInTransaction(tx, tenantId, origin),
@@ -471,7 +471,7 @@ function snapshot(row: Row): Prisma.InputJsonValue {
   };
 }
 
-/** ค่าจาก DB ที่ไม่รู้จัก = ปิด (fail closed) */
+/** an unknown value from the DB = off (fail closed) */
 function levelOf(value: string): EmbedScreenPopLevel {
   return (SCREEN_POP_LEVELS as readonly string[]).includes(value)
     ? (value as EmbedScreenPopLevel)

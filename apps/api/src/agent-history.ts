@@ -30,7 +30,7 @@ function cursorFrom(value: unknown, actor: WorkActor, filter: string): Cursor | 
     if (typeof value !== 'string' || value.length > 2048 || !/^[A-Za-z0-9_-]+$/.test(value))
       throw new Error();
     const parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as Cursor;
-    // cursor v1 (ก่อน #964) ไม่มีตัวกรอง — ยังรับเมื่อคำขอไม่มีตัวกรอง เพื่อไม่ให้แท็บที่เปิดค้างตอน deploy ค้าง 400
+    // a cursor v1 (before #964) has no filter — still accepted when the request has no filter, so a tab left open at deploy time does not hang on 400
     if (
       parsed &&
       typeof parsed === 'object' &&
@@ -136,7 +136,7 @@ export async function readAgentHistory(
   });
 }
 
-/** #964 สรุปงานที่จบของ Agent ในช่วงเวลา — ตัวเลขทุกตัวนับจาก CTE และตัวกรองเดียวกับรายการ */
+/** #964 the summary of an Agent's finished work over a period — every number is counted from the same CTE and filters as the list */
 export async function readAgentHistorySummary(
   database: PrismaClient,
   actor: WorkActor,

@@ -1,4 +1,4 @@
-/** ทดสอบ Keycloak/native Organization + verified proof + HTTP/PostgreSQL จริง ไม่ใช้ verifier stub */
+/** tests Keycloak/native Organization + a verified proof + real HTTP/PostgreSQL without a verifier stub */
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test from 'node:test';
@@ -9,7 +9,9 @@ import { coreIdentitySandbox } from './tenant-core-identity-sandbox.js';
 test(
   'Core real identity boundary: Keycloak 26.7.5/native Organizations → JWKS → proof → HTTP/RLS',
   {
-    skip: !sandbox ? 'NOT_RUN: ต้องระบุ CORE_IDENTITY_SANDBOX_URL ของ sandbox แยก' : false,
+    skip: !sandbox
+      ? 'NOT_RUN: CORE_IDENTITY_SANDBOX_URL of a separate sandbox must be given'
+      : false,
     timeout: 120_000,
   },
   async (t) => {
@@ -21,7 +23,7 @@ test(
     assert.deepEqual(
       orgClaim[`core-${f.tenantId}`]?.tenant_id,
       [f.tenantId],
-      'native claimมีtenantattributeจริง',
+      'the native claim has a real tenant attribute',
     );
     assert.equal((await f.request('tenant/core-settings/capabilities', token)).status, 200);
     assert.deepEqual(
@@ -39,13 +41,13 @@ test(
     assert.equal(
       (await f.request(`tenant/core-settings/commands/${commandId}`, foreignToken)).status,
       404,
-      'foreign authenticated identityต้องไม่เห็นreceipt',
+      'a foreign authenticated identity must not see the receipt',
     );
     assert.equal(
       (await f.request(`tenant/core-settings/commands/${commandId}`, await tokenFor('admin-two')))
         .status,
       404,
-      'Adminอื่นในtenantเดียวกันต้องไม่เห็นreceipt',
+      'another Admin in the same tenant must not see the receipt',
     );
     for (const name of ['unbound', 'disabled', 'agent'])
       assert.equal(
@@ -98,10 +100,10 @@ test(
     const response = await f.request('tenant/core-settings/capabilities', multiple);
     assert.ok(
       [401, 403].includes(response.status),
-      'multiple native Organizationsห้าม self-select authority',
+      'multiple native Organizations must not self-select authority',
     );
     t.diagnostic(
-      'PASS: real Keycloak/native Organization, JWKS, verified proof, role/proof drift และ B1 parity; ไม่มี token/secret ใน evidence',
+      'PASS: real Keycloak/native Organization, JWKS, verified proof, role/proof drift and B1 parity; no token/secret in evidence',
     );
   },
 );

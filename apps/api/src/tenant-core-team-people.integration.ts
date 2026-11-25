@@ -5,13 +5,13 @@ import { withTenantDatabaseTransaction } from '@d-contact/db';
 import { coreFixture } from './tenant-core-test-fixtures.js';
 import { acceptPeopleCreate } from './tenant-people-operations.js';
 
-test('Team/People: actual B2 pending operation/lifecycle คง creation Team แม้ User ย้ายออก; terminal no-effect เหลือประวัติ', async (t) => {
+test('Team/People: an actual B2 pending operation/lifecycle keeps the Team creation even when a User moves out; a terminal no-effect leaves history', async (t) => {
   const f = await coreFixture();
   t.after(() => f.close());
   const teamId = randomUUID();
   await f.owner.team.create({ data: { id: teamId, tenantId: f.tenantId, name: 'Pending People' } });
   await f.owner
-    .$executeRaw`INSERT INTO tenant_voice_provisioning_policies(tenant_id,revision,source_kind,accounts_limit,agents_limit,voice_queues_limit,skills_limit,approved_by_operator_subject,approved_at,approval_ref,reason,extension_pool) VALUES(${f.tenantId}::uuid,1,'UAT_EXPLICIT',50,20,10,10,'fixture-operator',now(),'isolated-fixture','ทดสอบ Team extension','[]'::jsonb)`;
+    .$executeRaw`INSERT INTO tenant_voice_provisioning_policies(tenant_id,revision,source_kind,accounts_limit,agents_limit,voice_queues_limit,skills_limit,approved_by_operator_subject,approved_at,approval_ref,reason,extension_pool) VALUES(${f.tenantId}::uuid,1,'UAT_EXPLICIT',50,20,10,10,'fixture-operator',now(),'isolated-fixture','Team extension test','[]'::jsonb)`;
   const admin = f.actors.get('admin')!;
   const accepted = await acceptPeopleCreate(
     f.db,
@@ -29,7 +29,7 @@ test('Team/People: actual B2 pending operation/lifecycle คง creation Team �
     {
       commandId: randomUUID(),
       teamId,
-      displayName: 'ทดสอบ pending',
+      displayName: 'Pending test',
       email: `${randomUUID()}@test.invalid`,
       role: 'SUPERVISOR',
     },

@@ -1,8 +1,8 @@
 /**
- * J3.8 (#219) — sanitized query API ของ segment membership stream
+ * J3.8 (#219) — sanitized query API of the segment membership stream
  *
- * ครอบสิ่งที่ acceptance บังคับ: generic cross-tenant `404 RESOURCE_NOT_FOUND`,
- * ETag/If-None-Match, และ response ที่ไม่มี payload/digest/PII หลุดออกไป
+ * covers what acceptance requires: generic cross-tenant `404 RESOURCE_NOT_FOUND`,
+ * ETag/If-None-Match, and a response with no payload/digest/PII leaking out
  */
 import 'reflect-metadata';
 import assert from 'node:assert/strict';
@@ -71,7 +71,7 @@ async function harness(t: TestContext) {
       if (token === 'admin-token') return claims(['admin'], tenantId);
       if (token === 'agent-token') return claims(['agent'], tenantId);
       if (token === 'other-tenant-admin') return claims(['admin'], otherTenantId);
-      throw new Error('token ไม่ถูกต้อง');
+      throw new Error('invalid token');
     },
   };
 
@@ -109,7 +109,7 @@ async function harness(t: TestContext) {
 
   const receipts = new JourneySegmentReceiptRepository(application);
 
-  /** สร้าง stream จริงผ่าน repository — ไม่ยัดแถวเข้าฐานข้อมูลตรง ๆ */
+  /** creates a real stream through the repository — without stuffing rows straight into the database */
   async function seedStream(tenant: string, contact: string, revision = 1) {
     const entryId = `entry-${tenant.slice(0, 8)}`;
     const received = await receipts.ingest({
@@ -146,7 +146,7 @@ async function harness(t: TestContext) {
       {
         eventType: 'journey.segment_entry.recorded',
         orderingKey: `${contact}:${segmentId}`,
-        payload: { contractVersion: 1, secretBusinessField: 'ห้ามหลุดออก API' },
+        payload: { contractVersion: 1, secretBusinessField: 'must not leak out of the API' },
         payloadHash: HASH,
       },
     );
@@ -188,7 +188,7 @@ async function harness(t: TestContext) {
   };
 }
 
-test('คืน stream ของ tenant ตัวเองพร้อม ETag และไม่มี payload หลุดออกไป', async (t) => {
+test('returns the own tenant stream with an ETag and no payload leaking out', async (t) => {
   const h = await harness(t);
   await h.seedStream(h.tenantId, h.contactId);
 
@@ -204,7 +204,7 @@ test('คืน stream ของ tenant ตัวเองพร้อม ETag �
   assert.equal((view.enrollments as unknown[]).length, 1);
   assert.deepEqual(view.gaps, []);
 
-  // forensic API ต้องไม่เปิดสิ่งที่ไม่ใช่ identity/state
+  // the forensic API must not expose anything that is not identity/state
   const wire = JSON.stringify(view);
   for (const forbidden of [
     'secretBusinessField',
@@ -214,11 +214,11 @@ test('คืน stream ของ tenant ตัวเองพร้อม ETag �
     'stateDigest',
     HASH,
   ]) {
-    assert.doesNotMatch(wire, new RegExp(forbidden), `${forbidden} ต้องไม่ออกทาง API`);
+    assert.doesNotMatch(wire, new RegExp(forbidden), `${forbidden} must not leave through the API`);
   }
 });
 
-test('If-None-Match ที่ตรงกับ ETag ได้ 304 โดยไม่ส่ง body', async (t) => {
+test('an If-None-Match that matches the ETag gets 304 without sending a body', async (t) => {
   const h = await harness(t);
   await h.seedStream(h.tenantId, h.contactId);
 
@@ -231,26 +231,26 @@ test('If-None-Match ที่ตรงกับ ETag ได้ 304 โดยไ�
   assert.equal(cached.status, 304);
   assert.equal((await cached.text()).trim(), '');
 
-  // ETag ที่ไม่ตรงต้องได้ body เต็ม
+  // a non-matching ETag must get the full body
   const stale = await h.call(`${h.contactId}/${h.segmentId}`, 'admin-token', {
     'if-none-match': '"jr-segment:0:0"',
   });
   assert.equal(stale.status, 200);
 });
 
-test('stream ของ tenant อื่นแยกไม่ออกจาก stream ที่ไม่เคยมีอยู่จริง', async (t) => {
+test("another tenant's stream is indistinguishable from a stream that never existed", async (t) => {
   const h = await harness(t);
   await h.seedStream(h.tenantId, h.contactId);
   await h.seedStream(h.otherTenantId, h.otherContactId);
 
   /**
-   * ทั้งสามเคสต้องได้คำตอบเหมือนกันเป๊ะ ๆ ไม่งั้นผู้เรียกจะ probe ได้ว่า contact/segment ไหน
-   * มีอยู่จริงใน tenant อื่น
+   * all three cases must get exactly the same answer, otherwise the caller could probe which contact/segment
+   * exists in another tenant
    */
   const cases: Array<[string, string]> = [
-    ['stream ของ tenant อื่น', `${h.otherContactId}/${h.segmentId}`],
-    ['contact ที่ไม่มีอยู่', `${randomUUID()}/${h.segmentId}`],
-    ['segment ที่ไม่มีอยู่', `${h.contactId}/segment-ไม่มีจริง`],
+    ['stream of another tenant', `${h.otherContactId}/${h.segmentId}`],
+    ['contact that does not exist', `${randomUUID()}/${h.segmentId}`],
+    ['segment that does not exist', `${h.contactId}/segment-does-not-exist`],
   ];
   const bodies = new Set<string>();
   for (const [label, path] of cases) {
@@ -260,10 +260,10 @@ test('stream ของ tenant อื่นแยกไม่ออกจาก s
     assert.equal(body.code, 'RESOURCE_NOT_FOUND', label);
     bodies.add(JSON.stringify(body));
   }
-  assert.equal(bodies.size, 1, 'ทุกเคสต้องตอบเหมือนกันทุกตัวอักษร');
+  assert.equal(bodies.size, 1, 'every case must answer identically character for character');
 });
 
-test('role ที่ไม่ใช่ admin/compliance เข้าไม่ได้', async (t) => {
+test('a role that is not admin/compliance cannot enter', async (t) => {
   const h = await harness(t);
   await h.seedStream(h.tenantId, h.contactId);
 
@@ -271,10 +271,10 @@ test('role ที่ไม่ใช่ admin/compliance เข้าไม่ไ
   assert.equal(response.status, 403);
 });
 
-test('gap ใน stream ถูกรายงานให้ operator เห็น', async (t) => {
+test('a gap in the stream is reported so the operator sees it', async (t) => {
   const h = await harness(t);
   await h.seedStream(h.tenantId, h.contactId, 1);
-  // revision 3 มาถึงโดยที่ 2 ไม่เคยมา — รูที่ operator ต้องตามหา
+  // revision 3 arrived without 2 ever arriving — a hole the operator must chase
   await h.seedStream(h.tenantId, h.contactId, 3);
 
   const response = await h.call(`${h.contactId}/${h.segmentId}`, 'admin-token');
@@ -283,7 +283,7 @@ test('gap ใน stream ถูกรายงานให้ operator เห็�
   assert.equal(view.receipts.length, 2);
 });
 
-/** ดัน receipt ไปอยู่สถานะ REVIEW แล้วคืน eventId กับ version ที่ operator จะเห็น */
+/** pushes a receipt into the REVIEW state and returns the eventId and version the operator will see */
 async function reviewedReceipt(h: Awaited<ReturnType<typeof harness>>) {
   const entryId = `entry-${h.tenantId.slice(0, 8)}`;
   const received = await h.receipts.ingest({
@@ -306,7 +306,7 @@ async function reviewedReceipt(h: Awaited<ReturnType<typeof harness>>) {
   return { eventId: row.eventId, version: row.version, id: row.id };
 }
 
-test('REPLAY คืน receipt เข้าคิวด้วย identity เดิมและบันทึก audit', async (t) => {
+test('REPLAY returns a queued receipt with the original identity and records an audit', async (t) => {
   const h = await harness(t);
   const target = await reviewedReceipt(h);
   const before = await h.owner.jrSegmentReceipt.findUniqueOrThrow({ where: { id: target.id } });
@@ -320,7 +320,7 @@ test('REPLAY คืน receipt เข้าคิวด้วย identity เด
   assert.equal(result.state, 'READY');
   assert.equal(result.version, target.version + 1);
 
-  // identity เดิมทุกอย่างต้องไม่ถูกแตะ
+  // the original identity must be untouched
   const after = await h.owner.jrSegmentReceipt.findUniqueOrThrow({ where: { id: target.id } });
   assert.equal(after.eventId, before.eventId);
   assert.equal(after.membershipRevision, before.membershipRevision);
@@ -335,7 +335,7 @@ test('REPLAY คืน receipt เข้าคิวด้วย identity เด
   assert.equal(audit.reasonCode, 'OPERATOR_REPLAY');
 });
 
-test('blind retry ด้วย version เก่าถูกปฏิเสธเป็น 409 และไม่แก้อะไร', async (t) => {
+test('a blind retry with an old version is rejected as 409 and changes nothing', async (t) => {
   const h = await harness(t);
   const target = await reviewedReceipt(h);
 
@@ -345,7 +345,7 @@ test('blind retry ด้วย version เก่าถูกปฏิเสธ�
   });
   assert.equal(first.status, 201);
 
-  // operator คนที่สองยังถือหน้าจอเก่าอยู่
+  // a second operator still holds the old screen
   const stale = await h.post(`receipts/${target.eventId}/replay`, 'admin-token', {
     idempotencyKey: randomUUID(),
     body: { expectedVersion: target.version, reasonCode: 'OPERATOR_REPLAY' },
@@ -357,29 +357,32 @@ test('blind retry ด้วย version เก่าถูกปฏิเสธ�
   assert.equal(
     await h.owner.jrRecoveryAudit.count({ where: { tenantId: h.tenantId } }),
     1,
-    'คำสั่งที่ถูกปฏิเสธต้องไม่ถูกบันทึกเป็น audit',
+    'a rejected command must not be recorded as an audit',
   );
 });
 
-test('recovery ไม่รับ payload ทดแทน และบังคับ Idempotency-Key กับ reasonCode', async (t) => {
+test('recovery accepts no replacement payload, and enforces Idempotency-Key and reasonCode', async (t) => {
   const h = await harness(t);
   const target = await reviewedReceipt(h);
 
   const cases: Array<[string, { idempotencyKey?: string; body: unknown }]> = [
-    ['ขาด Idempotency-Key', { body: { expectedVersion: 1, reasonCode: 'X_REPLAY' } }],
+    ['missing Idempotency-Key', { body: { expectedVersion: 1, reasonCode: 'X_REPLAY' } }],
     [
-      'reasonCode เป็นประโยคอิสระ',
-      { idempotencyKey: randomUUID(), body: { expectedVersion: 1, reasonCode: 'ลูกค้าโทรมาบ่น' } },
+      'reasonCode is free text',
+      {
+        idempotencyKey: randomUUID(),
+        body: { expectedVersion: 1, reasonCode: 'Customer called to complain' },
+      },
     ],
-    ['ขาด expectedVersion', { idempotencyKey: randomUUID(), body: { reasonCode: 'X_REPLAY' } }],
+    ['missing expectedVersion', { idempotencyKey: randomUUID(), body: { reasonCode: 'X_REPLAY' } }],
     [
-      'แนบ payload ทดแทน',
+      'attaches a replacement payload',
       {
         idempotencyKey: randomUUID(),
         body: {
           expectedVersion: 1,
           reasonCode: 'X_REPLAY',
-          payload: { membershipRevision: 99, contactId: 'ปลอม' },
+          payload: { membershipRevision: 99, contactId: 'fake' },
         },
       },
     ],
@@ -393,7 +396,7 @@ test('recovery ไม่รับ payload ทดแทน และบังค�
   assert.equal(await h.owner.jrRecoveryAudit.count({ where: { tenantId: h.tenantId } }), 0);
 });
 
-test('receipt ที่ APPLIED แล้ว replay ไม่ได้ — effect เกิดไปแล้ว', async (t) => {
+test('a receipt that is already APPLIED cannot be replayed — the effect has happened', async (t) => {
   const h = await harness(t);
   await h.seedStream(h.tenantId, h.contactId);
   const applied = await h.owner.jrSegmentReceipt.findFirstOrThrow({
@@ -408,7 +411,7 @@ test('receipt ที่ APPLIED แล้ว replay ไม่ได้ — effec
   assert.equal(((await response.json()) as { code: string }).code, 'RECOVERY_NOT_ALLOWED');
 });
 
-test('recovery ข้าม tenant แยกไม่ออกจากเป้าหมายที่ไม่เคยมี', async (t) => {
+test('cross-tenant recovery is indistinguishable from a target that never existed', async (t) => {
   const h = await harness(t);
   await h.seedStream(h.otherTenantId, h.otherContactId);
   const foreign = await h.owner.jrSegmentReceipt.findFirstOrThrow({
@@ -424,10 +427,10 @@ test('recovery ข้าม tenant แยกไม่ออกจากเป้
     assert.equal(response.status, 404);
     bodies.add(await response.text());
   }
-  assert.equal(bodies.size, 1, 'ทั้งสองเคสต้องตอบเหมือนกันทุกตัวอักษร');
+  assert.equal(bodies.size, 1, 'both cases must answer identically character for character');
 });
 
-test('REVALIDATE ปลุกงาน re-filter ที่ถูกพักไว้ แต่ปลุกงานที่จบแล้วไม่ได้', async (t) => {
+test('REVALIDATE wakes a parked re-filter job, but cannot wake a finished job', async (t) => {
   const h = await harness(t);
   const entryId = `entry-${h.tenantId.slice(0, 8)}`;
   const received = await h.receipts.ingest({
@@ -468,7 +471,7 @@ test('REVALIDATE ปลุกงาน re-filter ที่ถูกพักไ�
   assert.equal(ok.status, 201);
   assert.equal(((await ok.json()) as { state: string }).state, 'PENDING');
 
-  // ปิดงานแล้วปลุกไม่ได้ — ห้าม revive cancelled work
+  // a closed job cannot be woken — do not revive cancelled work
   const settled = await h.receipts.settleRefilter(
     h.tenantId,
     cursor.id,

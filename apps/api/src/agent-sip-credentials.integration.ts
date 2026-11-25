@@ -16,7 +16,7 @@ const application = new PrismaClient({
   },
 });
 
-test('credential หมุนได้ระหว่างสายโดยไม่ flush; takeover เพิกถอนชุดเก่าและ directory เห็นเฉพาะ lease ใหม่', async (t) => {
+test('a credential can rotate during a call without a flush; a takeover revokes the old set and the directory sees only the new lease', async (t) => {
   const tenantId = randomUUID();
   const agentId = randomUUID();
   const queueId = randomUUID();
@@ -124,7 +124,11 @@ test('credential หมุนได้ระหว่างสายโดยไ
       }
       await new Promise((resolve) => setTimeout(resolve, 25));
     }
-    assert.equal(waiting, true, 'credential issue ต้องรอ user lock เดียวกับ registration flush');
+    assert.equal(
+      waiting,
+      true,
+      'the credential issue must wait for the same user lock as the registration flush',
+    );
   } finally {
     releaseLock();
     await holding;

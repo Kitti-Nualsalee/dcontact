@@ -2,10 +2,10 @@ import type { ServerResponse } from 'node:http';
 import type { AuthenticatedGatewayRequest } from './gateway-auth.js';
 
 /**
- * External customer API (#954): ช่องของ service principal บน path เดียวกับ Console
+ * External customer API (#954): the service principal slot on the same path as the Console
  *
- * ไม่ได้ provide token นี้ = ปิด machine feature ทั้งชุด (ค่าเริ่มต้น) โดย route ของ human ไม่เปลี่ยน
- * แยกไฟล์จาก implementation เพื่อให้ controller อ้าง token ได้โดยไม่เกิด import วน
+ * this token not provided = the whole machine feature is off (the default) while the human routes are unchanged
+ * separated from the implementation so the controller can reference the token without a circular import
  */
 export const CUSTOMER_360_SERVICE_API = Symbol('CUSTOMER_360_SERVICE_API');
 export const C360_SERVICE_READ_SCOPE = 'customer360.contacts.read';

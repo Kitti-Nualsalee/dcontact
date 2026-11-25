@@ -34,7 +34,7 @@ export class C360WorkAuthError extends Error {
 export interface C360TokenIntrospector {
   introspect(accessToken: string): Promise<Record<string, unknown>>;
 }
-/** ใช้ confidential backend ส่ง exact access token ภายใน deadline โดยไม่ cache ผล active */
+/** uses a confidential backend to send the exact access token within the deadline without caching the active result */
 export class KeycloakC360TokenIntrospector implements C360TokenIntrospector {
   private readonly endpoint: URL;
   constructor(
@@ -156,7 +156,7 @@ async function lockAuth(
   await tx.$queryRaw`SELECT lease_id FROM c360_work_mutation_auth WHERE tenant_id=${binding.tenantId}::uuid AND user_id=${binding.userId}::uuid AND lease_id=${binding.leaseId}::uuid FOR NO KEY UPDATE NOWAIT`;
   return tx.c360WorkMutationAuth.findUnique({ where: key(binding) });
 }
-/** Caller ถือ lease fence แล้ว tuple ที่ capture ไว้ห้าม retry ด้วย epoch ใหม่ */
+/** the Caller already holds the lease fence, so the captured tuple must not be retried with a new epoch */
 export async function invalidateC360WorkAuthInTransaction(
   tx: Tx,
   binding: Pick<C360WorkAuthBinding, 'tenantId' | 'userId' | 'leaseId'>,
@@ -330,7 +330,7 @@ export class C360WorkAuthService implements WorkspaceMutationAuthAuthority {
         expected = current;
       }
     }
-    // การลอง token อื่นโดยไม่มี private binding เดิม ไม่ใช่อำนาจ invalidate token ปัจจุบัน
+    // trying another token without the original private binding is not authority to invalidate the current token
     const failureBinding =
       input.expected || snapshot.row?.tokenFingerprint === identity.tokenFingerprint
         ? expected
@@ -432,7 +432,7 @@ export class C360WorkAuthService implements WorkspaceMutationAuthAuthority {
       if (!receipts[0]) throw denied();
     }
   }
-  /** Caller ถือ Team/User fences แล้ว ฟังก์ชันนี้ไม่มี network และไม่ย้อนขอ lock ก่อนหน้า */
+  /** the Caller already holds the Team/User fences, this function has no network and does not go back to ask for an earlier lock */
   async assertOnlineProof(tx: Tx, proof: C360OnlineProof): Promise<void> {
     await lockLease(tx, proof);
     const row = await lockAuth(tx, proof);
@@ -457,8 +457,8 @@ export class C360WorkAuthService implements WorkspaceMutationAuthAuthority {
         const lease = await lockLease(tx, binding, false);
         if (lease.released_at) return false;
         const result = await invalidateC360WorkAuthInTransaction(tx, binding, reason, binding);
-        // true = tuple นี้ถูก invalidate แล้วอย่างปลอดภัย รวมผลเดิมจาก callback เดียวกัน
-        // false = เป็น tuple เก่าที่มี binding ใหม่กว่า หรือ lease ถูกย้าย/ปล่อยแล้ว
+        // true = this tuple was safely invalidated, including the earlier result from the same callback
+        // false = an old tuple with a newer binding, or the lease was moved/released
         return result === 'invalidated' || result === 'already-invalidated';
       },
       { timeout: 2_000 },

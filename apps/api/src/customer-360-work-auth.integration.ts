@@ -6,11 +6,14 @@ import { C360WorkAuthError, C360WorkAuthService } from './customer-360-work-auth
 import { coreFixture } from './tenant-core-test-fixtures.js';
 import { WorkSessionLeases } from './work-session.js';
 
-// ใช้ฐาน integration แยกเท่านั้น ห้ามใช้ฐานพัฒนาร่วม
-test('C5 durable auth: PostgreSQL/RLS, epoch CAS, reauth และ Voice lease invariants', async (t) => {
+// use only a separate integration database, never the shared development database
+test('C5 durable auth: PostgreSQL/RLS, epoch CAS, reauth and Voice lease invariants', async (t) => {
   const owner = new URL(process.env.DATABASE_URL ?? 'postgresql://invalid/none');
-  assert.ok(owner.pathname !== '/dcontact' && owner.port !== '5433', 'ต้องใช้ฐานทดสอบแยก');
-  assert.ok(process.env.APPLICATION_DATABASE_URL, 'ต้องมี application role เพื่อพิสูจน์ RLS');
+  assert.ok(
+    owner.pathname !== '/dcontact' && owner.port !== '5433',
+    'a separate test database must be used',
+  );
+  assert.ok(process.env.APPLICATION_DATABASE_URL, 'an application role is required to prove RLS');
   const f = await coreFixture();
   t.after(() => f.close());
   const agent = f.actors.get('agent')!;
@@ -66,18 +69,24 @@ test('C5 durable auth: PostgreSQL/RLS, epoch CAS, reauth และ Voice lease i
       service.assertOnlineProof(tx, proof),
     );
   let binding = await service.reauthenticate({ accessToken: 'first', leaseId });
-  await t.test('initial trusted binding และ online proof ไม่เก็บ token ดิบ', async () => {
-    assert.equal(binding.authEpoch, '0');
-    const proof = await service.verifyOnline({ accessToken: 'first', leaseId });
-    await check(proof);
-    assert.equal((await row()).lastOnlineCheckStartedAt?.getTime(), proof.checkStartedAt.getTime());
-    assert.notEqual((await row()).tokenFingerprint, 'first');
-    await assert.rejects(
-      () => service.verifyOnline({ accessToken: 'second', leaseId }),
-      /WORK_REAUTH_REQUIRED/,
-      'token เปลี่ยนต้องผ่าน explicit reauth',
-    );
-  });
+  await t.test(
+    'the initial trusted binding and the online proof do not store the raw token',
+    async () => {
+      assert.equal(binding.authEpoch, '0');
+      const proof = await service.verifyOnline({ accessToken: 'first', leaseId });
+      await check(proof);
+      assert.equal(
+        (await row()).lastOnlineCheckStartedAt?.getTime(),
+        proof.checkStartedAt.getTime(),
+      );
+      assert.notEqual((await row()).tokenFingerprint, 'first');
+      await assert.rejects(
+        () => service.verifyOnline({ accessToken: 'second', leaseId }),
+        /WORK_REAUTH_REQUIRED/,
+        'a token change must go through an explicit reauth',
+      );
+    },
+  );
   await f.owner.interaction.create({
     data: {
       tenantId: f.tenantId,
@@ -89,13 +98,17 @@ test('C5 durable auth: PostgreSQL/RLS, epoch CAS, reauth และ Voice lease i
     },
   });
   await t.test(
-    'revoke ขณะ ACTIVE persist REAUTH_REQUIRED ก่อน busy return; heartbeat ไม่คืน auth',
+    'a revoke while ACTIVE persists REAUTH_REQUIRED before the busy return; the heartbeat does not return auth',
     async () => {
       assert.equal(await leases.revokeForAuth(actor, leaseId, 'actual-revoke', binding), false);
       assert.equal((await row()).authState, 'REAUTH_REQUIRED');
       assert.equal((await row()).authEpoch, 1n);
       assert.equal(await service.invalidateCaptured(binding, 'DUPLICATE_CALLBACK'), true);
-      assert.equal((await row()).authEpoch, 1n, 'tuple ที่ invalidate แล้วไม่ bump epoch ซ้ำ');
+      assert.equal(
+        (await row()).authEpoch,
+        1n,
+        'an already invalidated tuple does not bump the epoch again',
+      );
       assert.equal(
         (await f.owner.agentWorkSessionLease.findUniqueOrThrow({ where: { id: leaseId } }))
           .releasedAt,
@@ -106,7 +119,7 @@ test('C5 durable auth: PostgreSQL/RLS, epoch CAS, reauth และ Voice lease i
     },
   );
   await t.test(
-    'fresh sid subject เดิมกลับงานเดิมได้; callback เก่าไม่ invalidate epoch ใหม่',
+    'a fresh sid with the same subject returns to the original work; an old callback does not invalidate the new epoch',
     async () => {
       const previous = binding;
       binding = await service.reauthenticate({
@@ -127,20 +140,23 @@ test('C5 durable auth: PostgreSQL/RLS, epoch CAS, reauth และ Voice lease i
       );
     },
   );
-  await t.test('online active:false persist invalidation แล้ว login ใหม่กลับได้', async () => {
-    active = false;
-    await assert.rejects(
-      () => service.verifyOnline({ accessToken: 'second', leaseId }),
-      /WORK_REAUTH_REQUIRED/,
-    );
-    assert.equal((await row()).authState, 'REAUTH_REQUIRED');
-    assert.equal((await row()).authEpoch, 3n);
-    active = true;
-    binding = await service.reauthenticate({ accessToken: 'third', leaseId });
-    assert.equal(binding.authEpoch, '4');
-  });
   await t.test(
-    'invalidation ชนะระหว่าง network check ทำให้ proof เก่าถูกปฏิเสธก่อน effect',
+    'online active:false persists the invalidation, then a new login can return',
+    async () => {
+      active = false;
+      await assert.rejects(
+        () => service.verifyOnline({ accessToken: 'second', leaseId }),
+        /WORK_REAUTH_REQUIRED/,
+      );
+      assert.equal((await row()).authState, 'REAUTH_REQUIRED');
+      assert.equal((await row()).authEpoch, 3n);
+      active = true;
+      binding = await service.reauthenticate({ accessToken: 'third', leaseId });
+      assert.equal(binding.authEpoch, '4');
+    },
+  );
+  await t.test(
+    'an invalidation that wins during the network check makes the old proof rejected before the effect',
     async () => {
       let release!: () => void;
       onlineGate = new Promise<void>((resolve) => {
@@ -162,7 +178,7 @@ test('C5 durable auth: PostgreSQL/RLS, epoch CAS, reauth และ Voice lease i
     },
   );
   await t.test(
-    'IdP unavailable fail closed เฉพาะ auth และ reauth ไม่เปลี่ยน lease/work',
+    'IdP unavailable fails closed for auth only and reauth does not change the lease/work',
     async () => {
       unavailable = true;
       await assert.rejects(
@@ -186,7 +202,7 @@ test('C5 durable auth: PostgreSQL/RLS, epoch CAS, reauth และ Voice lease i
     },
   );
   await t.test(
-    'proof deadline หมดก่อน transaction และ subject mismatch ไม่เขียน auth ใหม่',
+    'a proof deadline that expires before the transaction and a subject mismatch do not write new auth',
     async () => {
       const proof = await service.verifyOnline({ accessToken: 'fifth', leaseId });
       await assert.rejects(
@@ -202,7 +218,7 @@ test('C5 durable auth: PostgreSQL/RLS, epoch CAS, reauth และ Voice lease i
     },
   );
   await t.test(
-    'takeover ที่ชนะ online check ปฏิเสธ proof เก่าและ callback ไม่แตะ lease ใหม่',
+    'a takeover that wins the online check rejects the old proof and the callback does not touch the new lease',
     async () => {
       await f.owner.interaction.updateMany({
         where: { tenantId: actor.tenantId, agentId: actor.userId },

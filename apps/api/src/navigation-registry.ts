@@ -1,15 +1,15 @@
 /**
- * D1.12 (#451): app registry ของ Console/Workspace และกติกาการมองเห็น/หมุด (D1.2 #422)
+ * D1.12 (#451): the app registry of Console/Workspace and the visibility/pin rules (D1.2 #422)
  *
- * - รายการแอปที่มองเห็นคำนวณที่ server เท่านั้น: role (จาก token) + effective entitlement (ADR-009)
- *   แอปที่ไม่ผ่านถูกตัดออกก่อนถึง browser — ไม่มีสถานะ "ล็อก" ใน launcher/rail
- * - entitlement: แอปที่ระบุ key ต้องได้ `entitlements[key] === true` จาก plan binding (fail-closed)
- *   ยกเว้น tenant ที่ **ไม่มี plan binding เลย** (tenant ก่อน A1 เช่น demo) ใช้ role อย่างเดียว เพราะ
- *   tenant กลุ่มนี้ยังไม่มีแนวคิด plan — tenant จาก provisioning มี binding เสมอจึงยัง fail-closed
- *   (ผู้ใช้ตัดสิน 2026-09-25 ใน #451)
- * - key ของ module เป็น snake_case ตามตัวตรวจ plan (`planEntitlementErrors`) — ADR-025 เรียก
- *   `modules.journey.*` และ ADR-027 เรียก `modules.contactGovernance.*`
- * - registry มีเฉพาะหน้าจอที่มีอยู่จริง — แอปใหม่เพิ่มแถวที่นี่พร้อม i18n key ของ launcher
+ * - the visible app list is computed on the server only: role (from the token) + effective entitlement (ADR-009)
+ *   apps that fail are removed before reaching the browser — there is no "locked" state in the launcher/rail
+ * - entitlement: an app that names a key needs `entitlements[key] === true` from the plan binding (fail-closed)
+ *   except a tenant with **no plan binding at all** (a pre-A1 tenant such as demo), which uses the role alone because
+ *   such tenants have no concept of a plan yet — a tenant from provisioning always has a binding so it stays fail-closed
+ *   (decided by the user 2026-09-25 in #451)
+ * - module keys are snake_case following the plan checker (`planEntitlementErrors`) — ADR-025 calls
+ *   `modules.journey.*` and ADR-027 calls `modules.contactGovernance.*`
+ * - the registry has only screens that really exist — a new app adds a row here together with the launcher i18n key
  */
 
 import { resolveQmHumanEvaluation } from './qm-evaluation-config.js';
@@ -28,9 +28,9 @@ export const NAVIGATION_GROUPS = [
 export type NavigationGroupId = (typeof NAVIGATION_GROUPS)[number];
 
 /**
- * #651: พื้นที่งานบน rail (ลำดับ = ลำดับบน rail, ตาม `mockups/assets/app.js` RAIL)
- * พื้นที่ที่ไม่มีรายการที่ผู้ใช้เห็นจะไม่ถูกส่งไป browser — เพิ่มหน้าใหม่ = เพิ่มแถวใน `NAVIGATION_APPS` ที่ระบุ area/section
- * พร้อมข้อความ `navigation.areas.<id>` / `navigation.sections.<id>` ของ Console และ Workspace
+ * #651: work areas on the rail (order = order on the rail, per `mockups/assets/app.js` RAIL)
+ * an area with no item the user can see is not sent to the browser — adding a page = adding a row to `NAVIGATION_APPS` that names area/section
+ * together with the `navigation.areas.<id>` / `navigation.sections.<id>` text of the Console and Workspace
  */
 export const NAVIGATION_AREAS = [
   'home',
@@ -57,40 +57,40 @@ export type NavigationAreaId = (typeof NAVIGATION_AREAS)[number];
 export type NavigationHostApp = 'console' | 'workspace';
 
 /**
- * #658: หน้าย่อยของแอป (เช่น แท็บของ Governance) — แสดงเป็นรายการในเมนูย่อยแทนแท็บในหน้า
- * ไม่ใช่แอปแยก: ปักหมุด/launcher ยังเป็นระดับแอป และสิทธิ์การมองเห็นเท่ากับแอป (API ปลายทาง authorize เองทุก request)
+ * #658: sub-pages of an app (e.g. the Governance tabs) — shown as items in the submenu instead of tabs in the page
+ * not a separate app: pinning/launcher stay at the app level and the visibility permission equals the app's (the target API authorizes every request itself)
  */
 export interface NavigationPageDefinition {
-  /** id ภายในแอป (a-z, ขีดกลาง) */
+  /** id within the app (a-z, hyphen) */
   id: string;
-  /** key ใน catalog ของ shell */
+  /** key in the shell catalog */
   labelKey: string;
-  /** path ภายใน host app ของแอป — ห้ามมี PII */
+  /** path inside the app's host app — must contain no PII */
   path: string;
 }
 
 export interface NavigationAppDefinition {
   id: string;
   group: NavigationGroupId;
-  /** key ใน catalog ของ shell (D1.13) */
+  /** key in the shell catalog (D1.13) */
   labelKey: string;
-  /** #651: พื้นที่งานบน rail ที่รายการนี้อยู่ */
+  /** #651: the work area on the rail that this item belongs to */
   area: NavigationAreaId;
-  /** #651: กลุ่มย่อยในเมนูย่อยของ area — id เป็น key ของ `navigation.sections.<id>` (a-z, ขีดกลาง) */
+  /** #651: sub-group in the area's submenu — the id is the key of `navigation.sections.<id>` (a-z, hyphen) */
   section: string;
   hostApp: NavigationHostApp;
-  /** path ภายใน host app — ห้ามมี PII; ลิงก์ข้าม host app เปิดแท็บใหม่ (ADR-026 ข้อ 3) */
+  /** path inside the host app — must contain no PII; a link across host apps opens a new tab (ADR-026 item 3) */
   path: string;
-  /** realm role อย่างน้อยหนึ่งตัว — เป็นแค่การมองเห็น API ปลายทางยัง authorize เองทุก request */
+  /** at least one realm role — visibility only; the target API still authorizes every request itself */
   roles: readonly string[];
   entitlement?: string;
-  /** #658: หน้าย่อยในเมนูย่อย (ตามลำดับ); ไม่ระบุ = รายการเดียวของแอป */
+  /** #658: sub-pages in the submenu (in order); omitted = the app's single item */
   pages?: readonly NavigationPageDefinition[];
 }
 
 /**
- * #967 เสียงบันทึกของทีมสำหรับ Supervisor — อยู่ในเมนูเฉพาะ deployment ที่ตั้ง
- * `RECORDING_SUPERVISOR_PLAYBACK=on` API ตรวจสิทธิ์ตามทีมที่รับสายเองทุก request
+ * #967 team recordings for Supervisors — in the menu only for deployments that set
+ * `RECORDING_SUPERVISOR_PLAYBACK=on`; the API checks permission by the answering team on every request
  */
 export const TEAM_RECORDINGS_APP: NavigationAppDefinition = Object.freeze({
   id: 'team-recordings',
@@ -104,8 +104,8 @@ export const TEAM_RECORDINGS_APP: NavigationAppDefinition = Object.freeze({
 });
 
 /**
- * #971 ประเมินคุณภาพโดยคน — อยู่ในเมนูเฉพาะ deployment ที่ตั้ง `QM_HUMAN_EVALUATION=on`
- * API ตรวจบทบาทจาก DB และทีมที่รับสายเองทุก request
+ * #971 human quality evaluation — in the menu only for deployments that set `QM_HUMAN_EVALUATION=on`
+ * the API checks the role from the DB and the answering team on every request
  */
 export const QM_HUMAN_EVALUATION_APPS: readonly NavigationAppDefinition[] = Object.freeze([
   {
@@ -192,7 +192,7 @@ const BASE_NAVIGATION_APPS: readonly NavigationAppDefinition[] = Object.freeze([
     path: '/?view=governance',
     roles: ['supervisor', 'admin', 'compliance'],
     entitlement: 'module_contact_governance',
-    // #658: แท็บของหน้า Governance → รายการในเมนูย่อย (path ตรงกับ `parseGovernanceLocation`)
+    // #658: Governance page tabs → items in the submenu (the path matches `parseGovernanceLocation`)
     pages: [
       {
         id: 'overview',
@@ -217,8 +217,8 @@ const BASE_NAVIGATION_APPS: readonly NavigationAppDefinition[] = Object.freeze([
     ],
   },
   {
-    // E1.11 (#485): allowlist ของ origin ที่ฝัง dphone — ADMIN แก้, SUPERVISOR ดู
-    // launcher ซ่อนเมื่อไม่มี `modules.api.cti`; เปิด URL ตรงเห็นหน้าล็อกพร้อมข้อความเรื่อง plan
+    // E1.11 (#485): allowlist of origins that embed dphone — ADMIN edits, SUPERVISOR views
+    // the launcher hides it when there is no `modules.api.cti`; opening the URL directly shows a locked page with a message about the plan
     id: 'dphone-embedding',
     area: 'integrations',
     section: 'embedding',
@@ -240,7 +240,7 @@ const BASE_NAVIGATION_APPS: readonly NavigationAppDefinition[] = Object.freeze([
     roles: ['agent'],
   },
   {
-    // #986 ประวัติและสรุปงานของทีม — Supervisor เห็นทีมตัวเอง Admin เห็นทุกทีม (API ตรวจจาก DB ทุก request)
+    // #986 team history and work summary — a Supervisor sees their own team, an Admin sees all teams (the API checks the DB on every request)
     id: 'team-history',
     area: 'history',
     section: 'work',
@@ -251,7 +251,7 @@ const BASE_NAVIGATION_APPS: readonly NavigationAppDefinition[] = Object.freeze([
     roles: ['supervisor', 'admin'],
   },
   {
-    // #956 เคสที่ Agent ดูแลในทีม — API ตรวจสิทธิ์ราย request เอง (เห็นเฉพาะเคสของทีมตนเอง)
+    // #956 cases the Agent handles in the team — the API checks permission per request itself (sees only their own team's cases)
     id: 'team-cases',
     area: 'cases',
     section: 'work',
@@ -316,8 +316,8 @@ const BASE_NAVIGATION_APPS: readonly NavigationAppDefinition[] = Object.freeze([
     ],
   },
   {
-    // Cus360 C2 (#792): Customers + โปรไฟล์ read-only; ไม่มี Agent/Compliance (ไม่มี generic directory, R1 C)
-    // สิทธิ์ต่อรายการตัดสินที่ API ทุก request — role ที่นี่เป็นแค่การมองเห็นเมนู
+    // Cus360 C2 (#792): Customers + read-only profile; no Agent/Compliance (no generic directory, R1 C)
+    // per-item permission is decided at the API on every request — the role here is only menu visibility
     id: 'customers',
     area: 'customers',
     section: 'customers',
@@ -417,8 +417,8 @@ const BASE_NAVIGATION_APPS: readonly NavigationAppDefinition[] = Object.freeze([
 ]);
 
 /**
- * รายการแอปของ deployment: เพิ่มเสียงบันทึกของทีมต่อจาก "ทีมสด" และแอปประเมินคุณภาพ
- * ต่อท้ายรายการเมื่อเปิดใช้ (area `qm` อยู่ตามลำดับ `NAVIGATION_AREAS` อยู่แล้ว)
+ * the deployment's app list: adds team recordings after "live team" and the quality evaluation app
+ * at the end of the list when enabled (area `qm` is already in the order of `NAVIGATION_AREAS`)
  */
 export function navigationApps(
   recordingPlayback: boolean,
@@ -440,7 +440,7 @@ export const NAVIGATION_APPS: readonly NavigationAppDefinition[] = navigationApp
 
 export interface NavigationAreaItemView {
   appId: string;
-  /** #658: ส่งเฉพาะแอปที่มีหน้าย่อย — client รุ่นเก่าเห็นรายการเดียวตาม `appId` */
+  /** #658: sent only for apps that have sub-pages — an older client sees a single item per `appId` */
   pages?: NavigationPageDefinition[];
 }
 
@@ -450,8 +450,8 @@ export interface NavigationAreaView {
 }
 
 /**
- * #651: พื้นที่/กลุ่มย่อย/รายการเมนูจากแอปที่ผู้ใช้มองเห็นแล้วเท่านั้น
- * ลำดับพื้นที่ตาม `NAVIGATION_AREAS`; กลุ่มย่อยและรายการตามลำดับของ registry; พื้นที่ว่างไม่ถูกส่ง
+ * #651: areas/sub-groups/menu items from apps the user can already see, only
+ * area order follows `NAVIGATION_AREAS`; sub-groups and items follow the registry order; empty areas are not sent
  */
 export function visibleAreas(visible: readonly NavigationAppDefinition[]): NavigationAreaView[] {
   return NAVIGATION_AREAS.flatMap((areaId) => {
@@ -474,7 +474,7 @@ export function visibleAreas(visible: readonly NavigationAppDefinition[]): Navig
   });
 }
 
-/** `null` = tenant ไม่มี plan binding */
+/** `null` = the tenant has no plan binding */
 export type EffectiveEntitlements = Readonly<Record<string, unknown>> | null;
 
 export function entitled(app: NavigationAppDefinition, entitlements: EffectiveEntitlements) {
@@ -482,7 +482,7 @@ export function entitled(app: NavigationAppDefinition, entitlements: EffectiveEn
   return entitlements[app.entitlement] === true;
 }
 
-/** แอปที่ผู้ใช้คนนี้มองเห็น ตามลำดับของ registry */
+/** apps this user can see, in registry order */
 export function visibleApps(
   input: { roles: readonly string[]; entitlements: EffectiveEntitlements },
   registry: readonly NavigationAppDefinition[] = NAVIGATION_APPS,
@@ -493,7 +493,7 @@ export function visibleApps(
   );
 }
 
-/** แอปที่ tenant ADMIN ใส่ในชุดเริ่มต้นได้ — ตาม entitlement ของ tenant ไม่ขึ้นกับ role ของ admin */
+/** apps a tenant ADMIN can put in the starter set — by the tenant's entitlement, independent of the admin's role */
 export function tenantAvailableApps(
   entitlements: EffectiveEntitlements,
   registry: readonly NavigationAppDefinition[] = NAVIGATION_APPS,
@@ -504,8 +504,8 @@ export function tenantAvailableApps(
 export type PinSource = 'USER' | 'TENANT' | 'SYSTEM';
 
 /**
- * หมุดที่มีผล: ผู้ใช้ทับ tenant; ไม่มีทั้งคู่ = แอปที่มองเห็นตามลำดับ registry
- * หมุดที่เคยปักแต่ตอนนี้มองไม่เห็น (role/plan เปลี่ยน) ถูกกรองออกตอนอ่าน ไม่เปิดเผยว่ายังมีอยู่
+ * effective pins: the user overrides the tenant; neither = the visible apps in registry order
+ * a pin that was set but is now invisible (role/plan changed) is filtered out on read, without revealing that it still exists
  */
 export function effectivePins(input: {
   visible: readonly NavigationAppDefinition[];
@@ -522,8 +522,8 @@ export function effectivePins(input: {
 export type PinValidationError = 'PIN_LIMIT_EXCEEDED' | 'APP_NOT_AVAILABLE';
 
 /**
- * ตรวจชุดหมุดกับแอปที่อนุญาต — แอปที่ไม่มีอยู่และแอปที่มีแต่ไม่มีสิทธิ์ได้ error เดียวกัน
- * เพื่อไม่ให้ใช้ endpoint นี้สำรวจว่ามีแอปอะไรที่ตัวเองมองไม่เห็น
+ * validate the pin set against the allowed apps — an app that does not exist and an app that exists but is not permitted get the same error
+ * so this endpoint cannot be used to probe which apps exist that the caller cannot see
  */
 export function pinValidationError(
   appIds: readonly string[],

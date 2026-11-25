@@ -43,7 +43,7 @@ import {
   type SharedRateLimiter,
 } from './shared-rate-limiter.js';
 
-/** เวลารวมของ confirm; เกินแล้วแถวที่เหลือคืน NOT_ATTEMPTED และส่งซ้ำด้วย commandId เดิมได้ */
+/** the total time of confirm; past it the remaining rows return NOT_ATTEMPTED and resending with the original commandId is possible */
 export const C360_IMPORT_CONFIRM_BUDGET_MS = 45_000;
 
 type PreviewResult = Awaited<ReturnType<typeof prepareC360ImportPreview>>;
@@ -59,7 +59,7 @@ export interface C360ImportRowResult {
   fieldErrors?: readonly { field: string; code: string }[];
 }
 
-/** child commandId คงที่จาก (request commandId, plan, rowNo) เพื่อให้ส่งซ้ำไม่สร้างลูกค้าซ้ำ */
+/** a fixed child commandId from (request commandId, plan, rowNo) so resending does not create a customer twice */
 export function c360ImportChildCommandId(
   commandId: string,
   planHash: string,
@@ -74,7 +74,7 @@ export function c360ImportChildCommandId(
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-/** แปลงผลของ command เป็นสถานะรายแถวที่ไม่มีค่า raw */
+/** maps a command result to a per-row status with no raw value */
 export function c360ImportRowResult(
   rowNo: number,
   result: C360ProfileCommandResult,
@@ -117,7 +117,7 @@ export class Customer360ImportController {
     @Inject(CUSTOMER_360_WRITE_RUNTIME) private readonly runtime: C360WriteRuntime,
   ) {}
 
-  /** Preview ไม่สร้าง Contact/grant/audit; ผลมี cell ของไฟล์ที่ Admin ส่งมาเองเท่านั้น */
+  /** Preview creates no Contact/grant/audit; the result has only cells of the file the Admin sent themselves */
   @Post('preview')
   async preview(
     @Req() req: AuthenticatedGatewayRequest,
@@ -137,7 +137,7 @@ export class Customer360ImportController {
     });
   }
 
-  /** ส่งไฟล์เดิมซ้ำ: ตรวจ planHash แล้วสร้างทีละแถวด้วย create command เดิมของ C4 */
+  /** resending the same file: checks planHash then creates row by row with the original C4 create command */
   @Post('confirm')
   async confirm(
     @Req() req: AuthenticatedGatewayRequest,
@@ -182,7 +182,7 @@ export class Customer360ImportController {
       }
       const normalized = normalizeC360ImportRow(preview.headers, row.cells, mapping);
       if (!normalized.valid) {
-        // preview เดียวกันต้องได้ผลเดิม; ถ้าไม่ใช่ถือว่า plan เปลี่ยน
+        // the same preview must give the same result; if not, the plan is considered changed
         throw new Customer360HttpError(409, 'PREVIEW_STALE');
       }
       const profile = normalized.profile;
@@ -223,11 +223,11 @@ export class Customer360ImportController {
           (error instanceof Customer360HttpError && [401, 403].includes(error.status)) ||
           (error instanceof C360ProfileCommandError && [401, 403].includes(error.httpStatus));
         if (denied) {
-          // สิทธิ์หายกลางทาง: แถวที่ commit แล้วคงอยู่ ที่เหลือไม่ถูกเริ่ม
+          // permission lost midway: rows already committed stay, the rest are not started
           stopped = true;
           rows.push({ rowNo: row.rowNo, state: 'NOT_ATTEMPTED', code: 'CUSTOMER_ACCESS_DENIED' });
         } else {
-          // ไม่ทราบว่า command ถึง DB หรือไม่: ห้ามสรุปว่าล้ม ให้ส่งซ้ำด้วย commandId เดิม
+          // unknown whether the command reached the DB: must not conclude it failed, resend with the original commandId
           rows.push({ rowNo: row.rowNo, state: 'UNKNOWN', code: 'RETRY_SAME_COMMAND' });
         }
       }

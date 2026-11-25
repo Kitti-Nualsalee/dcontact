@@ -22,7 +22,7 @@ function fakeKeycloak(responses: Array<(call: Call) => Response | Promise<Respon
     };
     calls.push(call);
     const next = responses.shift();
-    assert.ok(next, `ไม่ได้คาดว่าจะมีการเรียก ${call.method} ${url}`);
+    assert.ok(next, `did not expect a call ${call.method} ${url}`);
     return next(call);
   }) as typeof globalThis.fetch;
   return { calls, fetch };
@@ -34,7 +34,7 @@ const tokenResponse =
     Response.json({ access_token: token, expires_in: expiresIn });
 const status = (code: number) => () => new Response(null, { status: code });
 
-test('sync บังคับ 2FA: ขอ token แบบ client_credentials แล้ว PUT ไปที่ extension ของ tenant', async () => {
+test('2FA enforcement sync: requests a client_credentials token then PUTs to the tenant extension', async () => {
   const { calls, fetch } = fakeKeycloak([tokenResponse('t1'), status(204)]);
   const port = new KeycloakOrganizationMfa(
     new KeycloakAccountServiceClient({ issuer: `${ISSUER}/`, clientSecret: 's3cret', fetch }),
@@ -56,13 +56,13 @@ test('sync บังคับ 2FA: ขอ token แบบ client_credentials แ
   assert.deepEqual(JSON.parse(calls[1]!.body), { required: true });
 });
 
-test('token ถูก cache จนใกล้หมดอายุ; 401 = ขอ token ใหม่แล้วลองซ้ำครั้งเดียว', async () => {
+test('the token is cached until close to expiry; 401 = request a new token and retry once', async () => {
   let now = 0;
   const { calls, fetch } = fakeKeycloak([
     tokenResponse('t1', 300),
     status(204),
     status(204),
-    // ผ่านไป 271 วินาที (เหลือ < 30 วินาที) → ขอใหม่
+    // after 271 seconds (< 30 seconds left) → request a new one
     tokenResponse('t2', 300),
     status(401),
     tokenResponse('t3', 300),
@@ -81,7 +81,7 @@ test('token ถูก cache จนใกล้หมดอายุ; 401 = ข�
   );
 });
 
-test('ทุกความล้มเหลวเป็น IDENTITY_UNAVAILABLE และไม่แนบรายละเอียดของ Keycloak', async () => {
+test('every failure is IDENTITY_UNAVAILABLE and attaches no Keycloak details', async () => {
   const cases: Array<Array<(call: Call) => Response | Promise<Response>>> = [
     [status(401)],
     [() => Response.json({ error: 'invalid_client' }, { status: 401 })],
@@ -109,7 +109,7 @@ test('ทุกความล้มเหลวเป็น IDENTITY_UNAVAILABL
   }
 });
 
-test('timeout ของ Keycloak ไม่ค้าง request — ยกเลิกตาม timeoutMs', async () => {
+test('a Keycloak timeout does not hang the request — aborted per timeoutMs', async () => {
   const fetch = ((_url: string, init: RequestInit) =>
     new Promise((_resolve, reject) => {
       init.signal?.addEventListener('abort', () => reject(init.signal?.reason));
@@ -117,7 +117,7 @@ test('timeout ของ Keycloak ไม่ค้าง request — ยกเล�
   const port = new KeycloakOrganizationMfa(
     new KeycloakAccountServiceClient({ issuer: ISSUER, clientSecret: 's', fetch, timeoutMs: 20 }),
   );
-  // timer ของ AbortSignal.timeout เป็น unref — กัน event loop ว่างก่อน abort ใน test
+  // the AbortSignal.timeout timer is unref — stops the event loop going empty before the abort in the test
   const keepAlive = setInterval(() => undefined, 1_000);
   try {
     await assert.rejects(port.setMfaRequired(TENANT, true), { code: 'IDENTITY_UNAVAILABLE' });

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { unexpectedErrorCode } from './tenant-core-errors.js';
 
-test('unexpectedErrorCode คืน Prisma code, SQLSTATE และรหัสของ trigger เพื่อหาเหตุของ 500 (#977)', () => {
+test('unexpectedErrorCode returns the Prisma code, SQLSTATE and the trigger code to find the cause of a 500 (#977)', () => {
   assert.equal(
     unexpectedErrorCode({
       code: 'P2010',
@@ -12,7 +12,7 @@ test('unexpectedErrorCode คืน Prisma code, SQLSTATE และรหัส�
   );
 });
 
-test('unexpectedErrorCode ไม่คืนข้อความอิสระที่อาจมีข้อมูลผู้ใช้', () => {
+test('unexpectedErrorCode does not return free text that may contain user data', () => {
   assert.equal(
     unexpectedErrorCode({
       code: 'P2002',

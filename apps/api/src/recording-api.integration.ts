@@ -100,7 +100,7 @@ test('an agent pauses and resumes only its permitted active recording with a rea
       name: `Recording queue ${tenantId}`,
       channels: ['VOICE'],
       recordingEnabled: true,
-      recordingAnnouncement: 'สายนี้มีการบันทึกเสียงเพื่อพัฒนาบริการ',
+      recordingAnnouncement: 'This call is recorded to improve our service',
       recordingAnnouncementLanguage: 'th-TH',
       recordingPauseResumeEnabled: true,
       recordingAgentSelfAccess: true,
@@ -244,8 +244,8 @@ test('an agent pauses and resumes only its permitted active recording with a rea
       body: JSON.stringify({ reason }),
     });
 
-  assert.equal((await control('pause', 'other-agent-token', 'ไม่ใช่สายของตน')).status, 403);
-  const paused = await control('pause', 'agent-token', 'กำลังรับข้อมูลบัตร');
+  assert.equal((await control('pause', 'other-agent-token', 'Not my call')).status, 403);
+  const paused = await control('pause', 'agent-token', 'Receiving card details');
   assert.equal(paused.status, 201);
   assert.deepEqual(await paused.json(), { recordingId, status: 'PAUSED' });
   assert.deepEqual(published, [
@@ -261,7 +261,7 @@ test('an agent pauses and resumes only its permitted active recording with a rea
     },
   ]);
 
-  const resumed = await control('resume', 'agent-token', 'รับข้อมูลเสร็จแล้ว');
+  const resumed = await control('resume', 'agent-token', 'Finished receiving details');
   assert.equal(resumed.status, 201);
   assert.deepEqual(await resumed.json(), { recordingId, status: 'RECORDING' });
   assert.equal(published.length, 2);
@@ -300,8 +300,8 @@ test('an agent pauses and resumes only its permitted active recording with a rea
       actorUserId: event.actorUserId,
     })),
     [
-      { action: 'PAUSED', reason: 'กำลังรับข้อมูลบัตร', actorUserId: agentUserId },
-      { action: 'RESUMED', reason: 'รับข้อมูลเสร็จแล้ว', actorUserId: agentUserId },
+      { action: 'PAUSED', reason: 'Receiving card details', actorUserId: agentUserId },
+      { action: 'RESUMED', reason: 'Finished receiving details', actorUserId: agentUserId },
       { action: 'PLAYBACK_URL_ISSUED', reason: null, actorUserId: agentUserId },
       { action: 'DOWNLOAD_DENIED', reason: null, actorUserId: agentUserId },
     ],
@@ -314,7 +314,7 @@ test('an agent pauses and resumes only its permitted active recording with a rea
   const legalHold = await fetch(`${endpoint}/legal-holds`, {
     method: 'POST',
     headers: { authorization: 'Bearer admin-token', 'content-type': 'application/json' },
-    body: JSON.stringify({ reason: 'เก็บไว้เพื่อการตรวจสอบ' }),
+    body: JSON.stringify({ reason: 'Kept for audit' }),
   });
   assert.equal(legalHold.status, 201);
   const legalHoldPayload = (await legalHold.json()) as { id: string };

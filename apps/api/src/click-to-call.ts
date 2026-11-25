@@ -1,14 +1,14 @@
 /**
- * Owner: Integrations — click-to-call ของ dphone ที่ถูกฝัง (E1.14 #488)
+ * Owner: Integrations — click-to-call of the embedded dphone (E1.14 #488)
  *
- * Authority: E1.6 #462 ข้อ 3, 5; คำตัดสิน decision gap ที่ #464 (2026-09-28)
+ * Authority: E1.6 #462 items 3, 5; the decision gap ruling at #464 (2026-09-28)
  *
- * - host แค่กรอกเบอร์ agent ต้องกดโทรเอง — endpoint นี้ถูกเรียกเมื่อ agent กดโทรใน dphone เท่านั้น
- * - origin มาจาก lease `embedded` ที่ยัง current; contact resolve จากเบอร์ฝั่ง server (ไม่เชื่อ `contactId` ของ host)
- * - `authorizeAndReserve()` purpose `SERVICE` channel `VOICE`; BLOCK/DEFER/REVIEW → ไม่โทรออก
- * - ALLOW → `dialing` ได้เฉพาะเมื่อ Voice Delivery Gate commit durable queue; หากไม่มี gate หรือ
- *   gate ปฏิเสธก่อน durable barrier ต้องปล่อย reservation แล้วตอบ `unavailable`
- * - ตอบ host โดยไม่มี PII; rate limit ต่อ agent; audit ทุกครั้ง (ไม่เก็บเบอร์)
+ * - the host only fills in the number, the agent must press dial themselves — this endpoint is called only when the agent presses dial in dphone
+ * - the origin comes from a still-current `embedded` lease; the contact is resolved from the number on the server side (the host's `contactId` is not trusted)
+ * - `authorizeAndReserve()` purpose `SERVICE` channel `VOICE`; BLOCK/DEFER/REVIEW → no outbound call
+ * - ALLOW → `dialing` only when the Voice Delivery Gate commits the durable queue; if there is no gate or
+ *   the gate rejects before the durable barrier, the reservation must be released and `unavailable` answered
+ * - answers the host without PII; rate limit per agent; audit every time (the number is not kept)
  */
 import { randomUUID } from 'node:crypto';
 import { C360ContactPointError, normalizeC360Phone } from '@d-contact/contact-points';
@@ -46,7 +46,7 @@ export interface ClickToCallActor {
   userId: string;
 }
 
-/** Delivery owner ตอบ QUEUED หลัง claim และ durable outbox commit แล้วเท่านั้น */
+/** the Delivery owner answers QUEUED only after the claim and the durable outbox commit */
 export interface ClickToCallVoiceDelivery {
   enqueue(input: {
     tenantId: string;
@@ -91,7 +91,7 @@ export type ClickToCallCancelOutcome =
     }
   | { status: 'not_found' };
 
-/** เบอร์สำหรับเทียบ identity: ตัดตัวคั่นทิ้ง คงตัวเลขและ `+` นำหน้า */
+/** the number for comparing identity: drop separators, keep the digits and a leading `+` */
 export function normalizeDialNumber(value: string): string | null {
   const trimmed = value.trim();
   if (!/^\+?[0-9][0-9 ()-]{1,30}$/.test(trimmed)) return null;
@@ -99,7 +99,7 @@ export function normalizeDialNumber(value: string): string | null {
   return digits.length >= 3 && digits.length <= 20 ? digits : null;
 }
 
-/** เบอร์ภายในของ sandbox ที่ telephony ยอมให้ dial (`freeswitch-voice-target-resolver.ts`) */
+/** a sandbox internal number that telephony allows to dial (`freeswitch-voice-target-resolver.ts`) */
 const SANDBOX_EXTENSION = /^1[0-9]{3}$/;
 
 export class ClickToCallService {
@@ -114,7 +114,7 @@ export class ClickToCallService {
       governance: ClickToCallGovernance;
       now?: () => Date;
       id?: () => string;
-      /** ต่อ agent — ค่าเริ่มต้น 10 ครั้ง / 60 วินาที */
+      /** per agent — the default is 10 attempts / 60 seconds */
       rate?: { limit: number; windowMs: number };
       voiceDelivery?: ClickToCallVoiceDelivery;
     },
@@ -130,7 +130,7 @@ export class ClickToCallService {
   ): Promise<ClickToCallOutcome> {
     const hostOrigin = await this.deps.hostOriginOfLease(actor, input.leaseId);
     if (!hostOrigin) return { status: 'not_found' };
-    // actionKey ผูกกับ lease + requestId ของ host: ส่งซ้ำได้ผลเดิม (idempotent ที่ Governance)
+    // the actionKey binds to the lease + the host requestId: resending gets the same result (idempotent at Governance)
     const actionKey = `dphone-click-to-call:${input.leaseId}:${input.requestId}`;
     const audit = { actor, input, hostOrigin, actionKey, correlationId };
 
@@ -178,7 +178,7 @@ export class ClickToCallService {
       if (delivery.status === 'QUEUED') {
         message = result(input.requestId, 'dialing', false, 'QUEUED');
       } else {
-        // ไม่มี queue ที่ durable หรือ queue ปฏิเสธก่อน submission barrier — คืนสิทธิ์ทันที
+        // no durable queue or the queue rejects before the submission barrier — give the permission back at once
         if (
           outcome.reservationId &&
           !delivery.reservationReleased &&
@@ -248,12 +248,12 @@ export class ClickToCallService {
   }
 
   /**
-   * หา identity ของเบอร์ปลายทาง — ไม่พบหรือกำกวม = ไม่ระบุ (NOT_FOUND)
+   * finds the identity of the destination number — not found or ambiguous = unspecified (NOT_FOUND)
    *
-   * C3 (#793) bridge: เบอร์ภายในของ sandbox (`^1\d{3}$`, ตรงกับที่ telephony จำกัดไว้) คงการ match
-   * ตรงตัวแบบเดิมเพื่อไม่เปลี่ยน Voice policy ของ sandbox (เปิด decision gap แยก) เบอร์อื่นต้อง parse
-   * ผ่าน contact point parser แบบ international และ match เฉพาะ ACTIVE point ที่มาจาก legacy identity
-   * ของ contact เดียว ไม่ fallback ไปเทียบตัวเลขล้วนกับค่า raw
+   * C3 (#793) bridge: a sandbox internal number (`^1\d{3}$`, matching what telephony restricts) keeps the exact
+   * match as before so the sandbox Voice policy does not change (a separate decision gap is opened); other numbers must parse
+   * through the international contact point parser and match only an ACTIVE point that comes from the legacy identity
+   * of a single contact, never falling back to comparing pure digits with the raw value
    */
   private resolveTarget(
     tenantId: string,

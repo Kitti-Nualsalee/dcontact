@@ -1,9 +1,9 @@
 /**
- * #967 — Supervisor เปิดฟังเสียงบันทึกของสายที่ทีมตัวเองรับ (`/api/v1/recordings`)
+ * #967 — a Supervisor opens and listens to recordings of calls their own team answered (`/api/v1/recordings`)
  *
- * สิทธิ์ฟังมาจากทีมที่ Router บันทึกตอนรับสายจริง (`voice_interaction_handling_attributions`)
- * เทียบกับทีมปัจจุบันของ Supervisor ทุก request สายที่ไม่มีหลักฐานเปิดฟังไม่ได้
- * เสียงออกทาง API เป็น WAV ช่วงสั้นเท่านั้น ไม่มี presigned URL และไม่มีทั้งไฟล์
+ * the permission to listen comes from the team the Router recorded when the call was actually answered (`voice_interaction_handling_attributions`)
+ * compared with the Supervisor's current team on every request; a call with no evidence cannot be opened for listening
+ * audio leaves through the API only as short WAV ranges, with no presigned URL and never the whole file
  */
 import {
   BadRequestException,
@@ -51,7 +51,7 @@ const DAY_MS = 86_400_000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export interface RecordingPlaybackStorage {
-  /** อ่านช่วง byte ของไฟล์ใน prefix ของ tenant; `objectBytes` คือขนาดไฟล์ทั้งหมด */
+  /** reads a byte range of a file under the tenant prefix; `objectBytes` is the size of the whole file */
   readRange(input: {
     tenantId: string;
     storageKey: string;
@@ -81,7 +81,7 @@ interface VisibleRecording {
 const logger = new Logger('RecordingPlayback');
 
 const denied = () => new ForbiddenException({ code: 'PLAYBACK_ACCESS_DENIED' });
-/** ไม่มี, ของทีมอื่น และของ tenant อื่น ตอบเหมือนกัน */
+/** not found, another team's and another tenant's all answer the same */
 const notFound = () => new NotFoundException({ code: 'RESOURCE_NOT_FOUND' });
 const invalid = (field: string) => new BadRequestException({ code: 'INVALID_REQUEST', field });
 
@@ -101,7 +101,7 @@ function encodeCursor(row: { startedAt: Date; id: string }): string {
   return Buffer.from(JSON.stringify([row.startedAt.toISOString(), row.id])).toString('base64url');
 }
 
-/** cursor เป็นตำแหน่งในรายการเท่านั้น สิทธิ์ถูกตรวจใหม่ทุก request จึงไม่ต้องผูกกับผู้ขอ */
+/** the cursor is only a position in the list; permission is rechecked on every request so it need not bind to the requester */
 function decodeCursor(value: unknown): { startedAt: Date; id: string } | undefined {
   if (value === undefined) return undefined;
   try {
@@ -111,7 +111,7 @@ function decodeCursor(value: unknown): { startedAt: Date; id: string } | undefin
       if (!Number.isNaN(startedAt.getTime())) return { startedAt, id: String(parsed[1]) };
     }
   } catch {
-    // ตกไปตอบ 400 ด้านล่าง
+    // falls through to answer 400 below
   }
   throw invalid('cursor');
 }
@@ -170,7 +170,7 @@ export class RecordingPlaybackController {
         tx,
         actor.tenantId,
         teamId,
-        // ส่งเวลาเป็น timestamp ไม่มี zone เพื่อไม่ให้ผลขึ้นกับ TimeZone ของ DB session
+        // send the time as a timestamp without a zone so the result does not depend on the DB session's TimeZone
         Prisma.sql`AND r.started_at >= ${since.toISOString()}::timestamp(3)
           AND r.started_at < ${until.toISOString()}::timestamp(3)
           ${after ? Prisma.sql`AND (r.started_at, r.id) < (${after.startedAt.toISOString()}::timestamp(3), ${after.id}::uuid)` : Prisma.empty}
@@ -206,7 +206,7 @@ export class RecordingPlaybackController {
     const recording = await withTenantDatabaseTransaction(this.database, actor.tenantId, (tx) =>
       this.authorizeReady(tx, actor, recordingId),
     );
-    // อ่าน storage นอก transaction ไม่ถือ lock ของ DB ระหว่างรอ network
+    // read storage outside the transaction so no DB lock is held while waiting on the network
     const probe = await this.read(
       actor.tenantId,
       recording.storageKey,
@@ -226,7 +226,7 @@ export class RecordingPlaybackController {
       this.database,
       actor.tenantId,
       async (tx) => {
-        // lock แถวผู้ใช้: สองคำขอพร้อมกันของคนเดียวกันต้องเหลือ session ที่เปิดอยู่เพียงหนึ่ง
+        // lock the user row: two concurrent requests of the same person must leave only one open session
         await tx.$queryRaw`SELECT id FROM users
           WHERE tenant_id = ${actor.tenantId}::uuid AND id = ${actor.userId}::uuid FOR UPDATE`;
         await this.authorizeReady(tx, actor, recordingId);
@@ -305,10 +305,10 @@ export class RecordingPlaybackController {
       range.start,
       range.endInclusive,
     );
-    // สิทธิ์อาจถูกถอนระหว่างอ่าน storage จึงตรวจอีกครั้งก่อนส่ง byte
+    // the permission may be revoked while reading storage, so check again before sending bytes
     await check();
     const frameBytes = format.channels * 2;
-    // ไม่ส่งเกินช่วงที่ขอแม้ storage ตอบมามากกว่า
+    // do not send beyond the requested range even if storage answers with more
     const wanted = Math.min(bytes.length, range.frames * frameBytes);
     const pcm = bytes.subarray(0, wanted - (wanted % frameBytes));
     return new StreamableFile(wavChunk(format, pcm), { type: 'audio/wav' });
@@ -325,7 +325,7 @@ export class RecordingPlaybackController {
     const actor = this.actor(request);
     const recordingId = uuid(id);
     const sessionId = uuid(sid);
-    // ปิดซ้ำได้ และปิดได้แม้สิทธิ์ฟังถูกถอนแล้ว แต่ปิดได้เฉพาะ session ของตัวเอง
+    // closing can repeat, and works even after the listening permission is revoked, but only for the caller's own session
     await withTenantDatabaseTransaction(this.database, actor.tenantId, (tx) =>
       tx.recordingPlaybackSession.updateMany({
         where: {
@@ -346,7 +346,7 @@ export class RecordingPlaybackController {
     return { tenantId: identity.tenantId, userId: identity.userId };
   }
 
-  /** ทีมปัจจุบันของ Supervisor ที่ยัง active อ่านจาก DB ทุกครั้ง ไม่เชื่อ role ใน token อย่างเดียว */
+  /** the Supervisor's current active teams, read from the DB every time without trusting only the role in the token */
   private async supervisorTeam(tx: Prisma.TransactionClient, actor: Actor): Promise<string> {
     const user = await tx.user.findFirst({
       where: { id: actor.userId, tenantId: actor.tenantId, role: 'SUPERVISOR', isActive: true },
@@ -356,7 +356,7 @@ export class RecordingPlaybackController {
     return user.teamId;
   }
 
-  /** เสียงที่ทีมนี้มีสิทธิ์: สายจบแล้ว ยังไม่ถูกลบ และมีหลักฐานว่าทีมนี้รับสาย */
+  /** the recordings this team may access: a finished call, not deleted, with evidence that this team answered */
   private visible(
     tx: Prisma.TransactionClient,
     tenantId: string,
@@ -401,7 +401,7 @@ export class RecordingPlaybackController {
     return recording;
   }
 
-  /** session ไม่ใช่สิทธิ์: ต้องเป็นของผู้ขอ ยังไม่หมดอายุ และสิทธิ์ฟังปัจจุบันยังอยู่ */
+  /** a session is not a permission: it must belong to the requester, not be expired, and the current listening permission must still hold */
   private async authorizeSession(
     tx: Prisma.TransactionClient,
     actor: Actor,
@@ -440,7 +440,7 @@ export class RecordingPlaybackController {
       return await this.storage.readRange({ tenantId, storageKey, start, endInclusive });
     } catch (error) {
       if (error instanceof HttpException) throw error;
-      // ไม่ log key หรือข้อความจาก storage ที่อาจมี path ภายใน
+      // do not log the key or a message from storage, which may contain an internal path
       logger.error({
         event: 'recording_playback_storage_failed',
         name: error instanceof Error ? error.name : typeof error,

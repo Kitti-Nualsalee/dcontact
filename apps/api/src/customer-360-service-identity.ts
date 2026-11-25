@@ -3,7 +3,7 @@ import { lockC360ServicePrincipal } from '@d-contact/customer-360';
 import type { AuthenticatedGatewayRequest } from './gateway-auth.js';
 import { Customer360HttpError } from './customer-360-api.js';
 
-/** ใช้หลัง global OIDC service guard เท่านั้น; caller body ไม่เป็น authority */
+/** used only after the global OIDC service guard; the caller body is not an authority */
 export function currentC360ServicePrincipal(
   tx: Prisma.TransactionClient,
   request: AuthenticatedGatewayRequest,

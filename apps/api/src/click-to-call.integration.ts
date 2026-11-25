@@ -1,8 +1,8 @@
 /**
- * E1.14 (#488) click-to-call บน Postgres จริงด้วย role ของแอป (`dcontact_app`, RLS):
- * - BLOCK/DEFER/REVIEW ไม่โทรออก และตอบ host โดยไม่มี PII; ALLOW ยังไม่โทรจริง (E1.18 #520) แต่ปล่อย reservation
- * - contact resolve จากเบอร์ฝั่ง server; rate limit ต่อ agent; audit ทุกครั้งโดยไม่เก็บเบอร์
- * - ต้องมี lease `embedded` ของตัวเอง; Contact Governance ตัวจริงถูกเรียกได้ครบทาง
+ * E1.14 (#488) click-to-call on real Postgres with the app role (`dcontact_app`, RLS):
+ * - BLOCK/DEFER/REVIEW do not dial and answer the host without PII; ALLOW does not really dial yet (E1.18 #520) but releases the reservation
+ * - the contact is resolved from the number on the server side; rate limit per agent; audit every time without keeping the number
+ * - needs the own `embedded` lease; the real Contact Governance can be called fully
  */
 import 'reflect-metadata';
 import assert from 'node:assert/strict';
@@ -44,7 +44,7 @@ const application = new PrismaClient({
 });
 
 const HOST = 'https://crm.example.test';
-// C3 (#793): เบอร์ต้อง parse ได้แบบ international และต้องผ่าน legacy import ก่อน bridge จึง resolve ได้
+// C3 (#793): the number must parse as international and must pass the legacy import before the bridge, so it can resolve
 const NUMBER = '+66 81 234 5678';
 
 function claims(token: string): VerifiedOidcClaims {
@@ -61,7 +61,7 @@ function claims(token: string): VerifiedOidcClaims {
   };
 }
 
-/** Governance จำลอง: บันทึกคำขอและตอบตาม decision ที่ตั้ง */
+/** a fake Governance: records the request and answers per the configured decision */
 function stubGovernance(
   decision: AuthorizationOutcome['decision'],
   extra: Partial<AuthorizationOutcome> = {},
@@ -134,11 +134,11 @@ async function setup(
     'l2',
   );
   const contactId = randomUUID();
-  await owner.contact.create({ data: { id: contactId, tenantId, displayName: 'ลูกค้า' } });
+  await owner.contact.create({ data: { id: contactId, tenantId, displayName: 'Customer' } });
   const identity = await owner.contactIdentity.create({
     data: { tenantId, contactId, type: 'PHONE', value: '+66812345678' },
   });
-  // ลำดับ rollout จริง: import legacy identity เป็น contact point ผ่าน operator command ก่อนใช้ bridge
+  // the real rollout order: import the legacy identity as a contact point through an operator command before using the bridge
   await importAllC360LegacyContactPoints(
     application,
     { tenantId, issuer: 'https://fixture.test', subject: 'legacy-import-fixture', userId: null },
@@ -242,7 +242,7 @@ async function setup(
   };
 }
 
-test('BLOCK / DEFER / REVIEW: ไม่โทรออก ตอบ blocked + reasonCode โดยไม่มี PII และ audit ทุกครั้ง', async (t) => {
+test('BLOCK / DEFER / REVIEW: no outbound call, answers blocked + reasonCode without PII, and audits every time', async (t) => {
   for (const decision of ['BLOCK', 'DEFER', 'REVIEW'] as const) {
     const stub = stubGovernance(
       decision,
@@ -280,7 +280,7 @@ test('BLOCK / DEFER / REVIEW: ไม่โทรออก ตอบ blocked + re
   }
 });
 
-test('ALLOW: ยังไม่โทรจริง (Voice Delivery Gate ยังปิด) — ปล่อย reservation ทันทีและตอบ unavailable', async (t) => {
+test('ALLOW: no real call yet (the Voice Delivery Gate is still closed) — releases the reservation at once and answers unavailable', async (t) => {
   const stub = stubGovernance('ALLOW');
   const f = await setup(t, stub.governance);
   const response = await f.call('agent', { requestId: 'req-allow', number: NUMBER });
@@ -296,7 +296,7 @@ test('ALLOW: ยังไม่โทรจริง (Voice Delivery Gate ยั
   assert.deepEqual(stub.reservations, [['res-1', 'RELEASE']]);
 });
 
-test('ALLOW: ตอบ dialing เฉพาะเมื่อ Delivery commit durable queue แล้ว และไม่ release reservation', async (t) => {
+test('ALLOW: answers dialing only when Delivery has committed the durable queue, and does not release the reservation', async (t) => {
   const stub = stubGovernance('ALLOW');
   const queued: ClickToCallVoiceDelivery['enqueue'] = async (input) => {
     assert.equal(input.tenantId.length, 36);
@@ -320,7 +320,7 @@ test('ALLOW: ตอบ dialing เฉพาะเมื่อ Delivery commit du
   assert.deepEqual(stub.reservations, []);
 });
 
-test('ALLOW: Delivery ปฏิเสธก่อน durable queue ต้อง release reservation และไม่คืน dialing', async (t) => {
+test('ALLOW: Delivery rejects before the durable queue must release the reservation and not return dialing', async (t) => {
   const stub = stubGovernance('ALLOW');
   const f = await setup(t, stub.governance, undefined, {
     enqueue: async () => ({ status: 'UNAVAILABLE', reasonCode: 'VOICE_DELIVERY_DISABLED' }),
@@ -331,7 +331,7 @@ test('ALLOW: Delivery ปฏิเสธก่อน durable queue ต้อง 
   assert.deepEqual(stub.reservations, [['res-1', 'RELEASE']]);
 });
 
-test('cancel ใช้ requestId + active embedded lease และไม่รายงานสำเร็จเมื่อหลัง barrier ยัง reconcile', async (t) => {
+test('cancel uses requestId + the active embedded lease and does not report success when still reconciling after the barrier', async (t) => {
   const stub = stubGovernance('ALLOW');
   const cancellations: string[] = [];
   const f = await setup(t, stub.governance, undefined, {
@@ -352,17 +352,17 @@ test('cancel ใช้ requestId + active embedded lease และไม่ร�
   assert.equal((await f.cancel('other', 'cancel-1')).status, 404);
 });
 
-test('contact มาจากเบอร์ฝั่ง server — contactId ที่ host ส่งมาไม่ถูกใช้; เบอร์ไม่รู้จัก = NOT_FOUND', async (t) => {
+test('the contact comes from the server-side number — a contactId the host sends is not used; an unknown number = NOT_FOUND', async (t) => {
   const stub = stubGovernance('BLOCK');
   const f = await setup(t, stub.governance);
   await f.call('agent', { requestId: 'r1', number: '+66 2 000 0000', contactId: f.contactId });
   assert.equal(stub.calls[0]!.contactId, undefined);
   assert.equal(stub.calls[0]!.identityResolution, 'NOT_FOUND');
-  // actionKey ผูก lease + requestId ของ host (idempotent)
+  // the actionKey binds the lease + the host requestId (idempotent)
   assert.equal(stub.calls[0]!.actionKey, `dphone-click-to-call:${f.lease.leaseId}:r1`);
 });
 
-test('C3 bridge: ไม่ fallback ตัวเลขล้วน, ไม่ resolve point ที่ retire/review หรือใช้ร่วมหลาย contact, เบอร์ภายใน sandbox คงเดิม', async (t) => {
+test('C3 bridge: no pure-digit fallback, does not resolve a retired/review point or one shared by several contacts, a sandbox internal number stays unchanged', async (t) => {
   const stub = stubGovernance('BLOCK');
   const f = await setup(t, stub.governance);
   const identityOf = async (number: string) => {
@@ -370,19 +370,19 @@ test('C3 bridge: ไม่ fallback ตัวเลขล้วน, ไม่ re
     await f.call('agent', { requestId: randomUUID(), number });
     return stub.calls[0]!.identityId ?? stub.calls[0]!.identityResolution;
   };
-  // international ที่ import แล้ว resolve ได้; เบอร์ในประเทศไม่มีประเทศไม่เดา (เดิม match ด้วยตัวเลขล้วน)
+  // an imported international number resolves; a domestic number without a country is not guessed (it used to match by pure digits)
   assert.equal(await identityOf(NUMBER), f.identityId);
   assert.equal(await identityOf('081-234-5678'), 'NOT_FOUND');
 
-  // identity ใหม่ที่ยังไม่ import (missing mapping) ไม่ fallback ไปค่า raw
+  // a new identity not yet imported (missing mapping) does not fall back to the raw value
   const later = randomUUID();
-  await owner.contact.create({ data: { id: later, tenantId: f.tenantId, displayName: 'ทีหลัง' } });
+  await owner.contact.create({ data: { id: later, tenantId: f.tenantId, displayName: 'Later' } });
   await owner.contactIdentity.create({
     data: { tenantId: f.tenantId, contactId: later, type: 'PHONE', value: '+66812345679' },
   });
   assert.equal(await identityOf('+66 81 234 5679'), 'NOT_FOUND');
 
-  // ค่าเดียวกัน ACTIVE บนอีก contact = กำกวม ไม่ resolve
+  // the same value ACTIVE on another contact = ambiguous, does not resolve
   const commandId = randomUUID();
   await owner.c360ProfileCommand.create({
     data: {
@@ -411,7 +411,7 @@ test('C3 bridge: ไม่ fallback ตัวเลขล้วน, ไม่ re
     },
   });
   assert.equal(await identityOf(NUMBER), 'NOT_FOUND');
-  // retire ค่าที่ใช้ร่วมแล้ว contact เดิมกลับมา resolve ได้; retire ของ legacy mapping แล้ว resolve ไม่ได้
+  // retire the shared value and the original contact resolves again; retire a legacy mapping and it no longer resolves
   await owner.$executeRaw`UPDATE c360_contact_points SET state = 'RETIRED', retired_at = now(),
     retired_actor_identity_key = 'fixture-writer', retired_command_id = ${commandId}::uuid
     WHERE id = ${shared.id}::uuid`;
@@ -421,14 +421,14 @@ test('C3 bridge: ไม่ fallback ตัวเลขล้วน, ไม่ re
     WHERE tenant_id = ${f.tenantId}::uuid AND source_identity_id = ${f.identityId}::uuid`;
   assert.equal(await identityOf(NUMBER), 'NOT_FOUND');
 
-  // เบอร์ภายในของ sandbox (ไม่ใช่ PHONE ตาม E1 F) คงการ match ตรงตัวแบบเดิม
+  // a sandbox internal number (not a PHONE per E1 F) keeps the original exact match
   const extension = await owner.contactIdentity.create({
     data: { tenantId: f.tenantId, contactId: later, type: 'PHONE', value: '1001' },
   });
   assert.equal(await identityOf('1001'), extension.id);
 });
 
-test('rate limit ต่อ agent → rate_limited โดยไม่ถึง Governance แต่ยัง audit', async (t) => {
+test('rate limit per agent → rate_limited without reaching Governance but still audited', async (t) => {
   const stub = stubGovernance('BLOCK');
   const f = await setup(t, stub.governance, { limit: 2, windowMs: 60_000 });
   for (const requestId of ['a', 'b', 'c']) await f.call('agent', { requestId, number: NUMBER });
@@ -441,7 +441,7 @@ test('rate limit ต่อ agent → rate_limited โดยไม่ถึง Go
   assert.equal(audits.find((row) => row.requestId === 'c')?.outcome, 'rate_limited');
 });
 
-test('ต้องมี lease embedded ของตัวเอง: ไม่มี header = 400, lease ของคนอื่น/lease workspace = 404, admin = 403', async (t) => {
+test("must have the own embedded lease: no header = 400, another person's lease/a workspace lease = 404, admin = 403", async (t) => {
   const stub = stubGovernance('BLOCK');
   const f = await setup(t, stub.governance);
   assert.equal((await f.call('agent', { requestId: 'r', number: NUMBER }, null)).status, 400);
@@ -454,7 +454,7 @@ test('ต้องมี lease embedded ของตัวเอง: ไม่�
   assert.equal(stub.calls.length, 0);
 });
 
-test('Contact Governance ตัวจริง: ผลใดก็ตามไม่โทรออก และไม่มี reservation ค้าง RESERVED', async (t) => {
+test('the real Contact Governance: any result does not dial and leaves no RESERVED reservation', async (t) => {
   const f = await setup(t, new ContactGovernanceService(application));
   const response = await f.call('agent', { requestId: 'real-1', number: NUMBER });
   assert.equal(response.status, 200);

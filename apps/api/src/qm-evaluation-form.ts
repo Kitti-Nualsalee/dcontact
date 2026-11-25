@@ -1,10 +1,10 @@
 /**
- * #971 ฟอร์มประเมินคุณภาพและสูตรคะแนน (docs/quality-management.md §8) — ฟังก์ชันล้วน ไม่แตะ DB
+ * #971 the quality evaluation form and score formula (docs/quality-management.md §8) — pure functions, never touching the DB
  *
- * - ฟอร์มรอบนี้มีคำถาม YES_NO, SCALE และ TEXT (ไม่คิดคะแนน) คิดแบบ WEIGHTED_POINTS
- * - N/A ออกจากตัวหาร; section ที่ไม่มีข้อให้คะแนนเหลือออกจากตัวหารของ weight
- * - auto-fail ทำให้ final = 0 แต่เก็บ raw ไว้เสมอ
- * - server เป็นผู้คำนวณคะแนน client ส่งเฉพาะคำตอบ
+ * - this round's form has YES_NO, SCALE and TEXT questions (TEXT is not scored), computed as WEIGHTED_POINTS
+ * - N/A leaves the denominator; a section with no scored item left leaves the weight denominator
+ * - auto-fail makes final = 0 but always keeps raw
+ * - the server computes the score and the client sends only the answers
  */
 
 export const QM_QUESTION_TYPES = ['YES_NO', 'SCALE', 'TEXT'] as const;
@@ -14,12 +14,12 @@ export interface QmFormQuestion {
   id: string;
   type: QmQuestionType;
   text: string;
-  /** คะแนนเต็มของข้อ (ไม่มีสำหรับ TEXT) */
+  /** the full score of the item (none for TEXT) */
   points?: number;
-  /** ช่วงคะแนนของ SCALE เช่น [1, 5] */
+  /** the SCALE score range, e.g. [1, 5] */
   scale?: [number, number];
   allowNa?: boolean;
-  /** YES_NO เท่านั้น: ตอบ "ไม่" แล้วคะแนนสุดท้ายเป็น 0 */
+  /** YES_NO only: answering "no" makes the final score 0 */
   autoFail?: boolean;
 }
 
@@ -32,7 +32,7 @@ export interface QmFormSection {
 
 export interface QmFormDefinition {
   scoreMethod: 'WEIGHTED_POINTS';
-  /** คะแนนสุดท้ายต่ำกว่าค่านี้ (0–100) ต้องเขียนความเห็น; null = ไม่บังคับ */
+  /** a final score below this value (0–100) needs a comment; null = not required */
   requireCommentBelow: number | null;
   sections: QmFormSection[];
 }
@@ -41,7 +41,7 @@ export type QmAnswerValue = boolean | number | string;
 
 export interface QmAnswer {
   questionId: string;
-  /** null เมื่อ N/A */
+  /** null when N/A */
   value: QmAnswerValue | null;
   na: boolean;
 }
@@ -54,7 +54,7 @@ export interface QmScore {
 }
 
 export interface QmFieldError {
-  /** ตำแหน่งใน definition หรือ answers เช่น `sections.0.questions.1.points` */
+  /** the position in the definition or answers, e.g. `sections.0.questions.1.points` */
   path: string;
   code: string;
 }
@@ -102,9 +102,9 @@ export function normalizeFormName(value: unknown): string {
 }
 
 /**
- * ตรวจและทำให้ definition อยู่ในรูปมาตรฐาน (ตัดช่องว่าง, ตัด field ที่ไม่รู้จัก)
- * `mode = 'draft'` ยอมฟอร์มที่ยังไม่มีคำถาม เพื่อให้ Admin บันทึกระหว่างสร้างได้
- * `mode = 'publish'` ต้องมีอย่างน้อยหนึ่ง section และหนึ่งข้อที่ให้คะแนน
+ * validates and normalizes a definition (strips whitespace, drops unknown fields)
+ * `mode = 'draft'` accepts a form with no questions yet, so an Admin can save while building
+ * `mode = 'publish'` needs at least one section and one scored item
  */
 export function parseFormDefinition(input: unknown, mode: 'draft' | 'publish'): QmFormDefinition {
   const errors: QmFieldError[] = [];
@@ -228,8 +228,8 @@ function isScored(question: QmFormQuestion): boolean {
 }
 
 /**
- * ตรวจคำตอบเทียบกับฟอร์ม
- * `mode = 'draft'` ยอมให้ตอบไม่ครบ; `mode = 'publish'` ทุกข้อที่ให้คะแนนต้องมีคำตอบหรือ N/A
+ * validates the answers against the form
+ * `mode = 'draft'` allows incomplete answers; `mode = 'publish'` requires every scored item to have an answer or N/A
  */
 export function parseAnswers(
   form: QmFormDefinition,
@@ -284,7 +284,7 @@ export function parseAnswers(
   return answers;
 }
 
-/** คะแนนเป็นร้อยละ ปัดสองตำแหน่ง; null เมื่อไม่มีข้อให้คะแนนที่ตอบ (ไม่ใช่ N/A) เลย */
+/** the score as a percentage, rounded to two places; null when there is no scored item answered (not N/A) at all */
 export function scoreEvaluation(form: QmFormDefinition, answers: QmAnswer[]): QmScore | null {
   const byId = new Map(answers.map((answer) => [answer.questionId, answer]));
   let autoFailed = false;
@@ -322,7 +322,7 @@ function round(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
-/** ความเห็นที่ตัดช่องว่างแล้ว; สตริงว่างเป็น null */
+/** a comment with whitespace trimmed; an empty string is null */
 export function normalizeComment(value: unknown): string | null {
   if (value === undefined || value === null) return null;
   if (typeof value !== 'string' || value.length > QM_LIMITS.comment) {
@@ -332,7 +332,7 @@ export function normalizeComment(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-/** กติกาตอน publish: ต้องได้คะแนน และคะแนนต่ำกว่าเกณฑ์ต้องมีความเห็น */
+/** the rule at publish: a score must be obtainable, and a score below the threshold needs a comment */
 export function assertPublishable(
   form: QmFormDefinition,
   score: QmScore | null,
@@ -349,7 +349,7 @@ export function assertPublishable(
   return score;
 }
 
-/** แปลงคำตอบที่เก็บใน DB กลับเป็น map แบบที่ API รับ เพื่อให้ client ส่งกลับมาแก้ต่อได้ */
+/** converts the answers stored in the DB back into the map the API accepts so the client can send it back for further editing */
 export function answersView(
   answers: QmAnswer[],
 ): Record<string, { value?: QmAnswerValue; na?: true }> {

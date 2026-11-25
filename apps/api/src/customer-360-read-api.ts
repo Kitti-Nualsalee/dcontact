@@ -57,14 +57,14 @@ import { coreRequestId } from './tenant-core-errors.js';
 /**
  * Cus360 C2 (#792) S1: Console read routes (R1 F/G)
  *
- * - POST /contacts/search และ GET /contacts/:contactId เป็น read-only: ไม่รับ commandId, ไม่สร้าง head/receipt/audit
- * - search body/ค่า query ไม่ลง log: ไม่มีการ log ใน controller นี้ และ error body ไม่สะท้อนค่าที่ผู้ใช้กรอก
- * - rate (R1 G): search 60/นาที/actor และ 600/นาที/tenant ผ่าน shared limiter
+ * - POST /contacts/search and GET /contacts/:contactId are read-only: no commandId accepted, no head/receipt/audit created
+ * - the search body/query values are not logged: this controller logs nothing and the error body does not echo values the user entered
+ * - rate (R1 G): search 60/minute/actor and 600/minute/tenant through the shared limiter
  */
 export const C360_SEARCH_LIMIT_PER_ACTOR = C360_SEARCH_POLICY.actorLimit;
 export const C360_SEARCH_LIMIT_PER_TENANT = C360_SEARCH_POLICY.tenantLimit;
 
-/** ตอบ C360ReadError ในรูป error family เดียวกับ C1 (เพิ่ม fieldErrors ที่ไม่มีค่า PII) แล้วส่งที่เหลือให้ filter ของ C1 */
+/** answers C360ReadError in the same error family as C1 (adds fieldErrors with no PII values) then hands the rest to the C1 filter */
 @Catch()
 export class Customer360ReadErrors implements ExceptionFilter {
   private readonly fallback = new Customer360Errors();
@@ -93,7 +93,7 @@ export class Customer360ReadErrors implements ExceptionFilter {
   }
 }
 
-/** path ที่ไม่ใช่ UUID ตอบเหมือน resource ที่ไม่พบ (ไม่มี oracle) */
+/** a non-UUID path answers like a resource that is not found (no oracle) */
 function pathContactId(value: string): string {
   try {
     return c360Uuid(value);
@@ -148,7 +148,7 @@ export class Customer360ReadController {
       this.db,
       identity.tenantId,
       async (tx) => {
-        // Search ใช้ query สั้นหลายครั้ง ค่า compile JIT อาจสูงกว่าเวลาประมวลผลจริง
+        // Search uses short queries many times, so JIT compile cost may exceed the actual processing time
         await tx.$queryRaw`SELECT set_config('jit', 'off', true)`;
         const actor = await c360CurrentActor(tx, identity);
         return searchC360Contacts(tx, actor, body, this.codec);
@@ -173,8 +173,8 @@ export class Customer360ReadController {
   }
 
   /**
-   * Voice timeline: section แยกจาก core profile — owner ล้ม = 200 พร้อม state UNAVAILABLE (ไม่ใช่ list ว่าง)
-   * ส่วน DENY/ไม่พบ/DEFER ของลูกค้ายังเป็น 404/503 และไม่ส่งข้อมูลเสริมใด ๆ
+   * Voice timeline: a section separate from the core profile — owner fails = 200 with state UNAVAILABLE (not an empty list)
+   * while a customer's DENY/not found/DEFER stay 404/503 and send no supplementary data
    */
   @Get('contacts/:contactId/timeline')
   @Header('Cache-Control', 'no-store')
@@ -204,7 +204,7 @@ export class Customer360ReadController {
     });
   }
 
-  /** read-only (POST เพราะรับ context ใน body): ไม่รับ commandId, ไม่ authorize/reserve, ไม่มี side effect */
+  /** read-only (POST because it takes the context in the body): no commandId accepted, no authorize/reserve, no side effect */
   @Post('contacts/:contactId/governance-summary')
   @HttpCode(200)
   @Header('Cache-Control', 'no-store')

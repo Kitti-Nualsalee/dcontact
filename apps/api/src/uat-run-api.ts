@@ -1,10 +1,10 @@
 /**
- * U1.1 (#429) — UAT run API ของ Journey Console ใน UAT first slice
+ * U1.1 (#429) — the UAT run API of the Journey Console in the UAT first slice
  *
  * Authority: Phase Contract #374, fixture/reset #376, evidence #379
  *
- * tenant/actor มาจาก verified token เท่านั้น; browser ส่งได้แค่ opaque id, revision และค่าที่ผู้ทดสอบกรอก
- * mutation ทุกตัวต้องมี `Idempotency-Key`; `เริ่มรอบใหม่` ใช้ `expectedRevision` ของ run ที่ ACTIVE (0 = ยังไม่มี)
+ * tenant/actor come only from the verified token; the browser can send only an opaque id, a revision and values the tester enters
+ * every mutation needs an `Idempotency-Key`; `start a new round` uses the `expectedRevision` of the ACTIVE run (0 = none yet)
  */
 import {
   Body,
@@ -48,7 +48,7 @@ const testerText = ((value, field) => {
   return value;
 }) as FieldParser<string>;
 
-/** แปลง `UatRunError` เป็น error contract ของ HTTP — ใช้ร่วมกับ evidence API (U1.5 #433) */
+/** maps `UatRunError` to the HTTP error contract — shared with the evidence API (U1.5 #433) */
 export async function handle<T>(work: () => Promise<T>): Promise<T> {
   try {
     return await work();
@@ -59,7 +59,7 @@ export async function handle<T>(work: () => Promise<T>): Promise<T> {
         error.httpStatus,
       );
     }
-    // createJourneyDraft ของ J5 ระหว่าง `เริ่มรอบใหม่` คืน error contract ของ J5 ตามเดิม
+    // createJourneyDraft of J5 during `start a new round` returns the J5 error contract as before
     return mapAuthoringError(error);
   }
 }
@@ -74,7 +74,7 @@ export class UatRunController {
     return handle(() => this.repository.current(tenantId, actor));
   }
 
-  /** fixture ที่ server ตรึงไว้ของ run ปัจจุบัน — ใช้แทน startAt/seed ที่ browser สร้างเอง (#374 §4) */
+  /** the fixture the server pins for the current run — used in place of the startAt/seed the browser makes itself (#374 §4) */
   @Get('current/simulation-fixture')
   simulationFixture(@Req() request: AuthenticatedGatewayRequest) {
     const { tenantId, actor } = authoringActor(request);
@@ -106,7 +106,7 @@ export class UatRunController {
     return handle(() => this.repository.get(tenantId, actor, id));
   }
 
-  /** `เริ่มรอบใหม่` */
+  /** `start a new round` */
   @Post('start')
   @HttpCode(200)
   start(@Req() request: AuthenticatedGatewayRequest, @Body() body: unknown) {

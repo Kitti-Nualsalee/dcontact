@@ -1,16 +1,16 @@
 /**
- * Owner: API bootstrap — composition root ของ UAT first slice (U1.2 #430)
+ * Owner: API bootstrap — the composition root of the UAT first slice (U1.2 #430)
  *
- * Authority: Phase Contract #374 (ไม่ deploy `apps/journey` worker; API UAT profile ปิด Kafka/LINE/egress),
+ * Authority: Phase Contract #374 (the `apps/journey` worker is not deployed; the API UAT profile closes Kafka/LINE/egress),
  * boundary #378
  *
- * ต่างจาก `main.ts` โดยตั้งใจ: ไฟล์นี้ไม่ import/สร้าง Kafka consumer/publisher, LINE webhook ingress,
- * Redis, recording storage, telephony หรือ workspace session เลย จึงไม่มีทางเกิด side effect ภายนอกแม้ config
- * จะผิด object storage ที่แตะได้มีทางเดียวคือ bucket หลักฐาน UAT ส่วนตัวผ่าน `uat-evidence-storage.ts`
- * (U1.5 #433: ภาพหน้าจออยู่ใน UAT stack, retention 90 วัน, ไม่มี public/presigned URL)
- * controller ที่ mount มีเฉพาะ Journey authoring/template (unilateral publish ไม่มี HTTP route), UAT run
- * (U1.1 #429), หลักฐานของ run (U1.5 #433) และรายงาน profile; Journey ของ run ที่ปิดแล้วถูก
- * `UatJourneyWriteGuard` แช่แข็ง
+ * deliberately different from `main.ts`: this file never imports/creates a Kafka consumer/publisher, LINE webhook ingress,
+ * Redis, recording storage, telephony or workspace session, so there is no way to cause an external side effect even if the config
+ * is wrong; the only object storage it can touch is the private UAT evidence bucket through `uat-evidence-storage.ts`
+ * (U1.5 #433: screenshots stay in the UAT stack, 90-day retention, no public/presigned URL)
+ * the controllers mounted are only Journey authoring/template (unilateral publish has no HTTP route), the UAT run
+ * (U1.1 #429), run evidence (U1.5 #433) and the profile report; the Journey of a closed run is frozen by
+ * `UatJourneyWriteGuard`
  */
 import 'reflect-metadata';
 import { Controller, Get, Inject, type DynamicModule } from '@nestjs/common';
@@ -62,8 +62,8 @@ export interface RuntimeProfileStatus {
 }
 
 /**
- * readiness ของ profile — ไม่ต้อง login เพราะ smoke/readiness (#434) ต้องอ่านได้ก่อนมีบัญชี
- * คืนเฉพาะสถานะของ guard และ flag ไม่มี secret, tenant หรือ config value
+ * profile readiness — no login needed since smoke/readiness (#434) must be readable before accounts exist
+ * returns only the guard and flag status, with no secret, tenant or config value
  */
 @Controller('api/v1/runtime-profile')
 export class RuntimeProfileController {
@@ -92,18 +92,18 @@ export class RuntimeProfileController {
 export interface UatApiDependencies {
   repository: unknown;
   uatRuns: unknown;
-  /** U1.5 (#433): หลักฐานภาพหน้าจอ/scan/bundle ของ run */
+  /** U1.5 (#433): screenshot evidence/scan/bundle of the run */
   uatEvidence: unknown;
   verifier: unknown;
   diagnostics: GatewayDiagnosticSink;
-  /** A1.8a (#447): tenant ต้อง ACTIVE ก่อนใช้ UAT API ได้ */
+  /** A1.8a (#447): the tenant must be ACTIVE before the UAT API can be used */
   lifecycle: TenantLifecycleGate;
   status: RuntimeProfileStatus;
 }
 
 export class UatApiModule {}
 
-/** module ของ UAT — แยกจาก bootstrap เพื่อให้เทสต์ประกอบด้วย repository/verifier ปลอมได้ */
+/** the UAT module — separated from bootstrap so tests can compose it with a fake repository/verifier */
 export function createUatApiModule(dependencies: UatApiDependencies): DynamicModule {
   return {
     module: UatApiModule,
@@ -145,7 +145,7 @@ export async function bootstrapUatApi(environment: NodeJS.ProcessEnv = process.e
     flags: journeyAuthoring,
     writeGuard: new UatJourneyWriteGuard(),
   });
-  // bucket หลักฐานต้องพร้อม (ส่วนตัว + lifecycle 90 วัน) ก่อนรับคำขอ — ไม่พร้อม = บูตไม่ผ่าน
+  // the evidence bucket must be ready (private + 90-day lifecycle) before accepting requests — not ready = the boot fails
   const evidenceStorage = UatEvidenceObjectStorage.fromEnvironment(environment);
   await evidenceStorage.ensureBucket();
   const module = createUatApiModule({
@@ -165,7 +165,7 @@ export async function bootstrapUatApi(environment: NodeJS.ProcessEnv = process.e
     ),
     status: { profile, routeGuard, journeyAuthoring },
   });
-  // Console กับ API อยู่ same-origin ใน UAT (#373) จึงไม่เปิด CORS
+  // the Console and the API are same-origin in UAT (#373), so CORS is not enabled
   const app = await NestFactory.create(module);
   app.use(routeGuard.middleware);
   log.write({

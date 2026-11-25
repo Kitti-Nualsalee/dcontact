@@ -1,4 +1,4 @@
-/** C5: Keycloak 26.7.5 จริง → confidential introspection → PostgreSQL/RLS auth epoch */
+/** C5: real Keycloak 26.7.5 → confidential introspection → PostgreSQL/RLS auth epoch */
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
@@ -28,8 +28,11 @@ import { WorkSessionLeases } from './work-session.js';
 
 const sandbox = process.env.CORE_IDENTITY_SANDBOX_URL;
 test(
-  'C5 gateway WebSocket และ Keycloak จริง: refresh sid เดิมและ state หลัง expiry',
-  { skip: !sandbox ? 'NOT_RUN: ต้องมี isolated Keycloak sandbox' : false, timeout: 180_000 },
+  'C5 gateway WebSocket and real Keycloak: the same refresh sid and the state after expiry',
+  {
+    skip: !sandbox ? 'NOT_RUN: an isolated Keycloak sandbox is required' : false,
+    timeout: 180_000,
+  },
   async (t) => {
     let workAuth!: C360WorkAuthService;
     const authProvider = new Proxy({} as C360WorkAuthService, {
@@ -72,7 +75,7 @@ test(
     const actor = { tenantId: f.tenantId, userId: f.actors.get('agent')!.id };
     const contactId = randomUUID();
     await f.owner.contact.create({
-      data: { id: contactId, tenantId: f.tenantId, displayName: 'ลูกค้าทดลอง recovery' },
+      data: { id: contactId, tenantId: f.tenantId, displayName: 'Trial customer recovery' },
     });
     const segmentId = `segment:recovery-${f.tenantId.slice(0, 8)}`;
     const evaluator = new C360SegmentEvaluator(new DcExprEvaluator());
@@ -277,20 +280,23 @@ test(
         expectedLinkageRevision: '0',
         expectedProfileRevision: current.revisions.profile,
         expectedLineageRevision: current.revisions.lineage,
-        displayName: 'แก้หลัง recovery',
+        displayName: 'Edited after recovery',
       }),
     });
     assert.equal(mutation.status, 200, await mutation.clone().text());
     assert.equal(
       (await f.owner.contact.findUniqueOrThrow({ where: { id: contactId } })).displayName,
-      'แก้หลัง recovery',
+      'Edited after recovery',
     );
     assert.ok(!JSON.stringify(messages).includes('tokenFingerprint'));
   },
 );
 test(
-  'C5 Keycloak จริง: logout→inactive→fresh sid, audience และ introspection deadline',
-  { skip: !sandbox ? 'NOT_RUN: ต้องมี isolated Keycloak sandbox' : false, timeout: 180_000 },
+  'C5 real Keycloak: logout→inactive→fresh sid, audience and the introspection deadline',
+  {
+    skip: !sandbox ? 'NOT_RUN: an isolated Keycloak sandbox is required' : false,
+    timeout: 180_000,
+  },
   async (t) => {
     const { f, admin, prefix, issuer, verifier, tokenFor, keycloakUsers } =
       await coreIdentitySandbox((cleanup) => t.after(cleanup));
@@ -344,7 +350,7 @@ test(
     assert.equal(
       (await introspector.introspect(first)).active,
       false,
-      'logout จริงต้องทำให้ exact access token inactive',
+      'a real logout must make the exact access token inactive',
     );
     await assert.rejects(
       () => service.verifyOnline({ accessToken: first, leaseId: lease.leaseId }),
@@ -382,7 +388,7 @@ test(
       /WORK_REAUTH_REQUIRED/,
     );
 
-    // Proxy ส่ง token ไป Keycloak จริง แต่หน่วง response เพื่อพิสูจน์ timeout โดยไม่ปลอม active=true
+    // the Proxy sends the token to the real Keycloak but delays the response to prove the timeout without faking active=true
     let upstreamResult!: Record<string, unknown>;
     let finished!: () => void;
     const forwarded = new Promise<void>((resolve) => {
@@ -429,7 +435,7 @@ test(
     assert.equal(
       upstreamResult.active,
       true,
-      'upstream เป็นผล introspection จริงก่อน response timeout',
+      'the upstream is a real introspection result before the response timeout',
     );
     const auth = await f.owner.c360WorkMutationAuth.findUniqueOrThrow({
       where: { tenantId_userId_leaseId: { ...actor, leaseId: lease.leaseId } },

@@ -1,8 +1,8 @@
 /**
- * AC1 (#594) บน Postgres จริงด้วย role ของแอป (`dcontact_app`, RLS):
- * ไม่มีแถว = ค่าเริ่มต้น, เฉพาะ ADMIN, audit ทุกการเปลี่ยน, revision/validation,
- * แยก tenant (ทั้งผ่าน API และอ่านตรงด้วย `dcontact_app`), audit แก้/ลบไม่ได้
- * และการบังคับ 2FA ต้อง sync ผ่าน port ได้ก่อนจึงบันทึก
+ * AC1 (#594) on real Postgres with the app role (`dcontact_app`, RLS):
+ * no row = defaults, ADMIN only, audit on every change, revision/validation,
+ * tenant separation (both through the API and a direct read with `dcontact_app`), the audit cannot be edited/deleted
+ * and 2FA enforcement must sync through the port successfully before it is saved
  */
 import 'reflect-metadata';
 import assert from 'node:assert/strict';
@@ -139,7 +139,7 @@ async function setup(t: TestContext, options: { mfa?: OrganizationMfaPort } = {}
 
 const PATH = '/api/v1/tenant/account-policy';
 
-test('ไม่มีแถว = ค่าเริ่มต้น (VERIFY, ไม่บังคับ 2FA, revision 0); เฉพาะ ADMIN เท่านั้น', async (t) => {
+test('no row = defaults (VERIFY, no 2FA enforcement, revision 0); ADMIN only', async (t) => {
   const f = await setup(t);
   const initial = await f.call('GET', f.token.admin);
   assert.equal(initial.status, 200, JSON.stringify(initial.body));
@@ -155,7 +155,7 @@ test('ไม่มีแถว = ค่าเริ่มต้น (VERIFY, ไ�
     assert.equal((await f.call('GET', f.token[role])).status, 403, role);
     const denied = await f.call('PUT', f.token[role], {
       emailChange: 'IMMEDIATE',
-      reason: 'ไม่ควรผ่าน',
+      reason: 'Should not pass',
       expectedRevision: 0,
     });
     assert.equal(denied.status, 403, role);
@@ -164,11 +164,11 @@ test('ไม่มีแถว = ค่าเริ่มต้น (VERIFY, ไ�
   assert.equal((await f.audits(f.tenantA)).length, 0);
 });
 
-test('ADMIN แก้นโยบายได้พร้อม audit ก่อน/หลังทุกครั้ง; revision เก่า 409; ส่งค่าเดิมซ้ำไม่เขียนอะไร; ข้อมูลผิด 400', async (t) => {
+test('an ADMIN can change the policy with a before/after audit every time; an old revision is 409; resending the same value writes nothing; invalid data is 400', async (t) => {
   const f = await setup(t);
   const updated = await f.call('PUT', f.token.admin, {
     emailChange: 'IMMEDIATE',
-    reason: '  ทีมเล็ก ไม่ต้องยืนยันอีเมล  ',
+    reason: '  Small team, no email confirmation needed  ',
     expectedRevision: 0,
   });
   assert.equal(updated.status, 200, JSON.stringify(updated.body));
@@ -182,7 +182,7 @@ test('ADMIN แก้นโยบายได้พร้อม audit ก่อ�
 
   const stale = await f.call('PUT', f.token.admin, {
     emailChange: 'ADMIN_ONLY',
-    reason: 'admin อีกคนแก้ทับ',
+    reason: 'Another admin overwrote it',
     expectedRevision: 0,
   });
   assert.equal(stale.status, 409);
@@ -190,7 +190,7 @@ test('ADMIN แก้นโยบายได้พร้อม audit ก่อ�
 
   const unchanged = await f.call('PUT', f.token.admin, {
     emailChange: 'IMMEDIATE',
-    reason: 'กดบันทึกซ้ำ',
+    reason: 'Pressed save again',
     expectedRevision: 1,
   });
   assert.equal(unchanged.status, 200);
@@ -198,7 +198,7 @@ test('ADMIN แก้นโยบายได้พร้อม audit ก่อ�
 
   const second = await f.call('PUT', f.token.admin, {
     emailChange: 'ADMIN_ONLY',
-    reason: 'ให้ admin แก้อีเมลแทน',
+    reason: 'Let the admin change the email instead',
     expectedRevision: 1,
   });
   assert.equal(second.status, 200, JSON.stringify(second.body));
@@ -211,13 +211,13 @@ test('ADMIN แก้นโยบายได้พร้อม audit ก่อ�
       [
         { emailChange: 'VERIFY', mfaRequired: false },
         { emailChange: 'IMMEDIATE', mfaRequired: false },
-        'ทีมเล็ก ไม่ต้องยืนยันอีเมล',
+        'Small team, no email confirmation needed',
         f.users.admin,
       ],
       [
         { emailChange: 'IMMEDIATE', mfaRequired: false },
         { emailChange: 'ADMIN_ONLY', mfaRequired: false },
-        'ให้ admin แก้อีเมลแทน',
+        'Let the admin change the email instead',
         f.users.admin,
       ],
     ],
@@ -238,23 +238,23 @@ test('ADMIN แก้นโยบายได้พร้อม audit ก่อ�
       { field: 'reason', reason: 'INVALID' },
     ],
     [
-      { emailChange: 'NEVER', reason: 'ค่าไม่รู้จัก', expectedRevision: 2 },
+      { emailChange: 'NEVER', reason: 'Unknown value', expectedRevision: 2 },
       { field: 'emailChange', reason: 'INVALID' },
     ],
     [
-      { mfaRequired: 'yes', reason: 'ชนิดผิด', expectedRevision: 2 },
+      { mfaRequired: 'yes', reason: 'Wrong type', expectedRevision: 2 },
       { field: 'mfaRequired', reason: 'INVALID' },
     ],
     [
-      { reason: 'ไม่มีอะไรให้แก้', expectedRevision: 2 },
+      { reason: 'Nothing to change', expectedRevision: 2 },
       { field: 'body', reason: 'REQUIRED' },
     ],
     [
-      { emailChange: 'VERIFY', reason: 'ไม่มี revision' },
+      { emailChange: 'VERIFY', reason: 'No revision' },
       { field: 'expectedRevision', reason: 'REQUIRED' },
     ],
     [
-      { emailChange: 'VERIFY', reason: 'revision ผิดชนิด', expectedRevision: '2' },
+      { emailChange: 'VERIFY', reason: 'Revision of the wrong type', expectedRevision: '2' },
       { field: 'expectedRevision', reason: 'INVALID' },
     ],
   ];
@@ -266,11 +266,11 @@ test('ADMIN แก้นโยบายได้พร้อม audit ก่อ�
   assert.equal((await f.audits(f.tenantA)).length, 2);
 });
 
-test('แยก tenant: admin ของ tenant B เห็น/แก้ได้เฉพาะของตัวเอง และ dcontact_app อ่านข้าม tenant ได้ 0 แถว', async (t) => {
+test('tenant separation: the admin of tenant B sees/edits only their own and dcontact_app reads 0 rows across tenants', async (t) => {
   const f = await setup(t);
   const updatedA = await f.call('PUT', f.token.admin, {
     emailChange: 'ADMIN_ONLY',
-    reason: 'ตั้งค่า tenant A',
+    reason: 'Set up tenant A',
     expectedRevision: 0,
   });
   assert.equal(updatedA.status, 200);
@@ -283,7 +283,7 @@ test('แยก tenant: admin ของ tenant B เห็น/แก้ได้
   });
   const updatedB = await f.call('PUT', f.token.adminB, {
     emailChange: 'IMMEDIATE',
-    reason: 'ตั้งค่า tenant B',
+    reason: 'Set up tenant B',
     expectedRevision: 0,
   });
   assert.equal(updatedB.status, 200);
@@ -297,10 +297,10 @@ test('แยก tenant: admin ของ tenant B เห็น/แก้ได้
   }));
   assert.deepEqual(seenFromB, { policies: [], audits: [] });
 
-  // audit เขียนเพิ่มได้อย่างเดียว และนโยบายลบไม่ได้ (ถอยกลับ = แก้ค่าพร้อม audit)
+  // the audit is append-only and the policy cannot be deleted (rollback = change the value with an audit)
   await assert.rejects(
     withTenantDatabaseTransaction(application, f.tenantA, (tx) =>
-      tx.tenantAccountPolicyAuditEvent.updateMany({ data: { reason: 'แก้ประวัติ' } }),
+      tx.tenantAccountPolicyAuditEvent.updateMany({ data: { reason: 'Edit history' } }),
     ),
     /permission denied/,
   );
@@ -318,11 +318,11 @@ test('แยก tenant: admin ของ tenant B เห็น/แก้ได้
   );
 });
 
-test('บังคับ 2FA: ยังไม่มี port = 409 ไม่บันทึก; port ล้ม = rollback ทั้งนโยบายและ audit; port สำเร็จ = บันทึก', async (t) => {
+test('2FA enforcement: no port yet = 409 and not saved; port fails = the whole policy and audit roll back; port succeeds = saved', async (t) => {
   const withoutPort = await setup(t);
   const unavailable = await withoutPort.call('PUT', withoutPort.token.admin, {
     mfaRequired: true,
-    reason: 'บังคับ 2FA ทั้ง tenant',
+    reason: 'Enforce 2FA for the whole tenant',
     expectedRevision: 0,
   });
   assert.equal(unavailable.status, 409);
@@ -343,7 +343,7 @@ test('บังคับ 2FA: ยังไม่มี port = 409 ไม่บ�
   const failed = await f.call('PUT', f.token.admin, {
     emailChange: 'IMMEDIATE',
     mfaRequired: true,
-    reason: 'บังคับ 2FA ทั้ง tenant',
+    reason: 'Enforce 2FA for the whole tenant',
     expectedRevision: 0,
   });
   assert.equal(failed.status, 500);
@@ -358,16 +358,16 @@ test('บังคับ 2FA: ยังไม่มี port = 409 ไม่บ�
   fail = false;
   const enforced = await f.call('PUT', f.token.admin, {
     mfaRequired: true,
-    reason: 'บังคับ 2FA ทั้ง tenant',
+    reason: 'Enforce 2FA for the whole tenant',
     expectedRevision: 0,
   });
   assert.equal(enforced.status, 200, JSON.stringify(enforced.body));
   assert.deepEqual([enforced.body.mfaRequired, enforced.body.revision], [true, 1]);
 
-  // เปลี่ยนเฉพาะ email ไม่เรียก port
+  // changing only the email does not call the port
   const emailOnly = await f.call('PUT', f.token.admin, {
     emailChange: 'ADMIN_ONLY',
-    reason: 'เปลี่ยนเฉพาะอีเมล',
+    reason: 'Change only the email',
     expectedRevision: 1,
   });
   assert.equal(emailOnly.status, 200);

@@ -11,7 +11,7 @@ const configuration = {
 };
 
 for (const prefix of ['', '/auth']) {
-  test(`People readiness รักษา canonical ${prefix}/realms prefix`, async () => {
+  test(`People readiness keeps the canonical ${prefix}/realms prefix`, async () => {
     const paths: string[] = [];
     const identity = new TenantPeopleKeycloak(
       { ...configuration, issuer: `https://identity.example.test${prefix}/realms/dcontact` },
@@ -37,7 +37,7 @@ for (const prefix of ['', '/auth']) {
         }),
     );
   });
-  test(`People disable รักษา canonical ${prefix}/realms prefix และ trailing slash`, async () => {
+  test(`People disable keeps the canonical ${prefix}/realms prefix and trailing slash`, async () => {
     const paths: string[] = [];
     const adapter = new TenantPeopleDisableKeycloak(
       { ...configuration, issuer: `https://identity.example.test${prefix}/realms/dcontact/` },
@@ -70,7 +70,7 @@ for (const prefix of ['', '/auth']) {
   });
 }
 
-test('issuer path ไม่รับ arbitrary prefix, extra path หรือ credentials/query/hash', () => {
+test('the issuer path does not accept an arbitrary prefix, extra path or credentials/query/hash', () => {
   for (const issuer of [
     'https://identity.example.test/other/realms/dcontact',
     'https://identity.example.test/auth/auth/realms/dcontact',

@@ -6,8 +6,8 @@ import { deliverToIam, ownerCommit, setup, type Fixture } from './customer-360-t
 import { contact, grant, interaction } from './customer-360-read-test-fixtures.js';
 
 /**
- * Cus360 C2 (#792) S2: timeline และ governance summary เป็น section แยกจาก core profile
- * owner error / สิทธิ์ประวัติที่พิสูจน์ไม่ได้ต้องไม่กลายเป็น empty หรือ allowed
+ * Cus360 C2 (#792) S2: timeline and governance summary are sections separate from the core profile
+ * an owner error / call-history permission that cannot be proven must not become empty or allowed
  */
 
 process.env.CUSTOMER_360_CURSOR_KEYS = `sections:${randomBytes(32).toString('base64')}`;
@@ -46,14 +46,14 @@ const governance = async (f: Fixture, token: string, contactId: string, body?: u
   return { status: response.status, body: response.body as unknown as Section };
 };
 
-test('C2 S2 timeline: คืนเฉพาะวัน-เวลา/ช่องทาง/สถานะของสายที่พิสูจน์สิทธิ์ได้ และ LIMITED เมื่อมีสายที่พิสูจน์ไม่ได้', async () => {
+test('C2 S2 timeline: returns only the date-time/channel/status of calls whose permission can be proven, and LIMITED when there are calls that cannot be proven', async () => {
   const f = await setup([Customer360ReadController]);
   try {
     const target = await contact(f, { displayName: 'Timeline One' });
     const emptyContact = await contact(f, { displayName: 'Timeline Empty' });
     const foreignOnly = await contact(f, { displayName: 'Timeline Foreign Calls' });
     for (const id of [target, emptyContact, foreignOnly]) await grant(f, 'admin', id, 'READ');
-    // admin รับสายเอง 3 สาย; agent รับ 2 สาย (ไม่มี historical team attribution ให้ admin); webchat และงานไม่มีเจ้าของ
+    // the admin answers 3 calls themselves; the agent answers 2 (there is no historical team attribution for the admin); a webchat and unowned work
     for (let i = 0; i < 3; i += 1) await interaction(f, target, 'admin');
     await interaction(f, target, 'agent');
     await interaction(f, target, 'agent');
@@ -86,14 +86,14 @@ test('C2 S2 timeline: คืนเฉพาะวัน-เวลา/ช่อ�
     for (const secret of ['SECRET-NOTE', 'SECRET-WRAP-CODE', 'WEBCHAT', 'wrap', 'transcript'])
       assert.equal(serialized.includes(secret), false, secret);
 
-    // ไม่มีสายเลย = ว่างจริง (COMPLETE); มีแต่สายที่พิสูจน์ไม่ได้ = ว่างแต่ LIMITED (ไม่ใช่ empty/allowed)
+    // no calls at all = truly empty (COMPLETE); only unprovable calls = empty but LIMITED (not empty/allowed)
     const none = await timeline(f, 'admin', emptyContact);
     assert.equal(none.body.state, 'READY');
     assert.deepEqual(none.body.data, { items: [], nextCursor: null, coverage: 'COMPLETE' });
     const unproven = await timeline(f, 'admin', foreignOnly);
     assert.deepEqual(unproven.body.data, { items: [], nextCursor: null, coverage: 'LIMITED' });
 
-    // cursor: tamper และใช้ข้าม contact/actor ไม่ได้; limit ผิดรูปแบบ
+    // cursor: tampering and use across contact/actor are impossible; a malformed limit
     const token = first.body.data!.nextCursor!;
     for (const bad of [`${token.slice(0, -3)}AAA`, 'junk', 'v1.sections.AAAA']) {
       const rejected = await timeline(f, 'admin', target, `?cursor=${encodeURIComponent(bad)}`);
@@ -116,7 +116,7 @@ test('C2 S2 timeline: คืนเฉพาะวัน-เวลา/ช่อ�
   }
 });
 
-test('C2 S2 timeline/governance: สิทธิ์ลูกค้าตรงกับ core profile — DENY=404 เหมือนไม่พบ, DEFER=503, Agent/Compliance 403, ไม่มีข้อมูลเสริมหลุด', async () => {
+test('C2 S2 timeline/governance: the customer permission matches the core profile — DENY=404 like not found, DEFER=503, Agent/Compliance 403, no supplementary data leaks', async () => {
   const f = await setup([Customer360ReadController]);
   try {
     const hidden = await contact(f, { displayName: 'Hidden Person' });
@@ -136,7 +136,7 @@ test('C2 S2 timeline/governance: สิทธิ์ลูกค้าตรง�
         assert.equal((await call(token, hidden)).status, 403, token);
     }
 
-    // projection lag ของ Supervisor → 503 ทั้งสอง section (ไม่ใช่ empty)
+    // Supervisor projection lag → 503 for both sections (not empty)
     await f.scopes.grant({
       tenantId: f.tenantId,
       teamId: f.teamId,
@@ -164,7 +164,7 @@ test('C2 S2 timeline/governance: สิทธิ์ลูกค้าตรง�
   }
 });
 
-test('C2 S2 owner error: Voice owner ล้ม = section UNAVAILABLE (200) และ core profile ยังอ่านได้ ไม่เป็น empty', async () => {
+test('C2 S2 owner error: the Voice owner fails = the section is UNAVAILABLE (200) and the core profile can still be read, not empty', async () => {
   const f = await setup([Customer360ReadController]);
   try {
     const id = await contact(f, { displayName: 'Owner Down' });
@@ -182,7 +182,7 @@ test('C2 S2 owner error: Voice owner ล้ม = section UNAVAILABLE (200) แ�
       assert.equal(JSON.stringify(down.body).includes('items'), false);
       const core = await f.request(`customer-360/contacts/${id}`, 'admin');
       assert.equal(core.status, 200);
-      // ลูกค้าที่ไม่มีสิทธิ์ยังได้ 404 ไม่ใช่ UNAVAILABLE (ไม่เปิดเผยสถานะ owner ของ resource นอกสิทธิ์)
+      // a customer without permission still gets 404, not UNAVAILABLE (does not reveal the owner state of a resource outside permission)
       assert.equal((await timeline(f, 'admin', randomUUID())).status, 404);
     } finally {
       await f.owner.$executeRawUnsafe('GRANT SELECT ON interactions TO dcontact_app');
@@ -193,7 +193,7 @@ test('C2 S2 owner error: Voice owner ล้ม = section UNAVAILABLE (200) แ�
   }
 });
 
-test('C2 S2 governance: context-required → ready ไม่ใช่ allowed; read ไม่มี side effect; owner ล้ม = UNAVAILABLE', async () => {
+test('C2 S2 governance: context-required → ready is not allowed; read has no side effect; owner fails = UNAVAILABLE', async () => {
   const f = await setup([Customer360ReadController]);
   try {
     const id = await contact(f, { displayName: 'Governed' });
@@ -278,7 +278,7 @@ test('C2 S2 governance: context-required → ready ไม่ใช่ allowed; r
     assert.deepEqual(blocked.body.preference, { decision: 'BLOCK', version: 1 });
     assert.equal(blocked.body.activeRestrictionCount, 1);
     assert.equal(blocked.body.contactPermission, 'NOT_EVALUATED');
-    // restriction ระดับ tenant (contactId null) ที่ผูก channel EMAIL: นับเฉพาะบริบทที่ channel ตรง; null = ทุกค่า
+    // a tenant-level restriction (contactId null) bound to channel EMAIL: counts only contexts with a matching channel; null = every value
     await f.owner.cgRestriction.create({
       data: {
         tenantId: f.tenantId,
@@ -304,14 +304,14 @@ test('C2 S2 governance: context-required → ready ไม่ใช่ allowed; r
     const emailCtx = await governance(f, 'admin', id, { channel: 'EMAIL', purpose: 'SERVICE' });
     assert.equal(emailCtx.body.activeRestrictionCount, 3); // contact DNC + tenant EMAIL + tenant purpose SERVICE
     const voiceCtx = await governance(f, 'admin', id, { channel: 'VOICE', purpose: 'SERVICE' });
-    assert.equal(voiceCtx.body.activeRestrictionCount, 2); // contact DNC + tenant purpose SERVICE (EMAIL ไม่นับ)
+    assert.equal(voiceCtx.body.activeRestrictionCount, 2); // contact DNC + tenant purpose SERVICE (EMAIL does not count)
     const voiceOther = await governance(f, 'admin', id, { channel: 'VOICE', purpose: 'OTHER' });
-    assert.equal(voiceOther.body.activeRestrictionCount, 1); // เฉพาะ contact DNC (channel/purpose null)
+    assert.equal(voiceOther.body.activeRestrictionCount, 1); // only the contact DNC (channel/purpose null)
     const other = await governance(f, 'admin', id, { channel: 'VOICE', purpose: 'MARKETING' });
     assert.equal(other.body.preference, null);
     assert.deepEqual(await sideEffects(), before);
 
-    // owner CG ล้ม
+    // the CG owner fails
     await f.owner.$executeRawUnsafe('REVOKE SELECT ON cg_preferences FROM dcontact_app');
     try {
       const down = await governance(f, 'admin', id, { channel: 'VOICE', purpose: 'SERVICE' });
@@ -320,13 +320,13 @@ test('C2 S2 governance: context-required → ready ไม่ใช่ allowed; r
       assert.equal(down.body.reason, 'OWNER_UNAVAILABLE');
       assert.equal(down.body.preference, undefined);
       assert.equal(down.body.contactPermission, undefined);
-      // ไม่ระบุ context ไม่ต้องแตะ owner จึงยังตอบ CONTEXT_REQUIRED
+      // no context given, no need to touch the owner, so it still answers CONTEXT_REQUIRED
       assert.equal((await governance(f, 'admin', id)).body.state, 'CONTEXT_REQUIRED');
     } finally {
       await f.owner.$executeRawUnsafe('GRANT SELECT ON cg_preferences TO dcontact_app');
     }
 
-    // identity ยังไม่ canonical → unavailable ไม่ใช่ allowed
+    // the identity is not canonical yet → unavailable, not allowed
     const ambiguous = await contact(f, { displayName: 'Amb' });
     await f.owner.c360IdentityHead.create({
       data: {

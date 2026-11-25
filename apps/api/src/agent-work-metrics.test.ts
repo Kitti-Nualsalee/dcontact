@@ -21,8 +21,8 @@ const code = (run: () => unknown) => {
   assert.fail('expected BadRequestException');
 };
 
-test('ขอบวันใช้เขตเวลา tenant — 00:30 ที่กรุงเทพยังเป็นวันใหม่แม้ UTC ยังเป็นเมื่อวาน', () => {
-  const now = new Date('2026-11-21T17:30:00.000Z'); // 22 พ.ย. 00:30 Asia/Bangkok
+test('the day boundary uses the tenant time zone — 00:30 in Bangkok is already a new day even though UTC is still yesterday', () => {
+  const now = new Date('2026-11-21T17:30:00.000Z'); // 22 Nov 00:30 Asia/Bangkok
   assert.deepEqual(periodWindow('today', now, 'Asia/Bangkok'), {
     from: new Date('2026-11-21T17:00:00.000Z'),
     to: now,
@@ -33,7 +33,7 @@ test('ขอบวันใช้เขตเวลา tenant — 00:30 ที�
   });
 });
 
-test('7 วันและ 30 วันนับวันนี้รวมด้วย all ไม่มีขอบต้น และทุกช่วงสิ้นสุดที่เวลาคำนวณ', () => {
+test('7 days and 30 days count today as well, all has no lower bound, and every period ends at the as-of time', () => {
   const now = new Date('2026-11-22T05:00:00.000Z');
   assert.deepEqual(periodWindow('7d', now, 'Asia/Bangkok'), {
     from: new Date('2026-11-15T17:00:00.000Z'),
@@ -46,33 +46,33 @@ test('7 วันและ 30 วันนับวันนี้รวมด�
   assert.deepEqual(periodWindow('all', now, 'Asia/Bangkok'), { from: null, to: now });
 });
 
-test('ช่วงที่คร่อมการเปลี่ยน DST ได้เที่ยงคืนตามเวลาท้องถิ่นทั้งสองฝั่ง', () => {
-  // America/New_York เปลี่ยนกลับเวลามาตรฐาน 1 พ.ย. 2569
+test('a period that spans a DST change gets local midnight on both sides', () => {
+  // America/New_York goes back to standard time on 1 Nov 2026
   const now = new Date('2026-11-03T15:00:00.000Z');
   assert.equal(zonedDayStart(now, 'America/New_York', 0).toISOString(), '2026-11-03T05:00:00.000Z');
   assert.equal(zonedDayStart(now, 'America/New_York', 6).toISOString(), '2026-10-28T04:00:00.000Z');
 });
 
-test('เที่ยงคืนที่หายไปตอนเข้า DST ใช้ instant แรกของวันนั้น ไม่ย้อนไปวันก่อน', () => {
-  // America/Santiago ข้ามจาก 00:00 ไป 01:00 วันที่ 6 ก.ย. 2569
+test('a midnight that disappears on entering DST uses the first instant of that day, not going back to the previous day', () => {
+  // America/Santiago skips from 00:00 to 01:00 on 6 Sep 2026
   assert.equal(
     zonedDayStart(new Date('2026-09-06T15:00:00.000Z'), 'America/Santiago', 0).toISOString(),
     '2026-09-06T04:00:00.000Z',
   );
-  // America/Havana ข้ามเที่ยงคืนวันที่ 8 มี.ค. 2569
+  // America/Havana skips midnight on 8 Mar 2026
   assert.equal(
     zonedDayStart(new Date('2026-03-08T15:00:00.000Z'), 'America/Havana', 0).toISOString(),
     '2026-03-08T05:00:00.000Z',
   );
 });
 
-test('เขตเวลาไม่รู้จักหรือไม่ได้ตั้ง ใช้ UTC', () => {
+test('an unknown or unset time zone uses UTC', () => {
   assert.equal(resolveTimeZone('Asia/Bangkok'), 'Asia/Bangkok');
   assert.equal(resolveTimeZone('Mars/Base'), 'UTC');
   assert.equal(resolveTimeZone(null), 'UTC');
 });
 
-test('period รับเฉพาะค่าที่รองรับ ค่าเริ่มต้น 7 วัน', () => {
+test('period accepts only supported values, with a default of 7 days', () => {
   assert.equal(summaryPeriodFrom(undefined), '7d');
   assert.equal(summaryPeriodFrom('today'), 'today');
   for (const value of ['', '1d', ['7d'], 'ALL'])
@@ -82,7 +82,7 @@ test('period รับเฉพาะค่าที่รองรับ ค่
     );
 });
 
-test('ตัวกรองรายการตรวจเวลา ช่วง และผลบันทึก', () => {
+test('the list filter checks time, range and wrap-up result', () => {
   const filter = workFilterFrom({
     from: '2026-11-15T17:00:00.000Z',
     to: '2026-11-22T17:00:00.000Z',
@@ -113,7 +113,7 @@ test('ตัวกรองรายการตรวจเวลา ช่ว�
     );
 });
 
-test('cursor ผูกกับตัวกรอง — ทุกผลบันทึก, ไม่มีผลบันทึก และผลเฉพาะต่างกัน', () => {
+test('the cursor binds to the filter — every wrap-up result, no wrap-up result and specific results differ', () => {
   const keys = new Set([
     filterKey({ from: null, to: null }),
     filterKey({ from: null, to: null, disposition: null }),

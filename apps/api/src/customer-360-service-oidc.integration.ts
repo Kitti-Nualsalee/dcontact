@@ -32,7 +32,7 @@ import { currentC360ServicePrincipal } from './customer-360-service-identity.js'
 import { Customer360OperatorController } from './customer-360-operator-api.js';
 import { coreFixture } from './tenant-core-test-fixtures.js';
 
-/** Test-only probe: ใช้ global gateway และ shared principal guard จริง ไม่เปิด customer CRUD ของ slice B */
+/** Test-only probe: uses the real global gateway and shared principal guard, and does not open the customer CRUD of slice B */
 @Controller('api/v1/m3-test-probe')
 @GatewayServiceRoles('service')
 @GatewayServiceScopes('customer360.contacts.read')
@@ -54,7 +54,7 @@ class ServiceProbe {
 
 const kc = process.env.M3_KEYCLOAK_URL;
 test(
-  'M3-A actual Keycloak client_credentials: audience/issuer/tenant/scopes/rotation และ mixed token operator denial',
+  'M3-A actual Keycloak client_credentials: audience/issuer/tenant/scopes/rotation and a mixed token operator denial',
   { skip: !kc },
   async () => {
     const realm = `m3-${randomUUID()}`,
@@ -65,7 +65,7 @@ test(
       audience: 'dcontact-api',
     });
     let f: Awaited<ReturnType<typeof coreFixture>>;
-    // Operator ของ test ยังคง synthetic trusted fixture; service tokens มาจาก Keycloak จริงทุกตัว
+    // the test operator stays a synthetic trusted fixture; every service token comes from the real Keycloak
     const verifier = {
       verifyAccessToken: async (token: string): Promise<VerifiedOidcClaims> => {
         if (token !== 'operator') return actual.verifyAccessToken(token);
@@ -84,7 +84,7 @@ test(
         } as VerifiedOidcClaims;
       },
     };
-    // #954: route จริงของลูกค้า + introspection ผ่าน confidential client จริงของ realm นี้
+    // #954: the real customer route + introspection through this realm's real confidential client
     f = await coreFixture(
       [
         Customer360OperatorController,
@@ -196,7 +196,7 @@ test(
                   'access.token.claim': 'true',
                 },
               },
-              // Keycloak ตอบ active:false ถ้า client ที่ introspect ไม่อยู่ใน aud ของ token
+              // Keycloak answers active:false if the introspecting client is not in the token's aud
               {
                 name: 'introspection-audience',
                 protocol: 'openid-connect',
@@ -378,10 +378,10 @@ test(
       const binding = await f.owner.intServicePrincipal.findFirstOrThrow({
         where: { tenantId: f.tenantId },
       });
-      // #954: token จริงจาก client_credentials สร้าง อ่าน และค้นลูกค้าผ่าน route จริง
+      // #954: a real token from client_credentials creates, reads and searches customers through the real route
       const createBody = () => ({
         commandId: randomUUID(),
-        displayName: 'ลูกค้าจาก Keycloak จริง',
+        displayName: 'Customer from real Keycloak',
       });
       const live = replacement.body.access_token;
       assert.equal((await f.request('customer-360/contacts', live, createBody())).status, 403);
@@ -412,10 +412,10 @@ test(
         (found.body as unknown as { items: { contactId: string }[] }).items.map((i) => i.contactId),
         [madeId],
       );
-      // ตัวอย่าง client ใน examples/ เดินครบ token → create → read → search กับ Keycloak และ API จริง
+      // the example client in examples/ walks the full token → create → read → search against the real Keycloak and API
       const example = await promisify(execFile)(
         process.execPath,
-        // runner และ pnpm --filter รันจาก apps/api
+        // the runner and pnpm --filter run from apps/api
         [resolve(process.cwd(), '../../examples/external-customer-api/client.mjs')],
         {
           env: {
@@ -436,7 +436,7 @@ test(
         );
         assert.notEqual((await f.request(`customer-360/contacts/${madeId}`, denied)).status, 200);
       }
-      // ปิด client ที่ Keycloak: JWT ยังไม่หมดอายุ แต่ create ถูกปฏิเสธจาก online introspection ทันที
+      // close the client at Keycloak: the JWT has not expired yet but create is rejected at once by online introspection
       const turnedOff = await fetch(`${kc}/admin/realms/${realm}/clients/${id}`, {
         method: 'PUT',
         headers: adminHeaders,
