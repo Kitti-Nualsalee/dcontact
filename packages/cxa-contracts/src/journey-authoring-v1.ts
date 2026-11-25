@@ -1,17 +1,17 @@
 /**
- * J5.1 (#339): versioned authoring contract ของ Journey visual canvas (Phase Contract #334,
+ * J5.1 (#339): versioned authoring contract of the Journey visual canvas (Phase Contract #334,
  * Phase Spec #337 §1, §4–§6)
  *
- * canvas เป็น authoring projection ไม่ใช่ runtime DSL ใหม่ — compile แล้วต้องลงท้ายที่
- * `JourneyDefinitionContent` เดิมของ `apps/journey` เท่านั้น ไฟล์นี้จึงไม่นิยาม runtime type ซ้ำ:
- * `CompileArtifactV1` รับ runtime type เป็น generic ให้ owner ฝั่ง Journey ผูกเอง
+ * The canvas is an authoring projection, not a new runtime DSL: compiling must end only at the existing
+ * `JourneyDefinitionContent` of `apps/journey`, so this file does not redefine the runtime type:
+ * `CompileArtifactV1` takes the runtime type as a generic for the Journey owner to bind itself
  *
- * ข้อห้ามที่ตรึงไว้ (#328–#331):
- * - node/port/trigger เป็นชุดปิด ห้าม plugin หรือ UI สร้างเพิ่ม
- * - `step.id = nodeId` แบบ 1:1 เพื่อรักษา `actionKey = enrollmentId:journeyVersion:stepId`
- * - เงื่อนไขใช้ `DC_EXPR:1` เท่านั้น ไม่มี JavaScript/eval/DSL ใหม่
- * - layout/viewport ไม่อยู่ใน runtime hash และ document/DTO ไม่มี PII หรือ credential
- * - tenant ไม่มาจาก client: request DTO ทุกตัวไม่มี `tenantId`
+ * Fixed prohibitions (#328-#331):
+ * - nodes/ports/triggers are closed sets; no plugin or UI may add more
+ * - `step.id = nodeId` 1:1 to preserve `actionKey = enrollmentId:journeyVersion:stepId`
+ * - conditions use only `DC_EXPR:1`; no JavaScript/eval/new DSL
+ * - layout/viewport is not in the runtime hash, and the document/DTO has no PII or credential
+ * - tenant does not come from the client: no request DTO has a `tenantId`
  */
 import type { ContactChannel } from './contact-governance.js';
 import type { ExpressionDocument } from './expression.js';
@@ -24,7 +24,7 @@ export const JOURNEY_COMPILE_ARTIFACT_VERSION = 1 as const;
 export type JourneyAuthoringSchemaVersion = typeof JOURNEY_AUTHORING_SCHEMA_VERSION;
 export type JourneyAuthoringRegistryVersion = typeof JOURNEY_AUTHORING_REGISTRY_VERSION;
 
-/** ขีดจำกัดของ V1 (#329): ไม่มี loop/iteration contract จึงปฏิเสธ cycle และกราฟที่ใหญ่เกิน */
+/** V1 limits (#329): there is no loop/iteration contract, so cycles and oversized graphs are rejected */
 export const JOURNEY_AUTHORING_LIMITS = Object.freeze({
   runtimeSteps: 256,
   controlEdges: 512,
@@ -32,7 +32,7 @@ export const JOURNEY_AUTHORING_LIMITS = Object.freeze({
   simulationTransitions: 1_024,
 } as const);
 
-// ── Node และ port catalog (#328) ─────────────────────────────────────────────
+// ── Node and port catalog (#328) ─────────────────────────────────────────────
 
 export const JOURNEY_TRIGGER_NODE_TYPES = Object.freeze([
   'EVENT_TRIGGER',
@@ -49,7 +49,7 @@ export const JOURNEY_RUNTIME_NODE_TYPES = Object.freeze([
   'EXIT',
 ] as const);
 
-/** J2 owner action: วางได้เฉพาะ entry step หลัง INTERACTION_OUTCOME_TRIGGER (#328 §4) */
+/** J2 owner action: may be placed only as the entry step after INTERACTION_OUTCOME_TRIGGER (#328 §4) */
 export const JOURNEY_RESTRICTED_NODE_TYPES = Object.freeze([
   'ENSURE_CASE',
   'ADMIT_CAMPAIGN_TARGET',
@@ -72,8 +72,8 @@ export const JOURNEY_PORT_IDS = Object.freeze([
 export type JourneyPortId = (typeof JOURNEY_PORT_IDS)[number];
 
 /**
- * port ของแต่ละ node พร้อม runtime field ที่ output port compile ลงไป — output หนึ่ง port ต่อ
- * target เดียวเพราะ runtime field เป็น scalar; restricted action ใช้ `next`/`onReject`
+ * ports of each node with the runtime field an output port compiles into: one output port per
+ * single target because the runtime field is a scalar; a restricted action uses `next`/`onReject`
  */
 export const JOURNEY_NODE_PORTS = Object.freeze({
   EVENT_TRIGGER: { input: null, outputs: { start: 'entryStepId' } },
@@ -131,11 +131,11 @@ export type AuthoringTriggerNodeV1 = {
 interface AuthoringStepNodeBase {
   readonly nodeId: string;
   readonly label?: string;
-  /** key คงที่จาก template สำหรับ provenance/upgrade — ไม่ใช่ runtime identity */
+  /** stable key from the template for provenance/upgrade: not a runtime identity */
   readonly templateNodeKey?: string;
 }
 
-/** field ของ step คือ runtime field ที่ไม่ใช่ transition — transition มาจาก edge เท่านั้น */
+/** a step's fields are runtime fields that are not transitions: transitions come only from edges */
 export type AuthoringStepNodeV1 = AuthoringStepNodeBase &
   (
     | {
@@ -177,8 +177,8 @@ export type JourneyAuthoringJsonValue =
   | { readonly [key: string]: JourneyAuthoringJsonValue };
 
 /**
- * node ที่ registry รุ่นนี้ไม่รู้จัก (legacy/future) ต้องเปิดแบบ read-only และเก็บ source เดิมไว้
- * ครบ — ห้าม drop/normalize/บันทึกทับ และ publish fail closed (#328 §10)
+ * a node this registry version does not recognize (legacy/future) must open read-only with its original source kept
+ * intact: never drop/normalize/overwrite, and publish fails closed (#328 §10)
  */
 export interface AuthoringUnsupportedNodeV1 {
   readonly nodeId: string;
@@ -188,13 +188,13 @@ export interface AuthoringUnsupportedNodeV1 {
 }
 
 export interface AuthoringEdgeV1 {
-  /** id สำหรับ authoring/collaboration เท่านั้น ไม่ compile เป็น runtime identity */
+  /** id for authoring/collaboration only; does not compile into a runtime identity */
   readonly edgeId: string;
   readonly source: { readonly nodeId: string; readonly portId: JourneyPortId };
   readonly target: { readonly nodeId: string };
 }
 
-/** ค่าระดับ Journey ที่ runtime ใช้ร่วมทุก step — owner team อยู่ที่ head ไม่ใช่ใน document */
+/** Journey-level values the runtime shares across all steps: the owner team is on the head, not in the document */
 export interface AuthoringSettingsV1 {
   readonly name: string;
   readonly purpose: string;
@@ -208,7 +208,7 @@ export interface AuthoringSettingsV1 {
   readonly maxDurationDays: number;
 }
 
-/** layout เป็น visual-only: compiler ห้ามอ่าน และไม่มีผลต่อ runtime hash */
+/** layout is visual-only: the compiler must not read it, and it does not affect the runtime hash */
 export interface AuthoringLayoutV1 {
   readonly nodes: Readonly<Record<string, { readonly x: number; readonly y: number }>>;
   readonly viewport?: { readonly x: number; readonly y: number; readonly zoom: number };
@@ -227,8 +227,8 @@ export interface AuthoringDocumentV1 {
 // ── Compile artifact (Phase Spec §4 — fields exact) ──────────────────────────
 
 /**
- * `TRuntime` คือ `JourneyDefinitionContent` ของ `apps/journey` — contract ไม่ duplicate runtime type
- * `compileDigest` = SHA-256 ของ canonical artifact โดยเว้น field ตัวเอง
+ * `TRuntime` is `JourneyDefinitionContent` of `apps/journey`: the contract does not duplicate the runtime type
+ * `compileDigest` = SHA-256 of the canonical artifact excluding its own field
  */
 export interface CompileArtifactV1<TRuntime = unknown> {
   readonly artifactVersion: typeof JOURNEY_COMPILE_ARTIFACT_VERSION;
@@ -251,11 +251,11 @@ export interface CompileArtifactV1<TRuntime = unknown> {
 export interface CompileJourneyResultV1<TRuntime = unknown> {
   readonly artifact: CompileArtifactV1<TRuntime> | null;
   readonly diagnostics: readonly JourneyDiagnosticV1[];
-  /** compile ของ revision เก่าที่เสร็จหลัง draft ขยับแล้ว — ห้ามนำไปเปิด publish (#329 §5) */
+  /** a compile of an old revision that finished after the draft moved on: must not be used to open a publish (#329 §5) */
   readonly stale: boolean;
 }
 
-// ── Preview และ simulation (#329 §6–§8) ─────────────────────────────────────
+// ── Preview and simulation (#329 §6-§8) ─────────────────────────────────────
 
 export interface PlanPreviewStepV1 {
   readonly nodeId: string;
@@ -272,8 +272,8 @@ export interface PlanPreviewV1 {
 }
 
 /**
- * fixture สังเคราะห์ที่ประกาศล่วงหน้า — ผลของ SEND และ owner action มาจาก fixture เท่านั้น
- * ค่าใน context เป็น scalar สังเคราะห์ ห้าม raw customer context/PII
+ * pre-declared synthetic fixtures: the results of SEND and owner actions come only from fixtures
+ * values in the context are synthetic scalars; no raw customer context/PII
  */
 export interface SimulationFixtureV1 {
   readonly fixtureId: string;
@@ -300,7 +300,7 @@ export interface SimulationResultV1 {
   readonly diagnostics: readonly JourneyDiagnosticV1[];
 }
 
-// ── Lifecycle และ state (Phase Contract §5, Phase Spec §2) ───────────────────
+// ── Lifecycle and state (Phase Contract §5, Phase Spec §2) ───────────────────
 
 export const JOURNEY_LIFECYCLES = Object.freeze([
   'DRAFT_ONLY',
@@ -310,7 +310,7 @@ export const JOURNEY_LIFECYCLES = Object.freeze([
 ] as const);
 export type JourneyLifecycle = (typeof JOURNEY_LIFECYCLES)[number];
 
-/** PAUSED/DEPRECATED หยุด enrollment ใหม่เท่านั้น; publish ขณะ PAUSED ไม่ resume */
+/** PAUSED/DEPRECATED stop only new enrollments; a publish while PAUSED does not resume */
 export const JOURNEY_LIFECYCLE_TRANSITIONS = Object.freeze({
   DRAFT_ONLY: ['ACTIVE'],
   ACTIVE: ['PAUSED', 'DEPRECATED'],
@@ -351,7 +351,7 @@ export const JOURNEY_AUTHORING_OUTBOX_STATES = Object.freeze([
   'FAILED',
 ] as const);
 
-/** stage เดินหน้าอย่างเดียว; rollback คือ freeze/ปิด flag ไม่ใช่ถอย stage (Phase Spec §9) */
+/** a stage only moves forward; rollback is freezing/turning off the flag, not stepping back a stage (Phase Spec §9) */
 export const JOURNEY_AUTHORING_ROLLOUT_STAGES = Object.freeze([
   'DISABLED',
   'INTERNAL_SYNTHETIC',
@@ -360,7 +360,7 @@ export const JOURNEY_AUTHORING_ROLLOUT_STAGES = Object.freeze([
 ] as const);
 export type JourneyAuthoringRolloutStage = (typeof JOURNEY_AUTHORING_ROLLOUT_STAGES)[number];
 
-/** publish ที่ timeout: resolve ด้วย key เดิมเท่านั้น ห้าม mint key ใหม่หรือ republish (#329 §10) */
+/** a publish that timed out: resolve only with the original key; never mint a new key or republish (#329 §10) */
 export const JOURNEY_PUBLISH_OUTCOMES = Object.freeze([
   'UNKNOWN',
   'PUBLISHED',
@@ -369,7 +369,7 @@ export const JOURNEY_PUBLISH_OUTCOMES = Object.freeze([
 ] as const);
 export type JourneyPublishOutcome = (typeof JOURNEY_PUBLISH_OUTCOMES)[number];
 
-// ── Capability และ scope (#331 §2, §4, §6) ───────────────────────────────────
+// ── Capability and scope (#331 §2, §4, §6) ───────────────────────────────────
 
 export const JOURNEY_AUTHORING_CAPABILITIES = Object.freeze([
   'journey.read',
@@ -388,7 +388,7 @@ export const JOURNEY_AUTHORING_CAPABILITIES = Object.freeze([
 ] as const);
 export type JourneyAuthoringCapability = (typeof JOURNEY_AUTHORING_CAPABILITIES)[number];
 
-/** delegation จำกัด read/edit(รวม submit) — ห้าม approve/publish/lifecycle/visibility/transfer/audit */
+/** delegation is limited to read/edit (including submit): no approve/publish/lifecycle/visibility/transfer/audit */
 export const JOURNEY_DELEGABLE_CAPABILITIES = Object.freeze([
   'journey.read',
   'journey.edit',
@@ -412,7 +412,7 @@ export function isJourneyAuthoringCapability(value: unknown): value is JourneyAu
   return typeof value === 'string' && CAPABILITY_SET.has(value);
 }
 
-// ── Commands และ REST DTOs (Phase Contract §9, Phase Spec §5) ────────────────
+// ── Commands and REST DTOs (Phase Contract §9, Phase Spec §5) ────────────────
 
 export const JOURNEY_AUTHORING_COMMANDS = Object.freeze([
   'CreateJourneyDraft',
@@ -444,7 +444,7 @@ export const JOURNEY_AUTHORING_QUERIES = Object.freeze([
 ] as const);
 export type JourneyAuthoringQuery = (typeof JOURNEY_AUTHORING_QUERIES)[number];
 
-/** CAS ของ draft ทั้งฉบับ (#331 §7): stale ตอบ revision/digest ปัจจุบัน ไม่มี auto-merge */
+/** CAS of the whole draft (#331 §7): stale answers with the current revision/digest; no auto-merge */
 export interface JourneyDraftCasV1 {
   readonly expectedHeadVersion: number;
   readonly expectedDraftRevision: number;
@@ -484,7 +484,7 @@ export interface SimulateJourneyScenarioRequestV1 {
   readonly fixture: SimulationFixtureV1;
 }
 
-/** review candidate pin ทุก digest; อะไรเปลี่ยนหลัง submit ทำให้ candidate SUPERSEDED */
+/** a review candidate pins every digest; anything that changes after submit makes the candidate SUPERSEDED */
 export interface ReviewBindingV1 {
   readonly draftRevision: number;
   readonly draftDigest: string;
@@ -510,7 +510,7 @@ export interface PublishJourneyDraftRequestV1 extends ReviewBindingV1 {
 }
 
 export interface ResolvePublishRequestV1 {
-  /** key เดิมของ publish ที่ไม่รู้ผล — ห้ามสร้าง key ใหม่ */
+  /** the original key of a publish with unknown result: never create a new key */
   readonly originalIdempotencyKey: string;
 }
 
@@ -557,16 +557,16 @@ export interface JourneyAuthoringStateV1 {
     readonly reviewId: string;
     readonly state: JourneyReviewState;
     readonly draftRevision: number;
-    /** U1.3 (#431): candidate ที่ถูกส่งตรวจ — reviewer ตรวจ exact candidate ได้โดยไม่ต้องเดา */
+    /** U1.3 (#431): the candidate that was submitted for review: the reviewer can check the exact candidate without guessing */
     readonly draftDigest: string;
     readonly compileDigest: string;
     readonly submittedAt: string;
-    /** ผู้เรียกเป็นผู้ส่งตรวจ = ตัดสินเองไม่ได้ ต้องใช้ reviewer คนอื่น (maker-checker) */
+    /** the caller is the submitter = cannot decide it themselves, another reviewer is needed (maker-checker) */
     readonly makerIsCaller: boolean;
   } | null;
   /**
-   * U1.3 (#431): capability ที่ผู้เรียกถืออยู่บน Journey นี้ ณ ตอนอ่าน — ใช้แสดง affordance เท่านั้น
-   * server ตรวจสิทธิ์ซ้ำทุก mutation
+   * U1.3 (#431): capabilities the caller holds on this Journey at read time: used only to show affordances
+   * the server re-checks permission on every mutation
    */
   readonly permissions: {
     readonly edit: boolean;
@@ -575,7 +575,7 @@ export interface JourneyAuthoringStateV1 {
   };
 }
 
-/** U1.3 (#431): review ที่ผู้เรียกตัดสินได้ — ไม่รวม candidate ที่ผู้เรียกเป็นผู้ส่งตรวจ */
+/** U1.3 (#431): reviews the caller can decide: excludes candidates the caller submitted */
 export interface JourneyPendingReviewV1 {
   readonly reviewId: string;
   readonly journeyId: string;
@@ -587,10 +587,10 @@ export interface JourneyPendingReviewV1 {
   readonly submittedAt: string;
 }
 
-/** receipt เก็บเฉพาะ metadata ที่ปลอดภัย — ไม่มี document/graph/parameter value */
+/** the receipt keeps only safe metadata: no document/graph/parameter value */
 export interface JourneyCommandReceiptV1 {
   readonly receiptId: string;
-  /** ชื่อจาก `JOURNEY_AUTHORING_COMMANDS` หรือ `JOURNEY_TEMPLATE_COMMANDS` */
+  /** name from `JOURNEY_AUTHORING_COMMANDS` or `JOURNEY_TEMPLATE_COMMANDS` */
   readonly commandName: string;
   readonly resourceKind: JourneyAuthoringResourceKind;
   readonly resourceId: string;

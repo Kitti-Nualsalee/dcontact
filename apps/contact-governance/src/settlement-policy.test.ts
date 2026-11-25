@@ -1,14 +1,14 @@
 /**
- * S2.2 (#364): matrix Attempt/Touch/refund ของ Governance แบบ pure — ไม่มี database
+ * S2.2 (#364): the Governance Attempt/Touch/refund matrix as pure functions, with no database
  *
- * Authority: outcome decision #361 §B/§D และ Phase Contract #362 §8
+ * Authority: outcome decision #361 §B/§D and Phase Contract #362 §8
  */
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { lineNormalizedOutcome, lineProviderSettlement } from '@d-contact/cxa-contracts';
 import { defaultSettlementPolicy, type TerminalDeliveryOutcome } from './reservation-runtime.js';
 
-test('acceptance ของ provider = Attempt 1, Touch 0, refund 0', () => {
+test('a provider acceptance = Attempt 1, Touch 0, refund 0', () => {
   assert.deepEqual(defaultSettlementPolicy({ outcome: 'PROVIDER_ACCEPTED' }), {
     countsAsAttempt: true,
     countsAsSuccessfulTouch: false,
@@ -16,7 +16,7 @@ test('acceptance ของ provider = Attempt 1, Touch 0, refund 0', () => {
   });
 });
 
-test('recipient rejection นับ Attempt ส่วน operational rejection ไม่นับ', () => {
+test('a recipient rejection counts an Attempt while an operational rejection does not', () => {
   assert.equal(
     defaultSettlementPolicy({ outcome: 'PROVIDER_REJECTED', rejectionScope: 'RECIPIENT' })
       .countsAsAttempt,
@@ -27,11 +27,11 @@ test('recipient rejection นับ Attempt ส่วน operational rejection �
       .countsAsAttempt,
     false,
   );
-  // channel ของ S1 ไม่มี vocabulary นี้ — ไม่ระบุ scope ต้องคงพฤติกรรมเดิมคือ Attempt 1
+  // the S1 channels have no such vocabulary: with no scope the original behavior must stay, which is Attempt 1
   assert.equal(defaultSettlementPolicy({ outcome: 'PROVIDER_REJECTED' }).countsAsAttempt, true);
 });
 
-test('สัญญา S1 ของ DELIVERED/DELIVERY_FAILED ไม่เปลี่ยน', () => {
+test('the S1 contract of DELIVERED/DELIVERY_FAILED does not change', () => {
   assert.deepEqual(defaultSettlementPolicy({ outcome: 'DELIVERED' }), {
     countsAsAttempt: true,
     countsAsSuccessfulTouch: true,
@@ -44,7 +44,7 @@ test('สัญญา S1 ของ DELIVERED/DELIVERY_FAILED ไม่เปล�
   });
 });
 
-test('มีแต่ DELIVERED เท่านั้นที่เป็น Touch และมีแต่ DELIVERY_FAILED เท่านั้นที่ refund', () => {
+test('only DELIVERED is a Touch and only DELIVERY_FAILED is a refund', () => {
   const outcomes: TerminalDeliveryOutcome[] = [
     'PROVIDER_ACCEPTED',
     'PROVIDER_REJECTED',
@@ -58,7 +58,7 @@ test('มีแต่ DELIVERED เท่านั้นที่เป็น To
   }
 });
 
-test('mapping ของ LINE เข้ากันได้กับ policy กลาง: acceptance/rejection ให้คำตอบชุดเดียวกัน', () => {
+test('the LINE mapping is compatible with the shared policy: acceptance/rejection give the same answers', () => {
   const pairs = [
     ['LINE_ACCEPTED', undefined],
     ['LINE_ACCEPTED_REPLAY', undefined],

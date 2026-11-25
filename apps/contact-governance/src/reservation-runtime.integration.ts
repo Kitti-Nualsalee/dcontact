@@ -191,7 +191,7 @@ function errorCode(expected: ReservationBindingErrorCode) {
   };
 }
 
-test('claim-renew-begin-confirm-settle persist ครบและ duplicate หลัง restart คืน snapshot เดิม', async (t) => {
+test('claim-renew-begin-confirm-settle persist fully, and a duplicate after restart returns the original snapshot', async (t) => {
   const f = await fixture(t);
   const first = f.service();
   const { claim, renew, begin, confirm, delivered } = commands(f);
@@ -238,7 +238,7 @@ test('claim-renew-begin-confirm-settle persist ครบและ duplicate ห�
   );
 });
 
-test('claim รองรับ E0 row ที่ settlement fields เป็น null และ conflicting duplicate fail closed', async (t) => {
+test('a claim supports an E0 row whose settlement fields are null, and a conflicting duplicate fails closed', async (t) => {
   const f = await fixture(t, true);
   const service = f.service();
   const { claim } = commands(f);
@@ -256,7 +256,7 @@ test('claim รองรับ E0 row ที่ settlement fields เป็น n
   );
 });
 
-test('concurrent claim ของ delivery เดียวให้ reservation เดียวชนะ', async (t) => {
+test('a concurrent claim of a single delivery lets a single reservation win', async (t) => {
   const f = await fixture(t);
   const second = await f.createReservation('second');
   const service = f.service();
@@ -274,7 +274,7 @@ test('concurrent claim ของ delivery เดียวให้ reservation �
     assert.ok(errorCode('RESERVATION_BINDING_CONFLICT')(rejected.reason));
 });
 
-test('race renew/begin และ release/begin ทำ business transition ได้ครั้งเดียว', async (t) => {
+test('a race of renew/begin and release/begin performs the business transition only once', async (t) => {
   const f = await fixture(t);
   const service = f.service();
   const primary = commands(f);
@@ -303,7 +303,7 @@ test('race renew/begin และ release/begin ทำ business transition ได
   assert.equal(releaseBeginRace.filter(({ status }) => status === 'fulfilled').length, 1);
 });
 
-test('barrier คง durable หลัง restart/lease expiry และบังคับ reconcile แทน release', async (t) => {
+test('the barrier stays durable after a restart/lease expiry and forces a reconcile instead of a release', async (t) => {
   const f = await fixture(t);
   const initial = f.service();
   const command = commands(f);
@@ -342,7 +342,7 @@ test('barrier คง durable หลัง restart/lease expiry และบั�
   assert.equal((await restarted.confirmProviderAcceptance(command.confirm)).status, 'ACCEPTED');
 });
 
-test('sweeper ปล่อย claimed lease ที่หมดอายุก่อน submission เพียงครั้งเดียว', async (t) => {
+test('the sweeper releases a claimed lease that expired before submission only once', async (t) => {
   const f = await fixture(t);
   const service = f.service();
   await service.claimReservationForDelivery(commands(f).claim);
@@ -357,7 +357,7 @@ test('sweeper ปล่อย claimed lease ที่หมดอายุก่
   assert.equal(released.settlementStatus, 'SETTLED');
 });
 
-test('release ก่อน submit คืน durable snapshot เดิมหลัง restart', async (t) => {
+test('a release before submit returns the original durable snapshot after a restart', async (t) => {
   const f = await fixture(t);
   const command = commands(f);
   const initial = f.service();
@@ -380,7 +380,7 @@ test('release ก่อน submit คืน durable snapshot เดิมหล�
   );
 });
 
-test('legacy state transition ข้าม delivery binding และ submission barrier ไม่ได้', async (t) => {
+test('a legacy state transition cannot skip the delivery binding and the submission barrier', async (t) => {
   const f = await fixture(t);
   const service = f.service();
   const command = commands(f);
@@ -398,7 +398,7 @@ test('legacy state transition ข้าม delivery binding และ submission
   );
 });
 
-test('pre-barrier และ terminal transition คืน error code ตาม ContactGovernancePort contract', async (t) => {
+test('a pre-barrier and terminal transition return error codes per the ContactGovernancePort contract', async (t) => {
   const f = await fixture(t);
   const service = f.service();
   const command = commands(f);
@@ -437,7 +437,7 @@ test('pre-barrier และ terminal transition คืน error code ตาม C
   );
 });
 
-test('terminal outcome แรกสร้าง fact ครั้งเดียวและ late outcome ไม่ย้อน state', async (t) => {
+test('the first terminal outcome creates a fact once, and a late outcome does not revert state', async (t) => {
   const f = await fixture(t);
   const service = f.service();
   const command = commands(f);
@@ -466,7 +466,7 @@ test('terminal outcome แรกสร้าง fact ครั้งเดีย
   );
 });
 
-test('failed outcome ก่อน acceptance ต้อง reconcile และ refund ใช้ policy ของ Governance', async (t) => {
+test('a failed outcome before acceptance must reconcile, and a refund uses the Governance policy', async (t) => {
   const f = await fixture(t);
   const command = commands(f);
   const defaultService = f.service();
@@ -493,7 +493,7 @@ test('failed outcome ก่อน acceptance ต้อง reconcile และ re
   assert.equal(await f.owner.cgTouch.count({ where: { tenantId: f.tenantId } }), 0);
 });
 
-test('provider rejection หลัง barrier release quota และสร้าง Attempt โดยไม่สร้าง Touch', async (t) => {
+test('a provider rejection after the barrier releases the quota and creates an Attempt without creating a Touch', async (t) => {
   const f = await fixture(t);
   const command = commands(f);
   const service = f.service();
@@ -511,7 +511,7 @@ test('provider rejection หลัง barrier release quota และสร้�
   assert.equal(await f.owner.cgTouch.count({ where: { tenantId: f.tenantId } }), 0);
 });
 
-test('failure ระหว่างสร้าง Attempt rollback settlement แล้ว retry หลัง restart สำเร็จ', async (t) => {
+test('a failure while creating the Attempt rolls back the settlement, then a retry after restart succeeds', async (t) => {
   const f = await fixture(t);
   const command = commands(f);
   const setup = f.service();
@@ -563,7 +563,7 @@ test('failure ระหว่างสร้าง Attempt rollback settlement �
   );
 });
 
-test('cross-tenant reservation swap ไม่เปิดเผย row และไม่เปลี่ยน state', async (t) => {
+test('a cross-tenant reservation swap does not reveal a row and does not change state', async (t) => {
   const tenantA = await fixture(t);
   const tenantB = await fixture(t);
   const service = tenantA.service();
@@ -580,9 +580,9 @@ test('cross-tenant reservation swap ไม่เปิดเผย row และ
   assert.equal(untouched.settlementStatus, 'UNCLAIMED');
 });
 
-// ── S2.2 (#364): provider acceptance และ rejection scope (#361 §B, #362 §8) ───
+// ── S2.2 (#364): provider acceptance and rejection scope (#361 §B, #362 §8) ───
 
-test('acceptance settle เป็น CONFIRMED+SETTLED และเป็น Attempt 1/Touch 0/refund 0', async (t) => {
+test('an acceptance settle is CONFIRMED+SETTLED and is Attempt 1/Touch 0/refund 0', async (t) => {
   const f = await fixture(t);
   const service = f.service();
   const command = commands(f);
@@ -604,7 +604,7 @@ test('acceptance settle เป็น CONFIRMED+SETTLED และเป็น Att
   assert.equal(row.refundedAt, null);
 });
 
-test('acceptance ที่ confirm ไปแล้วยัง settle เป็น PROVIDER_ACCEPTED ได้โดยไม่ย้อน state', async (t) => {
+test('an acceptance that was already confirmed can still settle as PROVIDER_ACCEPTED without reverting state', async (t) => {
   const f = await fixture(t);
   const service = f.service();
   const command = commands(f);
@@ -623,7 +623,7 @@ test('acceptance ที่ confirm ไปแล้วยัง settle เป็�
   assert.equal(await f.owner.cgTouch.count({ where: { tenantId: f.tenantId } }), 0);
 });
 
-test('operational rejection ปล่อยโควต้าโดยไม่สร้าง Attempt ส่วน recipient rejection สร้าง Attempt 1', async (t) => {
+test('an operational rejection releases the quota without creating an Attempt, while a recipient rejection creates Attempt 1', async (t) => {
   const f = await fixture(t);
   const service = f.service();
   const operational = commands(f, f, 'delivery-operational');
@@ -639,7 +639,7 @@ test('operational rejection ปล่อยโควต้าโดยไม่�
   assert.equal(releasedOperational.status, 'SETTLED');
   assert.equal(await f.owner.cgAttempt.count({ where: { tenantId: f.tenantId } }), 0);
   assert.equal(await f.owner.cgTouch.count({ where: { tenantId: f.tenantId } }), 0);
-  // reservation ยัง settle ปกติ: Attempt 0 ไม่ได้แปลว่าเส้นทางค้าง
+  // the reservation still settles normally: Attempt 0 does not mean the path is stuck
   const operationalRow = await f.owner.cgReservation.findUniqueOrThrow({
     where: { id: f.reservationId },
   });
@@ -660,7 +660,7 @@ test('operational rejection ปล่อยโควต้าโดยไม่�
   assert.equal(await f.owner.cgTouch.count({ where: { tenantId: f.tenantId } }), 0);
 });
 
-test('duplicate ของ operational rejection ยังไม่สร้าง Attempt และคืน snapshot เดิม', async (t) => {
+test('a duplicate of an operational rejection still creates no Attempt and returns the original snapshot', async (t) => {
   const f = await fixture(t);
   const service = f.service();
   const command = commands(f);
@@ -682,7 +682,7 @@ test('duplicate ของ operational rejection ยังไม่สร้า�
   assert.equal(await f.owner.cgAttempt.count({ where: { tenantId: f.tenantId } }), 0);
 });
 
-test('policy ที่อ้างว่า acceptance เป็น Touch ถูกปฏิเสธก่อนเขียน fact', async (t) => {
+test('a policy that claims an acceptance is a Touch is rejected before a fact is written', async (t) => {
   const f = await fixture(t);
   const service = f.service({
     settlementPolicy: () => ({
@@ -747,7 +747,7 @@ for (const operation of ['release', 'settle'] as const)
       });
     });
 
-test('Core Team fence: actual settlement cleanup ยังทำได้บน legacy inactive Team โดยไม่เปิดกลับ', async (t) => {
+test('Core Team fence: actual settlement cleanup can still be done on a legacy inactive Team without reactivating it', async (t) => {
   for (const operation of ['release', 'settle'] as const) {
     const f = await fixture(t);
     const teamId = randomUUID();

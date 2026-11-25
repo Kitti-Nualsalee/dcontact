@@ -20,8 +20,8 @@ import { resolveCg4OverrideEligibility } from './cg4-rule-registry.js';
 import { Cg4InvalidLifecycleTransitionError } from './cg4-exception-lifecycle.js';
 
 /**
- * CG4.2 primitive สำหรับเขียน exception revision แบบ append-only เท่านั้น.
- * Approval/effective-state/evaluator เป็น authority ของ CG4.3+ จึงไม่อยู่ใน class นี้.
+ * CG4.2 primitive for writing exception revisions as append-only only.
+ * Approval/effective-state/evaluator are the authority of CG4.3+, so they are not in this class.
  */
 export interface RecordCg4ExceptionInput {
   tenantId: string;
@@ -104,18 +104,18 @@ export class Cg4PolicyBindingError extends Error {
 
 function nonEmpty(value: string, field: string): string {
   const normalized = value.trim();
-  if (!normalized) throw new TypeError(`${field} ต้องเป็น string ที่ไม่ว่าง`);
+  if (!normalized) throw new TypeError(`${field} must be a non-empty string`);
   return normalized;
 }
 
 function instant(value: string, field: string): Date {
   const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) throw new TypeError(`${field} ต้องเป็น ISO-8601 timestamp`);
+  if (Number.isNaN(parsed.getTime())) throw new TypeError(`${field} must be an ISO-8601 timestamp`);
   return parsed;
 }
 
 function sha256(value: string, field: string): string {
-  if (!/^[a-f0-9]{64}$/.test(value)) throw new TypeError(`${field} ต้องเป็น lowercase SHA-256`);
+  if (!/^[a-f0-9]{64}$/.test(value)) throw new TypeError(`${field} must be a lowercase SHA-256`);
   return value;
 }
 
@@ -136,12 +136,14 @@ function json(value: unknown): Prisma.InputJsonValue {
 function policyAllowedRuleCodes(content: unknown): string[] {
   if (!content || typeof content !== 'object' || Array.isArray(content)) {
     throw new Cg4PolicyBindingError(
-      'policy content ต้องเป็น object ที่มี allowedOperationalRuleCodes',
+      'policy content must be an object with allowedOperationalRuleCodes',
     );
   }
   const value = (content as Record<string, unknown>).allowedOperationalRuleCodes;
   if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string' || !entry.trim())) {
-    throw new Cg4PolicyBindingError('policy content ไม่มี allowedOperationalRuleCodes ที่ถูกต้อง');
+    throw new Cg4PolicyBindingError(
+      'policy content does not have a valid allowedOperationalRuleCodes',
+    );
   }
   return value;
 }
@@ -211,32 +213,32 @@ export class Cg4FoundationRepository {
     if (input.ticketRef) nonEmpty(input.ticketRef, 'ticketRef');
     if (input.renewsExceptionId) nonEmpty(input.renewsExceptionId, 'renewsExceptionId');
     if (!CG4_SOURCE_TYPES.has(input.sourceType)) {
-      throw new TypeError('sourceType ไม่อยู่ใน CG4 source registry');
+      throw new TypeError('sourceType is not in the CG4 source registry');
     }
     if (
       (input.scopeKind === 'IDENTITY' && !input.identityId) ||
       (input.scopeKind === 'CONTACT_WIDE' && input.identityId)
     ) {
       throw new TypeError(
-        'scopeKind และ identityId ต้องผูกกันแบบ exact identity หรือ contact-wide',
+        'scopeKind and identityId must be bound together as an exact identity or contact-wide',
       );
     }
     if (!Number.isInteger(input.policyVersion) || input.policyVersion < 1) {
-      throw new RangeError('policyVersion ต้องเป็น positive integer');
+      throw new RangeError('policyVersion must be a positive integer');
     }
     if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 0) {
-      throw new RangeError('expectedVersion ต้องเป็น integer ตั้งแต่ 0');
+      throw new RangeError('expectedVersion must be an integer >= 0');
     }
     sha256(input.policyContentDigest, 'policyContentDigest');
     const occurredAt = instant(input.occurredAt, 'occurredAt');
     const startsAt = instant(input.startsAt, 'startsAt');
     const expiresAt = instant(input.expiresAt, 'expiresAt');
-    if (expiresAt <= startsAt) throw new RangeError('expiresAt ต้องอยู่หลัง startsAt');
+    if (expiresAt <= startsAt) throw new RangeError('expiresAt must be after startsAt');
     const allowedRuleCodes = [
       ...new Set(input.allowedRuleCodes.map((code) => nonEmpty(code, 'allowedRuleCodes'))),
     ].sort();
     if (allowedRuleCodes.length === 0)
-      throw new RangeError('allowedRuleCodes ต้องมีอย่างน้อยหนึ่ง rule');
+      throw new RangeError('allowedRuleCodes must have at least one rule');
 
     const requestHash = stableDigest({
       tenantId: input.tenantId,
@@ -302,10 +304,10 @@ export class Cg4FoundationRepository {
         where: { tenantId: input.tenantId, policyId: input.policyId, version: input.policyVersion },
         select: { content: true, contentDigest: true, registryVersion: true, status: true },
       });
-      if (!policy) throw new Cg4PolicyBindingError('ไม่พบ policy version ใน active tenant');
+      if (!policy) throw new Cg4PolicyBindingError('policy version not found in the active tenant');
       if (!['PUBLISHED', 'SCHEDULED', 'ACTIVE'].includes(policy.status)) {
         throw new Cg4PolicyBindingError(
-          'exception ต้อง pin กับ policy ที่ published, scheduled หรือ active',
+          'an exception must be pinned to a policy that is published, scheduled or active',
         );
       }
       if (
@@ -313,7 +315,7 @@ export class Cg4FoundationRepository {
         policy.registryVersion !== input.registryVersion
       ) {
         throw new Cg4PolicyBindingError(
-          'policy digest หรือ registry version ไม่ตรงกับ pinned policy',
+          'the policy digest or registry version does not match the pinned policy',
         );
       }
       const policyRules = policyAllowedRuleCodes(policy.content);
@@ -331,7 +333,7 @@ export class Cg4FoundationRepository {
         });
         if (!eligibility.eligible) {
           throw new Cg4PolicyBindingError(
-            `rule ${ruleCode} ใช้ exception ไม่ได้: ${eligibility.reason}`,
+            `rule ${ruleCode} cannot use an exception: ${eligibility.reason}`,
           );
         }
       }
@@ -468,8 +470,8 @@ export class Cg4FoundationRepository {
         });
       }
 
-      // CG4.8 (#191): event ใช้ version ของ contact stream ร่วมกับ CG3 ส่วน aggregateVersion
-      // ด้านบนยังเป็น CAS ของ exception command ตามเดิม
+      // CG4.8 (#191): the event uses the contact stream version shared with CG3, while the aggregateVersion
+      // above remains the CAS of the exception command as before
       const streamVersion = await nextContactStreamVersion(transaction, {
         tenantId: input.tenantId,
         contactId: input.contactId,

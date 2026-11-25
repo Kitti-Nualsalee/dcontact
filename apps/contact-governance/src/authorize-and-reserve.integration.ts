@@ -26,7 +26,7 @@ async function createTenantFixture(t: TestContext) {
 
   t.after(async () => {
     await owner.cgReservationCommandReceipt.deleteMany({ where: { tenantId } });
-    // cg_reservations.authorization_decision_id -> cg_decision_logs.id ต้อง null ก่อนลบ decision log
+    // cg_reservations.authorization_decision_id -> cg_decision_logs.id must be null before the decision log is deleted
     await owner.cgReservation.updateMany({
       where: { tenantId },
       data: { authorizationDecisionId: null },
@@ -57,7 +57,7 @@ async function createTenantFixture(t: TestContext) {
   return { owner, application, tenantId, contactId };
 }
 
-test('authorizeAndReserve คืน decision และ reservation เดิมแบบ atomic เมื่อ retry', async (t) => {
+test('authorizeAndReserve returns the original decision and reservation atomically on retry', async (t) => {
   const { owner, application, tenantId, contactId } = await createTenantFixture(t);
   const decisionId = randomUUID();
   const reservationId = randomUUID();
@@ -116,7 +116,7 @@ test('authorizeAndReserve คืน decision และ reservation เดิม�
   );
 });
 
-test('hard restriction เขียน decision ที่อธิบายได้โดยไม่สร้าง reservation', async (t) => {
+test('a hard restriction writes an explainable decision without creating a reservation', async (t) => {
   const { owner, application, tenantId, contactId } = await createTenantFixture(t);
   const decisionId = randomUUID();
   const now = new Date('2026-09-07T07:00:00.000Z');
@@ -169,7 +169,7 @@ test('hard restriction เขียน decision ที่อธิบายไ�
   assert.equal(await owner.cgReservation.count({ where: { tenantId } }), 0);
 });
 
-test('consent ที่ถูกเพิกถอนปิดกั้น reservation ที่ canonical database boundary', async (t) => {
+test('a revoked consent blocks a reservation at the canonical database boundary', async (t) => {
   const { owner, application, tenantId, contactId } = await createTenantFixture(t);
   const decisionId = randomUUID();
 
@@ -208,7 +208,7 @@ test('consent ที่ถูกเพิกถอนปิดกั้น reser
   assert.equal(await owner.cgReservation.count({ where: { tenantId } }), 0);
 });
 
-test('reservation transition ที่ persist แล้วเป็น idempotent และย้อน state ไม่ได้', async (t) => {
+test('a persisted reservation transition is idempotent and cannot go back in state', async (t) => {
   const { owner, application, tenantId, contactId } = await createTenantFixture(t);
   const now = new Date('2026-09-07T08:00:00.000Z');
 
@@ -269,7 +269,7 @@ test('reservation transition ที่ persist แล้วเป็น idempote
   assert.equal(await owner.cgReservation.count({ where: { tenantId, state: 'REFUNDED' } }), 1);
 });
 
-test('delivery validation เป็น fail-closed หลังหมดอายุและ sweeper คืน quota ครั้งเดียว', async (t) => {
+test('delivery validation is fail-closed after expiry and the sweeper returns the quota once', async (t) => {
   const { owner, application, tenantId, contactId } = await createTenantFixture(t);
   await owner.cgConsent.create({
     data: {

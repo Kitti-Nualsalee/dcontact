@@ -39,7 +39,7 @@ function cache(now: Date = NOW, headTtlSeconds = 30) {
   return { redis, cache: new Cg4Cache(redis, { headTtlSeconds, now: () => now }) };
 }
 
-test('key scheme ตรงกับ #179 §5 และ immutable key ผูก version+digest', () => {
+test('the key scheme matches #179 §5 and an immutable key binds version+digest', () => {
   const { cache: subject } = cache();
   assert.equal(subject.policySnapshotKey('t', 'p', 3, DIGEST), `cg:policy:t:p:3:${DIGEST}`);
   assert.equal(subject.policyHeadKey('t', 'p'), 'cg:policy:t:p:head');
@@ -48,17 +48,17 @@ test('key scheme ตรงกับ #179 §5 และ immutable key ผูก v
   assert.equal(subject.contactSnapshotKey('t', 'c', 9), 'cg:contact:t:c:9');
 });
 
-test('authorization projection ผูก epoch และ scope version ไว้ใน key', () => {
+test('the authorization projection binds the epoch and scope version in the key', () => {
   const { cache: subject } = cache();
   assert.equal(subject.authorizationKey('t', 'sub', 4, 2), 'cg:authz:t:sub:4:2');
-  // epoch ที่ขยับทำให้ entry เดิมเข้าไม่ถึงอีก แทนที่จะแค่เก่า
+  // an epoch that moves makes the old entry unreachable instead of merely stale
   assert.notEqual(
     subject.authorizationKey('t', 'sub', 4, 2),
     subject.authorizationKey('t', 'sub', 5, 2),
   );
 });
 
-test('validUntil ถูกตัดด้วย TTL หรือ nextActivationAt แล้วแต่อันไหนมาก่อน', () => {
+test('validUntil is cut by the TTL or nextActivationAt, whichever comes first', () => {
   assert.equal(
     cg4HeadValidUntil({ now: NOW, ttlSeconds: 30 }).toISOString(),
     '2026-01-05T12:00:30.000Z',
@@ -81,7 +81,7 @@ test('validUntil ถูกตัดด้วย TTL หรือ nextActivationA
   );
 });
 
-test('head ที่ถึง validUntil พอดีถือว่าหมดอายุแล้ว', () => {
+test('a head that reaches validUntil exactly counts as expired', () => {
   const entry = { version: 3, digest: DIGEST, validUntil: '2026-01-05T12:00:30.000Z' };
   assert.equal(resolveCg4CachedHead(entry, new Date('2026-01-05T12:00:29.999Z')).usable, true);
   const atBoundary = resolveCg4CachedHead(entry, new Date('2026-01-05T12:00:30.000Z'));
@@ -91,7 +91,7 @@ test('head ที่ถึง validUntil พอดีถือว่าหมด
   assert.equal(resolveCg4CachedHead(undefined, NOW).usable, false);
 });
 
-test('setHead เขียน TTL ของ Redis ให้ไม่เกิน validUntil ที่ประกาศไว้', async () => {
+test('setHead writes a Redis TTL that does not exceed the declared validUntil', async () => {
   const { redis, cache: subject } = cache();
   const key = subject.policyHeadKey('t', 'p');
   await subject.setHead(key, {
@@ -104,7 +104,7 @@ test('setHead เขียน TTL ของ Redis ให้ไม่เกิน
   assert.equal(entry.validUntil, '2026-01-05T12:00:05.000Z');
 });
 
-test('head ที่หมดอายุอ่านไม่ได้แม้ยังอยู่ใน store', async () => {
+test('an expired head cannot be read even if it is still in the store', async () => {
   const redis = new FakeRedis();
   let clock = NOW;
   const subject = new Cg4Cache(redis, { headTtlSeconds: 30, now: () => clock });
@@ -120,7 +120,7 @@ test('head ที่หมดอายุอ่านไม่ได้แม้
   assert.equal(subject.snapshotStats().expired, 1);
 });
 
-test('Redis ที่ล่มไม่ throw แต่บอก caller ว่าอ่านไม่ได้เพื่อให้ไป canonical', async () => {
+test('a Redis outage does not throw but tells the caller it cannot read, so it goes to the canonical data', async () => {
   const { redis, cache: subject } = cache();
   const key = subject.policyHeadKey('t', 'p');
   await subject.setHead(key, { version: 3, digest: DIGEST });
@@ -134,13 +134,13 @@ test('Redis ที่ล่มไม่ throw แต่บอก caller ว่�
     await subject.getSnapshot(subject.policySnapshotKey('t', 'p', 3, DIGEST)),
     undefined,
   );
-  // เขียนและ invalidate ก็ไม่ throw — ทำให้ path ปกติเดินต่อได้ด้วย canonical read
+  // writing and invalidating do not throw either: so the normal path continues with a canonical read
   await subject.setSnapshot('cg:policy:t:p:3:' + DIGEST, { any: 'thing' });
   await subject.invalidatePolicyHead('t', 'p');
   assert.ok(subject.snapshotStats().unavailable >= 4);
 });
 
-test('invalidate ลบเฉพาะ mutable head ไม่แตะ immutable snapshot', async () => {
+test('invalidate deletes only the mutable head and does not touch the immutable snapshot', async () => {
   const { redis, cache: subject } = cache();
   const snapshotKey = subject.policySnapshotKey('t', 'p', 3, DIGEST);
   await subject.setSnapshot(snapshotKey, { version: 3 });
@@ -154,7 +154,7 @@ test('invalidate ลบเฉพาะ mutable head ไม่แตะ immutable
   assert.deepEqual(await subject.getSnapshot(snapshotKey), { version: 3 });
 });
 
-test('snapshot ที่พังอ่านเป็น miss แทนที่จะ throw', async () => {
+test('a corrupt snapshot reads as a miss instead of throwing', async () => {
   const { redis, cache: subject } = cache();
   redis.store.set('cg:policy:t:p:3:' + DIGEST, { value: '{not json', ttlSeconds: 60 });
   assert.equal(await subject.getSnapshot('cg:policy:t:p:3:' + DIGEST), undefined);

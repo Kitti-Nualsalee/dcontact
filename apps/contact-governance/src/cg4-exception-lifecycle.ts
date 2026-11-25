@@ -49,7 +49,7 @@ export class Cg4InvalidLifecycleTransitionError extends Error {
     readonly from: Cg4ExceptionStatus,
     readonly to: Cg4ExceptionStatus,
   ) {
-    super(`เปลี่ยนสถานะ exception จาก ${from} ไป ${to} ไม่ได้`);
+    super(`cannot change the exception status from ${from} to ${to}`);
     this.name = 'Cg4InvalidLifecycleTransitionError';
   }
 }
@@ -58,7 +58,9 @@ export class Cg4ExceptionScopeConflictError extends Error {
   readonly code = 'EXCEPTION_SCOPE_CONFLICT';
 
   constructor(readonly conflictingExceptionId: string) {
-    super(`scope และช่วงเวลาทับกับ exception ${conflictingExceptionId} ที่ยัง active/scheduled`);
+    super(
+      `scope and time range overlap with exception ${conflictingExceptionId}, which is still active/scheduled`,
+    );
     this.name = 'Cg4ExceptionScopeConflictError';
   }
 }
@@ -171,7 +173,7 @@ export interface Cg4ExceptionLifecycleRepositoryOptions {
 
 function nonEmpty(value: string, field: string): string {
   const normalized = value.trim();
-  if (!normalized) throw new TypeError(`${field} ต้องเป็น string ที่ไม่ว่าง`);
+  if (!normalized) throw new TypeError(`${field} must be a non-empty string`);
   return normalized;
 }
 
@@ -200,7 +202,7 @@ export class Cg4ExceptionLifecycleRepository {
     nonEmpty(input.idempotencyKey, 'idempotencyKey');
     const occurredAt = new Date(input.occurredAt);
     if (Number.isNaN(occurredAt.getTime())) {
-      throw new TypeError('occurredAt ต้องเป็น ISO-8601 timestamp');
+      throw new TypeError('occurredAt must be an ISO-8601 timestamp');
     }
 
     const requestHash = stableDigest({
@@ -397,7 +399,7 @@ export class Cg4ExceptionLifecycleRepository {
             })
           : 'INACTIVE';
 
-      // CG4.8 (#191): event ใช้ version ของ contact stream ร่วมกับ CG3 (#179 §4)
+      // CG4.8 (#191): the event uses the contact stream version shared with CG3 (#179 §4)
       const streamVersion = await nextContactStreamVersion(transaction, {
         tenantId: input.tenantId,
         contactId: revision.contactId,

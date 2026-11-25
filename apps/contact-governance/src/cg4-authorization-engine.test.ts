@@ -71,7 +71,7 @@ function approval(overrides: Partial<Cg4RecordedApproval> = {}): Cg4RecordedAppr
   };
 }
 
-test('quorum requirement: STANDARD=1, HIGH=2 กับ direct Compliance อย่างน้อยหนึ่ง, EMERGENCY ต้องมี emergency authority และ ack window 15 นาที', () => {
+test('quorum requirement: STANDARD=1, HIGH=2 with at least one direct Compliance, EMERGENCY needs emergency authority and a 15-minute ack window', () => {
   assert.deepEqual(resolveCg4ExceptionQuorum('STANDARD'), {
     requiredApprovers: 1,
     requireDirectCompliance: 0,
@@ -90,7 +90,7 @@ test('quorum requirement: STANDARD=1, HIGH=2 กับ direct Compliance อย�
   });
 });
 
-test('policy quorum: tightening/neutral ใช้ independent Compliance 1 คน, relaxation ต้อง 2 คนพร้อม direct Compliance', () => {
+test('policy quorum: tightening/neutral uses 1 independent Compliance, relaxation needs 2 people including a direct Compliance', () => {
   assert.deepEqual(resolveCg4PolicyQuorum('TIGHTENING'), {
     requiredApprovers: 1,
     requireDirectCompliance: 1,
@@ -108,7 +108,7 @@ test('policy quorum: tightening/neutral ใช้ independent Compliance 1 ค�
   });
 });
 
-test('required capability: STANDARD/HIGH exception และ tightening-neutral/relaxation policy map ไป capability คนละตัว', () => {
+test('required capability: STANDARD/HIGH exception and tightening-neutral/relaxation policy map to different capabilities', () => {
   assert.equal(resolveCg4RequiredExceptionCapability('STANDARD'), 'cg.exception.approve.standard');
   assert.equal(resolveCg4RequiredExceptionCapability('HIGH'), 'cg.exception.approve.high');
   assert.equal(resolveCg4RequiredExceptionCapability('EMERGENCY'), 'cg.exception.approve.high');
@@ -117,7 +117,7 @@ test('required capability: STANDARD/HIGH exception และ tightening-neutral/
   assert.equal(resolveCg4RequiredPolicyCapability('RELAXATION'), 'cg.policy.publish.relaxation');
 });
 
-test('assertCg4RequestAuthorization: capability ที่ไม่มีหรือหมดอายุถูกปฏิเสธ, delegated capability นอกชุด request/approve.standard ถูกปฏิเสธ', () => {
+test('assertCg4RequestAuthorization: a missing or expired capability is rejected, a delegated capability outside the request/approve.standard set is rejected', () => {
   assert.throws(
     () =>
       assertCg4RequestAuthorization({
@@ -173,7 +173,7 @@ test('assertCg4RequestAuthorization: capability ที่ไม่มีหร�
   );
 });
 
-test('assertCg4ApprovalAuthorization: self-approval ด้วย stable subject id เดียวกันถูกปฏิเสธเสมอ แม้ actorRef string ต่างกัน', () => {
+test('assertCg4ApprovalAuthorization: self-approval with the same stable subject id is always rejected, even with a different actorRef string', () => {
   const checker = grantSubject('cg.exception.approve.standard', {
     subjectId: cg4SubjectId('maker-1'),
   });
@@ -191,7 +191,7 @@ test('assertCg4ApprovalAuthorization: self-approval ด้วย stable subject 
   );
 });
 
-test('assertCg4ApprovalAuthorization: checker เดิม approve ซ้ำถูกปฏิเสธ (unique checker ต่อ quorum)', () => {
+test('assertCg4ApprovalAuthorization: the same checker approving again is rejected (unique checker per quorum)', () => {
   const checker = grantSubject('cg.exception.approve.standard', {
     subjectId: cg4SubjectId('checker-1'),
   });
@@ -209,7 +209,7 @@ test('assertCg4ApprovalAuthorization: checker เดิม approve ซ้ำถ�
   );
 });
 
-test('assertCg4ApprovalAuthorization: checker ที่ไม่มี capability ตาม tier ถูกปฏิเสธแบบ fail-closed', () => {
+test('assertCg4ApprovalAuthorization: a checker without the capability for the tier is rejected fail-closed', () => {
   const checker = subject({ subjectId: cg4SubjectId('checker-1') });
   assert.throws(
     () =>
@@ -225,7 +225,7 @@ test('assertCg4ApprovalAuthorization: checker ที่ไม่มี capabilit
   );
 });
 
-test('assertCg4ApprovalFresh: epoch หรือ scope version เปลี่ยนหลัง approval ถูกบันทึกทำให้ approval เดิม stale', () => {
+test('assertCg4ApprovalFresh: an epoch or scope version that changed after the approval was recorded makes the original approval stale', () => {
   const recorded = approval({ authorizationEpoch: 1, scopeVersion: 1 });
   assert.doesNotThrow(() =>
     assertCg4ApprovalFresh(recorded, subject({ authorizationEpoch: 1, scopeVersion: 1 })),
@@ -240,7 +240,7 @@ test('assertCg4ApprovalFresh: epoch หรือ scope version เปลี่�
   );
 });
 
-test('evaluateCg4Quorum: STANDARD ต้องการ checker อิสระ 1 คน', () => {
+test('evaluateCg4Quorum: STANDARD needs 1 independent checker', () => {
   const requirement = resolveCg4ExceptionQuorum('STANDARD');
   assert.equal(evaluateCg4Quorum(requirement, [], false, NOW).status, 'PENDING');
   const met = evaluateCg4Quorum(requirement, [approval()], false, NOW);
@@ -248,7 +248,7 @@ test('evaluateCg4Quorum: STANDARD ต้องการ checker อิสระ 
   assert.equal(met.current, 1);
 });
 
-test('evaluateCg4Quorum: HIGH ต้องการ 2 คนที่ต่างกันและอย่างน้อยหนึ่งคนถือ direct Compliance', () => {
+test('evaluateCg4Quorum: HIGH needs 2 different people and at least one holds direct Compliance', () => {
   const requirement = resolveCg4ExceptionQuorum('HIGH');
   const twoNonCompliance = [
     approval({ checkerSubjectId: cg4SubjectId('c1'), capability: 'cg.exception.approve.high' }),
@@ -282,12 +282,12 @@ test('evaluateCg4Quorum: HIGH ต้องการ 2 คนที่ต่า�
   assert.equal(evaluateCg4Quorum(requirement, sameCheckerTwice, false, NOW).status, 'PENDING');
 });
 
-test('evaluateCg4Quorum: reject เดียวเป็น terminal ไม่ว่าจะมี approve มาก่อนกี่คน', () => {
+test('evaluateCg4Quorum: a single reject is terminal no matter how many approvals came before', () => {
   const requirement = resolveCg4ExceptionQuorum('STANDARD');
   assert.equal(evaluateCg4Quorum(requirement, [approval()], true, NOW).status, 'REJECTED');
 });
 
-test('evaluateCg4Quorum: EMERGENCY activate ได้ด้วย emergency authority คนเดียวก่อน แต่ MET เฉพาะเมื่อมี second independent direct-Compliance ack ภายใน 15 นาที', () => {
+test('evaluateCg4Quorum: EMERGENCY can be activated by a single emergency authority first, but is MET only when a second independent direct-Compliance ack arrives within 15 minutes', () => {
   const requirement = resolveCg4ExceptionQuorum('EMERGENCY');
   const activationOnly = [
     approval({
@@ -340,7 +340,7 @@ function delegationInput(
   };
 }
 
-test('assertCg4DelegationGrantAllowed: อนุญาตเฉพาะ cg.exception.request/approve.standard, ปฏิเสธ HIGH/policy capability', () => {
+test('assertCg4DelegationGrantAllowed: allows only cg.exception.request/approve.standard, rejects HIGH/policy capabilities', () => {
   assert.doesNotThrow(() => assertCg4DelegationGrantAllowed(delegationInput()));
   assert.doesNotThrow(() =>
     assertCg4DelegationGrantAllowed(
@@ -358,7 +358,7 @@ test('assertCg4DelegationGrantAllowed: อนุญาตเฉพาะ cg.exce
   );
 });
 
-test('assertCg4DelegationGrantAllowed: ปฏิเสธ self-delegation, sub-delegation (recursive), service/shared delegate และ window เกิน 8 ชั่วโมง', () => {
+test('assertCg4DelegationGrantAllowed: rejects self-delegation, sub-delegation (recursive), a service/shared delegate and a window over 8 hours', () => {
   assert.throws(
     () =>
       assertCg4DelegationGrantAllowed(
@@ -384,7 +384,7 @@ test('assertCg4DelegationGrantAllowed: ปฏิเสธ self-delegation, sub-d
   );
 });
 
-test('assertCg4QuorumMet: ปฏิเสธ finalize เมื่อ quorum ยังไม่ครบ (insufficient quorum fail closed)', () => {
+test('assertCg4QuorumMet: rejects finalize when the quorum is not met (insufficient quorum fails closed)', () => {
   const pending = evaluateCg4Quorum(resolveCg4ExceptionQuorum('STANDARD'), [], false, NOW);
   assert.throws(() => assertCg4QuorumMet(pending), Cg4QuorumNotMetError);
   const met = evaluateCg4Quorum(resolveCg4ExceptionQuorum('STANDARD'), [approval()], false, NOW);

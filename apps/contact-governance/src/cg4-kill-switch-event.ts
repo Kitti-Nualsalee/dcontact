@@ -10,11 +10,11 @@ import { stableDigest } from './cg3-persistence.js';
 import { cg4EventScopeDimensions } from './cg4-policy-compiler.js';
 
 /**
- * Canonical `governance.kill-switch.changed` event ของ kill switch หนึ่งตัว ใช้ร่วมกันระหว่าง
- * คำสั่งของ operator (CG4.5) และ backfill ของ CG4.10 เพื่อให้ consumer ได้ event รูปเดียวกันเสมอ
+ * Canonical `governance.kill-switch.changed` event of a single kill switch, shared between
+ * the operator command (CG4.5) and the CG4.10 backfill so a consumer always gets an event of the same shape
  *
- * kill switch หนึ่งตัวมี lifecycle บน aggregate ของตัวเอง ACTIVE(1) → CLEARED(2) (#228): version
- * คงที่จะทำให้ CLEAR ถูกทุก consumer quarantine เป็น hash conflict
+ * A kill switch has its own lifecycle on its own aggregate, ACTIVE(1) -> CLEARED(2) (#228): a fixed
+ * version would make every consumer quarantine the CLEAR as a hash conflict
  */
 export interface Cg4KillSwitchEventInput {
   tenantId: string;

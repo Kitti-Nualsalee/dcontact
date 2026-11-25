@@ -1,11 +1,11 @@
 /**
- * S2.2 (#364): provider-accepted Attempt และ correlated Touch บน Postgres จริง
+ * S2.2 (#364): a provider-accepted Attempt and a correlated Touch on a real Postgres
  *
- * Authority: outcome decision #361, delivery settlement #57 และ Phase Contract #362 §8
- * ครอบ acceptance check `S2-LINE-F04` (matrix reservation/Attempt/Touch/refund) กับ
- * `S2-LINE-ID01` (dedupe/conflict ของ response Touch) รวม duplicate/race/out-of-order/cross-tenant
+ * Authority: outcome decision #361, delivery settlement #57 and Phase Contract #362 §8
+ * covers the acceptance check `S2-LINE-F04` (reservation/Attempt/Touch/refund matrix) with
+ * `S2-LINE-ID01` (dedupe/conflict of a response Touch) including duplicate/race/out-of-order/cross-tenant
  *
- * ทุก write เดินผ่าน `ContactGovernanceService` ด้วย role `dcontact_app` — ไม่มี owner อื่นเขียน cg_*
+ * every write goes through `ContactGovernanceService` with the role `dcontact_app`: no other owner writes cg_*
  */
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -121,7 +121,7 @@ async function fixture(t: TestContext) {
 type Fixture = Awaited<ReturnType<typeof fixture>>;
 type Binding = Awaited<ReturnType<Fixture['reservation']>>;
 
-/** เดินเส้นทางจริงจนถึง acceptance: claim → barrier → settle(PROVIDER_ACCEPTED) */
+/** walk the real path up to acceptance: claim -> barrier -> settle(PROVIDER_ACCEPTED) */
 async function accept(f: Fixture, binding: Binding) {
   const base = {
     tenantId: f.tenantId,
@@ -193,7 +193,7 @@ async function counts(f: Fixture) {
   return { attempts, touches };
 }
 
-test('acceptance settle เป็น CONFIRMED+SETTLED พร้อม Attempt 1, Touch 0, refund 0', async (t) => {
+test('an acceptance settle is CONFIRMED+SETTLED with Attempt 1, Touch 0, refund 0', async (t) => {
   const f = await fixture(t);
   const binding = await f.reservation('accepted');
   const { settled } = await accept(f, binding);
@@ -212,11 +212,11 @@ test('acceptance settle เป็น CONFIRMED+SETTLED พร้อม Attempt 1
 
   const attempt = await f.owner.cgAttempt.findFirstOrThrow({ where: { tenantId: f.tenantId } });
   assert.equal(attempt.outcome, 'PROVIDER_ACCEPTED');
-  // acceptance ไม่ใช่ delivery และไม่ใช่ read จึงไม่มี evidence ติดมากับ Attempt
+  // an acceptance is not delivery and not a read, so no evidence comes attached to the Attempt
   assert.equal(attempt.deliveryId, binding.deliveryId);
 });
 
-test('quoted response และ signed postback append Touch ให้ accepted Attempt เดิมโดยไม่แตะ reservation', async (t) => {
+test('a quoted response and a signed postback append a Touch to the original accepted Attempt without touching the reservation', async (t) => {
   const f = await fixture(t);
   for (const evidenceKind of ['USER_QUOTED_RESPONSE', 'SIGNED_POSTBACK'] as const) {
     f.setNow('2026-09-23T09:00:00.000Z');
@@ -226,7 +226,7 @@ test('quoted response และ signed postback append Touch ให้ accepted 
       where: { id: binding.reservationId },
     });
 
-    // เวลาที่ correlate ช้ากว่า settle มาก — Touch ใช้ provider timestamp ไม่ใช่เวลาที่รับ
+    // the correlate time is much later than the settle: the Touch uses the provider timestamp, not the receive time
     f.setNow('2026-09-23T11:00:00.000Z');
     const view = await f.service.recordCorrelatedTouch(
       touchInput(f, binding, attemptId, { evidenceKind }),
@@ -255,7 +255,7 @@ test('quoted response และ signed postback append Touch ให้ accepted 
   }
 });
 
-test('duplicate และ race ของ evidence ref เดิมคืน snapshot เดิมและสร้าง Touch ใบเดียว', async (t) => {
+test('a duplicate and a race of the same evidence ref return the original snapshot and create a single Touch', async (t) => {
   const f = await fixture(t);
   const binding = await f.reservation('duplicate');
   const { attemptId } = await accept(f, binding);
@@ -271,7 +271,7 @@ test('duplicate และ race ของ evidence ref เดิมคืน snap
   assert.deepEqual(await counts(f), { attempts: 1, touches: 1 });
 });
 
-test('evidence คนละใบบน Attempt เดิม และ evidence เดิมบน Attempt อื่น เป็น conflict ที่ไม่สร้างแถว', async (t) => {
+test('different evidence on the original Attempt, and the original evidence on another Attempt, are conflicts that create no row', async (t) => {
   const f = await fixture(t);
   const first = await f.reservation('conflict-first');
   const second = await f.reservation('conflict-second');
@@ -279,7 +279,7 @@ test('evidence คนละใบบน Attempt เดิม และ evidence 
   const other = await accept(f, second);
   await f.service.recordCorrelatedTouch(touchInput(f, first, accepted.attemptId));
 
-  // Attempt เดิม + evidence ใบใหม่ = Touch ซ้ำ (unique (tenant_id, attempt_id))
+  // the original Attempt + a new evidence = a duplicate Touch (unique (tenant_id, attempt_id))
   await assert.rejects(
     () =>
       f.service.recordCorrelatedTouch(
@@ -289,7 +289,7 @@ test('evidence คนละใบบน Attempt เดิม และ evidence 
       ),
     touchError('TOUCH_EVIDENCE_CONFLICT'),
   );
-  // evidence ใบเดิม + Attempt อื่น = webhook ใบเดียวนับสอง Touch ไม่ได้
+  // the original evidence + another Attempt = a single webhook cannot count as two Touches
   await assert.rejects(
     () =>
       f.service.recordCorrelatedTouch(
@@ -299,7 +299,7 @@ test('evidence คนละใบบน Attempt เดิม และ evidence 
       ),
     touchError('TOUCH_EVIDENCE_CONFLICT'),
   );
-  // evidence เดิม/kind ต่าง = payload ไม่ตรง ต้องไม่เงียบ
+  // the original evidence/different kind = the payload does not match and must not be silent
   await assert.rejects(
     () =>
       f.service.recordCorrelatedTouch(
@@ -310,7 +310,7 @@ test('evidence คนละใบบน Attempt เดิม และ evidence 
   assert.deepEqual(await counts(f), { attempts: 2, touches: 1 });
 });
 
-test('race ของ evidence สองใบบน Attempt เดียวกันให้ผู้ชนะรายเดียวและ Touch ใบเดียว', async (t) => {
+test('a race of two evidences on the same Attempt gives a single winner and a single Touch', async (t) => {
   const f = await fixture(t);
   const binding = await f.reservation('race');
   const { attemptId } = await accept(f, binding);
@@ -331,7 +331,7 @@ test('race ของ evidence สองใบบน Attempt เดียวก�
   assert.deepEqual(await counts(f), { attempts: 1, touches: 1 });
 });
 
-test('response ที่มาก่อน acceptance เป็น ATTEMPT_NOT_FOUND แล้ว replay หลัง acceptance สำเร็จ', async (t) => {
+test('a response that arrives before the acceptance is ATTEMPT_NOT_FOUND, then a replay succeeds after the acceptance', async (t) => {
   const f = await fixture(t);
   const binding = await f.reservation('out-of-order');
   const unknownAttemptId = randomUUID();
@@ -340,7 +340,7 @@ test('response ที่มาก่อน acceptance เป็น ATTEMPT_NOT_F
     () => f.service.recordCorrelatedTouch(touchInput(f, binding, unknownAttemptId)),
     touchError('ATTEMPT_NOT_FOUND'),
   );
-  // id ที่ไม่ใช่ UUID ต้องเป็นคำตอบเดียวกัน ไม่ใช่ error ของ driver
+  // a non-UUID id must give the same answer, not a driver error
   await assert.rejects(
     () => f.service.recordCorrelatedTouch(touchInput(f, binding, 'not-a-uuid')),
     touchError('ATTEMPT_NOT_FOUND'),
@@ -353,7 +353,7 @@ test('response ที่มาก่อน acceptance เป็น ATTEMPT_NOT_F
   assert.deepEqual(await counts(f), { attempts: 1, touches: 1 });
 });
 
-test('unquoted/time-only/ambiguous evidence kind ไม่สร้าง Touch', async (t) => {
+test('an unquoted/time-only/ambiguous evidence kind creates no Touch', async (t) => {
   const f = await fixture(t);
   const binding = await f.reservation('no-evidence');
   const { attemptId } = await accept(f, binding);
@@ -378,7 +378,7 @@ test('unquoted/time-only/ambiguous evidence kind ไม่สร้าง Touch'
   assert.deepEqual(await counts(f), { attempts: 1, touches: 0 });
 });
 
-test('binding ที่ไม่ตรงกับ Attempt ถูกปฏิเสธก่อนเขียน', async (t) => {
+test('a binding that does not match the Attempt is rejected before writing', async (t) => {
   const f = await fixture(t);
   const binding = await f.reservation('binding');
   const decoy = await f.reservation('binding-decoy');
@@ -397,7 +397,7 @@ test('binding ที่ไม่ตรงกับ Attempt ถูกปฏิเ
   assert.deepEqual(await counts(f), { attempts: 1, touches: 0 });
 });
 
-test('Attempt ที่ไม่ใช่ PROVIDER_ACCEPTED รับ Touch ไม่ได้', async (t) => {
+test('an Attempt that is not PROVIDER_ACCEPTED cannot take a Touch', async (t) => {
   const f = await fixture(t);
   const binding = await f.reservation('rejected-attempt');
   const base = {
@@ -438,7 +438,7 @@ test('Attempt ที่ไม่ใช่ PROVIDER_ACCEPTED รับ Touch ไ�
   assert.deepEqual(await counts(f), { attempts: 1, touches: 0 });
 });
 
-test('cross-tenant attempt/evidence ถูกซ่อนเป็น ATTEMPT_NOT_FOUND และไม่รั่วข้าม tenant', async (t) => {
+test('a cross-tenant attempt/evidence is hidden as ATTEMPT_NOT_FOUND and does not leak across tenants', async (t) => {
   const tenantA = await fixture(t);
   const tenantB = await fixture(t);
   const bindingA = await tenantA.reservation('cross-a');
@@ -452,7 +452,7 @@ test('cross-tenant attempt/evidence ถูกซ่อนเป็น ATTEMPT_NO
   );
   assert.deepEqual(await counts(tenantA), { attempts: 1, touches: 0 });
 
-  // evidence ref ตัวเดียวกันใช้ได้พร้อมกันคนละ tenant — unique เป็นแบบ per-tenant
+  // the same evidence ref can be used at the same time in different tenants: the unique is per-tenant
   const sharedRef = outcomeRef(`evidence-shared-${randomUUID().slice(0, 8)}`);
   await Promise.all([
     tenantA.service.recordCorrelatedTouch(
@@ -466,13 +466,13 @@ test('cross-tenant attempt/evidence ถูกซ่อนเป็น ATTEMPT_NO
   assert.deepEqual(await counts(tenantB), { attempts: 1, touches: 1 });
 });
 
-test('findAcceptedAttempt คืน binding ของ accepted Attempt เท่านั้น และไม่เห็นข้าม tenant', async (t) => {
+test('findAcceptedAttempt returns the binding of an accepted Attempt only, and does not see across tenants', async (t) => {
   const tenantA = await fixture(t);
   const tenantB = await fixture(t);
   const bindingA = await tenantA.reservation('lookup-a');
   const pending = await tenantA.reservation('lookup-pending');
 
-  // ยังไม่มี acceptance = null ให้ Channels คง correlation เป็น PENDING
+  // no acceptance yet = null so Channels keeps the correlation PENDING
   assert.equal(
     await tenantA.service.findAcceptedAttempt({
       tenantId: tenantA.tenantId,
@@ -495,7 +495,7 @@ test('findAcceptedAttempt คืน binding ของ accepted Attempt เท่
   });
   assert.ok(!Number.isNaN(Date.parse(view!.acceptedAt)));
 
-  // view ต่อ touchInput ได้ตรงโดยไม่ต้องอ่าน cg_* เอง
+  // the view can be fed to touchInput directly without reading cg_* itself
   await tenantA.service.recordCorrelatedTouch(touchInput(tenantA, bindingA, view!.attemptId));
   assert.deepEqual(await counts(tenantA), { attempts: 1, touches: 1 });
 
@@ -508,7 +508,7 @@ test('findAcceptedAttempt คืน binding ของ accepted Attempt เท่
   );
 });
 
-test('findAcceptedAttempt ไม่คืน Attempt ที่ถูก reject', async (t) => {
+test('findAcceptedAttempt does not return a rejected Attempt', async (t) => {
   const f = await fixture(t);
   const binding = await f.reservation('lookup-rejected');
   const base = {
@@ -547,7 +547,7 @@ test('findAcceptedAttempt ไม่คืน Attempt ที่ถูก reject',
   );
 });
 
-test('late correlated Touch ไม่ทำให้ replay ของ settle เดิมกลายเป็น conflict', async (t) => {
+test('a late correlated Touch does not make a replay of the original settle a conflict', async (t) => {
   const f = await fixture(t);
   const binding = await f.reservation('late-touch');
   const { settled, attemptId } = await accept(f, binding);
@@ -566,7 +566,7 @@ test('late correlated Touch ไม่ทำให้ replay ของ settle เ
   const replayed = await f.service.settleDelivery({ ...base, outcome: 'PROVIDER_ACCEPTED' });
   assert.deepEqual(replayed, settled);
 
-  // terminal ใบแรกชนะ: outcome ใบหลังไม่ย้อน state และไม่เพิ่ม fact
+  // the first terminal wins: a later outcome does not revert state and adds no fact
   const late = await f.service.settleDelivery({
     ...base,
     outcomeRef: outcomeRef(`late-${binding.deliveryId}`),
@@ -578,7 +578,7 @@ test('late correlated Touch ไม่ทำให้ replay ของ settle เ
   assert.deepEqual(await counts(f), { attempts: 1, touches: 1 });
 });
 
-test('trigger ของ DB ปฏิเสธ Touch ที่สร้างนอก Governance write path', async (t) => {
+test('a DB trigger rejects a Touch created outside the Governance write path', async (t) => {
   const f = await fixture(t);
   const binding = await f.reservation('db-guard');
   const { attemptId } = await accept(f, binding);
@@ -603,16 +603,16 @@ test('trigger ของ DB ปฏิเสธ Touch ที่สร้างน�
       },
     });
 
-  // Touch บน accepted Attempt ที่ไม่มีหลักฐาน = time-window inference ที่ DB ต้องกัน
+  // a Touch on an accepted Attempt with no evidence = time-window inference, which the DB must prevent
   await assert.rejects(
     () => insert({ outcome: 'PROVIDER_ACCEPTED' }),
     /cg_touches_provider_accepted_evidence_check/,
   );
-  // outcome ที่ไม่ตรงกับ Attempt ทำให้ Touch อ้างเรื่องอื่นได้
+  // an outcome that does not match the Attempt would let a Touch refer to something else
   await assert.rejects(() => insert({ outcome: 'DELIVERED' }), /CG_TOUCH_OUTCOME_MISMATCH/);
   assert.deepEqual(await counts(f), { attempts: 1, touches: 0 });
 
-  // evidence เกาะ Attempt ที่ไม่ใช่ acceptance ไม่ได้ แม้ outcome จะตรงกับ Attempt นั้น
+  // evidence cannot attach to an Attempt that is not an acceptance, even if the outcome matches that Attempt
   const rejectedAttemptId = randomUUID();
   const rejected = await f.reservation('db-guard-rejected');
   await f.owner.cgAttempt.create({

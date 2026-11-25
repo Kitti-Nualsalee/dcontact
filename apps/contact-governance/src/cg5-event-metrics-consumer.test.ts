@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { cg5BucketStart, cg5MetricKeysForEvent } from './cg5-event-metrics-consumer.js';
 
-test('CG5.3 map state-change event ทุกชนิดไปยัง event-fed metric ที่เกี่ยวข้อง', () => {
+test('CG5.3 maps every kind of state-change event to its related event-fed metric', () => {
   assert.deepEqual(cg5MetricKeysForEvent('preference.changed'), ['cg.restriction', 'cg.audit']);
   assert.deepEqual(cg5MetricKeysForEvent('restriction.changed'), ['cg.restriction', 'cg.audit']);
   assert.deepEqual(cg5MetricKeysForEvent('consent.changed'), ['cg.consent', 'cg.audit']);
@@ -15,7 +15,7 @@ test('CG5.3 map state-change event ทุกชนิดไปยัง event-fe
   assert.deepEqual(cg5MetricKeysForEvent('unknown.changed'), []);
 });
 
-test('CG5.3 bucket time ถูก truncate แบบ UTC สำหรับทุก granularity', () => {
+test('CG5.3 bucket time is truncated in UTC for every granularity', () => {
   const input = new Date('2026-09-19T10:07:23.456Z');
   assert.equal(cg5BucketStart(input, 'FIVE_MIN').toISOString(), '2026-09-19T10:05:00.000Z');
   assert.equal(cg5BucketStart(input, 'HOUR').toISOString(), '2026-09-19T10:00:00.000Z');

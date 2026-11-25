@@ -31,7 +31,7 @@ import {
   lineProviderSettlement,
 } from './index.js';
 
-// package นี้ compile เป็น CommonJS จึงใช้ __dirname แทน import.meta
+// this package compiles to CommonJS, so it uses __dirname instead of import.meta
 const here = __dirname;
 const migrations = resolve(here, '../../db/prisma/migrations');
 const persistenceSql = readFileSync(
@@ -45,11 +45,11 @@ const enumValuesSql = readFileSync(
 
 function postgresEnum(name: string): string[] {
   const match = persistenceSql.match(new RegExp(`CREATE TYPE "${name}" AS ENUM \\(([^)]*)\\)`));
-  assert.ok(match, `ไม่พบ enum ${name} ใน migration`);
+  assert.ok(match, `enum ${name} not found in migration`);
   return [...match[1]!.matchAll(/'([A-Z0-9_]+)'/g)].map((value) => value[1]!);
 }
 
-test('vocabulary ใน contract ตรงกับ Postgres enum ของ migration ทุกชุด', () => {
+test('the vocabulary in the contract matches every Postgres enum of the migration', () => {
   const pairs: Array<[string, readonly string[]]> = [
     ['DlLineProviderOutcomeCode', LINE_PROVIDER_OUTCOME_CODES],
     ['DlLineProviderOutcomeClass', LINE_PROVIDER_OUTCOME_CLASSES],
@@ -72,21 +72,21 @@ test('vocabulary ใน contract ตรงกับ Postgres enum ของ migr
   assert.deepEqual([...DELIVERY_ADAPTERS], ['TEST_ADAPTER', 'LINE_MESSAGING_API']);
 });
 
-test('outcome code -> class ใน contract ตรงกับ CHECK ของ dl_provider_submission_attempts', () => {
+test('outcome code -> class in the contract matches the CHECK of dl_provider_submission_attempts', () => {
   const check = persistenceSql.match(/"outcome_class" = CASE "outcome_code"([\s\S]*?)END/);
   assert.ok(check);
   const fromSql = Object.fromEntries(
     [...check[1]!.matchAll(/WHEN '([A-Z_]+)' THEN '([A-Z_]+)'/g)].map((row) => [row[1], row[2]]),
   );
   assert.deepEqual(fromSql, { ...LINE_PROVIDER_OUTCOME_CLASS });
-  // 2xx/409 เป็น acceptance เท่านั้น ไม่ใช่ delivered; unknown ยัง reconcile ด้วย key เดิม
+  // 2xx/409 is acceptance only, not delivered; unknown is still reconciled with the original key
   assert.equal(LINE_PROVIDER_OUTCOME_CLASS.LINE_ACCEPTED_REPLAY, 'ACCEPTED');
   assert.equal(LINE_PROVIDER_OUTCOME_CLASS.LINE_RESPONSE_INVALID, 'RETRYABLE_UNKNOWN');
 });
 
-test('operational rejection list ตรงกับ CHECK ของ dl_provider_submission_attempts_rejection_check', () => {
-  // ต่างจาก outcome class ตรงที่ CHECK นี้เป็น NOT (scope=RECIPIENT AND code IN (...)) ไม่ใช่ CASE
-  // ตรง ๆ — ยังต้อง parse รายชื่อ code ออกมาเทียบ ไม่งั้น TS กับ DB เดินแยกกันได้โดยไม่มีเทสต์จับ
+test('the operational rejection list matches the CHECK of dl_provider_submission_attempts_rejection_check', () => {
+  // unlike the outcome class, this CHECK is NOT (scope=RECIPIENT AND code IN (...)), not a straight CASE
+  // so the code list still has to be parsed out and compared, otherwise TS and the DB can drift apart with no test to catch it
   const check = persistenceSql.match(
     /"rejection_scope" = 'RECIPIENT'\s*\n\s*AND "outcome_code" IN \(([^)]*)\)/,
   );
@@ -95,7 +95,7 @@ test('operational rejection list ตรงกับ CHECK ของ dl_provider_
   assert.deepEqual(codesFromSql.sort(), [...LINE_ALWAYS_OPERATIONAL_REJECTIONS].sort());
 });
 
-test('rejection scope: เฉพาะ TERMINAL_REJECTED ต้องมี scope และ auth/rate/quota เป็น operational', () => {
+test('rejection scope: only TERMINAL_REJECTED needs a scope, and auth/rate/quota are operational', () => {
   assert.equal(assertLineOutcomeScope('LINE_ACCEPTED'), 'ACCEPTED');
   assert.equal(assertLineOutcomeScope('LINE_REQUEST_REJECTED', 'RECIPIENT'), 'TERMINAL_REJECTED');
   assert.equal(assertLineOutcomeScope('LINE_RATE_LIMITED', 'OPERATIONAL'), 'TERMINAL_REJECTED');
@@ -110,7 +110,7 @@ test('rejection scope: เฉพาะ TERMINAL_REJECTED ต้องมี scop
   );
 });
 
-test('retry key ต้องเป็น hexadecimal UUID ตัวพิมพ์เล็ก และ caps ตรง profile S2', () => {
+test('the retry key must be a lowercase hexadecimal UUID, and the caps match the S2 profile', () => {
   assert.equal(isLineRetryKey('123e4567-e89b-12d3-a456-426614174000'), true);
   assert.equal(isLineRetryKey('123E4567-E89B-12D3-A456-426614174000'), false);
   assert.equal(isLineRetryKey('pk_0123456789abcdef'), false);
@@ -129,18 +129,18 @@ test('retry key ต้องเป็น hexadecimal UUID ตัวพิมพ�
   );
 });
 
-test('line-delivery contract ไม่มี network, provider SDK หรือ credential dependency', () => {
+test('the line-delivery contract has no network, provider SDK or credential dependency', () => {
   const source = readFileSync(resolve(here, 'line-delivery.ts'), 'utf8');
   const imports = [...source.matchAll(/from '([^']+)'/g)].map((row) => row[1]);
-  // vocabulary กลางของ Governance เข้ามาได้เฉพาะแบบ type-only จึงไม่มี runtime cycle
+  // the shared Governance vocabulary may come in only as type-only, so there is no runtime cycle
   assert.deepEqual(imports, ['./identifiers.js', './contact-governance.js']);
   assert.match(source, /import type \{[^}]*\} from '\.\/contact-governance\.js';/);
   assert.doesNotMatch(source, /\bfetch\(|https?:\/\/|@line\/|process\.env/);
 });
 
-// ── S2.2 (#364): settlement matrix และ correlated Touch ──────────────────────
+// ── S2.2 (#364): settlement matrix and correlated Touch ──────────────────────
 
-test('acceptance คือ Attempt 1/Touch 0/refund 0 และ rejection นับ Attempt ตาม scope', () => {
+test('acceptance is Attempt 1/Touch 0/refund 0, and a rejection counts the Attempt by scope', () => {
   for (const accepted of ['LINE_ACCEPTED', 'LINE_ACCEPTED_REPLAY'] as const) {
     assert.deepEqual(
       { ...lineProviderSettlement(accepted) },
@@ -163,7 +163,7 @@ test('acceptance คือ Attempt 1/Touch 0/refund 0 และ rejection นั
     assert.equal(lineNormalizedOutcome(operational), 'PROVIDER_REJECTED');
   }
 
-  // unknown/quarantined ยังไม่ terminal: ไม่มี Attempt/Touch/refund และ sweeper ห้าม release
+  // unknown/quarantined is not terminal yet: no Attempt/Touch/refund, and the sweeper must not release
   for (const unresolved of [
     'LINE_PROVIDER_UNAVAILABLE',
     'LINE_UNKNOWN_OUTCOME',
@@ -181,7 +181,7 @@ test('acceptance คือ Attempt 1/Touch 0/refund 0 และ rejection นั
     assert.equal(lineNormalizedOutcome(unresolved), 'UNKNOWN_RECONCILING');
   }
 
-  // ไม่มี outcome ใดของ LINE ที่ทำให้เกิด Touch หรือ refund จากฝั่ง settlement
+  // no LINE outcome causes a Touch or refund from the settlement side
   for (const code of LINE_PROVIDER_OUTCOME_CODES) {
     const scope =
       LINE_PROVIDER_OUTCOME_CLASS[code] === 'TERMINAL_REJECTED' ? 'OPERATIONAL' : undefined;
@@ -191,7 +191,7 @@ test('acceptance คือ Attempt 1/Touch 0/refund 0 และ rejection นั
   }
 });
 
-test('settlement ของ LINE ปฏิเสธคู่ outcome/scope ที่ผิดสัญญาแทนที่จะเดา', () => {
+test('LINE settlement rejects an outcome/scope pair that violates the contract instead of guessing', () => {
   assert.throws(() => lineProviderSettlement('LINE_REQUEST_REJECTED'), LineOutcomeScopeError);
   assert.throws(
     () => lineProviderSettlement('LINE_AUTH_INVALID', 'RECIPIENT'),
@@ -200,7 +200,7 @@ test('settlement ของ LINE ปฏิเสธคู่ outcome/scope ที
   assert.throws(() => lineProviderSettlement('LINE_ACCEPTED', 'RECIPIENT'), LineOutcomeScopeError);
 });
 
-test('Touch evidence รับเฉพาะ quoted response กับ signed postback — ไม่มี time-window', () => {
+test('Touch evidence accepts only a quoted response and a signed postback: no time-window', () => {
   assert.deepEqual([...TOUCH_EVIDENCE_KINDS], ['USER_QUOTED_RESPONSE', 'SIGNED_POSTBACK']);
   for (const kind of TOUCH_EVIDENCE_KINDS) assert.equal(isTouchEvidenceKind(kind), true);
   for (const rejected of [
@@ -218,7 +218,7 @@ test('Touch evidence รับเฉพาะ quoted response กับ signed p
   }
 });
 
-test('CorrelatedTouchError คง code แบบ machine-readable ครบชุด', () => {
+test('CorrelatedTouchError keeps the full set of machine-readable codes', () => {
   assert.deepEqual(
     [...CORRELATED_TOUCH_ERROR_CODES],
     [
@@ -235,8 +235,8 @@ test('CorrelatedTouchError คง code แบบ machine-readable ครบช�
   assert.equal(error.name, 'CorrelatedTouchError');
 });
 
-test('rejection scope ของ LINE ตรงกับ vocabulary กลางและกับ CgFactOutcome ใน migration', () => {
+test('the LINE rejection scope matches the shared vocabulary and the CgFactOutcome in the migration', () => {
   assert.deepEqual([...LINE_REJECTION_SCOPES], ['RECIPIENT', 'OPERATIONAL']);
-  // PROVIDER_ACCEPTED ต้องมีอยู่จริงใน enum ฝั่ง DB ก่อน write path จะ settle ค่านี้ได้
+  // PROVIDER_ACCEPTED must really exist in the DB-side enum before the write path can settle this value
   assert.match(enumValuesSql, /"CgFactOutcome" ADD VALUE IF NOT EXISTS 'PROVIDER_ACCEPTED'/);
 });

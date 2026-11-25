@@ -155,7 +155,7 @@ const registryEntries: Record<Cg4RegisteredRuleCode, Cg4RuleMetadata> = {
   DAILY_TOUCH_CAP: operational(CG4_RULE_CODES.DAILY_TOUCH_CAP, 'HIGH'),
 };
 
-/** registry แบบปิดและแก้ไขไม่ได้; caller ส่งได้เฉพาะ rule code และห้ามประกาศ metadata เอง */
+/** a closed and immutable registry; the caller may send only a rule code and must not declare metadata itself */
 export const CG4_RULE_REGISTRY: Readonly<Record<Cg4RegisteredRuleCode, Cg4RuleMetadata>> =
   Object.freeze(registryEntries);
 

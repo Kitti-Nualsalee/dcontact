@@ -44,7 +44,7 @@ export function parseCg5MetricEvent(event: {
       const payload = validateCgEventPayloadV1(event.payload);
       return { ok: true, eventType: 'policy.changed', payload: payload as never };
     } catch (error) {
-      return malformed(error instanceof Error ? error.message : 'payload ไม่ถูกต้อง');
+      return malformed(error instanceof Error ? error.message : 'invalid payload');
     }
   }
   if (CG4_ALIASES.has(event.eventType)) {

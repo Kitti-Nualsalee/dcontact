@@ -1,6 +1,6 @@
 /**
- * CG4 wire/domain primitives แบบ additive โดย Contact Governance เป็น authority เดียว
- * ที่ resolve rule metadata, authorization context, approval และ effective state ได้
+ * CG4 wire/domain primitives, additive, with Contact Governance as the single authority
+ * that can resolve rule metadata, authorization context, approval and effective state
  */
 import { createHash } from 'node:crypto';
 import type {
@@ -72,7 +72,7 @@ export type Cg4ExceptionWorkflowState =
 export type Cg4ExceptionEffectiveState = 'SCHEDULED' | 'ACTIVE' | 'EXPIRED' | 'INACTIVE';
 export type Cg4ApprovalDecision = 'APPROVE' | 'REJECT';
 
-/** Command context ตั้งใจไม่รับ tenant, actor, role และ overridability authority จาก caller */
+/** Command context intentionally does not accept tenant, actor, role or overridability authority from the caller */
 export interface Cg4CommandBaseV1 {
   contractVersion: Cg4ContractVersion;
   expectedVersion: number;
@@ -301,7 +301,7 @@ export interface Cg4AppliedExceptionPin {
   matchedRuleCode: string;
 }
 
-/** snapshot แบบ optional ใน authorization outcome สำหรับ replay แบบ deterministic */
+/** optional snapshot in the authorization outcome for deterministic replay */
 export interface Cg4DecisionTracePinsV1 {
   contractVersion: Cg4ContractVersion;
   policy: Cg4PolicyBinding;
@@ -334,7 +334,7 @@ export const CG4_EVENT_AGGREGATE_TYPES = Object.freeze({
   POLICY: 'contact_governance_policy',
 } as const);
 
-/** canonical payload ไม่มี PII; actor/ticket/evidence/raw identity อยู่ใน owner store เท่านั้น */
+/** the canonical payload has no PII; actor/ticket/evidence/raw identity live only in the owner store */
 export interface Cg4CanonicalChangePayloadV1 extends Record<string, unknown> {
   contractVersion: Cg4ContractVersion;
   mutationId: ContactMutationId;
@@ -368,7 +368,7 @@ export type Cg4AuthorizationReviewReason =
   | 'POLICY_ACTIVATION_CONFLICT'
   | 'GOVERNANCE_POLICY_VERSION_UNSUPPORTED'
   | 'GOVERNANCE_STATE_UNAVAILABLE'
-  /** CG4.10 (#193): mismatch ของ shadow evaluation บน pilot scope fail closed (#179 §6) */
+  /** CG4.10 (#193): a shadow evaluation mismatch on the pilot scope fails closed (#179 §6) */
   | 'GOVERNANCE_SHADOW_MISMATCH';
 
 export type Cg4ErrorCode =
@@ -425,7 +425,7 @@ function canonicalValue(value: unknown, path: string): string {
   if (typeof value === 'string' || typeof value === 'boolean') return JSON.stringify(value);
   if (typeof value === 'number') {
     if (!Number.isFinite(value)) {
-      throw new Cg4ContractError('CANONICAL_VALUE_INVALID', `${path} ต้องเป็น finite number`);
+      throw new Cg4ContractError('CANONICAL_VALUE_INVALID', `${path} must be a finite number`);
     }
     return JSON.stringify(value);
   }
@@ -435,7 +435,7 @@ function canonicalValue(value: unknown, path: string): string {
   if (typeof value === 'object') {
     const prototype = Object.getPrototypeOf(value);
     if (prototype !== Object.prototype && prototype !== null) {
-      throw new Cg4ContractError('CANONICAL_VALUE_INVALID', `${path} ต้องเป็น plain JSON object`);
+      throw new Cg4ContractError('CANONICAL_VALUE_INVALID', `${path} must be a plain JSON object`);
     }
     const entries = Object.entries(value as Record<string, unknown>)
       .filter(([, entry]) => entry !== undefined)
@@ -446,7 +446,7 @@ function canonicalValue(value: unknown, path: string): string {
   }
   throw new Cg4ContractError(
     'CANONICAL_VALUE_INVALID',
-    `${path} ไม่รองรับ value type ${typeof value}`,
+    `${path} has unsupported value type ${typeof value}`,
   );
 }
 
@@ -460,7 +460,7 @@ export function canonicalCg4Digest(value: unknown): Cg4Digest {
 
 export function assertCg4Digest(value: string, field = 'digest'): asserts value is Cg4Digest {
   if (!/^[a-f0-9]{64}$/.test(value)) {
-    throw new Cg4ContractError('DIGEST_INVALID', `${field} ต้องเป็น SHA-256 lowercase hex`);
+    throw new Cg4ContractError('DIGEST_INVALID', `${field} must be a lowercase SHA-256 hex`);
   }
 }
 
@@ -471,7 +471,7 @@ export interface Cg4ArtifactVersions {
   evaluatorVersion: string;
 }
 
-/** artifact ที่ไม่รู้จัก contract/schema/registry/evaluator version ห้ามเข้า evaluation */
+/** An artifact with an unknown contract/schema/registry/evaluator version must not enter evaluation */
 export function assertSupportedCg4ArtifactVersions(
   versions: Cg4ArtifactVersions,
 ): asserts versions is Cg4ArtifactVersions & {
@@ -481,22 +481,25 @@ export function assertSupportedCg4ArtifactVersions(
   evaluatorVersion: Cg4EvaluatorVersion;
 } {
   if (versions.contractVersion !== CG4_CONTRACT_VERSION) {
-    throw new Cg4ContractError('UNSUPPORTED_CONTRACT_VERSION', 'ไม่รองรับ CG4 contract version');
+    throw new Cg4ContractError('UNSUPPORTED_CONTRACT_VERSION', 'Unsupported CG4 contract version');
   }
   if (versions.policySchemaVersion !== CG4_POLICY_SCHEMA_VERSION) {
     throw new Cg4ContractError(
       'UNSUPPORTED_POLICY_SCHEMA_VERSION',
-      'ไม่รองรับ CG4 policy schema version',
+      'Unsupported CG4 policy schema version',
     );
   }
   if (versions.ruleRegistryVersion !== CG4_RULE_REGISTRY_VERSION) {
     throw new Cg4ContractError(
       'UNSUPPORTED_RULE_REGISTRY_VERSION',
-      'ไม่รองรับ CG4 rule registry version',
+      'Unsupported CG4 rule registry version',
     );
   }
   if (versions.evaluatorVersion !== CG4_EVALUATOR_VERSION) {
-    throw new Cg4ContractError('UNSUPPORTED_EVALUATOR_VERSION', 'ไม่รองรับ CG4 evaluator version');
+    throw new Cg4ContractError(
+      'UNSUPPORTED_EVALUATOR_VERSION',
+      'Unsupported CG4 evaluator version',
+    );
   }
 }
 

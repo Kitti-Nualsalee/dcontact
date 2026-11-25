@@ -26,7 +26,7 @@ const code = (fn: () => unknown) => {
   assert.fail('expected Cg4RolloutError');
 };
 
-test('ไม่มี rollout row = DISABLED และ reader เป็น CG3 เสมอ', () => {
+test('no rollout row = DISABLED and the reader is always CG3', () => {
   const rollout = cg4DefaultRollout(TENANT);
   assert.equal(rollout.stage, 'DISABLED');
   assert.equal(rollout.version, 0);
@@ -36,7 +36,7 @@ test('ไม่มี rollout row = DISABLED และ reader เป็น CG3 �
   });
 });
 
-test('reader ตาม stage: shadow ทุก scope, switch เฉพาะ pilot, enabled ทุก scope', () => {
+test('reader per stage: shadow every scope, switch only the pilot, enabled every scope', () => {
   const line = { channel: 'LINE' as const, purpose: 'MARKETING' };
   const voice = { channel: 'VOICE' as const, purpose: 'SERVICE' };
   const keys = [LINE_MARKETING];
@@ -60,12 +60,12 @@ test('reader ตาม stage: shadow ทุก scope, switch เฉพาะ pil
   assert.equal(cg4PolicyReaderFor(enabled, voice).mode, 'CG4');
 });
 
-test('pilot scope ที่ parse ไม่ได้ครอบทุก request แบบ fail closed', () => {
+test('a pilot scope that cannot be parsed covers every request, failing closed', () => {
   const rollout = state({ stage: 'SHADOW_EVALUATION', syntheticScopeKeys: ['not-a-scope'] });
   assert.equal(cg4PolicyReaderFor(rollout, { channel: 'VOICE', purpose: 'X' }).pilot, true);
 });
 
-test('transition ทีละขั้น และ shadow ต้องประกาศ pilot scope ที่ถูกต้อง', () => {
+test('transitions one stage at a time, and shadow must declare a valid pilot scope', () => {
   const disabled = cg4DefaultRollout(TENANT);
   assert.equal(
     code(() => planCg4RolloutTransition(disabled, { toStage: 'SCOPED_SYNTHETIC' })),
@@ -96,7 +96,7 @@ test('transition ทีละขั้น และ shadow ต้องประ
   });
 });
 
-test('ก่อน switch ถอยกลับ DISABLED ได้ (pre-mutation disable path)', () => {
+test('before the switch it can step back to DISABLED (pre-mutation disable path)', () => {
   const shadow = state({ stage: 'SHADOW_EVALUATION', syntheticScopeKeys: [LINE_MARKETING] });
   assert.deepEqual(planCg4RolloutTransition(shadow, { toStage: 'DISABLED' }), {
     stage: 'DISABLED',
@@ -106,7 +106,7 @@ test('ก่อน switch ถอยกลับ DISABLED ได้ (pre-mutation
   });
 });
 
-test('switch ใช้ pilot scope เดิมเท่านั้น และหลัง switch ย้อนกลับ CG3 reader ไม่ได้', () => {
+test('the switch uses only the original pilot scope, and after the switch it cannot go back to the CG3 reader', () => {
   const shadow = state({ stage: 'SHADOW_EVALUATION', syntheticScopeKeys: [LINE_MARKETING] });
   assert.equal(
     code(() =>
@@ -140,7 +140,7 @@ test('switch ใช้ pilot scope เดิมเท่านั้น แล�
   );
 });
 
-test('shadow digest เทียบผลที่ผู้ถูกติดต่อได้รับ ไม่ขึ้นกับ trace หรือ policy version', () => {
+test('the shadow digest compares the result the contacted person receives, independent of trace or policy version', () => {
   const allowA = { trace: [{ gate: 'TEMPORAL_POLICY' as const, outcome: 'PASS' as const }] };
   const allowB = { trace: [] };
   assert.equal(cg4ShadowDecisionDigest(allowA), cg4ShadowDecisionDigest(allowB));

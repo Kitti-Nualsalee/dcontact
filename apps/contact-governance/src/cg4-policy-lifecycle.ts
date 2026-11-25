@@ -96,13 +96,13 @@ export const CG4_EMPTY_HEAD_DIGEST = stableDigest({ head: null });
 
 function nonEmpty(value: string, field: string): string {
   const normalized = value.trim();
-  if (!normalized) throw new TypeError(`${field} ต้องเป็น string ที่ไม่ว่าง`);
+  if (!normalized) throw new TypeError(`${field} must be a non-empty string`);
   return normalized;
 }
 
 function instant(value: string, field: string): Date {
   const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) throw new TypeError(`${field} ต้องเป็น ISO-8601 timestamp`);
+  if (Number.isNaN(parsed.getTime())) throw new TypeError(`${field} must be an ISO-8601 timestamp`);
   return parsed;
 }
 
@@ -372,7 +372,7 @@ export class Cg4PolicyLifecycleRepository {
     if (conflict) {
       throw new Cg4PolicyLifecycleError(
         'POLICY_SCOPE_AMBIGUOUS',
-        `scope ${scopeKey} กำกวมกับ active scope ${conflict.scopeKey} ที่ specificity เดียวกัน`,
+        `scope ${scopeKey} is ambiguous with active scope ${conflict.scopeKey} at the same specificity`,
       );
     }
   }
@@ -524,7 +524,7 @@ export class Cg4PolicyLifecycleRepository {
         if (latest.scopeKey !== input.scopeKey) {
           throw new Cg4PolicyValidationError(
             'SCOPE_INVALID',
-            'เปลี่ยน scope ของ series เดิมไม่ได้ ต้องสร้าง series ใหม่',
+            'cannot change the scope of an existing series; create a new series',
           );
         }
         version = latest.version + 1;
@@ -630,7 +630,7 @@ export class Cg4PolicyLifecycleRepository {
       if (row.status !== 'DRAFT') {
         throw new Cg4PolicyLifecycleError(
           'INVALID_LIFECYCLE_TRANSITION',
-          `แก้ content ของ policy สถานะ ${row.status} ไม่ได้ ต้องสร้าง version ใหม่`,
+          `cannot edit the content of a policy in status ${row.status}; create a new version`,
         );
       }
 
@@ -740,7 +740,7 @@ export class Cg4PolicyLifecycleRepository {
     if (compiled.contentDigest !== row.contentDigest) {
       throw new Cg4PolicyValidationError(
         'VALIDATION_FAILED',
-        'content digest ที่เก็บไว้ไม่ตรงกับ compiler ปัจจุบัน',
+        'the stored content digest does not match the current compiler',
       );
     }
     const head = await this.loadHead(transaction, input.tenantId, row.scopeKey);
@@ -910,7 +910,7 @@ export class Cg4PolicyLifecycleRepository {
       if (row.status !== 'DRAFT') {
         throw new Cg4PolicyLifecycleError(
           'INVALID_LIFECYCLE_TRANSITION',
-          `submit จากสถานะ ${row.status} ไม่ได้`,
+          `cannot submit from status ${row.status}`,
         );
       }
       await this.assertFreshTests(transaction, {
@@ -996,19 +996,19 @@ export class Cg4PolicyLifecycleRepository {
     if (!artifact) {
       throw new Cg4PolicyLifecycleError(
         'POLICY_TESTS_REQUIRED',
-        'ไม่พบ test artifact ที่ตรงกับ digest ที่อ้าง',
+        'no test artifact found that matches the referenced digest',
       );
     }
     if (artifact.outcome !== 'PASS') {
       throw new Cg4PolicyLifecycleError(
         'POLICY_TESTS_FAILED',
-        `test artifact มี ${artifact.failed} check ที่ไม่ผ่าน`,
+        `the test artifact has ${artifact.failed} failing checks`,
       );
     }
     if (artifact.contentDigest !== input.contentDigest) {
       throw new Cg4PolicyLifecycleError(
         'POLICY_TESTS_REQUIRED',
-        'test artifact ผูกกับ content คนละ digest',
+        'the test artifact is bound to content with a different digest',
       );
     }
     if (
@@ -1017,7 +1017,7 @@ export class Cg4PolicyLifecycleRepository {
     ) {
       throw new Cg4PolicyLifecycleError(
         'POLICY_HEAD_CONFLICT',
-        'test artifact diff กับ head คนละตัวกับ head ปัจจุบัน',
+        'the test artifact diff is against a different head than the current head',
       );
     }
   }
@@ -1062,7 +1062,7 @@ export class Cg4PolicyLifecycleRepository {
       if (row.status !== 'IN_REVIEW') {
         throw new Cg4PolicyLifecycleError(
           'INVALID_LIFECYCLE_TRANSITION',
-          `finalize approval จากสถานะ ${row.status} ไม่ได้`,
+          `cannot finalize approval from status ${row.status}`,
         );
       }
       if (
@@ -1071,7 +1071,7 @@ export class Cg4PolicyLifecycleRepository {
       ) {
         throw new Cg4PolicyLifecycleError(
           'POLICY_HEAD_CONFLICT',
-          `head เปลี่ยนเป็น version ${head.headVersion} ตั้งแต่ตอนขอ approval`,
+          `the head changed to version ${head.headVersion} since the approval was requested`,
         );
       }
       await this.assertFreshTests(transaction, {
@@ -1085,7 +1085,7 @@ export class Cg4PolicyLifecycleRepository {
       if (row.diffClass !== input.expectedDiffClass) {
         throw new Cg4PolicyLifecycleError(
           'APPROVAL_STALE',
-          `diff class ปัจจุบันคือ ${row.diffClass} ไม่ใช่ ${input.expectedDiffClass}`,
+          `the current diff class is ${row.diffClass}, not ${input.expectedDiffClass}`,
         );
       }
 
@@ -1247,13 +1247,13 @@ export class Cg4PolicyLifecycleRepository {
       if (row.status !== 'APPROVED') {
         throw new Cg4PolicyLifecycleError(
           'INVALID_LIFECYCLE_TRANSITION',
-          `publish จากสถานะ ${row.status} ไม่ได้`,
+          `cannot publish from status ${row.status}`,
         );
       }
       if (row.approvalDigest !== input.expectedApprovalDigest) {
         throw new Cg4PolicyLifecycleError(
           'APPROVAL_STALE',
-          'approval digest ไม่ตรงกับที่บันทึกไว้',
+          'the approval digest does not match the recorded one',
         );
       }
       if (
@@ -1264,7 +1264,7 @@ export class Cg4PolicyLifecycleRepository {
       ) {
         throw new Cg4PolicyLifecycleError(
           'POLICY_HEAD_CONFLICT',
-          `head อยู่ที่ version ${head.headVersion} ไม่ตรงกับ base ที่ approve ไว้`,
+          `the head is at version ${head.headVersion}, which does not match the approved base`,
         );
       }
       await this.assertFreshTests(transaction, {
@@ -1286,7 +1286,7 @@ export class Cg4PolicyLifecycleRepository {
       ) {
         throw new Cg4PolicyLifecycleError(
           'GOVERNANCE_KILL_SWITCH_ACTIVE',
-          'scope นี้มี kill switch ทำงานอยู่ publish relaxation ไม่ได้',
+          'this scope has an active kill switch; a relaxation cannot be published',
         );
       }
 
@@ -1322,7 +1322,7 @@ export class Cg4PolicyLifecycleRepository {
         if (open) {
           throw new Cg4PolicyLifecycleError(
             'SCHEDULE_CONFLICT',
-            `scope นี้มี scheduled activation ของ version ${open.policyVersion} ค้างอยู่`,
+            `this scope has a scheduled activation of version ${open.policyVersion} pending`,
           );
         }
         await transaction.cg4Policy.updateMany({
@@ -1411,7 +1411,7 @@ export class Cg4PolicyLifecycleRepository {
       if (row.status !== 'SCHEDULED') {
         throw new Cg4PolicyLifecycleError(
           'INVALID_LIFECYCLE_TRANSITION',
-          `activate จากสถานะ ${row.status} ไม่ได้`,
+          `cannot activate from status ${row.status}`,
         );
       }
       const job = await transaction.cg4PolicyActivationJob.findFirst({
@@ -1425,13 +1425,13 @@ export class Cg4PolicyLifecycleRepository {
       if (job.state !== 'PENDING' && job.state !== 'CLAIMED') {
         throw new Cg4PolicyLifecycleError(
           'POLICY_ACTIVATION_CONFLICT',
-          `activation job อยู่ในสถานะ ${job.state}`,
+          `the activation job is in state ${job.state}`,
         );
       }
       if (job.scheduledFor.getTime() > occurredAt.getTime()) {
         throw new Cg4PolicyLifecycleError(
           'POLICY_ACTIVATION_CONFLICT',
-          `ยังไม่ถึงเวลา activate (${job.scheduledFor.toISOString()})`,
+          `not yet time to activate (${job.scheduledFor.toISOString()})`,
         );
       }
 
@@ -1445,7 +1445,7 @@ export class Cg4PolicyLifecycleRepository {
       if (compiled.contentDigest !== row.contentDigest) {
         throw new Cg4PolicyValidationError(
           'VALIDATION_FAILED',
-          'content digest ที่เก็บไว้ไม่ตรงกับ compiler ปัจจุบัน',
+          'the stored content digest does not match the current compiler',
         );
       }
       const head = await this.loadHead(transaction, input.tenantId, row.scopeKey);
@@ -1540,7 +1540,7 @@ export class Cg4PolicyLifecycleRepository {
       quorum: Cg4QuorumEvaluation;
     },
   ): Promise<Cg4PolicyPublishResult> {
-    // CG4.10 (#193): freeze หยุดทุกทางที่ขยับ head (publish และ scheduled activation) ระหว่าง reconcile
+    // CG4.10 (#193): freeze stops every path that moves the head (publish and scheduled activation) during reconcile
     await assertCg4MutationNotFrozen(transaction, input.tenantId);
     const headVersion = input.head.headVersion + 1;
 
@@ -1553,7 +1553,7 @@ export class Cg4PolicyLifecycleRepository {
         if (superseded.count !== 1) {
           throw new Cg4PolicyLifecycleError(
             'POLICY_HEAD_CONFLICT',
-            'active version เดิมถูกเปลี่ยนไปแล้วระหว่าง publish',
+            'the original active version was changed during publish',
           );
         }
       }
@@ -1656,7 +1656,7 @@ export class Cg4PolicyLifecycleRepository {
       if (updated.count !== 1) {
         throw new Cg4PolicyLifecycleError(
           'POLICY_HEAD_CONFLICT',
-          `head ถูกเปลี่ยนไปแล้วระหว่าง publish (คาด version ${input.head.headVersion})`,
+          `the head was changed during publish (expected version ${input.head.headVersion})`,
         );
       }
     }
@@ -1915,8 +1915,8 @@ export class Cg4PolicyLifecycleRepository {
       });
 
       let killSwitchId: string;
-      // CG4.8 (#191): เปิดซ้ำขณะที่ยัง ACTIVE ไม่เปลี่ยน canonical state จึงไม่ออก event ใหม่ —
-      // event ซ้ำที่ version เดิมแต่ mutationId ต่างจะเป็น hash conflict ที่ทุก consumer
+      // CG4.8 (#191): re-opening while still ACTIVE does not change the canonical state, so no new event is emitted:
+      // a duplicate event at the same version but a different mutationId would be a hash conflict at every consumer
       let alreadyActive = false;
       if (input.action === 'ACTIVATE') {
         if (existing) {
@@ -1942,13 +1942,13 @@ export class Cg4PolicyLifecycleRepository {
         if (!input.clearApprovalRef?.trim()) {
           throw new Cg4PolicyLifecycleError(
             'APPROVAL_REQUIRED',
-            'clear kill switch ต้องมี independent publish-grade approval',
+            'clearing a kill switch requires an independent publish-grade approval',
           );
         }
         if (existing.activatedByRef === input.actor.subjectId) {
           throw new Cg4PolicyLifecycleError(
             'APPROVAL_REQUIRED',
-            'ผู้ที่เปิด kill switch เคลียร์เองไม่ได้ ต้องเป็นคนละ subject',
+            'the subject who opened a kill switch cannot clear it; it must be a different subject',
           );
         }
         const cleared = await transaction.cg4ScopeKillSwitch.updateMany({

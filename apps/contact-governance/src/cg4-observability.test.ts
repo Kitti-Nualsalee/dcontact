@@ -42,11 +42,11 @@ function snapshot(overrides: Partial<Cg4ObservabilitySnapshot> = {}): Cg4Observa
   };
 }
 
-test('CG4-OB01: สถานะปกติไม่มี alert', () => {
+test('CG4-OB01: a normal state has no alert', () => {
   assert.deepEqual(evaluateCg4Alerts(snapshot()), []);
 });
 
-test('CG4-OB01: alert ครอบ conflict/quorum/activation/cache gap/ack/DLQ/kill/migration ตาม #179 §7', () => {
+test('CG4-OB01: alerts cover conflict/quorum/activation/cache gap/ack/DLQ/kill/migration per #179 §7', () => {
   const alerts = evaluateCg4Alerts(
     snapshot({
       rollout: {
@@ -99,7 +99,7 @@ test('CG4-OB01: alert ครอบ conflict/quorum/activation/cache gap/ack/DLQ/
   assert.equal(alerts.find((alert) => alert.code === 'GOVERNANCE_MIGRATION_MISMATCH')?.value, 2);
 });
 
-test('CG4-OB02: metric samples มีชื่อไม่ซ้ำและ label เป็น tenant_id อย่างเดียว', () => {
+test('CG4-OB02: metric samples have unique names and the only label is tenant_id', () => {
   const samples = cg4MetricSamples(snapshot({ cache: { headMiss: 2, 'canonical-fallback': 1 } }));
   assert.equal(new Set(samples.map((sample) => sample.name)).size, samples.length);
   for (const sample of samples) {

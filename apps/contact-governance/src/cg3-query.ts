@@ -3,7 +3,7 @@ import type { ContactChannel, ContactDecision } from '@d-contact/cxa-contracts';
 import type { LocalTimeWindow } from './cg3-persistence.js';
 import type { PolicyView } from './cg3-policy-persistence.js';
 
-/** Read-side queries สำหรับ CG3 command/query API (#107) — ไม่มี mutation ใดๆ ในไฟล์นี้ */
+/** Read-side queries for the CG3 command/query API (#107): there is no mutation of any kind in this file */
 
 export interface EffectivePolicyQuery {
   tenantId: string;
@@ -43,7 +43,7 @@ function scopeCompatible(
   return true;
 }
 
-/** resolve policy ที่ specificity สูงสุดในกลุ่ม PUBLISHED ที่ effective ณ now — ตรรกะเดียวกับ cg3-fact-loader.ts */
+/** resolve the highest-specificity policy among PUBLISHED ones effective at now: the same logic as cg3-fact-loader.ts */
 export async function effectivePolicy(
   database: PrismaClient,
   query: EffectivePolicyQuery,
@@ -126,7 +126,7 @@ export interface DecisionView {
   decidedAt: string;
 }
 
-/** PII-safe: ไม่ select contactId/identityId/segmentSnapshot ดิบ ๆ ออกไป */
+/** PII-safe: does not select raw contactId/identityId/segmentSnapshot */
 export async function decisionById(
   database: PrismaClient,
   query: DecisionQuery,

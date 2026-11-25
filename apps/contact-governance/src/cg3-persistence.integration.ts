@@ -82,7 +82,7 @@ function command(
   };
 }
 
-test('append preference สร้าง version/head/evidence แบบ atomic และ canonical retry คืนผลเดิม', async (t) => {
+test('appending a preference creates version/head/evidence atomically, and a canonical retry returns the original result', async (t) => {
   const f = await fixture(t);
   const repository = new Cg3PreferenceRepository(f.application);
 
@@ -106,7 +106,7 @@ test('append preference สร้าง version/head/evidence แบบ atomic �
   });
 });
 
-test('lazy head เริ่มที่ version 0 โดยไม่สร้าง fake preference, audit หรือ outbox', async (t) => {
+test('a lazy head starts at version 0 without creating a fake preference, audit or outbox', async (t) => {
   const f = await fixture(t);
   const repository = new Cg3PreferenceRepository(f.application);
 
@@ -123,7 +123,7 @@ test('lazy head เริ่มที่ version 0 โดยไม่สร้�
   );
 });
 
-test('idempotency key เดิมปฏิเสธ canonical request ที่เปลี่ยน และไม่เพิ่ม mutation', async (t) => {
+test('the same idempotency key rejects a changed canonical request and adds no mutation', async (t) => {
   const f = await fixture(t);
   const repository = new Cg3PreferenceRepository(f.application);
 
@@ -143,7 +143,7 @@ test('idempotency key เดิมปฏิเสธ canonical request ที่
   );
 });
 
-test('optimistic concurrency ยอมรับผู้ชนะเพียงหนึ่งคำสั่งต่อ expectedVersion', async (t) => {
+test('optimistic concurrency accepts only one winning command per expectedVersion', async (t) => {
   const f = await fixture(t);
   const repository = new Cg3PreferenceRepository(f.application);
 
@@ -162,7 +162,7 @@ test('optimistic concurrency ยอมรับผู้ชนะเพียง
   );
 });
 
-test('series ใหม่ใน scope เดิมเดิน scope version ต่อโดยไม่สร้าง version ซ้ำ', async (t) => {
+test('a new series in the same scope continues the scope version without creating a duplicate version', async (t) => {
   const f = await fixture(t);
   const repository = new Cg3PreferenceRepository(f.application);
 
@@ -182,7 +182,7 @@ test('series ใหม่ใน scope เดิมเดิน scope version ต
   assert.notEqual(second.preference.seriesId, first.preference.seriesId);
 });
 
-test('active tenant มองไม่เห็น contact และ identity ของ tenant อื่น', async (t) => {
+test('an active tenant cannot see the contacts and identities of another tenant', async (t) => {
   const active = await fixture(t);
   const foreign = await fixture(t);
   const repository = new Cg3PreferenceRepository(active.application);
@@ -203,7 +203,7 @@ test('active tenant มองไม่เห็น contact และ identity �
   );
 });
 
-test('constraint failure กลาง transaction rollback preference, head, audit, outbox และ receipt พร้อมกัน', async (t) => {
+test('a constraint failure mid-transaction rolls back the preference, head, audit, outbox and receipt together', async (t) => {
   const f = await fixture(t);
   const repository = new Cg3PreferenceRepository(f.application);
 

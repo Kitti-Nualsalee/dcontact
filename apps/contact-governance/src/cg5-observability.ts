@@ -3,14 +3,14 @@ import { CG5_EVENT_METRICS_CONSUMER_GROUP } from './cg5-event-metrics-consumer.j
 import { PrismaCg5TenantConfigRepository } from './cg5-tenant-config-repository.js';
 
 /**
- * CG5.12 (#349): telemetry ของ projection, alert และ export ตาม `CG5-OB01`
+ * CG5.12 (#349): telemetry of projections, alerts and exports per `CG5-OB01`
  *
- * ใช้แบบเดียวกับ CG4.11: snapshot อ่านจากตารางใน transaction เดียวของ tenant (ไม่ใช่ counter ใน
- * memory ที่หายตอน restart) แล้วแปลงเป็น metric samples และ operational alerts. label มีเพียง
- * `tenant_id` กับ `source`/`state` ซึ่งเป็นค่าปิดชุด — ห้ามใส่ actor, reason หรือ exportId (`CG5-OB02`)
+ * Used the same way as CG4.11: the snapshot is read from the tables in a single tenant transaction (not an in-memory
+ * counter that is lost on restart) and converted into metric samples and operational alerts. The only labels are
+ * `tenant_id` and `source`/`state`, which are closed sets: never put in an actor, reason or exportId (`CG5-OB02`)
  *
- * operational alert ของไฟล์นี้แยกจาก anomaly rule ของ CG5.6: ตัวนี้บอกว่าระบบ CG5 เองป่วย ส่วน anomaly
- * บอกว่าพฤติกรรมการติดต่อของ tenant ผิดปกติ จึงใช้ prefix `GOVERNANCE_CG5_` ไม่ชนกับ rule code
+ * The operational alerts of this file are separate from the CG5.6 anomaly rules: this one says the CG5 system itself is unhealthy, while an anomaly
+ * says a tenant's contact behavior is abnormal, so it uses the prefix `GOVERNANCE_CG5_` to avoid colliding with rule codes
  */
 
 const READINESS_SOURCE_KEY = 'cg5.projection.readiness';
@@ -23,7 +23,7 @@ export interface Cg5ObservabilitySnapshot {
   projection: {
     readiness: string;
     lagSloSeconds: number;
-    /** อายุนับจากรอบประมวลผลล่าสุดของแต่ละแหล่ง — null คือยังไม่เคยรัน */
+    /** age since each source's latest processing run: null means it has never run */
     sources: ReadonlyArray<{ source: string; lastRunAgeSeconds: number | null }>;
     newestBucketAgeSeconds: number | null;
     activeScopePauses: number;
@@ -39,7 +39,7 @@ export interface Cg5ObservabilitySnapshot {
     auditEventsInWindow: number;
     downloadsInWindow: number;
   };
-  /** counter ของ process ที่ไม่มีแถวใน DB (เช่น ack conflict, cache fallback) — ผู้เรียกแนบมาเอง */
+  /** process counters with no DB row (e.g. ack conflict, cache fallback): attached by the caller */
   process?: Readonly<Record<string, number>>;
 }
 
@@ -247,7 +247,7 @@ export function evaluateCg5OperationalAlerts(
     snapshot.projection.readiness === 'FAILED' ? 1 : 0,
     0,
   );
-  // SLO ของ lag ตั้งราย tenant (`lagSloSeconds`) — แหล่งที่ไม่เคยรันเลยนับว่าเกินทันที
+  // the lag SLO is set per tenant (`lagSloSeconds`): a source that has never run counts as exceeding it immediately
   const runAges = snapshot.projection.sources.map(
     ({ lastRunAgeSeconds }) => lastRunAgeSeconds ?? Number.POSITIVE_INFINITY,
   );

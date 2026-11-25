@@ -36,7 +36,7 @@ async function fixture(t: TestContext) {
   return { owner, application, tenantId };
 }
 
-test('CG5.6 alert state, transition และ outbox ถูกเขียนครั้งเดียวโดยไม่แตะ Governance state', async (t) => {
+test('CG5.6 alert state, transition and outbox are written once without touching Governance state', async (t) => {
   const f = await fixture(t);
   const repository = new Cg5AlertRepository(
     f.application,
@@ -66,7 +66,7 @@ test('CG5.6 alert state, transition และ outbox ถูกเขียนค
   assert.equal(await f.owner.cg4ExceptionHead.count({ where: { tenantId: f.tenantId } }), 0);
 });
 
-test('CG5.6 ACK ใช้ optimistic concurrency และไม่สร้าง event เมื่อ version เก่า', async (t) => {
+test('CG5.6 ACK uses optimistic concurrency and creates no event for an old version', async (t) => {
   const f = await fixture(t);
   const repository = new Cg5AlertRepository(f.application);
   const alert = await repository.record({

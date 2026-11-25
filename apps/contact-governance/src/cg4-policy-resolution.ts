@@ -83,8 +83,8 @@ export function resolveCg4ActivePolicy(input: ResolveCg4ActivePolicyInput): Cg4P
       reason: 'GOVERNANCE_STATE_UNAVAILABLE',
       detail:
         first && second && cg4PolicyScopesAmbiguous(first.scopeKey, second.scopeKey)
-          ? `scope ${first.scopeKey} และ ${second.scopeKey} กำกวมที่ specificity เดียวกัน`
-          : 'มี active head มากกว่าหนึ่งตัวที่ specificity เดียวกัน',
+          ? `scope ${first.scopeKey} and ${second.scopeKey} are ambiguous at the same specificity`
+          : 'more than one active head at the same specificity',
     };
   }
 
@@ -97,7 +97,7 @@ export function resolveCg4ActivePolicy(input: ResolveCg4ActivePolicyInput): Cg4P
     return {
       outcome: 'FAIL_CLOSED',
       reason: 'GOVERNANCE_POLICY_VERSION_UNSUPPORTED',
-      detail: `head ใช้ schema ${head.schemaVersion}/${head.registryVersion}/${head.evaluatorVersion}`,
+      detail: `head uses schema ${head.schemaVersion}/${head.registryVersion}/${head.evaluatorVersion}`,
     };
   }
 
@@ -107,7 +107,7 @@ export function resolveCg4ActivePolicy(input: ResolveCg4ActivePolicyInput): Cg4P
     return {
       outcome: 'FAIL_CLOSED',
       reason: 'POLICY_ACTIVATION_PENDING',
-      detail: `scheduled activation ${head.nextActivationAt.toISOString()} ยังไม่ถูก activate`,
+      detail: `scheduled activation ${head.nextActivationAt.toISOString()} has not been activated`,
     };
   }
 

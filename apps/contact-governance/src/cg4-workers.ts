@@ -317,7 +317,7 @@ export class Cg4ExpirySweeper {
         // Expiry removes an override, so downstream must re-authorize queued work.
         restrictiveness: 'TIGHTENING',
       };
-      // CG4.8 (#191): event ใช้ version ของ contact stream ร่วมกับ CG3 (#179 §4)
+      // CG4.8 (#191): the event uses the contact stream version shared with CG3 (#179 §4)
       const streamVersion = await nextContactStreamVersion(transaction, {
         tenantId,
         contactId: revision.contactId,

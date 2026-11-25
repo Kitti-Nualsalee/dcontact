@@ -58,14 +58,14 @@ export interface ContactFactView {
   purpose: string;
   source: string;
   /**
-   * vocabulary ที่เก็บจริง — กว้างกว่า write input เพราะ S2 (#365) เพิ่ม PROVIDER_ACCEPTED ใน DB
-   * ก่อนที่ S2.2 จะเปิดให้ settle ผ่าน port; read path ต้องไม่ตีความแถวใหม่ผิดเป็นค่าเดิม
+   * the vocabulary actually stored: wider than the write input because S2 (#365) added PROVIDER_ACCEPTED to the DB
+   * before S2.2 opens settling through the port; the read path must not misread a new row as an old value
    */
   outcome: CgFactOutcome;
   occurredAt: string;
   correlationId: string;
   causationId?: string;
-  /** S2.2: มีเฉพาะ Touch ที่มาจาก explicit response — Attempt และ Touch ของ S1 ไม่มีทั้งคู่ */
+  /** S2.2: present only for a Touch that comes from an explicit response; S1 Attempts and Touches have neither */
   evidenceKind?: CgTouchEvidenceKind;
   responseEvidenceRef?: string;
   createdAt: string;
@@ -116,12 +116,12 @@ interface StoredFact {
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function nonEmpty(value: string, field: string): void {
-  if (value.trim().length === 0) throw new TypeError(`${field} ต้องเป็น string ที่ไม่ว่าง`);
+  if (value.trim().length === 0) throw new TypeError(`${field} must be a non-empty string`);
 }
 
 function timestamp(value: string, field: string): Date {
   const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) throw new TypeError(`${field} ต้องเป็น ISO-8601 timestamp`);
+  if (Number.isNaN(parsed.getTime())) throw new TypeError(`${field} must be an ISO-8601 timestamp`);
   return parsed;
 }
 
@@ -234,8 +234,8 @@ export class AttemptTouchRepository {
         include: { touch: true },
       });
       if (existing) {
-        // Touch ที่ correlate มาทีหลัง (มี evidence) ไม่ใช่ผลของ settle ใบนี้ จึงไม่นับเป็น
-        // canonical mismatch — ไม่งั้น replay ของ settle เดิมจะกลายเป็น conflict หลัง Touch มา
+        // a Touch correlated later (with evidence) is not the result of this settle, so it does not count as a
+        // canonical mismatch; otherwise a replay of the original settle would become a conflict after the Touch arrives
         const settlementTouch = existing.touch !== null && existing.touch.evidenceKind === null;
         if (!matchesCanonicalInput(existing, settlementTouch, input, occurredAt)) {
           throw new ReservationBindingError('IDEMPOTENCY_CONFLICT');
@@ -287,16 +287,16 @@ export class AttemptTouchRepository {
   }
 
   /**
-   * S2.2 (#362 §8): append Touch 1 ให้ accepted Attempt เดิมจาก explicit response เท่านั้น
+   * S2.2 (#362 §8): append Touch 1 to the original accepted Attempt from an explicit response only
    *
-   * ไม่แตะ reservation, ไม่แตะ Attempt และไม่เขียน `dl_*` ใด ๆ — correlation row เป็นของ Channels
+   * touches neither the reservation nor the Attempt and writes no `dl_*`: the correlation row belongs to Channels
    *
-   * ความปลอดภัยของ race มาจากฝั่ง database ไม่ใช่การเช็คในโค้ด: advisory xact lock ต่อ Attempt
-   * (row lock ใช้ไม่ได้เพราะ `dcontact_app` ไม่มีสิทธิ์ UPDATE บน cg_attempts ซึ่งเป็น append-only)
-   * บวก unique `cg_touches (tenant_id, attempt_id)` กับ partial unique
-   * `(tenant_id, response_evidence_ref)` ที่เป็นด่านสุดท้ายแม้ lock จะพลาด
+   * race safety comes from the database side, not a check in code: an advisory xact lock per Attempt
+   * (a row lock cannot be used because `dcontact_app` has no UPDATE privilege on cg_attempts, which is append-only)
+   * plus the unique `cg_touches (tenant_id, attempt_id)` and the partial unique
+   * `(tenant_id, response_evidence_ref)`, which are the last line of defense even if the lock misses
    */
-  /** S2.6b (#403): read-only; Attempt อื่นที่ไม่ใช่ acceptance ไม่ใช่เป้าของ Touch จึงไม่คืน */
+  /** S2.6b (#403): read-only; an Attempt other than an acceptance is not a Touch target, so it is not returned */
   async findAcceptedAttempt(input: {
     tenantId: TenantId;
     deliveryId: DeliveryId;
@@ -335,7 +335,7 @@ export class AttemptTouchRepository {
       throw new CorrelatedTouchError('TOUCH_EVIDENCE_KIND_UNSUPPORTED');
     }
     const occurredAt = timestamp(input.occurredAt, 'occurredAt');
-    // attemptId เป็น UUID ของ cg_attempts; ค่าที่ cast ไม่ได้คือ "ยังไม่มี Attempt" ไม่ใช่ error ของ DB
+    // attemptId is the UUID of cg_attempts; a value that cannot be cast means "no Attempt yet", not a DB error
     if (!UUID_PATTERN.test(input.attemptId)) throw new CorrelatedTouchError('ATTEMPT_NOT_FOUND');
 
     const persist = async (transactionClient: Prisma.TransactionClient) => {
@@ -355,7 +355,7 @@ export class AttemptTouchRepository {
       ) {
         throw new CorrelatedTouchError('TOUCH_BINDING_CONFLICT');
       }
-      // acceptance เท่านั้นที่รับ Touch ได้; DELIVERED/DELIVERY_FAILED/PROVIDER_REJECTED ไม่ใช่ (#361 §D)
+      // only an acceptance can take a Touch; DELIVERED/DELIVERY_FAILED/PROVIDER_REJECTED cannot (#361 §D)
       if (attempt.outcome !== 'PROVIDER_ACCEPTED') {
         throw new CorrelatedTouchError('ATTEMPT_NOT_ACCEPTED');
       }
@@ -377,7 +377,7 @@ export class AttemptTouchRepository {
             tenantId: attempt.tenantId,
             reservationId: attempt.reservationId,
             deliveryId: attempt.deliveryId,
-            // Touch อยู่กับ canonical outcome ใบเดิม; identity ของ response อยู่ที่ evidence ref
+            // the Touch stays with the original canonical outcome; the identity of the response lives in the evidence ref
             outcomeRef: attempt.outcomeRef,
             contactId: attempt.contactId,
             identityId: attempt.identityId,
@@ -394,7 +394,7 @@ export class AttemptTouchRepository {
         });
         return correlatedView(touch, input);
       } catch (error) {
-        // evidence ref เดิมผูกกับ Attempt อื่น หรือมีผู้ชนะ race นอก lock ของแถวนี้
+        // the original evidence ref is bound to another Attempt, or someone won a race outside this row's lock
         if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
           throw new CorrelatedTouchError('TOUCH_EVIDENCE_CONFLICT');
         }
@@ -413,11 +413,11 @@ export class AttemptTouchRepository {
   ): Promise<ContactFactHistory> {
     const limit = query.limit ?? 100;
     if (!Number.isInteger(limit) || limit < 1 || limit > 500) {
-      throw new RangeError('contact fact limit ต้องเป็น integer ระหว่าง 1 ถึง 500');
+      throw new RangeError('contact fact limit must be an integer between 1 and 500');
     }
     const from = query.from ? timestamp(query.from, 'from') : undefined;
     const to = query.to ? timestamp(query.to, 'to') : undefined;
-    if (from && to && from > to) throw new RangeError('from ต้องไม่อยู่หลัง to');
+    if (from && to && from > to) throw new RangeError('from must not be after to');
 
     const read = async (transactionClient: Prisma.TransactionClient) => {
       const where = {

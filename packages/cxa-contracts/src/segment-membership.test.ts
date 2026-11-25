@@ -56,7 +56,7 @@ const envelope: J3KafkaEnvelopeV2<SegmentMembershipChangePayloadV1> = {
   payload: entered,
 };
 
-test('รับ closed payload union ครบทั้งห้า membership change kinds', () => {
+test('accepts the full closed payload union of all five membership change kinds', () => {
   const changes: readonly SegmentMembershipChangePayloadV1[] = [
     entered,
     {
@@ -90,7 +90,7 @@ test('รับ closed payload union ครบทั้งห้า membership c
   }
 });
 
-test('ปฏิเสธ unknown field, raw attribute, PII-shaped reference และ contract version ที่ไม่รองรับ', () => {
+test('rejects an unknown field, a raw attribute, a PII-shaped reference and an unsupported contract version', () => {
   assert.throws(
     () => validateSegmentMembershipChangePayload({ ...entered, arbitrary: 'value' }),
     (error: unknown) =>
@@ -115,12 +115,9 @@ test('ปฏิเสธ unknown field, raw attribute, PII-shaped reference แ�
   );
 });
 
-test('บังคับ entry lineage และ monotonic correction revision', () => {
+test('enforces entry lineage and a monotonic correction revision', () => {
   const { entryId: _entryId, ...withoutEntry } = entered;
-  assert.throws(
-    () => validateSegmentMembershipChangePayload(withoutEntry),
-    /entryId.*จำเป็นต้องระบุ/,
-  );
+  assert.throws(() => validateSegmentMembershipChangePayload(withoutEntry), /entryId.*is required/);
   assert.throws(
     () =>
       validateSegmentMembershipChangePayload({
@@ -128,11 +125,11 @@ test('บังคับ entry lineage และ monotonic correction revision',
         changeKind: 'CORRECTED',
         supersedesRevision: entered.membershipRevision,
       }),
-    /supersedesRevision.*ต้องน้อยกว่า membershipRevision/,
+    /supersedesRevision.*must be less than the current membershipRevision/,
   );
 });
 
-test('canonical hash คงที่สำหรับ duplicate ผูก tenant และไม่ขึ้นกับ transport metadata', () => {
+test('the canonical hash is stable for a duplicate, binds the tenant and does not depend on transport metadata', () => {
   const tenantA = tenantId('tenant-a');
   const original = canonicalSegmentMembershipHash(tenantA, envelope.payload);
   const redeliveredEnvelope = {
@@ -165,7 +162,7 @@ test('canonical hash คงที่สำหรับ duplicate ผูก tenan
   );
 });
 
-test('Kafka V2 binding ใช้ membershipRevision และ logical contact:segment stream', () => {
+test('Kafka V2 binding uses membershipRevision and the logical contact:segment stream', () => {
   assert.deepEqual(assertSegmentMembershipChangeEnvelope(envelope), envelope);
   assert.throws(
     () => assertSegmentMembershipChangeEnvelope({ ...envelope, aggregateVersion: 8 }),
@@ -182,7 +179,7 @@ test('Kafka V2 binding ใช้ membershipRevision และ logical contact:se
   );
 });
 
-test('read-port inputs ปิด caller-supplied snapshot, survivor และ team authority', () => {
+test('read-port inputs close off a caller-supplied snapshot, survivor and team authority', () => {
   const resolveInput = {
     tenantId: 'tenant-a',
     contactId: 'contact-a',
@@ -221,7 +218,7 @@ test('read-port inputs ปิด caller-supplied snapshot, survivor และ te
   );
 });
 
-test('CustomerSegmentMembershipReader ให้ผล closed และไม่เปลี่ยน CustomerContextReader เดิม', async () => {
+test('CustomerSegmentMembershipReader gives a closed result and does not change the original CustomerContextReader', async () => {
   const legacyReader: CustomerContextReader = {
     async resolveCurrentContext(input) {
       return {
@@ -280,7 +277,7 @@ test('CustomerSegmentMembershipReader ให้ผล closed และไม่�
   }
 });
 
-test('J3 error mapping คงที่และ business result ไม่ปะปนกับ transport error', () => {
+test('J3 error mapping is stable and a business result is not mixed with a transport error', () => {
   assert.equal(J3_ERROR_CONTRACT.MEMBERSHIP_REVISION_GAP.retryDisposition, 'RECONCILE');
   assert.equal(J3_ERROR_CONTRACT.EVENT_HASH_CONFLICT.retryDisposition, 'QUARANTINE');
   assert.equal(J3_ERROR_CONTRACT.CUSTOMER_360_UNAVAILABLE.retryDisposition, 'RETRY_SAME_IDENTITY');

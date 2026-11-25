@@ -1,4 +1,4 @@
-/** Owner: Contact Governance — สัญญาข้าม domain; ไม่มี database หรือ transport dependency */
+/** Owner: Contact Governance: a cross-domain contract; no database or transport dependency */
 import type {
   ActionKey,
   ContactId,
@@ -27,9 +27,9 @@ export type ContactPolicyGate =
   | 'APPROVED_EXCEPTION'
   | 'SENDER_IDENTITY'
   | 'KILL_SWITCH'
-  /** CG4.10 (#193): head-based policy reader ของ CG4 ตรวจ policy ไม่ได้และ fail closed */
+  /** CG4.10 (#193): the CG4 head-based policy reader cannot check the policy and fails closed */
   | 'POLICY_HEAD'
-  /** CG4.10 (#193): shadow digest ของ CG3 กับ CG4 ต่างกันบน pilot scope */
+  /** CG4.10 (#193): the CG3 and CG4 shadow digests differ on the pilot scope */
   | 'MIGRATION_SHADOW'
   | 'RESERVATION';
 
@@ -57,7 +57,7 @@ export class InvalidReservationTransitionError extends Error {
 
   constructor(state: ReservationState, command: ReservationCommand) {
     super(
-      `ไม่รองรับ reservation transition: ${state} -> ${typeof command === 'string' ? command : command.type}`,
+      `Unsupported reservation transition: ${state} -> ${typeof command === 'string' ? command : command.type}`,
     );
     this.name = 'InvalidReservationTransitionError';
   }
@@ -67,7 +67,7 @@ export class RefundNotAllowedError extends Error {
   readonly code = 'REFUND_NOT_ALLOWED';
 
   constructor(readonly outcome: RefundReservationCommand['outcome']) {
-    super(`ไม่อนุญาตให้ refund reservation สำหรับ outcome ${outcome}`);
+    super(`Refunding a reservation is not allowed for outcome ${outcome}`);
     this.name = 'RefundNotAllowedError';
   }
 }
@@ -80,9 +80,9 @@ interface AuthorizationInputBase {
   actionKey: string;
   policyVersion: number;
   teamId?: string;
-  /** CG3: dimension เพิ่มเติมสำหรับ preference/policy scope matching */
+  /** CG3: extra dimensions for preference/policy scope matching */
   contactKind?: string;
-  /** CG3: ยังไม่ผ่าน authority check เต็มรูปแบบ (S1.6); ใช้เตรียม trace/contract เท่านั้น */
+  /** CG3: has not passed the full authority check (S1.6); used only to prepare trace/contract */
   senderIdentityId?: string;
 }
 
@@ -96,7 +96,7 @@ export type AuthorizeAndReserveInput = AuthorizationInputBase &
     | {
         contactId?: never;
         identityId?: never;
-        /** IDENTITY_MAPPING_PENDING: Cus360 C3 (#793) identity ยังไม่ import เป็น contact point เกินช่วง retry */
+        /** IDENTITY_MAPPING_PENDING: Cus360 C3 (#793) the identity has not been imported as a contact point beyond the retry window */
         identityResolution: 'AMBIGUOUS' | 'NOT_FOUND' | 'IDENTITY_MAPPING_PENDING';
       }
   );
@@ -109,27 +109,27 @@ export interface AuthorizationOutcome {
   trace: ContactPolicyTraceEntry[];
   reservationId?: string;
   reservationExpiresAt?: string;
-  /** CG3: canonical CgContactStateHead.aggregateVersion ที่ใช้ประเมิน ณ เวลา decide */
+  /** CG3: the canonical CgContactStateHead.aggregateVersion used for evaluation at decide time */
   aggregateVersion?: number;
-  /** CG3: version ของ preference record ที่ชนะ (ถ้ามี) */
+  /** CG3: version of the winning preference record (if any) */
   preferenceVersion?: number;
-  /** CG3: instant แรกที่ผ่านทุก temporal gate ที่เกี่ยวข้อง; มีเฉพาะ DEFER ที่คำนวณได้ */
+  /** CG3: the first instant that passes every relevant temporal gate; present only for a DEFER that can be computed */
   nextEligibleAt?: string;
-  /** CG3: แหล่ง timezone ที่ใช้ประเมิน (customer-explicit/customer-360/tenant-default) */
+  /** CG3: the timezone source used for evaluation (customer-explicit/customer-360/tenant-default) */
   timezoneSource?: string;
-  /** CG3: scope ของ preference/policy ที่ match แบบ PII-free */
+  /** CG3: PII-free scope of the matching preference/policy */
   matchedScope?: Record<string, string | null>;
   matchedWindowRef?: string;
   exceptionMode?: 'NO_OVERRIDE' | 'SCOPED_OVERRIDE' | 'TIME_POLICY_OVERRIDE';
   exceptionRef?: string;
-  /** CG4: digest ของ immutable facts/policy/exception ที่ decision ใช้; เพิ่มแบบ additive เพื่อ replay */
+  /** CG4: digest of the immutable facts/policy/exception the decision used; added additively for replay */
   cg4?: Cg4DecisionTracePinsV1;
 }
 
 /**
- * S1.5 ตรวจ canonical แบบ read-only สำหรับ action ที่มี reservation เดิมแล้ว
- * ห้ามสร้าง decision, reservation, Attempt หรือ Touch ใหม่; Journey เป็นผู้เก็บ
- * ผล consumer แบบ at-least-once รอบการเรียกนี้
+ * S1.5 read-only canonical check for an action that already has a reservation
+ * must not create a new decision, reservation, Attempt or Touch; Journey keeps
+ * the at-least-once consumer result of this call
  */
 export interface RevalidateAuthorizedActionInput {
   tenantId: TenantId;
@@ -139,11 +139,11 @@ export interface RevalidateAuthorizedActionInput {
   sourceAggregateType: 'CONTACT' | 'POLICY';
   sourceAggregateId: string;
   sourceAggregateVersion: number;
-  /** context ประวัติที่หายต้อง REVIEW แบบ fail-closed ห้ามอนุมานเป็น ALLOW */
+  /** missing history context must REVIEW fail-closed; never infer ALLOW */
   contactKind?: string;
   /**
-   * CG4.8 (#191) additive: CG4 policy/kill event ใช้ scope head หรือ kill switch เป็น version
-   * authority ไม่ใช่ CG3 policy version; ไม่ระบุ = พฤติกรรม CG3 เดิม
+   * CG4.8 (#191) additive: CG4 policy/kill events use the scope head or kill switch as the version
+   * authority, not the CG3 policy version; not specified = the original CG3 behavior
    */
   sourceContract?: 'CG3' | 'CG4';
   sourceEventType?: string;
@@ -156,7 +156,7 @@ export interface RevalidateAuthorizedActionOutcome {
   observedAggregateVersion: number;
   observedPolicyVersion?: number;
   nextEligibleAt?: string;
-  /** digest ทึบของ facts ที่ประเมินแล้ว ไม่มี PII หรือ policy body */
+  /** opaque digest of the evaluated facts, with no PII or policy body */
   decisionDigest: string;
 }
 
@@ -179,7 +179,7 @@ export class IdempotencyConflictError extends Error {
   readonly code = 'IDEMPOTENCY_CONFLICT';
 
   constructor(readonly actionKey: string) {
-    super(`actionKey ถูกใช้กับ canonical input อื่นแล้ว: ${actionKey}`);
+    super(`actionKey was already used with different canonical input: ${actionKey}`);
     this.name = 'IdempotencyConflictError';
   }
 }
@@ -188,7 +188,7 @@ export class ReservationNotFoundError extends Error {
   readonly code = 'RESERVATION_NOT_FOUND';
 
   constructor(readonly reservationId: string) {
-    super(`ไม่พบ reservation ใน active tenant: ${reservationId}`);
+    super(`Reservation not found in the active tenant: ${reservationId}`);
     this.name = 'ReservationNotFoundError';
   }
 }
@@ -201,12 +201,12 @@ export class ReservationNotUsableError extends Error {
     readonly code: ReservationNotUsableCode,
     readonly reservationId: string,
   ) {
-    super(`ไม่สามารถใช้ reservation สำหรับ delivery: ${code}`);
+    super(`Cannot use the reservation for delivery: ${code}`);
     this.name = 'ReservationNotUsableError';
   }
 }
 
-/** Port แคบสำหรับ Foundation; คง signature เดิมเพื่อ expand โดยไม่เปลี่ยน behavior */
+/** Narrow port for the Foundation; keeps the original signature so it can expand without changing behavior */
 export interface ContactAuthorizationPort<TContext = undefined> {
   authorizeAndReserve(
     tenantId: string,
@@ -215,7 +215,7 @@ export interface ContactAuthorizationPort<TContext = undefined> {
   ): Promise<AuthorizationOutcome>;
 }
 
-/** UNKNOWN_RECONCILING เป็น delivery settlement status ไม่ใช่ reservation state ในฐานข้อมูล */
+/** UNKNOWN_RECONCILING is a delivery settlement status, not a reservation state in the database */
 export type DeliverySettlementStatus =
   'UNCLAIMED' | 'CLAIMED' | 'UNKNOWN_RECONCILING' | 'ACCEPTED' | 'SETTLED';
 
@@ -237,7 +237,7 @@ export interface DeliveryBinding {
 
 export interface ClaimReservationForDeliveryInput
   extends ReservationDeliveryCommand, DeliveryBinding {
-  /** Lease ของ worker ก่อน provider I/O; ต้องไม่เกิน reservation expiry */
+  /** Worker lease before provider I/O; must not exceed the reservation expiry */
   leaseExpiresAt: string;
 }
 
@@ -260,16 +260,16 @@ export interface ConfirmProviderAcceptanceInput extends BoundDeliveryCommand {
 }
 
 export interface ReleaseBeforeSubmitInput extends ReservationDeliveryCommand {
-  /** ก่อน claim ไม่มี deliveryId; เมื่อ claim แล้วต้องระบุ binding เดิม */
+  /** Before the claim there is no deliveryId; once claimed it must specify the original binding */
   deliveryId?: DeliveryId;
   reason: 'CANCELLED_BEFORE_SUBMIT' | 'LEASE_EXPIRED';
 }
 
 /**
- * Adapter ส่ง fact; countsAsAttempt/countsAsTouch และ refund เป็น authority ของ Governance
+ * The adapter sends facts; countsAsAttempt/countsAsTouch and refund are Governance's authority
  *
- * S2 (#361/#362 §6): `PROVIDER_ACCEPTED` คือ provider รับ request แล้ว (LINE `2xx/409`) —
- * ไม่ใช่ `DELIVERED` และไม่ใช่ Touch. Channel ที่ไม่มีหลักฐาน delivery/read ห้าม emit `DELIVERED`
+ * S2 (#361/#362 §6): `PROVIDER_ACCEPTED` means the provider accepted the request (LINE `2xx/409`);
+ * it is not `DELIVERED` and not a Touch. A channel with no delivery/read evidence must not emit `DELIVERED`
  */
 export type NormalizedDeliveryOutcome =
   | 'UNKNOWN_RECONCILING'
@@ -279,9 +279,9 @@ export type NormalizedDeliveryOutcome =
   | 'DELIVERY_FAILED';
 
 /**
- * ขอบเขตของ provider rejection — fact ที่ adapter รายงาน ไม่ใช่ Boolean ที่ตัดสินเอง (#361 §B)
- * `RECIPIENT` = ปลายทางเฉพาะรายถูกปฏิเสธ → Attempt 1
- * `OPERATIONAL` = auth/schema/quota/rate ของระบบ → Attempt 0 (ไม่แตะผู้รับ)
+ * Scope of a provider rejection: a fact the adapter reports, not a Boolean it decides itself (#361 §B)
+ * `RECIPIENT` = the specific destination was rejected -> Attempt 1
+ * `OPERATIONAL` = system auth/schema/quota/rate -> Attempt 0 (the recipient is untouched)
  */
 export type DeliveryRejectionScope = 'RECIPIENT' | 'OPERATIONAL';
 
@@ -290,8 +290,8 @@ export interface SettleDeliveryInput extends BoundDeliveryCommand {
   outcomeRef: OutcomeRef;
   outcome: NormalizedDeliveryOutcome;
   /**
-   * บังคับสำหรับ `PROVIDER_REJECTED` ของ channel ที่แยก scope ได้ (LINE ตาม #357 §5)
-   * ไม่ระบุ = พฤติกรรม S1 เดิมคือ Attempt 1; adapter ห้ามส่ง scope กับ outcome อื่น
+   * required for `PROVIDER_REJECTED` of a channel that can separate scopes (LINE per #357 §5)
+   * not specified = the original S1 behavior, which is Attempt 1; the adapter must not send a scope with any other outcome
    */
   rejectionScope?: DeliveryRejectionScope;
   occurredAt: string;
@@ -303,7 +303,7 @@ export interface ReservationSettlementView {
   deliveryId?: DeliveryId;
   state: ReservationState;
   status: DeliverySettlementStatus;
-  /** Snapshot ของ command; duplicate เก่าไม่ใช่ lease authority สำหรับส่งซ้ำ */
+  /** Snapshot of the command; an old duplicate is not lease authority to resend */
   leaseVersion?: number;
   leaseExpiresAt?: string;
 }
@@ -320,26 +320,26 @@ export type ReservationBindingErrorCode =
 
 export class ReservationBindingError extends Error {
   constructor(readonly code: ReservationBindingErrorCode) {
-    super(`ไม่สามารถเปลี่ยน delivery binding: ${code}`);
+    super(`Cannot change the delivery binding: ${code}`);
     this.name = 'ReservationBindingError';
   }
 }
 
 /**
- * Owner: Contact Governance; full port ของ E0 ยังไม่มี production implementation
- * ทุก operation ต้อง atomic ภายใน tenant และ fail closed เมื่อ binding ไม่ตรง
- * Duplicate canonical input คืนผลเดิม; correlationId เป็น trace ไม่ใช่ idempotency identity
- * Claim เริ่ม leaseVersion=1; renewal ใช้ CAS version และต่อได้ก่อน lease หมด/ก่อน submission เท่านั้น
- * beginProviderSubmission ต้อง persist barrier ก่อน provider I/O; หลัง barrier ถือว่าอาจส่งแล้ว
- * Barrier ใช้ UNKNOWN_RECONCILING โดยยังไม่ CONFIRMED; lease/TTL ห้ามปล่อยสิทธิ์หลัง barrier
- * Confirm/settle รับผลได้เฉพาะ binding/request key ที่ begin แล้ว แม้ lease หมดระหว่างรอผล
- * Duplicate response เป็น snapshot ของ command เดิม ไม่อนุญาต provider I/O ซ้ำ
- * Adapter ต้องถือ durable outbox ownership และใช้ provider-specific idempotency/reconcile gate
- * หลัง barrier ห้าม release/refund/blind retry จาก timeout; terminal refund ยังเป็น Governance policy
- * Terminal outcome แรกชนะ; late outcome ไม่ย้อน state และไม่สร้าง Attempt/Touch ซ้ำ
- * Consumer ห้ามใช้ port นี้เป็นหลักฐานว่า CG2 หรือ provider traffic พร้อมแล้ว
- * S2 (#362 §4/§8): Touch ที่มาจาก explicit response เป็น operation แยกบน
- * `ContactTouchCorrelationPort.recordCorrelatedTouch` — settle ไม่เคยสร้าง Touch จาก acceptance
+ * Owner: Contact Governance; the full E0 port has no production implementation yet
+ * Every operation must be atomic within a tenant and fail closed when the binding does not match
+ * A duplicate canonical input returns the original result; correlationId is a trace, not an idempotency identity
+ * A claim starts at leaseVersion=1; renewal uses CAS on the version and is allowed only before the lease expires / before submission
+ * beginProviderSubmission must persist the barrier before provider I/O; after the barrier it is considered possibly sent
+ * The barrier uses UNKNOWN_RECONCILING without yet being CONFIRMED; the lease/TTL must not release the entitlement after the barrier
+ * Confirm/settle accept a result only for the binding/request key that was begun, even if the lease expires while waiting for the result
+ * A duplicate response is a snapshot of the original command and does not allow provider I/O again
+ * The adapter must hold durable outbox ownership and use a provider-specific idempotency/reconcile gate
+ * After the barrier, never release/refund/blind retry on timeout; a terminal refund remains Governance policy
+ * The first terminal outcome wins; a late outcome does not revert state and does not create a duplicate Attempt/Touch
+ * A consumer must not use this port as evidence that CG2 or provider traffic is ready
+ * S2 (#362 §4/§8): a Touch from an explicit response is a separate operation on
+ * `ContactTouchCorrelationPort.recordCorrelatedTouch`; settle never creates a Touch from acceptance
  */
 export interface ContactGovernancePort extends ContactAuthorizationPort {
   authorizeAndReserve(

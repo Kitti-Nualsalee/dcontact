@@ -69,7 +69,7 @@ async function fixture(t: TestContext) {
   return { owner, application, tenantId, job, now };
 }
 
-test('CG5.8 worker เขียน manifest ที่ hash ตรงกับไฟล์ canonical', async (t) => {
+test('the CG5.8 worker writes a manifest whose hash matches the canonical file', async (t) => {
   const f = await fixture(t);
   const storage = new MemoryStorage();
   await new Cg5ExportWorker(f.application, storage, reader, f.now).run(f.tenantId, f.job.exportId);
@@ -90,7 +90,7 @@ test('CG5.8 worker เขียน manifest ที่ hash ตรงกับไ
     'READY',
   );
 });
-test('CG5-F06 export ครบ 4 ชุดจาก canonical พร้อม manifest ที่ hash และ rowCount ตรวจได้', async (t) => {
+test('CG5-F06 export covers all 4 sets from canonical with a manifest whose hash and rowCount can be verified', async (t) => {
   const f = await fixture(t);
   const at = new Date('2026-09-01T06:00:00.000Z');
   await f.owner.cgDecisionLog.create({
@@ -200,7 +200,7 @@ test('CG5-F06 export ครบ 4 ชุดจาก canonical พร้อม ma
   );
 });
 
-test('CG5.8 worker ล้าง object ที่เขียนก่อน failure แล้ว mark FAILED', async (t) => {
+test('the CG5.8 worker cleans up the object written before a failure, then marks FAILED', async (t) => {
   const f = await fixture(t);
   const storage = new MemoryStorage();
   storage.failAfter = 1;

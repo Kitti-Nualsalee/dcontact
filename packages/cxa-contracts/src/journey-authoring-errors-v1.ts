@@ -1,13 +1,13 @@
 /**
- * J5.1 (#339): error และ diagnostic registry ของ Journey authoring/template (Phase Contract #334 §10,
+ * J5.1 (#339): error and diagnostic registry for Journey authoring/template (Phase Contract #334 §10,
  * Phase Spec #337 §5)
  *
- * contract ล้วน ไม่มี I/O — ทุก code เป็นชุดปิด เพื่อให้ validator, API, Console และ acceptance
- * อ้างชุดเดียวกัน API ไม่ใช้ข้อความภาษาใด ๆ เป็น contract: ส่งเพียง `code`, `messageKey` และ
- * `safeParams` ที่ไม่มี PII/ค่า parameter ของ template
+ * a pure contract with no I/O: every code is a closed set so the validator, API, Console and acceptance
+ * reference the same one. The API does not use text in any language as a contract: it sends only `code`, `messageKey` and
+ * `safeParams`, which carry no PII/template parameter values
  */
 
-/** code เดิมของ J1–J3 ที่ต้องคงความหมายเดิมทุกตัว (#329 §9) */
+/** the original J1-J3 codes, each of which must keep its original meaning (#329 §9) */
 export const JOURNEY_LEGACY_ERROR_CODES = Object.freeze([
   'DEFINITION_INVALID',
   'IDEMPOTENCY_CONFLICT',
@@ -18,7 +18,7 @@ export const JOURNEY_LEGACY_ERROR_CODES = Object.freeze([
   'JOURNEY_LIFECYCLE_CONFLICT',
 ] as const);
 
-/** missing/foreign/hidden ใช้ generic not-found ชุดเดียว เพื่อไม่เผยว่ามี resource ใน tenant อื่น */
+/** missing/foreign/hidden use a single generic not-found, so as not to reveal that a resource exists in another tenant */
 export const JOURNEY_AUTHORING_NOT_FOUND_CODES = Object.freeze([
   'JOURNEY_NOT_FOUND',
   'TEMPLATE_NOT_FOUND',
@@ -79,8 +79,8 @@ export const JOURNEY_TEMPLATE_ERROR_CODES = Object.freeze([
 ] as const);
 
 /**
- * code ระดับ transport ที่ Phase Spec §5 ต้องใช้ตอบ HTTP แต่ไม่ใช่ diagnostic ของ graph:
- * publish ที่ยังไม่รู้ผล, dependency ล่ม, request ผิดรูป และ side-effect barrier ของ simulator
+ * transport-level codes that Phase Spec §5 needs for HTTP responses but that are not graph diagnostics:
+ * a publish with unknown result, a dependency outage, a malformed request and the simulator's side-effect barrier
  */
 export const JOURNEY_AUTHORING_TRANSPORT_ERROR_CODES = Object.freeze([
   'PUBLISH_OUTCOME_UNKNOWN',
@@ -108,9 +108,9 @@ export function isJourneyAuthoringErrorCode(value: unknown): value is JourneyAut
 }
 
 /**
- * HTTP mapping ตาม Phase Spec §5: validation/diagnostics `422`; auth `403`; generic not found
- * `404`; stale/CAS/lifecycle/review/idempotency conflict `409`; publish ที่ยังไม่รู้ผล `202`;
- * dependency ล่ม `503`; body/header ผิดรูป `400`
+ * HTTP mapping per Phase Spec §5: validation/diagnostics `422`; auth `403`; generic not found
+ * `404`; stale/CAS/lifecycle/review/idempotency conflict `409`; a publish with unknown result `202`;
+ * dependency outage `503`; malformed body/header `400`
  */
 export const JOURNEY_AUTHORING_HTTP_STATUS = Object.freeze({
   DEFINITION_INVALID: 422,
@@ -183,7 +183,7 @@ export const JOURNEY_AUTHORING_HTTP_STATUS = Object.freeze({
 export const JOURNEY_DIAGNOSTIC_SEVERITIES = Object.freeze(['ERROR', 'WARNING'] as const);
 export type JourneyDiagnosticSeverity = (typeof JOURNEY_DIAGNOSTIC_SEVERITIES)[number];
 
-/** ลำดับของ stage คือลำดับของ pipeline — ใช้ตัดสินลำดับ diagnostic ด้วย */
+/** the stage order is the pipeline order: also used to decide the diagnostic order */
 export const JOURNEY_DIAGNOSTIC_STAGES = Object.freeze([
   'AUTHORING',
   'COMPILE',
@@ -202,7 +202,7 @@ export interface JourneyDiagnosticPathV1 {
   readonly templateNodeKey?: string;
 }
 
-/** ค่าใน safeParams เป็น scalar ที่ไม่ใช่ค่าจากลูกค้าหรือ parameter value ของ template เท่านั้น */
+/** values in safeParams are scalars only, and are not customer values or template parameter values */
 export type JourneySafeParams = Readonly<Record<string, string | number | boolean>>;
 
 export interface JourneyDiagnosticV1 {
@@ -212,7 +212,7 @@ export interface JourneyDiagnosticV1 {
   readonly path?: JourneyDiagnosticPathV1;
   readonly messageKey: string;
   readonly safeParams?: JourneySafeParams;
-  /** reason code เดิมของ J1–J3 เมื่อ diagnostic นี้มาจาก runtime validator เดิม */
+  /** the original J1-J3 reason code when this diagnostic comes from the original runtime validator */
   readonly legacyReasonCode?: string;
 }
 
@@ -227,8 +227,8 @@ const rank = <T extends string>(order: readonly T[], value: T) => order.indexOf(
 const text = (value: string | undefined) => value ?? '';
 
 /**
- * ลำดับตาม Phase Spec §4: severity → stage → nodeId → edgeId → portId → field → code
- * ค่าที่ไม่มีเรียงก่อนค่าที่มี เพื่อให้ diagnostic ระดับเอกสารขึ้นก่อนระดับ node
+ * order per Phase Spec §4: severity -> stage -> nodeId -> edgeId -> portId -> field -> code
+ * a missing value sorts before a present one, so document-level diagnostics come before node-level ones
  */
 export function compareJourneyDiagnostics(
   left: JourneyDiagnosticV1,
@@ -259,7 +259,7 @@ export function sortJourneyDiagnostics(
   return [...diagnostics].sort(compareJourneyDiagnostics);
 }
 
-/** publish ถูก block เมื่อมี ERROR อย่างน้อยหนึ่งรายการเท่านั้น (Phase Contract §10) */
+/** a publish is blocked only when there is at least one ERROR (Phase Contract §10) */
 export function journeyDiagnosticsBlockPublish(diagnostics: readonly JourneyDiagnosticV1[]) {
   return diagnostics.some((diagnostic) => diagnostic.severity === 'ERROR');
 }

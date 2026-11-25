@@ -37,7 +37,7 @@ export function assertTeamSegmentScopeChangedEnvelope(
   value: unknown,
 ): TeamSegmentScopeChangedEnvelopeV2 {
   if (!value || typeof value !== 'object' || Array.isArray(value))
-    throw new TypeError('IAM event ต้องเป็น object');
+    throw new TypeError('IAM event must be an object');
   const event = value as Record<string, unknown>;
   const payload = event.payload as Record<string, unknown> | undefined;
   if (
@@ -59,6 +59,6 @@ export function assertTeamSegmentScopeChangedEnvelope(
     typeof event.occurredAt !== 'string' ||
     typeof event.correlationId !== 'string'
   )
-    throw new TypeError('IAM team scope event ไม่ผ่าน closed contract');
+    throw new TypeError('IAM team scope event does not satisfy the closed contract');
   return event as unknown as TeamSegmentScopeChangedEnvelopeV2;
 }

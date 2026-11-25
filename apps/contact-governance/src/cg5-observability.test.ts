@@ -45,7 +45,7 @@ function snapshot(
   };
 }
 
-test('CG5-OB01 metric samples ครอบ projection, alert และ export ทุกสถานะ', () => {
+test('CG5-OB01 metric samples cover projection, alert and export in every state', () => {
   const samples = cg5MetricSamples(snapshot({ process: { 'ack.conflict': 3 } }));
   const value = (name: string, labels: Record<string, string> = {}) =>
     samples.find(
@@ -68,7 +68,7 @@ test('CG5-OB01 metric samples ครอบ projection, alert และ export �
   assert.equal(value('cg5_process_ack_conflict'), 3);
 });
 
-test('CG5-OB02 label ของ telemetry มีแค่ tenant และค่าปิดชุด ไม่มี actor/reason/export id', () => {
+test('CG5-OB02 the telemetry labels are only the tenant and a closed set, with no actor/reason/export id', () => {
   const allowed = new Set(['tenant_id', 'source', 'state']);
   for (const sample of cg5MetricSamples(snapshot())) {
     assert.match(sample.name, /^cg5_[a-z0-9_]+$/);
@@ -77,11 +77,11 @@ test('CG5-OB02 label ของ telemetry มีแค่ tenant และค่�
   }
 });
 
-test('CG5-OB01 ระบบปกติไม่มี operational alert', () => {
+test('CG5-OB01 a normal system has no operational alert', () => {
   assert.deepEqual(evaluateCg5OperationalAlerts(snapshot()), []);
 });
 
-test('CG5-OB01 lag เทียบ SLO ราย tenant และแหล่งที่ไม่เคยรันถือว่าเกิน', () => {
+test('CG5-OB01 lag is compared with the per-tenant SLO, and a source that has never run counts as exceeding it', () => {
   const codes = (value: Cg5ObservabilitySnapshot) =>
     evaluateCg5OperationalAlerts(value).map(({ code, severity }) => `${code}:${severity}`);
   assert.deepEqual(
@@ -113,7 +113,7 @@ test('CG5-OB01 lag เทียบ SLO ราย tenant และแหล่ง
   );
 });
 
-test('CG5-OB01 projection ล้ม, scope pause ค้าง และ export ล้ม/ค้าง ถูกเตือน', () => {
+test('CG5-OB01 a failed projection, a stuck scope pause and a failed/stuck export raise a warning', () => {
   const alerts = evaluateCg5OperationalAlerts(
     snapshot({
       projection: {

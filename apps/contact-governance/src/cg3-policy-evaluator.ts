@@ -8,9 +8,9 @@ import type { LocalTimeWindow } from './cg3-persistence.js';
 import { resolveCg4ExceptionCoverage, type Cg4ExceptionFacts } from './cg4-exception-evaluation.js';
 
 /**
- * Pure, deterministic CG3 gate evaluator ตาม decision #101/#98 ของ
- * "แผนที่ Wayfinder: S1 — Safe delivery" (#97). ไม่มี I/O; caller (service) โหลด facts
- * จาก database ก่อนแล้วส่งเข้ามาเป็น input ล้วน ๆ เพื่อให้ทดสอบและ replay ได้แบบ deterministic
+ * Pure, deterministic CG3 gate evaluator per decisions #101/#98 of the
+ * "Wayfinder map: S1 - Safe delivery" (#97). No I/O; the caller (service) loads the facts
+ * from the database first and passes them in as pure input so it can be tested and replayed deterministically
  */
 
 export type Cg3PreferenceDecision = 'ALLOW' | 'BLOCK' | 'DEFER';
@@ -39,7 +39,7 @@ export interface Cg3PolicyFacts {
   timezoneFallback: string | null;
   quietHours: LocalTimeWindow[];
   callbackMode: Cg3CallbackMode;
-  /** ชื่อ reason ของ temporal rule ที่ policy นี้อนุญาตให้ callback exception override ได้ */
+  /** names of the temporal-rule reasons that this policy lets a callback exception override */
   overridableRules: string[];
   holidays: Cg3HolidayEntry[];
 }
@@ -60,7 +60,7 @@ export interface Cg3EvaluationInput {
   purpose: string;
   contactKind?: string;
   senderIdentityId?: string;
-  /** ลำดับ timezone authority: customer-explicit -> Customer 360 ที่ verified -> tenant default */
+  /** timezone authority order: customer-explicit -> verified Customer 360 -> tenant default */
   customerExplicitTimezone?: string | null;
   customer360Timezone?: string | null;
   tenantDefaultTimezone?: string | null;
@@ -76,7 +76,7 @@ export interface Cg3EvaluationInput {
 
 export interface Cg3GateOutcome {
   trace: ContactPolicyTraceEntry[];
-  /** undefined = ผ่านทุก CG3 gate แล้ว (caller ประกาศ ALLOW/POLICY_PASSED เอง) */
+  /** undefined = every CG3 gate passed (the caller declares ALLOW/POLICY_PASSED itself) */
   decision?: ContactDecision;
   reasonCode?: string;
   preferenceVersion?: number;
@@ -86,9 +86,9 @@ export interface Cg3GateOutcome {
   matchedWindowRef?: string;
   exceptionMode?: Cg3CallbackMode;
   exceptionRef?: string;
-  /** ถ้ามี callback ที่ valid และถูกใช้ override จริง ให้ service consume มันแบบ atomic */
+  /** if a valid callback was really used to override, the service consumes it atomically */
   consumedCallbackRequestId?: string;
-  /** CG4.4 (#187): exception revision ที่ยก provisional failure จริง สำหรับ pin ใน decision trace */
+  /** CG4.4 (#187): the exception revision that really lifted the provisional failure, for pinning in the decision trace */
   appliedExceptions?: Cg4AppliedExceptionPin[];
 }
 
@@ -139,7 +139,7 @@ const DECISION_RESTRICTIVENESS: Record<Cg3PreferenceDecision, number> = {
   ALLOW: 2,
 };
 
-/** subset-containment specificity + restrictive tie-break (BLOCK > DEFER > ALLOW) ตาม #101 §1 */
+/** subset-containment specificity + restrictive tie-break (BLOCK > DEFER > ALLOW) per #101 §1 */
 export function resolveEffectivePreference(
   candidates: readonly Cg3PreferenceCandidate[],
   input: Cg3EvaluationInput,
@@ -216,7 +216,7 @@ function zonedPartsAt(instant: Date, timeZone: string): ZonedParts {
   };
 }
 
-/** แปลง wall-clock ใน IANA timezone กลับเป็น UTC instant ด้วย fixed-point correction (พอสำหรับ DST) */
+/** convert a wall-clock time in an IANA timezone back to a UTC instant with fixed-point correction (enough for DST) */
 function zonedToUtc(
   year: number,
   month: number,
@@ -271,7 +271,7 @@ export interface TemporalEvaluation {
   matchedWindowRef?: string;
 }
 
-/** ประเมิน ณ จุดเวลาเดียว: holiday > quiet hours > preferred windows (ตามลำดับความจำเพาะ) */
+/** evaluate at a single point in time: holiday > quiet hours > preferred windows (in order of specificity) */
 function evaluateInstant(
   parts: ZonedParts,
   preferredWindows: readonly LocalTimeWindow[],
@@ -316,7 +316,7 @@ function evaluateInstant(
 const NEXT_ELIGIBLE_MAX_LOOKAHEAD_DAYS = 30;
 const NEXT_ELIGIBLE_STEP_MINUTES = 5;
 
-/** สแกนไปข้างหน้าแบบ bounded เพื่อหา instant แรกที่ผ่านทุก temporal gate; undefined ถ้าไม่พบภายใน lookahead */
+/** bounded forward scan to find the first instant that passes every temporal gate; undefined if none is found within the lookahead */
 function findNextEligibleAt(
   now: Date,
   timeZone: string,
@@ -383,10 +383,10 @@ function callbackIsExactScopeMatch(callback: Cg3CallbackFacts, input: Cg3Evaluat
 // ---- Top-level orchestrator -------------------------------------------------
 
 /**
- * เดินต่อจาก C1 gate (IDENTITY/HARD_RESTRICTION/CONSENT) ที่ผ่านแล้วเท่านั้น
- * ลำดับ: PREFERENCE -> TEMPORAL_POLICY -> CALLBACK_EXCEPTION (เฉพาะเมื่อ temporal provisional)
+ * continues only from a C1 gate (IDENTITY/HARD_RESTRICTION/CONSENT) that has already passed
+ * order: PREFERENCE -> TEMPORAL_POLICY -> CALLBACK_EXCEPTION (only when the temporal result is provisional)
  *        -> ATTEMPT_TOUCH_CAP -> SENDER_IDENTITY
- * คืน decision เมื่อ CG3 gate ใดกำหนดผลเด็ดขาด; คืนไม่มี decision เมื่อผ่านครบ (caller ประกาศ ALLOW เอง)
+ * returns a decision when any CG3 gate determines a definitive result; returns no decision when all pass (the caller declares ALLOW itself)
  */
 export function evaluateCg3Policy(input: Cg3EvaluationInput): Cg3GateOutcome {
   const trace: ContactPolicyTraceEntry[] = [];
@@ -470,8 +470,8 @@ export function evaluateCg3Policy(input: Cg3EvaluationInput): Cg3GateOutcome {
   }
 
   const appliedExceptions: Cg4AppliedExceptionPin[] = [];
-  // แยกให้ชัดว่า "ใคร" เป็นคนยก provisional block: callback ที่ถูกใช้จริงต้องถูก consume แบบ
-  // one-use ส่วน exception ที่ยกเองไม่แตะ callback เลย
+  // make it clear "who" lifted the provisional block: a callback that is actually used must be consumed as
+  // one-use, while an exception that lifts it by itself does not touch the callback at all
   let callbackOverrodeBlock = false;
 
   if (temporalBlock) {
@@ -537,7 +537,7 @@ export function evaluateCg3Policy(input: Cg3EvaluationInput): Cg3GateOutcome {
         reasonCode: temporalBlock.reasonCode,
       });
 
-      // --- CALLBACK_EXCEPTION (เฉพาะเมื่อ temporal เป็น provisional/overridable) ---
+      // --- CALLBACK_EXCEPTION (only when the temporal result is provisional/overridable) ---
       const mode = input.policy?.callbackMode ?? 'SCOPED_OVERRIDE';
       const callback = input.activeCallback;
       const callbackScopeMatches = callback ? callbackIsExactScopeMatch(callback, input) : false;
@@ -591,8 +591,8 @@ export function evaluateCg3Policy(input: Cg3EvaluationInput): Cg3GateOutcome {
           matchedWindowRef: temporalBlock.matchedWindowRef,
         };
       }
-      // TIME_POLICY_OVERRIDE ต้องมี Approved exception จริงรองรับ: reference ที่ไม่ resolve เป็น
-      // exception ที่ active/ตรง scope/ตรง rule ถือว่าไม่มี (fail closed) โดยไม่เปลี่ยน callback mode
+      // TIME_POLICY_OVERRIDE needs a real Approved exception behind it: a reference that does not resolve to an
+      // exception that is active/in scope/matching the rule counts as absent (fail closed) without changing the callback mode
       const referencedException = callback.approvedExceptionId
         ? approvedExceptionFor(input, temporalBlock.reasonCode, callback.approvedExceptionId)
         : undefined;
@@ -613,7 +613,7 @@ export function evaluateCg3Policy(input: Cg3EvaluationInput): Cg3GateOutcome {
         };
       }
 
-      // valid override: ยก provisional temporal block แล้วเดินต่อ (ไม่ใช่ ALLOW ทันที)
+      // valid override: lift the provisional temporal block and continue (not an immediate ALLOW)
       trace.push({
         gate: 'CALLBACK_EXCEPTION',
         outcome: 'PASS',
@@ -627,13 +627,13 @@ export function evaluateCg3Policy(input: Cg3EvaluationInput): Cg3GateOutcome {
   }
 
   // --- ATTEMPT_TOUCH_CAP ---
-  // ยังไม่มี cap threshold ที่ decide ไว้ใน #101/#98 (ไม่มี field คู่กับ quiet hours/preference);
-  // เปิด trace slot ไว้แบบ PASS เสมอจนกว่าจะมี ticket กำหนด cap policy โดยเฉพาะ
+  // no cap threshold has been decided in #101/#98 yet (no field paired with quiet hours/preference);
+  // keep the trace slot open as an always-PASS until a ticket defines the cap policy specifically
   trace.push({ gate: 'ATTEMPT_TOUCH_CAP', outcome: 'PASS' });
 
   // --- SENDER_IDENTITY ---
-  // authority table (cg_sender_identity) ยังไม่ freeze — เป็นของ S1.6 (LINE DeliveryPort pilot);
-  // S1.2 เปิด trace slot และตรวจแค่ syntactic non-empty เพื่อไม่ break contract ในอนาคต
+  // the authority table (cg_sender_identity) is not frozen yet: it belongs to S1.6 (LINE DeliveryPort pilot);
+  // S1.2 opens the trace slot and checks only syntactic non-empty so as not to break the contract in future
   if (input.senderIdentityId !== undefined && input.senderIdentityId.trim().length === 0) {
     trace.push({
       gate: 'SENDER_IDENTITY',

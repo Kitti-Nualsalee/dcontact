@@ -14,7 +14,7 @@ import {
 
 const FIXTURE_TIME = '2026-09-17T03:00:00.000Z';
 
-/** fixture สังเคราะห์ที่ไม่มี PII และให้ผล deterministic; test override เฉพาะ field ที่เกี่ยวกับ case */
+/** synthetic fixture with no PII and deterministic results; a test overrides only the fields relevant to its case */
 export function createCg5AlertChangedPayloadFixture(
   overrides: Partial<Cg5AlertChangedPayloadV1> = {},
 ): Cg5AlertChangedPayloadV1 {

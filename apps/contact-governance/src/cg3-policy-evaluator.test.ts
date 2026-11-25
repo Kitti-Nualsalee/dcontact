@@ -36,17 +36,17 @@ function baseInput(overrides: Partial<Cg3EvaluationInput> = {}): Cg3EvaluationIn
 
 // ---- Preference gate: subset containment + restrictive tie-break (#101 §1) ----
 
-test('preference: ไม่มี record ให้ PASS แล้วเดินต่อ (ไม่ใช่ implicit ALLOW)', () => {
+test('preference: no record gives PASS and continues (not an implicit ALLOW)', () => {
   const result = evaluateCg3Policy(baseInput());
   assert.equal(result.decision, undefined);
   assert.equal(result.trace.find((entry) => entry.gate === 'PREFERENCE')?.outcome, 'PASS');
 });
 
-test('preference: identity-specific ALLOW ชนะ contact-level default BLOCK', () => {
+test('preference: an identity-specific ALLOW beats the contact-level default BLOCK', () => {
   const input = baseInput({
     identityId: 'identity-1',
     preferences: [
-      preference({ version: 1, decision: 'BLOCK' }), // contact-level default: ปิด marketing
+      preference({ version: 1, decision: 'BLOCK' }), // contact-level default: marketing is off
       preference({ version: 2, identityId: 'identity-1', channel: 'LINE', decision: 'ALLOW' }),
     ],
   });
@@ -55,7 +55,7 @@ test('preference: identity-specific ALLOW ชนะ contact-level default BLOCK'
   assert.equal(result.preferenceVersion, 2);
 });
 
-test('preference: ปิด LINE marketing แต่ SERVICE_NOTIFICATION channel เดียวกันยังผ่าน', () => {
+test('preference: LINE marketing is off but a SERVICE_NOTIFICATION on the same channel still passes', () => {
   const blockLineMarketing = preference({
     channel: 'LINE',
     purpose: 'MARKETING',
@@ -76,7 +76,7 @@ test('preference: ปิด LINE marketing แต่ SERVICE_NOTIFICATION channe
   assert.equal(serviceResult.decision, undefined);
 });
 
-test('preference: specificity เท่ากันและไม่ subset กัน ใช้ restrictive tie-break BLOCK>DEFER>ALLOW', () => {
+test('preference: equal specificity and not a subset of each other uses the restrictive tie-break BLOCK>DEFER>ALLOW', () => {
   const input = baseInput({
     channel: 'LINE',
     purpose: 'MARKETING',
@@ -89,20 +89,20 @@ test('preference: specificity เท่ากันและไม่ subset ก
   assert.equal(winner?.decision, 'BLOCK');
 });
 
-test('preference: record ที่ effective window ไม่ครอบคลุมไม่ถูกส่งเข้ามาเลยไม่ถูกนับ (caller filter)', () => {
-  // evaluator รับเฉพาะ candidate ที่ caller (fact loader) กรอง effective window มาแล้ว
+test('preference: a record whose effective window does not cover the time is never passed in, so it is not counted (caller filter)', () => {
+  // the evaluator accepts only candidates whose effective window the caller (fact loader) has already filtered
   const result = evaluateCg3Policy(baseInput({ preferences: [] }));
   assert.equal(result.decision, undefined);
 });
 
 // ---- Temporal policy: quiet hours / preferred windows / holiday / timezone ----
 
-test('temporal: ไม่มี constraint เลยให้ PASS โดยไม่ต้อง resolve timezone', () => {
+test('temporal: no constraint at all gives PASS without needing to resolve the timezone', () => {
   const result = evaluateCg3Policy(baseInput());
   assert.equal(result.trace.find((entry) => entry.gate === 'TEMPORAL_POLICY')?.outcome, 'PASS');
 });
 
-test('temporal: timezone unknown ทั้งที่มี constraint ให้ DEFER/TIMEZONE_UNKNOWN โดยไม่มี nextEligibleAt', () => {
+test('temporal: an unknown timezone with a constraint gives DEFER/TIMEZONE_UNKNOWN with no nextEligibleAt', () => {
   const input = baseInput({
     preferences: [
       preference({
@@ -117,7 +117,7 @@ test('temporal: timezone unknown ทั้งที่มี constraint ให�
   assert.equal(result.nextEligibleAt, undefined);
 });
 
-test('temporal: quiet hours ที่ไม่ overridable ให้ DEFER แบบเด็ดขาดพร้อม nextEligibleAt', () => {
+test('temporal: non-overridable quiet hours give a definitive DEFER with nextEligibleAt', () => {
   const now = new Date('2026-09-15T20:00:00.000Z'); // 2026-09-16 03:00 Asia/Bangkok (Wed, quiet)
   const input = baseInput({
     now,
@@ -141,7 +141,7 @@ test('temporal: quiet hours ที่ไม่ overridable ให้ DEFER แ�
   assert.equal(parts.minute, 0);
 });
 
-test('temporal: preference timezone ชนะ policy fallback ตามลำดับ authority', () => {
+test('temporal: the preference timezone beats the policy fallback per the authority order', () => {
   const now = new Date('2026-09-15T20:00:00.000Z');
   const input = baseInput({
     now,
@@ -159,7 +159,7 @@ test('temporal: preference timezone ชนะ policy fallback ตามลำด
   assert.equal(result.timezoneSource, 'PREFERENCE');
 });
 
-test('temporal: holiday CLOSED ปิดทั้งวันแม้ไม่มี quiet hours', () => {
+test('temporal: a CLOSED holiday closes the whole day even without quiet hours', () => {
   const now = new Date('2026-09-15T20:00:00.000Z'); // 2026-09-16 Asia/Bangkok
   const input = baseInput({
     now,
@@ -201,7 +201,7 @@ function overridablePolicyInput(overrides: Partial<Cg3EvaluationInput> = {}): Cg
   });
 }
 
-test('callback: SCOPED_OVERRIDE ที่ exact scope ตรงและยังไม่หมดอายุ ยก quiet hours ให้ผ่านต่อ', () => {
+test('callback: a SCOPED_OVERRIDE with an exact scope match and not expired lets quiet hours pass', () => {
   const input = overridablePolicyInput({
     activeCallback: {
       requestId: 'callback-1',
@@ -218,7 +218,7 @@ test('callback: SCOPED_OVERRIDE ที่ exact scope ตรงและยั�
   assert.equal(result.exceptionMode, 'SCOPED_OVERRIDE');
 });
 
-test('callback: scope ไม่ตรง (purpose ต่าง) ให้ CALLBACK_OVERRIDE_NOT_ALLOWED', () => {
+test('callback: a scope mismatch (different purpose) gives CALLBACK_OVERRIDE_NOT_ALLOWED', () => {
   const input = overridablePolicyInput({
     activeCallback: {
       requestId: 'callback-1',
@@ -234,7 +234,7 @@ test('callback: scope ไม่ตรง (purpose ต่าง) ให้ CALLBA
   assert.equal(result.reasonCode, 'CALLBACK_OVERRIDE_NOT_ALLOWED');
 });
 
-test('callback: หมดอายุแล้วให้ CALLBACK_OVERRIDE_EXPIRED', () => {
+test('callback: expired gives CALLBACK_OVERRIDE_EXPIRED', () => {
   const input = overridablePolicyInput({
     activeCallback: {
       requestId: 'callback-1',
@@ -250,7 +250,7 @@ test('callback: หมดอายุแล้วให้ CALLBACK_OVERRIDE_EXP
   assert.equal(result.reasonCode, 'CALLBACK_OVERRIDE_EXPIRED');
 });
 
-test('callback: NO_OVERRIDE mode ปฏิเสธแม้มี callback ที่ scope ตรง', () => {
+test('callback: NO_OVERRIDE mode rejects even with a callback whose scope matches', () => {
   const input = overridablePolicyInput({
     policy: {
       version: 1,
@@ -274,7 +274,7 @@ test('callback: NO_OVERRIDE mode ปฏิเสธแม้มี callback ท�
   assert.equal(result.reasonCode, 'CALLBACK_OVERRIDE_NOT_ALLOWED');
 });
 
-test('callback: TIME_POLICY_OVERRIDE โดยไม่มี approvedExceptionId ให้ REVIEW/EXCEPTION_APPROVAL_REQUIRED', () => {
+test('callback: TIME_POLICY_OVERRIDE without an approvedExceptionId gives REVIEW/EXCEPTION_APPROVAL_REQUIRED', () => {
   const input = overridablePolicyInput({
     policy: {
       version: 1,
@@ -317,8 +317,8 @@ const CALLBACK_WITH_EXCEPTION = {
 };
 
 /**
- * CG4.4 (#187): `approvedExceptionId` เป็น reference เฉย ๆ ไม่ใช่หลักฐาน — ต้อง resolve เป็น
- * exception ที่ active/ตรง scope/ตรง rule จริงถึงจะ override ได้ (#174 §4 fail closed)
+ * CG4.4 (#187): `approvedExceptionId` is only a reference, not evidence: it must resolve to an
+ * exception that is really active/in scope/matching the rule before it can override (#174 §4 fail closed)
  */
 function activeExceptionFact(overrides: Partial<Cg4ExceptionFacts> = {}): Cg4ExceptionFacts {
   const digest = 'a'.repeat(64);
@@ -350,7 +350,7 @@ function activeExceptionFact(overrides: Partial<Cg4ExceptionFacts> = {}): Cg4Exc
   };
 }
 
-test('callback: TIME_POLICY_OVERRIDE ที่ approvedExceptionId ไม่ resolve เป็น exception จริง ให้ REVIEW (fail closed)', () => {
+test('callback: TIME_POLICY_OVERRIDE whose approvedExceptionId does not resolve to a real exception gives REVIEW (fail closed)', () => {
   const input = overridablePolicyInput({
     policy: TIME_POLICY_OVERRIDE_POLICY,
     activeCallback: CALLBACK_WITH_EXCEPTION,
@@ -360,7 +360,7 @@ test('callback: TIME_POLICY_OVERRIDE ที่ approvedExceptionId ไม่ res
   assert.equal(result.reasonCode, 'EXCEPTION_APPROVAL_REQUIRED');
 });
 
-test('callback: TIME_POLICY_OVERRIDE ที่ approvedExceptionId resolve เป็น active exception ให้ผ่านต่อและ pin exception', () => {
+test('callback: TIME_POLICY_OVERRIDE whose approvedExceptionId resolves to an active exception continues and pins the exception', () => {
   const input = overridablePolicyInput({
     policy: TIME_POLICY_OVERRIDE_POLICY,
     activeCallback: CALLBACK_WITH_EXCEPTION,
@@ -376,7 +376,7 @@ test('callback: TIME_POLICY_OVERRIDE ที่ approvedExceptionId resolve เ�
   assert.equal(result.appliedExceptions?.[0]?.seriesId, 'exception-1');
 });
 
-test('callback: exception ที่ถูก revoke แล้วทำให้ TIME_POLICY_OVERRIDE กลับไป REVIEW', () => {
+test('callback: a revoked exception makes TIME_POLICY_OVERRIDE go back to REVIEW', () => {
   const input = overridablePolicyInput({
     policy: TIME_POLICY_OVERRIDE_POLICY,
     activeCallback: CALLBACK_WITH_EXCEPTION,
@@ -389,7 +389,7 @@ test('callback: exception ที่ถูก revoke แล้วทำให้ 
   assert.equal(result.reasonCode, 'EXCEPTION_APPROVAL_REQUIRED');
 });
 
-test('approved exception ยก quiet hours ได้แม้ CG3 overridableRules ว่าง และไม่ consume callback', () => {
+test('an approved exception lifts quiet hours even when CG3 overridableRules is empty, and does not consume the callback', () => {
   const input = overridablePolicyInput({
     policy: { ...TIME_POLICY_OVERRIDE_POLICY, callbackMode: 'NO_OVERRIDE', overridableRules: [] },
     source: 'JOURNEY',
@@ -405,11 +405,11 @@ test('approved exception ยก quiet hours ได้แม้ CG3 overridableRu
   assert.ok(gates.includes('APPROVED_EXCEPTION:PASS'));
 });
 
-// ---- S1-CG3-F02: preference/callback/exception ห้ามข้าม hard restriction/consent/non-overridable ----
-// (evaluateCg3Policy ถูกเรียกเฉพาะหลัง C1 ALLOW ผ่านแล้วเท่านั้น — caller เป็นผู้บังคับลำดับนี้
-//  ดู contact-governance-service.integration.ts สำหรับ end-to-end coverage ผ่าน database)
+// ---- S1-CG3-F02: preference/callback/exception must not cross a hard restriction/consent/non-overridable ----
+// (evaluateCg3Policy is called only after C1 ALLOW has passed: the caller enforces this order
+//  see contact-governance-service.integration.ts for end-to-end coverage through the database)
 
-test('cg3 evaluator เองไม่มีทางข้าม non-overridable temporal rule ได้แม้มี valid callback', () => {
+test('the cg3 evaluator itself has no way to cross a non-overridable temporal rule even with a valid callback', () => {
   const input = baseInput({
     now: new Date('2026-09-15T20:00:00.000Z'),
     policy: {
@@ -417,7 +417,7 @@ test('cg3 evaluator เองไม่มีทางข้าม non-overridabl
       timezoneFallback: 'Asia/Bangkok',
       quietHours: [{ daysOfWeek: [1, 2, 3, 4, 5, 6, 7], startLocal: '21:00', endLocal: '08:00' }],
       callbackMode: 'SCOPED_OVERRIDE',
-      overridableRules: [], // ไม่ overridable
+      overridableRules: [], // not overridable
       holidays: [],
     },
     activeCallback: {
@@ -438,9 +438,9 @@ test('cg3 evaluator เองไม่มีทางข้าม non-overridabl
   );
 });
 
-// ---- Sender identity (placeholder gate; ดู decision gap ใน PR description) ----
+// ---- Sender identity (placeholder gate; see the decision gap in the PR description) ----
 
-test('sender identity: string ว่างให้ BLOCK; undefined หรือมีค่าให้ PASS', () => {
+test('sender identity: an empty string gives BLOCK; undefined or a value gives PASS', () => {
   const blocked = evaluateCg3Policy(baseInput({ senderIdentityId: '' }));
   assert.equal(blocked.decision, 'BLOCK');
   assert.equal(blocked.reasonCode, 'SENDER_IDENTITY_INVALID');
@@ -454,15 +454,15 @@ test('sender identity: string ว่างให้ BLOCK; undefined หรื�
 
 // ---- Cap gate placeholder ----
 
-test('cap gate: ยังไม่มี threshold ที่ decide จึง PASS เสมอในเวอร์ชันนี้', () => {
+test('cap gate: no threshold has been decided yet, so it always PASSes in this version', () => {
   const result = evaluateCg3Policy(baseInput());
   assert.equal(result.trace.find((entry) => entry.gate === 'ATTEMPT_TOUCH_CAP')?.outcome, 'PASS');
 });
 
 // ---- Timezone helpers: DST correctness (#101 §4) ----
 
-test('zonedToUtc round-trip ถูกต้องข้าม DST boundary (America/New_York)', () => {
-  // 2026-03-08 02:30 local ไม่มีอยู่จริง (spring-forward); ทดสอบช่วงปกติก่อนและหลัง DST แทน
+test('zonedToUtc round-trips correctly across a DST boundary (America/New_York)', () => {
+  // 2026-03-08 02:30 local does not really exist (spring-forward); test a normal period before and after DST instead
   const beforeDst = zonedToUtc(2026, 3, 1, 9, 0, 'America/New_York'); // EST = UTC-5
   assert.equal(beforeDst.toISOString(), '2026-03-01T14:00:00.000Z');
   const afterDst = zonedToUtc(2026, 3, 15, 9, 0, 'America/New_York'); // EDT = UTC-4

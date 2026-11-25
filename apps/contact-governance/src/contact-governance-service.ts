@@ -81,8 +81,8 @@ export {
 const RESERVATION_TTL_MS = 15 * 60 * 1_000;
 
 /**
- * CG4.8 (#191): kill switch ครอบ reservation เมื่อทุก dimension ที่ scope ผูกไว้ตรงกัน
- * scopeKey ที่อ่านไม่ออก หรือ dimension ที่ reservation ไม่มีค่า ถือว่าครอบแบบ fail closed
+ * CG4.8 (#191): a kill switch covers a reservation when every dimension the scope binds matches
+ * a scopeKey that cannot be read, or a dimension the reservation has no value for, counts as covered, failing closed
  */
 function killSwitchCoversReservation(
   scopeKey: string,
@@ -112,7 +112,7 @@ function killSwitchCoversReservation(
   );
 }
 
-/** ผลฝั่ง CG4 ของ shadow evaluation: reader ที่ fail closed ถือเป็นผล REVIEW ที่นำมาเทียบได้ */
+/** CG4 side of the shadow evaluation: a reader that fails closed counts as a REVIEW result that can be compared */
 function shadowOutcome(
   read: Cg4PolicyReadResult,
   evaluate: (policy: Cg3PolicyFacts | undefined) => Cg3GateOutcome,
@@ -121,7 +121,7 @@ function shadowOutcome(
   return evaluate(read.outcome === 'RESOLVED' ? read.facts : undefined);
 }
 
-/** scope ของ request เป็น opaque dimension key สำหรับหลักฐาน mismatch (ไม่มี contact identity) */
+/** the request scope is an opaque dimension key for mismatch evidence (no contact identity) */
 function requestScopeKey(request: Cg4PolicyRequestScope): string {
   try {
     return buildCg4PolicyScopeKey({ ...request });
@@ -304,14 +304,14 @@ export class ContactGovernanceService
   }
 
   /**
-   * S2.2 (#364): Contact Governance เป็นผู้เขียน Touch จาก explicit response แต่ผู้เดียว
-   * Channels ส่ง binding + evidence ref เข้ามาเท่านั้น ห้ามส่ง Boolean หรือเขียน cg_* เอง
+   * S2.2 (#364): Contact Governance is the sole writer of a Touch from an explicit response
+   * Channels sends only the binding + evidence ref: it must not send a Boolean or write cg_* itself
    */
   recordCorrelatedTouch(input: RecordCorrelatedTouchInput): Promise<CorrelatedTouchView> {
     return this.reservationRuntime.recordCorrelatedTouch(input);
   }
 
-  /** S2.6b (#403): Channels ใช้ประกอบ binding ของ Touch โดยไม่อ่าน `cg_*` เอง */
+  /** S2.6b (#403): Channels uses this to assemble the Touch binding without reading `cg_*` itself */
   findAcceptedAttempt(input: {
     tenantId: TenantId;
     deliveryId: DeliveryId;
@@ -320,8 +320,8 @@ export class ContactGovernanceService
   }
 
   /**
-   * ประเมินสิทธิ์ของ reservation เดิมกับ canonical facts ปัจจุบันโดยไม่สร้าง fact ใหม่
-   * Journey เป็นเจ้าของผล at-least-once และ acknowledgement ของการเรียกนี้เอง
+   * evaluates the entitlement of an existing reservation against the current canonical facts without creating a new fact
+   * Journey owns the at-least-once result and the acknowledgement of this call
    */
   async revalidateAuthorizedAction(
     input: RevalidateAuthorizedActionInput,
@@ -371,8 +371,8 @@ export class ContactGovernanceService
         },
       });
       if (!reservation) return review('GOVERNANCE_CONTEXT_UNAVAILABLE', 0);
-      // context ที่ไม่มี version คือข้อมูลก่อน S1.5: หยุดไว้เพื่อไม่อนุญาตจาก binding ที่พิสูจน์ไม่ได้.
-      // contactKind=null ที่ถูกบันทึกพร้อม version 1 เป็น wildcard ที่มีความหมายชัดเจน.
+      // a context with no version is data from before S1.5: stop, so as not to allow from a binding that cannot be proven.
+      // contactKind=null recorded together with version 1 is a wildcard with a clear meaning.
       if (
         reservation.authorizationContextVersion !== 1 ||
         (input.contactKind ?? null) !== reservation.authorizationContactKind
@@ -393,8 +393,8 @@ export class ContactGovernanceService
       await transaction.$queryRaw(
         Prisma.sql`SELECT 1 AS acquired FROM pg_advisory_xact_lock(hashtext(${`cg3-contact:${tenantId}:${reservation.contactId}`}))`,
       );
-      // CG4.8 (#191): ลำดับ lock เดียวกับ authorizeAndReserve เพื่อ serialize กับ revoke/expiry
-      // ของ exception และไม่สร้างลำดับ lock ใหม่ที่ deadlock ได้
+      // CG4.8 (#191): the same lock order as authorizeAndReserve, to serialize with an exception's revoke/expiry
+      // and not create a new lock order that could deadlock
       await transaction.$queryRaw(
         Prisma.sql`SELECT 1 AS acquired FROM pg_advisory_xact_lock(hashtext(${`cg4-contact:${tenantId}:${reservation.contactId}`}))`,
       );
@@ -447,8 +447,8 @@ export class ContactGovernanceService
         }),
       ]);
       if (input.sourceContract === 'CG4' && input.sourceAggregateType === 'POLICY') {
-        // CG4.8 (#191): CG4 policy event มี version ของ scope head และ kill switch มี aggregate ของ
-        // ตัวเอง การเทียบกับ CG3 policy version จะตัดสินว่า stale ทุกครั้งแล้ว hold งานทั้ง tenant
+        // CG4.8 (#191): a CG4 policy event has the version of the scope head, and a kill switch has its own aggregate;
+        // comparing against the CG3 policy version would always judge it stale and hold the whole tenant's work
         if (input.sourceEventType === CG4_EVENT_TYPES.KILL_SWITCH_CHANGED) {
           const killSwitch = await transaction.cg4ScopeKillSwitch.findFirst({
             where: { tenantId, id: input.sourceAggregateId },
@@ -484,8 +484,8 @@ export class ContactGovernanceService
       ) {
         return review('GOVERNANCE_VERSION_STALE', facts.aggregateVersion, facts.policy?.version);
       }
-      // CG4.8 (#191): kill switch เป็น non-overridable gate (#174 §2) ที่ re-authorization
-      // ต้องเห็นเหมือน consumer ที่ได้ event; clear แล้วไม่ resume งานที่ hold ไว้
+      // CG4.8 (#191): a kill switch is a non-overridable gate (#174 §2) that re-authorization
+      // must see the same as a consumer that received the event; once cleared it does not resume work that was held
       const activeKillSwitches = await transaction.cg4ScopeKillSwitch.findMany({
         where: { tenantId, state: 'ACTIVE' },
         select: { scopeKey: true },
@@ -546,14 +546,14 @@ export class ContactGovernanceService
           preferences: facts.preferences,
           policy,
           activeCallback: facts.activeCallback,
-          // CG4.8 (#191): re-authorization ต้องเห็น exception ชุดเดียวกับ authorizeAndReserve
-          // ไม่งั้นงานที่ได้รับอนุญาตผ่าน exception ที่ยัง active จะถูกยกเลิกจาก event อื่น
+          // CG4.8 (#191): re-authorization must see the same set of exceptions as authorizeAndReserve
+          // otherwise work allowed through a still-active exception would be cancelled by another event
           source: reservation.source,
           sourceId: reservation.sourceId,
           activeExceptions: facts.activeExceptions,
         });
-      // CG4.10 (#193): re-authorization ใช้ reader เดียวกับ authorizeAndReserve ภายใต้ rollout เดียวกัน
-      // แต่ไม่บันทึก shadow mismatch เพราะการเรียกนี้ห้ามสร้าง fact ใหม่
+      // CG4.10 (#193): re-authorization uses the same reader as authorizeAndReserve under the same rollout
+      // but does not record a shadow mismatch because this call must not create a new fact
       const policyRequest = cg4PolicyRequestScope({
         channel: reservation.channel,
         purpose: reservation.purpose,
@@ -624,14 +624,14 @@ export class ContactGovernanceService
         await transaction.$queryRaw(
           Prisma.sql`SELECT 1 AS acquired FROM pg_advisory_xact_lock(hashtext(${`contact:${tenantId}:${input.contactId}`}))`,
         );
-        // ล็อกเดียวกับ Cg3PreferenceRepository.append() เพื่อไม่ให้ preference/callback mutation
-        // แทรกระหว่างที่ authorizeAndReserve กำลังโหลด CG3 facts มาประเมิน (S1-CG3-CC01)
+        // the same lock as Cg3PreferenceRepository.append(), so that a preference/callback mutation does not
+        // slip in while authorizeAndReserve is loading the CG3 facts to evaluate (S1-CG3-CC01)
         await transaction.$queryRaw(
           Prisma.sql`SELECT 1 AS acquired FROM pg_advisory_xact_lock(hashtext(${`cg3-contact:${tenantId}:${input.contactId}`}))`,
         );
-        // CG4.4 (#187): ล็อกเดียวกับ Cg4FoundationRepository/Cg4ExceptionLifecycleRepository
-        // เพื่อ serialize authorize กับ approve/revoke ของ exception: revoke ที่ commit ก่อน
-        // ต้องทำให้ decision นี้ใช้ exception นั้นไม่ได้ และกลับกัน
+        // CG4.4 (#187): the same lock as Cg4FoundationRepository/Cg4ExceptionLifecycleRepository
+        // to serialize authorize with an exception's approve/revoke: a revoke that commits first
+        // must make this decision unable to use that exception, and vice versa
         await transaction.$queryRaw(
           Prisma.sql`SELECT 1 AS acquired FROM pg_advisory_xact_lock(hashtext(${`cg4-contact:${tenantId}:${input.contactId}`}))`,
         );
@@ -745,9 +745,9 @@ export class ContactGovernanceService
       let cg3ExceptionRef: string | undefined;
       let cg4Pins: Cg4DecisionTracePinsV1 | undefined;
 
-      // Scoped kill switch เป็น non-overridable gate (#174 §2) ตรวจหลัง identity/hard restriction/
-      // consent และก่อน CG3/exception: exception ยกไม่ได้ และไม่ consume one-use callback ให้กับ
-      // decision ที่ต้อง hold อยู่แล้ว ใช้ scope matching ชุดเดียวกับ revalidation (#228)
+      // A scoped kill switch is a non-overridable gate (#174 §2), checked after identity/hard restriction/
+      // consent and before CG3/exception: an exception cannot lift it, and it does not consume a one-use callback for a
+      // decision that must be held anyway; it uses the same scope matching as revalidation (#228)
       const killSwitchActive =
         policyResult.decision === 'ALLOW' && input.contactId
           ? (
@@ -802,7 +802,7 @@ export class ContactGovernanceService
             sourceId: input.sourceId,
             activeExceptions: facts.activeExceptions,
           });
-        // CG4.10 (#193): rollout stage เลือกว่า policy มาจาก CG3 loader หรือ head ของ CG4 (#179 §6)
+        // CG4.10 (#193): the rollout stage chooses whether the policy comes from the CG3 loader or the CG4 head (#179 §6)
         const policyRequest = cg4PolicyRequestScope(input);
         const reader = cg4PolicyReaderFor(
           await loadCg4RolloutState(transaction, tenantId),
@@ -852,7 +852,7 @@ export class ContactGovernanceService
                   detectedAt: now,
                 },
               });
-              // mismatch บน pilot scope fail closed; นอก pilot ให้ CG3 ตัดสินต่อแต่มีหลักฐานค้างไว้
+              // a mismatch on the pilot scope fails closed; outside the pilot, CG3 keeps deciding but the evidence is left behind
               if (reader.pilot) {
                 cg3 = cg4PolicyFailClosedOutcome('MIGRATION_SHADOW', GOVERNANCE_SHADOW_MISMATCH);
               }
@@ -878,8 +878,8 @@ export class ContactGovernanceService
         cg3ExceptionRef = cg3.exceptionRef;
         if (cg3.appliedExceptions?.length || headBinding) {
           const appliedExceptions = cg3.appliedExceptions ?? [];
-          // หลัง switch decision pin policy version ของ head ที่ใช้ตัดสินจริง; ก่อนหน้านั้นคง binding
-          // ของ exception ที่ถูกใช้ตามเดิม (CG4.4)
+          // after the switch the decision pins the policy version of the head actually used to decide; before that it keeps the binding
+          // of the exception that was used as before (CG4.4)
           const policy =
             headBinding ??
             toCg4PolicyBinding(
@@ -943,7 +943,7 @@ export class ContactGovernanceService
 
       if (decision === 'ALLOW') {
         if (!input.contactId) {
-          throw new Error('ผล ALLOW ต้องมี contact ที่ resolve แล้ว');
+          throw new Error('an ALLOW result must have a resolved contact');
         }
         reservationId = this.id();
         reservationExpiresAt = new Date(now.getTime() + RESERVATION_TTL_MS);

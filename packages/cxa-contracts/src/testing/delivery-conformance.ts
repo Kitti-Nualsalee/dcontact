@@ -53,7 +53,7 @@ export function runDeliveryPortConformanceSuite(
     const { delivery, command, unknownReservationId } = await makeHarness();
     const result = await delivery.enqueue({ ...command, reservationId: unknownReservationId });
     isError('RESERVATION_NOT_FOUND')(result);
-    // ยังไม่มี outbox row: retry ด้วย reservation ที่ถูกต้องต้องสำเร็จปกติ
+    // no outbox row yet: a retry with a valid reservation must succeed normally
     assert.equal((await delivery.enqueue(command)).status, 'QUEUED');
   });
 
@@ -87,7 +87,7 @@ export function runDeliveryPortConformanceSuite(
     // replay QUEUED to every identical caller. Both are correct: the invariant
     // this test protects is "exactly one delivery ever gets created", not which
     // shape a given implementation's losers take.
-    assert.ok(queued.length >= 1, 'อย่างน้อยหนึ่ง call ต้องสำเร็จเป็น QUEUED');
+    assert.ok(queued.length >= 1, 'at least one call must succeed as QUEUED');
     const deliveryIds = new Set(queued.map((r) => (r as { deliveryId: string }).deliveryId));
     assert.equal(deliveryIds.size, 1);
     for (const rejected of results.filter((r) => r.status === 'ERROR')) {
