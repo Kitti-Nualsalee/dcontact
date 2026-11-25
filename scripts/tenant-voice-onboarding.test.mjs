@@ -34,7 +34,7 @@ const baseArguments = [
   '--operator-subject',
   'operator-1',
   '--reason',
-  'เตรียม tenant ใหม่',
+  'prepare a new tenant',
   '--accounts',
   '20',
   '--agents',
@@ -57,16 +57,16 @@ const baseArguments = [
   'dcontact_people_dev',
 ];
 
-test('parseExtensions รับช่วงและรายการ คงจำนวนหลักเดิม และปฏิเสธซ้ำหรือผิดรูป', () => {
+test('parseExtensions accepts ranges and lists, keeps the original digit count, and rejects duplicates or malformed input', () => {
   assert.deepEqual(parseExtensions('1100-1102'), ['1100', '1101', '1102']);
   assert.deepEqual(parseExtensions('0100-0101,2000'), ['0100', '0101', '2000']);
-  assert.throws(() => parseExtensions('1100-1100,1100'), /ซ้ำ/);
-  assert.throws(() => parseExtensions('110'), /4–6 หลัก/);
-  assert.throws(() => parseExtensions('1102-1100'), /ช่วง/);
-  assert.throws(() => parseExtensions('1000-10000'), /ช่วง/);
+  assert.throws(() => parseExtensions('1100-1100,1100'), /duplicates/);
+  assert.throws(() => parseExtensions('110'), /4-6 digit/);
+  assert.throws(() => parseExtensions('1102-1100'), /range/);
+  assert.throws(() => parseExtensions('1000-10000'), /range/);
 });
 
-test('parseArguments เป็น dry-run โดยปริยายและต้องระบุ caps ทั้ง 4 ค่า', () => {
+test('parseArguments is dry-run by default and requires all 4 caps', () => {
   const plan = parseArguments(baseArguments);
   assert.equal(plan.apply, false);
   assert.deepEqual(plan.caps, { accounts: 20, agents: 10, voiceQueues: 5, skills: 10 });
@@ -85,7 +85,7 @@ test('parseArguments เป็น dry-run โดยปริยายและ�
   assert.throws(() => parseArguments([...baseArguments, '--worker-principal', 'x";drop']), /role/);
 });
 
-test('extension pool มี key ครบ 4 ตัวตามที่ extensionPermit ของ API ยอมรับ', () => {
+test('the extension pool has all 4 keys that the API extensionPermit accepts', () => {
   const [entry] = extensionPool(['1100'], node);
   assert.deepEqual(Object.keys(entry).sort(), [
     'dialplanDigest',
@@ -95,7 +95,7 @@ test('extension pool มี key ครบ 4 ตัวตามที่ extensio
   ]);
 });
 
-test('people binding มีรูปตาม TENANT_PEOPLE_BINDINGS_JSON และชื่อ secret env ที่ API ยอมรับ', () => {
+test('the people binding has the shape of TENANT_PEOPLE_BINDINGS_JSON and a secret env name the API accepts', () => {
   const tenantId = '3c71f624-a141-4060-a025-da026101efbf';
   const binding = peopleBinding({
     tenantId,
@@ -113,7 +113,7 @@ test('people binding มีรูปตาม TENANT_PEOPLE_BINDINGS_JSON แล
   ]);
 });
 
-test('policyDiffers ไม่ถือว่าลำดับ key ที่ jsonb เรียงใหม่เป็นการเปลี่ยน', () => {
+test('policyDiffers does not treat the key order that jsonb reorders as a change', () => {
   const desired = {
     sourceKind: 'PLAN_SNAPSHOT',
     sourcePlanDigest: digest('c'),
@@ -128,7 +128,7 @@ test('policyDiffers ไม่ถือว่าลำดับ key ที่ jso
     agentsLimit: 10,
     voiceQueuesLimit: 5,
     skillsLimit: 10,
-    // jsonb เรียง key ตามความยาวก่อน
+    // jsonb orders keys by length first
     extensionPool: [
       {
         ref: '1100',
@@ -144,7 +144,7 @@ test('policyDiffers ไม่ถือว่าลำดับ key ที่ jso
   assert.equal(policyDiffers({ ...stored, extensionPool: [] }, desired), true);
 });
 
-test('envLine อ่านกลับได้ด้วย shell แม้ค่ามี & และ single quote', () => {
+test('envLine can be read back by the shell even when the value has & and a single quote', () => {
   const value = "postgresql://u:p'w@h/db?schema=public&options=-c+role%3Dx";
   const output = execFileSync('bash', ['-c', `${envLine('X', value)}; printf %s "$X"`], {
     encoding: 'utf8',
@@ -152,17 +152,17 @@ test('envLine อ่านกลับได้ด้วย shell แม้ค�
   assert.equal(output, value);
 });
 
-test('--apply ต้องมี --env-out และเลือก create/rotate ได้อย่างเดียว', () => {
+test('--apply requires --env-out and allows choosing only one of create/rotate', () => {
   assert.throws(() => parseArguments([...baseArguments, '--apply']), /--env-out/);
   assert.equal(parseArguments([...baseArguments, '--apply', '--env-out', '/tmp/x']).apply, true);
   assert.throws(
     () =>
       parseArguments([...baseArguments, '--create-worker-principal', '--rotate-worker-password']),
-    /อย่างใดอย่างหนึ่ง/,
+    /choose either/,
   );
 });
 
-test('mergeEnvFile คงค่าเดิมที่ไม่ได้ตั้งรอบนี้ (เช่นรหัสผ่าน worker) และบังคับ mode 600', () => {
+test('mergeEnvFile keeps existing values not set this round (e.g. the worker password) and forces mode 600', () => {
   const path = join(mkdtempSync(join(tmpdir(), 'tvo-')), 'people.env');
   writeFileSync(
     path,
@@ -185,7 +185,7 @@ test('mergeEnvFile คงค่าเดิมที่ไม่ได้ตั�
   assert.equal(statSync(path).mode & 0o777, 0o600);
 });
 
-test('mergeExtensionPool ไม่เอา extension เดิมออกเมื่อรันด้วยช่วงใหม่', () => {
+test('mergeExtensionPool does not remove existing extensions when run with a new range', () => {
   const current = extensionPool(['1100', '1101'], node);
   const merged = mergeExtensionPool(current, extensionPool(['1101', '1110'], node));
   assert.deepEqual(
@@ -194,7 +194,7 @@ test('mergeExtensionPool ไม่เอา extension เดิมออกเ�
   );
 });
 
-test('withPeopleProfile คง displayName/validators เดิมและแก้เฉพาะสิทธิ์', () => {
+test('withPeopleProfile keeps the existing displayName/validators and changes only the permissions', () => {
   const profile = {
     attributes: [
       {
@@ -215,7 +215,7 @@ test('withPeopleProfile คง displayName/validators เดิมและแ�
   assert.deepEqual(profileChanges(next), []);
 });
 
-test('clientDrift จับ flow ที่เปิดเกินและ audience mapper ที่หายไป', () => {
+test('clientDrift catches an over-enabled flow and a missing audience mapper', () => {
   const attributes = { dc_service_purpose: 'TENANT_PEOPLE_V1' };
   const narrow = {
     enabled: true,
@@ -240,7 +240,7 @@ test('clientDrift จับ flow ที่เปิดเกินและ audi
   );
 });
 
-test('workerDatabaseUrl คง sslmode และ parameter เดิมของ URL operator', () => {
+test('workerDatabaseUrl keeps the sslmode and existing parameters of the operator URL', () => {
   const url = new URL(
     workerDatabaseUrl(
       'postgresql://op:secret@db:5432/app?sslmode=require&schema=public',
@@ -254,7 +254,7 @@ test('workerDatabaseUrl คง sslmode และ parameter เดิมของ
   assert.equal(url.searchParams.get('options'), '-c role=dcontact_tenant_people_worker');
 });
 
-test('scramVerifier ได้รูป SCRAM-SHA-256 ที่ PostgreSQL รับ และตรงกับ test vector ของ RFC 7677', () => {
+test('scramVerifier produces the SCRAM-SHA-256 form PostgreSQL accepts and matches the RFC 7677 test vector', () => {
   assert.match(
     scramVerifier('pw'),
     /^SCRAM-SHA-256\$4096:[A-Za-z0-9+/=]+\$[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+$/,
@@ -267,7 +267,7 @@ test('scramVerifier ได้รูป SCRAM-SHA-256 ที่ PostgreSQL รั
   );
 });
 
-test('peopleBinding ใส่ backchannelUrl เฉพาะเมื่อระบุ (รูปที่ tenant-people-composition ยอมรับ)', () => {
+test('peopleBinding adds backchannelUrl only when specified (the shape tenant-people-composition accepts)', () => {
   const tenantId = '3c71f624-a141-4060-a025-da026101efbf';
   const binding = peopleBinding({
     tenantId,
@@ -323,5 +323,5 @@ test('peopleBinding ใส่ backchannelUrl เฉพาะเมื่อร�
       ]),
     /https/,
   );
-  assert.throws(() => parseArguments([...baseArguments, '--backchannel-url']), /ต้องมีค่า/);
+  assert.throws(() => parseArguments([...baseArguments, '--backchannel-url']), /must have a value/);
 });

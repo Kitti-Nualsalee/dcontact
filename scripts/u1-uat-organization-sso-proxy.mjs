@@ -1,4 +1,4 @@
-/** HTTPS loopback เท่านั้น สำหรับ boundary test; ไม่มีข้อมูลหรือ credential ของ UAT */
+/** HTTPS loopback only, for the boundary test; no UAT data or credentials */
 import https from 'node:https';
 import http from 'node:http';
 import { readFileSync } from 'node:fs';

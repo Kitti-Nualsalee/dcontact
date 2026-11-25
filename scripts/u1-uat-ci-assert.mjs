@@ -3,17 +3,17 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 /**
- * U1.10 (#507): ตรวจผลของแต่ละขั้นใน workflow `uat-image-smoke` (UAT stack จริงใน Docker บน runner)
+ * U1.10 (#507): checks the result of each step in the `uat-image-smoke` workflow (a real UAT stack in Docker on a runner)
  *
  *   node scripts/u1-uat-ci-assert.mjs smoke <smoke.json>
  *   node scripts/u1-uat-ci-assert.mjs provision <check|apply|reapply> <output.jsonl>
  *   node scripts/u1-uat-ci-assert.mjs accounts <output.jsonl>
- *   node scripts/u1-uat-ci-assert.mjs step <SKIPPED|PASS> <output.jsonl>   (backup/deploy ของ uat-deploy.sh)
+ *   node scripts/u1-uat-ci-assert.mjs step <SKIPPED|PASS> <output.jsonl>   (backup/deploy of uat-deploy.sh)
  *
- * อ่านเฉพาะ JSON ที่ script ของ U1.6/U1.8 พิมพ์ (id/สถานะ/digest — ไม่มี secret) ไม่ผ่าน = exit 1
+ * reads only the JSON the U1.6/U1.8 scripts print (id/status/digest - no secret); a failure = exit 1
  */
 
-/** ต้อง PASS ทุกตัว; UAT-L06 ต้องใช้ token ของบัญชีที่ผูก TOTP แล้ว จึง SKIPPED ได้ใน CI */
+/** Every one must PASS; UAT-L06 needs the token of an account that has TOTP bound, so it may be SKIPPED in CI */
 export const REQUIRED_LIVE_CHECKS = Object.freeze([
   'UAT-L01',
   'UAT-L02',
@@ -41,7 +41,7 @@ const PROVISION_EXPECTED = Object.freeze({
   reapply: { mode: 'apply', status: 'UNCHANGED' },
 });
 
-/** บรรทัดที่เป็น JSON object เท่านั้น (compose พิมพ์สถานะ container ปนมาได้) */
+/** Only lines that are JSON objects (compose may print container status mixed in) */
 export function jsonLines(text) {
   return String(text)
     .split('\n')
@@ -95,7 +95,7 @@ export function assertProvision(lines, phase) {
   }
   const pack = parts.find((line) => line.part === 'fixturePack');
   if (pack && !/^[0-9a-f]{64}$/.test(pack.digest ?? '')) failures.push('fixturePack:digest');
-  // ก่อน apply ครั้งแรก preflight ของ pack ถูกข้าม (ข้อ 1–4 ยังไม่มี) — หลังจากนั้นต้องไม่ถูกข้าม
+  // before the first apply the pack preflight is skipped (items 1-4 do not exist yet) - after that it must not be skipped
   if (phase === 'check' && pack && pack.preflight !== 'SKIPPED') failures.push('preflight');
   return failures;
 }

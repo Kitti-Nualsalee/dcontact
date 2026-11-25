@@ -2,18 +2,18 @@ import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-// #540 (ADR-029): one-shot ของ operator สำหรับ object storage ของ UAT (SeaweedFS)
+// #540 (ADR-029): operator one-shot for the UAT object storage (SeaweedFS)
 //
-//   init — root สร้าง bucket `uat-evidence` แบบ idempotent (HeadBucket ก่อน) และยืนยันว่าไม่มี bucket policy
+//   init - root creates the `uat-evidence` bucket idempotently (HeadBucket first) and confirms there is no bucket policy
 //
-// output เป็น JSON lines ที่มีแค่สถานะ/ชื่อ bucket — ไม่มี secret
-// (#541: ถอด `migrate`/`expire-migrated` ของการย้ายจาก MinIO แล้ว — UAT ใช้ SeaweedFS ตั้งแต่ deploy แรก)
+// output is JSON lines holding only the status/bucket name - no secret
+// (#541: the `migrate`/`expire-migrated` steps of the migration from MinIO were removed - UAT has used SeaweedFS since the first deploy)
 
 export const BUCKET = 'uat-evidence';
 
 // ── runtime ──────────────────────────────────────────────────────────────────────────
 
-/** ops image มี production dependencies ของ api ที่ /app; ใน repo ใช้ของ apps/api */
+/** the ops image has the api production dependencies at /app; in the repo use those of apps/api */
 function appRequire() {
   const base = existsSync('/app/package.json')
     ? '/app/package.json'

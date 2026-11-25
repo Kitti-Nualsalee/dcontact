@@ -5,20 +5,20 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 /**
- * #977: งานของ operator ที่ต้องทำก่อน Admin ของ tenant ใหม่ (ที่สร้างผ่าน Platform provisioning) จะเชิญ Agent
- * ตั้งคิว และผูกเบอร์ปลายทางผ่าน Console ได้ — รวมขั้นที่เดิมต้องเขียน SQL/Keycloak เองตาม
- * docs/voice/catalog-v1.md, docs/tenant-voice-configuration.md และ docs/tenant-people-invitations.md
+ * #977: the operator work that must be done before the Admin of a new tenant (created through Platform provisioning) can invite Agents,
+ * set up queues and bind destination numbers through the Console - it bundles the steps that previously had to be hand-written SQL/Keycloak per
+ * docs/voice/catalog-v1.md, docs/tenant-voice-configuration.md and docs/tenant-people-invitations.md
  *
- * - Keycloak: attribute ของ user profile ที่ extension tenant-people ตรวจ (admin-only, single value) และ
- *   service client `dcontact-tenant-people-<tenantId>` ที่ผูก Organization ของ tenant
- * - DB (บัญชี operator/owner): TenantVoiceProvisioningPolicy revision แรก (PLAN_SNAPSHOT ตรง plan binding,
- *   caps ระบุเองทั้ง 4 ค่า ไม่เดาจาก entitlements), extension pool, เบอร์ปลายทางที่ reserve แบบ inactive และ
+ * - Keycloak: the user profile attributes the tenant-people extension checks (admin-only, single value) and
+ *   the service client `dcontact-tenant-people-<tenantId>` bound to the Organization of the tenant
+ * - DB (operator/owner account): the first TenantVoiceProvisioningPolicy revision (PLAN_SNAPSHOT matching the plan binding,
+ *   all 4 caps specified explicitly, not guessed from entitlements), the extension pool, a destination number reserved as inactive, and
  *   tenant_people_worker_bindings
- * - ไม่สร้างคิว/skill/ผู้ใช้แทน Admin ไม่เปิดเบอร์ปลายทาง และไม่เขียน identity binding รายคน
- * - ค่าเริ่มต้นเป็น dry-run: ตรวจและพิมพ์แผนเท่านั้น ต้องใส่ `--apply` จึงเขียนจริง รันซ้ำได้ (ของที่ตรงแล้วข้าม)
- * - secret ไม่ออก stdout: เขียนลงไฟล์ `--env-out` (mode 600) เป็นค่า env ที่ API ต้องใช้
+ * - does not create queues/skills/users in place of the Admin, does not enable the destination number, and does not write per-person identity bindings
+ * - the default is dry-run: it checks and prints the plan only; `--apply` is needed to really write; it can be re-run (items already matching are skipped)
+ * - secrets never go to stdout: they are written to the `--env-out` file (mode 600) as the env values the API needs
  *
- * รัน: DATABASE_URL=<operator> KEYCLOAK_ADMIN_URL=... KEYCLOAK_BOOTSTRAP_ADMIN_USERNAME/PASSWORD=...
+ * run: DATABASE_URL=<operator> KEYCLOAK_ADMIN_URL=... KEYCLOAK_BOOTSTRAP_ADMIN_USERNAME/PASSWORD=...
  *      node scripts/tenant-voice-onboarding.mjs --tenant <slug> ... [--apply]
  */
 
@@ -35,21 +35,21 @@ const NODE_ID = /^[A-Za-z0-9_.-]{1,128}$/;
 const SLUG = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const PRINCIPAL = /^[a-z_][a-z0-9_]{0,62}$/;
 
-const usage = `ใช้: node scripts/tenant-voice-onboarding.mjs --tenant <slug>
-  --approval-ref <ref> --operator-subject <subject> --reason <ข้อความ>
+const usage = `usage: node scripts/tenant-voice-onboarding.mjs --tenant <slug>
+  --approval-ref <ref> --operator-subject <subject> --reason <text>
   --accounts <n> --agents <n> --voice-queues <n> --skills <n>
   --node <telephonyNodeId> --release-digest <sha256> --dialplan-digest <sha256>
-  --extensions <1000-1009|1000,1001> --destination <เบอร์> --worker-principal <role>
+  --extensions <1000-1009|1000,1001> --destination <number> --worker-principal <role>
   [--create-worker-principal | --rotate-worker-password] [--issuer <url> [--backchannel-url <url>]]
-  [--apply --env-out <ไฟล์>]`;
+  [--apply --env-out <file>]`;
 
 function integerFlag(value, name) {
   if (!/^\d{1,7}$/.test(value ?? '') || Number(value) > 1_000_000)
-    throw new Error(`${name} ต้องเป็นจำนวนเต็ม 0–1,000,000`);
+    throw new Error(`${name} must be an integer 0–1,000,000`);
   return Number(value);
 }
 
-/** แปลง `1000-1009` หรือ `1000,1001` เป็นรายการ extension 4–6 หลัก (ไม่ซ้ำ เรียงตามที่ระบุ) */
+/** Convert `1000-1009` or `1000,1001` into a list of 4-6 digit extensions (no duplicates, in the order given) */
 export function parseExtensions(raw) {
   const refs = [];
   for (const part of String(raw ?? '').split(',')) {
@@ -57,13 +57,14 @@ export function parseExtensions(raw) {
     if (range) {
       const [from, to] = [Number(range[1]), Number(range[2])];
       if (range[1].length !== range[2].length || to < from || to - from >= 1000)
-        throw new Error('ช่วง extension ไม่ถูกต้อง');
+        throw new Error('invalid extension range');
       for (let value = from; value <= to; value++)
         refs.push(String(value).padStart(range[1].length, '0'));
     } else if (/^\d{4,6}$/.test(part.trim())) refs.push(part.trim());
-    else throw new Error('extension ต้องเป็นตัวเลข 4–6 หลัก');
+    else throw new Error('extension must be a 4-6 digit number');
   }
-  if (!refs.length || new Set(refs).size !== refs.length) throw new Error('extension ว่างหรือซ้ำ');
+  if (!refs.length || new Set(refs).size !== refs.length)
+    throw new Error('extension list is empty or has duplicates');
   return refs;
 }
 
@@ -79,34 +80,37 @@ export function parseArguments(argv) {
   }
   const required = (name) => {
     const value = flags[name];
-    if (typeof value !== 'string' || !value.trim()) throw new Error(`ต้องระบุ --${name}\n${usage}`);
+    if (typeof value !== 'string' || !value.trim())
+      throw new Error(`--${name} is required\n${usage}`);
     return value.trim();
   };
   const tenant = required('tenant');
-  if (!SLUG.test(tenant)) throw new Error('--tenant ต้องเป็น slug ของ tenant');
+  if (!SLUG.test(tenant)) throw new Error('--tenant must be a tenant slug');
   const node = required('node');
-  if (!NODE_ID.test(node)) throw new Error('--node ไม่ถูกต้อง');
+  if (!NODE_ID.test(node)) throw new Error('--node is invalid');
   const releaseDigest = required('release-digest');
   const dialplanDigest = required('dialplan-digest');
   if (!DIGEST.test(releaseDigest) || !DIGEST.test(dialplanDigest))
-    throw new Error('digest ต้องเป็น sha256 hex ตัวเล็ก 64 ตัว');
+    throw new Error('digest must be 64 lowercase sha256 hex characters');
   const destination = required('destination');
-  if (!/^[0-9]{3,15}$/.test(destination)) throw new Error('--destination ต้องเป็นตัวเลข 3–15 หลัก');
+  if (!/^[0-9]{3,15}$/.test(destination))
+    throw new Error('--destination must be a 3-15 digit number');
   const workerPrincipal = required('worker-principal');
   if (!PRINCIPAL.test(workerPrincipal))
-    throw new Error('--worker-principal ไม่ใช่ชื่อ role ที่ใช้ได้');
+    throw new Error('--worker-principal is not a usable role name');
   const text = (name, max) => {
     const value = required(name);
-    if (value.length > max) throw new Error(`--${name} ยาวเกิน ${max} ตัวอักษร`);
+    if (value.length > max) throw new Error(`--${name} is longer than ${max} characters`);
     return value;
   };
   const apply = flags.apply === true;
   for (const name of ['issuer', 'backchannel-url', 'env-out'])
     if (name in flags && (typeof flags[name] !== 'string' || !flags[name].trim()))
-      throw new Error(`--${name} ต้องมีค่า`);
+      throw new Error(`--${name} must have a value`);
   if (flags['backchannel-url'] !== undefined) {
-    // ต้องตรงรูปที่ API ยอมรับ (tenant-people-backchannel.ts) ไม่งั้น API ไม่ start หลังเขียน env ไปแล้ว
-    if (flags.issuer === undefined) throw new Error('--backchannel-url ต้องใช้คู่กับ --issuer');
+    // must match the form the API accepts (tenant-people-backchannel.ts), otherwise the API will not start after the env has been written
+    if (flags.issuer === undefined)
+      throw new Error('--backchannel-url must be used together with --issuer');
     const issuer = new URL(flags.issuer);
     const realmPath = issuer.pathname.replace(/\/$/, '');
     if (
@@ -115,15 +119,15 @@ export function parseArguments(argv) {
       flags['backchannel-url'] !== `http://keycloak:8080${realmPath}`
     )
       throw new Error(
-        '--issuer ต้องเป็น https และ --backchannel-url ต้องเป็น http://keycloak:8080<path ของ realm>',
+        '--issuer must be https and --backchannel-url must be http://keycloak:8080<realm path>',
       );
   }
-  // secret (client secret และรหัสผ่าน worker) มีทางเดียวที่จะออกจากสคริปต์ คือไฟล์นี้
+  // secrets (the client secret and the worker password) have only one way out of the script: this file
   if (apply && (typeof flags['env-out'] !== 'string' || !flags['env-out'].trim()))
-    throw new Error('--apply ต้องใช้คู่กับ --env-out เพื่อเก็บ secret');
+    throw new Error('--apply must be used together with --env-out to store the secrets');
   if (flags['create-worker-principal'] && flags['rotate-worker-password'])
     throw new Error(
-      'เลือก --create-worker-principal หรือ --rotate-worker-password อย่างใดอย่างหนึ่ง',
+      'choose either --create-worker-principal or --rotate-worker-password, not both',
     );
   return {
     tenant,
@@ -149,7 +153,7 @@ export function parseArguments(argv) {
   };
 }
 
-/** pool ตามรูปที่ `extensionPermit` ของ API ยอมรับ (key ครบ 4 ตัวพอดี) */
+/** The pool in the shape the API `extensionPermit` accepts (exactly all 4 keys) */
 export function extensionPool(extensions, node) {
   return extensions.map((ref) => ({
     ref,
@@ -159,19 +163,19 @@ export function extensionPool(extensions, node) {
   }));
 }
 
-/** รายการ binding ของ tenant ใน TENANT_PEOPLE_BINDINGS_JSON (secret อยู่ใน env ชื่อ clientSecretEnv) */
+/** The binding entry of the tenant in TENANT_PEOPLE_BINDINGS_JSON (the secret is in the env named by clientSecretEnv) */
 export function peopleBinding({ tenantId, issuer, node, extensions, backchannelUrl = null }) {
   return {
     tenantId,
     issuer,
-    // deployment ที่ issuer เป็นโดเมนภายนอก (เช่น Solo) ให้ API เรียก Keycloak ใน network ภายใน (tenant-people-backchannel.ts)
+    // for a deployment whose issuer is an external domain (e.g. Solo), have the API call Keycloak on the internal network (tenant-people-backchannel.ts)
     ...(backchannelUrl ? { backchannelUrl } : {}),
     clientSecretEnv: `TENANT_PEOPLE_SECRET_${tenantId.replaceAll('-', '_').toUpperCase()}`,
     nodes: [{ ...node, extensions }],
   };
 }
 
-/** JSON ที่เรียง key — jsonb ของ PostgreSQL เรียง key ใหม่ จึงเทียบด้วยลำดับ key เดิมไม่ได้ */
+/** JSON with sorted keys - PostgreSQL jsonb reorders keys, so comparing by the original key order does not work */
 function canonical(value) {
   if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
   if (value && typeof value === 'object')
@@ -182,12 +186,12 @@ function canonical(value) {
   return JSON.stringify(value);
 }
 
-/** บรรทัด env ที่ทั้ง shell (`set -a; . file`) และ dotenv อ่านได้: single quote และ escape ' ภายใน */
+/** An env line that both the shell (`set -a; . file`) and dotenv can read: single quotes, with an inner ' escaped */
 export function envLine(name, value) {
   return `${name}='${String(value).replaceAll("'", "'\\''")}'`;
 }
 
-/** เทียบ policy เดิมกับที่ต้องการ — ต่างเฉพาะเมื่อ caps/pool/source ไม่ตรง (ไม่เทียบ approval) */
+/** Compare the existing policy with the desired one - they differ only when caps/pool/source do not match (approval is not compared) */
 export function policyDiffers(current, desired) {
   const same = (left, right) => canonical(left) === canonical(right);
   return !(
@@ -252,7 +256,7 @@ const CLIENT_FLAGS = {
   fullScopeAllowed: false,
 };
 
-/** attribute ที่ยังไม่เป็น single value + admin-only ตามที่ extension tenant-people ตรวจ (PeopleResource.authorize) */
+/** An attribute that is not yet single value + admin-only as the tenant-people extension checks (PeopleResource.authorize) */
 export function profileChanges(profile) {
   return PEOPLE_PROFILE_ATTRIBUTES.filter((name) => {
     const field = profile.attributes.find((attribute) => attribute.name === name);
@@ -265,7 +269,7 @@ export function profileChanges(profile) {
   });
 }
 
-/** คง displayName/validators/annotations เดิม แก้เฉพาะ multivalued และ permissions */
+/** Keep the existing displayName/validators/annotations and change only multivalued and permissions */
 export function withPeopleProfile(profile, names) {
   const attributes = profile.attributes.map((attribute) =>
     names.includes(attribute.name)
@@ -282,7 +286,7 @@ export function withPeopleProfile(profile, names) {
   return { ...profile, attributes };
 }
 
-/** ส่วนของ client ที่ไม่ตรงสัญญา narrow service client (ADR-035) */
+/** The parts of the client that do not match the narrow service client contract (ADR-035) */
 export function clientDrift(client, attributes) {
   const drift = Object.entries(attributes)
     .filter(([key, value]) => client.attributes?.[key] !== value)
@@ -299,7 +303,7 @@ export function clientDrift(client, attributes) {
   return drift;
 }
 
-/** ตรวจ Keycloak แบบอ่านอย่างเดียวก่อนแตะฐานข้อมูล — ล้มที่นี่จะไม่มีอะไรถูกเขียน */
+/** Read-only Keycloak check before touching the database - if it fails here nothing is written */
 async function inspectKeycloak(kc, { tenant, tenantId }) {
   const profile = await kc('/users/profile');
   const organizations = [];
@@ -307,13 +311,13 @@ async function inspectKeycloak(kc, { tenant, tenantId }) {
     `/organizations?${new URLSearchParams({ q: `tenant_id:${tenantId}` })}`,
   ))
     organizations.push(await kc(`/organizations/${id}`));
-  // extension ค้น Organization ด้วย tenant_id และต้องได้รายการเดียว (PeopleResource.authorize)
+  // the extension looks up the Organization by tenant_id and must get exactly one (PeopleResource.authorize)
   const matches = organizations.filter(
     (organization) => organization.attributes?.tenant_id?.[0] === tenantId,
   );
   if (matches.length !== 1 || !matches[0].enabled || matches[0].alias !== tenant)
     throw new Error(
-      'ต้องมี Organization ที่ enabled ผูก tenant_id นี้เพียงรายการเดียวและ alias ตรง slug',
+      'there must be exactly one enabled Organization bound to this tenant_id and its alias must match the slug',
     );
   const clientId = `dcontact-tenant-people-${tenantId}`;
   const attributes = {
@@ -325,7 +329,7 @@ async function inspectKeycloak(kc, { tenant, tenantId }) {
   };
   const [client] = await kc(`/clients?clientId=${encodeURIComponent(clientId)}`);
   if (client) {
-    // สิทธิ์เกินของ service account ไม่แก้อัตโนมัติ — ให้ operator ตรวจที่มาก่อน
+    // excess privileges of the service account are not fixed automatically - have the operator check where they came from
     const account = await kc(`/clients/${client.id}/service-account-user`);
     const realmRoles = await kc(`/users/${account.id}/role-mappings/realm/composite`);
     const mappings = await kc(`/users/${account.id}/role-mappings`);
@@ -334,7 +338,7 @@ async function inspectKeycloak(kc, { tenant, tenantId }) {
       .filter((name) => FORBIDDEN_SERVICE_ROLES.test(name));
     if (forbidden.length || mappings.clientMappings?.['realm-management'])
       throw new Error(
-        `service account ของ ${clientId} มีสิทธิ์เกิน (${forbidden.join(', ') || 'realm-management'})`,
+        `service account of ${clientId} has excess privileges (${forbidden.join(', ') || 'realm-management'})`,
       );
   }
   return { profile, profileChanges: profileChanges(profile), clientId, client, attributes };
@@ -343,13 +347,13 @@ async function inspectKeycloak(kc, { tenant, tenantId }) {
 async function applyKeycloak(kc, inspected, { apply, log }) {
   const { profile, profileChanges: changes, clientId, attributes } = inspected;
   if (changes.length) {
-    log(`keycloak.profile: เพิ่ม/แก้ attribute ${changes.join(', ')}`);
+    log(`keycloak.profile: adding/fixing attributes ${changes.join(', ')}`);
     if (apply)
       await kc('/users/profile', { method: 'PUT', body: withPeopleProfile(profile, changes) });
-  } else log('keycloak.profile: ครบแล้ว');
+  } else log('keycloak.profile: already complete');
   let { client } = inspected;
   if (!client) {
-    log(`keycloak.client: สร้าง ${clientId}`);
+    log(`keycloak.client: creating ${clientId}`);
     if (!apply) return { secret: null };
     await kc('/clients', {
       method: 'POST',
@@ -359,7 +363,7 @@ async function applyKeycloak(kc, inspected, { apply, log }) {
   } else {
     const drift = clientDrift(client, attributes);
     if (drift.length) {
-      log(`keycloak.client: แก้ ${clientId} (${drift.join(', ')})`);
+      log(`keycloak.client: fixing ${clientId} (${drift.join(', ')})`);
       if (apply) {
         await kc(`/clients/${client.id}`, {
           method: 'PUT',
@@ -371,19 +375,19 @@ async function applyKeycloak(kc, inspected, { apply, log }) {
             body: AUDIENCE_MAPPER,
           });
       }
-    } else log(`keycloak.client: ${clientId} ตรงแล้ว`);
+    } else log(`keycloak.client: ${clientId} already matches`);
   }
   const { value: secret } = await kc(`/clients/${client.id}/client-secret`);
   return { secret };
 }
 
-/** รวม extension เดิมกับใหม่ — ไม่เอาหมายเลขที่ Agent อาจใช้อยู่ออกจาก pool */
+/** Merge the existing and new extensions - do not remove from the pool a number an Agent may be using */
 export function mergeExtensionPool(current, desired) {
   const seen = new Set(current.map((entry) => entry.ref));
   return [...current, ...desired.filter((entry) => !seen.has(entry.ref))];
 }
 
-/** SCRAM-SHA-256 verifier — ส่งให้ PostgreSQL แทนรหัสผ่านจริง จึงไม่มี plaintext ใน server log */
+/** SCRAM-SHA-256 verifier - passed to PostgreSQL in place of the real password, so there is no plaintext in the server log */
 export function scramVerifier(password, salt = randomBytes(16), iterations = 4096) {
   const salted = pbkdf2Sync(password, salt, iterations, 32, 'sha256');
   const hmac = (key, text) => createHmac('sha256', key).update(text).digest();
@@ -392,7 +396,7 @@ export function scramVerifier(password, salt = randomBytes(16), iterations = 409
   return `SCRAM-SHA-256$${iterations}:${salt.toString('base64')}$${storedKey.toString('base64')}:${serverKey.toString('base64')}`;
 }
 
-/** ใช้ host/port/database/parameter ของ URL operator เปลี่ยนเฉพาะผู้ใช้ รหัสผ่าน และ role ของ worker */
+/** Use the host/port/database/parameters of the operator URL, changing only the user, password and worker role */
 export function workerDatabaseUrl(operatorUrl, principal, password) {
   const url = new URL(operatorUrl);
   url.username = principal;
@@ -402,7 +406,7 @@ export function workerDatabaseUrl(operatorUrl, principal, password) {
   return url.toString();
 }
 
-/** เขียน env แบบรวมกับไฟล์เดิม (แทนเฉพาะ key ที่ตั้ง) และบังคับ mode 600 ทุกครั้ง */
+/** Write the env merged with the existing file (replacing only the keys that are set) and force mode 600 every time */
 export function mergeEnvFile(path, entries, header) {
   const existing = existsSync(path) ? readFileSync(path, 'utf8').split('\n') : [header];
   const pending = new Map(entries);
@@ -425,9 +429,9 @@ async function findTenant(db, slug) {
       b.snapshot_digest AS "planDigest"
     FROM tenants t LEFT JOIN tenant_plan_bindings b ON b.tenant_id = t.id
     WHERE t.slug = ${slug}`;
-  if (tenants.length !== 1) throw new Error('ไม่พบ tenant');
+  if (tenants.length !== 1) throw new Error('tenant not found');
   if (tenants[0].status !== 'ACTIVE')
-    throw new Error(`tenant ยังไม่ ACTIVE (${tenants[0].status})`);
+    throw new Error(`tenant is not ACTIVE yet (${tenants[0].status})`);
   return tenants[0];
 }
 
@@ -435,15 +439,20 @@ async function prepareDatabase(db, plan, tenant, { log, persistWorkerUrl }) {
   return db.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
 
-    // เบอร์ปลายทางที่ operator reserve: inactive, managed v1, ชี้คิวที่มีอยู่แล้ว (Admin ผูกคิวจริงเองใน Console)
+    // the destination number the operator reserves: inactive, managed v1, pointing at an existing queue (the Admin binds the real queue in the Console)
     let [destination] = await tx.$queryRaw`SELECT id::text AS id, voice_config_version AS version
       FROM voice_destinations WHERE tenant_id = ${tenant.id}::uuid AND destination = ${plan.destination}`;
     if (destination && destination.version !== 1)
-      throw new Error('เบอร์ปลายทางนี้มีอยู่แล้วแต่ไม่ใช่ managed v1 — ไม่แก้ทับ');
+      throw new Error(
+        'this destination number already exists but is not managed v1 - not overwriting',
+      );
     if (!destination) {
       const [placeholder] = await tx.$queryRaw`SELECT id::text AS id FROM queues
         WHERE tenant_id = ${tenant.id}::uuid ORDER BY created_at, id LIMIT 1`;
-      if (!placeholder) throw new Error('tenant ยังไม่มีคิวจาก bootstrap ให้ใช้เป็นจุดผูกเริ่มต้น');
+      if (!placeholder)
+        throw new Error(
+          'the tenant has no queue from bootstrap to use as the initial binding point',
+        );
       log(`db.destination: reserve ${plan.destination} (inactive)`);
       if (plan.apply)
         [destination] = await tx.$queryRaw`INSERT INTO voice_destinations
@@ -452,8 +461,8 @@ async function prepareDatabase(db, plan, tenant, { log, persistWorkerUrl }) {
           VALUES (gen_random_uuid(), ${tenant.id}::uuid, ${plan.destination}, 'DIRECT_QUEUE',
             ${placeholder.id}::uuid, false, 1, 1, now())
           RETURNING id::text AS id`;
-      else destination = { id: '<ใหม่>' };
-    } else log(`db.destination: ${plan.destination} มีอยู่แล้ว`);
+      else destination = { id: '<new>' };
+    } else log(`db.destination: ${plan.destination} already exists`);
 
     const desired = {
       sourceKind: tenant.planDigest ? 'PLAN_SNAPSHOT' : 'UAT_EXPLICIT',
@@ -471,7 +480,7 @@ async function prepareDatabase(db, plan, tenant, { log, persistWorkerUrl }) {
         destination_pool AS "destinationPool"
       FROM tenant_voice_provisioning_policies WHERE tenant_id = ${tenant.id}::uuid`;
     if (current) {
-      // pool เดิมคงไว้เสมอ — operator อาจ reserve หลายเบอร์ และ Agent อาจใช้ extension เดิมอยู่
+      // always keep the existing pool - the operator may reserve several numbers, and an Agent may be using an existing extension
       const others = current.destinationPool.filter(
         (item) => item.destinationId !== destination.id,
       );
@@ -480,7 +489,9 @@ async function prepareDatabase(db, plan, tenant, { log, persistWorkerUrl }) {
     }
     if (!current || policyDiffers(current, desired)) {
       const revision = (current?.revision ?? 0) + 1;
-      log(`db.policy: ${current ? 'แก้' : 'สร้าง'} revision ${revision} (${desired.sourceKind})`);
+      log(
+        `db.policy: ${current ? 'fixing' : 'creating'} revision ${revision} (${desired.sourceKind})`,
+      );
       if (plan.apply) {
         const values = [
           desired.sourceKind,
@@ -518,15 +529,15 @@ async function prepareDatabase(db, plan, tenant, { log, persistWorkerUrl }) {
             tenant.id,
           );
       }
-    } else log(`db.policy: revision ${current.revision} ตรงแล้ว`);
+    } else log(`db.policy: revision ${current.revision} already matches`);
 
-    // API มี TENANT_PEOPLE_WORKER_DATABASE_URL ได้ค่าเดียว และ RLS ผูกแถวกับ session_user —
-    // ทุก tenant ใน deployment ต้องใช้ principal เดียวกัน
+    // the API can have only one TENANT_PEOPLE_WORKER_DATABASE_URL value, and RLS binds rows to session_user -
+    // every tenant in a deployment must use the same principal
     const others = await tx.$queryRaw`SELECT DISTINCT database_principal::text AS principal
       FROM tenant_people_worker_bindings WHERE enabled AND database_principal <> ${plan.workerPrincipal}`;
     if (others.length)
       throw new Error(
-        `deployment นี้ใช้ worker principal ${others.map((row) => row.principal).join(', ')} อยู่แล้ว — ใช้ --worker-principal เดิม`,
+        `this deployment already uses worker principal ${others.map((row) => row.principal).join(', ')} - use the same --worker-principal`,
       );
     const [principal] = await tx.$queryRaw`SELECT r.rolcanlogin AS login, r.rolinherit AS inherit,
         r.rolbypassrls AS bypass, r.rolsuper AS super, r.rolcreaterole AS "createRole",
@@ -535,8 +546,10 @@ async function prepareDatabase(db, plan, tenant, { log, persistWorkerUrl }) {
       FROM pg_roles r WHERE r.rolname = ${plan.workerPrincipal}`;
     if (!principal) {
       if (!plan.createWorkerPrincipal)
-        throw new Error('ไม่มี worker principal นี้ — ใส่ --create-worker-principal เพื่อสร้าง');
-      log(`db.worker: สร้าง login role ${plan.workerPrincipal}`);
+        throw new Error(
+          'this worker principal does not exist - pass --create-worker-principal to create it',
+        );
+      log(`db.worker: creating login role ${plan.workerPrincipal}`);
     } else if (
       !principal.login ||
       principal.inherit ||
@@ -548,13 +561,13 @@ async function prepareDatabase(db, plan, tenant, { log, persistWorkerUrl }) {
       !principal.member
     )
       throw new Error(
-        'worker principal ต้องเป็น LOGIN NOINHERIT NOBYPASSRLS ที่ไม่มีสิทธิ์ superuser/createrole/createdb/replication และเป็นสมาชิก dcontact_tenant_people_worker',
+        'the worker principal must be LOGIN NOINHERIT NOBYPASSRLS with no superuser/createrole/createdb/replication privilege and be a member of dcontact_tenant_people_worker',
       );
     else if (plan.rotateWorkerPassword)
-      log(`db.worker: เปลี่ยนรหัสผ่านของ ${plan.workerPrincipal}`);
+      log(`db.worker: changing the password of ${plan.workerPrincipal}`);
     if (plan.apply && (!principal || plan.rotateWorkerPassword)) {
       const password = randomBytes(24).toString('base64url');
-      // เก็บรหัสผ่านลงไฟล์ก่อน commit: ถ้าล้มหลังจากนี้ role ยังไม่เกิด และรอบถัดไปออกรหัสใหม่
+      // write the password to the file before commit: if it fails after this the role does not exist yet, and the next round issues a new password
       persistWorkerUrl(workerDatabaseUrl(process.env.DATABASE_URL, plan.workerPrincipal, password));
       const verifier = scramVerifier(password);
       await tx.$executeRawUnsafe(
@@ -570,14 +583,14 @@ async function prepareDatabase(db, plan, tenant, { log, persistWorkerUrl }) {
     const [binding] = await tx.$queryRaw`SELECT enabled FROM tenant_people_worker_bindings
       WHERE tenant_id = ${tenant.id}::uuid AND database_principal = ${plan.workerPrincipal}`;
     if (binding && !binding.enabled)
-      throw new Error('worker binding ถูกปิดไว้ — ไม่เปิดคืนอัตโนมัติ');
+      throw new Error('the worker binding was disabled - not re-enabling it automatically');
     if (!binding) {
-      log('db.worker: ผูก worker principal กับ tenant');
+      log('db.worker: binding the worker principal to the tenant');
       if (plan.apply)
         await tx.$executeRaw`INSERT INTO tenant_people_worker_bindings
             (tenant_id, database_principal, approval_ref)
           VALUES (${tenant.id}::uuid, ${plan.workerPrincipal}, ${plan.approvalRef})`;
-    } else log('db.worker: ผูกแล้ว');
+    } else log('db.worker: already bound');
     return { destinationId: destination.id };
   });
 }
@@ -586,27 +599,27 @@ async function main() {
   const plan = parseArguments(process.argv.slice(2));
   const log = (line) => process.stdout.write(`${plan.apply ? '' : '[dry-run] '}${line}\n`);
   const databaseUrl = process.env.DATABASE_URL;
-  if (!databaseUrl) throw new Error('ต้องตั้ง DATABASE_URL ของบัญชี operator');
+  if (!databaseUrl) throw new Error('DATABASE_URL of the operator account must be set');
   const require = createRequire(resolve('apps/api/package.json'));
   const { PrismaClient } = require('@d-contact/db');
   const db = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
-  const header = `# สร้างโดย scripts/tenant-voice-onboarding.mjs (#977) — รวม TENANT_PEOPLE_BINDING_* เข้า array ของ TENANT_PEOPLE_BINDINGS_JSON`;
+  const header = `# generated by scripts/tenant-voice-onboarding.mjs (#977) - merges TENANT_PEOPLE_BINDING_* into the TENANT_PEOPLE_BINDINGS_JSON array`;
   const persist = (entries) => {
     mergeEnvFile(plan.envOut, entries, header);
-    log(`env: เขียน ${entries.map(([key]) => key).join(', ')} ลง ${plan.envOut} (mode 600)`);
+    log(`env: writing ${entries.map(([key]) => key).join(', ')} to ${plan.envOut} (mode 600)`);
   };
   try {
     const tenant = await findTenant(db, plan.tenant);
     const keycloakUrl = process.env.KEYCLOAK_ADMIN_URL ?? 'http://localhost:8081';
     const kc = await keycloakAdmin(keycloakUrl);
-    // ตรวจ Keycloak ให้ผ่านก่อนเขียนฐาน — Organization ผิดตัวหรือ service account สิทธิ์เกินจะหยุดที่นี่
+    // make the Keycloak check pass before writing the database - a wrong Organization or a service account with excess privileges stops here
     const inspected = await inspectKeycloak(kc, { tenant: plan.tenant, tenantId: tenant.id });
     await prepareDatabase(db, plan, tenant, {
       log,
       persistWorkerUrl: (url) => persist([['TENANT_PEOPLE_WORKER_DATABASE_URL', url]]),
     });
     const identity = await applyKeycloak(kc, inspected, { apply: plan.apply, log });
-    // People runtime รับเฉพาะ https หรือ http://127.0.0.1 (tenant-people-keycloak.ts) — dev ใช้ 127.0.0.1
+    // the People runtime accepts only https or http://127.0.0.1 (tenant-people-keycloak.ts) - dev uses 127.0.0.1
     const issuer =
       plan.issuer ?? `${keycloakUrl.replace('//localhost:', '//127.0.0.1:')}/realms/dcontact`;
     const binding = peopleBinding({
@@ -616,8 +629,8 @@ async function main() {
       extensions: plan.extensions,
       backchannelUrl: plan.backchannelUrl,
     });
-    log(`env: เพิ่ม ${JSON.stringify(binding)} ใน TENANT_PEOPLE_BINDINGS_JSON`);
-    log(`env: ตั้ง ${binding.clientSecretEnv} และ restart API (ค่าอ่านตอน start)`);
+    log(`env: adding ${JSON.stringify(binding)} to TENANT_PEOPLE_BINDINGS_JSON`);
+    log(`env: set ${binding.clientSecretEnv} and restart the API (the value is read at start)`);
     if (plan.apply)
       persist([
         [

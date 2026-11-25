@@ -1,15 +1,15 @@
 /**
- * D1.16 (#455): Playwright บนสายจริงใน dev stack — acceptance ที่ห้าม waive ของ D1 (Phase Contract #428)
+ * D1.16 (#455): Playwright on a real call in the dev stack - the non-waivable acceptance of D1 (Phase Contract #428)
  *
- * "ไม่ reload และไม่ตัดสาย/WS ระหว่างสลับภาษาและเปลี่ยนขนาด dphone": browser เป็นเอเจนต์จริง
- * (Keycloak PKCE → fake media → SIP.js ลงทะเบียนผ่าน WS กับ FreeSWITCH) SIPp โทรเข้าคิว Router ส่งสายให้
- * แล้ว spec วัด SIP session ID, WS connection ID และ `performance.navigation` ทุกขั้น
+ * "no reload and no dropped call/WS while switching language and resizing dphone": the browser is a real agent
+ * (Keycloak PKCE -> fake media -> SIP.js registers over WS with FreeSWITCH), SIPp calls into the queue and the Router sends the call to it,
+ * then the spec measures the SIP session ID, WS connection ID and `performance.navigation` at every step
  *
- * - ใช้ DB แยก (`D1_REAL_CALL_DATABASE`, default `dcontact_d1_16`) ที่ migrate ถึง HEAD + RLS + seed ใหม่ทุกรอบ
- *   ไม่แตะ DB `dcontact` และไม่แก้ user attribute ใน Keycloak: tenant demo และ agent1000 ถูกสร้างด้วย id ที่
- *   Keycloak ออก claim ให้อยู่แล้ว (`tenant_id`, `dc_user_id`) ก่อน seed จะ upsert ส่วนที่เหลือ
- * - เปิด `ui.shell.v2` เฉพาะ tenant demo ใน DB แยกนี้ — ไม่กระทบ #77 voice pilot
- * - Workspace ต้องอยู่ที่ http://localhost:5173 ตาม redirect URI ของ client `agent-desktop`
+ * - uses a separate DB (`D1_REAL_CALL_DATABASE`, default `dcontact_d1_16`) migrated to HEAD + RLS + a fresh seed every run;
+ *   it does not touch the `dcontact` DB and does not edit user attributes in Keycloak: the demo tenant and agent1000 are created with the ids
+ *   Keycloak already issues in its claims (`tenant_id`, `dc_user_id`) before the seed upserts the rest
+ * - enables `ui.shell.v2` only for the demo tenant in this separate DB - it does not affect the #77 voice pilot
+ * - the Workspace must be at http://localhost:5173 per the redirect URI of the `agent-desktop` client
  */
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
@@ -19,7 +19,7 @@ import { stopChild } from './child-process-lifecycle.mjs';
 const compose = ['compose', '-f', 'infra/docker/docker-compose.dev.yml'];
 const database = process.env.D1_REAL_CALL_DATABASE ?? 'dcontact_d1_16';
 if (!/^dcontact_[a-z0-9_]+$/.test(database) || database === 'dcontact') {
-  throw new Error('D1_REAL_CALL_DATABASE ต้องเป็น DB แยก (dcontact_<ชื่อ>) ไม่ใช่ dcontact');
+  throw new Error('D1_REAL_CALL_DATABASE must be a separate DB (dcontact_<name>), not dcontact');
 }
 const keycloakBaseUrl = process.env.KEYCLOAK_ADMIN_URL ?? 'http://localhost:8081';
 const agentUsername = 'agent1000@demo.local';
@@ -76,7 +76,7 @@ function run(command, args, options = {}) {
   });
   if (result.status !== 0) {
     throw new Error(
-      `${command} ${args.join(' ')} ล้มเหลว\n${result.stdout ?? ''}${result.stderr ?? ''}`,
+      `${command} ${args.join(' ')} failed\n${result.stdout ?? ''}${result.stderr ?? ''}`,
     );
   }
   return result.stdout ?? '';
@@ -126,7 +126,9 @@ const wait = (milliseconds) => new Promise((done) => setTimeout(done, millisecon
 async function waitForHttp(url, label, child) {
   for (let attempt = 0; attempt < 120; attempt += 1) {
     if (child.exitCode !== null) {
-      throw new Error(`${label} หยุดก่อนพร้อม (exit ${child.exitCode})\n${child.tail()}`);
+      throw new Error(
+        `${label} stopped before becoming ready (exit ${child.exitCode})\n${child.tail()}`,
+      );
     }
     try {
       await fetch(url);
@@ -135,7 +137,7 @@ async function waitForHttp(url, label, child) {
       await wait(500);
     }
   }
-  throw new Error(`${label} ไม่ตอบที่ ${url}\n${child.tail()}`);
+  throw new Error(`${label} did not respond at ${url}\n${child.tail()}`);
 }
 
 async function waitForConsumerGroup(groupId) {
@@ -148,7 +150,7 @@ async function waitForConsumerGroup(groupId) {
     if (result.status === 0 && /STATE\s+Stable/.test(result.stdout)) return;
     await wait(500);
   }
-  throw new Error(`consumer group ยังไม่พร้อม: ${groupId}`);
+  throw new Error(`consumer group is not ready: ${groupId}`);
 }
 
 function assertPortsFree() {
@@ -157,7 +159,9 @@ function assertPortsFree() {
       encoding: 'utf8',
     });
     if (result.stdout.trim()) {
-      throw new Error(`port ${port} ถูกใช้อยู่ — ปิด API/Workspace dev server เดิมก่อนรัน harness`);
+      throw new Error(
+        `port ${port} is in use - close the existing API/Workspace dev server before running the harness`,
+      );
     }
   }
 }
@@ -173,7 +177,7 @@ async function keycloakAgentClaims() {
       password: environment.KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD ?? 'admin',
     }),
   }).then((response) => {
-    if (!response.ok) throw new Error(`Keycloak admin token ล้มเหลว (${response.status})`);
+    if (!response.ok) throw new Error(`Keycloak admin token failed (${response.status})`);
     return response.json();
   });
   const users = await fetch(
@@ -186,7 +190,7 @@ async function keycloakAgentClaims() {
   const uuid = /^[0-9a-f-]{36}$/i;
   if (!uuid.test(tenantId ?? '') || !uuid.test(userId ?? '') || !uuid.test(users[0]?.id ?? '')) {
     throw new Error(
-      `${agentUsername} ใน Keycloak ยังไม่มี tenant_id/dc_user_id — รัน pnpm infra:identity:link ก่อน`,
+      `${agentUsername} in Keycloak has no tenant_id/dc_user_id yet - run pnpm infra:identity:link first`,
     );
   }
   return { tenantId, userId, keycloakId: users[0].id };
@@ -202,14 +206,14 @@ async function prepareDatabase() {
   psql(`CREATE DATABASE ${database};`, 'postgres');
   run('pnpm', ['db:migrate']);
   run('pnpm', ['db:rls']);
-  // id ต้องตรงกับ claim ที่ Keycloak ออกให้ agent1000 — seed จะ upsert ตาม slug/email และใช้แถวนี้ต่อ
+  // the id must match the claim Keycloak issues for agent1000 - the seed upserts by slug/email and keeps using this row
   psql(
     `INSERT INTO tenants (id, name, slug, sip_domain) VALUES ('${claims.tenantId}', 'Demo Company', 'demo', 'dcontact.local');
      INSERT INTO users (id, keycloak_id, tenant_id, email, password_hash, display_name, role, extension)
      VALUES ('${claims.userId}', '${claims.keycloakId}', '${claims.tenantId}', '${agentUsername}', '-', 'Agent 1000', 'AGENT', '1000');`,
   );
   run('pnpm', ['db:seed']);
-  // ให้ Router เลือกได้แค่ agent1000 ที่ browser ลงทะเบียนอยู่
+  // let the Router choose only agent1000, who is registered in the browser
   psql(
     `INSERT INTO agent_state_logs (tenant_id, user_id, state, reason)
      SELECT tenant_id, id, 'OFFLINE', 'd1-16-real-call' FROM users
@@ -222,7 +226,7 @@ async function prepareDatabase() {
     'demo',
     '--on',
     '--reason',
-    'D1.16 real-call acceptance (DB แยก)',
+    'D1.16 real-call acceptance (separate DB)',
     '--actor',
     'd1-16-harness',
     '--ack-voice-pilot',
@@ -253,7 +257,7 @@ try {
   assertPortsFree();
   const claims = await prepareDatabase();
   environment.LINE_WEBHOOK_TENANT_ID = claims.tenantId;
-  process.stdout.write(`# DB ${database} พร้อม (tenant ${claims.tenantId})\n`);
+  process.stdout.write(`# DB ${database} ready (tenant ${claims.tenantId})\n`);
 
   const api = start('api', 'node', ['node_modules/tsx/dist/cli.mjs', 'src/main.ts'], {
     cwd: resolve('apps/api'),
@@ -278,9 +282,9 @@ try {
     waitForConsumerGroup(`dcontact-telephony-command-${nodeId}-v1`),
   ]);
   for (const child of [router, telephony]) {
-    if (child.exitCode !== null) throw new Error(`${child.label} หยุดทำงาน\n${child.tail()}`);
+    if (child.exitCode !== null) throw new Error(`${child.label} stopped\n${child.tail()}`);
   }
-  process.stdout.write('# API, Router, Telephony และ Workspace พร้อม — เริ่ม Playwright\n');
+  process.stdout.write('# API, Router, Telephony and Workspace ready - starting Playwright\n');
 
   const playwright = spawnSync(
     'pnpm',
@@ -305,7 +309,9 @@ try {
   );
   if (playwright.status !== 0) {
     for (const child of [api, router, telephony]) {
-      process.stderr.write(`\n--- ${child.label} (ท้าย log) ---\n${child.tail().slice(-4_000)}\n`);
+      process.stderr.write(
+        `\n--- ${child.label} (end of log) ---\n${child.tail().slice(-4_000)}\n`,
+      );
     }
     process.exitCode = playwright.status ?? 1;
   } else {

@@ -100,7 +100,7 @@ function run(options = {}) {
   });
 }
 
-test('CG4 registry มี 25 mandatory checks ครบ 9 dimensions ตาม #178', () => {
+test('CG4 registry has all 25 mandatory checks across 9 dimensions per #178', () => {
   assert.deepEqual(
     CXA_CG4_READINESS_CHECKS.map(({ id }) => id),
     [
@@ -138,14 +138,14 @@ test('CG4 registry มี 25 mandatory checks ครบ 9 dimensions ตาม #
   for (const item of CXA_CG4_READINESS_CHECKS) {
     assert.ok(item.commands.length > 0, item.id);
     assert.ok(item.boundaries.length > 0, item.id);
-    // หน่วยของ suite คือไฟล์เดียว: คำสั่ง tsx --test ต้องมีไฟล์เทสต์ไฟล์เดียว
+    // the unit of a suite is a single file: a tsx --test command must have a single test file
     for (const command of item.commands.filter((entry) => entry.includes('--test'))) {
       assert.equal(command.filter((part) => /\.(test|integration|spec)\.ts$/.test(part)).length, 1);
     }
   }
 });
 
-test('A: CG4-REG01 ไม่รัน S1 ซ้อน (#572) และไม่รัน build/typecheck/lint/E0/C1/Inbound Voice ซ้ำ', () => {
+test('A: CG4-REG01 does not run S1 nested (#572) and does not re-run build/typecheck/lint/E0/C1/Inbound Voice', () => {
   const regression = CXA_CG4_READINESS_CHECKS.find(({ id }) => id === 'CG4-REG01');
   const scripts = regression.commands.map((command) => command.at(-1));
   assert.deepEqual(scripts.length, 1);
@@ -155,7 +155,7 @@ test('A: CG4-REG01 ไม่รัน S1 ซ้อน (#572) และไม่�
       item.commands.some((command) => command.some((part) => /:acceptance$/.test(String(part)))),
     ),
   );
-  // เทียบเฉพาะคำสั่ง root `pnpm <script>` แบบเดียวกับ S1-REG-01 — `pnpm --filter console build` เป็นคนละคำสั่ง
+  // compare only root `pnpm <script>` commands like S1-REG-01 - `pnpm --filter console build` is a different command
   for (const duplicated of S1_REGRESSION_SCRIPTS) {
     assert.equal(
       CXA_CG4_READINESS_CHECKS.some((item) =>
@@ -167,7 +167,7 @@ test('A: CG4-REG01 ไม่รัน S1 ซ้อน (#572) และไม่�
   }
 });
 
-test('B: suite plan รันแต่ละไฟล์ครั้งเดียวแม้หลาย check อ้างไฟล์เดียวกัน', () => {
+test('B: the suite plan runs each file once even when several checks reference the same file', () => {
   const suites = cg4SuitePlan();
   const totalCommands = CXA_CG4_READINESS_CHECKS.reduce(
     (sum, item) => sum + item.commands.length,
@@ -192,7 +192,7 @@ test('B: suite plan รันแต่ละไฟล์ครั้งเดี
   assert.equal(result.manifest.suites.length, suites.length);
 });
 
-test('final main run ที่ 25/25 PASS พร้อม dependency/profile ออก CONTACT_GOVERNANCE_CG4_ACCEPTED', () => {
+test('a final main run with 25/25 PASS plus dependency/profile issues CONTACT_GOVERNANCE_CG4_ACCEPTED', () => {
   const result = run();
   assert.equal(result.summary.status, 'PASS');
   assert.deepEqual(result.summary.markers, [CG4_MARKER]);
@@ -204,7 +204,7 @@ test('final main run ที่ 25/25 PASS พร้อม dependency/profile อ
   assert.match(result.manifestSha256, /^[0-9a-f]{64}$/);
 });
 
-test('marker suppression: PR run, non-final SHA, dirty tree, local artifact, CG3 marker และ S1 regression', () => {
+test('marker suppression: PR run, non-final SHA, dirty tree, local artifact, CG3 marker and S1 regression', () => {
   const cases = [
     [{ pullRequest: 241 }, 'PULL_REQUEST_RUN'],
     [{ ref: 'refs/heads/claude/cg4-11' }, 'NOT_DEFAULT_BRANCH_REF'],
@@ -247,7 +247,7 @@ test('marker suppression: PR run, non-final SHA, dirty tree, local artifact, CG3
   );
 });
 
-test('suite ที่ล้มทำให้ทุก check ที่อ้าง suite นั้นล้ม และ marker ไม่ออก', () => {
+test('a failed suite fails every check that references that suite, and the marker is not issued', () => {
   const cg4Api = cg4SuitePlan().find((suite) =>
     isScript(suite, 'contact-governance-cg4-api.integration.ts'),
   );
@@ -279,7 +279,7 @@ test('suite ที่ล้มทำให้ทุก check ที่อ้า�
   assert.ok(noProfile.summary.markerBlockers.includes('OWNER_PROFILE_OR_FLAGS_MISMATCH'));
 });
 
-test('TAP: skip/todo/cancel หรือไม่มีเทสต์เลยไม่นับว่าผ่านแม้ exit 0', () => {
+test('TAP: skip/todo/cancel or no tests at all does not count as a pass even with exit 0', () => {
   const tapOutput = (overrides = {}) => {
     const counts = { tests: 2, pass: 2, fail: 0, cancelled: 0, skipped: 0, todo: 0, ...overrides };
     return [
@@ -305,14 +305,14 @@ test('TAP: skip/todo/cancel หรือไม่มีเทสต์เลย�
   const nonTap = { id: 'suite:02', command: ['pnpm', 'build'], checkIds: ['CG4-UX01'] };
   assert.equal(executeCg4Suite(nonTap, fakeRunner('built')).status, 'PASS');
 
-  // หลาย summary (เช่น package ที่รันหลาย process) ถูกรวมกัน และ title ถูก digest ไม่เก็บข้อความ
+  // several summaries (e.g. a package that runs several processes) are combined, and titles are digested rather than storing the text
   const merged = parseTapSummary(`${tapOutput()}\n${tapOutput({ tests: 1, pass: 1 })}`);
   assert.equal(merged.tests, 3);
   assert.equal(merged.passed, 3);
   assert.match(merged.titlesSha256, /^[0-9a-f]{64}$/);
 });
 
-test('detail ของ suite ที่ล้มถูก redact ก่อนเข้า manifest จึงไม่ทำให้ manifest ทั้งไฟล์ใช้ไม่ได้', () => {
+test('the detail of a failed suite is redacted before entering the manifest, so the whole manifest does not become unusable', () => {
   const output = [
     'not ok 3 - identity customer@example.test phone 0812345678',
     '  error: token eyJhbGciOi.eyJzdWIiOi.c2lnbmF0dXJl',
@@ -338,7 +338,7 @@ test('detail ของ suite ที่ล้มถูก redact ก่อนเ�
   assert.equal(result.summary.status, 'FAIL');
 });
 
-test('validator ปฏิเสธ check/suite ที่ไม่สอดคล้อง, artifact hash/commit ผิด, flag และ SHA/ref mismatch', () => {
+test('validator rejects inconsistent check/suite, wrong artifact hash/commit, flag and SHA/ref mismatch', () => {
   const { manifest } = run();
   const reject = (mutate, pattern) => {
     const copy = structuredClone(manifest);
@@ -347,42 +347,42 @@ test('validator ปฏิเสธ check/suite ที่ไม่สอดคล
   };
   reject((copy) => {
     copy.checks[0].id = 'CG4-X99';
-  }, /ไม่รู้จัก/);
+  }, /unknown check/);
   reject((copy) => {
     copy.checks[1] = { ...copy.checks[0] };
-  }, /ซ้ำ/);
+  }, /duplicate check/);
   reject((copy) => {
     copy.checks.pop();
     copy.artifacts.pop();
-  }, /ครบทั้ง 25/);
+  }, /all 25/);
   reject((copy) => {
     copy.dimensions[0].checks = 0;
-  }, /dimension ว่าง/);
+  }, /empty dimension/);
   reject((copy) => {
     copy.suites[0].status = 'FAIL';
-  }, /ไม่ตรงกับผลของ suite/);
+  }, /does not match the suite result/);
   reject((copy) => {
     copy.checks[0].subchecks.pop();
-  }, /ครบตาม registry/);
+  }, /per the registry/);
   reject((copy) => {
     copy.checks[0].status = 'FAIL';
-  }, /status ไม่ตรง/);
+  }, /status that does not match/);
   reject((copy) => {
     copy.artifacts[0].sha256 = '0'.repeat(64);
   }, /SHA-256/);
   reject((copy) => {
     copy.artifacts[0].commitSha = 'c'.repeat(40);
-  }, /commit ไม่ตรง/);
+  }, /commit that does not match/);
   reject((copy) => {
     copy.flags.releaseEnabled = true;
   }, /fixed flags/);
-  // ADR-032: main ขยับไปแล้ว (finalMainSha ต่างจาก commit) ยังออก marker ได้ถ้า commit อยู่บน main
+  // ADR-032: main has moved on (finalMainSha differs from the commit), a marker can still be issued if the commit is on main
   const movedMain = structuredClone(manifest);
   movedMain.finalMainSha = 'a'.repeat(40);
   assert.doesNotThrow(() => assertValidCxaCg4EvidenceManifest(movedMain));
   reject((copy) => {
     copy.refProof.commitOnMain = false;
-  }, /อยู่บน main แล้ว/);
+  }, /already on main/);
   reject((copy) => {
     copy.refProof.cleanTree = false;
   }, /clean checkout/);
@@ -400,13 +400,13 @@ test('validator ปฏิเสธ check/suite ที่ไม่สอดคล
   }, /owner profiles/);
 });
 
-test('manifest ปฏิเสธ PII และ credential แม้อยู่ใน diagnostic ลึก', () => {
+test('manifest rejects PII and credentials even in a deep diagnostic', () => {
   assert.throws(
     () => assertPiiSafeEvidence({ nested: [{ detail: 'customer@example.test' }] }),
     /PII/,
   );
-  assert.throws(() => assertPiiSafeEvidence({ client_secret: 'x' }), /field ต้องห้าม/);
-  // executor ที่ไม่ redact (ผิด contract) ต้องทำให้ manifest ถูกปฏิเสธก่อนเขียนไฟล์
+  assert.throws(() => assertPiiSafeEvidence({ client_secret: 'x' }), /forbidden field/);
+  // an executor that does not redact (a contract violation) must make the manifest rejected before the file is written
   assert.throws(
     () =>
       run({
@@ -420,7 +420,7 @@ test('manifest ปฏิเสธ PII และ credential แม้อยู่
   );
 });
 
-test('owner profile fail closed เมื่อ profile ผิดหรือพยายามเปิด release/provider/real data', () => {
+test('owner profile fails closed when the profile is wrong or tries to enable release/provider/real data', () => {
   assert.deepEqual(cxaCg4ProfileSummary({}).flags, CG4_FIXED_FLAGS);
   assert.throws(
     () => cxaCg4ProfileSummary({ CXA_CG4_GOVERNANCE_PROFILE: 'IN_MEMORY' }),
@@ -443,7 +443,7 @@ test('owner profile fail closed เมื่อ profile ผิดหรือพ
   assert.throws(() => cxaCg4ProfileSummary({ CXA_CG4_REAL_CUSTOMER_DATA: 'true' }), /synthetic/);
 });
 
-test('dependency: final main ต้องมี CG3 marker และ S1-REG-01 regression PASS บน SHA เดียวกัน', () => {
+test('dependency: final main needs the CG3 marker and the S1-REG-01 regression to PASS on the same SHA', () => {
   const regressionSubchecks = S1_REGRESSION_SCRIPTS.map((script) => ({
     command: ['pnpm', script],
     status: 'PASS',
@@ -468,9 +468,9 @@ test('dependency: final main ต้องมี CG3 marker และ S1-REG-01 r
   );
   assert.throws(
     () => summary({ s1Manifest: { ...s1, commitSha: 'a'.repeat(40) } }),
-    /SHA เดียวกัน/,
+    /the same SHA/,
   );
-  // S1-REG-01 หยุดที่คำสั่งแรกที่ล้ม: คำสั่งถัดไปไม่มีอยู่จริงต้องเป็น MISSING ไม่ใช่ถือว่าผ่าน
+  // S1-REG-01 stops at the first failing command: later commands that do not really exist must be MISSING, not treated as passing
   assert.throws(
     () =>
       summary({
@@ -507,7 +507,7 @@ test('dependency: final main ต้องมี CG3 marker และ S1-REG-01 r
   assert.equal(j2.j2, 'ACCEPTED_SAME_SHA');
 });
 
-test('profile evidence ถูกเก็บจาก child process จริงผ่าน evidence prefix ของ suite', () => {
+test('profile evidence is collected from a real child process through the suite evidence prefix', () => {
   const profileSuite = cg4SuitePlan().find((suite) =>
     isScript(suite, 'cxa-cg4-profile-readiness.mjs'),
   );
@@ -517,7 +517,7 @@ test('profile evidence ถูกเก็บจาก child process จริง
   assert.deepEqual(result.evidence?.[0]?.flags, CG4_FIXED_FLAGS);
 });
 
-test('marker blockers ว่างเฉพาะ context ที่ถูกต้องทุกข้อ และ artifact hash ผูกกับ check', () => {
+test('marker blockers are empty only for a fully correct context, and the artifact hash is bound to the check', () => {
   const { manifest, checks } = run();
   assert.deepEqual(cg4MarkerBlockers(finalMainContext, checks), []);
   for (const artifact of manifest.artifacts) {

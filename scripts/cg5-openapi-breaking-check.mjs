@@ -36,10 +36,10 @@ function assertOperationCompatible(path, method, before, after, beforeSpec, afte
     const current = currentParameters.get(parameterKey(parameter));
     if (!current)
       throw new TypeError(
-        `${method.toUpperCase()} ${path} ลบ parameter ${parameterKey(parameter)}`,
+        `${method.toUpperCase()} ${path} removed parameter ${parameterKey(parameter)}`,
       );
     if (parameter.required && !current.required) {
-      throw new TypeError(`${method.toUpperCase()} ${path} ทำให้ parameter ที่บังคับเป็น optional`);
+      throw new TypeError(`${method.toUpperCase()} ${path} made a required parameter optional`);
     }
   }
   for (const parameter of afterParameters) {
@@ -48,27 +48,29 @@ function assertOperationCompatible(path, method, before, after, beforeSpec, afte
     );
     if (parameter.required && !previous) {
       throw new TypeError(
-        `${method.toUpperCase()} ${path} เพิ่ม required parameter ${parameterKey(parameter)}`,
+        `${method.toUpperCase()} ${path} added required parameter ${parameterKey(parameter)}`,
       );
     }
   }
   for (const status of Object.keys(before.responses ?? {})) {
     if (!(status in (after.responses ?? {}))) {
-      throw new TypeError(`${method.toUpperCase()} ${path} ลบ response ${status}`);
+      throw new TypeError(`${method.toUpperCase()} ${path} removed response ${status}`);
     }
   }
   if (before['x-dcontact-external'] && !after['x-dcontact-external']) {
-    throw new TypeError(`${method.toUpperCase()} ${path} ถอนสถานะ external โดยไม่มี major version`);
+    throw new TypeError(
+      `${method.toUpperCase()} ${path} withdrew external status without a major version`,
+    );
   }
 }
 
 export function assertNoBreakingChanges(before, after) {
   for (const [path, beforePath] of Object.entries(before.paths ?? {})) {
     const afterPath = after.paths?.[path];
-    if (!afterPath) throw new TypeError(`ลบ external path ${path}`);
+    if (!afterPath) throw new TypeError(`removed external path ${path}`);
     for (const [method, beforeOperation] of operations(beforePath)) {
       const afterOperation = afterPath[method];
-      if (!afterOperation) throw new TypeError(`ลบ operation ${method.toUpperCase()} ${path}`);
+      if (!afterOperation) throw new TypeError(`removed operation ${method.toUpperCase()} ${path}`);
       assertOperationCompatible(path, method, beforeOperation, afterOperation, before, after);
     }
   }
@@ -82,12 +84,12 @@ function readBaseSpec(ref) {
   try {
     execFileSync('git', ['cat-file', '-e', `${ref}^{commit}`], { stdio: 'ignore' });
   } catch {
-    throw new TypeError(`อ่าน OpenAPI base commit ไม่ได้: ${ref}`);
+    throw new TypeError(`cannot read the OpenAPI base commit: ${ref}`);
   }
   try {
     return JSON.parse(execFileSync('git', ['show', `${ref}:${SPEC_PATH}`], { encoding: 'utf8' }));
   } catch {
-    // PR แรกที่เพิ่ม API นี้ยังไม่มี spec ใน base จึงไม่มี compatibility surface ให้เทียบ
+    // the first PR that adds this API has no spec in base, so there is no compatibility surface to compare against
     return undefined;
   }
 }
@@ -99,6 +101,6 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     : undefined;
   if (base) assertNoBreakingChanges(base, current);
   console.log(
-    `CG5 external OpenAPI contract ผ่าน${base ? ' (เทียบ base)' : ' (ยังไม่มี base spec)'}`,
+    `CG5 external OpenAPI contract passed${base ? ' (compared with base)' : ' (no base spec yet)'}`,
   );
 }

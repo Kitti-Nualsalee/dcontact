@@ -10,12 +10,12 @@ import {
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 /**
- * J5-REG01 (#333): `JOURNEY_J5_ACCEPTED` ต้องมี J1/J2/J3/CG3 marker บน SHA เดียวกัน
- * #559: manifest มาจาก immutable CI artifact ของ run ใดก็ได้บน SHA นี้ (`acceptance-fetch-evidence.mjs J5`)
- * ไม่ได้มาจาก `cxa:j3:acceptance` ที่รันซ้อนอยู่ใน J5 อีกแล้ว — marker ไม่ครบ = suite ล้ม (fail-closed)
- * และ runner ยังกัน marker ของ J5 ผ่าน `DEPENDENCY_MARKERS_NOT_SAME_SHA`
+ * J5-REG01 (#333): `JOURNEY_J5_ACCEPTED` needs the J1/J2/J3/CG3 markers on the same SHA
+ * #559: the manifest comes from an immutable CI artifact of any run on this SHA (`acceptance-fetch-evidence.mjs J5`),
+ * no longer from a `cxa:j3:acceptance` run nested inside J5 - an incomplete marker = the suite fails (fail-closed)
+ * and the runner still blocks the J5 marker through `DEPENDENCY_MARKERS_NOT_SAME_SHA`
  *
- * key ของ phase (j1/cg3) คงเดิมเพื่อให้ evidence ของ J5 เทียบกับ manifest รุ่นก่อนได้
+ * the phase keys (j1/cg3) stay unchanged so J5 evidence can be compared with earlier manifests
  */
 export const J5_DEPENDENCY_PHASES = Object.freeze([
   { phase: 'j1', marker: 'J1_ACCEPTED', source: 'c1' },
@@ -30,7 +30,7 @@ function git(arguments_) {
   return String(result.stdout).trim();
 }
 
-/** นับเฉพาะ manifest บน commit เดียวกันที่มี marker ของเฟสนั้นจริง — ไฟล์ค้างจาก SHA อื่นไม่นับ */
+/** Count only manifests on the same commit that really carry the marker of that phase - a leftover file from another SHA does not count */
 export function j5PhaseMarkerStatus(manifests, commitSha, marker) {
   const { source } = J5_DEPENDENCY_PHASES.find((item) => item.marker === marker);
   return phaseMarkerStatus(
@@ -40,7 +40,7 @@ export function j5PhaseMarkerStatus(manifests, commitSha, marker) {
   );
 }
 
-/** `manifests` override ใช้ใน test (ถือว่าผ่าน provenance แล้ว) — ปกติโหลดจาก `artifacts/` */
+/** The `manifests` override is used in tests (treated as having passed provenance) - normally loaded from `artifacts/` */
 export function cxaJ5DependencySummary(options = {}) {
   const commitSha = options.commitSha ?? git(['rev-parse', 'HEAD']);
   const artifactsRoot = options.artifactsRoot ?? resolve(repositoryRoot, 'artifacts');

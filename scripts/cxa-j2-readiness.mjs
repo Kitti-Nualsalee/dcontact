@@ -14,27 +14,27 @@ export { assertPiiSafeEvidence, sha256 };
 export const J2_MARKER = 'JOURNEY_J2_ACCEPTED';
 
 /**
- * J2's own Phase Contract (#127) — ต่างจาก C1 ที่มีสอง sub-phase (CG2/J1) — ประกาศ
- * marker เดียวที่รอ check ทั้ง 16 ตัว PASS พร้อมกัน ไม่มี sub-marker ระหว่างทาง
+ * J2's own Phase Contract (#127) - unlike C1, which has two sub-phases (CG2/J1) - declares
+ * a single marker that waits for all 16 checks to PASS together, with no intermediate sub-marker
  */
 export const CXA_J2_READINESS_CHECKS = [
   {
     id: 'J2-F01',
     dimension: 'functional',
-    dependency: 'J2 cross-domain contract: payload/command/result validation และ canonical hash',
+    dependency: 'J2 cross-domain contract: payload/command/result validation and canonical hash',
     boundaries: [
       'closed payload contract',
       'canonical request/result hash',
       'error taxonomy frozen',
     ],
     commands: [[pnpm, '--filter', '@d-contact/cxa-contracts', 'test']],
-    remediation: 'ตรวจ interaction-result.ts validation/hash function (J2.1)',
+    remediation: 'Check the interaction-result.ts validation/hash function (J2.1)',
   },
   {
     id: 'J2-F02',
     dimension: 'functional',
     dependency:
-      'Journey outcome trigger pipeline: definition, durable receipt และ trigger matching',
+      'Journey outcome trigger pipeline: definition, durable receipt and trigger matching',
     boundaries: [
       'outcome trigger definition',
       'durable receipt/version gate',
@@ -45,24 +45,24 @@ export const CXA_J2_READINESS_CHECKS = [
       [pnpm, '--filter', '@d-contact/journey', 'test:integration'],
     ],
     remediation:
-      'ตรวจ journey-definition/-outcome-receipt-repository/-outcome-trigger-processor (J2.2/J2.3/J2.7)',
+      'Check journey-definition/-outcome-receipt-repository/-outcome-trigger-processor (J2.2/J2.3/J2.7)',
   },
   {
     id: 'J2-F03',
     dimension: 'functional',
-    dependency: 'Cases durable owner ของ ENSURE_CASE',
+    dependency: 'Cases durable owner of ENSURE_CASE',
     boundaries: ['dedupe/reopen policy', 'canonical Case writer'],
     commands: [
       [pnpm, '--filter', '@d-contact/cases', 'test'],
       [pnpm, '--filter', '@d-contact/cases', 'test:integration'],
     ],
-    remediation: 'ตรวจ Cases owner implementation ของ J2DialerOwnerPort/J2CaseOwnerPort (J2.4)',
+    remediation: 'Check the Cases owner implementation of J2DialerOwnerPort/J2CaseOwnerPort (J2.4)',
   },
   {
     id: 'J2-F04',
     dimension: 'functional',
     dependency:
-      'Dialer durable owner ของ ADMIT_CAMPAIGN_TARGET/SCHEDULE_CALLBACK และ originate barrier',
+      'Dialer durable owner of ADMIT_CAMPAIGN_TARGET/SCHEDULE_CALLBACK and the originate barrier',
     boundaries: [
       'admission policy',
       'callback exact scope/expiry',
@@ -72,60 +72,63 @@ export const CXA_J2_READINESS_CHECKS = [
       [pnpm, '--filter', '@d-contact/dialer', 'test'],
       [pnpm, '--filter', '@d-contact/dialer', 'test:integration'],
     ],
-    remediation: 'ตรวจ Dialer owner implementation และ DialerOriginateBarrier (J2.5/J2.6/J2.9)',
+    remediation:
+      'Check the Dialer owner implementation and DialerOriginateBarrier (J2.5/J2.6/J2.9)',
   },
   {
     id: 'J2-TI01',
     dimension: 'tenant-isolation',
-    dependency: 'RLS/tenant policy ครอบคลุมตาราง J2 ใหม่ทั้งหมด',
-    boundaries: ['two tenant fixture', 'cross-tenant rejection', 'RLS policy ของตารางใหม่'],
+    dependency: 'RLS/tenant policy covers all the new J2 tables',
+    boundaries: ['two tenant fixture', 'cross-tenant rejection', 'RLS policy of the new tables'],
     commands: [[pnpm, '--filter', '@d-contact/db', 'test:integration']],
-    remediation: 'ตรวจ RLS ของ jr_outcome_*/jr_owner_*/cs_*/ob_* ที่ J2 เพิ่ม',
+    remediation: 'Check RLS of the jr_outcome_*/jr_owner_*/cs_*/ob_* tables J2 adds',
   },
   {
     id: 'J2-AU01',
     dimension: 'authorization',
-    dependency: 'trusted current tenant/team/contact scope ก่อนทุก owner command (#122)',
+    dependency: 'trusted current tenant/team/contact scope before every owner command (#122)',
     boundaries: [
-      'WORK scope ก่อน enrollment/action',
-      'CONTACT scope ก่อน admission',
-      'DEFER ไม่ cache เป็น ALLOW',
+      'WORK scope before enrollment/action',
+      'CONTACT scope before admission',
+      'DEFER is not cached as ALLOW',
     ],
     commands: [
       [pnpm, '--filter', '@d-contact/journey', 'test:integration'],
       [pnpm, '--filter', '@d-contact/dialer', 'test:integration'],
     ],
     remediation:
-      'ตรวจ JourneyOutcomeTriggerProcessor และ Dialer owner service scope check (J2.5/J2.6/J2.7)',
+      'Check JourneyOutcomeTriggerProcessor and the Dialer owner service scope check (J2.5/J2.6/J2.7)',
   },
   {
     id: 'J2-AU02',
     dimension: 'authorization',
-    dependency: 'Governance outbound barrier ตรวจ scope + เรียก CG3 ใหม่เสมอก่อน originate (#124)',
+    dependency:
+      'the Governance outbound barrier checks scope + always calls CG3 afresh before originate (#124)',
     boundaries: [
-      'fresh authorizeAndReserve ทุกครั้ง',
-      'ไม่ reuse admission decision',
+      'fresh authorizeAndReserve every time',
+      'does not reuse admission decision',
       'fail closed',
     ],
     commands: [[pnpm, '--filter', '@d-contact/dialer', 'test:integration']],
-    remediation: 'ตรวจ DialerOriginateBarrier (J2.9)',
+    remediation: 'Check DialerOriginateBarrier (J2.9)',
   },
   {
     id: 'J2-ID01',
     dimension: 'identity',
     dependency:
-      'canonical outcome identity สองชั้น: transport (source,eventId) และ logical (outcomeType,outcomeId,outcomeVersion)',
+      'canonical outcome identity in two layers: transport (source,eventId) and logical (outcomeType,outcomeId,outcomeVersion)',
     boundaries: ['duplicate no-op', 'version gap wait/reconcile', 'hash conflict quarantine'],
     commands: [[pnpm, '--filter', '@d-contact/journey', 'test:integration']],
-    remediation: 'ตรวจ JourneyOutcomeReceiptRepository (J2.3)',
+    remediation: 'Check JourneyOutcomeReceiptRepository (J2.3)',
   },
   {
     id: 'J2-ID02',
     dimension: 'identity',
-    dependency: 'internal contactId resolution boundary และ ambiguous/missing เข้า REVIEW (#120)',
-    boundaries: ['IDENTITY_UNRESOLVED', 'cross-tenant contactId ปฏิเสธ'],
+    dependency:
+      'internal contactId resolution boundary, and ambiguous/missing goes to REVIEW (#120)',
+    boundaries: ['IDENTITY_UNRESOLVED', 'cross-tenant contactId rejected'],
     commands: [[pnpm, '--filter', '@d-contact/journey', 'test:integration']],
-    remediation: 'ตรวจ CustomerIdentityResolver/PrismaCustomerIdentityResolver (J2.7)',
+    remediation: 'Check CustomerIdentityResolver/PrismaCustomerIdentityResolver (J2.7)',
   },
   {
     id: 'J2-CC01',
@@ -137,62 +140,64 @@ export const CXA_J2_READINESS_CHECKS = [
       'cancel/supersede staged',
     ],
     commands: [[pnpm, '--filter', '@d-contact/journey', 'test:integration']],
-    remediation: 'ตรวจ JourneyOwnerCommandRelay/JourneyOwnerResultReconciler (J2.8)',
+    remediation: 'Check JourneyOwnerCommandRelay/JourneyOwnerResultReconciler (J2.8)',
   },
   {
     id: 'J2-CC02',
     dimension: 'cancellation-recovery',
-    dependency: 'Dialer cancel/supersede เฉพาะ state ที่ reversible และ callback expiry',
+    dependency: 'Dialer cancel/supersede only in reversible states, and callback expiry',
     boundaries: [
-      'CANCEL/SUPERSEDE เฉพาะ SCHEDULED',
-      'TOO_LATE เมื่อ irreversible',
+      'CANCEL/SUPERSEDE only when SCHEDULED',
+      'TOO_LATE when irreversible',
       'callback expiresAt',
     ],
     commands: [[pnpm, '--filter', '@d-contact/dialer', 'test:integration']],
-    remediation: 'ตรวจ DialerCallbackService และ DialerOriginateBarrier expiry check (J2.6/J2.9)',
+    remediation:
+      'Check DialerCallbackService and the DialerOriginateBarrier expiry check (J2.6/J2.9)',
   },
   {
     id: 'J2-RC01',
     dimension: 'cancellation-recovery',
-    dependency: 'receipt gap/quarantine/reconcile ไม่ blind retry',
+    dependency: 'receipt gap/quarantine/reconcile, no blind retry',
     boundaries: [
       'WAITING_FOR_GAP reevaluation',
       'QUARANTINED escalation',
       'markRetryableFailure backoff',
     ],
     commands: [[pnpm, '--filter', '@d-contact/journey', 'test:integration']],
-    remediation: 'ตรวจ markApplied/markRetryableFailure ของ JourneyOutcomeReceiptRepository (J2.3)',
+    remediation: 'Check markApplied/markRetryableFailure of JourneyOutcomeReceiptRepository (J2.3)',
   },
   {
     id: 'J2-RC02',
     dimension: 'cancellation-recovery',
-    dependency: 'command/result idempotency และ recovery audit append-only',
+    dependency: 'command/result idempotency and append-only recovery audit',
     boundaries: [
       'first terminal commit wins',
-      'late result ไม่ย้อน state',
+      'a late result does not roll back state',
       'JrRecoveryAudit append-only',
     ],
     commands: [[pnpm, '--filter', '@d-contact/journey', 'test:integration']],
     remediation:
-      'ตรวจ JourneyOwnerActionRepository.applyResult และ JourneyRecoveryAudit (J2.3/J2.8)',
+      'Check JourneyOwnerActionRepository.applyResult and JourneyRecoveryAudit (J2.3/J2.8)',
   },
   {
     id: 'J2-MG01',
     dimension: 'migration-compatibility',
-    dependency: 'schema migration ครอบคลุมตาราง J2 ใหม่ทั้งหมดทั้ง existing และ fresh migrate',
+    dependency:
+      'schema migration covers all the new J2 tables, on both an existing and a fresh migrate',
     boundaries: ['fresh migration', 'canonical table/RLS/policy lock'],
     commands: [[process.execPath, 'scripts/cxa-j2-schema-readiness.mjs']],
     remediation:
-      'ตรวจ cxa-j2-schema-readiness ครอบคลุมตาราง jr_outcome_*/jr_owner_*/cs_*/ob_* ใหม่',
+      'Check that cxa-j2-schema-readiness covers the new jr_outcome_*/jr_owner_*/cs_*/ob_* tables',
   },
   {
     id: 'J2-OB01',
     dimension: 'observability-pii-redaction',
-    dependency: 'owner profile เป็น durable/TEST_ADAPTER จริง และ evidence ไม่มี raw PII',
+    dependency: 'the owner profile is really durable/TEST_ADAPTER and the evidence has no raw PII',
     boundaries: [
       'DURABLE_OWNER profile',
       'TEST_ADAPTER|CG3_INTEGRATED governance',
-      'no raw PII ใน evidence',
+      'no raw PII in evidence',
     ],
     commands: [
       [pnpm, '--filter', '@d-contact/journey', 'test:integration'],
@@ -201,13 +206,13 @@ export const CXA_J2_READINESS_CHECKS = [
     ],
     evidencePrefix: 'CXA_J2_OWNER_PROFILE_EVIDENCE:',
     remediation:
-      'ตรวจ owner profile evidence และ negative-scan ของ Dialer originate barrier (J2.9)',
+      'Check the owner profile evidence and the negative scan of the Dialer originate barrier (J2.9)',
   },
   {
     id: 'J2-REG01',
     dimension: 'regression',
-    dependency: 'root build/typecheck/lint และ C1/S1 acceptance marker บน SHA เดียวกัน',
-    // #559: ไม่รัน C1/S1 acceptance ซ้ำ — ตรวจ marker จาก immutable CI artifact บน SHA เดียวกันแทน
+    dependency: 'root build/typecheck/lint and the C1/S1 acceptance marker on the same SHA',
+    // #559: do not re-run the C1/S1 acceptance - check the marker from an immutable CI artifact on the same SHA instead
     boundaries: [
       'root build',
       'root typecheck',
@@ -223,14 +228,14 @@ export const CXA_J2_READINESS_CHECKS = [
     ],
     evidencePrefix: 'ACCEPTANCE_DEPENDENCY_EVIDENCE:',
     remediation:
-      'แก้ build/typecheck/lint หรือสั่ง S1 acceptance บน SHA เดียวกันให้ผ่านก่อน (ดู detail ของ dependency)',
+      'Fix build/typecheck/lint, or run the S1 acceptance on the same SHA until it passes (see the dependency detail)',
   },
 ];
 
 function runGit(arguments_) {
   const result = spawnSync('git', arguments_, { cwd: repositoryRoot, encoding: 'utf8' });
   if (result.status !== 0 || result.error) {
-    throw new Error(`git ${arguments_.join(' ')} ล้มเหลว`);
+    throw new Error(`git ${arguments_.join(' ')} failed`);
   }
   return String(result.stdout).trim();
 }
@@ -239,16 +244,16 @@ function repositoryName(environment) {
   if (environment.GITHUB_REPOSITORY) return environment.GITHUB_REPOSITORY;
   const remote = runGit(['config', '--get', 'remote.origin.url']);
   const match = remote.match(/(?:github\.com[/:])([^/]+\/[^/.]+)(?:\.git)?$/);
-  if (!match) throw new TypeError('ไม่สามารถระบุ repository สำหรับ evidence manifest');
+  if (!match) throw new TypeError('cannot determine the repository for the evidence manifest');
   return match[1];
 }
 
-/** marker ออกได้เฉพาะ default-branch completion run บน commit เดียว (#126) — PR run
- * (มี pullRequest number) ต้องได้แค่ candidate manifest แม้ check ทุกตัว PASS */
+/** A marker can be issued only by a default-branch completion run on a single commit (#126) - a PR run
+ * (with a pullRequest number) must get only a candidate manifest even if every check PASSES */
 function isDefaultBranchRun(environment) {
   if (environment.GITHUB_PR_NUMBER) return false;
   const ref = environment.GITHUB_REF ?? environment.CXA_J2_REF;
-  if (!ref) return true; // local run นอก CI ถือเป็น default-branch-equivalent ของผู้เรียกเอง
+  if (!ref) return true; // a local run outside CI counts as default-branch-equivalent (the caller is responsible for it)
   return ref === 'refs/heads/main' || ref === 'main';
 }
 
@@ -256,7 +261,7 @@ export function createEvidenceContext(environment = process.env) {
   const commitSha = runGit(['rev-parse', 'HEAD']);
   const expectedCommitSha = environment.CXA_J2_EXPECTED_COMMIT_SHA;
   if (expectedCommitSha && expectedCommitSha !== commitSha) {
-    throw new TypeError('CXA_J2_EXPECTED_COMMIT_SHA ไม่ตรงกับ commit ที่กำลังรัน');
+    throw new TypeError('CXA_J2_EXPECTED_COMMIT_SHA does not match the running commit');
   }
   return {
     repository: repositoryName(environment),
@@ -350,41 +355,41 @@ export function createCxaJ2EvidenceManifest(context, diagnostics, summary) {
 export function assertValidCxaJ2EvidenceManifest(manifest) {
   assertPiiSafeEvidence(manifest);
   if (manifest.phase !== 'J2' || manifest.schemaVersion !== 1) {
-    throw new TypeError('evidence manifest มี phase หรือ schemaVersion ไม่ถูกต้อง');
+    throw new TypeError('evidence manifest has an invalid phase or schemaVersion');
   }
   if (!/^[0-9a-f]{40}$/i.test(manifest.commitSha)) {
-    throw new TypeError('evidence manifest ต้องมี commit SHA เต็มรูปแบบ');
+    throw new TypeError('evidence manifest must have a full commit SHA');
   }
   const declaredMarkers = manifest.markers ?? [];
   for (const marker of declaredMarkers) {
-    if (marker !== J2_MARKER) throw new TypeError('evidence manifest มี marker ไม่ถูกต้อง');
+    if (marker !== J2_MARKER) throw new TypeError('evidence manifest has an invalid marker');
   }
   const checks = manifest.checks ?? [];
   const artifacts = manifest.artifacts ?? [];
   for (const artifact of artifacts) {
     if (artifact.commitSha !== manifest.commitSha) {
-      throw new TypeError('evidence artifact อ้าง commit ไม่ตรงกับ manifest');
+      throw new TypeError('evidence artifact references a commit that does not match the manifest');
     }
     const checkId = String(artifact.id).replace(/^check:/, '');
     const check = checks.find(({ id }) => id === checkId);
     if (!check || artifact.sha256 !== sha256(check)) {
-      throw new TypeError('SHA-256 ของ evidence artifact ไม่ตรงกับ check');
+      throw new TypeError('SHA-256 of the evidence artifact does not match the check');
     }
   }
   if (!declaredMarkers.includes(J2_MARKER)) return;
 
   if (checks.length !== CXA_J2_READINESS_CHECKS.length) {
-    throw new TypeError('marker ต้องมี check ครบทั้ง 16 ตัวของ J2 acceptance matrix');
+    throw new TypeError('marker must have all 16 checks of the J2 acceptance matrix');
   }
   const allChecksPassed = checks.every((check) => check.status === 'PASS');
   if (!allChecksPassed) {
-    throw new TypeError('JOURNEY_J2_ACCEPTED ต้องมี check ทุกตัว PASS');
+    throw new TypeError('JOURNEY_J2_ACCEPTED needs every check to PASS');
   }
   if (
     artifacts.length !== checks.length ||
     new Set(artifacts.map(({ id }) => id)).size !== checks.length
   ) {
-    throw new TypeError('marker ต้องมี evidence artifact หนึ่งรายการต่อ check');
+    throw new TypeError('marker must have one evidence artifact per check');
   }
   const ownerProfileEvidence = checks
     .find(({ id }) => id === 'J2-OB01')
@@ -398,7 +403,7 @@ export function assertValidCxaJ2EvidenceManifest(manifest) {
     );
   if (!ownerProfileEvidence) {
     throw new TypeError(
-      'marker ต้องมี evidence ว่า owner profile ปิด actual provider traffic/release',
+      'marker must have evidence that the owner profile disables actual provider traffic/release',
     );
   }
 }
@@ -451,7 +456,7 @@ export function runCxaJ2Readiness(options = {}) {
   const startedAt = options.now?.() ?? new Date();
   const context = options.context ?? createEvidenceContext(options.environment ?? process.env);
   const checks = options.checks ?? CXA_J2_READINESS_CHECKS;
-  // check หลายรายการอ้างคำสั่งเดียวกัน — memoize ตาม command กัน CI รันซ้ำโดยไม่เพิ่ม coverage
+  // several checks reference the same command - memoize by command so CI does not re-run it without adding coverage
   const executeCheck = options.executeCheck ?? createMemoizedExecuteCheck();
   const emit = options.emit ?? ((value) => process.stdout.write(`${JSON.stringify(value)}\n`));
   const diagnostics = checks.map((check) => {

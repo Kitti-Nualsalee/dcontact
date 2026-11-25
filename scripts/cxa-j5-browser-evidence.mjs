@@ -7,28 +7,28 @@ import { sha256 } from './cxa-c1-readiness.mjs';
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 /**
- * J5-F04/J5-OB01 (#333 §5): browser/accessibility evidence ของ Console — เก็บ digest ของ trace และ
- * screenshot ที่ Playwright (Chromium) เขียนไว้หลัง suite `test:e2e --trace=on` พร้อม matrix ของ state
- * ที่ spec ครอบ artifact ดิบไม่ถูกใส่ใน manifest เพราะ trace อาจใหญ่ — manifest ถือ digest เท่านั้น
+ * J5-F04/J5-OB01 (#333 §5): browser/accessibility evidence of the Console - keeps the digest of the trace and
+ * screenshots Playwright (Chromium) writes after the `test:e2e --trace=on` suite, with a matrix of the states
+ * the spec covers. Raw artifacts are not put in the manifest because a trace may be large - the manifest holds only digests
  */
 export const J5_BROWSER_MATRIX = Object.freeze([
   { state: 'desktop keyboard-only authoring', test: 'keyboard-only authoring' },
   {
     state: 'diagnostic focus + modal trap/Escape/return focus',
-    test: 'diagnostics ลิงก์กลับ node',
+    test: 'diagnostics ลิงก์กลับ node', // allow-thai: must match the Thai Playwright test title in apps/console
   },
-  { state: 'conflict compare/reload/keep-copy', test: '409 เปิด compare/reload/keep-copy' },
-  { state: 'session recovery', test: 'session recovery ของแท็บ' },
-  { state: 'unknown publish acknowledgement', test: 'publish ที่ไม่รู้ผล (202)' },
+  { state: 'conflict compare/reload/keep-copy', test: '409 เปิด compare/reload/keep-copy' }, // allow-thai: must match the Thai Playwright test title in apps/console
+  { state: 'session recovery', test: 'session recovery ของแท็บ' }, // allow-thai: must match the Thai Playwright test title in apps/console
+  { state: 'unknown publish acknowledgement', test: 'publish ที่ไม่รู้ผล (202)' }, // allow-thai: must match the Thai Playwright test title in apps/console
   { state: 'templates + upgrade', test: 'templates: instantiate' },
-  { state: '960px full / 959px read-only', test: '960px แก้ได้เต็ม' },
+  { state: '960px full / 959px read-only', test: '960px แก้ได้เต็ม' }, // allow-thai: must match the Thai Playwright test title in apps/console
   { state: 'axe WCAG 2.2 AA + 200% zoom + reduced motion', test: 'a11y: editor' },
 ]);
 
 const SPEC = 'apps/console/e2e/journey-authoring.spec.ts';
-/** trace ของ J5 อยู่นอก `test-results` เพราะ e2e รอบอื่นในรันเดียวกันล้างโฟลเดอร์นั้นก่อนถึงขั้นอัปโหลด */
+/** The J5 trace lives outside `test-results` because other e2e rounds in the same run clear that folder before the upload step */
 export const J5_BROWSER_OUTPUT = 'artifacts/cxa-j5/browser';
-/** path เดียวกันเมื่อมองจาก `apps/console` ซึ่งเป็น cwd ของ `pnpm --filter … exec playwright` */
+/** The same path seen from `apps/console`, which is the cwd of `pnpm --filter ... exec playwright` */
 export const J5_BROWSER_OUTPUT_RELATIVE = '../../artifacts/cxa-j5/browser';
 
 function files(directory) {

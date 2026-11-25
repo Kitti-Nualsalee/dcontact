@@ -69,7 +69,7 @@ function passingSuite(suite) {
   };
 }
 
-test('J3 focused รัน 15 checks ของ J3 และไม่ schedule S1/J2/CG4', () => {
+test('J3 focused runs the 15 J3 checks and does not schedule S1/J2/CG4', () => {
   assert.equal(CXA_J3_FOCUSED_CHECKS.length, 15);
   assert.ok(CXA_J3_FOCUSED_CHECKS.every((check) => check.id !== 'J3-REG01'));
   const plan = j3FocusedSuitePlan();
@@ -78,7 +78,7 @@ test('J3 focused รัน 15 checks ของ J3 และไม่ schedule S1
     assert.ok(!commands.some((command) => command.includes(script)));
 });
 
-test('J3 focused evidence เป็น candidate เท่านั้นและ marker ออกไม่ได้', () => {
+test('J3 focused evidence is a candidate only and cannot issue the marker', () => {
   const result = runCxaJ3FocusedReadiness({
     context,
     executeSuite: passingSuite,
@@ -99,18 +99,18 @@ test('J3 focused evidence เป็น candidate เท่านั้นแล�
   markerAttempt.markers = ['JOURNEY_J3_ACCEPTED'];
   assert.throws(
     () => assertValidCxaJ3FocusedEvidenceManifest(markerAttempt),
-    /scope หรือ marker policy/,
+    /scope or marker policy/,
   );
 
   const urlAttempt = structuredClone(result.manifest);
   urlAttempt.run.url = 'https://github.com/Kitti-Nualsalee/dcontact/actions/runs/35090448437';
   assert.throws(
     () => assertValidCxaJ3FocusedEvidenceManifest(urlAttempt),
-    /PII|scope หรือ marker policy/,
+    /PII|scope or marker policy/,
   );
 });
 
-test('J3 focused candidate ยอมรับ GitHub Actions run URL ที่มีเลขคล้ายเบอร์โทร', () => {
+test('J3 focused candidate accepts a GitHub Actions run URL that has digits resembling a phone number', () => {
   const githubActionsContext = {
     ...context,
     runId: '35090448437',

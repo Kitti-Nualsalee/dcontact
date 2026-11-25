@@ -1,24 +1,24 @@
 /**
- * #923: seed ข้อมูลทดสอบของ UAT Solo แบบเดียวกับ Demo ทีมขาย (scripts/sales-demo-stack.mjs)
+ * #923: seed the UAT Solo test data the same way as the sales team Demo (scripts/sales-demo-stack.mjs)
  *
- * owner อนุมัติ 19 พ.ย. 2569 ให้ seed ตรงลงฐาน `dcontact` ของ UAT Solo: tenant `demo` จาก `db:seed`
- * ยังไม่มีทีม, identity binding, scope และ CONTACT_CREATE ที่ flow จริง (Platform provisioning,
- * Tenant People, Core Settings) สร้างให้ — ไม่ใช่หลักฐาน acceptance ของ identity/authorization
+ * the owner approved on 19 Nov 2026 seeding directly into the UAT Solo `dcontact` database: the `demo` tenant from `db:seed`
+ * has no team, identity binding, scope or CONTACT_CREATE yet, which the real flows (Platform provisioning,
+ * Tenant People, Core Settings) create - this is not acceptance evidence of identity/authorization
  *
- * รันใน container ops ของ Solo หลัง `db:migrate`, `db:rls`, `db:seed` และ `infra:identity:link`
- * (infra/solo/bin/solo-uat.sh เรียกให้) ทุกขั้น idempotent รันซ้ำได้
+ * runs in the Solo ops container after `db:migrate`, `db:rls`, `db:seed` and `infra:identity:link`
+ * (called by infra/solo/bin/solo-uat.sh); every step is idempotent and can be re-run
  *
- * เพิ่ม `supervisor@demo.local` (SUPERVISOR ของทีม Customer Care) ให้ทดสอบงานของ Supervisor ได้
- * เช่น ฟังเสียงของทีม (#967) และประเมินคุณภาพ (#971) — `db:seed` ไม่มีผู้ใช้นี้ จึงสร้างที่นี่
- * แล้วเชื่อม Keycloak ด้วยสคริปต์ link ตัวเดิม (รหัสผ่านเดียวกับ Agent: `DCONTACT_LINK_AGENT_PASSWORD`)
+ * adds `supervisor@demo.local` (the SUPERVISOR of the Customer Care team) so Supervisor work can be tested,
+ * e.g. listening to the team audio (#967) and quality evaluation (#971) - `db:seed` has no such user, so it is created here
+ * and then linked to Keycloak with the existing link script (the same password as the Agent: `DCONTACT_LINK_AGENT_PASSWORD`)
  *
  * env:
- *   DATABASE_URL                       owner ของฐานแอป
- *   KEYCLOAK_ADMIN_URL                 เช่น http://keycloak:8080/auth
+ *   DATABASE_URL                       owner of the app database
+ *   KEYCLOAK_ADMIN_URL                 e.g. http://keycloak:8080/auth
  *   KEYCLOAK_BOOTSTRAP_ADMIN_USERNAME / KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD
- *   KEYCLOAK_ISSUER                    issuer ใน token ของผู้ใช้ (https://<console host>/auth/realms/dcontact)
+ *   KEYCLOAK_ISSUER                    the issuer in the user token (https://<console host>/auth/realms/dcontact)
  *   KEYCLOAK_C360_CLIENT_ID / KEYCLOAK_C360_CLIENT_SECRET
- *   SOLO_API_ORIGIN                    เช่น http://api:3000
+ *   SOLO_API_ORIGIN                    e.g. http://api:3000
  */
 import { execFileSync } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -47,7 +47,7 @@ const demoUsers = [
 ];
 const uuid = /^[0-9a-f-]{36}$/i;
 
-/** ส่งการเชื่อมต่อผ่าน PG* env ไม่ใส่ URL ใน argv — ข้อความ error ของ execFileSync จะไม่มีรหัสผ่าน */
+/** Pass the connection through PG* env, not a URL in argv - the error message of execFileSync then has no password */
 const postgres = (() => {
   const parsed = new URL(databaseUrl);
   return {
@@ -83,7 +83,7 @@ async function keycloakAdmin() {
       password: required('KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD'),
     }),
   });
-  if (!response.ok) throw new Error(`Keycloak admin token ล้มเหลว (${response.status})`);
+  if (!response.ok) throw new Error(`Keycloak admin token failed (${response.status})`);
   const token = await response.json();
   return async (path, init = {}) => {
     const result = await fetch(`${keycloakBaseUrl}/admin/realms/dcontact${path}`, {
@@ -93,7 +93,7 @@ async function keycloakAdmin() {
         ...(init.body ? { 'content-type': 'application/json' } : {}),
       },
     });
-    if (!result.ok) throw new Error(`Keycloak ${path} ล้มเหลว (${result.status})`);
+    if (!result.ok) throw new Error(`Keycloak ${path} failed (${result.status})`);
     const text = await result.text();
     return text ? JSON.parse(text) : null;
   };
@@ -106,12 +106,14 @@ async function claimsOf(admin) {
     const tenantId = user?.attributes?.tenant_id?.[0];
     const userId = user?.attributes?.dc_user_id?.[0];
     if (!uuid.test(tenantId ?? '') || !uuid.test(userId ?? '') || !uuid.test(user?.id ?? '')) {
-      throw new Error(`${username} ยังไม่มี tenant_id/dc_user_id — รัน infra:identity:link ก่อน`);
+      throw new Error(
+        `${username} has no tenant_id/dc_user_id yet - run infra:identity:link first`,
+      );
     }
     claims.push({ username, tenantId, userId, keycloakId: user.id });
   }
   if (new Set(claims.map((claim) => claim.tenantId)).size !== 1) {
-    throw new Error('ผู้ใช้ demo ใน Keycloak ไม่ได้อยู่ tenant เดียวกัน');
+    throw new Error('the demo users in Keycloak are not in the same tenant');
   }
   return claims;
 }
@@ -119,19 +121,19 @@ async function claimsOf(admin) {
 async function organizationId(admin) {
   const organizations = await admin('/organizations?max=200');
   const organization = organizations.find((item) => item.alias === 'demo');
-  if (!organization) throw new Error('ไม่พบ Organization demo ใน Keycloak');
+  if (!organization) throw new Error('Organization demo not found in Keycloak');
   return organization.id;
 }
 
 /**
- * คิวใช้โน้ตหลังจบสายแบบ VOICE_NOTE_V1 และ Agent เริ่มจาก OFFLINE เหมือน Demo
- * `db:seed` ตั้ง Agent เป็น AVAILABLE ไว้ก่อน ถ้าค้างไว้ Router จะเสนอสายให้ Agent ที่ยังไม่ login
- * แล้ว FreeSWITCH วางสายด้วย SUBSCRIBER_ABSENT จึงใส่ OFFLINE เมื่อสถานะล่าสุดไม่ใช่ OFFLINE
- * และไม่มี work session ค้าง (รันซ้ำได้โดยไม่ไล่ Agent ที่กำลังทำงาน)
+ * the queue uses the after-call note VOICE_NOTE_V1 and the Agent starts OFFLINE like the Demo
+ * `db:seed` sets the Agent to AVAILABLE beforehand; if left that way the Router would offer calls to an Agent who has not logged in
+ * and FreeSWITCH would hang up with SUBSCRIBER_ABSENT, so set OFFLINE when the latest status is not OFFLINE
+ * and there is no pending work session (can be re-run without kicking out an Agent who is working)
  *
- * เปิดบันทึกเสียงให้คิว legacy ของ demo (2000/2001): FreeSWITCH (VM voice) เขียนไฟล์ลง directory ที่ export
- * ด้วย NFS ให้ Telephony (VM app) อ่านแล้วส่งเข้า object storage (`solo-uat.sh` ตั้ง export และ mount)
- * คิว managed (voice v1) ไม่แตะ: ตั้งแต่ #991 Admin เปิด/ปิดบันทึกเองผ่าน Console และ Router รับสายได้ทั้งสองแบบ
+ * turn on recording for the legacy demo queues (2000/2001): FreeSWITCH (the voice VM) writes files to a directory exported
+ * over NFS for Telephony (the app VM) to read and send to object storage (`solo-uat.sh` sets up the export and mount)
+ * managed queues (voice v1) are not touched: since #991 the Admin turns recording on/off through the Console and the Router accepts both kinds of call
  */
 function seedVoiceDefaults(tenantId) {
   psql(
@@ -154,12 +156,12 @@ function seedVoiceDefaults(tenantId) {
 }
 
 /**
- * ทีม Customer Care และ Supervisor ของทีม — ต้องมีก่อนอ่าน claims เพราะ Supervisor ต้องเชื่อม Keycloak ก่อน
- * เชื่อมด้วยสคริปต์ link ตัวเดิมเฉพาะเมื่อยังไม่มี keycloak_id (รอบแรก) ไม่ไปตั้งรหัสผ่านคนอื่นซ้ำทุกรอบ
+ * the Customer Care team and the Supervisor of the team - this must come before reading the claims because the Supervisor must be linked to Keycloak first
+ * link with the existing link script only when there is no keycloak_id yet (the first round), not resetting other people passwords every round
  */
 function seedSupervisor() {
   const tenantId = psql(`SELECT id FROM tenants WHERE slug = 'demo';`);
-  if (!uuid.test(tenantId)) throw new Error('ไม่พบ tenant demo — รัน db:seed ก่อน');
+  if (!uuid.test(tenantId)) throw new Error('tenant demo not found - run db:seed first');
   const linked = psql(
     `BEGIN;
      INSERT INTO teams (id, tenant_id, name)
@@ -197,7 +199,7 @@ function seedAccess(claims, organization) {
   );
 }
 
-/** ทีมได้ WORK และ VIEW บน `system:all-customers` ผ่าน repository ของ IAM ตัวจริง (ซ้ำได้ผล DUPLICATE) */
+/** The team gets WORK and VIEW on `system:all-customers` through the real IAM repository (a repeat gives the result DUPLICATE) */
 function seedScope(tenantId) {
   const code = `
     import { PrismaClient } from '@d-contact/db';
@@ -219,7 +221,7 @@ function seedScope(tenantId) {
   run('node', ['node_modules/tsx/dist/cli.mjs', '--eval', code], { cwd: resolve('apps/api') });
 }
 
-/** client introspection ของ Cus360 ใช้ secret ของ Solo (ไม่ใช่ค่า dev) และ audience mapper ที่ agent-desktop */
+/** The Cus360 introspection client uses the Solo secret (not the dev value) and the audience mapper at agent-desktop */
 async function c360IntrospectionClient(admin) {
   let [client] = await admin(`/clients?clientId=${encodeURIComponent(c360ClientId)}`);
   const representation = {
@@ -274,7 +276,7 @@ async function c360IntrospectionClient(admin) {
   }
 }
 
-/** CONTACT_CREATE ของ Admin ผ่าน operator command จริงของ API (dry-run ก่อน) */
+/** CONTACT_CREATE for the Admin through the real operator command of the API (dry-run first) */
 async function grantCustomerCreate(admin, claims, organization) {
   const adminClaim = claims.find((claim) => claim.username === 'admin@demo.local');
   const tenantId = adminClaim.tenantId;
@@ -354,7 +356,7 @@ async function grantCustomerCreate(admin, claims, organization) {
       scope: 'openid organization:demo',
     }),
   }).then((response) => response.json());
-  if (!token.access_token) throw new Error(`ออก token ของ operator ไม่ได้ (${token.error})`);
+  if (!token.access_token) throw new Error(`cannot issue an operator token (${token.error})`);
 
   const request = {
     commandId: randomUUID(),
@@ -414,6 +416,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error(`solo-uat-seed ล้มเหลว: ${error instanceof Error ? error.message : String(error)}`);
+  console.error(`solo-uat-seed failed: ${error instanceof Error ? error.message : String(error)}`);
   process.exitCode = 1;
 });

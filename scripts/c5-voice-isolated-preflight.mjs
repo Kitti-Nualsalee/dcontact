@@ -1,7 +1,7 @@
 /**
- * #795: ตรวจเฉพาะโครงสร้าง Voice แบบ disposable; ไม่ใช่ C5 หรือ audio acceptance
- * รัน node scripts/c5-voice-isolated-preflight.mjs จาก repo root
- * สร้าง compose project และ volume ใหม่เท่านั้น; ไม่อ่าน .env หรือใช้ dev compose
+ * #795: checks only the structure of a disposable Voice setup; this is not C5 or audio acceptance
+ * Run node scripts/c5-voice-isolated-preflight.mjs from the repo root
+ * Creates only a new compose project and volume; does not read .env or use the dev compose
  */
 import { spawnSync } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -40,11 +40,11 @@ async function waitUntil(label, fn, timeout = 150_000) {
     try {
       if (await fn()) return;
     } catch {
-      /* ยังไม่พร้อม */
+      /* not ready yet */
     }
     await wait(1000);
   }
-  throw new Error(`${label} ไม่พร้อมภายในเวลาที่กำหนด`);
+  throw new Error(`${label} was not ready within the allotted time`);
 }
 async function tcpPort() {
   return new Promise((done, reject) => {
@@ -80,11 +80,11 @@ async function udpRange() {
       }
     }
   }
-  throw new Error('หา UDP range ว่างไม่พบ');
+  throw new Error('no free UDP range found');
 }
 function edit(path, from, to) {
   const value = readFileSync(path, 'utf8');
-  if (!value.includes(from)) throw new Error(`รูปแบบ config เปลี่ยน: ${path}`);
+  if (!value.includes(from)) throw new Error(`config format changed: ${path}`);
   writeFileSync(path, value.replace(from, to));
 }
 function assertUnused() {
@@ -108,7 +108,7 @@ function cleanup() {
       { quiet: true, allowFailure: true },
     );
     if (result.status !== 0) {
-      process.stderr.write(`cleanup ไม่สำเร็จ: เก็บ ${temp} ไว้สำหรับ project ${project}\n`);
+      process.stderr.write(`cleanup failed: keeping ${temp} for project ${project}\n`);
       return false;
     }
     owned = false;
@@ -156,11 +156,11 @@ try {
   );
   realm.loginTheme = realm.accountTheme = realm.emailTheme = 'keycloak';
   const desktop = realm.clients.find((client) => client.clientId === 'agent-desktop');
-  if (!desktop) throw new Error('ไม่พบ agent-desktop ใน realm');
+  if (!desktop) throw new Error('agent-desktop not found in the realm');
   desktop.redirectUris = [`http://localhost:${workspace}/*`];
   desktop.webOrigins = [`http://localhost:${workspace}`];
   const agent = realm.users.find((user) => user.username === 'agent1000@demo.local');
-  if (!agent) throw new Error('ไม่พบ agent fixture ใน realm');
+  if (!agent) throw new Error('agent fixture not found in the realm');
   agent.id = randomUUID();
   agent.attributes = { tenant_id: [tenantId], tenant_slug: ['demo'], dc_user_id: [agentId] };
   realm.clients.push({
@@ -231,7 +231,7 @@ try {
     volumes: { pg: {}, redis: {}, redpanda: {}, keycloak: {}, recordings: {} },
   };
   writeFileSync(composeFile, JSON.stringify(definition), { mode: 0o600 });
-  // ปล่อย reservation ก่อน Docker bind; bind ล้มเหลวทันทีหาก port ถูกใช้แทรก
+  // release the reservation before the Docker bind; the bind fails immediately if another process takes the port
   for (const child of children) await new Promise((done) => child.close(done));
   children.length = 0;
   owned = true;
@@ -255,12 +255,12 @@ try {
     `http://localhost:${kc}/realms/dcontact/.well-known/openid-configuration`,
   ).then((r) => r.json());
   if (metadata.issuer !== `http://localhost:${kc}/realms/dcontact`)
-    throw new Error('issuer ไม่ตรงกับ realm แยก');
+    throw new Error('issuer does not match the isolated realm');
   process.stdout.write(
     `C5_ISOLATED_INFRA_PREFLIGHT_PASS project=${project} postgres=${pg} redis=${redis} kafka=${kafka} keycloak=${kc} sipWs=${ws} esl=${esl} rtp=${rtpStart}-${rtpEnd} apiCandidate=${api} workspaceCandidate=${workspace}\n`,
   );
   process.stdout.write(
-    'ตรวจเฉพาะ readiness; ยังไม่ได้ migrate DB, เปิด API/Router หรือทดสอบ C5/SIP/RTP/audio\n',
+    'checks readiness only; has not migrated the DB, started the API/Router, or tested C5/SIP/RTP/audio\n',
   );
 } finally {
   if (!cleanup()) process.exitCode = 1;

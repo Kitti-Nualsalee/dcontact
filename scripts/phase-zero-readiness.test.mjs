@@ -9,7 +9,7 @@ import {
   skippedDiagnostic,
 } from './phase-zero-readiness.mjs';
 
-test('readiness plan ครอบคลุม Phase 0 dependencies และไม่เพิ่ม feature ของ Phase 1', () => {
+test('the readiness plan covers the Phase 0 dependencies and adds no Phase 1 feature', () => {
   const serialized = JSON.stringify(PHASE_ZERO_READINESS_CHECKS);
   for (const dependency of [
     'PostgreSQL',
@@ -29,7 +29,7 @@ test('readiness plan ครอบคลุม Phase 0 dependencies และไ�
   );
 });
 
-test('diagnostic ไม่เผย token, password, secret หรือ connection credential', () => {
+test('the diagnostic does not reveal a token, password, secret or connection credential', () => {
   const unsafe =
     'authorization=Bearer eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxIn0.signature password=hello client_secret:world postgresql://app:db-pass@localhost/db';
   const safe = sanitizeDiagnostic(unsafe);
@@ -38,7 +38,7 @@ test('diagnostic ไม่เผย token, password, secret หรือ connect
   assert.match(safe, /REDACTED/);
 });
 
-test('diagnostic แทน GitHub run ID ที่บังเอิญคล้ายเบอร์โทร เพื่อไม่ให้ PII guard ทำ manifest ล้ม', () => {
+test('the diagnostic replaces a GitHub run ID that happens to look like a phone number, so the PII guard does not fail the manifest', () => {
   const output = 'evidence: artifacts/cxa-e0/36683968610.json';
   assert.match(output, /(?:\+?66|0)\d{8,9}\b/);
   const safe = redactRunId(output, '36683968610');
@@ -47,12 +47,12 @@ test('diagnostic แทน GitHub run ID ที่บังเอิญคล้
   assert.equal(redactRunId(output, 'local-x'), output);
 });
 
-test('failed check ระบุ dependency, boundary และ remediation แบบ structured', () => {
+test('a failed check states the dependency, boundary and remediation in a structured way', () => {
   const check = PHASE_ZERO_READINESS_CHECKS[2];
   const diagnostic = executeReadinessCheck(check, () => ({
     status: 1,
     stdout: '',
-    stderr: '✗ Object storage มี bucket recordings: password=do-not-print',
+    stderr: '✗ Object storage has bucket recordings: password=do-not-print',
   }));
 
   assert.equal(diagnostic.status, 'FAIL');
@@ -62,10 +62,10 @@ test('failed check ระบุ dependency, boundary และ remediation แ�
   assert.doesNotMatch(diagnostic.detail, /do-not-print/);
 });
 
-test('failed check เก็บข้อความ assertion ไว้ ไม่ใช่แค่บรรทัดสรุปท้ายสุด', () => {
-  const assertionMessage = 'Expected: "อุปกรณ์เสียงพร้อม" Received: "กำลังตรวจอุปกรณ์"';
+test('a failed check keeps the assertion message, not just the last summary line', () => {
+  const assertionMessage = 'Expected: "Audio device ready" Received: "Checking audio device"';
   const stdout = [
-    '  1) [chromium] › e2e/media-readiness.spec.ts:3:1 › Agent เปิดรับสาย',
+    '  1) [chromium] › e2e/media-readiness.spec.ts:3:1 › Agent accepts calls',
     `    Error: ${assertionMessage}`,
     ...Array.from({ length: 120 }, (_, index) => `      at frame ${index} ${'x'.repeat(1_000)}`),
     '  2 failed',
@@ -79,18 +79,18 @@ test('failed check เก็บข้อความ assertion ไว้ ไม�
   }));
 
   assert.equal(diagnostic.status, 'FAIL');
-  assert.match(diagnostic.detail, /Expected: "อุปกรณ์เสียงพร้อม"/);
+  assert.match(diagnostic.detail, /Expected: "Audio device ready"/);
   assert.match(diagnostic.detail, /2 failed/);
   assert.match(diagnostic.detail, /diagnostic output truncated/);
 });
 
-test('บรรทัด not ok ที่อยู่กลาง TAP output ยาว ๆ ต้องไม่ถูกตัดทิ้ง', () => {
-  // จำลอง TAP ของ suite ใหญ่: test ที่ล้มอยู่ตรงกลาง ไกลจากทั้งหัวและท้าย output
-  // เคสนี้เกิดจริงตอนไล่ J2 acceptance — เห็นแค่ "# fail 1" แต่ไม่รู้ว่า test ไหนล้ม
+test('a not ok line in the middle of a long TAP output must not be cut off', () => {
+  // simulate the TAP of a big suite: the failing test is in the middle, far from both the head and the tail of the output
+  // this case happened for real while chasing the J2 acceptance - only "# fail 1" was visible with no way to tell which test failed
   const lines = [];
   for (let i = 1; i <= 60; i += 1) lines.push(`ok ${i} - passing case ${i}`);
-  lines.push('not ok 61 - ตัวที่ล้มจริงซ่อนอยู่กลาง output');
-  lines.push("  error: 'เงื่อนไขไม่เป็นจริงภายในเวลาที่กำหนด'");
+  lines.push('not ok 61 - the really failing one hidden in the middle of the output');
+  lines.push("  error: 'condition not met within the allotted time'");
   for (let i = 62; i <= 140; i += 1) lines.push(`ok ${i} - passing case ${i}`);
   lines.push('# tests 140', '# pass 139', '# fail 1');
 
@@ -101,16 +101,19 @@ test('บรรทัด not ok ที่อยู่กลาง TAP output ย
   }));
 
   assert.equal(diagnostic.status, 'FAIL');
-  assert.match(diagnostic.detail, /not ok 61 - ตัวที่ล้มจริงซ่อนอยู่กลาง output/);
-  assert.match(diagnostic.detail, /เงื่อนไขไม่เป็นจริงภายในเวลาที่กำหนด/);
-  // ยังต้องตัดอยู่ ไม่ใช่เก็บทุกบรรทัด
+  assert.match(
+    diagnostic.detail,
+    /not ok 61 - the really failing one hidden in the middle of the output/,
+  );
+  assert.match(diagnostic.detail, /condition not met within the allotted time/);
+  // it must still be truncated, not keep every line
   assert.match(diagnostic.detail, /diagnostic output truncated/);
   assert.equal(diagnostic.detail.includes('ok 100 - passing case 100'), false);
 });
 
-test('signal/exitCode ของ test file ที่ process ตาย ต้องรอดจากการ truncate', () => {
-  // เจอจริงตอนไล่ J2/S1: journey-owner-ack-escalator ล้มแบบ file-level โดยเทสข้างในผ่านหมด
-  // เหลือแต่ failureType/error ที่เหมือนกันทุกเคส ไม่มีอะไรบอกว่าเป็น SIGSEGV หรือ exit 1
+test('the signal/exitCode of a test file whose process died must survive truncation', () => {
+  // found for real while chasing J2/S1: journey-owner-ack-escalator failed at file level while every inner test passed
+  // leaving only the failureType/error that is the same in every case, with nothing saying it was SIGSEGV or exit 1
   const lines = [];
   for (let i = 1; i <= 60; i += 1) lines.push(`ok ${i} - passing case ${i}`);
   lines.push('not ok 61 - src/journey-owner-ack-escalator.integration.ts');
@@ -134,14 +137,14 @@ test('signal/exitCode ของ test file ที่ process ตาย ต้อ�
   assert.match(diagnostic.detail, /diagnostic output truncated/);
 });
 
-test('บรรทัด # Error ของ async activity หลังเทสจบ ต้องรอดจากการ truncate', () => {
-  // รูปนี้คัดมาจาก output จริงของ node --test ที่จำลอง promise reject หลัง test body จบ
-  // เป็นอาการที่เจอบน CI: ตัวเทสรายงาน ok แต่ "ไฟล์" ล้มโดยไม่มีอะไรบอกสาเหตุ
+test('the # Error line of async activity after a test ends must survive truncation', () => {
+  // this shape is taken from the real output of node --test simulating a promise reject after the test body ended
+  // the symptom seen on CI: the test reports ok but the "file" fails with nothing saying why
   const lines = [];
   for (let i = 1; i <= 60; i += 1) lines.push(`ok ${i} - passing case ${i}`);
-  lines.push('ok 61 - เทสที่ผ่านแต่ทิ้ง async activity ไว้');
+  lines.push('ok 61 - a test that passed but left async activity behind');
   lines.push(
-    '# Error: Test "เทสที่ผ่านแต่ทิ้ง async activity ไว้" at src/x.integration.ts:3:1 generated' +
+    '# Error: Test "a test that passed but left async activity behind" at src/x.integration.ts:3:1 generated' +
       ' asynchronous activity after the test ended. This activity created the error "Error:' +
       ' connection closed" and would have caused the test to fail, but instead triggered an' +
       ' unhandledRejection event.',
@@ -163,7 +166,7 @@ test('บรรทัด # Error ของ async activity หลังเทส�
   assert.match(diagnostic.detail, /diagnostic output truncated/);
 });
 
-test('successful check ไม่สะท้อน child output ที่อาจมี dev credential', () => {
+test('a successful check does not echo child output that may have a dev credential', () => {
   const diagnostic = executeReadinessCheck(PHASE_ZERO_READINESS_CHECKS[0], () => ({
     status: 0,
     stdout: 'password=dev-only',
@@ -174,7 +177,7 @@ test('successful check ไม่สะท้อน child output ที่อา�
   assert.equal('detail' in diagnostic, false);
 });
 
-test('successful check เก็บเฉพาะ structured evidence ที่ประกาศ prefix ไว้', () => {
+test('a successful check keeps only the structured evidence whose prefix is declared', () => {
   const diagnostic = executeReadinessCheck(
     { ...PHASE_ZERO_READINESS_CHECKS[0], evidencePrefix: 'PHASE_ONE_EVIDENCE ' },
     () => ({
@@ -188,7 +191,7 @@ test('successful check เก็บเฉพาะ structured evidence ที่
   assert.doesNotMatch(JSON.stringify(diagnostic), /dev-only/);
 });
 
-test('downstream check แสดง blocker เมื่อ prerequisite ล้มเหลว', () => {
+test('a downstream check shows a blocker when a prerequisite fails', () => {
   const diagnostic = skippedDiagnostic(PHASE_ZERO_READINESS_CHECKS[4], 'database-baseline');
 
   assert.deepEqual(
@@ -197,7 +200,7 @@ test('downstream check แสดง blocker เมื่อ prerequisite ล้�
   );
 });
 
-test('memoized executor รันคำสั่งซ้ำแค่ครั้งเดียวต่อ process แต่ผลลัพธ์ยังตรงกับคำสั่งนั้น', () => {
+test('the memoized executor runs a repeated command only once per process, while the result still matches that command', () => {
   let calls = 0;
   const execute = (check) => {
     calls += 1;
@@ -214,7 +217,7 @@ test('memoized executor รันคำสั่งซ้ำแค่ครั�
   assert.notDeepEqual(first, third);
 });
 
-test('memoized executor ไม่แชร์ cache กันข้าม instance', () => {
+test('the memoized executor does not share a cache across instances', () => {
   let calls = 0;
   const execute = (check) => {
     calls += 1;
@@ -227,15 +230,15 @@ test('memoized executor ไม่แชร์ cache กันข้าม instan
   assert.equal(calls, 2);
 });
 
-test('ข้อความ assertion ที่ตามหลังบรรทัด failure ต้องรอดจากการ truncate ไม่ใช่เหลือแค่ error code', () => {
-  // รูปนี้คัดมาจาก CG4-OB02 ที่ล้มบน CI ระหว่าง J2 acceptance: เดิมเหลือแค่ code: 'ERR_ASSERTION'
-  // จนบอกไม่ได้ว่า assert ตัวไหนล้ม ต้องเดาเอาเองว่า flaky เพราะอะไร
+test('an assertion message that follows a failure line must survive truncation, not leave only an error code', () => {
+  // this shape is taken from CG4-OB02, which failed on CI during the J2 acceptance: it used to leave only code: 'ERR_ASSERTION'
+  // with no way to tell which assert failed, forcing a guess at why it was flaky
   const lines = [];
   for (let index = 1; index <= 60; index += 1) lines.push(`ok ${index} - passing case ${index}`);
-  lines.push('not ok 61 - CG4-OB02: negative scan ไม่พบ PII');
+  lines.push('not ok 61 - CG4-OB02: the negative scan finds no PII');
   lines.push("  failureType: 'testCodeFailure'");
   lines.push('  error: |-');
-  lines.push('    metrics มี 0812345678');
+  lines.push('    metrics contain 0812345678');
   lines.push('    + actual - expected');
   lines.push('    + true');
   lines.push('    - false');
@@ -251,14 +254,14 @@ test('ข้อความ assertion ที่ตามหลังบรรท
 
   assert.equal(diagnostic.status, 'FAIL');
   assert.match(diagnostic.detail, /CG4-OB02/);
-  assert.match(diagnostic.detail, /metrics มี 0812345678/);
+  assert.match(diagnostic.detail, /metrics contain 0812345678/);
   assert.match(diagnostic.detail, /\+ actual - expected/);
-  // บรรทัดของเทสที่ผ่านซึ่งอยู่นอก window ต้องไม่ถูกดึงกลับมาปนจนกลบสาเหตุ
+  // lines of passed tests outside the window must not be pulled back in and bury the cause
   assert.doesNotMatch(diagnostic.detail, /passing case 100/);
 });
 
 /**
- * retry เฉพาะ process ที่ตายด้วย signal — กติกาต้องแคบพอที่ assertion แดงจะไม่ถูกรันซ้ำจนหายไป
+ * retry only a process that died by a signal - the rule must be narrow enough that a red assertion is not re-run until it disappears
  */
 function signalCrashOutput(file = 'src/contact-governance-api.integration.ts') {
   return [
@@ -283,8 +286,8 @@ function signalCrashOutput(file = 'src/contact-governance-api.integration.ts') {
 function assertionFailureOutput() {
   return [
     'TAP version 13',
-    '# Subtest: metrics ต้องไม่มี PII',
-    'not ok 1 - metrics ต้องไม่มี PII',
+    '# Subtest: metrics must contain no PII',
+    'not ok 1 - metrics must contain no PII',
     '  ---',
     "  failureType: 'testCodeFailure'",
     "  code: 'ERR_ASSERTION'",
@@ -296,7 +299,7 @@ function assertionFailureOutput() {
   ].join('\n');
 }
 
-test('process ที่ตายด้วย signal โดยไม่มี assertion แดง ถูกรันซ้ำหนึ่งครั้งและผ่านได้', () => {
+test('a process that died by a signal with no red assertion is re-run once and can pass', () => {
   const observed = [];
   const diagnostic = executeReadinessCheck(PHASE_ZERO_READINESS_CHECKS[2], (...call) => {
     observed.push(call[0]);
@@ -305,25 +308,25 @@ test('process ที่ตายด้วย signal โดยไม่มี ass
       : { status: 0, stdout: '1..1\n# pass 1\n# fail 0', stderr: '' };
   });
 
-  assert.equal(observed.length, 2, 'ต้องรันซ้ำพอดีหนึ่งครั้ง');
+  assert.equal(observed.length, 2, 'must re-run exactly once');
   assert.equal(diagnostic.status, 'PASS');
   assert.equal(diagnostic.retriedAfterSignal, 'SIGSEGV');
 });
 
-test('signal ซ้ำรอบสองถือว่าแดงจริง และ diagnostic ยังบอกว่ามีการรันซ้ำ', () => {
+test('a repeated signal on the second round counts as truly red and the diagnostic still says it was re-run', () => {
   let calls = 0;
   const diagnostic = executeReadinessCheck(PHASE_ZERO_READINESS_CHECKS[2], () => {
     calls += 1;
     return { status: 1, stdout: signalCrashOutput(), stderr: '' };
   });
 
-  assert.equal(calls, 2, 'รันซ้ำได้ครั้งเดียว ไม่วนไม่จบ');
+  assert.equal(calls, 2, 'may re-run only once, never loop forever');
   assert.equal(diagnostic.status, 'FAIL');
   assert.equal(diagnostic.retriedAfterSignal, 'SIGSEGV');
   assert.match(diagnostic.detail, /signal: 'SIGSEGV'/);
 });
 
-test('assertion ที่แดงจริงไม่ถูกรันซ้ำ แม้จะมีไฟล์ที่ตายด้วย signal ปนอยู่', () => {
+test('a really red assertion is not re-run even when a file that died by a signal is mixed in', () => {
   for (const stdout of [
     assertionFailureOutput(),
     [signalCrashOutput(), assertionFailureOutput()].join('\n'),
@@ -334,13 +337,13 @@ test('assertion ที่แดงจริงไม่ถูกรันซ้�
       return { status: 1, stdout, stderr: '' };
     });
 
-    assert.equal(calls, 1, 'assertion แดงต้องรันครั้งเดียว');
+    assert.equal(calls, 1, 'a red assertion must run once');
     assert.equal(diagnostic.status, 'FAIL');
     assert.equal(diagnostic.retriedAfterSignal, undefined);
   }
 });
 
-test('คำสั่งที่ล้มโดยไม่มี TAP failure block เลย (เช่น build error) ไม่ถูกรันซ้ำ', () => {
+test('a command that fails with no TAP failure block at all (e.g. a build error) is not re-run', () => {
   let calls = 0;
   const diagnostic = executeReadinessCheck(PHASE_ZERO_READINESS_CHECKS[2], () => {
     calls += 1;

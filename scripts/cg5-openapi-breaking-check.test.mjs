@@ -14,7 +14,7 @@ const base = {
   },
 };
 
-test('CG5 OpenAPI guard ยอมรับ additive response และ optional parameter', () => {
+test('CG5 OpenAPI guard accepts an additive response and an optional parameter', () => {
   const current = structuredClone(base);
   current.paths['/v1/contact'].get.parameters.push({
     name: 'include',
@@ -25,13 +25,13 @@ test('CG5 OpenAPI guard ยอมรับ additive response และ optional 
   assert.doesNotThrow(() => assertNoBreakingChanges(base, current));
 });
 
-test('CG5 OpenAPI guard ปฏิเสธการลบ route หรือเพิ่ม required parameter', () => {
-  assert.throws(() => assertNoBreakingChanges(base, { paths: {} }), /ลบ external path/);
+test('CG5 OpenAPI guard rejects removing a route or adding a required parameter', () => {
+  assert.throws(() => assertNoBreakingChanges(base, { paths: {} }), /removed external path/);
   const current = structuredClone(base);
   current.paths['/v1/contact'].get.parameters.push({
     name: 'tenantId',
     in: 'query',
     required: true,
   });
-  assert.throws(() => assertNoBreakingChanges(base, current), /เพิ่ม required parameter/);
+  assert.throws(() => assertNoBreakingChanges(base, current), /added required parameter/);
 });

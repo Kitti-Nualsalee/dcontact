@@ -9,8 +9,8 @@ const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 const composeArguments = ['compose', '-f', 'infra/docker/docker-compose.dev.yml'];
 
 /**
- * migration ของ S2 — enum values แยกไฟล์เพราะ Postgres ใช้ค่าใหม่ใน transaction เดียวกันไม่ได้
- * ไฟล์ที่สามเป็นด่าน Attempt/Touch ของ S2.2 (#364) ซึ่งอ้างค่า enum ที่ commit ไปแล้ว
+ * the S2 migration - enum values are in separate files because Postgres cannot use a new value in the same transaction
+ * the third file is the Attempt/Touch gate of S2.2 (#364), which references an enum value that has already been committed
  */
 export const S2_MIGRATIONS = Object.freeze([
   '20260922160000_add_s2_line_enum_values',
@@ -18,7 +18,7 @@ export const S2_MIGRATIONS = Object.freeze([
   '20260923101500_add_s2_2_correlated_touch_guard',
 ]);
 
-/** ตารางที่ S2.1 เพิ่มตาม Phase Contract #362 §3 */
+/** Tables S2.1 adds per Phase Contract #362 §3 */
 export const CANONICAL_S2_TABLES = Object.freeze([
   'dl_provider_submission_attempts',
   'dl_line_scope_gates',
@@ -31,15 +31,15 @@ export const CANONICAL_S2_TABLES = Object.freeze([
   'dl_line_audit_events',
 ]);
 
-/** หลักฐาน append-only: application role ต้อง INSERT ได้แต่ UPDATE/DELETE ไม่ได้ */
+/** Append-only evidence: the application role must be able to INSERT but not UPDATE/DELETE */
 export const APPEND_ONLY_S2_TABLES = Object.freeze([
   'dl_provider_submission_attempts',
   'dl_line_audit_events',
 ]);
 
 /**
- * CHECK ที่เป็น invariant ของสัญญา (ไม่ใช่แค่รูปแบบ) — รวมตัวที่เพิ่มบน dl_outbox_entries/cg_touches
- * หายตัวเดียวแปลว่ามีเส้นทางที่ adapter ทำผิดสัญญาได้โดยไม่มีใครเห็น
+ * CHECKs that are contract invariants (not just shapes) - including those added on dl_outbox_entries/cg_touches
+ * losing even one means there is a path where an adapter can violate the contract unnoticed
  */
 export const REQUIRED_S2_CONSTRAINTS = Object.freeze([
   'dl_outbox_entries_line_binding_check',
@@ -66,7 +66,7 @@ export const REQUIRED_S2_CONSTRAINTS = Object.freeze([
   'cg_touches_provider_accepted_evidence_check',
 ]);
 
-/** identity/idempotency boundary ตาม #362 §3 รวม partial unique */
+/** identity/idempotency boundary per #362 §3, including the partial unique */
 export const REQUIRED_S2_UNIQUE_INDEXES = Object.freeze([
   'dl_outbox_entries_tenant_delivery_request_adapter_key',
   'dl_outbox_entries_tenant_delivery_adapter_key',
@@ -87,7 +87,7 @@ export const REQUIRED_S2_UNIQUE_INDEXES = Object.freeze([
   'cg_touches_tenant_response_evidence_key',
 ]);
 
-/** trigger ที่บังคับ append-only, CAS, one-shot, kill latch และ identity คงที่ */
+/** triggers that enforce append-only, CAS, one-shot, the kill latch and a fixed identity */
 export const REQUIRED_S2_TRIGGERS = Object.freeze([
   'dl_outbox_entries_identity_guard',
   'dl_provider_submission_attempts_immutable',
@@ -103,18 +103,18 @@ export const REQUIRED_S2_TRIGGERS = Object.freeze([
   'cg_touches_evidence_guard',
 ]);
 
-/** composite FK ขั้นต่ำ — ทุกเส้นที่อ้าง entity อื่นผูก tenant_id ร่วม (บางเส้นผูก adapter ด้วย) */
+/** minimum composite FKs - every edge that references another entity binds a shared tenant_id (some also bind the adapter) */
 export const MINIMUM_S2_COMPOSITE_FOREIGN_KEYS = 11;
 
-/** ค่า enum ใหม่บน type เดิม */
+/** new enum values on an existing type */
 export const REQUIRED_S2_ENUM_VALUES = Object.freeze([
   ['DlDeliveryAdapter', 'LINE_MESSAGING_API'],
   ['CgFactOutcome', 'PROVIDER_ACCEPTED'],
 ]);
 
 /**
- * คำสั่งที่ migration แบบ expand-only ห้ามมี (#362 §11) — rollback ทำด้วย switch off/kill/drain
- * และ forward-fix เท่านั้น จึงไม่มี down migration และไม่มีคำสั่งที่ทำลาย/เขียนทับข้อมูลเดิม
+ * statements an expand-only migration must not have (#362 §11) - rollback is done only by switch off/kill/drain
+ * and forward-fix, so there is no down migration and no statement that destroys/overwrites existing data
  */
 export const DESTRUCTIVE_SQL_PATTERNS = Object.freeze([
   /\bDROP\s+(TABLE|COLUMN|TYPE|INDEX|CONSTRAINT|POLICY|TRIGGER|FUNCTION)\b/i,
@@ -125,7 +125,7 @@ export const DESTRUCTIVE_SQL_PATTERNS = Object.freeze([
   /\bALTER\s+COLUMN\b[^;]*\b(TYPE|SET\s+NOT\s+NULL|DROP\s+DEFAULT)\b/i,
 ]);
 
-/** คืนรายการ pattern ที่เจอหลังตัด comment ออก — ว่าง = expand-only */
+/** Return the list of patterns found after stripping comments - empty = expand-only */
 export function findDestructiveStatements(sql) {
   const statements = String(sql)
     .split('\n')
@@ -195,7 +195,7 @@ export function parseS2SchemaEvidence(value) {
     .trim()
     .match(/^(\d+)\|(\d+)\|(\d+)\|(\d+)\|(\d+)\|(\d+)\|(\d+)\|(\d+)\|(\d+)$/);
   if (!match) {
-    throw new TypeError('schema evidence ต้องมีเก้าตัวเลขคั่นด้วย |');
+    throw new TypeError('schema evidence must have nine numbers separated by |');
   }
   const [
     ,
@@ -229,7 +229,7 @@ export function parseS2SchemaEvidence(value) {
       triggers === REQUIRED_S2_TRIGGERS.length &&
       compositeKeys >= MINIMUM_S2_COMPOSITE_FOREIGN_KEYS &&
       enumValues === REQUIRED_S2_ENUM_VALUES.length &&
-      // application role ลบไม่ได้ทุกตาราง และแก้หลักฐาน append-only ไม่ได้
+      // the application role cannot delete on any table and cannot edit append-only evidence
       forbiddenApplicationPrivileges === 0
         ? 'PASS'
         : 'FAIL',
@@ -245,7 +245,7 @@ function execute(command, arguments_, options = {}) {
   });
   if (result.status !== 0 || result.error) {
     throw new Error(
-      `${command} ${arguments_.join(' ')} ล้มเหลวด้วย status ${result.status ?? result.error?.code ?? 'unknown'}`,
+      `${command} ${arguments_.join(' ')} failed with status ${result.status ?? result.error?.code ?? 'unknown'}`,
     );
   }
   return String(result.stdout ?? '').trim();
@@ -260,8 +260,8 @@ function databaseUrl(databaseName) {
 }
 
 /**
- * migrate + bootstrap RLS แล้วรันซ้ำอีกรอบ: รอบสองต้องไม่มี migration ค้างและ bootstrap ต้อง
- * idempotent — นี่คือเส้นทาง forward-fix (ไม่มี down migration) ที่ต้องรันซ้ำได้อย่างปลอดภัย
+ * migrate + bootstrap RLS and then run again: on the second round there must be no pending migration and the bootstrap must be
+ * idempotent - this is the forward-fix path (no down migration) that must be safe to re-run
  */
 function migrateTwice(databaseName) {
   const env = { ...process.env, DATABASE_URL: databaseUrl(databaseName) };
@@ -278,9 +278,9 @@ function inspectDatabase(databaseName) {
 }
 
 /**
- * S2.1 schema gate: ตรวจทั้ง database ที่ upgrade มาจากของเดิม (มี S1/J-series อยู่แล้ว) และ
- * fresh migrate เพราะ migration ที่เขียนมืออาจผ่านทางหนึ่งแต่พังอีกทาง รวมถึง static scan ว่า
- * migration ของ S2.1 เป็น expand-only
+ * S2.1 schema gate: checks both a database upgraded from the existing one (which already has S1/the J-series) and a
+ * fresh migrate, because a hand-written migration may pass one way but break the other, plus a static scan that the
+ * S2.1 migration is expand-only
  */
 export function runCxaS2SchemaReadiness() {
   const destructive = Object.fromEntries(
@@ -298,7 +298,7 @@ export function runCxaS2SchemaReadiness() {
 
   const existingDatabase = process.env.CXA_ACCEPTANCE_DATABASE_NAME ?? 'dcontact';
   if (!/^[a-zA-Z0-9_]+$/.test(existingDatabase)) {
-    throw new TypeError('CXA_ACCEPTANCE_DATABASE_NAME มีชื่อฐานข้อมูลไม่ถูกต้อง');
+    throw new TypeError('CXA_ACCEPTANCE_DATABASE_NAME contains an invalid database name');
   }
   const freshDatabase = `dcontact_cxa_s2_verify_${randomBytes(6).toString('hex')}`;
 

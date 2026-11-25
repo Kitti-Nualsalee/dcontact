@@ -7,7 +7,7 @@ import { stopChild } from './child-process-lifecycle.mjs';
 const compose = ['compose', '-f', 'infra/docker/docker-compose.dev.yml'];
 const database = process.env.E1_18_DATABASE ?? 'dcontact_e1_18';
 if (!/^dcontact_[a-z0-9_]+$/.test(database) || database === 'dcontact') {
-  throw new Error('E1_18_DATABASE ต้องเป็นฐานแยก dcontact_<ชื่อ>');
+  throw new Error('E1_18_DATABASE must be a separate database dcontact_<name>');
 }
 const keycloakBaseUrl = process.env.KEYCLOAK_ADMIN_URL ?? 'http://localhost:8081';
 const nodeId = 'fs-local';
@@ -74,7 +74,7 @@ function run(command, args, options = {}) {
   });
   if (result.status !== 0) {
     throw new Error(
-      `${command} ${args.join(' ')} ล้มเหลว\n${result.stdout ?? ''}${result.stderr ?? ''}`,
+      `${command} ${args.join(' ')} failed\n${result.stdout ?? ''}${result.stderr ?? ''}`,
     );
   }
   return result.stdout ?? '';
@@ -137,7 +137,7 @@ const wait = (milliseconds) => new Promise((done) => setTimeout(done, millisecon
 async function waitForHttp(url, label, child) {
   for (let attempt = 0; attempt < 120; attempt += 1) {
     if (child?.exitCode !== null && child)
-      throw new Error(`${label} หยุดก่อนพร้อม\n${child.tail()}`);
+      throw new Error(`${label} stopped before becoming ready\n${child.tail()}`);
     try {
       await fetch(url);
       return;
@@ -145,7 +145,7 @@ async function waitForHttp(url, label, child) {
       await wait(500);
     }
   }
-  throw new Error(`${label} ไม่ตอบที่ ${url}${child ? `\n${child.tail()}` : ''}`);
+  throw new Error(`${label} did not respond at ${url}${child ? `\n${child.tail()}` : ''}`);
 }
 
 async function waitForConsumerGroup(groupId) {
@@ -158,7 +158,7 @@ async function waitForConsumerGroup(groupId) {
     if (result.status === 0 && /STATE\s+Stable/.test(result.stdout)) return;
     await wait(500);
   }
-  throw new Error(`consumer group ยังไม่พร้อม: ${groupId}`);
+  throw new Error(`consumer group is not ready: ${groupId}`);
 }
 
 async function keycloakAgentClaims() {
@@ -172,7 +172,7 @@ async function keycloakAgentClaims() {
       password: environment.KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD ?? 'admin',
     }),
   }).then((response) => {
-    if (!response.ok) throw new Error(`Keycloak admin token ล้มเหลว (${response.status})`);
+    if (!response.ok) throw new Error(`Keycloak admin token failed (${response.status})`);
     return response.json();
   });
   const users = await fetch(
@@ -182,7 +182,7 @@ async function keycloakAgentClaims() {
   const tenantId = users[0]?.attributes?.tenant_id?.[0];
   const userId = users[0]?.attributes?.dc_user_id?.[0];
   if (!/^[0-9a-f-]{36}$/i.test(tenantId ?? '') || !/^[0-9a-f-]{36}$/i.test(userId ?? '')) {
-    throw new Error('agent1000 ใน Keycloak ไม่มี tenant_id/dc_user_id');
+    throw new Error('agent1000 in Keycloak has no tenant_id/dc_user_id');
   }
   return { tenantId, userId, keycloakId: users[0].id };
 }
@@ -291,7 +291,7 @@ try {
   run('docker', [...compose, 'ps', '--status', 'running']);
   for (const port of [3000, 4173, 5173]) {
     const used = spawnSync('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN'], { encoding: 'utf8' });
-    if (used.stdout.trim()) throw new Error(`port ${port} ถูกใช้อยู่`);
+    if (used.stdout.trim()) throw new Error(`port ${port} is in use`);
   }
   const claims = await prepareDatabase();
   environment.E1_18_DATABASE = database;

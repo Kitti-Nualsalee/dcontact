@@ -2,8 +2,8 @@ import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
 
 /**
- * J5-OB01/J5-REG01 (#333 §6): owner profiles, environment profiles และ fixed flags ของ J5 Development
- * Acceptance — ค่าต้องตรงทุก key ห้าม caller override; ถ้า environment พยายามเปลี่ยนให้ fail closed
+ * J5-OB01/J5-REG01 (#333 §6): owner profiles, environment profiles and fixed flags of J5 Development
+ * Acceptance - every key must match, the caller cannot override; if the environment tries to change them, fail closed
  */
 
 export const J5_OWNER_PROFILES = Object.freeze({
@@ -17,7 +17,7 @@ export const J5_OWNER_PROFILES = Object.freeze({
   kafka: 'REDPANDA',
 });
 
-/** browser/database เป็น environment ไม่ใช่ domain owner จึงแยกออกมาไม่ให้ปลอมเป็น owner */
+/** browser/database are environment, not a domain owner, so they are kept separate so they cannot pose as an owner */
 export const J5_ENVIRONMENT_PROFILES = Object.freeze({
   browser: 'PLAYWRIGHT_CHROMIUM',
   database: 'POSTGRES_RLS',
@@ -56,33 +56,36 @@ export function cxaJ5ProfileSummary(environment = process.env) {
   for (const [owner, expected] of Object.entries(J5_OWNER_PROFILES)) {
     assert(
       profiles[owner] === expected,
-      `J5 acceptance ต้องการ ${owner} profile ${expected} เท่านั้น`,
+      `J5 acceptance needs the ${owner} profile ${expected} only`,
     );
   }
   assert(
     environment.CXA_PROVIDER_TRAFFIC_ENABLED !== 'true',
-    'J5 acceptance ห้ามเปิด actual provider traffic',
+    'J5 acceptance must not enable actual provider traffic',
   );
   assert(
     environment.CXA_J5_RELEASE_ENABLED !== 'true',
-    'J5 development acceptance ห้ามอ้าง releaseEnabled',
+    'J5 development acceptance must not claim releaseEnabled',
   );
   assert(
     environment.CXA_J5_PROVIDER_CONFORMANCE !== 'true',
-    'J5 development acceptance ไม่ใช่ provider conformance',
+    'J5 development acceptance is not provider conformance',
   );
   assert(
     environment.CXA_J5_REAL_CUSTOMER_DATA !== 'true',
-    'J5 development acceptance ใช้ synthetic fixture เท่านั้น',
+    'J5 development acceptance uses synthetic fixtures only',
   );
-  // flag ของ UI/publish ต้องเปิดผ่าน rollout row ของ tenant สังเคราะห์ในเทสต์ ไม่ใช่เปิดทั้ง environment
+  // the UI/publish flags must be enabled through the rollout row of a synthetic tenant in the test, not by enabling them for the whole environment
   for (const flag of [
     'J5_CANVAS_WRITE_ENABLED',
     'J5_PUBLISH_UI_ENABLED',
     'J5_TEMPLATE_CATALOG_ENABLED',
     'J5_TEMPLATE_UPGRADE_ENABLED',
   ]) {
-    assert(environment[flag] !== 'true', `J5 acceptance ห้ามเปิด ${flag} ระดับ environment`);
+    assert(
+      environment[flag] !== 'true',
+      `J5 acceptance must not enable ${flag} at the environment level`,
+    );
   }
   return {
     type: 'owner-profile.readiness',

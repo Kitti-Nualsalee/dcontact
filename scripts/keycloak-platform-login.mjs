@@ -1,12 +1,12 @@
 import { createHash, createHmac, randomBytes } from 'node:crypto';
 
 /**
- * A1.2 (#407): login ผ่าน browser flow ของ `platform-console` แบบที่ browser ทำจริง (authorization code +
- * PKCE, ฟอร์มรหัสผ่านแล้วฟอร์ม OTP) — ใช้ใน real-boundary test เท่านั้น เพราะ client นี้ปิด direct grant
+ * A1.2 (#407): log in through the browser flow of `platform-console` the way a browser really does (authorization code +
+ * PKCE, a password form and then an OTP form) - used only in the real-boundary test because this client disables direct grant
  */
 const keycloakBaseUrl = process.env.KEYCLOAK_ADMIN_URL ?? 'http://localhost:8081';
 
-/** RFC 6238 TOTP ด้วย secret ดิบแบบที่ Keycloak เก็บ (UTF-8 bytes ไม่ใช่ base32) */
+/** RFC 6238 TOTP with the raw secret as Keycloak stores it (UTF-8 bytes, not base32) */
 export function totp(secret, at = Date.now(), period = 30, digits = 6) {
   const counter = Buffer.alloc(8);
   counter.writeBigUInt64BE(BigInt(Math.floor(at / 1000 / period)));
@@ -17,8 +17,8 @@ export function totp(secret, at = Date.now(), period = 30, digits = 6) {
 }
 
 /**
- * Keycloak ไม่รับรหัส TOTP ซ้ำภายใน window เดียวกัน (replay protection) — process เดียวกันที่ login
- * user เดิมสองครั้งติดกันต้องรอ window ถัดไป ไม่ใช่ลดความเข้มของ flow
+ * Keycloak does not accept a repeated TOTP code within the same window (replay protection) - the same process that logs in
+ * the same user twice in a row must wait for the next window, rather than weakening the flow
  */
 const lastOtpWindow = new Map();
 async function freshOtp(secret, period = 30) {
@@ -39,8 +39,8 @@ function formAction(html) {
 }
 
 /**
- * คืน `{ status: 'TOKEN', accessToken }` เมื่อผ่านครบ หรือ `{ status: 'STOPPED', stage }` เมื่อ flow ไม่ยอมให้ผ่าน
- * (เช่นไม่มี OTP) — ไม่ log token/รหัสผ่านใด ๆ
+ * returns `{ status: 'TOKEN', accessToken }` when everything passes, or `{ status: 'STOPPED', stage }` when the flow does not let it through
+ * (e.g. no OTP) - never logs any token/password
  */
 export async function platformConsoleLogin({
   username,
@@ -100,7 +100,7 @@ export async function platformConsoleLogin({
     action = formAction(html);
     if (!action || !/otp/i.test(html)) return { status: 'STOPPED', stage: 'AFTER_PASSWORD' };
     if (skipOtp || !totpSecret) return { status: 'STOPPED', stage: 'OTP_REQUIRED' };
-    // จำลองคนพิมพ์ OTP ช้า — ขั้นรหัสผ่านต้องยังอยู่ใน amr
+    // simulate a person typing the OTP slowly - the password step must still be in amr
     if (otpDelayMs > 0) await new Promise((resolveWait) => setTimeout(resolveWait, otpDelayMs));
     response = await submit(action, { otp: await freshOtp(totpSecret) });
     location = response.headers.get('location');
@@ -124,7 +124,7 @@ export async function platformConsoleLogin({
   const { access_token: accessToken } = await token.json();
   if (!verifySsoRestoration) return { status: 'TOKEN', accessToken };
 
-  // รีเฟรช Console จะเริ่ม authorization code + PKCE ใหม่ โดยใช้ SSO cookie เดิมและ prompt=none
+  // refreshing the Console starts a new authorization code + PKCE using the existing SSO cookie and prompt=none
   const restoreVerifier = randomBytes(32).toString('base64url');
   const restoreAuthorize = new URL(authorize);
   restoreAuthorize.searchParams.set('state', randomBytes(8).toString('hex'));

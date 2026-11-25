@@ -1,12 +1,12 @@
 /**
- * R1 (#593) / AC6 (#599): ตรวจว่า cookie ของ realm `dcontact` ใช้ชื่อ `DC_*` และ login/SSO/monitorSession/logout ยังทำงาน
- * ด้วยเบราว์เซอร์จริง (Chromium) กับ dev stack — `pnpm test:keycloak-cookie-names`
+ * R1 (#593) / AC6 (#599): checks that the cookies of the `dcontact` realm use the `DC_*` names and that login/SSO/monitorSession/logout still work
+ * with a real browser (Chromium) against the dev stack - `pnpm test:keycloak-cookie-names`
  *
- * ต้องมี: dev stack, `pnpm infra:keycloak:extensions` (provider `dc` ใน dcontact-account.jar), theme dcontact ที่มี
- * `login/resources/js/authChecker.js` ที่แก้ชื่อ cookie และ client `agent-desktop` (redirect `http://localhost:5173/*`)
+ * requires: the dev stack, `pnpm infra:keycloak:extensions` (provider `dc` in dcontact-account.jar), the dcontact theme that has
+ * `login/resources/js/authChecker.js` with the cookie names fixed, and the `agent-desktop` client (redirect `http://localhost:5173/*`)
  *
- * `http://localhost:5173/` เป็น HTTP listener จำลองในสคริปต์ (ไม่ต้องรัน Workspace) เพื่อให้เป็น origin ที่ client อนุญาต
- * — redirect ของ OIDC ไม่ผ่าน `page.route` จึงต้องมี listener จริง
+ * `http://localhost:5173/` is a simulated HTTP listener inside the script (no need to run the Workspace) so it is an origin the client allows
+ * - the OIDC redirect does not go through `page.route`, so a real listener is needed
  */
 import assert from 'node:assert/strict';
 import { createHash, randomBytes } from 'node:crypto';
@@ -50,7 +50,7 @@ function authUrl(challenge, extra = {}) {
   return url.href;
 }
 
-/** หน้าแทน Workspace: โหลด iframe ของ session management แล้วส่งผลผ่าน `window.__status` */
+/** A stand-in page for the Workspace: loads the session management iframe and returns the result through `window.__status` */
 const HARNESS = `<!doctype html><meta charset="utf-8"><body><script>
 window.__status = [];
 window.addEventListener('message', (event) => window.__status.push(event.data));
@@ -69,7 +69,7 @@ window.__check = (iframeUrl, clientId, sessionState) =>
 
 async function login(page, challenge) {
   await page.goto(authUrl(challenge));
-  // organization ทำให้ใช้ identity-first: username ก่อน แล้วค่อย password
+  // the organization makes it identity-first: username first, then password
   await page.locator('#username').fill(USER.username);
   await page.locator('#kc-login').click();
   await page.locator('#password').fill(USER.password);
@@ -96,8 +96,8 @@ async function exchange(code, verifier) {
   return response.json();
 }
 
-// หน้าแทน Workspace เป็น server จริง — `page.route` ไม่ครอบ redirect ของ navigation (พบตอนทดลอง: SSO redirect
-// ไป origin นี้แล้วถูกปฏิเสธการเชื่อมต่อ ทั้งที่ IdP ตอบสำเร็จ)
+// the stand-in page for the Workspace is a real server - `page.route` does not cover the navigation redirect (found while experimenting: the SSO redirect
+// to this origin was refused a connection even though the IdP answered successfully)
 const harness = createServer((_, response) => {
   response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(HARNESS);
 });
@@ -119,29 +119,35 @@ try {
   const callback = await login(page, first.challenge);
   const code = callback.searchParams.get('code');
   const sessionState = callback.searchParams.get('session_state');
-  check('login สำเร็จ ได้ code + session_state', Boolean(code && sessionState));
+  check('login succeeds and yields code + session_state', Boolean(code && sessionState));
   const afterLogin = await names(context);
   check(
-    'cookie หลัง login ไม่มีคำว่า Keycloak / KC_',
+    'cookies after login do not contain the word Keycloak / KC_',
     afterLogin.every((name) => !FORBIDDEN.test(name)),
     afterLogin.join(', '),
   );
   check(
-    'มี DC_IDENTITY และ DC_SESSION',
+    'DC_IDENTITY and DC_SESSION are present',
     afterLogin.includes('DC_IDENTITY') && afterLogin.includes('DC_SESSION'),
   );
   const tokens = await exchange(code, first.verifier);
-  check('แลก token ได้ (cookie ชื่อใหม่ไม่กระทบ OIDC)', typeof tokens.id_token === 'string');
+  check(
+    'the token can be exchanged (the new cookie names do not affect OIDC)',
+    typeof tokens.id_token === 'string',
+  );
 
-  // 2) SSO: คำขอใหม่ในเบราว์เซอร์เดิม ไม่ถามรหัสผ่านอีก
+  // 2) SSO: a new request in the same browser does not ask for the password again
   const second = pkce();
   const sso = await context.newPage();
   await sso.goto(authUrl(second.challenge));
   await sso.waitForURL(`${ORIGIN}/**`);
-  check('SSO: ได้ code ทันทีโดยไม่ผ่านฟอร์ม', Boolean(new URL(sso.url()).searchParams.get('code')));
+  check(
+    'SSO: gets a code immediately without going through the form',
+    Boolean(new URL(sso.url()).searchParams.get('code')),
+  );
   const ssoState = new URL(sso.url()).searchParams.get('session_state');
 
-  // 3) monitorSession: iframe ที่อ่าน DC_SESSION เห็นว่า session ไม่เปลี่ยน
+  // 3) monitorSession: an iframe that reads DC_SESSION sees that the session has not changed
   const monitor = await context.newPage();
   await monitor.goto(`${ORIGIN}/`);
   const dcIframe = `${ISSUER}/dc-account/login-status-iframe.html`;
@@ -151,7 +157,7 @@ try {
     [dcIframe, CLIENT, ssoState],
   );
   check(
-    'monitorSession (iframe ของ D-Contact) = unchanged ขณะ login อยู่',
+    'monitorSession (the D-Contact iframe) = unchanged while logged in',
     unchanged === 'unchanged',
     unchanged,
   );
@@ -160,7 +166,7 @@ try {
     [stockIframe, CLIENT, ssoState],
   );
   check(
-    'iframe ต้นฉบับของ IdP อ่านชื่อเดิมไม่เจอ → รายงาน changed (พิสูจน์ว่าต้องใช้ iframe ของ D-Contact)',
+    'the original IdP iframe cannot find the old name -> reports changed (proves the D-Contact iframe is needed)',
     stock === 'changed',
     stock,
   );
@@ -168,9 +174,9 @@ try {
     ([u, c]) => window.__check(u, c, 'not-a-session'),
     [dcIframe, CLIENT],
   );
-  check('session_state ที่ไม่ตรง = changed', wrong === 'changed', wrong);
+  check('a mismatched session_state = changed', wrong === 'changed', wrong);
 
-  // 4) logout (RP-initiated) ทำลาย session และล้าง cookie
+  // 4) logout (RP-initiated) destroys the session and clears the cookies
   const logout = await context.newPage();
   await logout.goto(
     `${ISSUER}/protocol/openid-connect/logout?${new URLSearchParams({
@@ -182,7 +188,7 @@ try {
   await logout.waitForURL(`${ORIGIN}/**`);
   const afterLogout = await names(context);
   check(
-    'logout: DC_IDENTITY/DC_SESSION ถูกล้าง และไม่มี cookie ชื่อเดิมโผล่',
+    'logout: DC_IDENTITY/DC_SESSION are cleared and no cookie with the old name appears',
     !afterLogout.includes('DC_IDENTITY') &&
       !afterLogout.includes('DC_SESSION') &&
       afterLogout.every((name) => !FORBIDDEN.test(name)),
@@ -192,23 +198,23 @@ try {
     ([u, c, s]) => window.__check(u, c, s),
     [dcIframe, CLIENT, ssoState],
   );
-  check('หลัง logout: monitorSession = changed', changed === 'changed', changed);
+  check('after logout: monitorSession = changed', changed === 'changed', changed);
   const again = await context.newPage();
   await again.goto(authUrl(pkce().challenge));
   check(
-    'หลัง logout: ต้อง login ใหม่ (เห็นฟอร์ม)',
+    'after logout: must log in again (the form is shown)',
     (await again.locator('#username').count()) === 1,
   );
 
-  // 5) login page: authChecker.js ที่แก้ชื่อ cookie ไม่ error และยังตรวจ session ได้
+  // 5) login page: authChecker.js with the cookie names fixed raises no error and can still check the session
   check(
-    'หน้า login ไม่มี JavaScript error',
+    'the login page has no JavaScript error',
     consoleErrors.filter((message) => !/Failed to load resource/.test(message)).length === 0,
     consoleErrors.join(' | '),
   );
   await context.close();
 
-  // 5.5) rollout: ผู้ใช้ที่ login ไว้ก่อนเปิด provider ถือ cookie ชื่อเดิม — ต้อง SSO ต่อได้ แล้วถูกย้ายเป็นชื่อใหม่
+  // 5.5) rollout: a user who logged in before the provider was enabled holds a cookie with the old name - SSO must continue, then they are moved to the new name
   const legacy = await browser.newContext();
   const legacyPage = await legacy.newPage();
   const legacyLogin = pkce();
@@ -228,19 +234,19 @@ try {
   const migrated = Boolean(new URL(migrate.url()).searchParams.get('code'));
   const migratedNames = await names(legacy);
   check(
-    'rollout: cookie ชื่อเดิม (KEYCLOAK_*) ยัง SSO ได้โดยไม่ถามรหัสผ่าน',
+    'rollout: a cookie with the old name (KEYCLOAK_*) can still SSO without asking for the password',
     migrated,
     before.join(', '),
   );
-  // ชื่อเดิมถูกหมดอายุทันทีที่ใช้ — ไม่ค้างในเบราว์เซอร์ ส่วนชื่อใหม่ถูกออกตอน session ถูกใช้/ต่ออายุ
+  // the old name expires as soon as it is used - it does not linger in the browser, while the new name is issued when the session is used/renewed
   check(
-    'rollout: ชื่อเดิมหายไปหลังใช้ครั้งแรก',
+    'rollout: the old name is gone after the first use',
     !migratedNames.some((name) => name === 'KEYCLOAK_IDENTITY' || name === 'KEYCLOAK_SESSION'),
     migratedNames.join(', '),
   );
   await legacy.close();
 
-  // 6) realm master (admin console) ยังใช้ชื่อเดิม — ไม่แตะ
+  // 6) the master realm (admin console) still uses the old name - untouched
   const master = await browser.newContext();
   const masterPage = await master.newPage();
   await masterPage.goto(`${KEYCLOAK}/admin/master/console/`);
@@ -249,13 +255,13 @@ try {
     .catch(() => undefined);
   const masterNames = await names(master);
   check(
-    'realm master ยังใช้ชื่อ cookie เดิม (ไม่กระทบ admin console)',
+    'the master realm still uses the old cookie name (the admin console is not affected)',
     masterNames.includes('AUTH_SESSION_ID') && !masterNames.some((name) => name.startsWith('DC_')),
     masterNames.join(', '),
   );
   await master.close();
 
-  // 7) backchannel logout: Keycloak ส่ง logout token ไปที่ client เมื่อ session ถูกทำลาย
+  // 7) backchannel logout: Keycloak sends a logout token to the client when the session is destroyed
   const received = [];
   const server = createServer((request, response) => {
     let body = '';
@@ -318,10 +324,10 @@ try {
       ? JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString())
       : {};
     check(
-      'backchannel logout: ได้ logout_token ของ session ที่ถูกทำลาย',
+      'backchannel logout: received the logout_token of the destroyed session',
       Boolean(claims.events && claims.sid && bcTokens.session_state),
       received.length === 0
-        ? 'ไม่ได้รับ (container เข้าถึง host ไม่ได้?)'
+        ? 'not received (the container cannot reach the host?)'
         : `sid=${claims.sid?.slice(0, 8)}…`,
     );
     await bcContext.close();
@@ -338,5 +344,5 @@ try {
 }
 
 const failed = results.filter((result) => !result.ok);
-console.log(`\n${results.length - failed.length}/${results.length} ผ่าน`);
+console.log(`\n${results.length - failed.length}/${results.length} passed`);
 process.exitCode = failed.length === 0 ? 0 : 1;

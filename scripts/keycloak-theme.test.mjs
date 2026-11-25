@@ -12,7 +12,7 @@ import {
 import { EMAIL_THEME, LOGIN_THEME, PLATFORM_LOGIN_THEME } from './keycloak-theme-setup.mjs';
 
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
-// ตัด comment ของ CSS และ FreeMarker ออกก่อนตรวจ (comment อ้างเลข issue เช่น #515 ได้)
+// strip CSS and FreeMarker comments before checking (a comment may mention an issue number such as #515)
 const code = (source) => source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/<#--[\s\S]*?-->/g, '');
 const themeDir = 'infra/keycloak/themes/dcontact/login';
 const css = read(`${themeDir}/resources/css/dcontact.css`);
@@ -25,7 +25,7 @@ const emailDir = 'infra/keycloak/themes/dcontact/email';
 const emailLayout = read(`${emailDir}/html/template.ftl`);
 const emailHtml = read(`${emailDir}/html/executeActions.ftl`);
 const emailText = read(`${emailDir}/text/executeActions.ftl`);
-// AC6 (#599): อีเมลของ Keycloak ที่ลูกค้าได้รับต้องอยู่ใน layout เดียวกับอีเมลเชิญ
+// AC6 (#599): the Keycloak emails customers receive must be in the same layout as the invitation email
 const AC6_EMAILS = ['email-verification', 'password-reset'];
 const ac6EmailHtml = AC6_EMAILS.map((name) => read(`${emailDir}/html/${name}.ftl`)).join('\n');
 const ac6EmailText = AC6_EMAILS.map((name) => read(`${emailDir}/text/${name}.ftl`)).join('\n');
@@ -39,7 +39,7 @@ function messageKeys(path) {
   );
 }
 
-test('theme ไม่มีค่าสีตรง — ทุกสีมาจาก token (standing constraint ของ D1)', () => {
+test('the theme has no direct color values - every color comes from a token (a standing constraint of D1)', () => {
   for (const [name, source] of Object.entries({
     css,
     template,
@@ -51,16 +51,16 @@ test('theme ไม่มีค่าสีตรง — ทุกสีมาจ
     emailHtml,
     emailText,
   }).map(([key, value]) => [key, code(value)])) {
-    assert.doesNotMatch(source, /#[0-9a-f]{3,8}\b(?![-\w])/i, `${name} มี hex`);
-    assert.doesNotMatch(source, /\b(rgb|hsl)a?\(/i, `${name} มี rgb()/hsl()`);
+    assert.doesNotMatch(source, /#[0-9a-f]{3,8}\b(?![-\w])/i, `${name} has a hex`);
+    assert.doesNotMatch(source, /\b(rgb|hsl)a?\(/i, `${name} has rgb()/hsl()`);
   }
 });
 
-test('ทุก var(--dc-*) ใน theme มีอยู่จริงใน packages/ui/src/tokens.css', () => {
+test('every var(--dc-*) in the theme really exists in packages/ui/src/tokens.css', () => {
   const defined = new Set(
     [...read('packages/ui/src/tokens.css').matchAll(/(--dc-[\w-]+)\s*:/g)].map((m) => m[1]),
   );
-  // --dc-icon เป็นตัวแปรภายในของ theme สำหรับ mask ไอคอน
+  // --dc-icon is an internal theme variable for the icon mask
   const used = [...css.matchAll(/var\((--dc-[\w-]+)\)/g)]
     .map((m) => m[1])
     .filter((name) => name !== '--dc-icon');
@@ -68,7 +68,7 @@ test('ทุก var(--dc-*) ใน theme มีอยู่จริงใน pa
   assert.deepEqual(missing, []);
 });
 
-test('คง selector ที่ UAT และ boundary test ของ A1 ใช้ (#username #password #otp #kc-login #kc-page-title)', () => {
+test('keeps the selectors that UAT and the A1 boundary test use (#username #password #otp #kc-login #kc-page-title)', () => {
   assert.match(login, /id="username"[^>]*name="username"/);
   assert.match(login, /id="password"[^>]*name="password"/);
   assert.match(login, /name="login" id="kc-login" type="submit"/);
@@ -81,13 +81,13 @@ test('คง selector ที่ UAT และ boundary test ของ A1 ใช�
   assert.match(template, /<h1 id="kc-page-title">/);
 });
 
-test('form แรกของหน้าเป็นฟอร์มของหน้านั้น — layout ไม่มี form ก่อน section "form"', () => {
+test('the first form on the page is the form of that page - the layout has no form before the "form" section', () => {
   const layout = code(template);
   const beforeForm = layout.slice(0, layout.indexOf('<#nested "form">'));
   assert.doesNotMatch(beforeForm, /<form[\s>]/);
 });
 
-test('ข้อความ dc* ครบทั้ง th และ en และทุกคีย์ที่ template ใช้มีอยู่', () => {
+test('the dc* messages are complete in both th and en and every key the template uses exists', () => {
   const th = messageKeys(`${themeDir}/messages/messages_th.properties`);
   const en = messageKeys(`${themeDir}/messages/messages_en.properties`);
   const dc = (keys) => [...keys].filter((key) => key.startsWith('dc')).sort();
@@ -101,7 +101,7 @@ test('ข้อความ dc* ครบทั้ง th และ en และ�
   );
 });
 
-test("ข้อความของ theme ไม่มี apostrophe ตัวเดียว — Keycloak ส่งทุกข้อความผ่าน MessageFormat ซึ่งกลืน ' ทิ้ง", () => {
+test("the theme messages have no single apostrophe - Keycloak sends every message through MessageFormat, which swallows a lone '", () => {
   for (const path of [
     `${themeDir}/messages/messages_th.properties`,
     `${themeDir}/messages/messages_en.properties`,
@@ -120,14 +120,14 @@ test("ข้อความของ theme ไม่มี apostrophe ตัว�
   }
 });
 
-test('child theme ของ Platform ต่อจาก dcontact และสลับแผงด้วย dcVariant', () => {
+test('the Platform child theme extends dcontact and swaps the panel with dcVariant', () => {
   const properties = read('infra/keycloak/themes/dcontact-platform/login/theme.properties');
   assert.match(properties, /^parent=dcontact$/m);
   assert.match(properties, /^dcVariant=platform$/m);
   assert.match(template, /properties\.dcVariant/);
 });
 
-test('realm ใหม่ใช้ theme dcontact และ client platform-console ใช้ child theme', () => {
+test('a new realm uses the dcontact theme and the platform-console client uses the child theme', () => {
   const realm = JSON.parse(read('infra/keycloak/realm-dcontact.dev.json'));
   assert.equal(realm.loginTheme, LOGIN_THEME);
   assert.equal(realm.emailTheme, EMAIL_THEME);
@@ -137,7 +137,7 @@ test('realm ใหม่ใช้ theme dcontact และ client platform-conso
   );
 });
 
-test('build คัดลอก token และโลโก้จาก packages/ui ไปที่ resources ของ theme', () => {
+test('the build copies the tokens and logo from packages/ui into the theme resources', () => {
   const root = mkdtempSync(join(tmpdir(), 'kc-theme-'));
   for (const { from } of THEME_ASSETS) {
     mkdirSync(dirname(join(root, from)), { recursive: true });
@@ -154,7 +154,7 @@ test('build คัดลอก token และโลโก้จาก packages/
   assert.match(emailTokens, /"text-md": "16px"/);
 });
 
-test('email theme อ้างเฉพาะ token ที่มีอยู่จริงใน tokens.css (#522)', () => {
+test('the email theme references only tokens that really exist in tokens.css (#522)', () => {
   const defined = parseTokens(read('packages/ui/src/tokens.css'));
   const used = [...emailLayout.matchAll(/dc\['([\w-]+)'\]/g)].map((m) => m[1]);
   assert.ok(used.length > 0);
@@ -165,12 +165,12 @@ test('email theme อ้างเฉพาะ token ที่มีอยู่�
   assert.equal(parseTokens(':root { --dc-a: 1.25rem; --dc-a: #000; }').a, '20px');
 });
 
-test('อีเมล plain text มีลิงก์อยู่บรรทัดของตัวเอง — invitationLinks อ่านลิงก์ action-token จาก Text (#522)', () => {
+test('the plain text email has the link on its own line - invitationLinks reads the action-token link from Text (#522)', () => {
   assert.match(code(emailText), /^\$\{link\}$/m);
   assert.match(emailHtml, /@layout\.button href=link/);
 });
 
-test('ข้อความของ email theme ครบทั้ง th และ en (#522)', () => {
+test('the email theme messages are complete in both th and en (#522)', () => {
   const th = messageKeys(`${emailDir}/messages/messages_th.properties`);
   const en = messageKeys(`${emailDir}/messages/messages_en.properties`);
   assert.deepEqual([...th].sort(), [...en].sort());
@@ -185,26 +185,26 @@ test('ข้อความของ email theme ครบทั้ง th แล
   );
 });
 
-test('ลิงก์ action-token ลิงก์แรกของหน้าเป็นของเนื้อหา — ตัวเลือกภาษาอยู่หลัง section "form" และ "info"', () => {
+test('the first action-token link on the page belongs to the content - the language chooser comes after the "form" and "info" sections', () => {
   const layout = code(template);
   const locale = layout.indexOf('id="kc-locale"');
   assert.ok(locale > layout.indexOf('<#nested "form">'));
   assert.ok(locale > layout.indexOf('<#nested "info">'));
 });
 
-test('AC6 (#599): อีเมลยืนยันอีเมลและลืมรหัสผ่านใช้ layout ของ D-Contact และมีลิงก์บรรทัดของตัวเอง', () => {
+test('AC6 (#599): the verify-email and forgot-password emails use the D-Contact layout and have the link on its own line', () => {
   for (const name of AC6_EMAILS) {
     const html = read(`${emailDir}/html/${name}.ftl`);
     const text = read(`${emailDir}/text/${name}.ftl`);
     assert.match(html, /<#import "template\.ftl" as layout>/, name);
     assert.match(html, /@layout\.button href=link/, name);
     assert.match(code(text), /^\$\{link\}$/m, name);
-    // อีเมลไม่แสดงชื่อ realm, ผู้ใช้ หรืออีเมลของผู้รับ
+    // emails do not show the realm name, the user, or the recipient email
     assert.doesNotMatch(code(`${html}${text}`), /realmName|user\.|username/, name);
   }
 });
 
-test('AC6 (#599): ข้อความและ template ของ theme ไม่มีคำว่า Keycloak ในส่วนที่ผู้ใช้เห็น', () => {
+test('AC6 (#599): the theme messages and templates have no word Keycloak in the user-visible parts', () => {
   for (const path of [
     `${themeDir}/messages/messages_th.properties`,
     `${themeDir}/messages/messages_en.properties`,
@@ -217,7 +217,7 @@ test('AC6 (#599): ข้อความและ template ของ theme ไม
       .join('\n');
     assert.doesNotMatch(visible, /keycloak/i, path);
   }
-  // ข้อความที่ base theme ของ Keycloak ใส่คำนี้ไว้ต้องถูก override (subject ของอีเมลทดสอบ SMTP)
+  // messages where the Keycloak base theme puts this word must be overridden (the subject of the SMTP test email)
   for (const locale of ['th', 'en']) {
     assert.ok(
       messageKeys(`${emailDir}/messages/messages_${locale}.properties`).has('emailTestSubject'),
@@ -241,7 +241,7 @@ test('AC6 (#599): ข้อความและ template ของ theme ไม
   assert.doesNotMatch(ftl, /keycloak/i);
 });
 
-test('AC6 (#599): account theme พา /realms/dcontact/account/ ไป D-Contact ผ่าน extension dc-account', () => {
+test('AC6 (#599): the account theme sends /realms/dcontact/account/ to D-Contact through the dc-account extension', () => {
   const properties = read('infra/keycloak/themes/dcontact/account/theme.properties');
   const provider = properties.match(/^accountResourceProvider=(.+)$/m)?.[1];
   assert.equal(provider, 'dc-account-landing');

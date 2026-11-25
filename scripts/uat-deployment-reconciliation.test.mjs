@@ -15,7 +15,7 @@ import { tmpdir } from 'node:os';
 import test from 'node:test';
 import { buildDeploymentRecord, main, renderSummary } from './u1-uat-readiness.mjs';
 
-test('#868 inspect journal ตรวจสถานะค้างโดยไม่รับรอง runtime', () => {
+test('#868 the inspect journal checks the pending state without certifying the runtime', () => {
   const result = spawnSync(
     'python3',
     ['-B', resolve('infra/uat/operator/b868-record-recovery-inspect.test.py')],
@@ -27,7 +27,7 @@ test('#868 inspect journal ตรวจสถานะค้างโดยไ�
   assert.equal(result.status, 0, result.stderr);
 });
 
-test('#868 recovery runtime ตรวจ image โดยไม่อนุญาต recovery เอง', () => {
+test('#868 the recovery runtime checks the image without authorizing recovery itself', () => {
   const result = spawnSync(
     'python3',
     ['-B', resolve('infra/uat/operator/b868-record-recovery-runtime.test.py')],
@@ -39,7 +39,7 @@ test('#868 recovery runtime ตรวจ image โดยไม่อนุญา
   assert.equal(result.status, 0, result.stderr);
 });
 
-test('#868 retire journal เก็บ transaction ที่ commit ครบโดยไม่เปลี่ยน pointer', () => {
+test('#868 the retire journal keeps a fully committed transaction without changing the pointer', () => {
   const result = spawnSync(
     'python3',
     ['-B', resolve('infra/uat/operator/b868-record-journal-retire.test.py')],
@@ -51,7 +51,7 @@ test('#868 retire journal เก็บ transaction ที่ commit ครบโ
   assert.equal(result.status, 0, result.stderr);
 });
 
-test('#868 forward commit กู้ลำดับ pointer โดยคง journal เป็น gate', () => {
+test('#868 forward commit recovers the pointer order while keeping the journal as a gate', () => {
   const result = spawnSync(
     'python3',
     ['-B', resolve('infra/uat/operator/b868-record-commit.test.py')],
@@ -63,7 +63,7 @@ test('#868 forward commit กู้ลำดับ pointer โดยคง journ
   assert.equal(result.status, 0, result.stderr);
 });
 
-test('#868 forward recovery ตรวจหลักฐานที่อนุมัติและ live ledger ก่อนเก็บ journal', () => {
+test('#868 forward recovery checks the approved evidence and the live ledger before keeping the journal', () => {
   const result = spawnSync(
     'python3',
     ['-B', resolve('infra/uat/operator/b868-record-forward-recovery.test.py')],
@@ -75,7 +75,7 @@ test('#868 forward recovery ตรวจหลักฐานที่อนุ�
   assert.equal(result.status, 0, result.stderr);
 });
 
-test('#868 legacy inventory แยก marker จาก provenance', () => {
+test('#868 the legacy inventory separates the marker from provenance', () => {
   const result = spawnSync(
     'python3',
     ['-B', resolve('infra/uat/operator/b868-legacy-inventory.test.py')],
@@ -87,7 +87,7 @@ test('#868 legacy inventory แยก marker จาก provenance', () => {
   assert.equal(result.status, 0, result.stderr);
 });
 
-test('#868 media observation ตรวจ mount และ digest โดยไม่รับรอง rollback', () => {
+test('#868 media observation checks the mount and digest without certifying rollback', () => {
   const result = spawnSync(
     'python3',
     ['-B', resolve('infra/uat/operator/b868-media-source-inspect.test.py')],
@@ -99,7 +99,7 @@ test('#868 media observation ตรวจ mount และ digest โดยไม
   assert.equal(result.status, 0, result.stderr);
 });
 
-test('#868 media Git comparison ตรวจ tree โดยไม่รับรอง deployment', () => {
+test('#868 the media Git comparison checks the tree without certifying the deployment', () => {
   const result = spawnSync(
     'python3',
     ['-B', resolve('infra/uat/operator/b868-media-git-compare.test.py')],
@@ -119,7 +119,7 @@ function markCommitted(path) {
   );
 }
 
-test('#714 Python record-only tests ผ่านโดยไม่เรียก VM/Docker จริง', () => {
+test('#714 the Python record-only tests pass without calling a real VM/Docker', () => {
   const result = spawnSync(
     'python3',
     ['-B', resolve('infra/uat/operator/b714-deployment-reconciliation.test.py')],
@@ -129,7 +129,7 @@ test('#714 Python record-only tests ผ่านโดยไม่เรีย�
   assert.match(result.stderr, /Ran \d+ tests/);
 });
 
-test('#868 ตรวจ record และ runtime โดยไม่เรียก VM/Docker จริง', () => {
+test('#868 checks the record and runtime without calling a real VM/Docker', () => {
   const result = spawnSync(
     'python3',
     ['-B', resolve('infra/uat/operator/release-record-inspect.test.py')],
@@ -142,7 +142,7 @@ test('#868 ตรวจ record และ runtime โดยไม่เรีย�
   assert.match(result.stderr, /Ran \d+ tests/);
 });
 
-test('#868 ผูก migration ledger กับ runtime และ protected services', () => {
+test('#868 binds the migration ledger to the runtime and the protected services', () => {
   const result = spawnSync(
     'python3',
     ['-B', resolve('infra/uat/operator/release-evidence-observe.test.py')],
@@ -155,7 +155,7 @@ test('#868 ผูก migration ledger กับ runtime และ protected serv
   assert.match(result.stderr, /Ran \d+ tests/);
 });
 
-test('#868 ปฏิเสธ candidate ที่หลักฐานเก่าหรือไม่ตรง hash', () => {
+test('#868 rejects a candidate whose evidence is stale or whose hash does not match', () => {
   const result = spawnSync(
     'python3',
     ['-B', resolve('infra/uat/operator/release-candidate-validate.test.py')],
@@ -168,7 +168,7 @@ test('#868 ปฏิเสธ candidate ที่หลักฐานเก่�
   assert.match(result.stderr, /Ran \d+ tests/);
 });
 
-test('#868 สลับ API ใน sandbox และกู้จาก Docker state เมื่อคำสั่งถูกขัดจังหวะ', () => {
+test('#868 switches the API in a sandbox and recovers from Docker state when the command is interrupted', () => {
   const result = spawnSync(
     'python3',
     ['-B', resolve('infra/uat/operator/b868-api-rehearsal-switch.test.py')],
@@ -178,7 +178,7 @@ test('#868 สลับ API ใน sandbox และกู้จาก Docker st
   assert.match(result.stderr, /Ran \d+ tests/);
 });
 
-test('#868 drain ของ People ต้อง DRAINED ซ้ำหลัง settle และตรวจ fence ผ่าน proxy', () => {
+test('#868 the People drain must be DRAINED again after settle, and the fence is checked through the proxy', () => {
   const result = spawnSync(
     'python3',
     ['-B', resolve('infra/uat/operator/b868-people-drain-observe.test.py')],
@@ -188,7 +188,7 @@ test('#868 drain ของ People ต้อง DRAINED ซ้ำหลัง set
   assert.match(result.stderr, /Ran \d+ tests/);
 });
 
-test('#868 หลักฐาน identity ผูก runtime ของ API และ Keycloak', () => {
+test('#868 identity evidence binds the API and Keycloak runtime', () => {
   const result = spawnSync(
     'python3',
     ['-B', resolve('infra/uat/operator/b868-identity-evidence-observe.test.py')],
@@ -198,7 +198,7 @@ test('#868 หลักฐาน identity ผูก runtime ของ API แล
   assert.match(result.stderr, /Ran \d+ tests/);
 });
 
-test('#868 authorization ใช้ครั้งเดียวเปิด deploy candidate ทับ reconciliation', () => {
+test('#868 a single-use authorization opens a deploy candidate over a reconciliation', () => {
   const result = spawnSync(
     'python3',
     ['-B', resolve('infra/uat/operator/b868-forward-authorize.test.py')],
@@ -208,7 +208,7 @@ test('#868 authorization ใช้ครั้งเดียวเปิด dep
   assert.match(result.stderr, /Ran \d+ tests/);
 });
 
-test('#901 authorization แบบเบาเปิด deploy release ที่ migration เป็น additive ทับ deploy record', () => {
+test('#901 a lightweight authorization opens a deploy of a release whose migration is additive over a deploy record', () => {
   const result = spawnSync(
     'python3',
     ['-B', resolve('infra/uat/operator/uat-additive-authorize.test.py')],
@@ -218,7 +218,7 @@ test('#901 authorization แบบเบาเปิด deploy release ที่
   assert.match(result.stderr, /Ran \d+ tests/);
 });
 
-test('#868 สลับ API image บน VM ด้วย pending, smoke ผ่าน proxy และ receipt', () => {
+test('#868 switches the API image on the VM with pending, a smoke through the proxy, and a receipt', () => {
   const result = spawnSync(
     'python3',
     ['-B', resolve('infra/uat/operator/b868-api-switch.test.py')],
@@ -228,7 +228,7 @@ test('#868 สลับ API image บน VM ด้วย pending, smoke ผ่�
   assert.match(result.stderr, /Ran \d+ tests/);
 });
 
-test('#868 fingerprint ข้อมูลก่อน/หลังสลับ API แยกกลุ่มที่ต้องคงเดิม', () => {
+test('#868 the data fingerprint before/after the API switch separates the groups that must stay unchanged', () => {
   const result = spawnSync(
     'python3',
     ['-B', resolve('infra/uat/operator/b868-protected-data-fingerprint.test.py')],
@@ -238,7 +238,7 @@ test('#868 fingerprint ข้อมูลก่อน/หลังสลับ A
   assert.match(result.stderr, /Ran \d+ tests/);
 });
 
-test('#868 สร้าง proposal จากหลักฐานที่ผูกกันโดยไม่อนุญาตเขียน record', () => {
+test('#868 builds a proposal from bound evidence without allowing a record write', () => {
   const result = spawnSync(
     'python3',
     ['-B', resolve('infra/uat/operator/b868-composite-proposal.test.py')],
@@ -251,7 +251,7 @@ test('#868 สร้าง proposal จากหลักฐานที่ผ�
   assert.match(result.stderr, /Ran \d+ tests/);
 });
 
-test('#868 observation reconciliation คง legacy layout และ previous เดิม', () => {
+test('#868 observation reconciliation keeps the legacy layout and the original previous', () => {
   const result = spawnSync(
     'python3',
     ['-B', resolve('infra/uat/operator/b868-record-reconcile.test.py')],
@@ -263,7 +263,7 @@ test('#868 observation reconciliation คง legacy layout และ previous �
   assert.equal(result.status, 0, result.stderr);
 });
 
-test('reconciliation ต้องมี manifest จริง ไม่สร้าง config receipt เทียม', async () => {
+test('reconciliation must have a real manifest and does not create a fake config receipt', async () => {
   assert.throws(() => buildDeploymentRecord({ action: 'reconciliation' }), /manifest/);
   await assert.rejects(
     main([
@@ -277,7 +277,7 @@ test('reconciliation ต้องมี manifest จริง ไม่สร้
   );
 });
 
-test('rollback ไม่รับ reconciliation record เป็น certification', () => {
+test('rollback does not accept a reconciliation record as a certification', () => {
   assert.throws(
     () =>
       buildDeploymentRecord({
@@ -288,11 +288,11 @@ test('rollback ไม่รับ reconciliation record เป็น certificati
           images: {},
         },
       }),
-    /ไม่ใช่ rollback certification/,
+    /not a rollback certification/,
   );
 });
 
-test('summary แยก unknown deploy time/observation และคง SKIPPED/B trial', () => {
+test('the summary separates unknown deploy time/observation and keeps the SKIPPED/B trial', () => {
   const summary = renderSummary({
     action: 'reconciliation',
     environment: 'uat',
@@ -306,14 +306,14 @@ test('summary แยก unknown deploy time/observation และคง SKIPPED/
     businessTrial: 'NOT_EVALUATED',
     smoke: { status: 'PASS', checks: [{ id: 'UAT-L06', status: 'SKIPPED' }] },
   });
-  assert.match(summary, /ไม่ทราบ/);
+  assert.match(summary, /unknown/);
   assert.match(summary, /NOT_EVALUATED/);
   assert.match(summary, /SKIPPED/);
-  assert.match(summary, /historical เท่านั้น/);
+  assert.match(summary, /historical only/);
   assert.doesNotMatch(summary, /1970/);
 });
 
-test('rollback resolver ปฏิเสธ reconciliation แต่เลือก genuine deploy ที่ใหม่กว่าได้', (context) => {
+test('the rollback resolver rejects a reconciliation but can pick a newer genuine deploy', (context) => {
   const root = mkdtempSync(resolve(tmpdir(), 'reconciliation-record-'));
   context.after(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(resolve(root, 'deployments'));
@@ -359,7 +359,7 @@ test('rollback resolver ปฏิเสธ reconciliation แต่เลือ�
   assert.equal(JSON.parse(result.stdout).action, 'deploy');
 });
 
-test('rollback resolver ปฏิเสธ proposal และ record ที่ source ไม่ตรงชื่อไฟล์', (context) => {
+test('the rollback resolver rejects a proposal and a record whose source does not match the file name', (context) => {
   const root = mkdtempSync(resolve(tmpdir(), 'rollback-proposal-'));
   context.after(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(resolve(root, 'deployments'));
@@ -410,7 +410,7 @@ test('rollback resolver ปฏิเสธ proposal และ record ที่ s
   assert.match(symlink.stderr, /ROLLBACK_ARCHIVE_NOT_COMMITTED/);
 });
 
-test('rollback resolver ห้ามเลือก archive ที่ยังไม่มี commit marker หรือถูกแก้หลัง commit', (context) => {
+test('the rollback resolver must not pick an archive that has no commit marker yet or was edited after commit', (context) => {
   const root = mkdtempSync(resolve(tmpdir(), 'rollback-uncommitted-'));
   context.after(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(resolve(root, 'deployments'));
@@ -441,7 +441,7 @@ test('rollback resolver ห้ามเลือก archive ที่ยัง�
   assert.match(run().stderr, /ROLLBACK_ARCHIVE_NOT_COMMITTED/);
 });
 
-test('previous ที่ไม่มี archive ซึ่ง commit แล้วต้องไม่เป็น rollback target', (context) => {
+test('a previous with no committed archive must not be a rollback target', (context) => {
   const root = mkdtempSync(resolve(tmpdir(), 'rollback-pointer-'));
   context.after(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(resolve(root, 'deployments'));

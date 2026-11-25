@@ -57,7 +57,7 @@ const result = spawnSync(
 assert.equal(result.status, 0, result.stderr || result.error?.message);
 const configuration = JSON.parse(result.stdout);
 
-test('RTP sidecar แยกสอง dedicated networks และ FS ไม่ publish media เอง', () => {
+test('the RTP sidecar uses two separate dedicated networks and FS does not publish media itself', () => {
   const relay = configuration.services['local-rtp-relay'];
   assert.ok(relay);
   assert.deepEqual(relay.command, ['node', '/e1-sandbox/dist/local-rtp-relay-main.js']);
@@ -79,7 +79,7 @@ test('RTP sidecar แยกสอง dedicated networks และ FS ไม่ p
   });
 });
 
-test('local Keycloak healthcheck ใช้ HTTP ภายในโดยไม่เปลี่ยน HTTPS identity', () => {
+test('the local Keycloak healthcheck uses internal HTTP without changing the HTTPS identity', () => {
   const keycloak = configuration.services.keycloak;
   assert.equal(keycloak.environment.KC_HTTP_MANAGEMENT_SCHEME, 'http');
   assert.equal(keycloak.environment.KC_HTTPS_PORT, '443');
@@ -89,7 +89,7 @@ test('local Keycloak healthcheck ใช้ HTTP ภายในโดยไม�
   assert.equal(configuration.networks.internal.internal, true);
 });
 
-test('local wrapper ปฏิเสธ DNS ผิด/หลาย addresses ก่อน render', () => {
+test('the local wrapper rejects a wrong DNS/multiple addresses before rendering', () => {
   for (const address of [
     '127.0.0.1',
     '0.0.0.0',
@@ -121,7 +121,7 @@ test('local wrapper ปฏิเสธ DNS ผิด/หลาย addresses ก�
   }
 });
 
-test('local hostnames ผ่าน Keycloak realm renderer เดียวกับ bootstrap จริง', () => {
+test('local hostnames go through the same Keycloak realm renderer as the real bootstrap', () => {
   const template = JSON.parse(
     readFileSync(resolve(root, 'infra/keycloak/realm-dcontact.uat.json'), 'utf8'),
   );
@@ -130,7 +130,7 @@ test('local hostnames ผ่าน Keycloak realm renderer เดียวกั
   assert.deepEqual(workspace.webOrigins, [`https://${environment.UAT_WORKSPACE_HOST}`]);
 });
 
-test('local composition แยก project และไม่เชื่อม DB relay ของ VM', () => {
+test('the local composition has a separate project and does not connect to the VM DB relay', () => {
   assert.equal(configuration.name, 'dcontact-v1b-local');
   assert.equal(configuration.services['db-relay'], undefined);
   for (const name of ['api', 'e1-sandbox']) {
@@ -145,7 +145,7 @@ test('local composition แยก project และไม่เชื่อม D
   }
 });
 
-test('local worker ใช้ canonical identity HTTPS และเพิ่ม CA เฉพาะ API ไม่ปิด TLS verification', () => {
+test('the local worker uses the canonical identity HTTPS and adds a CA for the API only, without disabling TLS verification', () => {
   const api = configuration.services.api;
   const identity = configuration.services.keycloak;
   assert.equal(api.environment.NODE_EXTRA_CA_CERTS, '/run/local-identity-ca.crt');
@@ -181,7 +181,7 @@ test('local worker ใช้ canonical identity HTTPS และเพิ่ม C
   );
 });
 
-test('local ports เป็น loopback เท่านั้น ไม่มี SIP/ESL หรือ SMTP ออก host', () => {
+test('local ports are loopback only, with no SIP/ESL or SMTP out to the host', () => {
   const published = Object.entries(configuration.services).flatMap(([name, service]) =>
     (service.ports ?? []).map((port) => ({ name, ...port })),
   );
@@ -200,7 +200,7 @@ test('local ports เป็น loopback เท่านั้น ไม่มี
   assert.match(mailboxProxy, /reverse_proxy mailpit:8025/);
 });
 
-test('local ใช้ Workspace/direct sandbox และ switches default-off', () => {
+test('local uses the Workspace/direct sandbox and the switches default to off', () => {
   const api = configuration.services.api;
   assert.deepEqual(api.command, ['node', 'dist/workspace-uat-main.js']);
   assert.equal(api.environment.DCONTACT_API_PROFILE, 'uat-workspace');
@@ -212,7 +212,7 @@ test('local ใช้ Workspace/direct sandbox และ switches default-off', 
   assert.ok(!Object.keys(configuration.services).some((name) => /kafka|line/.test(name)));
 });
 
-test('local proxy/media overrides ไม่ใช้ config หรือ IP ของ VM', () => {
+test('the local proxy/media overrides do not use the config or IP of the VM', () => {
   const proxy = configuration.services.proxy;
   assert.ok(
     proxy.volumes.some(
@@ -241,7 +241,7 @@ test('local proxy/media overrides ไม่ใช้ config หรือ IP ข�
   assert.doesNotMatch(caddy + variables + result.stdout, /192\.168\.102\./);
 });
 
-test('render helper แยก control listeners/RTP และไม่แก้ source', (context) => {
+test('the render helper separates the control listeners/RTP and does not edit the source', (context) => {
   const target = mkdtempSync(resolve(tmpdir(), 'local-fs-render-'));
   context.after(() => rmSync(target, { recursive: true, force: true }));
   const source = resolve(directory, 'e1-freeswitch');
@@ -284,7 +284,7 @@ test('render helper แยก control listeners/RTP และไม่แก้ 
   assert.equal(readFileSync(resolve(source, 'conf/sip_profiles/internal.xml'), 'utf8'), original);
 });
 
-test('render ปฏิเสธ unknown ownership/invalid tuple ก่อน copy', (context) => {
+test('render rejects an unknown ownership/invalid tuple before copying', (context) => {
   const target = mkdtempSync(resolve(tmpdir(), 'local-fs-negative-'));
   context.after(() => rmSync(target, { recursive: true, force: true }));
   const source = resolve(directory, 'e1-freeswitch');
@@ -313,7 +313,7 @@ test('render ปฏิเสธ unknown ownership/invalid tuple ก่อน cop
   }
 });
 
-test('source listener drift ต้อง fail closed ไม่เขียน readiness address', (context) => {
+test('source listener drift must fail closed and not write the readiness address', (context) => {
   const temporary = mkdtempSync(resolve(tmpdir(), 'local-fs-drift-'));
   context.after(() => rmSync(temporary, { recursive: true, force: true }));
   const source = resolve(temporary, 'source');
@@ -340,7 +340,7 @@ test('source listener drift ต้อง fail closed ไม่เขียน re
   assert.equal(existsSync(resolve(target, 'control-ip')), false);
 });
 
-test('media wiring มี exact37 loopbackUDP ports/staticIPs และไม่เพิ่ม privileges', () => {
+test('media wiring has exactly 37 loopback UDP ports/static IPs and adds no privileges', () => {
   const relay = configuration.services['local-rtp-relay'];
   const switchService = configuration.services.freeswitch;
   assert.equal(relay.ports.length, 37);
@@ -385,7 +385,7 @@ test('media wiring มี exact37 loopbackUDP ports/staticIPs และไม่
   }
 });
 
-test('network env ทั้งเจ็ดขาดตัวใด compose ต้องไม่ render', () => {
+test('if any of the seven network env values is missing, compose must not render', () => {
   for (const variable of Object.keys(environment).filter((name) => name.startsWith('LOCAL_RTP_'))) {
     const missing = { ...environment };
     delete missing[variable];

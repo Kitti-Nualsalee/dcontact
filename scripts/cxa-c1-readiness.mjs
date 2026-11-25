@@ -24,16 +24,16 @@ const C1_DIMENSIONS = [
 ];
 
 /**
- * แต่ละ check ประกาศว่ามี `markers` ใดที่ต้องรอผลของมัน — `CG2_ACCEPTED` และ
- * `J1_ACCEPTED` เป็น sub-marker ของ domain ตัวเอง ส่วน `CX_AUTOMATION_CORE_ACCEPTED`
- * ต้องรอทั้งสอง sub-marker บวก regression gate ของตัวเอง (ดู `cxaC1Summary`)
+ * each check declares which `markers` wait for its result - `CG2_ACCEPTED` and
+ * `J1_ACCEPTED` are sub-markers of their own domain, while `CX_AUTOMATION_CORE_ACCEPTED`
+ * must wait for both sub-markers plus its own regression gate (see `cxaC1Summary`)
  */
 export const CXA_C1_READINESS_CHECKS = [
   {
     id: 'cg2-functional',
     dimension: 'functional',
     markers: [CG2_MARKER],
-    dependency: 'CG2 canonical Attempt/Touch และ reservation lease/submission/settlement runtime',
+    dependency: 'CG2 canonical Attempt/Touch and reservation lease/submission/settlement runtime',
     boundaries: [
       'claim/renew/begin/confirm/release/settle',
       'canonical duplicate replay',
@@ -43,13 +43,13 @@ export const CXA_C1_READINESS_CHECKS = [
       [pnpm, '--filter', '@d-contact/contact-governance', 'test'],
       [pnpm, '--filter', '@d-contact/contact-governance', 'test:integration'],
     ],
-    remediation: 'ตรวจ ReservationRuntime และ Attempt/Touch fixture ของ CG2 (C1.1/C1.2)',
+    remediation: 'Check ReservationRuntime and the CG2 Attempt/Touch fixture (C1.1/C1.2)',
   },
   {
     id: 'j1-functional',
     dimension: 'functional',
     markers: [J1_MARKER],
-    dependency: 'J1 versioned definition, durable execution และ SEND/BRANCH composition',
+    dependency: 'J1 versioned definition, durable execution and SEND/BRANCH composition',
     boundaries: [
       'publish idempotent',
       'graph entry/terminal/reachability',
@@ -63,56 +63,57 @@ export const CXA_C1_READINESS_CHECKS = [
       [pnpm, '--filter', '@d-contact/delivery', 'test:integration'],
     ],
     remediation:
-      'ตรวจ Journey definition/execution/send-composition และ Delivery test adapter (C1.3-C1.6)',
+      'Check Journey definition/execution/send-composition and the Delivery test adapter (C1.3-C1.6)',
   },
   {
     id: 'tenant-isolation',
     dimension: 'tenant-isolation',
     markers: [CG2_MARKER, J1_MARKER],
-    dependency: 'tenant RLS และ cross-tenant rejection ครอบคลุมตาราง C1 ใหม่ทั้งหมด',
-    boundaries: ['two tenant fixture', 'cross-tenant ID swap', 'RLS policy ของตารางใหม่'],
+    dependency: 'tenant RLS and cross-tenant rejection cover all the new C1 tables',
+    boundaries: ['two tenant fixture', 'cross-tenant ID swap', 'RLS policy of the new tables'],
     commands: [[pnpm, '--filter', '@d-contact/db', 'test:integration']],
     remediation:
-      'ตรวจ RLS ของ jr_journey_definitions/dl_outbox_entries/jr_schedule_occurrences/jr_step_runs',
+      'Check RLS of jr_journey_definitions/dl_outbox_entries/jr_schedule_occurrences/jr_step_runs',
   },
   {
     id: 'authorization',
     dimension: 'authorization',
     markers: [J1_MARKER],
-    dependency: 'trusted team scope ก่อน authorize/reserve เสมอ',
-    boundaries: ['scope ALLOW/DENY', 'enqueue หลัง reservation binding เท่านั้น', 'fail closed'],
+    dependency: 'trusted team scope always comes before authorize/reserve',
+    boundaries: ['scope ALLOW/DENY', 'enqueue only after reservation binding', 'fail closed'],
     commands: [[pnpm, '--filter', '@d-contact/journey', 'test:integration']],
-    remediation: 'ตรวจ JourneySendExecutor scope gate ก่อนเรียก Governance (C1.6)',
+    remediation: 'Check the JourneySendExecutor scope gate before calling Governance (C1.6)',
   },
   {
     id: 'idempotency',
     dimension: 'idempotency',
     markers: [CG2_MARKER, J1_MARKER],
     dependency: 'actionKey/reservation/delivery/publish idempotency',
-    boundaries: ['duplicate replay', 'canonical conflict', 'retry ไม่ enqueue/settle ซ้ำ'],
+    boundaries: ['duplicate replay', 'canonical conflict', 'retry does not enqueue/settle again'],
     commands: [
       [pnpm, '--filter', '@d-contact/cxa-contracts', 'test'],
       [pnpm, '--filter', '@d-contact/contact-governance', 'test:integration'],
       [pnpm, '--filter', '@d-contact/delivery', 'test:integration'],
       [pnpm, '--filter', '@d-contact/journey', 'test:integration'],
     ],
-    remediation: 'ตรวจ idempotency ของ reservation command, delivery outbox และ Journey execution',
+    remediation:
+      'Check idempotency of the reservation command, delivery outbox and Journey execution',
   },
   {
     id: 'concurrency',
     dimension: 'concurrency',
     markers: [CG2_MARKER, J1_MARKER],
-    dependency: 'business effect เดียวภายใต้ concurrent claim/advance/enqueue',
+    dependency: 'a single business effect under concurrent claim/advance/enqueue',
     boundaries: [
-      'two workers advance enrollment เดียวกัน',
-      'concurrent enqueue เดียวกัน',
+      'two workers advance the same enrollment',
+      'concurrent enqueue of the same entry',
       'CAS/advisory lock',
     ],
     commands: [
       [pnpm, '--filter', '@d-contact/journey', 'test:integration'],
       [pnpm, '--filter', '@d-contact/delivery', 'test:integration'],
     ],
-    remediation: 'ตรวจ concurrency ของ JourneyExecutionService และ DeliveryTestAdapter',
+    remediation: 'Check concurrency of JourneyExecutionService and DeliveryTestAdapter',
   },
   {
     id: 'recovery',
@@ -128,26 +129,26 @@ export const CXA_C1_READINESS_CHECKS = [
       [pnpm, '--filter', '@d-contact/delivery', 'test:integration'],
       [pnpm, '--filter', '@d-contact/journey', 'test:integration'],
     ],
-    remediation: 'ตรวจ reconcile sweeper ของ Delivery และ WAIT/claim ของ Journey',
+    remediation: 'Check the Delivery reconcile sweeper and the Journey WAIT/claim',
   },
   {
     id: 'migration-compatibility',
     dimension: 'migration-compatibility',
     markers: [CG2_MARKER, J1_MARKER],
-    dependency: 'schema migration ครอบคลุมตาราง C1 ใหม่ทั้งหมด',
+    dependency: 'schema migration covers all the new C1 tables',
     boundaries: ['fresh migration', 'canonical table/RLS/policy lock'],
     commands: [[process.execPath, 'scripts/cxa-schema-readiness.mjs']],
     remediation:
-      'ตรวจ cxa-schema-readiness ครอบคลุม jr_journey_definitions/dl_outbox_entries/jr_schedule_occurrences/jr_step_runs',
+      'Check that cxa-schema-readiness covers jr_journey_definitions/dl_outbox_entries/jr_schedule_occurrences/jr_step_runs',
   },
   {
     id: 'observability-pii-redaction',
     dimension: 'observability-pii-redaction',
     markers: [CG2_MARKER, J1_MARKER],
-    dependency: 'evidence ของ outbox/enrollment ไม่มี raw PII และ adapter เป็น TEST_ADAPTER',
+    dependency: 'outbox/enrollment evidence has no raw PII and the adapter is TEST_ADAPTER',
     boundaries: [
-      'no raw PII ใน outbox evidence',
-      'no PII ใน enrollment evidence',
+      'no raw PII in outbox evidence',
+      'no PII in enrollment evidence',
       'adapter profile TEST_ADAPTER',
     ],
     commands: [
@@ -156,13 +157,13 @@ export const CXA_C1_READINESS_CHECKS = [
       [process.execPath, 'scripts/cxa-c1-profile-readiness.mjs'],
     ],
     evidencePrefix: 'CXA_C1_ADAPTER_PROFILE_EVIDENCE:',
-    remediation: 'ตรวจ evidence ของ Delivery outbox และ Journey enrollment ไม่มี PII',
+    remediation: 'Check that the Delivery outbox and Journey enrollment evidence has no PII',
   },
   {
     id: 'regression',
     dimension: 'regression',
     markers: [CORE_MARKER],
-    dependency: 'root build/typecheck/lint, E0 acceptance และ Inbound Voice regression',
+    dependency: 'root build/typecheck/lint, E0 acceptance and Inbound Voice regression',
     boundaries: ['root build', 'root typecheck', 'root lint', 'E0 acceptance', 'Inbound Voice'],
     commands: [
       [pnpm, 'build'],
@@ -171,7 +172,7 @@ export const CXA_C1_READINESS_CHECKS = [
       [pnpm, 'cxa:e0:acceptance'],
       [pnpm, 'voice:acceptance'],
     ],
-    remediation: 'แก้ build/typecheck/lint หรือ E0/Inbound Voice regression ก่อนยอมรับ C1',
+    remediation: 'Fix build/typecheck/lint or the E0/Inbound Voice regression before accepting C1',
   },
 ];
 
@@ -209,14 +210,14 @@ export function assertPiiSafeEvidence(value) {
     if (candidate && typeof candidate === 'object') {
       for (const [key, nested] of Object.entries(candidate)) {
         if (sensitiveKey.test(key))
-          throw new TypeError(`evidence มี field ต้องห้าม: ${path}.${key}`);
+          throw new TypeError(`evidence has a forbidden field: ${path}.${key}`);
         visit(nested, `${path}.${key}`, key);
       }
       return;
     }
     const isDigestOrCommit = /^(?:sha256|commitSha|baseSha)$/i.test(fieldName);
-    // GitHub Actions run ID เป็น metadata ของ evidence bundle ไม่ใช่ business identifier
-    // จึงอาจเหมือนรูปแบบเบอร์โทรไทยโดยบังเอิญได้
+    // The GitHub Actions run ID is evidence bundle metadata, not a business identifier,
+    // so it may coincidentally look like a Thai phone number
     const isGitHubActionsRunId = path === '$.run.id';
     if (
       !isDigestOrCommit &&
@@ -224,7 +225,7 @@ export function assertPiiSafeEvidence(value) {
       typeof candidate === 'string' &&
       sensitiveValue.some((pattern) => pattern.test(candidate))
     ) {
-      throw new TypeError(`evidence มี PII หรือ credential ที่ตำแหน่ง ${path}`);
+      throw new TypeError(`evidence has PII or a credential at ${path}`);
     }
   };
   visit(value);
@@ -233,7 +234,7 @@ export function assertPiiSafeEvidence(value) {
 function runGit(arguments_) {
   const result = spawnSync('git', arguments_, { cwd: repositoryRoot, encoding: 'utf8' });
   if (result.status !== 0 || result.error) {
-    throw new Error(`git ${arguments_.join(' ')} ล้มเหลว`);
+    throw new Error(`git ${arguments_.join(' ')} failed`);
   }
   return String(result.stdout).trim();
 }
@@ -242,7 +243,7 @@ function repositoryName(environment) {
   if (environment.GITHUB_REPOSITORY) return environment.GITHUB_REPOSITORY;
   const remote = runGit(['config', '--get', 'remote.origin.url']);
   const match = remote.match(/(?:github\.com[/:])([^/]+\/[^/.]+)(?:\.git)?$/);
-  if (!match) throw new TypeError('ไม่สามารถระบุ repository สำหรับ evidence manifest');
+  if (!match) throw new TypeError('cannot determine the repository for the evidence manifest');
   return match[1];
 }
 
@@ -250,7 +251,7 @@ export function createEvidenceContext(environment = process.env) {
   const commitSha = runGit(['rev-parse', 'HEAD']);
   const expectedCommitSha = environment.CXA_C1_EXPECTED_COMMIT_SHA;
   if (expectedCommitSha && expectedCommitSha !== commitSha) {
-    throw new TypeError('CXA_C1_EXPECTED_COMMIT_SHA ไม่ตรงกับ commit ที่กำลังรัน');
+    throw new TypeError('CXA_C1_EXPECTED_COMMIT_SHA does not match the running commit');
   }
   return {
     repository: repositoryName(environment),
@@ -275,7 +276,7 @@ function toManifestCheck(diagnostic) {
   };
 }
 
-/** marker หนึ่งตัวพร้อมก็ต่อเมื่อ check ทุกตัวที่ประกาศ marker นั้นไว้ผ่านหมด */
+/** A marker is ready only when every check that declares that marker has passed */
 function markerReady(markerName, diagnostics) {
   const relevant = CXA_C1_READINESS_CHECKS.filter((check) => check.markers.includes(markerName));
   return (
@@ -361,43 +362,43 @@ export function createCxaC1EvidenceManifest(context, diagnostics, summary) {
 export function assertValidCxaC1EvidenceManifest(manifest) {
   assertPiiSafeEvidence(manifest);
   if (manifest.phase !== 'C1' || manifest.schemaVersion !== 1) {
-    throw new TypeError('evidence manifest มี phase หรือ schemaVersion ไม่ถูกต้อง');
+    throw new TypeError('evidence manifest has an invalid phase or schemaVersion');
   }
   if (!/^[0-9a-f]{40}$/i.test(manifest.commitSha)) {
-    throw new TypeError('evidence manifest ต้องมี commit SHA เต็มรูปแบบ');
+    throw new TypeError('evidence manifest must have a full commit SHA');
   }
   const declaredMarkers = manifest.markers ?? [];
   for (const marker of declaredMarkers) {
     if (![CG2_MARKER, J1_MARKER, CORE_MARKER].includes(marker)) {
-      throw new TypeError('evidence manifest มี marker ไม่ถูกต้อง');
+      throw new TypeError('evidence manifest has an invalid marker');
     }
   }
   const checks = manifest.checks ?? [];
   const artifacts = manifest.artifacts ?? [];
   for (const artifact of artifacts) {
     if (artifact.commitSha !== manifest.commitSha) {
-      throw new TypeError('evidence artifact อ้าง commit ไม่ตรงกับ manifest');
+      throw new TypeError('evidence artifact references a commit that does not match the manifest');
     }
     const checkId = String(artifact.id).replace(/^check:/, '');
     const check = checks.find(({ id }) => id === checkId);
     if (!check || artifact.sha256 !== sha256(check)) {
-      throw new TypeError('SHA-256 ของ evidence artifact ไม่ตรงกับ check');
+      throw new TypeError('SHA-256 of the evidence artifact does not match the check');
     }
   }
   if (!declaredMarkers.includes(CORE_MARKER)) return;
 
   if (checks.length !== CXA_C1_READINESS_CHECKS.length) {
-    throw new TypeError('marker ต้องมี check ครบทุกตัวของ C1 acceptance matrix');
+    throw new TypeError('marker must have every check of the C1 acceptance matrix');
   }
   const allChecksPassed = checks.every((check) => check.status === 'PASS');
   if (!allChecksPassed) {
-    throw new TypeError('CX_AUTOMATION_CORE_ACCEPTED ต้องมี check ทุกตัว PASS');
+    throw new TypeError('CX_AUTOMATION_CORE_ACCEPTED needs every check to PASS');
   }
   if (
     artifacts.length !== checks.length ||
     new Set(artifacts.map(({ id }) => id)).size !== checks.length
   ) {
-    throw new TypeError('marker ต้องมี evidence artifact หนึ่งรายการต่อ check');
+    throw new TypeError('marker must have one evidence artifact per check');
   }
   const adapterProfileEvidence = checks
     .find(({ id }) => id === 'observability-pii-redaction')
@@ -409,7 +410,9 @@ export function assertValidCxaC1EvidenceManifest(manifest) {
         evidence.actualProviderTraffic === false,
     );
   if (!adapterProfileEvidence) {
-    throw new TypeError('marker ต้องมี evidence ว่า TEST_ADAPTER ปิด actual provider traffic');
+    throw new TypeError(
+      'marker must have evidence that TEST_ADAPTER disables actual provider traffic',
+    );
   }
 }
 

@@ -8,15 +8,15 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 /**
- * U1.6 (#434): readiness ของ UAT deployment (VM + Docker Compose) — ไม่มี dependency นอกจาก Node
+ * U1.6 (#434): readiness of the UAT deployment (VM + Docker Compose) - no dependency other than Node
  *
- * - `--static`: ตรวจ artifact ใน repo (compose, Dockerfile, Caddyfile, realm, workflow) + negative
- *   secret scan — รันใน CI ได้โดยไม่ต้องมี network
- * - `--live`: smoke กับ UAT ที่ deploy แล้ว (`UAT_BASE_URL`, `UAT_CONNECT_HOST`, `UAT_SMOKE_ACCESS_TOKEN`)
- * - `--migration-guard --base <sha> | --initial`: migration ใหม่ต้อง additive (ไม่มี DROP, ไม่แก้ไฟล์เดิม)
- * - `--deployment-record` / `--summary`: สร้าง/แสดง deployment record ของ workflow `uat-preview`
+ * - `--static`: checks the artifacts in the repo (compose, Dockerfile, Caddyfile, realm, workflow) + a negative
+ *   secret scan - can run in CI without a network
+ * - `--live`: smoke against a deployed UAT (`UAT_BASE_URL`, `UAT_CONNECT_HOST`, `UAT_SMOKE_ACCESS_TOKEN`)
+ * - `--migration-guard --base <sha> | --initial`: a new migration must be additive (no DROP, no editing an existing file)
+ * - `--deployment-record` / `--summary`: create/show the deployment record of the `uat-preview` workflow
  *
- * ผลเป็น JSON บรรทัดเดียว; มี check ใด FAIL = exit code ไม่เป็นศูนย์ ไม่พิมพ์ token/secret ใด ๆ
+ * The result is a single JSON line; any FAIL check = a non-zero exit code; no token/secret is ever printed
  */
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -27,15 +27,15 @@ export const UAT_FILES = Object.freeze({
   compose3vm: 'infra/uat/docker-compose.uat.3vm.yml',
   caddyfile3vm: 'infra/uat/Caddyfile.3vm',
   dbRelayConfig: 'infra/uat/haproxy-db-relay.cfg',
-  // #565 (ADR-031): overlay `uat-line` ที่เปิดด้วย flag บน VM2
+  // #565 (ADR-031): the `uat-line` overlay that is enabled by a flag on VM2
   composeLine: 'infra/uat/docker-compose.uat.line.yml',
   caddyfileLine: 'infra/uat/Caddyfile.3vm.line',
   lineEgressConfig: 'infra/uat/haproxy-line-egress.cfg',
   lineSecretsScript: 'infra/uat/operator/vm2-line-secrets.sh',
-  // #567: overlay ของ team trial (flag แยก)
+  // #567: the team trial overlay (a separate flag)
   composeLineTrial: 'infra/uat/docker-compose.uat.line-trial.yml',
   composeE1: 'infra/uat/docker-compose.uat.e1.yml',
-  // #645: Platform overlay บน VM2 (A1.9) แตะ realm เดียวกัน — ห้ามผูก browser flow ทับ realm template
+  // #645: the Platform overlay on VM2 (A1.9) touches the same realm - it must not bind a browser flow over the realm template
   composePlatform3vm: 'infra/uat/docker-compose.platform.3vm.yml',
   envExample: 'infra/uat/uat.env.example',
   deployScript: 'infra/uat/bin/uat-deploy.sh',
@@ -53,13 +53,13 @@ export const UAT_FILES = Object.freeze({
   runbook: 'docs/u1-uat-deployment.md',
   keycloakScript: 'scripts/u1-uat-keycloak-users.mjs',
   readinessScript: 'scripts/u1-uat-readiness.mjs',
-  // U1.9 (#506): fixture pack ของ UAT first slice (template + renderer) และ input ตัวอย่างของ provision
+  // U1.9 (#506): the fixture pack of the UAT first slice (template + renderer) and the sample provision input
   fixtureTemplate: 'infra/uat/fixtures/uat-first-slice.v1.template.json',
   fixtureRenderer: 'scripts/u1-uat-fixture-render.mjs',
   provisionExample: 'infra/uat/uat-provision.example.json',
 });
 
-/** service ที่ UAT first slice ต้องไม่มี (#374): Journey worker/runtime, voice, event backbone, Redis */
+/** Services the UAT first slice must not have (#374): Journey worker/runtime, voice, event backbone, Redis */
 export const FORBIDDEN_SERVICE_PATTERNS = Object.freeze([
   ['JOURNEY_WORKER', /journey(?!-?authoring)|apps\/journey|dcontact-journey/i],
   ['FREESWITCH', /freeswitch/i],
@@ -67,14 +67,14 @@ export const FORBIDDEN_SERVICE_PATTERNS = Object.freeze([
   ['REDIS', /redis|valkey/i],
 ]);
 export const ALLOWED_PUBLIC_SERVICE = 'proxy';
-/** #515/#522: theme ที่ realm UAT ตั้งไว้ต้องอยู่ใน image ของ Keycloak (infra/keycloak/Dockerfile) */
+/** #515/#522: the theme the UAT realm sets must be in the Keycloak image (infra/keycloak/Dockerfile) */
 export const UAT_LOGIN_THEME = 'dcontact';
 export const ALLOWED_PUBLIC_PORTS = Object.freeze(['443', '80']);
-/** env ของ api ที่ขัดกับ profile `uat` (ตรงกับ UAT_FORBIDDEN_ENV ใน apps/api/src/runtime-profile.ts) */
+/** api env that conflicts with the `uat` profile (matches UAT_FORBIDDEN_ENV in apps/api/src/runtime-profile.ts) */
 export const API_FORBIDDEN_ENV = Object.freeze([/^LINE_/, /^KAFKA_BROKERS$/, /^SIP_/]);
 const SECRETISH_KEY =
   /(PASSWORD|SECRET|TOKEN|CREDENTIAL|PRIVATE|ACCESS_KEY|ADMIN_USERNAME|ROOT_USER|MC_HOST)/i;
-/** ค่า credential ของ dev/seed ที่ห้ามโผล่ใน artifact ของ UAT */
+/** dev/seed credential values that must not appear in UAT artifacts */
 const DEV_CREDENTIAL_LITERALS = [
   'dcontact-secret',
   'admin1234',
@@ -85,7 +85,7 @@ const DEV_CREDENTIAL_LITERALS = [
   'dcontact-events-demo-secret',
   'dcontact-c360-introspection-dev-secret',
 ];
-/** port ที่ต้องปิดบน host ของ UAT (มีแค่ 80/443 ของ proxy ที่เปิด) */
+/** Ports that must be closed on the UAT host (only 80/443 of the proxy are open) */
 export const FORBIDDEN_PORTS = Object.freeze([
   3000, 5060, 5432, 5433, 6379, 8021, 8022, 8080, 8081, 8443, 9000, 9001, 9092, 29092,
 ]);
@@ -115,14 +115,14 @@ function unquote(value) {
 }
 
 function stripYamlComment(line) {
-  // comment ของ YAML = ` #` นอก quote — compose ของเราไม่มี `#` ในค่า
+  // a YAML comment = ` #` outside quotes - our compose has no `#` inside values
   const index = line.search(/(^|\s)#/);
   return index === -1 ? line : line.slice(0, index);
 }
 
 /**
- * อ่านโครงของ compose แบบเบา (indentation ของ Compose ทั่วไป 2 ช่อง): services → image/ports/
- * environment/command/profiles — พอสำหรับตรวจ policy โดยไม่ต้องพึ่ง YAML parser ภายนอก
+ * Read the compose structure lightly (the usual Compose indentation of 2 spaces): services -> image/ports/
+ * environment/command/profiles - enough to check policy without an external YAML parser
  */
 export function parseComposeServices(text) {
   const services = {};
@@ -208,7 +208,7 @@ export function checkComposeServices(compose) {
   if (/KAFKA_BROKERS|redpanda|freeswitch|REDIS_URL/i.test(code)) {
     failures.push({ kind: 'FORBIDDEN_REFERENCE' });
   }
-  return check('UAT-S01 compose ไม่มี worker/FreeSWITCH/Kafka/Redis', failures, {
+  return check('UAT-S01 compose has no worker/FreeSWITCH/Kafka/Redis', failures, {
     services: Object.keys(services).sort(),
   });
 }
@@ -234,20 +234,21 @@ export function checkComposePorts(compose) {
     failures.push({ service: ALLOWED_PUBLIC_SERVICE, kind: 'HTTPS_NOT_PUBLISHED' });
   }
   if (/network_mode:\s*['"]?host/.test(compose)) failures.push({ kind: 'HOST_NETWORK' });
-  return check('UAT-S02 มีแค่ proxy ที่เปิดพอร์ต (443/80)', failures);
+  return check('UAT-S02 only the proxy publishes ports (443/80)', failures);
 }
 
 export function checkNoStartDev(files) {
   const failures = Object.entries(files)
     .filter(([, text]) => text !== null && /\bstart-dev\b/.test(text))
     .map(([path]) => ({ path, kind: 'START_DEV' }));
-  return check('UAT-S03 Keycloak ไม่ใช้ start-dev', failures);
+  return check('UAT-S03 Keycloak does not use start-dev', failures);
 }
 
 export function checkKeycloakProductionMode(compose) {
   const keycloak = parseComposeServices(compose).keycloak;
   const failures = [];
-  if (!keycloak) return check('UAT-S04 Keycloak production mode หลัง proxy', [{ kind: 'MISSING' }]);
+  if (!keycloak)
+    return check('UAT-S04 Keycloak in production mode behind the proxy', [{ kind: 'MISSING' }]);
   if (!keycloak.command.includes('start')) failures.push({ kind: 'NOT_START' });
   const env = keycloak.environment;
   if (!/^https:\/\//.test(env.KC_HOSTNAME ?? '')) failures.push({ kind: 'KC_HOSTNAME_NOT_HTTPS' });
@@ -256,20 +257,20 @@ export function checkKeycloakProductionMode(compose) {
   }
   if (env.KC_HTTP_ENABLED !== 'true') failures.push({ kind: 'KC_HTTP_ENABLED' });
   if (keycloak.ports.length > 0) failures.push({ kind: 'ADMIN_PORT_PUBLISHED' });
-  // #680: readiness ต้องตัดสินจาก HTTP status — body มี check ย่อยที่เป็น UP ได้แม้ภาพรวมยัง DOWN (bootstrap)
+  // #680: readiness must be decided from the HTTP status - the body may have sub-checks that are UP even while the overall state is still DOWN (bootstrap)
   const health = keycloak.raw.find((line) => line.includes('/health/ready'));
   if (!health || !health.includes("grep -q ' 200 '") || /grep -q UP\b/.test(health)) {
     failures.push({ kind: 'HEALTHCHECK_NOT_STATUS_BASED' });
   }
-  return check('UAT-S04 Keycloak production mode หลัง proxy', failures);
+  return check('UAT-S04 Keycloak in production mode behind the proxy', failures);
 }
 
 /**
- * #515/#522: realm UAT ตั้ง login/email theme `dcontact` — Keycloak ต้องรันจาก image ของเรา (มี theme)
- * ไม่ใช่ image ตรงของ Keycloak ไม่งั้นหน้า login ของ realm ล้มทั้งหมด
+ * #515/#522: the UAT realm sets the `dcontact` login/email theme - Keycloak must run from our image (which has the theme)
+ * not the upstream Keycloak image directly, otherwise the login page of the whole realm breaks
  */
 export function checkKeycloakTheme(compose, realmText, dockerfile) {
-  const id = 'UAT-S19 Keycloak image มี login/email theme ที่ realm UAT ใช้';
+  const id = 'UAT-S19 the Keycloak image has the login/email theme the UAT realm uses';
   const failures = [];
   const keycloak = parseComposeServices(compose).keycloak;
   if (!/^\$\{KEYCLOAK_IMAGE:\?[^}]*\}$/.test(keycloak?.image ?? '')) {
@@ -327,7 +328,7 @@ export function checkComposeCredentials(compose) {
   for (const literal of DEV_CREDENTIAL_LITERALS) {
     if (compose.includes(literal)) failures.push({ kind: 'DEV_CREDENTIAL_LITERAL' });
   }
-  return check('UAT-S05 ไม่มี default credential (ทุก secret เป็น ${VAR:?})', failures);
+  return check('UAT-S05 no default credential (every secret is ${VAR:?})', failures);
 }
 
 export function checkComposeImages(compose) {
@@ -343,10 +344,10 @@ export function checkComposeImages(compose) {
     }
   }
   if (/^\s*build:/m.test(compose)) failures.push({ kind: 'BUILD_ON_VM' });
-  return check('UAT-S06 image ทุกตัวอ้างด้วย digest', failures);
+  return check('UAT-S06 every image is referenced by digest', failures);
 }
 
-/** ทุก `FROM` ต้อง pin digest (ตรงหรือผ่าน ARG default) หรืออ้าง stage ก่อนหน้า; ห้าม `:latest` */
+/** Every `FROM` must pin a digest (directly or via an ARG default) or reference an earlier stage; `:latest` is forbidden */
 export function checkDockerfilePins(dockerfiles) {
   const failures = [];
   for (const [path, text] of Object.entries(dockerfiles)) {
@@ -368,7 +369,7 @@ export function checkDockerfilePins(dockerfiles) {
         (_m, name) => args[name] ?? '',
       );
       if (stages.has(from[1])) {
-        // stage ก่อนหน้า
+        // an earlier stage
       } else if (!/@sha256:[0-9a-f]{64}$/.test(reference) || /:latest(@|$)/.test(reference)) {
         failures.push({ path, kind: 'UNPINNED_FROM', from: from[1] });
       }
@@ -384,7 +385,7 @@ export function checkDockerfilePins(dockerfiles) {
   return check('UAT-S07 Dockerfile pin digest, non-root, revision label', failures);
 }
 
-/** `AMR_MAX_AGE_SECONDS` ใน scripts/keycloak-platform-setup.mjs — แก้ต้องแก้คู่กัน */
+/** `AMR_MAX_AGE_SECONDS` in scripts/keycloak-platform-setup.mjs - change both together */
 export const PLATFORM_AMR_MAX_AGE_SECONDS = 36000;
 
 export function checkRealm(realmText) {
@@ -393,7 +394,7 @@ export function checkRealm(realmText) {
   try {
     realm = JSON.parse(realmText ?? '');
   } catch {
-    return check('UAT-S08 realm UAT ไม่มี user/secret และบังคับ password+TOTP', [
+    return check('UAT-S08 the UAT realm has no user/secret and enforces password+TOTP', [
       { kind: 'INVALID_JSON' },
     ]);
   }
@@ -458,7 +459,7 @@ export function checkRealm(realmText) {
   }
   const totp = (realm.requiredActions ?? []).find((action) => action.alias === 'CONFIGURE_TOTP');
   if (!totp?.enabled || !totp.defaultAction) failures.push({ kind: 'CONFIGURE_TOTP_NOT_DEFAULT' });
-  // #645: session ยาวกว่า max age ของ AMR ใน platform-console (36000) = token ไม่มี pwd/otp → MFA_REQUIRED
+  // #645: a session longer than the AMR max age in platform-console (36000) = a token without pwd/otp -> MFA_REQUIRED
   if (
     !(realm.ssoSessionIdleTimeout > 0) ||
     !(realm.ssoSessionIdleTimeout <= realm.ssoSessionMaxLifespan) ||
@@ -469,12 +470,13 @@ export function checkRealm(realmText) {
   if (realm.registrationAllowed) failures.push({ kind: 'REGISTRATION_ALLOWED' });
   if (realm.sslRequired === 'none' || realm.sslRequired === 'NONE')
     failures.push({ kind: 'SSL_NOT_REQUIRED' });
-  return check('UAT-S08 realm UAT ไม่มี user/secret และบังคับ password+TOTP', failures);
+  return check('UAT-S08 the UAT realm has no user/secret and enforces password+TOTP', failures);
 }
 
 export function checkApiEnvironment(compose) {
   const api = parseComposeServices(compose).api;
-  if (!api) return check('UAT-S09 env ของ api ผ่าน fail-closed profile uat', [{ kind: 'MISSING' }]);
+  if (!api)
+    return check('UAT-S09 api env passes the fail-closed profile uat', [{ kind: 'MISSING' }]);
   const failures = [];
   for (const name of Object.keys(api.environment)) {
     if (API_FORBIDDEN_ENV.some((pattern) => pattern.test(name))) {
@@ -486,19 +488,20 @@ export function checkApiEnvironment(compose) {
   if (!/^postgresql:\/\/dcontact_app:/.test(api.environment.DATABASE_URL ?? '')) {
     failures.push({ kind: 'NOT_APPLICATION_ROLE' });
   }
-  return check('UAT-S09 env ของ api ผ่าน fail-closed profile uat', failures);
+  return check('UAT-S09 api env passes the fail-closed profile uat', failures);
 }
 
 const REQUIRED_REFERENCE = /^\$\{([A-Z0-9_]+):\?[^}]*\}$/;
 
 /**
- * U1.5 (#433) + #540 (ADR-029): object storage ของหลักฐาน UAT บน SeaweedFS
- * - api ต่อ endpoint ภายใน ด้วย credential ของ user เฉพาะ (ไม่ใช่ root) แบบ `:?` และรอ object-storage-init จบก่อน
- * - storage ไม่ publish พอร์ต ไม่ใช้ `weed mini` (admin/worker gRPC ไม่มี mTLS) และมี lifecycle runner
- * - entrypoint สร้าง s3.json: ไม่มี identity anonymous, API ใช้ policy แบบ AWS ที่จำกัด bucket/prefix เท่านั้น
+ * U1.5 (#433) + #540 (ADR-029): object storage for UAT evidence on SeaweedFS
+ * - the api connects to the internal endpoint with the credential of a dedicated user (not root) using `:?` and waits for object-storage-init to finish
+ * - storage publishes no port, does not use `weed mini` (admin/worker gRPC has no mTLS) and has a lifecycle runner
+ * - the entrypoint creates s3.json: no anonymous identity, and the API uses an AWS-style policy limited to the bucket/prefix only
  */
 export function checkEvidenceStorage(compose, entrypointScript) {
-  const id = 'UAT-S15 evidence storage: object storage user เฉพาะของ API, bucket private';
+  const id =
+    'UAT-S15 evidence storage: a dedicated object storage user for the API, private bucket';
   const services = parseComposeServices(compose);
   const api = services.api;
   const storage = services['object-storage'];
@@ -516,7 +519,7 @@ export function checkEvidenceStorage(compose, entrypointScript) {
     else if (/ROOT/.test(reference[1])) failures.push({ name, kind: 'API_USES_ROOT_CREDENTIAL' });
   }
   if (env.S3_BUCKET_UAT_EVIDENCE !== 'uat-evidence') failures.push({ kind: 'EVIDENCE_BUCKET' });
-  // api ต่อ http://object-storage:8333 ได้เพราะอยู่ network เดียวกัน (internal ไม่มีทางออก)
+  // the api reaches http://object-storage:8333 because it is on the same network (internal has no way out)
   for (const service of [api, storage, init, lifecycle]) {
     if (!/^\s+- internal$/m.test(service.raw.join('\n'))) {
       failures.push({ service: service.name, kind: 'NOT_ON_INTERNAL_NETWORK' });
@@ -576,18 +579,18 @@ export function checkEvidenceStorage(compose, entrypointScript) {
 }
 
 /**
- * U1.8 (#502): provision tenant/บัญชี/fixture pack ทำผ่าน one-shot `uat-provision` ใน profile ops เท่านั้น
- * ด้วย connection ของ owner (ไม่ใช่ `dcontact_app`), image ops ที่มี CLI จริง และไฟล์ input ส่งทาง stdin
+ * U1.8 (#502): provisioning of tenant/accounts/fixture pack is done only through the one-shot `uat-provision` in the ops profile
+ * with the owner connection (not `dcontact_app`), an ops image that has the real CLI, and the input file passed through stdin
  */
 export function checkUatProvision(compose, apiDockerfile, deployScript) {
-  const id = 'UAT-S16 provision UAT เป็น one-shot ของ ops ด้วย owner connection';
+  const id = 'UAT-S16 UAT provision is an ops one-shot with the owner connection';
   const service = parseComposeServices(compose)['uat-provision'];
   if (!service) return check(id, [{ kind: 'MISSING_SERVICE' }]);
   const failures = [];
   if (!service.profiles.includes('ops')) failures.push({ kind: 'NOT_OPS_PROFILE' });
   if (!/^\$\{OPS_IMAGE:\?[^}]*\}$/.test(service.image ?? ''))
     failures.push({ kind: 'NOT_OPS_IMAGE' });
-  // owner = POSTGRES_USER ของ container postgres (เหมือน service `migrate`) ไม่ใช่ role ของ application
+  // owner = POSTGRES_USER of the postgres container (like the `migrate` service), not an application role
   const owner =
     /^postgresql:\/\/\$\{([A-Z0-9_]+):\?[^}]*\}:\$\{([A-Z0-9_]+):\?[^}]*\}@postgres:5432\/dcontact\b/.exec(
       service.environment.DATABASE_URL ?? '',
@@ -622,7 +625,7 @@ export function checkUatProvision(compose, apiDockerfile, deployScript) {
   return check(id, failures);
 }
 
-/** field ของ template ที่ผูกกับ deployment — ต้องเป็น placeholder เสมอ (ค่าจริงเติมตอน render) */
+/** template fields bound to a deployment - must always be placeholders (the real values are filled in at render time) */
 export const FIXTURE_TEMPLATE_PLACEHOLDERS = Object.freeze({
   environment: '__UAT_ENVIRONMENT__',
   packVersion: '__UAT_FIXTURE_PACK_VERSION__',
@@ -632,7 +635,7 @@ export const FIXTURE_TEMPLATE_PLACEHOLDERS = Object.freeze({
   makerSubjectId: '__UAT_MAKER_SUBJECT_ID__',
   reviewerSubjectId: '__UAT_REVIEWER_SUBJECT_ID__',
 });
-/** field ของ example ที่มาจาก secret store — ต้องเป็น placeholder `__UAT_*__` ที่ CLI ปฏิเสธ */
+/** example fields that come from the secret store - must be `__UAT_*__` placeholders that the CLI rejects */
 export const PROVISION_EXAMPLE_PLACEHOLDER_FIELDS = Object.freeze([
   'tenant.id',
   'tenant.slug',
@@ -661,11 +664,12 @@ function parseJsonOrNull(text) {
 }
 
 /**
- * U1.9 (#506): template ของ fixture pack และ input ตัวอย่างของ provision ที่ commit ไว้มีแต่ข้อมูลสังเคราะห์
- * + placeholder — ไม่มี id/อีเมลจริงของ deployment ใด (ค่าจริงอยู่ใน secret store และเติมตอน render)
+ * U1.9 (#506): the committed fixture pack template and sample provision input hold only synthetic data
+ * + placeholders - no real id/email of any deployment (the real values are in the secret store and filled in at render time)
  */
 export function checkFixtureTemplate(templateText, exampleText) {
-  const id = 'UAT-S17 fixture template และ provision example มีแต่ placeholder/ข้อมูลสังเคราะห์';
+  const id =
+    'UAT-S17 the fixture template and provision example hold only placeholders/synthetic data';
   if (templateText === null || exampleText === null) return check(id, [{ kind: 'MISSING' }]);
   const failures = [];
   const template = parseJsonOrNull(templateText);
@@ -707,7 +711,9 @@ export function checkFixtureTemplate(templateText, exampleText) {
 export function checkProxy(caddyfile) {
   const failures = [];
   if (caddyfile === null)
-    return check('UAT-S10 proxy ปิด admin ของ Keycloak และบังคับ allowlist', [{ kind: 'MISSING' }]);
+    return check('UAT-S10 the proxy closes the Keycloak admin and enforces an allowlist', [
+      { kind: 'MISSING' },
+    ]);
   const admin = /@keycloakAdmin\s+path\s+([^\n]+)/.exec(caddyfile)?.[1] ?? '';
   for (const path of ['/auth/admin/*', '/auth/realms/master/*']) {
     if (!admin.split(/\s+/).includes(path)) failures.push({ kind: 'ADMIN_PATH_OPEN', path });
@@ -725,7 +731,7 @@ export function checkProxy(caddyfile) {
     failures.push({ kind: 'API_NOT_SAME_ORIGIN' });
   }
   if (!/admin\s+off/.test(caddyfile)) failures.push({ kind: 'CADDY_ADMIN_ON' });
-  // นอก `route {}` Caddy เรียง `handle` ก่อน `respond` → allowlist/การปิด admin ถูกข้ามสำหรับ /auth, /api
+  // outside `route {}` Caddy orders `handle` before `respond` -> the allowlist/admin closure is bypassed for /auth, /api
   if (
     !/route\s*\{[^]*?respond\s+@outside\s+403[^]*?respond\s+@keycloakAdmin\s+404[^]*?handle\s+\/auth\/\*/.test(
       caddyfile,
@@ -733,10 +739,10 @@ export function checkProxy(caddyfile) {
   ) {
     failures.push({ kind: 'ORDER_NOT_ENFORCED' });
   }
-  return check('UAT-S10 proxy ปิด admin ของ Keycloak และบังคับ allowlist', failures);
+  return check('UAT-S10 the proxy closes the Keycloak admin and enforces an allowlist', failures);
 }
 
-/** ADR-030: VM1 จบ TLS, VM2 เป็น stack, VM3 เป็น PostgreSQL ผ่าน relay เพียงตัวเดียว */
+/** ADR-030: VM1 terminates TLS, VM2 is the stack, VM3 is PostgreSQL through a single relay */
 export function checkThreeVmTopology({
   overlay,
   caddyfile,
@@ -744,7 +750,7 @@ export function checkThreeVmTopology({
   dbRolesScript,
   deployScript,
 }) {
-  const id = 'UAT-S20 UAT 3 VM: TLS ที่ VM1, relay เดียวไป PostgreSQL VM3';
+  const id = 'UAT-S20 UAT 3 VM: TLS at VM1, a single relay to PostgreSQL on VM3';
   const failures = [];
   if (overlay === null || caddyfile === null || relayConfig === null || dbRolesScript === null) {
     return check(id, [{ kind: 'MISSING_ARTIFACT' }]);
@@ -792,11 +798,11 @@ export function checkThreeVmTopology({
 }
 
 /**
- * #645: browser flow ของ realm UAT มีเจ้าของเดียวคือ `keycloak-config` ของ U1 (บังคับ OTP ทุกบัญชี) —
- * account setup ของ Platform overlay ต้องไม่ผูก `dcontact-browser` ทับ ไม่งั้นสองงานเขียนทับกันตามลำดับ deploy
+ * #645: the browser flow of the UAT realm has a single owner, the U1 `keycloak-config` (enforces OTP for every account) -
+ * the account setup of the Platform overlay must not bind `dcontact-browser` over it, otherwise the two jobs overwrite each other depending on deploy order
  */
 export function checkPlatformOverlayBrowserFlow(overlay) {
-  const id = 'UAT-S24 Platform overlay ไม่เปลี่ยน browser flow ของ realm UAT';
+  const id = 'UAT-S24 the Platform overlay does not change the browser flow of the UAT realm';
   if (overlay === null) return check(id, [{ kind: 'MISSING_ARTIFACT' }]);
   const failures = [];
   const calls = overlay
@@ -813,7 +819,7 @@ export function checkPlatformOverlayBrowserFlow(overlay) {
   return check(id, failures);
 }
 
-/** network ที่ service ต่อ (ทั้งแบบ list และแบบ map) จาก raw lines ของ `parseComposeServices` */
+/** Networks a service attaches to (both list and map forms) from the raw lines of `parseComposeServices` */
 export function composeServiceNetworks(service) {
   const networks = [];
   let inside = false;
@@ -845,7 +851,7 @@ function composeServiceSecrets(service) {
   return secrets.sort();
 }
 
-/** Caddyfile.3vm.line ต้องเท่ากับ Caddyfile.3vm ทุกบรรทัด ยกเว้น comment และ block ของ LINE webhook */
+/** Caddyfile.3vm.line must equal Caddyfile.3vm on every line except comments and the LINE webhook block */
 function caddyWithoutLineWebhook(text) {
   return text
     .replace(/\n\t\t@lineWebhook \{[^]*?respond @webhookOther 404\n/, '')
@@ -856,13 +862,13 @@ function caddyWithoutLineWebhook(text) {
 }
 
 /**
- * #565 / ADR-031: overlay `uat-line` — ไม่มี overlay = ไม่มี LINE เลย; มี overlay = เปิดแคบที่สุด
- * - ไฟล์ฐานและ overlay 3vm ไม่มี service `line-*` และ overlay ไม่แตะ `api`
- * - `line-egress` เป็นทางออกเดียว: network `lineegress` มีแค่ relay, `linepilot` มีแค่ relay + runner,
- *   relay รับเฉพาะ SNI `api.line.me` และมี backend เดียว
- * - `line-webhook` = profile `uat-line` + secret แบบไฟล์ ไม่ได้ access token ไม่เปิดพอร์ต อยู่บน `internal` เท่านั้น
- * - route webhook อยู่หลัง edge check ก่อน allowlist และ Caddyfile ส่วนอื่นเหมือน Caddyfile.3vm
- * - deploy ใส่ overlay ตาม flag และถอด container ด้วย `--remove-orphans`; script secret ไม่ echo และตั้ง 0400
+ * #565 / ADR-031: the `uat-line` overlay - no overlay = no LINE at all; with the overlay = opened as narrowly as possible
+ * - the base file and the 3vm overlay have no `line-*` service and the overlay does not touch `api`
+ * - `line-egress` is the only way out: network `lineegress` has only the relay, `linepilot` has only the relay + runner,
+ *   the relay accepts only SNI `api.line.me` and has a single backend
+ * - `line-webhook` = profile `uat-line` + a file-based secret, no access token, no published port, only on `internal`
+ * - the webhook route is behind the edge check before the allowlist, and the rest of the Caddyfile is the same as Caddyfile.3vm
+ * - deploy adds the overlay by flag and removes the container with `--remove-orphans`; the secret script does not echo and sets 0400
  */
 export function checkLineOverlay({
   compose,
@@ -874,7 +880,7 @@ export function checkLineOverlay({
   deployScript,
   secretsScript,
 }) {
-  const id = 'UAT-S21 overlay uat-line เปิด LINE แคบที่สุดและถอดได้';
+  const id = 'UAT-S21 the uat-line overlay opens LINE as narrowly as possible and can be removed';
   if ([overlay, caddyfile, egressConfig, secretsScript, caddyfile3vm].includes(null)) {
     return check(id, [{ kind: 'MISSING_ARTIFACT' }]);
   }
@@ -923,7 +929,7 @@ export function checkLineOverlay({
       failures.push({ kind: 'EGRESS_NETWORKS' });
     }
     if (!egress.profiles.includes('line-pilot')) failures.push({ kind: 'EGRESS_ALWAYS_ON' });
-    // alias `api.line.me` บน network ของ relay ทำให้ relay resolve เป็นตัวเอง (ส่งวน) — ต้องใช้ IP คงที่
+    // an alias `api.line.me` on the relay network makes the relay resolve to itself (a loop) - a fixed IP must be used
     if (/aliases:/.test(egress.raw.join('\n'))) failures.push({ kind: 'EGRESS_ALIAS_LOOP' });
   }
   const pilot = services['line-pilot'];
@@ -958,7 +964,7 @@ export function checkLineOverlay({
       failures.push({ kind: 'WEBHOOK_NOT_APPLICATION_ROLE' });
     }
   }
-  // secret ไม่อยู่ใน env: LINE_* ของ overlay เป็น reference `${...}` หรือโหมด/path เท่านั้น
+  // secrets are not in env: the LINE_* of the overlay are only `${...}` references or a mode/path
   for (const service of Object.values(services)) {
     for (const [name, value] of Object.entries(service.environment)) {
       if (/SECRET$|TOKEN$|_KEY$/.test(name) && !/^(file|\/run\/secrets)$/.test(value)) {
@@ -985,7 +991,7 @@ export function checkLineOverlay({
   ) {
     failures.push({ kind: 'WEBHOOK_ROUTE_ORDER' });
   }
-  // #566: read-only ของ pilot ต้องผ่าน allowlist ก่อน และอยู่ก่อน /api/* ของ api
+  // #566: the pilot read-only must pass the allowlist first and sit before /api/* of the api
   if (
     !/respond @outside 403[^]*?handle \/api\/v1\/line-pilot\/\* \{\s*reverse_proxy line-webhook:3000\s*\}[^]*?handle \/api\/\* \{/.test(
       caddyfile,
@@ -1013,14 +1019,14 @@ export function checkLineOverlay({
 }
 
 /**
- * #567: overlay ของ team trial ให้สิทธิ์ส่งแก่ `line-webhook` แบบแคบที่สุด — token + ทางออกผ่าน relay เท่านั้น
- * - แตะได้แค่ `line-webhook` กับ `line-egress`; ไม่เปิดพอร์ต
- * - `line-webhook` อยู่บน `internal` + `linepilot` เท่านั้น (ไม่เคยอยู่บน `lineegress`) และชี้ `api.line.me` ไปที่ IP ของ relay
- * - state ของ runner (recipient) mount แบบ read-only
- * - deploy ใส่ overlay เมื่อมี flag ของ trial และต้องมี flag ของ `uat-line` ด้วย
+ * #567: the team trial overlay gives `line-webhook` send permission as narrowly as possible - token + egress through the relay only
+ * - may touch only `line-webhook` and `line-egress`; publishes no port
+ * - `line-webhook` is only on `internal` + `linepilot` (never on `lineegress`) and points `api.line.me` at the relay IP
+ * - the runner state (recipient) is mounted read-only
+ * - deploy adds the overlay when there is a trial flag and the `uat-line` flag must be present too
  */
 export function checkLineTrialOverlay({ overlay, lineOverlay, deployScript }) {
-  const id = 'UAT-S22 overlay team trial ให้ line-webhook ส่งได้ผ่าน relay เท่านั้น';
+  const id = 'UAT-S22 the team trial overlay lets line-webhook send only through the relay';
   if (overlay === null || lineOverlay === null) return check(id, [{ kind: 'MISSING_ARTIFACT' }]);
   const failures = [];
   const services = parseComposeServices(overlay);
@@ -1062,7 +1068,7 @@ export function checkLineTrialOverlay({ overlay, lineOverlay, deployScript }) {
   return check(id, failures);
 }
 
-/** #682: ขั้น keycloak ต้องเก็บบรรทัดผลของ realm config — `tail -n 1` ได้บรรทัดของ branding */
+/** #682: the keycloak step must keep the realm config result line - `tail -n 1` would get the branding line */
 export function keycloakRecordFailures(workflow) {
   const step = workflow.split('\n').find((line) => /uat-deploy keycloak\b/.test(line)) ?? '';
   return step.includes(`grep '"type":"u1.uat.keycloak"'`) ? [] : [{ kind: 'KEYCLOAK_RECORD_LINE' }];
@@ -1071,7 +1077,7 @@ export function keycloakRecordFailures(workflow) {
 export function checkWorkflow(workflow) {
   const failures = [];
   if (workflow === null) return check('UAT-S11 workflow uat-preview', [{ kind: 'MISSING' }]);
-  // trigger ดูเฉพาะ block `on:` (ไม่ใช่ `push: true` ของ build-push-action)
+  // the trigger looks only at the `on:` block (not the `push: true` of build-push-action)
   const triggers = /^on:\s*\n((?:[ \t]+.*\n|\s*\n)*)/m.exec(workflow)?.[1] ?? '';
   const triggerNames = [...triggers.matchAll(/^ {2}([a-z_]+):/gm)].map((match) => match[1]);
   if (triggerNames.length !== 1 || triggerNames[0] !== 'workflow_dispatch') {
@@ -1102,7 +1108,7 @@ export function checkWorkflow(workflow) {
       failures.push({ kind: 'SECRET_ECHO' });
   }
   for (const match of workflow.matchAll(/\$\{\{\s*secrets\.([A-Z0-9_]+)\s*\}\}/g)) {
-    // secret ส่งผ่าน `env:` ของ step เท่านั้น ไม่ฝังใน `run:` ตรง ๆ
+    // secrets are passed only through the step `env:`, never embedded directly in `run:`
     const line = workflow.slice(
       workflow.lastIndexOf('\n', match.index) + 1,
       workflow.indexOf('\n', match.index),
@@ -1116,7 +1122,7 @@ export function checkWorkflow(workflow) {
   return check('UAT-S11 workflow uat-preview', failures);
 }
 
-/** image smoke ใช้ service จริง จึงรับเฉพาะการสั่งด้วยมือ */
+/** the image smoke uses real services, so it accepts only manual dispatch */
 const SMOKE_WORKFLOW_TRIGGERS = Object.freeze(['workflow_dispatch']);
 const SMOKE_DEPLOY_STEPS = Object.freeze([
   'prepare',
@@ -1129,12 +1135,12 @@ const SMOKE_DEPLOY_STEPS = Object.freeze([
 ]);
 
 /**
- * U1.10 (#507): workflow `uat-image-smoke` รัน UAT stack จริงบน runner — ต้องไม่มีทางแตะ UAT จริงหรือ secret:
- * ไม่มี `secrets.*`, ไม่ผูก environment (โดยเฉพาะ `uat-preview`), permission อ่านอย่างเดียว, ไม่ push/login
- * registry ภายนอก (push ได้แค่ registry ชั่วคราวบน runner) และต้องรัน `uat-deploy.sh` ตามลำดับจริงแล้ว `down -v`
+ * U1.10 (#507): the `uat-image-smoke` workflow runs the UAT stack for real on a runner - it must have no way to touch the real UAT or secrets:
+ * no `secrets.*`, no environment binding (especially `uat-preview`), read-only permissions, no push/login to an
+ * external registry (it may push only to a temporary registry on the runner) and it must run `uat-deploy.sh` in the real order and then `down -v`
  */
 export function checkSmokeWorkflow(workflow) {
-  const id = 'UAT-S18 workflow uat-image-smoke ไม่มี secret/environment/push ภายนอก';
+  const id = 'UAT-S18 the uat-image-smoke workflow has no secret/environment/external push';
   if (workflow === null) return check(id, [{ kind: 'MISSING' }]);
   const failures = [];
   const code = workflow
@@ -1183,27 +1189,27 @@ export function checkSmokeWorkflow(workflow) {
 }
 
 export function checkEnvExample(text) {
-  if (text === null) return check('UAT-S12 uat.env.example มีแต่ชื่อ', [{ kind: 'MISSING' }]);
+  if (text === null) return check('UAT-S12 uat.env.example has names only', [{ kind: 'MISSING' }]);
   const failures = text
     .split('\n')
     .filter((line) => /^[A-Z0-9_]+=/.test(line) && !/^[A-Z0-9_]+=$/.test(line))
     .map((line) => ({ kind: 'VALUE_PRESENT', name: line.split('=')[0] }));
-  return check('UAT-S12 uat.env.example มีแต่ชื่อ', failures);
+  return check('UAT-S12 uat.env.example has names only', failures);
 }
 
 export function checkDockerignore(text) {
   const failures = [];
   if (text === null)
-    return check('UAT-S13 .dockerignore กัน secret/หลักฐาน', [{ kind: 'MISSING' }]);
+    return check('UAT-S13 .dockerignore guards secrets/evidence', [{ kind: 'MISSING' }]);
   const lines = text.split('\n').map((line) => line.trim());
   for (const required of ['.env', '.env.*', '**/node_modules', '**/test-results', 'artifacts']) {
     if (!lines.includes(required)) failures.push({ kind: 'NOT_IGNORED', path: required });
   }
   if (lines.some((line) => /^!\.env/.test(line))) failures.push({ kind: 'ENV_REINCLUDED' });
-  return check('UAT-S13 .dockerignore กัน secret/หลักฐาน', failures);
+  return check('UAT-S13 .dockerignore guards secrets/evidence', failures);
 }
 
-/** ประกอบ pattern จากชิ้นส่วน เพื่อให้ไฟล์นี้เองไม่ตรง pattern ของตัวเอง */
+/** Assemble the pattern from pieces so that this file itself does not match its own pattern */
 const PRIVATE_KEY = new RegExp(['-----BEGIN', '[A-Z ]*', 'PRIVATE KEY-----'].join(' ?'));
 export const SECRET_PATTERNS = Object.freeze([
   ['PRIVATE_KEY', PRIVATE_KEY],
@@ -1227,7 +1233,7 @@ export function scanSecrets(files) {
         if (pattern.test(line)) failures.push({ path, line: index + 1, kind });
       }
       for (const literal of DEV_CREDENTIAL_LITERALS) {
-        // สอง script นี้ประกาศรายการ credential ของ dev ไว้เพื่อปฏิเสธ — ไม่ใช่การใช้งาน
+        // these two scripts declare a list of dev credentials in order to reject them - not to use them
         const declaresDenylist = [UAT_FILES.keycloakScript, UAT_FILES.readinessScript].includes(
           path,
         );
@@ -1237,7 +1243,7 @@ export function scanSecrets(files) {
       }
     });
   }
-  return check('UAT-S14 negative secret scan ของไฟล์ UAT', failures, {
+  return check('UAT-S14 negative secret scan of the UAT files', failures, {
     scanned: Object.keys(files).filter((path) => files[path] !== null).length,
   });
 }
@@ -1251,7 +1257,7 @@ export function runStaticChecks(root = repositoryRoot) {
     .map(([, path]) => ({ path, kind: 'MISSING' }));
   const compose = files.compose ?? '';
   const checks = [
-    check('UAT-S00 artifact ของ U1.6 ครบ', missing),
+    check('UAT-S00 the U1.6 artifacts are complete', missing),
     checkComposeServices(compose),
     checkComposePorts(compose),
     checkNoStartDev({
@@ -1332,23 +1338,23 @@ export function findDropStatements(sql) {
 }
 
 /**
- * #567 (T6): CHECK constraint ที่ "แทนที่" ได้ — `DROP CONSTRAINT <ชื่อ>` ผ่าน guard เฉพาะชื่อในรายการนี้ และต้องมี
- * `ADD CONSTRAINT <ชื่อเดิม> CHECK` ในไฟล์เดียวกัน (ไม่มีข้อมูลหาย; code เดิมยังทำงานกับ schema ใหม่)
- * เพิ่มชื่อได้ต่อเมื่อมี decision ที่ review แล้วเท่านั้น — `DROP` แบบอื่นยังถูกปฏิเสธ
+ * #567 (T6): CHECK constraints that can be "replaced" - `DROP CONSTRAINT <name>` passes the guard only for names in this list, and the same file must have an
+ * `ADD CONSTRAINT <original name> CHECK` (no data is lost; the existing code keeps working with the new schema)
+ * a name may be added only after a reviewed decision - any other `DROP` is still rejected
  */
 export const REPLACEABLE_CHECK_CONSTRAINTS = Object.freeze([
-  // #567: เพิ่มกิ่ง profile `S2_LINE_TEAM_TRIAL_V1` โดยกิ่ง S2 เดิมเหมือนเดิมทุกข้อ
+  // #567: adds the `S2_LINE_TEAM_TRIAL_V1` profile branch, with the existing S2 branch unchanged in every respect
   'dl_line_run_authorizations_values_check',
   'dl_line_run_authorizations_caps_check',
-  // #520: ขยายค่า click-to-call outcome โดยคงชื่อ constraint และค่าที่รองรับเดิมทั้งหมด
+  // #520: widens the click-to-call outcome values while keeping the constraint name and every previously supported value
   'dphone_click_to_call_audit_events_values_check',
-  // #520: เพิ่ม agent caps โดยคง shape เดิมและเพิ่มเฉพาะเงื่อนไขของ column ใหม่
+  // #520: adds agent caps, keeping the original shape and adding only the conditions of the new column
   'dl_voice_scope_gates_shape',
-  // #901: เพิ่ม source_kind PLATFORM_PROVISIONING โดยคง BOOTSTRAP_MANIFEST/VERIFIED_ENROLLMENT เดิม
+  // #901: adds the source_kind PLATFORM_PROVISIONING, keeping the existing BOOTSTRAP_MANIFEST/VERIFIED_ENROLLMENT
   'tenant_voice_identity_bindings_source_kind_check',
 ]);
 
-/** DROP ที่เหลือหลังหักการแทนที่ CHECK constraint ที่อนุญาต */
+/** DROPs left after deducting the allowed CHECK constraint replacements */
 export function disallowedDropStatements(sql) {
   const text = String(sql);
   return findDropStatements(text).filter((statement) => {
@@ -1358,12 +1364,12 @@ export function disallowedDropStatements(sql) {
   });
 }
 
-/** changes = [{ status: 'A'|'M'|'D'|'R...', path, sql }] ของ migration ระหว่าง base..HEAD */
-// Phase Contract Core Settings §5 (#723/#726) ยอม nullable bootstrap เฉพาะ CORE_ADMIN
-// Pin ทั้งไฟล์เพื่อไม่เปิดช่อง DROP NOT NULL ทั่วไป; ทุก field เดิมของ PROVISIONING ยังบังคับครบด้วย CHECK
-// #710: เปลี่ยน PK ของ invitation intents เป็น (tenant_id, operation_id, generation) และเปลี่ยนชื่อ fencing CHECK
-// ปลอดภัยบน UAT เพราะทั้งสองตารางสร้างใน migration ชุดเดียวกันที่ยังไม่เคย apply (base e3f2197 ไม่มีตาราง)
-// และไม่มี INSERT ก่อนไฟล์นี้ ตอน DROP ตารางจึงว่างเสมอ — pin ทั้งไฟล์ ไม่เปิด DROP PRIMARY KEY ทั่วไป
+/** changes = [{ status: 'A'|'M'|'D'|'R...', path, sql }] of the migrations between base..HEAD */
+// Phase Contract Core Settings §5 (#723/#726) allows a nullable bootstrap only for CORE_ADMIN
+// Pin the whole file so a general DROP NOT NULL is not allowed; every existing PROVISIONING field is still fully enforced by a CHECK
+// #710: changes the PK of the invitation intents to (tenant_id, operation_id, generation) and renames the fencing CHECK
+// safe on UAT because both tables were created in the same migration batch that has never been applied (base e3f2197 has no such tables)
+// and there is no INSERT before this file, so the tables are always empty at DROP time - pin the whole file, do not open a general DROP PRIMARY KEY
 export const APPROVED_DROP_MIGRATIONS = Object.freeze([
   Object.freeze({
     path: 'packages/db/prisma/migrations/20261019140000_core_organization_provenance/migration.sql',
@@ -1377,8 +1383,8 @@ export const APPROVED_DROP_MIGRATIONS = Object.freeze([
     path: 'packages/db/prisma/migrations/20261022130000_tenant_voice_skill_scope/migration.sql',
     sha256: '5e281f7a38bace24cf114dde5a0484a41a0e01d2b317ea95293fce41a8f825c9',
   }),
-  // #868: migration #841 คง CREATOR/OPERATOR และบังคับหลักฐานของ INTEGRATION
-  // ตรึงทั้งไฟล์ตามที่ซ้อมบนฐานแยก เพื่อให้การเปลี่ยน CHECK ครั้งอื่นต้องผ่าน review ใหม่
+  // #868: migration #841 keeps CREATOR/OPERATOR and enforces the INTEGRATION evidence
+  // pin the whole file as rehearsed on a separate database so that any other CHECK change has to go through a new review
   Object.freeze({
     path: 'packages/db/prisma/migrations/20261103130000_m3_service_principals/migration.sql',
     sha256: 'b3f3fd9105ce2898ce191db125299d45f8aaf7a9693041f93d1f08492db0b613',
@@ -1390,7 +1396,7 @@ export function guardMigrations(changes) {
   for (const change of changes) {
     if (!change.path.startsWith(`${MIGRATIONS_DIRECTORY}/`)) continue;
     if (change.status !== 'A') {
-      // migration ที่ apply แล้วต้องไม่ถูกแก้/ลบ/ย้าย — แก้ = UAT กับ repo ไม่ตรงกัน
+      // an applied migration must not be edited/deleted/moved - editing it = UAT and the repo no longer match
       failures.push({
         path: change.path,
         kind: 'APPLIED_MIGRATION_CHANGED',
@@ -1411,7 +1417,7 @@ export function guardMigrations(changes) {
       failures.push({ path: change.path, kind: 'DROP_STATEMENT', statements: drops });
   }
   return check(
-    'UAT-M01 migration ใหม่เป็น additive (ไม่มี DROP นอกจากแทนที่ CHECK ที่ review แล้ว)',
+    'UAT-M01 a new migration is additive (no DROP except replacing a reviewed CHECK)',
     failures,
     {
       added,
@@ -1421,17 +1427,17 @@ export function guardMigrations(changes) {
 
 function git(args, root) {
   const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
-  if (result.status !== 0) throw new Error(`git ${args[0]} ล้มเหลว: ${result.stderr.trim()}`);
+  if (result.status !== 0) throw new Error(`git ${args[0]} failed: ${result.stderr.trim()}`);
   return result.stdout;
 }
 
 export function runMigrationGuard({ base, initial = false, head = 'HEAD', root = repositoryRoot }) {
   if (initial) {
-    // deploy ครั้งแรกลงฐานข้อมูลว่าง: ไม่มีข้อมูลให้เสีย แต่บันทึกไว้ใน record ว่าไม่มี base
+    // the first deploy onto an empty database: there is no data to lose, but record in the record that there is no base
     return {
       ...report('migration-guard', [
         {
-          id: 'UAT-M01 migration ใหม่เป็น additive (ไม่มี DROP)',
+          id: 'UAT-M01 a new migration is additive (no DROP)',
           status: 'PASS',
           basis: 'INITIAL_EMPTY_DATABASE',
         },
@@ -1440,7 +1446,7 @@ export function runMigrationGuard({ base, initial = false, head = 'HEAD', root =
       head: git(['rev-parse', head], root).trim(),
     };
   }
-  if (!/^[0-9a-f]{40}$/.test(base ?? '')) throw new Error('--base ต้องเป็น commit SHA เต็ม');
+  if (!/^[0-9a-f]{40}$/.test(base ?? '')) throw new Error('--base must be a full commit SHA');
   git(['merge-base', '--is-ancestor', base, head], root);
   const changes = git(
     ['diff', '--name-status', '--no-renames', base, head, '--', MIGRATIONS_DIRECTORY],
@@ -1463,8 +1469,8 @@ export function runMigrationGuard({ base, initial = false, head = 'HEAD', root =
 // ── live smoke ──────────────────────────────────────────────────────────────
 
 /**
- * HTTP(S) request ที่ต่อไป `connectHost` ได้ (เช่น 127.0.0.1 บน VM) โดยยังใช้ SNI/Host ของ UAT_HOST
- * ไม่ตาม redirect เพื่อให้เห็นสถานะจริงของ path ที่ต้องปิด
+ * An HTTP(S) request that can reach `connectHost` (e.g. 127.0.0.1 on the VM) while still using the SNI/Host of UAT_HOST
+ * does not follow redirects so the real status of a path that must be closed is visible
  */
 export function requestUrl(
   url,
@@ -1529,7 +1535,7 @@ async function liveCheck(id, work) {
     if (failures === 'SKIPPED') return { id, status: 'SKIPPED' };
     return check(id, failures);
   } catch (error) {
-    // ข้อความของ error มาจาก network stack/ของเราเอง ไม่มี token
+    // the error message comes from the network stack/ourselves and has no token
     return {
       id,
       status: 'FAIL',
@@ -1538,7 +1544,7 @@ async function liveCheck(id, work) {
   }
 }
 
-/** journey flow แบบไม่เปลี่ยน state: run ปัจจุบัน → validate → compile → simulate ด้วย fixture ของ run */
+/** a journey flow that does not change state: current run -> validate -> compile -> simulate with the fixture of the run */
 async function authenticatedJourneyFlow(call) {
   const failures = [];
   const current = await call('GET', '/api/v1/uat-runs/current');
@@ -1598,7 +1604,7 @@ export async function runLiveSmoke({
 } = {}) {
   if (!baseUrl) throw new Error('UAT_BASE_URL is required');
   const base = new URL(baseUrl);
-  if (base.protocol !== 'https:' && !allowHttp) throw new Error('UAT_BASE_URL ต้องเป็น https');
+  if (base.protocol !== 'https:' && !allowHttp) throw new Error('UAT_BASE_URL must be https');
   const origin = base.origin;
   const get = (path) => request(`${origin}${path}`, { connectHost });
   const checks = [];
@@ -1617,7 +1623,7 @@ export async function runLiveSmoke({
 
   checks.push(
     await liveCheck(
-      `UAT-L02 runtime-profile = ${expectedProfile} (Kafka/LINE/egress ปิด)`,
+      `UAT-L02 runtime-profile = ${expectedProfile} (Kafka/LINE/egress closed)`,
       async () => {
         const response = await get('/api/v1/runtime-profile');
         const body = json(response);
@@ -1639,7 +1645,7 @@ export async function runLiveSmoke({
 
   checks.push(
     await liveCheck(
-      'UAT-L03 route นอก allowlist = 404 ROUTE_NOT_AVAILABLE_IN_PROFILE',
+      'UAT-L03 a route outside the allowlist = 404 ROUTE_NOT_AVAILABLE_IN_PROFILE',
       async () => {
         const failures = [];
         for (const path of ['/api/v1/tenants', '/api/v1/line/webhook', '/api/v1/interactions']) {
@@ -1658,7 +1664,7 @@ export async function runLiveSmoke({
 
   const issuer = `${origin}/auth/realms/${realm}`;
   checks.push(
-    await liveCheck('UAT-L04 OIDC discovery ของ Keycloak ตรง issuer', async () => {
+    await liveCheck('UAT-L04 the Keycloak OIDC discovery matches the issuer', async () => {
       const response = await get(`/auth/realms/${realm}/.well-known/openid-configuration`);
       const body = json(response);
       if (response.status !== 200 || !body) return [{ status: response.status }];
@@ -1674,7 +1680,7 @@ export async function runLiveSmoke({
   );
 
   checks.push(
-    await liveCheck('UAT-L05 admin ของ Keycloak ไม่เปิดสู่ภายนอก', async () => {
+    await liveCheck('UAT-L05 the Keycloak admin is not exposed externally', async () => {
       const failures = [];
       for (const path of [
         '/auth/admin/',
@@ -1692,7 +1698,7 @@ export async function runLiveSmoke({
 
   checks.push(
     await liveCheck(
-      'UAT-L06 journey-authoring ผ่านบัญชีทดสอบ (validate/compile/simulate)',
+      'UAT-L06 journey-authoring through the test account (validate/compile/simulate)',
       async () => {
         if (!token) return 'SKIPPED';
         const call = (method, path, payload) =>
@@ -1711,7 +1717,7 @@ export async function runLiveSmoke({
   );
 
   checks.push(
-    await liveCheck('UAT-L07 พอร์ตภายในปิดบน host (TCP connect)', async () => {
+    await liveCheck('UAT-L07 internal ports are closed on the host (TCP connect)', async () => {
       const host = portCheckHost ?? connectHost ?? base.hostname;
       const failures = [];
       for (const port of ports) {
@@ -1722,28 +1728,32 @@ export async function runLiveSmoke({
   );
 
   checks.push(
-    await liveCheck(`UAT-L08 หน้า Keycloak ใช้ login theme ${UAT_LOGIN_THEME} (#515)`, async () => {
-      // client ที่ไม่มีอยู่ = หน้า error ของ realm ซึ่ง render ด้วย login theme ของ realm — GET ไม่มี session/state
-      // Accept ของ get() ขึ้นต้นด้วย application/json ซึ่ง Keycloak ตอบ error เป็น JSON — ขอ HTML ตรง ๆ
-      const page = await request(
-        `${origin}/auth/realms/${realm}/protocol/openid-connect/auth?client_id=uat-readiness-theme-probe&response_type=code&scope=openid`,
-        { connectHost, headers: { accept: 'text/html' } },
-      );
-      if (!/class="dc-shell"/.test(page.body)) return [{ status: page.status, kind: 'NOT_THEMED' }];
-      const stylesheet = new RegExp(
-        `href="(/auth/resources/[^"]+/login/${UAT_LOGIN_THEME}/css/)dcontact\\.css"`,
-      ).exec(page.body)?.[1];
-      if (!stylesheet) return [{ kind: 'NO_THEME_STYLESHEET' }];
-      const failures = [];
-      // tokens.css สร้างตอน build image (ไม่อยู่ใน Git) — ขาด = หน้าไม่มีสี
-      for (const file of ['dcontact.css', 'tokens.css']) {
-        const response = await get(`${stylesheet}${file}`);
-        if (response.status !== 200 || !/--dc-/.test(response.body)) {
-          failures.push({ file, status: response.status });
+    await liveCheck(
+      `UAT-L08 the Keycloak page uses the login theme ${UAT_LOGIN_THEME} (#515)`,
+      async () => {
+        // a client that does not exist = the realm error page, which is rendered with the realm login theme - GET with no session/state
+        // the Accept of get() starts with application/json, to which Keycloak answers the error as JSON - ask for HTML directly
+        const page = await request(
+          `${origin}/auth/realms/${realm}/protocol/openid-connect/auth?client_id=uat-readiness-theme-probe&response_type=code&scope=openid`,
+          { connectHost, headers: { accept: 'text/html' } },
+        );
+        if (!/class="dc-shell"/.test(page.body))
+          return [{ status: page.status, kind: 'NOT_THEMED' }];
+        const stylesheet = new RegExp(
+          `href="(/auth/resources/[^"]+/login/${UAT_LOGIN_THEME}/css/)dcontact\\.css"`,
+        ).exec(page.body)?.[1];
+        if (!stylesheet) return [{ kind: 'NO_THEME_STYLESHEET' }];
+        const failures = [];
+        // tokens.css is generated when the image is built (not in Git) - if missing, the page has no colors
+        for (const file of ['dcontact.css', 'tokens.css']) {
+          const response = await get(`${stylesheet}${file}`);
+          if (response.status !== 200 || !/--dc-/.test(response.body)) {
+            failures.push({ file, status: response.status });
+          }
         }
-      }
-      return failures;
-    }),
+        return failures;
+      },
+    ),
   );
 
   return { ...report('live', checks), baseUrl: origin };
@@ -1755,7 +1765,7 @@ function readJson(path) {
   if (!path || !existsSync(path)) return null;
   const text = readFileSync(path, 'utf8').trim();
   if (!text) return null;
-  // ไฟล์จาก SSH อาจมีหลายบรรทัด — ใช้ JSON บรรทัดสุดท้าย
+  // a file from SSH may have several lines - use the last JSON line
   const lines = text.split('\n').filter((line) => line.trim().startsWith('{'));
   try {
     return JSON.parse(text);
@@ -1786,7 +1796,8 @@ export function buildDeploymentRecord({
   now = new Date(),
 }) {
   if (action === 'reconciliation') {
-    if (typeof reconciliation !== 'string') throw new Error('ต้องระบุ reconciliation manifest');
+    if (typeof reconciliation !== 'string')
+      throw new Error('the reconciliation manifest must be specified');
     const result = spawnSync(
       'python3',
       [
@@ -1798,15 +1809,15 @@ export function buildDeploymentRecord({
       ],
       { encoding: 'utf8', timeout: 30000, maxBuffer: 8 * 1024 * 1024 },
     );
-    if (result.status !== 0) throw new Error('reconciliation evidence ไม่ผ่าน');
+    if (result.status !== 0) throw new Error('reconciliation evidence did not pass');
     return JSON.parse(result.stdout);
   }
-  if (!['deploy', 'rollback'].includes(action)) throw new Error('deployment action ไม่ถูกต้อง');
+  if (!['deploy', 'rollback'].includes(action)) throw new Error('invalid deployment action');
   if (
     action === 'rollback' &&
     (rollbackOf?.action === 'reconciliation' || rollbackOf?.rollbackEligible === false)
   )
-    throw new Error('reconciliation record ไม่ใช่ rollback certification');
+    throw new Error('the reconciliation record is not a rollback certification');
   const images =
     action === 'rollback'
       ? rollbackOf?.images
@@ -1817,20 +1828,21 @@ export function buildDeploymentRecord({
           keycloak: release?.KEYCLOAK_IMAGE,
         };
   const sourceSha = action === 'rollback' ? rollbackOf?.sourceSha : release?.SOURCE_SHA;
-  if (!/^[0-9a-f]{40}$/.test(sourceSha ?? '')) throw new Error('sourceSha ไม่ครบ');
+  if (!/^[0-9a-f]{40}$/.test(sourceSha ?? '')) throw new Error('sourceSha is incomplete');
   for (const [name, image] of Object.entries(images ?? {})) {
     if (!/@sha256:[0-9a-f]{64}$/.test(image ?? ''))
-      throw new Error(`image ${name} ไม่ได้อ้างด้วย digest`);
+      throw new Error(`image ${name} is not referenced by digest`);
   }
-  if (smoke?.status !== 'PASS') throw new Error('readiness smoke ไม่ผ่าน — ไม่บันทึก record');
-  // #682: ต้องเป็นผลของ realm config (ไม่ใช่บรรทัด branding/dphone) — null เงียบ ๆ ทำให้ record บอกไม่ได้ว่า realm เปลี่ยน
+  if (smoke?.status !== 'PASS')
+    throw new Error('the readiness smoke did not pass - the record is not saved');
+  // #682: it must be the realm config result (not the branding/dphone line) - a silent null would leave the record unable to say that the realm changed
   if (
     action === 'deploy' &&
     (keycloak?.type !== 'u1.uat.keycloak' ||
       !/^sha256:[0-9a-f]{64}$/.test(keycloak?.realmConfigDigest ?? ''))
   ) {
     throw new Error(
-      'realmConfigDigest ไม่ครบ — keycloak ต้องเป็นผลของ u1-uat-keycloak-users --config',
+      'realmConfigDigest is incomplete - keycloak must be the result of u1-uat-keycloak-users --config',
     );
   }
   return {
@@ -1848,7 +1860,7 @@ export function buildDeploymentRecord({
         : environment.UAT_FIXTURE_PACK_VERSION || null,
     migration:
       action === 'rollback'
-        ? { applied: false, note: 'rollback ไม่แตะฐานข้อมูล' }
+        ? { applied: false, note: 'rollback does not touch the database' }
         : {
             applied: true,
             guard: migrationGuard?.status ?? null,
@@ -1890,25 +1902,25 @@ export function renderSummary(record) {
       record.migration.applied
         ? `${record.migration.guard} (base ${record.migration.base ?? 'initial'})`
         : record.action === 'reconciliation'
-          ? 'สังเกต ledger เท่านั้น ไม่ migrate'
-          : 'ไม่ migrate (rollback)',
+          ? 'observes the ledger only, no migrate'
+          : 'no migrate (rollback)',
     ],
     ['backup', record.backup ? `${record.backup.status} ${record.backup.file ?? ''}`.trim() : '—'],
     ['smoke', record.smoke.status],
-    ['deployed at', record.deployedAt ?? 'ไม่ทราบ (แยกจากเวลาสังเกต)'],
+    ['deployed at', record.deployedAt ?? 'unknown (separate from the observation time)'],
     ...(record.action === 'reconciliation'
       ? [
           ['observed at', record.observedAt],
           ['recorded at', record.recordedAt],
           ['business trial', record.businessTrial],
-          ['realm provenance', 'historical เท่านั้น ไม่ใช่ current config digest'],
+          ['realm provenance', 'historical only, not the current config digest'],
         ]
       : []),
   ];
   return [
     `## UAT deployment record (${record.action})`,
     '',
-    '| รายการ | ค่า |',
+    '| Item | Value |',
     '| --- | --- |',
     ...rows.map(([key, value]) => `| ${key} | \`${String(value).replace(/\|/g, '\\|')}\` |`),
     '',

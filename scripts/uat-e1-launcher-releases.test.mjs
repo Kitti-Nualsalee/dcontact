@@ -28,7 +28,7 @@ async function fixture(context) {
   return { root, source, directory };
 }
 
-test('runtime alias rollback ไม่แก้ pinned assets/SRI และ import ซ้ำไม่เลื่อน alias กลับเอง', async (context) => {
+test('runtime alias rollback does not edit pinned assets/SRI, and re-importing does not move the alias back by itself', async (context) => {
   const { source, directory } = await fixture(context);
   await importLauncherReleases(source, directory);
   const before = await checkLauncherReleases(directory);
@@ -48,7 +48,7 @@ test('runtime alias rollback ไม่แก้ pinned assets/SRI และ impo
   assert.equal((await checkLauncherReleases(directory)).aliases.v1, '1.0.1');
 });
 
-test('ไม่ชี้ alias ไป version ที่ไม่มี/ข้าม major/path และไม่เปลี่ยน index เมื่อปฏิเสธ', async (context) => {
+test('does not point the alias at a missing version / a cross-major / a bad path, and does not change the index when rejecting', async (context) => {
   const { source, directory } = await fixture(context);
   await importLauncherReleases(source, directory);
   const before = await readFile(join(directory, 'index.json'));
@@ -63,7 +63,7 @@ test('ไม่ชี้ alias ไป version ที่ไม่มี/ข้า
   assert.deepEqual(await readFile(join(directory, 'index.json')), before);
 });
 
-test('index/asset ที่ถูกแก้หรือเป็น symlink ไม่ถูกใช้เพื่อเลื่อน alias', async (context) => {
+test('an index/asset that was edited or is a symlink is not used to move the alias', async (context) => {
   const { root, source, directory } = await fixture(context);
   await importLauncherReleases(source, directory);
   const asset = join(directory, '1.0.0/dphone-launcher.js');
@@ -77,7 +77,7 @@ test('index/asset ที่ถูกแก้หรือเป็น symlink �
   await assert.rejects(setLauncherAlias(directory, 'v1', '1.0.0'), /LAUNCHER_INTEGRITY_MISMATCH/);
 });
 
-test('source ที่ไม่มี asset ห้ามเขียน index ทับ runtime เดิม', async (context) => {
+test('a source with no assets must not overwrite the existing runtime index', async (context) => {
   const { source, directory } = await fixture(context);
   await importLauncherReleases(source, directory);
   const before = await readFile(join(directory, 'index.json'));
@@ -86,7 +86,7 @@ test('source ที่ไม่มี asset ห้ามเขียน index �
   assert.deepEqual(await readFile(join(directory, 'index.json')), before);
 });
 
-test('runtime ที่ asset หายต้อง fail closed ไม่ reset alias เป็น packaged default', async (context) => {
+test('a runtime whose asset is missing must fail closed and not reset the alias to the packaged default', async (context) => {
   const { source, directory } = await fixture(context);
   await importLauncherReleases(source, directory);
   await setLauncherAlias(directory, 'v1', '1.0.0');
@@ -96,7 +96,7 @@ test('runtime ที่ asset หายต้อง fail closed ไม่ reset 
   assert.deepEqual(await readFile(join(directory, 'index.json')), before);
 });
 
-test('operator wiring: API mount เป็น read-only และ alias ไม่ restart API/FreeSWITCH', async () => {
+test('operator wiring: the API mount is read-only and the alias does not restart the API/FreeSWITCH', async () => {
   const overlay = await readFile(
     new URL('../infra/uat/docker-compose.uat.e1-launcher.yml', import.meta.url),
     'utf8',

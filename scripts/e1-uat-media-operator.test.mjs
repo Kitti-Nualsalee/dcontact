@@ -17,7 +17,7 @@ test('#657: VM2 media operator — rule ownership/guards/idempotency/stale IP/ro
   assert.ok(Number(/Ran (\d+) tests/.exec(result.stderr)?.[1]) >= 43, result.stderr);
 });
 
-test('#657: voice-on ปิด switch/ตรวจ idle และ snapshot ก่อนเปิด runtime', () => {
+test('#657: voice-on closes the switch, checks idle and a snapshot before enabling the runtime', () => {
   const source = readFileSync(resolve(root, 'infra/uat/bin/uat-deploy.sh'), 'utf8');
   const voice = source.slice(source.indexOf('  e1-voice-control|e1-voice-on|e1-voice-off)'));
   const guard = voice.indexOf('python3 "$media_operator" "${media_arguments[@]}"');
@@ -140,7 +140,7 @@ if os.environ.get('TEST_FAIL_VERIFY') == 'true': sys.exit(1)
   return { result, commands, directory, candidate, operatorSha };
 }
 
-test('voice-off ปิด switch ได้เมื่อมี pending แต่ไม่ recreate runtime', (context) => {
+test('voice-off closes the switch when there is a pending item but does not recreate the runtime', (context) => {
   const { result, commands } = voiceRunner(context, { command: 'e1-voice-off', pending: true });
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /E1_VOICE_OFF_RECREATE_BLOCKED_SWITCH_OFF/);
@@ -151,7 +151,7 @@ test('voice-off ปิด switch ได้เมื่อมี pending แต�
   );
 });
 
-test('#790: voice-on ใช้ operator artifact ที่ pin แยกและถือ outer lock ตลอด verify→enable', (context) => {
+test('#790: voice-on uses a separately pinned operator artifact and holds the outer lock throughout verify->enable', (context) => {
   const { result, commands, directory, candidate, operatorSha } = voiceRunner(context);
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const index = commands.findIndex((c) => c.tool === 'verify');
@@ -172,7 +172,7 @@ test('#790: voice-on ใช้ operator artifact ที่ pin แยกแล�
   assert.equal(commands.at(-1).held, true);
 });
 
-test('#790: default recorded flow ไม่ส่ง candidate selector', (context) => {
+test('#790: the default recorded flow does not pass a candidate selector', (context) => {
   const { result, commands, directory, candidate } = voiceRunner(context, { explicit: false });
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.deepEqual(commands.find((c) => c.tool === 'verify').args, [
@@ -183,7 +183,7 @@ test('#790: default recorded flow ไม่ส่ง candidate selector', (conte
   ]);
 });
 
-test('#790: operator SHA ผิดหรือไฟล์หายไม่เปิด switch/runtime', (context) => {
+test('#790: a wrong operator SHA or a missing file does not enable the switch/runtime', (context) => {
   for (const options of [{ operator: '../untrusted' }, { missing: true }]) {
     const { result, commands } = voiceRunner(context, options);
     assert.notEqual(result.status, 0);
@@ -195,7 +195,7 @@ test('#790: operator SHA ผิดหรือไฟล์หายไม่เ�
   }
 });
 
-test('#790: verify ล้มต้องไม่เปิด switch หรือ recreate runtime', (context) => {
+test('#790: a failed verify must not enable the switch or recreate the runtime', (context) => {
   const { result, commands } = voiceRunner(context, { failVerify: true });
   assert.notEqual(result.status, 0);
   assert.equal(

@@ -1,4 +1,4 @@
-/** HTTP ผ่าน Caddy จริง; upstream ภายนอกเป็น fixture ไม่แทน browser/OIDC acceptance */
+/** HTTP through a real Caddy; the external upstream is a fixture and does not stand in for the browser/OIDC acceptance */
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { execFileSync } from 'node:child_process';
@@ -21,7 +21,7 @@ function docker(args) {
 }
 
 test(
-  'UAT proxy: iframe ตรวจ session ผ่าน upstream policy แต่หน้าอื่นยังป้องกัน framing',
+  'UAT proxy: the iframe checks the session through the upstream policy but other pages are still protected from framing',
   { timeout: 180_000 },
   async (t) => {
     const id = randomUUID().slice(0, 8),
@@ -126,7 +126,7 @@ test(
     }
     for (const file of ['Caddyfile.3vm.e1', 'Caddyfile.3vm', 'Caddyfile.3vm.line', 'Caddyfile']) {
       base = file === 'Caddyfile' ? 'https://session.test:8443' : 'http://session.test:8080';
-      // เฉพาะ address ของ edge ใน topology sandbox; route/header ของ production ใช้ bytes เดิม
+      // only the edge address in the sandbox topology; production routes/headers use the original bytes
       const source = readFileSync(`infra/uat/${file}`, 'utf8').replaceAll(
         '192.168.102.114/32',
         `${clientIp}/32`,
@@ -167,14 +167,14 @@ test(
         } catch {}
         await new Promise((resolve) => setTimeout(resolve, 100));
       }
-      assert.ok(ready, `${file} ต้องพร้อมก่อนตรวจ behavior`);
+      assert.ok(ready, `${file} must be ready before checking behavior`);
       await t.test(file, async () => {
         const frame = await request(iframe);
         assert.equal(frame.status, 200);
         assert.equal(
           frame.headers['x-frame-options'],
           undefined,
-          `${file}: global DENY ต้องไม่บล็อก protocol iframe`,
+          `${file}: the global DENY must not block the protocol iframe`,
         );
         assert.equal(
           frame.headers['content-security-policy'],
@@ -189,7 +189,7 @@ test(
         assert.equal(
           native.headers['x-frame-options'],
           'SAMEORIGIN',
-          'ไม่ลบหรือเขียนทับ framing policy จาก upstream',
+          'does not remove or overwrite the framing policy from upstream',
         );
         for (const path of [
           '/',
@@ -215,7 +215,7 @@ test(
           assert.equal(blocked.headers['x-frame-options'], 'DENY', path);
           assert.doesNotMatch(blocked.body, /upstream session fixture/);
         }
-        // #868: admission fence ของ People เปิด/ปิดด้วยไฟล์โดยไม่ reload proxy
+        // #868: the People admission fence is opened/closed by file without reloading the proxy
         const people = '/api/v1/tenant-voice/people/users';
         const fenced = [
           ['POST', people],
@@ -248,7 +248,7 @@ test(
         try {
           for (const [method, path] of fenced) {
             const response = await request(path, '198.51.100.10', method);
-            assert.equal(response.status, 503, `${file}: ${method} ${path} ต้องถูก fence`);
+            assert.equal(response.status, 503, `${file}: ${method} ${path} must be fenced`);
             assert.equal(response.headers['x-upstream'], undefined, `${method} ${path}`);
             assert.equal(response.headers['x-dcontact-admission-fence'], 'people');
             assert.equal(response.headers['content-type'], 'application/json');
@@ -262,7 +262,11 @@ test(
           for (const [method, path] of passThrough) await upstream(method, path);
           if (file !== 'Caddyfile') {
             const outsideFenced = await request(people, '203.0.113.20', 'POST');
-            assert.equal(outsideFenced.status, 403, 'fence ต้องไม่ข้าม client allowlist');
+            assert.equal(
+              outsideFenced.status,
+              403,
+              'the fence must not bypass the client allowlist',
+            );
           }
         } finally {
           rmSync(join(fence, 'people-mutations'), { force: true });
@@ -270,9 +274,13 @@ test(
         for (const [method, path] of fenced) await upstream(method, path);
         if (file !== 'Caddyfile') {
           const outside = await request(iframe, '203.0.113.20');
-          assert.equal(outside.status, 403, 'client allowlist ต้องบังคับแม้เป็น iframe');
+          assert.equal(
+            outside.status,
+            403,
+            'the client allowlist must be enforced even for an iframe',
+          );
         }
-        // peer นี้ไม่ใช่ trusted edge และไม่อยู่ใน direct allowlist; ห้าม spoof X-Forwarded-For
+        // this peer is not a trusted edge and is not in the direct allowlist; do not spoof X-Forwarded-For
         const outsider = docker([
           'run',
           '--rm',
@@ -288,7 +296,7 @@ test(
           `fetch(process.argv[1],{headers:{'X-Forwarded-For':'198.51.100.10'}}).then(r=>console.log(r.status)).catch(()=>process.exit(1))`,
           `${base}${iframe}`,
         ]);
-        assert.equal(outsider, '403', 'direct peer ต้องผ่าน edge/direct allowlist');
+        assert.equal(outsider, '403', 'a direct peer must pass the edge/direct allowlist');
       });
       docker(['rm', '--force', proxy]);
     }

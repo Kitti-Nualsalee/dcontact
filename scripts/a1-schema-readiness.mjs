@@ -10,23 +10,23 @@ const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 const composeArguments = ['compose', '-f', 'infra/docker/docker-compose.dev.yml'];
 
 /**
- * A1.1 (#406): schema gate ของ Platform control plane — migration ต้องผ่านทั้ง fresh และ upgrade,
- * เป็น expand-only และสิทธิ์ต้องแยกขาด: `dcontact_platform` เห็นแค่ `pf_*` + tenants metadata,
- * `dcontact_app` ไม่เห็น `pf_*` และไม่มี role ใดแก้/ลบหลักฐาน append-only ได้
+ * A1.1 (#406): schema gate of the Platform control plane - migrations must pass both fresh and upgrade,
+ * be expand-only, and privileges must be fully separated: `dcontact_platform` sees only `pf_*` + tenants metadata,
+ * `dcontact_app` does not see `pf_*`, and no role can edit/delete append-only evidence
  */
 export const A1_MIGRATIONS = Object.freeze([
   '20260924090000_add_a1_platform_control_plane',
-  // A1.3 (#408): action kind ของ retry แยกไฟล์จาก column ที่ scheduling ใช้
+  // A1.3 (#408): the retry action kind lives in a separate file from the column used by scheduling
   '20260924100000_add_a1_3_action_kind',
   '20260924100100_add_a1_3_step_scheduling',
-  // A1.4 (#409): invitation outbox + role ของ tenant bootstrap (#388 decision)
+  // A1.4 (#409): invitation outbox + tenant bootstrap role (#388 decision)
   '20260924110000_add_a1_4_invitation_outbox',
-  // A1.5 (#410): action kind แยกไฟล์จาก plan catalog/baseline ที่ใช้มัน
+  // A1.5 (#410): the action kind lives in a separate file from the plan catalog/baseline that uses it
   '20260924120000_add_a1_5_action_kind',
   '20260924120100_add_a1_5_bootstrap',
-  // A1.6 (#411): durable operator command ของ Platform API
+  // A1.6 (#411): durable operator command of the Platform API
   '20260924130000_add_a1_6_operator_commands',
-  // A1.5b (#441): guard ที่ให้แก้อีเมล first admin ได้ตามเงื่อนไข + revision
+  // A1.5b (#441): guard that allows editing the first admin email under conditions + revision
   '20260924140000_add_a1_5b_first_admin_email_change',
 ]);
 
@@ -53,7 +53,7 @@ export const APPEND_ONLY_A1_TABLES = Object.freeze([
   'pf_first_admin_email_revisions',
 ]);
 
-/** ตารางที่ control-plane role มีสิทธิ์ได้ — นอกจากนี้ต้องเป็นศูนย์ (ห้ามอ่าน business data) */
+/** Tables the control-plane role may have privileges on - everything else must be zero (no reading business data) */
 export const PLATFORM_ROLE_TABLES = Object.freeze([...CANONICAL_A1_TABLES, 'tenants']);
 
 export const REQUIRED_A1_CONSTRAINTS = Object.freeze([
@@ -89,7 +89,7 @@ export const REQUIRED_A1_UNIQUE_INDEXES = Object.freeze([
   'pf_plan_versions_pin_key',
   'pf_request_payload_revisions_revision_key',
   'pf_operator_commands_idempotency_key_hash_key',
-  // execute ที่ยังไม่จบได้ครั้งละหนึ่งต่อ request (partial unique)
+  // only one unfinished execute per request at a time (partial unique)
   'pf_operator_commands_single_execute_key',
   'pf_first_admin_email_revisions_revision_key',
 ]);
@@ -119,8 +119,8 @@ export const REQUIRED_A1_TRIGGERS = Object.freeze([
 ]);
 
 /**
- * #388 decision "Tenant bootstrap write boundary": `dcontact_provisioner` มี table privilege ได้แค่นี้
- * (UPDATE keycloak_id และ SELECT id/lifecycle ของ tenants เป็น column grant จึงไม่อยู่ในรายการ)
+ * #388 decision "Tenant bootstrap write boundary": `dcontact_provisioner` may hold only these table privileges
+ * (UPDATE keycloak_id and SELECT id/lifecycle of tenants are column grants, so they are not in the list)
  */
 export const PROVISIONER_TABLES = Object.freeze([
   'users',
@@ -199,7 +199,7 @@ export function parseA1SchemaEvidence(value) {
   const match = String(value)
     .trim()
     .match(/^(\d+)\|(\d+)\|(\d+)\|(\d+)\|(\d+)\|(\d+)\|(\d+)\|(\d+)\|(\d+)\|(\d+)\|(\d+)$/);
-  if (!match) throw new TypeError('schema evidence ต้องมีสิบเอ็ดตัวเลขคั่นด้วย |');
+  if (!match) throw new TypeError('schema evidence must contain eleven numbers separated by |');
   const [
     ,
     tablesFound,
@@ -232,11 +232,11 @@ export function parseA1SchemaEvidence(value) {
       uniqueIndexes === REQUIRED_A1_UNIQUE_INDEXES.length &&
       triggers === REQUIRED_A1_TRIGGERS.length &&
       compositeKeys >= MINIMUM_A1_COMPOSITE_FOREIGN_KEYS &&
-      // tenant app ไม่เห็น control plane และ control plane ไม่มีสิทธิ์นอก metadata/ลบ/แก้หลักฐาน
+      // the tenant app does not see the control plane, and the control plane has no privilege outside metadata/delete/edit of evidence
       applicationPrivileges === 0 &&
       forbiddenPlatformPrivileges === 0 &&
       platformRole === 1 &&
-      // provisioner เขียนได้แค่ bootstrap rows และหนี PROVISIONING-only policy ไม่ได้
+      // the provisioner can write only bootstrap rows and cannot escape the PROVISIONING-only policy
       forbiddenProvisionerPrivileges === 0 &&
       provisionerRole === 1 &&
       provisionerRestrictivePolicy === PROVISIONER_TABLES.length
@@ -254,7 +254,7 @@ function execute(command, arguments_, options = {}) {
   });
   if (result.status !== 0 || result.error) {
     throw new Error(
-      `${command} ${arguments_.join(' ')} ล้มเหลวด้วย status ${result.status ?? result.error?.code ?? 'unknown'}`,
+      `${command} ${arguments_.join(' ')} failed with status ${result.status ?? result.error?.code ?? 'unknown'}`,
     );
   }
   return String(result.stdout ?? '').trim();
@@ -296,7 +296,7 @@ export function runA1SchemaReadiness() {
   const expandOnly = Object.values(destructive).every((found) => found.length === 0);
   const existingDatabase = process.env.A1_ACCEPTANCE_DATABASE_NAME ?? 'dcontact';
   if (!/^[a-zA-Z0-9_]+$/.test(existingDatabase)) {
-    throw new TypeError('A1_ACCEPTANCE_DATABASE_NAME มีชื่อฐานข้อมูลไม่ถูกต้อง');
+    throw new TypeError('A1_ACCEPTANCE_DATABASE_NAME contains an invalid database name');
   }
   const freshDatabase = `dcontact_a1_verify_${randomBytes(6).toString('hex')}`;
 

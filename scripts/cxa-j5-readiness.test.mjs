@@ -140,7 +140,7 @@ const rehash = (manifest) => {
   return manifest;
 };
 
-test('J5 registry ครบ 16 checks / 9 dimensions และ focused ตัดเฉพาะ J5-REG01', () => {
+test('J5 registry has all 16 checks / 9 dimensions and focused drops only J5-REG01', () => {
   assert.deepEqual(
     CXA_J5_READINESS_CHECKS.map(({ id }) => id),
     [
@@ -168,13 +168,13 @@ test('J5 registry ครบ 16 checks / 9 dimensions และ focused ตัด
   );
   assert.equal(j5Checks('focused').length, 15);
   assert.ok(!j5Checks('focused').some(({ id }) => id === 'J5-REG01'));
-  // focused ไม่รัน dependency acceptance ที่ใช้เวลาหลายชั่วโมง
+  // focused does not run the dependency acceptance, which takes several hours
   assert.ok(
     !j5SuitePlan(j5Checks('focused')).some(({ command }) => command.includes('cxa:j3:acceptance')),
   );
 });
 
-test('suite plan รันแต่ละคำสั่งครั้งเดียวแม้หลาย check ใช้ร่วมกัน', () => {
+test('the suite plan runs each command once even when several checks share it', () => {
   const suites = j5SuitePlan();
   assert.equal(new Set(suites.map(({ command }) => JSON.stringify(command))).size, suites.length);
   const journeyIntegration = suites.find(
@@ -183,13 +183,13 @@ test('suite plan รันแต่ละคำสั่งครั้งเด
   assert.ok(journeyIntegration.checkIds.length >= 8);
   const e2e = suites.find(({ command }) => command.includes('playwright'));
   assert.ok(e2e.command.includes('--project=chromium'));
-  // trace ต้องเขียนนอก test-results ไม่งั้น e2e ของ J3/CG4/CG5 ที่รันทีหลังจะล้างหลักฐานทิ้ง (#396)
+  // the trace must be written outside test-results, otherwise the later J3/CG4/CG5 e2e would wipe the evidence (#396)
   assert.ok(e2e.command.includes('--trace=on'));
   assert.ok(e2e.command.includes(`--output=${J5_BROWSER_OUTPUT_RELATIVE}`));
   assert.ok(!J5_BROWSER_OUTPUT.includes('test-results'));
 });
 
-test('full run บน clean final main ที่ทุกอย่างผ่านออก marker เดียว', () => {
+test('a full run on clean final main where everything passes issues a single marker', () => {
   const result = run();
   assert.deepEqual(result.summary.markers, [J5_MARKER]);
   assert.deepEqual(result.summary.markerBlockers, []);
@@ -199,7 +199,7 @@ test('full run บน clean final main ที่ทุกอย่างผ่�
   assertValidCxaJ5EvidenceManifest(result.manifest);
 });
 
-test('focused run ไม่ออก marker แม้ผ่านทั้งหมด และ manifest เป็น candidate 30 วัน', () => {
+test('a focused run issues no marker even when everything passes, and the manifest is a 30-day candidate', () => {
   const result = run({ scope: 'focused' });
   assert.equal(result.summary.status, 'PASS');
   assert.deepEqual(result.summary.markers, []);
@@ -216,10 +216,13 @@ test('focused run ไม่ออก marker แม้ผ่านทั้งห
   forged.markers = [J5_MARKER];
   forged.candidate = false;
   forged.markerBlockers = [];
-  assert.throws(() => assertValidCxaJ5EvidenceManifest(forged), /focused run ออก J5 marker ไม่ได้/);
+  assert.throws(
+    () => assertValidCxaJ5EvidenceManifest(forged),
+    /a focused run cannot issue the J5 marker/,
+  );
 });
 
-test('marker ถูกกันเมื่อ PR/ต่าง SHA/dirty/dependency ไม่ครบ/suite ล้ม', () => {
+test('the marker is blocked when PR / different SHA / dirty / dependency incomplete / suite failed', () => {
   const blockers = (options) => run(options).summary.markerBlockers;
   assert.ok(
     blockers({ context: { ...finalMainContext, pullRequest: 12 } }).includes('PULL_REQUEST_RUN'),
@@ -253,7 +256,7 @@ test('marker ถูกกันเมื่อ PR/ต่าง SHA/dirty/depende
   );
 });
 
-test('manifest validator ปฏิเสธ PII, status ที่แต่งเอง และ artifact digest ไม่ตรง', () => {
+test('manifest validator rejects PII, a made-up status, and an artifact digest mismatch', () => {
   const base = run().manifest;
   const pii = structuredClone(base);
   pii.checks[0].boundaries.push('customer somchai@example.com');
@@ -276,7 +279,7 @@ test('manifest validator ปฏิเสธ PII, status ที่แต่งเ
   assert.throws(() => assertValidCxaJ5EvidenceManifest(flags), /fixed flags/);
 });
 
-test('Playwright summary: flaky/skipped/did not run ถือว่าไม่สะอาด', () => {
+test('Playwright summary: flaky/skipped/did not run counts as not clean', () => {
   assert.deepEqual(parsePlaywrightSummary('Running 8 tests\n  8 passed (9.1s)\n'), {
     passed: 8,
     failed: 0,
@@ -299,7 +302,7 @@ test('Playwright summary: flaky/skipped/did not run ถือว่าไม่�
   );
 });
 
-test('profile/dependency script fail closed และนับเฉพาะ marker บน SHA เดียวกัน', () => {
+test('the profile/dependency scripts fail closed and count only markers on the same SHA', () => {
   assert.throws(() => cxaJ5ProfileSummary({ CXA_J5_IAM_PROFILE: 'DURABLE_OWNER' }), /iam/);
   assert.throws(() => cxaJ5ProfileSummary({ CXA_PROVIDER_TRAFFIC_ENABLED: 'true' }), /provider/);
   assert.throws(
@@ -328,7 +331,7 @@ test('profile/dependency script fail closed และนับเฉพาะ ma
   );
 });
 
-test('negative scan จับ eval, cross-owner write, skipped test และ marker ที่ hard-code', () => {
+test('negative scan catches eval, cross-owner write, a skipped test and a hard-coded marker', () => {
   const files = {
     'apps/journey/src/journey-authoring-x.ts': 'tx.csCase.create({})\neval("1")',
     'apps/api/src/journey-authoring-api.ts': "import { x } from '@d-contact/db';",
@@ -364,7 +367,7 @@ test('negative scan จับ eval, cross-owner write, skipped test และ ma
   assert.equal(summary.bundleScanned, false);
 });
 
-test('browser evidence ต้องครอบทุก state ใน matrix และมี trace ครบ', () => {
+test('browser evidence must cover every state in the matrix and have complete traces', () => {
   const spec = `${J5_BROWSER_MATRIX.map(({ test: title }) => `test('${title} x'`).join('\n')}\nAxeBuilder ['serious', 'critical']`;
   const traces = J5_BROWSER_MATRIX.map((_, index) => `/r/journey-authoring-${index}/trace.zip`);
   const ok = cxaJ5BrowserEvidence({ spec, files: traces, digest: () => 'a'.repeat(64) });

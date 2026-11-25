@@ -1,4 +1,4 @@
-/** Disposable HTTP → Keycloak ของ UAT จริงผ่าน HTTPS ที่ trust certificate ของ sandbox */
+/** Disposable HTTP -> the real UAT Keycloak over HTTPS that trusts the sandbox certificate */
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createRequire } from 'node:module';
@@ -16,7 +16,7 @@ const ORIGIN = 'https://127.0.0.1:15442';
 const ISSUER = `${ORIGIN}/auth/realms/dcontact`;
 const CLIENT = 'dcontact-uat-console';
 const PASSWORD = 'SandboxOnly733!';
-const SECRET = '12345678901234567890'; // ข้อมูลทดสอบใหม่ ไม่ใช่ secret ของ UAT
+const SECRET = '12345678901234567890'; // fresh test data, not a UAT secret
 const checks = [];
 function otp() {
   const counter = Buffer.alloc(8);
@@ -56,7 +56,7 @@ async function login(context, username, otpMode = 'valid') {
   for (let step = 0; step < 5 && !outcome(response).code; step++) {
     const page = await response.text();
     const form = /<form[^>]+action="([^"]+)"/.exec(page);
-    assert.ok(form, 'ยังไม่มี code ต้องมี credential challenge');
+    assert.ok(form, 'with no code yet there must be a credential challenge');
     const action = form[1].replaceAll('&amp;', '&');
     const isOtp = /name="otp"/.test(page);
     let fields;
@@ -82,11 +82,11 @@ async function login(context, username, otpMode = 'valid') {
 }
 
 test(
-  'UAT SSO: legacy RED → Organization patch GREEN พร้อม password/OTP และ rollback จริง',
+  'UAT SSO: legacy RED -> Organization patch GREEN with password/OTP and a real rollback',
   { timeout: 120000 },
   async () => {
     assert.equal(process.env.UAT_SSO_SANDBOX_CONFIRM, 'owned-disposable');
-    assert.ok(process.env.NODE_EXTRA_CA_CERTS, 'ต้อง trust certificate ของ HTTPS sandbox');
+    assert.ok(process.env.NODE_EXTRA_CA_CERTS, 'must trust the certificate of the HTTPS sandbox');
     const admin = createKeycloakAdmin({
       baseUrl: `${ORIGIN}/auth`,
       username: 'admin',
@@ -102,7 +102,7 @@ test(
         await new Promise((resolve) => setTimeout(resolve, 1000));
       }
     }
-    assert.ok(ready, 'Keycloak sandbox ต้องพร้อม');
+    assert.ok(ready, 'the Keycloak sandbox must be ready');
     const previous = await admin.call('/admin/realms/dcontact', { allow404: true });
     if (previous) await admin.call('/admin/realms/dcontact', { method: 'DELETE' });
     const template = JSON.parse(
@@ -125,7 +125,7 @@ test(
       'loginTheme',
     ];
     const realm = Object.fromEntries(fields.map((key) => [key, template[key]]));
-    // Fixture ของ realm เดิมบน VM ก่อน patch; fresh template ต้องมี Organization ตามสเปก
+    // Fixture of the existing realm on the VM before the patch; a fresh template must have an Organization per the spec
     assert.equal(
       realm.authenticationFlows[0].authenticationExecutions.filter(
         (row) => row.authenticator === 'organization',

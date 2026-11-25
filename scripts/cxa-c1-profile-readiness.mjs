@@ -8,17 +8,17 @@ function assert(condition, message) {
 }
 
 /**
- * C1 อนุญาตเฉพาะ test adapter (apps/delivery) เหมือน E0; ห้าม acceptance นี้ถูกใช้เป็น
- * หลักฐานว่า provider traffic จริงหรือ production delivery adapter เปิดใช้งานแล้ว
+ * C1 allows only the test adapter (apps/delivery), like E0; this acceptance must not be used as
+ * evidence that real provider traffic or a production delivery adapter is enabled
  */
 export function cxaC1AdapterProfileSummary(environment = process.env) {
   const adapterProfile = environment.CXA_C1_ADAPTER_PROFILE ?? TEST_ADAPTER_PROFILE;
   const providerTrafficEnabled = environment.CXA_PROVIDER_TRAFFIC_ENABLED === 'true';
   assert(
     adapterProfile === TEST_ADAPTER_PROFILE,
-    `C1 acceptance รองรับ adapter profile ${TEST_ADAPTER_PROFILE} เท่านั้น`,
+    `C1 acceptance supports only the ${TEST_ADAPTER_PROFILE} adapter profile`,
   );
-  assert(!providerTrafficEnabled, 'C1 acceptance ห้ามเปิด actual provider traffic');
+  assert(!providerTrafficEnabled, 'C1 acceptance must not enable actual provider traffic');
   return {
     type: 'adapter-profile.readiness',
     workflow: 'cx-automation-c1-adapter-profile',

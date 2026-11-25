@@ -175,7 +175,7 @@ def run_boundary(root,work,postgres,network,container,postgres_port):
         if os.environ.get('B3_INVITATION_INTENT_BOUNDARY_ONLY') == '1':
             check_invitation_concurrency(call, expect, adminbase, admin, tenants[0], sql)
             return
-        def envelope():return {'tenantId':tenants[0]['id'],'targetUserId':str(uuid.uuid4()),'payloadDigest':hashlib.sha256(uuid.uuid4().bytes).hexdigest(),'fencingToken':'1','email':uuid.uuid4().hex+'@example.test','displayName':'ทดสอบ B2','role':'AGENT'}
+        def envelope():return {'tenantId':tenants[0]['id'],'targetUserId':str(uuid.uuid4()),'payloadDigest':hashlib.sha256(uuid.uuid4().bytes).hexdigest(),'fencingToken':'1','email':uuid.uuid4().hex+'@example.test','displayName':'ทดสอบ B2','role':'AGENT'} # allow-thai: Thai display name fixture
         body=envelope();operation=str(uuid.uuid4());path='/realms/'+realm+'/dc-tenant-people/operations/'+operation+'/steps/CREATE_IDENTITY'
         expect(path,None,body,status=401)
         expect(path,tenants[1]['token'],body,status=403)

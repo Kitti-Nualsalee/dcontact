@@ -12,7 +12,7 @@ import {
 import { buildCiFixture, buildSha } from './u1-uat-ci-fixture.mjs';
 import { validateAccounts } from './u1-uat-keycloak-users.mjs';
 
-// U1.10 (#507): helper ของ workflow `uat-image-smoke` — input สังเคราะห์และการตรวจผลแต่ละขั้น
+// U1.10 (#507): helpers of the `uat-image-smoke` workflow - synthetic input and checking the result of each step
 
 const environment = {
   UAT_TENANT_ID: '4f1d2c3b-5a6e-4f70-8a91-b2c3d4e5f607',
@@ -25,7 +25,7 @@ const environment = {
   UAT_CI_REVIEWER_PASSWORD: 'c'.repeat(32),
 };
 
-test('fixture: input ผูก tenant/team/บัญชีเดียวกันทั้ง provision, pack และบัญชี Keycloak', () => {
+test('fixture: the input binds the same tenant/team/account across the provision, the pack and the Keycloak accounts', () => {
   const { provision, accounts } = buildCiFixture({
     environment,
     baselineDocument: { schema: 'stub' },
@@ -53,13 +53,13 @@ test('fixture: input ผูก tenant/team/บัญชีเดียวกั�
       ['reviewer', provision.reviewer.dcUserId],
     ],
   );
-  // อีเมลอยู่ได้เฉพาะ maker/reviewer (negative scan ของ U1.8 ยกเว้นแค่สอง field นี้)
+  // an email may appear only on maker/reviewer (the U1.8 negative scan excepts only these two fields)
   const { maker: _m, reviewer: _r, ...rest } = provision;
   assert.doesNotMatch(JSON.stringify(rest), /@/);
   assert.doesNotMatch(JSON.stringify(provision), /b{32}|c{32}/);
 });
 
-test('fixture: ขาด env = ล้ม, buildSha ไม่ขึ้นต้นเหมือนเบอร์โทร', () => {
+test('fixture: a missing env = failure, and buildSha does not start like a phone number', () => {
   const { UAT_TENANT_ID: _unused, ...missing } = environment;
   assert.throws(
     () => buildCiFixture({ environment: missing, baselineDocument: {} }),
@@ -82,7 +82,7 @@ const liveReport = (overrides = {}) => ({
   ...overrides,
 });
 
-test('assert smoke: L01–L05/L07 ต้อง PASS, L06 SKIPPED ได้', () => {
+test('assert smoke: L01-L05/L07 must PASS, L06 may be SKIPPED', () => {
   assert.deepEqual(assertSmoke(liveReport()), []);
   const failing = liveReport();
   failing.checks[4] = { id: 'UAT-L05 admin', status: 'FAIL' };
@@ -106,7 +106,7 @@ const provisionLines = (mode, status, extra = {}) => [
   { type: 'u1.uat.provision', mode, status: 'PASS' },
 ];
 
-test('assert provision: check = WOULD_CREATE (preflight SKIPPED), apply = CREATED, ซ้ำ = UNCHANGED', () => {
+test('assert provision: check = WOULD_CREATE (preflight SKIPPED), apply = CREATED, repeat = UNCHANGED', () => {
   assert.deepEqual(
     assertProvision(provisionLines('check', 'WOULD_CREATE', { preflight: 'SKIPPED' }), 'check'),
     [],
@@ -120,7 +120,7 @@ test('assert provision: check = WOULD_CREATE (preflight SKIPPED), apply = CREATE
   assert.deepEqual(assertProvision(failed, 'apply'), ['final:FAIL:TENANT_CONFLICT', 'parts:NONE']);
 });
 
-test('assert accounts/step และ jsonLines ข้ามบรรทัดที่ไม่ใช่ JSON', () => {
+test('assert accounts/step and jsonLines skip lines that are not JSON', () => {
   const lines = jsonLines(
     [
       ' Container dcontact-uat-keycloak-1  Running',

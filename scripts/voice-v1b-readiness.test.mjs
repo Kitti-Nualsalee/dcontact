@@ -40,14 +40,14 @@ const configuration = () => ({
   evidence: evidence(),
 });
 
-test('static ตรวจ dedicated workspace/direct flush/default-off/pins และไม่อ้าง trial ผ่าน', async () => {
+test('static checks the dedicated workspace/direct flush/default-off/pins and does not claim a passing trial', async () => {
   const result = await main(['--', '--static'], {});
   assert.equal(result.status, 'PASS', JSON.stringify(result));
   assert.equal(result.trial, 'NOT_EVALUATED');
   assert.equal(result.scope, 'SOURCE_ARTIFACTS_ONLY');
 });
 
-test('static ปฏิเสธ artifact หายหรือ wiring direct flush ถูกถอด', () => {
+test('static rejects a missing artifact or a removed direct flush wiring', () => {
   const directory = mkdtempSync(resolve(tmpdir(), 'b7-static-'));
   try {
     for (const path of Object.values(STATIC_ARTIFACTS)) {
@@ -82,7 +82,7 @@ test('static ปฏิเสธ artifact หายหรือ wiring direct flu
   }
 });
 
-test('operator records ต้องครบ แยก source/run และสด ไม่มี secret/URL ใน reference', () => {
+test('operator records must be complete, separate source/run and fresh, with no secret/URL in a reference', () => {
   const options = { sourceSha, runId, now };
   assert.equal(validatePreflightEvidence(evidence(), options), true);
   for (const change of [
@@ -117,7 +117,7 @@ test('operator records ต้องครบ แยก source/run และส�
   }
 });
 
-test('live ไม่ยิง request ถ้า target/input/proof ไม่พร้อม', async () => {
+test('live does not fire a request when the target/input/proof is not ready', async () => {
   let requests = 0;
   const request = async () => {
     requests++;
@@ -139,7 +139,7 @@ test('live ไม่ยิง request ถ้า target/input/proof ไม่พ�
   assert.equal(requests, 0);
 });
 
-test('live ใช้ GET เท่านั้น ไม่ตาม redirect ไม่ส่งเมล/สร้าง user/เปิด switch และไม่ echo response', async () => {
+test('live uses GET only, does not follow redirects, does not send mail/create a user/enable a switch, and does not echo the response', async () => {
   const paths = [];
   const request = async (url, options) => {
     paths.push(new URL(url).pathname);
@@ -182,7 +182,7 @@ test('live ใช้ GET เท่านั้น ไม่ตาม redirect �
   assert.doesNotMatch(JSON.stringify(result), /never-echo|synthetic-token|Authorization|password/i);
 });
 
-test('live auth/error/invalid body ไม่รายงาน PASS และไม่พิมพ์ secret จาก exception', async () => {
+test('live auth/error/invalid body does not report PASS and does not print a secret from an exception', async () => {
   for (const request of [
     async () => Response.json({ token: 'do-not-print' }, { status: 401 }),
     async () => {
@@ -196,7 +196,7 @@ test('live auth/error/invalid body ไม่รายงาน PASS และไ
   }
 });
 
-test('CLI รับเฉพาะ static หรือ live/run-id และ live ไม่มี proof ต้อง fail closed', async () => {
+test('the CLI accepts only static or live/run-id, and live with no proof must fail closed', async () => {
   for (const args of [
     [],
     ['--static', '--live'],

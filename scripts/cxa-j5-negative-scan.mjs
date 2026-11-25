@@ -6,27 +6,29 @@ import { sha256 } from './cxa-c1-readiness.mjs';
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 /**
- * J5-AU02/J5-OB01 (#333 §9): negative scans ของ J5 — พบรายการใดให้ check ล้ม
+ * J5-AU02/J5-OB01 (#333 §9): J5 negative scans - any finding makes the check fail
  *
- * false positive ยกเว้นได้เฉพาะ `path + rule` ที่ review แล้วใน `J5_SCAN_ALLOWLIST` พร้อมเหตุผล
- * ไม่มี runtime waiver
+ * a false positive can be excepted only by a reviewed `path + rule` in `J5_SCAN_ALLOWLIST` with a reason;
+ * there is no runtime waiver
  */
 export const J5_SCAN_ALLOWLIST = Object.freeze([
   {
     path: 'apps/journey/src/journey-template-repository.integration.ts',
     rule: 'credential-literal',
-    reason: 'negative test ส่ง secret ปลอมเพื่อพิสูจน์ว่า binder ปฏิเสธ parameter ที่ไม่ประกาศ',
+    reason:
+      'a negative test sends a fake secret to prove the binder rejects an undeclared parameter',
   },
   {
     path: 'apps/journey/src/journey-template.test.ts',
     rule: 'pii-literal',
     reason:
-      'negative test ส่งค่ารูปแบบอีเมลสังเคราะห์เพื่อพิสูจน์ว่า binder ปฏิเสธ PII ใน parameter',
+      'a negative test sends a synthetic email-shaped value to prove the binder rejects PII in a parameter',
   },
   {
     path: 'apps/api/src/journey-authoring-api.integration.ts',
     rule: 'credential-literal',
-    reason: 'negative test ยืนยันว่า error ไม่สะท้อนค่า binding ที่เป็น secret ปลอมกลับออกไป',
+    reason:
+      'a negative test confirms the error does not echo back a binding value that is a fake secret',
   },
 ]);
 
@@ -90,7 +92,7 @@ const PHONE = /(?<![\w-])(?:\+66|0)[689]\d{8}(?!\w)/;
 const WRITE =
   /\b(?:tx|transaction|this\.database|database)\.(\w+)\.(create|createMany|update|updateMany|upsert|delete|deleteMany)\(/g;
 
-/** แต่ละ rule คืนรายการ violation ของไฟล์ — rule ใดที่ไม่เกี่ยวกับกลุ่มไฟล์นั้นไม่ถูกเรียก */
+/** Each rule returns the file violations - a rule unrelated to that file group is not called */
 const RULES = {
   'dynamic-code': (text) =>
     /\beval\s*\(|new\s+Function\s*\(/.test(text) ? ['eval/new Function'] : [],
@@ -124,19 +126,20 @@ const RULES = {
     /\b(?:use)?[Tt]oast\s*\(|<Toast\b|\btoast\.\w+\(/.test(text) ? ['toast notification'] : [],
 };
 
-/** contract ของ UI ที่ต้องมีอยู่จริงในซอร์ส: ไม่ drag-only, ไม่ mutation บนจอแคบ, outline ครบทุกคำสั่ง */
+/** UI contract that must really exist in the source: not drag-only, no mutation on a narrow screen, an outline for every command */
 function consoleContract(read) {
   const failures = [];
   const canvas = read('apps/console/src/journey-authoring/canvas.tsx');
   const outline = read('apps/console/src/journey-authoring/outline.tsx');
   const root = read('apps/console/src/journey-authoring/journey-authoring.tsx');
   if (!/onKeyDown=/.test(canvas) || !/tabIndex=/.test(canvas))
-    failures.push('canvas ต้องมี keyboard handler และ roving tabindex');
+    failures.push('canvas must have a keyboard handler and a roving tabindex');
   for (const kind of ['ADD_NODE', 'CONNECT', 'DISCONNECT', 'DELETE_NODE', 'REORDER']) {
-    if (!outline.includes(`'${kind}'`)) failures.push(`outline ต้องสั่ง ${kind} ได้โดยไม่ลาก`);
+    if (!outline.includes(`'${kind}'`))
+      failures.push(`outline must be able to command ${kind} without dragging`);
   }
   if (!root.includes("'(min-width: 960px)'"))
-    failures.push('root ต้องตัด read-only ที่ 960px ตาม Phase Spec §8');
+    failures.push('root must cut over to read-only at 960px per Phase Spec §8');
   return failures;
 }
 
@@ -219,7 +222,7 @@ if (invokedUrl === import.meta.url) {
     for (const { path, rule, detail } of summary.violations)
       process.stderr.write(`${relative('.', path)}: ${rule}: ${detail}\n`);
     if (summary.emptyGroups.length > 0)
-      process.stderr.write(`ไม่พบไฟล์ในกลุ่ม: ${summary.emptyGroups.join(', ')}\n`);
+      process.stderr.write(`no files found in the group: ${summary.emptyGroups.join(', ')}\n`);
     process.exitCode = 1;
   }
 }
