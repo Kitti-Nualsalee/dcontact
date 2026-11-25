@@ -141,7 +141,7 @@ test('DTMF without channel variables resolves the tenant from its original call 
   });
 });
 
-test('#562: สายจาก trunk ที่ยังไม่รู้ tenant ตอน create ใช้ CHANNEL_PARK เป็น call.created ครั้งเดียว', () => {
+test('#562: a trunk call whose tenant is unknown at create uses CHANNEL_PARK as call.created exactly once', () => {
   const parked = {
     'Event-Name': 'CHANNEL_PARK',
     'Unique-ID': 'trunk-call-1',
@@ -161,7 +161,7 @@ test('#562: สายจาก trunk ที่ยังไม่รู้ tenant
   assert.equal(event.tenantId, 'tenant-a');
   assert.equal(event.payload.callUuid, 'trunk-call-1');
 
-  // สายที่ออก call.created ไปแล้วตอน create (เช่น ผ่าน directory) ไม่ซ้ำ
+  // A call that already emitted call.created at create (e.g. via the directory) is not repeated
   assert.equal(
     parkedCallAsCreated(parked, (uuid) => uuid === 'trunk-call-1'),
     undefined,

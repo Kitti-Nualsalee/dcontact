@@ -62,7 +62,7 @@ async function fixture(t: TestContext) {
   };
 }
 
-test('Journey composition ใช้ IAM current scope สำหรับ foundation และ outcome ports', async (t) => {
+test('Journey composition uses the IAM current scope for the foundation and outcome ports', async (t) => {
   const f = await fixture(t);
   const contactGrant = await f.scope.grant({
     tenantId: f.tenantId,

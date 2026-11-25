@@ -6,7 +6,7 @@ import { createCasesOwnerCommandConsumer } from './cases-owner-command-consumer.
 const database = new PrismaClient();
 const producer = await createProducer('dcontact-cases-publisher');
 const dlq = await createDlqPublisher('dcontact-cases-dlq');
-// J2.8 (#136): Cases รับ ENSURE_CASE จาก Journey ทาง Kafka และตอบผลกลับ dc.case.events
+// J2.8 (#136): Cases receives ENSURE_CASE from Journey over Kafka and replies on dc.case.events
 const consumer = await createCasesOwnerCommandConsumer({
   owner: new CasesEnsureCaseService(database),
   producer,

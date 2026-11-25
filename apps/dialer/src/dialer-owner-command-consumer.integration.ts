@@ -1,7 +1,7 @@
 /**
- * J2.8 (#136) — พิสูจน์ขารับ owner command ของ Dialer ผ่าน Kafka จริง: command ที่ Journey relay ส่ง
- * ต้องได้ผลกลับทาง `dc.dialer.events` ที่ผ่าน result contract, redelivery ไม่สร้าง effect ซ้ำ และ
- * command ที่ผิด contract ถูกกักเข้า DLQ แทนการ block partition
+ * J2.8 (#136) — proves the Dialer owner command receive path over real Kafka: a command sent by the Journey relay
+ * must get a result back on `dc.dialer.events` that passes the result contract, redelivery does not create a duplicate effect, and
+ * a command violating the contract is quarantined to the DLQ instead of blocking the partition
  */
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -55,7 +55,7 @@ async function waitFor(check: () => boolean | Promise<boolean>, timeoutMs = 25_0
     if (await check()) return;
     await new Promise((resolve) => setTimeout(resolve, 150));
   }
-  throw new Error('เงื่อนไขไม่เป็นจริงภายในเวลาที่กำหนด');
+  throw new Error('condition did not become true within the allotted time');
 }
 
 async function fixture(t: TestContext) {
@@ -106,7 +106,7 @@ async function fixture(t: TestContext) {
     handler: ({ event }) => {
       if (event.tenantId === tenantId) results.push(assertOwnerResultEnvelope(event));
     },
-    // ผลที่ publish ซ้ำหลัง redelivery ต้องเป็น eventId เดิม — ฝั่งผู้อ่านจึงเห็นเป็น duplicate
+    // A result republished after redelivery must keep the same eventId — so the reader side sees it as a duplicate
     onDuplicate: ({ event }) => {
       if (event.tenantId === tenantId) duplicateResults.push(assertOwnerResultEnvelope(event));
     },
@@ -168,7 +168,7 @@ async function fixture(t: TestContext) {
     }) as J2DialerOwnerCommandV1;
   }
 
-  /** envelope เดียวกับที่ Journey Kafka owner command port publish (ตรวจด้วย contract เดียวกัน) */
+  /** The same envelope that the Journey Kafka owner command port publishes (verified with the same contract) */
   function publishCommand(
     command: J2DialerOwnerCommandV1,
     overrides: Record<string, unknown> = {},
@@ -218,7 +218,7 @@ async function fixture(t: TestContext) {
 }
 
 test(
-  'ADMIT_CAMPAIGN_TARGET จาก Kafka สร้าง target และ publish ผลที่ bind กับ command กลับ dc.dialer.events',
+  'ADMIT_CAMPAIGN_TARGET from Kafka creates a target and publishes the result bound to the command back to dc.dialer.events',
   { timeout: 90_000 },
   async (t) => {
     const f = await fixture(t);
@@ -241,7 +241,7 @@ test(
 );
 
 test(
-  'redelivery ของ command เดิม publish ผลเดิมซ้ำโดยไม่สร้าง target/receipt ใหม่',
+  'redelivery of the same command republishes the same result without creating a new target/receipt',
   { timeout: 90_000 },
   async (t) => {
     const f = await fixture(t);
@@ -255,7 +255,7 @@ test(
     assert.equal(
       f.duplicateResults[0]!.eventId,
       f.results[0]!.eventId,
-      'ผลของ receipt เดิมเป็น event เดิม',
+      'the result of the same receipt is the same event',
     );
     assert.deepEqual(f.duplicateResults[0]!.payload, f.results[0]!.payload);
     assert.equal(await f.owner.obCampaignTarget.count({ where: { tenantId: f.tenantId } }), 1);
@@ -264,7 +264,7 @@ test(
 );
 
 test(
-  'CANCEL_CAMPAIGN_TARGET ตาม contract (actionKey เดิม) ผ่าน Kafka ยกเลิก target และตอบ CANCELLED',
+  'CANCEL_CAMPAIGN_TARGET per contract (the original actionKey) over Kafka cancels the target and answers CANCELLED',
   { timeout: 90_000 },
   async (t) => {
     const f = await fixture(t);
@@ -291,15 +291,15 @@ test(
 );
 
 test(
-  'command ที่ผิด contract หรือชน IDEMPOTENCY_CONFLICT ถูกกักเข้า DLQ และไม่ block command ถัดไป',
+  'a command violating the contract or hitting IDEMPOTENCY_CONFLICT is quarantined to the DLQ and does not block the next command',
   { timeout: 90_000 },
   async (t) => {
     const f = await fixture(t);
     const admit = f.admitCommand();
 
-    // requestHash ถูกแก้หลังคำนวณ — ผ่าน Kafka envelope แต่ละเมิด J2 contract
+    // requestHash was altered after computing — passes the Kafka envelope but violates the J2 contract
     await f.publishCommand({ ...admit, requestHash: 'f'.repeat(64) });
-    // event ชนิดอื่นบน topic เดียวกันต้องถูกข้ามเงียบ ไม่ใช่ quarantine
+    // An event of another kind on the same topic must be skipped silently, not quarantined
     await f.publishRaw({
       schemaVersion: 2,
       eventKind: 'COMMAND',
@@ -315,7 +315,7 @@ test(
       payload: { contractVersion: 1 },
     });
     await f.publishCommand(admit);
-    // commandId เดิมแต่เนื้อหาต่าง (campaign อื่น) — owner ต้องไม่ตัดสินทับ receipt เดิม
+    // The same commandId but different content (another campaign) — the owner must not decide over the earlier receipt
     const { requestHash: _hash, ...draft } = {
       ...admit,
       intent: { campaignId: campaignId(randomUUID()) },
@@ -340,7 +340,7 @@ test(
 );
 
 test(
-  'owner action query ตอบจาก receipt ด้วยผลเดิม และไม่ตัดสิน command ที่ owner ไม่เคยได้รับ',
+  'an owner action query answers from the receipt with the same result and does not decide a command the owner never received',
   { timeout: 90_000 },
   async (t) => {
     const f = await fixture(t);
@@ -355,8 +355,12 @@ test(
 
     assert.equal(f.duplicateResults[0]!.eventId, f.results[0]!.eventId);
     assert.deepEqual(f.duplicateResults[0]!.payload, f.results[0]!.payload);
-    assert.notEqual(f.duplicateResults[0]!.causationId, received.commandId, 'causation ชี้ query');
-    // query ของ command ที่ไม่เคยมาถึงต้องไม่สร้าง target/receipt และไม่มีผลใหม่
+    assert.notEqual(
+      f.duplicateResults[0]!.causationId,
+      received.commandId,
+      'causation points to the query',
+    );
+    // A query for a command that never arrived must not create a target/receipt and yields no new result
     assert.equal(f.results.length, 1);
     assert.equal(await f.owner.obCampaignTarget.count({ where: { tenantId: f.tenantId } }), 1);
     assert.equal(await f.owner.obDialerCommandInbox.count({ where: { tenantId: f.tenantId } }), 1);

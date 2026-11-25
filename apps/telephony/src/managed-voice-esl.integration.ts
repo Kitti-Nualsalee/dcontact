@@ -5,7 +5,7 @@ import { E1EslCommandClient } from './e1-esl-command-client.js';
 import { FreeSwitchManagedVoiceAdapter } from './managed-voice-adapter.js';
 import type { ManagedVoiceDirectCommand } from '@d-contact/router';
 
-test('direct adapter กับ authenticated ESL TCP: probe error ไม่ใช่ absence และ retry ยืนยัน actual teardown', async (context) => {
+test('direct adapter with authenticated ESL TCP: a probe error is not absence and a retry confirms the actual teardown', async (context) => {
   const command: ManagedVoiceDirectCommand = {
     commandId: 'b0000000-0000-4000-8000-000000000001',
     tenantId: 'b0000000-0000-4000-8000-000000000002',

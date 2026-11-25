@@ -1,9 +1,9 @@
 import type { Prisma } from '@d-contact/db';
 
 /**
- * #967: บันทึก Agent และทีมที่รับสายจริง ต้องเรียกใน transaction เดียวกับที่เปลี่ยนสายเป็น ACTIVE
- * สิทธิ์ฟังเสียงของ Supervisor ใช้ทีมจากแถวนี้ ไม่เดาจากทีมปัจจุบันของ Agent หรือคิว
- * แถวแรกของ Interaction ชนะ การรับซ้ำไม่เปลี่ยนทีม และไม่เขียนเมื่อ Agent ไม่ใช่เจ้าของสายปัจจุบัน
+ * #967: records the Agent and team that actually took the call; must be called in the same transaction that changes the call to ACTIVE.
+ * The Supervisor listening permission uses the team from this row, not a guess from the current team of the Agent or the queue.
+ * The first row of an Interaction wins; a repeated answer does not change the team, and nothing is written when the Agent is not the current owner of the call.
  */
 export async function recordVoiceHandlingAttribution(
   transaction: Prisma.TransactionClient,

@@ -4,7 +4,7 @@ import test from 'node:test';
 import { E1EslCommandClient } from './e1-esl-command-client.js';
 
 for (const result of ['+OK accepted', '-ERR command rejected', 'timeout']) {
-  test(`ESL client ตรวจคำตอบจริง ไม่ถือว่า socket.write คือ success: ${result}`, async (context) => {
+  test(`ESL client checks the real reply and does not treat socket.write as success: ${result}`, async (context) => {
     const server = net.createServer((socket) => {
       socket.write('Content-Type: auth/request\n\n');
       let buffer = '';
@@ -40,7 +40,7 @@ for (const result of ['+OK accepted', '-ERR command rejected', 'timeout']) {
   });
 }
 
-test('ESL readback คืน raw boolean และไม่ตีความ -ERR เป็น channel absent', async (context) => {
+test('ESL readback returns a raw boolean and does not interpret -ERR as channel absent', async (context) => {
   const server = net.createServer((socket) => {
     socket.write('Content-Type: auth/request\n\n');
     let authenticated = false;

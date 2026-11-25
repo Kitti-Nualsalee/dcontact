@@ -4,7 +4,7 @@ import { KAFKA_TOPICS } from '@d-contact/shared';
 import { createE1SandboxPublisher, e1CallSource } from './e1-sandbox-main.js';
 import { FreeSwitchCommandAdapter } from './freeswitch-command-adapter.js';
 
-test('#667: synthetic inbound ส่ง bridge ครั้งเดียวหลัง park ทั้ง event เร็วและซ้ำ', async () => {
+test('#667: a synthetic inbound sends bridge once after park, for both early and repeated events', async () => {
   const knownCalls = new Set<string>();
   const commands: { receivedAt: string; command: string }[] = [];
   let receivedAt = '';
@@ -43,7 +43,7 @@ test('#667: synthetic inbound ส่ง bridge ครั้งเดียวห
   ]);
 });
 
-test('#667: defer เฉพาะคู่สังเคราะห์ inbound ไม่กระทบ event อื่นหรือ outbound Delivery', () => {
+test('#667: only the synthetic inbound pair is deferred, without affecting other events or outbound Delivery', () => {
   const fixture = {
     'Event-Name': 'CHANNEL_CREATE',
     'Call-Direction': 'inbound',
@@ -66,7 +66,7 @@ test('#667: defer เฉพาะคู่สังเคราะห์ inbound
   }
 });
 
-test('E1 sandbox ส่งต่อเฉพาะ telephony command ไปยัง FreeSWITCH', async () => {
+test('the E1 sandbox forwards only telephony commands to FreeSWITCH', async () => {
   const commands: string[] = [];
   const publisher = createE1SandboxPublisher(
     new FreeSwitchCommandAdapter(

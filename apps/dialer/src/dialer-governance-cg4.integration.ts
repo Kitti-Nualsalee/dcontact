@@ -14,8 +14,8 @@ import {
 } from './dialer-governance.js';
 
 /**
- * CG4.8 (#191): Dialer เป็นผู้ hold/cancel attempt ของ Campaign/Callback เมื่อ CG4 เปลี่ยน
- * โดยไม่ตัดสายที่กำลังคุยและไม่ resume attempt เมื่อมี relaxation
+ * CG4.8 (#191): Dialer holds/cancels Campaign/Callback attempts when CG4 changes,
+ * without cutting a call in progress and without resuming an attempt on relaxation
  */
 
 function digest(seed: string): string {
@@ -144,11 +144,11 @@ function killSwitch(f: Fixture, id: string, state: 'ACTIVE' | 'CLEARED') {
 
 const mustNotReauthorize: DialerCanonicalRevalidator = {
   async revalidate() {
-    throw new Error('event นี้ต้องไม่ขอ re-authorization');
+    throw new Error('this event must not request re-authorization');
   },
 };
 
-test('CG4-RC02: kill switch hold attempt ก่อน barrier และสายที่กำลังคุยถูก block outbound ถัดไปเท่านั้น', async (t) => {
+test('CG4-RC02: the kill switch holds attempts before the barrier and a call in progress only has its next outbound blocked', async (t) => {
   const reserved = await fixture(t, 'RESERVED');
   const active = await fixture(t, 'IN_PROGRESS');
   for (const f of [reserved, active]) {
@@ -181,7 +181,7 @@ test('CG4-RC02: kill switch hold attempt ก่อน barrier และสาย
   );
 });
 
-test('CG4-RC02: clear kill switch และ exception ที่ approve ไม่ resume attempt ที่ HELD', async (t) => {
+test('CG4-RC02: clearing the kill switch and an approved exception do not resume a HELD attempt', async (t) => {
   const f = await fixture(t, 'HELD');
   await f.database.obAttempt.update({
     where: { id: f.attempt.id },
@@ -219,7 +219,7 @@ test('CG4-RC02: clear kill switch และ exception ที่ approve ไม�
   );
 });
 
-test('CG4-RC02: evaluator version ที่ไม่รู้จัก quarantine และ hold attempt ของ contact แบบ fail closed', async (t) => {
+test('CG4-RC02: an unknown evaluator version quarantines and holds the contact attempts fail closed', async (t) => {
   const f = await fixture(t);
   const service = new DialerGovernanceInvalidationService(f.database, mustNotReauthorize, {
     consumer: 'dialer-cg4-unsupported',
@@ -246,6 +246,6 @@ test('CG4-RC02: evaluator version ที่ไม่รู้จัก quarantin
   const attempt = await f.database.obAttempt.findUniqueOrThrow({ where: { id: f.attempt.id } });
   assert.equal(attempt.realtimeState, 'HELD');
   assert.equal(attempt.nextOutboundBlocked, true);
-  // redelivery ของ eventId เดิมไม่ประเมินซ้ำ แต่ยังคืน reason ให้ consumer ส่ง DLQ ได้สม่ำเสมอ
+  // Redelivery of the same eventId is not evaluated again but still returns the reason so the consumer can consistently send to the DLQ
   assert.equal((await service.apply(unsupported)).reasonCode, 'UNSUPPORTED_EVALUATOR_VERSION');
 });

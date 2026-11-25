@@ -6,7 +6,7 @@ const tenantId = '00000000-0000-4000-8000-000000000001';
 const agentId = '00000000-0000-4000-8000-000000000002';
 const targetId = '00000000-0000-4000-8000-000000000003';
 
-test('operator เตรียม SANDBOX ผ่าน control plane, caps และ allowlist 30 นาที แต่ยังปิด switch', async () => {
+test('the operator prepares SANDBOX via the control plane, caps and a 30-minute allowlist but keeps the switch off', async () => {
   const calls: unknown[][] = [];
   let state = 'DISABLED';
   let slug = 'dcontact-uat';

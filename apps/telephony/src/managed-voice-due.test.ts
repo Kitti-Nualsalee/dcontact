@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { runManagedVoiceDue, runManagedVoiceReadiness } from './managed-voice-due.js';
 
-test('ESL down และ clear-readiness error ไม่หยุด DB deadline/intent และไม่ส่ง heartbeat', async () => {
+test('ESL down and a clear-readiness error do not stop DB deadline/intent processing and no heartbeat is sent', async () => {
   const calls: string[] = [];
   await runManagedVoiceReadiness({
     ready: async () => {
@@ -30,7 +30,7 @@ test('ESL down และ clear-readiness error ไม่หยุด DB deadline
   assert.deepEqual(calls, ['ready:false', 'clear', 'tenant-a', 'tenant-b']);
 });
 
-test('probe ผ่านจึง heartbeat; heartbeat error ไม่หยุด tick', async () => {
+test('heartbeat only after the probe passes; a heartbeat error does not stop the tick', async () => {
   const calls: string[] = [];
   await runManagedVoiceReadiness({
     ready: async () => true,
@@ -55,7 +55,7 @@ test('probe ผ่านจึง heartbeat; heartbeat error ไม่หยุ�
   assert.deepEqual(calls, ['ready:true', 'heartbeat', 'tick']);
 });
 
-test('probe ที่ยังไม่ตอบไม่ขวาง DB deadline รอบใหม่', async () => {
+test('a probe that has not answered does not block the next DB deadline round', async () => {
   let releaseProbe: (ready: boolean) => void = () => {};
   const probe = new Promise<boolean>((resolve) => {
     releaseProbe = resolve;

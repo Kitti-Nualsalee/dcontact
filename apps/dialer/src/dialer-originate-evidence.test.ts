@@ -12,9 +12,9 @@ import {
 const SOURCE_DIRECTORY = fileURLToPath(new URL('.', import.meta.url));
 
 /**
- * ไล่ทุกไฟล์ในโฟลเดอร์จริง แทนการ hardcode รายชื่อ — เดิม scan แค่ 3 ไฟล์ที่เลือกด้วยมือ
- * ทำให้ไฟล์ใหม่ใน `apps/dialer/src` ไม่เคยถูกตรวจเลย ซึ่งเป็นช่องให้เพิ่มทางไปหา provider
- * ได้โดยไม่มีอะไรจับ
+ * Walks every file in the real folder instead of hardcoding a list — it used to scan only 3 hand-picked files,
+ * so new files in `apps/dialer/src` were never checked, which left a gap for adding a path to the provider
+ * with nothing to catch it.
  */
 function scannedSourceFiles(): string[] {
   return readdirSync(SOURCE_DIRECTORY)
@@ -27,24 +27,24 @@ function readSource(filename: string): string {
   return readFileSync(fileURLToPath(new URL(filename, import.meta.url)), 'utf8');
 }
 
-test('ทุกไฟล์ใน apps/dialer/src ไม่มี provider SDK, credential หรือ network primitive', () => {
+test('no file in apps/dialer/src has a provider SDK, credential or network primitive', () => {
   const files = scannedSourceFiles();
-  // กันกรณี glob พังเงียบ ๆ แล้วผ่านเพราะไม่ได้ scan อะไรเลย
-  assert.ok(files.length >= 10, `คาดว่าจะ scan อย่างน้อย 10 ไฟล์ แต่ได้ ${files.length}`);
+  // Guards against the glob silently breaking and passing because nothing was scanned
+  assert.ok(files.length >= 10, `expected to scan at least 10 files but got ${files.length}`);
 
   const result = scanForForbiddenTelephonyTokens(files.map(readSource));
   assert.deepEqual(result.forbiddenTokensFound, []);
   assert.equal(result.clean, true);
 });
 
-test('รายการยกเว้นมีได้แค่ evidence module กับ test ของมันเอง', () => {
+test('the exemption list may contain only the evidence module and its own test', () => {
   assert.deepEqual([...NEGATIVE_SCAN_EXEMPT_FILES].sort(), [
     'dialer-originate-evidence.test.ts',
     'dialer-originate-evidence.ts',
   ]);
 });
 
-test('scan จับ marker ที่ inject เข้าไปได้จริง (mutation test กันสัญญาณลวง)', () => {
+test('the scan really catches an injected marker (mutation test against false signals)', () => {
   const result = scanForForbiddenTelephonyTokens([
     ...scannedSourceFiles().map(readSource),
     "import twilio from 'twilio';",
@@ -53,13 +53,13 @@ test('scan จับ marker ที่ inject เข้าไปได้จร�
   assert.ok(result.forbiddenTokensFound.includes('twilio'));
 });
 
-test('scan จับ network primitive ที่ inject เข้าไปได้จริง', () => {
+test('the scan really catches an injected network primitive', () => {
   const result = scanForForbiddenTelephonyTokens(["import { Socket } from 'node:net';"]);
   assert.equal(result.clean, false);
   assert.ok(result.forbiddenTokensFound.includes("from 'node:net'"));
 });
 
-test('package.json ของ dialer ไม่ประกาศ provider SDK ไว้เลย', () => {
+test('the dialer package.json declares no provider SDK at all', () => {
   const manifest = JSON.parse(readSource('../package.json')) as {
     dependencies?: Record<string, string>;
   };
@@ -68,7 +68,7 @@ test('package.json ของ dialer ไม่ประกาศ provider SDK ไ
   assert.equal(result.clean, true);
 });
 
-test('dependency scan จับ SDK ที่ประกาศไว้แม้ยังไม่มีใคร import', () => {
+test('the dependency scan catches a declared SDK even if nobody imports it yet', () => {
   const result = scanForForbiddenDependencies({
     dependencies: { '@d-contact/db': 'workspace:*', twilio: '^5.0.0' },
   });
@@ -76,7 +76,7 @@ test('dependency scan จับ SDK ที่ประกาศไว้แม�
   assert.deepEqual(result.forbiddenDependenciesFound, ['twilio']);
 });
 
-test('simulation flags คง actualProviderTraffic=false เสมอ', () => {
+test('simulation flags always keep actualProviderTraffic=false', () => {
   assert.equal(DIALER_ORIGINATE_SIMULATION_FLAGS.actualProviderTraffic, false);
   assert.equal(DIALER_ORIGINATE_SIMULATION_FLAGS.providerConformance, false);
   assert.equal(DIALER_ORIGINATE_SIMULATION_FLAGS.releaseEnabled, false);

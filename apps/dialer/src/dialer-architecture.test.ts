@@ -19,32 +19,32 @@ async function runtimeSources(): Promise<Array<{ file: string; content: string }
   );
 }
 
-test('CG4-REG02: Dialer runtime ไม่เขียน canonical Contact Governance state และไม่เห็น approval internals', async () => {
+test('CG4-REG02: Dialer runtime does not write canonical Contact Governance state and does not see approval internals', async () => {
   for (const { file, content } of await runtimeSources()) {
     assert.doesNotMatch(
       content,
       /\.cg[A-Z][A-Za-z0-9]*\./,
-      `${file} ต้องไม่เข้าถึง Governance table ผ่าน Prisma`,
+      `${file} must not access Governance tables through Prisma`,
     );
     assert.doesNotMatch(
       content,
       /\b(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+"?cg_/i,
-      `${file} ต้องไม่เขียน Governance table ด้วย SQL`,
+      `${file} must not write Governance tables with SQL`,
     );
     assert.doesNotMatch(
       content,
       /Cg4Exception|Cg4Policy|Cg4Quorum|Cg4Authorization|approvalDigest|quorum/,
-      `${file} ต้องรับเฉพาะ final Governance result ไม่ใช่ approval/exception internals`,
+      `${file} must accept only the final Governance result, not approval/exception internals`,
     );
     assert.equal(
       content.includes('@d-contact/contact-governance'),
       false,
-      `${file} ต้องพึ่ง Governance port ผ่าน composition ไม่ใช่ concrete app`,
+      `${file} must depend on the Governance port through composition, not a concrete app`,
     );
   }
 });
 
-test('CG4-REG02: admission/callback scheduling ไม่สร้าง reservation มีเพียง originate barrier ที่เรียก authorizeAndReserve', async () => {
+test('CG4-REG02: admission/callback scheduling does not create a reservation; only the originate barrier calls authorizeAndReserve', async () => {
   const sources = await runtimeSources();
   const reserving = sources
     .filter(({ content }) => /\.authorizeAndReserve\(/.test(content))
@@ -56,7 +56,7 @@ test('CG4-REG02: admission/callback scheduling ไม่สร้าง reservat
     assert.doesNotMatch(
       content,
       /authorizeAndReserve/,
-      `${file} ต้องไม่ขอ reservation ตอน admit/schedule`,
+      `${file} must not request a reservation at admit/schedule`,
     );
   }
 });

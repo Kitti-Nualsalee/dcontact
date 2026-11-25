@@ -1,10 +1,10 @@
 /**
- * J2.8 (#136) — ขารับ `ENSURE_CASE` ของ Cases จาก `dc.case.commands` แล้ว publish ผลกลับ
+ * J2.8 (#136) — the Cases receive path for `ENSURE_CASE` from `dc.case.commands`, publishing the result back
  * `dc.case.events`
  *
- * ขั้นตอนต่อ message อยู่ที่ `processOwnerCommandEvent` ของ contract (ใช้ร่วมกับ Dialer): receipt
- * `cs_command_inbox` ถูกเขียนใน transaction เดียวกับ Case mutation และเป็น result outbox โดยตรง
- * offset commit หลัง publish สำเร็จเท่านั้น — redelivery จึง publish ผลเดิมซ้ำแต่ไม่สร้าง Case ซ้ำ
+ * The per-message steps live in the contract `processOwnerCommandEvent` (shared with Dialer): the receipt
+ * `cs_command_inbox` is written in the same transaction as the Case mutation and is itself the result outbox.
+ * The offset is committed only after a successful publish — so redelivery republishes the earlier result but does not create a duplicate Case.
  */
 import { processOwnerCommandEvent, type J2CaseOwnerPort } from '@d-contact/cxa-contracts';
 import {
@@ -17,7 +17,7 @@ import {
 } from '@d-contact/kafka';
 import { KAFKA_TOPICS } from '@d-contact/shared';
 
-/** receipt ของ owner คือ durable dedup boundary — ไม่ต้องมี consumer inbox ซ้อนอีกชั้น */
+/** The owner receipt is the durable dedup boundary — no extra consumer inbox layer is needed */
 function ownerReceiptIdempotencyStore(): EventIdempotencyStore {
   return {
     durability: 'DURABLE',

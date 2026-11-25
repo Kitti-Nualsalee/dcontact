@@ -7,7 +7,7 @@ import type {
 import { IamTeamContactScopeAuthorizer } from '@d-contact/iam';
 import type { PrismaClient } from '@d-contact/db';
 
-/** composition boundary: Dialer เห็นเฉพาะ CG3 contract ที่เสถียร ไม่ import service owner ใน domain code. */
+/** Composition boundary: Dialer sees only the stable CG3 contract and does not import the service owner in domain code. */
 export interface DialerRealtimeGovernancePorts {
   revalidation: ContactGovernanceRevalidationPort;
   settlement: ContactGovernancePort;
@@ -24,8 +24,8 @@ export function createDialerRealtimeGovernancePorts(
 }
 
 /**
- * J2.8 (#136): owner command ของ Dialer ตรวจ current team/contact scope ผ่าน IAM — composition
- * เป็นจุดเดียวที่รู้ concrete implementation เหมือน Governance port ด้านบน
+ * J2.8 (#136): Dialer owner commands check the current team/contact scope through IAM — composition
+ * is the only place that knows the concrete implementation, like the Governance port above
  */
 export function createDialerOwnerScopeAuthorizer(
   database: PrismaClient,

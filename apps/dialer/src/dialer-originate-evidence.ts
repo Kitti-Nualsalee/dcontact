@@ -1,8 +1,8 @@
 /**
- * J2.9 — negative-scan evidence สำหรับ Dialer originate barrier (mirrors
- * `apps/delivery/src/line-evidence.ts`'s pattern). พิสูจน์ว่า source ของ barrier/
- * transport ไม่มี telephony provider SDK, ESL client, credential env var หรือ
- * network primitive ใด ๆ — hard boundary `actualProviderTraffic=false`
+ * J2.9 — negative-scan evidence for the Dialer originate barrier (mirrors
+ * `apps/delivery/src/line-evidence.ts`'s pattern). Proves that the source of the barrier/
+ * transport has no telephony provider SDK, ESL client, credential env var or
+ * any network primitive — the hard boundary `actualProviderTraffic=false`
  */
 export const DIALER_ORIGINATE_SIMULATION_FLAGS = {
   simulationOnly: true,
@@ -45,7 +45,7 @@ export interface DialerNegativeScanResult {
   clean: boolean;
 }
 
-/** pure text scan — caller (test) ป้อน source ไฟล์จริงเข้ามาเอง ไม่มี fs I/O ในโมดูลนี้ */
+/** Pure text scan — the caller (a test) feeds in the real file source itself; there is no fs I/O in this module */
 export function scanForForbiddenTelephonyTokens(
   sourceTexts: readonly string[],
 ): DialerNegativeScanResult {
@@ -58,7 +58,7 @@ export function scanForForbiddenTelephonyTokens(
   return { forbiddenTokensFound: [...found], clean: found.size === 0 };
 }
 
-/** SDK ที่ "ประกาศไว้" ก็นับว่าเลย boundary แล้ว เพราะติดตั้งอยู่จริงและ import ได้ทันที */
+/** An SDK that is merely "declared" already crosses the boundary, because it is really installed and importable at once */
 const FORBIDDEN_DEPENDENCY_PREFIXES = [
   'twilio',
   '@twilio/',
@@ -88,8 +88,8 @@ export interface DialerDependencyScanResult {
 }
 
 /**
- * ตรวจ dependency ที่ประกาศใน package.json — FORBIDDEN_TOKENS จับได้เฉพาะตอนมีคน
- * import จริง แต่แค่เพิ่ม dependency ก็เปิดทางไว้แล้ว จึงต้องตรวจอีกชั้น
+ * Checks dependencies declared in package.json — FORBIDDEN_TOKENS only catches when someone
+ * really imports, but merely adding a dependency already opens the way, so another layer of checking is needed
  */
 export function scanForForbiddenDependencies(manifest: {
   dependencies?: Record<string, string>;
@@ -110,11 +110,11 @@ export function scanForForbiddenDependencies(manifest: {
 }
 
 /**
- * ไฟล์ที่ยกเว้นจาก negative scan ได้ — มีแค่โมดูลนี้กับ test ของมันเอง เพราะต้องเก็บ
- * denylist ไว้เป็น string ตรง ๆ ถ้าไม่ยกเว้นจะ match ตัวเองตลอด
+ * Files that may be exempt from the negative scan — only this module and its own test, because they must keep
+ * the denylist as literal strings; without the exemption they would always match themselves
  *
- * รายการนี้ต้องไม่โตขึ้น: ทุกไฟล์อื่นใน `apps/dialer/src` ต้องถูก scan เสมอ ไม่งั้นการ
- * เพิ่มไฟล์ใหม่จะกลายเป็นทางลัดข้าม boundary โดยไม่มีใครรู้
+ * This list must not grow: every other file in `apps/dialer/src` must always be scanned, otherwise
+ * adding a new file becomes a shortcut across the boundary that nobody notices
  */
 export const NEGATIVE_SCAN_EXEMPT_FILES = [
   'dialer-originate-evidence.ts',

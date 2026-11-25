@@ -109,7 +109,7 @@ test('call.answered is still published when recording cannot start (#923)', asyn
   });
 });
 
-test('call.answered reaches Router without waiting for slow recording storage (NFS ไม่ตอบ)', async () => {
+test('call.answered reaches Router without waiting for slow recording storage (NFS not responding)', async () => {
   const storage = deferred();
   const { published, steps, recordingTasks, dependencies } = harness({
     start: () => storage.promise,
@@ -117,7 +117,7 @@ test('call.answered reaches Router without waiting for slow recording storage (N
 
   await publishTelephonyCallEvent(callEvent('call.answered'), dependencies);
 
-  // publish เสร็จแล้วทั้งที่ prepare ยังค้าง: Router ไม่เกิน offer timeout
+  // publish finished even though prepare is still stuck: the Router does not exceed the offer timeout
   assert.deepEqual(published, ['call.answered']);
   assert.ok(recordingTasks.size > 0);
   storage.resolve();
@@ -150,7 +150,7 @@ test('short call with slow prepare: endedAt is still set before call.hangup so Q
   await publishTelephonyCallEvent(callEvent('call.answered'), dependencies);
   await publishTelephonyCallEvent(callEvent('call.hangup'), dependencies);
 
-  // ตั้ง endedAt แล้วก่อนส่ง hangup แม้ขั้นเริ่มบันทึกยังค้าง; archive รอหลังขั้นเริ่มบันทึก
+  // endedAt is set before hangup is sent even though the start-recording step is still stuck; archive waits for after the start-recording step
   assert.deepEqual(steps, [
     'published:call.answered',
     'recording.created',
@@ -273,7 +273,7 @@ test('drain waits for work queued while draining and reports work still running'
   const draining = queue.drain(1_000);
   first.resolve();
   await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(queue.size, 1, 'งานที่เข้าคิวระหว่าง drain ยังถูกนับ');
+  assert.equal(queue.size, 1, 'work queued during drain is still counted');
   second.resolve();
   assert.equal(await draining, true);
   assert.equal(queue.size, 0);
@@ -289,7 +289,7 @@ test('drain waits for work queued while draining and reports work still running'
   assert.equal(await queue.drain(1_000), true);
 });
 
-test('hangupRecordingBudgetMs 0 ไม่รอปิดบันทึกและไม่ log ว่า publish ก่อน (#991 สาย managed)', async () => {
+test('hangupRecordingBudgetMs 0 does not wait for recording close and does not log that publish came first (#991 managed call)', async () => {
   let release!: () => void;
   const { logs, recordingTasks, dependencies, steps } = harness({
     end: () => new Promise<void>((resolve) => (release = resolve)),

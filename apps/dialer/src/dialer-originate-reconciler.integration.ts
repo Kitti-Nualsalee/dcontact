@@ -1,8 +1,8 @@
 import { teamWriterRace } from '@d-contact/db/testing/team-reference-races.js';
 /**
- * J2.9 follow-up — พิสูจน์ crash recovery ของ originate barrier:
- * แถวที่ค้าง `ORIGINATING` จน lease หมดต้องถูกกวาดเข้า `RECONCILING` โดยไม่ originate ซ้ำ
- * และไม่แตะ reservation ของ Governance เลย
+ * J2.9 follow-up — proves crash recovery of the originate barrier:
+ * a row stuck in `ORIGINATING` until the lease expires must be swept into `RECONCILING` without originating again
+ * and without touching the Governance reservation at all
  */
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -76,7 +76,7 @@ async function fixture(t: TestContext) {
   return { owner, application, tenantId, teamId, contactId, queueId, campaignId };
 }
 
-/** จำลอง crash: แถวค้าง ORIGINATING โดย lease หมดไปแล้ว */
+/** Simulates a crash: a row stuck in ORIGINATING whose lease has already expired */
 function stuckTarget(f: Awaited<ReturnType<typeof fixture>>, leaseExpiresAt: Date) {
   return f.owner.obCampaignTarget.create({
     data: {
@@ -110,7 +110,7 @@ function stuckCallback(f: Awaited<ReturnType<typeof fixture>>, leaseExpiresAt: D
   });
 }
 
-test('target ที่ค้าง ORIGINATING จน lease หมด ถูกกวาดเข้า RECONCILING ไม่ originate ซ้ำ', async (t) => {
+test('a target stuck in ORIGINATING until the lease expires is swept into RECONCILING and does not originate again', async (t) => {
   const f = await fixture(t);
   const target = await stuckTarget(f, new Date(Date.now() - 60_000));
   const reconciler = new DialerOriginateReconciler(f.application);
@@ -124,12 +124,12 @@ test('target ที่ค้าง ORIGINATING จน lease หมด ถูก�
   const updated = await f.owner.obCampaignTarget.findUniqueOrThrow({ where: { id: target.id } });
   assert.equal(updated.state, 'RECONCILING');
   assert.equal(updated.originateLeaseExpiresAt, null);
-  // ห้ามแตะ Governance: ไม่มี reservation ใหม่ และไม่มี attempt/touch เพิ่ม
+  // Must not touch Governance: no new reservation and no extra attempt/touch
   assert.equal(await f.owner.cgReservation.count({ where: { tenantId: f.tenantId } }), 0);
   assert.equal(await f.owner.cgAttempt.count({ where: { tenantId: f.tenantId } }), 0);
 });
 
-test('callback ที่ค้าง ORIGINATING จน lease หมด ถูกกวาดเข้า RECONCILING เช่นกัน', async (t) => {
+test('a callback stuck in ORIGINATING until the lease expires is likewise swept into RECONCILING', async (t) => {
   const f = await fixture(t);
   const callback = await stuckCallback(f, new Date(Date.now() - 60_000));
   const reconciler = new DialerOriginateReconciler(f.application);
@@ -144,7 +144,7 @@ test('callback ที่ค้าง ORIGINATING จน lease หมด ถู�
   assert.equal(updated.originateLeaseExpiresAt, null);
 });
 
-test('แถวที่ lease ยังไม่หมด (originate กำลังเดินอยู่จริง) ต้องไม่ถูกแตะ', async (t) => {
+test('a row whose lease has not expired (originate is really in progress) must not be touched', async (t) => {
   const f = await fixture(t);
   const target = await stuckTarget(f, new Date(Date.now() + 60_000));
   const reconciler = new DialerOriginateReconciler(f.application);
@@ -156,7 +156,7 @@ test('แถวที่ lease ยังไม่หมด (originate กำล�
   assert.equal(unchanged.state, 'ORIGINATING');
 });
 
-test('รัน sweeper ซ้ำเป็น replay ไม่ใช่การ settle รอบสอง', async (t) => {
+test('running the sweeper again is a replay, not a second settle', async (t) => {
   const f = await fixture(t);
   const target = await stuckTarget(f, new Date(Date.now() - 60_000));
   const reconciler = new DialerOriginateReconciler(f.application);
@@ -169,11 +169,11 @@ test('รัน sweeper ซ้ำเป็น replay ไม่ใช่การ
 
   const updated = await f.owner.obCampaignTarget.findUniqueOrThrow({ where: { id: target.id } });
   assert.equal(updated.state, 'RECONCILING');
-  // version ขยับครั้งเดียวเท่านั้น (1 -> 2) รอบสองไม่เขียนซ้ำ
+  // The version moves only once (1 -> 2); the second round does not write again
   assert.equal(updated.version, 2);
 });
 
-test('sweeper ไม่ข้าม tenant — แถวค้างของ tenant อื่นไม่ถูกกวาด', async (t) => {
+test('the sweeper does not cross tenants — stuck rows of another tenant are not swept', async (t) => {
   const f = await fixture(t);
   const other = await fixture(t);
   const mine = await stuckTarget(f, new Date(Date.now() - 60_000));
@@ -190,7 +190,7 @@ test('sweeper ไม่ข้าม tenant — แถวค้างของ te
   assert.equal(untouched.state, 'ORIGINATING');
 });
 
-test('originate ที่สำเร็จตามปกติล้าง lease ทิ้ง จึงไม่ถูก sweeper กวาดภายหลัง', async (t) => {
+test('a normally successful originate clears the lease, so the sweeper does not sweep it later', async (t) => {
   const f = await fixture(t);
   await f.owner.cgConsent.create({
     data: {

@@ -37,7 +37,7 @@ test('answered recording is archived once and finalized before QM consumes inter
       name: 'Thai support',
       channels: ['VOICE'],
       recordingEnabled: true,
-      recordingAnnouncement: 'สายนี้มีการบันทึกเสียงเพื่อพัฒนาบริการ',
+      recordingAnnouncement: 'สายนี้มีการบันทึกเสียงเพื่อพัฒนาบริการ', // allow-thai: Thai recording announcement fixture (played to callers)
       recordingAnnouncementLanguage: 'th-TH',
       recordingChannelLayout: 'STEREO',
     },
@@ -213,7 +213,7 @@ test('recording row is discarded when FreeSWITCH recording cannot start, so arch
   assert.deepEqual(await lifecycle.retryPendingArchives('fs-start-failure'), []);
   assert.equal(archiveAttempts, 0);
 
-  // ไม่มีแถวค้าง answered ที่มาซ้ำ (เช่น bridge ใหม่หลังแก้ volume) ยังเริ่มบันทึกได้
+  // With no row left behind, a repeated answered (e.g. a new bridge after a volume change) can still start recording
   prepareFails = false;
   await lifecycle.startForAnsweredCall(event('call.answered', '2026-11-20T03:01:00.000Z'));
   assert.equal(await owner.recording.count({ where: { tenantId } }), 1);
@@ -296,7 +296,7 @@ test('retry abandons a missing-file recording once storage is proven visible, sk
     { now: () => now, log: () => undefined },
   );
 
-  // รอบแรก: ไฟล์หายเพิ่งเห็นครั้งแรก ยังไม่หยุดลอง; ready สำเร็จ = storage มองเห็น
+  // First round: the missing file was seen for the first time, so do not stop retrying yet; ready succeeded = storage is visible
   assert.deepEqual(await lifecycle.retryPendingArchives(nodeId), [ready.id]);
   assert.equal(
     (await owner.recording.findUniqueOrThrow({ where: { id: missing.id } })).deletedAt,
@@ -403,7 +403,7 @@ test('unstarted recording that QM already references is kept as abandoned instea
     event('call.answered', '2026-11-22T12:00:00.000Z'),
   );
   assert.ok(start);
-  // ระหว่างรอ storage: วางสาย ตั้ง endedAt แล้ว QM สร้าง job อ้าง recording (FK RESTRICT)
+  // While waiting for storage: hang up, set endedAt, then QM creates a job referencing the recording (FK RESTRICT)
   const ended = await lifecycle.endForHungupCall(event('call.hangup', '2026-11-22T12:00:02.000Z'));
   assert.ok(ended);
   await owner.qmTranscriptionJob.create({

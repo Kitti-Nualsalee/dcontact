@@ -12,7 +12,7 @@ import {
 import { KAFKA_TOPICS } from '@d-contact/shared';
 import type { DialerGovernanceInvalidationService } from './dialer-governance.js';
 
-/** GAP ต้องเข้ามา apply ซ้ำได้หลัง replay; completion อื่นเป็น duplicate ที่ no-op. */
+/** A GAP must be able to apply again after a replay; any other completion is a no-op duplicate. */
 export function createDurableDialerGovernanceIdempotencyStore(
   database: PrismaClient,
 ): EventIdempotencyStore<Prisma.TransactionClient> {
@@ -46,7 +46,9 @@ export function createDurableDialerGovernanceIdempotencyStore(
           select: { state: true },
         });
         if (!completed)
-          throw new Error('Dialer CG3 handler ต้อง commit owner-local inbox ก่อนสำเร็จ');
+          throw new Error(
+            'The Dialer CG3 handler must commit the owner-local inbox before succeeding',
+          );
         return 'processed';
       });
     },
@@ -77,7 +79,7 @@ export function createDialerGovernanceConsumer(
     idempotency: createDurableDialerGovernanceIdempotencyStore(options.database),
     handler: async ({ event, topic, partition, offset }, transaction) => {
       if (!isKafkaEventEnvelopeV2(event))
-        throw new TypeError('Dialer CG3 consumer ไม่รับ Kafka V1 event');
+        throw new TypeError('The Dialer CG3 consumer does not accept Kafka V1 events');
       const result = await options.service.apply(event, transaction);
       if (options.dlq && result.state === 'QUARANTINED') {
         await publishGovernanceContractRejection(options.dlq, result.reasonCode, {
@@ -93,10 +95,10 @@ export function createDialerGovernanceConsumer(
 }
 
 /**
- * CG4.8 (#191): contract/version ที่ตีความไม่ได้ต้องเข้า DLQ (#179 §4) นอกเหนือจาก quarantine และ
- * hold scope ที่ commit ใน owner-local transaction เดียวกัน DLQ publish อยู่ใน transaction นั้น:
- * ถ้า publish ล้มเหลว transaction rollback แล้ว event ถูก retry จึงไม่มี quarantine ที่ไม่มีสำเนาใน DLQ
- * hash conflict ไม่ส่ง DLQ เพราะ contract อ่านได้ — เป็น quarantine + alert ของ owner
+ * CG4.8 (#191): a contract/version that cannot be interpreted must go to the DLQ (#179 §4) in addition to quarantine and the
+ * hold scope committed in the same owner-local transaction. The DLQ publish is inside that transaction:
+ * if the publish fails the transaction rolls back and the event is retried, so there is no quarantine without a DLQ copy.
+ * A hash conflict is not sent to the DLQ because the contract is readable — it is an owner quarantine + alert.
  */
 export async function publishGovernanceContractRejection(
   dlq: DlqPublisher,

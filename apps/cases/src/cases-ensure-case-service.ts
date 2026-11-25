@@ -29,7 +29,7 @@ export class CaseCommandHashConflictError extends Error {
   readonly code = 'IDEMPOTENCY_CONFLICT' as const;
 
   constructor(readonly actionKey: string) {
-    super(`Cases command actionKey มีอยู่แล้วด้วย requestHash ต่างกัน: ${actionKey}`);
+    super(`Cases command actionKey already exists with a different requestHash: ${actionKey}`);
     this.name = 'CaseCommandHashConflictError';
   }
 }
@@ -90,8 +90,8 @@ export class CasesEnsureCaseService implements J2CaseOwnerPort {
   }
 
   /**
-   * duplicate ที่ commit แล้วคืน PERSISTED เดิมโดยไม่ประมวลผลซ้ำ; key เดิม
-   * payload ต่างถูกปฏิเสธเป็น IDEMPOTENCY_CONFLICT ตาม #123
+   * a committed duplicate returns the earlier PERSISTED without reprocessing; the same key
+   * with a different payload is rejected as IDEMPOTENCY_CONFLICT per #123
    */
   async persistCommand(
     tenant: TenantId,
@@ -191,7 +191,7 @@ export class CasesEnsureCaseService implements J2CaseOwnerPort {
       }),
     ]);
 
-    // ไม่เปิดเผยว่า contact/team มีอยู่จริงใน tenant อื่นหรือไม่ — ปฏิเสธเหมือนไม่พบเสมอ
+    // Do not reveal whether the contact/team exists in another tenant — always reject as if not found
     if (!contact) return rejection('CONTACT_NOT_FOUND', 'AUTHORIZATION', 'CONTACT_NOT_FOUND');
     if (!targetTeam) {
       return rejection('TEAM_SEGMENT_NOT_ALLOWED', 'AUTHORIZATION', 'TARGET_TEAM_NOT_FOUND');
@@ -203,13 +203,13 @@ export class CasesEnsureCaseService implements J2CaseOwnerPort {
       return rejection('OWNER_REJECTED', 'BUSINESS', 'ROUTING_POLICY_NOT_FOUND');
     }
 
-    // serialize dedupe decision ต่อ (contact, case type) กันสอง command แข่งกันสร้าง
-    // เคสซ้ำสำหรับลูกค้า/ประเภทเดียวกัน
+    // Serialize the dedupe decision per (contact, case type) so two commands cannot race to create
+    // duplicate cases for the same customer/type
     await transaction.$queryRaw(
       Prisma.sql`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${`cs-case-dedupe:${tenantId}:${command.contactId}:${typePolicy.caseTypeKey}`}))`,
     );
 
-    // #956 เคสที่ Agent เปิดเองมีผู้เขียนเป็น AgentCases จึงไม่นำมา link/reopen แม้ประเภทตรงกัน
+    // #956 a case opened by an Agent is written by AgentCases, so it is not linked/reopened even when the type matches
     const existingCase = await transaction.csCase.findFirst({
       where: {
         tenantId,
@@ -243,8 +243,8 @@ export class CasesEnsureCaseService implements J2CaseOwnerPort {
       return success('REOPENED', 'CASE_REOPEN_POLICY_ALLOWED', reopened.id, reopened.version);
     }
 
-    // ไม่มี match เดิมเลย, หรือมีแต่ CLOSED, หรือ RESOLVED ที่ reopen ไม่ได้ (ห้าม
-    // reopen เงียบ ๆ ตาม #121) — เปิดเคสใหม่เสมอ; ถ้ามีเคสเดิมให้เชื่อม RELATED
+    // No earlier match at all, or only CLOSED, or a RESOLVED that cannot be reopened (must not
+    // reopen silently per #121) — always open a new case; if an earlier case exists, link it RELATED
     const created = await transaction.csCase.create({
       data: {
         id: this.id(),

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { E1BackgroundJobs } from './e1-background-jobs.js';
 
-test('FreeSWITCH failure ที่มาถึงก่อน command reply ยังจับคู่ delivery ได้ ไม่ settle เมื่อสำเร็จ', async () => {
+test('a FreeSWITCH failure that arrives before the command reply still matches the delivery and does not settle on success', async () => {
   const failures: string[] = [];
   const jobs = new E1BackgroundJobs(async (jobUuid, callUuid) => {
     failures.push(`${jobUuid}:${callUuid}`);

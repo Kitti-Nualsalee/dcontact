@@ -18,7 +18,7 @@ const input: E1VoiceCommandInput = {
   },
 };
 
-test('internal gateway ตรวจ auth/schema/tenant/node ก่อน durable claim และไม่เปิด ESL ทั่วไป', async (context) => {
+test('the internal gateway checks auth/schema/tenant/node before the durable claim and does not expose general ESL', async (context) => {
   let claims = 0;
   let commands = 0;
   let allow = false;
@@ -72,7 +72,7 @@ test('internal gateway ตรวจ auth/schema/tenant/node ก่อน durable
   assert.equal(commands, 1);
 });
 
-test('gateway ไม่ตอบ success เมื่อ ESL ล้มและไม่ส่งซ้ำหลัง durable claim', async (context) => {
+test('the gateway does not answer success when ESL fails and does not resend after the durable claim', async (context) => {
   let claimed = false;
   let commands = 0;
   const server = createE1VoiceCommandServer({
@@ -109,7 +109,7 @@ test('gateway ไม่ตอบ success เมื่อ ESL ล้มและ�
   assert.equal(commands, 1);
 });
 
-test('registration endpoint รับเฉพาะ tenant/node/domain/lease ที่กำหนด และไม่ผ่าน originate authority', async (context) => {
+test('the registration endpoint accepts only the specified tenant/node/domain/lease and does not go through originate authority', async (context) => {
   let flushes = 0;
   const server = createE1VoiceCommandServer({
     secret,

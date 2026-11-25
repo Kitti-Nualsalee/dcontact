@@ -14,11 +14,11 @@ import { runManagedVoiceDue, runManagedVoiceReadiness } from './managed-voice-du
 import { normalizeManagedVoiceEvent } from './managed-voice-events.js';
 
 /**
- * #979: managed routing v1 ใน telephony หลัก (`main.ts`) แบบหลาย tenant
+ * #979: managed routing v1 in the main telephony (`main.ts`), multi-tenant
  *
- * เปิดด้วย `TELEPHONY_MANAGED_VOICE_ENABLED=true` เท่านั้น ถ้าไม่ตั้ง `main.ts` ทำงานแบบ legacy ตามเดิม
- * wiring ตามต้นแบบ `e1-sandbox-main.ts` (heartbeat/readiness, tick, dispatch, background job)
- * แต่ใช้ SIP domain ของแต่ละ tenant (`tenants.sip_domain`) แทน `FREESWITCH_SIP_DOMAIN` ค่าเดียว
+ * Enabled only with `TELEPHONY_MANAGED_VOICE_ENABLED=true`; if it is not set, `main.ts` works as legacy as before.
+ * Wiring follows the `e1-sandbox-main.ts` model (heartbeat/readiness, tick, dispatch, background job)
+ * but uses the SIP domain of each tenant (`tenants.sip_domain`) instead of the single `FREESWITCH_SIP_DOMAIN` value
  */
 export function isManagedVoiceEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return env.TELEPHONY_MANAGED_VOICE_ENABLED === 'true';
@@ -40,9 +40,9 @@ export interface TenantSipDomainSource {
 }
 
 /**
- * SIP domain ของ tenant จาก `tenants.sip_domain` แคชสั้น ๆ เพื่อไม่ query ทุกคำสั่ง
- * originate ใช้ได้เฉพาะ tenant ที่ ACTIVE ส่วนการตรวจช่องสาย (bind) ใช้ domain แม้ tenant ถูกพัก
- * เพื่อให้คำสั่งเก็บกวาดของสายที่ค้างยังทำงานได้
+ * The SIP domain of a tenant from `tenants.sip_domain`, cached briefly so it is not queried on every command.
+ * originate works only for an ACTIVE tenant, while the channel check (bind) uses the domain even when the tenant is suspended
+ * so cleanup commands of stuck calls still work
  */
 export class TenantSipDomainDirectory {
   private readonly cache = new Map<
@@ -90,9 +90,9 @@ export class TenantSipDomainDirectory {
 }
 
 /**
- * คิวที่เรียงงานต่อ key: key เดียวกันทำทีละงานตามลำดับ key ต่างกันทำพร้อมกัน
- * main.ts ใช้เรียง event ของสายเดียวกัน (managed ต้องได้ offer → answer → bridge → hangup ตามลำดับ)
- * โดยไม่ให้งานช้าของสายหนึ่ง (เช่น archive เสียงของสาย legacy หรือ Kafka ช้า) ขวางสายอื่น
+ * A queue that orders work per key: the same key runs one job at a time in order, different keys run concurrently.
+ * main.ts uses it to order events of the same call (managed must get offer → answer → bridge → hangup in order)
+ * without letting slow work of one call (e.g. the audio archive of a legacy call, or a slow Kafka) block other calls
  */
 export class KeyedSerialQueue {
   private readonly tails = new Map<string, Promise<void>>();
@@ -113,7 +113,7 @@ export class KeyedSerialQueue {
   }
 }
 
-/** key ของ event: สายฝั่งลูกค้า (ขา Agent ของ managed มี `dcontact_call_uuid` ชี้สายลูกค้า) */
+/** The event key: the customer-side call (a managed Agent leg has `dcontact_call_uuid` pointing at the customer call) */
 export function managedEventKey(event: FreeSwitchEvent | undefined): string {
   if (!event) return 'control';
   if (event['Event-Name'] === 'BACKGROUND_JOB') return 'background-job';
@@ -124,13 +124,13 @@ export type ManagedVoiceRoute = 'managed' | 'legacy' | 'ignored';
 
 export interface ManagedVoiceRouting {
   nodeId: string;
-  /** สายฝั่งลูกค้า (A-leg) ที่ managed runtime ถืออยู่ */
+  /** The customer-side call (A-leg) that the managed runtime holds */
   calls: Set<string>;
   handle(event: ManagedVoiceEvent): Promise<unknown>;
   onError(error: unknown): void;
 }
 
-/** ขาที่ managed runtime originate ไปหา Agent (B-leg) มี `dcontact_offer_id` เสมอ ห้ามส่งให้ legacy */
+/** A leg the managed runtime originates to an Agent (B-leg) always has `dcontact_offer_id`; it must not be sent to legacy */
 export function isManagedOfferLeg(source: FreeSwitchEvent): boolean {
   return typeof source.variable_dcontact_offer_id === 'string';
 }
@@ -145,8 +145,8 @@ function callerUuid(source: FreeSwitchEvent): string | undefined {
 }
 
 /**
- * event ที่มี offer: B-leg และ A-leg หลัง adapter ตั้ง offer ก่อน bridge
- * ใช้ tenant ที่ adapter ตั้งไว้บนช่องสายตอน originate/bindCaller
+ * Events with an offer: the B-leg and the A-leg after the adapter sets the offer before bridge
+ * Uses the tenant the adapter set on the channel at originate/bindCaller
  */
 export async function routeManagedOfferLeg(
   source: FreeSwitchEvent,
@@ -166,9 +166,9 @@ export async function routeManagedOfferLeg(
 }
 
 /**
- * แยก event ของสายฝั่งลูกค้า: managed runtime รับสายที่เบอร์ปลายทางผูกคิว managed v1
- * ที่เหลือ (คิว legacy, outbound delivery, DTMF ของสาย legacy) กลับไป legacy router ผ่าน Kafka ตามเดิม
- * ถ้า managed runtime ล้มกับสายที่ไม่รู้จัก ให้ legacy ทำต่อ เพื่อไม่ให้คิวเดิมเสียเพราะ managed
+ * Splits events of the customer-side call: the managed runtime takes calls whose destination number is bound to a managed v1 queue.
+ * The rest (legacy queues, outbound delivery, DTMF of legacy calls) goes back to the legacy router via Kafka as before.
+ * If the managed runtime fails on an unknown call, legacy continues, so existing queues are not broken by managed
  */
 export async function routeManagedCall(
   source: FreeSwitchEvent,
@@ -186,7 +186,7 @@ export async function routeManagedCall(
       try {
         handled = await routing.handle(event);
       } catch (error) {
-        // สายใหม่ที่ไปผิดทางจะไม่กลับมา managed อีก (PARK ถัดไปไม่ถูกแปลงเป็น CREATE) จึงลองซ้ำหนึ่งครั้ง
+        // A new call that went the wrong way never comes back to managed (the next PARK is not converted to CREATE), so retry once
         if (event.type !== 'call.created') throw error;
         routing.onError(error);
         handled = await routing.handle(event);
@@ -212,7 +212,7 @@ export async function routeManagedCall(
       routing.calls.delete(callUuid);
     return 'ignored';
   }
-  // legacy ไม่ได้ subscribe CHANNEL_ANSWER มาก่อน — มีเพราะ managed ต้องรู้ว่า Agent รับ offer
+  // legacy did not subscribe to CHANNEL_ANSWER before — it is there because managed must know that the Agent accepted the offer
   if (source['Event-Name'] === 'CHANNEL_ANSWER') return 'ignored';
   return 'legacy';
 }
@@ -226,7 +226,7 @@ export interface ManagedVoiceTelephonyOptions {
   log?: (message: string, error?: unknown) => void;
 }
 
-/** heartbeat/tick/dispatch ของ managed runtime ต่อทุก tenant ที่ ACTIVE บน node นี้ */
+/** Heartbeat/tick/dispatch of the managed runtime for every ACTIVE tenant on this node */
 export class ManagedVoiceTelephony {
   readonly calls = new Set<string>();
   private readonly adapter: FreeSwitchManagedVoiceAdapter;
@@ -261,7 +261,7 @@ export class ManagedVoiceTelephony {
             await this.adapter.bindCaller(command.tenantId, command.callUuid);
             return await this.adapter.execute(command);
           } catch (error) {
-            // runtime เก็บแค่ DIRECT_PORT_UNCONFIRMED จึง log สาเหตุจริงครั้งเดียวต่อคำสั่ง
+            // the runtime keeps only DIRECT_PORT_UNCONFIRMED, so log the real cause once per command
             const reason = error instanceof Error ? error.message : String(error);
             if (this.failedCommands.get(command.commandId) !== reason) {
               if (this.failedCommands.size >= 1000)
@@ -290,7 +290,7 @@ export class ManagedVoiceTelephony {
     return this.calls.has(callUuid);
   }
 
-  /** ESL ยืนยัน `events plain ...` แล้วเท่านั้นจึงประกาศ readiness ได้ */
+  /** Readiness may be announced only after ESL confirms `events plain ...` */
   setSubscribed(subscribed: boolean) {
     this.subscribed = subscribed;
     if (!subscribed) this.portReady = false;
@@ -317,7 +317,7 @@ export class ManagedVoiceTelephony {
     every(0, () => this.readiness());
     every(1, () =>
       runManagedVoiceDue({
-        // tenant ที่เคย ACTIVE ยัง tick ต่อ เพื่อให้สายที่ค้างถึง deadline และถูกวางแม้ tenant ถูกพักระหว่างสาย
+        // A tenant that was ACTIVE keeps ticking so stuck calls reach their deadline and are hung up even if the tenant is suspended mid-call
         tenantIds: async () => {
           await this.activeTenantIds();
           return [...this.tenants];
@@ -329,7 +329,7 @@ export class ManagedVoiceTelephony {
     every(2, () => this.dispatch());
   }
 
-  /** หยุด timer รองานที่ค้าง แล้วถอน readiness ทุก tenant ทันที (ไม่รอ TTL) */
+  /** Stops the timers, waits for pending work, then withdraws readiness of every tenant at once (without waiting for the TTL) */
   async stop() {
     for (const timer of this.timers) clearInterval(timer);
     this.timers = [];

@@ -25,7 +25,7 @@ function code(work: () => unknown): string | undefined {
   return undefined;
 }
 
-test('เส้นทางสถานะ: OPEN ↔ RESOLVED, ปิดได้จาก RESOLVED เท่านั้น และ CLOSED ไปต่อไม่ได้', () => {
+test('status path: OPEN ↔ RESOLVED, closing is allowed only from RESOLVED, and CLOSED cannot move on', () => {
   assert.equal(canTransition('OPEN', 'RESOLVED'), true);
   assert.equal(canTransition('RESOLVED', 'OPEN'), true);
   assert.equal(canTransition('OPEN', 'CLOSED'), false);
@@ -37,14 +37,14 @@ test('เส้นทางสถานะ: OPEN ↔ RESOLVED, ปิดได�
   }
 });
 
-test('ข้อความตัดช่องว่างหัวท้าย และนับความยาวเป็นตัวอักษร ไม่ใช่ byte', () => {
+test('text is trimmed at both ends and length is counted in characters, not bytes', () => {
   assert.equal(
-    textInput('  ลูกค้าขอคืนสินค้า  ', 'subject', CASE_SUBJECT_MAX),
-    'ลูกค้าขอคืนสินค้า',
+    textInput('  ลูกค้าขอคืนสินค้า  ', 'subject', CASE_SUBJECT_MAX), // allow-thai: Thai text for trim and character counting
+    'ลูกค้าขอคืนสินค้า', // allow-thai: Thai text for trim and character counting
   );
-  assert.equal(textInput('ก'.repeat(CASE_SUBJECT_MAX), 'subject', CASE_SUBJECT_MAX).length, 200);
+  assert.equal(textInput('ก'.repeat(CASE_SUBJECT_MAX), 'subject', CASE_SUBJECT_MAX).length, 200); // allow-thai: Thai characters counted by length, not bytes
   assert.equal(
-    code(() => textInput('ก'.repeat(CASE_SUBJECT_MAX + 1), 'subject', CASE_SUBJECT_MAX)),
+    code(() => textInput('ก'.repeat(CASE_SUBJECT_MAX + 1), 'subject', CASE_SUBJECT_MAX)), // allow-thai: Thai characters counted by length, not bytes
     'INVALID:INVALID_INPUT:subject',
   );
   assert.equal(
@@ -57,7 +57,7 @@ test('ข้อความตัดช่องว่างหัวท้า�
   );
 });
 
-test('uuid รับเฉพาะรูปแบบที่ถูกต้องและคืนเป็นตัวพิมพ์เล็ก', () => {
+test('uuid accepts only a valid format and returns lowercase', () => {
   assert.equal(
     uuidInput('6F1D2C3B-4A5E-4F60-8A7B-9C0D1E2F3A4B', 'caseId'),
     '6f1d2c3b-4a5e-4f60-8a7b-9c0d1e2f3a4b',
@@ -72,7 +72,7 @@ test('uuid รับเฉพาะรูปแบบที่ถูกต้อ
   );
 });
 
-test('expectedVersion ต้องเป็นจำนวนเต็มบวก', () => {
+test('expectedVersion must be a positive integer', () => {
   assert.equal(versionInput(3), 3);
   for (const value of [0, -1, 1.5, '2', undefined]) {
     assert.equal(
@@ -82,7 +82,7 @@ test('expectedVersion ต้องเป็นจำนวนเต็มบว�
   }
 });
 
-test('status รับเฉพาะสามค่าที่รองรับ', () => {
+test('status accepts only the three supported values', () => {
   assert.equal(statusInput('RESOLVED'), 'RESOLVED');
   assert.equal(
     code(() => statusInput('PENDING_CUSTOMER')),
@@ -90,7 +90,7 @@ test('status รับเฉพาะสามค่าที่รองรั�
   );
 });
 
-test('limit ของรายการมีค่าเริ่มต้น 50 และไม่เกิน 100', () => {
+test('the list limit defaults to 50 and does not exceed 100', () => {
   assert.equal(listLimit(undefined), 50);
   assert.equal(listLimit(100), 100);
   assert.equal(
@@ -103,7 +103,7 @@ test('limit ของรายการมีค่าเริ่มต้น 5
   );
 });
 
-test('error code แต่ละตัวมีชนิดที่ API ใช้เลือก HTTP status', () => {
+test('each error code has a kind the API uses to pick the HTTP status', () => {
   assert.equal(new AgentCaseError('AGENT_REQUIRED').kind, 'FORBIDDEN');
   assert.equal(new AgentCaseError('CASE_NOT_FOUND').kind, 'NOT_FOUND');
   assert.equal(new AgentCaseError('WORK_NOT_FOUND').kind, 'NOT_FOUND');
@@ -112,7 +112,7 @@ test('error code แต่ละตัวมีชนิดที่ API ใช�
   assert.equal(new AgentCaseError('ASSIGNEE_NOT_IN_TEAM').kind, 'INVALID');
 });
 
-test('cursor ถอดกลับได้ตรงตำแหน่งเดิม และค่าที่ปลอมหรือเสียถูกปฏิเสธ', () => {
+test('a cursor decodes back to the same position, and forged or corrupt values are rejected', () => {
   const at = new Date('2026-11-21T10:00:00.123Z');
   const id = '6f1d2c3b-4a5e-4f60-8a7b-9c0d1e2f3a4b';
   assert.deepEqual(decodeCaseCursor(encodeCaseCursor(at, id)), { updatedAt: at, id });
@@ -125,7 +125,7 @@ test('cursor ถอดกลับได้ตรงตำแหน่งเด�
   }
 });
 
-test('filter สถานะรับ NOT_CLOSED สำหรับเคสที่ยังไม่ปิด', () => {
+test('the status filter accepts NOT_CLOSED for cases that are not closed yet', () => {
   assert.equal(statusFilterInput('NOT_CLOSED'), 'NOT_CLOSED');
   assert.equal(statusFilterInput(''), undefined);
   assert.equal(statusFilterInput('OPEN'), 'OPEN');

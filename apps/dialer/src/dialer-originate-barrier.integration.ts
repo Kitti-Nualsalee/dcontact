@@ -108,7 +108,7 @@ async function fixture(t: TestContext) {
   return { owner, application, tenantId, teamId, contactId, queueId, campaignId };
 }
 
-/** gate ที่เปิดถึง SCOPED_INTERNAL_ENABLED พร้อม allowlist ของ campaign/queue ใน fixture */
+/** A gate opened up to SCOPED_INTERNAL_ENABLED with the allowlist of the fixture campaign/queue */
 function openScopedGate(f: Awaited<ReturnType<typeof fixture>>) {
   return openOriginateGate(f.application, f.tenantId, 'SCOPED_INTERNAL_ENABLED', {
     campaigns: [f.campaignId],
@@ -154,7 +154,7 @@ async function scheduledCallback(
   });
 }
 
-test('campaign target ที่ ADMITTED และผ่าน scope+governance สด originate สำเร็จเป็น CONSUMED', async (t) => {
+test('an ADMITTED campaign target that passes live scope+governance originates successfully as CONSUMED', async (t) => {
   const f = await fixture(t);
   const governance = new ContactGovernanceService(f.application);
   const gate = await openScopedGate(f);
@@ -171,7 +171,7 @@ test('campaign target ที่ ADMITTED และผ่าน scope+governance 
   assert.equal(updated.state, 'CONSUMED');
 });
 
-test('gate DISABLED ปฏิเสธก่อนแตะ scope/governance เลย', async (t) => {
+test('a DISABLED gate rejects before touching scope/governance at all', async (t) => {
   const f = await fixture(t);
   const governance = new ContactGovernanceService(f.application);
   const gate = new DialerOwnerBarrierGate(f.application);
@@ -187,7 +187,7 @@ test('gate DISABLED ปฏิเสธก่อนแตะ scope/governance เ
   assert.equal(unchanged.state, 'ADMITTED');
 });
 
-test('SHADOW_RECEIPT ตรวจ scope สดแล้วหยุดก่อนเรียก governance หรือแตะ state ใด ๆ', async (t) => {
+test('SHADOW_RECEIPT checks live scope then stops before calling governance or touching any state', async (t) => {
   const f = await fixture(t);
   const governance = new ContactGovernanceService(f.application);
   const gate = await openOriginateGate(f.application, f.tenantId, 'SHADOW_RECEIPT');
@@ -204,7 +204,7 @@ test('SHADOW_RECEIPT ตรวจ scope สดแล้วหยุดก่อ�
   assert.equal(await f.owner.cgReservation.count({ where: { tenantId: f.tenantId } }), 0);
 });
 
-test('scope ที่ deny สด (ไม่ reuse admission decision) เลื่อน target เข้า DEFERRED', async (t) => {
+test('a live denied scope (not reusing the admission decision) defers the target into DEFERRED', async (t) => {
   const f = await fixture(t);
   const governance = new ContactGovernanceService(f.application);
   const gate = await openScopedGate(f);
@@ -220,7 +220,7 @@ test('scope ที่ deny สด (ไม่ reuse admission decision) เลื
   assert.equal(updated.state, 'DEFERRED');
 });
 
-test('TEST_ADAPTER ที่ REJECTED settle เป็น PROVIDER_REJECTED แล้ว target กลับไป DEFERRED ให้ retry', async (t) => {
+test('a REJECTED TEST_ADAPTER settles as PROVIDER_REJECTED and the target returns to DEFERRED for retry', async (t) => {
   const f = await fixture(t);
   const governance = new ContactGovernanceService(f.application);
   const gate = await openScopedGate(f);
@@ -238,7 +238,7 @@ test('TEST_ADAPTER ที่ REJECTED settle เป็น PROVIDER_REJECTED แ�
   assert.equal(updated.state, 'DEFERRED');
 });
 
-test('campaign ที่ไม่ใช่ ACTIVE อีกแล้ว (แม้ target ยัง ADMITTED) fail closed เข้า DEFERRED', async (t) => {
+test('a campaign that is no longer ACTIVE (even if the target is still ADMITTED) fails closed into DEFERRED', async (t) => {
   const f = await fixture(t);
   const governance = new ContactGovernanceService(f.application);
   const gate = await openScopedGate(f);
@@ -254,7 +254,7 @@ test('campaign ที่ไม่ใช่ ACTIVE อีกแล้ว (แม�
   assert.equal(updated.state, 'DEFERRED');
 });
 
-test('callback ที่ SCHEDULED และถึงเวลาแล้ว originate สำเร็จเป็น CONSUMED', async (t) => {
+test('a SCHEDULED callback that is due originates successfully as CONSUMED', async (t) => {
   const f = await fixture(t);
   const governance = new ContactGovernanceService(f.application);
   const gate = await openScopedGate(f);
@@ -269,7 +269,7 @@ test('callback ที่ SCHEDULED และถึงเวลาแล้ว or
   assert.equal(updated.state, 'CONSUMED');
 });
 
-test('callback ที่ยังไม่ถึงเวลา (เกิน early tolerance) ยังไม่ eligible', async (t) => {
+test('a callback that is not yet due (beyond the early tolerance) is not eligible yet', async (t) => {
   const f = await fixture(t);
   const governance = new ContactGovernanceService(f.application);
   const gate = await openScopedGate(f);
@@ -284,7 +284,7 @@ test('callback ที่ยังไม่ถึงเวลา (เกิน ea
   assert.equal(unchanged.state, 'SCHEDULED');
 });
 
-test('callback ที่เลย expiresAt แล้วถือว่า EXPIRED โดยไม่แตะ scope/governance', async (t) => {
+test('a callback past expiresAt counts as EXPIRED without touching scope/governance', async (t) => {
   const f = await fixture(t);
   const governance = new ContactGovernanceService(f.application);
   const gate = await openScopedGate(f);
@@ -300,7 +300,7 @@ test('callback ที่เลย expiresAt แล้วถือว่า EXPIR
   assert.equal(outcome, 'EXPIRED');
 });
 
-test('restart-safety: target ที่ไม่ใช่ ADMITTED อีกแล้ว (เช่น originate ไปก่อนหน้า) เป็น NOT_ELIGIBLE ไม่ originate ซ้ำ', async (t) => {
+test('restart-safety: a target that is no longer ADMITTED (e.g. already originated) is NOT_ELIGIBLE and does not originate again', async (t) => {
   const f = await fixture(t);
   const governance = new ContactGovernanceService(f.application);
   const gate = await openScopedGate(f);
@@ -315,7 +315,7 @@ test('restart-safety: target ที่ไม่ใช่ ADMITTED อีกแ�
   assert.equal(second, 'NOT_ELIGIBLE');
 });
 
-/** transport ที่นับครั้งที่ถูกเรียก — ใช้พิสูจน์ว่าหยุดก่อน provider boundary จริง */
+/** A transport that counts how many times it is called — used to prove it really stops before the provider boundary */
 class CountingTransport extends ScriptedTelephonyTransport {
   calls = 0;
   override async originate(request: Parameters<ScriptedTelephonyTransport['originate']>[0]) {
@@ -324,7 +324,7 @@ class CountingTransport extends ScriptedTelephonyTransport {
   }
 }
 
-/** Governance port ที่ตอบผลตามที่กำหนดและนับการเรียก — สำหรับผลที่ fixture จริงสร้างยาก */
+/** A Governance port that answers as configured and counts calls — for outcomes the real fixture can hardly produce */
 function scriptedGovernance(
   real: ContactGovernancePort,
   script: {
@@ -351,7 +351,7 @@ function scriptedGovernance(
   return { port, calls };
 }
 
-test('OWNER_CONFORMANCE ตรวจเงื่อนไขฝั่ง owner ครบแล้วหยุดก่อนจอง Governance reservation', async (t) => {
+test('OWNER_CONFORMANCE checks every owner-side condition then stops before reserving a Governance reservation', async (t) => {
   const f = await fixture(t);
   const { port, calls } = scriptedGovernance(new ContactGovernanceService(f.application), {});
   const gate = await openOriginateGate(f.application, f.tenantId, 'OWNER_CONFORMANCE', {
@@ -373,7 +373,7 @@ test('OWNER_CONFORMANCE ตรวจเงื่อนไขฝั่ง owner �
     await barrier.originateCallback(f.tenantId, callback.id, 'corr-2'),
     'CONFORMANCE_OBSERVED',
   );
-  assert.equal(calls.authorize, 0, 'ห้ามจอง reservation ก่อนขั้น SCOPED_INTERNAL_ENABLED');
+  assert.equal(calls.authorize, 0, 'must not reserve before the SCOPED_INTERNAL_ENABLED step');
   assert.equal(transport.calls, 0);
   assert.equal(await f.owner.cgReservation.count({ where: { tenantId: f.tenantId } }), 0);
   assert.equal(
@@ -385,7 +385,7 @@ test('OWNER_CONFORMANCE ตรวจเงื่อนไขฝั่ง owner �
     'SCHEDULED',
   );
 
-  // ต่อให้ allowlist ครบ ถ้าเงื่อนไขฝั่ง owner ไม่ผ่านต้องไม่รายงานว่า conform
+  // Even with a complete allowlist, if the owner-side conditions fail it must not report conformance
   const denying = new DialerOriginateBarrier(f.application, port, denyAllScope, gate, {
     transport,
   });
@@ -395,7 +395,7 @@ test('OWNER_CONFORMANCE ตรวจเงื่อนไขฝั่ง owner �
   );
 });
 
-test('SCOPED_INTERNAL_ENABLED originate เฉพาะ campaign/queue ใน allowlist และถอน scope แล้วหยุดทันที', async (t) => {
+test('SCOPED_INTERNAL_ENABLED originates only campaigns/queues in the allowlist and stops immediately when the scope is revoked', async (t) => {
   const f = await fixture(t);
   const { port, calls } = scriptedGovernance(new ContactGovernanceService(f.application), {});
   const gate = await openOriginateGate(f.application, f.tenantId, 'SCOPED_INTERNAL_ENABLED');
@@ -427,11 +427,11 @@ test('SCOPED_INTERNAL_ENABLED originate เฉพาะ campaign/queue ใน al
   assert.equal(
     (await f.owner.obCampaignTarget.findUniqueOrThrow({ where: { id: target.id } })).state,
     'ADMITTED',
-    'นอก scope ต้องไม่เปลี่ยน owner state',
+    'outside the scope the owner state must not change',
   );
 });
 
-test('kill จาก Dialer instance อื่นปิด originate ทุก instance ทันที', async (t) => {
+test('a kill from another Dialer instance stops originate on every instance immediately', async (t) => {
   const f = await fixture(t);
   const gate = await openScopedGate(f);
   const transport = new CountingTransport();
@@ -444,7 +444,7 @@ test('kill จาก Dialer instance อื่นปิด originate ทุก i
   );
   const target = await admittedTarget(f);
 
-  // instance อื่นที่มี gate object ของตัวเองแต่ชี้ฐานข้อมูลเดียวกัน
+  // Another instance with its own gate object but pointing at the same database
   await new DialerOwnerBarrierGate(f.application).kill(
     f.tenantId,
     { role: 'PLATFORM_OPERATOR', ref: 'operator-on-other-instance' },
@@ -455,7 +455,7 @@ test('kill จาก Dialer instance อื่นปิด originate ทุก i
   assert.equal(transport.calls, 0);
 });
 
-test('Governance ตอบไม่ได้ fail closed โดยไม่จองและไม่เปลี่ยน owner state', async (t) => {
+test('when Governance cannot answer it fails closed without reserving or changing the owner state', async (t) => {
   const f = await fixture(t);
   const { port } = scriptedGovernance(new ContactGovernanceService(f.application), {
     authorize: () => Promise.reject(new Error('governance database unavailable')),
@@ -490,7 +490,7 @@ test('Governance ตอบไม่ได้ fail closed โดยไม่จ�
   );
 });
 
-test('Governance BLOCK/DEFER/REVIEW หยุดก่อน provider boundary ทุกผล', async (t) => {
+test('Governance BLOCK/DEFER/REVIEW stops before the provider boundary for every result', async (t) => {
   const f = await fixture(t);
   const gate = await openScopedGate(f);
   for (const [decision, expected] of [
@@ -511,7 +511,7 @@ test('Governance BLOCK/DEFER/REVIEW หยุดก่อน provider boundary �
 
     assert.equal(await barrier.originateCampaignTarget(f.tenantId, target.id, 'c1'), expected);
     assert.equal(await barrier.originateCallback(f.tenantId, callback.id, 'c2'), expected);
-    assert.equal(transport.calls, 0, `${decision} ต้องไม่ถึง transport`);
+    assert.equal(transport.calls, 0, `${decision} must not reach the transport`);
     assert.equal(
       (await f.owner.obCampaignTarget.findUniqueOrThrow({ where: { id: target.id } })).state,
       'DEFERRED',
@@ -525,7 +525,7 @@ test('Governance BLOCK/DEFER/REVIEW หยุดก่อน provider boundary �
   }
 });
 
-test('reservation ที่ถูก invalidate ระหว่างจองกับ claim ถอยกลับโดยไม่มี provider I/O', async (t) => {
+test('a reservation invalidated between reserving and claiming rolls back without provider I/O', async (t) => {
   const f = await fixture(t);
   const { port, calls } = scriptedGovernance(new ContactGovernanceService(f.application), {
     claim: () => Promise.reject(new ReservationBindingError('RESERVATION_NOT_RESERVED')),
@@ -555,7 +555,11 @@ test('reservation ที่ถูก invalidate ระหว่างจอง�
     where: { id: target.id },
   });
   assert.equal(settledTarget.state, 'DEFERRED');
-  assert.equal(settledTarget.originateLeaseExpiresAt, null, 'ห้ามค้าง ORIGINATING ให้ sweeper');
+  assert.equal(
+    settledTarget.originateLeaseExpiresAt,
+    null,
+    'must not leave ORIGINATING for the sweeper',
+  );
   const settledCallback = await f.owner.obCallback.findUniqueOrThrow({
     where: { id: callback.id },
   });
@@ -563,7 +567,7 @@ test('reservation ที่ถูก invalidate ระหว่างจอง�
   assert.equal(settledCallback.originateLeaseExpiresAt, null);
 });
 
-test('CG4 scoped kill switch ของ Governance มีผลเหนือ Dialer originate แม้ gate ของ Dialer เปิดอยู่', async (t) => {
+test('the CG4 scoped kill switch of Governance overrides Dialer originate even when the Dialer gate is open', async (t) => {
   const f = await fixture(t);
   await f.owner.cg4ScopeKillSwitch.create({
     data: {

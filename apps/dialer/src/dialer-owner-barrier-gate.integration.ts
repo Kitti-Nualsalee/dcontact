@@ -1,6 +1,6 @@
 /**
- * J2.9 (#137) — rollout gate ของ originate barrier ต้อง durable: แชร์ข้าม instance, อยู่รอดหลัง restart,
- * maker-checker จริง, kill ยกเลิกไม่ได้ และ audit เป็น append-only — ทั้งในโค้ดและที่ฐานข้อมูล
+ * J2.9 (#137) — the rollout gate of the originate barrier must be durable: shared across instances, survives restart,
+ * a real maker-checker, kill cannot be undone, and the audit is append-only — both in code and in the database
  */
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -48,7 +48,7 @@ async function fixture(t: TestContext) {
   return { owner, application, tenantId, gate: new DialerOwnerBarrierGate(application) };
 }
 
-test('gate เริ่มที่ DISABLED และเลื่อนได้ทีละขั้นผ่าน maker-checker ที่เป็นคนละคน', async (t) => {
+test('the gate starts at DISABLED and advances one step at a time through a maker-checker of two different people', async (t) => {
   const f = await fixture(t);
   assert.equal(await f.gate.currentState(f.tenantId), 'DISABLED');
 
@@ -57,7 +57,7 @@ test('gate เริ่มที่ DISABLED และเลื่อนได�
     assert.notEqual(
       await f.gate.currentState(f.tenantId),
       state,
-      'propose ยังไม่มีผลจนกว่าจะอนุมัติ',
+      'a proposal has no effect until it is approved',
     );
     await f.gate.approve(f.tenantId, compliance);
     assert.equal(await f.gate.currentState(f.tenantId), state);
@@ -77,7 +77,7 @@ test('gate เริ่มที่ DISABLED และเลื่อนได�
   );
 });
 
-test('ข้ามขั้น, role ไม่ตรง และอนุมัติคำเสนอของตัวเองถูกปฏิเสธ', async (t) => {
+test('skipping a step, a wrong role and approving your own proposal are rejected', async (t) => {
   const f = await fixture(t);
   await assert.rejects(
     () => f.gate.propose(f.tenantId, admin, 'OWNER_CONFORMANCE'),
@@ -100,7 +100,7 @@ test('ข้ามขั้น, role ไม่ตรง และอนุมั
   assert.equal(await f.gate.currentState(f.tenantId), 'DISABLED');
 });
 
-test('kill บน instance หนึ่งมีผลกับทุก instance, อยู่รอดหลัง restart และยกเลิกไม่ได้', async (t) => {
+test('a kill on one instance takes effect on every instance, survives restart and cannot be undone', async (t) => {
   const f = await fixture(t);
   await f.gate.propose(f.tenantId, admin, 'SHADOW_RECEIPT');
   await f.gate.approve(f.tenantId, compliance);
@@ -110,10 +110,10 @@ test('kill บน instance หนึ่งมีผลกับทุก instanc
     operator,
     'PROVIDER_TRAFFIC_DETECTED',
   );
-  // kill ซ้ำด้วย trigger อื่นไม่เขียนทับเหตุแรก
+  // A repeated kill with another trigger does not overwrite the first cause
   await f.gate.systemKill(f.tenantId, 'RESERVATION_REUSE');
 
-  // client ใหม่ทั้งตัว = process ที่เพิ่ง restart
+  // A brand-new client = a process that just restarted
   const restarted = new PrismaClient({ datasources: { db: { url: APPLICATION_DATABASE_URL } } });
   t.after(() => restarted.$disconnect());
   const afterRestart = new DialerOwnerBarrierGate(restarted);
@@ -128,7 +128,7 @@ test('kill บน instance หนึ่งมีผลกับทุก instanc
     DialerGateAuthorizationError,
   );
 
-  // ฐานข้อมูลปฏิเสธการยก kill แม้เขียนตรงด้วย application role
+  // The database rejects lifting a kill even when written directly with the application role
   await assert.rejects(() =>
     withTenantDatabaseTransaction(f.application, f.tenantId, (transaction) =>
       transaction.obOriginateRollout.update({
@@ -144,7 +144,7 @@ test('kill บน instance หนึ่งมีผลกับทุก instanc
   );
 });
 
-test('ฐานข้อมูลบังคับ state เดินหน้าทีละขั้น และ audit แก้ย้อนหลังหรือลบไม่ได้', async (t) => {
+test('the database enforces state advancing one step at a time, and the audit cannot be edited retroactively or deleted', async (t) => {
   const f = await fixture(t);
   await f.gate.propose(f.tenantId, admin, 'SHADOW_RECEIPT');
   await f.gate.approve(f.tenantId, compliance);
@@ -156,8 +156,8 @@ test('ฐานข้อมูลบังคับ state เดินหน้�
         data: { ...data, version: { increment: 1 } },
       }),
     );
-  await assert.rejects(() => write({ state: 'DISABLED' }), 'ย้อน state ไม่ได้');
-  await assert.rejects(() => write({ state: 'SCOPED_INTERNAL_ENABLED' }), 'ข้ามขั้นไม่ได้');
+  await assert.rejects(() => write({ state: 'DISABLED' }), 'cannot move state backwards');
+  await assert.rejects(() => write({ state: 'SCOPED_INTERNAL_ENABLED' }), 'cannot skip a step');
 
   await assert.rejects(() =>
     withTenantDatabaseTransaction(f.application, f.tenantId, (transaction) =>
@@ -175,7 +175,7 @@ test('ฐานข้อมูลบังคับ state เดินหน้�
   assert.equal((await f.gate.auditFor(f.tenantId)).length, 2);
 });
 
-test('state, allowlist และ audit แยกต่อ tenant', async (t) => {
+test('state, allowlist and audit are separate per tenant', async (t) => {
   const f = await fixture(t);
   const other = await tenant(f.owner, t);
   const campaignId = randomUUID();
@@ -189,14 +189,14 @@ test('state, allowlist และ audit แยกต่อ tenant', async (t) => 
   assert.equal(await f.gate.isScopeAllowed(other, 'CAMPAIGN', campaignId), false);
   assert.equal(await f.gate.isScopeAllowed(f.tenantId, 'CAMPAIGN', campaignId), true);
   assert.deepEqual(await f.gate.auditFor(other), []);
-  // RLS: context ของ tenant อื่นมองไม่เห็นแถวของ tenant นี้
+  // RLS: the context of another tenant cannot see this tenant rows
   const leaked = await withTenantDatabaseTransaction(f.application, other, (transaction) =>
     transaction.obOriginateRollout.count({ where: { tenantId: f.tenantId } }),
   );
   assert.equal(leaked, 0);
 });
 
-test('allowlist: Compliance เพิ่ม scope ได้ Platform Operator ถอนได้ทันที', async (t) => {
+test('allowlist: Compliance can add a scope and Platform Operator can revoke it immediately', async (t) => {
   const f = await fixture(t);
   const queueId = randomUUID();
 

@@ -1,19 +1,19 @@
 /**
- * J2.9 — rollout gate ของ Dialer originate barrier (maker-checker/kill-switch shape เดียวกับ
- * `apps/delivery/src/line-rollout-gate.ts` แต่ scoped ต่อ tenant)
+ * J2.9 — the rollout gate of the Dialer originate barrier (same maker-checker/kill-switch shape as
+ * `apps/delivery/src/line-rollout-gate.ts` but scoped per tenant)
  *
- * Gate ตัดสินว่า "เปิดสถานีทำงานได้แค่ไหน" แยกจาก `DialerOriginateBarrier` ที่ตัดสินว่า
- * "originate ใบนี้ไปถึงไหนแล้ว" ทุก state ไม่มี provider I/O จริง — ต่างกันที่ barrier เดินไปได้ไกลแค่ไหน:
+ * The gate decides "how far the station may be opened", separate from `DialerOriginateBarrier`, which decides
+ * "how far this originate has progressed". No state has real provider I/O — they differ in how far the barrier may go:
  *
- * - `SHADOW_RECEIPT` ตรวจ current scope แล้วหยุด
- * - `OWNER_CONFORMANCE` ตรวจเงื่อนไขฝั่ง owner ครบแล้วหยุดก่อนจอง Governance reservation
- * - `SCOPED_INTERNAL_ENABLED` จอง reservation + TEST_ADAPTER originate เฉพาะ campaign/queue ใน allowlist
+ * - `SHADOW_RECEIPT` checks the current scope and stops
+ * - `OWNER_CONFORMANCE` checks every owner-side condition then stops before reserving a Governance reservation
+ * - `SCOPED_INTERNAL_ENABLED` reserves a reservation + TEST_ADAPTER originates only campaigns/queues in the allowlist
  *
- * J2.9 (#137) ย้าย state/kill/audit มาไว้ใน `ob_originate_rollout_*` แทน `Map` ในหน่วยความจำ — kill ที่
- * สั่งบน instance หนึ่งต้องหยุดทุก instance และไม่หายตอน restart ฐานข้อมูลบังคับซ้ำด้วย trigger ว่า state
- * เดินหน้าทีละขั้น kill ยกเลิกไม่ได้ (J2 ไม่มีสิทธิ์ยก kill switch ตาม #124) และ audit เป็น append-only
+ * J2.9 (#137) moves state/kill/audit into `ob_originate_rollout_*` instead of an in-memory `Map` — a kill
+ * issued on one instance must stop every instance and survive a restart. The database also enforces with triggers that state
+ * advances one step at a time, a kill cannot be undone (J2 has no authority to lift a kill switch per #124) and the audit is append-only.
  *
- * นี่คือ development rollout authority model ไม่ใช่ production release API หรือ IAM จริง
+ * This is a development rollout authority model, not a production release API or real IAM.
  */
 import {
   Prisma,
@@ -44,7 +44,7 @@ export class DialerGateAuthorizationError extends Error {
     readonly actorRole: DialerActorRole,
     readonly action: string,
   ) {
-    super(`actor role ${actorRole} ไม่มีสิทธิ ${action}`);
+    super(`actor role ${actorRole} is not allowed to ${action}`);
     this.name = 'DialerGateAuthorizationError';
   }
 }
@@ -55,23 +55,23 @@ export class DialerGateInvalidTransitionError extends Error {
     readonly from: DialerBarrierEffectiveState,
     readonly to: DialerBarrierBusinessState,
   ) {
-    super(`เลื่อน gate ทีละขั้นเท่านั้น: ${from} -> ${to}`);
+    super(`the gate may only advance one step at a time: ${from} -> ${to}`);
     this.name = 'DialerGateInvalidTransitionError';
   }
 }
 
-/** maker-checker: คนเสนอกับคนอนุมัติต้องเป็นคนละคน ไม่ใช่แค่คนละ role */
+/** maker-checker: the proposer and the approver must be different people, not merely different roles */
 export class DialerGateSelfApprovalError extends Error {
   readonly code = 'DIALER_GATE_SELF_APPROVAL';
   constructor() {
-    super('ผู้อนุมัติต้องไม่ใช่ผู้เสนอ');
+    super('the approver must not be the proposer');
     this.name = 'DialerGateSelfApprovalError';
   }
 }
 
 export interface DialerGateActor {
   role: DialerActorRole;
-  /** opaque reference ของผู้กระทำ (เช่น user id) — ใช้แยก maker/checker และลง audit */
+  /** Opaque reference of the actor (e.g. a user id) — used to separate maker/checker and written to the audit */
   ref: string;
 }
 
@@ -102,7 +102,7 @@ export class DialerOwnerBarrierGate {
     return withTenantDatabaseTransaction(this.database, tenantId, work);
   }
 
-  /** ล็อกแถวของ tenant (สร้างเป็น DISABLED ถ้ายังไม่มี) — การเปลี่ยน state ทุกทางผ่านจุดนี้ */
+  /** Locks the tenant row (created as DISABLED if missing) — every state change goes through here */
   private async lockedState(transaction: Transaction, tenantId: string) {
     await transaction.$queryRaw(
       Prisma.sql`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${`ob-originate-rollout:${tenantId}`}))`,
@@ -123,7 +123,7 @@ export class DialerOwnerBarrierGate {
     return transaction.obOriginateRolloutAudit.create({ data: { tenantId, ...entry } });
   }
 
-  /** effective state: KILLED ชนะทุก state เสมอ; tenant ที่ไม่มีแถวคือ DISABLED (fail closed) */
+  /** Effective state: KILLED always wins over every state; a tenant without a row is DISABLED (fail closed) */
   async currentState(tenantId: string): Promise<DialerBarrierEffectiveState> {
     const row = await this.run(tenantId, (transaction) =>
       transaction.obOriginateRollout.findUnique({
@@ -206,7 +206,7 @@ export class DialerOwnerBarrierGate {
     });
   }
 
-  /** kill ใช้ได้ทั้ง Compliance และ Platform Operator; ชนะทุก state ทันทีไม่ต้องรออีกฝ่าย */
+  /** kill may be used by both Compliance and Platform Operator; it wins over every state at once without waiting for the other party */
   async kill(
     tenantId: string,
     actor: DialerGateActor,
@@ -218,7 +218,7 @@ export class DialerOwnerBarrierGate {
     await this.killAs(tenantId, actor, trigger, trigger);
   }
 
-  /** kill ที่ระบบ trigger เอง (เช่น negative scan ล้มเหลว) ไม่ใช่คำสั่งของ actor */
+  /** A kill triggered by the system itself (e.g. a failed negative scan), not an actor command */
   async systemKill(tenantId: string, trigger: DialerBarrierKillTrigger): Promise<void> {
     await this.killAs(
       tenantId,
@@ -236,7 +236,7 @@ export class DialerOwnerBarrierGate {
   ): Promise<void> {
     await this.run(tenantId, async (transaction) => {
       const state = await this.lockedState(transaction, tenantId);
-      // kill ซ้ำเป็น no-op — trigger แรกคือเหตุที่ถูกต้อง ห้ามเขียนทับ
+      // A repeated kill is a no-op — the first trigger is the true cause and must not be overwritten
       if (!state.killed) {
         await transaction.obOriginateRollout.update({
           where: { tenantId },
@@ -260,7 +260,7 @@ export class DialerOwnerBarrierGate {
     });
   }
 
-  /** เพิ่ม scope ที่ SCOPED_INTERNAL_ENABLED originate ได้ — ขยายขอบเขตจึงต้องเป็น Compliance */
+  /** Adds a scope that SCOPED_INTERNAL_ENABLED may originate — widening the scope therefore requires Compliance */
   async allowScope(
     tenantId: string,
     actor: DialerGateActor,
@@ -284,7 +284,7 @@ export class DialerOwnerBarrierGate {
     });
   }
 
-  /** ถอน scope — การลดขอบเขตปลอดภัยเสมอ Compliance หรือ Platform Operator สั่งได้ทันที */
+  /** Revokes a scope — narrowing the scope is always safe; Compliance or Platform Operator can do it immediately */
   async revokeScope(
     tenantId: string,
     actor: DialerGateActor,

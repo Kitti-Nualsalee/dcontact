@@ -1,18 +1,18 @@
 /**
- * J2.8 (#136) — durable receipt ของ Dialer owner command ที่ใช้ร่วมกันทุก command type
+ * J2.8 (#136) — the durable receipt of a Dialer owner command, shared by every command type
  *
- * J2.1 contract ให้ CANCEL_x/SUPERSEDE_x ใช้ actionKey เดิมของ positive effect แต่ commandId
- * ใหม่ receipt จึงเป็นหนึ่งใบต่อ `(tenant, commandId)`:
+ * The J2.1 contract has CANCEL_x/SUPERSEDE_x use the original actionKey of the positive effect but a new commandId,
+ * so a receipt is one per `(tenant, commandId)`:
  *
- * - commandId เดิม + requestHash เดิม → duplicate คืนผลเดิมโดยไม่ตัดสินใหม่
- * - commandId เดิม + requestHash ต่าง → IDEMPOTENCY_CONFLICT
- * - positive command (ADMIT/SCHEDULE) ที่ actionKey เดิมแต่ commandId ใหม่และ hash ต่าง →
- *   IDEMPOTENCY_CONFLICT เช่นกัน (positive effect เดียวกันห้ามถูกขอด้วยเนื้อหาอื่น) ส่วน hash เดิม
- *   ถือเป็น duplicate; cancel/supersede ใบใหม่ของ action เดิมตัดสินใหม่ได้เสมอเพราะ idempotent
- *   ในตัว (ยกเลิกซ้ำได้ผล ALREADY_x ไม่มี effect เพิ่ม)
+ * - same commandId + same requestHash → duplicate, returns the earlier result without deciding again
+ * - same commandId + different requestHash → IDEMPOTENCY_CONFLICT
+ * - positive command (ADMIT/SCHEDULE) with the same actionKey but a new commandId and a different hash →
+ *   IDEMPOTENCY_CONFLICT as well (the same positive effect must not be requested with other content); the same hash
+ *   counts as a duplicate; a new cancel/supersede of the same action can always be decided again because it is idempotent
+ *   by nature (a repeated cancel gives ALREADY_x with no extra effect)
  *
- * ทุก command ของ action เดียวกันถูก serialize ด้วย advisory lock ของ actionKey — cancel ที่มา
- * พร้อม command ต้นเรื่องจึงเห็นผลของต้นเรื่องที่ commit แล้วเสมอ
+ * Every command of the same action is serialized by an advisory lock on the actionKey — a cancel that arrives
+ * together with the originating command therefore always sees the committed result of the originating command
  */
 import { randomUUID } from 'node:crypto';
 import {
@@ -37,7 +37,7 @@ export class DialerCommandHashConflictError extends Error {
   readonly code = 'IDEMPOTENCY_CONFLICT' as const;
 
   constructor(readonly actionKey: string) {
-    super(`Dialer command มีอยู่แล้วด้วย requestHash ต่างกัน: ${actionKey}`);
+    super(`Dialer command already exists with a different requestHash: ${actionKey}`);
     this.name = 'DialerCommandHashConflictError';
   }
 }
@@ -142,7 +142,7 @@ export async function persistDialerCommand<TCommand extends J2DialerOwnerCommand
   };
 }
 
-/** receipt ของ positive command ต้นเรื่องที่ cancel/supersede อ้างถึงด้วย originalActionKey */
+/** The receipt of the originating positive command that cancel/supersede references via originalActionKey */
 export function findPositiveReceipt(
   transaction: Prisma.TransactionClient,
   tenantId: string,
@@ -182,8 +182,8 @@ export function toOwnerResult(row: ObDialerCommandInbox): J2OwnerResultPayloadV1
 }
 
 /**
- * query ด้วย `(actionKey, requestHash)` ตาม `J2OwnerActionQueryV1` — cancel กับ command ต้นเรื่อง
- * ใช้ actionKey เดียวกันแต่ hash ต่างกัน requestHash จึงเป็นตัวแยกว่าถามถึง command ใบไหน
+ * Queries by `(actionKey, requestHash)` per `J2OwnerActionQueryV1` — a cancel and its originating command
+ * share the same actionKey but have different hashes, so requestHash tells which command is being asked about
  */
 export async function queryDialerAction(
   database: PrismaClient,

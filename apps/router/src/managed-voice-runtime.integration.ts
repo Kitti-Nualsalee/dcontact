@@ -455,7 +455,7 @@ test('old writer waiting on an interaction cannot win managed answer CAS', async
     await owner.interactionEvent.count({ where: { tenantId, type: 'interaction.answered' } }),
     1,
   );
-  // #967: ทีมที่รับสายถูกบันทึกครั้งเดียวจากทีมของ Agent ตอนรับสาย
+  // #967: the team that took the call is recorded once, from the team of the Agent at answer time
   const [answeringAgent] = await owner.user.findMany({
     where: { tenantId, id: offer.agentId },
     select: { teamId: true },
