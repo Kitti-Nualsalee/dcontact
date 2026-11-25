@@ -1708,7 +1708,7 @@ function AgentWorkspace({
             <strong>
               {governanceAlert.state === 'READY' ? t('governance.ready') : t('governance.required')}
             </strong>
-            <p>{governanceAlert.message}</p>
+            <p>{t(`governance.alerts.${governanceAlert.messageKey}`)}</p>
           </div>
           {governanceAlert.state !== 'READY' ? (
             <Button onPress={() => setLiveRetry((value) => value + 1)}>

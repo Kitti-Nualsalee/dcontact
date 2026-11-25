@@ -190,10 +190,9 @@ test('flag เปิด → สลับภาษาไม่ reload และ�
 });
 
 /**
- * #588: เมนูผู้ใช้ — ผู้ใช้จำลองของ harness คือ "ผู้ทดสอบ เวิร์กสเปซ" (agent) และนับการออกใน `__signOuts`
+ * #588: user menu — the harness user is "Workspace Tester" (agent); sign-outs are counted in `__signOuts`
  */
-const userMenu = (page: Page) =>
-  page.getByRole('button', { name: 'เมนูผู้ใช้ ผู้ทดสอบ เวิร์กสเปซ' });
+const userMenu = (page: Page) => page.getByRole('button', { name: 'เมนูผู้ใช้ Workspace Tester' });
 const signOuts = (page: Page) =>
   page.evaluate(() => (window as unknown as { __signOuts?: number }).__signOuts ?? 0);
 
@@ -215,7 +214,7 @@ test('flag เปิด → เมนูผู้ใช้แสดงชื่�
   await expect(page.getByRole('button', { name: 'ออกจากระบบ' })).toHaveCount(0);
   await userMenu(page).click();
   await expect(page.getByRole('menu')).toHaveAccessibleName(
-    /ผู้ทดสอบ เวิร์กสเปซ.*workspace-e2e@demo\.example.*องค์กร demo.*เอเจนต์/,
+    /Workspace Tester.*workspace-e2e@demo\.example.*องค์กร demo.*เอเจนต์/,
   );
   // AC5 (#598): "บัญชีของฉัน" เปิด Console ในแท็บใหม่ — Workspace ไม่ remount ระหว่างมีสาย (ADR-026)
   const account = page.getByRole('menuitem', { name: 'บัญชีของฉัน' });

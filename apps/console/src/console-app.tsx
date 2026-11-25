@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from '@d-contact/i18n/react';
 import type { ConsoleApi, QmContext } from './console-api.js';
 
 export function ConsoleApp({ api, contextId }: { api: ConsoleApi; contextId: string }) {
@@ -6,11 +7,12 @@ export function ConsoleApp({ api, contextId }: { api: ConsoleApi; contextId: str
   const [playbackUrl, setPlaybackUrl] = useState<string>();
   const [confirmPublish, setConfirmPublish] = useState(false);
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string>();
+  const { t } = useTranslation('quality');
+  const [error, setError] = useState<'loadFailed' | 'publishFailed'>();
 
   const refresh = async () => setContext(await api.context(contextId));
   useEffect(() => {
-    void refresh().catch(() => setError('เปิด Interaction context ไม่สำเร็จ'));
+    void refresh().catch(() => setError('loadFailed'));
   }, [api, contextId]);
 
   const publish = async () => {
@@ -22,7 +24,7 @@ export function ConsoleApp({ api, contextId }: { api: ConsoleApi; contextId: str
       await api.publish(evaluation.id, crypto.randomUUID());
       await refresh();
     } catch {
-      setError('Publish ไม่สำเร็จ ผลประเมินยังเป็น DRAFT');
+      setError('publishFailed');
     } finally {
       setPending(false);
     }
@@ -31,27 +33,33 @@ export function ConsoleApp({ api, contextId }: { api: ConsoleApi; contextId: str
   return (
     <div className="console-shell">
       <header>
-        <strong>D-CONTACT</strong>
-        <span>Quality Console</span>
+        <strong>{t('interactionReview.brand')}</strong>
+        <span>{t('interactionReview.product')}</span>
       </header>
       <main>
         <div className="heading">
           <div>
-            <p className="eyebrow">RECORDING · TRANSCRIPT · QM</p>
-            <h1>Interaction {context?.interaction.id ?? 'กำลังโหลด'}</h1>
+            <p className="eyebrow">{t('interactionReview.eyebrow')}</p>
+            <h1>
+              {t('interactionReview.heading', {
+                id: context?.interaction.id ?? t('interactionReview.loading'),
+              })}
+            </h1>
           </div>
-          <span className="tenant-chip">{context?.interaction.queueName ?? 'กำลังโหลด'}</span>
+          <span className="tenant-chip">
+            {context?.interaction.queueName ?? t('interactionReview.loading')}
+          </span>
         </div>
         {error ? (
           <p role="alert" className="warning">
-            {error}
+            {t(`interactionReview.errors.${error}`)}
           </p>
         ) : null}
         <section className="review-grid">
           <article className="panel media-panel">
-            <h2>Recording evidence</h2>
+            <h2>{t('interactionReview.recording.title')}</h2>
             {context?.recording?.status === 'DELETED' ? (
-              <p className="warning">ไฟล์เสียงถูกลบตาม retention แล้ว</p>
+              <p className="warning">{t('interactionReview.recording.deleted')}</p>
             ) : context?.recording ? (
               <>
                 <button
@@ -60,21 +68,24 @@ export function ConsoleApp({ api, contextId }: { api: ConsoleApi; contextId: str
                     void api.playback(context.recording!.id).then((p) => setPlaybackUrl(p.url))
                   }
                 >
-                  ขอสิทธิ์ฟัง recording
+                  {t('interactionReview.recording.requestPlayback')}
                 </button>
                 {playbackUrl ? <audio controls src={playbackUrl} /> : null}
                 {context.recording.pauseIntervals.map((gap) => (
                   <div className="pci-gap" key={`${gap.startMs}-${gap.endMs}`}>
-                    ช่วง PCI ไม่มีหลักฐานเสียง · {formatTime(gap.startMs)}–{formatTime(gap.endMs)}
+                    {t('interactionReview.recording.pciGap', {
+                      start: formatTime(gap.startMs),
+                      end: formatTime(gap.endMs),
+                    })}
                   </div>
                 ))}
               </>
             ) : (
-              <p>ไม่พบ recording</p>
+              <p>{t('interactionReview.recording.missing')}</p>
             )}
           </article>
           <article className="panel transcript-panel">
-            <h2>Transcript</h2>
+            <h2>{t('interactionReview.transcript')}</h2>
             {(context?.transcript?.segments ?? []).map((segment) => (
               <div className="segment" key={segment.id}>
                 <span>
@@ -86,12 +97,12 @@ export function ConsoleApp({ api, contextId }: { api: ConsoleApi; contextId: str
           </article>
           <article className="panel evaluation-panel">
             <div className="panel-title">
-              <h2>Evaluation</h2>
+              <h2>{t('interactionReview.evaluation.title')}</h2>
               <strong>{context?.evaluation?.status ?? '—'}</strong>
             </div>
             <p className="score">{context?.evaluation?.answers.score ?? '—'}</p>
             {context?.evaluation?.status === 'DRAFT' ? (
-              <p className="draft-note">AUTO_DRAFT — Agent ยังมองไม่เห็น</p>
+              <p className="draft-note">{t('interactionReview.evaluation.draftNote')}</p>
             ) : null}
             {context?.evaluation?.status === 'DRAFT' ? (
               <button
@@ -99,21 +110,23 @@ export function ConsoleApp({ api, contextId }: { api: ConsoleApi; contextId: str
                 disabled={pending}
                 onClick={() => setConfirmPublish(true)}
               >
-                Publish evaluation
+                {t('interactionReview.evaluation.publish')}
               </button>
             ) : null}
-            {pending ? <p aria-live="polite">กำลังรอ server ยืนยัน</p> : null}
+            {pending ? <p aria-live="polite">{t('interactionReview.evaluation.pending')}</p> : null}
           </article>
         </section>
       </main>
       {confirmPublish ? (
         <section role="dialog" aria-modal="true" className="modal">
           <div>
-            <h2>ยืนยัน Publish evaluation</h2>
-            <p>Agent จะเห็นผลประเมินนี้ และการเผยแพร่จะถูกบันทึกใน audit log</p>
-            <button onClick={() => setConfirmPublish(false)}>ยกเลิก</button>
+            <h2>{t('interactionReview.confirm.title')}</h2>
+            <p>{t('interactionReview.confirm.detail')}</p>
+            <button onClick={() => setConfirmPublish(false)}>
+              {t('interactionReview.confirm.cancel')}
+            </button>
             <button className="primary" onClick={() => void publish()}>
-              ยืนยัน Publish
+              {t('interactionReview.confirm.action')}
             </button>
           </div>
         </section>

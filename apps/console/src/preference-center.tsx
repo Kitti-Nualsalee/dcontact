@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from '@d-contact/i18n/react';
 import {
   ConsoleApiError,
   type CallbackRequestInput,
@@ -9,6 +10,24 @@ import {
 } from './console-api.js';
 
 type Viewer = 'AGENT' | 'ADMIN' | 'COMPLIANCE';
+
+/** Kept as a key so the text follows a language switch. */
+interface Message {
+  key:
+    | 'loadFailed'
+    | 'agentCannotAllow'
+    | 'timezoneUnknown'
+    | 'saved'
+    | 'versionConflict'
+    | 'relaxationNotAuthorized'
+    | 'saveFailed'
+    | 'callbackMissing'
+    | 'callbackCreated'
+    | 'callbackConflict'
+    | 'callbackFailed'
+    | 'reloadFailed';
+  values?: Record<string, string | number>;
+}
 
 const channels: ContactChannel[] = ['LINE', 'EMAIL', 'VOICE', 'WEBCHAT', 'FACEBOOK', 'WHATSAPP'];
 const purposes = ['SERVICE_NOTIFICATION', 'MARKETING', 'ACCOUNT_SECURITY'];
@@ -22,6 +41,7 @@ export function PreferenceCenter({
   contactId: string;
   viewer: Viewer;
 }) {
+  const { t, i18n } = useTranslation('governance');
   const [history, setHistory] = useState<PreferenceHistory>();
   const [channel, setChannel] = useState<ContactChannel>('LINE');
   const [purpose, setPurpose] = useState('SERVICE_NOTIFICATION');
@@ -37,8 +57,8 @@ export function PreferenceCenter({
   }>();
   const [pending, setPending] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  const [notice, setNotice] = useState<string>();
-  const [error, setError] = useState<string>();
+  const [notice, setNotice] = useState<Message>();
+  const [error, setError] = useState<Message>();
   const [callbackAt, setCallbackAt] = useState('');
 
   const refresh = async () => {
@@ -51,7 +71,7 @@ export function PreferenceCenter({
   };
 
   useEffect(() => {
-    void refresh().catch(() => setError('โหลด canonical preference ไม่สำเร็จ โปรดลองใหม่'));
+    void refresh().catch(() => setError({ key: 'loadFailed' }));
   }, [api, contactId, channel, purpose]);
 
   const version = history?.aggregateVersion ?? effective?.version ?? 0;
@@ -64,13 +84,11 @@ export function PreferenceCenter({
 
   async function savePreference() {
     if (cannotAllow) {
-      setError('Agent ทำให้ข้อกำหนดเข้มขึ้นได้เท่านั้น จึงไม่สามารถตั้ง ALLOW ได้');
+      setError({ key: 'agentCannotAllow' });
       return;
     }
     if (timezoneUnknown) {
-      setError(
-        'ยังไม่ทราบ Timezone: เลือกหรือยืนยัน Timezone ก่อน เพื่อให้ระบบ fail-closed ได้ถูกต้อง',
-      );
+      setError({ key: 'timezoneUnknown' });
       return;
     }
     setPending(true);
@@ -90,22 +108,18 @@ export function PreferenceCenter({
         expectedVersion: callbackVersion,
         commandId: crypto.randomUUID(),
       });
-      setNotice(
-        `บันทึก canonical version ${result.aggregateVersion} แล้ว ระบบจะระงับ outbound ใหม่จน consumer ยืนยันการกระจายผล`,
-      );
+      setNotice({ key: 'saved', values: { version: result.aggregateVersion } });
       await refresh();
     } catch (caught) {
       if (caught instanceof ConsoleApiError && caught.code === 'VERSION_CONFLICT') {
-        setError(
-          'ข้อมูลถูกเปลี่ยนจากที่อื่นแล้ว กรุณาโหลด canonical version ล่าสุดก่อนส่งอีกครั้ง',
-        );
+        setError({ key: 'versionConflict' });
       } else if (
         caught instanceof ConsoleApiError &&
         caught.code === 'PREFERENCE_RELAXATION_NOT_AUTHORIZED'
       ) {
-        setError('สิทธิ์ปัจจุบันไม่อนุญาตให้ผ่อนข้อกำหนดนี้');
+        setError({ key: 'relaxationNotAuthorized' });
       } else {
-        setError('บันทึก preference ไม่สำเร็จ ข้อมูลเดิมยังไม่ถูกแทนที่');
+        setError({ key: 'saveFailed' });
       }
     } finally {
       setPending(false);
@@ -114,7 +128,7 @@ export function PreferenceCenter({
 
   async function requestCallback() {
     if (!callbackAt || timezoneUnknown) {
-      setError('ระบุเวลาติดต่อกลับและ Timezone ก่อนส่งคำขอ');
+      setError({ key: 'callbackMissing' });
       return;
     }
     setPending(true);
@@ -133,14 +147,15 @@ export function PreferenceCenter({
         commandId: crypto.randomUUID(),
       };
       await api.requestCallback(input);
-      setNotice('สร้างคำขอติดต่อกลับแบบมีขอบเขตแล้ว ระบบยังคงตรวจ policy และเวลาเมื่อจะส่งจริง');
+      setNotice({ key: 'callbackCreated' });
       await refresh();
     } catch (caught) {
-      setError(
-        caught instanceof ConsoleApiError && caught.code === 'VERSION_CONFLICT'
-          ? 'ข้อมูลถูกเปลี่ยนแล้ว กรุณาโหลด version ล่าสุดก่อนส่งคำขออีกครั้ง'
-          : 'สร้างคำขอติดต่อกลับไม่สำเร็จ',
-      );
+      setError({
+        key:
+          caught instanceof ConsoleApiError && caught.code === 'VERSION_CONFLICT'
+            ? 'callbackConflict'
+            : 'callbackFailed',
+      });
     } finally {
       setPending(false);
     }
@@ -152,8 +167,11 @@ export function PreferenceCenter({
       decision: record.decision ?? 'DEFER',
       title:
         record.mutationKind === 'REVOKE'
-          ? 'ยกเลิก preference'
-          : `${record.channel ?? 'ทุกช่องทาง'} / ${record.purpose ?? 'ทุกวัตถุประสงค์'}`,
+          ? t('preferenceCenter.history.revoked')
+          : t('preferenceCenter.history.scope', {
+              channel: record.channel ?? t('preferenceCenter.history.allChannels'),
+              purpose: record.purpose ?? t('preferenceCenter.history.allPurposes'),
+            }),
       at: record.occurredAt,
       version: record.version,
       actorClass: record.actorClass,
@@ -162,7 +180,10 @@ export function PreferenceCenter({
     ...(history?.callbacks ?? []).map((callback) => ({
       id: `callback-${callback.id}`,
       decision: 'DEFER' as PreferenceDecision,
-      title: `ขอให้ติดต่อกลับ ${callback.channel} / ${callback.purpose}`,
+      title: t('preferenceCenter.history.callback', {
+        channel: callback.channel,
+        purpose: callback.purpose,
+      }),
       at: callback.requestedAt,
       version: callback.version,
       actorClass: callback.actorClass,
@@ -173,46 +194,47 @@ export function PreferenceCenter({
   return (
     <div className="preference-shell">
       <header className="preference-header">
-        <strong>D-CONTACT</strong>
-        <span>Preference Center</span>
-        <span className="preference-version">canonical v{version}</span>
+        <strong>{t('preferenceCenter.brand')}</strong>
+        <span>{t('preferenceCenter.product')}</span>
+        <span className="preference-version">{t('preferenceCenter.version', { version })}</span>
       </header>
       <main className="preference-main">
         <div className="preference-heading">
           <div>
-            <p className="eyebrow">CONTACT GOVERNANCE</p>
-            <h1>ตั้งค่าการติดต่อ</h1>
-            <p>การเปลี่ยนแปลงจะบันทึกเป็น version ใหม่ ไม่แก้ไขประวัติเดิม</p>
+            <p className="eyebrow">{t('preferenceCenter.eyebrow')}</p>
+            <h1>{t('preferenceCenter.title')}</h1>
+            <p>{t('preferenceCenter.subtitle')}</p>
           </div>
           <span className="tenant-chip">{viewer}</span>
         </div>
 
         <section className="governance-status" aria-live="polite">
-          <strong>ผลที่มีผลอยู่: {effective?.decision ?? 'กำลังตรวจสอบ'}</strong>
-          <span>
-            {effective?.reason ??
-              'ALLOW หมายถึงผ่าน preference gate เท่านั้น ไม่ใช่ consent และไม่ลบล้าง hard restriction'}
-          </span>
+          <strong>
+            {t('preferenceCenter.effective', {
+              decision: effective?.decision ?? t('preferenceCenter.checking'),
+            })}
+          </strong>
+          <span>{effective?.reason ?? t('preferenceCenter.allowMeaning')}</span>
         </section>
         {notice ? (
           <p className="governance-notice" role="status">
-            {notice}
+            {t(`preferenceCenter.messages.${notice.key}`, notice.values)}
           </p>
         ) : null}
         {error ? (
           <p className="warning" role="alert">
-            {error}
+            {t(`preferenceCenter.messages.${error.key}`, error.values)}
           </p>
         ) : null}
 
         <div className="preference-grid">
           <section className="panel preference-form" aria-labelledby="preference-form-title">
             <div className="panel-title">
-              <h2 id="preference-form-title">การตั้งค่าที่ต้องการ</h2>
+              <h2 id="preference-form-title">{t('preferenceCenter.form.title')}</h2>
               <Decision decision={decision} />
             </div>
             <label>
-              ช่องทาง
+              {t('preferenceCenter.form.channel')}
               <select
                 value={channel}
                 onChange={(event) => setChannel(event.target.value as ContactChannel)}
@@ -223,7 +245,7 @@ export function PreferenceCenter({
               </select>
             </label>
             <label>
-              วัตถุประสงค์
+              {t('preferenceCenter.form.purpose')}
               <select value={purpose} onChange={(event) => setPurpose(event.target.value)}>
                 {purposes.map((item) => (
                   <option key={item}>{item}</option>
@@ -231,7 +253,7 @@ export function PreferenceCenter({
               </select>
             </label>
             <fieldset>
-              <legend>การตัดสินใจ</legend>
+              <legend>{t('preferenceCenter.form.decision')}</legend>
               <div className="decision-options">
                 {(['BLOCK', 'DEFER', 'ALLOW'] as PreferenceDecision[]).map((item) => (
                   <label key={item} className={'decision-option ' + item.toLowerCase()}>
@@ -247,17 +269,13 @@ export function PreferenceCenter({
               </div>
             </fieldset>
             {viewer === 'AGENT' ? (
-              <p className="field-note">
-                Agent เลือก BLOCK หรือ DEFER ได้; การผ่อนเป็น ALLOW จะถูกปฏิเสธ
-              </p>
+              <p className="field-note">{t('preferenceCenter.form.agentNote')}</p>
             ) : (
-              <p className="field-note">
-                ALLOW ไม่ใช่ consent และยังอยู่ใต้ hard restriction, revocation และ policy เสมอ
-              </p>
+              <p className="field-note">{t('preferenceCenter.form.allowNote')}</p>
             )}
             <div className="form-row">
               <label>
-                Timezone
+                {t('preferenceCenter.form.timezone')}
                 <input
                   value={timezone}
                   onChange={(event) => setTimezone(event.target.value)}
@@ -265,7 +283,7 @@ export function PreferenceCenter({
                 />
               </label>
               <label>
-                เริ่มเวลา
+                {t('preferenceCenter.form.windowStart')}
                 <input
                   type="time"
                   value={windowStart}
@@ -273,7 +291,7 @@ export function PreferenceCenter({
                 />
               </label>
               <label>
-                สิ้นสุด
+                {t('preferenceCenter.form.windowEnd')}
                 <input
                   type="time"
                   value={windowEnd}
@@ -282,10 +300,10 @@ export function PreferenceCenter({
               </label>
             </div>
             <p id="timezone-note" className="field-note">
-              หากไม่ทราบ Timezone ระบบจะไม่ส่ง outbound และจะแสดงทางแก้ไขนี้
+              {t('preferenceCenter.form.timezoneNote')}
             </p>
             <label>
-              หลักฐานอ้างอิง
+              {t('preferenceCenter.form.evidence')}
               <input value={evidenceRef} onChange={(event) => setEvidenceRef(event.target.value)} />
             </label>
             <button
@@ -293,18 +311,16 @@ export function PreferenceCenter({
               disabled={pending || cannotAllow}
               onClick={() => void savePreference()}
             >
-              {pending ? 'กำลังบันทึก…' : 'บันทึก preference ใหม่'}
+              {pending ? t('preferenceCenter.form.saving') : t('preferenceCenter.form.save')}
             </button>
           </section>
 
           <aside className="preference-side">
             <section className="panel" aria-labelledby="callback-title">
-              <h2 id="callback-title">ขอให้ติดต่อกลับ</h2>
-              <p className="field-note">
-                เป็นคำขอแบบมีขอบเขต ไม่ข้าม consent หรือ hard restriction
-              </p>
+              <h2 id="callback-title">{t('preferenceCenter.callback.title')}</h2>
+              <p className="field-note">{t('preferenceCenter.callback.note')}</p>
               <label>
-                วันและเวลา
+                {t('preferenceCenter.callback.at')}
                 <input
                   type="datetime-local"
                   value={callbackAt}
@@ -316,22 +332,18 @@ export function PreferenceCenter({
                 disabled={pending}
                 onClick={() => void requestCallback()}
               >
-                ส่งคำขอติดต่อกลับ
+                {t('preferenceCenter.callback.submit')}
               </button>
             </section>
             <section className="panel">
-              <h2>สถานะการกระจายผล</h2>
-              <p className="field-note">
-                หลัง mutation ใหม่ Workspace จะบล็อก outbound ถัดไปจนได้ state ที่ยืนยันแล้ว
-              </p>
+              <h2>{t('preferenceCenter.propagation.title')}</h2>
+              <p className="field-note">{t('preferenceCenter.propagation.note')}</p>
               <button
                 className="secondary"
                 disabled={pending}
-                onClick={() =>
-                  void refresh().catch(() => setError('โหลด canonical version ไม่สำเร็จ'))
-                }
+                onClick={() => void refresh().catch(() => setError({ key: 'reloadFailed' }))}
               >
-                โหลด version ล่าสุด
+                {t('preferenceCenter.propagation.reload')}
               </button>
             </section>
           </aside>
@@ -340,10 +352,10 @@ export function PreferenceCenter({
         <section className="panel preference-history" aria-labelledby="preference-history-title">
           <div className="panel-title">
             <div>
-              <p className="eyebrow">READ-ONLY</p>
-              <h2 id="preference-history-title">ประวัติการเปลี่ยนแปลง</h2>
+              <p className="eyebrow">{t('preferenceCenter.history.eyebrow')}</p>
+              <h2 id="preference-history-title">{t('preferenceCenter.history.title')}</h2>
             </div>
-            <span>{historyEntries.length} รายการ</span>
+            <span>{t('preferenceCenter.history.count', { count: historyEntries.length })}</span>
           </div>
           <ol>
             {visibleHistory.map((entry) => (
@@ -352,15 +364,18 @@ export function PreferenceCenter({
                 <div>
                   <strong>{entry.title}</strong>
                   <span>
-                    v{entry.version} ·{' '}
-                    {new Intl.DateTimeFormat('th-TH', {
+                    {t('preferenceCenter.history.versionPrefix', { version: entry.version })}{' '}
+                    {new Intl.DateTimeFormat(i18n.language === 'en' ? 'en-GB' : 'th-TH', {
                       dateStyle: 'medium',
                       timeStyle: 'short',
                     }).format(new Date(entry.at))}
                   </span>
                 </div>
                 <small>
-                  ผู้ดำเนินการ: {actorLabel(entry.actorClass)} · ผล: {entry.outcome}
+                  {t('preferenceCenter.history.actor', {
+                    actor: t(`preferenceCenter.actors.${actorKey(entry.actorClass)}`),
+                    outcome: entry.outcome,
+                  })}
                 </small>
               </li>
             ))}
@@ -371,7 +386,9 @@ export function PreferenceCenter({
               aria-expanded={expanded}
               onClick={() => setExpanded(!expanded)}
             >
-              {expanded ? 'แสดง 3 รายการล่าสุด' : 'ขยายประวัติทั้งหมด'}
+              {expanded
+                ? t('preferenceCenter.history.collapse')
+                : t('preferenceCenter.history.expand')}
             </button>
           ) : null}
         </section>
@@ -383,12 +400,12 @@ export function PreferenceCenter({
 function Decision({ decision }: { decision: PreferenceDecision }) {
   return <span className={'decision-badge ' + decision.toLowerCase()}>{decision}</span>;
 }
-function actorLabel(actor: string) {
+function actorKey(actor: string): 'agent' | 'admin' | 'compliance' | 'system' {
   return actor === 'AGENT'
-    ? 'เจ้าหน้าที่'
+    ? 'agent'
     : actor === 'ADMIN'
-      ? 'ผู้ดูแล tenant'
+      ? 'admin'
       : actor === 'COMPLIANCE'
-        ? 'Compliance'
-        : 'ระบบ';
+        ? 'compliance'
+        : 'system';
 }

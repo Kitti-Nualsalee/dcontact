@@ -25,7 +25,11 @@
     "skipToContent": "Skip to content",
     "opensInNewTab": "(opens in a new tab)",
     "breadcrumb": "Current location",
-    "language": "Language"
+    "language": "Language",
+    "languageNames": {
+      "th": "ไทย",
+      "en": "English"
+    }
   },
   "launcher": {
     "title": "D-Contact apps",

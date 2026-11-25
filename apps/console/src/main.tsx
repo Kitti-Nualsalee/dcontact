@@ -76,7 +76,7 @@ function e2eShellUser(tenantAlias: string | undefined) {
     account: {
       user: shellUserFromClaims(
         {
-          name: 'ผู้ทดสอบ คอนโซล',
+          name: 'Console Tester',
           email: 'console-e2e@demo.example',
           realm_access: { roles: ['admin', 'offline_access'] },
         },
@@ -93,6 +93,10 @@ function e2eShellUser(tenantAlias: string | undefined) {
     },
   };
 }
+
+// e2e harness controls are not product UI, so they stay out of the catalog
+const HARNESS_SWITCH_IDENTITY = 'Switch identity fixture';
+const HARNESS_MISSING_CONTEXT = 'missing context';
 
 function HistoryE2eRoot({
   surface = 'history',
@@ -133,7 +137,7 @@ function HistoryE2eRoot({
   return (
     <>
       {url.searchParams.has('identityHarness') ? (
-        <button onClick={() => setIdentity('second')}>Switch identity fixture</button>
+        <button onClick={() => setIdentity('second')}>{HARNESS_SWITCH_IDENTITY}</button>
       ) : null}
       <AuthProvider userManager={manager} skipSigninCallback>
         {QUALITY_APPS.includes(surface as QualityApp) ? (
@@ -448,6 +452,6 @@ function ConsoleE2eRoot() {
   ) : contextId ? (
     <ConsoleApp api={api} contextId={contextId} />
   ) : (
-    <main className="empty">missing context</main>
+    <main className="empty">{HARNESS_MISSING_CONTEXT}</main>
   );
 }

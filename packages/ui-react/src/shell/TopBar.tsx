@@ -85,9 +85,10 @@ export interface LanguageSwitchProps {
 /** สลับ TH/EN ทันทีโดยไม่ reload (D1.5) — ชื่อภาษาแสดงเป็นภาษาของตัวเองเสมอ */
 export function LanguageSwitch({ value, onChange }: LanguageSwitchProps) {
   const t = useUiText();
+  // Each language is named in itself, so both catalogs hold the same names
   const options = [
-    { id: 'th', short: 'TH', name: 'ไทย', lang: 'th' },
-    { id: 'en', short: 'EN', name: 'English', lang: 'en' },
+    { id: 'th', short: 'TH', name: t('shell.languageNames.th'), lang: 'th' },
+    { id: 'en', short: 'EN', name: t('shell.languageNames.en'), lang: 'en' },
   ] as const;
   return (
     <div role="group" aria-label={t('shell.language')} className={styles.language}>

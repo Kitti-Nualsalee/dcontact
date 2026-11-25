@@ -48,10 +48,10 @@ function verifiedTenantContext(
   requireOrganization: boolean,
 ): VerifiedTenantContext {
   if (typeof claims.tenant_id !== 'string' || claims.tenant_id.length === 0) {
-    throw new Error('OIDC token ที่ตรวจสอบแล้วต้องมี tenant_id');
+    throw new Error('verified OIDC token must include tenant_id');
   }
   if (typeof claims.tenant_slug !== 'string' || claims.tenant_slug.length === 0) {
-    throw new Error('OIDC token ที่ตรวจสอบแล้วต้องมี tenant_slug');
+    throw new Error('verified OIDC token must include tenant_slug');
   }
   if (claims.organization === undefined && !requireOrganization) {
     return { tenantId: claims.tenant_id, tenantSlug: claims.tenant_slug };
@@ -61,7 +61,7 @@ function verifiedTenantContext(
     typeof claims.organization !== 'object' ||
     !Object.hasOwn(claims.organization, claims.tenant_slug)
   ) {
-    throw new Error('OIDC token ที่ตรวจสอบแล้วต้องมี Keycloak Organization context ที่ตรงกัน');
+    throw new Error('verified OIDC token must include a matching Keycloak Organization context');
   }
   const organization = (claims.organization as Record<string, unknown>)[claims.tenant_slug];
   const organizationTenantIds =
@@ -69,21 +69,21 @@ function verifiedTenantContext(
       ? (organization as { tenant_id?: unknown }).tenant_id
       : undefined;
   if (!Array.isArray(organizationTenantIds) || organizationTenantIds[0] !== claims.tenant_id) {
-    throw new Error('tenant_id ไม่ตรงกับ Keycloak Organization attribute');
+    throw new Error('tenant_id does not match the Keycloak Organization attribute');
   }
   return { tenantId: claims.tenant_id, tenantSlug: claims.tenant_slug };
 }
 
 function verifiedSecurityContext(claims: VerifiedOidcClaims, now: Date): VerifiedSecurityContext {
   if (typeof claims.exp !== 'number' || !Number.isFinite(claims.exp)) {
-    throw new Error('OIDC token ที่ตรวจสอบแล้วต้องมี exp');
+    throw new Error('verified OIDC token must include exp');
   }
   if (!Array.isArray(claims.realm_access?.roles) || !claims.realm_access.roles.every(isString)) {
-    throw new Error('OIDC token ที่ตรวจสอบแล้วต้องมี realm_access.roles');
+    throw new Error('verified OIDC token must include realm_access.roles');
   }
   const expiresAt = new Date(claims.exp * 1_000);
   if (expiresAt.getTime() <= now.getTime()) {
-    throw new Error('OIDC token ที่ตรวจสอบแล้วหมดอายุ');
+    throw new Error('verified OIDC token has expired');
   }
   return { roles: claims.realm_access.roles, expiresAt };
 }
@@ -100,10 +100,10 @@ export function toVerifiedWorkspaceIdentity(
   const tenant = verifiedTenantContext(claims, false);
   const security = verifiedSecurityContext(claims, now);
   if (typeof claims.dc_user_id !== 'string' || claims.dc_user_id.length === 0) {
-    throw new Error('OIDC token ที่ตรวจสอบแล้วต้องมี dc_user_id');
+    throw new Error('verified OIDC token must include dc_user_id');
   }
   if (typeof claims.sid !== 'string' || claims.sid.length === 0) {
-    throw new Error('OIDC token ที่ตรวจสอบแล้วต้องมี sid');
+    throw new Error('verified OIDC token must include sid');
   }
 
   return {
@@ -123,19 +123,19 @@ export function toVerifiedServiceIdentity(
   const tenant = verifiedTenantContext(claims, true);
   const security = verifiedSecurityContext(claims, now);
   if (claims.dc_user_id !== undefined || claims.sid !== undefined) {
-    throw new Error('service token ที่ตรวจสอบแล้วต้องไม่มี workspace user claims');
+    throw new Error('verified service token must not include workspace user claims');
   }
   if (typeof claims.azp !== 'string' || claims.azp.length === 0) {
-    throw new Error('OIDC service token ที่ตรวจสอบแล้วต้องมี azp');
+    throw new Error('verified OIDC service token must include azp');
   }
   if (claims.preferred_username !== `service-account-${claims.azp}`) {
-    throw new Error('service token ที่ตรวจสอบแล้วต้องเป็น Keycloak service account');
+    throw new Error('verified service token must belong to a Keycloak service account');
   }
   if (typeof claims.sub !== 'string' || claims.sub.length === 0) {
-    throw new Error('OIDC service token ที่ตรวจสอบแล้วต้องมี sub');
+    throw new Error('verified OIDC service token must include sub');
   }
   const scopes = typeof claims.scope === 'string' ? claims.scope.split(/\s+/).filter(Boolean) : [];
-  if (!scopes.every(isString)) throw new Error('OIDC service token scope ไม่ถูกต้อง');
+  if (!scopes.every(isString)) throw new Error('verified OIDC service token has an invalid scope');
   return {
     tenantId: tenant.tenantId,
     clientId: claims.azp,

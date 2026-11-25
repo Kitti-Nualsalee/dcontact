@@ -1,0 +1,54 @@
+{
+  "brand": "D-Phone",
+  "subtitle": "โทรศัพท์สำหรับ Agent Workspace",
+  "audio": "อุปกรณ์เสียง",
+  "micNeeded": "เปิดไมโครโฟนเพื่อเริ่มรับสาย",
+  "micPending": "กำลังรอสิทธิ์ใช้ไมโครโฟน",
+  "micReady": "ไมโครโฟนพร้อม",
+  "micFailed": "เปิดไมโครโฟนไม่สำเร็จ ตรวจสิทธิ์ใน Chrome และลองอีกครั้ง",
+  "enableMic": "เปิดไมโครโฟน",
+  "retryMic": "ลองเปิดไมโครโฟนอีกครั้ง",
+  "enableAudio": "เปิดเสียงสายสนทนา",
+  "audioBlocked": "Chrome พักเสียงสายสนทนาไว้ กดเปิดเสียงเพื่อฟังปลายสาย",
+  "workspace": "กลับไปยัง Workspace",
+  "instructions": "เริ่มใช้งาน",
+  "firstStep": "เปิดไมโครโฟนในแท็บนี้",
+  "secondStep": "กลับไปเชื่อม D-Phone และเปิดรับงานใน Workspace",
+  "thirdStep": "รับสายและวางสายจาก Workspace",
+  "keepOpen": "เปิดแท็บ D-Phone ไว้ขณะรับสาย",
+  "connection": "สถานะการโทร",
+  "languages": {
+    "th": "ไทย",
+    "en": "EN"
+  },
+  "status": {
+    "waiting": {
+      "label": "รอเชื่อมต่อ",
+      "detail": "เชื่อม D-Phone จาก Agent Workspace เมื่อไมโครโฟนพร้อม"
+    },
+    "connecting": {
+      "label": "กำลังเชื่อมต่อ",
+      "detail": "กำลังเตรียม D-Phone ให้พร้อมรับสาย"
+    },
+    "ready": {
+      "label": "โทรศัพท์พร้อม",
+      "detail": "เปิดรับงานจาก Workspace เพื่อเริ่มรับสาย"
+    },
+    "ringing": {
+      "label": "มีสายเรียกเข้า",
+      "detail": "เปิด Workspace เพื่อรับสาย"
+    },
+    "active": {
+      "label": "กำลังสนทนา",
+      "detail": "เสียงสายสนทนาอยู่ใน D-Phone วางสายจาก Workspace"
+    },
+    "lost": {
+      "label": "การเชื่อมต่อขาดหาย",
+      "detail": "ตรวจสถานะใน Workspace แล้วลองเชื่อม D-Phone อีกครั้ง"
+    },
+    "duplicate": {
+      "label": "D-Phone เปิดอยู่แล้ว",
+      "detail": "กลับไปใช้แท็บ D-Phone ที่เปิดอยู่"
+    }
+  }
+}

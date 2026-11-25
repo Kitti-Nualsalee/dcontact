@@ -256,5 +256,36 @@
       "body_one": "Its {{count}} question will be removed too (undo by leaving without saving).",
       "body_other": "Its {{count}} questions will be removed too (undo by leaving without saving)."
     }
+  },
+  "interactionReview": {
+    "brand": "D-CONTACT",
+    "product": "Quality Console",
+    "eyebrow": "RECORDING · TRANSCRIPT · QM",
+    "heading": "Interaction {{id}}",
+    "loading": "Loading…",
+    "errors": {
+      "loadFailed": "Could not open the Interaction context",
+      "publishFailed": "Publish failed. The evaluation is still a DRAFT"
+    },
+    "recording": {
+      "title": "Recording evidence",
+      "deleted": "The audio file was deleted under the retention policy",
+      "requestPlayback": "Request access to the recording",
+      "pciGap": "PCI pause, no audio evidence · {{start}}–{{end}}",
+      "missing": "Recording not found"
+    },
+    "transcript": "Transcript",
+    "evaluation": {
+      "title": "Evaluation",
+      "draftNote": "AUTO_DRAFT — not visible to the Agent yet",
+      "publish": "Publish evaluation",
+      "pending": "Waiting for the server to confirm"
+    },
+    "confirm": {
+      "title": "Confirm publishing the evaluation",
+      "detail": "The Agent will see this evaluation, and publishing is recorded in the audit log",
+      "cancel": "Cancel",
+      "action": "Confirm publish"
+    }
   }
 }
