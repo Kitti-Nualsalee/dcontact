@@ -1,4 +1,4 @@
-/** รวม className ที่ไม่ว่าง */
+/** joins the non-empty classNames */
 export function cx(...names: (string | false | null | undefined)[]): string {
   return names.filter(Boolean).join(' ');
 }

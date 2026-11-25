@@ -1,9 +1,9 @@
 /**
- * #588: ข้อมูลผู้ใช้ของเมนูบนแถบบน — อ่านจาก claims ของ OIDC ที่แอปมีอยู่แล้ว ไม่เรียก API เพิ่ม
- * ใช้แสดงผลอย่างเดียว สิทธิ์จริงอยู่ที่ API
+ * #588: user info for the top bar menu — read from the OIDC claims the app already has, no extra API call
+ * display only; real permissions live in the API
  */
 
-/** บทบาทที่เมนูรู้จัก ตามลำดับที่แสดง — role อื่นใน token ถูกซ่อน (ไม่แสดงชื่อ role ดิบ) */
+/** roles the menu knows, in display order — other roles in the token are hidden (raw role names are not shown) */
 export const SHELL_ROLES = ['admin', 'supervisor', 'compliance', 'agent'] as const;
 
 export type ShellRole = (typeof SHELL_ROLES)[number];
@@ -11,7 +11,7 @@ export type ShellRole = (typeof SHELL_ROLES)[number];
 export interface ShellUser {
   displayName: string;
   email?: string;
-  /** tenant alias ที่แอปใช้อยู่ */
+  /** tenant alias the app is using */
   organization?: string;
   roles: readonly ShellRole[];
 }
@@ -43,8 +43,8 @@ export function shellUserFromClaims(claims: ShellUserClaims, organization?: stri
   };
 }
 
-// สระหน้า (เ แ โ ใ ไ) อยู่ก่อนพยัญชนะในการเขียน — อักษรย่อของชื่อไทยต้องเป็นพยัญชนะตัวแรก
-const THAI_LEADING_VOWEL = /[เ-ไ]/u;
+// leading vowels (เ แ โ ใ ไ) are written before the consonant — the initial of a Thai name must be the first consonant // allow-thai: Thai vowel examples
+const THAI_LEADING_VOWEL = /[เ-ไ]/u; // allow-thai: Thai leading-vowel range
 const LETTER = /\p{L}/u;
 
 function firstLetter(word: string): string | undefined {
@@ -55,7 +55,7 @@ function firstLetter(word: string): string | undefined {
   return undefined;
 }
 
-/** อักษรตัวแรกของคำแรกและคำสุดท้าย เช่น "Somchai Jaidee" → "SJ", "สมชาย ใจดี" → "สจ"; ไม่มีตัวอักษร = "" */
+/** first letter of the first and last word, e.g. "Somchai Jaidee" → "SJ", "สมชาย ใจดี" → "สจ"; no letters = "" */ // allow-thai: Thai example
 export function userInitials(displayName: string): string {
   const letters = displayName
     .split(/\s+/u)

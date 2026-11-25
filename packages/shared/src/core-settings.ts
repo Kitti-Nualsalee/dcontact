@@ -1,4 +1,4 @@
-/** Core Settings: กฎเดียวกันสำหรับ API และ form โดยนับ UTF-16 ตาม contract */
+/** Core Settings: the same rules for the API and forms, counting UTF-16 per the contract */
 export function coreOrganizationNameError(name: string): boolean {
   return name.length < 2 || name.length > 120 || /[\p{Cc}\p{Cf}\p{Cs}]/u.test(name);
 }

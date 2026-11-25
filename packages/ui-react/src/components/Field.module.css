@@ -1,4 +1,4 @@
-/* ส่วนร่วมของ TextField / SearchField / Select */
+/* shared part of TextField / SearchField / Select */
 .field {
   display: flex;
   flex-direction: column;
@@ -87,7 +87,7 @@
   color: var(--dc-text-muted);
 }
 
-/* input type=search มีปุ่ม × ของ browser เอง ซ่อนไว้ให้เหลือปุ่มล้างของ SearchField ปุ่มเดียว */
+/* input type=search has the browser's own × button; hide it so only SearchField's clear button remains */
 .input::-webkit-search-cancel-button,
 .input::-webkit-search-decoration {
   display: none;
@@ -122,7 +122,7 @@
   flex: none;
 }
 
-/* SearchField ว่าง → ไม่มีอะไรให้ล้าง */
+/* empty SearchField → nothing to clear */
 .field[data-empty] .clear {
   visibility: hidden;
 }

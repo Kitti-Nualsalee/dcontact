@@ -23,7 +23,7 @@
         ]
       },
       {
-        "message": "ใช้ token เท่านั้น: var(--dc-radius-*) / var(--dc-space-*) (D1.4)"
+        "message": "use tokens only: var(--dc-radius-*) / var(--dc-space-*) (D1.4)"
       }
     ]
   }

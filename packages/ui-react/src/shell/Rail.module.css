@@ -16,7 +16,7 @@
   align-items: center;
 }
 
-/* หมุดเลื่อนได้เมื่อเกินความสูงจอ ส่วน launcher/footer อยู่กับที่ (D1.2 ข้อ 3) */
+/* pins scroll when taller than the screen while launcher/footer stay fixed (D1.2 item 3) */
 .pins {
   display: flex;
   flex: 1;
@@ -96,7 +96,7 @@
 }
 
 .area .label {
-  /* #651: ชื่อพื้นที่ยาวกว่าชื่อแอป — ตัดบรรทัดตามคำได้สองบรรทัด (ไทยตัดตามคำ); line-height พอไม่ให้วรรณยุกต์ถูกตัด */
+  /* #651: area names are longer than app names — may wrap at word boundaries onto two lines (Thai wraps by word); line-height is enough so tone marks are not clipped */
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;

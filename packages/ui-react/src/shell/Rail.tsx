@@ -5,23 +5,23 @@ import type { ShellApp, ShellArea } from './types.js';
 import styles from './Rail.module.css';
 
 export interface RailProps {
-  /** หมุดที่มีผล (≤15) ตามลำดับ — จาก Navigation API */
+  /** effective pins (≤15) in order — from the Navigation API */
   pinnedApps: readonly ShellApp[];
   currentAppId?: string;
   onNavigate?: (href: string) => boolean;
-  /** #651: พื้นที่งาน — ส่งแล้ว rail แสดงพื้นที่แทนหมุด (ว่าง/ไม่ส่ง = หมุดแอปแบบเดิม) */
+  /** #651: work areas — when passed, the rail shows areas instead of pins (empty/not passed = the old app pins) */
   areas?: readonly ShellArea[];
-  /** พื้นที่ที่กำลังใช้อยู่ (ไม่ส่ง = ไม่มีพื้นที่ใดถูกเลือก เช่นหน้าบัญชี) */
+  /** the area currently in use (not passed = no area selected, e.g. the account page) */
   currentAreaId?: string;
-  /** ปุ่มเปิด launcher (`<AppLauncher>`) — อยู่กับที่ด้านบน */
+  /** button that opens the launcher (`<AppLauncher>`) — fixed at the top */
   launcher: ReactNode;
-  /** ปุ่มตั้งค่า/อื่น ๆ — อยู่กับที่ด้านล่าง */
+  /** settings/other button — fixed at the bottom */
   footer?: ReactNode;
 }
 
 /**
- * แถบซ้ายสีแบรนด์: launcher ด้านบน, หมุดเลื่อนได้ตรงกลาง, footer ด้านล่าง
- * เส้นแบ่งเมื่อหมุดติดกันอยู่คนละกลุ่ม; ลิงก์ของอีก host app เปิดแท็บใหม่
+ * brand-colored left bar: launcher at the top, scrollable pins in the middle, footer at the bottom
+ * a divider when adjacent pins belong to different groups; a link to the other host app opens a new tab
  */
 export function Rail({
   pinnedApps,
@@ -106,7 +106,7 @@ export function Rail({
   );
 }
 
-/** ปุ่ม/ลิงก์ของ rail ที่ไม่ใช่หมุด (เช่น ตั้งค่า) — ใช้ใน `footer` */
+/** rail button/link that is not a pin (e.g. settings) — used in `footer` */
 export function RailLink({ href, icon, label }: { href: string; icon: string; label: string }) {
   return (
     <a className={styles.item} href={href}>

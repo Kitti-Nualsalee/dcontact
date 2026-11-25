@@ -1,16 +1,16 @@
 #!/usr/bin/env node
 /**
- * D1.14 (#453): ตรวจข้อความ hardcode ในหน้าที่ย้ายมาใช้ระบบภาษาแล้ว — acceptance ของ D1:
- * "ไม่มีข้อความ hardcode ในสองหน้าเป้าหมาย (lint)"
+ * D1.14 (#453): checks for hardcoded text in screens that already moved to the i18n system. D1 acceptance:
+ * "no hardcoded text in the two target screens (lint)"
  *
  *   dc-i18n-literals <file-or-dir> [...]
  *
- * อ่าน TSX/TS ด้วย TypeScript AST แล้วรายงาน:
- * - JSX text ที่มีตัวอักษร (ไม่นับเครื่องหมายคั่นอย่าง `·`, `→`, `*`)
- * - string literal ใน attribute ที่ผู้ใช้เห็น (aria-label, title, placeholder, alt, label, …)
- * - string/template literal ที่มีอักษรไทยที่ไหนก็ได้ในโค้ด (ไม่นับ comment)
+ * Reads TSX/TS with the TypeScript AST and reports:
+ * - JSX text that contains letters (separators such as `·`, `→`, `*` are ignored)
+ * - string literals in user-visible attributes (aria-label, title, placeholder, alt, label, …)
+ * - string/template literals containing Thai characters anywhere in code (comments are ignored)
  *
- * ยกเว้นทั้งบรรทัดด้วย comment `i18n-ignore` เมื่อข้อความเป็นข้อมูล ไม่ใช่ข้อความของ UI
+ * A whole line can be exempted with an `i18n-ignore` comment when the text is data, not UI text.
  */
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, extname } from 'node:path';
@@ -37,7 +37,7 @@ const USER_FACING_ATTRIBUTES = new Set([
   'errorMessage',
 ]);
 const LETTER = /\p{L}/u;
-const THAI = /[฀-๿]/;
+const THAI = /[฀-๿]/; // allow-thai: the Thai Unicode range
 
 function files(target) {
   if (statSync(target).isDirectory()) {
@@ -99,16 +99,16 @@ export function checkLiterals(file) {
 if (process.argv[1] && realpathSync(resolve(process.argv[1])) === fileURLToPath(import.meta.url)) {
   const targets = process.argv.slice(2);
   if (targets.length === 0) {
-    console.error('ใช้: dc-i18n-literals <file-or-dir> [...]');
+    console.error('usage: dc-i18n-literals <file-or-dir> [...]');
     process.exit(2);
   }
   const problems = targets.flatMap(files).flatMap(checkLiterals);
   if (problems.length > 0) {
     console.error(
-      `พบข้อความ hardcode ${problems.length} จุด (ย้ายเข้า catalog หรือใส่ i18n-ignore ถ้าเป็นข้อมูล):`,
+      `found ${problems.length} hardcoded text occurrence(s) (move them into a catalog, or add i18n-ignore if it is data):`,
     );
     for (const problem of problems) console.error(`  - ${problem}`);
     process.exit(1);
   }
-  console.log(`ไม่มีข้อความ hardcode (${targets.join(', ')})`);
+  console.log(`no hardcoded text (${targets.join(', ')})`);
 }

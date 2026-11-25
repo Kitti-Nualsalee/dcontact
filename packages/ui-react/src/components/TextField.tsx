@@ -17,7 +17,7 @@ import { useUiText } from '../i18n.js';
 import styles from './Field.module.css';
 
 interface FieldTextProps {
-  /** ป้ายที่มองเห็นได้ — ถ้าไม่มีต้องส่ง `aria-label` แทน */
+  /** visible label — if absent, pass `aria-label` instead */
   label?: ReactNode;
   description?: ReactNode;
   errorMessage?: ReactNode;
@@ -26,7 +26,7 @@ interface FieldTextProps {
 }
 
 export interface TextFieldProps extends Omit<AriaTextFieldProps, 'className'>, FieldTextProps {
-  /** ช่องหลายบรรทัด (`<textarea>`) เช่น เหตุผลของคำสั่ง */
+  /** multi-line field (`<textarea>`), e.g. the reason for a command */
   multiline?: boolean;
 }
 

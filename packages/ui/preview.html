@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="th">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -11,7 +11,7 @@
     />
     <link rel="stylesheet" href="src/tokens.css" />
     <style>
-      /* หน้านี้ใช้ token ล้วน ไม่มี hex ของตัวเอง — ถ้ามีสีหลุดออกมาแปลว่า token ขาด */
+      /* this page uses tokens only and has no hex of its own — a color that leaks out means a token is missing */
       body {
         margin: 0;
         padding: 32px 28px 64px;
@@ -199,60 +199,66 @@
   <body>
     <h1>D-Contact design tokens</h1>
     <p class="lede">
-      สกัดจาก <code>mockups/assets/app.css</code> ที่เป็น visual contract ของ Phase 2 หน้านี้ใช้
-      token ล้วนทุกค่า ถ้ามีสีที่ยังต้องเขียน hex เองแปลว่า token ยังขาด
+      Extracted from <code>mockups/assets/app.css</code>, the Phase 2 visual contract. This page
+      uses tokens for every value; a color that still needs a hex means a token is missing
     </p>
 
-    <h2>พื้นผิวและเส้นขอบ</h2>
-    <p>ไล่ตามความลึก ไม่ใช่ตามความสว่าง — การ์ดอยู่บนพื้นหน้า ร่องอยู่ในการ์ด</p>
+    <h2>Surfaces and borders</h2>
+    <p>
+      Ordered by depth, not brightness — cards sit on the page background, wells sit inside cards
+    </p>
     <div class="grid" id="surfaces"></div>
 
-    <h2>ตัวอักษร</h2>
+    <h2>Typography</h2>
     <p>
-      <code>--dc-text-disabled</code> เป็นค่าเดียวที่ห้ามใช้กับข้อความที่มีความหมาย เดิม mockup
-      ใช้มันกับเวลาและข้อความรอง 310 จุด
+      <code>--dc-text-disabled</code> is the only value that must not be used for meaningful text.
+      The old mockup used it in 310 places for times and secondary text.
     </p>
     <div class="grid" id="texts"></div>
 
-    <h2>ระดับความรุนแรง</h2>
-    <p>หนึ่งบทบาทหนึ่งตระกูลสี ป้ายด้านล่างคือสถานะเอเจนต์จริงที่ต้องอ่านได้ตลอดกะ</p>
+    <h2>Severity</h2>
+    <p>
+      One role, one color family. The badges below are real agent statuses that must stay readable
+      all shift
+    </p>
     <div class="row" id="severity" style="margin-bottom: 12px"></div>
     <div class="row" id="agent-states"></div>
 
-    <h2>ตัวตน</h2>
+    <h2>Identity</h2>
     <p>
-      ช่องทางและกะไม่ใช่ระดับความรุนแรง เขียวของ LINE กับเขียวของ WhatsApp ที่ดูซ้ำกันคือคนละช่องทาง
-      ห้ามยุบ
+      Channels and shifts are not severity levels. LINE green and WhatsApp green look alike but are
+      different channels, so they must not be merged
     </p>
     <div class="row" id="channels" style="margin-bottom: 12px"></div>
     <div class="row" id="shifts"></div>
 
-    <h2>สเกลตัวอักษร</h2>
+    <h2>Type scale</h2>
     <p>
-      7 ขั้นหลักบวก 2 ขั้นสำหรับตัวเลขขนาดใหญ่ (เดิมมี 17 ขนาดตั้งแต่ 9px ถึง 44px) วัดบน root 16px
+      7 main steps plus 2 steps for large numbers (previously 17 sizes from 9px to 44px), measured
+      at root 16px
     </p>
     <table class="type" id="scale"></table>
 
-    <h2>มุมโค้ง</h2>
+    <h2>Corner radius</h2>
     <p>
-      ลดลงครึ่งหนึ่งจากค่าที่สกัดจาก mockup (D1.4) — <code>pill</code> ใช้กับ avatar จุดสถานะ
-      และตัวนับเท่านั้น
+      Halved from the values extracted from the mockup (D1.4) — <code>pill</code> is for avatars,
+      status dots and counters only
     </p>
     <div class="row" id="radii"></div>
 
-    <h2>ระยะห่าง</h2>
-    <p>scale เดียวฐาน 4px ใน component ห้ามใช้ระยะห่างนอก 10 ขั้นนี้</p>
+    <h2>Spacing</h2>
+    <p>One scale on a 4px base; components must not use spacing outside these 10 steps</p>
     <table class="type" id="spaces"></table>
 
-    <h2>ความสูงมาตรฐาน (density)</h2>
+    <h2>Standard heights (density)</h2>
     <p>
-      ตั้งชื่อตามบทบาทเพื่อให้ override ใต้ <code>[data-density]</code> ได้ในอนาคต — D1 มีชุดเดียว
-      และต่ำกว่า target จอสัมผัส 44px โดยตั้งใจ
+      Named by role so they can be overridden under <code>[data-density]</code> in the future — D1
+      has a single set and it is deliberately below the 44px touch target
     </p>
     <div class="row" id="heights" style="align-items: flex-end"></div>
 
-    <h2>ตัวอย่างจริง</h2>
-    <p>ประกอบจาก token ล้วน เทียบกับ mockup ได้โดยตรง</p>
+    <h2>Real example</h2>
+    <p>Built from tokens only, directly comparable with the mockup</p>
     <div
       style="
         display: grid;
@@ -263,36 +269,36 @@
     >
       <div class="card">
         <div class="metric" style="color: var(--dc-critical-solid)">17</div>
-        <div class="metric-label">สายรอในคิวตอนนี้</div>
+        <div class="metric-label">Calls waiting in queue now</div>
       </div>
       <div class="card">
         <div class="metric">86%</div>
-        <div class="metric-label">SLA วันนี้</div>
+        <div class="metric-label">SLA today</div>
       </div>
       <div class="card">
         <div class="metric" style="color: var(--dc-success-solid)">
           14<span style="color: var(--dc-text-muted)">/32</span>
         </div>
-        <div class="metric-label">เอเจนต์ที่พร้อมรับสาย</div>
+        <div class="metric-label">Agents ready to take calls</div>
       </div>
     </div>
     <div class="row" style="margin-bottom: 14px">
-      <button class="btn btn-primary">รับสาย</button>
-      <button class="btn btn-secondary">พักสาย</button>
-      <input class="inp" value="ค้นหาการติดต่อ" aria-label="ค้นหาการติดต่อ" />
+      <button class="btn btn-primary">Answer</button>
+      <button class="btn btn-secondary">Hold</button>
+      <input class="inp" value="Search contacts" aria-label="Search contacts" />
     </div>
     <div class="inverse" style="margin-bottom: 14px">
       <div>
         <div class="metric">04:12</div>
-        <div class="metric-label">รอนานสุด</div>
+        <div class="metric-label">Longest wait</div>
       </div>
       <div>
         <div class="metric">1,344</div>
-        <div class="metric-label">รับแล้ววันนี้</div>
+        <div class="metric-label">Answered today</div>
       </div>
     </div>
     <div class="note note-warn">
-      คิว Billing Inquiries ต่ำกว่าเป้า SLA มา 10 นาที — คนบนพื้น 3 จาก 6
+      The Billing Inquiries queue is 10 minutes below the SLA target — 3 of 6 people on the floor
     </div>
 
     <script>
@@ -367,22 +373,22 @@
         `<span class="pill" style="color:var(--dc-${fg});background:var(--dc-${bg})">${label}</span>`;
 
       document.getElementById('severity').innerHTML = [
-        ['สำเร็จ', 'success-fg', 'success-bg'],
-        ['ต้องดู', 'attention-fg', 'attention-bg'],
-        ['วิกฤต', 'critical-fg', 'critical-bg'],
-        ['ข้อมูล', 'info-fg', 'info-bg'],
-        ['กลาง', 'neutral-fg', 'neutral-bg'],
-        ['หมวดหมู่', 'accent-fg', 'accent-bg'],
+        ['Success', 'success-fg', 'success-bg'],
+        ['Attention', 'attention-fg', 'attention-bg'],
+        ['Critical', 'critical-fg', 'critical-bg'],
+        ['Info', 'info-fg', 'info-bg'],
+        ['Neutral', 'neutral-fg', 'neutral-bg'],
+        ['Category', 'accent-fg', 'accent-bg'],
       ]
         .map(([l, f, b]) => pill(l, f, b))
         .join('');
 
       document.getElementById('agent-states').innerHTML = [
-        ['พร้อมรับสาย', 'agent-available-fg', 'agent-available-bg'],
-        ['กำลังคุย', 'agent-busy-fg', 'agent-busy-bg'],
-        ['สรุปงาน', 'agent-acw-fg', 'agent-acw-bg'],
-        ['พัก', 'agent-break-fg', 'agent-break-bg'],
-        ['ออฟไลน์', 'agent-offline-fg', 'agent-offline-bg'],
+        ['Available', 'agent-available-fg', 'agent-available-bg'],
+        ['On a call', 'agent-busy-fg', 'agent-busy-bg'],
+        ['Wrap-up', 'agent-acw-fg', 'agent-acw-bg'],
+        ['Break', 'agent-break-fg', 'agent-break-bg'],
+        ['Offline', 'agent-offline-fg', 'agent-offline-bg'],
         ['cooldown', 'agent-cooldown-fg', 'agent-cooldown-bg'],
       ]
         .map(([l, f, b]) => pill(l, f, b))
@@ -403,26 +409,26 @@
         .join('');
 
       document.getElementById('shifts').innerHTML = [
-        ['กะเช้า', 'day'],
-        ['กะกลางวัน', 'mid'],
-        ['กะเย็น', 'eve'],
-        ['กะดึก', 'night'],
-        ['วันหยุด', 'off'],
-        ['ลา', 'leave'],
+        ['Morning shift', 'day'],
+        ['Midday shift', 'mid'],
+        ['Evening shift', 'eve'],
+        ['Night shift', 'night'],
+        ['Day off', 'off'],
+        ['Leave', 'leave'],
       ]
         .map(([l, s]) => badge(l, `shift-${s}-fg`, `shift-${s}-bg`))
         .join('');
 
       document.getElementById('scale').innerHTML = [
-        ['2xs', 'ตัวเลขบน badge'],
-        ['xs', 'meta และเวลา'],
-        ['sm', 'label ของฟอร์ม'],
-        ['base', 'ตัวหลักในตาราง'],
-        ['md', 'เมนูและข้อความยาว'],
-        ['lg', 'หัวข้อของแผง'],
-        ['xl', 'หัวข้อหน้า'],
-        ['metric', 'ตัวเลขบนการ์ด'],
-        ['wallboard', 'จอใหญ่'],
+        ['2xs', 'numbers on badges'],
+        ['xs', 'meta and times'],
+        ['sm', 'form labels'],
+        ['base', 'main text in tables'],
+        ['md', 'menus and long text'],
+        ['lg', 'panel headings'],
+        ['xl', 'page headings'],
+        ['metric', 'numbers on cards'],
+        ['wallboard', 'big display'],
       ]
         .map(([k, use]) => {
           const rem = val('text-' + k);

@@ -1,4 +1,4 @@
-/** ตัวอย่างตาม Phase Contract ใช้ร่วมใน API และ browser model tests */
+/** Examples per the Phase Contract, shared by the API and browser model tests */
 export const coreNameFixtures = [
   { value: 'AB', valid: true },
   { value: '😀', valid: true },

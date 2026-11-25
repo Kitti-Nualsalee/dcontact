@@ -1,16 +1,16 @@
 /**
- * Tailwind preset ของ D-Contact
+ * D-Contact Tailwind preset
  *
- * เหตุที่ต้องมี: mockup เดิมมีสีอยู่สองแหล่ง — hex ใน app.css (62 ค่า) กับคลาส
- * ของ Tailwind (`bg-teal-700` 126 ครั้ง, `text-slate-400` 310 ครั้ง) ซึ่งเป็นค่า
- * เดียวกันแต่แก้คนละที่ preset นี้ทำให้คลาสของ Tailwind ชี้กลับมาที่ token ตัวเดียวกัน
- * ทั้ง `bg-surface-raised` และ `background: var(--dc-surface-raised)` จึงเป็นของสิ่งเดียวกัน
+ * Why it exists: the old mockup had colors from two sources — hex in app.css (62 values) and Tailwind
+ * classes (`bg-teal-700` 126 times, `text-slate-400` 310 times) that are the same
+ * values edited in different places. This preset points the Tailwind classes back to the same tokens,
+ * so `bg-surface-raised` and `background: var(--dc-surface-raised)` are one and the same
  *
- * การใช้ใน tailwind.config ของแต่ละแอป:
+ * Usage in each app's tailwind.config:
  *   presets: [require('@d-contact/ui/tailwind-preset')]
  *
- * palette เดิมของ Tailwind ถูกตัดออกโดยตั้งใจ (`colors` ถูกแทนที่ ไม่ใช่ขยาย)
- * เพื่อให้เขียน `text-slate-400` ไม่ได้อีก — ค่านั้นคือคู่สีที่ตก WCAG AA
+ * The original Tailwind palette is removed on purpose (`colors` is replaced, not extended)
+ * so `text-slate-400` can no longer be written — that value is a color pair that fails WCAG AA
  */
 const color = (name) => `var(--dc-${name})`;
 
@@ -57,7 +57,7 @@ module.exports = {
         900: color('brand-900'),
       },
 
-      /* severity — หนึ่งตระกูลต่อบทบาท */
+      /* severity — one family per role */
       success: { bg: color('success-bg'), fg: color('success-fg'), solid: color('success-solid') },
       attention: {
         bg: color('attention-bg'),
@@ -84,7 +84,7 @@ module.exports = {
       neutral: { bg: color('neutral-bg'), fg: color('neutral-fg'), solid: color('neutral-solid') },
       accent: { bg: color('accent-bg'), fg: color('accent-fg'), solid: color('accent-solid') },
 
-      /* identity — ห้ามยุบ ดูเหตุผลใน tokens.css */
+      /* identity — must not be merged, see the reason in tokens.css */
       channel: {
         'voice-bg': color('channel-voice-bg'),
         'voice-fg': color('channel-voice-fg'),
@@ -107,8 +107,8 @@ module.exports = {
       },
     },
 
-    /* type scale 7 ขั้นหลัก บวก 2 ขั้นสำหรับตัวเลขขนาดใหญ่
-       ค่าเป็น rem บน root 16px จึงออกมาใกล้เคียงที่อนุมัติไว้ตอน root 18px */
+    /* type scale of 7 main steps plus 2 steps for large numbers
+       value is rem on a 16px root, so it comes out close to the approved size at root 18px */
     fontSize: {
       '2xs': ['0.6875rem', { lineHeight: '1.35' }],
       xs: ['0.75rem', { lineHeight: '1.35' }],
@@ -137,10 +137,10 @@ module.exports = {
     },
 
     extend: {
-      /* scale ระยะห่างของ D-Contact ใช้ prefix `dc-` (เช่น `p-dc-5` = 12px) แทนการแทนที่
-         spacing ของ Tailwind ทั้งชุด เพราะเลขขั้นไม่ตรงกัน (`p-2` ของ Tailwind = 8px
-         แต่ `--dc-space-2` = 4px) ถ้าใช้ชื่อเดียวกันจะอ่านโค้ดผิดได้ง่าย
-         ความสูงมาตรฐานตั้งชื่อตามบทบาท เช่น `h-control-md`, `h-row-table` */
+      /* D-Contact spacing scale uses the `dc-` prefix (e.g. `p-dc-5` = 12px) instead of replacing
+         Tailwind's whole spacing set, because the step numbers do not match (Tailwind `p-2` = 8px
+         but `--dc-space-2` = 4px); using the same names would make code easy to misread
+         standard heights are named by role, e.g. `h-control-md`, `h-row-table` */
       spacing: {
         ...Object.fromEntries(
           Array.from({ length: 10 }, (_, i) => [`dc-${i + 1}`, `var(--dc-space-${i + 1})`]),

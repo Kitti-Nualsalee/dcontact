@@ -1,6 +1,6 @@
 /**
- * Toast ใช้ `UNSTABLE_Toast*` ของ React Aria (1.21) หุ้มไว้ในไฟล์นี้ไฟล์เดียว — ถ้า API ของ React Aria
- * เปลี่ยน แก้ที่นี่ที่เดียว ส่วนแอปเรียก `toastQueue.add()` และวาง `<ToastRegion>` หนึ่งครั้งที่ root
+ * Toast uses React Aria's `UNSTABLE_Toast*` (1.21), wrapped in this one file — if the React Aria API
+ * changes, fix it here only; apps call `toastQueue.add()` and place `<ToastRegion>` once at the root
  */
 import type { ReactNode } from 'react';
 import {
@@ -22,7 +22,7 @@ export interface ToastContent {
 
 export type ToastQueue = AriaToastQueue<ToastContent>;
 
-/** สร้าง queue ต่อแอป (หรือใช้ `toastQueue` ร่วม) — toast สำคัญ (critical) ไม่ควรหายเอง */
+/** creates a queue per app (or use the shared `toastQueue`) — important (critical) toasts should not disappear on their own */
 export function createToastQueue(): ToastQueue {
   return new AriaToastQueue<ToastContent>({ maxVisibleToasts: 3 });
 }

@@ -1,14 +1,14 @@
 /**
- * D1.11 (#450): formatter กลางของวันที่ เวลา และตัวเลข — ห้ามจัดรูปแบบใน message catalog
+ * D1.11 (#450): shared formatter for dates, times and numbers — no formatting inside message catalogs
  *
- * - `th` → ปฏิทินพุทธ (พ.ศ.) เดือนย่อไทย เลขอารบิก: `12 ก.ย. 2569 16:40`
- * - `en` → en-GB ปี ค.ศ.: `12 Sep 2026 16:40`
- * - 24 ชั่วโมงทั้งสองภาษา และแสดงตาม timezone ที่ส่งเข้ามาเสมอ (ไม่ใช้เวลาเครื่อง)
- * - relative time ("5 นาทีที่ผ่านมา") ใช้เฉพาะเหตุการณ์ที่ห่างจากตอนนี้ไม่เกิน 24 ชั่วโมง
+ * - `th` → Buddhist calendar (B.E.), Thai short months, Arabic digits: `12 ก.ย. 2569 16:40` // allow-thai: example output
+ * - `en` → en-GB, C.E. years: `12 Sep 2026 16:40`
+ * - 24-hour clock in both languages, always shown in the timezone passed in (never the machine time)
+ * - relative time ("5 minutes ago") is used only for events within 24 hours of now
  *
- * วันที่ประกอบจาก `formatToParts` แทนการใช้ string ของ `Intl` ตรง ๆ เพราะรูปแบบของ ICU เปลี่ยนตาม
- * เวอร์ชันของ browser/Node (เช่น en-GB ใส่ `,` หลังปี และ ICU รุ่นใหม่ย่อ September เป็น `Sept`)
- * ถ้าไม่ยึดรูปเอง หน้าจอสองเครื่องจะแสดงวันที่เดียวกันไม่เหมือนกัน
+ * Dates are assembled from `formatToParts` instead of using `Intl` strings directly, because the ICU format changes with
+ * the browser/Node version (e.g. en-GB puts `,` after the year and newer ICU abbreviates September as `Sept`).
+ * If the format is not pinned here, two machines would show the same date differently.
  */
 import type { SupportedLocale } from './locale.js';
 
@@ -24,21 +24,21 @@ export type DateInput = Date | string | number;
 export interface FormatterOptions {
   locale: SupportedLocale;
   timeZone: string;
-  /** แทนนาฬิกาใน test */
+  /** replaces the clock in tests */
   now?: () => Date;
 }
 
 export interface Formatters {
   readonly locale: SupportedLocale;
   readonly timeZone: string;
-  /** `12 ก.ย. 2569 16:40` / `12 Sep 2026 16:40` */
+  /** `12 ก.ย. 2569 16:40` / `12 Sep 2026 16:40` // allow-thai: example output */
   dateTime(value: DateInput): string;
-  /** `12 ก.ย. 2569` / `12 Sep 2026` */
+  /** `12 ก.ย. 2569` / `12 Sep 2026` // allow-thai: example output */
   date(value: DateInput): string;
   /** `16:40` */
   time(value: DateInput): string;
   number(value: number, options?: Intl.NumberFormatOptions): string;
-  /** ภายใน 24 ชั่วโมง → `5 นาทีที่ผ่านมา`; เกินกว่านั้น → เหมือน `dateTime` */
+  /** within 24 hours → `5 นาทีที่ผ่านมา`; beyond that → same as `dateTime` // allow-thai: example output */
   relative(value: DateInput): string;
 }
 

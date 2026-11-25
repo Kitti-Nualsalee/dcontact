@@ -1,6 +1,6 @@
-/* สร้างอัตโนมัติจาก tokens.css โดย scripts/generate-tokens.mjs — ห้ามแก้ด้วยมือ */
+/* generated from tokens.css by scripts/generate-tokens.mjs — do not edit by hand */
 
-/** ค่าจริงของ token — ใช้เมื่อต้องส่งสีให้ canvas หรือไลบรารีที่รับ CSS ไม่ได้ */
+/** actual token values — use when passing a color to a canvas or a library that cannot take CSS */
 export const tokens = {
   surfacePage: '#f8fafc',
   surfaceRaised: '#ffffff',
@@ -160,7 +160,7 @@ export const tokens = {
   barTop: '44px',
 } as const;
 
-/** ชื่อ custom property ของแต่ละ token — ใช้เมื่อเขียน inline style ได้ */
+/** custom property name of each token — use when writing an inline style */
 const cssNames = {
   surfacePage: '--dc-surface-page',
   surfaceRaised: '--dc-surface-raised',
@@ -322,7 +322,7 @@ const cssNames = {
 
 export type TokenName = keyof typeof tokens;
 
-/** เช่น cssVar('brand700') === 'var(--dc-brand-700)' */
+/** e.g. cssVar('brand700') === 'var(--dc-brand-700)' */
 export function cssVar(name: TokenName): string {
   return 'var(' + cssNames[name] + ')';
 }

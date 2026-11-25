@@ -1,6 +1,6 @@
 /**
- * config ของ object storage ตาม ADR-029: แอปคุยกับ storage ผ่าน S3 API และอ่าน env ชุดเดียว `S3_*`
- * ชื่อเดิม (`MINIO_*` และชื่อ bucket env เดิม) ยังอ่านได้ช่วงเปลี่ยนผ่าน พร้อมเตือนว่า deprecated
+ * object storage config per ADR-029: apps talk to storage through the S3 API and read a single env set `S3_*`
+ * the legacy names (`MINIO_*` and the old bucket env names) are still read during the transition, with a deprecation warning
  */
 
 export interface S3Configuration {
@@ -11,7 +11,7 @@ export interface S3Configuration {
   forcePathStyle: boolean;
 }
 
-/** env ที่ helper อ่าน: `process.env` หรือ object ที่ test ส่งเข้ามา */
+/** env the helper reads: `process.env` or an object passed in by a test */
 export type S3Environment = Readonly<Record<string, string | undefined>>;
 
 export type S3Bucket = 'RECORDINGS' | 'GOVERNANCE_EXPORTS' | 'UAT_EVIDENCE';
@@ -19,16 +19,16 @@ export type S3Bucket = 'RECORDINGS' | 'GOVERNANCE_EXPORTS' | 'UAT_EVIDENCE';
 export interface ReadS3ConfigurationOptions {
   environment?: S3Environment;
   /**
-   * true = endpoint และ credential ต้องมาจาก env เสมอ (ไม่มีค่า default ของ dev)
-   * ค่าเริ่มต้นคือ true เมื่อ `NODE_ENV=production`
+   * true = endpoint and credential must always come from env (no dev defaults)
+   * defaults to true when `NODE_ENV=production`
    */
   requireExplicit?: boolean;
-  /** ข้อความเมื่อไม่มีค่าที่ต้องมี เช่น "for UAT evidence storage" */
+  /** message when a required value is missing, e.g. "for UAT evidence storage" */
   purpose?: string;
   warn?: (message: string) => void;
 }
 
-/** ค่า default ของ dev ตรงกับ `infra/docker/docker-compose.dev.yml` และ `.env.example` */
+/** dev defaults match `infra/docker/docker-compose.dev.yml` and `.env.example` */
 const DEV_DEFAULTS = {
   S3_ENDPOINT: 'http://localhost:9000',
   S3_ACCESS_KEY: 'dcontact',
@@ -98,7 +98,7 @@ export function readS3Bucket(
   return read(environment, `S3_BUCKET_${bucket}`, [legacy], warn) ?? fallback;
 }
 
-/** สำหรับ test เท่านั้น: ให้เตือน deprecated ได้อีกครั้ง */
+/** test only: allows the deprecation warning to fire again */
 export function resetS3DeprecationWarnings(): void {
   warned.clear();
 }

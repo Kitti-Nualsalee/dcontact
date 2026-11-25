@@ -15,20 +15,20 @@ import type { ShellApp, ShellCreateAction, ShellGroup } from './types.js';
 import styles from './AppLauncher.module.css';
 
 export interface AppLauncherProps {
-  /** แอปที่มองเห็นทั้งหมด (server คัดตาม role/plan แล้ว — ไม่มีสถานะ "ล็อก") */
+  /** all visible apps (the server already filtered by role/plan — there is no "locked" state) */
   apps: readonly ShellApp[];
-  /** กลุ่มตามลำดับที่แสดง — กลุ่มที่ไม่มีแอปถูกซ่อน */
+  /** groups in display order — groups with no apps are hidden */
   groups: readonly ShellGroup[];
   pinnedIds: readonly string[];
   maxPins: number;
   onTogglePin: (appId: string) => void;
-  /** แถว "สร้างใหม่" — ลิงก์ด้วย ID/route เท่านั้น */
+  /** the "create new" row — links by ID/route only */
   createActions?: readonly ShellCreateAction[];
 }
 
 /**
- * ปุ่มตาราง 9 จุดบน rail + popover รวมแอปแบ่งกลุ่ม ค้นหาได้ ปักหมุดได้ (D1.2)
- * React Aria ดูแล focus: เปิดแล้ว focus ที่ช่องค้นหา, Esc ปิดแล้ว focus กลับที่ปุ่ม
+ * 9-dot grid button on the rail + a popover of apps grouped, searchable and pinnable (D1.2)
+ * React Aria handles focus: on open, focus goes to the search field; Esc closes and focus returns to the button
  */
 export function AppLauncher({
   apps,

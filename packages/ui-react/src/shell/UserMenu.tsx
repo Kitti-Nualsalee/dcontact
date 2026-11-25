@@ -15,27 +15,27 @@ export interface SignOutConfirm {
 
 export interface UserMenuProps {
   user: ShellUser;
-  /** คืน Promise ได้ — แอปแจ้ง error เอง (เช่น redirect ไปออกจากระบบไม่สำเร็จ) */
+  /** may return a Promise — the app reports the error itself (e.g. a failed redirect to sign out) */
   onSignOut: () => void | Promise<void>;
-  /** มีค่า = เลือก "ออกจากระบบ" แล้วถามยืนยันด้วย Dialog ก่อน (Workspace ระหว่างมีสาย); ไม่มี = ออกทันที */
+  /** has a value = choosing "Sign out" asks for confirmation with a Dialog first (Workspace during a call); none = sign out immediately */
   signOutConfirm?: SignOutConfirm;
   /**
-   * AC5 (#598): item "บัญชีของฉัน" — หน้าของ D-Contact (Console) เสมอ
-   * `newTab` = เปิดแท็บใหม่ (Workspace: ไม่ remount ระหว่างมีสาย — ADR-026)
+   * AC5 (#598): the "My account" item — always a D-Contact (Console) page
+   * `newTab` = opens a new tab (Workspace: does not remount during a call — ADR-026)
    */
   accountLink?: { href: string; newTab?: boolean };
 }
 
 /**
- * #588: ปุ่มอักษรย่อ + ชื่อ ขวาสุดของแถบบน เปิดเมนูที่มีชื่อ, email, organization, บทบาท และออกจากระบบ
- * ไม่มีลิงก์ไปหน้าของ Keycloak (ผู้ใช้อยู่ในหน้าของ D-Contact ตลอด) และไม่โหลดรูปโปรไฟล์
- * AC5 (#598): "บัญชีของฉัน" ชี้หน้า Console ของ D-Contact
+ * #588: initials button + name at the far right of the top bar, opens a menu with name, email, organization, role and sign out
+ * no link to the Keycloak page (the user stays on D-Contact pages all the time) and no profile picture is loaded
+ * AC5 (#598): "My account" points to the D-Contact Console page
  */
 export function UserMenu({ user, onSignOut, signOutConfirm, accountLink }: UserMenuProps) {
   const t = useUiText();
   const headerId = useId();
   const [confirming, setConfirming] = useState(false);
-  // งานในมือหมดระหว่างที่ dialog เปิด = ไม่ต้องถามแล้ว — ล้าง state ไม่ให้ dialog เด้งกลับเองตอนมีงานครั้งถัดไป
+  // no work left while the dialog is open = no need to ask any more — clear the state so the dialog does not pop back on its own on the next work item
   useEffect(() => {
     if (!signOutConfirm) setConfirming(false);
   }, [signOutConfirm]);

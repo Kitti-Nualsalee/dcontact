@@ -6,7 +6,7 @@ import {
   UserLocaleSaveError,
 } from './keycloak-locale.js';
 
-test('อ่าน locale/zoneinfo จาก claims และข้ามค่าที่ใช้ไม่ได้', () => {
+test('reads locale/zoneinfo from claims and skips unusable values', () => {
   assert.deepEqual(readUserLocalePreference({ locale: 'en', zoneinfo: 'Asia/Bangkok' }), {
     locale: 'en',
     timeZone: 'Asia/Bangkok',
@@ -15,7 +15,7 @@ test('อ่าน locale/zoneinfo จาก claims และข้ามค่�
   assert.deepEqual(readUserLocalePreference(undefined), {});
 });
 
-test('บันทึกผ่าน Account API โดยคงข้อมูลเดิมและเปลี่ยนเฉพาะ attributes.locale', async () => {
+test('saves through the Account API, keeping existing data and changing only attributes.locale', async () => {
   const calls: { url: string; init?: RequestInit }[] = [];
   const fakeFetch = (async (url: string, init?: RequestInit) => {
     calls.push({ url, init });
@@ -47,7 +47,7 @@ test('บันทึกผ่าน Account API โดยคงข้อมู�
   });
 });
 
-test('Account API ปฏิเสธ → โยน UserLocaleSaveError พร้อม status', async () => {
+test('Account API rejects → throws UserLocaleSaveError with the status', async () => {
   const denied = (async () => new Response(null, { status: 403 })) as typeof fetch;
   await assert.rejects(
     saveUserLocale({ issuer: 'http://kc/realms/x', accessToken: 't', locale: 'th', fetch: denied }),
@@ -55,7 +55,7 @@ test('Account API ปฏิเสธ → โยน UserLocaleSaveError พร้
   );
 });
 
-test('fetchTenantLocaleDefaults ส่ง bearer และแปลงค่าที่ไม่ใช่ string เป็น null', async () => {
+test('fetchTenantLocaleDefaults sends bearer and converts non-string values to null', async () => {
   const { fetchTenantLocaleDefaults } = await import('./tenant-defaults.js');
   let seen: { url: string; auth?: string } | undefined;
   const fakeFetch = (async (url: string, init?: RequestInit) => {

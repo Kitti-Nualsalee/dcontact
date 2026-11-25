@@ -28,8 +28,8 @@ export * from './contract';
 export * from './idempotency';
 
 /**
- * Wrapper กลางรอบ kafkajs — service ใช้ public API นี้เพื่อบังคับ topic, envelope,
- * tenant/correlation headers, ordering key และ idempotency boundary ตาม ADR-003
+ * Shared wrapper around kafkajs — services use this public API to enforce topics, envelope,
+ * tenant/correlation headers, ordering key and idempotency boundary per ADR-003
  */
 
 export interface KafkaConnectionOptions {
@@ -46,7 +46,7 @@ function createKafka(clientId: string, options: KafkaConnectionOptions): Kafka {
 }
 
 export interface DcProducer {
-  /** key ถูก derive จาก envelope เพื่อไม่ให้ partition key กับ contract คลาดกัน */
+  /** the key is derived from the envelope so the partition key and the contract cannot drift apart */
   send<TPayload extends Record<string, unknown>>(
     topic: KafkaTopic,
     event: KafkaEventEnvelope<TPayload>,
@@ -98,7 +98,7 @@ export interface ConsumedEvent<TPayload extends Record<string, unknown> = Record
   key: string;
   event: KafkaEventEnvelope<TPayload>;
   timestamp: string;
-  /** additive: ตำแหน่งต้นทาง ใช้เมื่อ handler ต้องส่ง business-level contract rejection เข้า DLQ */
+  /** additive: source position, used when a handler must send a business-level contract rejection to the DLQ */
   partition?: number;
   offset?: string;
   idempotencyKey: Readonly<{
@@ -113,7 +113,7 @@ export interface InvalidKafkaMessage {
   partition: number;
   offset: string;
   error: KafkaContractError;
-  /** ใช้ reason นี้ route invalid contract ไปยัง DLQ ของ consumer */
+  /** use this reason to route an invalid contract to the consumer's DLQ */
   dlqReason: KafkaContractError['code'];
 }
 
@@ -126,9 +126,9 @@ export interface DcDlqPublisher extends DlqPublisher {
 }
 
 /**
- * handler ที่ตัดสินแล้วว่า message ผ่าน envelope แต่ละเมิด domain contract (retry กี่ครั้งก็ได้ผลเดิม)
- * ต้องกักไว้ใน DLQ แล้วปล่อยให้ offset commit — ถ้า throw แทน wrapper จะ retry ไม่รู้จบและ block ทั้ง
- * partition ไม่มี DLQ ให้ throw เพื่อไม่ให้ message หายเงียบ
+ * a handler that decides a message passes the envelope but violates a domain contract (retrying gives the same result)
+ * must hold it in the DLQ and let the offset commit — if it threw instead, the wrapper would retry forever and block the whole
+ * partition; with no DLQ available, throw so the message is not lost silently
  */
 export async function quarantineConsumedEvent(
   dlq: DlqPublisher | undefined,
@@ -139,7 +139,7 @@ export async function quarantineConsumedEvent(
   reasonCode: string,
 ): Promise<void> {
   if (!dlq) {
-    throw new Error(`message ถูก quarantine (${reasonCode}) แต่ consumer ไม่มี DlqPublisher`);
+    throw new Error(`message was quarantined (${reasonCode}) but the consumer has no DlqPublisher`);
   }
   await dlq.publish({
     topic: consumed.topic,
@@ -151,7 +151,7 @@ export async function quarantineConsumedEvent(
   });
 }
 
-/** ส่ง invalid contract เข้า DLQ กลาง; ห้ามเขียน payload/key/header ต้นฉบับลง log. */
+/** Sends an invalid contract to the central DLQ; never write the original payload/key/header to the log. */
 export async function createDlqPublisher(
   clientId: string,
   options: KafkaConnectionOptions = {},
@@ -187,10 +187,10 @@ export interface CreateConsumerOptions<
   clientId: string;
   groupId: string;
   topics: KafkaTopic[];
-  /** default ตาม NODE_ENV; production รับเฉพาะ store ที่ประกาศ DURABLE */
+  /** defaults by NODE_ENV; production accepts only a store that declares DURABLE */
   runtime?: EventConsumerRuntime;
   idempotency: EventIdempotencyStore<TContext>;
-  /** production ต้อง route invalid message เข้า DLQ และรอ acknowledgement ก่อน commit offset */
+  /** production must route invalid messages to the DLQ and wait for acknowledgement before committing the offset */
   dlq?: DlqPublisher;
   handler: (message: ConsumedEvent<TPayload>, context: TContext) => Promise<void> | void;
   onInvalidMessage?: (message: InvalidKafkaMessage) => Promise<void> | void;
@@ -199,15 +199,15 @@ export interface CreateConsumerOptions<
 
 export interface DcConsumer {
   /**
-   * resolve หลัง consumer group join แล้ว *และ* pin starting offset ของทุก partition ที่ได้รับ
-   * assignment ด้วย consumer.seek() เรียบร้อย — เพื่อให้ producer ส่ง event โดยไม่ตกหล่น
-   * เดิมพึ่ง GROUP_JOIN event เฉยๆ ไม่พอ: consumer group ใหม่ที่ subscribe ด้วย
-   * `fromBeginning: false` ยัง resolve "latest" offset ไม่เสร็จตอน join กลุ่ม (เกิดใน fetch loop
-   * initialization ทีหลัง แบบ lazy) เกิด race จริงที่ message ที่ publish ระหว่างสองจังหวะนี้หายไป
-   * ถาวร (พบจาก flaky test ที่ fail จริง ~25% ไม่ใช่ timing เฉยๆ — เพิ่ม timeout ไม่ช่วย) แก้โดย
-   * fetch high-water-mark offset ของแต่ละ topic ผ่าน Admin client ก่อน subscribe/run แล้ว seek
-   * ไปที่ offset นั้นทันทีที่รู้ partition assignment จาก GROUP_JOIN — ปิด race แบบ deterministic
-   * แทนที่จะพึ่ง event timing ภายในของ kafkajs
+   * resolves after the consumer group has joined *and* the starting offset of every partition that received
+   * an assignment has been pinned with consumer.seek() — so the producer can send events without loss.
+   * Previously relying on the GROUP_JOIN event alone was not enough: a new consumer group subscribing with
+   * `fromBeginning: false` has not finished resolving the "latest" offset when it joins the group (that happens
+   * lazily later in fetch loop initialization), a real race where messages published between these two moments were lost
+   * permanently (found from a flaky test that really failed ~25% of the time, not just timing — raising the timeout did not help). Fixed by
+   * fetching the high-water-mark offset of each topic through the Admin client before subscribe/run, then seeking
+   * to that offset as soon as the partition assignment is known from GROUP_JOIN — closing the race deterministically
+   * instead of depending on kafkajs's internal event timing
    */
   ready(): Promise<void>;
   disconnect(): Promise<void>;
@@ -233,7 +233,7 @@ export async function createConsumer<
       (process.env.NODE_ENV === 'production' ? 'production' : 'non-production')) === 'production' &&
     !options.dlq
   ) {
-    throw new Error('production Kafka consumer ต้องกำหนด DlqPublisher');
+    throw new Error('production Kafka consumer must have a DlqPublisher configured');
   }
   for (const topic of options.topics) assertKafkaTopic(topic);
 
@@ -243,8 +243,8 @@ export async function createConsumer<
   });
   await consumer.connect();
 
-  // จับ high-water-mark offset ปัจจุบันของแต่ละ topic ก่อน subscribe/run เพื่อ seek แบบ
-  // deterministic ทีหลัง — ดูรายละเอียด race ที่แก้ใน DcConsumer.ready() doc comment
+  // capture the current high-water-mark offset of each topic before subscribe/run so we can seek deterministically
+  // later — see the DcConsumer.ready() doc comment for the race this fixes
   const admin = kafka.admin();
   await admin.connect();
   const startOffsetsByTopic = new Map<string, Array<{ partition: number; offset: string }>>();
@@ -281,14 +281,14 @@ export async function createConsumer<
       let event: KafkaEventEnvelope<TPayload>;
       try {
         if (!message.value) {
-          throw new KafkaContractError('INVALID_JSON', 'message ไม่มี JSON payload');
+          throw new KafkaContractError('INVALID_JSON', 'message has no JSON payload');
         }
 
         let decoded: unknown;
         try {
           decoded = JSON.parse(message.value.toString());
         } catch {
-          throw new KafkaContractError('INVALID_JSON', 'message payload ไม่ใช่ JSON ที่ถูกต้อง');
+          throw new KafkaContractError('INVALID_JSON', 'message payload is not valid JSON');
         }
 
         event = validateConsumedEvent<TPayload>(
@@ -312,14 +312,14 @@ export async function createConsumer<
           await options.onInvalidMessage(invalid);
         } else {
           throw new Error(
-            `Kafka invalid message ต้องมี onInvalidMessage สำหรับ DLQ routing: ${error.code}`,
+            `Kafka invalid message must have onInvalidMessage for DLQ routing: ${error.code}`,
           );
         }
         return;
       }
 
-      // อย่ารวม business handler ไว้ใน contract-error catch: handler ที่ล้มเหลวต้องส่ง error
-      // กลับให้ KafkaJS เพื่อไม่ commit offset และต้อง retry ได้
+      // do not put the business handler inside the contract-error catch: a failing handler must send the error
+      // back to KafkaJS so the offset is not committed and it can be retried
       assertKafkaTopic(topic);
       const consumed: ConsumedEvent<TPayload> = {
         topic,

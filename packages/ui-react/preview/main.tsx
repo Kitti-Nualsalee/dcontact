@@ -1,6 +1,6 @@
 /**
- * preview page ของ @d-contact/ui-react (D1.3: หน้า Vite ธรรมดา ไม่ใช้ Storybook)
- * ทุกข้อความผ่าน i18n (`preview` namespace) — ใช้เป็นหน้า axe/keyboard ของ D1.10 ทั้ง TH/EN
+ * preview page of @d-contact/ui-react (D1.3: a plain Vite page, no Storybook)
+ * every message goes through i18n (`preview` namespace) — used as the D1.10 axe/keyboard page for both TH/EN
  */
 import { StrictMode, useState } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -95,7 +95,7 @@ function Preview() {
             aria-pressed={instance.language === 'th'}
             onPress={() => switchLanguage('th')}
           >
-            ไทย
+            ไทย {/* allow-thai: language name shown in its own language */}
           </Button>
           <Button
             size="sm"

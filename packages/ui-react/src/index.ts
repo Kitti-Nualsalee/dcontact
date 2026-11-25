@@ -1,6 +1,6 @@
 /**
- * @d-contact/ui-react — component layer ร่วมของ Console และ Workspace (ADR-028, D1.10 #449)
- * token มาจาก `@d-contact/ui/tokens.css` ซึ่งแอปโหลดครั้งเดียวที่ entry
+ * @d-contact/ui-react — shared component layer of Console and Workspace (ADR-028, D1.10 #449)
+ * tokens come from `@d-contact/ui/tokens.css`, which the app loads once at the entry
  */
 export { Button, type ButtonProps } from './components/Button.js';
 export {

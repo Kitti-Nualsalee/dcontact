@@ -1,5 +1,5 @@
 export interface EventIdempotencyKey {
-  /** consumer group ทำให้ service คนละตัวประมวลผล event เดียวกันได้อย่างอิสระ */
+  /** the consumer group lets different services process the same event independently */
   consumerGroup: string;
   tenantId: string;
   eventId: string;
@@ -11,14 +11,14 @@ export type EventIdempotencyDurability = 'DURABLE' | 'EPHEMERAL';
 export type EventConsumerRuntime = 'production' | 'non-production';
 
 /**
- * Adapter นี้เป็น idempotency boundary ของ consumer
- * production adapter ต้องเก็บ unique (consumerGroup, tenantId, eventId) ในฐานข้อมูลของ service ตนเอง
- * และทำ work ใน callback กับการบันทึก key ให้ atomic เท่าที่ business operation ต้องการ
+ * This adapter is the consumer's idempotency boundary.
+ * A production adapter must keep a unique (consumerGroup, tenantId, eventId) in the service's own database
+ * and make the work in the callback and the key recording atomic as far as the business operation requires.
  */
 export interface EventIdempotencyStore<TContext = undefined> {
   /**
-   * adapter ใหม่ควรประกาศ DURABLE และทำ business effect กับ dedupe record
-   * ใน transaction boundary เดียวกัน
+   * a new adapter should declare DURABLE and perform the business effect together with the dedupe record
+   * in the same transaction boundary
    */
   readonly durability?: EventIdempotencyDurability;
   execute(
@@ -27,14 +27,14 @@ export interface EventIdempotencyStore<TContext = undefined> {
   ): Promise<IdempotencyResult>;
 }
 
-/** production ต้องใช้ adapter ที่ยืนยัน durable boundary อย่างชัดเจน. */
+/** production must use an adapter that explicitly confirms a durable boundary. */
 export function assertIdempotencyStoreAllowed<TContext>(
   store: EventIdempotencyStore<TContext>,
   runtime: EventConsumerRuntime,
 ): void {
   if (runtime === 'production' && store.durability !== 'DURABLE') {
     throw new Error(
-      'production Kafka consumer ต้องใช้ EventIdempotencyStore ที่ประกาศ durability เป็น DURABLE',
+      'production Kafka consumer must use an EventIdempotencyStore whose durability is DURABLE',
     );
   }
 }
@@ -43,7 +43,7 @@ function serializeKey(key: EventIdempotencyKey): string {
   return `${key.consumerGroup}\u0000${key.tenantId}\u0000${key.eventId}`;
 }
 
-/** ใช้สำหรับ dev/test หรือ consumer ที่ไม่มี side effect เท่านั้น; restart แล้วข้อมูลจะหาย */
+/** for dev/test or consumers without side effects only; the data is lost on restart */
 export function createInMemoryIdempotencyStore(): EventIdempotencyStore {
   const completed = new Set<string>();
   const inFlight = new Map<string, Promise<IdempotencyResult>>();

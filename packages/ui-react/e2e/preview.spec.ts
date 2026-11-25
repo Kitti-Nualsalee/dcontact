@@ -2,11 +2,11 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 
 /**
- * D1.10 (#449) acceptance: axe 0 serious/critical ทั้งสองภาษา และทุก component ใช้ได้ด้วยคีย์บอร์ด
- * พร้อม focus ring ตาม token (`--dc-focus-ring` = วงนอกสี brand-700 #0f766e)
+ * D1.10 (#449) acceptance: axe 0 serious/critical in both languages, and every component is usable with the keyboard
+ * with a focus ring per the token (`--dc-focus-ring` = outer ring in brand-700 #0f766e)
  */
 const FOCUS_RING = 'rgb(15, 118, 110)';
-/** ring ด้านใน (`--dc-focus-ring-inset`) — ทั้งสองชั้นต้องเป็น inset: สีที่ขอบ ขาวด้านใน */
+/** inner ring (`--dc-focus-ring-inset`) — both layers must be inset: color at the edge, white inside */
 const FOCUS_RING_INSET =
   /rgb\(15, 118, 110\) 0px 0px 0px 2px inset, rgb\(255, 255, 255\) 0px 0px 0px 4px inset/;
 
@@ -24,7 +24,9 @@ async function focusRingOf(page: Page) {
 }
 
 for (const lang of ['th', 'en'] as const) {
-  test(`axe: 0 serious/critical (${lang}) รวมตอนเปิด dialog และ select`, async ({ page }) => {
+  test(`axe: 0 serious/critical (${lang}) including when the dialog and select are open`, async ({
+    page,
+  }) => {
     await page.goto(`/?lang=${lang}`);
     await expect(page.locator('html')).toHaveAttribute('lang', lang);
     expect(await seriousViolations(page)).toEqual([]);
@@ -40,20 +42,22 @@ for (const lang of ['th', 'en'] as const) {
   });
 }
 
-test('สลับภาษาใน preview เปลี่ยนทั้งข้อความของหน้าและของ component (namespace ui)', async ({
+test('switching the language in the preview changes both the page text and the component text (namespace ui)', async ({
   page,
 }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'ไทย' }).focus();
   await page.getByRole('button', { name: 'English' }).click();
   await expect(page.getByRole('heading', { name: 'Buttons' })).toBeVisible();
-  // ปุ่มล้างซ่อนตอนช่องว่าง (ไม่อยู่ใน a11y tree) — พิมพ์ก่อนแล้วตรวจชื่อจาก namespace `ui`
+  // the clear button is hidden while the field is empty (not in the a11y tree) — type first, then check the name from namespace `ui`
   await page.getByRole('searchbox', { name: 'Search contacts' }).fill('Ann');
   await expect(page.getByRole('button', { name: 'Clear search' })).toBeVisible();
   await expect(page.locator('html')).toHaveAttribute('lang', 'en');
 });
 
-test('keyboard: Tab ไปถึงปุ่มและเห็น focus ring ตาม token', async ({ page }) => {
+test('keyboard: Tab reaches the button and shows the focus ring per the token', async ({
+  page,
+}) => {
   await page.goto('/');
   const save = page.getByRole('button', { name: 'บันทึก' });
   for (let i = 0; i < 10 && !(await save.evaluate((el) => el === document.activeElement)); i++) {
@@ -61,26 +65,26 @@ test('keyboard: Tab ไปถึงปุ่มและเห็น focus ring 
   }
   await expect(save).toBeFocused();
   expect(await focusRingOf(page)).toContain(FOCUS_RING);
-  // ปุ่มที่กดไม่ได้ไม่อยู่ในลำดับ Tab
+  // a button that cannot be pressed is not in the Tab order
   await expect(page.getByRole('button', { name: 'กดไม่ได้' })).toBeDisabled();
 });
 
-test('keyboard: TextField/SearchField — พิมพ์, Esc ล้างคำค้นหา, required แสดง error', async ({
+test('keyboard: TextField/SearchField — typing, Esc clears the search, required shows an error', async ({
   page,
 }) => {
   await page.goto('/');
   const search = page.getByRole('searchbox', { name: 'ค้นหาลูกค้า' });
   await search.focus();
-  // ring อยู่ที่กรอบ (Group) ของช่อง ไม่ใช่ที่ input ด้านใน
+  // the ring is on the field's frame (Group), not on the inner input
   expect(await search.evaluate((el) => getComputedStyle(el.parentElement!).boxShadow)).toContain(
     FOCUS_RING,
   );
   await expect(page.getByRole('button', { name: 'ล้างคำค้นหา' })).toBeHidden();
   await page.keyboard.type('สมชาย');
   await expect(search).toHaveValue('สมชาย');
-  // มีปุ่มล้างของเราปุ่มเดียว ปุ่ม × ของ browser (input type=search) ต้องไม่แสดงซ้อน
+  // there is only our own clear button; the browser's × button (input type=search) must not show on top
   await expect(page.getByRole('button', { name: 'ล้างคำค้นหา' })).toBeVisible();
-  // getComputedStyle อ่าน pseudo แบบ vendor ไม่ได้ จึงตรวจว่ามีกฎ display:none ที่ตรงกับ input นี้
+  // getComputedStyle cannot read vendor pseudo-elements, so check that a display:none rule matches this input
   expect(
     await search.evaluate((el) =>
       Array.from(document.styleSheets).some((sheet) =>
@@ -108,7 +112,7 @@ test('keyboard: TextField/SearchField — พิมพ์, Esc ล้างค�
   await expect(name).toHaveAttribute('aria-describedby', /.+/);
 });
 
-test('keyboard: Select เปิดด้วย Enter เลื่อนด้วยลูกศร ข้ามตัวเลือกที่ปิดใช้ และเลือกด้วย Enter', async ({
+test('keyboard: Select opens with Enter, moves with arrows, skips disabled options, and selects with Enter', async ({
   page,
 }) => {
   await page.goto('/');
@@ -131,7 +135,7 @@ test('keyboard: Select เปิดด้วย Enter เลื่อนด้�
   await page.keyboard.press('Escape');
 });
 
-test('keyboard: Checkbox และ Switch สลับด้วย Space', async ({ page }) => {
+test('keyboard: Checkbox and Switch toggle with Space', async ({ page }) => {
   await page.goto('/');
   const checkbox = page.getByRole('checkbox', { name: 'ยอมรับเงื่อนไข' });
   await checkbox.focus();
@@ -145,7 +149,7 @@ test('keyboard: Checkbox และ Switch สลับด้วย Space', async
   await expect(toggle).not.toBeChecked();
 });
 
-test('keyboard: Table เลื่อนแถวด้วยลูกศรและเลือกด้วย Space', async ({ page }) => {
+test('keyboard: Table moves rows with arrows and selects with Space', async ({ page }) => {
   await page.goto('/');
   const table = page.getByRole('grid', { name: 'คิวงาน' });
   await table.focus();
@@ -157,7 +161,7 @@ test('keyboard: Table เลื่อนแถวด้วยลูกศรแ�
   await expect(focusedRow).toHaveAttribute('aria-selected', 'true');
 });
 
-test('keyboard: Tabs เลื่อนด้วยลูกศรและแสดง panel ที่ตรงกัน', async ({ page }) => {
+test('keyboard: Tabs move with arrows and show the matching panel', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('tab', { name: 'ภาพรวม' }).focus();
   await page.keyboard.press('ArrowRight');
@@ -165,7 +169,7 @@ test('keyboard: Tabs เลื่อนด้วยลูกศรและแ�
   await expect(page.getByRole('tabpanel')).toHaveText('รายการขั้นตอนตามลำดับ');
 });
 
-test('keyboard: Dialog เปิดด้วย Enter, focus ติดอยู่ใน dialog, Esc ปิดแล้ว focus กลับที่ปุ่มเปิด', async ({
+test('keyboard: Dialog opens with Enter, focus stays inside the dialog, Esc closes and focus returns to the opening button', async ({
   page,
 }) => {
   await page.goto('/');
@@ -183,7 +187,9 @@ test('keyboard: Dialog เปิดด้วย Enter, focus ติดอยู�
   await expect(open).toBeFocused();
 });
 
-test('keyboard: Toast แสดงใน region ที่มีชื่อ และปิดได้ด้วยคีย์บอร์ด', async ({ page }) => {
+test('keyboard: Toast shows in a named region and can be dismissed with the keyboard', async ({
+  page,
+}) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'แสดงการแจ้งเตือน' }).focus();
   await page.keyboard.press('Enter');
@@ -196,14 +202,14 @@ test('keyboard: Toast แสดงใน region ที่มีชื่อ แ�
   await expect(region.getByText('บันทึกแล้ว')).toBeHidden();
 });
 
-test('forced-colors: Switch ยังเห็น track/thumb และแยกเปิด/ปิดได้ (สีพื้นถูกบังคับเป็น Canvas)', async ({
+test('forced-colors: Switch still shows the track/thumb and tells on/off apart (background colors are forced to Canvas)', async ({
   page,
 }) => {
   await page.emulateMedia({ forcedColors: 'active' });
   await page.goto('/');
   const toggle = page.getByRole('switch', { name: 'รับสายอัตโนมัติ' });
   const label = page.locator('label').filter({ has: toggle });
-  // track คือ span ที่ซ่อนจาก a11y tree (Toggle.tsx) และ thumb เป็นลูกของมัน
+  // the track is a span hidden from the a11y tree (Toggle.tsx) and the thumb is its child
   const parts = () =>
     label
       .locator('span[aria-hidden="true"]')
@@ -229,7 +235,7 @@ test('forced-colors: Switch ยังเห็น track/thumb และแยก
   expect(on.trackBackground).not.toBe(off.trackBackground);
 });
 
-test('forced-colors: แถว Table ที่เลือกมีแถบ Highlight ที่ต้นแถว (พื้นแถวถูกบังคับเป็น Canvas)', async ({
+test('forced-colors: a selected Table row has a Highlight bar at the row start (the row background is forced to Canvas)', async ({
   page,
 }) => {
   await page.emulateMedia({ forcedColors: 'active' });
@@ -250,7 +256,7 @@ test('forced-colors: แถว Table ที่เลือกมีแถบ Hig
   expect(await marker(page.getByRole('row', { name: /การเงิน/ }))).toBe('0px');
 });
 
-test('forced-colors: Tabs ยังเห็นเส้นใต้แท็บที่เลือก (inset box-shadow ถูกลบในโหมดนี้)', async ({
+test('forced-colors: Tabs still show the selected tab underline (inset box-shadow is removed in this mode)', async ({
   page,
 }) => {
   await page.emulateMedia({ forcedColors: 'active' });
@@ -265,7 +271,7 @@ test('forced-colors: Tabs ยังเห็นเส้นใต้แท็บ
   expect((await underline('ขั้นตอน')).content).toBe('none');
 });
 
-test('forced-colors: Button ที่กดค้าง (aria-pressed) ใช้พื้น Highlight แยกจากปุ่มอื่น', async ({
+test('forced-colors: a pressed Button (aria-pressed) uses a Highlight background to stand apart from other buttons', async ({
   page,
 }) => {
   await page.emulateMedia({ forcedColors: 'active' });
@@ -275,7 +281,7 @@ test('forced-colors: Button ที่กดค้าง (aria-pressed) ใช้
   const english = group.getByRole('button', { name: 'English' });
   await expect(thai).toHaveAttribute('aria-pressed', 'true');
   await expect(english).toHaveAttribute('aria-pressed', 'false');
-  // ปุ่มอื่นอาจเป็นพื้นโปร่งบน Canvas จึงเทียบกับค่า Highlight จริงของระบบ
+  // other buttons may have a transparent background on Canvas, so compare against the system's real Highlight value
   const highlight = await page.evaluate(() => {
     const probe = document.createElement('div');
     probe.style.backgroundColor = 'Highlight';
@@ -289,7 +295,7 @@ test('forced-colors: Button ที่กดค้าง (aria-pressed) ใช้
   expect(await background(thai)).toBe(highlight);
   expect(await background(english)).not.toBe(highlight);
 
-  // โฟกัสบนปุ่มที่กดค้างยังเห็น outline ด้านนอก (tokens.css) และไม่มี ring สี brand ค้างเพราะปิด adjust
+  // focus on a pressed button still shows the outer outline (tokens.css) and no brand-colored ring remains because adjust is turned off
   await english.focus();
   await page.keyboard.press('Shift+Tab');
   await expect(thai).toBeFocused();

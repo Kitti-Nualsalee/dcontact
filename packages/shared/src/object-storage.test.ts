@@ -4,7 +4,7 @@ import { readS3Bucket, readS3Configuration, resetS3DeprecationWarnings } from '.
 
 beforeEach(() => resetS3DeprecationWarnings());
 
-test('ใช้ S3_* ก่อนชื่อเดิม และไม่เตือน', () => {
+test('uses S3_* before the legacy names, with no warning', () => {
   const warnings: string[] = [];
   const configuration = readS3Configuration({
     environment: {
@@ -27,7 +27,7 @@ test('ใช้ S3_* ก่อนชื่อเดิม และไม่เ�
   assert.deepEqual(warnings, []);
 });
 
-test('fallback เป็น MINIO_* และเตือน deprecated ครั้งเดียวต่อตัวแปร', () => {
+test('falls back to MINIO_* and warns about deprecation once per variable', () => {
   const warnings: string[] = [];
   const environment = {
     MINIO_ENDPOINT: 'http://minio:9000',
@@ -50,7 +50,7 @@ test('fallback เป็น MINIO_* และเตือน deprecated คร�
   ]);
 });
 
-test('dev ใช้ค่า default ที่ตรงกับ dev compose ไม่ใช่ minioadmin', () => {
+test('dev uses defaults that match the dev compose, not minioadmin', () => {
   const configuration = readS3Configuration({ environment: {} });
   assert.equal(configuration.endpoint, 'http://localhost:9000');
   assert.equal(configuration.accessKeyId, 'dcontact');
@@ -58,7 +58,7 @@ test('dev ใช้ค่า default ที่ตรงกับ dev compose ไ
   assert.equal(configuration.region, 'us-east-1');
 });
 
-test('production ต้อง fail closed เมื่อไม่มี endpoint หรือ credential', () => {
+test('production must fail closed when the endpoint or credential is missing', () => {
   assert.throws(
     () => readS3Configuration({ environment: { NODE_ENV: 'production' } }),
     /S3_ENDPOINT is required/,
@@ -72,7 +72,7 @@ test('production ต้อง fail closed เมื่อไม่มี endpoin
   );
 });
 
-test('requireExplicit บังคับได้โดยไม่ขึ้นกับ NODE_ENV และแนบ purpose ในข้อความ', () => {
+test('requireExplicit can be forced regardless of NODE_ENV and attaches the purpose to the message', () => {
   assert.throws(
     () =>
       readS3Configuration({
@@ -84,7 +84,7 @@ test('requireExplicit บังคับได้โดยไม่ขึ้น�
   );
 });
 
-test('ค่าว่างหรือช่องว่างนับว่าไม่ได้ตั้ง', () => {
+test('an empty or whitespace value counts as unset', () => {
   assert.throws(
     () =>
       readS3Configuration({
@@ -95,7 +95,7 @@ test('ค่าว่างหรือช่องว่างนับว่�
   );
 });
 
-test('S3_FORCE_PATH_STYLE=false ปิด path-style ได้ ค่าอื่นเป็น true', () => {
+test('S3_FORCE_PATH_STYLE=false disables path-style; any other value is true', () => {
   assert.equal(
     readS3Configuration({ environment: { S3_FORCE_PATH_STYLE: 'FALSE' } }).forcePathStyle,
     false,
@@ -106,7 +106,7 @@ test('S3_FORCE_PATH_STYLE=false ปิด path-style ได้ ค่าอื�
   );
 });
 
-test('ชื่อ bucket: S3_BUCKET_* ก่อน, ชื่อเดิมพร้อมเตือน, แล้วค่า default', () => {
+test('bucket name: S3_BUCKET_* first, then the legacy name with a warning, then the default', () => {
   const warnings: string[] = [];
   const warn = (message: string) => warnings.push(message);
   assert.equal(readS3Bucket('RECORDINGS', { S3_BUCKET_RECORDINGS: 'rec' }, warn), 'rec');

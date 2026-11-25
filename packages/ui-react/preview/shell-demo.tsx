@@ -1,6 +1,6 @@
 /**
- * หน้า demo ของ shell (`?view=shell`) — ใช้ `useShellNavigation` กับ Navigation API จำลองในหน้า
- * เพื่อให้ Playwright ตรวจ axe/keyboard ของ rail + launcher และคำขอ PUT หมุดจริง
+ * demo page of the shell (`?view=shell`) — uses `useShellNavigation` with a simulated Navigation API in the page
+ * so Playwright can check axe/keyboard of the rail + launcher and the real PUT request for pins
  */
 import { useTranslation } from 'react-i18next';
 import {
@@ -59,7 +59,7 @@ const mock: NavigationResponseV1 = {
   features: { shellV2: true },
 };
 
-// Navigation API จำลอง — เก็บ revision จริงเพื่อให้ test ตรวจ expectedRevision ได้
+// simulated Navigation API — keeps a real revision so tests can check expectedRevision
 const store = { pins: [...mock.pins.appIds], revision: 0 };
 const mockFetch: typeof fetch = async (input, init) => {
   const url = String(input);
@@ -70,7 +70,7 @@ const mockFetch: typeof fetch = async (input, init) => {
     body: init?.body ? JSON.parse(String(init.body)) : undefined,
   });
   if (url.endsWith('/me/navigation/pins')) {
-    // หน่วงเหมือน network จริง — ให้ test กดครั้งถัดไประหว่างที่คำขอแรกยังไม่ตอบ
+    // delay like a real network — lets the test press again while the first request has not been answered
     await new Promise((resolve) => setTimeout(resolve, 150));
     const body = JSON.parse(String(init?.body)) as { appIds: string[]; expectedRevision: number };
     if (body.expectedRevision !== store.revision) {
@@ -86,10 +86,10 @@ const mockFetch: typeof fetch = async (input, init) => {
   });
 };
 
-// #588: claims จำลอง — role ที่เมนูไม่รู้จัก (offline_access) ต้องไม่แสดง
+// #588: simulated claims — a role the menu does not know (offline_access) must not be shown
 const demoUser = shellUserFromClaims(
   {
-    name: 'สมชาย ใจดี',
+    name: 'สมชาย ใจดี', // allow-thai: Thai display-name fixture
     email: 'somchai@demo.example',
     realm_access: { roles: ['supervisor', 'agent', 'offline_access'] },
   },
@@ -117,7 +117,7 @@ export function ShellDemo() {
     .map((id) => nav.apps.find((app) => app.id === id))
     .filter((app) => app !== undefined);
   const language = i18n.language === 'en' ? 'en' : 'th';
-  // `?signout=confirm` = จำลอง Workspace ระหว่างมีสาย (ถามยืนยันก่อนออก)
+  // `?signout=confirm` = simulates Workspace during a call (asks for confirmation before leaving)
   const confirmSignOut = new URL(window.location.href).searchParams.get('signout') === 'confirm';
 
   return (
@@ -196,7 +196,7 @@ export function ShellDemo() {
           <UserMenu
             user={demoUser}
             onSignOut={recordSignOut}
-            // AC5 (#598): แบบเดียวกับ Workspace — เปิดหน้าบัญชีของ Console ในแท็บใหม่
+            // AC5 (#598): same as Workspace — opens the Console account page in a new tab
             accountLink={{ href: 'https://console.demo.example/?view=account', newTab: true }}
             signOutConfirm={
               confirmSignOut

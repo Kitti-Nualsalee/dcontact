@@ -6,11 +6,11 @@ import type { ShellApp } from './types.js';
 import styles from './TopBar.module.css';
 
 export interface TopBarProps {
-  /** โลโก้/ชื่อแอป */
+  /** logo/app name */
   brand: ReactNode;
-  /** ตำแหน่งปัจจุบัน เช่น ["ระบบอัตโนมัติ", "Journeys"] — ตัวสุดท้ายคือหน้านี้ */
+  /** current location, e.g. ["Automation", "Journeys"] — the last one is this page */
   breadcrumb: readonly string[];
-  /** ส่วนขวา: สลับภาษา, สถานะพร้อมรับงาน (Workspace), โปรไฟล์ */
+  /** right part: language switch, ready-for-work status (Workspace), profile */
   children?: ReactNode;
 }
 
@@ -19,7 +19,7 @@ export interface BreadcrumbProps {
   placement?: 'topbar' | 'content';
 }
 
-/** ตำแหน่งปัจจุบันใช้ร่วมกันได้ทั้งแถบบนและเหนือเนื้อหา */
+/** the current location can be shared by both the top bar and above the content */
 export function Breadcrumb({ items, placement = 'topbar' }: BreadcrumbProps) {
   const t = useUiText();
   if (!items.length) return null;
@@ -43,7 +43,7 @@ export function Breadcrumb({ items, placement = 'topbar' }: BreadcrumbProps) {
   );
 }
 
-/** แถบบนสูง `--dc-bar-top` (44px) */
+/** top bar height `--dc-bar-top` (44px) */
 export function TopBar({ brand, breadcrumb, children }: TopBarProps) {
   return (
     <header className={styles.bar}>
@@ -55,7 +55,7 @@ export function TopBar({ brand, breadcrumb, children }: TopBarProps) {
   );
 }
 
-/** ทางเข้าระบบอื่นบนแถบบน ใช้ลิงก์/สิทธิ์ที่ host app ประกอบจาก Navigation API */
+/** entry points to other systems on the top bar, using links/permissions the host app builds from the Navigation API */
 export function TopBarLinks({ apps, label }: { apps: readonly ShellApp[]; label: string }) {
   const t = useUiText();
   if (!apps.length) return null;
@@ -82,7 +82,7 @@ export interface LanguageSwitchProps {
   onChange: (value: 'th' | 'en') => void;
 }
 
-/** สลับ TH/EN ทันทีโดยไม่ reload (D1.5) — ชื่อภาษาแสดงเป็นภาษาของตัวเองเสมอ */
+/** switches TH/EN immediately without a reload (D1.5) — the language name is always shown in its own language */
 export function LanguageSwitch({ value, onChange }: LanguageSwitchProps) {
   const t = useUiText();
   // Each language is named in itself, so both catalogs hold the same names

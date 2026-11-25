@@ -8,7 +8,7 @@ const hostOrigins = {
   workspace: 'https://workspace.demo.example',
 } as const;
 
-test('ลิงก์ในแอปเดียวกันเป็น relative ส่วนอีกแอปเป็น absolute และส่งต่อ tenant alias เท่านั้น', () => {
+test('same-app links are relative, the other app is absolute, and only the tenant alias is forwarded', () => {
   assert.equal(
     buildAppHref({
       hostApp: 'console',
@@ -30,7 +30,7 @@ test('ลิงก์ในแอปเดียวกันเป็น relativ
   );
 });
 
-test('toShellModel แปล label ด้วย i18n ของแอป และทำเครื่องหมายแอปอีกฝั่งเป็น external', () => {
+test('toShellModel translates labels with the app i18n and marks apps of the other host as external', () => {
   const response: NavigationResponseV1 = {
     groups: [{ id: 'live', labelKey: 'navigation.groups.live' }],
     apps: [
@@ -71,7 +71,7 @@ test('toShellModel แปล label ด้วย i18n ของแอป แล�
   assert.equal(model.apps[1]!.href, '/?view=journeys&tenant=demo');
 });
 
-test('ไม่รู้ origin ของอีกแอป → ไม่สร้างลิงก์ และแอปนั้นถูกตัดออกจาก shell (ไม่เดาเป็น localhost)', () => {
+test('unknown origin of the other app → no link, and that app is dropped from the shell (never guessed as localhost)', () => {
   assert.equal(
     buildAppHref({ hostApp: 'workspace', path: '/', currentHost: 'console', hostOrigins: {} }),
     null,
@@ -159,7 +159,7 @@ const areaResponse: NavigationResponseV1 = {
   features: { shellV2: true },
 };
 
-test('#651: toShellModel สร้างพื้นที่ตามลำดับที่ server ส่ง; href ของพื้นที่คือรายการแรก; อีกแอป = แท็บใหม่', () => {
+test('#651: toShellModel builds areas in the order the server sends; the area href is the first item; the other app = new tab', () => {
   const model = toShellModel(areaResponse, {
     currentHost: 'console',
     hostOrigins,
@@ -190,7 +190,7 @@ test('#651: toShellModel สร้างพื้นที่ตามลำด�
   ]);
 });
 
-test('#651: รายการที่ไม่รู้ origin ถูกตัด และพื้นที่ที่ว่างตามไปด้วย (ไม่มีปุ่มบน rail ที่กดไปไหนไม่ได้)', () => {
+test('#651: items with an unknown origin are dropped, and areas left empty go with them (no rail button that leads nowhere)', () => {
   const model = toShellModel(areaResponse, {
     currentHost: 'console',
     hostOrigins: { console: hostOrigins.console },
@@ -202,14 +202,14 @@ test('#651: รายการที่ไม่รู้ origin ถูกตั
   );
 });
 
-test('#651: API รุ่นเก่าที่ไม่ส่ง areas ได้พื้นที่ว่าง (rail กลับไปแสดงหมุดแอป)', () => {
+test('#651: an older API that sends no areas gets empty areas (the rail goes back to showing app pins)', () => {
   const { areas: _omitted, ...legacy } = areaResponse;
   void _omitted;
   const model = toShellModel(legacy, { currentHost: 'console', hostOrigins, translate: (k) => k });
   assert.deepEqual(model.areas, []);
 });
 
-test('#651: areaOf หาพื้นที่จากแอปที่กำลังใช้ — แอปนอก registry (เช่นหน้าบัญชี) ไม่อยู่พื้นที่ใด', () => {
+test('#651: areaOf finds the area from the app in use — an app outside the registry (e.g. the account page) belongs to no area', () => {
   const { areas } = toShellModel(areaResponse, {
     currentHost: 'console',
     hostOrigins,
@@ -221,7 +221,7 @@ test('#651: areaOf หาพื้นที่จากแอปที่กำ�
   assert.equal(areaOf(undefined, 'journeys'), undefined);
 });
 
-test('#658: แอปที่มี pages กระจายเป็นหลายรายการ id เดียวกัน แยกด้วย pageId; href ใช้ path ของหน้า + tenant', () => {
+test('#658: an app whose pages are spread into several items with the same id, separated by pageId; href uses the page path + tenant', () => {
   const response: NavigationResponseV1 = {
     ...areaResponse,
     apps: [
@@ -282,7 +282,7 @@ test('#658: แอปที่มี pages กระจายเป็นหล�
       external: false,
     },
   ]);
-  // href ของพื้นที่ = หน้าแรก และ areaOf ยังหาพื้นที่จาก id ของแอป
+  // the area href = the first page, and areaOf still finds the area from the app id
   assert.equal(model.areas[0]!.href, '/?view=governance&section=overview&tenant=demo');
   assert.equal(areaOf(model.areas, 'contact-governance'), 'governance');
 });

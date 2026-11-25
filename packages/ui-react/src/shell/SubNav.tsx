@@ -8,11 +8,11 @@ export interface SubNavItem {
   href: string;
   icon?: string;
   count?: number;
-  /** อยู่อีก host app → เปิดแท็บใหม่ (ADR-026 ข้อ 3) */
+  /** lives in the other host app → opens a new tab (ADR-026 item 3) */
   external?: boolean;
   /**
-   * #658: เปลี่ยนหน้าภายในแอปเดียวกันโดยไม่โหลดหน้าใหม่ — คลิกซ้ายธรรมดาเท่านั้น;
-   * คลิกพร้อม ctrl/⌘/shift, คลิกกลาง หรือแท็บใหม่ใช้ `href` ตามปกติ
+   * #658: navigate within the same app without loading a new page — plain left click only;
+   * a click with ctrl/⌘/shift, a middle click or a new tab uses `href` as usual
    */
   onSelect?: () => void;
 }
@@ -24,14 +24,14 @@ export interface SubNavSection {
 }
 
 export interface SubNavProps {
-  /** ชื่อแอป เช่น "Journeys" และชื่อกลุ่มเหนือชื่อแอป */
+  /** app name, e.g. "Journeys", and the group name above the app name */
   title: string;
   eyebrow?: string;
   sections: readonly SubNavSection[];
   currentItemId?: string;
 }
 
-/** แผงเมนูย่อยของแอปใน Console (หน้าตาแบบ B: ชื่อกลุ่ม, ไอคอนนำ, แถว 36px) */
+/** sub-menu panel of the app in Console (look B: group name, leading icon, 36px rows) */
 export function SubNav({ title, eyebrow, sections, currentItemId }: SubNavProps) {
   const t = useUiText();
   return (

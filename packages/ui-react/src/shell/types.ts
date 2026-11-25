@@ -1,10 +1,10 @@
-/** แอปหนึ่งตัวบน rail/launcher — label แปลแล้ว, href ประกอบ origin แล้ว (ลิงก์ข้ามแอปใช้ ID เท่านั้น) */
+/** one app on the rail/launcher — label already translated, href already composed with the origin (cross-app links use IDs only) */
 export interface ShellApp {
   id: string;
   groupId: string;
   label: string;
   href: string;
-  /** อยู่อีก host app (Console ↔ Workspace) → เปิดแท็บใหม่เสมอ (ADR-026 ข้อ 3) */
+  /** lives in the other host app (Console ↔ Workspace) → always opens a new tab (ADR-026 item 3) */
   external: boolean;
 }
 
@@ -21,8 +21,8 @@ export interface ShellCreateAction {
 }
 
 /**
- * #651: รายการในเมนูย่อยของพื้นที่ — id = id ของแอปใน registry
- * #658: แอปที่มีหน้าย่อยกระจายเป็นหลายรายการ id เดียวกัน (ของแอป) แยกด้วย `pageId`
+ * #651: an item in the area's sub-menu — id = the app's id in the registry
+ * #658: an app with sub-pages is spread into several items with the same (app) id, separated by `pageId`
  */
 export interface ShellAreaItem {
   id: string;
@@ -38,7 +38,7 @@ export interface ShellAreaSection {
   items: readonly ShellAreaItem[];
 }
 
-/** #651: พื้นที่งานบน rail — `href` คือรายการแรกของพื้นที่ (ลิงก์ของปุ่มบน rail) */
+/** #651: a work area on the rail — `href` is the first item of the area (the link of the rail button) */
 export interface ShellArea {
   id: string;
   label: string;

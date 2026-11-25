@@ -73,8 +73,8 @@
   opacity: 0.5;
 }
 
-/* forced-colors: track และ thumb ของ Switch ใช้สีพื้นอย่างเดียว ซึ่งโหมดนี้บังคับเป็น Canvas จนมองไม่เห็น
-   วาดขอบ track ด้วย outline (ไม่เปลี่ยนขนาด) และใช้สีระบบ: ปิด = CanvasText, เปิด = Highlight */
+/* forced-colors: the Switch track and thumb use background color only, which this mode forces to Canvas until they are invisible
+   draw the track border with outline (no size change) and use system colors: off = CanvasText, on = Highlight */
 @media (forced-colors: active) {
   .track {
     outline: 1px solid CanvasText;

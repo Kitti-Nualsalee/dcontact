@@ -1,6 +1,6 @@
 /**
- * D1.11 (#450): client ของ `GET /api/v1/tenant/locale-defaults` — ค่าเริ่มต้นภาษา/timezone ของ tenant
- * tenant มาจาก bearer token ฝั่ง server จึงไม่มี parameter ของ tenant ที่นี่
+ * D1.11 (#450): client of `GET /api/v1/tenant/locale-defaults` — the tenant's default language/timezone
+ * the tenant comes from the server-side bearer token, so there is no tenant parameter here
  */
 export interface TenantLocaleDefaults {
   locale: string | null;

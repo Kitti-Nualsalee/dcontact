@@ -46,7 +46,7 @@
   white-space: nowrap;
 }
 
-/* จอแคบ: เหลือวงกลมอักษรย่อ — ชื่อยังอยู่ใน aria-label ของปุ่ม */
+/* narrow screen: only the initials circle remains — the name stays in the button's aria-label */
 @media (max-width: 720px) {
   .name {
     display: none;
@@ -57,7 +57,7 @@
   }
 }
 
-/* ใช้ความกว้างเนื้อหาจริงหลังหัก rail และ SubNav */
+/* uses the real content width after subtracting the rail and SubNav */
 @container dc-shell-content (max-width: 800px) {
   .name {
     display: none;
