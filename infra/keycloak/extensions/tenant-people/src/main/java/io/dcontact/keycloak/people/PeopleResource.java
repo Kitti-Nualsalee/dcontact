@@ -80,6 +80,7 @@ public class PeopleResource {
     }
     return new String[] { subject+" [dc-attempt:"+attemptRef+"]", body };
   }
+  // Keep in sync with theme-resources/messages/messages_en.properties (dcPeopleInvitation*)
   private static final String INVITATION_SUBJECT_FALLBACK="D-Contact invitation";
   private static final String INVITATION_BODY_FALLBACK=
     "Set your password, verify your email and set up an Authenticator with this link within 72 hours:\n\n{0}\n\nIf you did not request access, ignore this email.";
