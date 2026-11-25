@@ -23,7 +23,10 @@ test('source files are in scope; catalogs, docs, applied migrations and data are
 });
 
 test('counts lines that contain Thai characters', () => {
-  assert.equal(countThaiLines('const a = 1;\n// ทดสอบ\nconst b = "ก";\n'), 2);
+  assert.equal(
+    countThaiLines('const a = 1;\n// \u0E17\u0E14\u0E2A\u0E2D\u0E1A\nconst b = "\u0E01";\n'),
+    2,
+  );
   assert.equal(countThaiLines('English only\n'), 0);
 });
 

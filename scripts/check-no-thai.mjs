@@ -21,7 +21,7 @@ import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const THAI = /[฀-๿]/;
+const THAI = /[\u0E00-\u0E7F]/;
 
 const EXEMPT = [
   /(^|\/)locales\//,
