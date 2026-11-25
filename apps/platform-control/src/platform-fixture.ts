@@ -1,8 +1,8 @@
 /**
- * Test support ของ A1.1 (#406) เท่านั้น — production path ไม่ import ไฟล์นี้
+ * Test support for A1.1 (#406) only — the production path does not import this file
  *
- * repository ใช้ role `dcontact_platform` จริง (สิทธิ์ตาม migration) ส่วน owner ใช้ seed template,
- * จำลองเวลาผ่านไปของ tombstone และ cleanup เท่านั้น ค่าทั้งหมดสังเคราะห์และ unique ต่อ run
+ * the repository uses the real role `dcontact_platform` (privileges per the migration), while the owner is used only to seed templates,
+ * simulate the passage of time for tombstones and cleanup. All values are synthetic and unique per run
  */
 import { createHash, randomUUID } from 'node:crypto';
 import { PrismaClient } from '@d-contact/db';
@@ -28,14 +28,14 @@ export const OPERATOR: PlatformActor = {
 };
 export const WORKER: PlatformActor = { kind: 'SYSTEM', subject: 'provisioning-worker' };
 export const SIP_BASE = 'sip.dcontact.test';
-/** #901: deployment context ของ tenant Console ที่ binding ของ first admin ผูกไว้ */
+/** #901: the tenant Console deployment context that the first admin's binding is tied to */
 export const TENANT_CONSOLE = {
   issuer: 'http://localhost:8081/realms/dcontact',
   clientId: 'console',
   origin: 'http://localhost:5173',
 } as const;
 
-/** manifest v1 ของเทสต์ — ชื่อ/เวลาเป็นค่าสังเคราะห์ ไม่ใช่ baseline จริงของ production */
+/** the test's manifest v1 — name/times are synthetic values, not the real production baseline */
 export const FIXTURE_MANIFEST: BootstrapManifestV1 = {
   schemaVersion: 1,
   adminTeam: { name: 'Admin Team' },
@@ -49,7 +49,7 @@ export const FIXTURE_MANIFEST: BootstrapManifestV1 = {
   },
 };
 
-/** ตัวเลขที่ต่างกันต่อ run เพื่อให้ snapshot ของแต่ละ run ไม่ซ้ำกัน */
+/** numbers that differ per run so each run's snapshot is unique */
 function sequenceSeed(run: string): number {
   return parseInt(run.slice(0, 6), 16);
 }
@@ -64,7 +64,7 @@ export async function createPlatformFixture() {
   const owner = new PrismaClient();
   const platform = new PrismaClient({ datasources: { db: { url: PLATFORM_DATABASE_URL } } });
   const application = new PrismaClient({ datasources: { db: { url: APPLICATION_DATABASE_URL } } });
-  /** A1.4: role ที่ saga worker ใช้เขียนข้อมูลตั้งต้นของ tenant (#388 decision) */
+  /** A1.4: role the saga worker uses to write a tenant's initial data (#388 decision) */
   const provisioner = new PrismaClient({ datasources: { db: { url: PROVISIONER_DATABASE_URL } } });
   const run = randomUUID().slice(0, 8);
   const templateVersion = `baseline-${run}`;
@@ -73,14 +73,14 @@ export async function createPlatformFixture() {
     version: templateVersion,
     manifest: FIXTURE_MANIFEST,
   });
-  // plan version เป็น global ต่อ code — แต่ละ run ออก version ของตัวเองแล้วลบตอน dispose
+  // plan version is global per code — each run issues its own version then deletes it on dispose
   const publishedPlan = await catalog.publishPlanVersion({
     planCode: 'growth',
     entitlements: { agent_seats: 25, queues: 10, recording: true, run_marker: sequenceSeed(run) },
   });
 
   let sequence = 0;
-  /** input ที่ slug/domain/email ไม่ซ้ำกับ run อื่น — override เพื่อทดสอบ conflict */
+  /** input whose slug/domain/email do not clash with other runs — override to test a conflict */
   const input = (overrides: Partial<ProvisioningRequestInput> = {}): ProvisioningRequestInput => {
     sequence += 1;
     const label = `a1-${run}-${sequence}`;
@@ -122,7 +122,7 @@ export async function createPlatformFixture() {
       tenantIds.add(tenantId);
       return tenantId;
     },
-    /** จำลองว่า tombstone หมดอายุแล้ว (DB ใช้ now() ของตัวเองเทียบ) */
+    /** simulates a tombstone having expired (the DB compares with its own now()) */
     async expireTombstones(requestId: string) {
       await owner.$executeRaw`
         UPDATE "pf_identity_reservations"
@@ -131,7 +131,7 @@ export async function createPlatformFixture() {
     },
     async dispose() {
       const ids = [...tenantIds];
-      // ledger/audit ถูกห้ามลบด้วย trigger ทุก role — cleanup ของเทสต์ปิด trigger ด้วย superuser เท่านั้น
+      // the ledger/audit may not be deleted by a trigger for every role — test cleanup disables the trigger only as superuser
       await owner.$transaction(async (transaction) => {
         await transaction.$executeRawUnsafe("SET LOCAL session_replication_role = 'replica'");
         for (const table of [
@@ -142,7 +142,7 @@ export async function createPlatformFixture() {
           'business_hours',
           'tenant_plan_bindings',
           'tenant_settings',
-          // #914: CONTACT_CREATE ของ first admin ที่ provisioning ให้
+          // #914: CONTACT_CREATE of the first admin that provisioning grants
           'c360_actor_capability_revocations',
           'c360_actor_capability_grants',
           'c360_profile_audits',

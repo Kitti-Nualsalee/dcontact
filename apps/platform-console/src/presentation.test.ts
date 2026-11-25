@@ -5,7 +5,7 @@ import { resources, DEFAULT_NAMESPACE } from './i18n/resources.js';
 import { describeHistory } from './presentation.js';
 import { validateDraft, EMPTY_DRAFT, type ActionHistoryItem } from './model.js';
 
-test('validation/history เปลี่ยนภาษาที่ render โดยข้อมูลและ message keys เดิมไม่เปลี่ยน', async () => {
+test('validation/history change the rendered language while the data and message keys stay the same', async () => {
   const i18n = createI18n({ resources, locale: 'th', defaultNamespace: DEFAULT_NAMESPACE });
   const errors = validateDraft({ ...EMPTY_DRAFT, displayName: 'x' });
   const snapshot = JSON.stringify(errors);
@@ -21,7 +21,7 @@ test('validation/history เปลี่ยนภาษาที่ render โ�
     beforeState: 'RUNNING',
     afterState: 'ACTION_REQUIRED',
     reasonCode: 'OPERATOR_VERIFIED',
-    comment: 'ข้อความผู้ใช้ English ไทย',
+    comment: 'ข้อความผู้ใช้ English ไทย', // allow-thai: user-entered mixed Thai/English text must be preserved as-is
     errorCode: 'FIRST_ADMIN_EMAIL_CONFLICT',
     correlationId: 'synthetic-correlation',
     occurredAt: '2026-10-22T03:05:00.000Z',

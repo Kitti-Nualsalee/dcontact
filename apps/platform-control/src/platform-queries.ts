@@ -1,12 +1,12 @@
 /**
- * Owner: Platform API — read model ของ control plane (A1.6 #411)
+ * Owner: Platform API — read model of the control plane (A1.6 #411)
  *
- * Authority: #387 (platform เห็นเฉพาะ control-plane metadata), #388 checkpoint 1 (cursor, generic 404)
+ * Authority: #387 (platform sees only control-plane metadata), #388 checkpoint 1 (cursor, generic 404)
  *
- * - ใช้ role `dcontact_platform` เท่านั้น จึงอ่าน business data ของ tenant ไม่ได้โดยโครงสร้าง
- * - ค้นหาด้วย name/slug/domain/request ID หรือ first-admin email; email เทียบด้วย hash เท่านั้น
- *   และ response แสดง email แบบ mask — ไม่คืน raw email, token หรือ payload ดิบ
- * - cursor เป็น opaque (createdAt, id) เรียงแบบ total order จึงเสถียรแม้มี tenant ใหม่ระหว่างเปิดหน้า
+ * - uses only role `dcontact_platform`, so it structurally cannot read tenant business data
+ * - search by name/slug/domain/request ID or first-admin email; email is compared by hash only
+ *   and the response shows the email masked — never returns a raw email, token or raw payload
+ * - the cursor is opaque (createdAt, id) in a total order, so it stays stable even when a new tenant appears while the page is open
  */
 import type { Prisma, PrismaClient } from '@d-contact/db';
 import {
@@ -39,7 +39,7 @@ function decodeCursor(value: string | undefined): Cursor | null {
   }
 }
 
-/** a***@example.com — operator เห็นพอยืนยันผู้รับ แต่ไม่ได้ email เต็ม */
+/** a***@example.com — the operator sees enough to confirm the recipient but not the full email */
 export function maskEmail(email: string): string {
   const [local = '', domain = ''] = email.split('@');
   return `${local.slice(0, 1)}***@${domain}`;
@@ -51,7 +51,7 @@ export interface TenantSummary {
   slug: string;
   primaryDomain: string | null;
   lifecycleStatus: 'PROVISIONING' | 'ACTIVE';
-  /** tenant เดิมก่อน A1 ไม่มี provisioning history (#388 rollout: legacy read-only) */
+  /** a tenant that predates A1 has no provisioning history (#388 rollout: legacy read-only) */
   legacy: boolean;
   request: {
     requestId: string;
@@ -63,7 +63,7 @@ export interface TenantSummary {
 }
 
 export class PlatformQueries {
-  /** `database` = Prisma ของ role `dcontact_platform` */
+  /** `database` = Prisma with role `dcontact_platform` */
   constructor(private readonly database: PrismaClient) {}
 
   async searchTenants(input: {
@@ -99,7 +99,7 @@ export class PlatformQueries {
       }
       const email = normalizeFirstAdminEmail(query);
       if (email) {
-        // ค้นด้วย hash — ไม่ทำ substring match บน email
+        // search by hash — no substring match on email
         const emailHash = platformIdentityHash('first-admin-email', email);
         matches.push({ pfProvisioningRequests: { some: { firstAdminEmailHash: emailHash } } });
       }
@@ -155,7 +155,7 @@ export class PlatformQueries {
         return {
           tenantId: row.id,
           name: row.name,
-          // tenant ที่ยัง PROVISIONING ถือ placeholder — แสดง slug/domain ที่ขอไว้แทน
+          // a tenant still PROVISIONING holds a placeholder — show the requested slug/domain instead
           slug: row.lifecycleStatus === 'PROVISIONING' && request ? request.slug : row.slug,
           primaryDomain:
             row.lifecycleStatus === 'PROVISIONING' && request
@@ -181,7 +181,7 @@ export class PlatformQueries {
     };
   }
 
-  /** representation ปัจจุบันของ request — ใช้ตอบ GET และ 202/replay */
+  /** current representation of a request — used to answer GET and 202/replay */
   async requestView(requestId: string) {
     const request = UUID.test(requestId)
       ? await this.database.pfProvisioningRequest.findUnique({
@@ -231,7 +231,7 @@ export class PlatformQueries {
         nextAttemptAt: step.nextAttemptAt?.toISOString() ?? null,
         finishedAt: step.finishedAt?.toISOString() ?? null,
       })),
-      // delivery ≠ activation (#392) — activation ต้องถาม Keycloak จึงอยู่ฝั่ง worker ไม่ใช่ API
+      // delivery ≠ activation (#392) — activation must ask Keycloak so it lives on the worker side, not the API
       invitation: invitation
         ? {
             generation: invitation.generation,
@@ -247,8 +247,8 @@ export class PlatformQueries {
   }
 
   /**
-   * catalog ที่เลือกได้ตอนสร้าง request: plan version ล่าสุดที่ ACTIVE ต่อ code และ bootstrap template
-   * ที่ ACTIVE (#392 — DEPRECATED/REVOKED เลือกไม่ได้) UI ใช้แสดงตัวเลือกเท่านั้น API ยัง pin ตอน accept
+   * the catalog selectable when creating a request: the latest ACTIVE plan version per code and the ACTIVE bootstrap templates
+   * (#392 — DEPRECATED/REVOKED cannot be selected) the UI uses it only to show options; the API still pins at accept
    */
   async catalog() {
     const [plans, templates] = await Promise.all([
@@ -301,7 +301,7 @@ export class PlatformQueries {
             }
           : {}),
       },
-      // timeline เก่า → ใหม่ แบบ total order
+      // timeline oldest → newest in a total order
       orderBy: [{ occurredAt: 'asc' }, { id: 'asc' }],
       take: limit + 1,
     });

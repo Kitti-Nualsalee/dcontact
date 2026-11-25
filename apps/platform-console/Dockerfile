@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# A1.9 (#574): Platform Console แยก origin จาก Tenant Console
+# A1.9 (#574): the Platform Console has an origin separate from the Tenant Console
 ARG NODE_IMAGE=node:20-bookworm-slim@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0
 ARG CADDY_IMAGE=caddy:2.8.4-alpine@sha256:af32e97399febea808609119bb21544d0265c58a02836576e32a2d082c262c17
 FROM ${NODE_IMAGE} AS build

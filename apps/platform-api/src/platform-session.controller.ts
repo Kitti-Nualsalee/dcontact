@@ -1,8 +1,8 @@
 /**
- * Owner: Platform edge — session ของ Platform Console (A1.2 #407)
+ * Owner: Platform edge — session of the Platform Console (A1.2 #407)
  *
- * คืนเฉพาะสิ่งที่ UI ต้องใช้ตัดสินใจแสดงผล (roles/capabilities/หมดอายุ) ไม่คืน token หรือ claim ดิบ
- * UI ใช้ capabilities เพื่อซ่อนปุ่มเท่านั้น — authority จริงอยู่ที่ guard ทุก request
+ * Returns only what the UI needs to decide what to show (roles/capabilities/expiry), never a token or raw claims
+ * The UI uses capabilities only to hide buttons — the real authority is the guard on every request
  */
 import { Controller, Get, Header, Inject, Req } from '@nestjs/common';
 import type { PlatformRollout } from '@d-contact/platform-control';
@@ -22,7 +22,7 @@ export class PlatformSessionController {
   @RequirePlatformCapability('CONTROL_PLANE_READ')
   session(@Req() request: AuthenticatedPlatformRequest) {
     const identity = request.platformIdentity!;
-    // A1.8: rollout ปิด/ไม่อยู่ใน canary = ตัด mutation ออกจาก capabilities เพื่อให้ UI เป็นอ่านอย่างเดียว
+    // A1.8: rollout off / not in the canary = strip the mutations from capabilities so the UI is read-only
     const mutations = identity.capabilities.includes('PROVISIONING_MUTATE')
       ? this.rollout.mutationFor(identity.subject)
       : 'NOT_GRANTED';

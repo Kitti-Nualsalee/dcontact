@@ -1,8 +1,8 @@
 /**
- * Owner: Platform operations — metrics ของ Platform API (A1.8 #413)
+ * Owner: Platform operations — metrics of the Platform API (A1.8 #413)
  *
- * นับการตัดสินใจของ guard จาก diagnostics เดิม (label = decision/reason/capability ที่เป็น enum เท่านั้น
- * ไม่มี subject หรือ correlation id) — `/metrics` อยู่บน port แยกจาก API สาธารณะ
+ * Counts guard decisions from the existing diagnostics (labels are enums only: decision/reason/capability,
+ * no subject or correlation id) — `/metrics` is on a separate port from the public API
  */
 import { metricCode } from '@d-contact/platform-control';
 import { Counter, type Registry } from 'prom-client';
@@ -14,7 +14,7 @@ export function meteredDiagnostics(
 ): PlatformAuthDiagnosticSink {
   const decisions = new Counter({
     name: 'dcontact_platform_api_auth_decisions_total',
-    help: 'ผลของ PlatformAuthGuard ต่อ request',
+    help: 'Outcome of PlatformAuthGuard per request',
     labelNames: ['decision', 'reason', 'capability'],
     registers: [registry],
   });

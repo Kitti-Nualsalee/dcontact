@@ -1,16 +1,16 @@
 import type { MessageKey } from './i18n/messages.js';
 
 /**
- * Owner: Platform Console — logic ล้วนของ Guided onboarding (A1.7 #412)
+ * Owner: Platform Console — pure logic of Guided onboarding (A1.7 #412)
  *
  * Authority: #391 (baseline A — Guided onboarding), #388 checkpoint 1 (API/error contract), #387
  *
- * - validation ฝั่ง UI เป็นแค่ UX: API เป็น authority ของทุกค่า (field error จาก server ชนะเสมอ)
- * - สถานะ/plan/tenant ที่แสดงมาจาก response ของ API เท่านั้น — UI ไม่สรุปว่าสำเร็จก่อน `ACTIVE`
- * - ไม่มี PII ใน URL: route มีแค่ requestId (opaque UUID); คำค้นหาอยู่ใน memory
+ * - UI-side validation is only UX: the API is the authority for every value (a server field error always wins)
+ * - the status/plan/tenant shown come only from API responses — the UI does not conclude success before `ACTIVE`
+ * - no PII in the URL: the route has only the requestId (an opaque UUID); the search term lives in memory
  */
 
-// ── API shapes (subset ที่ UI ใช้) ───────────────────────────────────────────
+// ── API shapes (subset the UI uses) ───────────────────────────────────────────
 
 export type RequestStatus =
   'PENDING' | 'RUNNING' | 'SUCCEEDED' | 'ACTION_REQUIRED' | 'FAILED_FINAL' | 'CANCELLED';
@@ -25,7 +25,7 @@ export type StepState = 'PENDING' | 'RUNNING' | 'SUCCEEDED' | 'ACTION_REQUIRED';
 export type Capability = 'CONTROL_PLANE_READ' | 'PROVISIONING_MUTATE';
 export type RecoveryAction = 'RECONCILE' | 'RETRY_STEP' | 'SAFE_COMPENSATE' | 'MARK_FAILED_FINAL';
 
-/** A1.8: rollout ของ mutation — API ตัด `PROVISIONING_MUTATE` ออกเองเมื่อไม่ใช่ `ALLOWED` */
+/** A1.8: mutation rollout — the API strips `PROVISIONING_MUTATE` itself when it is not `ALLOWED` */
 export type MutationRollout = 'ALLOWED' | 'DISABLED' | 'NOT_ALLOWLISTED' | 'NOT_GRANTED';
 
 export interface SessionView {
@@ -164,7 +164,7 @@ export const LOCALES = [
 
 export const TIMEZONES = ['Asia/Bangkok', 'Asia/Singapore', 'Asia/Tokyo', 'UTC'] as const;
 
-/** ชื่อ field ใน form ↔ key ของ `fieldErrors` จาก API */
+/** form field name ↔ `fieldErrors` key from the API */
 export const FIELD_LABELS: Record<keyof TenantDraft, MessageKey> = {
   displayName: 'fields.displayName',
   slug: 'fields.slug',
@@ -181,7 +181,7 @@ const SLUG = /^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])?$/;
 const DOMAIN = /^(?=.{3,253}$)(?!-)[a-z0-9-]{1,63}(?<!-)(\.(?!-)[a-z0-9-]{1,63}(?<!-))+$/i;
 const EMAIL = /^[^\s@]{1,64}@[^\s@]+\.[^\s@]+$/;
 
-/** ตรวจเบื้องต้นก่อน review — server ตรวจซ้ำทุกค่าและเป็นผู้ตัดสิน */
+/** preliminary check before review — the server re-checks every value and decides */
 export function validateDraft(draft: TenantDraft): Partial<Record<keyof TenantDraft, MessageKey>> {
   const errors: Partial<Record<keyof TenantDraft, MessageKey>> = {};
   const name = draft.displayName.trim();
@@ -206,7 +206,7 @@ export function validateDraft(draft: TenantDraft): Partial<Record<keyof TenantDr
   return errors;
 }
 
-/** body ของ POST /provisioning-requests — ไม่มี tenantId/status: server เป็นผู้กำหนด */
+/** body of POST /provisioning-requests — no tenantId/status: the server sets them */
 export function draftToRequestBody(draft: TenantDraft) {
   return {
     displayName: draft.displayName.trim(),
@@ -223,7 +223,7 @@ export function draftToRequestBody(draft: TenantDraft) {
   };
 }
 
-/** API ใช้ชื่อ field ของตัวเอง — map กลับเข้า form เพื่อโฟกัส/แสดงผลถูกช่อง */
+/** the API uses its own field names — map back into the form to focus/show the right field */
 export function fieldErrorsToDraft(
   fieldErrors: Record<string, string> | undefined,
 ): Partial<Record<keyof TenantDraft, MessageKey>> {
@@ -249,7 +249,7 @@ export function fieldErrorsToDraft(
   return result;
 }
 
-/** key ของ draft แต่ละครั้งที่กด submit (ลองซ้ำหลัง network error = key เดิม → ไม่สร้างซ้ำ) */
+/** key of each draft that is submitted (a retry after a network error = the same key → no duplicate) */
 export function newIdempotencyKey(prefix: string): string {
   return `${prefix}-${crypto.randomUUID()}`;
 }
@@ -285,12 +285,12 @@ export const STATUS_LABELS: Record<RequestStatus, { label: MessageKey; tone: Ton
 
 export type Tone = 'neutral' | 'info' | 'success' | 'warning' | 'danger';
 
-/** สถานะที่ยังเปลี่ยนได้เองจาก worker — ต้อง poll */
+/** statuses that can still change on their own from the worker — need polling */
 export function shouldPoll(status: RequestStatus): boolean {
   return status === 'PENDING' || status === 'RUNNING';
 }
 
-/** สำเร็จจริงเมื่อ API บอก SUCCEEDED เท่านั้น (tenant ACTIVE ใน transaction เดียวกัน) */
+/** really successful only when the API says SUCCEEDED (tenant ACTIVE in the same transaction) */
 export function isHandoffReady(view: Pick<RequestView, 'status'>): boolean {
   return view.status === 'SUCCEEDED';
 }
@@ -310,7 +310,7 @@ export interface RecoveryOption {
   destructive: boolean;
 }
 
-/** #391: Reconcile & resume เป็น recommended ก่อน Retry, Safe compensate และ FAILED_FINAL */
+/** #391: Reconcile & resume is recommended before Retry, Safe compensate and FAILED_FINAL */
 export const RECOVERY_OPTIONS: readonly RecoveryOption[] = [
   {
     action: 'RECONCILE',
@@ -448,13 +448,13 @@ export function canMutate(session: SessionView | null): boolean {
 
 export interface ReadOnlyCopy {
   chip: MessageKey;
-  /** ประกาศทั้งหน้า — เฉพาะ operator ที่ถูกปิดชั่วคราว (auditor อ่านอย่างเดียวเป็นปกติ) */
+  /** page-wide announcement — only for an operator who is temporarily disabled (an auditor being read-only is normal) */
   banner: MessageKey | null;
   create: MessageKey;
   decision: MessageKey;
 }
 
-/** ข้อความเมื่อ session เขียนไม่ได้ — แยก auditor ออกจาก operator ที่ถูก rollout ปิดไว้ */
+/** text for when the session cannot write — separates an auditor from an operator whose rollout is off */
 export function readOnlyCopy(session: SessionView): ReadOnlyCopy {
   if (session.mutations === 'DISABLED') {
     return {
@@ -480,7 +480,7 @@ export function readOnlyCopy(session: SessionView): ReadOnlyCopy {
   };
 }
 
-/** route ของ Console — มีแค่ id ที่ opaque ไม่มี email/คำค้นหา (#412) */
+/** Console route — has only an opaque id, no email/search term (#412) */
 export type Route = { name: 'list' } | { name: 'new' } | { name: 'request'; requestId: string };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

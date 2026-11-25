@@ -1,8 +1,8 @@
 /**
- * Test support ของ real-boundary test A1.4 (#409) เท่านั้น — production path ไม่ import ไฟล์นี้
+ * Test support for the A1.4 (#409) real-boundary test only — the production path does not import this file
  *
- * Keycloak (`pnpm infra:up` + `pnpm infra:identity:platform`) และ mailpit ต้องรันอยู่
- * ทุก resource ที่เทสต์สร้างถูกลบตาม `tenant_id` attribute ตอน dispose
+ * Keycloak (`pnpm infra:up` + `pnpm infra:identity:platform`) and mailpit must be running
+ * every resource a test creates is deleted by the `tenant_id` attribute on dispose
  */
 import { totp } from '../../../scripts/keycloak-platform-login.mjs';
 import { KeycloakAdminClient } from './keycloak-admin.js';
@@ -34,7 +34,7 @@ async function masterToken() {
   return ((await response.json()) as { access_token: string }).access_token;
 }
 
-/** Admin API ในนามผู้ดูแล realm — ใช้จัดฉาก/ตรวจ/cleanup เท่านั้น ไม่ใช่สิทธิ์ของ worker */
+/** Admin API as the realm admin — for staging/checking/cleanup only, not the worker's privileges */
 export async function keycloakAdmin<T = unknown>(
   method: string,
   path: string,
@@ -82,7 +82,7 @@ export async function messagesTo(recipient: string): Promise<MailpitMessage[]> {
   return (body.messages ?? []).sort((left, right) => left.Created.localeCompare(right.Created));
 }
 
-/** ลิงก์ execute-actions ของทุกฉบับที่ส่งถึงผู้รับ เรียงเก่า → ใหม่ */
+/** execute-actions links of every message sent to the recipient, oldest → newest */
 export async function invitationLinks(recipient: string): Promise<string[]> {
   const links: string[] = [];
   for (const message of await messagesTo(recipient)) {
@@ -118,7 +118,7 @@ const hidden = (html: string, name: string) =>
   html.match(new RegExp(`name="${name}"[^>]*value="([^"]*)"`))?.[1] ??
   html.match(new RegExp(`value="([^"]*)"[^>]*name="${name}"`))?.[1];
 
-/** เปิดลิงก์ invitation แล้วทำ required actions ตามหน้าที่ Keycloak แสดง แบบที่ browser ทำ */
+/** opens the invitation link and completes the required actions as Keycloak shows them, the way a browser does */
 export async function completeInvitation(link: string, password: string) {
   const cookies = new Map<string, string>();
   const go = async (url: string, init: RequestInit = {}) => {
@@ -175,13 +175,13 @@ export async function completeInvitation(link: string, password: string) {
   return { status: page.status, pages, totpSecret };
 }
 
-/** tenant login ผ่าน client ของ dev readiness (password + OTP) — คืน access token */
+/** tenant login through the dev readiness client (password + OTP) — returns an access token */
 export async function tenantLogin(input: {
   username: string;
   password: string;
   totpSecret: string;
 }) {
-  // รหัส OTP เดิมใช้ซ้ำใน window เดียวกันไม่ได้ (replay protection ของ Keycloak)
+  // the same OTP code cannot be reused within the same window (Keycloak replay protection)
   const window = Math.floor(Date.now() / 30_000);
   await new Promise((resolve) => setTimeout(resolve, (window + 1) * 30_000 - Date.now() + 250));
   const response = await fetch(`${KEYCLOAK_URL}/realms/${REALM}/protocol/openid-connect/token`, {
@@ -200,8 +200,8 @@ export async function tenantLogin(input: {
 }
 
 /**
- * #907: tenant Console client ของ boundary test (public + PKCE) พร้อม fine-grained permission ของ provisioner
- * สร้างครั้งเดียวและคงไว้ — ถ้าลบ client ทิ้ง permission จะเหลือแบบไม่มี resource ซึ่งครอบ client ทุกตัว
+ * #907: the boundary test's tenant Console client (public + PKCE) with the provisioner's fine-grained permission
+ * created once and kept — if the client is deleted the permission is left with no resource, which then covers every client
  */
 export const BOUNDARY_CONSOLE = {
   issuer: `${KEYCLOAK_URL}/realms/${REALM}`,

@@ -1,13 +1,13 @@
 /**
- * Owner: Platform control plane — deterministic fake adapters ของ provisioning ports (A1.3 #408)
+ * Owner: Platform control plane — deterministic fake adapters of the provisioning ports (A1.3 #408)
  *
- * ใช้แทน Keycloak/bootstrap/email/readiness จริงใน Fast PR gate (#393 §1/§4): ไม่มี network และไม่มีเวลา
- * จริงนอกจากที่ผู้เรียกสั่ง fault ที่ inject ได้ตรงกับ fault matrix ของ #393 §4:
- * - `lostResponse`: side effect เกิดแล้วแต่ผู้เรียกได้ error (ต้องจบด้วย verified adoption)
- * - `transient`: ล้มก่อนเกิด side effect
- * - `hang`: ไม่ตอบจนกว่า signal จะ abort (timeout)
- * - `permanent`: ล้มถาวร
- * - `foreign(...)`: มี resource ชื่อเดียวกันแต่ correlation ไม่ตรง (ห้ามยึด)
+ * Replace the real Keycloak/bootstrap/email/readiness in the Fast PR gate (#393 §1/§4): no network and no real time
+ * beyond what the caller dictates. Injectable faults match the fault matrix of #393 §4:
+ * - `lostResponse`: the side effect happened but the caller got an error (must end in verified adoption)
+ * - `transient`: fails before any side effect
+ * - `hang`: does not answer until the signal aborts (timeout)
+ * - `permanent`: fails permanently
+ * - `foreign(...)`: a resource with the same name but a mismatching correlation (never adopt)
  */
 import type {
   ExternalProvisioningStepKey,
@@ -27,13 +27,13 @@ interface FakeResource {
 }
 
 export class FakeProvisioningSystem implements ProvisioningStepPort {
-  /** resource ที่ "ระบบภายนอก" ถืออยู่จริง keyed ด้วย operationKey */
+  /** resources the "external system" really holds, keyed by operationKey */
   readonly resources = new Map<string, FakeResource>();
   readonly faults: FakeFault[] = [];
   executeCalls = 0;
   findCalls = 0;
   compensated: string[] = [];
-  /** มีเฉพาะ step ที่ชดเชยได้จริง — invitation/bootstrap ไม่มี (#390 ห้าม destructive เป็นค่าเริ่มต้น) */
+  /** only steps that can really be compensated — invitation/bootstrap have none (#390: no destructive default) */
   readonly compensate?: (context: ProvisioningStepContext, externalRef: string) => Promise<void>;
   private sequence = 0;
 
@@ -53,13 +53,13 @@ export class FakeProvisioningSystem implements ProvisioningStepPort {
     }
   }
 
-  /** fault ถัดไปของ execute (เรียงตามลำดับ) */
+  /** the next fault of execute (in order) */
   fail(...faults: FakeFault[]): this {
     this.faults.push(...faults);
     return this;
   }
 
-  /** จำลอง resource ที่มีชื่อเดียวกันแต่เป็นของ tenant/request อื่น */
+  /** simulates a resource with the same name that belongs to another tenant/request */
   foreign(context: Pick<ProvisioningStepContext, 'operationKey'>): this {
     this.resources.set(context.operationKey, {
       externalRef: `foreign-${this.stepKey}`,
@@ -94,7 +94,7 @@ export class FakeProvisioningSystem implements ProvisioningStepPort {
       );
       throw new ProvisioningStepError('AMBIGUOUS', 'EXTERNAL_TIMEOUT');
     }
-    // ระบบจริงที่ดีจะไม่สร้างซ้ำถ้ามีอยู่แล้ว แต่ saga ต้องไม่พึ่งพฤติกรรมนั้น — fake นับทุกการสร้าง
+    // a good real system would not create again if it already exists, but the saga must not rely on that — the fake counts every creation
     this.sequence += 1;
     const resource = {
       externalRef: `${this.stepKey.toLowerCase()}-${this.sequence}`,
@@ -106,13 +106,13 @@ export class FakeProvisioningSystem implements ProvisioningStepPort {
     return { externalRef: resource.externalRef };
   }
 
-  /** จำนวน resource ที่ถูกสร้างจริงทั้งหมด — ใช้ยืนยันว่าไม่มี duplicate */
+  /** total number of resources actually created — used to confirm there is no duplicate */
   get created(): number {
     return this.sequence;
   }
 }
 
-/** readiness เป็น check ไม่ใช่ resource — find ไม่พบเสมอเพื่อให้รันใหม่ทุก attempt */
+/** readiness is a check, not a resource — find never finds it so it runs again on every attempt */
 export class FakeReadinessCheck implements ProvisioningStepPort {
   result: 'PASS' | 'FAIL' = 'PASS';
   executeCalls = 0;
@@ -133,7 +133,7 @@ export function createFakeProvisioningPorts() {
     KEYCLOAK_ORGANIZATION: new FakeProvisioningSystem('KEYCLOAK_ORGANIZATION'),
     PLAN_BOOTSTRAP: new FakeProvisioningSystem('PLAN_BOOTSTRAP', { compensable: false }),
     FIRST_ADMIN: new FakeProvisioningSystem('FIRST_ADMIN'),
-    // invitation ที่ส่งไปแล้วเรียกคืนไม่ได้ — ambiguous ต้อง reconcile ห้าม blind resend
+    // an invitation already sent cannot be recalled — ambiguous must reconcile, never blind resend
     INVITATION: new FakeProvisioningSystem('INVITATION', { compensable: false }),
     READINESS: new FakeReadinessCheck(),
   };

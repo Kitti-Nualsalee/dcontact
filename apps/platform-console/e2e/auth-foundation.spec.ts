@@ -5,7 +5,7 @@ import { test } from './platform-test.js';
 const origin = 'http://127.0.0.1:5182';
 const issuer = `${origin}/oidc`;
 
-/** ทดสอบ production root จริงโดยจำลอง OIDC protocol; ไม่อ้างว่าเป็น Keycloak/MFA acceptance */
+/** tests the real production root by simulating the OIDC protocol; does not claim to be a Keycloak/MFA acceptance */
 async function mockIdentity(
   page: Page,
   options: { sessionError?: string; holdSession?: boolean } = {},
@@ -110,7 +110,7 @@ async function mockIdentity(
     } else if (path === '/api/v1/tenants') {
       await route.fulfill({ json: { items: [], nextCursor: null } });
     } else {
-      throw new Error(`API นอกขอบเขต mock: ${path}`);
+      throw new Error(`API outside the mock scope: ${path}`);
     }
   });
   return { authorizations, releaseSession };
@@ -123,10 +123,10 @@ async function accessible(page: Page) {
   ).toEqual([]);
 }
 
-test.describe('OIDC กับ production root', () => {
+test.describe('OIDC with the production root', () => {
   test.use({ baseURL: origin });
 
-  test('login TH/EN, OIDC redirect, refresh และ logout คง preference และ scope เดิม', async ({
+  test('login TH/EN, OIDC redirect, refresh and logout keep the preference and the original scope', async ({
     page,
   }, testInfo) => {
     const identity = await mockIdentity(page);
@@ -173,7 +173,7 @@ test.describe('OIDC กับ production root', () => {
   });
 
   for (const code of ['UNAUTHENTICATED', 'FORBIDDEN', 'UNKNOWN']) {
-    test(`session loading/error ${code} ครบ TH/EN และไม่แสดง raw server title`, async ({
+    test(`session loading/error ${code} complete in TH/EN and do not show the raw server title`, async ({
       page,
     }) => {
       const identity = await mockIdentity(page, { sessionError: code, holdSession: true });
@@ -199,9 +199,9 @@ test.describe('OIDC กับ production root', () => {
   }
 });
 
-test.describe('configuration ก่อนตั้ง issuer', () => {
+test.describe('configuration before the issuer is set', () => {
   test.use({ baseURL: 'http://127.0.0.1:5183' });
-  test('configuration screen ใช้ TH/EN พร้อม keyboard และ axe', async ({ page }) => {
+  test('the configuration screen uses TH/EN with keyboard and axe', async ({ page }) => {
     await page.goto('/');
     await expect(page.getByRole('heading', { name: 'ยังไม่ได้ตั้งค่า' })).toBeVisible();
     await accessible(page);

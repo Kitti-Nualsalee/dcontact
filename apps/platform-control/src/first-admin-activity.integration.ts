@@ -1,6 +1,6 @@
 /**
- * A1.8 (#413) บน Postgres จริง: เหตุการณ์ของ First admin ลง Action history ด้วย actor `FIRST_ADMIN`
- * (Keycloak จำลองด้วย response shape เดียวกับ Keycloak 26 — ของจริงอยู่ใน keycloak-provisioning.boundary)
+ * A1.8 (#413) on real Postgres: First admin events go into Action history with actor `FIRST_ADMIN`
+ * (Keycloak is simulated with the same response shape as Keycloak 26 — the real one is in keycloak-provisioning.boundary)
  */
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -37,7 +37,7 @@ async function setup(t: TestContext) {
       createdAt: new Date(Date.now() - 60_000),
     },
   });
-  // CHECK ของ pf_invitations บังคับ expires_at = sent_at + 72 ชม. พอดี — คำนวณจากเวลาเดียวกัน
+  // the CHECK on pf_invitations requires expires_at = sent_at + exactly 72 hours — computed from the same time
   const sentAt = new Date(Date.now() - 50_000);
   await f.platform.pfInvitation.update({
     where: { id: invitation.id },
@@ -87,9 +87,9 @@ async function setup(t: TestContext) {
 
 const at = (seconds: number) => Date.parse('2026-09-25T04:20:00Z') + seconds * 1000;
 
-test('บันทึกเหตุการณ์ตามลำดับเวลา, ไม่ซ้ำเมื่อ reconcile ซ้ำ และหยุดตามหลัง ACTIVATED', async (t) => {
+test('records events in time order, no duplicates on repeated reconcile, and stops after ACTIVATED', async (t) => {
   const s = await setup(t);
-  // ยังไม่ทำอะไร: ไม่มีเหตุการณ์ และไม่ถูกตรวจซ้ำก่อนครบ interval
+  // nothing done yet: no events, and not re-checked before the interval has elapsed
   assert.deepEqual(await s.reconciler.runOnce(), {
     kind: 'FIRST_ADMIN_SYNCED',
     requestId: s.accepted.requestId,
@@ -99,7 +99,7 @@ test('บันทึกเหตุการณ์ตามลำดับเ�
   });
   assert.deepEqual(await s.reconciler.runOnce(), { kind: 'IDLE' });
 
-  // ทำ TOTP + password แล้ว (details มี username = email ซึ่งต้องไม่ถูกเก็บ)
+  // TOTP + password done (details has username = email, which must not be stored)
   const details = { username: EMAIL, auth_method: 'openid-connect' };
   s.keycloak.events = [
     { time: at(3), type: 'UPDATE_PASSWORD', details: { ...details, credential_type: 'password' } },
@@ -114,7 +114,7 @@ test('บันทึกเหตุการณ์ตามลำดับเ�
   s.advance(60_000);
   assert.equal(((await s.reconciler.runOnce()) as { recorded: number }).recorded, 2);
 
-  // ยืนยันอีเมลจนครบ → ACTIVATED ที่เวลาของเหตุการณ์ล่าสุด
+  // email verified all the way → ACTIVATED at the time of the latest event
   s.keycloak.events.push({
     time: at(4),
     type: 'CUSTOM_REQUIRED_ACTION',
@@ -140,7 +140,7 @@ test('บันทึกเหตุการณ์ตามลำดับเ�
   assert.ok(rows.every((row) => row.actorSubject === s.userId && row.outcome === 'SUCCEEDED'));
   assert.equal(JSON.stringify(rows).includes(EMAIL), false);
 
-  // ACTIVATED แล้ว = ไม่อยู่ในรายการตรวจอีก; reconcile ซ้ำ (เช่น worker อื่น) ไม่เพิ่มแถว
+  // once ACTIVATED = no longer in the check list; a repeated reconcile (e.g. another worker) adds no rows
   s.advance(120_000);
   assert.deepEqual(await s.reconciler.runOnce(), { kind: 'IDLE' });
   const other = new FirstAdminActivityReconciler(s.f.platform, s.keycloak as never, {
@@ -151,7 +151,7 @@ test('บันทึกเหตุการณ์ตามลำดับเ�
   assert.equal((await s.timeline()).length, 4);
 });
 
-test('worker สองตัว reconcile พร้อมกันไม่ทำให้ timeline ซ้ำ', async (t) => {
+test('two workers reconciling at once do not duplicate the timeline', async (t) => {
   const s = await setup(t);
   s.keycloak.user = { emailVerified: true, requiredActions: [] };
   s.keycloak.events = [

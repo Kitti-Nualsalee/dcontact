@@ -1,16 +1,16 @@
 /**
- * Owner: IAM provisioning + Notification delivery — invitation ของ first Tenant Admin (A1.4 #409)
+ * Owner: IAM provisioning + Notification delivery — invitation of the first Tenant Admin (A1.4 #409)
  *
  * Authority: #392 Invitation contract
- * - Keycloak execute-actions (verify email, ตั้ง password, ลงทะเบียน TOTP) อายุ 72 ชั่วโมง
- * - intent ลง `pf_invitations` ก่อนเรียก Keycloak เสมอ (durable outbox) แล้วค่อยบันทึกผล
- * - ผลไม่ชัด (timeout/lost response) = `AMBIGUOUS` → reconcile ด้วย delivery probe เท่านั้น
- *   ห้ามยิงซ้ำเอง; ถ้าพิสูจน์ไม่ได้ saga จะขึ้น ACTION_REQUIRED ให้ operator ตัดสิน
- * - resend = operator action ที่ต้องมี reason/comment, สร้าง generation ใหม่, audit ทุกผล และ
- *   ไม่เกิน 3 ครั้งต่อชั่วโมง (DB trigger บังคับแบบ race-safe)
- * - delivery accepted ≠ user activated: `status()` แยกสองสถานะ
+ * - Keycloak execute-actions (verify email, set password, register TOTP) valid for 72 hours
+ * - the intent goes into `pf_invitations` before calling Keycloak, always (durable outbox), then the outcome is recorded
+ * - an unclear outcome (timeout/lost response) = `AMBIGUOUS` → reconcile only with a delivery probe,
+ *   never re-send on its own; if it cannot be proven the saga goes to ACTION_REQUIRED for the operator to decide
+ * - resend = an operator action that needs a reason/comment, creates a new generation, audits every outcome and is
+ *   capped at 3 per hour (a DB trigger enforces it race-safely)
+ * - delivery accepted ≠ user activated: `status()` separates the two states
  *
- * ข้อจำกัดที่รู้แล้ว: Keycloak 26.0 ยกเลิก action token ของ generation เก่าไม่ได้ → #436
+ * Known limitation: Keycloak 26.0 cannot revoke action tokens of an old generation → #436
  */
 import { randomUUID } from 'node:crypto';
 import { Prisma, type PrismaClient } from '@d-contact/db';
@@ -33,8 +33,8 @@ import {
 } from './provisioning-saga.js';
 
 /**
- * หลักฐานการส่งจากฝั่ง email provider — ใช้ reconcile ผล `AMBIGUOUS` เท่านั้น
- * production ที่ไม่มี lookup ให้คืน `UNKNOWN` เสมอ (operator ตัดสิน)
+ * delivery evidence from the email provider side — used only to reconcile an `AMBIGUOUS` outcome
+ * production without a lookup always returns `UNKNOWN` (the operator decides)
  */
 export interface InvitationDeliveryProbe {
   delivered(input: { recipient: string; since: Date }): Promise<'DELIVERED' | 'UNKNOWN'>;
@@ -44,7 +44,7 @@ export const NO_DELIVERY_PROBE: InvitationDeliveryProbe = {
   delivered: async () => 'UNKNOWN',
 };
 
-/** email sink ของ dev/test (mailpit) — correlation คือผู้รับ (email unique ทั้ง platform) + เวลาหลัง intent */
+/** dev/test email sink (mailpit) — correlation is the recipient (email unique across the platform) + time after the intent */
 export function mailpitDeliveryProbe(
   baseUrl: string,
   fetcher: typeof fetch = fetch,
@@ -65,13 +65,13 @@ export function mailpitDeliveryProbe(
 
 type InvitationRow = Prisma.PfInvitationGetPayload<object>;
 
-/** intent ที่อายุน้อยกว่านี้ถือว่ากำลังส่งอยู่ (มากกว่า timeout ของ external call หนึ่งครั้ง) */
+/** an intent younger than this is considered in flight (longer than the timeout of one external call) */
 const INTENT_IN_FLIGHT_MS = 120_000;
 
 export interface InvitationStatus {
   generation: number | null;
   delivery: 'NOT_STARTED' | 'INTENT' | 'SENT' | 'FAILED' | 'AMBIGUOUS';
-  /** เทียบกับนาฬิกาปัจจุบัน — หมดอายุแล้วแต่ยังไม่ activate ต้อง resend */
+  /** compared with the current clock — expired but not yet activated needs a resend */
   expired: boolean;
   activation: 'PENDING_ACTIVATION' | 'ACTIVATED' | 'UNKNOWN';
   expiresAt: Date | null;
@@ -84,7 +84,7 @@ export class InvitationOutbox {
   private readonly probe: InvitationDeliveryProbe;
 
   constructor(
-    /** Prisma ของ role `dcontact_platform` */
+    /** Prisma with role `dcontact_platform` */
     private readonly platform: PrismaClient,
     private readonly keycloak: KeycloakAdminClient,
     private readonly firstAdmin: FirstAdminPort,
@@ -95,7 +95,7 @@ export class InvitationOutbox {
     this.probe = options.probe ?? NO_DELIVERY_PROBE;
   }
 
-  /** port ของ step INVITATION สำหรับ saga worker */
+  /** port of the INVITATION step for the saga worker */
   port(): ProvisioningStepPort {
     return {
       find: (context) => this.find(context),
@@ -113,7 +113,7 @@ export class InvitationOutbox {
   async find(context: ProvisioningStepContext): Promise<ProvisioningAdoption> {
     const latest = await this.latest(context.requestId);
     if (latest?.state === 'SENT') return { status: 'FOUND', externalRef: latest.id };
-    // INTENT ค้าง/AMBIGUOUS ต้องผ่าน reconciliation ใน execute; FAILED ส่งใหม่ได้
+    // a pending INTENT/AMBIGUOUS must go through reconciliation in execute; FAILED can be sent again
     return { status: 'NOT_FOUND' };
   }
 
@@ -124,7 +124,7 @@ export class InvitationOutbox {
 
     if (latest?.state === 'SENT') return { externalRef: latest.id };
     if (latest?.state === 'INTENT' || latest?.state === 'AMBIGUOUS') {
-      // attempt ก่อนหน้าไม่รู้ผล: หาหลักฐานการส่ง ถ้าไม่มีห้ามยิงซ้ำ
+      // the previous attempt's outcome is unknown: look for delivery evidence, and if there is none never send again
       const reconciled = await this.reconcile(latest, context.request.firstAdminEmail);
       if (reconciled) return { externalRef: reconciled.id };
       throw new ProvisioningStepError('PERMANENT', 'INVITATION_DELIVERY_AMBIGUOUS');
@@ -145,14 +145,14 @@ export class InvitationOutbox {
         },
       });
     } else {
-      // FAILED = พิสูจน์ได้ว่าไม่ได้ส่ง: เปิด intent เดิมอีกครั้ง
+      // FAILED = proven not sent: reopen the same intent
       latest = await this.transition(latest, { state: 'INTENT', errorCode: null });
     }
     const sent = await this.send(latest, signal);
     return { externalRef: sent.id };
   }
 
-  /** ส่งหนึ่งครั้งสำหรับ intent ที่บันทึกแล้ว แล้วบันทึกผลตามที่พิสูจน์ได้ */
+  /** sends once for a recorded intent, then records the outcome as proven */
   private async send(invitation: InvitationRow, signal?: AbortSignal): Promise<InvitationRow> {
     let status: number;
     try {
@@ -168,7 +168,7 @@ export class InvitationOutbox {
         },
       ));
     } catch (error) {
-      // TRANSIENT/PERMANENT จาก client = ล้มก่อน Keycloak ประมวลผล (ขอ token ไม่ได้, 403, 4xx)
+      // TRANSIENT/PERMANENT from the client = failed before Keycloak processed it (no token, 403, 4xx)
       if (error instanceof ProvisioningStepError && error.kind !== 'AMBIGUOUS') {
         await this.transition(invitation, { state: 'FAILED', errorCode: error.code });
         throw error;
@@ -191,7 +191,7 @@ export class InvitationOutbox {
         errorCode: null,
       });
     }
-    // Keycloak ตอบกลับชัดเจนว่าส่งไม่สำเร็จ (SMTP ล้ม = 500, input ใช้ไม่ได้ = 400)
+    // Keycloak answered clearly that sending failed (SMTP down = 500, unusable input = 400)
     await this.transition(invitation, {
       state: 'FAILED',
       errorCode: status === 500 ? 'EMAIL_SEND_FAILED' : 'EMAIL_REJECTED',
@@ -222,7 +222,7 @@ export class InvitationOutbox {
     });
   }
 
-  /** CAS บน revision — ใครขยับก่อน = REVISION_CONFLICT */
+  /** CAS on revision — whoever moves first wins = REVISION_CONFLICT */
   private async transition(
     invitation: InvitationRow,
     data: Prisma.PfInvitationUpdateManyMutationInput,
@@ -239,8 +239,8 @@ export class InvitationOutbox {
   // ── Operator actions ──────────────────────────────────────────────────────
 
   /**
-   * Resend invitation (#392): supersede generation ล่าสุดแล้วสร้างใหม่ใน transaction เดียว
-   * cap 3 ครั้ง/ชั่วโมงบังคับที่ trigger (advisory lock ต่อ request) — ถูกปฏิเสธก็ลง audit
+   * Resend invitation (#392): supersede the latest generation and create a new one in one transaction
+   * cap of 3 per hour enforced at the trigger (advisory lock per request) — a rejection is audited too
    */
   async resend(command: {
     requestId: string;
@@ -301,8 +301,8 @@ export class InvitationOutbox {
       throw new PlatformProvisioningError('RECOVERY_PRECONDITION_FAILED');
     }
 
-    // รุ่นล่าสุดที่กำลังส่ง (INTENT อายุไม่ถึง 2 นาที) ห้ามถูกแทน — ไม่อย่างนั้นอีเมลที่ส่งไปแล้ว
-    // จะบันทึกผลไม่ได้และกินโควตา resend; INTENT ที่ค้างนานกว่านั้นถือว่า attempt ก่อนหน้า crash
+    // the latest generation in flight (INTENT younger than 2 minutes) must not be replaced — otherwise an email already sent
+    // could not record its outcome and would eat the resend quota; an INTENT stuck longer than that is treated as the previous attempt crashing
     if (
       latest!.state === 'INTENT' &&
       this.now().getTime() - latest!.updatedAt.getTime() < INTENT_IN_FLIGHT_MS
@@ -340,7 +340,7 @@ export class InvitationOutbox {
         error instanceof PlatformProvisioningError ||
         (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002')
       ) {
-        // operator อีกคน resend ก่อนเรา (generation ชนหรือ revision เปลี่ยน)
+        // another operator resent before us (generation clash or revision changed)
         await audit(this.platform, { outcome: 'REJECTED', errorCode: 'REVISION_CONFLICT' });
         throw new PlatformProvisioningError('REVISION_CONFLICT');
       }
@@ -348,7 +348,7 @@ export class InvitationOutbox {
     }
 
     try {
-      // #436: ลิงก์ของรุ่นก่อนหน้าต้องใช้ไม่ได้ก่อนส่งรุ่นใหม่ (invitation guard ใน Keycloak ตรวจ iat)
+      // #436: the previous generation's link must stop working before the new one is sent (the invitation guard in Keycloak checks iat)
       await this.supersedeLinks(created).catch(async (error: unknown) => {
         await this.transition(created, {
           state: 'FAILED',
@@ -372,8 +372,8 @@ export class InvitationOutbox {
   }
 
   /**
-   * ตั้ง `dc_invitation_not_before` บน Keycloak user — guard ปฏิเสธลิงก์ที่ `iat` เก่ากว่านี้
-   * Keycloak PUT แทน attributes ทั้งชุด จึงอ่านของเดิมมารวมก่อน
+   * sets `dc_invitation_not_before` on the Keycloak user — the guard rejects links whose `iat` is older than this
+   * Keycloak PUT replaces the whole attributes set, so read the existing ones and merge first
    */
   private async supersedeLinks(invitation: InvitationRow) {
     const path = `/users/${encodeURIComponent(invitation.keycloakUserId)}`;
@@ -381,8 +381,8 @@ export class InvitationOutbox {
       'GET',
       path,
     );
-    // iat ของ token มีหน่วยวินาที: ใช้ "วินาทีถัดไป" แล้วรอให้ถึงก่อนส่งรุ่นใหม่ — ลิงก์เก่าทุกอันมี
-    // iat น้อยกว่าเสมอ และลิงก์ใหม่มี iat ≥ not-before เสมอ (รอไม่เกิน 1 วินาที)
+    // the token iat is in seconds: use "the next second" and wait for it before sending the new generation — every old link has an
+    // iat that is always less, and the new link has iat ≥ not-before always (waits at most 1 second)
     const notBefore = Math.floor(Date.now() / 1000) + 1;
     await this.keycloak.admin('PUT', path, {
       body: {
@@ -395,7 +395,7 @@ export class InvitationOutbox {
     );
   }
 
-  /** delivery กับ activation แยกกัน (#392) — ไม่คืน email หรือ token */
+  /** delivery and activation are separate (#392) — returns no email or token */
   async status(requestId: string): Promise<InvitationStatus> {
     const now = this.now();
     const request = await this.platform.pfProvisioningRequest.findUnique({

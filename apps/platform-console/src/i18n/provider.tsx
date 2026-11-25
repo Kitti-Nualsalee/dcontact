@@ -4,7 +4,7 @@ import { LocaleProvider } from '@d-contact/i18n/react';
 import { PLATFORM_TIME_ZONE, resolvePlatformLocale, savePlatformLocale } from './locale.js';
 import { DEFAULT_NAMESPACE, resources } from './resources.js';
 
-/** ครอบ root ตำแหน่งเดียวทั้งก่อน/หลัง login; ไม่ผูกกับ session หรือ tenant ที่กำลังดู */
+/** wraps the single root both before/after login; not tied to the session or the tenant being viewed */
 export function PlatformLocaleProvider({ children }: { children: ReactNode }) {
   const [initial] = useState(() => {
     const locale = resolvePlatformLocale({

@@ -1,10 +1,10 @@
 /**
- * A1.4 (#409) fast gate บน Postgres จริง — ไม่ต้องใช้ Keycloak
+ * A1.4 (#409) fast gate on real Postgres — no Keycloak needed
  *
- * - #388 decision "Tenant bootstrap write boundary": `dcontact_provisioner` เขียน users ได้เฉพาะ tenant
- *   ที่ยัง PROVISIONING, ตั้ง `app.tenant_id` เองก็หนีไม่ได้ และไม่มีสิทธิ์บน business tables
- * - `pf_invitations`: lifespan 72 ชั่วโมง, generation ต่อเนื่อง, supersede ก่อน resend,
- *   resend ≤ 3 ครั้ง/ชั่วโมง, AMBIGUOUS ห้ามถือว่าไม่ได้ส่ง, ลบไม่ได้, tenant app มองไม่เห็น
+ * - #388 decision "Tenant bootstrap write boundary": `dcontact_provisioner` can write users only for tenants
+ *   still PROVISIONING, cannot escape by setting `app.tenant_id` itself, and has no privilege on business tables
+ * - `pf_invitations`: 72-hour lifespan, continuous generations, supersede before resend,
+ *   resend ≤ 3 per hour, AMBIGUOUS must not be assumed unsent, cannot be deleted, invisible to the tenant app
  */
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -47,7 +47,7 @@ async function rejects(work: Promise<unknown>, pattern: RegExp) {
   });
 }
 
-test('provisioner เขียน users ได้เฉพาะ tenant ที่ยัง PROVISIONING', async (t) => {
+test('the provisioner can write users only for tenants still PROVISIONING', async (t) => {
   const { f, accept } = await setup(t);
   const accepted = await accept();
   const row = userRow(accepted.tenantId);
@@ -59,16 +59,16 @@ test('provisioner เขียน users ได้เฉพาะ tenant ที�
     data: { keycloakId: randomUUID() },
   });
   assert.equal(mapped.count, 1);
-  // column grant: แก้ได้เฉพาะ keycloak_id
+  // column grant: only keycloak_id can be edited
   await rejects(
     f.provisioner.user.update({ where: { id: row.id }, data: { role: 'AGENT' } }),
     /permission denied/,
   );
 });
 
-test('provisioner แตะ tenant ACTIVE ไม่ได้ แม้ตั้ง app.tenant_id เอง (RESTRICTIVE policy)', async (t) => {
+test('the provisioner cannot touch an ACTIVE tenant even when setting app.tenant_id itself (RESTRICTIVE policy)', async (t) => {
   const { f } = await setup(t);
-  // tenant ACTIVE ที่มีผู้ใช้อยู่แล้ว (สร้างเองเพราะ fast gate ไม่มี seed)
+  // an ACTIVE tenant that already has users (created by hand because the fast gate has no seed)
   const label = `a14-active-${randomUUID().slice(0, 8)}`;
   const active = await f.owner.tenant.create({
     data: { name: label, slug: label, sipDomain: `${label}.sip.test` },
@@ -94,7 +94,7 @@ test('provisioner แตะ tenant ACTIVE ไม่ได้ แม้ตั้�
   );
 });
 
-test('provisioner ไม่มีสิทธิ์บน business tables และ control plane', async (t) => {
+test('the provisioner has no privilege on business tables and the control plane', async (t) => {
   const { f } = await setup(t);
   for (const table of [
     'contacts',
@@ -118,7 +118,7 @@ test('provisioner ไม่มีสิทธิ์บน business tables แล
   );
 });
 
-test('pf_invitations: generation, supersede, resend cap 3/ชั่วโมง และ state machine', async (t) => {
+test('pf_invitations: generation, supersede, resend cap 3/hour and the state machine', async (t) => {
   const { f, accept } = await setup(t);
   const accepted = await accept();
   const at = new Date('2026-09-24T03:00:00.000Z');
@@ -175,12 +175,12 @@ test('pf_invitations: generation, supersede, resend cap 3/ชั่วโมง 
   await supersede(3);
   await create(4, 3);
   await supersede(4);
-  // resend ครั้งที่ 4 ภายในชั่วโมงเดียวกัน
+  // the 4th resend within the same hour
   await rejects(create(5, 4), /PF_INVITATION_RESEND_LIMIT/);
-  // พ้นหน้าต่างหนึ่งชั่วโมงจาก resend แรกแล้วส่งได้
+  // past the one-hour window from the first resend it can be sent
   await create(5, 62);
 
-  // SENT ต้องมี sent_at และ expires_at = sent_at + 72 ชั่วโมง
+  // SENT must have sent_at and expires_at = sent_at + 72 hours
   await rejects(
     f.platform.pfInvitation.update({
       where: { id: first.id },
@@ -192,7 +192,7 @@ test('pf_invitations: generation, supersede, resend cap 3/ชั่วโมง 
     where: { id: first.id },
     data: { state: 'AMBIGUOUS', revision: { increment: 1 } },
   });
-  // ไม่รู้ผลห้ามถือว่าไม่ได้ส่ง
+  // an unknown outcome must not be assumed unsent
   await rejects(
     f.platform.pfInvitation.update({
       where: { id: first.id },

@@ -1,11 +1,11 @@
 /**
- * A1.4b (#436) acceptance: ลิงก์ invitation รุ่นเก่าต้องไม่ให้สิทธิ์ซ้ำ (#392)
+ * A1.4b (#436) acceptance: a stale-generation invitation link must not grant access again (#392)
  *
- * - รุ่นที่ถูก resend แทนแล้วใช้ไม่ได้แม้ผู้ใช้ยังไม่ activate (`dc_invitation_not_before`)
- * - หลัง activate ด้วยรุ่นใดก็ตาม รุ่นอื่นเปลี่ยน credential ไม่ได้ (ไม่มี required action ค้าง)
- * ทั้งสองข้อบังคับโดย Keycloak extension `infra/keycloak/extensions/invitation-guard`
+ * - a generation superseded by a resend cannot be used even if the user has not activated (`dc_invitation_not_before`)
+ * - after activating with any generation, the other generations cannot change the credential (no required action left)
+ * Both are enforced by the Keycloak extension `infra/keycloak/extensions/invitation-guard`
  *
- * รัน: `pnpm a1:provisioning:boundary` (ต้องมี Keycloak ที่โหลด extension + mailpit)
+ * Run: `pnpm a1:provisioning:boundary` (needs Keycloak with the extension loaded + mailpit)
  */
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -25,7 +25,7 @@ import { createFakeProvisioningPorts } from './provisioning-fakes.js';
 import { ProvisioningSagaWorker } from './provisioning-saga.js';
 import { TenantBootstrapPort, TenantReadinessPort } from './tenant-bootstrap.js';
 
-test('#436: หลัง activate ด้วย generation ใหม่ ลิงก์ generation เก่าต้องเปลี่ยน credential ไม่ได้', async (t) => {
+test('#436: after activating with a new generation, the old generation link must not be able to change the credential', async (t) => {
   const f = await createPlatformFixture();
   const tenants: string[] = [];
   t.after(async () => {
@@ -70,12 +70,12 @@ test('#436: หลัง activate ด้วย generation ใหม่ ลิง
   await outbox.resend({
     requestId: accepted.requestId,
     reasonCode: 'RECIPIENT_REQUESTED',
-    comment: 'ส่งใหม่ก่อน activate',
+    comment: 'resent before activation',
     actor: OPERATOR,
     correlationId: `corr-${key}`,
   });
   const [stale, current] = await invitationLinks(input.firstAdmin.email);
-  assert.ok(stale && current, 'ต้องมี invitation สอง generation');
+  assert.ok(stale && current, 'there must be two invitation generations');
   const [pending] = (
     await keycloakAdmin<{ id: string }[]>(
       'GET',
@@ -85,9 +85,13 @@ test('#436: หลัง activate ด้วย generation ใหม่ ลิง
   const credentialCount = async () =>
     (await keycloakAdmin<unknown[]>('GET', `/users/${pending!.id}/credentials`)).body.length;
 
-  // รุ่นที่ถูก supersede ใช้ไม่ได้แม้ผู้ใช้ยังไม่ activate
+  // the superseded generation cannot be used even if the user has not activated
   await completeInvitation(stale, `Superseded-${randomUUID().slice(0, 8)}!`);
-  assert.equal(await credentialCount(), 0, 'ลิงก์รุ่นที่ถูกแทนแล้วยังตั้ง credential ได้ (#436)');
+  assert.equal(
+    await credentialCount(),
+    0,
+    'the superseded generation link could still set a credential (#436)',
+  );
 
   await completeInvitation(current, `Current-${randomUUID().slice(0, 8)}!`);
   const [user] = (
@@ -111,6 +115,6 @@ test('#436: หลัง activate ด้วย generation ใหม่ ลิง
   assert.deepEqual(
     await credentials(),
     before,
-    'ลิงก์ generation เก่าเปลี่ยน credential ได้หลัง activation (#436)',
+    'the old generation link could change the credential after activation (#436)',
   );
 });

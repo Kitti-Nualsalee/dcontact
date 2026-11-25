@@ -1,6 +1,6 @@
 /**
- * สร้าง service ของ control plane จาก Prisma ที่ต่อด้วย role `dcontact_platform` เท่านั้น
- * (#387: Platform API ใช้ database role เฉพาะ control plane — ไม่มีสิทธิ์ business data)
+ * Builds the control plane services from Prisma connected with the `dcontact_platform` role only
+ * (#387: the Platform API uses a control-plane-only database role — no access to business data)
  */
 import type { PrismaClient } from '@d-contact/db';
 import {

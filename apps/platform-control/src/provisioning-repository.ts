@@ -1,12 +1,12 @@
 /**
- * Owner: Platform control plane — durable intent ของ tenant provisioning (A1.1 #406)
+ * Owner: Platform control plane — durable intent of tenant provisioning (A1.1 #406)
  *
  * Authority: #389 (lifecycle/identity/reservation), #390 (durable-intent-first, ledger, idempotency),
- * #393 §5 (append-only Action history), decision บน #406
+ * #393 §5 (append-only Action history), decision on #406
  *
- * ต่อฐานข้อมูลด้วย role `dcontact_platform` เท่านั้น — role นี้ไม่มีสิทธิ์บน tenant business tables
- * กติกาหลักอยู่ที่ database (unique/composite FK/trigger) เพื่อให้ race ตัดสินที่เดียว ส่วน repository
- * แปลงผลเป็น error code ที่คงที่ และไม่เผยว่า resource ของ tenant/request อื่นมีอยู่จริง
+ * Connects to the database with role `dcontact_platform` only — this role has no privilege on tenant business tables
+ * The core rules live in the database (unique/composite FK/trigger) so a race is decided in one place, while the repository
+ * converts outcomes into stable error codes and does not reveal that another tenant/request's resource really exists
  */
 import { randomUUID } from 'node:crypto';
 import { Prisma, type PrismaClient } from '@d-contact/db';
@@ -36,7 +36,7 @@ import {
 
 export interface PlatformActor {
   kind: PlatformActorKind;
-  /** subject ของ platform identity (ไม่ใช่ email) */
+  /** subject of the platform identity (not an email) */
   subject: string;
   role?: string;
   sessionRef?: string;
@@ -45,7 +45,7 @@ export interface PlatformActor {
 export interface AcceptProvisioningCommand {
   idempotencyKey: string;
   input: ProvisioningRequestInput;
-  /** plan ที่ caller resolve และ pin จาก plan catalog แล้ว (#392) — retry ใช้ค่าเดิมเสมอ */
+  /** the plan the caller resolved and pinned from the plan catalog (#392) — a retry always uses the same value */
   plan: { version: number; snapshotDigest: string };
   actor: PlatformActor;
   correlationId: string;
@@ -59,7 +59,7 @@ export interface ProvisioningRequestRef {
   revision: number;
 }
 
-/** รูปที่ control plane อ่านได้ — ไม่มี raw email ของ first admin (มีแค่ hash) */
+/** the shape the control plane can read — no raw email of the first admin (only a hash) */
 export interface ProvisioningRequestView {
   requestId: string;
   tenantId: string;
@@ -97,11 +97,11 @@ export interface ActionHistoryEntry {
 }
 
 export interface ProvisioningRepositoryOptions {
-  /** base domain ของ SIP (decision บน #406): sipDomain = `<slug>.<base>` */
+  /** SIP base domain (decision on #406): sipDomain = `<slug>.<base>` */
   sipBaseDomain: string;
   /**
-   * #901: issuer/client ของ tenant Console — ตั้งเมื่อ repository นี้ปิดงาน provisioning (saga worker)
-   * แล้ว `complete` จะบันทึก binding ของ first admin ใน transaction เดียวกับ ACTIVE
+   * #901: issuer/client of the tenant Console — set when this repository closes provisioning work (the saga worker)
+   * and then `complete` records the first admin's binding in the same transaction as ACTIVE
    */
   tenantConsole?: TenantConsoleContext;
   now?: () => Date;
@@ -112,15 +112,15 @@ const IDEMPOTENCY_KEY = /^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/;
 const CREATE_COMMAND = 'CREATE_PROVISIONING_REQUEST';
 const HEX64 = /^[0-9a-f]{64}$/;
 
-/** placeholder ของ tenant ที่ยัง PROVISIONING — `~` ทำให้ชนกับ slug จริงไม่ได้ (ดู migration) */
+/** placeholder of a tenant still PROVISIONING — `~` means it cannot clash with a real slug (see migration) */
 export function provisioningPlaceholder(tenantId: string) {
   return { slug: `~pv-${tenantId}`, sipDomain: `~pv-${tenantId}.invalid` };
 }
 
 /**
- * reservation ของค่าหนึ่ง: รับช่วงแถวที่ tombstone หมดอายุแล้ว (เทียบกับนาฬิกาของ DB) หรือสร้างใหม่
- * แถวที่ยัง HELD/CONSUMED/tombstone ไม่หมดอายุ = ชน PK → CONFLICT; row lock ทำให้ผู้ชนะมีคนเดียว
- * (ใช้ร่วมกันระหว่าง accept และการแก้อีเมล first admin ของ A1.5b)
+ * reservation of one value: takes over a row whose tombstone has expired (against the DB clock) or creates a new one
+ * a row still HELD/CONSUMED/with an unexpired tombstone = PK clash → CONFLICT; the row lock gives a single winner
+ * (shared between accept and the first-admin email edit of A1.5b)
  */
 export async function reserveIdentity(
   transaction: Prisma.TransactionClient,
@@ -139,7 +139,7 @@ export async function reserveIdentity(
        AND "state" = 'TOMBSTONED'
        AND "tombstoned_until" <= now()`;
   if (takenOver === 1) return 'RESERVED';
-  // SAVEPOINT: unique violation ต้องไม่ทำให้ transaction ของผู้เรียกใช้ต่อไม่ได้
+  // SAVEPOINT: a unique violation must not leave the caller's transaction unusable
   await transaction.$executeRawUnsafe('SAVEPOINT reserve_identity');
   try {
     await transaction.pfIdentityReservation.create({ data: input });
@@ -181,8 +181,8 @@ export class ProvisioningControlRepository {
   // ── Accept (durable intent, #390 step 1) ──────────────────────────────────
 
   /**
-   * transaction เดียวสร้าง Tenant(PROVISIONING) + request + step ledger + reservations + receipt +
-   * Action history แล้วคืน `requestId/tenantId` ที่ immutable; key/payload เดิมคืนผลเดิม (REPLAYED)
+   * a single transaction creates Tenant(PROVISIONING) + request + step ledger + reservations + receipt +
+   * Action history and returns the immutable `requestId/tenantId`; the same key/payload returns the same result (REPLAYED)
    */
   async accept(command: AcceptProvisioningCommand): Promise<ProvisioningRequestRef> {
     if (!IDEMPOTENCY_KEY.test(command.idempotencyKey)) {
@@ -215,7 +215,7 @@ export class ProvisioningControlRepository {
         if (!template || template.status !== 'ACTIVE') {
           throw new PlatformProvisioningError('BOOTSTRAP_TEMPLATE_UNAVAILABLE');
         }
-        // A1.5: pin ได้เฉพาะ plan snapshot ที่อยู่ใน catalog และยัง ACTIVE (FK บังคับซ้ำที่ DB)
+        // A1.5: may pin only a plan snapshot that is in the catalog and still ACTIVE (the FK enforces it again in the DB)
         const plan = await transaction.pfPlanVersion.findUnique({
           where: {
             planCode_version: { planCode: canonical.planCode, version: command.plan.version },
@@ -228,7 +228,7 @@ export class ProvisioningControlRepository {
         ) {
           throw new PlatformProvisioningError('PLAN_UNAVAILABLE');
         }
-        // tenant ที่ ACTIVE/legacy ถือ slug/domain จริงใน tenants — ตรวจก่อน (unique ตอน activate เป็นด่านสุดท้าย)
+        // an ACTIVE/legacy tenant holds the real slug/domain in tenants — check first (the unique at activation is the last line)
         const taken = await transaction.tenant.findFirst({
           where: {
             OR: [
@@ -261,7 +261,7 @@ export class ProvisioningControlRepository {
           data: {
             id: requestId,
             tenantId,
-            // A1.8b: worker ต่อ span ของ saga เข้ากับ trace ของ HTTP request ที่รับคำขอนี้
+            // A1.8b: the worker joins the saga span to the trace of the HTTP request that accepted this request
             traceParent: currentTraceparent(),
             idempotencyKeyHash: keyHash,
             payloadDigest,
@@ -287,7 +287,7 @@ export class ProvisioningControlRepository {
             ),
           },
         });
-        // TENANT_RECORD สำเร็จในตัว transaction นี้เอง; step อื่นรอ worker (A1.3)
+        // TENANT_RECORD succeeds within this very transaction; other steps wait for the worker (A1.3)
         await transaction.pfProvisioningStep.createMany({
           data: PROVISIONING_STEP_KEYS.map((stepKey, index) => ({
             requestId,
@@ -341,7 +341,7 @@ export class ProvisioningControlRepository {
         });
       });
     } catch (error) {
-      // ผู้แพ้ race ของ key เดียวกันชน unique ก่อนเสมอ — ตรวจ replay ก่อนรายงาน conflict อื่น
+      // the loser of a race on the same key always hits the unique first — check for a replay before reporting another conflict
       if (error instanceof ConflictSignal || isUniqueViolation(error)) {
         const raced = await this.replay(keyHash, payloadDigest, command);
         if (raced) return raced;
@@ -375,7 +375,7 @@ export class ProvisioningControlRepository {
     if (receipt.commandKind !== CREATE_COMMAND || receipt.payloadDigest !== payloadDigest) {
       throw new PlatformProvisioningError('IDEMPOTENCY_KEY_REUSED');
     }
-    // replay ไม่สร้าง state transition ซ้ำ แต่บันทึกว่าเกิด replay (#393 §5)
+    // a replay creates no state transition again but records that a replay happened (#393 §5)
     await this.appendAction(this.database, {
       tenantId: receipt.tenantId,
       requestId: receipt.requestId,
@@ -398,8 +398,8 @@ export class ProvisioningControlRepository {
   // ── Read ──────────────────────────────────────────────────────────────────
 
   /**
-   * อ่านด้วย requestId ที่ authoritative; ถ้าระบุ tenantId แล้วไม่ตรงคืน `null` เหมือนไม่มี —
-   * ไม่เผยว่า request ของ tenant อื่นมีอยู่ (#388 generic 404)
+   * reads by the authoritative requestId; if a tenantId is given and does not match, returns `null` as if absent —
+   * does not reveal that another tenant's request exists (#388 generic 404)
    */
   async findRequest(input: {
     requestId: string;
@@ -438,7 +438,7 @@ export class ProvisioningControlRepository {
     };
   }
 
-  /** timeline ใหม่สุดก่อน แบบ cursor (occurredAt + id) — projection ของ ledger เดียวกับที่ UI ใช้ */
+  /** timeline newest first, with a cursor (occurredAt + id) — a projection of the same ledger the UI uses */
   async listActionHistory(input: {
     tenantId: string;
     cursor?: { occurredAt: Date; id: string };
@@ -481,8 +481,8 @@ export class ProvisioningControlRepository {
   // ── Transition (CAS) ──────────────────────────────────────────────────────
 
   /**
-   * เปลี่ยนสถานะด้วย `expectedRevision`: ตาราง transition เดียวกับ trigger ของ DB; terminal ที่ล้ม/ยกเลิก
-   * ปล่อย reservation เป็น tombstone 30 วันใน transaction เดียวกัน — SUCCEEDED ต้องใช้ `complete`
+   * changes state with `expectedRevision`: the same transition table as the DB trigger; a failed/cancelled terminal
+   * releases the reservations as a 30-day tombstone in the same transaction — SUCCEEDED must use `complete`
    */
   async transition(input: {
     requestId: string;
@@ -558,8 +558,8 @@ export class ProvisioningControlRepository {
   }
 
   /**
-   * completion invariant (#390): request SUCCEEDED + tenant ACTIVE + reservation CONSUMED ใน transaction
-   * เดียว — DB ปฏิเสธถ้า step ยังไม่ครบ หรือ slug/domain ที่ตั้งให้ tenant ไม่ตรง request
+   * completion invariant (#390): request SUCCEEDED + tenant ACTIVE + reservation CONSUMED in one
+   * transaction — the DB rejects it if steps are incomplete or the slug/domain set on the tenant does not match the request
    */
   async complete(input: {
     requestId: string;
@@ -595,14 +595,14 @@ export class ProvisioningControlRepository {
           where: { requestId: request.id, state: 'HELD' },
           data: { state: 'CONSUMED', revision: { increment: 1 } },
         });
-        // #901: first admin ได้ positive identity binding พร้อมกับที่ tenant เป็น ACTIVE — DB อ่าน
-        // subject/Organization/ผู้รับรองจากหลักฐานของ request เอง ผูกเฉพาะ issuer/client ของ deployment
+        // #901: the first admin gets a positive identity binding at the same moment the tenant becomes ACTIVE — the DB reads
+        // the subject/Organization/attester from the request's own evidence and binds only the deployment's issuer/client
         const tenantConsole = this.options.tenantConsole;
         if (tenantConsole) {
           await transaction.$queryRaw`
             SELECT dc_platform_bind_first_admin(${request.tenantId}::uuid, ${request.id}::uuid,
               ${tenantConsole.issuer}, ${tenantConsole.clientId}) AS revision`;
-          // #914: first admin สร้าง/นำเข้าลูกค้าได้ทันที — DB ให้ CONTACT_CREATE จาก binding ของ request นี้เอง
+          // #914: the first admin can create/import customers immediately — the DB grants CONTACT_CREATE from this request's own binding
           await transaction.$queryRaw`
             SELECT dc_platform_grant_first_admin_contact_create(${request.tenantId}::uuid,
               ${request.id}::uuid) AS outcome`;
@@ -621,7 +621,7 @@ export class ProvisioningControlRepository {
       });
     } catch (error) {
       if (error instanceof PlatformProvisioningError) throw error;
-      // step ไม่ครบ/binding ไม่ตรงคือ transition ที่ไม่อนุญาต ไม่ใช่ error ของระบบ
+      // incomplete steps/mismatched binding are a disallowed transition, not a system error
       if (error instanceof Error && /PF_REQUEST_INCOMPLETE|TENANT_/.test(error.message)) {
         throw new PlatformProvisioningError('INVALID_STATE_TRANSITION');
       }
@@ -634,9 +634,9 @@ export class ProvisioningControlRepository {
   // ── Step receipts ─────────────────────────────────────────────────────────
 
   /**
-   * บันทึกผลของ step: head + append-only receipt + Action history ในที่เดียว; binding
-   * `(tenantId, requestId)` ต้องตรงกัน (composite FK) ไม่ตรง = NOT_FOUND แบบ generic
-   * receipt ของ attempt เดิมที่ SUCCEEDED แล้ว replay ได้เป็น no-op
+   * records a step result: head + append-only receipt + Action history in one place; the binding
+   * `(tenantId, requestId)` must match (composite FK), a mismatch = a generic NOT_FOUND
+   * the receipt of an already SUCCEEDED attempt can be replayed as a no-op
    */
   async recordStepOutcome(input: {
     tenantId: string;
@@ -751,7 +751,7 @@ function isUuid(value: string): boolean {
   return UUID.test(value);
 }
 
-/** unique ของ tenants ตอน activate/race — แยก domain ออกจาก slug/sipDomain ตามชื่อ field */
+/** the tenants unique at activation/race — separates domain from slug/sipDomain by field name */
 function uniqueConflictCode(error: unknown): PlatformProvisioningErrorCode {
   const target =
     error instanceof Prisma.PrismaClientKnownRequestError ? error.meta?.target : undefined;

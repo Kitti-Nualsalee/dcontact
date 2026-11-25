@@ -1,6 +1,6 @@
 import { test as base, expect } from '@playwright/test';
 
-/** ทุก browser case ต้อง fail แม้แอปจะ catch error จาก API ที่ข้าม boundary แล้วก็ตาม */
+/** every browser case must fail even if the app catches an error from an API that crossed the boundary */
 export const test = base.extend<{ platformBoundary: void }>({
   platformBoundary: [
     async ({ page }, use) => {
@@ -15,7 +15,7 @@ export const test = base.extend<{ platformBoundary: void }>({
           forbidden.push(path);
       });
       await use();
-      expect(forbidden, 'Platform Console ห้ามเรียก Tenant/Account API').toEqual([]);
+      expect(forbidden, 'the Platform Console must not call the Tenant/Account API').toEqual([]);
     },
     { auto: true },
   ],

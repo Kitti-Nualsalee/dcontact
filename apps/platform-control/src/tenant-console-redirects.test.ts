@@ -73,7 +73,7 @@ function consoleClient(overrides: Partial<Client> = {}): Client {
   };
 }
 
-test('รูปแบบ redirect ตรงกับที่ Console ส่ง (`/?tenant=<slug>`)', () => {
+test('the redirect format matches what the Console sends (`/?tenant=<slug>`)', () => {
   assert.equal(
     tenantConsoleRedirect(CONTEXT.origin, 'uat-mod1c-20261113'),
     'https://dcontact-uat.osd.co.th/?tenant=uat-mod1c-20261113',
@@ -83,7 +83,7 @@ test('รูปแบบ redirect ตรงกับที่ Console ส่ง 
   }
 });
 
-test('เพิ่ม redirect และ post-logout ของ tenant โดยคงของเดิมและค่าอื่นของ client', async () => {
+test('adds the tenant redirect and post-logout while keeping the existing ones and the client other values', async () => {
   const f = fakeKeycloak(consoleClient());
   assert.equal(await f.redirects.registered('uat-new'), false);
   await f.redirects.register('uat-new');
@@ -95,13 +95,13 @@ test('เพิ่ม redirect และ post-logout ของ tenant โดย�
   assert.deepEqual(f.locks, ['dc:tenant-console-redirects:dcontact-uat-console']);
   assert.equal(await f.redirects.registered('uat-new'), true);
 
-  // ซ้ำ = ไม่ PUT อีก
+  // duplicate = no further PUT
   const puts = f.calls.filter((call) => call.method === 'PUT').length;
   await f.redirects.register('uat-new');
   assert.equal(f.calls.filter((call) => call.method === 'PUT').length, puts);
 });
 
-test('client ที่ไม่ใช่ tenant Console แบบ public + PKCE ถูกปฏิเสธก่อนแก้', async () => {
+test('a client that is not a public + PKCE tenant Console is rejected before editing', async () => {
   for (const overrides of [
     { publicClient: false },
     { attributes: { 'post.logout.redirect.uris': EXISTING } },
@@ -113,7 +113,7 @@ test('client ที่ไม่ใช่ tenant Console แบบ public + PKCE 
   }
 });
 
-test('อ่านกลับแล้วไม่พบ redirect = AMBIGUOUS ไม่ถือว่าสำเร็จ', async () => {
+test('reading back finds no redirect = AMBIGUOUS, not treated as success', async () => {
   const f = fakeKeycloak(consoleClient(), { dropOnPut: true });
   await assert.rejects(
     f.redirects.register('uat-new'),

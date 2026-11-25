@@ -1,16 +1,16 @@
 /**
- * A1.6 (#411) acceptance ของ Platform API ผ่าน HTTP จริง + Postgres จริง (role `dcontact_platform`)
+ * A1.6 (#411) acceptance of the Platform API over real HTTP + real Postgres (role `dcontact_platform`)
  *
- * token ลงนามในเครื่อง (shape เดียวกับ Keycloak จริงที่ A1.2 ตรวจแล้ว); saga/command worker ใช้ fake
- * ports จึงไม่ต้องมี Keycloak — ครอบ permission matrix, tenant/mixed token, idempotency, stale
- * revision, target swap, concurrent recovery, generic 404, 429 + Retry-After, 503 และ dependency
- * failure หลังรับคำขอ
+ * tokens signed locally (same shape as the real Keycloak checked in A1.2); the saga/command worker uses fake
+ * ports so Keycloak is not needed — covers the permission matrix, tenant/mixed tokens, idempotency, stale
+ * revision, target swap, concurrent recovery, generic 404, 429 + Retry-After, 503 and dependency
+ * failure after the request is accepted
  *
- * A1.8b (#473): trace เดียวต่อคำขอ — HTTP → saga step ทุก attempt (รวมหลัง worker restart) และ
- * operator command ต่อจาก traceparent ใน DB โดยไม่มี email/slug/domain ใน span
+ * A1.8b (#473): one trace per request — HTTP → every saga step attempt (including after a worker restart) and the
+ * operator command continue from the traceparent in the DB, with no email/slug/domain in any span
  *
- * A1.8 (#413) rollback drill: ปิด `platformProvisioning.enabled` ระหว่างมีงานค้าง → mutation ถูกปิด,
- * อ่านได้ปกติ, worker ไม่รับงาน, ledger ไม่เปลี่ยน → เปิดอีกครั้ง (deploy fix) แล้ว resume จนจบ
+ * A1.8 (#413) rollback drill: turn off `platformProvisioning.enabled` while work is pending → mutations are closed,
+ * reads work as usual, the worker takes no work, the ledger does not change → turn it on again (deploy fix) and resume to completion
  */
 import 'reflect-metadata';
 import assert from 'node:assert/strict';
@@ -122,11 +122,11 @@ async function create(overrides: Record<string, unknown> = {}) {
   return result.body.request as { requestId: string; tenantId: string; revision: number };
 }
 
-/** request ที่ saga ส่งไปรอ operator (dependency ล้มหลังรับคำขอแล้ว) */
+/** the request the saga sends to wait for an operator (dependency failed after the request was accepted) */
 async function actionRequired() {
   const request = await create();
   fakes.systems.KEYCLOAK_ORGANIZATION.fail('permanent');
-  // saga เห็นเฉพาะ request นี้ — fault ต้องไม่ถูก request ของเคสอื่นหยิบไป
+  // the saga sees only this request — the fault must not be picked up by another case's request
   await new ProvisioningSagaWorker(platform, fakes.ports, {
     workerId: `api-saga-${randomUUID().slice(0, 8)}`,
     sipBaseDomain: SIP_BASE,
@@ -135,7 +135,7 @@ async function actionRequired() {
   return (await call('GET', `/api/v1/provisioning-requests/${request.requestId}`)).body;
 }
 
-// A1.8b: in-memory exporter ทั้งไฟล์ (process แยกต่อไฟล์) — tracing จริงเปิดด้วย OTLP env
+// A1.8b: in-memory exporter for the whole file (separate process per file) — real tracing is enabled by OTLP env
 const spans = new InMemorySpanExporter();
 const tracing = startPlatformTracing({ serviceName: 'platform-api-test', exporter: spans });
 
@@ -219,7 +219,7 @@ after(async () => {
 });
 
 describe('Platform API (A1.6)', { concurrency: false }, () => {
-  test('permission matrix: auditor อ่านได้แต่เขียนไม่ได้; tenant/mixed token ถูกปฏิเสธทุก endpoint', async () => {
+  test('permission matrix: auditor can read but not write; tenant/mixed tokens are rejected on every endpoint', async () => {
     const request = await create();
     const reads = [
       '/api/v1/tenants?limit=1',
@@ -261,14 +261,14 @@ describe('Platform API (A1.6)', { concurrency: false }, () => {
         );
       }
     }
-    // auditor เขียนไม่ได้ = ไม่มีคำขอใหม่เกิดขึ้น
+    // auditor cannot write = no new request is created
     assert.equal(
       await owner.pfProvisioningRequest.count({ where: { tenantId: { in: tenants } } }),
       1,
     );
   });
 
-  test('catalog: เฉพาะ plan ล่าสุดที่ ACTIVE ต่อ code และ template ที่ ACTIVE', async () => {
+  test('catalog: only the latest ACTIVE plan per code and ACTIVE templates', async () => {
     const catalog = await call('GET', '/api/v1/catalog', { token: tokens.auditor });
     assert.equal(catalog.status, 200);
     const growth = catalog.body.plans.filter((plan: { code: string }) => plan.code === 'growth');
@@ -281,7 +281,7 @@ describe('Platform API (A1.6)', { concurrency: false }, () => {
     );
   });
 
-  test('create: 202 + Location, replay key เดิมได้ request เดิม, key ซ้ำ payload อื่น/ไม่มี key/slug ชน', async () => {
+  test('create: 202 + Location, replaying the same key returns the same request, same key with another payload/no key/slug clash', async () => {
     const body = input();
     const key = `create-${randomUUID()}`;
     const first = await call('POST', '/api/v1/provisioning-requests', { body, key });
@@ -293,7 +293,7 @@ describe('Platform API (A1.6)', { concurrency: false }, () => {
     );
     assert.deepEqual([first.body.replayed, first.body.request.status], [false, 'PENDING']);
     assert.equal(first.body.request.plan.version, planVersion);
-    // ไม่คืน raw email
+    // does not return the raw email
     assert.equal(first.text.includes(body.firstAdmin.email), false);
     assert.match(first.body.request.firstAdmin.emailMasked, /^o\*\*\*@example\.test$/);
 
@@ -327,7 +327,7 @@ describe('Platform API (A1.6)', { concurrency: false }, () => {
     assert.deepEqual([invalid.status, invalid.body.fieldErrors?.timezone], [400, 'INVALID']);
   });
 
-  test('generic 404: request/tenant/preview ที่ไม่มีหรือเป็นของ request อื่นตอบเหมือนกันโดยไม่เผย existence', async () => {
+  test('generic 404: a missing request/tenant/preview or one belonging to another request answers identically without revealing existence', async () => {
     const mine = await create();
     const other = await create();
     const otherPreview = await call(
@@ -361,14 +361,14 @@ describe('Platform API (A1.6)', { concurrency: false }, () => {
     );
   });
 
-  test('PATCH: stale revision และ identity field = 409; ค่าที่แก้ได้คืน representation ใหม่', async () => {
+  test('PATCH: stale revision and identity field = 409; an editable value returns the new representation', async () => {
     const request = await create();
     const stale = await call('PATCH', `/api/v1/provisioning-requests/${request.requestId}`, {
       body: {
         expectedRevision: request.revision + 5,
         changes: { timezone: 'Asia/Tokyo' },
         reasonCode: 'CUSTOMER_CORRECTION',
-        comment: 'แก้เขตเวลา',
+        comment: 'fix the timezone',
       },
     });
     assert.deepEqual(
@@ -380,7 +380,7 @@ describe('Platform API (A1.6)', { concurrency: false }, () => {
         expectedRevision: request.revision,
         changes: { slug: 'hijack' },
         reasonCode: 'CUSTOMER_CORRECTION',
-        comment: 'แก้ slug',
+        comment: 'fix the slug',
       },
     });
     assert.deepEqual([locked.status, locked.body.code], [409, 'FIELD_LOCKED']);
@@ -389,7 +389,7 @@ describe('Platform API (A1.6)', { concurrency: false }, () => {
         expectedRevision: request.revision,
         changes: { timezone: 'Asia/Tokyo' },
         reasonCode: 'CUSTOMER_CORRECTION',
-        comment: 'แก้เขตเวลา',
+        comment: 'fix the timezone',
       },
     });
     assert.deepEqual(
@@ -398,9 +398,9 @@ describe('Platform API (A1.6)', { concurrency: false }, () => {
     );
   });
 
-  test('recovery: preview async → execute 202; คำสั่งซ้อน 409, replay 202, target swap 409; dependency failure อยู่ใน request state', async () => {
+  test('recovery: async preview → execute 202; overlapping command 409, replay 202, target swap 409; dependency failure lives in the request state', async () => {
     const stuck = await actionRequired();
-    // dependency ล้มหลังรับคำขอ: API ไม่เคยตอบ 503 แต่สถานะอยู่ใน request
+    // dependency fails after the request is accepted: the API never answers 503 but the status is in the request
     assert.deepEqual([stuck.status, stuck.failureCode], ['ACTION_REQUIRED', 'DEPENDENCY_REJECTED']);
     const queued = await call(
       'POST',
@@ -415,7 +415,7 @@ describe('Platform API (A1.6)', { concurrency: false }, () => {
       expectedRevision: stuck.revision,
       previewDigest: preview.body.result.previewDigest,
       reasonCode: 'OPERATOR_VERIFIED',
-      comment: 'ตรวจแล้วว่าไม่มี Organization ค้าง',
+      comment: 'verified that no Organization is left behind',
     };
     const keys = [`action-${randomUUID()}`, `action-${randomUUID()}`];
     const results = await Promise.all(
@@ -442,7 +442,7 @@ describe('Platform API (A1.6)', { concurrency: false }, () => {
       [replay.status, replay.body.command.commandId],
       [202, accepted.body.command.commandId],
     );
-    // key เดิมกับ request อื่น (target swap) = 409 ไม่ใช่ทำกับ request ผิดตัว
+    // same key with another request (target swap) = 409, not acting on the wrong request
     const other = await create();
     const swap = await call(
       'POST',
@@ -470,7 +470,7 @@ describe('Platform API (A1.6)', { concurrency: false }, () => {
     assert.deepEqual([notStuck.status, notStuck.body.code], [409, 'INVALID_STATE_TRANSITION']);
   });
 
-  test('resend เกิน cap = 429 พร้อม Retry-After', async () => {
+  test('resend over the cap = 429 with Retry-After', async () => {
     const request = await create();
     const created = new Date(Date.now() - 10 * 60_000);
     for (let generation = 1; generation <= 4; generation += 1) {
@@ -500,7 +500,10 @@ describe('Platform API (A1.6)', { concurrency: false }, () => {
       'POST',
       `/api/v1/provisioning-requests/${request.requestId}/actions/resend-invitation`,
       {
-        body: { reasonCode: 'RECIPIENT_REQUESTED', comment: 'ผู้รับแจ้งว่าไม่ได้รับ' },
+        body: {
+          reasonCode: 'RECIPIENT_REQUESTED',
+          comment: 'the recipient said it was not received',
+        },
         key: `resend-${randomUUID()}`,
       },
     );
@@ -512,7 +515,7 @@ describe('Platform API (A1.6)', { concurrency: false }, () => {
     assert.ok(retryAfter > 0 && retryAfter <= 3600, String(retryAfter));
   });
 
-  test('control plane ต่อ DB ไม่ได้ = 503 retryable; response/diagnostics ไม่มี token', async () => {
+  test('control plane cannot reach the DB = 503 retryable; response/diagnostics contain no token', async () => {
     const broken = new PrismaClient({
       datasources: {
         db: { url: 'postgresql://dcontact_platform:x@127.0.0.1:1/dcontact?connect_timeout=1' },
@@ -553,7 +556,7 @@ describe('Platform API (A1.6)', { concurrency: false }, () => {
 });
 
 describe('A1.8 rollback drill', { concurrency: false }, () => {
-  /** ทุกอย่างที่ rollback ต้องรักษาไว้ — ledger, receipts, reservations, audit และ command */
+  /** everything a rollback must preserve — ledger, receipts, reservations, audit and commands */
   async function ledger(requestIds: string[]) {
     const where = { requestId: { in: requestIds } };
     const order = [{ requestId: 'asc' as const }];
@@ -583,11 +586,11 @@ describe('A1.8 rollback drill', { concurrency: false }, () => {
     });
   }
 
-  test('ปิด flag ระหว่างงานค้าง: mutation 503, อ่านได้, worker หยุดรับงาน, ledger คงเดิม → เปิดแล้ว resume จนจบ', async (t) => {
+  test('flag off while work is pending: mutation 503, reads work, worker stops taking work, ledger unchanged → on again and resume to completion', async (t) => {
     t.after(() => {
       rollout.enabled = true;
     });
-    // งานค้างสองแบบ: saga ที่ response หาย (external สร้างแล้ว) และ preview command ที่รอ worker
+    // two kinds of pending work: a saga whose response was lost (external already created) and a preview command waiting for the worker
     const inflight = await create();
     const stuck = await actionRequired();
     const scope = { tenantId: { in: [inflight.tenantId, stuck.tenantId] } };
@@ -615,7 +618,7 @@ describe('A1.8 rollback drill', { concurrency: false }, () => {
     });
     fakes.systems.KEYCLOAK_ORGANIZATION.fail('lostResponse');
     const createdBefore = fakes.systems.KEYCLOAK_ORGANIZATION.created;
-    // step แรกสร้าง external แล้วแต่ response หาย → ค้างรอ retry (ยังไม่มี command ในคิว)
+    // first step created the external but the response was lost → waiting for retry (no command in the queue yet)
     assert.equal(await loop.tick(), true);
     assert.equal(fakes.systems.KEYCLOAK_ORGANIZATION.created, createdBefore + 1);
     const queued = await call(
@@ -654,13 +657,17 @@ describe('A1.8 rollback drill', { concurrency: false }, () => {
       assert.equal((await call('GET', path)).status, 200, path);
     }
     for (let round = 0; round < 3; round += 1) assert.equal(await loop.tick(), false);
-    assert.equal(await ledger(requestIds), before, 'rollback ต้องไม่แตะ ledger/command ที่ค้าง');
+    assert.equal(
+      await ledger(requestIds),
+      before,
+      'rollback must not touch the pending ledger/commands',
+    );
     assert.equal(
       (await owner.tenant.findUniqueOrThrow({ where: { id: inflight.tenantId } })).lifecycleStatus,
       'PROVISIONING',
     );
 
-    // --- deploy fix แล้วเปิดอีกครั้ง: resume ต่อจาก state เดิม ---
+    // --- deploy fix then turn on again: resume from the existing state ---
     rollout.enabled = true;
     for (let round = 0; round < 50 && (await loop.tick()); round += 1);
     const resumed = await call('GET', `/api/v1/provisioning-requests/${inflight.requestId}`);
@@ -669,7 +676,7 @@ describe('A1.8 rollback drill', { concurrency: false }, () => {
       (await owner.tenant.findUniqueOrThrow({ where: { id: inflight.tenantId } })).lifecycleStatus,
       'ACTIVE',
     );
-    // external ที่สร้างไว้ก่อน rollback ถูก adopt ไม่ใช่สร้างซ้ำ
+    // the external created before the rollback is adopted, not created again
     assert.equal(fakes.systems.KEYCLOAK_ORGANIZATION.created, createdBefore + 1);
     assert.ok(
       events.some(
@@ -698,7 +705,7 @@ describe('A1.8 rollback drill', { concurrency: false }, () => {
 describe('A1.8b distributed trace', { concurrency: false }, () => {
   const traceIdOf = (traceparent: string | null) => traceparent?.split('-')[1];
 
-  test('trace เดียวต่อคำขอ: HTTP create → ทุก step รวม retry หลัง worker restart; ไม่มี PII ใน span', async () => {
+  test('one trace per request: HTTP create → every step including retry after a worker restart; no PII in spans', async () => {
     spans.reset();
     const body = input();
     const accepted = await call('POST', '/api/v1/provisioning-requests', {
@@ -710,12 +717,12 @@ describe('A1.8b distributed trace', { concurrency: false }, () => {
     tenants.push(tenantId);
     const row = await owner.pfProvisioningRequest.findUniqueOrThrow({ where: { id: requestId } });
     const traceId = traceIdOf(row.traceParent);
-    assert.ok(traceId, 'ต้องเก็บ traceparent ตอนรับคำขอ');
+    assert.ok(traceId, 'traceparent must be stored when the request is accepted');
     const http = spans.getFinishedSpans().find((span) => span.name.startsWith('HTTP POST'));
     assert.equal(http?.name, 'HTTP POST /api/v1/provisioning-requests');
     assert.equal(http?.spanContext().traceId, traceId);
 
-    // worker ตัวแรก: step แรกสร้าง resource แล้ว response หาย → retry; "restart" เป็น worker ใหม่
+    // first worker: the first step creates the resource then the response is lost → retry; "restart" is a new worker
     fakes.systems.KEYCLOAK_ORGANIZATION.fail('lostResponse');
     const workerFor = (id: string) =>
       new ProvisioningSagaWorker(platform, fakes.ports, {
@@ -737,7 +744,7 @@ describe('A1.8b distributed trace', { concurrency: false }, () => {
     assert.ok(
       provisioning.filter((span) => span.name === 'provisioning.step KEYCLOAK_ORGANIZATION')
         .length >= 2,
-      'attempt แรกและ attempt หลัง restart ต้องมี span ทั้งคู่',
+      'both the first attempt and the attempt after restart must have spans',
     );
     assert.ok(provisioning.some((span) => span.name === 'provisioning.step READINESS'));
     assert.ok(provisioning.some((span) => span.name === 'provisioning.finalize'));
@@ -746,17 +753,17 @@ describe('A1.8b distributed trace', { concurrency: false }, () => {
       new Set([traceId]),
     );
     const workers = new Set(provisioning.map((span) => span.attributes['dcontact.worker_id']));
-    assert.ok(workers.size >= 2, 'span มาจาก worker สองตัวแต่อยู่ trace เดียว');
+    assert.ok(workers.size >= 2, 'spans come from two workers but are in the same trace');
 
     const serialized = JSON.stringify(
       spans.getFinishedSpans().map((span) => [span.name, span.attributes]),
     );
     for (const secret of [body.firstAdmin.email, body.slug, body.primaryDomain, '@']) {
-      assert.equal(serialized.includes(secret), false, `span รั่ว ${secret}`);
+      assert.equal(serialized.includes(secret), false, `span leaked ${secret}`);
     }
   });
 
-  test('operator command ต่อ trace ของ HTTP request ที่ส่งคำสั่ง', async () => {
+  test('operator command continues the trace of the HTTP request that sent the command', async () => {
     const stuck = await actionRequired();
     spans.reset();
     const queued = await call(

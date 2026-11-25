@@ -1,7 +1,7 @@
 import type { TFunction } from 'i18next';
 import { stepPresentation, statusPresentation, type ActionHistoryItem } from './model.js';
 
-/** แปลเฉพาะ labels; codes และข้อมูลที่ผู้ปฏิบัติงานกรอกยังเป็นค่าจาก API เดิม */
+/** translates labels only; codes and operator-entered data remain the original values from the API */
 export function describeHistory(item: ActionHistoryItem, t: TFunction): string {
   const parts: string[] = [];
   if (item.stepKey) parts.push(t(stepPresentation(item.stepKey).title));

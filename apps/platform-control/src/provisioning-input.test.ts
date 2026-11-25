@@ -29,7 +29,7 @@ const input: ProvisioningRequestInput = {
   firstAdmin: { email: 'Ops.Lead@ACME.CO.TH', displayName: ' Ops Lead ' },
 };
 
-test('A1.1 slug: lowercase DNS label เท่านั้น — ค่าผิดรูปคืน null', () => {
+test('A1.1 slug: lowercase DNS label only — a malformed value returns null', () => {
   assert.equal(normalizeTenantSlug(' Acme-CC '), 'acme-cc');
   for (const invalid of [
     '-acme',
@@ -45,9 +45,9 @@ test('A1.1 slug: lowercase DNS label เท่านั้น — ค่าผ�
   }
 });
 
-test('A1.1 domain: lowercase IDNA ไม่มี trailing dot และต้องมีอย่างน้อยสอง label', () => {
+test('A1.1 domain: lowercase IDNA, no trailing dot, and at least two labels', () => {
   assert.equal(normalizePrimaryDomain('ACME.co.th.'), 'acme.co.th');
-  assert.equal(normalizePrimaryDomain('ตัวอย่าง.ไทย'), 'xn--72c1a1bt4awk9o.xn--o3cw4h');
+  assert.equal(normalizePrimaryDomain('ตัวอย่าง.ไทย'), 'xn--72c1a1bt4awk9o.xn--o3cw4h'); // allow-thai: IDNA punycode of a Thai domain
   for (const invalid of [
     'localhost',
     'acme.co.th/path',
@@ -60,18 +60,18 @@ test('A1.1 domain: lowercase IDNA ไม่มี trailing dot และต้�
   }
 });
 
-test('A1.1 email: domain เป็น canonical แต่ local part คงเดิม', () => {
+test('A1.1 email: the domain is canonical but the local part is unchanged', () => {
   assert.equal(normalizeFirstAdminEmail('Ops.Lead@ACME.CO.TH'), 'Ops.Lead@acme.co.th');
   assert.equal(normalizeFirstAdminEmail('not-an-email'), null);
   assert.equal(normalizeFirstAdminEmail('a b@acme.co.th'), null);
 });
 
-test('A1.1 sipDomain derive จาก slug + base ของ platform (decision บน #406)', () => {
+test('A1.1 sipDomain derives from slug + the platform base (decision on #406)', () => {
   assert.equal(deriveTenantSipDomain('acme-cc', 'SIP.dcontact.app'), 'acme-cc.sip.dcontact.app');
   assert.throws(() => deriveTenantSipDomain('acme-cc', 'nope'), PlatformProvisioningError);
 });
 
-test('A1.1 canonical payload: whitespace/ตัวพิมพ์/ลำดับ field ไม่ทำให้ digest ต่าง', () => {
+test('A1.1 canonical payload: whitespace/case/field order do not change the digest', () => {
   const canonical = canonicalizeProvisioningRequest(input);
   assert.deepEqual(canonical, {
     displayName: 'Acme Contact Center',
@@ -99,7 +99,7 @@ test('A1.1 canonical payload: whitespace/ตัวพิมพ์/ลำดั�
   assert.notEqual(provisioningPayloadDigest(changed), provisioningPayloadDigest(canonical));
 });
 
-test('A1.1 validation: รวม field error ทุกตัวในครั้งเดียวด้วย code คงที่', () => {
+test('A1.1 validation: gathers every field error at once with stable codes', () => {
   try {
     canonicalizeProvisioningRequest({
       ...input,
@@ -109,7 +109,7 @@ test('A1.1 validation: รวม field error ทุกตัวในครั�
       planCode: 'free' as never,
       firstAdmin: { email: 'nope', displayName: '' },
     });
-    assert.fail('ต้อง throw');
+    assert.fail('must throw');
   } catch (error) {
     assert.ok(error instanceof PlatformProvisioningError);
     assert.equal(error.code, 'VALIDATION_FAILED');
@@ -124,14 +124,14 @@ test('A1.1 validation: รวม field error ทุกตัวในครั�
   }
 });
 
-test('A1.1 identity hash แยกตามชนิดและไม่คืนค่าดิบ', () => {
+test('A1.1 identity hash separates by kind and never returns the raw value', () => {
   const email = 'Ops.Lead@acme.co.th';
   const hash = platformIdentityHash('first-admin-email', email);
   assert.match(hash, /^[0-9a-f]{64}$/);
   assert.notEqual(hash, platformIdentityHash('idempotency-key', email));
 });
 
-test('A1.1 transition table ตรง #389: terminal ไม่ไปไหน, CANCELLED เฉพาะก่อน side effect', () => {
+test('A1.1 transition table matches #389: a terminal goes nowhere, CANCELLED only before a side effect', () => {
   for (const status of TERMINAL_PROVISIONING_STATUSES) {
     assert.deepEqual(PROVISIONING_REQUEST_TRANSITIONS[status], []);
   }
@@ -140,7 +140,7 @@ test('A1.1 transition table ตรง #389: terminal ไม่ไปไหน, C
   assert.equal(
     isAllowedProvisioningTransition('RUNNING', 'FAILED_FINAL'),
     false,
-    'timeout ต้องผ่าน ACTION_REQUIRED',
+    'timeout must go through ACTION_REQUIRED',
   );
   assert.equal(isAllowedProvisioningTransition('ACTION_REQUIRED', 'RUNNING'), true);
   assert.equal(isAllowedProvisioningTransition('PENDING', 'SUCCEEDED'), false);

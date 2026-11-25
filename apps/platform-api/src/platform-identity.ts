@@ -1,14 +1,14 @@
 /**
- * Owner: IAM + Platform edge — platform principal ของ Platform Admin (A1.2 #407)
+ * Owner: IAM + Platform edge — platform principal of the Platform Admin (A1.2 #407)
  *
  * Authority: #387 (identity plane/roles/enforcement invariants), Phase Contract #388
  *
- * แปลง claims ที่ verifier ตรวจ signature/issuer/audience/expiry แล้ว เป็น platform principal แบบ fail closed:
- * - ต้องออกให้ `platform-console` เท่านั้น (`azp`) และเป็น access token (`typ=Bearer`)
- * - **ห้ามมี tenant context ใด ๆ** (`tenant_id/tenant_slug/organization/dc_user_id`) และห้ามมี realm role
- *   ของ tenant — token ที่ปน platform กับ tenant ถูกปฏิเสธทั้งใบ ไม่ใช่ตัดส่วนเกินทิ้ง
- * - role มาจาก client roles ของ `dcontact-platform-api` เท่านั้น และต้องเป็นค่าที่รู้จัก
- * - ต้อง login ด้วยรหัสผ่าน + OTP (`amr` มีทั้ง `pwd` และ `otp`) — API บังคับ MFA ซ้ำ ไม่เชื่อ UI
+ * Converts claims whose signature/issuer/audience/expiry the verifier has already checked into a platform principal, fail closed:
+ * - must be issued to `platform-console` only (`azp`) and be an access token (`typ=Bearer`)
+ * - **must not carry any tenant context** (`tenant_id/tenant_slug/organization/dc_user_id`) nor any tenant
+ *   realm role — a token mixing platform and tenant is rejected whole, not trimmed of the excess
+ * - the role comes only from the client roles of `dcontact-platform-api` and must be a known value
+ * - must log in with password + OTP (`amr` has both `pwd` and `otp`) — the API enforces MFA again and does not trust the UI
  */
 export const PLATFORM_API_AUDIENCE = 'dcontact-platform-api';
 export const PLATFORM_CONSOLE_CLIENT = 'platform-console';
@@ -16,8 +16,8 @@ export const PLATFORM_ROLES = ['platform_operator', 'platform_auditor'] as const
 export type PlatformRole = (typeof PLATFORM_ROLES)[number];
 
 /**
- * capability ที่ route ประกาศ — mutation ต้องระบุ explicit (#387 deny by default)
- * `platform_auditor` มีเฉพาะ read ไม่ว่ากรณีใด
+ * capabilities a route declares — a mutation must be explicit (#387 deny by default)
+ * `platform_auditor` only ever has read
  */
 export const PLATFORM_CAPABILITIES = {
   CONTROL_PLANE_READ: ['platform_operator', 'platform_auditor'],
@@ -33,7 +33,7 @@ export interface VerifiedPlatformIdentity {
   expiresAt: Date;
 }
 
-/** เหตุผลแบบ machine code สำหรับ audit/metrics — ไม่ส่งกลับ client (client ได้ error แบบ generic) */
+/** machine-code reason for audit/metrics — not sent back to the client (the client gets a generic error) */
 export type PlatformIdentityRejection =
   | 'NOT_ACCESS_TOKEN'
   | 'WRONG_CLIENT'
@@ -68,7 +68,7 @@ export function toVerifiedPlatformIdentity(
   }
   const realmRoles = (claims.realm_access as { roles?: unknown } | undefined)?.roles;
   if (realmRoles !== undefined && (asStrings(realmRoles)?.length ?? 1) > 0) {
-    // platform-console ใช้ fullScopeAllowed=false — realm role โผล่มาแปลว่า token ไม่ได้มาจาก profile นี้
+    // platform-console uses fullScopeAllowed=false — a realm role showing up means the token did not come from this profile
     throw new PlatformIdentityError('TENANT_ROLE_PRESENT');
   }
   if (typeof claims.exp !== 'number' || !Number.isFinite(claims.exp)) {

@@ -1,8 +1,8 @@
 /**
- * Owner: IAM + Platform edge — ตรวจ access token ของ Platform API (A1.2 #407)
+ * Owner: IAM + Platform edge — verifies access tokens of the Platform API (A1.2 #407)
  *
- * signature (JWKS ของ realm), issuer, audience `dcontact-platform-api`, expiry และ header `typ=JWT`
- * ครบก่อนส่ง claims ต่อ — audience ของ tenant API (`dcontact-api`) ใช้ที่นี่ไม่ได้และกลับกัน
+ * signature (realm JWKS), issuer, audience `dcontact-platform-api`, expiry and the `typ=JWT` header
+ * all checked before claims are passed on — the tenant API audience (`dcontact-api`) cannot be used here, and vice versa
  */
 import { createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey } from 'jose';
 import { PLATFORM_API_AUDIENCE } from './platform-identity.js';

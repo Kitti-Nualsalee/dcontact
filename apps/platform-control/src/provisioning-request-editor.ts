@@ -1,14 +1,14 @@
 /**
- * Owner: Platform provisioning — แก้ field ที่ไม่ใช่ identity หลัง submit (A1.5 #410)
+ * Owner: Platform provisioning — edit non-identity fields after submit (A1.5 #410)
  *
  * Authority: #392 Correcting non-identity input
- * - แก้ได้เฉพาะ `displayName/locale/timezone` ก่อน PLAN_BOOTSTRAP สำเร็จ และ `firstAdminDisplayName`
- *   ก่อน FIRST_ADMIN สำเร็จ — identity (slug, domain, plan/template pin) แก้ไม่ได้
- * - A1.5b (#441): `firstAdminEmail` แก้ได้แยกเดี่ยว เมื่อ FIRST_ADMIN ยังไม่เคยเริ่ม หรือหยุดเพราะอีเมลชน
- *   (ยังไม่มี identity ภายนอก) — reserve อีเมลใหม่ + tombstone อันเดิมใน transaction เดียว
- * - compare-and-swap บน `expectedRevision`; ทุกการแก้สร้าง payload revision + digest ใหม่แบบ append-only
- *   ภายใต้ request เดิม (ไม่ใช่ replay create ด้วย idempotency key เดิม)
- * - ทุกผลรวมที่ถูกปฏิเสธลง Action history พร้อม actor/reason
+ * - only `displayName/locale/timezone` are editable before PLAN_BOOTSTRAP succeeds, and `firstAdminDisplayName`
+ *   before FIRST_ADMIN succeeds — identity (slug, domain, plan/template pin) cannot be edited
+ * - A1.5b (#441): `firstAdminEmail` is editable on its own, when FIRST_ADMIN has never started or stopped because the email clashed
+ *   (no external identity yet) — reserve the new email + tombstone the old one in one transaction
+ * - compare-and-swap on `expectedRevision`; every edit creates a new append-only payload revision + digest
+ *   under the same request (not a create replay with the same idempotency key)
+ * - every outcome, including rejected ones, goes into Action history with actor/reason
  */
 import { randomUUID } from 'node:crypto';
 import type { Prisma, PrismaClient } from '@d-contact/db';
@@ -32,7 +32,7 @@ const REASON = /^[A-Z][A-Z0-9_]{2,63}$/;
 export interface EditProvisioningRequestCommand {
   requestId: string;
   expectedRevision: number;
-  /** ส่ง field อื่นที่ไม่อยู่ใน `EDITABLE_REQUEST_FIELDS` มา = FIELD_LOCKED */
+  /** sending any field not in `EDITABLE_REQUEST_FIELDS` = FIELD_LOCKED */
   changes: Partial<Record<EditableRequestField, string>> & Record<string, unknown>;
   reasonCode: string;
   comment: string;
@@ -45,7 +45,7 @@ export class ProvisioningRequestEditor {
   private readonly id: () => string;
 
   constructor(
-    /** Prisma ของ `dcontact_platform` */
+    /** Prisma of `dcontact_platform` */
     private readonly database: PrismaClient,
     options: { now?: () => Date; id?: () => string } = {},
   ) {
@@ -113,12 +113,12 @@ export class ProvisioningRequestEditor {
     const stepState = new Map(request.steps.map((step) => [step.stepKey, step.state]));
     const locked = fields.some((field) => {
       const owner = EDITABLE_REQUEST_FIELDS[field as EditableRequestField];
-      // identity field หรือ field ที่ step เจ้าของสำเร็จแล้ว
+      // an identity field or a field whose owning step has already succeeded
       return owner === undefined || stepState.get(owner) === 'SUCCEEDED';
     });
     if (locked) throw await reject('FIELD_LOCKED');
 
-    // validate ด้วย canonicalization เดียวกับตอน accept แล้วได้ digest ของ payload ใหม่
+    // validate with the same canonicalization as at accept, which yields the digest of the new payload
     const changes = command.changes as Partial<Record<EditableRequestField, string>>;
     const canonical = canonicalizeProvisioningRequest({
       displayName: changes.displayName ?? request.displayName,
@@ -150,7 +150,7 @@ export class ProvisioningRequestEditor {
         });
         if (updated.count !== 1) throw new PlatformProvisioningError('REVISION_CONFLICT');
         if (changes.displayName !== undefined) {
-          // tenant ยัง PROVISIONING: ชื่อตามคำขอล่าสุด (trigger ห้ามแตะ slug/domain เท่านั้น)
+          // the tenant is still PROVISIONING: the name per the latest request (the trigger forbids touching only slug/domain)
           await transaction.tenant.update({
             where: { id: request.tenantId },
             data: { name: canonical.displayName },
@@ -190,7 +190,7 @@ export class ProvisioningRequestEditor {
     return { requestId: request.id, revision, payloadDigest, changedFields: fields.sort() };
   }
 
-  /** อีเมลใหม่ต้อง reserve ได้ (unique ทั้ง platform) และอันเดิม tombstone — guard ใน DB ตรวจซ้ำ */
+  /** the new email must be reservable (unique across the platform) and the old one tombstoned — the guard in the DB checks again */
   private async changeFirstAdminEmail(
     request: Prisma.PfProvisioningRequestGetPayload<{ include: { steps: true } }>,
     command: EditProvisioningRequestCommand,

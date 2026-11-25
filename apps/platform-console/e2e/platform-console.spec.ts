@@ -5,10 +5,10 @@ import commonTh from '../src/i18n/locales/th/common.json' with { type: 'json' };
 import commonEn from '../src/i18n/locales/en/common.json' with { type: 'json' };
 
 /**
- * A1.7 (#412): Platform Console end-to-end กับ Platform API ที่ mock บน origin เดียวกัน
+ * A1.7 (#412): Platform Console end-to-end against a Platform API mocked on the same origin
  *
- * mock ทำตาม contract ของ #388/#411 (202 + Idempotency-Key, expectedRevision, preview แบบ async,
- * error envelope) และเป็น authority ของสถานะ/plan — ข้อมูลทั้งหมดเป็นค่าสังเคราะห์
+ * the mock follows the contract of #388/#411 (202 + Idempotency-Key, expectedRevision, async preview,
+ * error envelope) and is the authority of status/plan — all data is synthetic
  */
 
 const DIGEST = 'a'.repeat(64);
@@ -48,13 +48,13 @@ class MockPlatformApi {
   history: Record<string, unknown>[] = [];
   posts: { path: string; key: string | null; body: unknown }[] = [];
   bumpRevisionBeforeExecute = false;
-  /** worker ของ mock เดินต่อเมื่อเทสต์ปล่อย — ไม่ผูกกับจำนวนครั้งที่ UI poll */
+  /** the mock's worker advances when the test releases it — not tied to the number of times the UI polls */
   hold = false;
   sequence = 0;
 
   constructor(
     readonly role: 'platform_operator' | 'platform_auditor' = 'platform_operator',
-    /** A1.8: สิ่งที่ API ตอบใน session.mutations สำหรับ operator */
+    /** A1.8: what the API returns in session.mutations for an operator */
     readonly rollout: 'ALLOWED' | 'DISABLED' | 'NOT_ALLOWLISTED' = 'ALLOWED',
   ) {}
 
@@ -234,7 +234,7 @@ class MockPlatformApi {
         displayName: body.displayName,
         slug: body.slug,
         primaryDomain: body.primaryDomain,
-        // plan version มาจาก catalog ฝั่ง server ตอนรับคำขอ — ไม่ใช่ค่าที่ browser เห็นก่อนหน้า
+        // the plan version comes from the server-side catalog when the request is accepted — not a value the browser saw earlier
         plan: { code: body.planCode, version: 7 },
         failing: body.slug === 'failing',
         polls: 0,
@@ -255,7 +255,7 @@ class MockPlatformApi {
       if (!entry) return json(404, this.envelope(404, 'NOT_FOUND'));
       const rest = requestMatch[2] ?? '';
       if (!rest && method === 'GET') {
-        // สถานะเดินเองตาม worker: PENDING → RUNNING → SUCCEEDED (หรือหยุดที่ ACTION_REQUIRED)
+        // the status advances by itself per the worker: PENDING → RUNNING → SUCCEEDED (or stops at ACTION_REQUIRED)
         entry.polls += 1;
         if (this.hold) return json(200, this.view(entry));
         if (entry.status === 'PENDING' && entry.polls >= 2) {
@@ -308,7 +308,7 @@ class MockPlatformApi {
             this.history.push(
               this.event(entry, 'RECONCILE', 'PLATFORM_OPERATOR', {
                 reasonCode: 'OPERATOR_VERIFIED',
-                comment: 'ตรวจแล้ว',
+                comment: 'verified',
               }),
             );
           }
@@ -428,7 +428,7 @@ function seedRequest(api: MockPlatformApi, status: Status = 'ACTION_REQUIRED') {
 
 async function open(page: Page, api: MockPlatformApi, path = '/') {
   await page.route('**/api/v1/**', (route) => api.handle(route));
-  // request ออกนอก origin = ห้าม (ไม่มี telemetry/third party)
+  // a request leaving the origin = forbidden (no telemetry/third party)
   const outside: string[] = [];
   page.on('request', (request) => {
     const url = new URL(request.url());
@@ -478,7 +478,7 @@ for (const language of ['th', 'en'] as const) {
   test.describe(`Guided onboarding ${language}`, () => {
     test.use({ locale: language === 'th' ? 'th-TH' : 'en-GB' });
     const copy = language === 'th' ? commonTh : commonEn;
-    test('happy path: create → review → track จน ACTIVE → search → timeline (a11y ผ่านทุกหน้า)', async ({
+    test('happy path: create → review → track until ACTIVE → search → timeline (a11y passes on every page)', async ({
       page,
     }, testInfo) => {
       const api = new MockPlatformApi();
@@ -492,9 +492,9 @@ for (const language of ['th', 'en'] as const) {
 
       await page.getByRole('button', { name: copy.navigation.create }).first().click();
       await expect(page).toHaveURL(/\/new$/);
-      // เปลี่ยนหน้าแล้วโฟกัสย้ายไปหัวข้อ
+      // after changing page the focus moves to the heading
       await expect(page.getByRole('heading', { level: 1 })).toBeFocused();
-      // validation: error summary ได้โฟกัสและลิงก์ไปช่องที่ผิด
+      // validation: the error summary gets focus and links to the wrong field
       await page.getByRole('button', { name: copy.wizard.review }).click();
       const summary = page
         .getByRole('alert')
@@ -515,7 +515,7 @@ for (const language of ['th', 'en'] as const) {
       await confirmReview(page, copy.wizard.confirm);
       await confirm.click();
 
-      // สถานะมาจาก API: PENDING → RUNNING → SUCCEEDED; ไม่บอกว่าสำเร็จก่อนเวลา
+      // the status comes from the API: PENDING → RUNNING → SUCCEEDED; it never claims success early
       await expect(page).toHaveURL(/\/requests\/[0-9a-f-]{36}$/);
       await expect(page.getByText(copy.request.pending)).toBeVisible();
       await expect(page.getByText(copy.request.ready)).toHaveCount(0);
@@ -523,7 +523,7 @@ for (const language of ['th', 'en'] as const) {
       await expect(page.getByRole('heading', { name: copy.request.ready })).toBeVisible({
         timeout: 10_000,
       });
-      // plan ที่แสดงคือค่าที่ server pin (v7) ไม่ใช่ตัวเลือกใน catalog (v3)
+      // the plan shown is the value the server pinned (v7), not the option in the catalog (v3)
       await expect(page.getByText('growth v7')).toBeVisible();
       await expect(page.getByText('o***@nova.example.test')).toBeVisible();
       await expect(
@@ -539,13 +539,13 @@ for (const language of ['th', 'en'] as const) {
         fullPage: true,
       });
 
-      // idempotency: ส่งครั้งเดียวด้วย key และไม่มี tenant/status จาก browser
+      // idempotency: sent once with a key and with no tenant/status from the browser
       const created = api.posts.filter((post) => post.path === '/api/v1/provisioning-requests');
       expect(created).toHaveLength(1);
       expect(created[0]!.key).toMatch(/^create-/);
       expect(Object.keys(created[0]!.body as object)).not.toContain('tenantId');
 
-      // search ด้วยอีเมล: คำค้นไม่ลง URL
+      // search by email: the search term does not go into the URL
       await page.getByRole('button', { name: copy.navigation.tenants }).click();
       await page.getByLabel(copy.list.searchLabel).fill(EMAIL);
       await page.getByLabel(copy.list.searchLabel).press('Enter');
@@ -558,7 +558,7 @@ for (const language of ['th', 'en'] as const) {
         .click();
       await expect(page.getByRole('heading', { name: copy.history.title })).toBeVisible();
 
-      // ไม่มี token/อีเมลใน storage และไม่มี request ออกนอก origin
+      // no token/email in storage and no request leaves the origin
       const storage = await page.evaluate(() =>
         JSON.stringify({ ...localStorage, ...sessionStorage }),
       );
@@ -567,7 +567,9 @@ for (const language of ['th', 'en'] as const) {
       expect(outside).toEqual([]);
     });
 
-    test('conflict: slug ที่ถูกจองแล้วพากลับฟอร์มพร้อม error ที่ช่อง slug', async ({ page }) => {
+    test('conflict: an already reserved slug returns to the form with an error on the slug field', async ({
+      page,
+    }) => {
       const api = new MockPlatformApi();
       await open(page, api, '/new');
       await fillValidForm(page, 'taken', copy);
@@ -582,7 +584,7 @@ for (const language of ['th', 'en'] as const) {
       await expect(page.getByLabel('Slug')).toHaveAttribute('aria-invalid', 'true');
     });
 
-    test('ACTION_REQUIRED: Reconcile แนะนำก่อน, preview async, stale revision → preview ใหม่ แล้วสำเร็จ', async ({
+    test('ACTION_REQUIRED: Reconcile is recommended first, async preview, stale revision → a new preview, then success', async ({
       page,
     }) => {
       const api = new MockPlatformApi();
@@ -606,16 +608,16 @@ for (const language of ['th', 'en'] as const) {
       await expect(
         panel.getByRole('heading', { name: new RegExp(copy.recovery.confirming) }),
       ).toBeFocused();
-      // ต้องมีเหตุผล: ช่องว่าง = error ที่ช่อง comment
+      // a reason is required: blank = an error on the comment field
       await panel
         .getByRole('button', {
           name: copy.recovery.confirm.replace('{{action}}', copy.recovery.actions.RECONCILE.title),
         })
         .click();
       await expect(panel.getByText(copy.validation.comment)).toBeVisible();
-      await panel.getByLabel(copy.recovery.comment).fill('ตรวจแล้วว่า Organization เป็นของเรา');
+      await panel.getByLabel(copy.recovery.comment).fill('verified that the Organization is ours');
 
-      // คนอื่นขยับ revision ก่อน → 409 แล้ว preview ใหม่ได้
+      // someone else moved the revision first → 409 then a new preview is possible
       api.bumpRevisionBeforeExecute = true;
       await panel
         .getByRole('button', {
@@ -624,7 +626,7 @@ for (const language of ['th', 'en'] as const) {
         .click();
       await expect(panel.getByRole('alert')).toContainText(copy.errors.REVISION_CONFLICT);
       await panel.getByRole('button', { name: copy.recovery.reloadPreview }).click();
-      await panel.getByLabel(copy.recovery.comment).fill('ตรวจอีกครั้งหลังโหลดใหม่');
+      await panel.getByLabel(copy.recovery.comment).fill('checked again after reloading');
       await panel
         .getByRole('button', {
           name: copy.recovery.confirm.replace('{{action}}', copy.recovery.actions.RECONCILE.title),
@@ -641,12 +643,14 @@ for (const language of ['th', 'en'] as const) {
 
       const actions = api.posts.filter((post) => post.path.endsWith('/actions/reconcile'));
       expect(actions).toHaveLength(2);
-      // ลองใหม่หลัง preview ใหม่ = key ใหม่ พร้อม revision ล่าสุด
+      // retry after a new preview = a new key with the latest revision
       expect(actions[0]!.key).not.toBe(actions[1]!.key);
       expect((actions[1]!.body as { previewDigest: string }).previewDigest).toBe(PREVIEW_DIGEST);
     });
 
-    test('resend เกิน cap: แสดงเวลาที่ลองใหม่ได้จาก Retry-After', async ({ page }) => {
+    test('resend over the cap: shows the time it can be retried from Retry-After', async ({
+      page,
+    }) => {
       const api = new MockPlatformApi();
       await open(page, api, '/new');
       await fillValidForm(page, 'nova-care', copy);
@@ -658,7 +662,9 @@ for (const language of ['th', 'en'] as const) {
       });
       await page.getByRole('button', { name: copy.invitation.resend }).click();
       const panel = page.getByRole('region', { name: copy.invitation.resend });
-      await panel.getByLabel(copy.invitation.comment).fill('ผู้รับแจ้งว่าไม่ได้รับอีเมล');
+      await panel
+        .getByLabel(copy.invitation.comment)
+        .fill('the recipient said the email was not received');
       await panel.getByRole('button', { name: copy.invitation.resend }).click();
       await expect(panel.getByRole('alert')).toContainText(copy.errors.INVITATION_RESEND_LIMITED);
       await expect(panel.getByRole('alert')).toContainText(
@@ -671,12 +677,12 @@ for (const language of ['th', 'en'] as const) {
       await expect(page.getByRole('button', { name: copy.invitation.resend })).toBeFocused();
     });
 
-    test('auditor: อ่านได้อย่างเดียว — ไม่มีปุ่มสร้าง/recovery และหน้า /new ถูกปฏิเสธ', async ({
+    test('auditor: read only — no create/recovery buttons and the /new page is rejected', async ({
       page,
     }) => {
       const operator = new MockPlatformApi();
       const auditor = new MockPlatformApi('platform_auditor');
-      // สร้างข้อมูลด้วย operator mock แล้วให้ auditor อ่านชุดเดียวกัน
+      // create data with the operator mock then let the auditor read the same set
       auditor.requests = operator.requests;
       auditor.history = operator.history;
       const entry = {
@@ -711,7 +717,7 @@ for (const language of ['th', 'en'] as const) {
       await expect(page.getByText(copy.readOnly.auditorCreate)).toBeVisible();
     });
 
-    test('A1.8 rollback: operator เห็นประกาศปิดชั่วคราว, ไม่มีปุ่มสร้าง/recovery แต่ยังดูสถานะได้', async ({
+    test('A1.8 rollback: an operator sees the temporarily-disabled notice, no create/recovery buttons but can still view status', async ({
       page,
     }) => {
       const api = new MockPlatformApi('platform_operator', 'DISABLED');
@@ -749,7 +755,7 @@ for (const language of ['th', 'en'] as const) {
       await expect(page.getByText(copy.readOnly.disabledCreate)).toBeVisible();
     });
 
-    test('keyboard: skip link และค้นหาด้วยคีย์บอร์ดล้วน; request ที่ไม่มีได้หน้า generic', async ({
+    test('keyboard: skip link and keyboard-only search; a missing request gets the generic page', async ({
       page,
     }) => {
       const api = new MockPlatformApi();
@@ -761,7 +767,7 @@ for (const language of ['th', 'en'] as const) {
       await expect(page.getByRole('link', { name: copy.navigation.skip })).toBeFocused();
       await page.keyboard.press('Enter');
       await page.getByLabel(copy.list.searchLabel).focus();
-      await page.keyboard.type('ไม่มีอยู่จริง');
+      await page.keyboard.type('does not exist');
       await page.keyboard.press('Enter');
       await expect(page.getByText(copy.list.empty)).toBeVisible();
       await page.goto('/requests/00000009-0000-4000-8000-000000000009');
@@ -771,7 +777,7 @@ for (const language of ['th', 'en'] as const) {
   });
 }
 
-test('สลับภาษากลาง draft/review/progress คง DOM และ payload เดิมโดยไม่ส่งคำสั่งซ้ำ', async ({
+test('switching language in the middle of draft/review/progress keeps the DOM and the original payload without re-sending a command', async ({
   page,
 }, testInfo) => {
   const api = new MockPlatformApi();
@@ -829,7 +835,7 @@ test('สลับภาษากลาง draft/review/progress คง DOM แ�
   expect(api.posts).toHaveLength(1);
 });
 
-test('storage ของ preference ใช้ไม่ได้ยังสลับภาษาใน memory ได้', async ({ page }) => {
+test('unusable preference storage can still switch the language in memory', async ({ page }) => {
   await page.addInitScript(() => {
     const get = Storage.prototype.getItem;
     const set = Storage.prototype.setItem;
@@ -851,7 +857,7 @@ test('storage ของ preference ใช้ไม่ได้ยังสลั
 });
 
 for (const mode of ['auditor', 'DISABLED', 'NOT_ALLOWLISTED'] as const) {
-  test(`header EN คง capability ของ ${mode}`, async ({ page }) => {
+  test(`header EN keeps the capability of ${mode}`, async ({ page }) => {
     const api =
       mode === 'auditor'
         ? new MockPlatformApi('platform_auditor')
@@ -873,9 +879,9 @@ for (const mode of ['auditor', 'DISABLED', 'NOT_ALLOWLISTED'] as const) {
   });
 }
 
-test.describe('browser ภาษาอังกฤษ', () => {
+test.describe('English browser', () => {
   test.use({ locale: 'en-GB' });
-  test('ไม่มี preference ใช้ browser และสลับด้วย keyboard โดยคง focus', async ({ page }) => {
+  test('no preference uses the browser and switching by keyboard keeps focus', async ({ page }) => {
     await open(page, new MockPlatformApi());
     await expect(page.locator('html')).toHaveAttribute('lang', 'en');
     await expect(page.getByRole('navigation', { name: 'Main navigation' })).toBeVisible();
@@ -895,7 +901,7 @@ for (const language of ['th', 'en'] as const) {
     const copy = language === 'th' ? commonTh : commonEn;
     const other = language === 'th' ? commonEn : commonTh;
 
-    test('recovery เปลี่ยนภาษาคง preview/revision/comment/reason และ Escape คืน focus', async ({
+    test('recovery switching language keeps preview/revision/comment/reason and Escape restores focus', async ({
       page,
     }, testInfo) => {
       const api = new MockPlatformApi();
@@ -934,7 +940,7 @@ for (const language of ['th', 'en'] as const) {
       await expect(page.getByRole('button', { name: other.language.switch })).toBeFocused();
       await expect(panel.getByText(other.validation.comment)).toBeVisible();
       expect(await element!.evaluate((node) => node.isConnected)).toBe(true);
-      await panel.getByLabel(other.recovery.comment).fill('ข้อความผู้ใช้ — keep this text');
+      await panel.getByLabel(other.recovery.comment).fill('ข้อความผู้ใช้ — keep this text'); // allow-thai: user-entered mixed text must be preserved
       await choose(page, other.request.reason, other.reasons.CUSTOMER_REQUEST);
       expect(previews).toBe(previewCount);
       expect(api.posts).toHaveLength(0);
@@ -958,7 +964,7 @@ for (const language of ['th', 'en'] as const) {
         expectedRevision: 3,
         previewDigest: PREVIEW_DIGEST,
         reasonCode: 'CUSTOMER_REQUEST',
-        comment: 'ข้อความผู้ใช้ — keep this text',
+        comment: 'ข้อความผู้ใช้ — keep this text', // allow-thai: user-entered mixed text must be preserved
       });
       expect(commands[0]!.key).toMatch(/^reconcile-/);
       expect(previews).toBe(previewCount);
@@ -966,7 +972,7 @@ for (const language of ['th', 'en'] as const) {
       await expect(page.getByRole('heading', { level: 1 })).toBeFocused();
     });
 
-    test('unknown error ไม่แสดง raw title และ validation เปลี่ยนภาษาจาก key เดิม', async ({
+    test('unknown error does not show the raw title and validation switches language from the original key', async ({
       page,
     }) => {
       const api = new MockPlatformApi();
@@ -1017,7 +1023,7 @@ for (const language of ['th', 'en'] as const) {
       await expectAccessible(page);
     });
 
-    test('unknown state/step/action ใช้ fallback และเวลาเปลี่ยนภาษาโดย instant คงเดิม', async ({
+    test('unknown state/step/action use a fallback and the time switching language by instant stays the same', async ({
       page,
     }) => {
       const api = new MockPlatformApi();
@@ -1051,7 +1057,7 @@ for (const language of ['th', 'en'] as const) {
           stepKey: 'NEW_STEP',
           outcome: 'NEW_OUTCOME',
           actor: { kind: 'NEW_ACTOR', subject: 'synthetic', role: null },
-          comment: 'ข้อความผู้ใช้ keep this',
+          comment: 'ข้อความผู้ใช้ keep this', // allow-thai: user-entered mixed text must be preserved
         }),
       ];
       let reads = 0;
@@ -1066,7 +1072,7 @@ for (const language of ['th', 'en'] as const) {
       await expect(page.getByText(copy.actors.unknown)).toBeVisible();
       await expect(page.getByText(copy.invitation.delivery.unknown)).toBeVisible();
       await expect(page.getByRole('heading', { name: copy.request.ready })).toHaveCount(0);
-      await expect(page.getByText('ข้อความผู้ใช้ keep this', { exact: false })).toBeVisible();
+      await expect(page.getByText('ข้อความผู้ใช้ keep this', { exact: false })).toBeVisible(); // allow-thai: user-entered mixed text must be preserved
       const time = page.locator('time').first();
       await expect(time).toBeVisible();
       const instant = await time.getAttribute('datetime');
@@ -1078,14 +1084,16 @@ for (const language of ['th', 'en'] as const) {
       await expect(time).toHaveAttribute('datetime', instant!);
       expect(await time.textContent()).not.toBe(before);
       expect(await time.textContent()).toContain('10:01');
-      await expect(page.getByText('ข้อความผู้ใช้ keep this', { exact: false })).toBeVisible();
+      await expect(page.getByText('ข้อความผู้ใช้ keep this', { exact: false })).toBeVisible(); // allow-thai: user-entered mixed text must be preserved
       await expect(page.getByRole('heading', { name: other.request.ready })).toHaveCount(0);
       expect(reads).toBe(count);
       expect(api.posts).toHaveLength(0);
       await expectAccessible(page);
     });
 
-    test('keyboard ของ Table และ Select ใช้พฤติกรรมจาก component ร่วม', async ({ page }) => {
+    test('keyboard of Table and Select uses the behavior from the shared component', async ({
+      page,
+    }) => {
       const api = new MockPlatformApi();
       seedRequest(api, 'SUCCEEDED');
       await open(page, api);
@@ -1121,7 +1129,7 @@ for (const language of ['th', 'en'] as const) {
 
 for (const width of [390, 768, 1440]) {
   for (const language of ['th', 'en'] as const) {
-    test(`#861: Platform header ทุก control อยู่ในจอ ${width}px (${language})`, async ({
+    test(`#861: every Platform header control fits the screen at ${width}px (${language})`, async ({
       page,
     }) => {
       await page.setViewportSize({ width, height: 900 });

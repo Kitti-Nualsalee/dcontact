@@ -1,11 +1,11 @@
 /**
- * Owner: Platform operations — metrics ของ Platform provisioning (A1.8 #413, #388 checkpoint 2)
+ * Owner: Platform operations — metrics of Platform provisioning (A1.8 #413, #388 checkpoint 2)
  *
- * - Prometheus (prom-client) — decision ของเจ้าของงานใน #413
- * - label เป็นชุดปิดเท่านั้น: source/kind/step/code/status/queue/invariant — ห้ามมี tenant, request,
- *   email, domain หรือ slug; code ที่ไม่ตรงรูปแบบ stable code ถูกแทนด้วย `OTHER`
- * - backlog/อายุคิว/invariant คำนวณจาก DB ตอน scrape (cache สั้นๆ) เพราะเป็นสถานะ ไม่ใช่ event —
- *   worker หลายตัวจึงรายงานค่าเดียวกันได้โดยไม่ต้องรวมกันเอง
+ * - Prometheus (prom-client) — decision of the work owner in #413
+ * - labels are a closed set only: source/kind/step/code/status/queue/invariant — never tenant, request,
+ *   email, domain or slug; a code that does not match the stable code format is replaced by `OTHER`
+ * - backlog/queue age/invariants are computed from the DB at scrape time (short cache) because they are state, not events —
+ *   so several workers can report the same value without aggregating it themselves
  */
 import { createServer, type Server } from 'node:http';
 import type { PrismaClient } from '@d-contact/db';
@@ -31,7 +31,7 @@ function metricStep(value: unknown): string {
 
 type WorkerSource = 'saga' | 'command' | 'activity';
 
-/** event ของ worker loop — ทุก label มาจาก enum/stable code */
+/** worker loop event — every label comes from an enum/stable code */
 export class PlatformWorkerMetrics {
   private readonly results: Counter<'source' | 'kind' | 'step' | 'code'>;
   private readonly errors: Counter<'source'>;
@@ -41,37 +41,37 @@ export class PlatformWorkerMetrics {
 
   constructor(
     readonly registry: Registry,
-    /** ใช้หาเวลา accepted → terminal ของ request ที่เพิ่ง COMPLETED */
+    /** used to find the accepted → terminal time of a request that just reached COMPLETED */
     private readonly database?: Pick<PrismaClient, 'pfProvisioningRequest'>,
   ) {
     this.results = new Counter({
       name: 'dcontact_platform_worker_results_total',
-      help: 'ผลของ worker ต่อหน่วยงาน (saga step หรือ operator command)',
+      help: 'Outcome of a worker per unit of work (saga step or operator command)',
       labelNames: ['source', 'kind', 'step', 'code'],
       registers: [registry],
     });
     this.errors = new Counter({
       name: 'dcontact_platform_worker_errors_total',
-      help: 'error ที่หลุดออกจาก saga/command worker',
+      help: 'Errors that escaped from the saga/command worker',
       labelNames: ['source'],
       registers: [registry],
     });
     this.duration = new Histogram({
       name: 'dcontact_platform_worker_unit_duration_seconds',
-      help: 'เวลาของงานหนึ่งหน่วยของ worker',
+      help: 'Duration of one unit of worker work',
       labelNames: ['source', 'kind'],
       buckets: [0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60],
       registers: [registry],
     });
     this.endToEnd = new Histogram({
       name: 'dcontact_platform_provisioning_duration_seconds',
-      help: 'เวลาตั้งแต่รับคำขอจน request SUCCEEDED',
+      help: 'Time from accepting the request until the request is SUCCEEDED',
       buckets: [5, 15, 30, 60, 120, 300, 600, 1800, 3600],
       registers: [registry],
     });
     this.claims = new Gauge({
       name: 'dcontact_platform_worker_claims_enabled',
-      help: '1 = worker รับงานใหม่ (platformProvisioning.enabled), 0 = rollback',
+      help: '1 = the worker takes new work (platformProvisioning.enabled), 0 = rollback',
       registers: [registry],
     });
   }
@@ -113,28 +113,28 @@ export class PlatformWorkerMetrics {
 }
 
 /**
- * invariant ที่ห้ามเกิด (#393 non-waivable) — ค่า > 0 = critical alert
- * query ด้วย role `dcontact_platform` ซึ่งเห็นเฉพาะ `tenants` (บางคอลัมน์) และ `pf_*`
+ * invariants that must never occur (#393 non-waivable) — a value > 0 = critical alert
+ * queried with role `dcontact_platform`, which sees only `tenants` (some columns) and `pf_*`
  */
 export const PLATFORM_INVARIANTS = {
-  /** tenant ACTIVE ทั้งที่คำขอ A1 ยังไม่ SUCCEEDED */
+  /** a tenant is ACTIVE although the A1 request has not SUCCEEDED */
   premature_active: `
     SELECT count(*)::int AS n FROM tenants t
     JOIN pf_provisioning_requests r ON r.tenant_id = t.id
     WHERE t.lifecycle_status = 'ACTIVE' AND r.status <> 'SUCCEEDED'`,
-  /** tenant ACTIVE โดย readiness step ไม่ผ่าน */
+  /** a tenant is ACTIVE although the readiness step did not pass */
   readiness_bypass: `
     SELECT count(*)::int AS n FROM tenants t
     JOIN pf_provisioning_steps s ON s.tenant_id = t.id AND s.step_key = 'READINESS'
     WHERE t.lifecycle_status = 'ACTIVE' AND s.state <> 'SUCCEEDED'`,
-  /** resource ภายนอกตัวเดียวถูกบันทึกเป็นของมากกว่าหนึ่งคำขอ */
+  /** a single external resource is recorded as belonging to more than one request */
   duplicate_ownership: `
     SELECT count(*)::int AS n FROM (
       SELECT step_key, external_ref_hash FROM pf_provisioning_step_receipts
       WHERE external_ref_hash IS NOT NULL
       GROUP BY step_key, external_ref_hash HAVING count(DISTINCT request_id) > 1
     ) duplicated`,
-  /** แถวลูกที่อ้าง tenant คนละตัวกับคำขอของมัน */
+  /** child rows that reference a different tenant from their request */
   cross_tenant_reference: `
     SELECT (
       (SELECT count(*) FROM pf_action_history h JOIN pf_provisioning_requests r ON r.id = h.request_id
@@ -145,8 +145,8 @@ export const PLATFORM_INVARIANTS = {
         WHERE i.tenant_id <> r.tenant_id)
     )::int AS n`,
   /**
-   * state ที่ไม่มี audit คู่กัน: คำขอไม่มี REQUEST_ACCEPTED หรือ step สำเร็จโดยไม่มี STEP_SUCCEEDED
-   * (TENANT_RECORD สำเร็จใน transaction เดียวกับการรับคำขอ — audit ของมันคือ REQUEST_ACCEPTED)
+   * state without a matching audit: a request has no REQUEST_ACCEPTED or a step succeeded without STEP_SUCCEEDED
+   * (TENANT_RECORD succeeds in the same transaction that accepts the request — its audit is REQUEST_ACCEPTED)
    */
   audit_gap: `
     SELECT (
@@ -169,7 +169,7 @@ const QUEUE_AGES = {
   operator_command: `SELECT min(created_at) AS at FROM pf_operator_commands WHERE state = 'QUEUED'`,
 } as const;
 
-/** เฉพาะ raw query — PrismaClient ของ role `dcontact_platform` ใช้ได้ตรงๆ */
+/** raw queries only — a PrismaClient with role `dcontact_platform` can be used directly */
 export interface HealthDatabase {
   $queryRawUnsafe(sql: string): PromiseLike<unknown[]>;
 }
@@ -181,7 +181,7 @@ interface HealthSnapshot {
   invariants: Record<keyof typeof PLATFORM_INVARIANTS, number>;
 }
 
-/** สถานะจาก DB ตอน scrape: backlog, อายุคิว และ invariant — cache `minIntervalMs` เพื่อคุมภาระ DB */
+/** state from the DB at scrape time: backlog, queue age and invariants — cached for `minIntervalMs` to limit DB load */
 export class PlatformHealthCollector {
   private cached: { at: number; snapshot: Promise<HealthSnapshot> } | null = null;
 
@@ -196,34 +196,34 @@ export class PlatformHealthCollector {
     > = [
       [
         'dcontact_platform_requests',
-        'จำนวน provisioning request ตามสถานะ',
+        'Number of provisioning requests by status',
         ['status'],
         (gauge, s) => s.requests.forEach(({ status, n }) => gauge.set({ status }, n)),
       ],
       [
         'dcontact_platform_invitations',
-        'จำนวน invitation generation ตามสถานะ',
+        'Number of invitation generations by state',
         ['state'],
         (gauge, s) => s.invitations.forEach(({ state, n }) => gauge.set({ state }, n)),
       ],
       [
         'dcontact_platform_oldest_age_seconds',
-        'อายุของรายการที่เก่าที่สุดในแต่ละคิว (0 = คิวว่าง)',
+        'Age of the oldest item in each queue (0 = queue empty)',
         ['queue'],
         (gauge, s) => Object.entries(s.ages).forEach(([queue, age]) => gauge.set({ queue }, age)),
       ],
       [
         'dcontact_platform_invariant_violations',
-        'จำนวนแถวที่ละเมิด invariant ที่ห้ามเกิด (#393) — ต้องเป็น 0 เสมอ',
+        'Number of rows violating an invariant that must never occur (#393) — must always be 0',
         ['invariant'],
         (gauge, s) =>
           Object.entries(s.invariants).forEach(([invariant, n]) => gauge.set({ invariant }, n)),
       ],
     ];
-    // gauge แต่ละตัว await snapshot ของ scrape เดียวกัน (promise ถูก cache) — ค่าไม่ช้ากว่ากันหนึ่งรอบ
+    // each gauge awaits the snapshot of the same scrape (the promise is cached) — values are never a round behind each other
     new Gauge({
       name: 'dcontact_platform_health_scrape_success',
-      help: '1 = อ่านสถานะจาก DB สำเร็จใน scrape นี้',
+      help: '1 = the state was read from the DB successfully in this scrape',
       registers: [registry],
       async collect() {
         this.set(
@@ -242,7 +242,7 @@ export class PlatformHealthCollector {
         registers: [registry],
         async collect() {
           this.reset();
-          // DB ล่ม = ไม่มี series ของ gauge นี้ (ไม่รายงานค่าเก่า) — alert จาก health_scrape_success แทน
+          // DB down = no series for this gauge (stale values are not reported) — alert from health_scrape_success instead
           await snapshot().then(
             (value) => fill(this, value),
             () => undefined,
@@ -259,7 +259,7 @@ export class PlatformHealthCollector {
     }
     const snapshot = this.read();
     this.cached = { at: now, snapshot };
-    // error ไม่ถูก cache — scrape ถัดไปลองใหม่
+    // errors are not cached — the next scrape tries again
     snapshot.catch(() => {
       if (this.cached?.snapshot === snapshot) this.cached = null;
     });
@@ -296,8 +296,8 @@ export class PlatformHealthCollector {
 }
 
 /**
- * `/metrics` บน port แยกจาก API สาธารณะ — ต้องไม่เปิดผ่าน ingress/hostname ของ Platform Console
- * ตอบเฉพาะ GET /metrics; path อื่น 404
+ * `/metrics` on a port separate from the public API — must not be exposed through the ingress/hostname of the Platform Console
+ * answers only GET /metrics; any other path 404
  */
 export function startMetricsServer(
   registry: Registry,

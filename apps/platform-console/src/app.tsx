@@ -1,12 +1,12 @@
 /**
- * Platform Console — Guided onboarding (A1.7 #412, baseline A ของ #391)
+ * Platform Console — Guided onboarding (A1.7 #412, baseline A of #391)
  *
  * list → create → review → provisioning progress → failure/recovery → handoff + Action history
  *
- * - ทุกสถานะมาจาก Platform API; UI ไม่สรุปว่าสำเร็จก่อน `SUCCEEDED` (tenant ACTIVE)
- * - auditor เห็นแบบ read-only (capability จาก `/api/v1/session` ที่ server คำนวณจาก token)
- * - ไม่มี token/PII ใน URL หรือ storage: route มีแค่ requestId; คำค้นหาอยู่ใน state
- * - a11y: โฟกัสหัวข้อเมื่อเปลี่ยนหน้า, error summary ที่ลิงก์ไปช่องที่ผิด, label ทุกช่อง, live region
+ * - every status comes from the Platform API; the UI does not conclude success before `SUCCEEDED` (tenant ACTIVE)
+ * - an auditor sees read-only (the capability from `/api/v1/session`, which the server computes from the token)
+ * - no token/PII in the URL or storage: the route has only the requestId; the search term lives in state
+ * - a11y: focus the heading on page change, an error summary that links to the wrong field, a label on every field, a live region
  */
 import {
   createContext,
@@ -80,7 +80,7 @@ import {
 
 type Navigate = (route: Route) => void;
 
-/** นับการเปลี่ยนหน้าภายใน app — หน้าแรกไม่ย้ายโฟกัส (ให้ Tab แรกเจอ skip link) */
+/** counts in-app page changes — the first page does not move focus (so the first Tab hits the skip link) */
 const NavigationContext = createContext(0);
 
 function asEnvelope(error: unknown): ErrorEnvelope {
@@ -188,7 +188,7 @@ export function PlatformConsoleApp({
   );
 }
 
-/** หัวข้อหน้า — รับโฟกัสทุกครั้งที่เปิดหน้า เพื่อให้ screen reader รู้ว่าเปลี่ยนหน้าแล้ว */
+/** page heading — receives focus every time a page opens, so screen readers know the page changed */
 function PageHeading({
   title,
   subtitle,
@@ -586,7 +586,7 @@ function CreateWizard({ api, navigate }: { api: PlatformApi; navigate: Navigate 
   const [confirmed, setConfirmed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<ErrorEnvelope | null>(null);
-  // key ต่อ "ชุดข้อมูลที่ review แล้ว" — กดส่งซ้ำหลัง network error ใช้ key เดิม จึงไม่สร้างซ้ำ
+  // a key per "reviewed data set" — resubmitting after a network error reuses the same key so nothing is created twice
   const idempotencyKey = useRef<string | null>(null);
 
   useEffect(() => {
@@ -594,7 +594,7 @@ function CreateWizard({ api, navigate }: { api: PlatformApi; navigate: Navigate 
       .catalog()
       .then((value) => {
         setCatalog(value);
-        // template ล่าสุดที่ ACTIVE — server pin อีกครั้งตอนรับคำขอ
+        // the latest ACTIVE template — the server pins again when the request is accepted
         setDraft((current) => ({
           ...current,
           bootstrapTemplateVersion: value.templates[0]?.version ?? '',
@@ -639,7 +639,7 @@ function CreateWizard({ api, navigate }: { api: PlatformApi; navigate: Navigate 
         ? conflictField[envelope.code]
         : undefined;
       if (Object.keys(fields).length > 0 || conflict) {
-        // กลับไปแก้ในฟอร์ม: ข้อมูลเปลี่ยน = key ใหม่
+        // going back to edit in the form: data changed = a new key
         setErrors({ ...fields, ...(conflict ? { [conflict]: errorMessageKey(envelope) } : {}) });
         idempotencyKey.current = null;
         setPhase('form');
@@ -922,8 +922,8 @@ function RequestDetail({
     void refresh().then(() => setHistoryVersion((value) => value + 1));
   }, [refresh]);
 
-  // poll ตามสถานะล่าสุดเสมอ: หลัง recovery ที่พากลับ RUNNING จะเริ่ม poll ใหม่เอง
-  // ACTION_REQUIRED/สิ้นสุดแล้วหยุด (worker ไม่เดินเอง)
+  // always poll per the latest status: after a recovery that returns to RUNNING, polling restarts by itself
+  // ACTION_REQUIRED/terminal stops it (the worker does not advance on its own)
   useEffect(() => {
     if (!view || !shouldPoll(view.status)) return;
     const timer = setTimeout(() => {
@@ -1239,7 +1239,7 @@ function RecoveryPanel({
       const fresh = await refresh();
       if (fresh) revision.current = fresh.revision;
       let current = await api.requestPreview(view.requestId, option.path);
-      // worker ถาม dependency จริงแล้วเขียนผลกลับ — poll จนจบ
+      // the worker asks the real dependency then writes the result back — poll until done
       for (
         let round = 0;
         round < 60 && (current.state === 'QUEUED' || current.state === 'RUNNING');

@@ -1,6 +1,6 @@
 /**
- * A1.8 (#413) บน Postgres จริง: query ของ PlatformHealthCollector รันได้ด้วย role `dcontact_platform`,
- * งานที่จบปกติไม่ทำให้ invariant ขยับ และการละเมิดแต่ละแบบถูกนับ (วัดเป็นส่วนต่าง — DB ใช้ร่วมกับเทสต์อื่น)
+ * A1.8 (#413) on real Postgres: the PlatformHealthCollector queries run with role `dcontact_platform`,
+ * normally completed work does not move any invariant, and each kind of violation is counted (measured as a delta — the DB is shared with other tests)
  */
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -60,7 +60,7 @@ const INVARIANTS = [
   'audit_gap',
 ];
 
-test('คำขอที่จบปกติไม่ทำให้ invariant ขยับ; backlog และอายุคิว PENDING สะท้อนคำขอใหม่', async (t) => {
+test('a normally completed request does not move any invariant; backlog and PENDING queue age reflect a new request', async (t) => {
   const s = await setup(t);
   const before = await s.read();
   const accepted = await s.accept();
@@ -79,20 +79,20 @@ test('คำขอที่จบปกติไม่ทำให้ invariant 
   }
 });
 
-test('ละเมิด invariant แล้วถูกนับ: premature ACTIVE, readiness bypass และ audit gap', async (t) => {
+test('invariant violations are counted: premature ACTIVE, readiness bypass and audit gap', async (t) => {
   const s = await setup(t);
   const accepted = await s.accept();
   const before = await s.read();
-  // DB trigger กันทั้งสองแบบไว้แล้ว — จำลองการหลุดโดย bypass trigger (แบบเดียวกับ fixture cleanup)
-  // เพื่อพิสูจน์ว่า tripwire ของ metrics จับได้แม้ guard ใน DB ถูกเลี่ยง
+  // DB triggers already prevent both kinds — simulate the slip by bypassing the trigger (same as fixture cleanup)
+  // to prove the metrics tripwire catches it even when the DB guard is circumvented
   await s.f.owner.$transaction(async (transaction) => {
     await transaction.$executeRawUnsafe("SET LOCAL session_replication_role = 'replica'");
-    // tenant ถูกเปิดทั้งที่ saga ยังไม่เริ่ม (ข้าม readiness)
+    // the tenant was activated although the saga has not started (skipping readiness)
     await transaction.$executeRawUnsafe(
       `UPDATE tenants SET lifecycle_status = 'ACTIVE' WHERE id = $1::uuid`,
       accepted.tenantId,
     );
-    // audit ของการรับคำขอหาย
+    // the audit of accepting the request is missing
     await transaction.$executeRawUnsafe(
       `DELETE FROM pf_action_history WHERE request_id = $1::uuid AND action = 'REQUEST_ACCEPTED'`,
       accepted.requestId,

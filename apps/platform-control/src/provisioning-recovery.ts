@@ -1,14 +1,14 @@
 /**
- * Owner: Platform control plane — recovery commands ของ operator เมื่อ request `ACTION_REQUIRED`
+ * Owner: Platform control plane — operator recovery commands when a request is `ACTION_REQUIRED`
  * (A1.3 #408, #390 Operator recovery controls, #388 preview/previewDigest/reason)
  *
- * ทุก action:
- * - ทำได้กับ step ปัจจุบันเท่านั้น (step แรกที่ยังไม่ SUCCEEDED) — ห้ามข้าม failed/current step
- * - ต้อง preview ก่อน; execute ส่ง `previewDigest` ที่ผูก action/revision/step/attempt/ผลของ `find`
- *   ถ้าสถานะเปลี่ยนระหว่างนั้น = `PREVIEW_STALE` ต้อง preview ใหม่
- * - ต้องมี `expectedRevision`, `reasonCode` และ `comment`; ผลทุกแบบ (รวมที่ถูกปฏิเสธ) ลง Action history
- * - ไม่มี destructive compensation เป็นค่าเริ่มต้น: Safe compensate ได้เฉพาะ resource ที่ `find`
- *   พิสูจน์ correlation แล้วและ port รองรับเท่านั้น
+ * Every action:
+ * - may act only on the current step (the first step not yet SUCCEEDED) — must not skip a failed/current step
+ * - must preview first; execute sends the `previewDigest` that binds the action/revision/step/attempt/result of `find`
+ *   if the state changes in between = `PREVIEW_STALE` and a new preview is needed
+ * - needs `expectedRevision`, `reasonCode` and `comment`; every outcome (including rejected ones) goes into Action history
+ * - no destructive compensation by default: Safe compensate applies only to a resource whose correlation `find`
+ *   has proven and which the port supports
  */
 import { createHash, randomUUID } from 'node:crypto';
 import type { Prisma, PrismaClient } from '@d-contact/db';
@@ -36,10 +36,10 @@ export interface RecoveryPreview {
   revision: number;
   stepKey: ProvisioningStepKey | null;
   attempt: number | null;
-  /** ผลของ `find` ณ เวลานี้ (ไม่มีสำหรับ MARK_FAILED_FINAL) */
+  /** result of `find` at this time (none for MARK_FAILED_FINAL) */
   finding: ProvisioningAdoption['status'] | null;
   allowed: boolean;
-  /** เหตุผลที่ทำไม่ได้แบบ machine code — แสดงใน UI ก่อน operator ยืนยัน */
+  /** machine-code reason it cannot be done — shown in the UI before the operator confirms */
   blockedBy: string | null;
   previewDigest: string;
 }
@@ -125,7 +125,7 @@ export class ProvisioningRecoveryService {
     }
 
     if (command.action === 'MARK_FAILED_FINAL') {
-      // transition ของ repository บันทึก MARK_FAILED_FINAL + tombstone reservation ใน transaction เดียว
+      // the repository transition records MARK_FAILED_FINAL + tombstones the reservation in one transaction
       const failed = await this.repository.transition({
         requestId: request.id,
         expectedRevision: request.revision,
@@ -146,8 +146,8 @@ export class ProvisioningRecoveryService {
       const found = await this.ports[stepKey].find(context);
       if (found.status !== 'FOUND') throw new PlatformProvisioningError('PREVIEW_STALE');
       const externalRefHash = platformIdentityHash('external-ref', found.externalRef);
-      // durable intent ก่อนแตะระบบภายนอก: CAS บน step ทำให้ operator สองคนที่กดพร้อมกันมีผู้ชนะคนเดียว
-      // crash หลังจุดนี้ทิ้ง `COMPENSATING` ไว้ให้ preview ใหม่ถาม `find` ว่า resource ยังอยู่หรือไม่
+      // durable intent before touching the external system: a CAS on the step gives two operators pressing at once a single winner
+      // a crash after this point leaves `COMPENSATING` for a new preview to ask `find` whether the resource still exists
       await this.database.$transaction((transaction) =>
         this.updateStep(transaction, step, { errorCode: 'COMPENSATING' }),
       );
@@ -182,7 +182,7 @@ export class ProvisioningRecoveryService {
 
     if (command.action === 'RETRY_STEP') {
       return this.commit(request, step, command, async (transaction) => {
-        // เปิดงบ attempt และ deadline ใหม่ แต่ไม่ reset attempt (receipt ต้องเดินหน้าอย่างเดียว)
+        // opens a new attempt budget and deadline but does not reset the attempt (the receipt must only move forward)
         await this.updateStep(transaction, step, {
           state: 'PENDING',
           attemptFloor: step.attempt,
@@ -201,7 +201,7 @@ export class ProvisioningRecoveryService {
       });
     }
 
-    // RECONCILE: resource มีจริงและ correlation ตรง = adopt แล้วเดินต่อ; ไม่พบ = ไม่เปลี่ยนอะไร
+    // RECONCILE: the resource exists and the correlation matches = adopt and continue; not found = change nothing
     if (preview.finding === 'NOT_FOUND') {
       await this.audit(this.database, request, command, {
         outcome: 'SUCCEEDED',
@@ -303,7 +303,7 @@ export class ProvisioningRecoveryService {
     if (!step || step.state !== 'ACTION_REQUIRED') return 'NO_ACTION_REQUIRED_STEP';
     if (action === 'RECONCILE') return finding === 'MISMATCH' ? 'CORRELATION_MISMATCH' : null;
     if (action === 'RETRY_STEP') {
-      // resource อาจมีอยู่แล้ว — ต้อง Reconcile (adopt) หรือ Safe compensate ก่อน ห้าม blind retry
+      // the resource may already exist — must Reconcile (adopt) or Safe compensate first, never blind retry
       return finding === 'NOT_FOUND' ? null : 'RESOURCE_MAY_EXIST';
     }
     const port = this.ports[step.stepKey as ExternalProvisioningStepKey];
@@ -334,7 +334,7 @@ export class ProvisioningRecoveryService {
     return { action: command.action, ...result };
   }
 
-  /** CAS บน revision ของ step ที่ preview เห็น — มีใครขยับก่อน = REVISION_CONFLICT */
+  /** CAS on the revision of the step the preview saw — someone moved first = REVISION_CONFLICT */
   private async updateStep(
     transaction: Prisma.TransactionClient,
     step: LoadedRequest['steps'][number],
@@ -353,8 +353,8 @@ export class ProvisioningRecoveryService {
   }
 
   /**
-   * กลับไป RUNNING พร้อม deadline ใหม่: การแทรกแซงของ operator เปิดหน้าต่างเวลาใหม่เสมอ ไม่เช่นนั้น
-   * request ที่ถูก escalate เพราะ `DEADLINE_EXCEEDED` จะถูก escalate ซ้ำทันทีที่ step ถัดไปถูก claim
+   * back to RUNNING with a new deadline: an operator intervention always opens a new time window, otherwise
+   * a request escalated because of `DEADLINE_EXCEEDED` would be escalated again as soon as the next step is claimed
    */
   private async resume(
     transaction: Prisma.TransactionClient,

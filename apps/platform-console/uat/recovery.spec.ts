@@ -5,17 +5,17 @@ import { totp } from '../../../scripts/keycloak-platform-login.mjs';
 import { PLATFORM_DEV_USERS } from '../../../scripts/keycloak-platform-setup.mjs';
 
 /**
- * A1.8 (#413) UAT journey ของ #393 §7 ที่ครบ failure → reconcile → resume → handoff ผ่าน UI จริง
+ * A1.8 (#413) UAT journey of #393 §7 that completes failure → reconcile → resume → handoff through the real UI
  *
- * fault injection: หยุด Keycloak ก่อนยืนยันคำขอ → worker retry จนครบแล้วส่งให้ operator (ACTION_REQUIRED)
- * → เปิด Keycloak คืน → Reconcile (อ่านของจริง ไม่มีอะไรให้ adopt) → Retry current step → ACTIVE + ส่งมอบ
- * รันเฉพาะเมื่อ `A1_UAT_KEYCLOAK_OUTAGE=1` เพราะหยุด container ของ dev จริง
+ * fault injection: stop Keycloak before confirming the request → the worker retries until exhausted then hands off to an operator (ACTION_REQUIRED)
+ * → bring Keycloak back → Reconcile (reads the real state, nothing to adopt) → Retry current step → ACTIVE + handoff
+ * runs only when `A1_UAT_KEYCLOAK_OUTAGE=1` because it stops a real dev container
  */
 const COMPOSE = ['compose', '-f', '../../infra/docker/docker-compose.dev.yml'];
 const operator = PLATFORM_DEV_USERS.find((user) => user.role === 'platform_operator')!;
 const run = randomUUID().slice(0, 6);
 
-test.skip(process.env.A1_UAT_KEYCLOAK_OUTAGE !== '1', 'ต้องตั้ง A1_UAT_KEYCLOAK_OUTAGE=1');
+test.skip(process.env.A1_UAT_KEYCLOAK_OUTAGE !== '1', 'A1_UAT_KEYCLOAK_OUTAGE=1 must be set');
 
 async function keycloakReady() {
   for (let round = 0; round < 90; round += 1) {
@@ -23,7 +23,7 @@ async function keycloakReady() {
     if (response?.ok) return;
     await new Promise((resolve) => setTimeout(resolve, 2_000));
   }
-  throw new Error('Keycloak ไม่กลับมาใน 3 นาที');
+  throw new Error('Keycloak did not come back within 3 minutes');
 }
 
 async function recover(page: Page, title: string, comment: string) {
@@ -35,7 +35,7 @@ async function recover(page: Page, title: string, comment: string) {
   return panel;
 }
 
-test('UAT: failure → reconcile → resume → handoff ระหว่าง Keycloak ล่ม', async ({ page }) => {
+test('UAT: failure → reconcile → resume → handoff while Keycloak is down', async ({ page }) => {
   test.setTimeout(600_000);
   test.info().annotations.push({ type: 'fault', description: 'docker compose stop keycloak' });
 
@@ -62,7 +62,7 @@ test('UAT: failure → reconcile → resume → handoff ระหว่าง Ke
   await page.getByRole('button', { name: 'ตรวจสอบข้อมูล →' }).click();
   await page.getByLabel(/ฉันตรวจสอบ identity/).check();
 
-  // failure: dependency ล่มหลังรับคำขอ (API ยังรับได้เพราะ verify token ด้วย JWKS ที่ cache ไว้)
+  // failure: the dependency is down after the request is accepted (the API still accepts because it verifies tokens with a cached JWKS)
   execFileSync('docker', [...COMPOSE, 'stop', 'keycloak'], { stdio: 'ignore' });
   try {
     await page.getByRole('button', { name: 'ยืนยันและเริ่ม provision' }).click();
@@ -75,23 +75,23 @@ test('UAT: failure → reconcile → resume → handoff ระหว่าง Ke
     await keycloakReady();
   }
 
-  // reconcile หลัง dependency กลับมา: อ่านของจริงแล้วไม่มีอะไรให้ adopt — ไม่เดา ไม่สร้างซ้ำ
+  // reconcile after the dependency returns: read the real state, nothing to adopt — no guessing, no duplicate creation
   const reconcile = await recover(
     page,
     'Reconcile & resume',
-    'Keycloak กลับมาแล้ว ตรวจว่ามี Organization ค้างไหม',
+    'Keycloak is back, check whether an Organization is left behind',
   );
   await expect(reconcile.getByText('สถานะคำขอ: ACTION_REQUIRED')).toBeVisible();
   await reconcile.getByRole('button', { name: 'ปิด' }).click();
 
-  // resume: reconcile พิสูจน์แล้วว่า resource ไม่มี — retry step ต่อ
-  await recover(page, 'Retry current step', 'Reconcile ยืนยันแล้วว่าไม่มี resource ค้าง');
+  // resume: reconcile proved the resource does not exist — retry the step
+  await recover(page, 'Retry current step', 'Reconcile confirmed that no resource is left behind');
   await expect(page.getByRole('heading', { name: 'พร้อมส่งมอบให้ลูกค้า' })).toBeVisible({
     timeout: 180_000,
   });
   await expect(page.getByText('ส่งถึงผู้ให้บริการอีเมลแล้ว')).toBeVisible();
 
-  // search + Action history มีทั้งการตัดสินใจของ operator และงานของ System
+  // search + Action history has both the operator's decisions and System work
   await page.getByRole('button', { name: 'Tenants' }).click();
   await page.getByLabel('ค้นหา tenant').fill(slug);
   await page.getByLabel('ค้นหา tenant').press('Enter');

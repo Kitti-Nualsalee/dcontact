@@ -1,14 +1,14 @@
 /**
- * Owner: Platform control plane — process ของ worker (A1.6 #411)
+ * Owner: Platform control plane — the worker process (A1.6 #411)
  *
- * รวม saga worker (step ของ provisioning) กับ operator command worker (preview/recovery/resend ที่ API
- * บันทึกไว้) ไว้ใน process เดียวที่ถือ Keycloak credential — Platform API ไม่มี credential นี้
- * (decision ใน #388)
+ * Combines the saga worker (provisioning steps) with the operator command worker (preview/recovery/resend that the API
+ * records) in one process that holds the Keycloak credential — the Platform API does not have this credential
+ * (decision in #388)
  *
- * - DB สอง role: `dcontact_platform` (control plane) และ `dcontact_provisioner` (bootstrap rows)
- * - log เป็น structured JSON ที่มีแค่ id/code/kind — ไม่มี email, token หรือ payload
- * - A1.8 (#413): `platformProvisioning.enabled` ปิด = ไม่รับ lease/command ใหม่ (rollback) โดยไม่แตะ
- *   state ที่ค้างอยู่ — เปิดอีกครั้งแล้ว lease ที่หมดอายุถูก adopt และทำต่อตาม saga
+ * - two DB roles: `dcontact_platform` (control plane) and `dcontact_provisioner` (bootstrap rows)
+ * - logs are structured JSON with only id/code/kind — no email, token or payload
+ * - A1.8 (#413): `platformProvisioning.enabled` off = no new lease/command (rollback) without touching the
+ *   pending state — once turned on again, expired leases are adopted and continue per the saga
  */
 import type { PrismaClient } from '@d-contact/db';
 import { FirstAdminActivityReconciler } from './first-admin-activity.js';
@@ -35,7 +35,7 @@ export interface PlatformWorkerConfig {
   provisioner: PrismaClient;
   keycloak: KeycloakAdminClient;
   sipBaseDomain: string;
-  /** #901: issuer/client ของ tenant Console ที่ binding ของ first admin ผูกไว้ */
+  /** #901: issuer/client of the tenant Console that the first admin's binding is tied to */
   tenantConsole: TenantConsoleContext;
   rollout: PlatformRollout;
   metrics?: PlatformWorkerMetrics;
@@ -43,29 +43,29 @@ export interface PlatformWorkerConfig {
   log?: (event: Record<string, unknown>) => void;
 }
 
-/** ส่วนที่ loop ต้องใช้ — แยกจาก adapter จริงเพื่อให้ rollback drill ใช้ fake ports ได้ */
+/** what the loop needs — kept separate from the real adapters so the rollback drill can use fake ports */
 export interface PlatformWorkerLoopConfig {
   workerId: string;
   saga: Pick<ProvisioningSagaWorker, 'runOnce'>;
   commands: Pick<OperatorCommandWorker, 'runOnce'>;
-  /** A1.8: reconcile เหตุการณ์ของ first admin จาก Keycloak ลง timeline */
+  /** A1.8: reconcile first admin events from Keycloak into the timeline */
   activity?: Pick<FirstAdminActivityReconciler, 'runOnce'>;
   rollout: PlatformRollout;
   metrics?: PlatformWorkerMetrics;
   log?: (event: Record<string, unknown>) => void;
-  /** เพดานของ backoff ตอนรอบล้มติดกัน (ค่าเริ่ม 30 วินาที) */
+  /** cap of the backoff when rounds fail consecutively (default 30 seconds) */
   maxBackoffMs?: number;
-  /** ฉีดได้ใน test — ค่าเริ่ม Math.random */
+  /** injectable in tests — default Math.random */
   random?: () => number;
-  /** ฉีดได้ใน test — ค่าเริ่มคือรอแบบยกเลิกได้ด้วย signal */
+  /** injectable in tests — default is a wait that a signal can cancel */
   sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
 }
 
 export const DEFAULT_MAX_BACKOFF_MS = 30_000;
 
 /**
- * หน่วงหลังรอบที่ล้มติดกัน `failures` ครั้ง: exponential จาก `baseMs` มีเพดาน `maxMs` และ equal jitter
- * (ครึ่งหนึ่งคงที่ อีกครึ่งสุ่ม) เพื่อไม่ให้ worker หลายตัวกลับมาพร้อมกันตอน DB กลับมา
+ * delay after `failures` consecutive failed rounds: exponential from `baseMs` capped at `maxMs` with equal jitter
+ * (half fixed, half random) so several workers do not come back at once when the DB returns
  */
 export function computeBackoffMs(
   failures: number,
@@ -81,7 +81,7 @@ export function computeBackoffMs(
 function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise<void>((resolve) => {
     if (signal.aborted) return resolve();
-    // ถอด listener ทุกรอบ — loop ที่รันยาวต้องไม่สะสม listener บน signal เดียว
+    // remove the listener every round — a long-running loop must not accumulate listeners on one signal
     const wake = () => {
       clearTimeout(timer);
       signal.removeEventListener('abort', wake);
@@ -152,12 +152,12 @@ export function createPlatformWorkerLoop(config: PlatformWorkerLoopConfig) {
   const sleep = config.sleep ?? abortableSleep;
   const maxBackoffMs = config.maxBackoffMs ?? DEFAULT_MAX_BACKOFF_MS;
 
-  /** หนึ่งรอบ: ทำ step หนึ่งหน่วยและ command หนึ่งคำสั่ง — คืน true ถ้ามีงานทำ */
+  /** one round: do one unit of step work and one command — returns true if there was work */
   async function tick(): Promise<boolean> {
     return (await round()).busy;
   }
 
-  /** เหมือน tick แต่บอกด้วยว่ามี source ไหนล้มในรอบนี้ — run ใช้ตัดสินว่าต้อง backoff */
+  /** like tick but also says which source failed in this round — run uses it to decide whether to back off */
   async function round(): Promise<{ busy: boolean; failed: boolean }> {
     const enabled = config.rollout.claimsEnabled();
     config.metrics?.claimsEnabled(enabled);
@@ -168,7 +168,7 @@ export function createPlatformWorkerLoop(config: PlatformWorkerLoopConfig) {
         workerId: config.workerId,
       });
     }
-    // rollback: ไม่ claim อะไรเลย — ไม่ใช่ claim แล้วปล่อย (ไม่เพิ่ม attempt/lease churn)
+    // rollback: claim nothing at all — not claim-then-release (no attempt/lease churn increase)
     if (!enabled) return { busy: false, failed: false };
     let busy = false;
     let failed = false;
@@ -208,9 +208,9 @@ export function createPlatformWorkerLoop(config: PlatformWorkerLoopConfig) {
   }
 
   /**
-   * รอบที่ล้ม (เช่น DB หาย P1001/P1017) ต้องไม่วนทันที — เดิมเกิด `platform.worker.error` หลายหมื่นครั้ง
-   * ในไม่กี่วินาทีตอน db-relay ถูกสร้างใหม่ (#901) จึง backoff แบบ exponential + jitter มีเพดาน
-   * และ reset เมื่อรอบถัดไปไม่มี error
+   * a failed round (e.g. DB lost P1001/P1017) must not spin immediately — it used to produce tens of thousands of `platform.worker.error`
+   * within seconds when the db-relay was recreated (#901), so it backs off exponentially + jitter with a cap
+   * and resets when the next round has no error
    */
   async function run(signal: AbortSignal, pollMs = 1_000) {
     let failures = 0;
@@ -243,7 +243,7 @@ export function createPlatformWorkerLoop(config: PlatformWorkerLoopConfig) {
   return { tick, run };
 }
 
-/** เก็บเฉพาะ field ที่ไม่ใช่ PII จากผลของ worker */
+/** keeps only non-PII fields from the worker result */
 function summarize(result: object): Record<string, unknown> {
   const allowed = [
     'kind',
@@ -261,6 +261,6 @@ function summarize(result: object): Record<string, unknown> {
 }
 
 export function deliveryProbeFromEnv(env: NodeJS.ProcessEnv): InvitationDeliveryProbe {
-  // mailpit มีเฉพาะ dev/test — production ไม่มี lookup (ambiguous → operator)
+  // mailpit exists only in dev/test — production has no lookup (ambiguous → operator)
   return env.MAILPIT_URL ? mailpitDeliveryProbe(env.MAILPIT_URL) : NO_DELIVERY_PROBE;
 }

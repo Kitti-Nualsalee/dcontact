@@ -1,8 +1,8 @@
 /**
- * A1.3 (#408) acceptance: provisioning saga + recovery บน Postgres จริง (role `dcontact_platform`)
- * กับ deterministic fake ports — fault matrix ของ #393 §4: crash ก่อน/หลัง side effect, lost response,
+ * A1.3 (#408) acceptance: provisioning saga + recovery on real Postgres (role `dcontact_platform`)
+ * with deterministic fake ports — the fault matrix of #393 §4: crash before/after a side effect, lost response,
  * duplicate worker, lease expiry, timeout, restart, out-of-order/stale worker, attempt/deadline
- * exhaustion, readiness failure และ recovery ทุกชนิดพร้อม audit
+ * exhaustion, readiness failure and every kind of recovery with audit
  */
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -34,7 +34,7 @@ async function setup(t: TestContext) {
     new ProvisioningSagaWorker(f.platform, fakes.ports, {
       workerId,
       sipBaseDomain: SIP_BASE,
-      // เห็นเฉพาะ request ของเทสต์นี้ แม้ DB dev จะมีแถวค้างจาก run อื่น
+      // sees only this test's requests, even though the dev DB has leftover rows from other runs
       scope: () => ({ tenantId: { in: [...tenants] } }),
       now,
       random: () => 0.5,
@@ -46,7 +46,7 @@ async function setup(t: TestContext) {
     sipBaseDomain: SIP_BASE,
     now,
   });
-  /** รับคำขอด้วยนาฬิกาเดียวกับ worker เพื่อให้ deadline เทียบกันได้ */
+  /** accepts the request with the same clock as the worker so deadlines are comparable */
   const accept = async (input = f.input()) => {
     const key = `idem-${randomUUID()}`;
     const result = await f.repository(now).accept({
@@ -88,7 +88,7 @@ async function rejectsWith(work: Promise<unknown>, code: PlatformProvisioningErr
   });
 }
 
-/** preview แล้ว execute ด้วย digest ที่ได้ — ทางเดียวที่ operator ทำ recovery ได้ */
+/** preview then execute with the resulting digest — the only way an operator can do recovery */
 async function recover(
   s: Setup,
   requestId: string,
@@ -102,14 +102,14 @@ async function recover(
     expectedRevision: preview.revision,
     previewDigest: preview.previewDigest,
     reasonCode: 'OPERATOR_VERIFIED',
-    comment: 'ตรวจสอบแล้ว',
+    comment: 'verified',
     actor: OPERATOR,
     correlationId: `corr-${action}`,
     ...overrides,
   });
 }
 
-test('happy path: ทุก step ตามลำดับแล้ว SUCCEEDED + ACTIVE atomic; tenant ได้ slug/domain จริง', async (t) => {
+test('happy path: every step in order then SUCCEEDED + ACTIVE atomically; the tenant gets the real slug/domain', async (t) => {
   const s = await setup(t);
   const input = s.f.input();
   const accepted = await s.accept(input);
@@ -137,7 +137,7 @@ test('happy path: ทุก step ตามลำดับแล้ว SUCCEEDED 
   assert.equal(receipts, 6);
 });
 
-test('lost response หลัง side effect: attempt ถัดไป adopt resource เดิม ไม่สร้างซ้ำ', async (t) => {
+test('lost response after a side effect: the next attempt adopts the existing resource without creating it again', async (t) => {
   const s = await setup(t);
   const accepted = await s.accept();
   s.fakes.systems.KEYCLOAK_ORGANIZATION.fail('lostResponse');
@@ -169,19 +169,19 @@ test('lost response หลัง side effect: attempt ถัดไป adopt reso
   assert.equal(history.filter((row) => row.action === 'STEP_RETRY_SCHEDULED').length, 2);
 });
 
-test('transient failure: backoff + jitter แล้ว worker ไม่ claim ก่อนเวลา', async (t) => {
+test('transient failure: backoff + jitter, then the worker does not claim before the time', async (t) => {
   const s = await setup(t);
   const accepted = await s.accept();
   s.fakes.systems.KEYCLOAK_ORGANIZATION.fail('transient', 'transient');
   const worker = s.worker('worker-a', { backoffBaseMs: 10_000 });
   const first = await worker.runOnce();
   assert.equal(first.kind, 'RETRY_SCHEDULED');
-  // attempt 1 ในงบ: ceiling 10s → jitter 0.5 = 7.5s
+  // attempt 1 within budget: ceiling 10s → jitter 0.5 = 7.5s
   assert.equal(
     first.kind === 'RETRY_SCHEDULED' && first.nextAttemptAt.getTime() - T0.getTime(),
     7_500,
   );
-  assert.equal((await worker.runOnce()).kind, 'IDLE', 'ยังไม่ถึงเวลา');
+  assert.equal((await worker.runOnce()).kind, 'IDLE', 'the time has not come yet');
   s.advance(7_500);
   const second = await worker.runOnce();
   assert.equal(second.kind, 'RETRY_SCHEDULED');
@@ -196,7 +196,7 @@ test('transient failure: backoff + jitter แล้ว worker ไม่ claim �
   assert.equal((await state(s, accepted.requestId)).step('KEYCLOAK_ORGANIZATION').attempt, 3);
 });
 
-test('timeout: execute ที่ค้างถูก abort เป็น ambiguous แล้วรอบหน้าถาม find ก่อน', async (t) => {
+test('timeout: a hung execute is aborted as ambiguous, then the next round asks find first', async (t) => {
   const s = await setup(t);
   await s.accept();
   s.fakes.systems.KEYCLOAK_ORGANIZATION.fail('hang');
@@ -210,13 +210,13 @@ test('timeout: execute ที่ค้างถูก abort เป็น ambiguo
   assert.ok(s.fakes.systems.KEYCLOAK_ORGANIZATION.findCalls >= 2);
 });
 
-test('duplicate worker: หลาย worker แย่งกันพร้อมกันทุกรอบ แต่ละ step ถูก execute ครั้งเดียวและจบครบ', async (t) => {
+test('duplicate worker: several workers contend at once every round, each step is executed once and all complete', async (t) => {
   const s = await setup(t);
   const accepted = await s.accept();
   const workers = Array.from({ length: 4 }, (_, index) => s.worker(`worker-${index}`));
   for (let round = 0; round < 8; round += 1) {
     const results = await Promise.all(workers.map((worker) => worker.runOnce()));
-    // ผู้แพ้ CAS ไม่ทำอะไรเลย — ไม่มี LEASE_LOST/ACTION_REQUIRED จากการแย่งกันเอง
+    // the CAS loser does nothing at all — no LEASE_LOST/ACTION_REQUIRED from contention alone
     assert.ok(
       results.every((result) => ['STEP_SUCCEEDED', 'COMPLETED', 'IDLE'].includes(result.kind)),
       JSON.stringify(results),
@@ -227,15 +227,15 @@ test('duplicate worker: หลาย worker แย่งกันพร้อม
     .repository()
     .listActionHistory({ tenantId: accepted.tenantId, limit: 200 });
   const started = history.filter((row) => row.action === 'STEP_STARTED').map((row) => row.stepKey);
-  assert.equal(new Set(started).size, started.length, 'แต่ละ step ถูก claim ครั้งเดียว');
+  assert.equal(new Set(started).size, started.length, 'each step is claimed once');
   const final = await state(s, accepted.requestId);
   assert.deepEqual([final.status, final.lifecycle], ['SUCCEEDED', 'ACTIVE']);
 });
 
-test('crash + lease expiry: worker ใหม่รับช่วงหลัง lease หมด และ worker เดิมที่กลับมาเขียนทับไม่ได้', async (t) => {
+test('crash + lease expiry: a new worker takes over after the lease expires, and the original worker that returns cannot overwrite', async (t) => {
   const s = await setup(t);
   const accepted = await s.accept();
-  // worker A claim แล้ว "ตาย" ระหว่าง execute (ไม่มีผลกลับมา) — จำลองด้วย lease ที่ถือค้างใน DB
+  // worker A claims then "dies" during execute (no result comes back) — simulated with a lease left held in the DB
   const stale = s.worker('worker-a', { leaseMs: 120_000 });
   const claimedStep = (await state(s, accepted.requestId)).step('KEYCLOAK_ORGANIZATION');
   await s.f.owner.pfProvisioningStep.update({
@@ -250,7 +250,7 @@ test('crash + lease expiry: worker ใหม่รับช่วงหลัง
       revision: { increment: 1 },
     },
   });
-  // side effect ของ A สำเร็จก่อนตาย
+  // A's side effect succeeded before dying
   await s.fakes.systems.KEYCLOAK_ORGANIZATION.execute(
     {
       tenantId: accepted.tenantId,
@@ -264,7 +264,7 @@ test('crash + lease expiry: worker ใหม่รับช่วงหลัง
   );
 
   const b = s.worker('worker-b');
-  assert.equal((await b.runOnce()).kind, 'IDLE', 'lease ของ A ยังไม่หมด');
+  assert.equal((await b.runOnce()).kind, 'IDLE', 'the lease of A has not expired yet');
   s.advance(120_001);
   const taken = await b.runOnce();
   assert.deepEqual(taken, {
@@ -275,7 +275,7 @@ test('crash + lease expiry: worker ใหม่รับช่วงหลัง
   });
   assert.equal(s.fakes.systems.KEYCLOAK_ORGANIZATION.created, 1);
 
-  // A กลับมาเขียนผลด้วย lease/revision เก่า — CAS เดียวกับที่ worker ใช้ต้องไม่โดนแถวใดเลย
+  // A returns and writes a result with the old lease/revision — the same CAS the worker uses must hit no row at all
   const lateWrite = await s.f.platform.pfProvisioningStep.updateMany({
     where: {
       requestId: accepted.requestId,
@@ -292,18 +292,18 @@ test('crash + lease expiry: worker ใหม่รับช่วงหลัง
     }),
     1,
   );
-  // A ที่รันต่อทำ step ถัดไปตามปกติ ไม่ย้อนไป step ที่จบแล้ว
+  // A, continuing, does the next step as usual and does not go back to a finished step
   const next = await stale.runOnce();
   assert.equal(next.kind === 'STEP_SUCCEEDED' && next.stepKey, 'PLAN_BOOTSTRAP');
 });
 
-test('restart ระหว่าง readiness กับ final transaction: worker ถัดไป finalize ต่อได้ครั้งเดียว', async (t) => {
+test('restart between readiness and the final transaction: the next worker finalizes once', async (t) => {
   const s = await setup(t);
   const accepted = await s.accept();
   const worker = s.worker();
   for (let index = 0; index < 5; index += 1)
     assert.equal((await worker.runOnce()).kind, 'STEP_SUCCEEDED');
-  // "crash" หลัง READINESS receipt ก่อน final transaction: request ยัง RUNNING ทุก step SUCCEEDED
+  // "crash" after the READINESS receipt before the final transaction: the request is still RUNNING with every step SUCCEEDED
   const between = await state(s, accepted.requestId);
   assert.deepEqual([between.status, between.lifecycle], ['RUNNING', 'PROVISIONING']);
   const results = await Promise.all([
@@ -315,7 +315,7 @@ test('restart ระหว่าง readiness กับ final transaction: worke
   assert.deepEqual([final.status, final.lifecycle], ['SUCCEEDED', 'ACTIVE']);
 });
 
-test('attempt exhaustion: 5 attempts ใน budget แล้ว ACTION_REQUIRED ไม่ใช่ FAILED_FINAL', async (t) => {
+test('attempt exhaustion: 5 attempts within budget then ACTION_REQUIRED, not FAILED_FINAL', async (t) => {
   const s = await setup(t);
   const accepted = await s.accept();
   s.fakes.systems.KEYCLOAK_ORGANIZATION.fail(
@@ -329,7 +329,7 @@ test('attempt exhaustion: 5 attempts ใน budget แล้ว ACTION_REQUIRED 
   const kinds: string[] = [];
   for (let index = 0; index < 5; index += 1) {
     kinds.push((await worker.runOnce()).kind);
-    // พ้น backoff ทุกรอบแต่รวมแล้วยังไม่ถึง deadline 30 นาที
+    // past the backoff every round but in total still short of the 30-minute deadline
     s.advance(3 * 60_000);
   }
   assert.deepEqual(kinds, [
@@ -342,10 +342,10 @@ test('attempt exhaustion: 5 attempts ใน budget แล้ว ACTION_REQUIRED 
   const escalated = await state(s, accepted.requestId);
   assert.deepEqual([escalated.status, escalated.lifecycle], ['ACTION_REQUIRED', 'PROVISIONING']);
   assert.equal(escalated.request.failureCode, 'ATTEMPTS_EXHAUSTED');
-  assert.equal((await worker.runOnce()).kind, 'IDLE', 'ACTION_REQUIRED ไม่ถูก retry เอง');
+  assert.equal((await worker.runOnce()).kind, 'IDLE', 'ACTION_REQUIRED is not retried on its own');
 });
 
-test('deadline 30 นาที: เกินแล้ว ACTION_REQUIRED ก่อนแตะระบบภายนอก', async (t) => {
+test('30-minute deadline: once exceeded, ACTION_REQUIRED before touching the external system', async (t) => {
   const s = await setup(t);
   const accepted = await s.accept();
   s.advance(31 * 60_000);
@@ -359,7 +359,7 @@ test('deadline 30 นาที: เกินแล้ว ACTION_REQUIRED ก่�
   assert.equal(s.fakes.systems.KEYCLOAK_ORGANIZATION.executeCalls, 0);
 });
 
-test('correlation mismatch: resource ชื่อเดียวกันของคนอื่นไม่ถูกยึด → ACTION_REQUIRED; Reconcile ถูกปฏิเสธพร้อม audit', async (t) => {
+test('correlation mismatch: a same-named resource of someone else is not adopted → ACTION_REQUIRED; Reconcile is rejected with audit', async (t) => {
   const s = await setup(t);
   const accepted = await s.accept();
   s.fakes.systems.KEYCLOAK_ORGANIZATION.foreign({
@@ -372,7 +372,7 @@ test('correlation mismatch: resource ชื่อเดียวกันขอ�
   await rejectsWith(recover(s, accepted.requestId, 'RETRY_STEP'), 'RECOVERY_PRECONDITION_FAILED');
   const history = await s.f.repository().listActionHistory({ tenantId: accepted.tenantId });
   assert.deepEqual(
-    // นาฬิกาของเทสต์คงที่ จึงเทียบเป็นชุดไม่ขึ้นกับลำดับ
+    // the test clock is fixed, so compare as a set independent of order
     history
       .filter((row) => row.outcome === 'REJECTED')
       .map((row) => `${row.action}:${row.errorCode}`)
@@ -381,7 +381,7 @@ test('correlation mismatch: resource ชื่อเดียวกันขอ�
   );
 });
 
-test('readiness failure: tenant ไม่เป็น ACTIVE และ request รอ operator', async (t) => {
+test('readiness failure: the tenant does not become ACTIVE and the request waits for an operator', async (t) => {
   const s = await setup(t);
   const accepted = await s.accept();
   s.fakes.systems.READINESS.result = 'FAIL';
@@ -392,7 +392,7 @@ test('readiness failure: tenant ไม่เป็น ACTIVE และ request �
   assert.deepEqual([final.status, final.lifecycle], ['ACTION_REQUIRED', 'PROVISIONING']);
 });
 
-test('recovery Reconcile: resource ที่มีจริงถูก adopt แล้ว saga เดินต่อจนจบ', async (t) => {
+test('recovery Reconcile: an existing resource is adopted then the saga continues to the end', async (t) => {
   const s = await setup(t);
   const accepted = await s.accept();
   s.fakes.systems.KEYCLOAK_ORGANIZATION.fail(
@@ -424,7 +424,7 @@ test('recovery Reconcile: resource ที่มีจริงถูก adopt �
   assert.equal(actions[0]!.actorSubject, OPERATOR.subject);
 });
 
-test('recovery Reconcile หลัง deadline: เปิด deadline ใหม่ให้ step ถัดไป ไม่ ACTION_REQUIRED ซ้ำทันที', async (t) => {
+test('recovery Reconcile after the deadline: opens a new deadline for the next step, no immediate repeat ACTION_REQUIRED', async (t) => {
   const s = await setup(t);
   const accepted = await s.accept();
   s.fakes.systems.KEYCLOAK_ORGANIZATION.fail('lostResponse');
@@ -441,7 +441,7 @@ test('recovery Reconcile หลัง deadline: เปิด deadline ใหม�
   assert.equal(s.fakes.systems.KEYCLOAK_ORGANIZATION.created, 1);
 });
 
-test('recovery Retry: เฉพาะเมื่อ resource ไม่มีจริง เปิดงบ attempt/deadline ใหม่ และไม่ข้าม step', async (t) => {
+test('recovery Retry: only when the resource really does not exist, opens a new attempt budget/deadline, and does not skip a step', async (t) => {
   const s = await setup(t);
   const accepted = await s.accept();
   s.fakes.systems.KEYCLOAK_ORGANIZATION.fail('permanent');
@@ -449,7 +449,7 @@ test('recovery Retry: เฉพาะเมื่อ resource ไม่มีจ
   const before = await state(s, accepted.requestId);
   s.advance(40 * 60_000);
 
-  // Reconcile ตอนไม่มี resource = ไม่เปลี่ยนสถานะ
+  // Reconcile when there is no resource = no state change
   const nothing = await recover(s, accepted.requestId, 'RECONCILE');
   assert.equal(nothing.status, 'ACTION_REQUIRED');
 
@@ -464,14 +464,14 @@ test('recovery Retry: เฉพาะเมื่อ resource ไม่มีจ
     after.step('KEYCLOAK_ORGANIZATION').attemptFloor,
     before.step('KEYCLOAK_ORGANIZATION').attempt,
   );
-  assert.ok(after.request.deadlineAt.getTime() > s.now().getTime(), 'deadline ใหม่');
-  // step ถัดไปยังไม่ถูกแตะ
+  assert.ok(after.request.deadlineAt.getTime() > s.now().getTime(), 'new deadline');
+  // the next step is not touched yet
   assert.equal(after.steps.PLAN_BOOTSTRAP, 'PENDING');
   await s.worker().drain();
   assert.deepEqual((await state(s, accepted.requestId)).status, 'SUCCEEDED');
 });
 
-test('recovery Safe compensate: เฉพาะ resource ที่พิสูจน์ ownership และ step ที่รองรับ; ไม่มีก็ถูกปฏิเสธ', async (t) => {
+test('recovery Safe compensate: only a resource whose ownership is proven and a step that supports it; otherwise it is rejected', async (t) => {
   const s = await setup(t);
   const accepted = await s.accept();
   s.fakes.systems.KEYCLOAK_ORGANIZATION.fail('lostResponse');
@@ -480,13 +480,13 @@ test('recovery Safe compensate: เฉพาะ resource ที่พิสู�
   const compensated = await recover(s, accepted.requestId, 'SAFE_COMPENSATE');
   assert.equal(compensated.status, 'ACTION_REQUIRED');
   assert.deepEqual(s.fakes.systems.KEYCLOAK_ORGANIZATION.compensated, ['keycloak_organization-1']);
-  // resource หายแล้ว → Retry ทำได้
+  // the resource is gone → Retry is possible
   await recover(s, accepted.requestId, 'RETRY_STEP');
   await s.worker().drain();
   assert.equal((await state(s, accepted.requestId)).status, 'SUCCEEDED');
   assert.equal(s.fakes.systems.KEYCLOAK_ORGANIZATION.created, 2);
 
-  // invitation ชดเชยไม่ได้ — ต้องไม่มีทาง destructive
+  // an invitation cannot be compensated — there must be no destructive path
   const other = await s.accept();
   s.fakes.systems.INVITATION.fail('lostResponse');
   await s.worker('worker-z', { maxAttempts: 1 }).drain();
@@ -500,14 +500,14 @@ test('recovery Safe compensate: เฉพาะ resource ที่พิสู�
   );
 });
 
-test('recovery Safe compensate: operator สองคนกดพร้อมกันลบได้ครั้งเดียว; compensate ล้มเหลวลง audit', async (t) => {
+test('recovery Safe compensate: two operators pressing at once delete once; a failed compensate goes into audit', async (t) => {
   const s = await setup(t);
   const accepted = await s.accept();
   s.fakes.systems.KEYCLOAK_ORGANIZATION.fail('lostResponse');
   assert.equal((await s.worker('worker-a', { maxAttempts: 1 }).runOnce()).kind, 'ACTION_REQUIRED');
   const system = s.fakes.systems.KEYCLOAK_ORGANIZATION;
 
-  // compensate ภายนอกล้มเหลว: ไม่มีอะไรหาย, ลง audit REJECTED และ preview ใหม่ยังเห็น resource
+  // the external compensate fails: nothing is lost, REJECTED goes into audit and a new preview still sees the resource
   const original = system.compensate!;
   (system as { compensate?: typeof original }).compensate = async () => {
     throw new Error('keycloak unavailable');
@@ -526,7 +526,7 @@ test('recovery Safe compensate: operator สองคนกดพร้อมก
     [['REJECTED', 'COMPENSATION_FAILED']],
   );
 
-  // preview เดียวกันส่งพร้อมกันสองคน: ผู้ชนะคนเดียว ระบบภายนอกถูกลบครั้งเดียว
+  // the same preview sent by two people at once: a single winner, the external system is deleted once
   const preview = await s.recovery.preview({
     requestId: accepted.requestId,
     action: 'SAFE_COMPENSATE',
@@ -538,7 +538,7 @@ test('recovery Safe compensate: operator สองคนกดพร้อมก
     expectedRevision: preview.revision,
     previewDigest: preview.previewDigest,
     reasonCode: 'OPERATOR_VERIFIED',
-    comment: 'ตรวจสอบแล้ว',
+    comment: 'verified',
     actor: OPERATOR,
     correlationId: 'corr-compensate',
   };
@@ -549,15 +549,15 @@ test('recovery Safe compensate: operator สองคนกดพร้อมก
   assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1);
   const loser = results.find((result) => result.status === 'rejected');
   assert.equal((loser?.reason as PlatformProvisioningError).code, 'REVISION_CONFLICT');
-  // ผู้แพ้ต้องไม่เรียกระบบภายนอกเลย ไม่ใช่แค่ถูกระบบภายนอกปฏิเสธ
+  // the loser must not call the external system at all, not merely get rejected by the external system
   assert.equal(compensateCalls, 1);
   assert.deepEqual(system.compensated, ['keycloak_organization-1']);
 });
 
-test('recovery guards: preview เก่า, revision เก่า, ไม่มี reason/comment และ request ที่ไม่ใช่ ACTION_REQUIRED ถูกปฏิเสธ', async (t) => {
+test('recovery guards: a stale preview, a stale revision, no reason/comment and a request that is not ACTION_REQUIRED are rejected', async (t) => {
   const s = await setup(t);
   const accepted = await s.accept();
-  // ยังไม่ ACTION_REQUIRED
+  // not ACTION_REQUIRED yet
   await rejectsWith(
     recover(s, accepted.requestId, 'MARK_FAILED_FINAL'),
     'INVALID_STATE_TRANSITION',
@@ -578,7 +578,7 @@ test('recovery guards: preview เก่า, revision เก่า, ไม่ม
     recover(s, accepted.requestId, 'RETRY_STEP', { expectedRevision: preview.revision - 1 }),
     'REVISION_CONFLICT',
   );
-  // สถานะภายนอกเปลี่ยนหลัง preview → digest ไม่ตรง
+  // the external state changed after the preview → the digest does not match
   s.fakes.systems.KEYCLOAK_ORGANIZATION.resources.set(
     `${accepted.requestId}:KEYCLOAK_ORGANIZATION`,
     {
@@ -603,7 +603,7 @@ test('recovery guards: preview เก่า, revision เก่า, ไม่ม
   await rejectsWith(recover(s, randomUUID(), 'RETRY_STEP'), 'NOT_FOUND');
 });
 
-test('recovery Mark FAILED_FINAL: ต้องมี reason; เก็บ ledger และ tombstone reservation', async (t) => {
+test('recovery Mark FAILED_FINAL: needs a reason; keeps the ledger and tombstones the reservation', async (t) => {
   const s = await setup(t);
   const accepted = await s.accept();
   s.fakes.systems.KEYCLOAK_ORGANIZATION.fail('permanent');

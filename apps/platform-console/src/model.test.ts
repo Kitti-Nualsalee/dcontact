@@ -42,7 +42,7 @@ const VALID: TenantDraft = {
   firstAdminEmail: 'narin@novacare.co.th',
 };
 
-test('validateDraft: ค่าถูกต้องผ่าน; slug/domain/email/plan ผิดแจ้งทุกช่อง', () => {
+test('validateDraft: valid values pass; a wrong slug/domain/email/plan reports every field', () => {
   assert.deepEqual(validateDraft(VALID), {});
   const errors = validateDraft({
     ...EMPTY_DRAFT,
@@ -63,7 +63,7 @@ test('validateDraft: ค่าถูกต้องผ่าน; slug/domain/ema
   assert.ok(validateDraft({ ...VALID, slug: '-lead' }).slug);
 });
 
-test('draftToRequestBody: canonical เบื้องต้นและไม่มี tenant/status ให้ browser กำหนด', () => {
+test('draftToRequestBody: basic canonicalization and no tenant/status for the browser to set', () => {
   const body = draftToRequestBody(VALID);
   assert.equal(body.slug, 'nova-care');
   assert.equal(body.primaryDomain, 'novacare.co.th');
@@ -79,7 +79,7 @@ test('draftToRequestBody: canonical เบื้องต้นและไม�
   ]);
 });
 
-test('fieldErrorsToDraft: ชื่อ field ของ API map กลับเข้า form', () => {
+test('fieldErrorsToDraft: the API field names map back into the form', () => {
   assert.deepEqual(
     fieldErrorsToDraft({ 'firstAdmin.email': 'INVALID', timezone: 'INVALID', unknown: 'X' }),
     {
@@ -89,7 +89,7 @@ test('fieldErrorsToDraft: ชื่อ field ของ API map กลับเ�
   );
 });
 
-test('recovery: Reconcile & resume แนะนำเป็นตัวแรก ตามด้วย Retry, Safe compensate, FAILED_FINAL', () => {
+test('recovery: Reconcile & resume is recommended first, followed by Retry, Safe compensate, FAILED_FINAL', () => {
   assert.deepEqual(
     RECOVERY_OPTIONS.map((option) => [option.action, option.recommended, option.destructive]),
     [
@@ -101,7 +101,7 @@ test('recovery: Reconcile & resume แนะนำเป็นตัวแรก
   );
 });
 
-test('สถานะ: poll เฉพาะ PENDING/RUNNING; พร้อมส่งมอบเฉพาะ SUCCEEDED', () => {
+test('status: poll only PENDING/RUNNING; ready for handoff only SUCCEEDED', () => {
   assert.deepEqual(
     (['PENDING', 'RUNNING', 'ACTION_REQUIRED', 'SUCCEEDED', 'FAILED_FINAL'] as const).map(
       shouldPoll,
@@ -135,7 +135,7 @@ test('สถานะ: poll เฉพาะ PENDING/RUNNING; พร้อมส�
   );
 });
 
-test('route: มีแค่ requestId แบบ UUID — path อื่นกลับหน้า list; ไม่มีคำค้นหาใน URL', () => {
+test('route: only a UUID requestId — any other path returns to the list; no search term in the URL', () => {
   const id = '0ecbd23a-3cb9-4992-8577-b3039abb5a07';
   assert.deepEqual(parseRoute(`/requests/${id}`), { name: 'request', requestId: id });
   assert.deepEqual(parseRoute('/requests/owner@example.test'), { name: 'list' });
@@ -144,7 +144,7 @@ test('route: มีแค่ requestId แบบ UUID — path อื่นก�
   assert.equal(routePath({ name: 'list' }), '/');
 });
 
-test('OIDC callback: ลบ code/state ออกจาก URL', () => {
+test('OIDC callback: removes code/state from the URL', () => {
   assert.equal(
     cleanCallbackUrl(
       new URL('http://localhost:5180/requests/x?code=secret&state=s&session_state=y&keep=1'),
@@ -153,7 +153,7 @@ test('OIDC callback: ลบ code/state ออกจาก URL', () => {
   );
 });
 
-test('OIDC refresh: marker ไม่มี token และไม่ redirect วนเมื่อ session หมดอายุ', () => {
+test('OIDC refresh: the marker has no token and does not redirect in a loop when the session expires', () => {
   const storage = new InMemoryWebStorage();
   assert.equal(beginPlatformSessionRestore(storage), true);
   assert.equal(hasAttemptedPlatformSessionRestore(storage), true);
@@ -166,7 +166,7 @@ test('OIDC refresh: marker ไม่มี token และไม่ redirect ว
   assert.equal(beginPlatformSessionRestore(storage), false);
 });
 
-test('OIDC callback error: ลบ error/state เพื่อไม่ประมวลผลซ้ำหลัง refresh', () => {
+test('OIDC callback error: removes error/state so it is not processed again after a refresh', () => {
   assert.equal(
     cleanCallbackUrl(
       new URL(
@@ -177,7 +177,7 @@ test('OIDC callback error: ลบ error/state เพื่อไม่ประ�
   );
 });
 
-test('error/state/action ที่ไม่รู้จักให้ generic keys และไม่อ่าน raw server title', () => {
+test('unknown error/state/action use generic keys and do not read the raw server title', () => {
   assert.equal(errorMessageKey({ code: 'REVISION_CONFLICT' }), 'errors.REVISION_CONFLICT');
   for (const code of [undefined, null, '', 'NEW_ERROR', '__proto__', 'constructor']) {
     assert.equal(errorMessageKey({ code }), 'errors.generic');
@@ -209,7 +209,7 @@ test('error/state/action ที่ไม่รู้จักให้ generic k
   );
 });
 
-test('A1.8 readOnlyCopy: แยก auditor, operator ที่ rollout ปิด และ operator นอก canary', () => {
+test('A1.8 readOnlyCopy: separates the auditor, an operator with rollout off, and an operator outside the canary', () => {
   const base = { subject: 's', roles: ['platform_operator'], capabilities: [], expiresAt: '' };
   assert.equal(readOnlyCopy({ ...base, roles: ['platform_auditor'] }).banner, null);
   assert.equal(readOnlyCopy({ ...base, mutations: 'DISABLED' }).banner, 'readOnly.disabledBanner');

@@ -1,19 +1,19 @@
 /**
  * Owner: Platform API + control plane — durable operator command (A1.6 #411)
  *
- * Authority: #388 checkpoint 1 และ decision "Recovery ที่ต้องใช้ Keycloak ทำงานผ่าน durable command
- * ของ worker"
+ * Authority: #388 checkpoint 1 and the decision "Recovery that needs Keycloak runs through a durable
+ * worker command"
  *
- * `OperatorCommandIntake` (ฝั่ง API, ใช้แค่ DB role `dcontact_platform`)
- * - ตรวจสิ่งที่รู้ได้จาก DB แบบ synchronous: validation, target, state, `expectedRevision`,
- *   resend cap (429 + Retry-After) และ idempotency (`pf_command_receipts`) แล้วบันทึก command → 202
- * - ถูกปฏิเสธก่อนบันทึก = ลง Action history เป็น REJECTED (target ที่มีจริงเท่านั้น)
+ * `OperatorCommandIntake` (API side, uses only the DB role `dcontact_platform`)
+ * - synchronously checks what can be known from the DB: validation, target, state, `expectedRevision`,
+ *   resend cap (429 + Retry-After) and idempotency (`pf_command_receipts`), then records the command → 202
+ * - rejected before recording = goes into Action history as REJECTED (only for a target that really exists)
  *
- * `OperatorCommandWorker` (ฝั่ง worker ที่ถือ Keycloak credential)
- * - claim ด้วย lease/CAS; preview/execute ผ่าน `ProvisioningRecoveryService` / `InvitationOutbox`
- *   ในนามของ operator ที่สั่ง (audit ผูก actor จริง ไม่ใช่ SYSTEM)
- * - ผลที่ปฏิเสธได้แน่นอน = REJECTED + code; error ที่ไม่รู้ผล = คืน lease ให้ลองใหม่ ≤ 5 ครั้ง
- *   (recovery ตรวจ revision/digest ซ้ำทุกครั้ง จึงลองใหม่แล้วไม่เกิด side effect ซ้ำ)
+ * `OperatorCommandWorker` (worker side that holds the Keycloak credential)
+ * - claims with a lease/CAS; preview/execute through `ProvisioningRecoveryService` / `InvitationOutbox`
+ *   on behalf of the operator who issued it (the audit is tied to the real actor, not SYSTEM)
+ * - an outcome that can be definitely rejected = REJECTED + code; an error with an unknown outcome = return the lease to retry ≤ 5 times
+ *   (recovery re-checks the revision/digest every time, so a retry causes no repeated side effect)
  */
 import { createHash, randomUUID } from 'node:crypto';
 import { Prisma, type PrismaClient } from '@d-contact/db';
@@ -36,7 +36,7 @@ import { ProvisioningStepError } from './provisioning-saga.js';
 export const OPERATOR_ACTIONS = [...PROVISIONING_RECOVERY_ACTIONS, 'RESEND_INVITATION'] as const;
 export type OperatorAction = (typeof OPERATOR_ACTIONS)[number];
 
-/** path segment ของ #388 checkpoint 1 → action ภายใน */
+/** path segment of #388 checkpoint 1 → internal action */
 export const OPERATOR_ACTION_PATHS: Readonly<Record<string, OperatorAction>> = Object.freeze({
   reconcile: 'RECONCILE',
   retry: 'RETRY_STEP',
@@ -45,7 +45,7 @@ export const OPERATOR_ACTION_PATHS: Readonly<Record<string, OperatorAction>> = O
   'mark-failed-final': 'MARK_FAILED_FINAL',
 });
 
-/** 429 ต้องบอกว่าลองได้อีกเมื่อไร (#388: `Retry-After`) */
+/** a 429 must say when to try again (#388: `Retry-After`) */
 export class PlatformRetryAfterError extends PlatformProvisioningError {
   constructor(
     code: PlatformProvisioningErrorCode,
@@ -72,7 +72,7 @@ export interface CommandView {
   action: OperatorAction;
   state: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'REJECTED';
   errorCode: string | null;
-  /** preview: digest/allowed/blockedBy/finding; execute: สถานะหลังทำ — ไม่มี PII */
+  /** preview: digest/allowed/blockedBy/finding; execute: the state afterwards — no PII */
   result: Record<string, unknown> | null;
   createdAt: string;
   finishedAt: string | null;
@@ -84,7 +84,7 @@ export function commandView(row: CommandRow): CommandView {
     requestId: row.requestId,
     kind: row.kind,
     action: row.action as OperatorAction,
-    // RUNNING ที่ถูกคืน lease เพื่อรอลองใหม่ยังนับเป็นกำลังทำ
+    // a RUNNING whose lease was returned to wait for a retry still counts as in progress
     state: row.state,
     errorCode: row.errorCode,
     result: (row.result as Record<string, unknown> | null) ?? null,
@@ -115,7 +115,7 @@ export class OperatorCommandIntake {
     return request;
   }
 
-  /** preview เป็น read-only จึงไม่ต้องมี Idempotency-Key — ผลจริงมาจาก worker */
+  /** preview is read-only so it needs no Idempotency-Key — the real outcome comes from the worker */
   async requestPreview(input: {
     requestId: string;
     action: OperatorAction;
@@ -144,7 +144,7 @@ export class OperatorCommandIntake {
     const row = UUID.test(commandId)
       ? await this.database.pfOperatorCommand.findUnique({ where: { id: commandId } })
       : null;
-    // command ของ request อื่น = ไม่มี (ไม่เปิดว่ามีอยู่)
+    // a command of another request = none (does not reveal that it exists)
     if (!row || row.requestId !== requestId || (kind && row.kind !== kind)) {
       throw new PlatformProvisioningError('NOT_FOUND');
     }
@@ -179,7 +179,7 @@ export class OperatorCommandIntake {
     }
     const commandKind = `OPERATOR_${input.action}`;
     const keyHash = platformIdentityHash('idempotency-key', input.idempotencyKey);
-    // requestId อยู่ใน digest: key เดิมกับ request อื่น (target swap) = IDEMPOTENCY_KEY_REUSED
+    // requestId is in the digest: the same key with another request (target swap) = IDEMPOTENCY_KEY_REUSED
     const payloadDigest = sha256(
       canonicalJson({
         requestId: input.requestId,
@@ -236,7 +236,7 @@ export class OperatorCommandIntake {
         orderBy: { generation: 'desc' },
       });
       if (!latest) throw await reject('RECOVERY_PRECONDITION_FAILED');
-      // cap ของ #392 นับ resend ที่ส่งแล้วและที่รอ worker อยู่ — trigger ใน DB บังคับซ้ำตอนทำจริง
+      // the #392 cap counts resends already sent and those waiting for the worker — a DB trigger enforces it again when actually done
       const windowStart = new Date(this.now().getTime() - 3600_000);
       const [sent, pending] = await Promise.all([
         this.database.pfInvitation.findMany({
@@ -299,7 +299,7 @@ export class OperatorCommandIntake {
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         const target = String((error.meta as { target?: unknown } | undefined)?.target ?? '');
-        // key เดียวกันส่งพร้อมกัน: อีกฝั่งบันทึกก่อน → replay ผลเดียวกัน
+        // the same key sent concurrently: the other side recorded first → replay the same result
         const again = await replay();
         if (again) return again;
         if (!target.includes('idempotency')) throw await reject('COMMAND_IN_PROGRESS');
@@ -340,7 +340,7 @@ export class OperatorCommandWorker {
     private readonly database: PrismaClient,
     private readonly handlers: {
       recovery: ProvisioningRecoveryService;
-      /** ไม่ส่งมา = resend ถูกปฏิเสธ (worker ที่ไม่มี Keycloak) */
+      /** not passed = the resend is rejected (a worker without Keycloak) */
       invitations?: InvitationOutbox;
     },
     private readonly options: {
@@ -349,7 +349,7 @@ export class OperatorCommandWorker {
       leaseMs?: number;
       retryMs?: number;
       maxAttempts?: number;
-      /** จำกัดชุด command (แยก fixture ของเทสต์) — ไม่ใช่ authority */
+      /** restrict the command set (separate test fixtures) — not an authority */
       scope?: () => Prisma.PfOperatorCommandWhereInput;
     },
   ) {
@@ -480,7 +480,7 @@ export class OperatorCommandWorker {
       if (error instanceof PlatformProvisioningError) {
         return this.finish(command, 'REJECTED', null, error.code);
       }
-      // ผลของ step ภายนอกที่ปฏิเสธถาวร/ไม่รู้ผล (เช่น delivery ambiguous) เป็นคำตอบสุดท้ายของคำสั่ง
+      // the outcome of an external step that is permanently rejected/unknown outcome (e.g. delivery ambiguous) is the final answer of the command
       if (error instanceof ProvisioningStepError && error.kind !== 'TRANSIENT') {
         return this.finish(command, 'REJECTED', null, error.code);
       }
@@ -489,7 +489,7 @@ export class OperatorCommandWorker {
       if (command.attempt >= this.maxAttempts) {
         return this.finish(command, 'REJECTED', null, 'COMMAND_ATTEMPTS_EXHAUSTED');
       }
-      // คืน lease ให้หมดอายุเร็ว แล้ว worker ใดก็ได้ claim ใหม่
+      // return the lease so it expires soon, then any worker can claim again
       const released = await this.database.pfOperatorCommand.updateMany({
         where: { id: command.id, revision: command.revision, leaseOwner: this.options.workerId },
         data: {

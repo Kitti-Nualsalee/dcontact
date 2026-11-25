@@ -18,7 +18,7 @@ function queue<T>(items: T[], idle: T) {
   return { runOnce: async () => items.shift() ?? idle };
 }
 
-test('worker loop นับผลตาม source/kind/step/code และไม่มี id/PII ใน label', async () => {
+test('the worker loop counts outcomes by source/kind/step/code with no id/PII in labels', async () => {
   const registry = new Registry();
   const database = {
     pfProvisioningRequest: {
@@ -67,21 +67,21 @@ test('worker loop นับผลตาม source/kind/step/code และไม
     'dcontact_platform_worker_results_total{source="saga",kind="ACTION_REQUIRED",step="INVITATION",code="ATTEMPTS_EXHAUSTED"} 1',
     'dcontact_platform_worker_results_total{source="saga",kind="LEASE_LOST",step="READINESS",code="LEASE_LOST"} 1',
     'dcontact_platform_worker_results_total{source="command",kind="FINISHED",step="none",code="SUCCEEDED"} 1',
-    // code ที่ไม่ใช่ stable code (เช่นมี email) ถูกแทนด้วย OTHER
+    // a code that is not a stable code (e.g. contains an email) is replaced by OTHER
     'dcontact_platform_worker_results_total{source="command",kind="RETRY_LATER",step="none",code="OTHER"} 1',
     'dcontact_platform_provisioning_duration_seconds_sum 90',
     'dcontact_platform_worker_claims_enabled 1',
   ]) {
-    assert.ok(text.includes(series), `ขาด ${series}\n${text}`);
+    assert.ok(text.includes(series), `missing ${series}\n${text}`);
   }
   for (const leaked of [REQUEST, TENANT, 'w-1', '@']) {
-    assert.equal(text.includes(leaked), false, `metrics รั่ว ${leaked}`);
+    assert.equal(text.includes(leaked), false, `metrics leaked ${leaked}`);
   }
   assert.equal(metricCode('RETRY_LATER'), 'RETRY_LATER');
   assert.equal(metricCode('lower'), 'OTHER');
 });
 
-test('worker loop ที่ rollout ปิดรายงาน claims_enabled 0 และไม่นับผลใดๆ', async () => {
+test('a worker loop with rollout off reports claims_enabled 0 and counts no outcomes', async () => {
   const registry = new Registry();
   const loop = createPlatformWorkerLoop({
     workerId: 'w-2',
@@ -98,7 +98,7 @@ test('worker loop ที่ rollout ปิดรายงาน claims_enabled 0
   assert.equal(text.includes('dcontact_platform_worker_results_total{'), false);
 });
 
-test('health collector: อายุคิว/invariant จาก DB, cache ระหว่าง scrape และ DB ล้ม = success 0', async () => {
+test('health collector: queue age/invariants from the DB, cache between scrapes, and DB failure = success 0', async () => {
   const now = new Date('2026-09-25T01:00:00Z');
   let calls = 0;
   let broken = false;
@@ -116,7 +116,7 @@ test('health collector: อายุคิว/invariant จาก DB, cache ร�
   };
   const registry = new Registry();
   new PlatformHealthCollector(database, registry, { now: () => now, minIntervalMs: 60_000 });
-  // scrape แรกต้องสะท้อนผลของ scrape นั้นเอง (เคยช้าไปหนึ่งรอบ = 0 ทั้งที่อ่านสำเร็จ — พบใน UAT)
+  // the first scrape must reflect that scrape's own result (it used to lag one round = 0 even though the read succeeded — found in UAT)
   const text = await registry.metrics();
   for (const series of [
     'dcontact_platform_oldest_age_seconds{queue="pending_request"} 360',
@@ -127,13 +127,13 @@ test('health collector: อายุคิว/invariant จาก DB, cache ร�
     'dcontact_platform_invitations{state="SENT"} 1',
     'dcontact_platform_health_scrape_success 1',
   ]) {
-    assert.ok(text.includes(series), `ขาด ${series}\n${text}`);
+    assert.ok(text.includes(series), `missing ${series}\n${text}`);
   }
   const perScrape = calls;
   await registry.metrics();
-  assert.equal(calls, perScrape, 'scrape ภายใน minInterval ต้องใช้ cache');
+  assert.equal(calls, perScrape, 'a scrape within minInterval must use the cache');
 
-  // DB ล่มระหว่างทาง: scrape นั้นต้องได้ 0 ทันที และไม่รายงาน invariant/อายุคิวค่าเก่า
+  // DB goes down midway: that scrape must get 0 immediately and not report stale invariant/queue-age values
   const flapping = new Registry();
   broken = false;
   new PlatformHealthCollector(database, flapping, { now: () => now, minIntervalMs: 0 });
@@ -145,7 +145,7 @@ test('health collector: อายุคิว/invariant จาก DB, cache ร�
   assert.equal(down.includes('secret'), false);
 });
 
-test('metrics server ตอบเฉพาะ GET /metrics', async (t) => {
+test('the metrics server answers only GET /metrics', async (t) => {
   const registry = new Registry();
   new PlatformWorkerMetrics(registry).claimsEnabled(true);
   const server = await startMetricsServer(registry, { port: 0, host: '127.0.0.1' });

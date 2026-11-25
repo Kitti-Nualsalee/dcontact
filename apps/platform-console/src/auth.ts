@@ -1,10 +1,10 @@
 /**
- * OIDC ของ Platform Console (A1.7 #412) — client `platform-console` แยกจาก tenant console (#387)
+ * OIDC of the Platform Console (A1.7 #412) — the `platform-console` client, separate from the tenant console (#387)
  *
- * - authorization code + PKCE; Keycloak บังคับ password + OTP ผ่าน flow `platform-browser` (A1.2)
- * - access token อยู่ใน memory เท่านั้น (InMemoryWebStorage) — ไม่ลง localStorage/sessionStorage
- * - OIDC state (ใช้ระหว่าง redirect) อยู่ใน sessionStorage ของแท็บ แล้วลบ code/state ออกจาก URL
- * - หลัง refresh ใช้ marker ที่ไม่มี token เพื่อขอ session ใหม่จาก Keycloak แบบ prompt=none เพียงครั้งเดียว
+ * - authorization code + PKCE; Keycloak enforces password + OTP through the `platform-browser` flow (A1.2)
+ * - the access token lives in memory only (InMemoryWebStorage) — never in localStorage/sessionStorage
+ * - the OIDC state (used during the redirect) lives in the tab's sessionStorage, then code/state are removed from the URL
+ * - after a refresh, a marker without a token is used to ask Keycloak for a new session with prompt=none exactly once
  */
 import { InMemoryWebStorage, WebStorageStateStore, type UserManagerSettings } from 'oidc-client-ts';
 
@@ -41,7 +41,7 @@ export function createPlatformOidcSettings(input: {
     redirect_uri: redirectUri,
     post_logout_redirect_uri: redirectUri,
     response_type: 'code',
-    // ไม่ขอ profile/email/organization — token มีแค่ identity + platform roles
+    // does not request profile/email/organization — the token has only the identity + platform roles
     scope: 'openid',
     disablePKCE: false,
     automaticSilentRenew: false,
@@ -57,7 +57,7 @@ export function createPlatformOidcSettings(input: {
   };
 }
 
-/** ลบพารามิเตอร์ OIDC หลัง callback — URL ต้องไม่มีสิ่งที่ใช้แลก token หรือ error ค้างอยู่ */
+/** removes the OIDC parameters after the callback — the URL must not keep anything usable to exchange a token or a leftover error */
 export function cleanCallbackUrl(location: URL): string {
   const next = new URL(location.href);
   for (const key of [
