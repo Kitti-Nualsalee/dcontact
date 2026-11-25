@@ -42,7 +42,10 @@ function identity(request: AuthenticatedGatewayRequest) {
 
 function requiredUuid(value: string, field: string): string {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)) {
-    throw new BadRequestException({ code: 'VALIDATION_FAILED', message: `${field} ต้องเป็น UUID` });
+    throw new BadRequestException({
+      code: 'VALIDATION_FAILED',
+      message: `${field} must be a UUID`,
+    });
   }
   return value;
 }
@@ -50,14 +53,14 @@ function requiredUuid(value: string, field: string): string {
 function metric(value: unknown): Cg5MetricKey | undefined {
   if (value === undefined || value === null || value === '') return undefined;
   if (typeof value !== 'string' || !METRIC_KEYS.has(value as Cg5MetricKey)) {
-    throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'metricKey ไม่ถูกต้อง' });
+    throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'metricKey is invalid' });
   }
   return value as Cg5MetricKey;
 }
 
 function granularity(value: unknown): Cg5Granularity {
   if (typeof value !== 'string' || !GRANULARITIES.has(value as Cg5Granularity)) {
-    throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'granularity ไม่ถูกต้อง' });
+    throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'granularity is invalid' });
   }
   return value as Cg5Granularity;
 }
@@ -69,7 +72,7 @@ function optionalDate(value: unknown, field: string): Date | undefined {
   if (Number.isNaN(date.valueOf())) {
     throw new BadRequestException({
       code: 'VALIDATION_FAILED',
-      message: `${field} ต้องเป็น ISO date`,
+      message: `${field} must be an ISO date`,
     });
   }
   return date;
@@ -81,7 +84,7 @@ function limit(value: unknown): number {
   if (!Number.isInteger(number) || number < 1 || number > 100) {
     throw new BadRequestException({
       code: 'VALIDATION_FAILED',
-      message: 'limit ต้องอยู่ระหว่าง 1-100',
+      message: 'limit must be between 1 and 100',
     });
   }
   return number;
@@ -103,7 +106,7 @@ function decodeCursor(value: unknown): Cg5PageCursor | undefined {
     }
     return { occurredAt, id: candidate.id };
   } catch {
-    throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'cursor ไม่ถูกต้อง' });
+    throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'cursor is invalid' });
   }
 }
 
@@ -129,7 +132,7 @@ function enumList(
   if (typeof value !== 'string') throw new BadRequestException({ code: 'VALIDATION_FAILED' });
   const values = value.split(',').filter(Boolean);
   if (values.length === 0 || values.some((item) => !allowed.has(item))) {
-    throw new BadRequestException({ code: 'VALIDATION_FAILED', message: `${field} ไม่ถูกต้อง` });
+    throw new BadRequestException({ code: 'VALIDATION_FAILED', message: `${field} is invalid` });
   }
   return values;
 }
@@ -256,7 +259,7 @@ export class ContactGovernanceCg5QueryController {
     ) {
       throw new BadRequestException({
         code: 'VALIDATION_FAILED',
-        message: 'version ต้องเป็น positive integer',
+        message: 'version must be a positive integer',
       });
     }
     try {

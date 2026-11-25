@@ -42,7 +42,10 @@ export interface Cg5ExternalReadContext {
 
 function requiredUuid(value: string, field: string): string {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) {
-    throw new BadRequestException({ code: 'VALIDATION_FAILED', message: `${field} ต้องเป็น UUID` });
+    throw new BadRequestException({
+      code: 'VALIDATION_FAILED',
+      message: `${field} must be a UUID`,
+    });
   }
   return value;
 }
@@ -51,7 +54,7 @@ function requiredString(value: unknown, field: string, maximum = 256): string {
   if (typeof value !== 'string' || value.trim().length === 0 || value.length > maximum) {
     throw new BadRequestException({
       code: 'VALIDATION_FAILED',
-      message: `${field} ต้องมีความยาว 1-${maximum} ตัวอักษร`,
+      message: `${field} must be 1-${maximum} characters long`,
     });
   }
   return value.trim();
@@ -65,7 +68,7 @@ function optionalString(value: unknown, field: string, maximum = 256): string | 
 function requiredChannel(value: unknown): ContactChannel {
   const channel = requiredString(value, 'channel', 32);
   if (!CONTACT_CHANNELS.has(channel)) {
-    throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'channel ไม่ถูกต้อง' });
+    throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'channel is invalid' });
   }
   return channel as ContactChannel;
 }

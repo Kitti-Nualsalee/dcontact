@@ -1,20 +1,20 @@
 /**
- * Owner: IAM + Platform edge — authorization boundary ของ Platform API (A1.2 #407)
+ * Owner: IAM + Platform edge — authorization boundary of the Platform API (A1.2 #407)
  *
  * Authority: #387 enforcement invariants, Phase Contract #388
  *
- * - global guard แบบ deny by default: route ต้องประกาศ `@RequirePlatformCapability(...)` หรือ
- *   `@PlatformPublic()` อย่างใดอย่างหนึ่ง — route ที่ลืมประกาศถูกปฏิเสธ (403) ไม่ใช่เปิดโล่ง
- * - token ต้องผ่าน verifier (signature/issuer/audience/expiry) และ `toVerifiedPlatformIdentity`
- *   (ไม่มี tenant context, มี MFA, มี platform role) — ไม่ผ่านข้อใด = 401
- * - มี identity แต่ role ไม่ครอบ capability = 403
- * - A1.8 (#413): `PROVISIONING_MUTATE` ต้องผ่าน rollout ด้วย — flag ปิด = 503 `PROVISIONING_DISABLED`
- *   (rollback: อ่านได้ตามปกติ), subject ไม่อยู่ใน canary allowlist = 403
- * - A1.8: tripwire `MIXED_TOKEN_TRIPWIRE` ตรวจ tenant context ซ้ำด้วยรายการของตัวเอง (ไม่ใช้ของ
- *   `toVerifiedPlatformIdentity`) — ถ้าวันหนึ่ง identity check ถูกแก้จนหลุด token ก็ยังถูกปฏิเสธและเกิด
- *   critical alert
- * - error body เป็น envelope เดียวกันทุกกรณี ไม่บอกเหตุผลเชิงลึกกับ client; เหตุผลจริงไปที่ diagnostics
- *   ซึ่งห้ามมี token หรือ claim ที่เป็น PII (email/ชื่อ)
+ * - Global deny-by-default guard: a route must declare either `@RequirePlatformCapability(...)` or
+ *   `@PlatformPublic()` — a route that forgets is rejected (403), never left open
+ * - The token must pass the verifier (signature/issuer/audience/expiry) and `toVerifiedPlatformIdentity`
+ *   (no tenant context, MFA present, platform role present) — failing any of these = 401
+ * - An identity whose roles do not cover the capability = 403
+ * - A1.8 (#413): `PROVISIONING_MUTATE` must also pass the rollout — flag off = 503 `PROVISIONING_DISABLED`
+ *   (rollback: reads keep working), subject outside the canary allowlist = 403
+ * - A1.8: the `MIXED_TOKEN_TRIPWIRE` re-checks tenant context with its own list (not the one in
+ *   `toVerifiedPlatformIdentity`) — if the identity check is ever weakened, the token is still rejected
+ *   and a critical alert fires
+ * - Every error body uses the same envelope and never gives the client the detailed reason; the real
+ *   reason goes to diagnostics, which must never contain the token or PII claims (email/name)
  */
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
@@ -53,7 +53,7 @@ const PLATFORM_PUBLIC = Symbol('PLATFORM_PUBLIC');
 export interface AuthenticatedPlatformRequest extends IncomingMessage {
   platformIdentity?: VerifiedPlatformIdentity;
   correlationId?: string;
-  /** provisioning request ที่ route resolve แล้ว — ใส่ใน error envelope ได้ (ไม่ใช่กรณี 404) */
+  /** Provisioning request the route already resolved — may go in the error envelope (not for 404) */
   platformRequestId?: string;
 }
 
@@ -72,7 +72,7 @@ export interface PlatformAuthDiagnostic {
   correlationId: string;
   reason?: PlatformAuthDenialReason;
   capability?: PlatformCapability;
-  /** Keycloak subject (opaque UUID) — ไม่ใช่ email/username */
+  /** Keycloak subject (opaque UUID) — never an email/username */
   subject?: string;
 }
 
@@ -82,10 +82,10 @@ export interface PlatformAuthDiagnosticSink {
 
 export const RequirePlatformCapability = (capability: PlatformCapability) =>
   SetMetadata(PLATFORM_CAPABILITY, capability);
-/** เฉพาะ liveness/readiness ที่ไม่คืนข้อมูล control plane */
+/** Only liveness/readiness, which return no control-plane data */
 export const PlatformPublic = () => SetMetadata(PLATFORM_PUBLIC, true);
 
-/** claim ของ tenant token ที่ต้องไม่มีใน platform token — แยกจาก platform-identity โดยเจตนา */
+/** Tenant-token claims that must never appear in a platform token — kept apart from platform-identity on purpose */
 export function carriesTenantContext(claims: Record<string, unknown>): boolean {
   const roles = (claims.realm_access as { roles?: unknown } | undefined)?.roles;
   const audiences = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
@@ -193,7 +193,7 @@ export class PlatformAuthGuard implements CanActivate {
 
 export interface PlatformErrorEnvelope {
   status: number;
-  /** stable machine code — auth ใช้ชุดทั่วไป, domain ใช้ `PlatformProvisioningErrorCode` */
+  /** Stable machine code — auth uses the generic set, domain errors use `PlatformProvisioningErrorCode` */
   code: string;
   title: string;
   correlationId: string | null;
@@ -203,34 +203,52 @@ export interface PlatformErrorEnvelope {
 }
 
 const ENVELOPES: Record<number, Pick<PlatformErrorEnvelope, 'code' | 'title'>> = {
-  400: { code: 'BAD_REQUEST', title: 'คำขอไม่ถูกต้อง' },
-  401: { code: 'UNAUTHENTICATED', title: 'ต้องเข้าสู่ระบบ Platform Console ใหม่' },
-  403: { code: 'FORBIDDEN', title: 'ไม่มีสิทธิ์ทำรายการนี้' },
-  404: { code: 'NOT_FOUND', title: 'ไม่พบรายการ' },
+  400: { code: 'BAD_REQUEST', title: 'Invalid request' },
+  401: { code: 'UNAUTHENTICATED', title: 'Sign in to Platform Console again' },
+  403: { code: 'FORBIDDEN', title: 'You do not have permission for this action' },
+  404: { code: 'NOT_FOUND', title: 'Not found' },
 };
 
-/** #388 checkpoint 1: status + title ที่ปลอดภัยของ domain error แต่ละ code */
+/** #388 checkpoint 1: safe status + title for each domain error code */
 const DOMAIN_ERRORS: Record<PlatformProvisioningErrorCode, { status: number; title: string }> = {
-  VALIDATION_FAILED: { status: 400, title: 'ข้อมูลไม่ถูกต้อง' },
-  NOT_FOUND: { status: 404, title: 'ไม่พบรายการ' },
-  TENANT_SLUG_CONFLICT: { status: 409, title: 'slug นี้ถูกใช้แล้ว' },
-  TENANT_DOMAIN_CONFLICT: { status: 409, title: 'โดเมนนี้ถูกใช้แล้ว' },
-  FIRST_ADMIN_EMAIL_CONFLICT: { status: 409, title: 'อีเมลผู้ดูแลคนแรกถูกใช้แล้ว' },
-  IDEMPOTENCY_KEY_REUSED: { status: 409, title: 'Idempotency-Key นี้ใช้กับคำขออื่นแล้ว' },
-  REVISION_CONFLICT: { status: 409, title: 'ข้อมูลเปลี่ยนไปแล้ว กรุณาโหลดใหม่' },
-  INVALID_STATE_TRANSITION: { status: 409, title: 'สถานะปัจจุบันทำรายการนี้ไม่ได้' },
-  BOOTSTRAP_TEMPLATE_UNAVAILABLE: { status: 409, title: 'bootstrap template นี้ใช้ไม่ได้แล้ว' },
-  PLAN_UNAVAILABLE: { status: 409, title: 'plan นี้ใช้ไม่ได้แล้ว' },
-  PREVIEW_STALE: { status: 409, title: 'ผล preview เก่าแล้ว กรุณา preview ใหม่' },
-  RECOVERY_PRECONDITION_FAILED: { status: 409, title: 'เงื่อนไขของรายการนี้ไม่ผ่าน' },
-  FIELD_LOCKED: { status: 409, title: 'ข้อมูลนี้แก้ไม่ได้แล้ว' },
-  COMMAND_IN_PROGRESS: { status: 409, title: 'มีคำสั่งอื่นของคำขอนี้กำลังทำงาน' },
-  INVITATION_RESEND_LIMITED: { status: 429, title: 'ส่งคำเชิญซ้ำเกินจำนวนที่กำหนด' },
-  SERVICE_UNAVAILABLE: { status: 503, title: 'ระบบไม่พร้อมชั่วคราว กรุณาลองใหม่' },
-  PROVISIONING_DISABLED: { status: 503, title: 'ปิดการสร้างและแก้ไขชั่วคราว ดูสถานะได้ตามปกติ' },
+  VALIDATION_FAILED: { status: 400, title: 'Invalid data' },
+  NOT_FOUND: { status: 404, title: 'Not found' },
+  TENANT_SLUG_CONFLICT: { status: 409, title: 'This slug is already in use' },
+  TENANT_DOMAIN_CONFLICT: { status: 409, title: 'This domain is already in use' },
+  FIRST_ADMIN_EMAIL_CONFLICT: { status: 409, title: 'The first admin email is already in use' },
+  IDEMPOTENCY_KEY_REUSED: {
+    status: 409,
+    title: 'This Idempotency-Key was used for another request',
+  },
+  REVISION_CONFLICT: { status: 409, title: 'The data has changed. Please reload' },
+  INVALID_STATE_TRANSITION: {
+    status: 409,
+    title: 'This action is not allowed in the current state',
+  },
+  BOOTSTRAP_TEMPLATE_UNAVAILABLE: {
+    status: 409,
+    title: 'This bootstrap template is no longer available',
+  },
+  PLAN_UNAVAILABLE: { status: 409, title: 'This plan is no longer available' },
+  PREVIEW_STALE: { status: 409, title: 'The preview is out of date. Please preview again' },
+  RECOVERY_PRECONDITION_FAILED: {
+    status: 409,
+    title: 'The preconditions for this action are not met',
+  },
+  FIELD_LOCKED: { status: 409, title: 'This field can no longer be changed' },
+  COMMAND_IN_PROGRESS: { status: 409, title: 'Another command for this request is in progress' },
+  INVITATION_RESEND_LIMITED: { status: 429, title: 'Invitation resend limit reached' },
+  SERVICE_UNAVAILABLE: {
+    status: 503,
+    title: 'The service is temporarily unavailable. Please try again',
+  },
+  PROVISIONING_DISABLED: {
+    status: 503,
+    title: 'Creating and editing are temporarily disabled; status is still available',
+  },
 };
 
-/** Prisma ต่อ/commit ไม่ได้ = control plane ไม่พร้อม (503) — ไม่ใช่ dependency หลังรับคำขอ */
+/** Prisma cannot connect/commit = control plane unavailable (503) — not a downstream dependency failure */
 function databaseUnavailable(exception: unknown): boolean {
   const name = (exception as { name?: string } | null)?.name ?? '';
   const code = (exception as { code?: string } | null)?.code ?? '';
@@ -242,8 +260,8 @@ function databaseUnavailable(exception: unknown): boolean {
 }
 
 /**
- * envelope เดียวกันทุก error — ไม่ส่ง message/stack ของ Nest, raw dependency error หรือเหตุผล
- * ภายในของการปฏิเสธ auth ออกไป (#388 checkpoint 1)
+ * The same envelope for every error — never sends Nest's message/stack, a raw dependency error or the
+ * internal reason for an auth rejection (#388 checkpoint 1)
  */
 @Catch()
 export class PlatformErrorFilter implements ExceptionFilter {
@@ -262,7 +280,7 @@ export class PlatformErrorFilter implements ExceptionFilter {
         ...(request.platformRequestId && mapped.status !== 404
           ? { requestId: request.platformRequestId }
           : {}),
-        // PROVISIONING_DISABLED เป็นการปิดโดยเจตนา — client retry เองไม่ช่วย
+        // PROVISIONING_DISABLED is a deliberate shutdown — a client retry will not help
         retryable:
           (mapped.status === 503 || mapped.status === 429) &&
           exception.code !== 'PROVISIONING_DISABLED',
@@ -285,7 +303,7 @@ export class PlatformErrorFilter implements ExceptionFilter {
       body = {
         status: known ? status : 500,
         code: known?.code ?? 'INTERNAL',
-        title: known?.title ?? 'เกิดข้อผิดพลาดภายใน',
+        title: known?.title ?? 'Internal error',
         correlationId,
         retryable: !known,
       };

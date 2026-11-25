@@ -699,9 +699,9 @@ test('real JWT HTTP → RLS worker → Keycloak/SMTP: สาม roles ยัง 
         'messages' in mailbox &&
         Array.isArray(mailbox.messages),
     );
-    const matching = mailbox.messages.filter(
-      (message: { Subject: string }) =>
-        message.Subject === `คำเชิญเข้าใช้งาน D-Contact [dc-attempt:${latestAttempts[0].attempt}]`,
+    const matching = mailbox.messages.filter((message: { Subject: string }) =>
+      // Subject text follows the invitee's locale; the attempt marker is language-independent
+      message.Subject.endsWith(` [dc-attempt:${latestAttempts[0].attempt}]`),
     );
     assert.equal(matching.length, 1);
     const mailResponse = await fetch(
