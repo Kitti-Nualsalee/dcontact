@@ -47,7 +47,7 @@ const TOAST_MS = 5000;
 const TYPES: QuestionType[] = ['YES_NO', 'SCALE', 'TEXT'];
 const statusOf = (failure: unknown) => (failure instanceof QualityApiError ? failure.status : 500);
 
-/** เปลี่ยนผู้ใช้แล้วทิ้ง state ของคนก่อนทั้งหมด */
+/** on a user change, drop all of the previous user's state */
 export function QmForms(props: Props) {
   return <QmFormsSession key={props.identityKey} {...props} />;
 }
@@ -271,7 +271,7 @@ function FormEditor({
   const [focusHeading, setFocusHeading] = useState(false);
   const [reload, setReload] = useState(0);
 
-  // ย้าย focus ไปที่หัวข้อหลัง Dialog ปิดแล้วจริง (ปุ่ม publish หายไปหลังเปลี่ยนเป็นอ่านอย่างเดียว)
+  // move focus to the heading after the Dialog has really closed (the publish button disappears after becoming read-only)
   useEffect(() => {
     if (!focusHeading || dialog) return;
     let inner = 0;
@@ -486,7 +486,7 @@ function FormEditor({
                     isDisabled={saving}
                     aria-label={t('forms.removeSectionItem', { n: s + 1 })}
                     onPress={() => {
-                      // หมวดที่มีคำถามแล้วต้องยืนยันก่อนลบ
+                      // a category that already has questions must be confirmed before deleting
                       if (section.questions.length === 0) change(removeSection(definition, s));
                       else {
                         setPendingSection(s);
@@ -832,7 +832,7 @@ function FormEditor({
   );
 }
 
-/** ui-react ยังไม่มี NumberField จึงใช้ input type="number" ของ browser ในรูปแบบเดียวกับ field อื่น */
+/** ui-react has no NumberField yet, so the browser's input type="number" is used in the same style as other fields */
 function NumberInput({
   label,
   hint,
@@ -857,7 +857,7 @@ function NumberInput({
   const id = useId();
   const { t } = useTranslation('quality');
   const [touched, setTouched] = useState(false);
-  // ตรวจช่วงเองหลังผู้ใช้ออกจากช่อง error จาก server มาก่อนเสมอ
+  // check the range ourselves after the user leaves the field; a server error always takes precedence
   const outOfRange =
     value === null ? !optional : !Number.isInteger(value) || value < min || value > max;
   const shown = error ?? (touched && outOfRange ? t('errors.RANGE', { min, max }) : undefined);

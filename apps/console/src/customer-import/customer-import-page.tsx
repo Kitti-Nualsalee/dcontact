@@ -69,7 +69,7 @@ function ImportSession({ api, signedIn = true, onSignIn }: Props) {
   const [error, setError] = useState('');
   const [blocked, setBlocked] = useState<'session' | 'access'>();
   const [asking, setAsking] = useState(false);
-  // commandId คงเดิมต่อ (ไฟล์, plan) เพื่อให้ส่งซ้ำ/ส่งต่อไม่สร้างลูกค้าซ้ำ; ไม่เก็บลง storage
+  // the commandId stays the same per (file, plan) so a resend/continue does not create duplicate customers; not stored in storage
   const command = useRef<{ planHash: string; id: string } | undefined>(undefined);
   const inFlight = useRef(false);
   const mounted = useRef(true);
@@ -125,7 +125,7 @@ function ImportSession({ api, signedIn = true, onSignIn }: Props) {
       setHeaders([]);
       return;
     }
-    // ตรวจขนาดก่อนอ่าน: ไฟล์ใหญ่ไม่ถูกโหลดเข้าหน่วยความจำ
+    // check the size before reading: a large file is not loaded into memory
     const early = checkImportFile(next.size, []);
     if (early === 'EMPTY' || early === 'TOO_LARGE') {
       setFile(undefined);
@@ -193,7 +193,7 @@ function ImportSession({ api, signedIn = true, onSignIn }: Props) {
       if (!mounted.current) return;
       const code = failure instanceof CustomersApiError ? failure.code : '';
       if (code === 'PREVIEW_STALE' || code === 'NO_VALID_ROWS') {
-        // plan เปลี่ยน: commandId เดิมไม่ใช้ต่อ ต้องตรวจไฟล์ใหม่
+        // the plan changed: the old commandId is not reused, the new file must be checked
         command.current = undefined;
         setPreview(undefined);
         setPhase('pick');

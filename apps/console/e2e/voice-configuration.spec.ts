@@ -180,7 +180,7 @@ async function select(page: Page, label: string, option: string) {
     .click();
   await page.getByRole('option', { name: option, exact: true }).click();
 }
-test('pending Agent skills ใช้ configRevision และกู้ command หลัง response หาย/reload', async ({
+test('pending Agent skills use configRevision and recover the command after a lost response/reload', async ({
   page,
 }) => {
   const data = await harness(page, { lost: true });
@@ -210,7 +210,7 @@ test('pending Agent skills ใช้ configRevision และกู้ command �
     'Voice queue',
   );
 });
-test('#977 ทักษะ legacy ของ Agent ไม่ถูกส่งไปกับทักษะ v1 ตอนบันทึก', async ({ page }) => {
+test('#977 legacy Agent skills are not sent along with v1 skills on save', async ({ page }) => {
   const data = await harness(page, { legacyAgentSkill: true });
   await page.goto('/?view=tenant-people&section=agent-skills&tenant=demo');
   await select(page, 'Agent', 'Pending Agent');
@@ -224,7 +224,9 @@ test('#977 ทักษะ legacy ของ Agent ไม่ถูกส่งไ
   expect(data.writes[0]).toMatchObject({ items: [{ skillId, level: 3 }] });
   expect((data.writes[0] as { items: unknown[] }).items).toHaveLength(1);
 });
-test('Supervisor อ่าน roster โดยไม่เรียก sensitive people APIs หรือแสดง save', async ({ page }) => {
+test('a Supervisor reads the roster without calling sensitive people APIs or showing save', async ({
+  page,
+}) => {
   const data = await harness(page, { readOnly: true });
   await page.goto('/?view=voice-routing&section=agent-skills&tenant=demo');
   await select(page, 'Agent', 'Pending Agent');
@@ -237,7 +239,9 @@ test('Supervisor อ่าน roster โดยไม่เรียก sensitive
   );
   expect(data.writes).toEqual([]);
 });
-test('queue requirements แสดง eligibility warning และ conflict ต้อง reload', async ({ page }) => {
+test('queue requirements show an eligibility warning and a conflict must reload', async ({
+  page,
+}) => {
   const data = await harness(page, { conflict: true });
   await page.goto(`/?view=voice-routing&resource=${queueId}&tenant=demo`);
   await expect(
@@ -254,7 +258,7 @@ test('queue requirements แสดง eligibility warning และ conflict ต
   ).toBeDisabled();
   expect(data.writes[0]).toMatchObject({ expectedRevision: 4, items: [{ skillId, minLevel: 2 }] });
 });
-test('destination binding บันทึก inactive และอ่านผลกลับ', async ({ page }) => {
+test('destination binding saves inactive and reads the result back', async ({ page }) => {
   const data = await harness(page);
   await page.goto('/?view=voice-routing&section=destinations&tenant=demo');
   await select(page, 'Reserved destination', '1000');
@@ -274,7 +278,7 @@ test('destination binding บันทึก inactive และอ่านผ�
   expect(data.reads.filter((path) => path === 'destinations').length).toBeGreaterThan(1);
 });
 for (const code of ['RESOURCE_POLICY_NOT_READY', 'CAPABILITY_NOT_READY', 'FAILED'])
-  test(`mutation 503 ${code}: definitive rejection ปลด pending แต่ unknown ต้องกู้คำสั่งเดิม`, async ({
+  test(`mutation 503 ${code}: a definitive rejection clears pending but an unknown one must recover the original command`, async ({
     page,
   }) => {
     const data = await harness(page);
@@ -331,7 +335,7 @@ for (const code of ['RESOURCE_POLICY_NOT_READY', 'CAPABILITY_NOT_READY', 'FAILED
   });
 test.describe('Thai B4', () => {
   test.use({ locale: 'th-TH' });
-  test('ปลายทางแสดง loading/error และ retry ภาษาไทย', async ({ page }) => {
+  test('destinations show loading/error and retry in Thai', async ({ page }) => {
     await harness(page);
     let fail = true;
     await page.route('**/api/v1/tenant-voice/destinations?**', async (route) => {
@@ -352,7 +356,9 @@ test.describe('Thai B4', () => {
   });
 });
 
-test('B5 เปิดคิวพร้อม warning อ่านสถานะจริงและ terminal reason จาก server', async ({ page }) => {
+test('B5 enabling a queue with a warning reads the real status and the terminal reason from the server', async ({
+  page,
+}) => {
   const data = await harness(page, { ready: true });
   await page.goto(`/?view=voice-routing&resource=${queueId}&tenant=demo`);
   await expect(page.getByText(/Fixed policy: offer 20 seconds/)).toBeVisible();
@@ -380,7 +386,9 @@ test('B5 เปิดคิวพร้อม warning อ่านสถาน�
   await expect(page.getByRole('button', { name: 'Deactivate queue', exact: true })).toBeVisible();
 });
 
-test('B5 readiness ปิด gate เปิดคิวและ binding แต่ยังปิดคิวได้', async ({ page }) => {
+test('B5 readiness closes the gate for enabling a queue and binding but the queue can still be disabled', async ({
+  page,
+}) => {
   const data = await harness(page, { active: true });
   await page.goto(`/?view=voice-routing&resource=${queueId}&tenant=demo`);
   await page.getByRole('textbox', { name: 'Reason (1–500 characters)' }).fill('Stop route');
@@ -398,7 +406,7 @@ test('B5 readiness ปิด gate เปิดคิวและ binding แต�
   expect(data.writes[1]).toMatchObject({ isActive: false, queueId });
 });
 
-test('B5 เปิด binding ด้วย boolean และ readback', async ({ page }) => {
+test('B5 enable a binding with a boolean and readback', async ({ page }) => {
   const data = await harness(page, { ready: true, active: true });
   await page.goto('/?view=voice-routing&section=destinations&tenant=demo');
   await select(page, 'Reserved destination', '1000');
@@ -413,7 +421,9 @@ test('B5 เปิด binding ด้วย boolean และ readback', async ({
 });
 
 for (const failure of ['conflict', 'lost'] as const) {
-  test(`B5 activation ${failure} ไม่ส่งซ้ำและกู้/โหลด revision ใหม่`, async ({ page }) => {
+  test(`B5 activation ${failure} is not resent and recovers/loads the new revision`, async ({
+    page,
+  }) => {
     const data = await harness(page, { ready: true, [failure]: true });
     await page.goto(`/?view=voice-routing&resource=${queueId}&tenant=demo`);
     await page.getByRole('textbox', { name: 'Reason (1–500 characters)' }).fill('Enable queue');
@@ -441,7 +451,7 @@ for (const failure of ['conflict', 'lost'] as const) {
   });
 }
 
-test('B5 Supervisor อ่าน runtime ได้แต่ไม่มี activation controls', async ({ page }) => {
+test('B5 a Supervisor can read runtime but has no activation controls', async ({ page }) => {
   const data = await harness(page, { ready: true, readOnly: true });
   await page.goto(`/?view=voice-routing&resource=${queueId}&tenant=demo`);
   await expect(page.getByText(/Total pre-answer time expired/)).toBeVisible();
@@ -449,7 +459,9 @@ test('B5 Supervisor อ่าน runtime ได้แต่ไม่มี activ
   expect(data.writes).toEqual([]);
 });
 
-test('B5 readiness gate ใช้ server capability แม้มี skills แล้ว', async ({ page }) => {
+test('B5 the readiness gate uses the server capability even when skills exist', async ({
+  page,
+}) => {
   const data = await harness(page, { requiredSkills: true });
   await page.goto(`/?view=voice-routing&resource=${queueId}&tenant=demo`);
   await page.getByRole('textbox', { name: 'Reason (1–500 characters)' }).fill('Enable route');
@@ -464,7 +476,7 @@ test('B5 readiness gate ใช้ server capability แม้มี skills แ�
   expect(data.writes).toEqual([]);
 });
 
-test('B5 runtime พร้อมแต่ไม่มี required skills ยังเปิดคิวไม่ได้', async ({ page }) => {
+test('B5 runtime ready but no required skills still cannot enable the queue', async ({ page }) => {
   const data = await harness(page, { ready: true, requiredSkills: false });
   await page.goto(`/?view=voice-routing&resource=${queueId}&tenant=demo`);
   await page.getByRole('textbox', { name: 'Reason (1–500 characters)' }).fill('Enable route');
@@ -475,7 +487,9 @@ test('B5 runtime พร้อมแต่ไม่มี required skills ยั�
   expect(data.writes).toEqual([]);
 });
 
-test('B5 runtime อ่านไม่ได้ไม่แสดง terminal reason ที่ browser เดาเอง', async ({ page }) => {
+test('B5 an unreadable runtime does not show a terminal reason the browser guessed', async ({
+  page,
+}) => {
   await harness(page, { ready: true });
   await page.route('**/api/v1/tenant-voice/queues/*/runtime', (route) =>
     route.fulfill({ status: 503, json: { code: 'CAPABILITY_NOT_READY' } }),
@@ -487,7 +501,9 @@ test('B5 runtime อ่านไม่ได้ไม่แสดง terminal re
   await expect(page.getByText(/Total pre-answer time expired/)).toHaveCount(0);
 });
 
-test('B5 ผล teardown ไม่ชัดเจนไม่แสดงว่ายืนยันการตัดสายสำเร็จ', async ({ page }) => {
+test('B5 an uncertain teardown result does not claim the hangup was confirmed', async ({
+  page,
+}) => {
   await harness(page, { ready: true, teardown: 'ACTION_REQUIRED' });
   await page.goto(`/?view=voice-routing&resource=${queueId}&tenant=demo`);
   await expect(
@@ -498,7 +514,9 @@ test('B5 ผล teardown ไม่ชัดเจนไม่แสดงว่�
 
 test.describe('Thai B5', () => {
   test.use({ locale: 'th-TH' });
-  test('เปิดคิวพร้อม fixed policy และเหตุผลจาก server ภาษาไทย', async ({ page }) => {
+  test('enabling a queue with a fixed policy and reasons from the server in Thai', async ({
+    page,
+  }) => {
     const data = await harness(page, { ready: true });
     await page.goto(`/?view=voice-routing&resource=${queueId}&tenant=demo`);
     await expect(page.getByText(/นโยบายคงที่: เสนอให้ Agent คนละ 20 วินาที/)).toBeVisible();
@@ -512,7 +530,9 @@ test.describe('Thai B5', () => {
   });
 });
 
-test('#991 คิว managed เปิดและปิดบันทึกเสียงพร้อมเหตุผลผ่านคำสั่งแก้คิว', async ({ page }) => {
+test('#991 a managed queue turns call recording on and off with a reason through the edit-queue command', async ({
+  page,
+}) => {
   const data = await harness(page, { ready: true });
   await page.goto(`/?view=voice-routing&resource=${queueId}&tenant=demo`);
   await expect(page.getByText('Recording is off', { exact: true })).toBeVisible();

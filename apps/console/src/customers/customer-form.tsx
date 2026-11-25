@@ -30,7 +30,7 @@ interface Props {
   ): Promise<string | null>;
 }
 
-/** ร่างอยู่ใน memory เท่านั้น; การบันทึกใช้ command เดียวและรอ readback ที่ผู้ใช้ยังมีสิทธิ์ */
+/** the draft lives in memory only; saving uses a single command and waits for a readback by a user who still has permission */
 export function CustomerForm({
   api,
   profile,
@@ -133,7 +133,7 @@ export function CustomerForm({
       generation.current++;
       document.removeEventListener('visibilitychange', visible);
     };
-    // identity และ profile คงเดิมตลอดอายุของฟอร์ม
+    // identity and profile stay the same for the lifetime of the form
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [api, profile?.contact.id]);
 

@@ -1,11 +1,11 @@
 import { defineConfig, devices } from '@playwright/test';
 
 /**
- * U1.7 (#435): acceptance gate ของ UAT first slice บน backend จริง — รันผ่าน `pnpm cxa:u1:acceptance`
- * เท่านั้น (runner เตรียม Keycloak realm/บัญชี, fixture pack และ API profile `uat` ให้ก่อน)
+ * U1.7 (#435): acceptance gate of the UAT first slice on a real backend — run only through `pnpm cxa:u1:acceptance`
+ * (the runner prepares the Keycloak realm/accounts, fixture pack and API profile `uat` first)
  *
- * หลักฐานตาม #379 = screenshot ที่ spec ถ่ายเองและ manifest เท่านั้น: ปิด trace/video/screenshot อัตโนมัติ
- * เพราะ trace/HAR/video มี header/token อยู่ข้างใน
+ * evidence per #379 = only screenshots the spec takes itself and the manifest: automatic trace/video/screenshot are off
+ * because a trace/HAR/video holds headers/tokens inside
  */
 const port = Number(process.env.U1_CONSOLE_PORT ?? 5176);
 

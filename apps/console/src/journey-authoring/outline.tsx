@@ -1,6 +1,6 @@
 /**
- * J5.6 (#344): semantic outline — ทุก authoring operation (เพิ่ม/ต่อ/ตัด/เรียง/ลบ) ทำได้ที่นี่ด้วย
- * control ปกติโดยไม่ต้องลาก และส่ง command เดียวกับ canvas
+ * J5.6 (#344): semantic outline — every authoring operation (add/connect/disconnect/reorder/delete) can also be done here
+ * with ordinary controls without dragging, and sends the same commands as the canvas
  */
 import { useId, useState } from 'react';
 import type { AuthoringDocumentV1, JourneyPortId } from '@d-contact/cxa-contracts';

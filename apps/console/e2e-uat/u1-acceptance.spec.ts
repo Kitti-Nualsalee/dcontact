@@ -12,14 +12,14 @@ import {
 } from './gate';
 
 /**
- * U1.7 (#435): acceptance gate ของ UAT first slice บน backend จริง — ไม่มี `page.route` หรือ mock ใด ๆ
+ * U1.7 (#435): acceptance gate of the UAT first slice on a real backend — no `page.route` or any mock
  *
  * Console (Vite, same-origin `/api/v1`) → API entry `uat-main` profile `uat` → Postgres (app role + RLS),
- * Keycloak จริง (password + TOTP + Organization) และ evidence store แบบ S3
+ * real Keycloak (password + TOTP + Organization) and an S3-style evidence store
  *
- * ชื่อ test ขึ้นต้นด้วย check ID ของ `scripts/u1-acceptance.mjs` — runner นับสถานะ check จากชื่อนี้
- * test ทั้งไฟล์เดินต่อกันเป็นเส้นเดียว (serial): รอบที่ 1 เดินครบ → เริ่มรอบใหม่ → รอบที่ 2 ถูก ABANDONED →
- * รอบที่ 3 rerun เดินครบอีกครั้ง
+ * test names start with the check ID of `scripts/u1-acceptance.mjs` — the runner counts check status from these names
+ * the whole file runs as one serial chain: round 1 runs fully → start a new round → round 2 is ABANDONED →
+ * round 3 reruns fully again
  */
 
 test.describe.configure({ mode: 'serial' });
@@ -50,7 +50,7 @@ interface Bundle {
   digest: string;
 }
 
-/** สิ่งที่แต่ละรอบสะสม: screenshot ต่อ step (อัปโหลดผ่าน evidence API ตอนท้ายรอบ) และ actual ที่เห็น */
+/** what each round accumulates: a screenshot per step (uploaded through the evidence API at the end of the round) and the actual values seen */
 interface RunEvidence {
   run: RunView;
   shots: Map<string, { persona: Persona; buffer: Buffer }>;
@@ -71,10 +71,10 @@ function panelOf(page: Page) {
   return page.getByRole('region', { name: 'รอบทดสอบ UAT' });
 }
 
-/** screenshot หลัง step — เก็บเป็นไฟล์ของ CI artifact และอัปโหลดผ่าน evidence API ของ run */
+/** screenshot after a step — kept as a CI artifact file and uploaded through the run's evidence API */
 async function capture(evidence: RunEvidence, stepId: string, persona: Persona, actual: string) {
   const page = sessions[persona].page;
-  // หลักฐานห้ามเห็น code/state ของ OIDC (#379)
+  // evidence must not show the OIDC code/state (#379)
   expect(page.url()).not.toMatch(/[?&](code|state|session_state)=/);
   const buffer = await page.screenshot({ fullPage: false });
   const file = join(state.screenshotDir, `run-${evidence.run.sequence}-${stepId}.png`);
@@ -117,9 +117,9 @@ async function journeyState(persona: Persona, journeyId: string) {
 }
 
 /**
- * session ของ Console อยู่ในหน่วยความจำ (reload = ต้องกดเข้าสู่ระบบใหม่) จึงเดินในแอปแทนการ `goto`
- * ใช้ปุ่มของ Console เมื่อมี; Journey ที่ไม่ใช่ของรอบปัจจุบันเปิดผ่าน history entry แบบเดียวกับ
- * Back/Forward ของ Console (`pushState` + `popstate`) — ไม่มี reload และไม่แตะ token
+ * the Console session lives in memory (reload = must sign in again), so walk inside the app instead of `goto`
+ * use the Console's buttons when present; a Journey that is not of the current round opens through a history entry like the
+ * Console's Back/Forward (`pushState` + `popstate`) — no reload and the token is untouched
  */
 async function toList(persona: Persona) {
   const page = sessions[persona].page;
@@ -145,7 +145,7 @@ async function openJourney(persona: Persona, journeyId: string, tenantSlug = ten
   return page;
 }
 
-/** `เริ่มรอบใหม่` ผ่านแผง UAT ของ maker แล้วคืน run ที่ server ยืนยัน */
+/** `Start new round` through the maker's UAT panel, then return the run the server confirmed */
 async function startRunFromConsole(expectedSequence: number): Promise<RunEvidence> {
   const page = sessions.maker.page;
   const panel = panelOf(page);
@@ -162,7 +162,7 @@ async function startRunFromConsole(expectedSequence: number): Promise<RunEvidenc
   await expect(
     panel.getByRole('definition').filter({ hasText: `รอบที่ ${expectedSequence}` }),
   ).toBeVisible();
-  // Console เปิด Journey ของรอบใหม่ให้เอง
+  // Console opens the new round's Journey by itself
   await expect(page.getByRole('heading', { level: 1, name: JOURNEY_NAME })).toBeVisible();
   const run = await currentRun();
   expect(run).toMatchObject({ sequence: expectedSequence, lifecycle: 'ACTIVE' });
@@ -173,7 +173,7 @@ async function startRunFromConsole(expectedSequence: number): Promise<RunEvidenc
     buildSha: state.buildSha,
   });
   expect(new URL(page.url()).searchParams.get('journey')).toBe(run.journeyId);
-  // build SHA และ fixture digest แสดงจาก server บนแผง (ผู้ทดสอบไม่ต้องพิมพ์เอง — #379)
+  // the build SHA and fixture digest are shown from the server on the panel (the tester does not type them — #379)
   await expect(
     panel.getByRole('definition').filter({ hasText: state.buildSha.slice(0, 12) }),
   ).toBeVisible();
@@ -187,7 +187,7 @@ async function startRunFromConsole(expectedSequence: number): Promise<RunEvidenc
   return evidence;
 }
 
-/** บันทึกฉบับร่างแล้วรอจน Console แสดง revision ที่ server ตอบจริง (ไม่ใช่ข้อความของการบันทึกครั้งก่อน) */
+/** save the draft, then wait until the Console shows the revision the server really answered (not the message of the previous save) */
 async function saveDraft(page: Page): Promise<number> {
   const saved = page.waitForResponse(
     (response) =>
@@ -204,7 +204,7 @@ async function saveDraft(page: Page): Promise<number> {
   return draftRevision;
 }
 
-/** MAKER_EDIT: แทรก WAIT หลัง SEND → EVENT_TRIGGER → SEND → WAIT → EXIT แล้วบันทึก */
+/** MAKER_EDIT: insert WAIT after SEND → EVENT_TRIGGER → SEND → WAIT → EXIT, then save */
 async function makerEdit(evidence: RunEvidence) {
   const page = sessions.maker.page;
   const before = await journeyState('maker', evidence.run.journeyId);
@@ -235,7 +235,7 @@ async function makerEdit(evidence: RunEvidence) {
   );
 }
 
-/** DIAGNOSTIC_RECOVERY: ตัดเส้นจาก WAIT → validate เห็น diagnostic ชี้ node → ต่อกลับ → validate สะอาด */
+/** DIAGNOSTIC_RECOVERY: cut the edge from WAIT → validate shows a diagnostic pointing at a node → reconnect → validate is clean */
 async function diagnosticRecovery(evidence: RunEvidence) {
   const page = sessions.maker.page;
   const port = page.getByLabel('ถัดไป ของ รอ ไปที่');
@@ -262,7 +262,7 @@ async function diagnosticRecovery(evidence: RunEvidence) {
   );
 }
 
-/** COMPILE + SIMULATE ด้วย fixture ที่ server ตรึงของรอบ */
+/** COMPILE + SIMULATE with the fixture the server pinned for the round */
 async function compileAndSimulate(evidence: RunEvidence) {
   const page = sessions.maker.page;
   const compiled = page.waitForResponse(
@@ -287,7 +287,7 @@ async function compileAndSimulate(evidence: RunEvidence) {
     `compile revision ล่าสุดได้ compile digest ${evidence.compileDigest.slice(0, 12)}`,
   );
 
-  // ไม่มีช่อง context ที่ browser สร้างเองใน UAT — ใช้ fixture ของ server เท่านั้น
+  // there is no browser-built context field in UAT — use the server's fixture only
   await expect(page.getByLabel('Context สังเคราะห์สำหรับ simulation (JSON)')).toHaveCount(0);
   await expect(
     page.getByRole('definition').filter({ hasText: String(state.simulationFixture.fixtureId) }),
@@ -324,7 +324,7 @@ async function submitReview(evidence: RunEvidence) {
   await expect(
     page.getByRole('status').filter({ hasText: 'สถานะการตรวจ: IN_REVIEW' }),
   ).toBeVisible();
-  // maker เห็นเหตุผลว่าต้องใช้ reviewer คนอื่น และไม่มีปุ่มตัดสิน
+  // the maker sees the reason another reviewer is required, and there is no decide button
   await expect(page.getByRole('note').filter({ hasText: 'ต้องให้ reviewer คนอื่น' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'อนุมัติ', exact: true })).toHaveCount(0);
   const journey = await journeyState('maker', evidence.run.journeyId);
@@ -341,7 +341,7 @@ async function submitReview(evidence: RunEvidence) {
   );
 }
 
-/** reviewer หา candidate เองจากตัวกรอง "รอตรวจ" แล้วอนุมัติ exact candidate */
+/** the reviewer finds the candidate by themselves with the "awaiting review" filter and approves the exact candidate */
 async function reviewerApprove(evidence: RunEvidence) {
   const page = await toList('reviewer');
   await page.getByRole('button', { name: 'รอตรวจ' }).click();
@@ -355,7 +355,7 @@ async function reviewerApprove(evidence: RunEvidence) {
   await pending.getByRole('button', { name: JOURNEY_NAME }).click();
   await expect(page.getByRole('heading', { level: 1, name: JOURNEY_NAME })).toBeVisible();
   expect(new URL(page.url()).searchParams.get('journey')).toBe(evidence.run.journeyId);
-  // exact candidate: compile digest เดียวกับที่ maker ส่ง
+  // exact candidate: the same compile digest the maker submitted
   await expect(
     page.getByRole('definition').filter({ hasText: evidence.compileDigest!.slice(0, 12) }),
   ).toBeVisible();
@@ -399,7 +399,7 @@ async function publishAndAudit(evidence: RunEvidence) {
     receiptId: string;
     runtimeHash: string;
   };
-  // receipt ที่ server ยืนยัน (authoritative) — Console แสดงผลหลังรู้ผลเท่านั้น
+  // receipt confirmed by the server (authoritative) — Console shows the result only after it is known
   expect(receipt).toMatchObject({ outcome: 'PUBLISHED', version: 1 });
   expect(receipt.receiptId).toMatch(/^[0-9a-f-]{36}$/);
   await expect(page.getByText('Publish version 1 สำเร็จ')).toBeVisible();
@@ -426,7 +426,7 @@ async function publishAndAudit(evidence: RunEvidence) {
   );
 }
 
-/** บันทึกผลทุก step ผ่านแผง UAT (ผู้ที่ทำ step นั้น) และอัปโหลด screenshot ผ่าน evidence API ของ Console */
+/** record the result of every step through the UAT panel (by whoever did that step) and upload screenshots through the Console's evidence API */
 async function recordRunEvidence(evidence: RunEvidence) {
   for (const step of state.stepCatalog) {
     const shot = evidence.shots.get(step.stepId);
@@ -438,7 +438,7 @@ async function recordRunEvidence(evidence: RunEvidence) {
     const sequence = panel
       .getByRole('definition')
       .filter({ hasText: `รอบที่ ${evidence.run.sequence}` });
-    // แผงของอีกบัญชีไม่ poll — รอบเปลี่ยนโดย maker แล้วต้อง reload หน้าเหมือนผู้ทดสอบจริง
+    // the other account's panel does not poll — after the maker changes the round the page must be reloaded like a real tester
     if (!(await sequence.isVisible())) await reloadSession(sessions[shot!.persona]);
     await expect(sequence).toBeVisible();
     await panel.getByLabel('ขั้นตอนที่ทดสอบ').selectOption(step.stepId);
@@ -469,7 +469,7 @@ async function recordRunEvidence(evidence: RunEvidence) {
   }
 }
 
-/** ส่งออก bundle ผ่านปุ่มของ Console (fetch + Blob) แล้วตรวจ verdict/scan จาก server */
+/** export the bundle through the Console button (fetch + Blob) then check the verdict/scan from the server */
 async function exportBundle(evidence: RunEvidence): Promise<Bundle> {
   const page = sessions.maker.page;
   const region = panelOf(page).getByRole('region', { name: 'ภาพหน้าจอหลักฐาน' });
@@ -500,7 +500,7 @@ async function exportBundle(evidence: RunEvidence): Promise<Bundle> {
   return bundle;
 }
 
-/** เดินครบทั้ง step catalog ในรอบที่เปิดอยู่ (ใช้ทั้งรอบแรกและ rerun) */
+/** walk the whole step catalog in the open round (used for both the first round and the rerun) */
 async function walkRun(evidence: RunEvidence, previous?: { run: RunView; lifecycle: string }) {
   const page = sessions.maker.page;
   await expect(
@@ -524,7 +524,7 @@ async function walkRun(evidence: RunEvidence, previous?: { run: RunView; lifecyc
 
 // ── Tests ──────────────────────────────────────────────────────────────────────
 
-test('U1-NEG-EGRESS runtime profile รายงาน providerEgress BLOCKED และ route นอก allowlist ถูกปิดด้วย ROUTE_NOT_AVAILABLE_IN_PROFILE', async () => {
+test('U1-NEG-EGRESS runtime profile reports providerEgress BLOCKED and routes outside the allowlist are closed with ROUTE_NOT_AVAILABLE_IN_PROFILE', async () => {
   const before = await api(state, null, 'GET', 'runtime-profile');
   expect(before.status).toBe(200);
   expect(before.body).toMatchObject({
@@ -535,7 +535,7 @@ test('U1-NEG-EGRESS runtime profile รายงาน providerEgress BLOCKED �
     journeyRuntime: 'NOT_DEPLOYED',
     unilateralPublish: 'NOT_EXPOSED',
   });
-  // route ที่พาออกไปหา provider/runtime ใน profile อื่น — ต้องถูกปิดก่อนถึง controller
+  // routes that lead out to a provider/runtime in another profile — must be closed before reaching the controller
   const probes: Array<['GET' | 'POST', string]> = [
     ['POST', 'events'],
     ['POST', 'contact-governance/decisions'],
@@ -550,7 +550,7 @@ test('U1-NEG-EGRESS runtime profile รายงาน providerEgress BLOCKED �
       'ROUTE_NOT_AVAILABLE_IN_PROFILE',
     ]);
   }
-  // LINE webhook ingress ไม่ถูก mount ใน entry ของ UAT เลย (อยู่นอก /api จึงเรียก API ตรง)
+  // the LINE webhook ingress is not mounted in the UAT entry at all (it is outside /api, so call the API directly)
   const line = await fetch(`${state.apiUrl}/webhook/line`, { method: 'POST', body: '{}' });
   expect(line.status).toBe(404);
   const after = await api(state, null, 'GET', 'runtime-profile');
@@ -559,7 +559,7 @@ test('U1-NEG-EGRESS runtime profile รายงาน providerEgress BLOCKED �
   );
 });
 
-test('U1-MAKER รอบที่ 1: maker login, เริ่มรอบ, แก้ Journey, diagnostic recovery, compile/simulate และส่งตรวจ', async ({
+test('U1-MAKER round 1: maker login, start the round, edit the Journey, diagnostic recovery, compile/simulate and submit for review', async ({
   browser,
 }) => {
   sessions.maker = await login(browser, state.accounts.maker);
@@ -567,13 +567,13 @@ test('U1-MAKER รอบที่ 1: maker login, เริ่มรอบ, แ�
   await walkRun(run1);
 });
 
-test('U1-NEG-SELF-APPROVAL maker ที่ถือ journey.review อนุมัติ candidate ที่ตัวเองส่งไม่ได้', async () => {
+test('U1-NEG-SELF-APPROVAL a maker holding journey.review cannot approve a candidate they submitted themselves', async () => {
   const run1 = runs[0]!;
-  // UI: ไม่มีปุ่มตัดสินสำหรับผู้ส่งตรวจ
+  // UI: there is no decide button for the submitter
   await expect(
     sessions.maker.page.getByRole('button', { name: 'อนุมัติ', exact: true }),
   ).toHaveCount(0);
-  // API จริง: maker มี grant journey.review แต่ maker-checker ต้องปฏิเสธ
+  // real API: the maker has the journey.review grant but maker-checker must reject
   const decision = await api(
     state,
     sessions.maker,
@@ -594,7 +594,7 @@ test('U1-NEG-SELF-APPROVAL maker ที่ถือ journey.review อนุม�
   expect(journey.review?.state).toBe('IN_REVIEW');
 });
 
-test('U1-NEG-CROSS-TENANT token ของ tenant อื่นแตะ run/Journey/review/หลักฐานของ tenant A ไม่ได้', async ({
+test('U1-NEG-CROSS-TENANT a token of another tenant cannot touch the run/Journey/review/evidence of tenant A', async ({
   browser,
 }) => {
   const run1 = runs[0]!;
@@ -630,7 +630,7 @@ test('U1-NEG-CROSS-TENANT token ของ tenant อื่นแตะ run/Journ
     body: { stepId: 'RUN_OPENED', outcome: 'PASS', actual: 'cross-tenant probe' },
   });
   expect([403, 404]).toContain(step.status);
-  // current/pending ของ tenant B ไม่เห็นของ tenant A
+  // tenant B's current/pending does not see tenant A's
   expect((await api(state, foreign, 'GET', 'uat-runs/current')).status).toBe(404);
   const pending = await api(state, foreign, 'GET', 'journey-authoring/reviews');
   expect(pending.status).toBe(200);
@@ -638,17 +638,17 @@ test('U1-NEG-CROSS-TENANT token ของ tenant อื่นแตะ run/Journ
   const visible = await api(state, foreign, 'GET', 'journey-authoring/journeys');
   expect(JSON.stringify(visible.body)).not.toContain(run1.run.journeyId);
 
-  // UI: deep link ของ tenant B ไป Journey ของ tenant A = ไม่พบ ไม่ใช่ข้อมูลของ tenant อื่น
+  // UI: tenant B's deep link to tenant A's Journey = not found, not data of another tenant
   const page = await openJourney('foreign', run1.run.journeyId, state.accounts.foreign.tenantSlug);
   await expect(page.getByText('ไม่พบ Journey นี้ หรือคุณไม่มีสิทธิ์เห็น')).toBeVisible();
   await expect(page.getByRole('heading', { level: 1, name: JOURNEY_NAME })).toHaveCount(0);
-  // run ของ tenant A ยังเหมือนเดิม
+  // tenant A's run is unchanged
   const after = await currentRun();
   expect(after.runId).toBe(run1.run.runId);
   expect(after.stepResults).toEqual([]);
 });
 
-test('U1-REVIEW reviewer คนละบัญชีหา candidate เองจากตัวกรองรอตรวจ ตรวจ exact candidate แล้วอนุมัติ', async ({
+test('U1-REVIEW a reviewer on a different account finds the candidate through the awaiting-review filter, checks the exact candidate and approves', async ({
   browser,
 }) => {
   sessions.reviewer = await login(browser, state.accounts.reviewer);
@@ -657,18 +657,18 @@ test('U1-REVIEW reviewer คนละบัญชีหา candidate เอง�
   expect(journey.review?.state).toBe('APPROVED');
 });
 
-test('U1-PUBLISH maker publish ได้ version/receipt ที่ server ยืนยัน และเห็น audit', async () => {
+test('U1-PUBLISH the maker can publish a version/receipt confirmed by the server and sees the audit', async () => {
   await publishAndAudit(runs[0]!);
 });
 
-test('U1-EVIDENCE รอบที่ 1: บันทึกผลทุก step + screenshot ผ่าน evidence API และ bundle ได้ verdict PASS/scan PASSED', async () => {
+test('U1-EVIDENCE round 1: record every step + screenshots through the evidence API and the bundle gets verdict PASS/scan PASSED', async () => {
   await recordRunEvidence(runs[0]!);
   const bundle = await exportBundle(runs[0]!);
   evidenceOut.bundles.push(bundle);
   persistEvidence();
 });
 
-test('U1-RERUN เริ่มรอบใหม่: รอบที่ 2 ACTIVE, รอบที่ 1 COMPLETED และหลักฐานเดิมไม่เปลี่ยน', async () => {
+test('U1-RERUN start a new round: round 2 ACTIVE, round 1 COMPLETED and the original evidence is unchanged', async () => {
   const run1 = runs[0]!;
   await startRunFromConsole(2);
   const closed = await api(state, sessions.reviewer, 'GET', `uat-runs/${run1.run.runId}`);
@@ -681,14 +681,14 @@ test('U1-RERUN เริ่มรอบใหม่: รอบที่ 2 ACTIVE
   expect(items.map((item) => item.sha256).sort()).toEqual(
     run1.bundle!.screenshots.map((shot) => shot.sha256).sort(),
   );
-  // bundle ของรอบเดิมยังส่งออกได้ ผลบันทึก/หลักฐานเดิมครบ เปลี่ยนแค่ lifecycle
+  // the earlier round's bundle can still be exported, the results/evidence are complete, only the lifecycle changes
   const again = await api(state, sessions.maker, 'GET', `uat-runs/${run1.run.runId}/bundle`);
   const bundle = again.body as unknown as Bundle;
   expect(bundle.manifest.lifecycle).toBe('COMPLETED');
   expect(bundle.stepResults).toEqual(run1.bundle!.stepResults);
   expect(bundle.screenshots).toEqual(run1.bundle!.screenshots);
   expect(bundle.verdict).toBe('PASS');
-  // audit ของ Journey รอบเดิมยังอ่านได้
+  // the earlier round's Journey audit can still be read
   const audit = await api(
     state,
     sessions.maker,
@@ -698,9 +698,9 @@ test('U1-RERUN เริ่มรอบใหม่: รอบที่ 2 ACTIVE
   expect(audit.status).toBe(200);
 });
 
-test('U1-NEG-ABANDONED candidate ของรอบที่ถูก ABANDONED ส่งตรวจ/publish/แก้ต่อไม่ได้ (UAT_RUN_CLOSED)', async () => {
+test('U1-NEG-ABANDONED a candidate of an ABANDONED round cannot be submitted/published/edited further (UAT_RUN_CLOSED)', async () => {
   const run2 = runs[1]!;
-  // maker ทำงานในรอบที่ 2 ถึงขั้น compile (candidate) แล้วเริ่มรอบใหม่โดยไม่ publish
+  // the maker works in round 2 up to compile (candidate) and then starts a new round without publishing
   await makerEdit(run2);
   const page = sessions.maker.page;
   await page.getByRole('button', { name: 'Compile ฉบับร่าง' }).click();
@@ -786,7 +786,7 @@ test('U1-NEG-ABANDONED candidate ของรอบที่ถูก ABANDONED 
   expect(head.review).toBeNull();
   expect(head.head.activeVersion).toBeNull();
 
-  // UI: Journey ของรอบที่ปิดแล้วส่งตรวจไม่ได้ — server ปฏิเสธและ Console บอกเหตุ
+  // UI: a Journey of a closed round cannot be submitted for review — the server rejects and Console states the reason
   const run2Page = await openJourney('maker', run2.run.journeyId);
   await expect(run2Page.getByRole('heading', { level: 1, name: JOURNEY_NAME })).toBeVisible();
   await run2Page.getByRole('button', { name: 'Compile ฉบับร่าง' }).click();
@@ -796,7 +796,7 @@ test('U1-NEG-ABANDONED candidate ของรอบที่ถูก ABANDONED 
   expect((await journeyState('maker', run2.run.journeyId)).review).toBeNull();
 });
 
-test('U1-RERUN รอบที่ 3: rerun ครบทุก step หลังเริ่มรอบใหม่ และ bundle ได้ verdict PASS', async () => {
+test('U1-RERUN round 3: rerun every step after starting a new round, and the bundle gets verdict PASS', async () => {
   const run3 = runs[2]!;
   await openRunJourney('maker');
   expect(new URL(sessions.maker.page.url()).searchParams.get('journey')).toBe(run3.run.journeyId);
@@ -807,7 +807,7 @@ test('U1-RERUN รอบที่ 3: rerun ครบทุก step หลัง�
   const bundle = await exportBundle(run3);
   evidenceOut.bundles.push(bundle);
   persistEvidence();
-  // run ของทุกรอบยังอยู่ครบ (ไม่มีอะไรถูกลบ): 3 → 2 → 1
+  // the runs of every round are all still there (nothing was deleted): 3 → 2 → 1
   const history = await api(state, sessions.maker, 'GET', 'uat-runs?limit=10');
   const items = (history.body as { items: RunView[] }).items;
   expect(items.map((item) => [item.sequence, item.lifecycle])).toEqual([
@@ -817,7 +817,7 @@ test('U1-RERUN รอบที่ 3: rerun ครบทุก step หลัง�
   ]);
 });
 
-test('U1-EVIDENCE หลักฐานของรอบที่ผ่านทั้งสองรอบพร้อมใน manifest และไม่มี trace/HAR', async () => {
+test('U1-EVIDENCE the evidence of the rounds that passed both times is ready in the manifest and has no trace/HAR', async () => {
   expect(evidenceOut.bundles.map((bundle) => bundle.manifest.sequence)).toEqual([1, 3]);
   for (const bundle of evidenceOut.bundles) {
     expect(bundle.verdict).toBe('PASS');

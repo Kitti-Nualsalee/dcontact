@@ -74,7 +74,7 @@ function CatalogSession({
       if (commandId && /^[0-9a-f-]{36}$/.test(commandId))
         return { commandId, name: '', teamId: '' };
     } catch {
-      /* storage ปิดอยู่: คง intent ใน memory ของหน้า */
+      /* storage disabled: keep the intent in the page's memory */
     }
     return undefined;
   });
@@ -83,7 +83,7 @@ function CatalogSession({
       if (commandId) window.sessionStorage.setItem(pendingKey, commandId);
       else window.sessionStorage.removeItem(pendingKey);
     } catch {
-      /* ไม่เก็บชื่อหรือ payload ลง storage */
+      /* do not store the name or payload in storage */
     }
   }
   const active = useRef(true),

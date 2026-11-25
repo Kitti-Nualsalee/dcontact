@@ -26,7 +26,7 @@ interface Props {
 
 const statusOf = (failure: unknown) => (failure instanceof QualityApiError ? failure.status : 500);
 
-/** Agent เห็นผลประเมินที่ publish แล้วของตัวเองทุกใบ (ไม่มีโหมดประเมินลับ) */
+/** an Agent sees all of their own published evaluation results (there is no secret evaluation mode) */
 export function MyQuality(props: Props) {
   return <MyQualitySession key={props.identityKey} {...props} />;
 }
@@ -191,7 +191,7 @@ function MyEvaluationDetail({
   const [evaluation, setEvaluation] = useState<Evaluation>();
   const [error, setError] = useState<number>();
   const [reload, setReload] = useState(0);
-  // focus หัวข้อหลังวาดรายละเอียดเสร็จแล้ว (รอสอง frame ให้ปุ่มที่กดในรายการถูกถอดออกก่อน)
+  // focus the heading after the detail has finished drawing (wait two frames so the button pressed in the list is removed first)
   useEffect(() => {
     if (!evaluation) return;
     let inner = 0;

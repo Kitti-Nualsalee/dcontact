@@ -1,9 +1,9 @@
 /**
- * CG4.9 (#192): logic ของ Hybrid Console ที่ไม่มี I/O
+ * CG4.9 (#192): Hybrid Console logic with no I/O
  *
- * ไม่มีการตัดสิน policy หรือ quorum ในนี้ (#174 §1 ห้าม alternate evaluator) — มีเพียงการเรียงคิว
- * การแสดง reference ที่ถูกปกปิด การแปลง error ของ server เป็น recovery state (#180) และคำศัพท์
- * ที่ต้องแยก Approve / ALLOW / Activate / Development Complete / Release Enabled ให้ชัด
+ * No policy or quorum decision is made here (#174 §1 forbids an alternate evaluator) — only queue ordering,
+ * display of redacted references, mapping server errors to recovery states (#180), and the vocabulary
+ * that must keep Approve / ALLOW / Activate / Development Complete / Release Enabled clearly separate
  */
 import {
   GovernanceApiError,
@@ -13,12 +13,12 @@ import {
 } from './governance-api.js';
 
 /**
- * ตัวแปลข้อความของ namespace `governance` — ฟังก์ชันใน model รับเข้ามาแทนการ import i18n ตรง ๆ
- * เพื่อให้ test ของ Node ส่ง catalog ภาษาใดก็ได้ (แบบเดียวกับ `account`)
+ * Translator for the `governance` namespace — functions in the model accept it instead of importing i18n directly
+ * so Node tests can pass a catalog in any language (same as `account`)
  */
 export type Translate = (key: string, options?: Record<string, unknown>) => string;
 
-/** locale ของ `Intl` ต่อภาษาของ UI (ไทย = ปฏิทินพุทธตามค่าเริ่มต้นของ th-TH) */
+/** `Intl` locale per UI language (Thai = Buddhist calendar by default for th-TH) */
 export function intlLocale(locale: string): string {
   return locale === 'en' ? 'en-GB' : 'th-TH';
 }
@@ -27,13 +27,13 @@ export type GovernanceViewer = 'SUPERVISOR' | 'TENANT_ADMIN' | 'COMPLIANCE';
 export type GovernanceSection = 'overview' | 'exceptions' | 'policies' | 'audit';
 
 /**
- * คำศัพท์เดียวทั้ง Console: approval ไม่ใช่ runtime decision และไม่ใช่การเปิด traffic
- * ข้อความอยู่ใน catalog `governance` หมวด `vocabulary` (approve / activate / developmentComplete)
+ * One vocabulary across the Console: an approval is not a runtime decision and is not opening traffic
+ * text lives in the `governance` catalog under `vocabulary` (approve / activate / developmentComplete)
  */
 
 const RISK_RANK: Readonly<Record<RiskTier, number>> = { EMERGENCY: 0, HIGH: 1, STANDARD: 2 };
 
-/** คิวเรียง: รายการที่ยังรอตัดสินก่อน แล้วความเสี่ยงสูงก่อน แล้วหมดอายุก่อน (#180 A) */
+/** queue order: items still awaiting a decision first, then higher risk first, then earlier expiry first (#180 A) */
 export function sortExceptionQueue(items: readonly ExceptionSeries[]): ExceptionSeries[] {
   return [...items].sort((left, right) => {
     const pending =
@@ -51,7 +51,7 @@ export function isRedacted(
   return typeof ref === 'object' && ref !== null && ref.redacted === true;
 }
 
-/** reference ที่ปกปิดแสดงเป็น digest สั้นเสมอ ไม่มีทางเผยเนื้อหาจากฝั่ง Console */
+/** a redacted reference is always shown as a short digest and can never reveal content from the Console side */
 export function referenceLabel(ref: MaybeRedacted | undefined, t: Translate): string {
   if (ref === undefined) return '—';
   if (isRedacted(ref)) return t('reference.redacted', { tail: ref.digest.slice(-6) });
@@ -62,7 +62,7 @@ export function digestLabel(digest: string | undefined): string {
   return digest ? `…${digest.slice(-8)}` : '—';
 }
 
-/** สถานะต้องมีข้อความและสัญลักษณ์ประกอบ ไม่ใช้สีเพียงอย่างเดียว */
+/** status must have text and a symbol, never color alone */
 export function riskLabel(tier: RiskTier): string {
   return { EMERGENCY: '▲▲ EMERGENCY', HIGH: '▲ HIGH', STANDARD: '● STANDARD' }[tier];
 }
@@ -94,14 +94,14 @@ export interface RecoveryState {
   code?: string;
   message: string;
   /**
-   * - `RELOAD` โหลด canonical state แล้วตัดสินใหม่ด้วย intent ใหม่
-   * - `SAME_KEY` ผลไม่แน่ชัด: โหลด state ก่อน ส่งซ้ำได้ด้วย Idempotency-Key เดิมเท่านั้น
-   * - `NONE` ไม่มี action ที่ช่วยได้จากหน้านี้
+   * - `RELOAD` reload the canonical state, then decide again with a new intent
+   * - `SAME_KEY` uncertain result: load state first, resend only with the same Idempotency-Key
+   * - `NONE` no action on this page can help
    */
   recovery: 'RELOAD' | 'SAME_KEY' | 'NONE';
 }
 
-/** แปลง error ของ #179 §3 เป็น recovery state ของ #180 — ไม่มีกรณีใดเลือก winner หรือ merge เอง */
+/** map an error from #179 §3 to a recovery state of #180 — no case picks a winner or merges by itself */
 export function recoveryFor(error: unknown, t: Translate): RecoveryState {
   if (!(error instanceof GovernanceApiError)) {
     return {
@@ -215,8 +215,8 @@ export interface GovernanceLocation {
 }
 
 /**
- * URL ของ Console รับเฉพาะ opaque UUID — ค่าอื่นถูกทิ้ง เพื่อไม่ให้ contact identity หรือ
- * evidence ใด ๆ ไปอยู่ใน URL, history หรือ telemetry (#180)
+ * The Console URL accepts only opaque UUIDs — other values are dropped so that no contact identity or
+ * evidence ends up in the URL, history or telemetry (#180)
  */
 export function parseGovernanceLocation(url: URL): GovernanceLocation {
   const section = url.searchParams.get('section');
@@ -249,7 +249,7 @@ export function governanceHref(location: GovernanceLocation): string {
   return `?${params}`;
 }
 
-/** viewer ที่ทำ command ได้ในแต่ละงาน — server re-authorize ทุกครั้ง นี่เป็นเพียงการซ่อนปุ่มที่รู้ว่าไม่ผ่าน */
+/** viewers who can run a command in each job — the server re-authorizes every time; this only hides buttons known to fail */
 export function canDecide(viewer: GovernanceViewer): boolean {
   return viewer === 'COMPLIANCE';
 }

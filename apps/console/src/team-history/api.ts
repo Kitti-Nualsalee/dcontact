@@ -6,7 +6,7 @@ import {
 } from '../agent-history/model.js';
 import type { RecordedAtSource } from '../agent-history/api.js';
 
-/** #986 ประวัติและสรุปงานของทีม — API ตรวจสิทธิ์และขอบเขตทีมเองทุก request */
+/** #986 team work history and summary — the API checks permission and team scope itself on every request */
 export interface TeamRef {
   id: string;
   name: string | null;
@@ -119,7 +119,7 @@ export function isTeamHistorySummary(value: unknown): value is TeamHistorySummar
   );
 }
 
-/** query ของรายการ: ตัวกรองเดียวกับ "งานของฉัน" + ทีมและ Agent */
+/** list query: the same filters as "My work" + team and Agent */
 export function teamListQuery(filter: TeamHistoryFilter | undefined, cursor?: string): string {
   const query = new URLSearchParams(listQuery(filter, cursor));
   if (filter?.teamId) query.set('teamId', filter.teamId);

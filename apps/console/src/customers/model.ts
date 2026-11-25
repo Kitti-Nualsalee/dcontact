@@ -1,6 +1,6 @@
 import { CustomersApiError, customerUuid } from './api.js';
 
-/** Cus360 C2 (#792): logic บริสุทธิ์ของหน้า Customers (ทดสอบใน `customers.test.ts`) */
+/** Cus360 C2 (#792): pure logic of the Customers page (tested in `customers.test.ts`) */
 
 export type ErrorKind =
   | 'session'
@@ -13,8 +13,8 @@ export type ErrorKind =
   | 'failed';
 
 /**
- * 404 ของ DENY กับไม่พบเป็นข้อความเดียวกันเสมอ (ไม่เปิดเผยว่ามีอยู่) และ 503 SCOPE_UNAVAILABLE
- * ไม่ถูกตีความเป็นว่างหรือไม่มีสิทธิ์ — เป็น "สิทธิ์ยังไม่พร้อม" ที่ลองใหม่ได้
+ * a DENY 404 and not-found are always the same message (existence is not revealed), and a 503 SCOPE_UNAVAILABLE
+ * is not interpreted as empty or no permission — it is "permission not ready yet", which can be retried
  */
 export function errorKind(error: unknown): ErrorKind {
   if (!(error instanceof CustomersApiError)) return 'failed';
@@ -28,7 +28,7 @@ export function errorKind(error: unknown): ErrorKind {
   return 'failed';
 }
 
-/** ข้อผิดพลาดที่ต้องปิดข้อมูลลูกค้าที่แสดงอยู่ทันที (สิทธิ์/session/scope เปลี่ยน) */
+/** errors that must immediately close the customer data being shown (permission/session/scope changed) */
 export function closesCustomerData(kind: ErrorKind): boolean {
   return kind === 'session' || kind === 'forbidden' || kind === 'notFound' || kind === 'scope';
 }
@@ -42,7 +42,7 @@ const FIELD_ERRORS = new Set([
   'QUERY_REQUIRED',
 ]);
 
-/** code ของ fieldErrors → key ข้อความใต้ช่อง (code ที่ไม่รู้จักใช้ข้อความทั่วไป ไม่แสดงค่าที่กรอก) */
+/** fieldErrors code → message key under the field (an unknown code uses a generic message and does not show the entered value) */
 export function fieldErrorKey(error: unknown): string | undefined {
   if (!(error instanceof CustomersApiError) || error.status !== 400) return undefined;
   const code = error.fieldErrors.find((entry) => entry.field === 'query')?.code;
@@ -50,11 +50,11 @@ export function fieldErrorKey(error: unknown): string | undefined {
 }
 
 export interface CustomersRoute {
-  /** undefined = รายการลูกค้า; null = id ใน URL ไม่ใช่ UUID (แสดงเหมือนไม่พบ) */
+  /** undefined = customer list; null = the id in the URL is not a UUID (shown as not found) */
   contactId?: string | null;
 }
 
-/** query ค้นหาไม่อยู่ใน URL (ไม่มี PII); มีเฉพาะ UUID ของโปรไฟล์ที่เปิดอยู่ */
+/** the search query is not in the URL (no PII); only the UUID of the open profile is */
 export function parseCustomersRoute(url: URL): CustomersRoute {
   const contact = url.searchParams.get('contact');
   if (contact === null) return {};
@@ -78,7 +78,7 @@ export const GOVERNANCE_CHANNELS = [
   'EMAIL',
 ] as const;
 
-/** ฝั่ง client ตรวจเท่าที่ server จะปฏิเสธอยู่แล้ว (1–64 ตัว ไม่มี control) เพื่อไม่ยิง request เปล่า */
+/** the client checks only what the server would reject anyway (1–64 characters, no control characters) so no empty request is sent */
 export function validPurpose(value: string): boolean {
   const trimmed = value.trim();
   return trimmed.length > 0 && value.length <= 64 && !/[\u0000-\u001f\u007f]/.test(value);

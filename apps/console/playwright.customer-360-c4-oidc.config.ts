@@ -1,6 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
 
-/** Local dev trial: Chrome/Edge → Keycloak จริง → Console/API → PostgreSQL RLS */
+/** Local dev trial: Chrome/Edge → real Keycloak → Console/API → PostgreSQL RLS */
 export default defineConfig({
   testDir: './e2e',
   testMatch: ['customer-360-c4-oidc.spec.ts'],

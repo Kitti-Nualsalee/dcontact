@@ -1,15 +1,15 @@
 /**
- * J5.6 (#344): หน้า Journey authoring ของ Console (Phase Spec #337 §8)
+ * J5.6 (#344): the Journey authoring page of Console (Phase Spec #337 §8)
  *
- * - desktop ≥960px แก้ได้เต็ม: outline + canvas + properties; ต่ำกว่า 960px อ่านอย่างเดียวพร้อมเหตุผล
- *   และไม่มีปุ่มที่ส่ง mutation เลย
- * - สิทธิ์, review, publish และ rollout มาจาก server — ถ้า server ปฏิเสธจะเห็น code ที่ได้จริง
- * - `409` ตอนบันทึกเปิดทางเลือกให้ผู้ใช้: ดูความต่าง, โหลดฉบับล่าสุด หรือเก็บการแก้ของตัวเองไปต่อ
- * - D1.14 (#453): ข้อความทั้งหมดอยู่ใน catalog `journeys`, ปุ่มจาก `@d-contact/ui-react`, CSS ใช้ token;
- *   อยู่ใน AppShell (flag `ui.shell.v2`) แล้วไม่วาด chrome เดิมของตัวเอง — เนื้อหาไม่ถือ layout/shell เอง
- * - U1.4 (#432): เปิด/ปิด Journey เป็น history entry (`pushState`) และ `popstate` คืน `journeyId` จาก URL
- *   จึง deep link, refresh, Back/Forward ใช้ได้โดยไม่ตัน; URL มีแค่ opaque id; หลังเปลี่ยนหน้า focus ไปที่
- *   heading หลัก; แผง UAT run อยู่ในเนื้อหาของหน้านี้ (ไม่ใช่ shell)
+ * - desktop ≥960px is fully editable: outline + canvas + properties; below 960px it is read-only with the reason shown
+ *   and has no button that sends a mutation at all
+ * - permissions, review, publish and rollout come from the server — if the server rejects, the actual code is shown
+ * - a `409` on save opens options for the user: view the diff, load the latest version, or keep own edits and continue
+ * - D1.14 (#453): all text lives in the `journeys` catalog, buttons come from `@d-contact/ui-react`, CSS uses tokens;
+ *   inside AppShell (flag `ui.shell.v2`) it no longer draws its own old chrome — the content does not own layout/shell
+ * - U1.4 (#432): opening/closing a Journey is a history entry (`pushState`) and `popstate` restores `journeyId` from the URL,
+ *   so deep link, refresh and Back/Forward work without dead ends; the URL holds only an opaque id; after a page change focus moves to
+ *   the main heading; the UAT run panel lives in this page's content (not the shell)
  */
 import { useCallback, useEffect, useId, useReducer, useRef, useState } from 'react';
 import { useLocale, useTranslation } from '@d-contact/i18n/react';
@@ -67,7 +67,7 @@ function useDesktop(): boolean {
   return desktop;
 }
 
-/** focus heading หลักเมื่อพร้อม — ใช้หลังเปลี่ยนหน้าภายใน (ไม่ใช่ตอนเปิดหน้าครั้งแรก) */
+/** focus the main heading when ready — used after an in-page navigation (not on first page open) */
 function useFocusHeading(ready: boolean, enabled: boolean) {
   const ref = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
@@ -109,7 +109,7 @@ function JourneyEditor({
 }) {
   const { t } = useTranslation('journeys');
   const [{ state }, dispatch] = useReducer(rootReducer, { state: null });
-  // error เก็บเป็น code แล้วแปลตอน render — สลับภาษาแล้วข้อความเปลี่ยนตาม
+  // errors are stored as a code and translated at render — switching language changes the message accordingly
   const [loadError, setLoadError] = useState<{ code?: string } | null>(null);
   const [announcement, setAnnouncement] = useState('');
   const [saving, setSaving] = useState(false);
@@ -124,7 +124,7 @@ function JourneyEditor({
     try {
       return await api.journey(journeyId);
     } catch (error) {
-      // มองไม่เห็นแล้ว (ลบสิทธิ์/ย้ายทีม): ล้าง recovery ของ resource นี้ทิ้งทันที
+      // no longer visible (permission removed / team moved): drop this resource's recovery immediately
       if (error instanceof JourneyAuthoringApiError && [403, 404].includes(error.status))
         clearRecovery(storage, scope, journeyId);
       throw error;
@@ -183,7 +183,7 @@ function JourneyEditor({
   const document = editorDocument(state);
   const dirty = isDirty(state);
   const { head, permissions } = state.snapshot;
-  // U1.3 (#431): ผู้ที่ไม่มี journey.edit (เช่น reviewer) เห็นแบบอ่านอย่างเดียว — server ตรวจซ้ำอยู่แล้ว
+  // U1.3 (#431): a user without journey.edit (e.g. a reviewer) sees the read-only view — the server re-checks anyway
   const editable = !readOnly && head.lifecycle !== 'DEPRECATED' && permissions.edit;
   const counts = diagnosticCounts(state.diagnostics);
   const command = (next: AuthoringCommand) => {
@@ -624,7 +624,7 @@ function shortDigest(digest: string): string {
 
 type ListFilter = 'ALL' | 'PENDING_REVIEW';
 
-/** U1.3 (#431): review ที่รอผู้ใช้คนนี้ตัดสิน — รายการกรองสิทธิ์ที่ server ทั้งหมด */
+/** U1.3 (#431): reviews waiting for this user to decide — the list is fully permission-filtered at the server */
 function PendingReviewList({
   api,
   onOpen,
@@ -633,7 +633,7 @@ function PendingReviewList({
   onOpen: (journeyId: string) => void;
 }) {
   const { t } = useTranslation('journeys');
-  // เวลาของ server แสดงตาม timezone/ภาษาของผู้ใช้ (formatter กลาง D1.11)
+  // server time is shown in the user's timezone/language (central formatter D1.11)
   const { formatters } = useLocale();
   const [items, setItems] = useState<PendingReview[] | null>(null);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -828,8 +828,8 @@ function JourneyList({
 }
 
 /**
- * U1.3 (#431): timeline ของ audit จาก server — actor เป็น opaque id, เวลาเป็นเวลา server
- * การอ่าน audit ถูกบันทึกเป็น audit เอง จึงโหลดเมื่อผู้ใช้กดเท่านั้น
+ * U1.3 (#431): audit timeline from the server — the actor is an opaque id, time is server time.
+ * Reading the audit is itself audited, so it loads only when the user clicks
  */
 function AuditTimeline({ api, journeyId }: { api: JourneyAuthoringApi; journeyId: string }) {
   const { t } = useTranslation('journeys');
@@ -888,13 +888,13 @@ export function JourneyAuthoringConsole({
   storage = window.sessionStorage,
 }: {
   api: JourneyAuthoringApi;
-  /** U1.4 (#432): client ของ UAT run — แผงแสดงเมื่อ API รายงาน profile `uat` เท่านั้น */
+  /** U1.4 (#432): UAT run client — the panel is shown only when the API reports profile `uat` */
   uatApi?: UatApi;
-  /** pack เริ่มต้นของ `เริ่มรอบใหม่` ตอนยังไม่มี run (ค่าจาก build) */
+  /** default pack for `Start new round` when there is no run yet (value from the build) */
   uatDefaults?: { environment?: string; packVersion?: string };
-  /** session หมด (401) — พาไปเข้าสู่ระบบใหม่ */
+  /** session expired (401) — send to sign in again */
   onSignInAgain?: () => void;
-  /** tenant alias/session — ผูก session recovery ไม่ให้ข้าม tenant */
+  /** tenant alias/session — binds session recovery so it does not cross tenants */
   scope: string;
   initialJourneyId?: string;
   storage?: Storage;
@@ -903,7 +903,7 @@ export function JourneyAuthoringConsole({
   const inShell = useInShell();
   const tokensReady = useShellTokens();
   const desktop = useDesktop();
-  // focus = เปลี่ยนหน้าภายในแล้ว (ไม่ใช่เปิดหน้าครั้งแรก) จึงย้าย focus ไปที่ heading หลัก
+  // focus = an in-page navigation happened (not the first page open), so move focus to the main heading
   const [route, setRoute] = useState<{ journeyId: string | null; focus: boolean }>({
     journeyId: initialJourneyId ?? null,
     focus: false,
@@ -913,7 +913,7 @@ export function JourneyAuthoringConsole({
     const url = new URL(window.location.href);
     if (next) url.searchParams.set('journey', next);
     else url.searchParams.delete('journey');
-    // URL มีแค่ opaque id — การแก้ที่ยังไม่บันทึกอยู่ใน session recovery (sessionStorage) ไม่ใช่ URL
+    // the URL holds only an opaque id — unsaved edits live in session recovery (sessionStorage), not the URL
     if (url.href !== window.location.href) window.history.pushState(null, '', url);
     setRoute({ journeyId: next, focus: true });
   }, []);
@@ -926,7 +926,7 @@ export function JourneyAuthoringConsole({
     window.addEventListener('popstate', restore);
     return () => window.removeEventListener('popstate', restore);
   }, []);
-  // token มาก่อนเนื้อหา — ไม่ให้เห็นหน้าที่ยังไม่มีสี (โหลดครั้งเดียวต่อหน้า)
+  // tokens come before content — so the page is never seen without colors (loaded once per page)
   if (!tokensReady) return null;
   const { journeyId } = route;
   const content = (
@@ -958,7 +958,7 @@ export function JourneyAuthoringConsole({
       )}
     </UatProvider>
   );
-  // ใน AppShell: shell เป็นเจ้าของ skip link/header/main — เนื้อหาไม่วาด landmark ซ้ำ
+  // inside AppShell: the shell owns the skip link/header/main — the content does not draw landmarks again
   if (inShell) {
     return (
       <div ref={mainRef} tabIndex={-1} className="j5-root j5-in-shell">

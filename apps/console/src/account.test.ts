@@ -21,7 +21,7 @@ function memoryStorage() {
   };
 }
 
-test('ลิงก์ยืนยัน: token ถูกย้ายออกจาก URL ทันที (replaceState) แล้วอ่านได้ครั้งเดียว', () => {
+test('verification link: the token is moved out of the URL immediately (replaceState) and can be read only once', () => {
   const storage = memoryStorage();
   const replaced: string[] = [];
   const history = {
@@ -37,9 +37,9 @@ test('ลิงก์ยืนยัน: token ถูกย้ายออกจ
   assert.deepEqual(replaced, ['/?tenant=demo&view=account#x']);
   assert.equal(storage.values.get(VERIFY_TOKEN_KEY), 'tok-123');
   assert.equal(takeVerifyToken(storage), 'tok-123');
-  assert.equal(takeVerifyToken(storage), null, 'ใช้ได้ครั้งเดียว');
+  assert.equal(takeVerifyToken(storage), null, 'usable only once');
 
-  // ไม่มี verify = ไม่แตะ history; verify ว่าง = ลบออกจาก URL แต่ไม่เก็บ
+  // no verify = history untouched; empty verify = removed from the URL but not stored
   const untouched = new URL('https://console.test/?view=account');
   assert.equal(stashVerifyToken(untouched, storage, history), untouched);
   assert.equal(replaced.length, 1);
@@ -47,7 +47,7 @@ test('ลิงก์ยืนยัน: token ถูกย้ายออกจ
   assert.equal(replaced.at(-1), '/?view=account');
   assert.equal(storage.values.has(VERIFY_TOKEN_KEY), false);
 
-  // storage ใช้ไม่ได้ก็ยังลบ token ออกจาก URL
+  // unusable storage still removes the token from the URL
   const broken = {
     setItem: () => {
       throw new Error('blocked');
@@ -57,7 +57,7 @@ test('ลิงก์ยืนยัน: token ถูกย้ายออกจ
   assert.equal(replaced.at(-1), '/?view=account');
 });
 
-test('error ของ API → ข้อความที่มีอยู่จริงใน catalog และไม่แสดง code ดิบ', () => {
+test('API error → a message that really exists in the catalog, with no raw code shown', () => {
   const resolve = (key: string) =>
     key
       .split('.')
@@ -92,7 +92,7 @@ test('error ของ API → ข้อความที่มีอยู่�
   assert.doesNotMatch(JSON.stringify(accountTh), /keycloak/i);
 });
 
-test('API client: path/method ตาม contract, error มี code/rules/retry-after, 204 = undefined', async () => {
+test('API client: path/method per the contract, errors carry code/rules/retry-after, 204 = undefined', async () => {
   const calls: Array<{ url: string; method: string; body?: string; auth?: string }> = [];
   const responses: Response[] = [];
   const fetch = (async (url: string, init: RequestInit) => {
@@ -153,7 +153,7 @@ test('API client: path/method ตาม contract, error มี code/rules/retry-
   await policy.update({
     emailChange: 'VERIFY',
     mfaRequired: true,
-    reason: 'บังคับ',
+    reason: 'mandatory',
     expectedRevision: 1,
   });
   assert.deepEqual(
@@ -165,7 +165,7 @@ test('API client: path/method ตาม contract, error มี code/rules/retry-
   await assert.rejects(anonymous.get(), { status: 401 });
 });
 
-test('ลิงก์หน้าบัญชีของ Console พร้อม tenant', () => {
+test('Console account page link with tenant', () => {
   assert.equal(
     accountHref('https://console.test', 'demo'),
     'https://console.test/?tenant=demo&view=account',

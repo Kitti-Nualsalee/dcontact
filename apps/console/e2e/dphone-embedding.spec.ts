@@ -2,7 +2,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 
 /**
- * E1.11 (#485): Integrations › dphone embedding — API จำลองด้วย page.route (สิทธิ์จริงตรวจใน API integration)
+ * E1.11 (#485): Integrations › dphone embedding — the API is mocked with page.route (real permissions are checked in the API integration)
  */
 test.use({ locale: 'th-TH' });
 
@@ -90,7 +90,7 @@ async function axe(page: Page) {
   ).toEqual([]);
 }
 
-test('ADMIN: ตรวจ origin ทันทีที่กรอก, เพิ่ม origin แบบ normalize และมี snippet', async ({
+test('ADMIN: check the origin as soon as it is typed, add an origin normalized, and there is a snippet', async ({
   page,
 }) => {
   const writes = await mockApi(page, { entitled: true, flagEnabled: true, origins: [] });
@@ -124,7 +124,7 @@ test('ADMIN: ตรวจ origin ทันทีที่กรอก, เพิ
   await axe(page);
 });
 
-test('ADMIN: ปิด/ลบต้องยืนยันพร้อมจำนวน session ที่ฝังอยู่ และส่ง expectedRevision', async ({
+test('ADMIN: disable/delete must be confirmed with the number of embedded sessions and send expectedRevision', async ({
   page,
 }) => {
   const writes = await mockApi(page, { entitled: true, flagEnabled: true, origins: [sample()] });
@@ -143,7 +143,7 @@ test('ADMIN: ปิด/ลบต้องยืนยันพร้อมจำ
   expect(writes[1]).toEqual({ method: 'DELETE', body: { expectedRevision: 2 } });
 });
 
-test('E1.14: ระดับ screen-pop ค่าเริ่มต้นปิด; เปลี่ยนต้องมีเหตุผล; custom ยังเลือกไม่ได้', async ({
+test('E1.14: the screen-pop level defaults to off; changing needs a reason; custom cannot be selected yet', async ({
   page,
 }) => {
   const writes = await mockApi(page, { entitled: true, flagEnabled: true, origins: [sample()] });
@@ -172,7 +172,7 @@ test('E1.14: ระดับ screen-pop ค่าเริ่มต้นปิ�
   });
 });
 
-test('SUPERVISOR ดูได้อย่างเดียว; ไม่มี entitlement = หน้าล็อก; flag ปิด = แจ้ง', async ({
+test('SUPERVISOR is view-only; no entitlement = a locked page; flag off = a notice', async ({
   page,
 }) => {
   await mockApi(page, { entitled: true, flagEnabled: false, origins: [sample()] });

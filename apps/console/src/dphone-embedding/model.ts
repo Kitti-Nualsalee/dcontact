@@ -1,7 +1,7 @@
 /**
- * E1.11 (#485): กติกาของหน้า Integrations › dphone embedding ที่ไม่ขึ้นกับ React
+ * E1.11 (#485): rules of the Integrations › dphone embedding page that do not depend on React
  *
- * ตรวจรูปแบบ origin ด้วยฟังก์ชันเดียวกับ API (`normalizeEmbedOrigin`) — API ยังเป็นตัวตัดสินสุดท้าย
+ * the origin format is checked with the same function as the API (`normalizeEmbedOrigin`) — the API still makes the final decision
  */
 import {
   normalizeEmbedOrigin,
@@ -30,11 +30,11 @@ const API_ERRORS = new Set([
   'NOT_FOUND',
 ]);
 
-/** E1.14: ระดับที่เลือกได้ตามลำดับ — `custom` แสดงแต่ปิดไว้จนกว่ารายการ field จะถูกตัดสิน */
+/** E1.14: selectable levels in order — `custom` is shown but disabled until the field list is decided */
 export const SCREEN_POP_OPTIONS = ['off', 'ids', 'contact', 'custom'] as const;
 export const SCREEN_POP_REASON_MIN = 3;
 
-/** key ของข้อความ error จาก API — rejection ของ origin ใช้ข้อความเดียวกับการตรวจทันที */
+/** key of the error message from the API — an origin rejection uses the same message as the immediate check */
 export function apiErrorKey(error: EmbedOriginApiError): string {
   if (error.code === 'VALIDATION_FAILED' && error.field === 'origin' && error.reason) {
     return `dphoneEmbedding.rejections.${error.reason}`;
@@ -51,9 +51,9 @@ export function apiErrorKey(error: EmbedOriginApiError): string {
 }
 
 /**
- * snippet ที่ host ต้องใส่ (E1.2/E1.5/E1.7): `<dphone-launcher>` จาก alias `v1` ของ dphone origin
- * (launcher สร้าง iframe `/dphone/embed` พร้อม `allow` ไมค์และ sandbox ที่มี `allow-popups` ให้เอง)
- * + CSP ฝั่ง host ที่ต้องอนุญาต origin เดียวกันทั้ง `script-src` และ `frame-src`
+ * snippet the host must add (E1.2/E1.5/E1.7): `<dphone-launcher>` from the `v1` alias of the dphone origin
+ * (the launcher creates the iframe `/dphone/embed` with `allow` for the mic and a sandbox with `allow-popups` itself)
+ * + the host-side CSP that must allow the same origin in both `script-src` and `frame-src`
  */
 export function hostSnippet(input: { embedBaseUrl: string; tenantAlias: string }): string {
   const origin = new URL(input.embedBaseUrl).origin;
@@ -65,6 +65,6 @@ export function hostSnippet(input: { embedBaseUrl: string; tenantAlias: string }
   ].join('\n');
 }
 
-/** E1.15: คู่มือ host ภาษาไทย (`docs/dphone-embed/`) — ตั้ง URL ที่ลูกค้าเข้าถึงได้ด้วย `VITE_DPHONE_EMBED_DOCS_URL` */
+/** E1.15: host guide in Thai (`docs/dphone-embed/`) — set a customer-reachable URL with `VITE_DPHONE_EMBED_DOCS_URL` */
 export const DEFAULT_DPHONE_EMBED_DOCS_URL =
   'https://github.com/Kitti-Nualsalee/dcontact/blob/main/docs/dphone-embed/README.md';

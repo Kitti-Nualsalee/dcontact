@@ -1,5 +1,5 @@
 /**
- * #956 — logic ล้วนของหน้าเคสของทีม (URL, cursor, commandId, สถานะ, ไทม์ไลน์) แยกจาก React เพื่อทดสอบด้วย unit test
+ * #956 — pure logic of the team cases page (URL, cursor, commandId, status, timeline), separated from React so it can be unit tested
  */
 import {
   CASE_PAGE_SIZE,
@@ -36,7 +36,7 @@ export function isDefaultFilter(filter: CaseFilterState): boolean {
   return filter.status === DEFAULT_FILTER.status && filter.assignee === DEFAULT_FILTER.assignee;
 }
 
-/** ค่าใน URL ที่ไม่รู้จักตกกลับค่าเริ่มต้น — ไม่ส่งค่าที่ผู้ใช้พิมพ์เองไป API */
+/** an unknown URL value falls back to the default — a value the user typed is never sent to the API */
 export function parseCasesRoute(url: URL): CasesRoute {
   const status = url.searchParams.get('status');
   const assignee = url.searchParams.get('assignee');
@@ -48,7 +48,7 @@ export function parseCasesRoute(url: URL): CasesRoute {
   };
 }
 
-/** เขียนเฉพาะค่าที่ไม่ใช่ค่าเริ่มต้น และคง query อื่น (tenant, view) ไว้ — ไม่มี PII */
+/** write only values that are not the default and keep other query params (tenant, view) — no PII */
 export function casesHref(base: URL, route: CasesRoute): URL {
   const next = new URL(base.href);
   next.searchParams.set('view', 'team-cases');
@@ -59,7 +59,7 @@ export function casesHref(base: URL, route: CasesRoute): URL {
   return next;
 }
 
-/** ลิงก์ไปประวัติงานของ Agent เอง (เฉพาะงานที่ `interactionMine`) */
+/** link to the Agent's own work history (only for work with `interactionMine`) */
 export function historyHref(base: URL, interactionId: string): URL {
   const next = new URL(base.href);
   for (const key of ['status', 'assignee', 'case']) next.searchParams.delete(key);
@@ -76,7 +76,7 @@ export function toListFilter(filter: CaseFilterState, cursor?: string): CaseList
   };
 }
 
-/** stack ของ cursor ฝั่ง client: ตำแหน่งสุดท้ายคือ cursor ของหน้าปัจจุบัน (undefined = หน้าแรก) */
+/** client-side cursor stack: the last entry is the cursor of the current page (undefined = first page) */
 export type CursorStack = readonly (string | undefined)[];
 export const FIRST_PAGE: CursorStack = [undefined];
 export const goNext = (stack: CursorStack, nextCursor: string): CursorStack => [
@@ -92,7 +92,7 @@ export function pageRange(stack: CursorStack, count: number): { from: number; to
   return { from, to: from + count - 1 };
 }
 
-/** คำสั่งเขียนที่ผลยังไม่ทราบ: กดซ้ำด้วยคำสั่งเดิมต้องใช้ commandId เดิมเท่านั้น */
+/** a write command with an unknown result: pressing again with the same command must use the same commandId only */
 export interface PendingCommand {
   signature: string;
   commandId: string;
@@ -117,8 +117,8 @@ export type CommandFailure =
   'unauthorized' | 'unknown' | 'stale' | 'assignee' | 'invalid' | 'notFound' | 'failed';
 
 /**
- * network error/timeout/5xx = ไม่ทราบผล (คำสั่งอาจถูกบันทึกแล้ว) → ส่ง commandId เดิมซ้ำได้อย่างปลอดภัย
- * conflict/validation = ผลชัดเจน กดครั้งถัดไปใช้ id ใหม่
+ * network error/timeout/5xx = unknown result (the command may have been recorded) → safe to resend the same commandId
+ * conflict/validation = a definite result, the next press uses a new id
  */
 export function classifyFailure(error: unknown): CommandFailure {
   if (!(error instanceof CaseApiError)) return 'unknown';
@@ -134,7 +134,7 @@ export function classifyFailure(error: unknown): CommandFailure {
 
 export type CaseAction = 'assign' | 'resolve' | 'reopen' | 'close';
 
-/** OPEN → RESOLVED → CLOSED; ปิดจาก OPEN ตรงไม่ได้ (ข้อ 8 คำถาม 2) */
+/** OPEN → RESOLVED → CLOSED; closing directly from OPEN is not allowed (item 8 question 2) */
 export function actionsFor(status: CaseStatus): readonly CaseAction[] {
   if (status === 'OPEN') return ['assign', 'resolve'];
   if (status === 'RESOLVED') return ['assign', 'reopen', 'close'];
@@ -153,7 +153,7 @@ export function validateNote(raw: string): { ok: true; value: string } | { ok: f
   return value.length >= 1 && value.length <= NOTE_MAX ? { ok: true, value } : { ok: false };
 }
 
-/** เก่าไปใหม่ — sort เสถียร ลำดับเดิมจาก server ใช้ตัดสินเมื่อเวลาเท่ากัน */
+/** oldest to newest — stable sort; the original server order decides when times are equal */
 export function orderActivities(activities: readonly CaseActivity[]): CaseActivity[] {
   return activities
     .map((activity, index) => ({ activity, index, time: Date.parse(activity.occurredAt) }))

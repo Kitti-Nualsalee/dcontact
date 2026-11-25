@@ -22,7 +22,7 @@ import {
 
 const base = 'https://console.example/?view=team-cases&tenant=demo';
 
-test('route: ค่าเริ่มต้นคือยังไม่ปิด + ของฉัน และค่าที่ไม่รู้จักตกกลับค่าเริ่มต้น', () => {
+test('route: the default is not-closed + mine, and an unknown value falls back to the default', () => {
   assert.deepEqual(parseCasesRoute(new URL(base)), {
     status: 'NOT_CLOSED',
     assignee: 'me',
@@ -35,7 +35,7 @@ test('route: ค่าเริ่มต้นคือยังไม่ปิ�
   assert.equal(parseCasesRoute(new URL(`${base}&status=ALL&assignee=team`)).status, 'ALL');
 });
 
-test('href: เขียนเฉพาะค่าที่ไม่ใช่ค่าเริ่มต้น คง tenant และไม่เอาค่าเก่าติดมา', () => {
+test('href: writes only non-default values, keeps tenant and carries no old value over', () => {
   const defaults = casesHref(new URL(`${base}&status=OPEN&case=x`), {
     status: 'NOT_CLOSED',
     assignee: 'me',
@@ -51,7 +51,7 @@ test('href: เขียนเฉพาะค่าที่ไม่ใช่�
   assert.equal(history.search, '?view=agent-history&tenant=demo&interaction=i1');
 });
 
-test('list filter: ทุกสถานะไม่ส่ง status, ของฉันส่ง assignedToMe', () => {
+test('list filter: all statuses send no status, mine sends assignedToMe', () => {
   assert.deepEqual(toListFilter({ status: 'NOT_CLOSED', assignee: 'me' }), {
     status: 'NOT_CLOSED',
     assignedToMe: true,
@@ -59,7 +59,7 @@ test('list filter: ทุกสถานะไม่ส่ง status, ของ�
   assert.deepEqual(toListFilter({ status: 'ALL', assignee: 'team' }, 'c2'), { cursor: 'c2' });
 });
 
-test('cursor stack: ถัดไป/ก่อนหน้าและช่วงแถวหน้าละ 25', () => {
+test('cursor stack: next/previous and the row range at 25 per page', () => {
   assert.equal(currentCursor(FIRST_PAGE), undefined);
   assert.deepEqual(pageRange(FIRST_PAGE, 25), { from: 1, to: 25 });
   const second = goNext(FIRST_PAGE, 'c1');
@@ -70,16 +70,16 @@ test('cursor stack: ถัดไป/ก่อนหน้าและช่ว�
   assert.equal(goPrevious(FIRST_PAGE), FIRST_PAGE);
 });
 
-test('commandId: ใช้ id เดิมเฉพาะเมื่อคำสั่งเหมือนเดิมทุกอย่าง', () => {
+test('commandId: reuse the same id only when the command is exactly the same', () => {
   let n = 0;
   const make = () => `id-${++n}`;
   const sig = commandSignature('note', 'c1', 3, 'hello');
   const first = commandFor(undefined, sig, make);
   assert.equal(first.commandId, 'id-1');
-  // ไม่ทราบผลแล้วกดซ้ำ = id เดิม ไม่เรียก make
+  // pressing again after an unknown result = the same id, make is not called
   assert.equal(commandFor(first, sig, make).commandId, 'id-1');
   assert.equal(n, 1);
-  // version หรือเนื้อหาเปลี่ยน = คำสั่งใหม่
+  // version or content changed = a new command
   assert.equal(
     commandFor(first, commandSignature('note', 'c1', 4, 'hello'), make).commandId,
     'id-2',
@@ -90,7 +90,7 @@ test('commandId: ใช้ id เดิมเฉพาะเมื่อคำ�
   );
 });
 
-test('failure: network/5xx = ไม่ทราบผล, conflict/validation = ผลชัดเจน', () => {
+test('failure: network/5xx = unknown result, conflict/validation = definite result', () => {
   assert.equal(classifyFailure(new TypeError('Failed to fetch')), 'unknown');
   assert.equal(classifyFailure(new CaseApiError(503)), 'unknown');
   assert.equal(classifyFailure(new CaseApiError(408)), 'unknown');
@@ -105,17 +105,17 @@ test('failure: network/5xx = ไม่ทราบผล, conflict/validation = 
   assert.equal(classifyFailure(new CaseApiError(409, 'COMMAND_PAYLOAD_MISMATCH')), 'failed');
 });
 
-test('action ตามสถานะ: ปิดจาก OPEN ตรงไม่ได้ และ CLOSED อ่านอย่างเดียว', () => {
+test('actions by status: cannot close directly from OPEN, and CLOSED is read-only', () => {
   assert.deepEqual(actionsFor('OPEN'), ['assign', 'resolve']);
   assert.deepEqual(actionsFor('RESOLVED'), ['assign', 'reopen', 'close']);
   assert.deepEqual(actionsFor('CLOSED'), []);
 });
 
-test('โน้ต: trim แล้วต้องยาว 1–2,000', () => {
+test('note: after trimming it must be 1–2,000 long', () => {
   assert.deepEqual(validateNote('  ok  '), { ok: true, value: 'ok' });
   assert.equal(validateNote('   ').ok, false);
-  assert.equal(validateNote('ก'.repeat(2000)).ok, true);
-  assert.equal(validateNote('ก'.repeat(2001)).ok, false);
+  assert.equal(validateNote('a'.repeat(2000)).ok, true);
+  assert.equal(validateNote('a'.repeat(2001)).ok, false);
 });
 
 const activity = (id: string, occurredAt: string): CaseActivity => ({
@@ -133,7 +133,7 @@ const activity = (id: string, occurredAt: string): CaseActivity => ({
   assigneeUserId: null,
 });
 
-test('ไทม์ไลน์: เก่าไปใหม่ เวลาเท่ากันคงลำดับจาก server และตัดเหลือรายการล่าสุด', () => {
+test('timeline: oldest to newest, equal times keep the server order, and it is cut to the latest entries', () => {
   const ordered = orderActivities([
     activity('c', '2026-11-19T09:00:00Z'),
     activity('a1', '2026-11-18T10:00:00Z'),

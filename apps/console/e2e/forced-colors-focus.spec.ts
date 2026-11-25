@@ -4,20 +4,20 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 import { AuthoringMock, JOURNEY_ID, withShell } from './support/journey-authoring-mock';
 
 /**
- * Focus indicator ใน forced-colors (Windows High Contrast)
+ * Focus indicator in forced-colors (Windows High Contrast)
  *
- * โหมดนี้เบราว์เซอร์ลบ box-shadow ทิ้ง ring จาก `--dc-focus-ring` จึงหายไป และ component ส่วนใหญ่
- * เขียน `outline: none` คู่กับ ring — `tokens.css` คืน outline ให้ใน `@media (forced-colors: active)`
- * ชุดนี้ตรวจว่า outline กลับมาจริงทั้ง control ของแอป, ui-react และ ring แบบ inset
- * และโหมดปกติยังเป็น ring เดิม (ไม่มี outline เพิ่ม)
+ * in this mode the browser removes box-shadow, so the ring from `--dc-focus-ring` disappears, and most components
+ * write `outline: none` together with the ring — `tokens.css` restores the outline in `@media (forced-colors: active)`
+ * this suite checks that the outline really comes back for app controls, ui-react and the inset ring
+ * and that the normal mode still uses the original ring (no extra outline)
  *
- * ตั้ง FORCED_COLORS_EVIDENCE_DIR เพื่อเก็บภาพหลักฐานของแต่ละ control ทั้งสองโหมด
+ * set FORCED_COLORS_EVIDENCE_DIR to collect evidence screenshots of every control in both modes
  */
 
 const BRAND_RING = 'rgb(15, 118, 110)';
 const evidenceDir = process.env.FORCED_COLORS_EVIDENCE_DIR;
 
-// ภาพหลักฐานใช้ 2x ให้เห็นเส้น 2px ชัด
+// evidence screenshots use 2x so the 2px line is clear
 test.use({
   locale: 'th-TH',
   viewport: { width: 1440, height: 1000 },
@@ -26,7 +26,7 @@ test.use({
 
 type Mode = 'normal' | 'forced';
 
-/** โฟกัสด้วยคีย์บอร์ดจริง เพื่อให้ทั้ง :focus-visible และ data-focus-visible ของ react-aria ทำงาน */
+/** focus by real keyboard so that both :focus-visible and react-aria's data-focus-visible work */
 async function focusByKeyboard(page: Page, target: Locator) {
   await target.focus();
   await page.keyboard.press('Shift+Tab');
@@ -50,7 +50,7 @@ async function capture(page: Page, target: Locator, name: string, mode: Mode) {
   if (!evidenceDir) return;
   mkdirSync(evidenceDir, { recursive: true });
   const box = await target.boundingBox();
-  if (!box) throw new Error(`ไม่พบตำแหน่งของ ${name}`);
+  if (!box) throw new Error(`Could not find the position of ${name}`);
   const pad = 32;
   const x = Math.max(0, box.x - pad);
   const y = Math.max(0, box.y - pad);
@@ -84,13 +84,13 @@ async function expectFocusIndicator(
 }
 
 for (const mode of ['normal', 'forced'] as const) {
-  test.describe(`focus indicator โหมด ${mode}`, () => {
+  test.describe(`focus indicator in ${mode} mode`, () => {
     test.beforeEach(async ({ page }) => {
       await page.emulateMedia({ forcedColors: mode === 'forced' ? 'active' : 'none' });
       await withShell(page, true);
     });
 
-    test('ตัวกรองแบบปุ่มคู่ของ Journey (.j5-segmented ที่ตัด overflow) และปุ่มภาษาใน TopBar', async ({
+    test('the Journey paired filter (.j5-segmented that clips overflow) and the language button in the TopBar', async ({
       page,
     }) => {
       await new AuthoringMock().install(page);
@@ -110,7 +110,7 @@ for (const mode of ['normal', 'forced'] as const) {
       await expectFocusIndicator(page, languagePressed, 'topbar-language-pressed', mode, true);
 
       if (mode === 'forced') {
-        // สถานะกดค้างต้องแยกจากปุ่มปกติได้ (พื้น Highlight) และ outline ของปุ่มที่กดค้างต้องไม่กลืนกับพื้น
+        // the pressed state must be distinguishable from a normal button (Highlight background) and the pressed button's outline must not blend into the background
         const look = (target: Locator) =>
           target.evaluate((element) => {
             const style = getComputedStyle(element);
@@ -128,7 +128,9 @@ for (const mode of ['normal', 'forced'] as const) {
       }
     });
 
-    test('skip link พาโฟกัสไปที่ main โดยไม่มีกรอบรอบเนื้อหาทั้งหน้า', async ({ page }) => {
+    test('the skip link moves focus to main with no frame around the whole page content', async ({
+      page,
+    }) => {
       await new AuthoringMock().install(page);
       await page.goto('/?view=journeys');
       await expect(page.getByRole('group', { name: 'ตัวกรองรายการ' })).toBeVisible();
@@ -141,7 +143,9 @@ for (const mode of ['normal', 'forced'] as const) {
       expect(await main.evaluate((element) => getComputedStyle(element).outlineStyle)).toBe('none');
     });
 
-    test('ปุ่มทั่วไป (ui-react Button) และ input ในหน้าแก้ Journey', async ({ page }) => {
+    test('generic buttons (ui-react Button) and inputs in the Journey edit page', async ({
+      page,
+    }) => {
       await new AuthoringMock().install(page);
       await page.goto(`/?view=journeys&journey=${JOURNEY_ID}`);
       await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
@@ -154,7 +158,7 @@ for (const mode of ['normal', 'forced'] as const) {
       await expectFocusIndicator(page, input, 'input', mode, false);
 
       if (mode === 'forced') {
-        // โหนดที่เลือกใน canvas บอกด้วยพื้นสีอย่างเดียว ในโหมดนี้ต้องมีขอบ Highlight ที่หนากว่าโหนดอื่น
+        // a selected node on the canvas is indicated by a colored background only; in this mode it must have a Highlight border thicker than other nodes
         const canvas = page.getByRole('group', { name: 'ผังขั้นตอนของ Journey' });
         const send = canvas.getByRole('button', { name: 'ส่งข้อความ' });
         await send.focus();

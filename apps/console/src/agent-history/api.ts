@@ -18,7 +18,7 @@ export interface HistoryDetail {
   recordedAtSource: RecordedAtSource;
   legacy: boolean;
 }
-/** #964 สรุปงานที่จบของ Agent — ตัวเลขนับจากนิยามเดียวกับรายการ */
+/** #964 summary of an Agent's finished work — the numbers are counted by the same definition as the list */
 export interface HistorySummary {
   period: { key: SummaryPeriod; from: string | null; to: string | null; timeZone: string };
   completed: number;

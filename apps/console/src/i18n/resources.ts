@@ -5,14 +5,14 @@ import tenantPeopleTh from './locales/th/tenant-people.json' with { type: 'json'
 import tenantPeopleEn from './locales/en/tenant-people.json' with { type: 'json' };
 import voiceRoutingEn from './locales/en/voice-routing.json' with { type: 'json' };
 /**
- * D1.11 (#450): message catalog ของแอป — bundle ทั้งสองภาษาโหลดตั้งแต่เริ่ม (ไม่ lazy)
- * เพื่อให้สลับภาษาได้ทันทีโดยไม่มี request และไม่ reload
+ * D1.11 (#450): the app's message catalogs — both language bundles load at startup (not lazy)
+ * so the language can be switched instantly with no request and no reload
  *
- * namespace ตามแอป/หน้าจอ: `common` ใช้ร่วมทั้งแอป, หน้าที่ย้ายมาใช้ shell ใหม่ (D1.14/D1.15)
- * เพิ่ม namespace ของตัวเอง เช่น `journeys` — key เป็นรูป `<หมวด>.<สิ่งของ>.<การกระทำ>`
- * `pnpm i18n:check` ใน CI ล้มเมื่อ key ขาดภาษาใดภาษาหนึ่ง
+ * namespaces by app/screen: `common` is shared across the app; pages moved to the new shell (D1.14/D1.15)
+ * add their own namespace, e.g. `journeys` — keys have the shape `<category>.<thing>.<action>`
+ * `pnpm i18n:check` in CI fails when a key is missing from either language
  */
-// subpath ที่ไม่มี CSS — resources ถูก import ใน unit test ของ Node ได้
+// subpath without CSS — resources can be imported in Node unit tests
 import { uiResources } from '@d-contact/ui-react/i18n';
 import commonEn from './locales/en/common.json' with { type: 'json' };
 import commonTh from './locales/th/common.json' with { type: 'json' };
@@ -57,7 +57,7 @@ import teamHistoryEn from './locales/en/team-history.json' with { type: 'json' }
 
 export const DEFAULT_NAMESPACE = 'common';
 
-// namespace `ui` ของ component layer (ADR-028) โหลดพร้อมกัน จึงสลับภาษาพร้อมกันทั้งจอ
+// the component layer's `ui` namespace (ADR-028) loads together, so the language switches across the whole screen at once
 export const resources = {
   th: {
     common: commonTh,

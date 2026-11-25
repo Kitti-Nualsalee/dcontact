@@ -5,7 +5,7 @@
   background: var(--dc-surface-page);
 }
 .gov-shell--embedded {
-  /* #654: อยู่ใน ConsoleShell — ความสูงและพื้นหลังเป็นของ shell */
+  /* #654: inside ConsoleShell — height and background belong to the shell */
   min-height: 0;
   background: transparent;
 }

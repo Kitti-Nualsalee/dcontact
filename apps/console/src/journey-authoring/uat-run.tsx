@@ -1,14 +1,14 @@
 /**
- * U1.4 (#432): แผง UAT run บน Journey Console จริง (Phase Contract #374, evidence #379)
+ * U1.4 (#432): UAT run panel on the real Journey Console (Phase Contract #374, evidence #379)
  *
- * - แสดงเมื่อ API รายงาน profile `uat` เท่านั้น — API อื่นไม่มี route profile (404) จึงไม่มี UI ของ UAT เลย
- * - อยู่ในเนื้อหาของหน้า (ไม่ใช่ shell) จึงทำงานเหมือนกันทั้งเปิดและปิด flag `ui.shell.v2`
- * - ข้อมูล run/ผลทุกอย่างมาจาก server: หลังบันทึกผลหรือ `เริ่มรอบใหม่` โหลด run ใหม่เสมอ ไม่อนุมานสถานะเอง
- * - mutation ใช้ `Idempotency-Key` เดียวตลอด intent: เน็ตหลุดแล้วกดซ้ำใช้ key เดิม; server ตอบ error = key ใหม่
- * - session หมด (401) แสดงทางเข้าสู่ระบบใหม่ ไม่ปล่อยหน้าตัน
- * - จอต่ำกว่า 960px อ่านอย่างเดียวตามกติกาเดิมของหน้า: ไม่มีปุ่มบันทึกผล/เริ่มรอบใหม่
- * - U1.5 (#433): แนบภาพหน้าจอ PNG/JPEG ต่อ step, ดูรายการหลักฐานพร้อม digest และส่งออก evidence bundle
- *   (fetch + Blob พร้อม bearer header; ไม่มี token/URL ของ storage ใน URL) — server ตรวจชนิดไฟล์และ scan เอง
+ * - shown only when the API reports profile `uat` — other APIs have no profile route (404), so there is no UAT UI at all
+ * - lives in the page content (not the shell), so it works the same with the flag `ui.shell.v2` on or off
+ * - all run/result data comes from the server: after saving a result or `Start new round` the run is always reloaded, status is never inferred
+ * - a mutation uses one `Idempotency-Key` for the whole intent: after a network drop, pressing again reuses the key; a server error = new key
+ * - session expiry (401) shows a way to sign in again, so the page is never stuck
+ * - screens below 960px are read-only per the page's existing rule: no save-result / start-new-round buttons
+ * - U1.5 (#433): attach PNG/JPEG screenshots per step, view the evidence list with digests and export the evidence bundle
+ *   (fetch + Blob with a bearer header; no token/storage URL in any URL) — the server checks file type and scans on its own
  */
 import {
   createContext,
@@ -50,18 +50,18 @@ export interface UatFailure {
 
 export interface UatContextValue {
   api: UatApi;
-  /** `undefined` = กำลังโหลด, `null` = ยังไม่มี run ที่ ACTIVE */
+  /** `undefined` = loading, `null` = no ACTIVE run yet */
   run: UatRunView | null | undefined;
   loadError: UatFailure | null;
   sessionExpired: boolean;
   reload(): Promise<void>;
-  /** แปลง error เป็นรูปที่แสดงได้ และจำว่า session หมดเมื่อได้ 401 */
+  /** turn an error into a displayable shape and remember that the session expired on 401 */
   failure(error: unknown): UatFailure;
 }
 
 const UatContext = createContext<UatContextValue | null>(null);
 
-/** `null` = ไม่ใช่ UAT (หรือยังไม่รู้ profile) — ใช้ path เดิมของ J5 ทั้งหมด */
+/** `null` = not UAT (or profile not known yet) — use the existing J5 path entirely */
 export function useUat(): UatContextValue | null {
   return useContext(UatContext);
 }
@@ -98,7 +98,7 @@ export function UatProvider({ api, children }: { api?: UatApi; children: ReactNo
         setActive(true);
         void reload();
       })
-      // อ่าน profile ไม่ได้ = ไม่รู้ว่าเป็น UAT จึงไม่แสดงอะไรที่อ้างว่าเป็น UAT
+      // profile unreadable = not known to be UAT, so show nothing that claims to be UAT
       .catch(() => undefined);
     return () => {
       cancelled = true;
@@ -112,9 +112,9 @@ export function UatProvider({ api, children }: { api?: UatApi; children: ReactNo
   return <UatContext.Provider value={value}>{children}</UatContext.Provider>;
 }
 
-// ── ข้อความ ─────────────────────────────────────────────────────────────────
+// ── Messages ────────────────────────────────────────────────────────────────
 
-/** code ที่ server ไม่ส่ง `nextSafeAction` มา — ทางไปต่อที่ปลอดภัยของแต่ละ code */
+/** codes for which the server does not send `nextSafeAction` — the safe way forward for each code */
 const DEFAULT_NEXT_ACTION: Readonly<Record<string, string>> = {
   REVISION_CONFLICT: 'RELOAD_RUN',
   UAT_RUN_CLOSED: 'RELOAD_RUN',
@@ -132,7 +132,7 @@ const DEFAULT_NEXT_ACTION: Readonly<Record<string, string>> = {
   EVIDENCE_NOT_FOUND: 'RELOAD_RUN',
 };
 
-/** งานค้างของ run เดิมที่ต้องจัดการใน Journey ของรอบนั้นก่อน */
+/** outstanding work of the previous run that must be handled in that round's Journey first */
 const JOURNEY_ACTIONS = new Set([
   'DECIDE_REVIEW',
   'PUBLISH_OR_EDIT_DRAFT',
@@ -164,7 +164,7 @@ function short(value: string, length: number): string {
   return value.slice(0, length);
 }
 
-// ── ส่วนประกอบย่อย ───────────────────────────────────────────────────────────
+// ── Sub-components ──────────────────────────────────────────────────────────
 
 function FailureNotice({
   failure,
@@ -272,7 +272,7 @@ function RecordStepForm({
       await uat.reload();
       onRecorded(stepId);
     } catch (error) {
-      // server ตอบแล้ว = intent จบ; เน็ตหลุด = ยังไม่รู้ผล กดซ้ำด้วย key เดิม (server replay ได้)
+      // server answered = intent finished; network dropped = outcome unknown, press again with the same key (the server can replay)
       if (error instanceof JourneyAuthoringApiError) intent.current = null;
       onFailure(uat.failure(error));
       if (error instanceof JourneyAuthoringApiError && error.code === 'UAT_RUN_CLOSED')
@@ -380,7 +380,7 @@ function RecordStepForm({
   );
 }
 
-/** ภาพหน้าจอหลักฐาน: อัปโหลดต่อ step, รายการพร้อม digest และส่งออก bundle (U1.5 #433) */
+/** evidence screenshots: upload per step, list with digests and export the bundle (U1.5 #433) */
 function EvidenceSection({
   uat,
   run,
@@ -434,7 +434,7 @@ function EvidenceSection({
       await load();
       onAnnounce(t('uat.evidence.uploaded', { stepId }));
     } catch (error) {
-      // server ตอบแล้ว = intent จบ; เน็ตหลุด = กดซ้ำด้วย key เดิม
+      // server answered = intent finished; network dropped = press again with the same key
       if (error instanceof JourneyAuthoringApiError) intent.current = null;
       onFailure(failure(error));
       if (error instanceof JourneyAuthoringApiError && error.code === 'UAT_RUN_CLOSED')
@@ -449,7 +449,7 @@ function EvidenceSection({
     onFailure(null);
     try {
       const bundle = await api.exportBundle(run.runId);
-      // ดาวน์โหลดจาก Blob ในหน่วยความจำ — ไม่เปิด URL ของ API/storage ที่ต้องแนบ token
+      // download from an in-memory Blob — do not open an API/storage URL that would need a token attached
       const href = URL.createObjectURL(
         new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' }),
       );
@@ -594,7 +594,7 @@ function EvidenceSection({
   );
 }
 
-// ── แผงหลัก ─────────────────────────────────────────────────────────────────
+// ── Main panel ──────────────────────────────────────────────────────────────
 
 export function UatRunPanel({
   readOnly,
@@ -603,7 +603,7 @@ export function UatRunPanel({
   onSignInAgain,
 }: {
   readOnly: boolean;
-  /** pack เริ่มต้นตอนยังไม่มี run (ค่าจาก build) — ผู้ทดสอบแก้ได้ใน dialog ก่อนยืนยัน */
+  /** default pack when there is no run yet (value from the build) — the tester can edit it in the dialog before confirming */
   defaults?: { environment?: string; packVersion?: string };
   onOpenJourney: (journeyId: string) => void;
   onSignInAgain?: () => void;
@@ -641,7 +641,7 @@ export function UatRunPanel({
     } catch (error) {
       if (error instanceof JourneyAuthoringApiError) startIntent.current = null;
       setFailure(uat.failure(error));
-      // revision เปลี่ยน/run ปิดแล้ว: โหลดความจริงล่าสุดจาก server ให้ผู้ทดสอบตัดสินใจใหม่
+      // revision changed / run closed: load the latest truth from the server so the tester decides again
       if (
         error instanceof JourneyAuthoringApiError &&
         ['REVISION_CONFLICT', 'UAT_RUN_CLOSED'].includes(error.code ?? '')

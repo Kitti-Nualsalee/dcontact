@@ -3,8 +3,8 @@ import { expect, test, type Page } from '@playwright/test';
 import { homeNavigation } from './support/home-navigation.js';
 
 /**
- * D1.13 (#452): flag `ui.shell.v2` ของ Console — Navigation API จำลองด้วย page.route
- * เนื้อหาของหน้า Journeys ไม่ใช่เป้าของ test นี้ (ย้ายจริงใน D1.14) จึงตรวจ axe เฉพาะส่วนของ shell
+ * D1.13 (#452): the Console flag `ui.shell.v2` — the Navigation API is mocked with page.route
+ * the Journeys page content is not this test's target (really moved in D1.14), so axe checks only the shell parts
  */
 test.use({ locale: 'th-TH' });
 
@@ -38,7 +38,7 @@ function navigation(shellV2: boolean) {
         path: '/?view=governance',
       },
     ],
-    // #651: พื้นที่งานบน rail + เมนูย่อย (server คัดตาม role/plan แล้ว)
+    // #651: work areas on the rail + submenu (the server already filtered by role/plan)
     areas: [
       {
         id: 'workspace',
@@ -77,7 +77,7 @@ function navigation(shellV2: boolean) {
 }
 
 async function mockNavigation(page: Page, response: { status: number; body?: unknown }) {
-  // หน้า Journeys ต้องได้รายการ (ว่าง) ไม่เช่นนั้นเนื้อหาหน้าจะ error เอง — ไม่เกี่ยวกับ shell
+  // the Journeys page must get a (empty) list, otherwise the page content errors by itself — unrelated to the shell
   await page.route('**/api/v1/journey-authoring/**', (route) =>
     route.fulfill({ status: 200, json: { items: [], nextCursor: null } }),
   );
@@ -88,7 +88,9 @@ async function mockNavigation(page: Page, response: { status: number; body?: unk
 
 const rail = (page: Page) => page.getByRole('navigation', { name: 'เมนูหลัก' });
 
-test('#860: เมนูลูกค้าตาม registry ใช้คีย์บอร์ดและเปลี่ยนภาษาได้บนจอแคบ', async ({ page }) => {
+test('#860: the customer menu per the registry works by keyboard and can switch language on a narrow screen', async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 375, height: 812 });
   await mockNavigation(page, { status: 200, body: homeNavigation(['admin']) });
   await page.goto('/?view=journeys&tenant=demo');
@@ -113,7 +115,7 @@ test('#860: เมนูลูกค้าตาม registry ใช้คีย�
   ).toBeVisible();
 });
 
-test('#860: Supervisor เห็นเฉพาะหน้าลูกค้าที่ server ส่ง', async ({ page }) => {
+test('#860: a Supervisor sees only the customer pages the server sends', async ({ page }) => {
   await mockNavigation(page, { status: 200, body: homeNavigation(['supervisor']) });
   await page.goto('/?view=journeys&tenant=demo');
   await rail(page).getByRole('link', { name: 'ลูกค้า' }).click();
@@ -122,7 +124,7 @@ test('#860: Supervisor เห็นเฉพาะหน้าลูกค้า
   await expect(subnav.getByRole('link', { name: 'ลูกค้า' })).toBeVisible();
 });
 
-test('breadcrumb ของหน้าที่ไม่มีแบบเฉพาะใช้ พื้นที่ / แอป ตามเมนู ไม่ใช่ Governance', async ({
+test('the breadcrumb of a page with no specific form uses area / app per the menu, not Governance', async ({
   page,
 }) => {
   await mockNavigation(page, { status: 200, body: homeNavigation(['agent']) });
@@ -140,14 +142,16 @@ test('breadcrumb ของหน้าที่ไม่มีแบบเฉพ
   }
 });
 
-test('flag ปิด → ไม่มี rail และหน้าที่ยังไม่ย้ายไม่โหลด token ของ shell', async ({ page }) => {
+test('flag off → no rail, and a page not yet moved does not load the shell tokens', async ({
+  page,
+}) => {
   await mockNavigation(page, { status: 200, body: navigation(false) });
   await page.goto('/?view=journeys&tenant=demo');
   await page.waitForLoadState('networkidle');
   await expect(page.locator('#root')).not.toBeEmpty();
   await expect(rail(page)).toHaveCount(0);
 
-  // D1.14: หน้า Journeys ย้ายมาใช้ token แล้วทั้งสองสถานะของ flag — หน้าที่ยังไม่ย้ายต้องไม่ได้ token
+  // D1.14: the Journeys page moved to tokens in both flag states — a page not yet moved must not get tokens
   await page.goto('/?view=i18n');
   await expect(page.getByTestId('language-label')).toBeVisible();
   const brand = await page.evaluate(() =>
@@ -156,7 +160,7 @@ test('flag ปิด → ไม่มี rail และหน้าที่ย�
   expect(brand).toBe('');
 });
 
-test('Navigation API ล้มเหลว → กลับไปหน้าเดิม (fail-safe)', async ({ page }) => {
+test('Navigation API fails → return to the original page (fail-safe)', async ({ page }) => {
   await mockNavigation(page, { status: 500 });
   await page.goto('/?view=journeys&tenant=demo');
   await page.waitForLoadState('networkidle');
@@ -164,7 +168,7 @@ test('Navigation API ล้มเหลว → กลับไปหน้าเ
   await expect(rail(page)).toHaveCount(0);
 });
 
-test('flag เปิด → shell ครอบ Journeys: rail, SubNav, แถบบน และลิงก์ข้ามแอปมีแค่ path + tenant', async ({
+test('flag on → the shell wraps Journeys: rail, SubNav, top bar, and cross-app links hold only path + tenant', async ({
   page,
 }) => {
   await mockNavigation(page, { status: 200, body: navigation(true) });
@@ -174,7 +178,7 @@ test('flag เปิด → shell ครอบ Journeys: rail, SubNav, แถบ
     'aria-current',
     'page',
   );
-  // #758: ทางเข้าระบบสดอยู่แถบบนและเปิดแท็บใหม่พร้อม tenant
+  // #758: the live-system entry is in the top bar and opens a new tab with the tenant
   const workspace = page.locator('header').getByRole('link', { name: /^Workspace/ });
   await expect(workspace).toHaveAttribute('href', 'http://localhost:5173/?tenant=demo');
   await expect(workspace).toHaveAttribute('target', '_blank');
@@ -199,7 +203,9 @@ test('flag เปิด → shell ครอบ Journeys: rail, SubNav, แถบ
   ).toEqual([]);
 });
 
-test('flag เปิด → สลับภาษาในแถบบนเปลี่ยนป้ายของ shell ทันทีโดยไม่ reload', async ({ page }) => {
+test('flag on → switching language in the top bar changes the shell labels immediately without reload', async ({
+  page,
+}) => {
   await mockNavigation(page, { status: 200, body: navigation(true) });
   await page.goto('/?view=journeys&tenant=demo');
   const origin = await page.evaluate(() => performance.timeOrigin);
@@ -215,14 +221,14 @@ test('flag เปิด → สลับภาษาในแถบบนเป�
  */
 const userMenu = (page: Page) => page.getByRole('button', { name: 'เมนูผู้ใช้ Console Tester' });
 
-test('flag ปิด → ไม่มีเมนูผู้ใช้', async ({ page }) => {
+test('flag off → no user menu', async ({ page }) => {
   await mockNavigation(page, { status: 200, body: navigation(false) });
   await page.goto('/?view=journeys&tenant=demo');
   await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible();
   await expect(userMenu(page)).toHaveCount(0);
 });
 
-test('flag เปิด → เมนูผู้ใช้แสดงชื่อ/องค์กร/บทบาท ไม่มีลิงก์ไปที่อื่น และออกจากระบบได้', async ({
+test('flag on → the user menu shows name/organization/role, has no link elsewhere, and can sign out', async ({
   page,
 }) => {
   await mockNavigation(page, { status: 200, body: navigation(true) });
@@ -234,7 +240,7 @@ test('flag เปิด → เมนูผู้ใช้แสดงชื่�
     /Console Tester.*console-e2e@demo\.example.*องค์กร demo.*ผู้ดูแลระบบ/,
   );
   await expect(page.getByText('offline_access')).toHaveCount(0);
-  // AC5 (#598): "บัญชีของฉัน" ชี้หน้า Console ของ D-Contact เท่านั้น (แท็บเดิม) + ออกจากระบบ
+  // AC5 (#598): "My account" points only to the D-Contact Console page (same tab) + sign out
   await expect(menu.getByRole('menuitem')).toHaveCount(2);
   await expect(menu.getByRole('menuitem', { name: 'บัญชีของฉัน' })).toHaveAttribute(
     'href',
@@ -253,7 +259,7 @@ test('flag เปิด → เมนูผู้ใช้แสดงชื่�
   expect(await page.evaluate(() => (window as { __signOuts?: number }).__signOuts ?? 0)).toBe(1);
 });
 
-test('#588: ออกจากระบบไม่สำเร็จ → แจ้งเตือนผู้ใช้ ไม่เงียบหาย', async ({ page }) => {
+test('#588: sign-out fails → the user is notified, not silently swallowed', async ({ page }) => {
   await mockNavigation(page, { status: 200, body: navigation(true) });
   await page.goto('/?view=journeys&tenant=demo&signout=fail');
   await userMenu(page).click();
@@ -262,9 +268,9 @@ test('#588: ออกจากระบบไม่สำเร็จ → แจ
 });
 
 /**
- * #651: ระบบเมนู Rail (พื้นที่งาน) + เมนูย่อยที่ขับด้วยข้อมูลจาก Navigation API
+ * #651: Rail menu system (work areas) + a submenu driven by data from the Navigation API
  */
-test('#651: rail แสดงพื้นที่งานที่มีสิทธิ์ตามลำดับของ server และเลือกพื้นที่ปัจจุบัน', async ({
+test("#651: the rail shows the permitted work areas in the server's order and selects the current area", async ({
   page,
 }) => {
   await mockNavigation(page, { status: 200, body: navigation(true) });
@@ -276,16 +282,18 @@ test('#651: rail แสดงพื้นที่งานที่มีสิ
     'governance',
   ]);
   await expect(rail(page).locator('a[aria-current=page]')).toHaveAttribute('data-area', 'journeys');
-  // ปุ่มพื้นที่ในแอปเดียวกัน = ลิงก์ relative ไปรายการแรกของพื้นที่
+  // an area button within the same app = a relative link to the area's first item
   await expect(rail(page).locator('a[data-area=governance]')).toHaveAttribute(
     'href',
     '/?view=governance&tenant=demo',
   );
-  // พื้นที่ที่ผู้ใช้ไม่มีสิทธิ์ (ไม่อยู่ใน response) ต้องไม่มีบน rail
+  // an area the user has no permission for (not in the response) must not be on the rail
   await expect(rail(page).locator('a[data-area=integrations]')).toHaveCount(0);
 });
 
-test('#758: เมนูย่อยแสดงเฉพาะพื้นที่ปัจจุบัน ไม่แทรกหมุดจากพื้นที่อื่น', async ({ page }) => {
+test('#758: the submenu shows only the current area, with no pins inserted from other areas', async ({
+  page,
+}) => {
   await mockNavigation(page, { status: 200, body: navigation(true) });
   await page.goto('/?view=journeys&tenant=demo');
   const sub = page.getByRole('navigation', { name: 'Journeys' });
@@ -299,7 +307,7 @@ test('#758: เมนูย่อยแสดงเฉพาะพื้นท�
   await expect(sub.getByRole('link', { name: /กล่องงาน/ })).toHaveCount(0);
 });
 
-test('#651: rail พื้นที่และเมนูย่อยผ่าน axe ทั้งไทยและอังกฤษ', async ({ page }) => {
+test('#651: the area rail and submenu pass axe in both Thai and English', async ({ page }) => {
   await mockNavigation(page, { status: 200, body: navigation(true) });
   await page.goto('/?view=journeys&tenant=demo');
   for (const language of ['TH', 'EN']) {
@@ -313,7 +321,7 @@ test('#651: rail พื้นที่และเมนูย่อยผ่า
   }
 });
 
-test('#651: API รุ่นเก่าที่ไม่ส่ง areas → rail ใช้หมุดแอปเดิม และมีเมนูย่อยรายการเดียวของแอปนี้', async ({
+test("#651: an older API that does not send areas → the rail uses the app's original pins, and has a single submenu item for this app", async ({
   page,
 }) => {
   const { areas: _areas, ...legacy } = navigation(true);
@@ -329,7 +337,7 @@ test('#651: API รุ่นเก่าที่ไม่ส่ง areas → ra
 });
 
 for (const width of [390, 768, 1440]) {
-  test(`#861: Console header และ navigation ที่ ${width}px ทั้ง TH/EN`, async ({ page }) => {
+  test(`#861: Console header and navigation at ${width}px in both TH/EN`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await mockNavigation(page, { status: 200, body: homeNavigation(['admin']) });
     await page.goto('/?view=journeys&tenant=demo');

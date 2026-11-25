@@ -54,7 +54,7 @@ export function CoreTeamsPage({
   const statusRef = useRef<HTMLDivElement>(null);
   useEffect(() => model.subscribe(render), [model]);
   useEffect(() => {
-    // รักษา references ของ resource อื่นใน identity เดียวกันจนกว่าจะตรวจผลครบ
+    // keep the references of other resources under the same identity until all results are checked
     clearCoreCommandReferences(undefined, `dc:core-settings:command:${identityKey}:`);
     model.narrow = window.matchMedia('(max-width:760px)').matches;
     void model.load();

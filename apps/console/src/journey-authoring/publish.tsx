@@ -1,9 +1,9 @@
 /**
- * J5.6 (#344): publish และ lifecycle — สถานะทั้งหมดมาจาก server
+ * J5.6 (#344): publish and lifecycle — all state comes from the server
  *
- * - key ของ publish ถูกถือไว้ตลอด intent เดียว (ผูกกับ review/draft/compile ที่ยืนยัน): retry และ
- *   resolve ใช้ key เดิมเสมอ ไม่ mint ใหม่ จึงไม่มีทาง publish ซ้ำจากการกดซ้ำหรือเน็ตหลุด
- * - `202 PUBLISH_OUTCOME_UNKNOWN` หรือเน็ตหลุดระหว่างรอ ไม่ถูกแสดงว่าสำเร็จ — ต้อง resolve จนรู้ผล
+ * - the publish key is held for a single intent (bound to the confirmed review/draft/compile): retry and
+ *   resolve always use the same key and never mint a new one, so a double press or a network drop cannot publish twice
+ * - `202 PUBLISH_OUTCOME_UNKNOWN` or a network drop while waiting is never shown as success — it must be resolved until the result is known
  */
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import {
@@ -25,7 +25,7 @@ export interface DialogField {
   patternHint?: string;
 }
 
-/** dialog แบบ modal: focus เข้าตัวแรก, Tab วนในกล่อง, Esc ปิด และคืน focus ให้ปุ่มที่เปิด */
+/** modal dialog: focus enters the first element, Tab cycles within the box, Esc closes and returns focus to the button that opened it */
 export function Dialog({
   title,
   body,
@@ -137,7 +137,7 @@ export function Dialog({
   );
 }
 
-/** ช่อง reason code ร่วม — label/hint อ่านจาก catalog ตอนเปิด dialog (ภาษาปัจจุบัน) */
+/** shared reason code field — label/hint are read from the catalog when the dialog opens (current language) */
 export function reasonField(): DialogField {
   return {
     name: 'reasonCode',
@@ -222,7 +222,7 @@ export function PublishPanel({
       if (error instanceof JourneyAuthoringApiError) {
         setState({ phase: 'failed', code: error.code });
       } else {
-        // เน็ตหลุดระหว่างรอ: ไม่รู้ว่า server commit หรือยัง
+        // network dropped while waiting: not known whether the server committed
         setState({ phase: 'unknown' });
       }
     }

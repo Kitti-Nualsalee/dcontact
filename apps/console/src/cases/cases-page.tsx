@@ -9,12 +9,12 @@ import './cases.css';
 export interface CasesPageProps {
   api: CasesApi;
   identityKey: string;
-  /** `dc_user_id` ของผู้ดู — ใช้ติดป้าย "คุณ" และตัวเลือก "(คุณ)" เท่านั้น สิทธิ์ตัดสินที่ server */
+  /** the viewer's `dc_user_id` — used only to label "You" and the "(You)" option; permission is decided at the server */
   viewerUserId: string;
   onSignIn?: () => void;
 }
 
-/** identity เปลี่ยน = เริ่ม session ใหม่ ล้างรายการ ร่างโน้ต และคำสั่งที่ค้างอยู่ทั้งหมด */
+/** identity change = start a new session, clearing the list, note drafts and every pending command */
 export function CasesPage(props: CasesPageProps) {
   return <CasesSession key={props.identityKey} {...props} />;
 }
@@ -24,7 +24,7 @@ function CasesSession({ api, viewerUserId, onSignIn }: CasesPageProps) {
   const [route, setRoute] = useState<CasesRoute>(() =>
     parseCasesRoute(new URL(window.location.href)),
   );
-  // เปิดรายละเอียดจากรายการ (pushState) → Back ของเบราว์เซอร์กลับ filter เดิม; deep link ต้องเดิน route เอง
+  // opening a detail from the list (pushState) → the browser Back returns to the original filter; a deep link must walk the route itself
   const pushedFromList = useRef(false);
   const lastOpened = useRef<string | undefined>(undefined);
 

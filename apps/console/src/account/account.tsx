@@ -1,9 +1,9 @@
 /**
- * AC5 (#598): Console › "บัญชีของฉัน" (ทุก role) และ "นโยบายบัญชี" (admin) — Phase Contract #589
+ * AC5 (#598): Console › "My account" (every role) and "Account policy" (admin) — Phase Contract #589
  *
- * - ทุกอย่างอยู่ในหน้าของ D-Contact: ไม่มีลิงก์/ข้อความของระบบ identity (D2, D6)
- * - token ยืนยัน email ถูกย้ายออกจาก URL ก่อน render (`stashVerifyToken`) แล้วอ่านครั้งเดียวที่นี่
- * - สิทธิ์จริงตัดสินที่ API — role ใช้แค่เลือกว่าจะแสดงหน้า/ลิงก์ของ admin
+ * - everything lives in D-Contact pages: no links/text from the identity system (D2, D6)
+ * - the email verification token is moved out of the URL before render (`stashVerifyToken`) and read once here
+ * - real permission is decided at the API — the role is only used to choose whether to show the admin page/link
  */
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { encode } from 'uqr';
@@ -51,7 +51,7 @@ function useFormatDate() {
       : '';
 }
 
-/** QR เป็น SVG ล้วน (ไม่ใช้ innerHTML/canvas) — เข้มบนพื้นขาวเสมอเพื่อให้กล้องอ่านได้ทุกธีม */
+/** the QR is pure SVG (no innerHTML/canvas) — always dark on white so cameras can read it in every theme */
 export function QrCode({ value, label }: { value: string; label: string }) {
   const { size, data } = encode(value, { ecc: 'M', border: 2 });
   let path = '';
@@ -74,14 +74,14 @@ export function QrCode({ value, label }: { value: string; label: string }) {
   );
 }
 
-// ── หน้า "บัญชีของฉัน" ──
+// ── "My account" page ──
 
 export function AccountPage({
   api,
   verifyStorage,
 }: {
   api: AccountApi;
-  /** ที่เก็บ token ยืนยัน email ชั่วคราว (sessionStorage) — ไม่มี = ไม่มีการยืนยันค้าง */
+  /** temporary store of the email verification token (sessionStorage) — none = no pending verification */
   verifyStorage?: Pick<Storage, 'getItem' | 'removeItem'>;
 }) {
   const t = useAccountText();
@@ -108,7 +108,7 @@ export function AccountPage({
   }, [api, t]);
 
   useEffect(() => {
-    // ยืนยัน email จากลิงก์ก่อนโหลดข้อมูล — ทำครั้งเดียวแม้ StrictMode เรียก effect ซ้ำ
+    // verify the email from the link before loading data — done once even if StrictMode calls the effect twice
     if (verifyStarted.current) return;
     verifyStarted.current = true;
     const token = verifyStorage ? takeVerifyToken(verifyStorage) : null;
@@ -620,7 +620,7 @@ function EnrolDialog({
   );
 }
 
-// ── หน้า "นโยบายบัญชี" (admin) ──
+// ── "Account policy" page (admin) ──
 
 export function AccountPolicyPage({ api, canEdit }: { api: AccountPolicyApi; canEdit: boolean }) {
   const t = useAccountText();

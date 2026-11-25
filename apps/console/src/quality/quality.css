@@ -1,4 +1,4 @@
-/* #971 หน้าประเมินคุณภาพ: ฟอร์ม (Admin), ประเมินสายของทีม (Supervisor), คะแนนของฉัน (Agent) */
+/* #971 quality evaluation pages: forms (Admin), team call evaluation (Supervisor), my scores (Agent) */
 .qm-root {
   padding: var(--dc-space-8);
   color: var(--dc-text-primary);
@@ -97,7 +97,7 @@
   overflow-x: auto;
   margin-block: var(--dc-space-4) var(--dc-space-6);
 }
-/* ระหว่างโหลดใหม่คงรายการเดิมไว้ ไม่ให้หน้ากระโดด */
+/* keep the existing list while reloading so the page does not jump */
 .qm-scroll[data-stale] {
   opacity: 0.6;
 }
@@ -148,7 +148,7 @@
     var(--dc-space-5) center / 40% 12px;
 }
 
-/* เนื้อหาหลักซ้าย สรุปและ action ขวา (หน้าอ้างอิง people.html agent-form) */
+/* main content on the left, summary and actions on the right (reference page people.html agent-form) */
 .qm-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 20rem;
@@ -298,7 +298,7 @@
   padding-block: var(--dc-space-4);
   border-block: 1px solid var(--dc-border-subtle);
 }
-/* คะแนนตัวอย่างที่ยังไม่รวมการแก้ล่าสุด */
+/* sample score that does not yet include the latest edits */
 .qm-score[data-stale] .qm-score-value {
   color: var(--dc-text-muted);
 }
@@ -327,7 +327,7 @@
   font-size: var(--dc-text-sm);
 }
 
-/* ring ของ radio ที่ทำเองครอบทั้งปุ่มเหมือนโหมดปกติ (แบบเดียวกับ .j5-segmented) */
+/* the hand-made radio ring wraps the whole button like the normal mode (same as .j5-segmented) */
 @media (forced-colors: active) {
   .qm-choice:has(input:focus-visible) {
     outline: 2px solid Highlight;

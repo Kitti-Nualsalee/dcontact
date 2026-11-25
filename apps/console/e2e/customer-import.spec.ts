@@ -3,8 +3,8 @@ import { expect, test, type Page } from '@playwright/test';
 import { homeNavigation } from './support/home-navigation.js';
 
 /**
- * CSV import (#909): ตรวจ UI เท่านั้น — API ถูกจำลองด้วย route; ไม่ใช่หลักฐาน HTTP→DB
- * (ส่วน HTTP→PostgreSQL/RLS อยู่ที่ apps/api/src/customer-360-import.integration.ts)
+ * CSV import (#909): UI check only — the API is mocked with routes; not HTTP→DB evidence
+ * (the HTTP→PostgreSQL/RLS part is in apps/api/src/customer-360-import.integration.ts)
  */
 test.use({ locale: 'th-TH', viewport: { width: 1280, height: 900 } });
 
@@ -40,7 +40,7 @@ async function open(page: Page) {
   });
 }
 
-test('อัปโหลด → จับคู่ → ตรวจ → ยืนยัน → ผลรายแถว', async ({ page }) => {
+test('upload → map → check → confirm → per-row result', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   const posts: string[] = [];
@@ -83,7 +83,7 @@ test('อัปโหลด → จับคู่ → ตรวจ → ยื�
     });
   });
   await open(page);
-  // เดา mapping จากหัวคอลัมน์ไทยให้แล้ว: ส่งได้ทันที
+  // the mapping was already guessed from the Thai column headers: can send immediately
   await expect(page.getByRole('button', { name: 'ตรวจไฟล์' })).toBeEnabled();
   await page.getByRole('button', { name: 'ตรวจไฟล์' }).click();
   await expect(page.getByText('ผ่าน 1 แถว', { exact: true })).toBeVisible();
@@ -106,7 +106,7 @@ test('อัปโหลด → จับคู่ → ตรวจ → ยื�
   ).toEqual([]);
 });
 
-test('ผลไม่ครบ: ส่งต่อด้วย commandId เดิม และไฟล์ที่ไม่ใช่ CSV ถูกปฏิเสธก่อนส่ง', async ({
+test('incomplete result: continue with the original commandId, and a non-CSV file is rejected before sending', async ({
   page,
 }) => {
   const confirms: string[] = [];

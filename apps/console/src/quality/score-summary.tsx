@@ -3,7 +3,7 @@ import { Badge } from '@d-contact/ui-react';
 import type { EvaluationScore } from './api.js';
 import { formatScore } from './model.js';
 
-/** คะแนนสุดท้ายพร้อมคะแนนก่อน auto-fail; `stale` = มีการแก้ที่ยังไม่บันทึก คะแนนตัวอย่างอาจไม่ตรง */
+/** final score with the score before auto-fail; `stale` = there are unsaved edits so the sample score may not match */
 export function ScoreSummary({ score, stale }: { score: EvaluationScore | null; stale?: boolean }) {
   const { t } = useTranslation('quality');
   const { locale } = useLocale();

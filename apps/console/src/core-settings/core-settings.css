@@ -80,7 +80,7 @@
 .core-settings__detail {
   margin-block-start: var(--dc-space-6);
 }
-/* #936 เหตุผล Not Ready */
+/* #936 Not Ready reasons */
 .nrr-list {
   display: grid;
   gap: var(--dc-space-4);
@@ -138,7 +138,7 @@
     grid-column: 2;
   }
 }
-/* ป้าย เปิดใช้/ปิดอยู่ กว้างไม่เท่ากัน — ล็อกไว้ไม่ให้ช่องชื่อขยับเมื่อสลับ */
+/* the Enabled/Disabled badges have different widths — lock the width so the name column does not shift when toggling */
 .nrr-controls > :first-child {
   min-inline-size: 6.5em;
 }

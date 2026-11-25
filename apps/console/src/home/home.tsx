@@ -2,7 +2,7 @@ import { useTranslation } from '@d-contact/i18n/react';
 import { Button, ShellIcon, type ShellNavigationState } from '@d-contact/ui-react';
 import './home.css';
 
-/** #684: รายการมาจาก shell request เดียวกัน ไม่มีรายชื่อสำรองที่เดาสิทธิ์เอง */
+/** #684: the items come from the same shell request, with no fallback list that guesses permissions itself */
 export function ConsoleHome({ navigation }: { navigation: ShellNavigationState }) {
   const { t } = useTranslation('home');
   const apps = navigation.status === 'loading' ? undefined : navigation.apps;

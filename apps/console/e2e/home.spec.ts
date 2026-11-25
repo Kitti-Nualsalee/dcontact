@@ -4,7 +4,7 @@ import { homeNavigation } from './support/home-navigation.js';
 
 test.use({ locale: 'th-TH', viewport: { width: 1440, height: 1024 } });
 
-test('Home เป็น default, rail active, sidebar และเมนูเปิดปลายทางตาม host พร้อม tenant', async ({
+test('Home is the default, rail active, sidebar and the menu open the destination per host with the tenant', async ({
   page,
 }) => {
   const errors: string[] = [];
@@ -13,7 +13,7 @@ test('Home เป็น default, rail active, sidebar และเมนูเ�
   await page.route('**/api/v1/me/navigation', (route) => route.fulfill({ json: nav }));
   await page.goto('/?tenant=demo');
   await expect(page.getByRole('heading', { name: 'วันนี้ต้องการทำอะไร?' })).toBeVisible();
-  // Home แสดงหนึ่งรายการต่อแอปที่ server อนุญาต ยกเว้น Home เอง
+  // Home shows one item per app the server allows, except Home itself
   await expect(page.locator('.home__entry')).toHaveCount(
     nav.apps.filter((app) => app.id !== 'home').length,
   );
@@ -87,7 +87,7 @@ test('Home เป็น default, rail active, sidebar และเมนูเ�
         .map((v) => v.id),
     ).toEqual([]);
   }
-  // deep link ไป Journeys ไม่ถูก Home ดัก และย้อนกลับได้
+  // a deep link to Journeys is not intercepted by Home and can go back
   await page.route('**/api/v1/journey-authoring/**', (route) =>
     route.fulfill({ json: { items: [], nextCursor: null } }),
   );
@@ -100,7 +100,7 @@ test('Home เป็น default, rail active, sidebar และเมนูเ�
   expect(errors).toEqual([]);
 });
 
-test('สิทธิ์ compliance เห็นเฉพาะ Governance ทั้งหน้าและ sidebar ไม่เผยแอปอื่น', async ({
+test('compliance permission sees only Governance across the page and sidebar, revealing no other app', async ({
   page,
 }) => {
   await page.route('**/api/v1/me/navigation', (route) =>
@@ -117,7 +117,7 @@ test('สิทธิ์ compliance เห็นเฉพาะ Governance ท�
   ).toHaveCount(0);
 });
 
-test('plan ปิด modules ยังคง catalog Voice ตาม registry และ Home ไม่ขึ้นกับหมุด', async ({
+test('a plan that disables modules still keeps the Voice catalog per the registry, and Home does not depend on pins', async ({
   page,
 }) => {
   const nav = homeNavigation(['admin'], true, {});
@@ -136,7 +136,9 @@ test('plan ปิด modules ยังคง catalog Voice ตาม registry �
   await expect(page.getByRole('heading', { name: 'จัดการและตั้งค่า', exact: true })).toHaveCount(1);
 });
 
-test('ปิด shell flag ยังแสดงเมนูที่ server อนุญาต พร้อมสลับภาษาและบัญชี', async ({ page }) => {
+test('with the shell flag off the menu the server allows still shows, with language and account switching', async ({
+  page,
+}) => {
   await page.route('**/api/v1/me/navigation', (route) =>
     route.fulfill({ json: homeNavigation(['agent'], false) }),
   );
@@ -155,7 +157,7 @@ test('ปิด shell flag ยังแสดงเมนูที่ server อ
   await expect(page.getByRole('menuitem', { name: 'My account' })).toBeVisible();
 });
 
-test('API ล้มเหลวไม่เดาเมนู กดลองอีกครั้งแล้วกู้คืนได้', async ({ page }) => {
+test('an API failure does not guess the menu, try again recovers', async ({ page }) => {
   let fail = true;
   await page.route('**/api/v1/me/navigation', (route) =>
     route.fulfill(fail ? { status: 503, json: {} } : { json: homeNavigation(['agent']) }),
@@ -168,7 +170,9 @@ test('API ล้มเหลวไม่เดาเมนู กดลองอ
   await expect(page.locator('.home__entry')).toHaveCount(2);
 });
 
-test('รายการว่างแสดงวิธีขอสิทธิ์ ไม่มีหมวดว่างหรือเมนูที่เดาเอง', async ({ page }) => {
+test('an empty list shows how to request permission, with no empty category or guessed menu', async ({
+  page,
+}) => {
   await page.route('**/api/v1/me/navigation', (route) =>
     route.fulfill({ json: homeNavigation([]) }),
   );
@@ -178,7 +182,7 @@ test('รายการว่างแสดงวิธีขอสิทธ�
   await expect(page.locator('.home__group')).toHaveCount(0);
 });
 
-test('API รุ่นเก่าไม่มี areas ยังใช้ Home และลิงก์เมนูได้', async ({ page }) => {
+test('an older API with no areas still uses Home and the menu links', async ({ page }) => {
   const { areas, ...legacy } = homeNavigation();
   void areas;
   legacy.apps = legacy.apps.filter((app) => app.id !== 'home');
@@ -192,7 +196,9 @@ test('API รุ่นเก่าไม่มี areas ยังใช้ Home 
 });
 
 for (const shellV2 of [true, false]) {
-  test(`Home บนจอแคบไม่ล้นแนวนอน (shellV2=${shellV2})`, async ({ page }) => {
+  test(`Home on a narrow screen does not overflow horizontally (shellV2=${shellV2})`, async ({
+    page,
+  }) => {
     const nav = homeNavigation(['admin'], shellV2);
     await page.route('**/api/v1/me/navigation', (route) => route.fulfill({ json: nav }));
     await page.setViewportSize({ width: 390, height: 844 });

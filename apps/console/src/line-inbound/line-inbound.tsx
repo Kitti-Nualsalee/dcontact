@@ -1,8 +1,8 @@
 /**
- * #566 (R2): หน้า "LINE inbound (pilot)" — read-only, tenant pilot, role admin (server ตัดสิน)
+ * #566 (R2): the "LINE inbound (pilot)" page — read-only, tenant pilot, role admin (the server decides)
  *
- * แสดงเวลา ชนิด ข้อความ fingerprint ผู้ส่ง และสถานะ; ไม่มี LINE ID ดิบ
- * #567: เมื่อ team trial เปิด (route `/trial` ตอบได้) แสดงช่องตอบกลับต่อรายการและปุ่ม kill
+ * shows time, type, message, sender fingerprint and status; no raw LINE ID
+ * #567: when the team trial is on (route `/trial` answers) show a reply field per item and the kill button
  */
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from '@d-contact/i18n/react';
@@ -22,8 +22,8 @@ function newKey(): string {
 }
 
 /**
- * #567 (T1/T2): ตอบกลับหนึ่งรายการ — text ≤500 ตัวอักษร; key เดิมตลอด intent เดียว (retry หลัง error ไม่ส่งซ้ำ)
- * key ใหม่หลังส่งสำเร็จเท่านั้น
+ * #567 (T1/T2): reply to one item — text ≤500 characters; the same key for a single intent (a retry after an error does not resend)
+ * a new key only after a successful send
  */
 function ReplyForm({
   api,
@@ -92,7 +92,7 @@ function ReplyForm({
   );
 }
 
-/** #567 (T5): สถานะ trial + ปุ่ม kill — ยก kill ทำในหน้านี้ไม่ได้ */
+/** #567 (T5): trial status + kill button — kill cannot be lifted from this page */
 function TrialPanel({
   api,
   trial,
@@ -206,7 +206,7 @@ export function LineInbound({ api }: { api: LineInboundApi }) {
   }, [load, loadTrial]);
 
   const canReply = Boolean(trial?.active && !trial.killed);
-  // token ของ D1 โหลดแบบ dynamic (เหมือนหน้า dphone embedding) — render หลังพร้อมเพื่อไม่ให้เห็นหน้าไม่มีสี
+  // D1 tokens load dynamically (like the dphone embedding page) — render once ready so the page is never seen without colors
   const tokensReady = useShellTokens();
   if (!tokensReady) return null;
 
@@ -284,8 +284,8 @@ export function LineInbound({ api }: { api: LineInboundApi }) {
 }
 
 /**
- * ลิงก์ไปหน้า inbound — แสดงเฉพาะเมื่อ route ตอบได้และบัญชีนี้มีสิทธิ์ (ไม่มี overlay = 404 = ไม่แสดงอะไร)
- * probe ล้มด้วยเหตุอื่นก็ไม่แสดง: ไม่อ้างว่ามี LINE pilot ถ้ายืนยันไม่ได้
+ * link to the inbound page — shown only when the route answers and this account has permission (no overlay = 404 = show nothing)
+ * if the probe fails for any other reason it is also not shown: do not claim a LINE pilot exists if it cannot be confirmed
  */
 export function LineInboundLink({ api, href }: { api: LineInboundApi; href: string }) {
   const { t } = useTranslation('integrations');

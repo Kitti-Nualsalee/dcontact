@@ -51,7 +51,7 @@ import { AccountPage, AccountPolicyPage } from './account/account.js';
 import { stashVerifyToken } from './account/model.js';
 import './style.css';
 
-// AC5 (#598): ลิงก์ยืนยัน email — ย้าย token ออกจาก URL/history ก่อน render และก่อน login redirect
+// AC5 (#598): email verification link — move the token out of the URL/history before render and before the login redirect
 if (new URL(window.location.href).searchParams.get('view') === 'account') {
   stashVerifyToken(new URL(window.location.href), window.sessionStorage, window.history);
 }
@@ -70,7 +70,7 @@ createRoot(root).render(
   </StrictMode>,
 );
 
-// #588: ผู้ใช้จำลองของเมนูผู้ใช้ — การออกจากระบบนับใน `window.__signOuts` ให้ spec ตรวจ
+// #588: simulated user for the user menu — sign-outs are counted in `window.__signOuts` for the spec to check
 function e2eShellUser(tenantAlias: string | undefined) {
   return {
     account: {
@@ -82,7 +82,7 @@ function e2eShellUser(tenantAlias: string | undefined) {
         },
         tenantAlias,
       ),
-      // `?signout=fail` จำลอง redirect ไปออกจากระบบไม่สำเร็จ
+      // `?signout=fail` simulates a failed sign-out redirect
       onSignOut: async () => {
         const w = window as unknown as { __signOuts?: number };
         w.__signOuts = (w.__signOuts ?? 0) + 1;
@@ -181,7 +181,7 @@ function ConsoleE2eRoot() {
     baseUrl: (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? window.location.origin,
     accessToken: () => 'e2e-access-token',
   });
-  // กติกาเดียวกับ ConsoleAuthRoot: ไม่มี view/context เปิด Home
+  // same rule as ConsoleAuthRoot: with no view/context open Home
   const view = resolveConsoleView(
     url,
     import.meta.env.VITE_CONSOLE_DEFAULT_VIEW as string | undefined,
@@ -240,7 +240,7 @@ function ConsoleE2eRoot() {
       />
     );
   if (view === 'customers')
-    // Cus360 C2 (#792): harness ของ browser test — token จำลองถูกแปลงเป็น actor ที่ proxy ของ sandbox
+    // Cus360 C2 (#792): browser-test harness — the simulated token is mapped to an actor at the sandbox proxy
     return (
       <CustomersPage
         shell={{
@@ -308,7 +308,7 @@ function ConsoleE2eRoot() {
       />
     );
   if (view === 'dphone-embedding') {
-    // viewer จาก query ใช้ได้เฉพาะ e2e harness; production อ่าน role จาก token
+    // the viewer from the query is usable only in the e2e harness; production reads the role from the token
     return (
       <ConsoleShell
         {...e2eShellUser(url.searchParams.get('tenant') ?? undefined)}
@@ -341,7 +341,7 @@ function ConsoleE2eRoot() {
   if (view === 'account' || view === 'account-policy') {
     const baseUrl =
       (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? window.location.origin;
-    // บทบาทจาก query ใช้ได้เฉพาะ e2e harness; production อ่าน role จาก token
+    // the role from the query is usable only in the e2e harness; production reads the role from the token
     const admin = url.searchParams.get('viewer') !== 'AGENT';
     const shell = e2eShellUser(url.searchParams.get('tenant') ?? undefined);
     if (!admin) shell.account.user = { ...shell.account.user, roles: ['agent'] };
@@ -368,7 +368,7 @@ function ConsoleE2eRoot() {
     );
   }
   if (view === 'line-inbound') {
-    // #566/#567: หน้า LINE inbound ของ pilot — e2e harness ใช้ API จำลองที่ VITE_API_BASE_URL
+    // #566/#567: the pilot's LINE inbound page — the e2e harness uses a mock API at VITE_API_BASE_URL
     return (
       <ConsoleShell
         {...e2eShellUser(url.searchParams.get('tenant') ?? undefined)}
@@ -418,11 +418,11 @@ function ConsoleE2eRoot() {
     );
   }
   if (view === 'governance') {
-    // viewer จาก query ใช้ได้เฉพาะ e2e harness; production อ่าน role จาก token เท่านั้น
+    // the viewer from the query is usable only in the e2e harness; production reads the role from the token only
     const requested = url.searchParams.get('viewer');
     const viewer: GovernanceViewer =
       requested === 'SUPERVISOR' || requested === 'TENANT_ADMIN' ? requested : 'COMPLIANCE';
-    // #654/#658: ครอบด้วย ConsoleShell เหมือนหน้าอื่น — flag ปิด/API ล้ม = หน้าเดิมทุกประการ (fail-safe)
+    // #654/#658: wrapped in ConsoleShell like the other pages — flag off / API down = the original page exactly (fail-safe)
     return (
       <GovernancePage
         shell={{

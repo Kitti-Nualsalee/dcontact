@@ -1,6 +1,6 @@
-/** #967: กติกาของหน้าเสียงบันทึกของทีมที่ทดสอบได้โดยไม่มี browser */
+/** #967: rules of the team recordings page testable without a browser */
 
-/** API ส่งเสียงช่วงละไม่เกิน 2 วินาที และ browser กันไว้ล่วงหน้าได้ไม่เกิน 4 วินาที */
+/** the API sends audio in ranges of at most 2 seconds, and the browser can buffer at most 4 seconds ahead */
 export const CHUNK_SECONDS = 2;
 export const BUFFER_SECONDS = 4;
 export const DEFAULT_RANGE_DAYS = 7;
@@ -14,7 +14,7 @@ export interface PlaybackFormat {
   maxChunkFrames: number;
 }
 
-/** วันที่ตามเวลาเครื่องผู้ใช้ในรูป YYYY-MM-DD สำหรับ input type="date" */
+/** date in the user's device time as YYYY-MM-DD for input type="date" */
 export function localDate(value: Date): string {
   const pad = (part: number) => String(part).padStart(2, '0');
   return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`;
@@ -29,7 +29,7 @@ export function defaultDates(now: Date): { from: string; to: string } {
 
 export type RangeError = 'INVALID' | 'ORDER' | 'TOO_LONG';
 
-/** ช่วงวันที่ที่ผู้ใช้เลือก (รวมวันสุดท้ายทั้งวัน) เป็นช่วงเวลา UTC ที่ API รับ */
+/** the date range the user picked (including the whole last day) as the UTC range the API accepts */
 export function dateRange(
   from: string,
   to: string,
@@ -48,7 +48,7 @@ export function formatClock(seconds: number): string {
   return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`;
 }
 
-/** ช่วงถัดไปที่ต้องขอ หรือ null เมื่อถึงท้ายไฟล์ */
+/** the next range to request, or null when the end of the file is reached */
 export function nextChunk(
   format: PlaybackFormat,
   nextFrame: number,
@@ -58,7 +58,7 @@ export function nextChunk(
   return { startFrame: nextFrame, frameCount: Math.min(size, format.totalFrames - nextFrame) };
 }
 
-/** ขอช่วงถัดไปเมื่อรวมแล้วเสียงที่รอเล่นยังไม่เกิน BUFFER_SECONDS */
+/** request the next range when the audio waiting to play, once added, does not exceed BUFFER_SECONDS */
 export function shouldFetch(bufferedAheadSeconds: number): boolean {
   return bufferedAheadSeconds + CHUNK_SECONDS <= BUFFER_SECONDS;
 }
@@ -66,7 +66,7 @@ export function shouldFetch(bufferedAheadSeconds: number): boolean {
 export type PlaybackFailure =
   'signIn' | 'denied' | 'gone' | 'notReady' | 'unsupported' | 'unavailable' | 'failed';
 
-/** สาเหตุที่ผู้ใช้ต้องรู้เมื่อฟังไม่ได้ จาก status และ code ของ API */
+/** the cause the user needs to know when they cannot listen, from the API's status and code */
 export function playbackFailure(status: number, code?: string): PlaybackFailure {
   if (status === 401) return 'signIn';
   if (status === 403) return 'denied';

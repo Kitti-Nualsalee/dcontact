@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createConsoleApi } from './console-api.js';
 
-test('Preference Center เรียกเฉพาะ D-Contact canonical API พร้อม bearer และ idempotency key', async () => {
+test('Preference Center calls only the D-Contact canonical API with a bearer and an idempotency key', async () => {
   const requests: Array<{ url: string; init?: RequestInit }> = [];
   const api = createConsoleApi({
     baseUrl: 'https://api.example',

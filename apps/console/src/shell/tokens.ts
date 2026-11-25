@@ -1,8 +1,8 @@
 /**
- * D1.13/D1.14: โหลด `@d-contact/ui/tokens.css` แบบ dynamic ครั้งเดียวต่อหน้า
+ * D1.13/D1.14: load `@d-contact/ui/tokens.css` dynamically once per page
  *
- * token มีกฎ global ของ html/body จึงไม่ import แบบ static ทั้งแอป — โหลดเฉพาะหน้าที่ย้ายมาใช้ระบบใหม่
- * (shell เมื่อเปิด flag และหน้า Journeys ทั้งสองสถานะของ flag) หน้าอื่นของ Console จึงไม่เปลี่ยน
+ * tokens hold global rules for html/body so they are not statically imported app-wide — loaded only for pages moved to the new system
+ * (the shell when the flag is on and the Journeys page in both flag states), so other Console pages do not change
  */
 import { useEffect, useState } from 'react';
 
@@ -16,7 +16,7 @@ export function loadShellTokens(): Promise<unknown> {
   return loaded;
 }
 
-/** true เมื่อ token พร้อมแล้ว — render เนื้อหาหลังจากนี้เพื่อไม่ให้เห็นหน้าที่ยังไม่มีสี */
+/** true once tokens are ready — render content after this so the page is never seen without colors */
 export function useShellTokens(enabled = true): boolean {
   const [isReady, setReady] = useState(ready);
   useEffect(() => {

@@ -1,6 +1,9 @@
 import { test, expect } from '@playwright/test';
 import { coreLogin } from './core-settings-helpers.js';
-test('เมนู: องค์กร↔ทีมแบบ SPA พร้อม back/forward และ dirty cancel', async ({ page, request }) => {
+test('menu: organization↔team as an SPA with back/forward and dirty cancel', async ({
+  page,
+  request,
+}) => {
   await coreLogin(page, request);
   await expect(page.getByRole('heading', { name: 'ทีม', exact: true })).toBeVisible();
   let loads = 0;
@@ -26,7 +29,7 @@ test('เมนู: องค์กร↔ทีมแบบ SPA พร้อม 
   await page.goForward();
   await expect(page.getByRole('heading', { name: 'ทีม', exact: true })).toBeVisible();
 });
-test('เมนู: Team TH/EN เปลี่ยนข้อความในหน้าเดิมและมี production deep links', async ({
+test('menu: Team TH/EN changes the text on the same page and has production deep links', async ({
   page,
   request,
 }) => {
@@ -43,7 +46,7 @@ test('เมนู: Team TH/EN เปลี่ยนข้อความใน�
   await page.getByRole('button', { name: 'ไทย', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'ทีม', exact: true })).toBeVisible();
 });
-test('เมนู: back ระหว่าง create UNKNOWN แล้วยกเลิก ต้องคง URL ของ command เดิม', async ({
+test('menu: back during a create UNKNOWN, then cancel, must keep the original command URL', async ({
   page,
   request,
 }) => {
@@ -63,7 +66,7 @@ test('เมนู: back ระหว่าง create UNKNOWN แล้วยก
   await page.getByRole('button', { name: 'ตรวจผลบันทึกอีกครั้ง' }).click();
   await expect(page.getByRole('status')).toContainText('บันทึกและตรวจข้อมูลเรียบร้อยแล้ว');
 });
-test('เมนู: กลับรายการทีมหลัง create ต้องล้าง detail แม้ route เดิมก่อนเปิด dialog', async ({
+test('menu: returning to the team list after create must clear the detail even if the route was the same before opening the dialog', async ({
   page,
   request,
 }) => {
@@ -82,7 +85,7 @@ test('เมนู: กลับรายการทีมหลัง create �
     page.getByRole('heading', { name: 'ทีมกลับรายการหลังสร้าง', exact: true }),
   ).toHaveCount(0);
 });
-test('เมนู: API metadata รุ่นก่อนที่ไม่มี pages/areas ใช้ fallback เข้าองค์กรและทีมจริง', async ({
+test('menu: an older API metadata with no pages/areas uses the fallback to reach the real organization and teams', async ({
   page,
   request,
 }) => {

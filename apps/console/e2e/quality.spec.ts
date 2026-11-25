@@ -1,4 +1,4 @@
-/** #971: หน้าประเมินคุณภาพทั้งสามหน้ากับ API จำลอง (ยืนยัน UI เท่านั้น สิทธิ์/DB ตรวจใน API integration) */
+/** #971: all three quality evaluation pages with a mock API (verifies UI only; permission/DB are checked in the API integration) */
 import { expect, test, type Page, type Request } from '@playwright/test';
 test.use({ locale: 'th-TH' });
 
@@ -49,7 +49,7 @@ interface State {
   evaluation: Json | null;
   saves: Json[];
   publishes: Json[];
-  /** ตอบ error ครั้งถัดไปของ PUT */
+  /** answer the next PUT with an error */
   nextSaveFailure?: { status: number; json: Json };
 }
 
@@ -168,7 +168,7 @@ async function mockSupervisor(page: Page, state: State) {
   });
 }
 
-test('Supervisor เลือกฟอร์ม บันทึกร่าง ตอบครบ แล้ว publish ผลประเมินสายของทีม', async ({
+test('a Supervisor picks a form, saves a draft, answers everything, then publishes the team call evaluation', async ({
   page,
 }) => {
   const state: State = { evaluation: null, saves: [], publishes: [] };
@@ -191,11 +191,11 @@ test('Supervisor เลือกฟอร์ม บันทึกร่าง �
 
   const greet = page.getByRole('group', { name: 'กล่าวชื่อบริษัทและชื่อตัวเอง' });
   await greet.getByRole('radio', { name: 'ใช่', exact: true }).check();
-  // ตอบไม่ครบ publish ไม่ได้ แต่บันทึกร่างได้
+  // incomplete answers cannot be published but the draft can be saved
   await expect(page.getByRole('button', { name: 'Publish ผลประเมิน' })).toBeDisabled();
   await expect(page.getByText('ตอบให้ครบอีก 2 ข้อจึง publish ได้')).toBeVisible();
   await page.getByRole('button', { name: 'บันทึกร่าง' }).click();
-  // harness ไม่มี navigation API จึงไม่มี toast ของ shell: ตรวจผลบนหน้าแทน
+  // the harness has no navigation API, hence no shell toast: check the result on the page instead
   await expect(page.getByText('บันทึกล่าสุดโดย')).toBeVisible();
   expect(state.saves[0]).toMatchObject({
     formVersionId: VERSION,
@@ -217,7 +217,7 @@ test('Supervisor เลือกฟอร์ม บันทึกร่าง �
   await dialog.getByRole('button', { name: 'Publish' }).click();
 
   await expect(page.getByText('คะแนนสุดท้าย')).toBeVisible();
-  // บันทึกการแก้ล่าสุดก่อน publish ด้วย revision ของร่าง แล้ว publish ด้วย revision ใหม่
+  // save the latest edits before publish with the draft's revision, then publish with the new revision
   expect(state.saves[1]).toMatchObject({
     revision: 1,
     answers: { greet: { value: true }, verify: { value: false }, tone: { value: 4 } },
@@ -226,11 +226,11 @@ test('Supervisor เลือกฟอร์ม บันทึกร่าง �
   expect(state.publishes[0]).toMatchObject({ revision: 2 });
   expect(state.saves[0]!.commandId).not.toBe(state.saves[1]!.commandId);
 
-  // focus ไปที่หัวข้อหลัง Dialog ปิด ไม่หลุดไป body
+  // focus goes to the heading after the Dialog closes, not to body
   await expect(
     page.getByRole('heading', { name: 'ประเมินสายของ สมหญิง ใจดี', level: 1 }),
   ).toBeFocused();
-  // หลัง publish เป็นอ่านอย่างเดียว พร้อมคะแนนและเหตุผลที่ตกเกณฑ์
+  // after publish it is read-only, with the score and the reasons for failing the criteria
   await expect(page.getByRole('radio')).toHaveCount(0);
   await expect(page.getByText('คะแนนสุดท้าย')).toBeVisible();
   await expect(page.getByText('ตกเกณฑ์บังคับ')).toBeVisible();
@@ -241,7 +241,7 @@ test('Supervisor เลือกฟอร์ม บันทึกร่าง �
   await expect(grid.getByRole('button', { name: /^ดูผลประเมินสายของ สมหญิง ใจดี/ })).toBeFocused();
 });
 
-test('บันทึกไม่ผ่าน: error อยู่ใต้ข้อที่ผิด คำตอบไม่หาย และร่างล้าสมัยมีทางโหลดใหม่', async ({
+test('a save fails: the error is under the wrong item, answers are not lost, and a stale draft has a way to reload', async ({
   page,
 }) => {
   const state: State = { evaluation: null, saves: [], publishes: [] };
@@ -273,14 +273,14 @@ test('บันทึกไม่ผ่าน: error อยู่ใต้ข้
   await expect(page.getByRole('alert')).toContainText('มีผู้แก้ผลประเมินนี้ก่อนคุณ');
   await expect(page.getByRole('button', { name: 'โหลดฉบับล่าสุด' })).toBeVisible();
 
-  // ออกจากหน้าที่ยังไม่บันทึกต้องยืนยัน
+  // leaving a page with unsaved changes must be confirmed
   await page.getByRole('button', { name: 'กลับไปรายการ' }).click();
   const leave = page.getByRole('alertdialog', { name: 'ออกโดยไม่บันทึก?' });
   await leave.getByRole('button', { name: 'อยู่ต่อ' }).click();
   await expect(greet.getByRole('radio', { name: 'ใช่', exact: true })).toBeChecked();
 });
 
-test('Agent เปิดรายการคะแนนของตัวเองและดูคำตอบรายข้อ', async ({ page }) => {
+test('an Agent opens their own scores list and views the per-item answers', async ({ page }) => {
   const published = evaluationOf(
     { evaluation: null, saves: [], publishes: [] },
     {
@@ -339,7 +339,9 @@ test('Agent เปิดรายการคะแนนของตัวเ�
   await expect(grid.getByRole('button', { name: /^ดูรายละเอียดผลประเมิน/ })).toBeFocused();
 });
 
-test('Admin สร้างฟอร์ม เพิ่มหมวดและคำถาม บันทึกร่าง แล้ว publish', async ({ page }) => {
+test('an Admin creates a form, adds a category and questions, saves a draft, then publishes', async ({
+  page,
+}) => {
   const calls: { method: string; path: string; body?: Json }[] = [];
   let detail: Json = {
     formId: FORM,
@@ -426,7 +428,7 @@ test('Admin สร้างฟอร์ม เพิ่มหมวดและ�
   await expect(page.getByRole('heading', { name: 'ฟอร์มใหม่', level: 1 })).toBeFocused();
   await page.getByRole('button', { name: '+ เพิ่มหมวด' }).click();
   await page.getByRole('button', { name: '+ ใช่/ไม่ใช่' }).click();
-  // checkbox ของ react-aria ซ่อน input ไว้ใต้กล่องที่วาดเอง จึงกดที่ข้อความ label
+  // the react-aria checkbox hides the input under a self-drawn box, so press the label text
   await page.getByText('ตกเกณฑ์บังคับ (ตอบ ไม่ใช่ = 0)').click();
   await expect(
     page.getByRole('checkbox', { name: 'ตกเกณฑ์บังคับ (ตอบ ไม่ใช่ = 0)' }),
@@ -450,7 +452,7 @@ test('Admin สร้างฟอร์ม เพิ่มหมวดและ�
     },
   });
 
-  // server ปฏิเสธ: error อยู่ใต้ช่องคำถาม
+  // the server rejects: the error is under the question field
   await page.getByRole('button', { name: 'Publish เวอร์ชัน 1' }).click();
   await page.getByRole('alertdialog').getByRole('button', { name: 'Publish' }).click();
   await expect(page.getByText('กรอกข้อความ (ยาวไม่เกินที่กำหนด)')).toBeVisible();
@@ -459,7 +461,7 @@ test('Admin สร้างฟอร์ม เพิ่มหมวดและ�
   await page.getByRole('button', { name: 'Publish เวอร์ชัน 1' }).click();
   await page.getByRole('alertdialog').getByRole('button', { name: 'Publish' }).click();
   await expect(page.getByText('เวอร์ชัน 1 ที่ใช้อยู่ (อ่านอย่างเดียว)')).toBeVisible();
-  // แก้ที่ยังไม่บันทึกถูกบันทึกก่อน publish
+  // unsaved edits are saved before publish
   expect(calls.filter((call) => call.method === 'PUT').at(-1)?.body).toMatchObject({ revision: 2 });
   await expect(page.getByText('เวอร์ชัน 1 ที่ใช้อยู่ (อ่านอย่างเดียว)')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'ฟอร์มใหม่', level: 1 })).toBeFocused();

@@ -1,4 +1,4 @@
-/** กติกาฝั่ง client ของการนำเข้า CSV (#909); server ตรวจซ้ำทุกข้อและเป็นผู้ตัดสินสุดท้าย */
+/** client-side rules for CSV import (#909); the server re-checks every one and makes the final decision */
 
 export const IMPORT_MAX_BYTES = 1024 * 1024;
 export const IMPORT_MAX_ROWS = 1000;
@@ -19,10 +19,10 @@ export interface ImportMapping {
   defaultPhoneCountry?: string;
 }
 
-/** ประเทศที่ใช้ตีความเบอร์ที่ไม่มี + นำหน้า; ว่าง = ต้องเป็นเบอร์สากลเท่านั้น (ไม่เดาจาก locale) */
+/** country used to interpret numbers without a leading +; empty = must be an international number only (do not guess from locale) */
 export const PHONE_COUNTRIES = ['TH', 'US', 'GB', 'SG', 'JP', 'CN', 'MY', 'VN', 'ID'] as const;
 
-/** อ่านเฉพาะ header (record แรก) แบบ strict UTF-8; null = ไฟล์อ่านไม่ได้เป็น CSV */
+/** read only the header (first record) as strict UTF-8; null = the file cannot be read as CSV */
 export function readCsvHeaders(bytes: Uint8Array): string[] | null {
   let text: string;
   try {
@@ -75,14 +75,14 @@ export function readCsvHeaders(bytes: Uint8Array): string[] | null {
 }
 
 const GUESSES: Record<ImportField, RegExp> = {
-  displayName: /^(display[\s_-]?name|full[\s_-]?name|name|ชื่อ(ลูกค้า)?|ชื่อ-?สกุล)$/i,
-  company: /^(company|organi[sz]ation|บริษัท|องค์กร)$/i,
-  phone: /^(phone|mobile|tel(ephone)?|เบอร์(โทร)?|โทรศัพท์|มือถือ)$/i,
-  email: /^(e-?mail|อีเมล)$/i,
+  displayName: /^(display[\s_-]?name|full[\s_-]?name|name|ชื่อ(ลูกค้า)?|ชื่อ-?สกุล)$/i, // allow-thai: Thai CSV header aliases for auto-mapping
+  company: /^(company|organi[sz]ation|บริษัท|องค์กร)$/i, // allow-thai: Thai CSV header aliases for auto-mapping
+  phone: /^(phone|mobile|tel(ephone)?|เบอร์(โทร)?|โทรศัพท์|มือถือ)$/i, // allow-thai: Thai CSV header aliases for auto-mapping
+  email: /^(e-?mail|อีเมล)$/i, // allow-thai: Thai CSV header aliases for auto-mapping
   vip: /^(vip)$/i,
 };
 
-/** เดาจากชื่อ header เพื่อลดงานผู้ใช้; ผู้ใช้แก้ได้ก่อนส่งทุกครั้ง */
+/** guess from the header name to reduce the user's work; the user can edit before every send */
 export function suggestSelection(headers: readonly string[]): ImportSelection {
   const used = new Set<string>();
   const selection: ImportSelection = {};
@@ -96,7 +96,7 @@ export function suggestSelection(headers: readonly string[]): ImportSelection {
   return selection;
 }
 
-/** คืน null เมื่อยังส่งไม่ได้ (ไม่มีคอลัมน์ชื่อ หรือ header ที่เลือกไม่อยู่ในไฟล์/ถูกใช้ซ้ำ) */
+/** returns null when it cannot be sent yet (no name column, or a selected header is missing from the file / used twice) */
 export function buildMapping(
   selection: ImportSelection,
   headers: readonly string[],
@@ -153,7 +153,7 @@ export interface ConfirmCounts {
   unknown: number;
   notAttempted: number;
 }
-/** ส่งซ้ำด้วย commandId เดิมได้เฉพาะเมื่อยังมีแถวที่ไม่ทราบผลหรือยังไม่เริ่ม; ไม่มี = จบแล้ว */
+/** may be resent with the same commandId only while rows with unknown or not-started results remain; none = finished */
 export function canResume(counts: ConfirmCounts): boolean {
   return counts.pending + counts.unknown + counts.notAttempted > 0;
 }

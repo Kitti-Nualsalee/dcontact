@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 test.use({ locale: 'th-TH' });
 
-/** #986 ประวัติและสรุปของทีม — API จำลอง ยืนยันเฉพาะ UI ไม่แทนหลักฐานสิทธิ์จาก DB (อยู่ใน integration) */
+/** #986 team history and summary — mock API, verifies UI only and does not replace permission evidence from the DB (that is in integration) */
 const teamA = '7a33ac96-d87d-4ca4-ab75-f27e40e94a01';
 const teamB = '7a33ac96-d87d-4ca4-ab75-f27e40e94a02';
 const agentA = '7a33ac96-d87d-4ca4-ab75-f27e40e94b01';
@@ -112,7 +112,7 @@ async function harness(page: Page, role: 'supervisor' | 'admin') {
   return requests;
 }
 
-test('Supervisor เห็นสรุปของทีมตัวเอง กดตัวเลข Agent แล้วเห็นรายการต้นทางและโน้ต', async ({
+test('a Supervisor sees their own team summary, presses an Agent number, and sees the source list and notes', async ({
   page,
 }) => {
   const requests = await harness(page, 'supervisor');
@@ -139,7 +139,7 @@ test('Supervisor เห็นสรุปของทีมตัวเอง �
   await expect(page.getByText('เวลาสนทนา: 2:05')).toBeVisible();
   await page.getByRole('button', { name: 'กลับรายการ' }).click();
   await expect(page.getByRole('heading', { name: /สมหญิง · ทุกผลบันทึก · 1 งาน/ })).toBeVisible();
-  // เลือกทั้ง Agent และผลบันทึก: สรุปไม่มีจำนวนของคู่นี้ หัวรายการจึงไม่แสดงจำนวน
+  // both Agent and disposition selected: the summary has no count for this pair, so the list heading shows no count
   await summary.getByRole('button', { name: /^ต้องติดตามต่อ/ }).click();
   await expect(
     page.getByRole('heading', { name: 'รายการงาน · 7 วัน · สมหญิง · ต้องติดตามต่อ', exact: true }),
@@ -147,7 +147,9 @@ test('Supervisor เห็นสรุปของทีมตัวเอง �
   expect(requests.every((request) => !request.includes(`teamId=${teamB}`))).toBe(true);
 });
 
-test('Admin ดูทุกทีมแล้วเลือกทีละทีม ทีมที่ปิดใช้งานยังเลือกดูประวัติได้', async ({ page }) => {
+test('an Admin views all teams then picks one at a time, and a disabled team can still be selected to view history', async ({
+  page,
+}) => {
   const requests = await harness(page, 'admin');
   await page.goto('/?view=team-history&tenant=demo');
   const summary = page.getByRole('region', { name: 'สรุปงานของทีม' });
@@ -163,7 +165,9 @@ test('Admin ดูทุกทีมแล้วเลือกทีละท�
   );
 });
 
-test('API ปฏิเสธสิทธิ์แล้วแสดงข้อความและปุ่มลองอีกครั้ง', async ({ page }) => {
+test('the API rejects permission, then shows a message and a try-again button', async ({
+  page,
+}) => {
   await page.route('**/api/v1/me/navigation**', (route) => route.fulfill({ status: 404 }));
   await page.route('**/api/v1/team-history/**', (route) =>
     route.fulfill({ status: 403, json: { code: 'TEAM_HISTORY_ACCESS_DENIED' } }),
@@ -173,7 +177,9 @@ test('API ปฏิเสธสิทธิ์แล้วแสดงข้อ�
   await expect(page.getByRole('button', { name: 'ลองอีกครั้ง' })).toBeVisible();
 });
 
-test('โหลดรายชื่อทีมไม่สำเร็จแสดงข้อความแทนหน้าที่ผิดบทบาท และลองใหม่ได้', async ({ page }) => {
+test('a failed team-list load shows a message instead of a page for the wrong role, and can retry', async ({
+  page,
+}) => {
   await harness(page, 'admin');
   let fail = true;
   await page.route('**/api/v1/team-history/teams', (route) =>

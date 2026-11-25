@@ -1,8 +1,8 @@
 /**
- * #967: เล่นเสียงบันทึกจาก WAV ช่วงสั้นที่ขอผ่าน API ทีละช่วง
+ * #967: play a recording from short WAV ranges requested one at a time through the API.
  *
- * กันเสียงล่วงหน้าไม่เกิน BUFFER_SECONDS และทิ้งเสียงที่รอเล่นทันทีเมื่อหยุด เลื่อนตำแหน่ง
- * หรือ API ปฏิเสธ เพื่อให้การถอนสิทธิ์มีผลภายในขอบเขตนั้น ไม่โหลดทั้งไฟล์
+ * Look-ahead audio is capped at BUFFER_SECONDS, and queued audio is dropped immediately on stop, seek,
+ * or API rejection, so a permission revocation takes effect within that bound — the whole file is never loaded.
  */
 import { RecordingApiError, type PlaybackSession, type TeamRecordingsApi } from './api.js';
 import { nextChunk, shouldFetch } from './model.js';
@@ -10,9 +10,9 @@ import { nextChunk, shouldFetch } from './model.js';
 export type PlayerPhase = 'idle' | 'loading' | 'playing' | 'paused' | 'ended' | 'error';
 export interface PlayerState {
   phase: PlayerPhase;
-  /** วินาทีจากต้นไฟล์ */
+  /** seconds from the start of the file */
   position: number;
-  /** null จนกว่าจะเปิด session และรู้ความยาวจริงของไฟล์ */
+  /** null until the session is open and the real file length is known */
   duration: number | null;
   error?: { status: number; code?: string };
 }
@@ -25,14 +25,14 @@ export class ChunkPlayer {
   private sources = new Set<AudioBufferSourceNode>();
   private phase: PlayerPhase = 'idle';
   private error?: { status: number; code?: string };
-  /** frame ถัดไปที่ยังไม่ได้ขอ */
+  /** next frame not yet requested */
   private nextFrame = 0;
-  /** เวลาใน AudioContext ที่เสียงที่จัดคิวไว้เล่นจบ */
+  /** time in the AudioContext when the queued audio finishes playing */
   private scheduledUntil = 0;
-  /** จุดอ้างอิงระหว่างเวลาใน AudioContext กับตำแหน่งในไฟล์ */
+  /** reference point between AudioContext time and the position in the file */
   private anchor = { time: 0, position: 0 };
   private restingPosition = 0;
-  /** เพิ่มทุกครั้งที่หยุดหรือเลื่อน คำตอบของรอบเก่าที่มาถึงทีหลังถูกทิ้ง */
+  /** incremented on every stop or seek; answers from an older round that arrive later are dropped */
   private generation = 0;
   private fetching = false;
   private timer?: ReturnType<typeof setInterval>;
@@ -48,7 +48,7 @@ export class ChunkPlayer {
 
   state(): PlayerState {
     const format = this.session?.format;
-    // จำความยาวไว้แม้ session ถูกทิ้งหลัง error เพื่อให้แถบเวลาไม่หาย
+    // remember the length even if the session is dropped after an error so the time bar does not vanish
     if (format) this.duration = format.totalFrames / format.sampleRate;
     return {
       phase: this.phase,
@@ -69,7 +69,7 @@ export class ChunkPlayer {
       await this.context.resume();
       if (!this.session) {
         const opened = await this.api.open(this.recordingId);
-        // ปิดตัวเล่นไปแล้วระหว่างรอ: ไม่ทิ้ง session ค้างที่ server
+        // the player was closed while waiting: do not leave a session open on the server
         if (this.disposed) return this.release(opened);
         this.session = opened;
       }
@@ -91,7 +91,7 @@ export class ChunkPlayer {
     this.set('paused');
   }
 
-  /** เลื่อนตำแหน่ง: ทิ้งเสียงที่รอเล่นแล้วขอช่วงใหม่ ซึ่ง API ตรวจสิทธิ์อีกครั้ง */
+  /** seek: drop queued audio and request a new range, which the API permission-checks again */
   seek(seconds: number): void {
     const duration = this.state().duration ?? 0;
     const wasPlaying = this.phase === 'playing' || this.phase === 'loading';
@@ -145,7 +145,7 @@ export class ChunkPlayer {
     try {
       const bytes = await this.fetchChunk(request.startFrame, request.frameCount);
       const buffer = await context.decodeAudioData(bytes);
-      // หยุด เลื่อน หรือถูกปฏิเสธไปแล้วระหว่างรอ: ไม่เล่นเสียงของรอบเก่า
+      // stopped, sought or rejected while waiting: do not play audio from the old round
       if (generation !== this.generation || this.disposed) return;
       const source = context.createBufferSource();
       source.buffer = buffer;
@@ -165,7 +165,7 @@ export class ChunkPlayer {
     }
   }
 
-  /** session หมดอายุระหว่างฟัง: เปิดใหม่หนึ่งครั้ง ซึ่งตรวจสิทธิ์ปัจจุบันอีกรอบ */
+  /** session expired while listening: reopen once, which re-checks the current permission */
   private async fetchChunk(startFrame: number, frameCount: number): Promise<ArrayBuffer> {
     const session = this.session!;
     try {
@@ -183,7 +183,7 @@ export class ChunkPlayer {
     }
   }
 
-  /** ทิ้งเสียงที่จัดคิวไว้ทั้งหมดทันที */
+  /** drop all queued audio immediately */
   private flush(): void {
     this.generation += 1;
     for (const source of this.sources) {
@@ -191,7 +191,7 @@ export class ChunkPlayer {
       try {
         source.stop();
       } catch {
-        // source ที่ยังไม่เริ่มหรือจบไปแล้ว
+        // source that has not started or has already ended
       }
       source.disconnect();
     }
@@ -199,7 +199,7 @@ export class ChunkPlayer {
     this.scheduledUntil = 0;
   }
 
-  /** ปิด session ที่ไม่ใช้แล้ว ล้มเหลวได้ เพราะ server ปิดให้เองเมื่อหมดอายุหรือเปิดใหม่ */
+  /** close a session that is no longer used; may fail, because the server closes it on its own on expiry or reopen */
   private release(session: PlaybackSession | undefined): void {
     if (session) void this.api.close(this.recordingId, session.sessionId).catch(() => undefined);
   }
@@ -211,7 +211,7 @@ export class ChunkPlayer {
       failure instanceof RecordingApiError
         ? { status: failure.status, ...(failure.code ? { code: failure.code } : {}) }
         : { status: 0 };
-    // สิทธิ์หรือ session ใช้ต่อไม่ได้: รอบถัดไปต้องเปิดใหม่
+    // permission or session can no longer be used: the next round must reopen
     if (this.error.status !== 0) {
       this.release(this.session);
       this.session = undefined;

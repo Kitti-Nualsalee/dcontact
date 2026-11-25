@@ -26,7 +26,7 @@ const item = {
   legacy: false,
 };
 
-test('production auth root เปิด history deep link โดยไม่บังคับ Interaction context', async ({
+test('production auth root opens a history deep link without forcing an Interaction context', async ({
   page,
 }) => {
   await page.goto('/?view=agent-history&tenant=demo&authRootHarness=1');
@@ -37,7 +37,9 @@ test('production auth root เปิด history deep link โดยไม่บ�
   await expect(page.getByRole('main')).toContainText(/Identity Provider|เข้าสู่ระบบ|ประวัติงาน/);
 });
 
-test('auth surface เปลี่ยน identity โหลด navigation ใหม่และทิ้งเมนูบัญชีเดิม', async ({ page }) => {
+test('auth surface: an identity change loads navigation again and drops the old account menu', async ({
+  page,
+}) => {
   const identities: string[] = [];
   await page.route('**/api/v1/me/navigation', (route) => {
     const identity = route.request().headers().authorization;
@@ -59,7 +61,7 @@ test('auth surface เปลี่ยน identity โหลด navigation ให
   await expect(page.locator('a[data-area="governance"]')).toHaveCount(1);
 });
 
-test('Agent เปิดรายการ/โหลดเพิ่ม/detail plain text/deep link โดยไม่ขอ lease หรือ SIP', async ({
+test('Agent opens the list/load more/plain-text detail/deep link without asking for a lease or SIP', async ({
   page,
 }) => {
   const forbidden: string[] = [];
@@ -126,7 +128,7 @@ for (const [status, message] of [
   [404, 'ไม่พบงานนี้'],
   [503, 'โหลดประวัติไม่สำเร็จ'],
 ] as const) {
-  test(`history แยก ${status} และ retry กลับ empty ได้`, async ({ page }) => {
+  test(`history separates ${status} and retry can return to empty`, async ({ page }) => {
     let failed = true;
     await page.route('**/api/v1/me/navigation**', (route) => route.fulfill({ status: 404 }));
     await page.route('**/api/v1/workspace/agent/history**', (route) =>
@@ -146,7 +148,7 @@ for (const [status, message] of [
   });
 }
 
-test('สรุปงานตามช่วงเวลา กดผลบันทึกแล้วรายการใช้ช่วงเวลาเดียวกับสรุป และ reload คงตัวกรอง', async ({
+test('summary by period: pressing a disposition makes the list use the same period as the summary, and reload keeps the filter', async ({
   page,
 }) => {
   const summaries: string[] = [];
@@ -237,7 +239,7 @@ test('สรุปงานตามช่วงเวลา กดผลบั�
   expect(new URL(page.url()).searchParams.get('period')).toBe('today');
 });
 
-test('identity เปลี่ยนล้าง detail cache และไม่รับคำตอบ note ของ identity เก่า', async ({
+test("an identity change clears the detail cache and does not accept the old identity's note answer", async ({
   page,
 }) => {
   let release: (() => void) | undefined;
@@ -267,7 +269,9 @@ test('identity เปลี่ยนล้าง detail cache และไม่
   );
 });
 
-test('legacy detail แสดงว่าไม่มีโน้ตและเวลาอ้างอิง ไม่สร้างข้อความย้อนหลัง', async ({ page }) => {
+test('legacy detail says there is no note and reference time, and does not create retroactive text', async ({
+  page,
+}) => {
   await page.route('**/api/v1/me/navigation**', (route) => route.fulfill({ status: 404 }));
   await page.route('**/wrapup-result', (route) =>
     route.fulfill({

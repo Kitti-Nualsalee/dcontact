@@ -15,13 +15,13 @@ export const J5_BROWSER_MATRIX = Object.freeze([
   { state: 'desktop keyboard-only authoring', test: 'keyboard-only authoring' },
   {
     state: 'diagnostic focus + modal trap/Escape/return focus',
-    test: 'diagnostics ลิงก์กลับ node',
+    test: 'diagnostics link back to the node',
   },
-  { state: 'conflict compare/reload/keep-copy', test: '409 เปิด compare/reload/keep-copy' },
-  { state: 'session recovery', test: 'session recovery ของแท็บ' },
-  { state: 'unknown publish acknowledgement', test: 'publish ที่ไม่รู้ผล (202)' },
+  { state: 'conflict compare/reload/keep-copy', test: '409 opens compare/reload/keep-copy' },
+  { state: 'session recovery', test: 'tab session recovery' },
+  { state: 'unknown publish acknowledgement', test: 'publish with an unknown result (202)' },
   { state: 'templates + upgrade', test: 'templates: instantiate' },
-  { state: '960px full / 959px read-only', test: '960px แก้ได้เต็ม' },
+  { state: '960px full / 959px read-only', test: '960px fully editable' },
   { state: 'axe WCAG 2.2 AA + 200% zoom + reduced motion', test: 'a11y: editor' },
 ]);
 

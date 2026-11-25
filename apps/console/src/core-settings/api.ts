@@ -125,7 +125,7 @@ export interface CoreTeamsApi {
   reconcile(id: string): Promise<CoreReceipt<Team> | { state: string; commandId: string }>;
 }
 
-/** #936 รายการเหตุผล Not Ready ต่อ tenant — แก้ทั้งรายการในคำสั่งเดียว */
+/** #936 Not Ready reasons per tenant — the whole list is edited in a single command */
 export interface NotReadyReason {
   code: string;
   labelTh: string;

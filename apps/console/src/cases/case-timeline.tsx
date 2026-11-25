@@ -31,7 +31,7 @@ const ICONS: Record<CaseActivity['kind'], ReactNode> = {
   STATUS_CHANGED: <path d="M3 5.5h9l-2.5-2.5M13 10.5H4L6.5 13" />,
 };
 
-/** ไทม์ไลน์เก่าไปใหม่; แสดง 50 รายการล่าสุด โหลดรายการก่อนหน้าทีละ 50 */
+/** timeline oldest to newest; shows the latest 50 entries and loads earlier entries 50 at a time */
 export function CaseTimeline({ activities, people }: Props) {
   const { t } = useTranslation('cases');
   const ordered = orderActivities(activities);
@@ -184,7 +184,7 @@ function HistoryLink({
   );
 }
 
-/** โน้ตเป็น plain text เท่านั้น (ไม่ render HTML); ยาวเกิน 300 ตัวอักษรตัดที่ 6 บรรทัด */
+/** a note is plain text only (no HTML rendering); longer than 300 characters is clamped at 6 lines */
 function NoteBody({ body }: { body: string }) {
   const { t } = useTranslation('cases');
   const long = isLongNote(body);

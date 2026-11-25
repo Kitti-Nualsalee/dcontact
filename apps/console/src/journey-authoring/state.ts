@@ -1,12 +1,12 @@
 /**
- * J5.6 (#344): reducer เดียวของ editor (Phase Spec #337 §6, §8)
+ * J5.6 (#344): the single editor reducer (Phase Spec #337 §6, §8)
  *
- * state = server snapshot + command log ที่ยังไม่บันทึก — document ที่เห็นคำนวณจาก replay เสมอ
- * บันทึกสำเร็จแทน snapshot และล้าง log; `409` เปิดทางเลือก compare/reload/keep-copy ให้ผู้ใช้เลือกเอง
- * ไม่มี auto-merge แบบเงียบ
+ * state = server snapshot + the unsaved command log — the visible document is always computed by replay.
+ * A successful save replaces the snapshot and clears the log; `409` opens compare/reload/keep-copy options for the user to choose
+ * with no silent auto-merge.
  *
- * session recovery เก็บเฉพาะ command log ใน `sessionStorage` ของแท็บนั้น ผูก tenant/resource/base
- * revision และถูกล้างเมื่อ save/discard/reload/เสียสิทธิ์
+ * session recovery keeps only the command log in that tab's `sessionStorage`, bound to tenant/resource/base
+ * revision, and it is cleared on save/discard/reload/loss of permission
  */
 import type { JourneyDiagnosticV1 } from '@d-contact/cxa-contracts';
 import type { CompileSummary, JourneySnapshot } from './api.js';
@@ -17,18 +17,18 @@ export interface EditorState {
   readonly commands: readonly AuthoringCommand[];
   readonly undone: readonly AuthoringCommand[];
   readonly selectedNodeId: string | null;
-  /** snapshot ล่าสุดของ server เมื่อบันทึกชน — มีค่าเมื่อผู้ใช้ต้องเลือกทางออก */
+  /** latest server snapshot when a save conflicts — set when the user must choose a way out */
   readonly conflict: JourneySnapshot | null;
   readonly diagnostics: readonly JourneyDiagnosticV1[];
   /**
-   * U1.7 (#435): server ตรวจ revision ที่เห็นอยู่แล้ว (validate หรือผลตรวจตอนบันทึก) — ผลที่ไม่มีข้อผิดพลาด
-   * ต้องแสดงว่า "ตรวจแล้วไม่พบ" ไม่ใช่ "ยังไม่ได้ตรวจ"; แก้ document/โหลด snapshot ใหม่ = ต้องตรวจใหม่
+   * U1.7 (#435): the server already checked the revision being viewed (validate or the check at save) — a result with no errors
+   * must show "checked, nothing found", not "not checked yet"; editing the document / loading a new snapshot = must check again
    */
   readonly checked: boolean;
   readonly compile: CompileSummary | null;
-  /** เหตุผลของ command ล่าสุดที่ถูกปฏิเสธ เพื่อประกาศผ่าน live region */
+  /** reason for the most recently rejected command, to announce through a live region */
   readonly rejected: string | null;
-  /** จำนวน command ที่ใช้ไม่ได้แล้วหลัง keep-copy บน revision ใหม่ */
+  /** number of commands no longer usable after keep-copy on a new revision */
   readonly dropped: number;
 }
 
@@ -40,7 +40,7 @@ export type EditorAction =
   | {
       readonly type: 'SNAPSHOT';
       readonly snapshot: JourneySnapshot;
-      /** keep-copy: เล่น command ของผู้ใช้ซ้ำบน revision ล่าสุดที่ผู้ใช้เลือกเอง */
+      /** keep-copy: replay the user's commands on the latest revision the user chose */
       readonly keepCommands?: boolean;
     }
   | { readonly type: 'CONFLICT'; readonly latest: JourneySnapshot }
@@ -71,7 +71,7 @@ export function isDirty(state: EditorState): boolean {
   return state.commands.length > 0;
 }
 
-/** เก็บเฉพาะ command ที่ยัง apply ได้ตามลำดับ — ใช้ตอน restore/keep-copy บน base ที่อาจเปลี่ยนไป */
+/** keep only commands that can still be applied in order — used on restore/keep-copy against a base that may have changed */
 function applicable(snapshot: JourneySnapshot, commands: readonly AuthoringCommand[]) {
   let document = snapshot.draft.document;
   const kept: AuthoringCommand[] = [];
@@ -190,7 +190,7 @@ export function saveRecovery(
     if (commands.length === 0) storage.removeItem(key);
     else storage.setItem(key, JSON.stringify({ version: 1, commands }));
   } catch {
-    // storage เต็มหรือถูกปิด: recovery เป็นความสะดวก ไม่ใช่ความจริงของระบบ จึงไม่ขวางการแก้
+    // storage full or disabled: recovery is a convenience, not the system's truth, so it does not block editing
   }
 }
 
@@ -212,7 +212,7 @@ export function loadRecovery(storage: Storage, key: string): AuthoringCommand[] 
   }
 }
 
-/** ล้างทุก recovery ของ resource (หรือทั้ง scope) — ใช้ตอน discard, เสียสิทธิ์, logout, เปลี่ยน tenant */
+/** clear every recovery of a resource (or the whole scope) — used on discard, loss of permission, logout, tenant change */
 export function clearRecovery(storage: Storage, scope: string, journeyId?: string): void {
   const prefix = `${RECOVERY_PREFIX}:${scope}:${journeyId ? `${journeyId}:` : ''}`;
   try {
@@ -223,6 +223,6 @@ export function clearRecovery(storage: Storage, scope: string, journeyId?: strin
     }
     for (const key of keys) storage.removeItem(key);
   } catch {
-    // ดู saveRecovery
+    // see saveRecovery
   }
 }

@@ -196,7 +196,7 @@ function ConfigSession({ api, identityKey, mode, queue, onQueueRead }: Props) {
   const revision = mode === 'destinations' ? destination?.configRevision : set?.configRevision;
   const disabled =
     busy || !!pending || !caps?.canWrite || !caps.configuration.ready || !revision || !!error;
-  // ชุดเดียวกับ Select ที่แสดงในฟอร์ม — ทักษะของทีมเป้าหมายที่ไม่ใช่ legacy
+  // the same set as the Select shown in the form — skills of the target team that are not legacy
   const editableSkillIds = new Set(
     skills.filter((skill) => skill.teamId === teamId && !skill.legacy).map((skill) => skill.id),
   );
@@ -228,12 +228,12 @@ function ConfigSession({ api, identityKey, mode, queue, onQueueRead }: Props) {
       else if (activation)
         await api.queue(target, { ...envelope, isActive: !currentQueue?.isActive });
       else if (action === 'recording')
-        // #991: เปิด/ปิดบันทึกเสียงของคิว managed ผ่านคำสั่งแก้คิวเดียวกับการเปิดคิว
+        // #991: turn call recording of a managed queue on/off through the same edit-queue command as opening a queue
         await api.queue(target, { ...envelope, recordingEnabled: !currentQueue?.recordingEnabled });
       else
         await api.replace(kind, target, {
           ...envelope,
-          // #977: ส่งเฉพาะทักษะที่แก้ได้ในฟอร์ม (v1) — ทักษะ legacy ของ Agent ให้ server คงไว้ตามเดิม
+          // #977: send only the skills editable in the form (v1) — the server keeps an Agent's legacy skills as they were
           items: Object.entries(levels)
             .filter(([skillId, level]) => level > 0 && editableSkillIds.has(skillId))
             .map(([skillId, level]) => ({

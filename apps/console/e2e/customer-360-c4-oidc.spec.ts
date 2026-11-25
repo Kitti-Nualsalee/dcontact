@@ -35,7 +35,7 @@ test.afterEach(async ({ request }) => {
   await request.post('/__core_test/restore');
 });
 
-test('OIDC จริง: สร้างลูกค้าและอ่านกลับโดยไม่เก็บร่างใน browser', async ({
+test('real OIDC: create a customer and read it back without keeping a draft in the browser', async ({
   page,
   request,
 }, info) => {
@@ -64,7 +64,10 @@ test('OIDC จริง: สร้างลูกค้าและอ่าน�
   }
 });
 
-test('OIDC จริง: คำตอบหายหลัง commit แล้ว reload กู้ผลเดิมได้', async ({ page, request }) => {
+test('real OIDC: a lost answer after commit, then reload, recovers the original result', async ({
+  page,
+  request,
+}) => {
   await login(page, request);
   const name = `กู้ลูกค้า OIDC ${randomUUID()}`;
   await page.getByRole('button', { name: 'สร้างลูกค้า' }).click();
@@ -95,13 +98,19 @@ test('OIDC จริง: คำตอบหายหลัง commit แล้�
   await expectDraftPrivate(page, name);
 });
 
-test('OIDC จริง: Supervisor ไม่มีสิทธิ์สร้างลูกค้าจาก catalog', async ({ page, request }) => {
+test('real OIDC: a Supervisor has no permission to create a customer from the catalog', async ({
+  page,
+  request,
+}) => {
   await login(page, request, 'supervisor');
   await expect(page.getByRole('heading', { name: 'ลูกค้า', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'สร้างลูกค้า' })).toHaveCount(0);
 });
 
-test('OIDC จริง: บันทึกข้อมูลเดิมเป็น no-op และอ่านผลกลับ', async ({ page, request }) => {
+test('real OIDC: saving unchanged data is a no-op and reads the result back', async ({
+  page,
+  request,
+}) => {
   await login(page, request);
   const name = `ตรวจ no-op OIDC ${randomUUID()}`;
   await page.getByRole('button', { name: 'สร้างลูกค้า' }).click();
@@ -113,7 +122,10 @@ test('OIDC จริง: บันทึกข้อมูลเดิมเป�
   await expect(page.getByText('ข้อมูลไม่เปลี่ยนแปลง อ่านข้อมูลล่าสุดกลับแล้ว')).toBeVisible();
 });
 
-test('OIDC จริง: ถอนสิทธิ์ปิดร่างและกู้เฉพาะเมื่อสิทธิ์กลับมา', async ({ page, request }) => {
+test('real OIDC: revoking permission closes the draft and recovers it only when permission returns', async ({
+  page,
+  request,
+}) => {
   await login(page, request);
   const name = `ร่างหลังถอนสิทธิ์ ${randomUUID()}`;
   await page.getByRole('button', { name: 'สร้างลูกค้า' }).click();

@@ -1,14 +1,14 @@
-/** #964 สถานะตัวกรองของหน้า "ประวัติงานของฉัน" — แยกจาก UI เพื่อทดสอบด้วย unit */
+/** #964 filter state of the "My work history" page — separated from the UI so it can be unit tested */
 export const SUMMARY_PERIODS = ['today', '7d', '30d', 'all'] as const;
 export type SummaryPeriod = (typeof SUMMARY_PERIODS)[number];
 export const DEFAULT_PERIOD: SummaryPeriod = '7d';
-/** ค่าใน URL/API สำหรับงานที่ไม่มีผลบันทึก */
+/** value in the URL/API for work with no disposition */
 export const NO_DISPOSITION = '__none__';
 
 export interface HistoryFilter {
   from: string | null;
   to: string | null;
-  /** undefined = ทุกผลบันทึก, null = ไม่มีผลบันทึก */
+  /** undefined = every disposition, null = no disposition */
   disposition?: string | null;
 }
 
@@ -38,7 +38,7 @@ export function listQuery(filter: HistoryFilter | undefined, cursor?: string): s
   return query.toString();
 }
 
-/** เขียนตัวกรองลง URL ปัจจุบันโดยคงพารามิเตอร์อื่น (view, tenant) */
+/** write the filters into the current URL while keeping other parameters (view, tenant) */
 export function filterHref(
   href: string,
   period: SummaryPeriod,
@@ -53,7 +53,7 @@ export function filterHref(
   return url.toString();
 }
 
-/** วินาที → m:ss หรือ h:mm:ss */
+/** seconds → m:ss or h:mm:ss */
 export function formatTalk(seconds: number): string {
   const whole = Math.max(0, Math.round(seconds));
   const hours = Math.floor(whole / 3600);

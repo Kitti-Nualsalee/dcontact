@@ -1,4 +1,4 @@
-/** #971: กติกาของหน้าประเมินคุณภาพที่ทดสอบได้โดยไม่มี browser — server ยังเป็นผู้ตรวจและคิดคะแนนจริง */
+/** #971: rules of the quality evaluation pages testable without a browser — the server remains the one that checks and computes the real score */
 import type {
   Answers,
   FieldError,
@@ -59,7 +59,7 @@ export function addQuestion(
   }));
 }
 
-/** เปลี่ยนชนิดคำถามโดยคงข้อความและคะแนนเต็มไว้ ตัด field ที่ชนิดใหม่ไม่ใช้ */
+/** change the question type while keeping the text and the full score, dropping fields the new type does not use */
 export function retype(question: FormQuestion, type: QuestionType): FormQuestion {
   const next = questionOf(type, question.id, question.text);
   if (type !== 'TEXT' && question.points !== undefined) next.points = question.points;
@@ -107,7 +107,7 @@ export function removeQuestion(
   }));
 }
 
-/** error จาก server เป็น map ของ path → code เพื่อแสดงใต้ field ที่ผิด */
+/** server errors as a map of path → code to show under the offending field */
 export function errorMap(errors: FieldError[]): Record<string, string> {
   return Object.fromEntries(errors.map((error) => [error.path, error.code]));
 }
@@ -118,7 +118,7 @@ export function scoredQuestions(definition: FormDefinition): FormQuestion[] {
     .filter((question) => question.type !== 'TEXT');
 }
 
-/** ข้อที่ให้คะแนนซึ่งยังไม่มีคำตอบหรือ N/A */
+/** scored items that have no answer yet or are N/A */
 export function unanswered(definition: FormDefinition, answers: Answers): FormQuestion[] {
   return scoredQuestions(definition).filter((question) => answers[question.id] === undefined);
 }
@@ -134,7 +134,7 @@ export function setAnswer(
   return next;
 }
 
-/** ช่องความเห็นที่ว่างไม่ถูกส่งเป็นคำตอบ TEXT */
+/** an empty comment field is not sent as a TEXT answer */
 export function cleanAnswers(definition: FormDefinition, answers: Answers): Answers {
   const known = new Set(definition.sections.flatMap((s) => s.questions.map((q) => q.id)));
   return Object.fromEntries(

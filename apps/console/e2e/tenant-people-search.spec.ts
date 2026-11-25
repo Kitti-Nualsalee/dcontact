@@ -21,7 +21,7 @@ const account = (index: number, name: string, role = 'AGENT') => ({
   commandId: null,
 });
 
-test('ค้นหาและกรองฝั่ง server: คำค้นอยู่ใน body ไม่อยู่ใน URL และรอหยุดพิมพ์ก่อนส่ง', async ({
+test('server-side search and filter: the query is in the body, not the URL, and waits for typing to stop before sending', async ({
   page,
 }) => {
   const everyone = [
@@ -76,7 +76,7 @@ test('ค้นหาและกรองฝั่ง server: คำค้น�
   await expect(page.getByRole('button', { name: 'ดูบัญชี สมชาย ใจดี', exact: true })).toHaveCount(
     0,
   );
-  // พิมพ์ต่อเนื่องส่งครั้งเดียวด้วยคำค้นสุดท้าย และไม่มีคำค้นใน URL
+  // continuous typing sends once with the last query, and no query in the URL
   expect(searches).toEqual([{ limit: 20, q: 'สมห' }]);
   expect(urls.some((url) => decodeURIComponent(url).includes('สมห'))).toBe(false);
 
@@ -95,7 +95,9 @@ test('ค้นหาและกรองฝั่ง server: คำค้น�
   await expect(search).toHaveValue('');
 });
 
-test('ผลของคำค้นเก่าที่ตอบช้าถูกทิ้ง และโหลดเพิ่มส่งตัวกรองเดิมพร้อม cursor', async ({ page }) => {
+test('the result of an old, slowly answering query is dropped, and load more sends the original filter with the cursor', async ({
+  page,
+}) => {
   const agents = Array.from({ length: 25 }, (_, index) =>
     account(index + 10, `Agent ${index + 10}`),
   );
@@ -118,7 +120,7 @@ test('ผลของคำค้นเก่าที่ตอบช้าถ�
       const body = request.postDataJSON() as Record<string, unknown>;
       searches.push(body);
       if (body.q === 'slow') {
-        // คำค้นแรกตอบช้ากว่าคำค้นถัดไป
+        // the first query answers slower than the next query
         await new Promise<void>((resolve) => (releaseSlow = resolve));
         return route.fulfill({
           json: { items: [account(90, 'ผลเก่าที่ต้องทิ้ง')], nextCursor: null },

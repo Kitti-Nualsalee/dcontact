@@ -1,4 +1,4 @@
-/** เก็บเฉพาะชื่อ case/สถานะ/จำนวนจาก Playwright จริง ไม่มี DOM, URL auth, token หรือ storageState */
+/** Collects only case names/status/counts from a real Playwright run — no DOM, auth URL, token or storageState */
 import type {
   Reporter,
   FullConfig,

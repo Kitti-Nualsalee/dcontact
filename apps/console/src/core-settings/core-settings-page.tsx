@@ -97,7 +97,7 @@ function CoreOrganizationPage({
   const tokens = useShellTokens();
   useEffect(() => model.subscribe(render), [model]);
   useEffect(() => {
-    // คนละ identity ต้องไม่เห็นร่างหรือ command reference ของบัญชีก่อน
+    // a different identity must not see the earlier account's draft or command reference
     clearCoreCommandReferences(model.storageKey, `dc:core-settings:command:${identityKey}:`);
     model.narrow = window.matchMedia('(max-width:760px)').matches;
     void model.load();

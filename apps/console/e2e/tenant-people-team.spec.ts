@@ -8,7 +8,7 @@ const TEAM_B = '10000000-0000-4000-8000-000000000402';
 const USER_ID = '10000000-0000-4000-8000-000000000411';
 
 for (const scenario of ['success', 'busy', 'session', 'unknown', 'disabled'] as const)
-  test(`ย้ายทีม ${scenario}: ยืนยันใน Dialog ส่ง revision/เหตุผล และไม่ส่งซ้ำเมื่อถูกปฏิเสธ`, async ({
+  test(`move team ${scenario}: confirm in a Dialog, send revision/reason, and do not resend when rejected`, async ({
     page,
   }) => {
     let user = {
@@ -84,7 +84,7 @@ for (const scenario of ['success', 'busy', 'session', 'unknown', 'disabled'] as 
     const submit = dialog.getByRole('button', { name: 'ยืนยันย้ายทีม', exact: true });
     await expect(submit).toBeDisabled();
     await dialog.getByRole('button', { name: /ทีมใหม่/ }).click();
-    // ทีมปัจจุบันไม่อยู่ในตัวเลือก
+    // the current team is not among the options
     await expect(page.getByRole('option', { name: 'ทีมขาย', exact: true })).toHaveCount(0);
     await page.getByRole('option', { name: 'ทีมบริการ', exact: true }).click();
     await dialog.getByRole('textbox', { name: /เหตุผล/ }).fill('ย้ายไปดูแลงานบริการ');
@@ -102,7 +102,7 @@ for (const scenario of ['success', 'busy', 'session', 'unknown', 'disabled'] as 
       reason: 'ย้ายไปดูแลงานบริการ',
     });
     if (scenario === 'unknown') {
-      // ไม่รู้ผล: ปิด Dialog อ่านรายละเอียดจริง และไม่ส่งซ้ำเอง
+      // unknown result: close the Dialog, read the real detail, and do not resend by itself
       await expect(dialog).toHaveCount(0);
       await expect(
         page.getByRole('status').filter({ hasText: 'ยังยืนยันผลการย้ายทีมไม่ได้' }),

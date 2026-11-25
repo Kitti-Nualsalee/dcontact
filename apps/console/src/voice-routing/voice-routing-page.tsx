@@ -15,7 +15,7 @@ const currentKind = (): Page => {
     : 'queues';
 };
 
-/** ADR-034: หน้าถือ section ให้เมนู shell และ fallback ใช้สถานะเดียวกัน */
+/** ADR-034: the page holds the section for the shell menu, and the fallback uses the same state */
 export function VoiceRoutingPage({
   shell,
   api,

@@ -1,6 +1,6 @@
 import { Button } from '@d-contact/ui-react';
 
-/** แถวเปล่าระหว่างโหลดรายการ ขนาดเท่าแถวตาราง */
+/** empty rows while the list loads, the same size as table rows */
 export function ListSkeleton({ label, rows = 5 }: { label: string; rows?: number }) {
   return (
     <div className="qm-skeleton" role="status" aria-label={label}>
@@ -12,8 +12,8 @@ export function ListSkeleton({ label, rows = 5 }: { label: string; rows?: number
 }
 
 /**
- * โครงหน้ารายละเอียดระหว่างโหลด: ปุ่มกลับ หัวข้อ และสองคอลัมน์อยู่ตำแหน่งเดียวกับของจริง
- * เนื้อหาจริงจึงไม่กระโดดเมื่อโหลดเสร็จ
+ * detail page skeleton while loading: the back button, heading and two columns are in the same positions as the real page
+ * so the real content does not jump when loading finishes
  */
 export function EditorSkeleton({
   label,

@@ -3,7 +3,7 @@ import test from 'node:test';
 import { createConfigApi } from './voice-routing/config-api.js';
 import { CatalogApiError } from './voice-routing/api.js';
 
-test('B4 ใช้ scoped endpoints พร้อม no-store และ PUT envelope/configRevision แยกจาก status', async () => {
+test('B4 uses scoped endpoints with no-store, and the PUT envelope/configRevision is separate from status', async () => {
   const requests: { url: string; init?: RequestInit }[] = [];
   const original = globalThis.fetch;
   globalThis.fetch = async (url, init) => {
@@ -18,7 +18,7 @@ test('B4 ใช้ scoped endpoints พร้อม no-store และ PUT envel
       commandId: 'same-command',
       expectedRevision: 7,
       reasonCode: 'ADMIN_CONFIGURATION',
-      reason: 'ทดสอบ',
+      reason: 'test',
     };
     const command = { ...envelope, items: [{ skillId: 'thai', level: 3 }] };
     const result = await api.replace('people/users', 'agent', command);
@@ -52,7 +52,7 @@ test('B4 ใช้ scoped endpoints พร้อม no-store และ PUT envel
     globalThis.fetch = original;
   }
 });
-test('B4 ส่ง conflict กลับ UI และ unknown ไม่มี implicit retry หรือสร้าง command ใหม่', async () => {
+test('B4 returns a conflict to the UI, and an unknown result has no implicit retry or new command', async () => {
   const original = globalThis.fetch;
   let writes = 0;
   globalThis.fetch = async () => {
@@ -75,7 +75,7 @@ test('B4 ส่ง conflict กลับ UI และ unknown ไม่มี im
         commandId: 'original',
         expectedRevision: 4,
         reasonCode: 'CONFIG_CHANGE',
-        reason: 'ทดสอบ',
+        reason: 'test',
         items: [],
       }),
     );

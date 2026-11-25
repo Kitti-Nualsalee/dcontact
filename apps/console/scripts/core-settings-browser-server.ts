@@ -136,7 +136,7 @@ try {
       }
       if (req.url === '/__core_test/unresolved') {
         unresolvedId = await f.owner.$transaction(async (tx) => {
-          // owner-only legacy fixture ใน disposable loopback; ไม่ใช้เป็นทางเขียนของแอป
+          // owner-only legacy fixture in a disposable loopback; not used as a write path of the app
           await tx.$executeRawUnsafe("SET LOCAL session_replication_role='replica'");
           return (
             await tx.jrEnrollment.create({
@@ -276,7 +276,7 @@ try {
       }
       let body = await response.text();
       if (legacyNavigation && req.url === '/api/v1/me/navigation' && response.ok) {
-        // จำลอง metadata ของ API รุ่นก่อนเท่านั้น; auth/Core effects ยังใช้ HTTP/DB จริง
+        // simulates only the metadata of a previous API version; auth/Core effects still use real HTTP/DB
         const data = JSON.parse(body);
         delete data.areas;
         for (const app of data.apps ?? []) delete app.pages;
@@ -320,7 +320,7 @@ try {
       host: '127.0.0.1',
       port: 5188,
       strictPort: true,
-      // UAT ป้องกัน framing ทุกหน้า Console; session restore ต้องใช้ได้ภายใต้นโยบายนี้
+      // UAT protects every Console page against framing; session restore must work under this policy
       headers: { 'X-Frame-Options': 'DENY' },
       proxy: { '/api': 'http://127.0.0.1:5189', '/__core_test': 'http://127.0.0.1:5189' },
     },
@@ -328,7 +328,7 @@ try {
   await vite.listen();
   cleanups.push(() => vite.close());
   process.stdout.write(
-    'Core Settings browser sandbox พร้อม: UI → OIDC/JWKS/proof → HTTP/DB จริง\n',
+    'Core Settings browser sandbox ready: UI → OIDC/JWKS/proof → real HTTP/DB\n',
   );
   for (const signal of ['SIGINT', 'SIGTERM'] as const)
     process.once(signal, () => {
