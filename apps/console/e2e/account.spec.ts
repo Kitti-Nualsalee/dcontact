@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
+import { th } from './support/catalog';
 
 /**
  * AC5 (#598): Console › My account / Account policy — the API is mocked with page.route
@@ -17,11 +18,9 @@ test('a profile that does not enable Account shows a not-ready state with no for
     return route.fulfill({ status: 404, json: { code: 'ROUTE_NOT_AVAILABLE_IN_PROFILE' } });
   });
   await page.goto('/?tenant=demo&view=account');
-  await expect(page.getByRole('status')).toContainText(
-    'การจัดการบัญชียังไม่พร้อมใช้งานในสภาพแวดล้อมนี้',
-  );
+  await expect(page.getByRole('status')).toContainText(th('account:page.unavailable'));
   await expect(page.getByRole('alert')).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'ลองอีกครั้ง' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: th('account:page.retry') })).toHaveCount(0);
   await expect(page.getByRole('textbox')).toHaveCount(0);
   await expect(page.locator('main.account')).toHaveAttribute('aria-busy', 'false');
   await page.getByRole('button', { name: 'English', exact: true }).click();
@@ -48,9 +47,9 @@ for (const failure of [
       return route.fulfill({ status: failure.status, json: { code: failure.code } });
     });
     await page.goto('/?tenant=demo&view=account');
-    await expect(page.getByRole('alert')).toContainText('โหลดข้อมูลบัญชีไม่สำเร็จ');
-    await expect(page.getByText('การจัดการบัญชียังไม่พร้อมใช้งานในสภาพแวดล้อมนี้')).toHaveCount(0);
-    await page.getByRole('button', { name: 'ลองอีกครั้ง' }).click();
+    await expect(page.getByRole('alert')).toContainText(th('account:page.loadFailed'));
+    await expect(page.getByText(th('account:page.unavailable'))).toHaveCount(0);
+    await page.getByRole('button', { name: th('account:page.retry') }).click();
     await expect.poll(() => requests).toBe(2);
     expect(state.writes).toEqual([]);
   });
@@ -76,14 +75,18 @@ type State = {
   failNext?: { status: number; json: unknown; headers?: Record<string, string> };
 };
 
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 const OTPAUTH =
   'otpauth://totp/D-Contact:somchai%40demo.example?secret=JBSWY3DPEHPK3PXP&issuer=D-Contact&algorithm=SHA1&digits=6&period=30';
 
 function initialState(overrides: Partial<State['account']> = {}): State {
   return {
     account: {
-      firstName: 'สมชาย',
-      lastName: 'ใจดี',
+      firstName: 'Somchai',
+      lastName: 'Jaidee',
       email: 'somchai@demo.example',
       pendingEmail: null,
       mfa: { enrolled: false, required: false, devices: [] },
@@ -216,12 +219,12 @@ async function seriousViolations(page: Page) {
 }
 
 const twoDevices = (): Device[] => [
-  { id: 'dev-1', label: 'โทรศัพท์', createdAt: '2026-10-01T03:00:00.000Z' },
-  { id: 'dev-2', label: 'แท็บเล็ต', createdAt: '2026-10-02T03:00:00.000Z' },
+  { id: 'dev-1', label: 'Phone', createdAt: '2026-10-01T03:00:00.000Z' },
+  { id: 'dev-2', label: 'Tablet', createdAt: '2026-10-02T03:00:00.000Z' },
 ];
 
 for (const [locale, lang, title] of [
-  ['th-TH', 'TH', 'บัญชีของฉัน'],
+  ['th-TH', 'TH', th('account:page.title')],
   ['en-US', 'EN', 'My account'],
 ] as const) {
   test.describe(`axe (${lang})`, () => {
@@ -240,7 +243,7 @@ for (const [locale, lang, title] of [
       expect((await page.locator('body').innerText()).toLowerCase()).not.toContain('keycloak');
 
       await page
-        .getByRole('button', { name: lang === 'TH' ? 'เพิ่มอุปกรณ์' : 'Add device' })
+        .getByRole('button', { name: lang === 'TH' ? th('account:mfa.add') : 'Add device' })
         .click();
       await expect(page.getByRole('dialog')).toBeVisible();
       expect(await seriousViolations(page)).toEqual([]);
@@ -260,36 +263,45 @@ test('the Console user menu has "My account" opening in the same tab, and the su
 }) => {
   await mockApi(page, initialState());
   await page.goto('/?view=account&tenant=demo');
-  await page.getByRole('button', { name: /เมนูผู้ใช้/ }).click();
-  const item = page.getByRole('menuitem', { name: 'บัญชีของฉัน' });
+  await page
+    .getByRole('button', {
+      name: new RegExp(escapeRegExp(th('ui:userMenu.open', { name: '' }).trim())),
+    })
+    .click();
+  const item = page.getByRole('menuitem', { name: th('common:shell.account.mine') });
   await expect(item).toHaveAttribute('href', '/?view=account&tenant=demo');
   await expect(item).not.toHaveAttribute('target', '_blank');
   await page.keyboard.press('Escape');
-  await expect(page.getByRole('link', { name: 'นโยบายบัญชี' })).toBeVisible();
+  await expect(page.getByRole('link', { name: th('common:shell.account.policy') })).toBeVisible();
 
   await page.goto('/?view=account&tenant=demo&viewer=AGENT');
-  await expect(page.getByRole('heading', { level: 1, name: 'บัญชีของฉัน' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'นโยบายบัญชี' })).toHaveCount(0);
+  await expect(
+    page.getByRole('heading', { level: 1, name: th('account:page.title') }),
+  ).toBeVisible();
+  await expect(page.getByRole('link', { name: th('common:shell.account.policy') })).toHaveCount(0);
   await page.goto('/?view=account-policy&tenant=demo&viewer=AGENT');
-  await expect(page.getByText('เฉพาะผู้ดูแลระบบขององค์กรเท่านั้น')).toBeVisible();
+  await expect(page.getByText(th('account:policy.adminOnly'))).toBeVisible();
 });
 
 test('personal data: edit the name with the keyboard and save', async ({ page }) => {
   const state = initialState();
   await mockApi(page, state);
   await page.goto('/?view=account&tenant=demo');
-  const firstName = page.getByRole('textbox', { name: 'ชื่อ', exact: true });
+  const firstName = page.getByRole('textbox', {
+    name: th('account:profile.firstName'),
+    exact: true,
+  });
   await firstName.focus();
   await page.keyboard.press('ControlOrMeta+A');
-  await page.keyboard.type('สมหญิง');
+  await page.keyboard.type('Somying');
   await page.keyboard.press('Tab');
-  await expect(page.getByRole('textbox', { name: 'นามสกุล' })).toBeFocused();
+  await expect(page.getByRole('textbox', { name: th('account:profile.lastName') })).toBeFocused();
   await page.keyboard.press('Tab');
-  await expect(page.getByRole('button', { name: 'บันทึกชื่อ' })).toBeFocused();
+  await expect(page.getByRole('button', { name: th('account:profile.save') })).toBeFocused();
   await page.keyboard.press('Enter');
-  await expect(page.getByText('บันทึกชื่อแล้ว')).toBeVisible();
+  await expect(page.getByText(th('account:profile.saved'))).toBeVisible();
   expect(state.writes).toEqual([
-    { method: 'PATCH', path: '/profile', body: { firstName: 'สมหญิง', lastName: 'ใจดี' } },
+    { method: 'PATCH', path: '/profile', body: { firstName: 'Somying', lastName: 'Jaidee' } },
   ]);
 });
 
@@ -299,13 +311,13 @@ test('password: a mismatch warns before sending, the organization rules show fro
   const state = initialState();
   await mockApi(page, state);
   await page.goto('/?view=account&tenant=demo');
-  const password = page.getByLabel('รหัสผ่านใหม่', { exact: true });
-  const confirm = page.getByLabel('ยืนยันรหัสผ่านใหม่');
+  const password = page.getByLabel(th('account:password.newPassword'), { exact: true });
+  const confirm = page.getByLabel(th('account:password.confirmPassword'));
   await password.fill('Abc');
   await confirm.fill('Abd');
-  await page.getByRole('button', { name: 'เปลี่ยนรหัสผ่าน' }).click();
+  await page.getByRole('button', { name: th('account:password.change') }).click();
   await expect(
-    page.getByRole('alert').filter({ hasText: 'รหัสผ่านทั้งสองช่องไม่ตรงกัน' }),
+    page.getByRole('alert').filter({ hasText: th('account:password.mismatch') }),
   ).toBeVisible();
   expect(state.writes).toEqual([]);
 
@@ -314,15 +326,17 @@ test('password: a mismatch warns before sending, the organization rules show fro
     json: { code: 'PASSWORD_POLICY_VIOLATION', rules: [{ rule: 'MIN_LENGTH', value: 12 }] },
   };
   await confirm.fill('Abc');
-  await page.getByRole('button', { name: 'เปลี่ยนรหัสผ่าน' }).click();
+  await page.getByRole('button', { name: th('account:password.change') }).click();
   await expect(
-    page.getByRole('alert').filter({ hasText: 'ยาวอย่างน้อย 12 ตัวอักษร' }),
+    page
+      .getByRole('alert')
+      .filter({ hasText: th('account:password.rules.minLength', { value: 12 }) }),
   ).toBeVisible();
 
   await password.fill('Strong-Password-2026');
   await confirm.fill('Strong-Password-2026');
-  await page.getByRole('button', { name: 'เปลี่ยนรหัสผ่าน' }).click();
-  await expect(page.getByText('เปลี่ยนรหัสผ่านแล้ว')).toBeVisible();
+  await page.getByRole('button', { name: th('account:password.change') }).click();
+  await expect(page.getByText(th('account:password.changed'))).toBeVisible();
   await expect(password).toHaveValue('');
   expect(state.writes.at(-1)).toEqual({
     method: 'POST',
@@ -337,28 +351,32 @@ test('email: requesting a change (needs verification) shows the pending request 
   const state = initialState();
   await mockApi(page, state);
   await page.goto('/?view=account&tenant=demo');
-  await expect(page.getByText('ระบบจะส่งลิงก์ยืนยันไปที่อีเมลใหม่')).toBeVisible();
-  await page.getByLabel('อีเมลใหม่').fill('new@demo.example');
-  await page.getByRole('button', { name: 'เปลี่ยนอีเมล' }).click();
-  await expect(page.getByText('รอยืนยันอีเมล new@demo.example')).toBeVisible();
-  await page.getByRole('button', { name: 'ยกเลิกคำขอ' }).click();
-  await expect(page.getByText('รอยืนยันอีเมล')).toHaveCount(0);
+  await expect(page.getByText(th('account:email.verifyHint'))).toBeVisible();
+  await page.getByLabel(th('account:email.newEmail')).fill('new@demo.example');
+  await page.getByRole('button', { name: th('account:email.change') }).click();
+  await expect(
+    page.getByText(th('account:email.pending', { email: 'new@demo.example' })),
+  ).toBeVisible();
+  await page.getByRole('button', { name: th('account:email.cancelPending') }).click();
+  await expect(
+    page.getByText(th('account:email.pending', { email: '' }).split(' ')[0]),
+  ).toHaveCount(0);
   expect(state.writes.map((write) => [write.method, write.path])).toEqual([
     ['POST', '/email-change'],
     ['DELETE', '/email-change'],
   ]);
 
   state.failNext = { status: 409, json: { code: 'EMAIL_IN_USE' } };
-  await page.getByLabel('อีเมลใหม่').fill('taken@demo.example');
-  await page.getByRole('button', { name: 'เปลี่ยนอีเมล' }).click();
+  await page.getByLabel(th('account:email.newEmail')).fill('taken@demo.example');
+  await page.getByRole('button', { name: th('account:email.change') }).click();
   await expect(
-    page.getByRole('alert').filter({ hasText: 'อีเมลนี้ถูกใช้กับบัญชีอื่นแล้ว' }),
+    page.getByRole('alert').filter({ hasText: th('account:errors.emailInUse') }),
   ).toBeVisible();
 
   state.account.policy.emailChange = 'ADMIN_ONLY';
   await page.reload();
-  await expect(page.getByText('ให้ผู้ดูแลระบบเป็นผู้เปลี่ยนอีเมลเท่านั้น')).toBeVisible();
-  await expect(page.getByLabel('อีเมลใหม่')).toHaveCount(0);
+  await expect(page.getByText(th('account:email.adminOnly'))).toBeVisible();
+  await expect(page.getByLabel(th('account:email.newEmail'))).toHaveCount(0);
 });
 
 test('email verification link: the token disappears from the URL immediately, is not in history/storage, and verifies once', async ({
@@ -367,7 +385,9 @@ test('email verification link: the token disappears from the URL immediately, is
   const state = initialState({ pendingEmail: 'new@demo.example' });
   await mockApi(page, state);
   await page.goto('/?tenant=demo&view=account&verify=tok-secret-123');
-  await expect(page.getByText('ยืนยันอีเมลใหม่แล้ว: new@demo.example')).toBeVisible();
+  await expect(
+    page.getByText(th('account:email.confirmed', { email: 'new@demo.example' })),
+  ).toBeVisible();
   expect(page.url()).not.toContain('tok-secret-123');
   expect(page.url()).toContain('view=account');
   expect(state.writes).toEqual([
@@ -390,13 +410,15 @@ test('email verification link: the token disappears from the URL immediately, is
 
   // reload does not verify again
   await page.reload();
-  await expect(page.getByRole('heading', { level: 1, name: 'บัญชีของฉัน' })).toBeVisible();
+  await expect(
+    page.getByRole('heading', { level: 1, name: th('account:page.title') }),
+  ).toBeVisible();
   expect(state.writes).toHaveLength(1);
 
   // expired token → the translated message
   state.failNext = { status: 410, json: { code: 'EMAIL_CHANGE_EXPIRED' } };
   await page.goto('/?tenant=demo&view=account&verify=old-token');
-  await expect(page.getByText('ลิงก์ยืนยันหมดอายุหรือถูกใช้แล้ว')).toBeVisible();
+  await expect(page.getByText(th('account:errors.emailChangeExpired'))).toBeVisible();
   expect(page.url()).not.toContain('old-token');
 });
 
@@ -406,49 +428,57 @@ test('2FA: add a device with a QR + typed code, a wrong code warns, the last dev
   const state = initialState();
   await mockApi(page, state);
   await page.goto('/?view=account&tenant=demo');
-  await expect(page.getByText('ยังไม่ได้ตั้งค่า 2FA')).toBeVisible();
-  await page.getByRole('button', { name: 'เพิ่มอุปกรณ์' }).click();
-  const dialog = page.getByRole('dialog', { name: 'เพิ่มอุปกรณ์ 2FA' });
-  await expect(dialog.getByRole('img', { name: /QR สำหรับเพิ่มบัญชี D-Contact/ })).toBeVisible();
+  await expect(page.getByText(th('account:mfa.notEnrolled'))).toBeVisible();
+  await page.getByRole('button', { name: th('account:mfa.add') }).click();
+  const dialog = page.getByRole('dialog', { name: th('account:mfa.enrolTitle') });
+  await expect(
+    dialog.getByRole('img', { name: new RegExp(escapeRegExp(th('account:mfa.qrLabel'))) }),
+  ).toBeVisible();
   await expect(dialog.locator('code')).toHaveText('JBSW Y3DP EHPK 3PXP');
 
   state.failNext = { status: 400, json: { code: 'INVALID_OTP_CODE' } };
-  await dialog.getByLabel('รหัส 6 หลัก').fill('12a3456');
-  await expect(dialog.getByLabel('รหัส 6 หลัก')).toHaveValue('123456');
-  await dialog.getByLabel('ชื่ออุปกรณ์').fill('โทรศัพท์');
-  await dialog.getByRole('button', { name: 'ยืนยันและเพิ่มอุปกรณ์' }).click();
-  await expect(dialog.getByRole('alert').filter({ hasText: 'รหัสไม่ถูกต้อง' })).toBeVisible();
-  await dialog.getByLabel('รหัส 6 หลัก').fill('654321');
-  await dialog.getByLabel('รหัส 6 หลัก').press('Enter');
-  await expect(page.getByText('เพิ่มอุปกรณ์ 2FA แล้ว')).toBeVisible();
+  await dialog.getByLabel(th('account:mfa.code')).fill('12a3456');
+  await expect(dialog.getByLabel(th('account:mfa.code'))).toHaveValue('123456');
+  await dialog.getByLabel(th('account:mfa.label')).fill('Phone');
+  await dialog.getByRole('button', { name: th('account:mfa.confirm') }).click();
+  await expect(
+    dialog.getByRole('alert').filter({ hasText: th('account:errors.invalidOtp') }),
+  ).toBeVisible();
+  await dialog.getByLabel(th('account:mfa.code')).fill('654321');
+  await dialog.getByLabel(th('account:mfa.code')).press('Enter');
+  await expect(page.getByText(th('account:mfa.enrolled'))).toBeVisible();
   await expect(dialog).toBeHidden();
   expect(state.writes.at(-1)).toEqual({
     method: 'POST',
     path: '/mfa/totp/enrolments/00000000-0000-4000-8000-0000000000e1/confirm',
-    body: { code: '654321', label: 'โทรศัพท์' },
+    body: { code: '654321', label: 'Phone' },
   });
-  await expect(page.getByText('โทรศัพท์', { exact: true })).toBeVisible();
+  await expect(page.getByText('Phone', { exact: true })).toBeVisible();
 
   // 2FA enforced + one device left: the delete button is disabled with an explanation
   state.account.mfa.required = true;
   await page.reload();
-  await expect(page.getByText('องค์กรของคุณบังคับใช้ 2FA')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'ลบอุปกรณ์ โทรศัพท์' })).toBeDisabled();
-  await expect(page.getByText('ลบอุปกรณ์เครื่องสุดท้ายไม่ได้')).toBeVisible();
+  await expect(page.getByText(th('account:mfa.required'))).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: th('account:mfa.remove', { label: 'Phone' }) }),
+  ).toBeDisabled();
+  await expect(page.getByText(th('account:mfa.lastDeviceHint'))).toBeVisible();
 
   // two devices: can delete after confirming (Esc cancels, then focus returns)
   state.account.mfa.devices = twoDevices();
   await page.reload();
-  const remove = page.getByRole('button', { name: 'ลบอุปกรณ์ แท็บเล็ต' });
+  const remove = page.getByRole('button', { name: th('account:mfa.remove', { label: 'Tablet' }) });
   await remove.click();
-  const confirm = page.getByRole('alertdialog', { name: 'ลบอุปกรณ์ แท็บเล็ต?' });
+  const confirm = page.getByRole('alertdialog', {
+    name: th('account:mfa.removeTitle', { label: 'Tablet' }),
+  });
   await expect(confirm).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(confirm).toBeHidden();
   expect(state.writes.filter((write) => write.method === 'DELETE')).toEqual([]);
   await remove.click();
-  await confirm.getByRole('button', { name: 'ลบอุปกรณ์' }).click();
-  await expect(page.getByText('ลบอุปกรณ์แล้ว')).toBeVisible();
+  await confirm.getByRole('button', { name: th('account:mfa.removeConfirm') }).click();
+  await expect(page.getByText(th('account:mfa.removed'))).toBeVisible();
   expect(state.writes.at(-1)).toEqual({ method: 'DELETE', path: '/mfa/totp/dev-2', body: null });
 });
 
@@ -458,46 +488,50 @@ test('account policy (admin): a reason is required, sends the original revision,
   const state = initialState();
   await mockApi(page, state);
   await page.goto('/?view=account-policy&tenant=demo');
-  await expect(page.getByText('ใช้ค่าเริ่มต้น (ยังไม่เคยแก้ไข)')).toBeVisible();
-  const save = page.getByRole('button', { name: 'บันทึกนโยบาย' });
+  await expect(page.getByText(th('account:policy.neverUpdated'))).toBeVisible();
+  const save = page.getByRole('button', { name: th('account:policy.save') });
   await expect(save).toBeDisabled();
 
-  await page.getByRole('switch', { name: 'บังคับใช้ 2FA กับผู้ใช้ทุกคน' }).focus();
+  await page.getByRole('switch', { name: th('account:policy.mfaRequired') }).focus();
   await page.keyboard.press('Space');
-  await page.getByRole('button', { name: /การเปลี่ยนอีเมลของผู้ใช้/ }).click();
-  await page.getByRole('option', { name: 'ผู้ดูแลระบบเปลี่ยนให้เท่านั้น' }).click();
+  await page
+    .getByRole('button', { name: new RegExp(escapeRegExp(th('account:policy.emailChange'))) })
+    .click();
+  await page.getByRole('option', { name: th('account:policy.emailOptions.ADMIN_ONLY') }).click();
   await save.click();
   await expect(
-    page.getByRole('alert').filter({ hasText: 'เหตุผลต้องยาว 3–500 ตัวอักษร' }),
+    page.getByRole('alert').filter({ hasText: th('account:errors.reasonLength') }),
   ).toBeVisible();
   expect(state.writes).toEqual([]);
 
-  await page.getByLabel('เหตุผลของการเปลี่ยน').fill('บังคับ 2FA ตามนโยบายความปลอดภัย');
+  await page.getByLabel(th('account:policy.reason')).fill('Enforce 2FA per the security policy');
   await save.click();
-  await expect(page.getByText('บันทึกนโยบายแล้ว')).toBeVisible();
+  await expect(page.getByText(th('account:policy.saved'))).toBeVisible();
   expect(state.writes.at(-1)).toEqual({
     method: 'PUT',
     path: 'account-policy',
     body: {
       emailChange: 'ADMIN_ONLY',
       mfaRequired: true,
-      reason: 'บังคับ 2FA ตามนโยบายความปลอดภัย',
+      reason: 'Enforce 2FA per the security policy',
       expectedRevision: 0,
     },
   });
-  await expect(page.getByText(/แก้ไขล่าสุด/)).toBeVisible();
+  await expect(
+    page.getByText(new RegExp(escapeRegExp(th('account:policy.lastUpdated', { date: '' }).trim()))),
+  ).toBeVisible();
 
   // another admin edited first → 409, then load the latest values
   state.policy = { ...state.policy, emailChange: 'IMMEDIATE', revision: 5 };
   state.failNext = { status: 409, json: { code: 'REVISION_CONFLICT' } };
-  await page.getByRole('switch', { name: 'บังคับใช้ 2FA กับผู้ใช้ทุกคน' }).focus();
+  await page.getByRole('switch', { name: th('account:policy.mfaRequired') }).focus();
   await page.keyboard.press('Space');
-  await page.getByLabel('เหตุผลของการเปลี่ยน').fill('ปิดชั่วคราว');
+  await page.getByLabel(th('account:policy.reason')).fill('Temporarily off');
   await save.click();
   await expect(
-    page.getByRole('alert').filter({ hasText: 'มีผู้ดูแลระบบคนอื่นแก้นโยบายก่อนหน้านี้' }),
+    page.getByRole('alert').filter({ hasText: th('account:errors.revisionConflict') }),
   ).toBeVisible();
-  await expect(page.getByRole('button', { name: /การเปลี่ยนอีเมลของผู้ใช้/ })).toContainText(
-    'เปลี่ยนได้ทันที',
-  );
+  await expect(
+    page.getByRole('button', { name: new RegExp(escapeRegExp(th('account:policy.emailChange'))) }),
+  ).toContainText(th('account:policy.emailOptions.IMMEDIATE'));
 });

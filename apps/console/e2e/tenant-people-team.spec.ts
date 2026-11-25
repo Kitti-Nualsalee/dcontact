@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { homeNavigation } from './support/home-navigation.js';
+import { th } from './support/catalog';
 test.use({ locale: 'th-TH' });
 
 const TEAM_A = '10000000-0000-4000-8000-000000000401';
@@ -13,7 +14,7 @@ for (const scenario of ['success', 'busy', 'session', 'unknown', 'disabled'] as 
   }) => {
     let user = {
       id: USER_ID,
-      displayName: 'Agent ย้ายทีม',
+      displayName: 'Team Mover Agent',
       email: 'move@example.test',
       username: 'move@example.test',
       role: 'AGENT',
@@ -41,8 +42,8 @@ for (const scenario of ['success', 'busy', 'session', 'unknown', 'disabled'] as 
         return route.fulfill({
           json: {
             items: [
-              { id: TEAM_A, name: 'ทีมขาย', isActive: true },
-              { id: TEAM_B, name: 'ทีมบริการ', isActive: true },
+              { id: TEAM_A, name: 'Sales Team', isActive: true },
+              { id: TEAM_B, name: 'Service Team', isActive: true },
             ],
           },
         });
@@ -70,24 +71,41 @@ for (const scenario of ['success', 'busy', 'session', 'unknown', 'disabled'] as 
     });
 
     await page.goto('/?view=tenant-people&tenant=demo');
-    await page.getByRole('button', { name: 'ดูบัญชี Agent ย้ายทีม', exact: true }).click();
-    const start = page.getByRole('button', { name: 'ย้ายทีม…', exact: true });
+    await page
+      .getByRole('button', {
+        name: `${th('tenantPeople:directory.open')} Team Mover Agent`,
+        exact: true,
+      })
+      .click();
+    const start = page.getByRole('button', {
+      name: th('tenantPeople:teamChange.start'),
+      exact: true,
+    });
     if (scenario === 'disabled') {
       await expect(start).toBeDisabled();
-      await expect(page.getByText(/ย้ายทีมได้เฉพาะบัญชีที่ใช้งานได้/)).toBeVisible();
+      await expect(page.getByText(th('tenantPeople:teamChange.notMovable'))).toBeVisible();
       expect(patches).toEqual([]);
       return;
     }
     await start.click();
-    const dialog = page.getByRole('dialog', { name: 'ย้ายทีมของ Agent ย้ายทีม' });
-    await expect(dialog).toContainText('ทักษะของทีมเดิมจะถูกถอดออก');
-    const submit = dialog.getByRole('button', { name: 'ยืนยันย้ายทีม', exact: true });
+    const dialog = page.getByRole('dialog', {
+      name: th('tenantPeople:teamChange.title', { name: 'Team Mover Agent' }),
+    });
+    await expect(dialog).toContainText(
+      th('tenantPeople:teamChange.bodyAgent', { team: 'Sales Team' }),
+    );
+    const submit = dialog.getByRole('button', {
+      name: th('tenantPeople:teamChange.submit'),
+      exact: true,
+    });
     await expect(submit).toBeDisabled();
-    await dialog.getByRole('button', { name: /ทีมใหม่/ }).click();
+    await dialog.getByRole('button', { name: th('tenantPeople:teamChange.newTeam') }).click();
     // the current team is not among the options
-    await expect(page.getByRole('option', { name: 'ทีมขาย', exact: true })).toHaveCount(0);
-    await page.getByRole('option', { name: 'ทีมบริการ', exact: true }).click();
-    await dialog.getByRole('textbox', { name: /เหตุผล/ }).fill('ย้ายไปดูแลงานบริการ');
+    await expect(page.getByRole('option', { name: 'Sales Team', exact: true })).toHaveCount(0);
+    await page.getByRole('option', { name: 'Service Team', exact: true }).click();
+    await dialog
+      .getByRole('textbox', { name: th('tenantPeople:invitation.reason') })
+      .fill('Move to service work');
     const accessibility = await new AxeBuilder({ page }).include('[role="dialog"]').analyze();
     expect(
       accessibility.violations.filter((item) =>
@@ -99,34 +117,42 @@ for (const scenario of ['success', 'busy', 'session', 'unknown', 'disabled'] as 
     expect(patches[0]).toMatchObject({
       expectedRevision: 4,
       teamId: TEAM_B,
-      reason: 'ย้ายไปดูแลงานบริการ',
+      reason: 'Move to service work',
     });
     if (scenario === 'unknown') {
       // unknown result: close the Dialog, read the real detail, and do not resend by itself
       await expect(dialog).toHaveCount(0);
       await expect(
-        page.getByRole('status').filter({ hasText: 'ยังยืนยันผลการย้ายทีมไม่ได้' }),
+        page.getByRole('status').filter({ hasText: th('tenantPeople:teamChange.errors.UNKNOWN') }),
       ).toBeVisible();
       await expect.poll(() => details).toBeGreaterThanOrEqual(2);
       expect(patches).toHaveLength(1);
       return;
     }
     if (scenario === 'session') {
-      await expect(dialog.getByRole('alert')).toContainText('ออกจาก Workspace ก่อน');
+      await expect(dialog.getByRole('alert')).toContainText(
+        th('tenantPeople:teamChange.errors.AGENT_SESSION_ACTIVE'),
+      );
       expect(patches).toHaveLength(1);
       return;
     }
     if (scenario === 'busy') {
-      await expect(dialog.getByRole('alert')).toContainText('มีสายหรือคำสั่งค้างอยู่');
-      await expect(dialog.getByRole('textbox', { name: /เหตุผล/ })).toHaveValue(
-        'ย้ายไปดูแลงานบริการ',
+      await expect(dialog.getByRole('alert')).toContainText(
+        th('tenantPeople:teamChange.errors.CONFIG_BUSY'),
       );
+      await expect(
+        dialog.getByRole('textbox', { name: th('tenantPeople:invitation.reason') }),
+      ).toHaveValue('Move to service work');
       expect(patches).toHaveLength(1);
       return;
     }
     await expect(dialog).toHaveCount(0);
     await expect(
-      page.getByRole('status').filter({ hasText: 'ย้ายไปทีม ทีมบริการ แล้ว' }),
+      page
+        .getByRole('status')
+        .filter({ hasText: th('tenantPeople:teamChange.done', { team: 'Service Team' }) }),
     ).toBeVisible();
-    await expect(page.getByRole('region', { name: 'รายละเอียดบัญชี' })).toContainText('ทีมบริการ');
+    await expect(
+      page.getByRole('region', { name: th('tenantPeople:directory.detail') }),
+    ).toContainText('Service Team');
   });

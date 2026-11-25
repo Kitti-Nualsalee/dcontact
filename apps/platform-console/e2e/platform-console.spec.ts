@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, type Page, type Route } from '@playwright/test';
 import { test } from './platform-test.js';
+import { th } from './catalog.js';
 import commonTh from '../src/i18n/locales/th/common.json' with { type: 'json' };
 import commonEn from '../src/i18n/locales/en/common.json' with { type: 'json' };
 
@@ -792,7 +793,7 @@ test('switching language in the middle of draft/review/progress keeps the DOM an
   await choose(page, 'Timezone', 'UTC');
   const input = await page.getByLabel('Slug', { exact: true }).elementHandle();
   const sessionCount = sessions;
-  await page.getByRole('button', { name: 'เปลี่ยนเป็นภาษาอังกฤษ' }).click();
+  await page.getByRole('button', { name: th('common:language.switch') }).click();
   await expect(page.locator('html')).toHaveAttribute('lang', 'en');
   await expect(page.getByRole('navigation', { name: 'Main navigation' })).toBeVisible();
   await expect(
@@ -815,11 +816,11 @@ test('switching language in the middle of draft/review/progress keeps the DOM an
   await page.getByRole('button', { name: 'Switch to Thai' }).click();
   expect(await review!.evaluate((node) => node.isConnected)).toBe(true);
   await expect(confirmation).toBeChecked();
-  await page.getByRole('button', { name: 'ยืนยันและเริ่ม provision' }).click();
+  await page.getByRole('button', { name: th('common:wizard.submit') }).click();
   await expect(page).toHaveURL(/\/requests\/[0-9a-f-]{36}$/);
   const requestUrl = page.url();
   const progress = await page.getByRole('heading', { level: 1 }).elementHandle();
-  await page.getByRole('button', { name: 'เปลี่ยนเป็นภาษาอังกฤษ' }).click();
+  await page.getByRole('button', { name: th('common:language.switch') }).click();
   await expect(page.locator('html')).toHaveAttribute('lang', 'en');
   expect(page.url()).toBe(requestUrl);
   expect(await progress!.evaluate((node) => node.isConnected)).toBe(true);
@@ -849,7 +850,7 @@ test('unusable preference storage can still switch the language in memory', asyn
     };
   });
   await open(page, new MockPlatformApi());
-  await page.getByRole('button', { name: 'เปลี่ยนเป็นภาษาอังกฤษ' }).click();
+  await page.getByRole('button', { name: th('common:language.switch') }).click();
   await expect(page.locator('html')).toHaveAttribute('lang', 'en');
   await expect(page.getByRole('navigation', { name: 'Main navigation' })).toBeVisible();
   await page.getByRole('button', { name: 'Switch to Thai' }).click();
@@ -863,7 +864,7 @@ for (const mode of ['auditor', 'DISABLED', 'NOT_ALLOWLISTED'] as const) {
         ? new MockPlatformApi('platform_auditor')
         : new MockPlatformApi('platform_operator', mode);
     await open(page, api);
-    await page.getByRole('button', { name: 'เปลี่ยนเป็นภาษาอังกฤษ' }).click();
+    await page.getByRole('button', { name: th('common:language.switch') }).click();
     const copy =
       mode === 'auditor'
         ? 'Platform Auditor (read only)'
@@ -890,7 +891,7 @@ test.describe('English browser', () => {
     const toggle = page.getByRole('button', { name: 'Switch to Thai' });
     await toggle.focus();
     await page.keyboard.press('Enter');
-    await expect(page.getByRole('button', { name: 'เปลี่ยนเป็นภาษาอังกฤษ' })).toBeFocused();
+    await expect(page.getByRole('button', { name: th('common:language.switch') })).toBeFocused();
     await expect(page.locator('html')).toHaveAttribute('lang', 'th');
   });
 });

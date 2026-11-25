@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { homeNavigation } from './support/home-navigation.js';
+import { th } from './support/catalog';
 
 test.use({ locale: 'th-TH' });
 const userId = '10000000-0000-4000-8000-000000000201';
@@ -23,7 +24,7 @@ for (const scenario of [
   }) => {
     const user = {
       id: userId,
-      displayName: 'ผู้ใช้คำเชิญ',
+      displayName: 'Invited User',
       email: 'invitation@example.test',
       username: 'invitation@example.test',
       role: 'SUPERVISOR',
@@ -82,7 +83,7 @@ for (const scenario of [
           'reasonCode',
         ]);
         expect(body.expectedRevision).toBe(3);
-        expect(body.reason).toBe('ตรวจคำเชิญทดสอบ');
+        expect(body.reason).toBe('Test invitation check');
         commandId = body.commandId;
         expect(path).toBe(
           `people/users/${userId}/${['ambiguous', 'dispatching'].includes(scenario) ? 'reconcile' : 'invitation/resend'}`,
@@ -106,33 +107,46 @@ for (const scenario of [
       return route.fulfill({ status: 404, json: { code: 'RESOURCE_NOT_FOUND' } });
     });
     await page.goto('/?view=tenant-people&tenant=demo');
-    await page.getByRole('button', { name: 'ดูบัญชี ผู้ใช้คำเชิญ', exact: true }).click();
-    let invitation = page.getByRole('region', { name: 'คำเชิญและการเปิดใช้งาน', exact: true });
-    await expect(invitation).toContainText('จัดเตรียมแล้ว');
+    await page
+      .getByRole('button', {
+        name: `${th('tenantPeople:directory.open')} Invited User`,
+        exact: true,
+      })
+      .click();
+    let invitation = page.getByRole('region', {
+      name: th('tenantPeople:invitation.title'),
+      exact: true,
+    });
+    await expect(invitation).toContainText(
+      th('tenantPeople:invitation.provisioningStates.PROVISIONED'),
+    );
     if (['activated', 'supervisor', 'intent'].includes(scenario)) {
       await expect(
-        invitation.getByRole('button', { name: 'ส่งคำเชิญรุ่นใหม่', exact: true }),
+        invitation.getByRole('button', { name: th('tenantPeople:invitation.resend'), exact: true }),
       ).toHaveCount(0);
-      if (scenario === 'activated') await expect(invitation).toContainText('เปิดใช้งานแล้ว');
+      if (scenario === 'activated')
+        await expect(invitation).toContainText(
+          th('tenantPeople:invitation.activationStates.ACTIVATED'),
+        );
       expect(posts).toBe(0);
       return;
     }
     if (['ambiguous', 'dispatching'].includes(scenario))
       await expect(
-        invitation.getByRole('button', { name: 'ส่งคำเชิญรุ่นใหม่', exact: true }),
+        invitation.getByRole('button', { name: th('tenantPeople:invitation.resend'), exact: true }),
       ).toBeDisabled();
     const action = ['ambiguous', 'dispatching'].includes(scenario)
-      ? 'ตรวจหลักฐานการส่ง'
-      : 'ส่งคำเชิญรุ่นใหม่';
+      ? th('tenantPeople:invitation.reconcile')
+      : th('tenantPeople:invitation.resend');
     await invitation.getByRole('button', { name: action, exact: true }).click();
     const dialog = page.getByRole('dialog');
     await dialog
-      .getByRole('textbox', { name: 'เหตุผล (1–500 ตัวอักษร)', exact: true })
-      .fill('ตรวจคำเชิญทดสอบ');
+      .getByRole('textbox', { name: th('tenantPeople:invitation.reason'), exact: true })
+      .fill('Test invitation check');
     expect(posts).toBe(0);
     await dialog.getByRole('button', { name: action, exact: true }).click();
     if (scenario === 'limited') {
-      await expect(dialog.getByRole('alert')).toContainText('ครบโควตา');
+      await expect(dialog.getByRole('alert')).toContainText(th('tenantPeople:invitation.limited'));
       expect(posts).toBe(1);
       return;
     }
@@ -140,20 +154,30 @@ for (const scenario of [
     if (scenario === 'lost-reload') {
       await expect(invitation.getByRole('alert')).toBeVisible();
       await page.reload();
-      await page.getByRole('button', { name: 'ดูบัญชี ผู้ใช้คำเชิญ', exact: true }).click();
-      invitation = page.getByRole('region', { name: 'คำเชิญและการเปิดใช้งาน', exact: true });
+      await page
+        .getByRole('button', {
+          name: `${th('tenantPeople:directory.open')} Invited User`,
+          exact: true,
+        })
+        .click();
+      invitation = page.getByRole('region', {
+        name: th('tenantPeople:invitation.title'),
+        exact: true,
+      });
       await expect.poll(() => commands).toBe(1);
     } else
-      await invitation.getByRole('button', { name: 'ตรวจสถานะคำเชิญเดิม', exact: true }).click();
-    await expect(invitation).toContainText('ส่งแล้ว');
-    await expect(invitation).toContainText('รอผู้ใช้เปิดใช้งาน');
+      await invitation
+        .getByRole('button', { name: th('tenantPeople:invitation.refresh'), exact: true })
+        .click();
+    await expect(invitation).toContainText(th('tenantPeople:invitation.deliveryStates.SENT'));
+    await expect(invitation).toContainText(th('tenantPeople:invitation.activationStates.PENDING'));
     await expect(invitation.getByText('3', { exact: true })).toBeVisible();
     expect(posts).toBe(1);
     const stored = await page.evaluate(() =>
       Object.entries(sessionStorage).filter(([key]) => key.startsWith('dc:tenant-invitation:')),
     );
     expect(JSON.stringify(stored)).not.toMatch(
-      /password|action-token|invitation@example|ตรวจคำเชิญทดสอบ/,
+      /password|action-token|invitation@example|Test invitation check/,
     );
     const accessibility = await new AxeBuilder({ page }).analyze();
     expect(
