@@ -5,8 +5,8 @@ import { expect, test } from './fixtures';
 import { ACCESS_TOKEN, DPHONE, dphoneFrame, REFRESH_TOKEN, setup, signIn } from './embed-harness';
 
 /**
- * E1.15 (#489): host อ้างอิง (`examples/dphone-host/index.html`) + `<dphone-launcher>` จาก release ใน repo
- * — หลักฐานก่อนเลื่อน alias: ครบ 4 ความสามารถผ่าน launcher (รับสาย, screen-pop, activity, click-to-call)
+ * E1.15 (#489): the reference host (`examples/dphone-host/index.html`) + `<dphone-launcher>` from the release in the repo
+ * — evidence before moving the alias: all 4 capabilities work through the launcher (answer, screen-pop, activity, click-to-call)
  */
 const reference = readFileSync(
   fileURLToPath(new URL('../../../examples/dphone-host/index.html', import.meta.url)),
@@ -18,7 +18,9 @@ const hostHtml = (launcherVersion: string) => () =>
     .replaceAll('/embed/v1/dphone-launcher.js', `/embed/${launcherVersion}/dphone-launcher.js`)
     .replaceAll('TENANT', 'demo');
 
-test('launcher release เปิด owner ผ่าน sandbox และรักษาสายหลัง CRM reload', async ({ page }) => {
+test('the launcher release opens the owner through a sandbox and keeps the call after a CRM reload', async ({
+  page,
+}) => {
   const { server, frame } = await setup(page, {
     hostHtml: hostHtml('v1'),
     path: '/',
@@ -58,7 +60,7 @@ test('launcher release เปิด owner ผ่าน sandbox และรั�
 });
 
 for (const version of ['v1', 'v1.0.1']) {
-  test(`host อ้างอิง + launcher ${version}: ready → login → screen-pop → รับสาย → activity (ack อัตโนมัติ) → click-to-call`, async ({
+  test(`reference host + launcher ${version}: ready → login → screen-pop → answer → activity (automatic ack) → click-to-call`, async ({
     page,
   }) => {
     const { server, frame } = await setup(page, { hostHtml: hostHtml(version), path: '/' });
@@ -117,14 +119,14 @@ for (const version of ['v1', 'v1.0.1']) {
     await expect(page.locator('#activities li')).toHaveText([
       'interaction-embed-1 · CUSTOMER_ASSISTED · 120 วินาที',
     ]);
-    // launcher ack ให้แล้ว → คิวใน iframe ว่าง (ไม่ส่งซ้ำ)
+    // the launcher acked it → the queue in the iframe is empty (no resend)
     await expect
       .poll(() =>
         dphoneFrame(page).evaluate(() => sessionStorage.getItem('dphone.embed.activity.demo')),
       )
       .toBeNull();
 
-    // click-to-call: host ส่งเบอร์ได้อย่างเดียว agent ต้องกดโทรเอง
+    // click-to-call: the host can only send the number, the agent must press call themselves
     await page.getByLabel('เบอร์โทร').fill('081-234-5678');
     await page.getByRole('button', { name: 'ส่งเบอร์ให้ dphone' }).click();
     await expect(page.locator('#call-result')).toHaveText(

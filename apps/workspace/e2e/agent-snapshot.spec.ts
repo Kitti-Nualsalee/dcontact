@@ -1,6 +1,8 @@
 import { expect, test } from './fixtures';
 
-test('Workspace แสดง incoming offer จาก authoritative Agent snapshot', async ({ page }) => {
+test('Workspace shows an incoming offer from the authoritative Agent snapshot', async ({
+  page,
+}) => {
   await page.route('**/api/v1/workspace/agent/snapshot', async (route) => {
     expect(route.request().headers().authorization).toBe('Bearer e2e-access-token');
     await route.fulfill({

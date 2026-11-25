@@ -8,16 +8,16 @@ import {
 import { CasePanel, useCaseDrafts } from './case-panel.js';
 import { useFloatingOverlapInset } from './floating-inset.js';
 /**
- * Agent Workspace — D1.15 (#454): ข้อความผ่าน catalog `workspace`/`dphone`, CSS token ล้วน (`aw-*`),
- * ใน AppShell (flag `ui.shell.v2`) ไม่วาด chrome เดิมและใช้ dphone widget ลอยแทนแผงควบคุมสาย
+ * Agent Workspace — D1.15 (#454): messages come from the `workspace`/`dphone` catalogs, CSS uses tokens only (`aw-*`),
+ * inside AppShell (flag `ui.shell.v2`) it does not draw the old chrome and uses the floating dphone widget instead of the call control panel
  *
- * กติกาที่ห้ามละเมิด (ADR-026): dphone instance ถูกสร้างครั้งเดียวต่อการโหลดหน้าใน `AgentWorkspace`
- * การย่อ/ขยาย/ลาก/แยกหน้าต่าง/สลับภาษาเปลี่ยนแค่ UI — ไม่สร้าง SIP session, WebRTC หรือ WS ใหม่
+ * Rule that must not be broken (ADR-026): the dphone instance is created once per page load in `AgentWorkspace`;
+ * collapsing/expanding/dragging/detaching the window and switching language only change the UI — no new SIP session, WebRTC or WS
  *
- * E1.12 (#486), #583: ทุก tenant — จุดรับงานคือผู้ถือ work-session lease ฝั่ง server
- * (ADR-026 ข้อ 2): ได้ lease ก่อนจึงต่อ WS (แนบ `leaseId`) และ register SIP; เสีย lease = หยุดรับงานใหม่ทันที
- * และถอน SIP register เมื่อไม่มีงานในมือ — สายที่คุยอยู่/wrap-up ไม่ถูกตัด (ADR-026 ข้อ 4)
- * flag ปิด = พฤติกรรมเดิมทุกประการ (leader election ของแท็บเป็นตัวตัดสิน)
+ * E1.12 (#486), #583: every tenant — the work point is the holder of the server-side work-session lease
+ * (ADR-026 item 2): get the lease first, then connect the WS (with `leaseId`) and register SIP; losing the lease = stop taking new work immediately
+ * and withdraw the SIP register when there is no work in hand — a call in progress/wrap-up is not cut (ADR-026 item 4)
+ * flag off = exactly the old behavior (tab leader election decides)
  */
 import {
   useEffect,
@@ -78,7 +78,7 @@ import {
 import './agent-workspace.css';
 import './dphone/dphone.css';
 
-/** V3: แท็บของแผงขวา · มุมมองหลัก · รายการงาน และงานที่เลือกในรายการ */
+/** V3: right panel tabs · main view · work list and the work selected in the list */
 type InspectorTab = 'wrapup' | 'case' | 'details' | 'events' | 'readiness';
 type MainTab = 'customer' | 'voice';
 type ListTab = 'open' | 'closed';
@@ -107,20 +107,20 @@ export interface WorkspaceAppProps {
   tenantLabel?: string;
   onSignOut?: () => void;
   createDphone?: DphoneFactory;
-  /** E1.12: REST ของ work-session lease — ไม่มี = พฤติกรรมเดิม (ไม่มี lease) */
+  /** E1.12: REST for the work-session lease — absent = old behavior (no lease) */
   workSession?: WorkSessionApi;
-  /** surface ที่ขอ lease (E1.9) — Workspace = `workspace` */
+  /** surface that asks for the lease (E1.9) — Workspace = `workspace` */
   workSessionSurface?: WorkSessionSurface;
   /**
-   * E1.14: `embedded` = dphone ที่ถูกฝังใน host — แสดงเฉพาะ dphone, อุปกรณ์เสียง, ความพร้อม และ wrap-up
-   * (ไม่มี shell/หน้าต่างแยก) โดยใช้ logic งานสายชุดเดียวกับ Workspace
+   * E1.14: `embedded` = dphone embedded in a host — shows only dphone, audio devices, readiness and wrap-up
+   * (no shell/detached window) using the same call-work logic as Workspace
    */
   variant?: 'workspace' | 'embedded';
-  /** E1.14: เหตุการณ์ของงานสาย ให้ embed runtime ส่ง screen-pop/activity ให้ host */
+  /** E1.14: call-work events, for the embed runtime to send screen-pop/activity to the host */
   onCallEvent?: (event: WorkspaceCallEvent) => void;
-  /** E1.14: lease ที่ถืออยู่ (undefined = ไม่ได้ถือ) — ใช้แนบ `x-work-session-lease-id` */
+  /** E1.14: lease currently held (undefined = not held) — used to attach `x-work-session-lease-id` */
   onLeaseChange?: (leaseId: string | undefined) => void;
-  /** #588: มีสายเรียกเข้า, สายในมือ หรือ wrap-up ที่ยังไม่บันทึก — shell ใช้ถามยืนยันก่อนออกจากระบบ */
+  /** #588: there is an incoming call, a call in hand or an unsaved wrap-up — the shell uses it to confirm before sign-out */
   onWorkInHandChange?: (active: boolean) => void;
 }
 
@@ -161,13 +161,13 @@ export function createDeterministicDphone(callbacks: SipJsTransportCallbacks = {
 }
 
 /**
- * หลักฐานสำหรับ acceptance (dev/e2e เท่านั้น): SIP session และ WS connection ที่ใช้อยู่
- * Playwright อ่านก่อน/หลังย่อ-ขยาย-แยกหน้าต่าง-สลับภาษา แล้วต้องได้ค่าเดิม
+ * Evidence for acceptance (dev/e2e only): the SIP session and WS connection in use.
+ * Playwright reads it before/after collapse-expand-detach-language switch and must get the same value
  */
 interface DphoneDiagnostics {
   sipSessionId(): string | undefined;
   wsConnectionId(): string | undefined;
-  /** E1.12: work-session lease ที่ถืออยู่ (ถ้ามี) */
+  /** E1.12: work-session lease currently held (if any) */
   workSessionLeaseId(): string | undefined;
 }
 
@@ -193,12 +193,12 @@ function loadSize(): DphoneSize {
     const saved = localStorage.getItem(SIZE_KEY);
     if (saved && (DPHONE_SIZES as readonly string[]).includes(saved)) return saved as DphoneSize;
   } catch {
-    // ขนาดเป็นความสะดวก ไม่ใช่ข้อมูลสำคัญ
+    // size is a convenience, not important data
   }
   return 'compact';
 }
 
-/** token มาก่อนเนื้อหา แล้ว mount `AgentWorkspace` ครั้งเดียว (dphone ต้องไม่ถูกสร้างซ้ำ) */
+/** the token comes before the content, then `AgentWorkspace` is mounted once (dphone must not be created again) */
 export function WorkspaceApp(props: WorkspaceAppProps) {
   const tokensReady = useShellTokens();
   if (!tokensReady) return null;
@@ -228,7 +228,7 @@ function AgentWorkspace({
   const { t, i18n } = useTranslation('workspace');
   const { t: td } = useTranslation('dphone');
   const { locale } = useLocale();
-  // embedded ไม่มี shell แต่ใช้ widget ของ shell ใหม่ (D1.15) เหมือนกัน
+  // embedded has no shell but uses the new shell's widget (D1.15) just the same
   const inShellFrame = useInShell();
   const inShell = inShellFrame || variant === 'embedded';
   const leaderElection = useMemo(
@@ -243,10 +243,10 @@ function AgentWorkspace({
   const availabilityGeneration = useRef(0);
   const mediaReadinessRef = useRef(mediaReadiness);
   mediaReadinessRef.current = mediaReadiness;
-  // ข้อความเก็บเป็น key แล้วแปลตอน render — สลับภาษาแล้วเปลี่ยนตาม
+  // messages are stored as keys and translated at render — they follow a language switch
   const [mediaError, setMediaError] = useState<WorkspaceMessage>();
   const [snapshot, setSnapshot] = useState<AgentWorkspaceSnapshot>();
-  // #938 หน้าเลือกสถานะหลัง login และตัวเลือกสถานะ (เปิดเมื่อ server รองรับ agentStatusV1 จาก #937)
+  // #938 status picker page after login and the status selector (enabled when the server supports agentStatusV1 from #937)
   const [reasons, setReasons] = useState<NotReadyReason[]>([]);
   const [gate, setGate] = useState<'pending' | 'open' | 'done'>('pending');
   const [gateInitial] = useState<StatusChoice>(lastStatusChoice);
@@ -296,11 +296,11 @@ function AgentWorkspace({
   const [liveRetry, setLiveRetry] = useState(0);
   const [dphoneSize, setDphoneSize] = useState<DphoneSize>(loadSize);
   const [detached, setDetached] = useState(false);
-  // V3: แผงขวาเลือกแท็บที่ต้องทำต่อให้เองเมื่อสถานะงานเปลี่ยน (ผู้ใช้ยังสลับเองได้)
+  // V3: the right panel picks the tab that needs doing next when the work state changes (the user can still switch it)
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>('readiness');
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [mainTab, setMainTab] = useState<MainTab>('customer');
-  // #956 ร่างเคสต่องาน และลูกค้าที่ผูกกับงานปัจจุบัน (รายงานจาก WorkCustomerPanel)
+  // #956 case draft per work, and the customer linked to the current work (reported from WorkCustomerPanel)
   const caseDrafts = useCaseDrafts();
   const [workCustomer, setWorkCustomer] = useState<{
     workId: string;
@@ -320,11 +320,11 @@ function AgentWorkspace({
   const endedCallSnapshot = useRef<EndedCallSnapshotReconciler | undefined>(undefined);
   const liveConnectionId = useRef<string | undefined>(undefined);
   const popup = useRef<Window | null>(null);
-  // id ของหน้าต่างแยกที่ tab นี้เปิด — host รับ hello/bye/คำสั่งเฉพาะจาก id นี้
+  // id of the detached window this tab opened — the host accepts hello/bye/commands only from this id
   const remoteId = useRef<string | undefined>(undefined);
   const governanceGate = useMemo(() => new WorkspaceOutboundGate(), []);
-  // E1.12: work-session lease — `disabled` = ไม่ได้ส่ง `workSession` มา (test/harness เท่านั้น)
-  // #583: ทุก tenant บังคับ lease แล้ว จึงไม่มีสถานะ "tenant ไม่บังคับ" จาก server
+  // E1.12: work-session lease — `disabled` = `workSession` was not passed in (test/harness only)
+  // #583: every tenant enforces the lease now, so there is no "tenant does not enforce" state from the server
   const leaseClient = useRef<WorkSessionClient | undefined>(undefined);
   const [lease, setLease] = useState<WorkSessionState | { phase: 'disabled' }>(
     workSession ? { phase: 'idle' } : { phase: 'disabled' },
@@ -341,7 +341,7 @@ function AgentWorkspace({
     dphoneState.phase === 'HELD' ||
     ((dphoneState.phase === 'RECONNECTING' || dphoneState.phase === 'RECOVERY_REQUIRED') &&
       Boolean(dphoneState.interactionId));
-  // งานในมือ = สาย หรือ interaction ที่ยังต้องทำต่อ (ACTIVE/WRAPUP) — server ไม่ปล่อย lease ระหว่างนี้
+  // work in hand = a call or an interaction that still needs work (ACTIVE/WRAPUP) — the server does not release the lease meanwhile
   const workInHand =
     inCall ||
     wrapupPending ||
@@ -367,7 +367,7 @@ function AgentWorkspace({
       cancelled = true;
     };
   }, [statusV1, api]);
-  // ตอนว่างงาน อ่าน snapshot เป็นระยะ ให้เห็นสถานะที่ Supervisor เปลี่ยนให้และเวลาในสถานะตรงกับ server
+  // while idle, read the snapshot periodically so the state a Supervisor changed and the time in state match the server
   useEffect(() => {
     if (!statusV1 || gate !== 'done' || workInHand || !api) return;
     const timer = window.setInterval(() => {
@@ -378,17 +378,17 @@ function AgentWorkspace({
     }, 15_000);
     return () => window.clearInterval(timer);
   }, [statusV1, gate, workInHand, api]);
-  // มีงานในมือตอนเปิดหน้า (รวม reload ระหว่างสาย) = ข้ามหน้าเลือกสถานะ — หลักการ UI ข้อ 4
+  // work in hand when the page opens (including reload during a call) = skip the status picker — UI principle 4
   useEffect(() => {
     if (statusV1 && gate === 'pending') setGate(workInHand ? 'done' : 'open');
   }, [statusV1, gate, workInHand]);
-  // รับงานใหม่ได้: flag เปิด = ถือ lease; flag ปิด = working tab (เดิม)
+  // can take new work: flag on = holds the lease; flag off = working tab (old)
   const ownsWork =
     acceptingSession && !wrapupPending && !wrapupUnknown && (enforced ? leaseHeld : workingTab);
-  // เก็บ SIP/WS/หน้าต่าง dphone ไว้: flag เปิด = ถือ lease หรือยังมีงานในมือ; flag ปิด = working tab (เดิม)
+  // keep SIP/WS/dphone window: flag on = holds the lease or still has work in hand; flag off = working tab (old)
   const mediaOwner = enforced ? leaseHeld || workInHand : workingTab;
-  // #588: ออกจากระบบตอนนี้จะตัดสาย, พลาดสายที่ offer มาหรือกำลังเรียกเข้า หรือทิ้ง wrap-up ที่ยังไม่บันทึก
-  // (offer นับจาก snapshot ด้วย — tab ที่ไม่ได้ถือ media หรือ INVITE ยังมาไม่ถึงจะไม่มี RINGING)
+  // #588: signing out now would cut a call, miss an offered or ringing call, or drop an unsaved wrap-up
+  // (an offer is also counted from the snapshot — a tab that does not hold media, or whose INVITE has not arrived, has no RINGING)
   const signOutLosesWork =
     workInHand || dphoneState.phase === 'RINGING' || snapshot?.interaction?.state === 'ASSIGNED';
   const onWorkInHandChangeRef = useRef(onWorkInHandChange);
@@ -396,11 +396,11 @@ function AgentWorkspace({
   useEffect(() => {
     onWorkInHandChangeRef.current?.(signOutLosesWork);
   }, [signOutLosesWork]);
-  // unmount แล้วไม่มีงานในมือของหน้านี้ — ไม่ให้ shell ค้างสถานะ "มีงาน"
+  // after unmount this page has no work in hand — do not leave the shell stuck in the "has work" state
   useEffect(() => () => onWorkInHandChangeRef.current?.(false), []);
   const onCallEventRef = useRef(onCallEvent);
   onCallEventRef.current = onCallEvent;
-  // E1.14: offered/answered ครั้งเดียวต่อ interaction+state (snapshot ถูกโหลดซ้ำได้หลายครั้ง)
+  // offered/answered once per interaction+state (the snapshot can be loaded many times)
   const announced = useRef<string | undefined>(undefined);
   const interactionKey = snapshot?.interaction
     ? `${snapshot.interaction.id}:${snapshot.interaction.state}`
@@ -413,9 +413,9 @@ function AgentWorkspace({
       onCallEventRef.current?.({ type: 'offered', interaction });
     if (interaction.state === 'ACTIVE') onCallEventRef.current?.({ type: 'answered', interaction });
   }, [interactionKey, snapshot]);
-  // V3: เข้า WRAPUP/บันทึกผลแล้ว → สรุปผล (เปิดแผงให้), อุปกรณ์เสียงยังไม่พร้อม (เช่น reload ระหว่างมีสาย)
-  // หรือคุมสายด้วย external softphone หรือไม่มีงาน → ความพร้อม, นอกนั้น → รายละเอียด + Customer 360
-  // ผู้ใช้ยังสลับแท็บหรือปิดแผงเองได้
+  // V3: entered WRAPUP/outcome saved → summary (open the panel), audio device not ready (e.g. reload during a call)
+  // or controlling the call with an external softphone or no work → readiness, otherwise → details + Customer 360
+  // the user can still switch tabs or close the panel
   const readinessFirst = externalControl || mediaReadiness !== 'READY';
   const wrapupFormOpen =
     wrapupTarget?.state === 'WRAPUP' && savedWrapup?.interactionId !== wrapupTarget.id;
@@ -494,8 +494,8 @@ function AgentWorkspace({
     };
   }, [api, sessionReady, recoveryRevision, networkRevision]);
 
-  // Media อาจต่อก่อน Router ยืนยัน ACTIVE. อ่าน snapshot ซ้ำเฉพาะช่วงรอยต่อนี้
-  // เพื่อเปิดแผงลูกค้าเมื่อ owner ยืนยันงานเดียวกันแล้ว
+  // Media may connect before the Router confirms ACTIVE. Re-read the snapshot only during this handoff window
+  // to open the customer panel once the owner confirms the same work
   useEffect(() => {
     if (
       !api ||
@@ -518,7 +518,7 @@ function AgentWorkspace({
           return;
         }
       } catch {
-        // การอ่าน Cus360 ไม่มีผลต่อ Voice และลองใหม่ได้ในช่วงรอยต่อนี้
+        // reading Cus360 does not affect Voice and can be retried during this handoff window
       }
       if (!cancelled && attempt < 11) timer = setTimeout(() => void refresh(attempt + 1), 500);
     }
@@ -529,7 +529,7 @@ function AgentWorkspace({
     };
   }, [api, sessionReady, snapshot, dphoneState, extensionControl]);
 
-  // WS ของ routing: flag เปิดต่อหลังได้ lease เท่านั้น (แนบ leaseId) และ heartbeat ผ่าน socket นี้
+  // routing WS: with the flag on, connect only after getting the lease (with leaseId) and heartbeat over this socket
   const liveKey = enforced ? socketLeaseId : workingTab ? 'working-tab' : undefined;
   useEffect(() => {
     if (!api?.subscribeLive || !liveKey) return;
@@ -679,8 +679,8 @@ function AgentWorkspace({
     };
   }, [leaderElection]);
 
-  // E1.12: สร้าง client ของ lease ต่อ effect (StrictMode mount ซ้ำได้ client ใหม่ ไม่มีคำตอบค้างจากตัวเก่า)
-  // ลำดับ: หลัง leader election เริ่มแล้ว — leader ของ origin เป็นผู้ขอ lease อัตโนมัติ (ลดภาระเท่านั้น)
+  // create the lease client per effect (StrictMode mounts twice and gets a new client, with no pending answers from the old one)
+  // order: after leader election has started — the origin's leader requests the lease automatically (only reduces load)
   useEffect(() => {
     if (!workSession) return;
     const client = new WorkSessionClient({
@@ -691,7 +691,7 @@ function AgentWorkspace({
     leaseClient.current = client;
     const unsubscribe = client.subscribe(setLease);
     void client.start({ autoAcquire: sessionReady && leaderElection.isWorkingTab() });
-    // ปิดหน้าจริง (ไม่ใช่เข้า bfcache) → ปล่อย lease ให้ที่อื่นรับงานต่อได้ทันที
+    // real page close (not entering bfcache) → release the lease so somewhere else can take over immediately
     const exit = (event: PageTransitionEvent) => {
       if (!event.persisted) client.releaseOnExit();
     };
@@ -708,7 +708,7 @@ function AgentWorkspace({
     leaseClient.current?.setAutoAcquire(sessionReady && Boolean(workingTab));
   }, [workingTab, sessionReady]);
 
-  // ได้ lease = ที่นี่เป็นจุดรับงาน: ประกาศ leader ใน origin ให้แท็บอื่นไม่ขอ lease ซ้อน
+  // got the lease = this is the work point: announce leader in the origin so other tabs do not request a duplicate lease
   const heldLeaseId = lease.phase === 'held' ? lease.lease.leaseId : undefined;
   useEffect(() => {
     if (!disconnectedPhoneLease || workInHand) return;
@@ -735,7 +735,7 @@ function AgentWorkspace({
       setSocketLeaseId(heldLeaseId);
       return;
     }
-    // เสีย lease: หยุดรับงานใหม่ทันที; WS เดิมอยู่ต่อจนงานในมือจบ (server ไม่ส่ง offer ให้แล้ว)
+    // lost the lease: stop taking new work immediately; the old WS stays until the work in hand ends (the server no longer sends offers)
     setAvailability('OFFLINE');
     if (!workInHand) setSocketLeaseId(undefined);
     availabilityGeneration.current += 1;
@@ -757,7 +757,7 @@ function AgentWorkspace({
     [],
   );
 
-  /** คืนผลให้ขั้นเตรียมรับสายของหน้าเลือกสถานะ (#938) รู้ว่าล้มที่ไมค์หรือโทรศัพท์ */
+  /** return the result to the prepare-to-take-calls step of the status picker (#938) so it knows whether the mic or the phone failed */
   async function checkMediaReadiness(): Promise<'ok' | 'mic' | 'phone' | 'skipped'> {
     if (
       externalControl ||
@@ -810,7 +810,7 @@ function AgentWorkspace({
         const workSessionLeaseId = leaseClient.current?.leaseId();
         if (!workSessionLeaseId) throw new Error('work-session lease is required for SIP');
         const sipLease = await api.sipCredentials(workSessionLeaseId);
-        // register SIP เฉพาะเมื่อยังเป็นจุดรับงาน (flag เปิด = ยังถือ work-session lease) ณ ตอนนี้
+        // register SIP only if this is still the work point (flag on = still holds the work-session lease) right now
         if (!ownsWorkRef.current || leaseClient.current?.leaseId() !== workSessionLeaseId) {
           if (extensionControl) setMediaReadiness('UNCHECKED');
           setDphoneState({ phase: 'OFFLINE' });
@@ -888,13 +888,13 @@ function AgentWorkspace({
     try {
       setSnapshot(await api.snapshot());
     } catch {
-      // รอบ snapshot ปกติจะลองใหม่เอง
+      // the regular snapshot round will retry by itself
     }
   }
 
   /**
-   * #938 ขั้นเตรียมรับสายเท่าที่จำเป็น: จุดรับงาน → ไมค์ → โทรศัพท์ → เปิดรับสาย
-   * ใช้ทั้งตอนเลือก Ready บนหน้าเลือกสถานะและตอนเปลี่ยนเป็น Ready ที่ตัวเลือกสถานะ
+   * #938 minimal prepare-to-take-calls steps: work point → mic → phone → open for calls
+   * used both when choosing Ready on the status picker page and when changing to Ready in the status selector
    */
   async function goReady(
     mark: (step: PrepStep, status: PrepStatus) => void,
@@ -933,7 +933,7 @@ function AgentWorkspace({
     return undefined;
   }
 
-  /** Not Ready ถือโทรศัพท์ไว้, Offline ปล่อยโทรศัพท์และไมค์ (คำตัดสิน owner ข้อ 5) */
+  /** Not Ready keeps the phone, Offline releases the phone and mic (owner decision item 5) */
   async function applyStatus(
     choice: StatusChoice,
     mark: (step: PrepStep, status: PrepStatus) => void = () => undefined,
@@ -1231,7 +1231,7 @@ function AgentWorkspace({
     setWorkingTab(true);
   }
 
-  // ── dphone: คำสั่งจาก widget หรือหน้าต่างแยกเข้าทางเดียวกัน ──────────────────────────────
+  // ── dphone: commands from the widget or the detached window enter the same way ──────────────────────────────
   const commandRef = useRef<(command: DphoneCommand) => void>(() => undefined);
   commandRef.current = (command) => {
     if (command.type === 'accept') void acceptCall();
@@ -1251,14 +1251,14 @@ function AgentWorkspace({
     locale,
   };
 
-  // host ของหน้าต่างแยก — เฉพาะจุดรับงานในโหมด shell (flag ปิด = working tab เดิม; เปิด = ผู้ถือ lease
-  // หรือยังมีสายในมือ) เสียจุดรับงานตอนว่าง → ปิดสะพานและหน้าต่างแยก
+  // host of the detached window — only the work point in shell mode (flag off = old working tab; on = holder of the lease
+  // or still has a call in hand); losing the work point while idle → close the bridge and the detached window
   const host = useRef<ReturnType<typeof createDphoneHost>>(undefined);
   useEffect(() => {
     if (externalControl || extensionControl || !inShell || !mediaOwner) return;
     const bridge = createDphoneHost({
       onCommand: (command) => commandRef.current(command),
-      // bye ไม่ล้าง id: หน้าต่างแยกที่ reload จะส่ง hello ด้วย id เดิมและต่อกลับได้
+      // bye does not clear the id: a detached window that reloads sends hello with the same id and reconnects
       onRemotePresence: (present) => setDetached(present),
       expectedRemote: () => remoteId.current,
     });
@@ -1276,7 +1276,7 @@ function AgentWorkspace({
     host.current?.publish(JSON.parse(viewKey) as DphoneView);
   }, [viewKey, detached]);
 
-  // หน้าต่างแยกถูกปิดโดยไม่ได้ส่ง bye (เช่น browser ปิดทันที) — widget กลับมาที่หน้าเอง
+  // the detached window was closed without sending bye (e.g. the browser closed immediately) — the widget returns to the page itself
   useEffect(() => {
     if (!detached) return;
     const timer = window.setInterval(() => {
@@ -1297,7 +1297,7 @@ function AgentWorkspace({
     url.searchParams.set('remote', id);
     remoteId.current = id;
     popup.current = window.open(url, 'dcontact-dphone', 'popup=yes,width=380,height=640');
-    // popup ถูกบล็อก: คง widget ไว้ในหน้าเดิม ไม่มีอะไรเปลี่ยน
+    // popup blocked: keep the widget in the current page, nothing changes
     if (popup.current) setDetached(true);
     else remoteId.current = undefined;
   }
@@ -1315,7 +1315,7 @@ function AgentWorkspace({
     try {
       localStorage.setItem(SIZE_KEY, next);
     } catch {
-      // ดู loadSize
+      // see loadSize
     }
   }
 
@@ -1367,7 +1367,7 @@ function AgentWorkspace({
           {td(`phase.${dphoneState.phase}`)}
         </span>
       ) : null}
-      {/* #588: ใน shell ใหม่ออกจากระบบที่เมนูผู้ใช้บนแถบบนที่เดียว */}
+      {/* #588: in the new shell, sign-out is only in the user menu on the top bar */}
       {onSignOut && !inShellFrame ? (
         <Button size="sm" variant="ghost" onPress={onSignOut}>
           {t('status.signOut')}
@@ -1770,7 +1770,7 @@ function AgentWorkspace({
     </article>
   );
 
-  // chrome เดิมตอนปิด flag — โครงหน้าเดิมทุกประการ
+  // old chrome when the flag is off — exactly the old page structure
   const content = (
     <>
       <div className="aw-page-heading">
@@ -1810,10 +1810,10 @@ function AgentWorkspace({
     </>
   );
 
-  // V3: layout ของ Agent Workspace ตาม mockups/d-contact-agent-workspace-v3.html ด้วยข้อมูลจริงเท่านั้น
-  // รายการงาน · งานปัจจุบัน (แถบสาย + Customer 360/Voice) · แผงสรุปผล/รายละเอียด/เหตุการณ์/ความพร้อม · แถบเครื่องมือขวา
-  // ปุ่มคุมสายอยู่ที่ dphone ลอยตามเดิม (owner เลือก 20 พ.ย. 2569) และส่วนที่ยังไม่มี backend
-  // (AI ผู้ช่วย, Apps, หลาย Channel, Transfer) ไม่วาง placeholder (E1 ข้อ E)
+  // V3: Agent Workspace layout per mockups/d-contact-agent-workspace-v3.html with real data only
+  // work list · current work (call bar + Customer 360/Voice) · summary/details/events/readiness panel · right tool bar
+  // the call control buttons stay on the floating dphone as before (owner choice 20 Nov 2026) and parts without a backend
+  // (AI assistant, Apps, multi-Channel, Transfer) get no placeholder (E1 item E)
   const current = snapshot?.interaction ?? undefined;
   const callSeconds =
     current?.answeredAt !== null && current?.answeredAt !== undefined
@@ -1982,9 +1982,9 @@ function AgentWorkspace({
     </section>
   ) : null;
 
-  // #956 เปิดเคสได้ระหว่างคุยหรือสรุปผลเท่านั้น และเมื่อ API รองรับ
-  // ถ้าคำสั่งเปิดเคสยังไม่ทราบผลแล้วบันทึกผลงานไปก่อน คงแท็บไว้ให้ส่งคำสั่งเดิมซ้ำได้
-  // (server ตอบผลเดิมจาก receipt ถ้าเคย commit หรือ WORK_NOT_ACTIVE ถ้ายังไม่เคย)
+  // #956 a case can be opened only during the call or wrap-up, and when the API supports it
+  // if the open-case command has an unknown result and the work outcome was saved, keep the tab so the same command can be resent
+  // (the server returns the original result from the receipt if it was committed, or WORK_NOT_ACTIVE if it never was)
   const unresolvedCaseWork =
     savedWrapup && caseDrafts.get(savedWrapup.interactionId).phase === 'unknown'
       ? { id: savedWrapup.interactionId }
@@ -2246,7 +2246,7 @@ function AgentWorkspace({
               {t('layout.readiness')}
             </h3>
             {statusV1 ? (
-              // #938 เปลี่ยนสถานะที่ตัวเลือกมุมขวาบน ทดสอบอุปกรณ์ที่ปุ่มมุมซ้ายล่าง — แท็บนี้เหลือสถานะของระบบ
+              // #938 change status in the top-right selector, test devices with the bottom-left button — this tab keeps only system status
               <dl className="aw-readiness-summary">
                 <div>
                   <dt>{t('status.owner')}</dt>
@@ -2277,14 +2277,14 @@ function AgentWorkspace({
     </aside>
   ) : null;
 
-  // แผงงานอยู่ก่อนแถบเครื่องมือใน DOM ตามลำดับการอ่านซ้ายไปขวา แถบเครื่องมือเป็น Tab stop เดียว (roving)
+  // the work panel comes before the tool bar in the DOM in left-to-right reading order; the tool bar is a single Tab stop (roving)
   const utilityRail = (
     <UtilityToolbar
       label={t('layout.utility')}
       items={[
         {
           id: 'panel',
-          // label บอก action (เปิด/ปิด) อยู่แล้ว ไม่ใส่ aria-expanded ซ้ำเพื่อไม่ให้ screen reader อ่านซ้อน
+          // the label already says the action (open/close) so aria-expanded is not added, to avoid the screen reader reading it twice
           label: inspectorOpen ? t('layout.inspector.close') : t('layout.inspector.open'),
           icon: <PaneIcon name="panel" size={20} />,
           onPress: () => setInspectorOpen((open) => !open),
@@ -2348,7 +2348,7 @@ function AgentWorkspace({
       />
     ) : null;
 
-  // E1.14: dphone ที่ถูกฝัง — component และ logic งานสายชุดเดียวกับ Workspace แต่ไม่มี shell/หน้าต่างแยก
+  // E1.14: embedded dphone — the same components and call-work logic as Workspace but no shell/detached window
   if (embedded) {
     return (
       <div className="aw-root aw-embedded">

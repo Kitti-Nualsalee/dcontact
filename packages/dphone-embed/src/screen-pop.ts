@@ -1,10 +1,10 @@
 /**
- * E1.14 (#488): ระดับข้อมูลของ screen-pop (E1.6 #462 ข้อ 1–2)
+ * E1.14 (#488): screen-pop data levels (E1.6 #462 items 1–2)
  *
- * - `effectiveScreenPopLevel()` ลดระดับตามผล disclosure check ของ Contact Governance:
- *   ทีมไม่มี scope `VIEW` บน segment → `interaction`; contact มี restriction/objection → ไม่เกิน `ids`
- * - `projectScreenPop()` สร้าง payload แบบ allowlist ต่อระดับ — field ที่ไม่อยู่ในระดับจะไม่ถูกคัดลอกเลย
- *   (ไม่ใช่ลบทีหลัง) จึงไม่มีทางมี field เกินระดับแม้ source มีข้อมูลเพิ่ม
+ * - `effectiveScreenPopLevel()` lowers the level per the Contact Governance disclosure check result:
+ *   team has no `VIEW` scope on the segment → `interaction`; contact has restriction/objection → at most `ids`
+ * - `projectScreenPop()` builds the payload as a per-level allowlist — fields outside the level are never copied at all
+ *   (not removed afterwards), so there is no way to exceed the level even if the source has extra data
  */
 import type {
   CallDirection,
@@ -19,9 +19,9 @@ export const SCREEN_POP_REASON = {
 } as const;
 
 export interface DisclosureDecision {
-  /** ทีมของ agent มี scope `VIEW` บน segment ของ contact (contact ที่ยังระบุไม่ได้ = true) */
+  /** the agent's team has `VIEW` scope on the contact's segment (an unidentified contact = true) */
   teamSegmentView: boolean;
-  /** restriction of processing หรือ objection ต่อการเปิดเผย */
+  /** restriction of processing or objection to disclosure */
   restricted: boolean;
   policyVersion: string;
   decisionId: string;
@@ -53,7 +53,7 @@ export interface ScreenPopSource {
   ani?: string | null;
   dnis?: string | null;
   displayName?: string | null;
-  /** ค่าของ field ที่ระบบกำหนดสำหรับระดับ custom */
+  /** values of the fields the system defines for level custom */
   customFields?: Record<string, string | null | undefined>;
 }
 
@@ -67,8 +67,8 @@ export function projectScreenPop(input: {
   reasonCode?: string;
   decision: Pick<DisclosureDecision, 'policyVersion' | 'decisionId'>;
   /**
-   * field ของระดับ custom ที่ origin เลือกไว้ — ผู้เรียก (server) ต้องกรองกับรายการที่ระบบกำหนดก่อน
-   * ที่นี่คัดลอกเฉพาะชื่อที่อยู่ในรายการนี้เท่านั้น
+   * fields of level custom that the origin chose — the caller (server) must filter against the system-defined list first
+   * here only names present in that list are copied
    */
   customFields?: readonly string[];
 }): ScreenPopMessage {

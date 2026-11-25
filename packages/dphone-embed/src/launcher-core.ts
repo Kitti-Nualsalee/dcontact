@@ -1,13 +1,13 @@
 /**
- * E1.15 (#489): แกนของ `<dphone-launcher>` ที่ไม่พึ่ง DOM (E1.7 #463 ข้อ 3)
+ * E1.15 (#489): DOM-independent core of `<dphone-launcher>` (E1.7 #463 item 3)
  *
- * host ไม่ต้องเขียนการตรวจ origin/source และ ack เอง:
- * - รับเฉพาะข้อความที่ `origin` = dphone origin แบบ exact และ `source` = iframe ของ launcher นี้
- * - ส่งออกด้วย `targetOrigin` = dphone origin แบบ exact เท่านั้น
- * - `dphone.activity` → เรียก handler ของ host แล้ว ack ให้อัตโนมัติเมื่อ handler ทุกตัวจบสำเร็จ
- *   (handler ล้ม = ไม่ ack → dphone ส่งซ้ำด้วย interactionId เดิม)
- * - `call()` ก่อน `dphone.ready` เข้าคิวไว้ส่งหลัง ready; resolve เมื่อได้ผลที่ไม่ใช่ `prefilled`
- * - ข้อความ `v` อื่น/type ที่ไม่รู้จักไม่สนใจ (v1 เพิ่มได้อย่างเดียว)
+ * the host does not need to write origin/source checks and ack itself:
+ * - accept only messages whose `origin` = the dphone origin exactly and whose `source` = this launcher's iframe
+ * - send out only with `targetOrigin` = the dphone origin exactly
+ * - `dphone.activity` → call the host's handlers, then ack automatically once every handler finishes successfully
+ *   (a handler failure = no ack → dphone resends with the same interactionId)
+ * - `call()` before `dphone.ready` is queued to send after ready; resolves when a result other than `prefilled` arrives
+ * - messages with another `v`/unknown type are ignored (v1 is additive only)
  */
 import {
   DPHONE_EMBED_PROTOCOL_VERSION,
@@ -28,7 +28,7 @@ const KNOWN = new Set([
   'dphone.error',
 ]);
 
-/** ข้อความจาก dphone (ผ่านการตรวจ origin/source แล้ว) — รูปแบบผิด/ไม่รู้จัก = null */
+/** message from dphone (already through the origin/source check) — malformed/unknown = null */
 export function parseDphoneMessage(data: unknown): DphoneToHostMessage | null {
   if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
   const message = data as { v?: unknown; type?: unknown };
@@ -48,7 +48,7 @@ export function parseDphoneMessage(data: unknown): DphoneToHostMessage | null {
 export interface LauncherEvents {
   ready(message: DphoneReadyMessage): void;
   screenpop(message: ScreenPopMessage): void;
-  /** handler คืน Promise ได้ — ack เมื่อทุก handler resolve */
+  /** a handler may return a Promise — ack when every handler resolves */
   activity(message: ActivityMessage): unknown;
   callresult(message: CallResultMessage): void;
   error(message: DphoneErrorMessage): void;
@@ -56,7 +56,7 @@ export interface LauncherEvents {
 
 export interface LauncherCoreOptions {
   dphoneOrigin: string;
-  /** window ของ iframe (ใช้เทียบ `event.source` และส่งข้อความ) */
+  /** the iframe's window (used to compare `event.source` and send messages) */
   target(): { postMessage(message: unknown, targetOrigin: string): void } | null;
   emit<K extends keyof LauncherEvents>(
     type: K,
@@ -88,7 +88,7 @@ export class LauncherCore {
     return this.activeCall;
   }
 
-  /** handler ของ `message` บน window ของ host — คืน true เมื่อเป็นข้อความของ dphone นี้ */
+  /** handler of `message` on the host's window — returns true when it is a message from this dphone */
   handle(event: { origin: string; source: unknown; data: unknown }): boolean {
     const target = this.options.target();
     if (!target || event.origin !== this.options.dphoneOrigin || event.source !== target) {
@@ -133,7 +133,7 @@ export class LauncherCore {
     return true;
   }
 
-  /** กรอกเบอร์ใน dphone — agent ต้องกดโทรเอง; resolve ด้วยผลสุดท้าย (ไม่ใช่ `prefilled`) */
+  /** fill in a number in dphone — the agent must press call themselves; resolves with the final result (not `prefilled`) */
   call(number: string, options: CallOptions = {}): Promise<CallResultMessage> {
     const requestId = this.options.requestId();
     const message: HostToDphoneMessage = {
@@ -156,7 +156,7 @@ export class LauncherCore {
     try {
       await Promise.all(results);
     } catch {
-      return; // handler ของ host ล้ม → ไม่ ack ให้ dphone ส่งซ้ำ
+      return; // the host's handler failed → no ack so dphone resends
     }
     this.post({ v: 1, type: 'dphone.activity.ack', interactionId: message.interactionId });
   }

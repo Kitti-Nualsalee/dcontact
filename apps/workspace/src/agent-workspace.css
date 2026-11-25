@@ -1,6 +1,6 @@
 /* ============================================================
-   Agent Workspace — D1.15 (#454): token ล้วน (`var(--dc-*)`), class ขึ้นต้นด้วย `aw-`
-   Supervisor Workspace อยู่ supervisor-workspace.css (#604); หน้า auth และ chrome เดิมตอนปิด flag ยังใช้ workspace-app.css
+   Agent Workspace — D1.15 (#454): tokens only (`var(--dc-*)`), classes start with `aw-`
+   Supervisor Workspace lives in supervisor-workspace.css (#604); the auth page and the old chrome when the flag is off still use workspace-app.css
    stylelint: pnpm --filter @d-contact/workspace lint:css
    ============================================================ */
 
@@ -30,7 +30,7 @@
   display: none;
 }
 
-/* ── ใน AppShell ── */
+/* ── inside AppShell ── */
 .aw-in-shell {
   padding: var(--dc-space-7) var(--dc-space-9) var(--dc-space-10);
 }
@@ -165,13 +165,13 @@
   background: var(--dc-success-solid);
 }
 
-/* ── V3 (mockups/d-contact-agent-workspace-v3.html): รายการงาน · งานปัจจุบัน · แผงงาน · แถบเครื่องมือ ── */
+/* ── V3 (mockups/d-contact-agent-workspace-v3.html): work list · current work · work panel · tool bar ── */
 .aw-v3-root {
   display: flex;
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  /* ระยะขอบมาจาก main ของ shell แล้ว */
+  /* the margin already comes from the shell's main */
   padding: 0;
 }
 
@@ -211,7 +211,7 @@
   flex: none;
 }
 
-/* แท็บของ V3 ชิดขอบแผง ไม่มีช่องว่างด้านบน/ล่างของ panel เดิม */
+/* V3 tabs sit flush with the panel edge, with none of the old panel's top/bottom spacing */
 .aw-v3-tabs {
   flex: 1;
   min-height: 0;
@@ -222,7 +222,7 @@
   padding: 0 var(--dc-space-5);
 }
 
-/* ── รายการงาน ── */
+/* ── work list ── */
 .aw-v3-list {
   display: flex;
   flex: none;
@@ -313,7 +313,7 @@
   align-self: flex-start;
 }
 
-/* ── เส้นแบ่งแผง ── */
+/* ── panel divider ── */
 .aw-v3-split {
   position: relative;
   flex: none;
@@ -333,7 +333,7 @@
   box-shadow: var(--dc-focus-ring);
 }
 
-/* ── งานปัจจุบัน ── */
+/* ── current work ── */
 .aw-v3-main {
   display: flex;
   flex: 1;
@@ -487,7 +487,7 @@
   color: var(--dc-text-secondary);
 }
 
-/* ── แผงงานด้านขวา ── */
+/* ── right work panel ── */
 .aw-v3-inspector {
   display: flex;
   flex: none;
@@ -525,14 +525,14 @@
   overflow: auto;
 }
 
-/* #956 เว้นที่ท้ายแผงเท่าส่วนที่ dphone แบบลอยทับ (ตั้งโดย useFloatingOverlapInset) */
+/* #956 leave space at the end of the panel equal to the part the floating dphone overlaps (set by useFloatingOverlapInset) */
 .aw-v3-inspector-body::after {
   flex: none;
   block-size: var(--aw-dphone-inset, 0);
   content: '';
 }
 
-/* แผงที่อยู่ในแผงงานไม่ต้องมีกรอบซ้อน */
+/* a panel inside the work panel needs no nested border */
 .aw-v3-inspector-body > .aw-panel,
 .aw-v3-readiness > .aw-panel {
   padding: 0;
@@ -551,7 +551,7 @@
   border-top: 1px solid var(--dc-border-subtle);
 }
 
-/* ── แถบเครื่องมือขวา ── */
+/* ── right tool bar ── */
 .aw-v3-utility {
   display: flex;
   flex: none;
@@ -596,7 +596,7 @@
   box-shadow: var(--dc-focus-ring);
 }
 
-/* จอแคบกว่า laptop: เรียงแผงจากบนลงล่าง เลื่อนทั้งหน้า และไม่ใช้เส้นแบ่ง/แถบเครื่องมือ */
+/* screens narrower than a laptop: stack the panels top to bottom, scroll the whole page, and use no divider/tool bar */
 @media (max-width: 1199.98px) {
   .aw-v3-root {
     height: auto;
@@ -625,7 +625,7 @@
   }
 }
 
-/* ── chrome เดิมตอนปิด flag ui.shell.v2 ── */
+/* ── old chrome when the flag ui.shell.v2 is off ── */
 .aw-legacy {
   display: flex;
   min-height: 100vh;
@@ -767,7 +767,7 @@
   padding: var(--dc-space-8);
 }
 
-/* ── ส่วนหัวและสถานะ ── */
+/* ── header and status ── */
 .aw-identity {
   display: flex;
   align-items: center;
@@ -1076,7 +1076,7 @@
   color: var(--dc-attention-fg-strong);
 }
 
-/* ── แท็บที่ไม่ใช่ working tab ── */
+/* ── tabs that are not the working tab ── */
 .aw-passive-overlay {
   position: fixed;
   inset: 0;
@@ -1113,7 +1113,7 @@
   }
 }
 
-/* #939 ปุ่มทดสอบอุปกรณ์มุมซ้ายล่าง (ถัดจาก rail 64px ของ shell) — dphone ลอยอยู่ขวาล่าง จึงไม่ทับกัน */
+/* #939 device-test button at the bottom left (next to the shell's 64px rail) — the floating dphone is at the bottom right, so they do not overlap */
 .aw-devtest {
   position: fixed;
   bottom: var(--dc-space-6);
@@ -1309,7 +1309,7 @@
   color: var(--dc-critical-fg-strong);
 }
 
-/* #938 หน้าเลือกสถานะหลัง login (view หนึ่งของ AgentWorkspace) */
+/* #938 status picker page after login (a view of AgentWorkspace) */
 .aw-gate {
   display: flex;
   flex: 1;
@@ -1485,7 +1485,7 @@
   gap: var(--dc-space-4);
 }
 
-/* ตัวเลือกสถานะที่หัว Workspace */
+/* status selector in the Workspace header */
 .aw-header-status {
   display: flex;
   flex-wrap: wrap;
@@ -1574,8 +1574,8 @@
   font-weight: 600;
 }
 
-/* forced-colors: ปุ่มที่กดค้างบอกด้วยพื้นสีอย่างเดียว ซึ่งโหมดนี้บังคับเป็น Canvas จึงใช้ Highlight ของระบบแทน
-   (ปิด forced-color-adjust ไม่งั้นแผ่น Canvas หลังข้อความบังข้อความ) outline โฟกัสอยู่ด้านนอกบน Canvas จึงใช้สีเดิมได้ */
+/* forced-colors: a pressed button shows only through a background color, which this mode forces to Canvas, so the system Highlight is used instead
+   (forced-color-adjust is turned off, otherwise the Canvas plate behind the text hides the text); the focus outline is outside on Canvas so the original color works */
 @media (forced-colors: active) {
   .aw-segmented button[aria-pressed='true'],
   .aw-v3-utility button[aria-pressed='true'] {

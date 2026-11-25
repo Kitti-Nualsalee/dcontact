@@ -5,17 +5,17 @@ import { fileURLToPath } from 'node:url';
 import { expect, test, type Page } from '@playwright/test';
 
 /**
- * ซ้อม Demo ของทีมขายฝั่ง Agent บน stack ที่ `scripts/sales-demo-stack.mjs` เปิดไว้แล้ว
+ * Sales-team Demo rehearsal for the Agent side on the stack that `scripts/sales-demo-stack.mjs` already brought up
  *
- * agent1000 login → เลือก Ready ที่หน้าเลือกสถานะ → SIPp โทรเข้าคิว 2000 → รับสาย → ค้นและเชื่อมลูกค้าที่นำเข้าจาก CSV →
- * แก้บริษัท → วางสาย → บันทึก disposition/โน้ต → เปิดผลในประวัติงาน
+ * agent1000 logs in → picks Ready on the status picker page → SIPp calls queue 2000 → answer → search and link the customer imported from CSV →
+ * edit the company → hang up → save disposition/note → open the result in the work history
  *
- * เป็นเครื่องมือซ้อม ไม่ใช่ acceptance: เสียงเป็น fake media, ฐาน `dcontact_demo` ถูก seed สิทธิ์โดยตรง
- * ต้องนำเข้า `examples/sales-demo/customers.csv` ใน Console ก่อน (ลูกค้าแถวแรกใช้เบอร์ด้านล่าง)
+ * a rehearsal tool, not acceptance: audio is fake media, and the `dcontact_demo` DB has permissions seeded directly
+ * `examples/sales-demo/customers.csv` must be imported in Console first (the first-row customer uses the number below)
  *
- * ล้มเร็วพร้อมบอกสาเหตุแทนการรอจนหมดเวลา: ฐานยังไม่มีลูกค้าที่ใช้ซ้อม, ค้นแล้วไม่พบลูกค้า,
- * หน้า Workspace โหลดใหม่/dev server หลุดกลางรอบ (stack ถูกปิดหรือเปิดใหม่ระหว่างซ้อม)
- * หรือรอบก่อนทิ้งสายที่ยังคุยอยู่จนเปลี่ยนเป็น Ready ไม่ได้
+ * fails fast with the cause instead of waiting for a timeout: the DB has no customer to rehearse with, the search finds no customer,
+ * the Workspace page reloaded / the dev server dropped mid-run (the stack was stopped or restarted during rehearsal)
+ * or a previous run left a call in progress so Ready cannot be selected
  */
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, '../../..');
@@ -52,7 +52,7 @@ function placeCall(): ChildProcess {
   );
 }
 
-/** จำนวนเบอร์ลูกค้าที่ใช้ซ้อมใน tenant demo — ส่งเบอร์เป็นตัวแปรของ psql ไม่ต่อสตริง SQL */
+/** number of customer phone numbers used for rehearsal in tenant demo — pass the number as a psql variable, do not concatenate an SQL string */
 function customerPhoneCount(): number {
   const result = spawnSync(
     'docker',
@@ -86,7 +86,7 @@ function customerPhoneCount(): number {
   );
   if (result.status !== 0)
     throw new Error(
-      `อ่านฐาน dcontact_demo ไม่ได้ — เปิด stack ด้วย node scripts/sales-demo-stack.mjs ก่อน (${result.stderr.trim().split('\n')[0]})`,
+      `cannot read the dcontact_demo DB — bring up the stack with node scripts/sales-demo-stack.mjs first (${result.stderr.trim().split('\n')[0]})`,
     );
   return Number(result.stdout.trim());
 }
@@ -102,19 +102,19 @@ async function login(page: Page) {
   await page.waitForURL((url) => url.origin === 'http://localhost:5173');
 }
 
-test('ซ้อม Demo: รับสาย เชื่อมลูกค้า แก้ข้อมูล บันทึกผล และเปิดประวัติ', async ({
+test('Demo rehearsal: answer, link the customer, edit data, save the outcome, and open the history', async ({
   page,
   context,
 }) => {
   expect(
     customerPhoneCount(),
-    `ฐาน dcontact_demo ยังไม่มีลูกค้าเบอร์ ${customerPhone} ใน tenant demo — ` +
-      'นำเข้า examples/sales-demo/customers.csv ใน Console ก่อนซ้อม (หลัง --reset ต้องนำเข้าใหม่)',
+    `the dcontact_demo DB has no customer with number ${customerPhone} in tenant demo — ` +
+      'import examples/sales-demo/customers.csv in Console before rehearsing (after --reset it must be imported again)',
   ).toBeGreaterThan(0);
   mkdirSync(shots, { recursive: true });
   const shot = (name: string) => page.screenshot({ path: resolve(shots, `${name}.png`) });
 
-  // วินิจฉัยตอนซ้อมล้ม: ผลของ work API ฝั่งลูกค้า (เฉพาะ status/code ไม่มีข้อมูลลูกค้า)
+  // diagnose a failed rehearsal: the result of the customer-side work API (status/code only, no customer data)
   page.on('response', async (response) => {
     const url = response.url();
     if (!/customer-360\/work|workspace\/agent\/session/.test(url) || response.status() < 400)
@@ -123,23 +123,25 @@ test('ซ้อม Demo: รับสาย เชื่อมลูกค้า
     console.log(`[work-api] ${response.status()} ${new URL(url).pathname} ${body.slice(0, 200)}`);
   });
   await login(page);
-  // หลัง login หน้า Workspace ต้องไม่โหลดใหม่จนจบรอบ ถ้าโหลดใหม่ auth ในหน่วยความจำหายและหน้ากลับไปที่ปุ่ม
-  // เข้าสู่ระบบ ทุกขั้นถัดไปจะรอจนหมดเวลา — ปิดหน้าให้คำสั่งที่รออยู่ล้มทันทีแล้วรายงานสาเหตุ
+  // after login the Workspace page must not reload until the run ends; if it reloads the in-memory auth is lost and the page returns to the
+  // sign-in button, and every following step waits until timeout — close the page so pending commands fail at once and report the cause
   let aborted: string | undefined;
   const abort = (reason: string) => {
     if (aborted) return;
     aborted = reason;
     void page.close();
   };
-  // 'load' = โหลดเอกสารใหม่ทั้งหน้า ไม่นับการเปลี่ยน URL ในหน้าเดิม (history API)
+  // 'load' = a full document reload, not counting a URL change within the same page (history API)
   page.on('load', () =>
     abort(
-      `หน้า Workspace โหลดใหม่กลางรอบ (${page.url()}) — stack อาจถูกปิดหรือเปิดใหม่ระหว่างซ้อม`,
+      `the Workspace page reloaded mid-run (${page.url()}) — the stack may have been stopped or restarted during rehearsal`,
     ),
   );
   page.on('console', (message) => {
     if (message.text().includes('server connection lost'))
-      abort('dev server ของ Workspace หลุดกลางรอบ — stack ถูกปิดหรือเปิดใหม่ระหว่างซ้อม');
+      abort(
+        'the Workspace dev server dropped mid-run — the stack was stopped or restarted during rehearsal',
+      );
   });
   try {
     await rehearse();
@@ -149,14 +151,14 @@ test('ซ้อม Demo: รับสาย เชื่อมลูกค้า
   }
 
   async function rehearse() {
-    // รอบซ้อมก่อนหน้าหรือแท็บอื่นอาจยังถือ work session ของ agent1000 อยู่ (ย้ายมาที่นี่)
-    // หรือ session เดิมหมดอายุแล้วและยังไม่มีใครรับงาน (เริ่มรับงานที่นี่)
+    // a previous rehearsal or another tab may still hold agent1000's work session (move here)
+    // or the old session expired and nobody has taken work yet (start taking work here)
     const takeOver = page.getByRole('button', { name: 'ย้ายมาที่นี่' });
     const startHere = page.getByRole('button', { name: 'เริ่มรับงานที่นี่' });
     const dphone = page.getByRole('region', { name: 'dphone' });
     const status = dphone.getByRole('status', { name: 'dphone' });
-    // หน้าต่าง work session โผล่ได้ทุกเมื่อหลัง snapshot แรก — ให้ Playwright กดให้ทุกครั้งที่บังการกด
-    // บางรอบหน้าต่างหายเองเมื่อไม่มีผู้ถือ session แล้ว จึงไม่ถือว่าการกดไม่ทันเป็นความล้มเหลว
+    // the work session window can pop up at any time after the first snapshot — have Playwright press it every time it blocks a press
+    // in some runs the window disappears by itself once no one holds the session, so a press that comes too late is not counted as a failure
     await page.addLocatorHandler(
       takeOver.or(startHere),
       async () => {
@@ -173,7 +175,7 @@ test('ซ้อม Demo: รับสาย เชื่อมลูกค้า
       { noWaitAfter: true },
     );
     await expect(dphone).toBeVisible({ timeout: 30_000 });
-    // #938 หน้าเลือกสถานะหลัง login — มีงานค้างจากรอบก่อนจะข้ามหน้านี้ไปที่ Workspace เลย
+    // #938 status picker page after login — a leftover job from the previous run skips this page straight to Workspace
     const gate = page.getByRole('region', { name: /^สวัสดี / });
     const workList = page.getByRole('region', { name: 'งานของฉัน' });
     await expect(gate.or(workList).first()).toBeVisible({ timeout: 30_000 });
@@ -188,11 +190,11 @@ test('ซ้อม Demo: รับสาย เชื่อมลูกค้า
             .innerText()
             .catch(() => '');
           throw new Error(
-            `เตรียมรับสายจากหน้าเลือกสถานะไม่สำเร็จ: ${failure || 'ไม่มีข้อความแจ้ง'}`,
+            `preparing to take calls from the status picker page failed: ${failure || 'no message shown'}`,
           );
         });
     } else {
-      // รอบซ้อมที่ล้มกลางทางทิ้งงาน WRAPUP ไว้ — ปิดก่อน ไม่งั้น Router ไม่ส่งสายใหม่ให้
+      // a rehearsal that failed midway left a WRAPUP job — close it first, otherwise the Router sends no new call
       await page.getByRole('tab', { name: 'สรุปผล', exact: true }).click();
       const pending = page.getByRole('button', { name: 'ลูกค้าได้รับความช่วยเหลือ' });
       if (await pending.isVisible({ timeout: 3_000 }).catch(() => false)) {
@@ -201,15 +203,15 @@ test('ซ้อม Demo: รับสาย เชื่อมลูกค้า
         await page.getByRole('button', { name: 'บันทึกผล' }).click();
         await expect(page.getByRole('heading', { name: 'บันทึกผลแล้ว' })).toBeVisible();
       }
-      // รอบที่ล้มกลางสายทิ้งสายที่ยังคุยอยู่ไว้ ตัวเลือกสถานะจึงยังไม่ขึ้นจนสายจบ
+      // a run that failed mid-call left a call in progress, so the status selector does not appear until the call ends
       const selector = page.getByRole('button', { name: /สถานะของฉัน/ });
       await expect(selector)
         .toBeVisible({ timeout: 20_000 })
         .catch(async () => {
           const notice = (await page.getByRole('alert').allInnerTexts()).join(' / ');
           throw new Error(
-            `เปลี่ยนเป็น Ready ไม่ได้ (${notice || 'ไม่มีข้อความแจ้ง'}) — รอบก่อนอาจทิ้งสายที่ยังคุยอยู่` +
-              'หรือแท็บอื่นยังถือ work session รอให้สายจบ (ราว 2–3 นาที) แล้วซ้อมใหม่',
+            `cannot change to Ready (${notice || 'no message shown'}) — a previous run may have left a call in progress` +
+              ' or another tab still holds the work session; wait for the call to end (about 2–3 minutes) then rehearse again',
           );
         });
       await selector.click();
@@ -226,7 +228,7 @@ test('ซ้อม Demo: รับสาย เชื่อมลูกค้า
       await dphone.getByRole('button', { name: 'รับสาย' }).click();
       await expect(status).toHaveText('กำลังสนทนา');
 
-      // Cus360 ต้องยืนยัน session ของงานกับ server ก่อนแสดงข้อมูลลูกค้า (เหมือนรอบทดลอง #796)
+      // Cus360 must confirm the work's session with the server before showing customer data (as in the #796 trial)
       const unlinked = page.getByText('งานนี้ยังไม่เชื่อมกับลูกค้า');
       const confirmSession = page.getByRole('button', { name: 'ยืนยันตัวตน' });
       await expect(unlinked.or(confirmSession).first()).toBeVisible();
@@ -239,8 +241,8 @@ test('ซ้อม Demo: รับสาย เชื่อมลูกค้า
       await expect(select.or(notFound).first()).toBeVisible();
       if (await notFound.isVisible())
         throw new Error(
-          `ค้นเบอร์ ${customerPhone} แล้วไม่พบลูกค้าที่เลือกได้ — ตรวจว่านำเข้า CSV แล้ว` +
-            'และทีม Customer Care มีสิทธิ์ WORK บน "ลูกค้าทั้งหมด"',
+          `searched for number ${customerPhone} but found no selectable customer — check that the CSV was imported` +
+            ' and that team Customer Care has WORK permission on "ลูกค้าทั้งหมด"', // allow-thai: seeded segment name
         );
       await select.click();
       await shot('03-customer-found');
@@ -248,7 +250,7 @@ test('ซ้อม Demo: รับสาย เชื่อมลูกค้า
       await expect(page.getByText('บันทึกข้อมูลลูกค้าแล้ว')).toBeVisible();
 
       await page.getByRole('button', { name: 'แก้ชื่อและบริษัท' }).click();
-      // ค่าต้องต่างจากรอบก่อน ไม่งั้น server ตอบว่าข้อมูลไม่เปลี่ยนแปลง
+      // the value must differ from the previous run, otherwise the server answers that the data is unchanged
       const stamp = new Date().toLocaleTimeString('th-TH', { hour12: false });
       await page.getByLabel('บริษัท').fill(`บริษัท สยามโลจิสติกส์ จำกัด (ซ้อม ${stamp})`);
       await page.getByRole('button', { name: 'บันทึกลูกค้า' }).click();

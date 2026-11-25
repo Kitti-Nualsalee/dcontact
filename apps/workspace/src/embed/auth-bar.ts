@@ -1,8 +1,8 @@
 /**
- * E1.13 (#487): แถบ login ของ dphone ที่ถูกฝัง — DOM ธรรมดา (entry embed ไม่โหลด React)
+ * E1.13 (#487): login bar of the embedded dphone — plain DOM (the embed entry does not load React)
  *
- * ปุ่ม "เข้าสู่ระบบ" เรียก `auth.login()` ตรงใน click handler (user gesture) จึงเปิด popup ได้;
- * สถานะแสดงผ่าน `role="status"` ให้ screen reader อ่าน
+ * the "Sign in" button calls `auth.login()` directly in the click handler (user gesture), so it can open a popup;
+ * the state is shown through `role="status"` for screen readers to read
  */
 import type { i18n as I18n } from 'i18next';
 import type { EmbeddedAuth, EmbeddedAuthStatus } from './embedded-auth.js';

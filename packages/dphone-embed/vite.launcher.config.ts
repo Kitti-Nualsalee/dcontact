@@ -1,6 +1,6 @@
 /**
- * E1.15 (#489): bundle ของ `<dphone-launcher>` เป็น ES module ไฟล์เดียวสำหรับ host (E1.7 #463 ข้อ 1)
- * `import.meta.url` ถูกคงไว้ — launcher ใช้หา dphone origin จาก URL ของไฟล์ตัวเอง
+ * E1.15 (#489): bundle of `<dphone-launcher>` as a single ES module file for the host (E1.7 #463 item 1)
+ * `import.meta.url` is kept — the launcher uses it to find the dphone origin from the URL of its own file
  */
 import { defineConfig } from 'vite';
 

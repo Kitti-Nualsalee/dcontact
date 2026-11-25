@@ -1,9 +1,9 @@
 /**
- * E1.12 (#486): หน้าจอ "ย้ายมาที่นี่" ของ work-session lease (E1.3 #459)
+ * E1.12 (#486): the "move here" screen of the work-session lease (E1.3 #459)
  *
- * - แสดงผู้ถือ lease ปัจจุบัน (surface + เวลาเริ่ม) และเหตุที่ที่นี่หยุดรับงาน
- * - ย้ายต้องยืนยันใน dialog ก่อนเสมอ; ปุ่มปิดระหว่างผู้ถือมีงานค้าง (สาย/wrap-up) หรือคำขอกำลังส่ง
- * - takeover ที่ถูกปฏิเสธแสดงเหตุผลเท่านั้น — ไม่มีอะไรของที่เดิมถูกตัด (สายและ WS อยู่ครบ)
+ * - shows the current lease holder (surface + start time) and the reason this place stopped taking work
+ * - moving must always be confirmed in a dialog first; the button is disabled while the holder has pending work (call/wrap-up) or a request is in flight
+ * - a rejected takeover shows only the reason — nothing at the old place is cut (call and WS stay intact)
  */
 import { useState } from 'react';
 import { useFormatters, useTranslation } from '@d-contact/i18n/react';
@@ -45,8 +45,8 @@ function HolderFacts({ holder }: { holder: WorkSessionHolder }) {
 }
 
 /**
- * overlay เมื่อที่นี่ไม่ได้ถือ lease (และไม่มีสายในมือ) — ดูได้อย่างเดียว
- * ระหว่างตรวจ/ขอ lease ไม่วาด overlay (ปุ่มรับงานปิดอยู่แล้ว) — tenant ที่ปิด flag จึงไม่เห็นอะไรกระพริบ
+ * overlay when this place does not hold the lease (and has no call in hand) — view only
+ * while checking/requesting the lease no overlay is drawn (the take-work button is already disabled) — so a tenant with the flag off sees nothing flicker
  */
 export function WorkSessionPanel({
   state,

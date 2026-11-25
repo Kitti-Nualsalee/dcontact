@@ -1,8 +1,8 @@
 import { defineConfig, devices } from '@playwright/test';
 
 /**
- * ซ้อม Demo ของทีมขายบน stack ที่ `node scripts/sales-demo-stack.mjs` เปิดไว้ (Workspace ที่ localhost:5173)
- * ไม่อยู่ใน CI และไม่ใช่ acceptance — ใช้ fake media แทนไมโครโฟนจริง
+ * Sales-team demo rehearsal on the stack that `node scripts/sales-demo-stack.mjs` brings up (Workspace at localhost:5173)
+ * not in CI and not acceptance — uses fake media instead of a real microphone
  */
 export default defineConfig({
   testDir: './e2e-real',

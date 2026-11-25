@@ -3,10 +3,10 @@ import { expect, test } from './fixtures';
 import type { Page } from '@playwright/test';
 
 /**
- * D1.15 (#454): dphone widget ใน Agent Workspace (flag ui.shell.v2 เปิด) บน transport จำลอง
+ * D1.15 (#454): the dphone widget in Agent Workspace (flag ui.shell.v2 on) on a simulated transport
  *
- * หลักฐานที่ตรวจทุกขั้น: SIP session ID (window.__dcontactDphone) และ performance.timeOrigin ไม่เปลี่ยน
- * ระหว่างย่อ/ขยาย/แยกหน้าต่าง/ดึงกลับ/สลับภาษา — สายจริงบน dev stack อยู่ใน acceptance ของ D1.16
+ * evidence checked at every step: the SIP session ID (window.__dcontactDphone) and performance.timeOrigin do not change
+ * across collapse/expand/detach/pull back/language switch — real calls on the dev stack are in the acceptance of D1.16
  */
 const navigation = {
   groups: [{ id: 'live', labelKey: 'navigation.groups.live' }],
@@ -80,7 +80,7 @@ const evidence = (page: Page) =>
   }));
 
 for (const ending of ['local', 'remote'] as const) {
-  test(`#687: ${ending} SIP จบก่อน server เปลี่ยน WRAPUP ต้องแสดงสรุปผลโดยไม่ reload`, async ({
+  test(`#687: ${ending} SIP ending before the server changes to WRAPUP must show the summary without a reload`, async ({
     page,
   }) => {
     const dphone = await openWithCall(page);
@@ -114,7 +114,9 @@ for (const ending of ['local', 'remote'] as const) {
   });
 }
 
-test('flag เปิด: dphone ลอยแทนแผงควบคุมสาย และแผงสายเรียกเข้าเดิมไม่ซ้ำ', async ({ page }) => {
+test('flag on: dphone floats instead of the call control panel, and the old incoming call panel is not duplicated', async ({
+  page,
+}) => {
   const dphone = await openWithCall(page);
   await expect(page.getByRole('heading', { name: 'สายเรียกเข้า' })).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'ควบคุมสาย' })).toHaveCount(0);
@@ -122,7 +124,7 @@ test('flag เปิด: dphone ลอยแทนแผงควบคุมส
   await expect(page.getByRole('status', { name: 'สถานะ dphone' })).toHaveText('กำลังสนทนา');
 });
 
-test('ย่อ/ขยาย 3 ขนาด และสลับภาษา: SIP session เดิม ไม่ reload และ DTMF ใช้ได้ในขนาดขยาย', async ({
+test('collapse/expand 3 sizes and switch language: the same SIP session, no reload, and DTMF works in the expanded size', async ({
   page,
 }) => {
   const dphone = await openWithCall(page);
@@ -148,7 +150,7 @@ test('ย่อ/ขยาย 3 ขนาด และสลับภาษา: S
   expect(await evidence(page)).toEqual(before);
 });
 
-test('แยกหน้าต่าง /dphone แล้วสั่งพักสายจากหน้าต่างแยก — session อยู่ที่ working tab และดึงกลับได้', async ({
+test('detach the /dphone window then hold the call from the detached window — the session stays in the working tab and can be pulled back', async ({
   page,
   context,
 }) => {
@@ -171,7 +173,7 @@ test('แยกหน้าต่าง /dphone แล้วสั่งพั�
   await expect(page.getByRole('status', { name: 'สถานะ dphone' })).toHaveText('พักสาย');
   await expect(remote.getByRole('status', { name: 'dphone' })).toHaveText('พักสาย');
 
-  // สลับภาษาที่ Workspace → หน้าต่างแยกเปลี่ยนตาม
+  // switch language in Workspace → the detached window follows
   await page.getByRole('button', { name: 'English' }).click();
   await expect(remote.getByRole('status', { name: 'dphone' })).toHaveText('On hold');
   await page.getByRole('button', { name: 'ไทย' }).click();
@@ -190,7 +192,10 @@ test('แยกหน้าต่าง /dphone แล้วสั่งพั�
   expect(await evidence(page)).toEqual(before);
 });
 
-test('ปิดหน้าต่างแยกเอง → widget กลับมาที่ Workspace โดยสายยังอยู่', async ({ page, context }) => {
+test('closing the detached window by hand → the widget returns to Workspace with the call still up', async ({
+  page,
+  context,
+}) => {
   const dphone = await openWithCall(page);
   const before = await evidence(page);
   const [popup] = await Promise.all([
@@ -205,7 +210,9 @@ test('ปิดหน้าต่างแยกเอง → widget กลั�
   expect(await evidence(page)).toEqual(before);
 });
 
-test('/dphone เปิดตรงโดยไม่มี Workspace → บอกเหตุผลชัดเจน ไม่สร้าง session', async ({ page }) => {
+test('/dphone opened directly with no Workspace → states the reason clearly, creates no session', async ({
+  page,
+}) => {
   await page.goto('/dphone');
   await expect(page.getByRole('status')).toHaveText(/ไม่พบ Workspace ที่ทำงานอยู่/, {
     timeout: 6_000,
@@ -214,7 +221,7 @@ test('/dphone เปิดตรงโดยไม่มี Workspace → บอ
 });
 
 for (const language of ['th', 'en'] as const) {
-  test(`axe (${language}): Agent Workspace ใน shell พร้อม dphone ทุกขนาด ไม่มี serious/critical`, async ({
+  test(`axe (${language}): Agent Workspace in the shell with dphone at every size has no serious/critical`, async ({
     page,
   }) => {
     const dphone = await openWithCall(page);
@@ -235,7 +242,7 @@ for (const language of ['th', 'en'] as const) {
   });
 }
 
-test('หน้าต่าง /dphone ที่เปิดเอง (bookmark) ระหว่างมีสาย ไม่ทำให้ปุ่มคุมสายใน Workspace หายและสั่งสายไม่ได้', async ({
+test('a /dphone window opened by itself (bookmark) during a call does not make the call control buttons in Workspace disappear and cannot control the call', async ({
   page,
   context,
 }) => {
@@ -255,7 +262,7 @@ test('หน้าต่าง /dphone ที่เปิดเอง (bookmark)
   expect(await evidence(page)).toEqual(before);
 });
 
-test('#588: ออกจากระบบระหว่างมีสายต้องยืนยัน — ยกเลิกแล้วสายเดิมอยู่ต่อโดยไม่ remount, ยืนยันแล้วออก', async ({
+test('#588: signing out during a call must confirm — after cancelling the existing call stays without a remount, after confirming it signs out', async ({
   page,
 }) => {
   const dphone = await openWithCall(page);
@@ -280,14 +287,14 @@ test('#588: ออกจากระบบระหว่างมีสาย�
   expect(await page.evaluate(() => (window as { __signOuts?: number }).__signOuts ?? 0)).toBe(1);
 });
 
-test('forced-colors: ปุ่มขนาดของ dphone ที่เลือกอยู่ใช้พื้น Highlight ของระบบ', async ({
+test('forced-colors: the selected size button of dphone uses the system Highlight background', async ({
   page,
 }) => {
   const dphone = await openWithCall(page);
   await page.emulateMedia({ forcedColors: 'active' });
   const pressed = dphone.locator('.dp-icon-button[aria-pressed="true"]');
   await expect(pressed).toHaveCount(1);
-  // ปุ่มอื่นเป็นพื้นโปร่งบน Canvas จึงเทียบกับค่า Highlight จริงของระบบแทนการเทียบกับปุ่มอื่น
+  // other buttons have a transparent background over Canvas, so compare against the real system Highlight value instead of against other buttons
   const highlight = await page.evaluate(() => {
     const probe = document.createElement('div');
     probe.style.backgroundColor = 'Highlight';

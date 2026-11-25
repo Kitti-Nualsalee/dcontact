@@ -1,12 +1,12 @@
 /**
- * D1.15 (#454): หน้าเดี่ยว `/dphone` ของ apps/workspace
+ * D1.15 (#454): standalone `/dphone` page of apps/workspace
  *
- * ใน D1 เป็นหน้าต่างที่แยกออกจาก Agent Workspace: ไม่มี SIP/WebRTC/WS ของตัวเอง ควบคุมสายของ working tab
- * ผ่าน BroadcastChannel (same-origin) จึงไม่ต้องใช้ token และไม่สร้างจุดรับงานที่สอง
- * การใช้เป็น iframe ในระบบภายนอก (auth แบบ popup, allowlist, postMessage API) เป็นงานของ map E1
+ * In D1 it is a window detached from Agent Workspace: it has no SIP/WebRTC/WS of its own and controls the working tab's call
+ * through BroadcastChannel (same-origin), so it needs no token and creates no second work point
+ * using it as an iframe in an external system (popup auth, allowlist, postMessage API) belongs to map E1
  *
- * E1.12 (#486): หน้าต่างแยกนี้ไม่รับงานเอง จึงไม่ขอ work-session lease — lease อยู่กับ Workspace ที่เป็น host
- * เมื่อ host เสีย lease (และไม่มีสายในมือ) host ปิดสะพาน หน้าต่างนี้ได้ `closed` และปิดตัวเอง
+ * E1.12 (#486): this detached window does not take work itself, so it does not request a work-session lease — the lease stays with the Workspace that is the host
+ * when the host loses the lease (and has no call in hand) the host closes the bridge; this window gets `closed` and closes itself
  */
 import { useEffect, useRef, useState } from 'react';
 import { useLocale, useTranslation } from '@d-contact/i18n/react';
@@ -31,7 +31,7 @@ export function DphonePage() {
   }, [t]);
 
   useEffect(() => {
-    // id จาก working tab ตอนกดแยกหน้าต่าง — เปิดเองโดยไม่มี id จะไม่มี Workspace ตอบ
+    // id from the working tab when the window was detached — opened by itself with no id, no Workspace answers
     const remoteId = new URL(window.location.href).searchParams.get('remote');
     if (!remoteId) {
       setState('no-host');
@@ -63,7 +63,7 @@ export function DphonePage() {
     };
   }, []);
 
-  // ภาษาตาม working tab — ผู้ใช้สลับภาษาใน Workspace แล้วหน้าต่างแยกเปลี่ยนตาม
+  // language follows the working tab — when the user switches language in Workspace the detached window follows
   useEffect(() => {
     if (view && view.locale !== locale) void setLocale(view.locale);
   }, [locale, setLocale, view]);

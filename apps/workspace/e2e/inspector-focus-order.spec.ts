@@ -2,9 +2,9 @@ import { expect, test } from './fixtures';
 import type { Page } from '@playwright/test';
 
 /**
- * ลำดับคีย์บอร์ดของแผงงานด้านขวาตาม docs/ui-principles.md ข้อ 2 (ลำดับ Tab ตามลำดับการอ่าน)
- * แผงงาน: หัวแผง → แถบแท็บ (Tab ครั้งเดียว) → เนื้อหาแท็บ
- * แถบเครื่องมือด้านขวา: Tab เข้าได้จุดเดียวแล้ว Tab ถัดไปออกจากแถบ ปุ่มภายในใช้ลูกศรขึ้น/ลง Home/End
+ * keyboard order of the right work panel per docs/ui-principles.md item 2 (Tab order follows reading order)
+ * work panel: panel header → tab bar (a single Tab) → tab content
+ * right tool bar: Tab enters at a single stop and the next Tab leaves the bar; buttons inside use arrow up/down and Home/End
  */
 test.use({ locale: 'th-TH', viewport: { width: 1440, height: 900 } });
 
@@ -63,7 +63,7 @@ async function openWrapup(page: Page) {
 const inspector = (page: Page) => page.getByRole('complementary', { name: 'แผงรายละเอียดงาน' });
 const tools = (page: Page) => page.getByRole('toolbar', { name: 'เครื่องมือด้านขวา' });
 
-/** ส่วนของหน้าที่ focus อยู่ตอนนี้ */
+/** the part of the page that has focus right now */
 function focusedZone(page: Page) {
   return page.evaluate(() => {
     const el = document.activeElement as HTMLElement | null;
@@ -76,7 +76,7 @@ function focusedZone(page: Page) {
   });
 }
 
-test('Tab ในแผงงาน: หัวแผง → แถบแท็บ → เนื้อหา แล้วข้ามแถบเครื่องมือด้วย Tab ครั้งเดียว', async ({
+test('Tab in the work panel: panel header → tab bar → content, then skip the tool bar with a single Tab', async ({
   page,
 }) => {
   await openWrapup(page);
@@ -93,20 +93,20 @@ test('Tab ในแผงงาน: หัวแผง → แถบแท็บ
     zones.push(zone);
     if (zone === 'outside') break;
   }
-  // ยุบจุดที่อยู่ในส่วนเดียวกันติดกัน แต่นับจำนวนจุดในแถบแท็บและแถบเครื่องมือ
+  // collapse adjacent stops in the same section, but count the stops in the tab bar and the tool bar
   const order = zones.filter((zone, i) => zone !== zones[i - 1]);
   expect(order).toEqual(['head', 'tabs', 'panel', 'toolbar', 'outside']);
   expect(zones.filter((zone) => zone === 'tabs')).toHaveLength(1);
   expect(zones.filter((zone) => zone === 'toolbar')).toHaveLength(1);
 
-  // Shift+Tab ย้อนกลับเข้าแถบเครื่องมือจุดเดียว แล้วกลับเข้าเนื้อหาแท็บ
+  // Shift+Tab goes back into the tool bar at a single stop, then back into the tab content
   await page.keyboard.press('Shift+Tab');
   expect(await focusedZone(page)).toBe('toolbar');
   await page.keyboard.press('Shift+Tab');
   expect(await focusedZone(page)).toBe('panel');
 });
 
-test('แถบเครื่องมือด้านขวา: จุดที่ Tab เข้าคือแท็บที่เปิดอยู่ ลูกศรย้ายในแถบ และ Enter สลับแท็บ', async ({
+test('right tool bar: the Tab entry point is the open tab, arrows move within the bar, and Enter switches tabs', async ({
   page,
 }) => {
   await openWrapup(page);
@@ -116,11 +116,11 @@ test('แถบเครื่องมือด้านขวา: จุดท
   const readiness = bar.getByRole('button', { name: 'ความพร้อม' });
   const toggle = bar.getByRole('button', { name: 'ปิดแผงรายละเอียด' });
 
-  // roving tabindex: มีปุ่มเดียวใน Tab order และเป็นแท็บที่เปิดอยู่
+  // roving tabindex: exactly one button in the Tab order, and it is the open tab
   await expect(bar.locator('button[tabindex="0"]')).toHaveCount(1);
   await expect(wrapup).toHaveAttribute('tabindex', '0');
 
-  // ปุ่มเรียง: เปิด/ปิดแผง, สรุปผล, ... (แท็บอื่นเพิ่มได้ตามความสามารถ เช่น เคส), เหตุการณ์, ความพร้อม
+  // button order: open/close panel, summary, ... (other tabs can be added as capabilities allow, e.g. case), events, readiness
   await expect(bar.getByRole('button').nth(1)).toHaveAccessibleName('สรุปผล');
   await wrapup.focus();
   await page.keyboard.press('ArrowDown');
@@ -146,7 +146,7 @@ test('แถบเครื่องมือด้านขวา: จุดท
   await expect(events).toBeFocused();
   await expect(bar.locator('button[tabindex="0"]')).toHaveCount(1);
 
-  // ปิดแผงด้วยปุ่มแรกแล้ว focus ยังอยู่ในแถบ เปิดกลับได้ด้วยปุ่มเดิม
+  // close the panel with the first button, focus stays in the bar, and the same button reopens it
   await page.keyboard.press('Home');
   await page.keyboard.press('Enter');
   await expect(inspector(page)).toHaveCount(0);
@@ -156,7 +156,7 @@ test('แถบเครื่องมือด้านขวา: จุดท
   await expect(inspector(page)).toBeVisible();
 });
 
-test('forced-colors: ปุ่มที่เลือกอยู่ในแถบเครื่องมือและตัวเลือกผลสรุปแยกจากปุ่มอื่นได้', async ({
+test('forced-colors: the selected button in the tool bar and the summary-outcome options can be told apart from other buttons', async ({
   page,
 }) => {
   await openWrapup(page);
@@ -164,14 +164,14 @@ test('forced-colors: ปุ่มที่เลือกอยู่ในแ�
   const background = (target: ReturnType<Page['locator']>) =>
     target.evaluate((element) => getComputedStyle(element).backgroundColor);
 
-  // แถบเครื่องมือ: แท็บที่เปิดอยู่ (สรุปผล) ต้องไม่ใช่พื้นเดียวกับปุ่มอื่น
+  // tool bar: the open tab (summary) must not have the same background as other buttons
   const bar = tools(page);
   const wrapup = bar.getByRole('button', { name: 'สรุปผล' });
   const events = bar.getByRole('button', { name: 'เหตุการณ์' });
   await expect(wrapup).toHaveAttribute('aria-pressed', 'true');
   expect(await background(wrapup)).not.toBe(await background(events));
 
-  // ตัวเลือกผลสรุป (.aw-segmented): ปุ่มที่เลือกต้องแยกจากอีกปุ่ม
+  // summary-outcome options (.aw-segmented): the selected button must differ from the other
   const choices = page.locator('.aw-segmented button');
   await choices.first().click();
   await expect(choices.first()).toHaveAttribute('aria-pressed', 'true');

@@ -115,7 +115,7 @@ export function toVerifiedWorkspaceIdentity(
   };
 }
 
-/** แปลง Keycloak client_credentials token ที่ตรวจสอบแล้วเป็น service identity ที่ผูกกับ tenant */
+/** convert a verified Keycloak client_credentials token into a service identity bound to a tenant */
 export function toVerifiedServiceIdentity(
   claims: VerifiedOidcClaims,
   now: Date = new Date(),
@@ -154,7 +154,7 @@ export interface WorkspaceSession {
   status: WorkspaceSessionStatus;
   availability: 'OFFLINE' | 'AVAILABLE';
   activeInteractionId?: string;
-  /** E1.9: identity มี role `agent` (รับงาน routing ได้) — ใช้ตัดสินว่าต้องมี work-session lease ไหม */
+  /** E1.9: the identity has role `agent` (can take routing work) — used to decide whether a work-session lease is needed */
   agent?: boolean;
 }
 
@@ -361,16 +361,16 @@ export class WorkspaceSessionRegistry {
 }
 
 /**
- * A1.8a (#447): tenant ต้อง `ACTIVE` ก่อนเข้า tenant applications ได้ (#393 isolation matrix)
- * — tenant ที่ยัง PROVISIONING (หรือไม่มีอยู่) ถูกปฏิเสธแบบเดียวกับ token ใช้ไม่ได้
+ * A1.8a (#447): the tenant must be `ACTIVE` before it can enter tenant applications (#393 isolation matrix)
+ * — a tenant still PROVISIONING (or nonexistent) is rejected the same way as an unusable token
  */
 export interface TenantLifecycleGate {
   isActive(tenantId: string): Promise<boolean>;
 }
 
 /**
- * cache เฉพาะผล ACTIVE (lifecycle ย้อนกลับจาก ACTIVE ไม่ได้ใน A1) — ผลอื่นถามใหม่ทุกครั้ง
- * จึงเปิดให้ทันทีที่ provisioning ทำ tenant เป็น ACTIVE; loader ล้ม = ปฏิเสธ (fail closed)
+ * cache only the ACTIVE result (lifecycle cannot go back from ACTIVE in A1) — other results are asked again every time
+ * so it opens immediately once provisioning makes the tenant ACTIVE; a failing loader = reject (fail closed)
  */
 export class CachedTenantLifecycleGate implements TenantLifecycleGate {
   private readonly active = new Map<string, number>();
@@ -437,7 +437,7 @@ export class WorkspaceSessionGateway {
     );
   }
 
-  /** ตรวจ token/lifecycle ก่อน แล้วให้ adapter ตรวจ callback generation ก่อนเปลี่ยน registry */
+  /** check the token/lifecycle first, then let the adapter check the callback generation before changing the registry */
   async verifyHandshake(accessToken: string): Promise<VerifiedWorkspaceIdentity> {
     return this.identityFrom(accessToken);
   }
@@ -478,7 +478,7 @@ export class WorkspaceSessionGateway {
     if (!identity.roles.some((role) => ['agent', 'supervisor', 'admin'].includes(role))) {
       throw new WorkspaceAuthorizationError();
     }
-    // tenant ที่ยังไม่ ACTIVE = เหมือน token ใช้ไม่ได้ (ไม่เผยสถานะ provisioning)
+    // a tenant that is not yet ACTIVE = same as an unusable token (do not reveal provisioning state)
     if (!(await this.lifecycle.isActive(identity.tenantId)))
       throw new WorkspaceAuthenticationError();
     return identity;

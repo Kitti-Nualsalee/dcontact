@@ -1,9 +1,9 @@
 /**
- * E1.13 (#487) runtime ของ auth ใน iframe กับ Keycloak จริง (ต้องรัน `pnpm infra:identity:dphone-embedded` ก่อน)
+ * E1.13 (#487) runtime of auth in the iframe against a real Keycloak (run `pnpm infra:identity:dphone-embedded` first)
  *
- * ขับ `EmbeddedAuth` ตัวจริงด้วย deps ของ Node: popup = ขับฟอร์ม login ของ Keycloak แล้วส่ง callback
- * แบบเดียวกับ `/dphone/auth/callback` — ตรวจ reload host, admin revoke ระหว่างทำงาน (คิวไม่หาย),
- * logout ที่ revoke refresh token และไม่มี token ใน storage หลัง logout
+ * drives the real `EmbeddedAuth` with Node deps: popup = drives the Keycloak login form then sends a callback
+ * the same way as `/dphone/auth/callback` — checks host reload, admin revoke while working (the queue is not lost),
+ * logout that revokes the refresh token and no token in storage after logout
  */
 import assert from 'node:assert/strict';
 import { createHash, randomBytes } from 'node:crypto';
@@ -22,7 +22,7 @@ const AGENT = { username: 'agent1000@demo.local', password: 'agent1234' };
 const USERINFO = `${ISSUER}/protocol/openid-connect/userinfo`;
 const config = { issuer: ISSUER, clientId: 'dphone-embedded', tenant: 'demo', origin: ORIGIN };
 
-/** login ผ่านฟอร์มของ Keycloak (identity-first) แล้วคืน URL ที่ redirect กลับ callback */
+/** log in through the Keycloak form (identity-first) and return the URL that redirects back to the callback */
 async function completeLogin(url: string): Promise<URL> {
   const cookies = new Map<string, string>();
   const remember = (response: Response) => {
@@ -40,7 +40,7 @@ async function completeLogin(url: string): Promise<URL> {
     if (location) return new URL(location);
     const html = await response.text();
     const action = /<form[^>]*action="([^"]+)"/.exec(html)?.[1]?.replaceAll('&amp;', '&');
-    assert.ok(action, `ไม่พบฟอร์ม login (${response.status})`);
+    assert.ok(action, `login form not found (${response.status})`);
     const fields: Record<string, string> = {};
     if (/id="username"/.test(html)) fields.username = AGENT.username;
     if (/id="password"/.test(html)) fields.password = AGENT.password;
@@ -51,7 +51,7 @@ async function completeLogin(url: string): Promise<URL> {
       body: new URLSearchParams(fields),
     });
   }
-  throw new Error('login ไม่ redirect กลับมาภายใน 4 ขั้น');
+  throw new Error('login did not redirect back within 4 steps');
 }
 
 function runtime(store = new Map<string, string>()) {
@@ -71,12 +71,12 @@ function runtime(store = new Map<string, string>()) {
     randomBytes: (length) => new Uint8Array(randomBytes(length)),
     sha256: async (input) => new Uint8Array(createHash('sha256').update(input).digest()),
     now: () => Date.now(),
-    // ไม่ตั้ง timer จริง — test สั่ง refresh เองเพื่อให้ผลแน่นอน
+    // no real timer — the test triggers refresh itself for a deterministic result
     setTimeout: () => null,
     clearTimeout: () => undefined,
   };
   const auth = new EmbeddedAuth(config, deps);
-  /** ผู้ใช้กดปุ่ม → popup login → callback ส่ง code/state กลับมา */
+  /** the user presses the button → login popup → callback sends code/state back */
   const signIn = async () => {
     auth.login();
     const popup = popups.at(-1)!;
@@ -118,14 +118,14 @@ async function adminLogout(username: string) {
   assert.equal(response.status, 204);
 }
 
-test('login ผ่าน popup ได้ token ที่ใช้เรียก API ได้; reload host แล้วยังอยู่ในระบบโดยไม่เปิด popup', async () => {
+test('login through the popup gets a token usable for API calls; after host reload the session persists without opening a popup', async () => {
   const first = runtime();
   await first.auth.start();
   await first.signIn();
   assert.equal(first.auth.status, 'signed-in');
   assert.equal((await first.auth.fetch(USERINFO)).status, 200);
 
-  // reload host = runtime ใหม่ แต่ sessionStorage (partition ตาม host) เดิม
+  // host reload = a new runtime but the same sessionStorage (partitioned by host)
   const reloaded = runtime(first.store);
   await reloaded.auth.start();
   assert.equal(reloaded.auth.status, 'signed-in');
@@ -134,7 +134,7 @@ test('login ผ่าน popup ได้ token ที่ใช้เรียก
   await reloaded.auth.logout({ busy: false, releaseLease: async () => undefined });
 });
 
-test('admin revoke ระหว่างทำงาน → reauth; คำสั่งที่รออยู่ไม่หายและส่งหลัง login ใหม่', async () => {
+test('admin revoke while working → reauth; pending commands are not lost and are sent after the new login', async () => {
   const { auth, signIn } = runtime();
   await auth.start();
   await signIn();
@@ -151,7 +151,7 @@ test('admin revoke ระหว่างทำงาน → reauth; คำสั
   await auth.logout({ busy: false, releaseLease: async () => undefined });
 });
 
-test('logout ตอนว่าง revoke refresh token จริงและล้าง storage; ตอนมีสายไม่ logout', async () => {
+test('logout while idle truly revokes the refresh token and clears storage; during a call it does not log out', async () => {
   const { auth, store, signIn } = runtime();
   await auth.start();
   await signIn();

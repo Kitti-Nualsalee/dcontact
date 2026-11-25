@@ -1,8 +1,8 @@
 /**
- * E1.11 (#485): Workspace ไม่ให้ใครฝัง (`frame-ancestors 'none'` รวม `/dphone`) — hosting ของ production
- * ต้องส่ง header เดียวกันนี้กับทุกหน้าของ Workspace; การฝังทำผ่าน `/dphone/embed` ของ API เท่านั้น
+ * E1.11 (#485): Workspace allows no one to embed it (`frame-ancestors 'none'` including `/dphone`) — production hosting
+ * must send this same header on every Workspace page; embedding goes only through the API's `/dphone/embed`
  *
- * dphone ที่ถูกฝังมี build ของตัวเองใน `vite.embed.config.ts`
+ * the embedded dphone has its own build in `vite.embed.config.ts`
  */
 import { defineConfig } from 'vite';
 
@@ -11,5 +11,5 @@ const headers = { 'Content-Security-Policy': "frame-ancestors 'none'" };
 export default defineConfig({
   server: { headers },
   preview: { headers },
-  // E1.14: entry `embed` build แยกด้วย `vite.embed.config.ts` (CSS รวมไฟล์เดียวให้ shell ใส่ <link>)
+  // E1.14: the `embed` entry is built separately by `vite.embed.config.ts` (CSS bundled into one file for the shell to put in a <link>)
 });

@@ -34,7 +34,7 @@ const call = (requestId: string) => ({
   number: '0812345678',
 });
 
-test('ขาออกใช้ targetOrigin แบบ exact ของ host ที่ล็อก — ไม่มี *', () => {
+test('outbound uses the exact targetOrigin of the locked host — never *', () => {
   const c = channel();
   c.host.ready({ screenPop: false, clickToCall: true, activity: true }, 'off');
   assert.deepEqual(c.sent, [
@@ -50,7 +50,7 @@ test('ขาออกใช้ targetOrigin แบบ exact ของ host ท�
   ]);
 });
 
-test('ข้อความที่ origin หรือ source ผิดถูกปฏิเสธ ไม่ตอบและไม่ถึง handler', () => {
+test('messages with a wrong origin or source are rejected, no reply, and never reach the handler', () => {
   const c = channel();
   assert.equal(c.from(call('a'), 'https://evil.example.test'), false);
   assert.equal(c.from(call('b'), 'https://crm.example.test:8443'), false);
@@ -60,14 +60,14 @@ test('ข้อความที่ origin หรือ source ผิดถู�
   assert.deepEqual(c.sent, []);
 });
 
-test('dphone.call จาก host แค่ส่งต่อให้ dphone กรอกเบอร์ — channel ไม่โทรออกเอง และ field เกินถูกตัด', () => {
+test('dphone.call from the host is only forwarded for dphone to fill in the number — the channel does not dial itself and extra fields are cut', () => {
   const c = channel();
   assert.equal(c.from({ ...call('r1'), autoDial: true, dial: 'now' }), true);
   assert.deepEqual(c.calls, [{ v: 1, type: 'dphone.call', requestId: 'r1', number: '0812345678' }]);
   assert.deepEqual(c.sent, []);
 });
 
-test('v ไม่รองรับ → dphone.error unsupported_version; ข้อความผิดรูป → invalid_message; type ไม่รู้จัก → เงียบ', () => {
+test('unsupported v → dphone.error unsupported_version; malformed message → invalid_message; unknown type → silent', () => {
   const c = channel();
   c.from({ v: 2, type: 'dphone.call', requestId: 'r9', number: '0812' });
   c.from({ v: 1, type: 'dphone.call', requestId: 'r10', number: 'abc' });
@@ -95,7 +95,7 @@ test('v ไม่รองรับ → dphone.error unsupported_version; ข้
   assert.ok(c.sent.every((entry) => entry.targetOrigin === HOST));
 });
 
-test('rate limit ของ dphone.call: เกิน 5 ครั้งใน 10 วินาที → rate_limited แบบไม่มี PII', () => {
+test('rate limit of dphone.call: more than 5 times in 10 seconds → rate_limited with no PII', () => {
   const c = channel();
   for (let index = 0; index < 6; index += 1) c.from(call(`r${index}`));
   assert.equal(c.calls.length, 5);
@@ -112,7 +112,7 @@ test('rate limit ของ dphone.call: เกิน 5 ครั้งใน 10 
   assert.equal(c.calls.length, 6);
 });
 
-test('origin ถูกเพิกถอน (embed.origin.revoked) → หยุดรับและหยุดส่งกับ host นั้นทันที', () => {
+test('origin revoked (embed.origin.revoked) → stop accepting and sending with that host immediately', () => {
   const c = channel();
   c.lock.revoke(HOST);
   assert.equal(c.from(call('r1')), false);
@@ -162,7 +162,7 @@ const activity = (interactionId: string, requestId: string): ActivityMessage => 
   wrapUpCode: 'RESOLVED',
 });
 
-test('activity: ส่งซ้ำตาม backoff จน ack แล้วหยุด', () => {
+test('activity: resend with backoff until ack then stop', () => {
   const o = outbox();
   o.box.enqueue(activity('int-1', 'req-1'));
   assert.equal(o.sent.length, 1);
@@ -175,7 +175,7 @@ test('activity: ส่งซ้ำตาม backoff จน ack แล้วห�
   assert.equal(o.store.size, 0);
 });
 
-test('activity: interactionId เดิมไม่ซ้ำซ้อน — requestId เดิมและมีรายการเดียว', () => {
+test('activity: the same interactionId is not duplicated — same requestId and a single entry', () => {
   const o = outbox();
   o.box.enqueue(activity('int-1', 'req-1'));
   o.box.enqueue({ ...activity('int-1', 'req-2'), wrapUpCode: 'CALLBACK' });
@@ -186,7 +186,7 @@ test('activity: interactionId เดิมไม่ซ้ำซ้อน — req
   assert.equal(o.timers.length, 1);
 });
 
-test('activity: reload แล้วส่งซ้ำจาก sessionStorage ด้วย requestId/interactionId เดิม', () => {
+test('activity: after reload, resend from sessionStorage with the same requestId/interactionId', () => {
   const first = outbox();
   first.box.enqueue(activity('int-1', 'req-1'));
   first.box.enqueue(activity('int-2', 'req-2'));
@@ -200,7 +200,7 @@ test('activity: reload แล้วส่งซ้ำจาก sessionStorage �
   );
 });
 
-test('activity: ไม่มีไฟล์เสียง/transcript/โน้ต แม้ source หรือ storage ถูกแก้ให้มี', () => {
+test('activity: no audio file/transcript/note even if the source or storage is altered to include them', () => {
   const store = new Map<string, string>();
   store.set(
     'dphone.embed.activity.demo',
@@ -209,8 +209,8 @@ test('activity: ไม่มีไฟล์เสียง/transcript/โน้�
         message: {
           ...activity('int-9', 'req-9'),
           recordingUrl: 'https://rec.example.test/a.wav',
-          transcript: 'สวัสดี',
-          note: 'โน้ตอิสระ',
+          transcript: 'Hello',
+          note: 'Free-text note',
         },
         attempts: 3,
       },

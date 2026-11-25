@@ -1,7 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 
-test('Supervisor เห็น Team pulse และ mutation สำเร็จหลัง authoritative snapshot เท่านั้น', async ({
+test('a Supervisor sees Team pulse, and a mutation succeeds only after an authoritative snapshot', async ({
   page,
 }) => {
   let agentState: 'AVAILABLE' | 'BREAK' = 'AVAILABLE';
@@ -75,7 +75,7 @@ test('Supervisor เห็น Team pulse และ mutation สำเร็จ�
   ).toHaveText('2');
 
   await page.getByRole('button', { name: 'เปลี่ยนสถานะ สุดา รวดเร็ว' }).click();
-  // #604: Select ของ React Aria — เปิดด้วยปุ่มแล้วเลือกจาก listbox
+  // #604: React Aria Select — open with the button then choose from the listbox
   await page.getByRole('button', { name: /สถานะใหม่/ }).click();
   await page.getByRole('option', { name: 'พัก' }).click();
   await page.getByLabel('เหตุผล').fill('พักตามตาราง');
@@ -97,7 +97,7 @@ test('Supervisor เห็น Team pulse และ mutation สำเร็จ�
   expect(queueCommand?.commandId).toEqual(expect.any(String));
 });
 
-test('Supervisor จอแคบเป็น read-only และไม่มี mutation controls', async ({ page }) => {
+test('a narrow-screen Supervisor is read-only and has no mutation controls', async ({ page }) => {
   await page.setViewportSize({ width: 600, height: 900 });
   await page.route('**/api/v1/workspace/supervisor/snapshot', (route) =>
     route.fulfill({
@@ -116,7 +116,7 @@ test('Supervisor จอแคบเป็น read-only และไม่มี 
 });
 
 /**
- * #604: Supervisor ใน shell ใหม่ — rail ชุดเดียว, axe, keyboard ของ dialog ยืนยัน และสลับภาษาไม่ reload
+ * #604: Supervisor in the new shell — a single rail, axe, keyboard of the confirm dialog, and language switch without reload
  */
 const snapshot = {
   sequence: 7,
@@ -180,9 +180,7 @@ async function seriousViolations(page: Page) {
     .map((v) => `${v.id}: ${v.nodes.map((n) => n.target).join(', ')}`);
 }
 
-test('#604 flag เปิด: rail ของ shell ชุดเดียว ไม่มี rail/แถบบน/ปุ่มออกจากระบบเดิม', async ({
-  page,
-}) => {
+test('#604 flag on: a single shell rail, no old rail/top bar/sign-out button', async ({ page }) => {
   await openInShell(page);
   await expect(page.getByRole('navigation', { name: 'เมนูหลัก' })).toBeVisible();
   await expect(page.getByRole('complementary', { name: 'พื้นที่หลัก' })).toHaveCount(0);
@@ -191,7 +189,7 @@ test('#604 flag เปิด: rail ของ shell ชุดเดียว ไ�
   await expect(page.getByText('ลำดับข้อมูล 7')).toBeVisible();
 });
 
-test('#604 flag ปิด: คง rail และแถบบนเดิม', async ({ page }) => {
+test('#604 flag off: keep the old rail and top bar', async ({ page }) => {
   await openInShell(page, false);
   await expect(page.getByRole('navigation', { name: 'เมนูหลัก' })).toHaveCount(0);
   await expect(page.getByRole('complementary', { name: 'พื้นที่หลัก' })).toBeVisible();
@@ -201,7 +199,7 @@ test('#604 flag ปิด: คง rail และแถบบนเดิม', as
 for (const locale of ['th-TH', 'en-GB'] as const) {
   test.describe(`axe (${locale})`, () => {
     test.use({ locale });
-    test(`#604 axe 0 serious/critical ทั้งหน้าและตอนเปิด dialog ยืนยัน (${locale})`, async ({
+    test(`#604 axe 0 serious/critical for the whole page and with the confirm dialog open (${locale})`, async ({
       page,
     }) => {
       await openInShell(page);
@@ -213,7 +211,7 @@ for (const locale of ['th-TH', 'en-GB'] as const) {
   });
 }
 
-test('#604 keyboard: Esc ปิด dialog แล้ว focus กลับปุ่มที่เปิด และไม่ส่งคำสั่ง', async ({
+test('#604 keyboard: Esc closes the dialog, focus returns to the button that opened it, and no command is sent', async ({
   page,
 }) => {
   let commands = 0;
@@ -234,7 +232,9 @@ test('#604 keyboard: Esc ปิด dialog แล้ว focus กลับปุ�
   expect(commands).toBe(0);
 });
 
-test('#604 สลับ TH/EN ใน shell ไม่ reload และข้อความ Supervisor เปลี่ยนตาม', async ({ page }) => {
+test('#604 switching TH/EN in the shell does not reload and the Supervisor text changes accordingly', async ({
+  page,
+}) => {
   await openInShell(page);
   const before = await page.evaluate(() => performance.timeOrigin);
   await page.getByRole('button', { name: 'English' }).click();
@@ -245,7 +245,7 @@ test('#604 สลับ TH/EN ใน shell ไม่ reload และข้อ�
   expect(await page.evaluate(() => performance.timeOrigin)).toBe(before);
 });
 
-test('#684 Supervisor อัปเดตสถานะจาก session อื่นโดยไม่ reload หรือเปิด agent lease', async ({
+test('#684 a Supervisor updates state from another session without a reload or opening an agent lease', async ({
   page,
 }) => {
   await page.clock.install();

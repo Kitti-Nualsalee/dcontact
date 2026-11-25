@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
- * E1.15 (#489): release และ alias ของ `<dphone-launcher>` (E1.7 #463 ข้อ 1, 5)
+ * E1.15 (#489): releases and aliases of `<dphone-launcher>` (E1.7 #463 items 1, 5)
  *
- * - `release`  : คัดลอก `dist-launcher/dphone-launcher.js` เป็น `releases/<version>/` (immutable) + SRI sha384
- *                version เดิมที่เนื้อหาต่างกัน = ล้ม (ต้องเพิ่ม version) — ไม่เลื่อน alias เอง
- * - `alias`    : ชี้ `v<major>` ไปยัง version ที่ release แล้ว (เลื่อนหรือ rollback) — ต้อง major เดียวกัน
- * - `check`    : ทุกไฟล์ตรงกับ integrity ใน index และทุก alias ชี้ version ที่มีอยู่ของ major เดียวกัน
+ * - `release`  : copy `dist-launcher/dphone-launcher.js` to `releases/<version>/` (immutable) + SRI sha384
+ *                an existing version with different content = failure (the version must be bumped) — it does not move aliases itself
+ * - `alias`    : point `v<major>` at an already released version (move or rollback) — must be the same major
+ * - `check`    : every file matches the integrity in the index and every alias points at an existing version of the same major
  *
- * ก่อนเลื่อน alias ต้องผ่าน contract test (`pnpm test:e1-embed-contract`) และ e2e บน host อ้างอิง
+ * Before moving an alias the contract test (`pnpm test:e1-embed-contract`) and the e2e on the reference host must pass
  */
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -39,22 +39,23 @@ export function checkReleases(dir = releasesDir) {
   const index = loadIndex(dir);
   const problems = [];
   for (const [version, entry] of Object.entries(index.versions)) {
-    if (!VERSION.test(version)) problems.push(`version ผิดรูป: ${version}`);
+    if (!VERSION.test(version)) problems.push(`malformed version: ${version}`);
     const file = join(dir, version, FILE);
     if (!existsSync(file)) {
-      problems.push(`ไม่พบไฟล์ของ ${version}`);
+      problems.push(`file for ${version} not found`);
       continue;
     }
     if (integrityOf(readFileSync(file)) !== entry.integrity) {
-      problems.push(`ไฟล์ของ ${version} ไม่ตรงกับ integrity (release เป็น immutable)`);
+      problems.push(`file for ${version} does not match the integrity (a release is immutable)`);
     }
   }
   for (const [alias, version] of Object.entries(index.aliases)) {
     const major = /^v(\d+)$/.exec(alias)?.[1];
-    if (!major) problems.push(`alias ผิดรูป: ${alias}`);
-    if (!index.versions[version]) problems.push(`alias ${alias} ชี้ version ที่ไม่มี: ${version}`);
+    if (!major) problems.push(`malformed alias: ${alias}`);
+    if (!index.versions[version])
+      problems.push(`alias ${alias} points at a version that does not exist: ${version}`);
     else if (VERSION.exec(version)?.[1] !== major) {
-      problems.push(`alias ${alias} ชี้ข้าม major: ${version}`);
+      problems.push(`alias ${alias} points across majors: ${version}`);
     }
   }
   return problems;
@@ -62,14 +63,14 @@ export function checkReleases(dir = releasesDir) {
 
 function release() {
   const { version } = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
-  if (!VERSION.test(version)) throw new Error(`version ของ package ผิดรูป: ${version}`);
+  if (!VERSION.test(version)) throw new Error(`package version is malformed: ${version}`);
   const built = readFileSync(join(root, 'dist-launcher', FILE));
   const target = join(releasesDir, version, FILE);
   const index = loadIndex();
   if (existsSync(target)) {
     if (integrityOf(readFileSync(target)) !== integrityOf(built)) {
       throw new Error(
-        `${version} ถูก release แล้วด้วยเนื้อหาอื่น — เพิ่ม version ของ package ก่อน`,
+        `${version} was already released with other content — bump the package version first`,
       );
     }
     console.log(JSON.stringify({ status: 'UNCHANGED', version }));
@@ -91,9 +92,10 @@ function alias(name, version) {
     (() => {
       const draft = { ...index };
       const major = /^v(\d+)$/.exec(name)?.[1];
-      if (!major) return [`alias ผิดรูป: ${name}`];
-      if (!draft.versions[version]) return [`ยังไม่ได้ release ${version}`];
-      if (VERSION.exec(version)?.[1] !== major) return [`${name} ชี้ข้าม major ไม่ได้: ${version}`];
+      if (!major) return [`malformed alias: ${name}`];
+      if (!draft.versions[version]) return [`${version} has not been released yet`];
+      if (VERSION.exec(version)?.[1] !== major)
+        return [`${name} cannot point across majors: ${version}`];
       return [];
     })(),
   );
@@ -112,7 +114,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       const problems = checkReleases();
       if (problems.length) throw new Error(problems.join('\n'));
       console.log(JSON.stringify({ status: 'PASS', ...loadIndex().aliases }));
-    } else throw new Error('ใช้: launcher-releases.mjs release | alias <vN> <X.Y.Z> | check');
+    } else throw new Error('Usage: launcher-releases.mjs release | alias <vN> <X.Y.Z> | check');
   } catch (error) {
     console.error(error.message);
     process.exit(1);

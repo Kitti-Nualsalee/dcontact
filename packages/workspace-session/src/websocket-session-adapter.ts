@@ -17,7 +17,7 @@ export interface WorkspaceSessionSocketMessage {
   type: 'auth:connect' | 'auth:refresh' | 'auth:claim' | 'lease:heartbeat';
   accessToken?: string;
   tabId?: string;
-  /** E1.9: work-session lease ที่ได้จาก `POST /api/v1/me/work-session` */
+  /** E1.9: work-session lease obtained from `POST /api/v1/me/work-session` */
   leaseId?: string;
 }
 
@@ -60,8 +60,8 @@ export type WorkSessionLeaseSignal =
 type Actor = { tenantId: string; userId: string };
 
 /**
- * E1.9 (#483): authority ของ work-session lease ฝั่ง server (ADR-026 ข้อ 2) — adapter ไม่ตัดสินเอง
- * identity ที่เป็น agent ต้องแนบ lease ที่ยัง active — #583: ทุก tenant บังคับ (ไม่มี flag แล้ว)
+ * E1.9 (#483): authority of the server-side work-session lease (ADR-026 item 2) — the adapter does not decide by itself
+ * an identity that is an agent must attach a still-active lease — #583: enforced for every tenant (no flag anymore)
  */
 export interface WorkSessionLeaseAuthority {
   enforced(tenantId: string): Promise<boolean>;
@@ -85,7 +85,7 @@ export interface WorkSessionLeaseAuthority {
 
 interface SocketBinding {
   session: WorkspaceSession;
-  /** lease ที่ socket นี้ถือ (มีเฉพาะ tenant ที่บังคับ lease) */
+  /** lease held by this socket (only for tenants that enforce the lease) */
   leaseId?: string;
   enforced: boolean;
   mutationAuth?: WorkspaceMutationAuthBinding;
@@ -149,7 +149,7 @@ export class WorkspaceSessionWebSocketAdapter {
       socket.close(4401, 'workspace authentication required');
       return;
     }
-    // Capture ก่อน verifier/JWKS/online call เพื่อไม่ให้ callback เก่าเปลี่ยน binding ใหม่
+    // Capture before the verifier/JWKS/online call so an old callback cannot change the new binding
     const captured = this.authenticatedSessions.get(socket);
     let sequence = this.authSequences.get(socket);
     if (!sequence) {
@@ -220,8 +220,8 @@ export class WorkspaceSessionWebSocketAdapter {
               identity: session,
               expected: previous,
             });
-            // callback เก่าอาจ commit ไปแล้ว: เก็บ tuple ฝั่ง server ให้ callback ใหม่ใช้ CAS
-            // แต่ห้ามข้าม disconnect หรือ binding ที่ถูกเปลี่ยนโดย lease signal
+            // the old callback may have committed already: keep the server-side tuple for the new callback to use CAS
+            // but must not skip a disconnect or a binding changed by a lease signal
             if (
               this.authSequences.get(socket) === authSequence &&
               this.authenticatedSessions.get(socket) === captured
@@ -229,27 +229,27 @@ export class WorkspaceSessionWebSocketAdapter {
               authSequence.origin = captured;
               authSequence.committed = next;
             } else if (this.authSequences.get(socket) !== authSequence) {
-              // disconnect อาจเกิดหลังเริ่ม transaction; ใช้ CAS ของผลที่เพิ่ง commit
-              // เพื่อไม่ให้ callback นี้ invalidate session ใหม่กว่า
+              // a disconnect may happen after the transaction starts; use the CAS of the result just committed
+              // so this callback does not invalidate a newer session
               try {
                 await authority.invalidateCaptured(next, 'SOCKET_DISCONNECTED');
               } catch {
-                // ไม่รายงาน durable invalidation เมื่อฐานข้อมูลไม่พร้อม
+                // do not report durable invalidation when the database is unavailable
               }
             }
             binding.mutationAuth = next;
             return isCurrent();
           } catch {
-            // JWT/Voice lease ผ่านแล้ว Cus360/IdP fault ต้องไม่เข้าทาง Voice auth failure
-            // หรือปล่อย idle/busy lease ให้ปิดเฉพาะ customer mutation
+            // the JWT/Voice lease passed, so a Cus360/IdP fault must not go down the Voice auth failure path
+            // or release an idle/busy lease; close only customer mutation
             if (!isCurrent()) return false;
             if (previous) {
               try {
                 if (!(await authority.invalidateCaptured(previous, 'CUSTOMER_REAUTH_FAILED')))
                   return false;
               } catch {
-                // DB ล้มจึงยืนยัน durable invalidation ไม่ได้ คง Voice binding เดิมไว้
-                // และแจ้งเฉพาะว่า Cus360 ไม่พร้อม โดยไม่รายงานว่า state ถูกเปลี่ยนแล้ว
+                // the DB failed so durable invalidation cannot be confirmed; keep the existing Voice binding
+                // and report only that Cus360 is not ready, without reporting that state was changed
                 if (isCurrent())
                   socket.send(JSON.stringify({ type: 'customer.auth', state: 'UNAVAILABLE' }));
                 return false;
@@ -263,7 +263,7 @@ export class WorkspaceSessionWebSocketAdapter {
         if (!handled) return;
       }
       if (!isCurrent()) return;
-      // heartbeat ผ่านก่อน online auth ได้ แต่ lease อาจถูกยึดระหว่างที่รอ IdP/DB
+      // heartbeat may pass before online auth, but the lease may be taken while waiting on the IdP/DB
       if (binding.enforced && binding.leaseId && this.leases) {
         const active = await this.leases.isCurrent(session, binding.leaseId);
         if (!isCurrent()) return;
@@ -322,8 +322,8 @@ export class WorkspaceSessionWebSocketAdapter {
       });
     } catch (error) {
       if (!isCurrent()) return;
-      // ไม่รายงาน invalidation/revoke ก่อน durable CAS commit หาก persist ล้ม
-      // ให้ปิด transport โดยไม่อ้างว่า invalidate สำเร็จหรือปล่อย Voice lease
+      // do not report invalidation/revoke before the durable CAS commit if persist fails
+      // close the transport without claiming invalidation succeeded or the Voice lease was released
       let failureBinding: WorkspaceMutationAuthBinding | undefined;
       const invalidated = await this.withAuthSequence(authSequence, async () => {
         if (!isCurrent() || this.authSequences.get(socket) !== authSequence) return false;
@@ -381,7 +381,7 @@ export class WorkspaceSessionWebSocketAdapter {
             );
           }
           if (!isCurrent()) return;
-          // Persist ก่อนรายงาน โดยคง Voice connection/policy สำหรับสายที่ยังคุยอยู่
+          // Persist before reporting, keeping the Voice connection/policy for a call still in progress
           this.authenticatedSessions.set(socket, { ...current, session, leaseId: undefined });
           socket.send(JSON.stringify({ type: 'workspace.session', session }));
           if (leaseId && this.leases) {
@@ -403,19 +403,19 @@ export class WorkspaceSessionWebSocketAdapter {
   }
 
   /**
-   * tenant ที่บังคับ lease: agent ต้องแนบ lease ที่ยัง active (heartbeat สำเร็จ) ไม่อย่างนั้นปิด 4409
-   * lease เป็นตัวตัดสินว่ารับงานได้ แทน leader election ของแท็บ
+   * tenant that enforces the lease: an agent must attach a still-active lease (heartbeat succeeded) otherwise close 4409
+   * the lease decides whether work can be taken, replacing the tab's leader election
    */
   private async bindLease(
     session: WorkspaceSession,
     leaseId: string | undefined,
     correlationId: string,
   ): Promise<SocketBinding | null> {
-    // #583: เมื่อ API ตั้งค่า lease ไว้ ทุก tenant บังคับ lease (ไม่มี flag แล้ว)
+    // #583: when the API configures a lease, every tenant enforces the lease (no flag anymore)
     const enforced = Boolean(this.leases) && (await this.leases!.enforced(session.tenantId));
     if (!enforced) return { session, enforced: false };
     if (!session.agent) {
-      // supervisor/admin ที่ไม่ใช่ agent: ดูข้อมูลสดได้ แต่ไม่มีทางรับงาน routing
+      // supervisor/admin who is not an agent: can view live data but has no way to take routing work
       return {
         session: { ...session, routingEnabled: false, availability: 'OFFLINE' },
         enforced: true,
@@ -473,7 +473,7 @@ export class WorkspaceSessionWebSocketAdapter {
     });
   }
 
-  /** สัญญาณจาก lease service (takeover/หมดอายุ/เพิกถอน) → socket ที่ถือ lease นั้นใน instance นี้ */
+  /** signal from the lease service (takeover/expiry/revocation) → the socket holding that lease in this instance */
   async signalLease(
     tenantId: string,
     userId: string,
@@ -496,7 +496,7 @@ export class WorkspaceSessionWebSocketAdapter {
       ) {
         continue;
       }
-      // หยุด routing ทุก socket ที่ถือ lease นี้ก่อน await tenant scope ใด ๆ
+      // stop routing on every socket holding this lease before awaiting any tenant scope
       binding.leaseRevoked = true;
       recipients.push([socket, binding]);
     }
@@ -514,8 +514,8 @@ export class WorkspaceSessionWebSocketAdapter {
   }
 
   /**
-   * E1.11: origin ของ host ถูกปิด/ลบ → ทุก socket ของ tenant (iframe ที่ล็อก origin นั้นหยุดรับ postMessage เอง)
-   * ไม่มีข้อมูลอื่นนอกจาก origin ที่ tenant ตั้งเอง
+   * E1.11: a host origin was disabled/deleted → every socket of the tenant (the iframe locked to that origin stops accepting postMessage itself)
+   * no data other than the origin that the tenant set itself
    */
   async notifyEmbedOriginRevoked(tenantId: string, origin: string): Promise<number> {
     let delivered = 0;
@@ -538,7 +538,7 @@ export class WorkspaceSessionWebSocketAdapter {
       const { session } = binding;
       if (session.tenantId !== event.tenantId || session.userId !== event.userId) continue;
       if (binding.enforced) {
-        // lease ฝั่ง server เป็นตัวบังคับ: socket ต้องถือ lease ที่ยังเป็นปัจจุบัน ณ ตอนส่ง
+        // the server-side lease is the enforcer: the socket must hold a lease that is still current at send time
         if (
           !binding.leaseId ||
           binding.leaseRevoked ||

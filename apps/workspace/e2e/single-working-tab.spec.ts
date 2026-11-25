@@ -1,10 +1,10 @@
 import { expect, test } from './fixtures.js';
 
 /**
- * #583: ทุก tenant บังคับ work-session lease — สองแท็บใน origin เดียวกัน แท็บแรก (leader) ได้ lease และเป็นจุดรับงาน
- * แท็บที่สองเห็นว่ามีผู้ถืออยู่จึงดูได้อย่างเดียว ไม่เปิดรับงานซ้อน (เดิมทดสอบ leader election แบบไม่มี lease)
+ * #583: every tenant enforces the work-session lease — two tabs in the same origin: the first tab (leader) gets the lease and is the work point
+ * the second tab sees a holder exists so it is view-only and does not open for duplicate work (it used to test leader election without a lease)
  */
-test('Agent มีจุดรับงานเดียว: แท็บที่สองใน origin เดียวกันดูได้อย่างเดียวและเปิดรับสายไม่ได้', async ({
+test('an Agent has a single work point: a second tab in the same origin is view-only and cannot open for calls', async ({
   page,
   context,
 }) => {

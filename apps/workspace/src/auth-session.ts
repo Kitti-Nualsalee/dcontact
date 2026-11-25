@@ -68,8 +68,8 @@ export function createOidcSettings(input: OidcSettingsInput): UserManagerSetting
     disablePKCE: false,
     automaticSilentRenew: true,
     monitorSession: true,
-    // R1 (#593): cookie ของ realm เปลี่ยนชื่อเป็น DC_* — iframe ของ session management ต้องเป็นตัวที่อ่านชื่อใหม่
-    // (iframe เดิมของ IdP อ่านชื่อเดิมตายตัวและ override ด้วย theme ไม่ได้)
+    // R1 (#593): the realm cookies were renamed to DC_* — the session-management iframe must be the one reading the new name
+    // (the IdP's old iframe reads the old name hard-coded and cannot be overridden by the theme)
     metadataSeed: {
       check_session_iframe: `${input.issuer.replace(/\/+$/, '')}/dc-account/login-status-iframe.html`,
     },
@@ -84,7 +84,7 @@ export function createOidcSettings(input: OidcSettingsInput): UserManagerSetting
   };
 }
 
-/** #684: OIDC state คืนปลายทางเฉพาะ origin/tenant เดิม; ไม่รับ OAuth parameters กลับเข้าประวัติ */
+/** #684: the OIDC state returns the destination only for the same origin/tenant; OAuth parameters are not taken back into history */
 export function workspaceReturnUrl(location: URL): string {
   const clean = new URL(location.href);
   for (const key of ['code', 'state', 'session_state', 'iss', 'error', 'error_description']) {
@@ -104,13 +104,13 @@ export function workspaceCallbackUrl(callback: URL, state: unknown): string {
         return workspaceReturnUrl(destination);
       }
     } catch {
-      /* ใช้ callback ที่ตรวจแล้วด้านล่าง */
+      /* use the callback verified below */
     }
   }
   return workspaceReturnUrl(callback);
 }
 
-/** role สำหรับแสดง UI มาจาก access token เช่นเดียวกับ Gateway; API ตรวจลายเซ็น/สิทธิ์เองเสมอ */
+/** the role shown in the UI comes from the access token, same as the Gateway; the API always checks the signature/permissions itself */
 export function accessTokenRealmRoles(accessToken: string): string[] {
   try {
     const payload = accessToken.split('.')[1];

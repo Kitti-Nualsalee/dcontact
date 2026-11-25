@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { RemoteCommandCoordinator, type DesiredStateCommand } from './remote-command.js';
 
-test('remote command ยังเป็น PENDING จน authoritative result ยืนยันผล', async () => {
+test('a remote command stays PENDING until an authoritative result confirms it', async () => {
   const sent: DesiredStateCommand[] = [];
   const coordinator = new RemoteCommandCoordinator({
     send: async (command) => {
@@ -44,7 +44,7 @@ test('remote command ยังเป็น PENDING จน authoritative result �
   });
 });
 
-test('remote command reconcile ที่ 5 วินาทีและเข้า CONTROL_DEGRADED ที่ 15 วินาที', async () => {
+test('a remote command reconciles at 5 seconds and enters CONTROL_DEGRADED at 15 seconds', async () => {
   let now = 0;
   const sent: DesiredStateCommand[] = [];
   const reconciled: string[] = [];
@@ -95,7 +95,7 @@ test('remote command reconcile ที่ 5 วินาทีและเข้�
   });
 });
 
-test('remote command ตัวใหม่ทับ command ที่ยัง PENDING ไม่ได้', async () => {
+test('a new remote command cannot overwrite a command that is still PENDING', async () => {
   const sent: DesiredStateCommand[] = [];
   const coordinator = new RemoteCommandCoordinator({
     send: async (command) => {

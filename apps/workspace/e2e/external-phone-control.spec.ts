@@ -71,7 +71,7 @@ test('Workspace external simulator: controls stay local without SIP, microphone 
     ),
   ).toBe(0);
   expect(await page.evaluate(() => window.__dcontactDphone?.sipSessionId())).toBeUndefined();
-  // มีงานจริงจาก server แล้วต้องพักตัวจำลอง ไม่ใช้สถานะจำลองควบคุมสายนั้น
+  // once there is real work from the server the simulator must pause, and the simulated state must not control that call
   await page.route('**/api/v1/workspace/agent/snapshot', (route) =>
     route.fulfill({
       json: {

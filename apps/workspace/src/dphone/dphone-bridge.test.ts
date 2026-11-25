@@ -7,7 +7,7 @@ import {
   type DphoneView,
 } from './dphone-bridge.js';
 
-/** BroadcastChannel ในหน่วยความจำ — ส่งถึงทุกตัวยกเว้นผู้ส่ง เหมือนของจริง */
+/** in-memory BroadcastChannel — delivers to everyone except the sender, like the real one */
 function channelPair(): () => ChannelLike {
   const members = new Set<{ listeners: Set<(event: MessageEvent) => void> }>();
   return () => {
@@ -32,12 +32,12 @@ function channelPair(): () => ChannelLike {
 const view: DphoneView = {
   phase: 'ACTIVE',
   caller: '081-000-0000',
-  queueName: 'บริการ',
+  queueName: 'Service',
   muted: false,
   locale: 'th',
 };
 
-test('หน้าต่างแยกของตัวเองได้ view ล่าสุดทันทีที่เปิด และคำสั่งกลับไปถึง working tab', () => {
+test('its own detached window gets the latest view as soon as it opens, and commands reach the working tab', () => {
   const open = channelPair();
   const commands: unknown[] = [];
   const presence: boolean[] = [];
@@ -68,7 +68,7 @@ test('หน้าต่างแยกของตัวเองได้ view
   host.close();
 });
 
-test('ทิ้งข้อความที่ไม่ใช่ v1, ไม่มี remote id, คำสั่งที่ไม่รู้จัก หรือ DTMF ผิดรูป', () => {
+test('drops messages that are not v1, have no remote id, unknown commands, or a malformed DTMF', () => {
   const open = channelPair();
   const commands: unknown[] = [];
   const host = createDphoneHost({
@@ -92,7 +92,7 @@ test('ทิ้งข้อความที่ไม่ใช่ v1, ไม่
   host.close();
 });
 
-test('working tab ดึง dphone กลับ → ปิดเฉพาะหน้าต่างแยกของตัวเอง', () => {
+test('the working tab pulls dphone back → closes only its own detached window', () => {
   const open = channelPair();
   const host = createDphoneHost({
     onCommand: () => undefined,
@@ -120,7 +120,7 @@ test('working tab ดึง dphone กลับ → ปิดเฉพาะห�
   host.close();
 });
 
-test('หน้าต่าง /dphone ที่ working tab ไม่ได้เปิด (id อื่น) ไม่ได้ state ไม่สลับ presence และสั่งสายไม่ได้', () => {
+test('a /dphone window that the working tab did not open (another id) gets no state, does not toggle presence, and cannot control calls', () => {
   const open = channelPair();
   const commands: unknown[] = [];
   const presence: boolean[] = [];
@@ -149,7 +149,7 @@ test('หน้าต่าง /dphone ที่ working tab ไม่ได้�
     onClosed: () => undefined,
     channel: open(),
   });
-  assert.deepEqual(views, [view], 'มีแต่หน้าต่างของตัวเองที่ได้ state');
+  assert.deepEqual(views, [view], 'only its own window gets the state');
   assert.deepEqual(commands, []);
   assert.deepEqual(presence, [true]);
   ours.close();

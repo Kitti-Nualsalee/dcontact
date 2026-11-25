@@ -1,11 +1,11 @@
 /**
- * E1.14 (#488): ตัวประสานของ dphone ที่ถูกฝัง ระหว่างงานสาย (`WorkspaceApp variant="embedded"`) กับ host
+ * E1.14 (#488): coordinator between the embedded dphone's call work (`WorkspaceApp variant="embedded"`) and the host
  *
- * - screen-pop: เมื่อมีสายเข้า/รับสาย ขอ payload จาก server (origin มาจาก lease, ลดระดับตาม Governance)
- *   แล้วส่งให้ host เฉพาะเมื่อ `hostOrigin` ที่ server ตอบตรงกับ origin ที่ iframe ล็อกไว้
- * - activity: จบ wrap-up → เข้าคิว `ActivityOutbox` (ส่งซ้ำจน ack, idempotent ด้วย interactionId)
- * - click-to-call: `dphone.call` จาก host แค่กรอกเบอร์ (ตอบ `prefilled`); agent กดโทรเองจึงเรียก server
- * - ข้อความถึง host ไม่มี token และไม่มีข้อมูลเกินที่ server ส่งมา
+ * - screen-pop: on an incoming/answered call, request the payload from the server (origin comes from the lease, level lowered by Governance)
+ *   then send it to the host only when the server's `hostOrigin` matches the origin the iframe is locked to
+ * - activity: wrap-up finished → enqueue in `ActivityOutbox` (resent until ack, idempotent by interactionId)
+ * - click-to-call: `dphone.call` from the host only fills in the number (answers `prefilled`); the agent presses call themselves, which calls the server
+ * - messages to the host carry no token and no data beyond what the server sent
  */
 import type {
   ActivityMessage,
@@ -20,7 +20,7 @@ export interface EmbedRuntimeDeps {
   apiBaseUrl: string;
   hostOrigin: string;
   screenPopLevel: ScreenPopSetting;
-  /** fetch ที่แนบ token เอง (`EmbeddedAuth.fetch`) */
+  /** fetch that attaches the token itself (`EmbeddedAuth.fetch`) */
   authorizedFetch(url: string, init: RequestInit): Promise<Response>;
   send(message: DphoneToHostMessage): boolean;
   enqueueActivity(message: ActivityMessage): void;
@@ -36,7 +36,7 @@ export type PrefillState =
 
 export class EmbedRuntime {
   private leaseId: string | undefined;
-  /** สายที่มาถึงก่อนได้ lease — ขอ screen-pop เมื่อได้ lease */
+  /** a call that arrived before the lease was obtained — request screen-pop once the lease is obtained */
   private pendingScreenPop: string | undefined;
   private prefill: PrefillState = { phase: 'idle' };
   private readonly listeners = new Set<(state: PrefillState) => void>();
@@ -81,7 +81,7 @@ export class EmbedRuntime {
     };
   }
 
-  /** `dphone.call` จาก host (ผ่าน HostChannel แล้ว) — กรอกเบอร์เท่านั้น ไม่โทร */
+  /** `dphone.call` from the host (already through HostChannel) — fills in the number only, does not dial */
   prefillFromHost(request: CallRequestMessage) {
     if (!this.leaseId) {
       this.deps.send(this.result(request, 'unavailable', 'NOT_SIGNED_IN'));
@@ -91,7 +91,7 @@ export class EmbedRuntime {
       this.deps.send(this.result(request, 'unavailable', 'BUSY'));
       return;
     }
-    // คำขอเดิมที่ยังรออยู่ถูกแทนที่ → แจ้ง host ว่ายกเลิก
+    // the earlier pending request is replaced → tell the host it was cancelled
     if (this.prefill.phase === 'prefilled') {
       this.deps.send(this.result(this.prefill.request, 'cancelled', 'REPLACED'));
     }
@@ -130,7 +130,7 @@ export class EmbedRuntime {
           body?.hostOrigin === this.deps.hostOrigin &&
           body.result?.status === 'cancelled';
       } catch {
-        // ผลจริงยังต้องมาจาก server/ESL; host ได้สถานะ reconciling แบบไม่มี PII.
+        // the real result must still come from the server/ESL; the host gets a reconciling state with no PII.
       }
       this.deps.send(
         this.result(
@@ -143,7 +143,7 @@ export class EmbedRuntime {
     this.setPrefill({ phase: 'idle' });
   }
 
-  /** agent กดโทร — server ตัดสินด้วย Contact Governance */
+  /** the agent presses call — the server decides with Contact Governance */
   async dial(): Promise<void> {
     if (this.prefill.phase !== 'prefilled' || !this.leaseId) return;
     const { request } = this.prefill;
@@ -203,12 +203,12 @@ export class EmbedRuntime {
         hostOrigin?: string;
         message?: DphoneToHostMessage;
       };
-      // origin ที่ server ผูกกับ lease ต้องตรงกับ host ที่ iframe ล็อกไว้ ไม่อย่างนั้นไม่ส่ง
+      // the origin the server bound to the lease must match the host the iframe is locked to, otherwise do not send
       if (body.status === 'sent' && body.message && body.hostOrigin === this.deps.hostOrigin) {
         this.deps.send(body.message);
       }
     } catch {
-      // screen-pop เป็นความสะดวกของ host — ล้มแล้วไม่กระทบสาย
+      // screen-pop is a convenience for the host — failing does not affect the call
     }
   }
 

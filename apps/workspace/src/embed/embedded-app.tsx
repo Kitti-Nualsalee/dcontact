@@ -1,6 +1,6 @@
 /**
- * E1.14 (#488): UI ของ dphone ที่ถูกฝัง — `WorkspaceApp variant="embedded"` (component/logic เดียวกับ D1.15)
- * + prompt ของ click-to-call ที่ host กรอกเบอร์ให้ (agent ต้องกดโทรเอง)
+ * E1.14 (#488): UI of the embedded dphone — `WorkspaceApp variant="embedded"` (the same components/logic as D1.15)
+ * + the click-to-call prompt where the host fills in the number (the agent must press call themselves)
  */
 import { StrictMode, useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -73,7 +73,7 @@ function EmbeddedApp({ auth, runtime, lock, apiBaseUrl, createDphone }: Embedded
     });
     return {
       ...base,
-      // `embed.origin.revoked` ของ origin ที่ล็อกไว้ → หยุดรับ/ส่งข้อความกับ host นั้นทันที (E1.5 ข้อ 3)
+      // `embed.origin.revoked` for the locked origin → stop accepting/sending messages with that host immediately (E1.5 item 3)
       subscribeLive: (handlers, options) =>
         base.subscribeLive!(
           {
@@ -103,7 +103,7 @@ function EmbeddedApp({ auth, runtime, lock, apiBaseUrl, createDphone }: Embedded
       }),
     [apiBaseUrl, auth, fetchWithToken, lock],
   );
-  // ยังไม่เคย login = แถบ login (DOM) ทำงานอยู่แล้ว; เคย login แล้วคง dphone ไว้แม้ต้อง login ใหม่ (สายไม่หลุด)
+  // never logged in = the login bar (DOM) is already running; once logged in keep dphone even if a new login is needed (the call is not dropped)
   const [started, setStarted] = useState(status === 'signed-in');
   useEffect(() => {
     if (status === 'signed-in') setStarted(true);

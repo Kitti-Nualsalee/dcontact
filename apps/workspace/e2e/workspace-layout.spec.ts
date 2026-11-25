@@ -3,10 +3,10 @@ import { expect, test } from './fixtures';
 import type { Page } from '@playwright/test';
 
 /**
- * Agent Workspace ใน shell (`ui.shell.v2`) ตามแบบ V3 (mockups/d-contact-agent-workspace-v3.html):
- * รายการงาน · งานปัจจุบัน (แถบสาย + แท็บ Voice) · แผงงาน (สรุปผล/รายละเอียด/เหตุการณ์/ความพร้อม) · แถบเครื่องมือ
- * ด้วยข้อมูล Voice จาก snapshot เท่านั้น — ไม่มีแผงลูกค้า placeholder (Cus360 C5 #795)
- * `D813_EVIDENCE_DIR=<dir>` = เก็บภาพหลักฐานสำหรับ PR
+ * Agent Workspace in the shell (`ui.shell.v2`) per V3 (mockups/d-contact-agent-workspace-v3.html):
+ * work list · current work (call bar + Voice tab) · work panel (summary/details/events/readiness) · tool bar
+ * with Voice data from the snapshot only — no placeholder customer panel (Cus360 C5 #795)
+ * `D813_EVIDENCE_DIR=<dir>` = save evidence screenshots for the PR
  */
 test.use({ locale: 'th-TH', viewport: { width: 1440, height: 900 } });
 
@@ -93,7 +93,7 @@ async function expectNoSeriousAxe(page: Page) {
   ).toEqual([]);
 }
 
-test('ไม่มีงาน → รายการ · งานปัจจุบัน · แผงงานเรียงซ้ายไปขวา และแผงงานเปิดที่ความพร้อม', async ({
+test('no work → work list · current work · work panel in left-to-right order, and the work panel opens at readiness', async ({
   page,
 }) => {
   await open(page, null);
@@ -115,7 +115,7 @@ test('ไม่มีงาน → รายการ · งานปัจจ�
   await evidence(page, 'workspace-th-idle');
 });
 
-test('ระหว่างสาย → งานอยู่ในรายการและแถบสาย, เวลาในสายเดิน, เหตุการณ์แสดงการรับสาย', async ({
+test('during a call → the work is in the list and call bar, call time ticks, events show the answered call', async ({
   page,
 }) => {
   await open(page, call({}), 'BUSY');
@@ -128,13 +128,13 @@ test('ระหว่างสาย → งานอยู่ในรายก
   const first = await timer.textContent();
   await expect(timer).not.toHaveText(first!);
 
-  // ไม่มีความสามารถ Cus360 ใน snapshot → มีเฉพาะแท็บ Voice ไม่มีแท็บลูกค้าว่าง
+  // no Cus360 capability in the snapshot → only the Voice tab, no empty customer tab
   await expect(current(page).getByRole('tab', { name: 'Voice' })).toHaveAttribute(
     'aria-selected',
     'true',
   );
   await expect(current(page).getByRole('tab', { name: 'Customer 360' })).toHaveCount(0);
-  // เปิดหน้าใหม่ระหว่างสาย อุปกรณ์เสียงยังไม่ได้ตรวจ → แผงงานเปิดที่ความพร้อมให้ตรวจก่อน
+  // opening a new page during a call, audio devices not checked yet → the work panel opens at readiness so they can be checked first
   await expect(inspector(page).getByRole('tab', { name: 'ความพร้อม' })).toHaveAttribute(
     'aria-selected',
     'true',
@@ -147,7 +147,9 @@ test('ระหว่างสาย → งานอยู่ในรายก
   await evidence(page, 'workspace-th-call');
 });
 
-test('WRAPUP → แผงงานเปิดแท็บสรุปผลให้เอง และสลับไปดูเหตุการณ์ได้', async ({ page }) => {
+test('WRAPUP → the work panel opens the summary tab itself, and can switch to view events', async ({
+  page,
+}) => {
   await open(
     page,
     call({ state: 'WRAPUP', endedAt: new Date(Date.now() - 5_000).toISOString() }),
@@ -166,7 +168,7 @@ test('WRAPUP → แผงงานเปิดแท็บสรุปผลใ
   await expect(work(page)).toContainText('ยังไม่มีงานที่ปิดในรอบนี้');
 });
 
-test('EN → ข้อความของทุกแผงเปลี่ยนตามภาษาโดยไม่ reload', async ({ page }) => {
+test('EN → text in every panel changes with the language without a reload', async ({ page }) => {
   await open(page, call({}), 'BUSY');
   const before = await page.evaluate(() => performance.timeOrigin);
   await page.getByRole('button', { name: 'English' }).click();
@@ -182,7 +184,9 @@ test('EN → ข้อความของทุกแผงเปลี่ย�
   await evidence(page, 'workspace-en-call');
 });
 
-test('ปิด/เปิดแผงงานจากแถบเครื่องมือ และปรับความกว้างรายการด้วยคีย์บอร์ด', async ({ page }) => {
+test('close/open the work panel from the tool bar, and resize the list with the keyboard', async ({
+  page,
+}) => {
   await open(page, call({}), 'BUSY');
   const tools = page.getByRole('toolbar', { name: 'เครื่องมือด้านขวา' });
   await tools.getByRole('button', { name: 'ปิดแผงรายละเอียด' }).click();
@@ -203,7 +207,7 @@ test('ปิด/เปิดแผงงานจากแถบเครื่�
   await expect(separator).toHaveAttribute('aria-valuenow', '260');
 });
 
-test('จอแคบกว่า 1200px → เรียงแผงจากบนลงล่าง', async ({ page }) => {
+test('screens narrower than 1200px → panels stack top to bottom', async ({ page }) => {
   await page.setViewportSize({ width: 1024, height: 900 });
   await open(page, call({}), 'BUSY');
   const [left, middle, right] = await Promise.all(

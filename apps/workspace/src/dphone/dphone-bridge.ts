@@ -1,14 +1,14 @@
 /**
- * D1.15 (#454): สะพานระหว่าง working tab (เจ้าของ SIP session) กับหน้าต่าง dphone ที่แยกออกไป
+ * D1.15 (#454): bridge between the working tab (owner of the SIP session) and the detached dphone window
  *
- * - SIP/WebRTC session อยู่ใน working tab เสมอ — หน้าต่างแยกเป็นแค่ UI ที่ส่ง intent กลับมาผ่าน
- *   BroadcastChannel (same-origin เท่านั้น) จึงแยก/รวมหน้าต่างได้โดยไม่ตัดสายและไม่สร้าง session ใหม่
- * - เฉพาะจุดรับงานเป็น host และรับคำสั่ง: แท็บที่ถือ work-session lease (หรือยังมีสายในมือหลังเสีย lease)
- *   — E1.12 #486; #583 บังคับ lease ทุก tenant
- * - ข้อความทุกชนิดมี `v: 1` และถูกตรวจรูปก่อนใช้ — ข้อความแปลกปลอมถูกทิ้งเงียบ ๆ
- * - หน้าต่างแยกมี `remote` id ที่ working tab สร้างตอนกดแยก: host ฟังเฉพาะ id นั้น หน้า `/dphone` ที่เปิดเอง
- *   (bookmark) หรือหน้าต่างอื่นจึงไม่สลับสถานะ detached และสั่งสายไม่ได้
- * - การฝังในระบบภายนอก (iframe + postMessage + allowlist) เป็นงานของ map E1 ไม่ใช่ช่องทางนี้
+ * - the SIP/WebRTC session always lives in the working tab — the detached window is only a UI that sends intents back through
+ *   BroadcastChannel (same-origin only), so the window can be detached/merged without cutting the call or creating a new session
+ * - only the work point is the host and accepts commands: the tab that holds the work-session lease (or still has a call in hand after losing the lease)
+ *   — E1.12 #486; #583 enforces the lease for every tenant
+ * - every message has `v: 1` and is shape-checked before use — foreign messages are silently dropped
+ * - the detached window has a `remote` id that the working tab creates when detaching: the host listens only to that id, so a `/dphone` page opened by itself
+ *   (bookmark) or another window does not switch the detached state and cannot control calls
+ * - embedding in an external system (iframe + postMessage + allowlist) belongs to map E1, not this channel
  */
 import type { DphoneState } from './dphone.js';
 
@@ -69,12 +69,12 @@ export interface ChannelLike {
 
 const openChannel = (): ChannelLike => new BroadcastChannel(DPHONE_CHANNEL);
 
-/** ฝั่ง working tab: ส่ง view ล่าสุดให้หน้าต่างแยกของตัวเอง และรับคำสั่งจากหน้าต่างนั้นเท่านั้น */
+/** working tab side: send the latest view to its own detached window and accept commands only from that window */
 export function createDphoneHost(handlers: {
   onCommand(command: DphoneCommand): void;
-  /** หน้าต่างแยกที่ working tab เปิด (`hello`) หรือปิดไป (`bye`) */
+  /** the detached window the working tab opened (`hello`) or closed (`bye`) */
   onRemotePresence(present: boolean): void;
-  /** id ของหน้าต่างแยกที่ working tab เปิดอยู่ — ไม่มี = ไม่รับหน้าต่างใดเลย */
+  /** id of the detached window the working tab has open — none = accept no window at all */
   expectedRemote(): string | undefined;
   channel?: ChannelLike;
 }) {
@@ -98,7 +98,7 @@ export function createDphoneHost(handlers: {
       const remote = handlers.expectedRemote();
       if (remote) channel.postMessage({ v: 1, kind: 'state', remote, view });
     },
-    /** working tab ดึง dphone กลับ — บอกหน้าต่างแยกของตัวเองให้ปิดตัวเอง */
+    /** the working tab pulls dphone back — tells its own detached window to close itself */
     recall() {
       const remote = handlers.expectedRemote();
       if (remote) channel.postMessage({ v: 1, kind: 'closed', remote });
@@ -110,7 +110,7 @@ export function createDphoneHost(handlers: {
   };
 }
 
-/** ฝั่งหน้าต่างแยก (`/dphone?remote=<id>`): รับ view ของ id ตัวเองและส่งคำสั่งกลับ */
+/** detached window side (`/dphone?remote=<id>`): receives the view for its own id and sends commands back */
 export function createDphoneRemote(handlers: {
   remote: string;
   onView(view: DphoneView): void;

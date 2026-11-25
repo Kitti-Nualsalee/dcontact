@@ -1,10 +1,10 @@
 /**
- * D1.13 (#452): shell ใหม่ของ Workspace หลัง flag `ui.shell.v2` ระดับ tenant — ไม่มี SubNav (D1.2)
- * #651: rail แสดงพื้นที่งานจาก Navigation API (`areas`) — Workspace ยังไม่มีเมนูย่อย
+ * D1.13 (#452): the new Workspace shell behind the tenant-level flag `ui.shell.v2` — no SubNav (D1.2)
+ * #651: the rail shows work areas from the Navigation API (`areas`) — Workspace has no submenus yet
  *
- * ต้องตัดสิน shell **ก่อน** mount WorkspaceApp และไม่เปลี่ยนอีกตลอดการโหลดหน้า เพราะการ remount จะตัด
- * softphone/WS ของสายที่คุยอยู่ (ADR-026) — ระหว่างรอคำตอบจึงแสดงสถานะเตรียมหน้าจอแทนการ render ก่อน
- * token โหลดแบบ dynamic เฉพาะเมื่อเปิด shell (มีกฎ global ของ html/body) — ปิด flag = หน้าเดิมทุกประการ
+ * The shell must be decided **before** WorkspaceApp mounts and never change for the rest of the page load, because a remount would cut
+ * the softphone/WS of a call in progress (ADR-026) — so while waiting for the answer it shows a screen-preparing state instead of rendering early
+ * the tokens load dynamically only when the shell is on (they carry global html/body rules) — flag off = exactly the old page
  */
 import type { ReactNode } from 'react';
 import { useLocale, useTranslation } from '@d-contact/i18n/react';
@@ -23,7 +23,7 @@ export type WorkspaceShellApp = 'agent-workspace' | 'supervisor-workspace';
 function hostOrigins(): Partial<Record<HostApp, string>> {
   const env = import.meta.env as Record<string, string | undefined>;
   return {
-    // production ต้องตั้ง VITE_CONSOLE_URL — ไม่ตั้ง = แอปฝั่งนั้นไม่แสดงใน shell (ไม่เดาเป็น localhost)
+    // production must set VITE_CONSOLE_URL — unset = that app is not shown in the shell (do not guess localhost)
     console: env.VITE_CONSOLE_URL ?? (import.meta.env.DEV ? 'http://localhost:5174' : undefined),
     workspace: env.VITE_WORKSPACE_URL ?? window.location.origin,
   };
@@ -34,9 +34,9 @@ export interface WorkspaceShellProps {
   accessToken: () => string | undefined;
   tenantAlias?: string;
   appId: WorkspaceShellApp;
-  /** #588: เมนูผู้ใช้บนแถบบน (ชื่อ, organization, บทบาท และออกจากระบบ) */
+  /** #588: user menu on the top bar (name, organization, role and sign out) */
   account?: { user: ShellUser; onSignOut: () => Promise<void> };
-  /** #588: มีสายหรือ wrap-up ค้าง → ถามยืนยันก่อนออกจากระบบ */
+  /** #588: a call or wrap-up is pending → ask for confirmation before signing out */
   workInHand?: boolean;
   children: ReactNode;
 }
@@ -120,11 +120,11 @@ export function WorkspaceShell({
           account
             ? {
                 user: account.user,
-                // AC5 (#598): บัญชีของฉันอยู่ใน Console — เปิดแท็บใหม่เพื่อไม่ remount Workspace (ADR-026)
+                // AC5 (#598): my account lives in Console — open a new tab so Workspace is not remounted (ADR-026)
                 ...(consoleAccountHref
                   ? { accountLink: { href: consoleAccountHref, newTab: true } }
                   : {}),
-                // #588: redirect ไปออกจากระบบไม่สำเร็จต้องแจ้งผู้ใช้ ไม่เงียบหาย
+                // #588: a failed redirect to sign out must tell the user, not fail silently
                 onSignOut: () =>
                   account.onSignOut().catch(() => {
                     toastQueue.add(

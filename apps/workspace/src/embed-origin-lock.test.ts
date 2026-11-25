@@ -6,7 +6,7 @@ const config = parseEmbedConfig(
   JSON.stringify({ v: 1, tenant: 'demo', allowedHostOrigins: ['https://crm.example.test'] }),
 );
 
-test('config: รับเฉพาะ v1 ที่มี allowlist เป็น string', () => {
+test('config: accepts only v1 whose allowlist is strings', () => {
   assert.equal(parseEmbedConfig(null), null);
   assert.equal(parseEmbedConfig('{'), null);
   assert.equal(parseEmbedConfig(JSON.stringify({ v: 2, allowedHostOrigins: [] })), null);
@@ -14,7 +14,7 @@ test('config: รับเฉพาะ v1 ที่มี allowlist เป็น
   assert.deepEqual(config?.allowedHostOrigins, ['https://crm.example.test']);
 });
 
-test('host origin: ancestorOrigins ก่อน referrer', () => {
+test('host origin: ancestorOrigins before referrer', () => {
   assert.equal(
     resolveHostOrigin({
       ancestorOrigins: ['https://crm.example.test'],
@@ -29,7 +29,7 @@ test('host origin: ancestorOrigins ก่อน referrer', () => {
   assert.equal(resolveHostOrigin({ referrer: '' }), null);
 });
 
-test('origin ที่ไม่อยู่ใน allowlist ไม่เริ่มทำงาน; หลังล็อกรับเฉพาะ exact origin จาก parent จนถูกเพิกถอน', () => {
+test('an origin not in the allowlist does not start; after locking only the exact origin from the parent is accepted until revoked', () => {
   const parent = {};
   assert.equal(lockHostOrigin(config, 'https://evil.example.test', parent), null);
   assert.equal(lockHostOrigin(config, 'https://crm.example.test.evil.test', parent), null);

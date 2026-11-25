@@ -44,7 +44,7 @@ const ready = {
   screenPopLevel: 'ids',
 } as const;
 
-test('รับเฉพาะ origin ของ dphone แบบ exact และ source ที่เป็น iframe ของ launcher', () => {
+test('accepts only the dphone origin exactly and a source that is the launcher iframe', () => {
   const l = launcher();
   assert.equal(l.from(ready, 'https://evil.test'), false);
   assert.equal(l.from(ready, DPHONE, {}), false);
@@ -55,7 +55,7 @@ test('รับเฉพาะ origin ของ dphone แบบ exact และ
   assert.deepEqual(l.events, [['ready', ready]]);
 });
 
-test('call() ก่อน ready เข้าคิว แล้วส่งด้วย targetOrigin แบบ exact เมื่อ ready; resolve ด้วยผลที่ไม่ใช่ prefilled', async () => {
+test('call() before ready is queued, then sent with the exact targetOrigin on ready; resolves with a result other than prefilled', async () => {
   const l = launcher();
   const result = l.core.call('0812345678', { contactId: 'CIF-1' });
   assert.equal(l.posted.length, 0);
@@ -97,7 +97,7 @@ test('call() ก่อน ready เข้าคิว แล้วส่งด�
   );
 });
 
-test('dphone.error ของคำขอ → call() reject ด้วย code', async () => {
+test('dphone.error for a request → call() rejects with the code', async () => {
   const l = launcher();
   l.from(ready);
   const result = l.core.call('0812345678');
@@ -111,7 +111,7 @@ test('dphone.error ของคำขอ → call() reject ด้วย code', a
   await assert.rejects(result, /invalid_message/);
 });
 
-test('activity: ack อัตโนมัติเมื่อ handler สำเร็จ; handler ล้ม = ไม่ ack (dphone ส่งซ้ำ)', async () => {
+test('activity: auto ack when the handler succeeds; handler failure = no ack (dphone resends)', async () => {
   const activity = {
     v: 1,
     type: 'dphone.activity',
@@ -139,7 +139,7 @@ test('activity: ack อัตโนมัติเมื่อ handler สำเ
   assert.equal(failing.posted.length, 0);
 });
 
-test('screen-pop ACTIVE/HELD เปิด reload guard และ ENDED ปิด guard', () => {
+test('screen-pop ACTIVE/HELD turns on the reload guard and ENDED turns it off', () => {
   const h = launcher();
   const screenPop = {
     v: 1 as const,
@@ -158,7 +158,7 @@ test('screen-pop ACTIVE/HELD เปิด reload guard และ ENDED ปิด
   assert.equal(h.core.hasActiveCall, false);
 });
 
-test('parseDphoneMessage: รูปแบบไม่ครบ = null', () => {
+test('parseDphoneMessage: incomplete shape = null', () => {
   assert.equal(parseDphoneMessage({ v: 1, type: 'dphone.activity' }), null);
   assert.equal(parseDphoneMessage({ v: 1, type: 'dphone.call.result', requestId: 'x' }), null);
   assert.equal(parseDphoneMessage(null), null);

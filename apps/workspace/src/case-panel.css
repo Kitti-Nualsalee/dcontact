@@ -1,4 +1,4 @@
-/* #956 แท็บเคสในแผงงาน ใช้ token ของ packages/ui เท่านั้น */
+/* #956 the case tab in the work panel, uses only packages/ui tokens */
 .aw-case {
   display: grid;
   gap: var(--dc-space-5);
@@ -65,7 +65,7 @@
 
 .aw-case-actions {
   position: sticky;
-  /* ยกขึ้นพ้น dphone แบบลอยเมื่อทับแผง */
+  /* lift above the floating dphone when it overlaps the panel */
   bottom: var(--aw-dphone-inset, 0px);
   display: flex;
   gap: var(--dc-space-3);

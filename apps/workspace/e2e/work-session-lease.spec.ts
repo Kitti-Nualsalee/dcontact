@@ -2,12 +2,12 @@ import { randomUUID } from 'node:crypto';
 import { expect, test, type Browser, type Page, type WebSocketRoute } from '@playwright/test';
 
 /**
- * E1.12 (#486): Workspace สองเบราว์เซอร์ (สอง context = storage/BroadcastChannel คนละชุด) กับ
- * work-session lease ของ server จำลองตัวเดียวที่ทั้งสองใช้ร่วมกัน — REST `/api/v1/me/work-session` และ
- * WS `/api/v1/workspace-session` ทำตามสัญญา E1.9 (409 HELD/BUSY/CHANGED, 4409, lease.revoked)
+ * E1.12 (#486): two Workspace browsers (two contexts = separate storage/BroadcastChannel) with
+ * a single simulated server work-session lease that both share — REST `/api/v1/me/work-session` and
+ * WS `/api/v1/workspace-session` follow the E1.9 contract (409 HELD/BUSY/CHANGED, 4409, lease.revoked)
  *
- * หลักฐาน: รับงานได้ที่เดียว, takeover ที่ถูกปฏิเสธไม่ตัดสายและ WS ของที่เดิม, takeover สำเร็จแล้วที่เดิม
- * หยุดรับงานทันที (ถอน SIP) และ lease หลุดระหว่างมีสายไม่ตัดสาย (ADR-026 ข้อ 4)
+ * evidence: work can be taken in only one place, a rejected takeover does not cut the old place's call and WS, after a successful takeover the old place
+ * stops taking work immediately (SIP withdrawn), and a lease lost during a call does not cut the call (ADR-026 item 4)
  */
 
 interface Lease {
@@ -26,7 +26,7 @@ interface Connection {
 
 class LeaseServer {
   current?: Lease;
-  /** agent มีสาย/wrap-up ที่ server (interaction ACTIVE/WRAPUP) */
+  /** the agent has a call/wrap-up on the server (interaction ACTIVE/WRAPUP) */
   busy = false;
   authRevoked = false;
   readonly connections: Connection[] = [];
@@ -50,7 +50,7 @@ class LeaseServer {
     };
   }
 
-  /** สัญญาณไปที่ socket ที่ผูก lease นั้น (เหมือน `signalLease` ของ E1.9) */
+  /** signal to the socket bound to that lease (like E1.9's `signalLease`) */
   signal(leaseId: string, message: Record<string, unknown>) {
     for (const connection of this.connections) {
       if (connection.leaseId !== leaseId || connection.closedBy) continue;
@@ -112,7 +112,7 @@ class LeaseServer {
         const message = JSON.parse(String(raw)) as { type: string; leaseId?: string };
         connection.messages.push(message);
         if (message.type === 'auth:connect') {
-          // tenant ที่บังคับ lease: ต้องแนบ lease ที่ active ไม่อย่างนั้นปิด 4409 (E1.9)
+          // a tenant that enforces the lease: must attach an active lease, otherwise close 4409 (E1.9)
           if (!message.leaseId || message.leaseId !== this.current?.leaseId) {
             connection.closedBy = 'server';
             void ws.close({ code: 4409, reason: 'work session lease required' });
@@ -146,7 +146,7 @@ const snapshot = {
   },
 };
 
-/** เบราว์เซอร์หนึ่งตัว (context ใหม่) — media stub เดียวกับ `fixtures.ts` */
+/** one browser (a new context) — the same media stub as `fixtures.ts` */
 async function openAgent(browser: Browser, server: LeaseServer, label: string) {
   const context = await browser.newContext();
   await context.addInitScript(() => {
@@ -174,12 +174,12 @@ const sipSession = (page: Page) => page.evaluate(() => window.__dcontactDphone?.
 const heldLease = (page: Page) =>
   page.evaluate(() => window.__dcontactDphone?.workSessionLeaseId());
 
-test('สองเบราว์เซอร์: รับงานได้ที่เดียว, takeover ที่ถูกปฏิเสธไม่ตัดสาย/WS, takeover สำเร็จแล้วที่เดิมหยุดรับงานทันที', async ({
+test('two browsers: work can be taken in only one place, a rejected takeover does not cut call/WS, and after a successful takeover the old place stops taking work immediately', async ({
   browser,
 }) => {
   const server = new LeaseServer();
 
-  // A: ได้ lease ก่อน → WS ต่อพร้อม leaseId → register SIP แล้วสายเข้าได้
+  // A: gets the lease first → WS connects with leaseId → registers SIP, then calls can arrive
   const a = await openAgent(browser, server, 'A');
   await expect(owner(a)).toHaveText('จุดรับงาน');
   await expect.poll(() => server.open('A').length).toBe(1);
@@ -191,7 +191,7 @@ test('สองเบราว์เซอร์: รับงานได้ท
   await a.getByRole('button', { name: 'ตรวจอุปกรณ์เสียง' }).click();
   await expect(phone(a)).toHaveText('มีสายเรียกเข้า');
 
-  // B: มีผู้ถืออยู่ → ดูได้อย่างเดียว ไม่ต่อ WS ไม่ register SIP และเห็นผู้ถือ (surface + เวลาเริ่ม)
+  // B: a holder exists → view only, no WS and no SIP register, and sees the holder (surface + start time)
   const b = await openAgent(browser, server, 'B');
   await expect(b.getByRole('heading', { name: 'คุณกำลังรับงานอยู่ที่อื่น' })).toBeVisible();
   const holderFacts = b.getByLabel('จุดรับงานปัจจุบัน');
@@ -204,14 +204,14 @@ test('สองเบราว์เซอร์: รับงานได้ท
   expect(server.connections.filter((c) => c.label === 'B')).toHaveLength(0);
   expect(server.current?.leaseId).toBe(leaseA);
 
-  // A รับสาย — server เห็นว่า agent มีงาน
+  // A answers — the server sees the agent has work
   await a.getByRole('button', { name: 'รับสาย', exact: true }).click();
   await expect(phone(a)).toHaveText('กำลังสนทนา');
   server.busy = true;
   const callBefore = await sipSession(a);
   expect(callBefore).toMatch(/[0-9a-f-]{36}/);
 
-  // B ยังเห็นข้อมูลก่อนสายเริ่ม → กดย้าย, ต้องยืนยันก่อน → server ปฏิเสธ (มีงาน)
+  // B still sees the data before the call starts → press move, must confirm first → server rejects (has work)
   await b.getByRole('button', { name: 'ย้ายมาที่นี่' }).click();
   const confirm = b.getByRole('alertdialog', { name: 'ย้ายงานมาที่นี่?' });
   await expect(confirm).toContainText('Agent Workspace');
@@ -222,7 +222,7 @@ test('สองเบราว์เซอร์: รับงานได้ท
   await expect(b.getByRole('button', { name: 'ย้ายมาที่นี่' })).toBeDisabled();
   await expect(owner(b)).toHaveText('ดูอย่างเดียว');
 
-  // takeover ที่ถูกปฏิเสธไม่แตะที่เดิม: สายเดิม, SIP session เดิม, WS เดิมยังเปิด, lease เดิม
+  // a rejected takeover does not touch the old place: the original call, SIP session, WS still open, lease
   await expect(phone(a)).toHaveText('กำลังสนทนา');
   await expect(owner(a)).toHaveText('จุดรับงาน');
   expect(await sipSession(a)).toBe(callBefore);
@@ -231,7 +231,7 @@ test('สองเบราว์เซอร์: รับงานได้ท
   expect(server.current?.leaseId).toBe(leaseA);
   expect(await heldLease(a)).toBe(leaseA);
 
-  // A วางสาย → ว่าง; B ตรวจใหม่แล้วย้ายได้
+  // A hangs up → idle; B re-checks and can move
   await a.getByRole('button', { name: 'วางสาย' }).click();
   await expect(phone(a)).toHaveText('โทรศัพท์พร้อม');
   server.busy = false;
@@ -243,7 +243,7 @@ test('สองเบราว์เซอร์: รับงานได้ท
     .getByRole('button', { name: 'ยืนยันย้าย' })
     .click();
 
-  // B เป็นจุดรับงาน: WS ใหม่แนบ lease ใหม่ แล้ว register SIP ได้
+  // B becomes the work point: a new WS attaches the new lease, then SIP can register
   await expect(owner(b)).toHaveText('จุดรับงาน');
   const leaseB = server.current!.leaseId;
   expect(leaseB).not.toBe(leaseA);
@@ -252,7 +252,7 @@ test('สองเบราว์เซอร์: รับงานได้ท
     .poll(() => server.open('B')[0]?.messages[0])
     .toMatchObject({ type: 'auth:connect', leaseId: leaseB });
 
-  // A หยุดรับงานทันทีเมื่อได้ lease.revoked: ถอน SIP, ปิด WS, ปุ่มรับงานปิด และเห็นว่างานย้ายไปไหน
+  // A stops taking work immediately on receiving lease.revoked: SIP withdrawn, WS closed, take-work button disabled, and sees where the work moved
   await expect(owner(a)).toHaveText('ดูอย่างเดียว');
   await expect(phone(a)).toHaveText('โทรศัพท์ยังไม่พร้อม');
   await expect(a.getByText('งานถูกย้ายไปที่อื่นแล้ว ที่นี่หยุดรับงานใหม่')).toBeVisible();
@@ -268,7 +268,7 @@ test('สองเบราว์เซอร์: รับงานได้ท
   await b.context().close();
 });
 
-test('lease ถูกเพิกถอนระหว่างมีสาย: หยุดรับงานใหม่แต่สายและ WS อยู่ต่อจนวางสาย แล้วจึงถอน SIP', async ({
+test('lease revoked during a call: stops taking new work but the call and WS stay until hang up, then SIP is withdrawn', async ({
   browser,
 }) => {
   const server = new LeaseServer();
@@ -280,7 +280,7 @@ test('lease ถูกเพิกถอนระหว่างมีสาย: 
   const call = await sipSession(a);
   await expect.poll(() => server.open('A').length).toBe(1);
 
-  // token ถูกเพิกถอน (E1.9 ส่ง lease.revoked แม้มีงาน แต่คง lease ไว้จนงานจบ)
+  // the token is revoked (E1.9 sends lease.revoked even with work, but keeps the lease until the work ends)
   server.busy = true;
   server.authRevoked = true;
   server.signal(server.current!.leaseId, {
@@ -298,7 +298,7 @@ test('lease ถูกเพิกถอนระหว่างมีสาย: 
 
   await a.getByRole('button', { name: 'วางสาย' }).click();
   server.busy = false;
-  // งานจบ → ถอน SIP และปิด WS; ไม่มี lease ให้ขอใหม่ด้วย token เดิม
+  // work ends → SIP withdrawn and WS closed; no lease to request again with the same token
   await expect(phone(a)).toHaveText('โทรศัพท์ยังไม่พร้อม');
   await expect.poll(() => server.open('A').length).toBe(0);
   await expect(a.getByRole('heading', { name: 'ตรวจจุดรับงานไม่สำเร็จ' })).toBeVisible();
