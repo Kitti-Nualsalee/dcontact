@@ -25,7 +25,6 @@
   "apps/console/e2e/customer-overview-oidc.spec.ts": 37,
   "apps/console/e2e/dphone-embedding.spec.ts": 31,
   "apps/console/e2e/focus-ring-inset.spec.ts": 3,
-  "apps/console/e2e/forced-colors-focus.spec.ts": 11,
   "apps/console/e2e/governance.spec.ts": 65,
   "apps/console/e2e/home.spec.ts": 30,
   "apps/console/e2e/i18n.spec.ts": 4,
