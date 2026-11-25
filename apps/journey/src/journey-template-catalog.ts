@@ -14,18 +14,18 @@ import {
 import { validateTemplatePackage } from './journey-template-binder.js';
 
 /**
- * J5.4 (#342): PLATFORM_BUILTIN catalog จาก release asset (Phase Spec §1, คำตัดสิน #330 §2)
+ * J5.4 (#342): the PLATFORM_BUILTIN catalog from a release asset (Phase Spec §1, decision #330 §2)
  *
- * built-in ไม่มีแถวใน DB ของ tenant — อ่านจากไฟล์ที่มากับ release เท่านั้น และต้องมี SHA-256 ตรงกับ
- * allowlist (`catalog.v1.sha256`) ก่อนใช้งาน ไฟล์ที่ถูกแก้โดยไม่อัปเดต allowlist ผ่าน review/CI ทำให้ทั้ง
- * catalog ใช้ไม่ได้ (fail closed) แทนที่จะเสิร์ฟเนื้อหาที่ไม่มีใครรับรอง
+ * built-ins have no row in the tenant DB — read only from a file that ships with the release, and its SHA-256 must match the
+ * allowlist (`catalog.v1.sha256`) before use. A file edited without updating the allowlist through review/CI makes the whole
+ * catalog unusable (fail closed) instead of serving content nobody has vouched for
  */
 
 export class JourneyTemplatePackageUntrustedError extends Error {
   readonly code = 'TEMPLATE_PACKAGE_UNTRUSTED' as const;
 
   constructor(readonly reason: string) {
-    super(`built-in template catalog ไม่น่าเชื่อถือ: ${reason}`);
+    super(`built-in template catalog is untrustworthy: ${reason}`);
     this.name = 'JourneyTemplatePackageUntrustedError';
   }
 }
@@ -89,7 +89,7 @@ export class BuiltInTemplateCatalog {
           version: entry.version,
           contentDigest: journeyAuthoringDigest(entry.content),
           name: entry.name,
-          // built-in เห็นได้ทุก tenant และไม่มีเจ้าของทีม
+          // built-ins are visible to every tenant and have no owner team
           visibility: 'TENANT' as const,
           ownerTeamId: null,
           lifecycle: entry.lifecycle,

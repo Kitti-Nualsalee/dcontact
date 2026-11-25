@@ -55,17 +55,17 @@ import {
 import { JourneyDefinitionRepository } from './journey-definition-repository.js';
 
 /**
- * J5.2 (#340): transaction ของ Journey authoring — head/draft/receipt/review/audit/outbox
+ * J5.2 (#340): Journey authoring transaction — head/draft/receipt/review/audit/outbox
  * (Phase Spec #337 §2, §5)
  *
- * ทุก mutation:
- * 1. receipt ตาม `Idempotency-Key`: key+hash เดิมคืนผลเดิม, key เดิม hash ต่าง → IDEMPOTENCY_CONFLICT
- * 2. rollout gate (env AND tenant row) และ authorization ปัจจุบันผ่าน port ใน transaction เดียวกัน
- * 3. whole-draft CAS ด้วย head version + draft revision/digest — stale ตอบ conflict ไม่มี auto-merge
- * 4. audit/outbox เก็บเฉพาะ metadata (id/version/digest/code) ไม่มี document/graph/parameter
+ * Every mutation:
+ * 1. receipt by `Idempotency-Key`: same key+hash returns the same result, same key with a different hash → IDEMPOTENCY_CONFLICT
+ * 2. rollout gate (env AND tenant row) and current authorization pass through a port in the same transaction
+ * 3. whole-draft CAS with head version + draft revision/digest — stale answers conflict, no auto-merge
+ * 4. audit/outbox keep metadata only (id/version/digest/code), no document/graph/parameter
  *
- * publish ทำทั้งหมดใน transaction เดียวโดยไม่เรียก network/Kafka — ถ้า commit ไม่รู้ผล client ใช้
- * key เดิม resolve ห้าม mint key ใหม่หรือ publish ซ้ำ
+ * publish runs entirely in one transaction without calling the network/Kafka — if the commit outcome is unknown the client resolves with
+ * the same key; it must not mint a new key or publish again
  */
 
 type Tx = Prisma.TransactionClient;
@@ -82,7 +82,7 @@ const REFERENCE_CODES = new Set([
   'SEGMENT_REFERENCE_UNTRUSTED',
 ]);
 
-/** จำนวนแถวที่สแกนต่อรอบตอนกรองสิทธิ์รายแถวของ list */
+/** Number of rows scanned per round when list filters permissions per row */
 const LIST_SCAN_BATCH = 200;
 
 export interface JourneyAuthoringSummary {
@@ -94,7 +94,7 @@ export interface JourneyAuthoringSummary {
   readonly currentDraftRevision: number;
   readonly activeVersion: number | null;
   readonly updatedAt: string;
-  /** U1.3 (#431): review ที่ยังเปิดของ Journey (ถ้ามี) — ให้ list ช่วยหา candidate ที่รอตรวจ */
+  /** U1.3 (#431): the Journey's still-open review (if any) — lets list find candidates waiting for review */
   readonly reviewState: 'IN_REVIEW' | 'APPROVED' | null;
 }
 
@@ -107,11 +107,11 @@ export interface JourneyAuthoringRepositoryOptions {
   readonly flags?: JourneyAuthoringFeatureFlags;
   readonly id?: () => string;
   readonly now?: () => Date;
-  /** fault injection สำหรับพิสูจน์ว่า crash ทุก boundary ไม่ทิ้ง state ครึ่งเดียว */
+  /** fault injection to prove that a crash at every boundary leaves no half-written state */
   readonly checkpoint?: (name: JourneyAuthoringCheckpoint) => void | Promise<void>;
   /**
-   * U1.1 (#429): ตรวจเพิ่มก่อน mutation ของ Journey ที่มีอยู่ (หลังได้ lock) — UAT ใช้ปิด Journey ของ run ที่
-   * ปิดแล้ว ไม่มี guard = พฤติกรรม J5 เดิมทุกประการ
+   * U1.1 (#429): an extra check before mutating an existing Journey (after taking the lock) — UAT uses it to close the Journeys of a run that
+   * has ended; with no guard = exactly the original J5 behavior
    */
   readonly writeGuard?: JourneyAuthoringWriteGuard;
 }
@@ -233,7 +233,7 @@ export class JourneyAuthoringRepository {
     });
   }
 
-  /** ทิ้ง draft กลับไปเป็น version ที่ active อยู่ — ต้องเคย publish แล้ว และเกิดเป็น revision ใหม่ */
+  /** Discard the draft back to the active version — it must have been published, and it becomes a new revision */
   async discardJourneyDraft(
     context: JourneyCommandContext,
     input: JourneyDraftCas & { readonly journeyId: string; readonly reasonCode: string },
@@ -268,7 +268,7 @@ export class JourneyAuthoringRepository {
     });
   }
 
-  /** เปิด draft ใหม่จาก version ที่เคย publish — rollback คือ roll-forward ไม่ใช่สลับกลับ (#327) */
+  /** Open a new draft from a previously published version — rollback is roll-forward, not switching back (#327) */
   async createRollForwardFromVersion(
     context: JourneyCommandContext,
     input: {
@@ -312,7 +312,7 @@ export class JourneyAuthoringRepository {
     );
   }
 
-  /** clone สร้าง journeyId ใหม่แบบ detached — ไม่มี enrollment หรือ runtime state ติดไป */
+  /** clone creates a new detached journeyId — no enrollment or runtime state is carried over */
   async cloneJourneyFromVersion(
     context: JourneyCommandContext,
     input: {
@@ -392,7 +392,7 @@ export class JourneyAuthoringRepository {
           : 'DeprecateJourney';
     return this.command(context, commandName, input.journeyId, input, async (tx) => {
       const head = await this.lockedHead(tx, context.tenantId, input.journeyId);
-      // pause/deprecate ทำได้แม้ team inactive เพื่อหยุดงาน; resume ต้องใช้ team ที่ active
+      // pause/deprecate work even when the team is inactive so work can be stopped; resume needs an active team
       await this.authorize(tx, context, 'journey.lifecycle', this.scopeOf(head), {
         requireDirect: true,
         allowInactiveTeam: input.target !== 'ACTIVE',
@@ -425,8 +425,8 @@ export class JourneyAuthoringRepository {
   }
 
   /**
-   * publish แบบ atomic: authorization/review/draft/head/capability ถูกอ่านซ้ำและ recompile ต้องได้
-   * digest เดิม แล้ว commit definition + head + review + receipt + audit + outbox พร้อมกัน
+   * atomic publish: authorization/review/draft/head/capability are reread and the recompile must produce
+   * the same digest, then definition + head + review + receipt + audit + outbox commit together
    */
   async publishJourneyDraft(
     context: JourneyCommandContext,
@@ -492,9 +492,9 @@ export class JourneyAuthoringRepository {
   }
 
   /**
-   * ข้อยกเว้นเดียวของ maker-checker (#331 §10): direct `journey.publish` ของผู้มี direct review
-   * authority + strong auth ที่ยังสด + reason code; audit แยกเป็น JOURNEY_PUBLISHED_UNILATERAL และยังต้อง
-   * ผ่าน recompile/reference/head CAS ครบเหมือน publish ปกติ
+   * The only exception to maker-checker (#331 §10): a direct `journey.publish` by someone with direct review
+   * authority + still-fresh strong auth + a reason code; the audit is recorded separately as JOURNEY_PUBLISHED_UNILATERAL and it must still
+   * pass recompile/reference/head CAS in full like a normal publish
    */
   async publishJourneyDraftUnilateral(
     context: JourneyCommandContext,
@@ -544,7 +544,7 @@ export class JourneyAuthoringRepository {
             currentDraftDigest: head.currentDraftDigest,
           });
         }
-        // candidate ที่ค้างอยู่ใช้ไม่ได้อีกหลัง publish ทางตรง
+        // a pending candidate can no longer be used after a direct publish
         await this.supersedeOpenReviews(tx, context.tenantId, head.journeyId);
         return this.publishCompiled(tx, context, head, input, receiptId, {
           candidateId: null,
@@ -555,7 +555,7 @@ export class JourneyAuthoringRepository {
     );
   }
 
-  /** recompile → definition → head → review → audit/outbox ใน transaction ของผู้เรียก */
+  /** recompile → definition → head → review → audit/outbox in the caller's transaction */
   protected async publishCompiled(
     tx: Tx,
     context: JourneyCommandContext,
@@ -573,7 +573,7 @@ export class JourneyAuthoringRepository {
     },
   ): Promise<PublishJourneyResultV1> {
     const { candidateId, action, reasonCode } = publication;
-    // recompile จาก draft ใน DB ด้วย capability ปัจจุบัน — client ส่งได้แค่ digest ไม่ใช่ runtime definition
+    // recompile from the draft in the DB with the current capability — the client can only send a digest, not a runtime definition
     const draft = await tx.jrJourneyDraft.findFirstOrThrow({
       where: {
         tenantId: context.tenantId,
@@ -653,7 +653,7 @@ export class JourneyAuthoringRepository {
       },
       select: { id: true },
     });
-    // publish ขณะ PAUSED ไม่ resume เอง (Phase Contract §5)
+    // publishing while PAUSED does not resume by itself (Phase Contract §5)
     const headVersion = await this.casHead(tx, head, {
       lifecycle: head.lifecycle === 'DRAFT_ONLY' ? 'ACTIVE' : head.lifecycle,
       activeDefinitionId: definition.id,
@@ -662,7 +662,7 @@ export class JourneyAuthoringRepository {
     });
     await this.options.checkpoint?.('HEAD_ACTIVATED');
     if (candidateId) {
-      // approval ถูกใช้แล้ว — นำไป publish ซ้ำไม่ได้
+      // the approval was already used — it cannot be used to publish again
       await tx.jrReviewCandidate.update({
         where: { id: candidateId },
         data: { state: 'SUPERSEDED' },
@@ -687,11 +687,11 @@ export class JourneyAuthoringRepository {
     };
   }
 
-  // ── Review (maker-checker) และ ownership ──────────────────────────────
+  // ── Review (maker-checker) and ownership ──────────────────────────────
 
   /**
-   * candidate แบบ immutable pin draft/compile/reference/capability/head และ authorization ของ maker
-   * (#331 §9) — ส่ง candidate ใหม่ทำให้ candidate ที่ยังเปิดอยู่ของ journey เดียวกันเป็น SUPERSEDED
+   * an immutable candidate pins draft/compile/reference/capability/head and the maker's authorization
+   * (#331 §9) — submitting a new candidate makes the still-open candidate of the same journey SUPERSEDED
    */
   async submitJourneyReview(
     context: JourneyCommandContext,
@@ -777,8 +777,8 @@ export class JourneyAuthoringRepository {
   }
 
   /**
-   * ผู้ตัดสินต้องเป็นมนุษย์ที่มี direct `journey.review` ใน scope ตรง ไม่ใช่ maker และไม่ใช่ delegation
-   * (#331 §10) — vote เก็บ epoch/scope version ไว้ revalidate อีกครั้งตอน publish
+   * The decider must be a human with direct `journey.review` in the exact scope, not the maker and not a delegation
+   * (#331 §10) — the vote stores the epoch/scope version to revalidate again at publish
    */
   async decideJourneyReview(
     context: JourneyCommandContext,
@@ -858,9 +858,9 @@ export class JourneyAuthoringRepository {
   }
 
   /**
-   * โอนเจ้าของเป็นคำสั่งที่ตรวจสอบได้ (#331 §5): ต้องมี direct `journey.transfer` ทั้งทีมต้นทางและปลายทาง,
-   * ทีมปลายทางต้อง active, draft ขึ้น revision ใหม่และ review เดิมทั้งหมด SUPERSEDED; published version
-   * และ enrollment เดิมไม่เปลี่ยน
+   * Ownership transfer is an auditable command (#331 §5): requires direct `journey.transfer` on both the source and target teams,
+   * the target team must be active, the draft gets a new revision and all existing reviews become SUPERSEDED; the published version
+   * and existing enrollments do not change
    */
   async transferJourneyOwnership(
     context: JourneyCommandContext,
@@ -912,7 +912,7 @@ export class JourneyAuthoringRepository {
     });
   }
 
-  /** อ่าน audit ต้องใช้ direct `journey.read` (ไม่รับ delegation) และการอ่านเองถูก audit อีกชั้น */
+  /** Reading audit requires direct `journey.read` (delegation is not accepted) and the read itself is audited as another layer */
   async listJourneyAudit(
     tenantId: string,
     actor: JourneyAuthoringActor,
@@ -960,14 +960,14 @@ export class JourneyAuthoringRepository {
     });
   }
 
-  /** publish ที่ไม่รู้ผล: อ่าน receipt ของ key เดิมเท่านั้น ไม่ publish ซ้ำ */
+  /** publish with an unknown outcome: only read the receipt of the same key, never publish again */
   async resolvePublish(
     tenantId: string,
     actor: JourneyAuthoringActor,
     input: { readonly journeyId: string; readonly originalIdempotencyKey: string },
   ): Promise<PublishJourneyResultV1 & { readonly errorCode?: string }> {
     return withTenantDatabaseTransaction(this.database, tenantId, async (tx) => {
-      // ผลของ publish เปิดเผย version/runtime hash — ต้องมองเห็น journey ก่อน ไม่ใช่รู้ key ก็อ่านได้
+      // the publish result reveals the version/runtime hash — the journey must be visible first; knowing the key is not enough to read it
       const head = await this.head(tx, tenantId, input.journeyId);
       await this.authorize(tx, { tenantId, actor }, 'journey.read', this.scopeOf(head));
       const receipt = await tx.jrAuthoringCommandReceipt.findUnique({
@@ -982,7 +982,7 @@ export class JourneyAuthoringRepository {
         throw new JourneyAuthoringError('JOURNEY_NOT_FOUND');
       }
       if (!receipt) {
-        // ไม่มี receipt = transaction ไม่เคย commit จึง retry ด้วย key เดิมได้อย่างปลอดภัย
+        // no receipt = the transaction never committed, so it is safe to retry with the same key
         return {
           outcome: 'NOT_COMMITTED',
           journeyId: input.journeyId,
@@ -1034,7 +1034,7 @@ export class JourneyAuthoringRepository {
         draft.revision,
         draft.contentDigest,
       );
-      // compile ของ revision เก่าที่ draft ขยับไปแล้ว ยังคืนผลได้แต่ห้ามนำไป publish (#329 §5)
+      // compiling an old revision whose draft has since moved still returns a result but must not be published (#329 §5)
       return { ...result, stale: draft.revision !== head.currentDraftRevision };
     });
   }
@@ -1093,7 +1093,7 @@ export class JourneyAuthoringRepository {
     });
   }
 
-  /** capability ที่ผู้เรียกถือบน Journey ณ ตอนอ่าน — สำหรับ affordance ของ UI เท่านั้น */
+  /** The capabilities the caller holds on the Journey at read time — for UI affordances only */
   protected async permissionsOn(
     tx: Tx,
     tenantId: string,
@@ -1117,8 +1117,8 @@ export class JourneyAuthoringRepository {
   }
 
   /**
-   * U1.3 (#431): review ที่รอตรวจซึ่งผู้เรียกตัดสินได้ — keyset ตาม reviewId, กรอง `journey.review` ราย
-   * Journey ที่ server และไม่รวม candidate ที่ผู้เรียกส่งตรวจเอง (self-approval ห้ามอยู่แล้ว)
+   * U1.3 (#431): pending reviews the caller can decide — keyset by reviewId, filtered by `journey.review` per
+   * Journey on the server, and excluding candidates the caller submitted themself (self-approval is already forbidden)
    */
   async listPendingReviews(
     tenantId: string,
@@ -1172,8 +1172,8 @@ export class JourneyAuthoringRepository {
   }
 
   /**
-   * keyset ตาม journeyId และกรองสิทธิ์อ่านรายแถว — ไม่มี total/facet เพื่อไม่ให้นับของที่มองไม่เห็นได้;
-   * cursor คือ id ของแถวสุดท้ายที่ผู้เรียกเห็นเท่านั้น
+   * keyset by journeyId and filtered by per-row read permission — no total/facet so hidden items cannot be counted;
+   * the cursor is only the id of the last row the caller saw
    */
   async listVisibleJourneys(
     tenantId: string,
@@ -1237,7 +1237,7 @@ export class JourneyAuthoringRepository {
     });
   }
 
-  /** validate ของ revision ที่ระบุแน่นอน — draft ที่ขยับไปแล้วยังตรวจได้แต่บอก stale */
+  /** validate for an exactly specified revision — a draft that has moved on can still be checked but is reported stale */
   async validateJourneyDraft(
     tenantId: string,
     actor: JourneyAuthoringActor,
@@ -1271,7 +1271,7 @@ export class JourneyAuthoringRepository {
     });
   }
 
-  /** simulation ใช้ fixture สังเคราะห์เท่านั้น และไม่มี port ไปยัง side effect จริง (#329 §8) */
+  /** simulation uses only synthetic fixtures and has no port to real side effects (#329 §8) */
   async simulateJourneyScenario(
     tenantId: string,
     actor: JourneyAuthoringActor,
@@ -1291,8 +1291,8 @@ export class JourneyAuthoringRepository {
   }
 
   /**
-   * route ของ review decision มีแค่ reviewId — หา resource เจ้าของก่อน แล้วคำสั่งจริงตรวจสิทธิ์ต่อ;
-   * review ที่ไม่มีหรือเป็นของ resource ชนิดอื่นตอบ not-found แบบเดียวกัน
+   * the route of a review decision has only reviewId — find the owning resource first, then the real command checks permissions;
+   * a review that does not exist or belongs to another resource type answers the same not-found
    */
   async reviewResourceId(
     tenantId: string,
@@ -1337,7 +1337,7 @@ export class JourneyAuthoringRepository {
     return { head, draft };
   }
 
-  /** preview/simulation ผูกกับ compile digest ของ draft ปัจจุบัน — ต่างกันแปลว่า client ถือผลเก่าอยู่ */
+  /** preview/simulation are bound to the compile digest of the current draft — a mismatch means the client holds an old result */
   private async currentArtifact(
     tx: Tx,
     tenantId: string,
@@ -1387,8 +1387,8 @@ export class JourneyAuthoringRepository {
   }
 
   /**
-   * idempotency receipt: ผลสำเร็จ commit พร้อม mutation; ผลล้มแบบ deterministic ถูกจำใน transaction แยก
-   * เพื่อให้ key เดิมได้คำตอบเดิม — ไม่มี receipt แปลว่าไม่เคย commit
+   * idempotency receipt: a successful result commits with the mutation; a deterministic failure is remembered in a separate transaction
+   * so the same key gets the same answer — no receipt means it never committed
    */
   protected async command<T extends object>(
     context: JourneyCommandContext,
@@ -1496,7 +1496,7 @@ export class JourneyAuthoringRepository {
             completedAt: this.now(),
           },
         ],
-        // request คู่ขนานที่ key เดียวกันอาจบันทึกไปก่อน — ผลเดิมชนะ
+        // a parallel request with the same key may have recorded first — the existing result wins
         skipDuplicates: true,
       });
     });
@@ -1546,10 +1546,10 @@ export class JourneyAuthoringRepository {
       ...options,
     });
     if (decision.allowed) return decision;
-    // object ที่มองไม่เห็นตอบ not-found แบบเดียวกับไม่มีอยู่จริง; อ่านได้แต่ขาดสิทธิ์แก้จึงตอบ capability (#331 §12)
+    // an invisible object answers the same not-found as one that does not exist; readable but not editable answers capability (#331 §12)
     if (scope.resource) {
       const visible =
-        // อ่านผ่าน delegation ได้แต่ขอ direct (เช่น audit) ยังถือว่ามองเห็น จึงตอบ capability ไม่ใช่ not-found
+        // readable through delegation but requesting direct (e.g. audit) still counts as visible, so answer capability, not not-found
         ((capability !== 'journey.read' && capability !== 'template.read') ||
           options.requireDirect === true) &&
         (
@@ -1569,7 +1569,7 @@ export class JourneyAuthoringRepository {
     throw new JourneyAuthoringError(decision.code, { capability });
   }
 
-  /** scope มาจาก canonical head เสมอ ไม่ใช่ค่าจาก client */
+  /** scope always comes from the canonical head, never a client value */
   protected scopeOf(
     head: Pick<JrJourneyHead, 'ownerTeamId' | 'journeyId'>,
   ): JourneyAuthoringAuthorizationScope {
@@ -1577,8 +1577,8 @@ export class JourneyAuthoringRepository {
   }
 
   /**
-   * approval ต้องมาจากผู้อนุมัติอิสระที่ยังมีสิทธิ์ ณ ตอน publish (#331 §10, §13): vote ของ maker หรือ
-   * delegation ไม่นับ และถ้า epoch/scope version ของผู้อนุมัติเปลี่ยนหรือถูกถอนสิทธิ์ → APPROVAL_STALE
+   * the approval must come from an independent approver who still has permission at publish time (#331 §10, §13): the maker's vote or a
+   * delegation does not count, and if the approver's epoch/scope version changed or was revoked → APPROVAL_STALE
    */
   protected async assertIndependentApproval(
     tx: Tx,
@@ -1611,7 +1611,7 @@ export class JourneyAuthoringRepository {
     throw new JourneyAuthoringError('APPROVAL_STALE');
   }
 
-  /** draft/owner/head เปลี่ยน → candidate และ approval ที่ยังเปิดอยู่ใช้ไม่ได้อีก (#331 §9) */
+  /** draft/owner/head changed → pending candidates and approvals can no longer be used (#331 §9) */
   protected async supersedeOpenReviews(tx: Tx, tenantId: string, journeyId: string) {
     await tx.jrReviewCandidate.updateMany({
       where: {
@@ -1624,7 +1624,7 @@ export class JourneyAuthoringRepository {
     });
   }
 
-  /** schema พังบันทึกไม่ได้; graph ที่ยังไม่สมบูรณ์บันทึกได้และคืน diagnostics ให้แก้ต่อ */
+  /** a broken schema cannot be saved; an incomplete graph can be saved and returns diagnostics to keep fixing */
   protected assertSavable(document: unknown): JourneyDiagnosticV1[] {
     const diagnostics = validateAuthoringDocument(document, { capabilities: this.capabilities });
     const blocking = diagnostics.filter(
@@ -1664,7 +1664,7 @@ export class JourneyAuthoringRepository {
     );
   }
 
-  /** missing/foreign/hidden ตอบ not-found แบบเดียวกัน — RLS ทำให้ของ tenant อื่นมองไม่เห็นอยู่แล้ว */
+  /** missing/foreign/hidden answer the same not-found — RLS already makes other tenants' data invisible */
   protected async head(tx: Tx, tenantId: string, journeyId: string): Promise<JrJourneyHead> {
     const head = /^[0-9a-f-]{36}$/i.test(journeyId)
       ? await tx.jrJourneyHead.findUnique({
@@ -1685,7 +1685,7 @@ export class JourneyAuthoringRepository {
     await lockTeamReferences(tx, tenantId, [head.ownerTeamId, ...additionalTeams]);
     await this.lockJourney(tx, tenantId, journeyId);
     await this.options.writeGuard?.assertJourneyWritable(tx, tenantId, head.journeyId);
-    // อ่านซ้ำหลังได้ lock เพื่อให้ CAS เทียบกับค่าที่ commit ล่าสุด
+    // reread after taking the lock so the CAS compares against the latest committed value
     return this.head(tx, tenantId, journeyId);
   }
 
@@ -1778,7 +1778,7 @@ export class JourneyAuthoringRepository {
     };
   }
 
-  /** CAS บน head: version ต้องเท่าเดิมตอนเขียน และ trigger บังคับ +1 อีกชั้น */
+  /** CAS on head: the version must be unchanged at write time, and a trigger enforces +1 as another layer */
   protected async casHead(
     tx: Tx,
     head: JrJourneyHead,
@@ -1797,7 +1797,7 @@ export class JourneyAuthoringRepository {
     return headVersion;
   }
 
-  /** audit + outbox ใน transaction เดียวกับ mutation — metadata เท่านั้น */
+  /** audit + outbox in the same transaction as the mutation — metadata only */
   protected async record(
     tx: Tx,
     context: JourneyCommandContext,
@@ -1839,7 +1839,7 @@ export class JourneyAuthoringRepository {
       data: {
         id: this.id(),
         tenantId: context.tenantId,
-        // review ไม่ขยับ head version จึงผูก event กับ audit row แทน — หนึ่ง audit หนึ่ง event
+        // review does not move the head version, so bind the event to the audit row instead — one audit, one event
         eventId: `journey-authoring:${auditId}`,
         resourceKind,
         resourceId: journeyId,

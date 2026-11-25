@@ -81,8 +81,8 @@ function toSnapshot(row: StoredJourneyDefinition): JourneyVersionSnapshot {
 }
 
 /**
- * J5.2 (#340): journey ที่ authoring head อยู่ PAUSED/DEPRECATED ไม่ถูกเลือกเป็นปลายทางของ trigger ใหม่
- * version ที่ publish แล้วยังอยู่ครบ (enrollment เดิม pin version นั้นและเดินต่อได้)
+ * J5.2 (#340): a journey whose authoring head is PAUSED/DEPRECATED is not selected as the target of a new trigger;
+ * published versions remain intact (existing enrollments pin that version and can continue)
  */
 async function pausedJourneyIds(
   transaction: Prisma.TransactionClient,
@@ -106,13 +106,13 @@ export interface JourneyDefinitionRepositoryOptions {
 }
 
 /**
- * Owner: Journey. เก็บ Journey definition แบบ append-only ต่อ version — เนื้อหาที่ persist
- * แล้วไม่ถูกแก้ไข การ publish เป็นเพียง state transition ที่ idempotent ต่อ
- * (tenantId, journeyId, version) ตาม C1.4 acceptance
+ * Owner: Journey. Stores Journey definitions append-only per version — persisted content
+ * is never modified; publish is only a state transition that is idempotent per
+ * (tenantId, journeyId, version) per the C1.4 acceptance
  */
 /**
- * J2.7: trigger ของ version นี้ match outcome revision หรือไม่ — ใช้ทั้งตอนหา published
- * journey และตอน re-evaluate enrollment เดิมกับ version ที่ pin ไว้เมื่อ correction มาถึง
+ * J2.7: whether this version's trigger matches the outcome revision — used both when finding the published
+ * journey and when re-evaluating an existing enrollment against the pinned version when a correction arrives
  */
 export function matchesOutcomeTrigger(
   snapshot: JourneyVersionSnapshot,
@@ -143,8 +143,8 @@ export class JourneyDefinitionRepository {
   }
 
   /**
-   * J5.2 (#340): เขียน version ใน transaction ของผู้เรียก เพื่อให้ publish ของ authoring commit
-   * definition, head, review, receipt, audit และ outbox พร้อมกันทั้งชุด — ตรรกะเดียวกับ `createVersion`
+   * J5.2 (#340): writes a version in the caller's transaction so the authoring publish commits
+   * definition, head, review, receipt, audit and outbox all together — same logic as `createVersion`
    */
   async createVersionInTransaction(
     transaction: Prisma.TransactionClient,
@@ -224,10 +224,10 @@ export class JourneyDefinitionRepository {
   }
 
   /**
-   * V1: อย่างมากหนึ่ง published journey ต่อ (outcomeType, outcomeCode) ต่อ tenant —
-   * ตาม `JrEnrollment`'s `@@unique([tenantId, outcomeReceiptId])` ที่ออกแบบให้ trigger
-   * source หนึ่งอันมีได้แค่หนึ่ง enrollment (แบบเดียวกับ EVENT/SCHEDULE trigger เดิม);
-   * multi-journey fan-out ต่อ outcome เดียวเป็น scope ของ ticket ถัดไป (#135)
+   * V1: at most one published journey per (outcomeType, outcomeCode) per tenant —
+   * following `JrEnrollment`'s `@@unique([tenantId, outcomeReceiptId])` which is designed so a trigger
+   * source can have only one enrollment (same as the original EVENT/SCHEDULE triggers);
+   * multi-journey fan-out per single outcome is the scope of a later ticket (#135)
    */
   async findPublishedByOutcomeTrigger(
     tenantId: string,
@@ -257,8 +257,8 @@ export class JourneyDefinitionRepository {
           .filter((row) => !paused.has(row.journeyId))
           .map((row) => toSnapshot(row as StoredJourneyDefinition))
           .filter((snapshot) => matchesOutcomeTrigger(snapshot, outcomeType, outcomeCode))
-          // หลาย journey match outcome เดียวกันได้ (fan-out) — เรียงให้ลำดับประมวลผลคงที่
-          // ไม่ขึ้นกับลำดับแถวที่ Postgres คืนมา
+          // several journeys can match the same outcome (fan-out) — sort so the processing order is stable
+          // regardless of the row order Postgres returns
           .sort((left, right) => left.journeyId.localeCompare(right.journeyId))
       );
     };
@@ -266,12 +266,12 @@ export class JourneyDefinitionRepository {
   }
 
   /**
-   * J3.6 (#217): published SEGMENT_ENTRY definitions ทั้งหมดที่อ้าง segment นี้
+   * J3.6 (#217): all published SEGMENT_ENTRY definitions that reference this segment
    *
-   * ต่างจาก `findPublishedByOutcomeTrigger` ที่คืนได้อย่างมากหนึ่งใบ — segment เดียวมีได้หลาย
-   * journey ที่สนใจพร้อมกัน และ unique ของ enrollment intent เป็นระดับ (journey, version)
-   * จึงรองรับ fan-out อยู่แล้ว การบังคับให้เหลือใบเดียวที่นี่จะทำให้ journey ที่เหลือเงียบหายไป
-   * โดยไม่มีใครรู้
+   * Unlike `findPublishedByOutcomeTrigger`, which returns at most one — a single segment can have several
+   * interested journeys at once, and the enrollment intent unique is at the (journey, version) level,
+   * so it already supports fan-out; forcing it down to one here would make the remaining journeys silently disappear
+   * without anyone knowing
    */
   async findPublishedBySegmentTrigger(
     tenantId: string,
@@ -313,7 +313,7 @@ export class JourneyDefinitionRepository {
     );
   }
 
-  /** J5.2 (#340): publish ใน transaction ของผู้เรียก — ตรวจ reference ชุดเดียวกับ `publishVersion` */
+  /** J5.2 (#340): publish in the caller's transaction — checks the same references as `publishVersion` */
   async publishVersionInTransaction(
     transaction: Prisma.TransactionClient,
     input: PublishJourneyVersionInput,
@@ -351,17 +351,17 @@ export class JourneyDefinitionRepository {
       }
 
       /**
-       * J3.4 (#215): SEGMENT_ENTRY ต้องอ้าง segment ที่ publish อยู่จริงใน tenant นี้
+       * J3.4 (#215): SEGMENT_ENTRY must reference a segment that is really published in this tenant.
        *
-       * ตรวจที่ publish ไม่ใช่ที่ runtime เพราะ definition ที่ publish แล้วเป็น immutable —
-       * ปล่อยให้ publish สำเร็จด้วย segmentId ที่พิมพ์ผิดหรือเป็นของ tenant อื่น จะได้เวอร์ชัน
-       * ที่ไม่มีวันถูก trigger เลยโดยไม่มีอะไรบอก
+       * Checked at publish, not at runtime, because a published definition is immutable —
+       * letting a publish succeed with a mistyped segmentId or one from another tenant would produce a version
+       * that can never be triggered, with nothing to tell anyone
        *
-       * currentVersion ต้องไม่เป็น null คือ segment นั้นต้องมีเวอร์ชันที่ publish แล้ว ไม่ใช่
-       * แค่ DRAFT — ผูก Journey เข้ากับ segment ที่ยังไม่ประกาศใช้ก็ได้ผลเดียวกันคือไม่มีวันยิง
+       * currentVersion must not be null, i.e. the segment must have a published version, not
+       * just a DRAFT — binding a Journey to a segment that is not yet announced gives the same result: it never fires.
        *
-       * นี่เป็น config-time reference check ไม่ใช่ runtime authorization: การตัดสินว่า contact
-       * ใดอยู่ใน segment จริงยังเป็นของ Customer 360 ที่ runtime เท่านั้น (stop condition #215)
+       * This is a config-time reference check, not runtime authorization: deciding which contact
+       * is really in a segment remains Customer 360's job at runtime only (stop condition #215)
        */
       if (content.trigger.kind === 'SEGMENT_ENTRY') {
         const segment = await transaction.c360SegmentDefinitionHead.findFirst({

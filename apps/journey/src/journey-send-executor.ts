@@ -1,17 +1,17 @@
 /**
  * Owner: Journey — C1.6 SEND composition
  *
- * เชื่อม JourneyExecutionService (C1.5) เข้ากับ Contact Governance และ Delivery ผ่าน
- * port เท่านั้น (`TeamContactScopeAuthorizer` / `ContactGovernancePort` / `DeliveryPort`)
- * ไม่มี concrete cross-app import — BRANCH เดินอยู่แล้วใน `advance()`; ไฟล์นี้รับผิดชอบ
- * เฉพาะตอน `advance()` คืน `AWAITING_SEND`
+ * connects JourneyExecutionService (C1.5) to Contact Governance and Delivery through
+ * ports only (`TeamContactScopeAuthorizer` / `ContactGovernancePort` / `DeliveryPort`)
+ * no concrete cross-app import — BRANCH already walks in `advance()`; this file is responsible
+ * only for when `advance()` returns `AWAITING_SEND`
  *
- * ลำดับที่ห้ามสลับ:
- *   1. trusted team scope ก่อน authorize/reserve เสมอ
- *   2. enqueue หลัง reservation binding (`authorizeAndReserve` ALLOW) เท่านั้น
- *   3. ตรวจ enrollment ซ้ำหลังจองแต่ก่อน enqueue — cancel ที่แซงเข้ามาต้อง release ไม่ใช่ enqueue ต่อ
- *   4. `completeSend` เดิน cursor เสมอไม่ว่า SEND จะถูกส่งจริง ถูก suppress หรือ scope deny —
- *      Governance เป็น single writer ของเหตุผลที่ถูกกด ไม่สร้าง log ซ้ำใน Journey
+ * order that must not be swapped:
+ *   1. trusted team scope always before authorize/reserve
+ *   2. enqueue only after the reservation binding (`authorizeAndReserve` ALLOW)
+ *   3. recheck the enrollment after reserving but before enqueue — a cancel that cuts in must release, not continue to enqueue
+ *   4. `completeSend` always advances the cursor whether the SEND was really sent, suppressed or scope-denied —
+ *      Governance is the single writer of the reason it was blocked and no duplicate log is created in Journey
  */
 import {
   actionKey as toActionKey,
@@ -62,7 +62,7 @@ export class SendStepShapeError extends Error {
   readonly code = 'SEND_STEP_SHAPE_INVALID' as const;
 
   constructor(readonly stepId: string) {
-    super(`step ${stepId} ไม่ใช่ SEND หรือไม่มีอยู่ใน graph`);
+    super(`step ${stepId} is not a SEND or does not exist in the graph`);
     this.name = 'SendStepShapeError';
   }
 }
@@ -74,15 +74,15 @@ export class JourneyDefinitionMissingError extends Error {
     readonly journeyId: string,
     readonly version: number,
   ) {
-    super(`ไม่พบ published definition: ${journeyId}:${version}`);
+    super(`published definition not found: ${journeyId}:${version}`);
     this.name = 'JourneyDefinitionMissingError';
   }
 }
 
 /**
- * Adapter enqueue ต้องการ leaseExpiresAt ของตัวเอง (ไม่ใช่ของ Journey) — TEST_ADAPTER
- * ยัง submit ต่อทันทีในการเรียกเดียว จึง lease สั้นพอที่จะพิสูจน์ discipline โดยไม่ต้อง
- * renew จริงในเส้นทาง happy path ของ C1
+ * The enqueue adapter needs its own leaseExpiresAt (not Journey's) — TEST_ADAPTER
+ * still submits immediately within one call, so the lease is short enough to prove the discipline without
+ * a real renew on the C1 happy path
  */
 const DELIVERY_LEASE_MS = 5 * 60_000;
 
@@ -102,9 +102,9 @@ export class JourneySendExecutor {
 
   async handleSend(input: HandleSendInput): Promise<SendCompositionResult> {
     const enrollment = await this.execution.describe(input.tenantId, input.enrollmentId);
-    // ถ้า cursor เดินผ่านโหนดนี้ไปแล้ว (โดย call ก่อนหน้าหรือ worker อื่น) นี่คือ replay ที่
-    // สายเกินไป — ต้องไม่ scope/authorize/enqueue ซ้ำ (leaseExpiresAt สดใหม่ทุกครั้งจะทำให้
-    // input hash ของ enqueue ไม่ตรงเดิมและชน IDEMPOTENCY_CONFLICT โดยไม่จำเป็น)
+    // if the cursor already moved past this node (by an earlier call or another worker) this is a replay that
+    // came too late — it must not scope/authorize/enqueue again (a fresh leaseExpiresAt each time would make the
+    // enqueue input hash differ from the original and hit IDEMPOTENCY_CONFLICT needlessly)
     if (
       enrollment.currentStepId !== input.stepId ||
       enrollment.stepSequence !== input.stepSequence
@@ -139,8 +139,8 @@ export class JourneySendExecutor {
       }));
     }
     if (scopeDecision.decision === 'DEFER') {
-      // scope ที่ stale ยังยืนยัน CONTACT permission ไม่ได้ จึงต้องคง cursor ไว้ให้ worker
-      // รอบถัดไป resolve IAM ใหม่ทั้งหมดก่อนเข้า Governance reservation หรือ Delivery.
+      // a stale scope still cannot confirm the CONTACT permission, so the cursor must be kept for the worker's
+      // next round to resolve IAM again entirely before reaching a Governance reservation or Delivery.
       return {
         kind: 'SCOPE_DEFERRED',
         reasonCode: scopeDecision.reasonCode,
@@ -170,7 +170,7 @@ export class JourneySendExecutor {
       }));
     }
 
-    // cancel ที่แซงเข้ามาหลังจองแต่ก่อน enqueue ต้อง release สิทธิ์คืน ไม่ใช่ส่งต่อ
+    // a cancel that cuts in after the reservation but before enqueue must release the permission back, not send on
     const fresh = await this.execution.describe(input.tenantId, input.enrollmentId);
     if (fresh.runState === 'TERMINAL') {
       await this.governance.releaseBeforeSubmit({
@@ -199,15 +199,15 @@ export class JourneySendExecutor {
       leaseExpiresAt: new Date(this.now().getTime() + DELIVERY_LEASE_MS).toISOString(),
     });
     if (enqueued.status === 'ERROR') {
-      throw new Error(`Delivery enqueue ล้มเหลวหลัง reservation binding แล้ว: ${enqueued.code}`);
+      throw new Error(`Delivery enqueue failed after the reservation binding: ${enqueued.code}`);
     }
 
     return this.finish(input, (view) => ({ kind: 'SENT', enrollment: view }));
   }
 
   /**
-   * `completeSend` เดิน cursor แบบ idempotent อยู่แล้วที่ระดับ Journey — แต่ถ้า worker อื่น
-   * ชนะไปก่อน (`JourneyStepRaceError`) แปลว่า SEND นี้ถูกจัดการไปแล้วจริง ไม่ใช่ความล้มเหลว
+   * `completeSend` advances the cursor idempotently at the Journey level already — but if another worker
+   * won first (`JourneyStepRaceError`) it means this SEND was already really handled, not a failure
    */
   private async finish(
     input: HandleSendInput,

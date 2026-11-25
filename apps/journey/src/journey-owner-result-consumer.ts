@@ -1,21 +1,21 @@
 /**
- * J2.8 (#136) — consume owner result จาก `dc.case.events`/`dc.dialer.events`
+ * J2.8 (#136) — consume owner results from `dc.case.events`/`dc.dialer.events`
  *
- * คู่ตรงข้ามของ `journey-owner-kafka-port.ts`: เมื่อ command ออกไปทาง Kafka แล้ว ผลต้อง
- * เดินทางกลับมาทาง Kafka เช่นกัน consumer นี้คือขา "consume owner results พร้อม
- * tenant/command/action/hash/aggregate/version/causation binding" ของสเปค #136
+ * The counterpart of `journey-owner-kafka-port.ts`: once a command has gone out through Kafka, the result must
+ * travel back through Kafka as well. This consumer is the "consume owner results with
+ * tenant/command/action/hash/aggregate/version/causation binding" leg of spec #136
  *
- * binding ตรวจสองชั้น:
- *   1. `assertOwnerResultEnvelope` — envelope V2 ต้องตรงกับ payload เอง (type/aggregateType/
- *      aggregateId/orderingKey/aggregateVersion) ถ้าไม่ตรงคือ contract ผิด เข้า DLQ
- *   2. เทียบกับ command ที่เก็บไว้จริงใน `jr_owner_command_outbox` — result ต้องอ้าง
- *      actionKey/requestHash/commandType ตรงกับ command ที่เราส่งไป ไม่ใช่แค่ self-consistent
- *      (`assertOwnerResultBinding` ของ contract ต้องใช้ command envelope ต้นฉบับซึ่ง consumer
- *      ไม่มี เราจึงเทียบกับ durable copy ที่ outbox เก็บไว้แทน ซึ่งให้การรับประกันเดียวกัน)
+ * binding is checked in two layers:
+ *   1. `assertOwnerResultEnvelope` — the V2 envelope must match its own payload (type/aggregateType/
+ *      aggregateId/orderingKey/aggregateVersion); a mismatch means a broken contract and goes to the DLQ
+ *   2. compare against the command actually stored in `jr_owner_command_outbox` — the result must reference
+ *      the actionKey/requestHash/commandType matching the command we sent, not merely be self-consistent
+ *      (the contract's `assertOwnerResultBinding` needs the original command envelope, which the consumer
+ *      does not have, so we compare against the durable copy the outbox keeps instead, which gives the same guarantee)
  *
- * result ที่ bind ไม่ได้ ผิด contract หรือ hash ขัดกับผลที่ apply ไปแล้วจะถูก "ข้ามเงียบ" ไม่ได้ —
- * กักเข้า DLQ ผ่าน `quarantineConsumedEvent` แล้วปล่อย offset (wrapper ของ Kafka retry error จาก
- * handler ไม่รู้จบ ถ้า throw แทนจะ block ทั้ง partition) ส่วน error ชั่วคราว (DB) ยัง throw ให้ retry
+ * a result that cannot be bound, violates the contract or whose hash conflicts with the applied result must not be "skipped silently" —
+ * it is quarantined to the DLQ through `quarantineConsumedEvent` and the offset is released (the Kafka wrapper retries an error from the
+ * handler endlessly, and throwing instead would block the whole partition); a transient error (DB) still throws to retry
  */
 import { withTenantDatabaseTransaction, type PrismaClient } from '@d-contact/db';
 import {
@@ -38,8 +38,8 @@ import { STATUS_TO_RESULT_KIND, hashResult } from './journey-owner-result-reconc
 import { noOpJourneyOwnerMetrics, type JourneyOwnerMetrics } from './journey-owner-metrics.js';
 
 /**
- * `applyResult` เป็น durable dedup boundary ของตัวเองผ่าน unique (tenantId, commandId)
- * อยู่แล้ว — เรียกซ้ำปลอดภัยเสมอ จึงไม่ต้องมี inbox table ซ้อนอีกชั้น
+ * `applyResult` is its own durable dedup boundary through unique (tenantId, commandId)
+ * already — calling it again is always safe, so no extra inbox table layer is needed
  */
 export function createDurableOwnerResultIdempotencyStore(): EventIdempotencyStore {
   return {
@@ -60,7 +60,7 @@ export class OwnerResultBindingError extends Error {
     readonly commandId: string,
     detail: string,
   ) {
-    super(`owner result ของ command ${commandId} bind ไม่ตรง: ${detail}`);
+    super(`owner result of command ${commandId} has a binding mismatch: ${detail}`);
     this.name = 'OwnerResultBindingError';
   }
 }
@@ -92,8 +92,8 @@ export function createJourneyOwnerResultConsumer(
       const quarantine = (reasonCode: string) =>
         quarantineConsumedEvent(options.dlq, consumed, reasonCode);
 
-      // topic เดียวกันมี event ชนิดอื่นของ owner ปนอยู่ได้ — ข้ามเฉพาะที่ไม่ใช่ result ส่วน result
-      // ที่ผิด contract ห้ามข้ามเงียบ เพราะนั่นคือผลจริงของ action ที่จะหายไปโดยไม่มีใครรู้
+      // the same topic may carry other event types from the owner — skip only the non-results, while a result
+      // that violates the contract must not be skipped silently because that is the real result of an action that would vanish unnoticed
       if (!OWNER_RESULT_EVENT_TYPES.has(String(consumed.event.type))) return;
       let envelope;
       try {
@@ -106,8 +106,8 @@ export function createJourneyOwnerResultConsumer(
       }
       const result = envelope.payload;
 
-      // ต้องอยู่ใน tenant transaction เสมอ — application client เปิด RLS ไว้ การ query
-      // นอก context ทำให้ tenant GUC ว่างและ Postgres ปฏิเสธทันที
+      // must always be inside the tenant transaction — the application client has RLS on and a query
+      // outside the context leaves the tenant GUC empty and Postgres rejects it immediately
       const command = await withTenantDatabaseTransaction(
         options.database,
         envelope.tenantId,
@@ -119,13 +119,13 @@ export function createJourneyOwnerResultConsumer(
           }),
       );
       const bindingError = !command
-        ? 'ไม่พบ command ต้นเรื่องใน outbox'
+        ? 'original command not found in the outbox'
         : command.actionKey !== result.actionKey
-          ? 'actionKey ไม่ตรงกับ command'
+          ? 'actionKey does not match the command'
           : command.requestHash !== result.requestHash
-            ? 'requestHash ไม่ตรงกับ command'
+            ? 'requestHash does not match the command'
             : undefined;
-      // bind ไม่ตรง retry กี่รอบก็ไม่ตรง — ถ้า throw จะวน retry ไม่รู้จบและ block ทั้ง partition
+      // a binding mismatch stays a mismatch however many retries — throwing would retry endlessly and block the whole partition
       if (bindingError) {
         metrics.increment('journey_owner_result_binding_rejected_total');
         await quarantine(new OwnerResultBindingError(result.commandId, bindingError).code);

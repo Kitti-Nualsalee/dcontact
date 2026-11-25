@@ -1,11 +1,11 @@
 /**
- * J2.3 — durable foundation ของ canonical interaction outcome receipt
+ * J2.3 — durable foundation of the canonical interaction outcome receipt
  *
- * ยึด identity สองชั้นตามที่ยืนยันใน #123: transport completion unique
- * `(tenantId, source, eventId)` แยกจาก logical stream identity unique
- * `(tenantId, outcomeType, outcomeId, outcomeVersion)`. ที่นี่เป็นเพียง schema/
- * primitive — ไม่มี trigger matching, owner implementation หรือ relay transport
- * (ดู #131 ขอบเขต J2.3)
+ * Follows the two-layer identity confirmed in #123: transport completion unique
+ * `(tenantId, source, eventId)` separate from the logical stream identity unique
+ * `(tenantId, outcomeType, outcomeId, outcomeVersion)`. This is only the schema/
+ * primitive — no trigger matching, owner implementation or relay transport
+ * (see #131 J2.3 scope)
  */
 import { randomUUID } from 'node:crypto';
 import {
@@ -24,7 +24,7 @@ export interface IngestOutcomeReceiptInput {
   outcomeId: string;
   outcomeVersion: number;
   payloadHash: string;
-  /** J2.7: `InteractionOutcomePayloadV1` ที่ validate แล้ว — internal ID/code เท่านั้น */
+  /** J2.7: the validated `InteractionOutcomePayloadV1` — internal ID/code only */
   payload: unknown;
   correlationId: string;
   causationId?: string;
@@ -45,7 +45,7 @@ export class OutcomeReceiptHashConflictError extends Error {
     readonly identity: string,
     readonly kind: 'TRANSPORT' | 'LOGICAL',
   ) {
-    super(`Outcome receipt hash ขัดแย้งกับของเดิม (${kind}): ${identity}`);
+    super(`Outcome receipt hash conflicts with the existing one (${kind}): ${identity}`);
     this.name = 'OutcomeReceiptHashConflictError';
   }
 }
@@ -65,8 +65,8 @@ export class JourneyOutcomeReceiptRepository {
   }
 
   /**
-   * ตัดสิน DUPLICATE/READY/WAITING_FOR_GAP/IGNORED_SUPERSEDED/QUARANTINED ตาม
-   * outcomeVersion เทียบกับ head ปัจจุบัน — ไม่เคย apply ด้วย last-write-wins
+   * Decides DUPLICATE/READY/WAITING_FOR_GAP/IGNORED_SUPERSEDED/QUARANTINED by comparing
+   * outcomeVersion with the current head — never applies with last-write-wins
    */
   async ingest(input: IngestOutcomeReceiptInput): Promise<IngestOutcomeReceiptResult> {
     return withTenantDatabaseTransaction(this.database, input.tenantId, async (transaction) => {
@@ -111,8 +111,8 @@ export class JourneyOutcomeReceiptRepository {
             ? 'READY'
             : 'WAITING_FOR_GAP';
 
-      // savepoint กันไม่ให้ P2002 ของ insert นี้ทำทั้ง transaction abort — Postgres
-      // ปฏิเสธทุก statement ถัดไปจนกว่าจะ rollback ถ้าไม่มี savepoint แยกไว้ก่อน
+      // a savepoint keeps the P2002 of this insert from aborting the whole transaction — Postgres
+      // rejects every later statement until rollback if there is no separate savepoint beforehand
       await transaction.$executeRaw`SAVEPOINT ingest_insert`;
       try {
         const created = await transaction.jrOutcomeReceipt.create({
@@ -136,7 +136,7 @@ export class JourneyOutcomeReceiptRepository {
       } catch (error) {
         if (!isUniqueViolation(error)) throw error;
         await transaction.$executeRaw`ROLLBACK TO SAVEPOINT ingest_insert`;
-        // race: อีก worker แทรก version เดียวกันสำเร็จก่อน — อ่านของจริงแล้วตัดสินใหม่
+        // race: another worker inserted the same version first — read the real one and decide again
         const raced = await transaction.jrOutcomeReceipt.findUniqueOrThrow({
           where: {
             tenantId_outcomeType_outcomeId_outcomeVersion: {
@@ -160,8 +160,8 @@ export class JourneyOutcomeReceiptRepository {
   }
 
   /**
-   * เคลม receipt ที่พร้อมประมวลผลหนึ่งใบด้วย lease/CAS; รวม PROCESSING ที่ lease
-   * หมดอายุแล้วกลับเข้าคิวให้ worker อื่น claim ต่อได้โดยไม่ apply ซ้ำ
+   * Claims one receipt ready for processing with a lease/CAS; includes PROCESSING whose lease
+   * has expired, returning it to the queue for another worker to claim without applying twice
    */
   async claimNextReady(
     tenantId: string,
@@ -193,9 +193,9 @@ export class JourneyOutcomeReceiptRepository {
   }
 
   /**
-   * apply สำเร็จ — ถือ advisory lock เดิมของ stream ก่อนเลื่อน head เพื่อกัน
-   * markApplied ของ worker คนละตัวแข่งกันเลื่อน head พร้อมกัน; เลื่อนเฉพาะเมื่อ
-   * version นี้ยังมากกว่า head ปัจจุบัน (CAS โดย read-then-write ภายใต้ lock เดียว)
+   * applied successfully — takes the stream's existing advisory lock before moving the head so that
+   * markApplied from different workers cannot race to move the head together; moves only if
+   * this version is still greater than the current head (CAS by read-then-write under one lock)
    */
   async markApplied(
     tenantId: string,
@@ -239,8 +239,8 @@ export class JourneyOutcomeReceiptRepository {
         });
       }
 
-      // head เลื่อนแล้ว: WAITING_FOR_GAP เดิมของ stream นี้อาจพร้อม apply ต่อ (gap
-      // ถูกเติมแล้ว) หรือกลายเป็นของเก่าที่ไม่ต้อง apply อีก — ไม่งั้นจะค้างตลอดไป
+      // the head moved: an existing WAITING_FOR_GAP of this stream may be ready to apply (the gap
+      // was filled) or may have become stale and need no apply — otherwise it would be stuck forever
       if (advancedVersion) {
         const lastAppliedVersion = receipt.outcomeVersion;
         const waiting = await transaction.jrOutcomeReceipt.findMany({
@@ -298,7 +298,7 @@ export class JourneyOutcomeReceiptRepository {
     );
   }
 
-  /** retryable failure กลับไป READY พร้อม bounded backoff — ไม่ persist เป็น state แยก */
+  /** a retryable failure returns to READY with bounded backoff — not persisted as a separate state */
   async markRetryableFailure(
     tenantId: string,
     receiptId: string,
@@ -320,7 +320,7 @@ export class JourneyOutcomeReceiptRepository {
     );
   }
 
-  /** WAITING_FOR_GAP ที่ค้างเกิน timeout — ผู้เรียกตัดสินใจ reconcile/escalate เอง */
+  /** WAITING_FOR_GAP stuck past the timeout — the caller decides to reconcile/escalate */
   findStaleGaps(tenantId: string, olderThan: Date): Promise<JrOutcomeReceipt[]> {
     return withTenantDatabaseTransaction(this.database, tenantId, (transaction) =>
       transaction.jrOutcomeReceipt.findMany({

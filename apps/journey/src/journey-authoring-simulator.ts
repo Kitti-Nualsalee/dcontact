@@ -21,25 +21,25 @@ import type { JourneyGraphStep } from './journey-definition.js';
 import { ownerResultNextStep, planJourneyStep } from './journey-transition-planner.js';
 
 /**
- * J5.2 (#340): plan preview และ scenario simulation แบบ `SIMULATION_ONLY` (#329 §6–§8)
+ * J5.2 (#340): plan preview and `SIMULATION_ONLY` scenario simulation (#329 §6–§8)
  *
- * ใช้ planner กลางชุดเดียวกับ runtime (`planJourneyStep`) + manual clock + fixture สังเคราะห์
- * ผลของ SEND และ owner action มาจาก fixture ที่ประกาศไว้เท่านั้น ไม่มี DB, Kafka, Governance,
- * Delivery, owner command หรือ network — ของเหล่านั้นถ้าถูกส่งเข้ามาต้องเป็น `blockedSimulationPort`
+ * Uses the same central planner as the runtime (`planJourneyStep`) + a manual clock + synthetic fixtures.
+ * The results of SEND and owner actions come only from declared fixtures; there is no DB, Kafka, Governance,
+ * Delivery, owner command or network — if any of these is passed in it must be a `blockedSimulationPort`
  */
 
 export class SimulationSideEffectBlockedError extends Error {
   readonly code = 'SIMULATION_SIDE_EFFECT_BLOCKED' as const;
 
   constructor(readonly port: string) {
-    super(`simulation เรียก side effect ไม่ได้: ${port}`);
+    super(`simulation cannot call a side effect: ${port}`);
     this.name = 'SimulationSideEffectBlockedError';
   }
 }
 
 /**
- * port ที่ throw ทันทีเมื่อถูกเรียก method ใดก็ตาม — ใช้แทน repository/publisher/owner port ทุกตัวเมื่อ
- * code path เดียวกันถูกเรียกในโหมดจำลอง เพื่อให้ side effect หลุดออกไปไม่ได้แม้โดยบังเอิญ
+ * A port that throws immediately when any method is called — stands in for every repository/publisher/owner port when
+ * the same code path is invoked in simulation mode, so no side effect can escape even by accident
  */
 export function blockedSimulationPort<T extends object>(name: string): T {
   return new Proxy({} as T, {
@@ -64,7 +64,7 @@ export class ManualClock {
   }
 
   advanceTo(next: Date): void {
-    if (next < this.current) throw new RangeError('manual clock ถอยหลังไม่ได้');
+    if (next < this.current) throw new RangeError('manual clock cannot go backwards');
     this.current = new Date(next);
   }
 }
@@ -200,7 +200,7 @@ export function simulateJourneyScenario(
         return result('EXIT', transitions);
       case 'WAIT':
         record('next');
-        // runtime ปิด enrollment เมื่อ maxAgeAt <= now จึงนับขอบพอดีเป็นหมดอายุเหมือนกัน
+        // the runtime closes enrollment when maxAgeAt <= now, so the exact boundary counts as expired as well
         if (plan.wakeAt >= deadline) return result('MAX_DURATION', transitions);
         clock.advanceTo(plan.wakeAt);
         stepId = plan.nextStepId;
@@ -213,7 +213,7 @@ export function simulateJourneyScenario(
         if (!fixture.sendOutcomes?.[step.id]) {
           return result('EXIT', transitions, [invalidFixture(`sendOutcomes.${step.id}`)]);
         }
-        // SEND มี continuation เดียว: ส่ง/ถูกระงับ/ไม่มีสิทธิ์ ล้วนเดินต่อ `next` เหมือน runtime
+        // SEND has a single continuation: sent/suppressed/not permitted all continue to `next` like the runtime
         record('next');
         stepId = plan.nextStepId;
         break;

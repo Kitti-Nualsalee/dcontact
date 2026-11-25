@@ -31,7 +31,7 @@ const APPLICATION_DATABASE_URL =
   process.env.APPLICATION_DATABASE_URL ??
   'postgresql://dcontact_app:dcontact_app@localhost:5433/dcontact?schema=public';
 
-/** fake port ที่บันทึกทุก persistCommand ไว้ตรวจสอบ และตอบผ่าน queryAction ตามที่ตั้งไว้ */
+/** a fake port that records every persistCommand for inspection and answers through queryAction as configured */
 interface FakePort {
   persisted: unknown[];
   results: Map<string, J2OwnerResultPayloadV1>;
@@ -45,8 +45,8 @@ interface FakePort {
   ): Promise<J2OwnerResultPayloadV1 | undefined>;
 }
 
-/** ใช้ cast เป็น J2CaseOwnerPort/J2DialerOwnerPort ตามจุดที่เรียก — persistCommand ที่
- * แท้จริงรับได้ทั้งสอง union เพราะไม่แตะ field เฉพาะของ commandType ใด ๆ */
+/** cast to J2CaseOwnerPort/J2DialerOwnerPort at the call site — the real persistCommand
+ * accepts both unions because it touches no field specific to any commandType */
 function fakePort(): FakePort {
   const persisted: unknown[] = [];
   const results = new Map<string, J2OwnerResultPayloadV1>();
@@ -150,7 +150,7 @@ test('relay dispatches a staged command to the dialer port and marks it SENT + a
   assert.equal(outboxRow.state, 'SENT');
 });
 
-test('relay ที่ port throw จะกลับไป PENDING พร้อม backoff ให้ retry', async (t) => {
+test('a relay whose port throws goes back to PENDING with backoff to retry', async (t) => {
   const f = await fixture(t);
   const actions = new JourneyOwnerActionRepository(f.application);
   const dialerPort: J2DialerOwnerPort = {
@@ -185,10 +185,10 @@ test('relay ที่ port throw จะกลับไป PENDING พร้อ�
   assert.equal(outboxRow.state, 'PENDING');
   assert.equal(outboxRow.attempts, 1);
   assert.ok(outboxRow.availableAt.getTime() > Date.now());
-  assert.equal(await relay.executeNext(f.rawTenantId), undefined, 'ยังไม่ถึงเวลา retry');
+  assert.equal(await relay.executeNext(f.rawTenantId), undefined, 'retry time not reached yet');
 });
 
-test('command ที่ไม่มี payload staged ไว้ถูกข้ามไป (ยังไม่พร้อม relay)', async (t) => {
+test('a command with no staged payload is skipped (not ready for relay yet)', async (t) => {
   const f = await fixture(t);
   const actions = new JourneyOwnerActionRepository(f.application);
   const relay = new JourneyOwnerCommandRelay(f.application, fakePort(), fakePort());
@@ -206,7 +206,7 @@ test('command ที่ไม่มี payload staged ไว้ถูกข้�
   assert.equal(await relay.executeNext(f.rawTenantId), undefined);
 });
 
-test('reconciler apply ผล ACKNOWLEDGED-mapped status แล้วเรียกซ้ำได้แบบ idempotent', async (t) => {
+test('the reconciler applies an ACKNOWLEDGED-mapped status result and can be called again idempotently', async (t) => {
   const f = await fixture(t);
   const actions = new JourneyOwnerActionRepository(f.application);
   const dialerPort = fakePort();
@@ -254,7 +254,7 @@ test('reconciler apply ผล ACKNOWLEDGED-mapped status แล้วเรี�
   assert.equal(duplicate, 'DUPLICATE');
 });
 
-test('reconciler apply REJECTED และ TOO_LATE ตรงตาม J2OwnerResultStatus', async (t) => {
+test('the reconciler applies REJECTED and TOO_LATE exactly per J2OwnerResultStatus', async (t) => {
   const f = await fixture(t);
   const actions = new JourneyOwnerActionRepository(f.application);
   const dialerPort = fakePort();
@@ -293,7 +293,7 @@ test('reconciler apply REJECTED และ TOO_LATE ตรงตาม J2OwnerRes
   assert.equal(action?.state, 'REJECTED');
 });
 
-test('cancel command ที่ stage ผ่าน requestCancellation ก็ relay ได้เหมือนกัน', async (t) => {
+test('a cancel command staged through requestCancellation can be relayed too', async (t) => {
   const f = await fixture(t);
   const actions = new JourneyOwnerActionRepository(f.application);
   const dialerPort = fakePort();
@@ -325,9 +325,13 @@ test('cancel command ที่ stage ผ่าน requestCancellation ก็ rel
   assert.equal(result, 'SENT');
   assert.equal(dialerPort.persisted.length, 2);
   const action = await actions.getAction(f.rawTenantId, rawActionKey);
-  assert.equal(action?.state, 'CANCEL_REQUESTED', 'dispatch ของ cancel command ไม่ทับ state นี้');
+  assert.equal(
+    action?.state,
+    'CANCEL_REQUESTED',
+    'dispatching the cancel command does not overwrite this state',
+  );
 
-  // payload ที่ออกไปต้องผ่าน contract: actionKey เดิม, commandId ใหม่, requestHash ของ cancel เอง
+  // the payload that goes out must pass the contract: the same actionKey, a new commandId, the cancel own requestHash
   const sent = dialerPort.persisted[1] as {
     commandId: string;
     actionKey: string;
@@ -350,7 +354,7 @@ test('cancel command ที่ stage ผ่าน requestCancellation ก็ rel
   assert.equal(stagedCancel.requestHash, sent.requestHash);
 });
 
-test('cancel ไม่ถูกส่งก่อน command ต้นเรื่องของ action เดียวกันที่ยัง retry ค้างอยู่', async (t) => {
+test('a cancel is not sent before the original command of the same action that is still waiting to retry', async (t) => {
   const f = await fixture(t);
   const actions = new JourneyOwnerActionRepository(f.application);
   const dialerPort = fakePort();
@@ -368,7 +372,7 @@ test('cancel ไม่ถูกส่งก่อน command ต้นเรื�
     commandId: command.commandId,
     commandPayload: command,
   });
-  // relay claim ไปแล้ว (อยู่ระหว่างส่ง) — ถือว่าออกจาก Journey แล้ว cancel ต้องไปทาง owner
+  // the relay already claimed it (in flight) — counts as having left Journey, so the cancel must go through the owner
   await f.owner.jrOwnerCommandOutbox.update({
     where: { tenantId_commandId: { tenantId: f.rawTenantId, commandId: command.commandId } },
     data: { state: 'PROCESSING' },
@@ -381,7 +385,7 @@ test('cancel ไม่ถูกส่งก่อน command ต้นเรื�
   });
   assert.equal(requested.state, 'CANCEL_REQUESTED');
 
-  // ส่งไม่สำเร็จ → กลับเป็น PENDING พร้อม backoff; cancel ห้ามแซงไปก่อน
+  // the send failed → back to PENDING with backoff; the cancel must not jump ahead
   await actions.markCommandFailed(f.rawTenantId, command.commandId, 60_000, 'broker down');
   assert.equal(await relay.executeNext(f.rawTenantId), undefined);
   assert.equal(dialerPort.persisted.length, 0);
@@ -398,7 +402,7 @@ test('cancel ไม่ถูกส่งก่อน command ต้นเรื�
   );
 });
 
-test('tenant คนละใบไม่ relay command ของกันและกัน', async (t) => {
+test('different tenants do not relay each other commands', async (t) => {
   const a = await fixture(t);
   const b = await fixture(t);
   const actions = new JourneyOwnerActionRepository(a.application);

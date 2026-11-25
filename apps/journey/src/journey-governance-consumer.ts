@@ -13,8 +13,8 @@ import { KAFKA_TOPICS } from '@d-contact/shared';
 import type { JourneyGovernanceInvalidationService } from './journey-governance-invalidation.js';
 
 /**
- * `GAP` ไม่เป็น terminal idempotency โดยตั้งใจ: redrive ต้องกลับเข้า handler ได้เมื่อ
- * version ที่หายถูกกู้แล้ว ส่วน state อื่นมี Journey effect ที่ commit แล้วจึงเป็น duplicate เคร่งครัด
+ * `GAP` is deliberately not terminal idempotency: a redrive must be able to re-enter the handler once
+ * the missing version is recovered, while other states have a committed Journey effect and are therefore strict duplicates
  */
 export function createDurableJourneyGovernanceIdempotencyStore(
   database: PrismaClient,
@@ -49,7 +49,9 @@ export function createDurableJourneyGovernanceIdempotencyStore(
           select: { state: true },
         });
         if (!completed) {
-          throw new Error('Journey CG3 handler ต้อง commit owner-local inbox ก่อนสำเร็จ');
+          throw new Error(
+            'Journey CG3 handler must commit the owner-local inbox before succeeding',
+          );
         }
         return 'processed';
       });
@@ -66,7 +68,7 @@ export interface CreateJourneyGovernanceConsumerOptions {
   dlq?: DlqPublisher;
 }
 
-/** รับเฉพาะ canonical CG3 facts; validation และ fail-closed version handling อยู่ใน service */
+/** Accepts only canonical CG3 facts; validation and fail-closed version handling live in the service */
 export function createJourneyGovernanceConsumer(
   options: CreateJourneyGovernanceConsumerOptions,
 ): Promise<DcConsumer> {
@@ -82,7 +84,7 @@ export function createJourneyGovernanceConsumer(
     idempotency: createDurableJourneyGovernanceIdempotencyStore(options.database),
     handler: async ({ event, topic, partition, offset }, transaction) => {
       if (!isKafkaEventEnvelopeV2(event)) {
-        throw new TypeError('Journey CG3 consumer ไม่รับ Kafka V1 event');
+        throw new TypeError('Journey CG3 consumer does not accept Kafka V1 events');
       }
       const result = await options.service.apply(event, transaction);
       if (options.dlq && result.state === 'QUARANTINED') {
@@ -99,10 +101,10 @@ export function createJourneyGovernanceConsumer(
 }
 
 /**
- * CG4.8 (#191): contract/version ที่ตีความไม่ได้ต้องเข้า DLQ (#179 §4) นอกเหนือจาก quarantine และ
- * hold scope ที่ commit ใน owner-local transaction เดียวกัน DLQ publish อยู่ใน transaction นั้น:
- * ถ้า publish ล้มเหลว transaction rollback แล้ว event ถูก retry จึงไม่มี quarantine ที่ไม่มีสำเนาใน DLQ
- * hash conflict ไม่ส่ง DLQ เพราะ contract อ่านได้ — เป็น quarantine + alert ของ owner
+ * CG4.8 (#191): a contract/version that cannot be interpreted must go to the DLQ (#179 §4) in addition to quarantine and
+ * the hold scope committed in the same owner-local transaction. The DLQ publish is inside that transaction:
+ * if the publish fails the transaction rolls back and the event is retried, so there is never a quarantine without a copy in the DLQ
+ * a hash conflict is not sent to the DLQ because the contract is readable — it is an owner quarantine + alert
  */
 export async function publishGovernanceContractRejection(
   dlq: DlqPublisher,

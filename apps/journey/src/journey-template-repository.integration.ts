@@ -132,7 +132,7 @@ async function setup(t: TestContext) {
   const actor = (subjectId: string) => as(subjectId).actor;
   const builtIn = catalog.get(REMINDER)!;
 
-  /** tenant template: สร้าง → submit → reviewer อนุมัติ → author publish */
+  /** tenant template: create → submit → reviewer approves → author publishes */
   const publishTenantTemplate = async (
     document: AuthoringDocumentV1,
     parameterSchema: readonly JourneyTemplateParameterV1[],
@@ -208,7 +208,7 @@ const rejects = (promise: Promise<unknown>, code: string) =>
     return true;
   });
 
-test('J5-F03 instantiate built-in แบบ idempotent และ detached พร้อม provenance; parameter/reference/digest fail closed', async (t) => {
+test('J5-F03 instantiate built-in idempotently and detached with provenance; parameter/reference/digest fail closed', async (t) => {
   const f = await setup(t);
   const request = {
     origin: 'PLATFORM_BUILTIN' as const,
@@ -233,13 +233,13 @@ test('J5-F03 instantiate built-in แบบ idempotent และ detached พร
   });
   assert.equal(provenance.templateOrigin, 'PLATFORM_BUILTIN');
   assert.equal(provenance.sourceContentDigest, f.builtIn.contentDigest);
-  // provenance/audit ไม่มีค่า parameter ดิบ มีแค่ digest
+  // provenance/audit have no raw parameter values, only a digest
   const serialized = JSON.stringify([
     provenance,
     await f.owner.jrAuthoringAudit.findMany({ where: { resourceId: created.journeyId } }),
   ]);
   assert.ok(!serialized.includes('content-reminder') && !serialized.includes('sender-line-oa'));
-  // draft ที่ได้เป็นของ tenant ครบทั้งชุดและ compile ได้
+  // the resulting draft belongs entirely to the tenant and can be compiled
   const compiled = await f.repo.compileJourneyDraft(f.tenantId, f.actor('author'), {
     journeyId: created.journeyId,
     draftRevision: 1,
@@ -265,7 +265,7 @@ test('J5-F03 instantiate built-in แบบ idempotent และ detached พร
     }),
     'TEMPLATE_PARAMETER_INVALID',
   );
-  // reference ของ tenant อื่นหรือที่ไม่มีจริงผูกไม่ได้
+  // a reference from another tenant or one that does not exist cannot be bound
   const callback = catalog.get(CALLBACK)!;
   await rejects(
     f.repo.instantiateTemplate(f.as('author'), {
@@ -281,11 +281,11 @@ test('J5-F03 instantiate built-in แบบ idempotent และ detached พร
     }),
     'TEMPLATE_REFERENCE_UNTRUSTED',
   );
-  // outsider เขียน journey ในทีมตัวเองได้ แต่สร้างใส่ทีม A ไม่ได้
+  // an outsider can write a journey in their own team but cannot create one in team A
   await rejects(f.repo.instantiateTemplate(f.as('outsider'), request), 'CAPABILITY_REQUIRED');
 });
 
-test('J5-TI01 tenant catalog: TEAM มองเห็นเฉพาะทีมเจ้าของ, TENANT เห็นทั้ง tenant, tenant อื่นไม่เห็นเลย', async (t) => {
+test('J5-TI01 tenant catalog: TEAM is visible only to the owning team, TENANT to the whole tenant, other tenants see nothing', async (t) => {
   const f = await setup(t);
   const content = f.builtIn.content;
   const published = await f.publishTenantTemplate(content.document, content.parameterSchema);
@@ -318,7 +318,7 @@ test('J5-TI01 tenant catalog: TEAM มองเห็นเฉพาะทีม
     reasonCode: 'SHARE_TENANT',
   });
   assert.deepEqual(await names('outsider'), [published.templateId]);
-  // tenant อื่นเห็นแค่ built-in
+  // other tenants see only built-ins
   const foreign = (await f.repo.listVisibleTemplates(f.otherTenantId, f.actor('author'))).items;
   assert.deepEqual(
     foreign.map((entry) => entry.origin),
@@ -326,7 +326,7 @@ test('J5-TI01 tenant catalog: TEAM มองเห็นเฉพาะทีม
   );
 });
 
-test('J5-ID02/RC02 upgrade: notice แบบ advisory, proposal deterministic, apply สร้าง draft revision ใหม่เท่านั้น และ deprecate ไม่แตะ instance', async (t) => {
+test('J5-ID02/RC02 upgrade: advisory notice, deterministic proposal, apply creates only a new draft revision, and deprecate does not touch instances', async (t) => {
   const f = await setup(t);
   const content = structuredClone(f.builtIn.content);
   const v1 = await f.publishTenantTemplate(content.document, content.parameterSchema);
@@ -357,7 +357,7 @@ test('J5-ID02/RC02 upgrade: notice แบบ advisory, proposal deterministic, a
     notices.map((notice) => [notice.kind, notice.latestVersion]),
     [['UPDATE_AVAILABLE', 2]],
   );
-  // notice ไม่ได้เปลี่ยน draft ใด ๆ
+  // a notice does not change any draft
   const before = await f.owner.jrJourneyHead.findUniqueOrThrow({
     where: { tenantId_journeyId: { tenantId: f.tenantId, journeyId: instance.journeyId } },
   });
@@ -408,7 +408,7 @@ test('J5-ID02/RC02 upgrade: notice แบบ advisory, proposal deterministic, a
     [],
   );
 
-  // deprecate: สร้าง instance ใหม่ไม่ได้ แต่ instance เดิมไม่ถูกแตะและได้ notice แบบข้อมูล
+  // deprecate: new instances cannot be created but existing instances are not touched and get an informational notice
   const head = await f.owner.jrTemplateHead.findUniqueOrThrow({
     where: { tenantId_templateId: { tenantId: f.tenantId, templateId: v1.templateId } },
   });
@@ -446,7 +446,7 @@ test('J5-ID02/RC02 upgrade: notice แบบ advisory, proposal deterministic, a
   );
 });
 
-test('J5-CC01 maker-checker ของ template และ fork เป็น tenant template ใหม่ที่ไม่ผูกกับต้นทาง', async (t) => {
+test('J5-CC01 template maker-checker and fork into a new tenant template unbound from its source', async (t) => {
   const f = await setup(t);
   const content = f.builtIn.content;
   const created = await f.repo.createTemplateDraft(f.as('author'), {
@@ -472,7 +472,7 @@ test('J5-CC01 maker-checker ของ template และ fork เป็น tenan
     }),
     'APPROVAL_REQUIRED',
   );
-  // secret parameter ใน tenant template บันทึกไม่ได้ตั้งแต่ draft
+  // a secret parameter in a tenant template cannot be saved from the draft stage
   await rejects(
     f.repo.createTemplateDraft(f.as('author'), {
       ownerTeamId: f.teamA,
@@ -510,7 +510,7 @@ test('J5-CC01 maker-checker ของ template และ fork เป็น tenan
   assert.equal(forkedHead.activeVersion, null);
 });
 
-test('J5.5 getTemplate แนบ draft เฉพาะผู้แก้ได้ และ discard กลับเป็นเนื้อหา version ที่ active', async (t) => {
+test('J5.5 getTemplate attaches the draft only for those who can edit, and discard returns to the content of the active version', async (t) => {
   const f = await setup(t);
   const content = f.builtIn.content;
   const published = await f.publishTenantTemplate(content.document, content.parameterSchema);
@@ -698,7 +698,7 @@ for (const operation of [
       });
     });
 
-test('Core Team fence: raw ACTIVE Template publication ต้องปฏิเสธ legacy inactive Team', async (t) => {
+test('Core Team fence: a raw ACTIVE Template publication must reject a legacy inactive Team', async (t) => {
   const f = await setup(t);
   const content = f.builtIn.content;
   const published = await f.publishTenantTemplate(content.document, content.parameterSchema);

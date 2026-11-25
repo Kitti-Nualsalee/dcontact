@@ -20,9 +20,9 @@ import {
 import { publishGovernanceContractRejection } from './journey-governance-consumer.js';
 
 /**
- * CG4.8 (#191): Journey consumer กับ CG4 exception/policy/kill-switch events
- * `CG4-RC02` (duplicate/gap/hash/unsupported/reload), downstream `CG4-ID02/OB01` และ `CG4-REG02`
- * บน Postgres จริงผ่าน application role (RLS) — ไม่มี provider I/O
+ * CG4.8 (#191): Journey consumer with CG4 exception/policy/kill-switch events
+ * `CG4-RC02` (duplicate/gap/hash/unsupported/reload), downstream `CG4-ID02/OB01` and `CG4-REG02`
+ * on real Postgres through the application role (RLS) — no provider I/O
  */
 
 const APPLICATION_DATABASE_URL =
@@ -220,7 +220,7 @@ function exceptionEvent(
       transitionKind: 'EXCEPTION_REVOKED',
       state: 'REVOKED',
       restrictiveness: 'TIGHTENING',
-      // subjectVersion คือ revision ของ exception series ไม่ใช่ version ของ contact stream
+      // subjectVersion is the revision of the exception series, not the version of the contact stream
       subjectVersion: 1,
       affectedScope: {
         scopeKey: `contact:${f.contactId}`,
@@ -277,7 +277,7 @@ const noSettlement = { async releaseBeforeBarrier() {}, async requestReconcile()
 
 const mustNotReauthorize: JourneyCanonicalRevalidator = {
   async revalidate() {
-    throw new Error('event นี้ต้องไม่ขอ re-authorization');
+    throw new Error('this event must not request re-authorization');
   },
 };
 
@@ -303,7 +303,7 @@ async function actionState(f: Fixture) {
   return (await f.owner.jrAction.findUniqueOrThrow({ where: { id: f.actionId } })).realtimeState;
 }
 
-test('CG4-RC02: exception.changed ต่อ version จาก CG3 บน contact stream เดียวกัน และ re-authorize ด้วย contract CG4', async (t) => {
+test('CG4-RC02: exception.changed continues the version from CG3 on the same contact stream and re-authorizes with the CG4 contract', async (t) => {
   const f = await fixture(t);
   const allow = recordingRevalidator({ decision: 'ALLOW' });
   const consumer = 'journey-cg4-mixed-stream';
@@ -330,12 +330,12 @@ test('CG4-RC02: exception.changed ต่อ version จาก CG3 บน contact
   const ack = await f.owner.jrGovernanceAcknowledgementOutbox.findFirstOrThrow({
     where: { tenantId: f.tenantId, appliedVersion: 2 },
   });
-  // ack ส่ง applied version พร้อม state digest ของ Governance (#179 §4)
+  // the ack sends the applied version with the Governance state digest (#179 §4)
   assert.equal(ack.appliedStateDigest, revoked.payload.stateDigest);
   assert.equal(ack.outcome, 'APPLIED');
 });
 
-test('CG4-RC02: relaxation ไม่ re-authorize และไม่ resume งานที่ hold ไว้', async (t) => {
+test('CG4-RC02: relaxation does not re-authorize and does not resume held work', async (t) => {
   const f = await fixture(t);
   await f.owner.jrAction.update({ where: { id: f.actionId }, data: { realtimeState: 'HELD' } });
   const approved = exceptionEvent(f, 1, {
@@ -357,7 +357,7 @@ test('CG4-RC02: relaxation ไม่ re-authorize และไม่ resume ง�
   assert.equal(ack.appliedStateDigest, approved.payload.stateDigest);
 });
 
-test('CG4-RC02: kill switch hold งานใน scope ทันทีโดยไม่ถาม evaluator และ clear ไม่ปลดงาน', async (t) => {
+test('CG4-RC02: a kill switch holds in-scope work immediately without asking the evaluator and clear does not release work', async (t) => {
   const f = await fixture(t);
   const killSwitchId = randomUUID();
   const hold = service(f, mustNotReauthorize, 'journey-cg4-kill');
@@ -386,7 +386,7 @@ test('CG4-RC02: kill switch hold งานใน scope ทันทีโดย�
   );
 });
 
-test('CG4-RC02: kill switch ของ channel อื่นไม่แตะงาน EMAIL', async (t) => {
+test('CG4-RC02: a kill switch for another channel does not touch EMAIL work', async (t) => {
   const f = await fixture(t);
   const result = await service(f, mustNotReauthorize, 'journey-cg4-kill-scope').apply(
     killSwitchEvent(f, randomUUID(), 'ACTIVE', {
@@ -398,7 +398,7 @@ test('CG4-RC02: kill switch ของ channel อื่นไม่แตะง�
   assert.equal(await actionState(f), 'RESERVED');
 });
 
-test('CG4-RC02: contract version ที่ไม่รู้จัก quarantine hold scope ส่ง DLQ และไม่ขยับ cursor', async (t) => {
+test('CG4-RC02: an unknown contract version quarantines, holds the scope, sends to the DLQ and does not move the cursor', async (t) => {
   const f = await fixture(t);
   const consumer = 'journey-cg4-unsupported';
   const unsupported = exceptionEvent(f, 1, { contractVersion: 2 });
@@ -423,7 +423,7 @@ test('CG4-RC02: contract version ที่ไม่รู้จัก quarantine
     'QUARANTINED',
   );
 
-  // cursor ไม่ขยับ: version ถัดไปจึงเป็น gap จนกว่าจะ canonical reload
+  // the cursor does not move: the next version is therefore a gap until a canonical reload
   const next = await service(f, mustNotReauthorize, consumer).apply(preferenceEvent(f, 2));
   assert.equal(next.state, 'GAP');
 
@@ -446,7 +446,7 @@ test('CG4-RC02: contract version ที่ไม่รู้จัก quarantine
   assert.equal(published.length, 1);
 });
 
-test('CG4-ID02: version+digest ซ้ำด้วย eventId ใหม่เป็น DUPLICATE ไม่มี ack ซ้ำ ส่วน digest ต่างถูก quarantine', async (t) => {
+test('CG4-ID02: a repeated version+digest with a new eventId is DUPLICATE with no repeated ack, while a different digest is quarantined', async (t) => {
   const f = await fixture(t);
   const consumer = 'journey-cg4-duplicate';
   const allow = recordingRevalidator({ decision: 'ALLOW' });
@@ -479,7 +479,7 @@ test('CG4-ID02: version+digest ซ้ำด้วย eventId ใหม่เป�
   );
 });
 
-test('CG4-RC02: canonical reload หลัง gap ขยับ cursor พร้อม audit/ack แต่ไม่ resume งานที่ hold', async (t) => {
+test('CG4-RC02: a canonical reload after a gap moves the cursor with audit/ack but does not resume held work', async (t) => {
   const f = await fixture(t);
   const consumer = 'journey-cg4-reload';
   const allow = recordingRevalidator({ decision: 'ALLOW' });
@@ -494,7 +494,7 @@ test('CG4-RC02: canonical reload หลัง gap ขยับ cursor พร้�
     aggregateId: f.contactId,
     canonicalVersion: 3,
     canonicalStateDigest: digest('cg3:3'),
-    // stable subject id แบบ opaque ไม่ใช่ชื่อหรืออีเมลของ operator
+    // an opaque stable subject id, not the operator name or email
     actorId: randomUUID(),
     reasonCode: 'GOVERNANCE_GAP_RELOAD',
   };
@@ -510,14 +510,14 @@ test('CG4-RC02: canonical reload หลัง gap ขยับ cursor พร้�
   });
   assert.equal(ack.appliedStateDigest, reload.canonicalStateDigest);
 
-  // redelivery ของ event ที่เคยเป็น gap ตรงกับ state digest ของ reload จึงเป็น duplicate
+  // redelivery of an event that used to be a gap matches the reload state digest, so it is a duplicate
   assert.equal((await journey.apply(gapEvent)).state, 'DUPLICATE');
   assert.equal((await journey.apply(preferenceEvent(f, 4))).state, 'NO_OP');
-  assert.equal(allow.calls.length, 0, 'งานที่ HELD ไม่ถูกดึงกลับมาประเมินใหม่');
+  assert.equal(allow.calls.length, 0, 'HELD work is not pulled back for re-evaluation');
   assert.equal((await journey.resumeFromCanonical(reload)).reloaded, false);
 });
 
-test('CG4-REG02: CG4 events ไม่สร้าง reservation และไม่แตะ J2 internal owner action', async (t) => {
+test('CG4-REG02: CG4 events do not create a reservation and do not touch J2 internal owner actions', async (t) => {
   const f = await fixture(t);
   const ownerAction = await f.owner.jrOwnerAction.create({
     data: {
@@ -553,7 +553,7 @@ test('CG4-REG02: CG4 events ไม่สร้าง reservation และไม
   assert.equal(untouched.cancelRequestedAt, null);
 });
 
-test('CG4-REG02: Governance จริงไม่ตัดสิน CG4 policy head ว่า stale และ re-authorization เห็น kill switch', async (t) => {
+test('CG4-REG02: real Governance does not judge the CG4 policy head stale and re-authorization sees the kill switch', async (t) => {
   const f = await fixture(t);
   const outcomes: RevalidateAuthorizedActionOutcome[] = [];
   const port: ContactGovernanceRevalidationPort = {
@@ -598,7 +598,7 @@ test('CG4-REG02: Governance จริงไม่ตัดสิน CG4 policy h
 
   const consumer = 'journey-cg4-real-governance';
   const journey = service(f, revalidator, consumer);
-  // เดิมการเทียบ headVersion กับ CG3 policy version ให้ GOVERNANCE_VERSION_STALE แล้ว hold งาน
+  // previously comparing headVersion with the CG3 policy version gave GOVERNANCE_VERSION_STALE and then held the work
   assert.equal((await journey.apply(policyEvent(f, policyId, 1, scopeKey))).state, 'NO_OP');
   assert.equal(outcomes.at(-1)?.decision, 'ALLOW');
   assert.equal(await actionState(f), 'RESERVED');

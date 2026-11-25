@@ -79,7 +79,7 @@ async function fixture(t: TestContext) {
     await owner.jrSegmentOutbox.deleteMany({ where: { tenantId } });
     await owner.jrIamScopeInvalidationInbox.deleteMany({ where: { tenantId } });
     await owner.jrSegmentRefilterCursor.deleteMany({ where: { tenantId } });
-    // enrollment อ้าง intent ด้วย FK จึงต้องลบก่อน
+    // an enrollment references an intent by FK so it must be deleted first
     await owner.jrEnrollment.deleteMany({ where: { tenantId } });
     await owner.jrOwnerCommandOutbox.deleteMany({ where: { tenantId } });
     await owner.jrOwnerAction.deleteMany({ where: { tenantId } });
@@ -153,7 +153,7 @@ async function publishJourney(f: Fixture, ownerTeamId = f.teamId) {
     tenantId: f.tenantId,
     journeyId,
     version: 1,
-    name: 'เข้าเซกเมนต์',
+    name: 'Segment entry',
     ownerTeamId,
     purpose: 'MARKETING',
     senderIdentityId: 'sender-1',
@@ -184,7 +184,7 @@ async function publishJourney(f: Fixture, ownerTeamId = f.teamId) {
   return journeyId;
 }
 
-/** สร้างงาน re-filter หนึ่งใบผ่านเส้นทางจริง: ingest แล้ว applyRefilter */
+/** creates one re-filter job through the real path: ingest then applyRefilter */
 async function queueRefilter(f: Fixture, revision: number, changeKind: string, entryId?: string) {
   const received = await f.receipts.ingest({
     tenantId: f.tenantId,
@@ -248,7 +248,7 @@ async function cursor(f: Fixture) {
   });
 }
 
-test('correction ที่ยังอยู่ใน segment ด้วย entry เดิมจบเป็น NO_OP ไม่สร้างอะไรใหม่', async (t) => {
+test('a correction still in the segment with the same entry ends as NO_OP and creates nothing new', async (t) => {
   const f = await fixture(t);
   const entryId = `entry-${f.suffix}`;
   await publishJourney(f);
@@ -260,16 +260,16 @@ test('correction ที่ยังอยู่ใน segment ด้วย entry
   const settled = await cursor(f);
   assert.equal(settled.state, 'NO_OP');
   assert.equal(settled.reasonCode, 'MEMBERSHIP_UNCHANGED');
-  assert.ok(settled.settledAt, 'สถานะปลายทางต้องมี settledAt ตาม CHECK ของ #216');
+  assert.ok(settled.settledAt, 'a final state must have settledAt per the CHECK of #216');
   assert.equal(settled.leaseOwner, null);
-  // ห้ามมี enrollment ใหม่จากการ correction
+  // a correction must not produce a new enrollment
   assert.equal(
     await f.owner.jrSegmentEnrollmentIntent.count({ where: { tenantId: f.tenantId } }),
     0,
   );
 });
 
-test('ไม่ eligible แล้วจบเป็น CANCELLED', async (t) => {
+test('no longer eligible ends as CANCELLED', async (t) => {
   const f = await fixture(t);
   const entryId = `entry-${f.suffix}`;
   await publishJourney(f);
@@ -287,7 +287,7 @@ test('ไม่ eligible แล้วจบเป็น CANCELLED', async (t) =>
   assert.ok(settled.settledAt);
 });
 
-test('merge/split รอ canonical fact ใบใหม่ ไม่ย้าย enrollment ของ predecessor', async (t) => {
+test('merge/split waits for a new canonical fact and does not move the predecessor enrollment', async (t) => {
   const f = await fixture(t);
   await publishJourney(f);
   await queueRefilter(f, 1, 'IDENTITY_INVALIDATED', `entry-${f.suffix}`);
@@ -301,16 +301,16 @@ test('merge/split รอ canonical fact ใบใหม่ ไม่ย้าย
   const held = await cursor(f);
   assert.equal(held.state, 'RECONCILING');
   assert.equal(held.reasonCode, 'IDENTITY_LINEAGE_CONFLICT');
-  assert.equal(held.settledAt, null, 'ยังไม่จบ จึงห้ามมี settledAt');
-  assert.equal(held.leaseOwner, null, 'ต้องปล่อย lease ไม่ค้างไว้กับ worker');
-  assert.ok(held.availableAt.getTime() > Date.now(), 'ต้องมีวันกลับมาเอง');
+  assert.equal(held.settledAt, null, 'not finished yet so settledAt must not exist');
+  assert.equal(held.leaseOwner, null, 'the lease must be released and not left with the worker');
+  assert.ok(held.availableAt.getTime() > Date.now(), 'it must have a day to come back on its own');
   assert.equal(
     await f.owner.jrSegmentEnrollmentIntent.count({ where: { tenantId: f.tenantId } }),
     0,
   );
 });
 
-test('REFILTER_REQUIRED ที่ไม่มี entryId รอ fact ที่ชี้ entry ชัดเจน', async (t) => {
+test('a REFILTER_REQUIRED with no entryId waits for a fact that points to the entry clearly', async (t) => {
   const f = await fixture(t);
   await publishJourney(f);
   await queueRefilter(f, 1, 'REFILTER_REQUIRED');
@@ -320,7 +320,7 @@ test('REFILTER_REQUIRED ที่ไม่มี entryId รอ fact ที่�
   assert.equal((await cursor(f)).reasonCode, 'RECONCILIATION_REQUIRED');
 });
 
-test('STALE เลื่อนเป็น DEFERRED ส่วน scope DEFER ก็เช่นกัน', async (t) => {
+test('STALE moves to DEFERRED and so does a scope DEFER', async (t) => {
   const f = await fixture(t);
   const entryId = `entry-${f.suffix}`;
   await publishJourney(f);
@@ -338,13 +338,13 @@ test('STALE เลื่อนเป็น DEFERRED ส่วน scope DEFER ก
   assert.equal(deferred.attempts, 1);
   assert.equal(deferred.settledAt, null);
 
-  // ยังไม่ถึงเวลา จึง claim ไม่ได้
+  // the time has not come, so it cannot be claimed
   assert.equal(
     await processor(f, eligible(f, entryId)).executeNext(f.tenantId, 'worker-2'),
     undefined,
   );
 
-  // พอถึงเวลาแล้วต้องกลับมาเอง และ scope DEFER ก็ให้ผลเดียวกัน
+  // once the time comes it must come back on its own, and a scope DEFER gives the same result
   const later = new JourneySegmentRefilterProcessor(
     f.application,
     f.definitions,
@@ -358,7 +358,7 @@ test('STALE เลื่อนเป็น DEFERRED ส่วน scope DEFER ก
   assert.equal((await cursor(f)).attempts, 2);
 });
 
-test('scope ถูกเพิกถอนหลัง enroll แล้วจบเป็น CANCELLED โดยไม่แตะ Governance', async (t) => {
+test('a scope revoked after enrollment ends as CANCELLED without touching Governance', async (t) => {
   const f = await fixture(t);
   const entryId = `entry-${f.suffix}`;
   await publishJourney(f);
@@ -373,11 +373,11 @@ test('scope ถูกเพิกถอนหลัง enroll แล้วจบ
   assert.equal(
     await f.owner.cgDecisionLog.count({ where: { tenantId: f.tenantId } }).catch(() => 0),
     0,
-    'การเพิกถอนสิทธิ์ของทีมห้ามถูกบันทึกเป็น Governance BLOCK',
+    'a team permission revocation must not be recorded as a Governance BLOCK',
   );
 });
 
-test('IAM WORK grant ถูก revoke แล้ว re-filter ปิด action ที่ยังไม่ dispatch ใน Journey โดยไม่สร้าง owner command เพิ่ม', async (t) => {
+test('an IAM WORK grant is revoked and re-filter closes an action not yet dispatched inside Journey without creating another owner command', async (t) => {
   const f = await fixture(t);
   const entryId = `entry-${f.suffix}`;
   const journeyId = await publishJourney(f);
@@ -417,19 +417,19 @@ test('IAM WORK grant ถูก revoke แล้ว re-filter ปิด action �
       where: { tenantId: f.tenantId, actionKey, state: 'CANCELLED' },
     }),
     1,
-    'command เดิมที่ยังไม่ dispatch ต้องถูกยกเลิกใน Journey',
+    'the original command not yet dispatched must be cancelled inside Journey',
   );
   assert.equal(
     await f.owner.jrOwnerCommandOutbox.count({
       where: { tenantId: f.tenantId, commandId: `cancel:segment-refilter:${actionKey}` },
     }),
     0,
-    'ห้ามสร้าง cancel command เมื่อ owner ยังไม่ได้รับ command ต้นเรื่อง',
+    'a cancel command must not be created when the owner has not yet received the original command',
   );
   assert.equal(await f.owner.cgDecisionLog.count({ where: { tenantId: f.tenantId } }), 0);
 });
 
-test('IAM revoke ของทีม A สร้าง durable cursor และ cancel เฉพาะ Journey ของทีม A', async (t) => {
+test('an IAM revoke for team A creates a durable cursor and cancels only the Journeys of team A', async (t) => {
   const f = await fixture(t);
   const entryId = `entry-${f.suffix}`;
   const teamB = randomUUID();
@@ -555,7 +555,7 @@ test('IAM revoke ของทีม A สร้าง durable cursor และ c
       where: { tenantId: f.tenantId, actionKey: actionA, state: 'CANCELLED' },
     }),
     1,
-    'revoke ทีม A ต้องยกเลิกเฉพาะ command ที่ยังไม่ dispatch ของทีม A',
+    'the team A revoke must cancel only the not-yet-dispatched commands of team A',
   );
   assert.equal(
     await f.owner.jrOwnerCommandOutbox.count({
@@ -570,7 +570,7 @@ test('IAM revoke ของทีม A สร้าง durable cursor และ c
       })
     ).state,
     'PENDING',
-    'revoke ทีม A ต้องไม่ cancel action ของทีม B',
+    'the team A revoke must not cancel the actions of team B',
   );
   assert.equal(
     (await f.owner.jrEnrollment.findUniqueOrThrow({ where: { id: enrollmentB.id } })).runState,
@@ -589,12 +589,12 @@ test('IAM revoke ของทีม A สร้าง durable cursor และ c
   );
 });
 
-test('entry เปลี่ยนไปแล้วต้องไม่ถือว่าเป็น correction ของ entry เดิม', async (t) => {
+test('an entry that has changed must not be treated as a correction of the original entry', async (t) => {
   const f = await fixture(t);
   await publishJourney(f);
   await queueRefilter(f, 1, 'CORRECTED', `entry-old-${f.suffix}`);
 
-  // Customer 360 ตอบด้วย entry ใหม่ = การเข้ารอบใหม่ ไม่ใช่การแก้ค่าของรอบเดิม
+  // Customer 360 answering with a new entry = a new round of entry, not a correction of the original round
   const outcome = await processor(f, eligible(f, `entry-new-${f.suffix}`)).executeNext(
     f.tenantId,
     'worker-1',
@@ -604,11 +604,11 @@ test('entry เปลี่ยนไปแล้วต้องไม่ถื�
   assert.equal(
     await f.owner.jrSegmentEnrollmentIntent.count({ where: { tenantId: f.tenantId } }),
     0,
-    'ห้ามสร้าง enrollment ใหม่จาก re-filter — การเข้าใหม่ต้องมากับ ENTERED เท่านั้น',
+    'must not create a new enrollment from re-filter — a new entry must come with ENTERED only',
   );
 });
 
-test('lease: worker ที่สองไม่ได้ cursor เดิมจนกว่า lease จะหมดอายุ', async (t) => {
+test('lease: a second worker does not get the same cursor until the lease expires', async (t) => {
   const f = await fixture(t);
   const entryId = `entry-${f.suffix}`;
   await publishJourney(f);
@@ -619,7 +619,7 @@ test('lease: worker ที่สองไม่ได้ cursor เดิมจ�
   assert.equal(claimed.state, 'REVALIDATING');
   assert.equal(await f.receipts.claimNextRefilter(f.tenantId, 'worker-2', 60), undefined);
 
-  // worker แรกตายกลางทาง งานต้องกลับเข้าคิว
+  // the first worker died midway, the work must return to the queue
   const expired = new JourneySegmentReceiptRepository(f.application, {
     now: () => new Date(Date.now() + 120_000),
   });
@@ -628,7 +628,7 @@ test('lease: worker ที่สองไม่ได้ cursor เดิมจ�
   assert.equal(retaken?.leaseOwner, 'worker-2');
 });
 
-test('ไม่มีงาน re-filter คืน undefined โดยไม่แตะอะไรเลย', async (t) => {
+test('no re-filter work returns undefined without touching anything', async (t) => {
   const f = await fixture(t);
   assert.equal(
     await processor(f, eligible(f, 'entry')).executeNext(f.tenantId, 'worker-1'),
@@ -636,7 +636,7 @@ test('ไม่มีงาน re-filter คืน undefined โดยไม่�
   );
 });
 
-/** สร้าง enrollment จริงผ่าน applyEnrollment แล้วคืน enrollmentId */
+/** creates a real enrollment through applyEnrollment and returns the enrollmentId */
 async function enrollFor(f: Fixture, entryId: string, journeyId: string) {
   const received = await f.receipts.ingest({
     tenantId: f.tenantId,
@@ -694,7 +694,7 @@ async function ownerAction(f: Fixture, enrollmentId: string, actionKey: string) 
   });
 }
 
-test('pre-barrier: action ที่ command ยังไม่ออกจาก Journey ถูกยกเลิกในบ้านและห้าม dispatch', async (t) => {
+test('pre-barrier: an action whose command has not left Journey is cancelled in-house and must not be dispatched', async (t) => {
   const f = await fixture(t);
   const entryId = `entry-${f.suffix}`;
   const journeyId = await publishJourney(f);
@@ -712,7 +712,7 @@ test('pre-barrier: action ที่ command ยังไม่ออกจาก
   const action = await f.owner.jrOwnerAction.findFirstOrThrow({
     where: { tenantId: f.tenantId, actionKey },
   });
-  // command ยังไม่เคยออกจาก Journey — ยกเลิกในบ้านได้ทันทีโดยไม่ต้องส่ง cancel ให้ owner (#123)
+  // the command never left Journey — it can be cancelled in-house immediately without sending a cancel to the owner (#123)
   assert.equal(action.state, 'CANCELLED');
   const commands = await f.owner.jrOwnerCommandOutbox.findMany({
     where: { tenantId: f.tenantId, actionKey },
@@ -722,21 +722,21 @@ test('pre-barrier: action ที่ command ยังไม่ออกจาก
     ['CANCELLED'],
   );
 
-  // enrollment ต้องจบด้วยเหตุ CANCELLED
+  // the enrollment must end with the reason CANCELLED
   const enrollment = await f.owner.jrEnrollment.findUniqueOrThrow({ where: { id: enrollmentId } });
   assert.equal(enrollment.runState, 'TERMINAL');
   assert.equal(enrollment.terminalReason, 'CANCELLED');
   assert.equal(enrollment.state, 'BLOCKED');
 });
 
-test('post-barrier: action ที่ owner ack แล้วไม่ถูกแตะ เพราะ owner fact ลบไม่ได้', async (t) => {
+test('post-barrier: an action the owner has acked is not touched because an owner fact cannot be deleted', async (t) => {
   const f = await fixture(t);
   const entryId = `entry-${f.suffix}`;
   const journeyId = await publishJourney(f);
   const enrollmentId = await enrollFor(f, entryId, journeyId);
   const actionKey = `action-${f.suffix}`;
   await ownerAction(f, enrollmentId, actionKey);
-  // owner สร้าง Case จริงไปแล้ว — ผ่าน barrier
+  // the owner has really created the Case — past the barrier
   await f.owner.jrOwnerAction.updateMany({
     where: { tenantId: f.tenantId, actionKey },
     data: { state: 'ACKNOWLEDGED' },
@@ -754,20 +754,24 @@ test('post-barrier: action ที่ owner ack แล้วไม่ถูกแ
   const action = await f.owner.jrOwnerAction.findFirstOrThrow({
     where: { tenantId: f.tenantId, actionKey },
   });
-  assert.equal(action.state, 'ACKNOWLEDGED', 'ของที่ owner สร้างแล้วห้ามถูกย้อน');
+  assert.equal(
+    action.state,
+    'ACKNOWLEDGED',
+    'something the owner already created must not be reverted',
+  );
   assert.equal(
     await f.owner.jrOwnerCommandOutbox.count({ where: { tenantId: f.tenantId, actionKey } }),
     1,
-    'ห้ามสั่งยกเลิกสิ่งที่ยกเลิกไม่ได้ — มีแค่ command ต้นเรื่อง',
+    'must not order cancellation of something that cannot be cancelled — only the original command exists',
   );
 });
 
-test('enrollment ที่จบด้วยเหตุอื่นแล้วห้ามถูกเขียนทับเป็น CANCELLED', async (t) => {
+test('an enrollment already ended for another reason must not be overwritten as CANCELLED', async (t) => {
   const f = await fixture(t);
   const entryId = `entry-${f.suffix}`;
   const journeyId = await publishJourney(f);
   const enrollmentId = await enrollFor(f, entryId, journeyId);
-  // ถึงเป้าหมายไปก่อนแล้ว — first-terminal-commit-wins
+  // the goal was reached first — first-terminal-commit-wins
   await f.owner.jrEnrollment.update({
     where: { id: enrollmentId },
     data: { runState: 'TERMINAL', terminalReason: 'GOAL_REACHED', state: 'AUTHORIZED' },
@@ -780,11 +784,15 @@ test('enrollment ที่จบด้วยเหตุอื่นแล้ว
   }).executeNext(f.tenantId, 'worker-1');
 
   const enrollment = await f.owner.jrEnrollment.findUniqueOrThrow({ where: { id: enrollmentId } });
-  assert.equal(enrollment.terminalReason, 'GOAL_REACHED', 'เหตุผลที่จบต้องบันทึกครั้งเดียว');
+  assert.equal(
+    enrollment.terminalReason,
+    'GOAL_REACHED',
+    'the reason it ended must be recorded only once',
+  );
   assert.equal(enrollment.state, 'AUTHORIZED');
 });
 
-test('ยกเลิกซ้ำไม่สั่ง owner ยกเลิกเป็นครั้งที่สอง', async (t) => {
+test('cancelling again does not order the owner to cancel a second time', async (t) => {
   const f = await fixture(t);
   const entryId = `entry-${f.suffix}`;
   const journeyId = await publishJourney(f);
@@ -808,7 +816,7 @@ test('ยกเลิกซ้ำไม่สั่ง owner ยกเลิก�
     ).executeNext(f.tenantId, `worker-${revision}`);
   }
 
-  // รอบที่สองเจอ action ที่ terminal แล้ว — ไม่มี command ใหม่และไม่มีอะไรกลับไป dispatch ได้
+  // the second round finds an action that is already terminal — no new command and nothing can go back to dispatch
   const commands = await f.owner.jrOwnerCommandOutbox.findMany({
     where: { tenantId: f.tenantId, actionKey },
   });

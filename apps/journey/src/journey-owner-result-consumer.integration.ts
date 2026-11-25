@@ -1,8 +1,8 @@
 /**
- * J2.8 (#136) — พิสูจน์ขารับผลกลับจาก owner ผ่าน Kafka จริง
+ * J2.8 (#136) — proves the receiving leg of results back from the owner through real Kafka
  *
- * ครอบสิ่งที่สเปคบังคับ: binding ครบทุกชั้น, ผลที่ bind ไม่ตรงต้องไม่ถูก apply,
- * ผลซ้ำเป็น idempotent และผลที่มาช้าหลัง terminal แล้วต้องไม่ย้อน state
+ * Covers what the spec requires: binding at every layer, a result whose binding does not match must not be applied,
+ * a repeated result is idempotent and a result arriving late after terminal must not revert the state
  */
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -41,7 +41,7 @@ async function waitFor(check: () => Promise<boolean>, timeoutMs = 25_000): Promi
     if (await check()) return;
     await new Promise((resolve) => setTimeout(resolve, 150));
   }
-  throw new Error('เงื่อนไขไม่เป็นจริงภายในเวลาที่กำหนด');
+  throw new Error('condition did not become true within the allotted time');
 }
 
 async function fixture(t: TestContext) {
@@ -88,7 +88,7 @@ async function fixture(t: TestContext) {
     await Promise.all([owner.$disconnect(), application.$disconnect()]);
   });
 
-  /** สร้าง action + command ที่ถูกส่งออกไปแล้ว (สถานะเดียวกับหลัง relay publish) */
+  /** creates an action + command that has already been sent out (the same state as after a relay publish) */
   async function dispatchedCommand() {
     const actionKey = `result-action-${randomUUID()}`;
     const commandId = randomUUID();
@@ -124,8 +124,8 @@ async function fixture(t: TestContext) {
       ownerAggregate: { type: 'case', id: randomUUID(), version: 1 },
       ...overrides,
     };
-    // canonical success ใช้ status เป็น code/BUSINESS ส่วน REJECTED ต้องใช้ frozen error
-    // code ที่ผูก category/retryDisposition ไว้แล้ว — ให้ override ชนะเสมอ
+    // a canonical success uses status as the code/BUSINESS, while REJECTED must use a frozen error
+    // code that already binds category/retryDisposition — let the override always win
     return {
       code: base.status,
       category: 'BUSINESS',
@@ -151,7 +151,7 @@ async function fixture(t: TestContext) {
     });
   }
 
-  /** action ของ Dialer ที่มี command payload จริง — cancel command จึงถูกสร้างตาม contract ได้ */
+  /** a Dialer action with a real command payload — so a cancel command can be built per the contract */
   async function dispatchedDialerCommand() {
     const enrollment = randomUUID();
     const actionKey = `${enrollment}:1:admit-campaign`;
@@ -219,123 +219,143 @@ async function fixture(t: TestContext) {
   };
 }
 
-test('result ที่ bind ถูกต้องถูก apply ลง action และ inbox', { timeout: 60_000 }, async (t) => {
-  const f = await fixture(t);
-  const { actionKey, commandId } = await f.dispatchedCommand();
+test(
+  'a correctly bound result is applied to the action and the inbox',
+  { timeout: 60_000 },
+  async (t) => {
+    const f = await fixture(t);
+    const { actionKey, commandId } = await f.dispatchedCommand();
 
-  await f.publishResult(f.resultPayload(commandId, actionKey), commandId);
+    await f.publishResult(f.resultPayload(commandId, actionKey), commandId);
 
-  await waitFor(async () => {
-    const action = await f.owner.jrOwnerAction.findFirstOrThrow({
-      where: { tenantId: f.tenantId, actionKey },
+    await waitFor(async () => {
+      const action = await f.owner.jrOwnerAction.findFirstOrThrow({
+        where: { tenantId: f.tenantId, actionKey },
+      });
+      return action.state === 'ACKNOWLEDGED';
     });
-    return action.state === 'ACKNOWLEDGED';
-  });
 
-  const inbox = await f.owner.jrOwnerResultInbox.findFirstOrThrow({
-    where: { tenantId: f.tenantId, commandId },
-  });
-  assert.equal(inbox.resultKind, 'ACKNOWLEDGED');
-  assert.notEqual(inbox.ownerAggregateRef, null);
-});
-
-test('result ใบเดิมที่ส่งซ้ำไม่สร้าง row ใหม่ (idempotent)', { timeout: 60_000 }, async (t) => {
-  const f = await fixture(t);
-  const { actionKey, commandId } = await f.dispatchedCommand();
-  const payload = f.resultPayload(commandId, actionKey);
-
-  await f.publishResult(payload, commandId);
-  await waitFor(async () => {
-    const action = await f.owner.jrOwnerAction.findFirstOrThrow({
-      where: { tenantId: f.tenantId, actionKey },
+    const inbox = await f.owner.jrOwnerResultInbox.findFirstOrThrow({
+      where: { tenantId: f.tenantId, commandId },
     });
-    return action.state === 'ACKNOWLEDGED';
-  });
-  await f.publishResult(payload, commandId);
-
-  // รอให้ใบที่สองถูกประมวลผลแน่ ๆ ก่อนนับ
-  await new Promise((resolve) => setTimeout(resolve, 2_000));
-  assert.equal(
-    await f.owner.jrOwnerResultInbox.count({ where: { tenantId: f.tenantId, commandId } }),
-    1,
-  );
-});
+    assert.equal(inbox.resultKind, 'ACKNOWLEDGED');
+    assert.notEqual(inbox.ownerAggregateRef, null);
+  },
+);
 
 test(
-  'result ที่อ้าง actionKey ไม่ตรงกับ command ต้นเรื่องต้องไม่ถูก apply',
+  'a resent result of the same id creates no new row (idempotent)',
+  { timeout: 60_000 },
+  async (t) => {
+    const f = await fixture(t);
+    const { actionKey, commandId } = await f.dispatchedCommand();
+    const payload = f.resultPayload(commandId, actionKey);
+
+    await f.publishResult(payload, commandId);
+    await waitFor(async () => {
+      const action = await f.owner.jrOwnerAction.findFirstOrThrow({
+        where: { tenantId: f.tenantId, actionKey },
+      });
+      return action.state === 'ACKNOWLEDGED';
+    });
+    await f.publishResult(payload, commandId);
+
+    // make sure the second one has been processed before counting
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+    assert.equal(
+      await f.owner.jrOwnerResultInbox.count({ where: { tenantId: f.tenantId, commandId } }),
+      1,
+    );
+  },
+);
+
+test(
+  'a result whose actionKey does not match the original command must not be applied',
   { timeout: 60_000 },
   async (t) => {
     const f = await fixture(t);
     const { actionKey, commandId } = await f.dispatchedCommand();
     const other = await f.dispatchedCommand();
 
-    // ผลอ้าง commandId ของใบแรก แต่ actionKey ของอีกใบ — binding พัง
+    // the result references the commandId of the first one but the actionKey of the other — broken binding
     await f.publishResult(f.resultPayload(commandId, other.actionKey), commandId);
     await new Promise((resolve) => setTimeout(resolve, 3_000));
 
     assert.equal(
       await f.owner.jrOwnerResultInbox.count({ where: { tenantId: f.tenantId, commandId } }),
       0,
-      'result ที่ bind ไม่ตรงต้องไม่ลง inbox',
+      'a result whose binding does not match must not go into the inbox',
     );
     const untouched = await f.owner.jrOwnerAction.findFirstOrThrow({
       where: { tenantId: f.tenantId, actionKey },
     });
-    assert.equal(untouched.state, 'DISPATCHED', 'state ต้องไม่ขยับจากผลที่ bind ไม่ตรง');
+    assert.equal(
+      untouched.state,
+      'DISPATCHED',
+      'the state must not move because of a result whose binding does not match',
+    );
   },
 );
 
-test('result ที่อ้าง requestHash ไม่ตรงต้องไม่ถูก apply', { timeout: 60_000 }, async (t) => {
-  const f = await fixture(t);
-  const { actionKey, commandId } = await f.dispatchedCommand();
+test(
+  'a result whose requestHash does not match must not be applied',
+  { timeout: 60_000 },
+  async (t) => {
+    const f = await fixture(t);
+    const { actionKey, commandId } = await f.dispatchedCommand();
 
-  await f.publishResult(
-    f.resultPayload(commandId, actionKey, { requestHash: 'd'.repeat(64) }),
-    commandId,
-  );
-  await new Promise((resolve) => setTimeout(resolve, 3_000));
+    await f.publishResult(
+      f.resultPayload(commandId, actionKey, { requestHash: 'd'.repeat(64) }),
+      commandId,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 3_000));
 
-  assert.equal(
-    await f.owner.jrOwnerResultInbox.count({ where: { tenantId: f.tenantId, commandId } }),
-    0,
-  );
-});
-
-test('ผลที่มาช้าหลัง action เข้า terminal แล้วไม่ย้อน state', { timeout: 60_000 }, async (t) => {
-  const f = await fixture(t);
-  const { actionKey, commandId } = await f.dispatchedCommand();
-
-  await f.publishResult(
-    f.resultPayload(commandId, actionKey, {
-      status: 'REJECTED',
-      // REJECTED ต้องใช้ frozen error code ที่ผูก category/retryDisposition ไว้แล้ว
-      code: 'BINDING_MISMATCH',
-      category: 'CONFLICT',
-      retryDisposition: 'QUARANTINE',
-      failureClass: 'BUSINESS',
-      reasonCode: 'BINDING_MISMATCH',
-    }),
-    commandId,
-  );
-  await waitFor(async () => {
-    const action = await f.owner.jrOwnerAction.findFirstOrThrow({
-      where: { tenantId: f.tenantId, actionKey },
-    });
-    return action.state === 'REJECTED';
-  });
-
-  // ผลใบใหม่ที่บอกว่าสำเร็จ มาถึงหลัง terminal แล้ว
-  await f.publishResult(f.resultPayload(commandId, actionKey, { status: 'CREATED' }), commandId);
-  await new Promise((resolve) => setTimeout(resolve, 3_000));
-
-  const final = await f.owner.jrOwnerAction.findFirstOrThrow({
-    where: { tenantId: f.tenantId, actionKey },
-  });
-  assert.equal(final.state, 'REJECTED', 'terminal ที่ commit แล้วต้องชนะเสมอ');
-});
+    assert.equal(
+      await f.owner.jrOwnerResultInbox.count({ where: { tenantId: f.tenantId, commandId } }),
+      0,
+    );
+  },
+);
 
 test(
-  'ผล ADMITTED ของ command เดิมที่มาก่อนผล CANCELLED ของ cancel command ไม่ทำให้ Journey เห็น state ต่างจาก owner',
+  'a result arriving late after the action reached terminal does not revert the state',
+  { timeout: 60_000 },
+  async (t) => {
+    const f = await fixture(t);
+    const { actionKey, commandId } = await f.dispatchedCommand();
+
+    await f.publishResult(
+      f.resultPayload(commandId, actionKey, {
+        status: 'REJECTED',
+        // REJECTED must use a frozen error code that already binds category/retryDisposition
+        code: 'BINDING_MISMATCH',
+        category: 'CONFLICT',
+        retryDisposition: 'QUARANTINE',
+        failureClass: 'BUSINESS',
+        reasonCode: 'BINDING_MISMATCH',
+      }),
+      commandId,
+    );
+    await waitFor(async () => {
+      const action = await f.owner.jrOwnerAction.findFirstOrThrow({
+        where: { tenantId: f.tenantId, actionKey },
+      });
+      return action.state === 'REJECTED';
+    });
+
+    // a new result saying success arrives after terminal
+    await f.publishResult(f.resultPayload(commandId, actionKey, { status: 'CREATED' }), commandId);
+    await new Promise((resolve) => setTimeout(resolve, 3_000));
+
+    const final = await f.owner.jrOwnerAction.findFirstOrThrow({
+      where: { tenantId: f.tenantId, actionKey },
+    });
+    assert.equal(final.state, 'REJECTED', 'a committed terminal must always win');
+  },
+);
+
+test(
+  'an ADMITTED result of the original command arriving before the CANCELLED result of the cancel command does not make Journey see a different state from the owner',
   { timeout: 60_000 },
   async (t) => {
     const f = await fixture(t);
@@ -392,16 +412,16 @@ test(
 );
 
 test(
-  'result ที่ bind ไม่ตรงหรือผิด contract ถูกกักเข้า DLQ และไม่ block ผลถัดไปใน partition เดียวกัน',
+  'a result whose binding does not match or violates the contract is quarantined to the DLQ and does not block the next result in the same partition',
   { timeout: 60_000 },
   async (t) => {
     const f = await fixture(t);
     const bad = await f.dispatchedCommand();
     const good = await f.dispatchedCommand();
 
-    // ผลอ้าง command ที่ไม่มีใน outbox
+    // a result referencing a command that is not in the outbox
     await f.publishResult(f.resultPayload(randomUUID(), bad.actionKey), bad.commandId);
-    // result event ที่ผิด contract (success ต้องมี ownerAggregate) — ห้ามถูกข้ามเงียบ
+    // a result event that violates the contract (success must have ownerAggregate) — must not be skipped silently
     const { ownerAggregate: _missing, ...withoutAggregate } = f.resultPayload(
       bad.commandId,
       bad.actionKey,
@@ -424,7 +444,7 @@ test(
 );
 
 test(
-  'ผลซ้ำที่เนื้อหาขัดกับผลที่ apply ไปแล้วถูกกักเป็น EVENT_HASH_CONFLICT',
+  'a repeated result whose content conflicts with the one already applied is quarantined as EVENT_HASH_CONFLICT',
   { timeout: 60_000 },
   async (t) => {
     const f = await fixture(t);

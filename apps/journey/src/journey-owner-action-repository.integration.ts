@@ -70,7 +70,7 @@ function ensureInput(
   };
 }
 
-test('ensureAction สร้าง PENDING action พร้อม command แรก และ retry ด้วย hash เดิมไม่สร้างซ้ำ', async (t) => {
+test('ensureAction creates a PENDING action with the first command and a retry with the same hash does not duplicate', async (t) => {
   const f = await fixture(t);
   const repository = new JourneyOwnerActionRepository(f.application);
   const input = ensureInput(f.tenantId);
@@ -87,7 +87,7 @@ test('ensureAction สร้าง PENDING action พร้อม command แร
   assert.equal(await f.owner.jrOwnerCommandOutbox.count({ where: { tenantId: f.tenantId } }), 1);
 });
 
-test('actionKey เดิมกับ requestHash ต่างถูกปฏิเสธเป็น IDEMPOTENCY_CONFLICT', async (t) => {
+test('the same actionKey with a different requestHash is rejected as IDEMPOTENCY_CONFLICT', async (t) => {
   const f = await fixture(t);
   const repository = new JourneyOwnerActionRepository(f.application);
   const input = ensureInput(f.tenantId);
@@ -103,7 +103,7 @@ test('actionKey เดิมกับ requestHash ต่างถูกปฏิ
   );
 });
 
-test('markCommandDispatched เลื่อน command เป็น SENT และ action เป็น DISPATCHED', async (t) => {
+test('markCommandDispatched moves the command to SENT and the action to DISPATCHED', async (t) => {
   const f = await fixture(t);
   const repository = new JourneyOwnerActionRepository(f.application);
   const input = ensureInput(f.tenantId);
@@ -115,7 +115,7 @@ test('markCommandDispatched เลื่อน command เป็น SENT แล�
   assert.equal(action?.state, 'DISPATCHED');
 });
 
-test('applyResult ACKNOWLEDGED เปลี่ยน action จาก DISPATCHED และ retry เดิมเป็น DUPLICATE', async (t) => {
+test('applyResult ACKNOWLEDGED changes the action from DISPATCHED and the same retry is DUPLICATE', async (t) => {
   const f = await fixture(t);
   const repository = new JourneyOwnerActionRepository(f.application);
   const input = ensureInput(f.tenantId);
@@ -143,7 +143,7 @@ test('applyResult ACKNOWLEDGED เปลี่ยน action จาก DISPATCHED
   assert.equal(duplicate.action.state, 'ACKNOWLEDGED');
 });
 
-test('applyResult เดิมกับ resultHash ต่างคืน CONFLICT โดยไม่ย้อน state', async (t) => {
+test('the same applyResult with a different resultHash returns CONFLICT without moving the state back', async (t) => {
   const f = await fixture(t);
   const repository = new JourneyOwnerActionRepository(f.application);
   const input = ensureInput(f.tenantId);
@@ -163,10 +163,14 @@ test('applyResult เดิมกับ resultHash ต่างคืน CONFLIC
     resultHash: 'x'.repeat(64),
   });
   assert.equal(conflicted.outcome, 'CONFLICT');
-  assert.equal(conflicted.action.state, 'ACKNOWLEDGED', 'terminal ที่ commit แล้วต้องไม่ถูกย้อน');
+  assert.equal(
+    conflicted.action.state,
+    'ACKNOWLEDGED',
+    'a committed terminal must not be reverted',
+  );
 });
 
-test('ผลที่มาช้าหลัง action เข้า terminal แล้วถูกเพิกเฉยและไม่ย้อน state', async (t) => {
+test('a late result after the action has reached terminal is ignored and does not revert the state', async (t) => {
   const f = await fixture(t);
   const repository = new JourneyOwnerActionRepository(f.application);
   const input = ensureInput(f.tenantId);
@@ -181,7 +185,7 @@ test('ผลที่มาช้าหลัง action เข้า terminal �
     correlationId: 'corr-result',
   });
 
-  // duplicate command ใบใหม่ (เช่น dispatch ซ้ำที่หลุดมา) รายงานผลต่างมาทีหลัง
+  // a new duplicate command (e.g. a stray repeated dispatch) reporting a different result later
   const lateCommandId = randomUUID();
   const late = await repository.applyResult({
     tenantId: f.tenantId,
@@ -195,7 +199,7 @@ test('ผลที่มาช้าหลัง action เข้า terminal �
   assert.equal(late.action.state, 'ACKNOWLEDGED');
 });
 
-/** action ที่มี command payload จริงตาม contract — cancel ต้องสร้างจาก payload ต้นฉบับนี้ */
+/** an action with a real command payload per the contract — cancel must be built from this original payload */
 function dialerActionInput(tenantId: string): EnsureOwnerActionInput {
   const enrollment = randomUUID();
   const rawActionKey = `${enrollment}:1:admit-campaign`;
@@ -246,7 +250,7 @@ async function cancelCommandOf(
   return rows[0]!;
 }
 
-test('cancel ก่อน command ออกจาก Journey ยกเลิกในบ้านทันที ไม่ส่ง cancel ไปรบกวน owner', async (t) => {
+test('a cancel before the command leaves Journey cancels in-house immediately and does not send a cancel to bother the owner', async (t) => {
   const f = await fixture(t);
   const repository = new JourneyOwnerActionRepository(f.application);
   const input = dialerActionInput(f.tenantId);
@@ -265,12 +269,12 @@ test('cancel ก่อน command ออกจาก Journey ยกเลิก�
   assert.deepEqual(
     commands.map(({ state }) => state),
     ['CANCELLED'],
-    'command เดิมต้องไม่ถูก dispatch และไม่มี cancel command เกิดขึ้น',
+    'the original command must not be dispatched and no cancel command arises',
   );
   assert.equal((await repository.findPendingCommands(f.tenantId)).length, 0);
 });
 
-test('cancel หลัง dispatch stage CANCEL_x ตาม contract และคำขอซ้ำได้ command ใบเดิม', async (t) => {
+test('a cancel after dispatch stages CANCEL_x per the contract and a repeated request gets the same command', async (t) => {
   const f = await fixture(t);
   const repository = new JourneyOwnerActionRepository(f.application);
   const input = dialerActionInput(f.tenantId);
@@ -295,7 +299,7 @@ test('cancel หลัง dispatch stage CANCEL_x ตาม contract และ�
   assert.equal(staged.requestHash, payload.requestHash);
   assert.notEqual(staged.requestHash, input.requestHash);
 
-  // retry ของคำขอเดิมหรือคำขอใหม่หลัง CANCEL_REQUESTED ไม่สร้าง command เพิ่ม
+  // a retry of the original request or a new request after CANCEL_REQUESTED creates no extra command
   for (const key of ['outcome-corrected', 'another-request']) {
     const repeated = await repository.requestCancellation({
       tenantId: f.tenantId,
@@ -308,7 +312,7 @@ test('cancel หลัง dispatch stage CANCEL_x ตาม contract และ�
   assert.equal(await f.owner.jrOwnerCommandOutbox.count({ where: { tenantId: f.tenantId } }), 2);
 });
 
-test('supersede stage SUPERSEDE_x พร้อม superseding outcome linkage', async (t) => {
+test('supersede stages SUPERSEDE_x with the superseding outcome linkage', async (t) => {
   const f = await fixture(t);
   const repository = new JourneyOwnerActionRepository(f.application);
   const input = dialerActionInput(f.tenantId);
@@ -336,7 +340,7 @@ test('supersede stage SUPERSEDE_x พร้อม superseding outcome linkage', 
   );
 });
 
-test('ENSURE_CASE ที่ออกไปแล้วไม่มี cancel contract — Case ที่ owner อาจ commit แล้วต้องคงอยู่', async (t) => {
+test('an ENSURE_CASE that already left has no cancel contract — a Case the owner may have committed must remain', async (t) => {
   const f = await fixture(t);
   const repository = new JourneyOwnerActionRepository(f.application);
   const input = ensureInput(f.tenantId);
@@ -353,7 +357,7 @@ test('ENSURE_CASE ที่ออกไปแล้วไม่มี cancel con
   assert.equal(await f.owner.jrOwnerCommandOutbox.count({ where: { tenantId: f.tenantId } }), 1);
 });
 
-test('ผลสำเร็จของ command เดิมที่มาระหว่าง CANCEL_REQUESTED ไม่ปิด action ก่อนผลของ cancel', async (t) => {
+test('a success result of the original command arriving during CANCEL_REQUESTED does not close the action before the cancel result', async (t) => {
   const f = await fixture(t);
   const repository = new JourneyOwnerActionRepository(f.application);
   const input = dialerActionInput(f.tenantId);
@@ -396,7 +400,7 @@ test('ผลสำเร็จของ command เดิมที่มาร�
   assert.equal(cancelled.action.ownerAggregateVersion, 2);
 });
 
-test('owner ตอบ TOO_LATE ต่อ cancel บันทึกผลจริง ส่วน cancel ที่ถูกปฏิเสธเข้า RECONCILING', async (t) => {
+test('the owner answering TOO_LATE to a cancel records the real result while a rejected cancel goes to RECONCILING', async (t) => {
   const f = await fixture(t);
   const repository = new JourneyOwnerActionRepository(f.application);
 
@@ -425,11 +429,11 @@ test('owner ตอบ TOO_LATE ต่อ cancel บันทึกผลจร�
       ownerAggregateRef: 'record-999',
     });
     assert.equal(result.outcome, 'APPLIED');
-    assert.equal(result.action.state, expected, `${resultKind} ของ cancel command`);
+    assert.equal(result.action.state, expected, `${resultKind} of the cancel command`);
   }
 });
 
-test('ownerActionที่ไม่มีอยู่จริงถูกปฏิเสธเป็น ACTION_NOT_FOUND', async (t) => {
+test('an owner action that does not exist is rejected as ACTION_NOT_FOUND', async (t) => {
   const f = await fixture(t);
   const repository = new JourneyOwnerActionRepository(f.application);
 
@@ -438,7 +442,7 @@ test('ownerActionที่ไม่มีอยู่จริงถูกปฏ
       repository.applyResult({
         tenantId: f.tenantId,
         commandId: randomUUID(),
-        actionKey: 'ไม่มีจริง',
+        actionKey: 'does-not-exist',
         resultKind: 'ACKNOWLEDGED',
         resultHash: 'a'.repeat(64),
         correlationId: 'corr-missing',
@@ -450,7 +454,7 @@ test('ownerActionที่ไม่มีอยู่จริงถูกปฏ
   );
 });
 
-test('tenant คนละใบไม่เห็น owner action ของกันและกัน', async (t) => {
+test('different tenants do not see each other owner actions', async (t) => {
   const a = await fixture(t);
   const b = await fixture(t);
   const repository = new JourneyOwnerActionRepository(a.application);

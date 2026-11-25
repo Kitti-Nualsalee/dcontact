@@ -73,7 +73,7 @@ async function fixture(t: TestContext) {
   return { db, tenantId, journeyTeam, templateTeam, repository, context, document };
 }
 
-test('Team writers: actual Journey/Template draft writers สร้าง current ownership ที่ห้ามปิดทีม', async (t) => {
+test('Team writers: the actual Journey/Template draft writers create current ownership that forbids closing the team', async (t) => {
   const { db, tenantId, journeyTeam, templateTeam, repository, context, document } =
     await fixture(t);
   await repository.createJourneyDraft(context(), {

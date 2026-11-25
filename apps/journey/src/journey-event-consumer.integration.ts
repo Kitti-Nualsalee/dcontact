@@ -78,7 +78,7 @@ function createJourneyIdempotencyKey(tenantId: string, eventId: string) {
   return { consumerGroup: 'journey-idempotency-integration', tenantId, eventId };
 }
 
-test('Journey durable idempotency claim/complete ป้องกัน concurrent, retry และ restart', async (t) => {
+test('Journey durable idempotency claim/complete guards against concurrency, retry and restart', async (t) => {
   const { application, createInbox, tenantId } = await createFixture(t);
   const store = createDurableJourneyIdempotencyStore(application);
 
@@ -108,9 +108,9 @@ test('Journey durable idempotency claim/complete ป้องกัน concurren
   await assert.rejects(
     () =>
       store.execute(createJourneyIdempotencyKey(tenantId, beforeCommitEventId), async () => {
-        throw new Error('จำลอง crash ก่อน complete commit');
+        throw new Error('simulated crash before complete commit');
       }),
-    /crash ก่อน complete commit/,
+    /crash before complete commit/,
   );
   assert.equal(
     await store.execute(
@@ -152,7 +152,7 @@ test('Journey durable idempotency claim/complete ป้องกัน concurren
   assert.equal(restartedHandlerCalled, false);
 });
 
-test('crash หลัง Governance reserve rollback handler ทั้งชุดก่อน retry', async (t) => {
+test('a crash after Governance reserve rolls back the whole handler before retry', async (t) => {
   const { application, tenantId } = await createFixture(t);
   const contactId = randomUUID();
   const identityId = randomUUID();
@@ -214,7 +214,7 @@ test('crash หลัง Governance reserve rollback handler ทั้งชุ�
         authorizationInput,
         transaction,
       );
-      throw new Error('จำลอง crash หลัง reserve');
+      throw new Error('simulated crash after reserve');
     },
   };
   const input = {
@@ -234,7 +234,7 @@ test('crash หลัง Governance reserve rollback handler ทั้งชุ�
           contactAuthorizationPort: crashAfterReserve,
         }).processEvent(tenantId, input, tx);
       }),
-    /crash หลัง reserve/,
+    /crash after reserve/,
   );
   const verify = new PrismaClient();
   assert.equal(await verify.cgReservation.count({ where: { tenantId } }), 0);

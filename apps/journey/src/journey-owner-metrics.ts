@@ -1,21 +1,21 @@
 /**
- * J2.8 (#136) — PII-safe observability ของ owner command/result path
+ * J2.8 (#136) — PII-safe observability of the owner command/result path
  *
- * ปิดข้อสุดท้ายของ out-of-scope list ใน PR #149 เดิม relay/consumer/escalator ทำงานเงียบ
- * สนิท ไม่มีทางรู้จากภายนอกเลยว่า command ค้างกี่ใบ ผลถูกปฏิเสธเพราะ binding กี่ครั้ง
- * หรือมี action ที่ escalate ไปแล้วรออยู่เท่าไร
+ * Closes the last item of the out-of-scope list in the original PR #149. The relay/consumer/escalator worked
+ * completely silently, with no way to tell from outside how many commands were stuck, how many results were rejected by binding,
+ * or how many escalated actions were waiting
  *
- * สัญญาเดียวกับ `journey-governance-metrics.ts` ของ S1.5 และเป็นเหตุผลที่ interface
- * ตัวนี้ **ไม่รับ label เลย**: metric ของ owner path เกี่ยวข้องกับ tenant, actionKey,
- * commandId และ contactId ทั้งหมด ถ้าเปิดช่องให้ใส่ label เมื่อไรก็จะมีคนใส่ค่าพวกนี้
- * เข้าไปโดยไม่ตั้งใจ แล้วมันจะไหลไป metric backend ที่ retention ยาวกว่าและสิทธิ์เข้าถึง
- * กว้างกว่าฐานข้อมูลมาก — การตัดทิ้งตั้งแต่ระดับ type จึงปลอดภัยกว่าการเตือนใน code review
+ * The same contract as `journey-governance-metrics.ts` of S1.5 and the reason this interface
+ * **accepts no labels at all**: metrics of the owner path involve tenant, actionKey,
+ * commandId and contactId, and if a label slot were ever opened someone would put these values
+ * in by accident and they would flow to the metric backend, which has longer retention and broader access
+ * than the database — cutting it off at the type level is safer than a warning in code review
  *
- * ถ้าต้องสืบว่าใบไหนมีปัญหา ใช้ `JrRecoveryAudit` กับ admin recovery API (#235) ซึ่งอยู่
- * ในขอบเขต tenant และมี access control จริง ไม่ใช่ metric
+ * To investigate which one has a problem, use `JrRecoveryAudit` with the admin recovery API (#235), which lives
+ * inside the tenant boundary and has real access control, not metrics
  */
 
-/** counter — นับจำนวนครั้งล้วน ๆ */
+/** counter — a pure count of occurrences */
 export type JourneyOwnerCounterMetric =
   | 'journey_owner_command_dispatched_total'
   | 'journey_owner_command_dispatch_failed_total'
@@ -27,14 +27,14 @@ export type JourneyOwnerCounterMetric =
   | 'journey_owner_ack_reconciled_total'
   | 'journey_owner_ack_escalated_total';
 
-/** gauge/histogram — ค่าที่วัดได้เป็นตัวเลข */
+/** gauge/histogram — a measured numeric value */
 export type JourneyOwnerGaugeMetric =
   'journey_owner_dispatch_to_result_ms' | 'journey_owner_ack_attempts';
 
 export type JourneyOwnerMetric = JourneyOwnerCounterMetric | JourneyOwnerGaugeMetric;
 
 /**
- * ไม่มีพารามิเตอร์ label โดยเจตนา — ดู doc ด้านบน
+ * no label parameter on purpose — see the doc above
  */
 export interface JourneyOwnerMetrics {
   increment(metric: JourneyOwnerCounterMetric): void;
@@ -46,7 +46,7 @@ export const noOpJourneyOwnerMetrics: JourneyOwnerMetrics = {
   observe() {},
 };
 
-/** structured log ที่ metric backend เก็บได้ โดยไม่มี identifier ใด ๆ ติดไปด้วย */
+/** a structured log the metric backend can keep, with no identifier attached */
 export class JsonJourneyOwnerMetrics implements JourneyOwnerMetrics {
   increment(metric: JourneyOwnerCounterMetric): void {
     console.info(JSON.stringify({ metric, value: 1 }));

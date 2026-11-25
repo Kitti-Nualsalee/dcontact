@@ -17,7 +17,7 @@ import { JourneySegmentTriggerProcessor } from './journey-segment-trigger-proces
 const evaluator = new DcExprEvaluator();
 const HASH = 'a'.repeat(64);
 
-/** double ที่ตอบตามสคริปต์ — Customer 360 จริงถูกทดสอบแยกใน apps/customer-360 */
+/** a double that answers per a script — the real Customer 360 is tested separately in apps/customer-360 */
 function reader(resolution: SegmentEntryResolution): CustomerSegmentMembershipReader<never> {
   return {
     async resolveEntry() {
@@ -64,7 +64,7 @@ async function fixture(t: TestContext) {
   t.after(async () => {
     await owner.jrSegmentOutbox.deleteMany({ where: { tenantId } });
     await owner.jrSegmentRefilterCursor.deleteMany({ where: { tenantId } });
-    // enrollment อ้าง intent ด้วย FK จึงต้องลบก่อน
+    // an enrollment references an intent by FK so it must be deleted first
     await owner.jrEnrollment.deleteMany({ where: { tenantId } });
     await owner.jrSegmentEnrollmentIntent.deleteMany({ where: { tenantId } });
     await owner.jrSegmentHead.deleteMany({ where: { tenantId } });
@@ -127,13 +127,13 @@ async function fixture(t: TestContext) {
 
 type Fixture = Awaited<ReturnType<typeof fixture>>;
 
-/** publish journey ที่ trigger ด้วย SEGMENT_ENTRY ของ segment นี้ */
+/** publishes a journey triggered by SEGMENT_ENTRY of this segment */
 async function publishJourney(f: Fixture, journeyId: string) {
   const draft = await f.definitions.createVersion({
     tenantId: f.tenantId,
     journeyId,
     version: 1,
-    name: `เข้าเซกเมนต์ ${journeyId.slice(0, 8)}`,
+    name: `Segment entry ${journeyId.slice(0, 8)}`,
     ownerTeamId: f.teamId,
     purpose: 'MARKETING',
     senderIdentityId: 'sender-1',
@@ -210,7 +210,7 @@ function processor(
   });
 }
 
-test('ENTERED ที่ ELIGIBLE และมี journey รอ สร้าง enrollment intent ครบทุกใบ', async (t) => {
+test('an ENTERED that is ELIGIBLE with waiting journeys creates every enrollment intent', async (t) => {
   const f = await fixture(t);
   const entryId = `entry-${f.suffix}`;
   await publishJourney(f, randomUUID());
@@ -223,7 +223,7 @@ test('ENTERED ที่ ELIGIBLE และมี journey รอ สร้าง 
   );
   assert.equal(outcome, 'ENROLLED');
 
-  // segment เดียวมีได้หลาย journey — ห้ามเหลือใบเดียวเงียบ ๆ
+  // one segment can have several journeys — must not silently leave only one
   const intents = await f.owner.jrSegmentEnrollmentIntent.findMany({
     where: { tenantId: f.tenantId },
     orderBy: { journeyId: 'asc' },
@@ -239,7 +239,7 @@ test('ENTERED ที่ ELIGIBLE และมี journey รอ สร้าง 
   assert.equal(await f.owner.jrSegmentOutbox.count({ where: { tenantId: f.tenantId } }), 1);
 });
 
-test('survivor จาก resolveEntry เป็นตัวตัดสิน ไม่ใช่ contactId ที่ติดมากับ event', async (t) => {
+test('the survivor from resolveEntry decides, not the contactId that came with the event', async (t) => {
   const f = await fixture(t);
   const entryId = `entry-${f.suffix}`;
   await publishJourney(f, randomUUID());
@@ -253,7 +253,7 @@ test('survivor จาก resolveEntry เป็นตัวตัดสิน �
   assert.equal(intent.contactId, f.survivorId);
 });
 
-test('STALE เลื่อนไปลองใหม่ ไม่ใช่ตัดสินด้วยข้อมูลเก่า', async (t) => {
+test('STALE is deferred to retry, not decided with old data', async (t) => {
   const f = await fixture(t);
   const entryId = `entry-${f.suffix}`;
   await publishJourney(f, randomUUID());
@@ -277,11 +277,11 @@ test('STALE เลื่อนไปลองใหม่ ไม่ใช่ต�
   );
 });
 
-test('AMBIGUOUS และ NOT_FOUND ไปที่ review ด้วย reason ของ Customer 360 เอง', async (t) => {
+test('AMBIGUOUS and NOT_FOUND go to review with the reason from Customer 360 itself', async (t) => {
   const f = await fixture(t);
   await publishJourney(f, randomUUID());
 
-  // แต่ละเคสต้องอยู่คนละ stream ไม่งั้นใบแรกที่ค้าง REVIEW จะบล็อกใบถัดไป
+  // each case must be in a different stream, otherwise the first one stuck in REVIEW would block the next
   for (const resolution of [
     { status: 'AMBIGUOUS', reasonCode: 'IDENTITY_AMBIGUOUS' } as const,
     { status: 'NOT_FOUND', reasonCode: 'RESOURCE_NOT_FOUND' } as const,
@@ -297,7 +297,11 @@ test('AMBIGUOUS และ NOT_FOUND ไปที่ review ด้วย reason �
     });
     assert.equal(receipt.state, 'REVIEW');
     assert.equal(receipt.reviewReasonCode, resolution.reasonCode);
-    assert.equal(receipt.leaseOwner, null, 'REVIEW ต้องปล่อย lease ไม่ค้างไว้กับ worker');
+    assert.equal(
+      receipt.leaseOwner,
+      null,
+      'REVIEW must release the lease and not leave it with the worker',
+    );
   }
 
   assert.equal(
@@ -306,7 +310,7 @@ test('AMBIGUOUS และ NOT_FOUND ไปที่ review ด้วย reason �
   );
 });
 
-test('receipt ที่ค้าง REVIEW บล็อก revision ถัดไปของ stream เดียวกัน ไม่ข้ามไปทำต่อ', async (t) => {
+test('a receipt stuck in REVIEW blocks the next revision of the same stream and does not skip ahead', async (t) => {
   const f = await fixture(t);
   await publishJourney(f, randomUUID());
   await ingest(f, 1, 'ENTERED', `entry-1-${f.suffix}`);
@@ -317,8 +321,8 @@ test('receipt ที่ค้าง REVIEW บล็อก revision ถัดไ
   );
 
   /**
-   * head ไม่ขยับเพราะ revision 1 ยังไม่ถูก apply — revision 2 จึงต้องรอ ไม่ใช่ข้ามไปทำต่อ
-   * การปล่อยให้ข้ามจะทำให้ contact ถูก enroll ด้วยลำดับเหตุการณ์ที่ไม่เคยเกิดขึ้นจริง
+   * the head does not move because revision 1 has not been applied — revision 2 must therefore wait, not skip ahead
+   * letting it skip would enroll the contact with an order of events that never really happened
    */
   const second = await ingest(f, 2, 'ENTERED', `entry-2-${f.suffix}`);
   assert.equal(second.outcome, 'WAITING_FOR_GAP');
@@ -328,7 +332,7 @@ test('receipt ที่ค้าง REVIEW บล็อก revision ถัดไ
       'worker-2',
     ),
     undefined,
-    'ไม่มีอะไรให้ claim เพราะใบแรกยังค้าง review อยู่',
+    'nothing to claim because the first one is still stuck in review',
   );
   assert.equal(
     await f.owner.jrSegmentEnrollmentIntent.count({ where: { tenantId: f.tenantId } }),
@@ -336,7 +340,7 @@ test('receipt ที่ค้าง REVIEW บล็อก revision ถัดไ
   );
 });
 
-test('NOT_ELIGIBLE ปล่อยผ่านแต่ head ต้องเลื่อน ไม่งั้น revision ถัดไปค้างตลอดไป', async (t) => {
+test('NOT_ELIGIBLE is let through but the head must advance, otherwise the next revision is stuck forever', async (t) => {
   const f = await fixture(t);
   await publishJourney(f, randomUUID());
   await ingest(f, 1, 'ENTERED', `entry-${f.suffix}`);
@@ -351,12 +355,12 @@ test('NOT_ELIGIBLE ปล่อยผ่านแต่ head ต้องเล�
   assert.equal(head.lastAppliedRevision, 1);
   assert.equal(await f.owner.jrSegmentOutbox.count({ where: { tenantId: f.tenantId } }), 0);
 
-  // revision ถัดไปต้องเดินต่อได้ ไม่ติด WAITING_FOR_GAP
+  // the next revision must be able to continue and not get stuck in WAITING_FOR_GAP
   const next = await ingest(f, 2, 'ENTERED', `entry-2-${f.suffix}`);
   assert.equal(next.outcome, 'READY');
 });
 
-test('ไม่มี journey ไหน trigger ด้วย segment นี้ ก็ยังต้องเลื่อน head', async (t) => {
+test('even when no journey is triggered by this segment the head must still advance', async (t) => {
   const f = await fixture(t);
   await ingest(f, 1, 'ENTERED', `entry-${f.suffix}`);
 
@@ -372,7 +376,7 @@ test('ไม่มี journey ไหน trigger ด้วย segment นี้ �
   );
 });
 
-test('scope DEFER เลื่อนไปลองใหม่ ส่วน DENY ไม่สร้าง enrollment และไม่บันทึกเป็น Governance BLOCK', async (t) => {
+test('a scope DEFER is deferred to retry while DENY creates no enrollment and is not recorded as a Governance BLOCK', async (t) => {
   const f = await fixture(t);
   const entryId = `entry-${f.suffix}`;
   await publishJourney(f, randomUUID());
@@ -401,7 +405,7 @@ test('scope DEFER เลื่อนไปลองใหม่ ส่วน DEN
         evaluatedAt: '2026-09-15T00:00:00.000Z',
       }) as never,
     },
-    // availableAt ถูกเลื่อนไปแล้วจากรอบก่อน จึงต้องมองจากอนาคตเพื่อ claim ใบเดิมได้
+    // availableAt was already pushed back from the previous round, so we must look from the future to claim the same one
     { now: () => new Date(Date.now() + 120_000) },
   ).executeNext(f.tenantId, 'worker-2');
   assert.equal(denied, 'DENIED');
@@ -411,14 +415,14 @@ test('scope DEFER เลื่อนไปลองใหม่ ส่วน DEN
     0,
   );
   assert.equal(await f.owner.jrSegmentOutbox.count({ where: { tenantId: f.tenantId } }), 0);
-  // ต้องไม่มีอะไรถูกเขียนเป็น Governance decision ของ contact นี้
+  // nothing may be written as a Governance decision for this contact
   assert.equal(
     await f.owner.cgDecisionLog.count({ where: { tenantId: f.tenantId } }).catch(() => 0),
     0,
   );
 });
 
-test('change ที่ไม่ใช่การเข้าใหม่กลายเป็นงาน re-filter และ LEFT ปิด entry ถาวร', async (t) => {
+test('a change that is not a new entry becomes a re-filter job and LEFT closes the entry permanently', async (t) => {
   const f = await fixture(t);
   const entryId = `entry-${f.suffix}`;
   await publishJourney(f, randomUUID());
@@ -440,22 +444,22 @@ test('change ที่ไม่ใช่การเข้าใหม่กล�
   assert.equal(cursor.membershipRevision, 2);
 
   const head = await f.owner.jrSegmentHead.findFirstOrThrow({ where: { tenantId: f.tenantId } });
-  assert.equal(head.terminalEntryId, entryId, 'LEFT ต้องปิด entry นั้นถาวร');
+  assert.equal(head.terminalEntryId, entryId, 'LEFT must close that entry permanently');
   assert.equal(head.terminalRevision, 2);
 
-  // CORRECTED ต้องไม่ปิด entry แต่ยังต้องเข้าคิว re-filter
+  // CORRECTED must not close the entry but must still queue a re-filter
   await ingest(f, 3, 'CORRECTED', entryId);
   await processor(f, eligible(f, f.contactId, entryId)).executeNext(f.tenantId, 'worker-1');
   assert.equal(
     (await f.owner.jrSegmentHead.findFirstOrThrow({ where: { tenantId: f.tenantId } }))
       .terminalReasonCode,
     'LEFT',
-    'terminal ใบแรกต้องไม่ถูกเขียนทับ',
+    'the first terminal must not be overwritten',
   );
   assert.equal(await f.owner.jrSegmentRefilterCursor.count({ where: { tenantId: f.tenantId } }), 2);
 });
 
-test('ไม่มี receipt ที่พร้อมประมวลผลคืน undefined โดยไม่แตะอะไรเลย', async (t) => {
+test('no receipt ready for processing returns undefined without touching anything', async (t) => {
   const f = await fixture(t);
   assert.equal(
     await processor(f, eligible(f, f.contactId, 'entry')).executeNext(f.tenantId, 'worker-1'),
@@ -463,7 +467,7 @@ test('ไม่มี receipt ที่พร้อมประมวลผล�
   );
 });
 
-test('enrollment จริงเกิดพร้อม intent ในทรานแซกชันเดียว และผูกกันแบบหนึ่งต่อหนึ่ง', async (t) => {
+test('the real enrollment happens together with the intent in one transaction and they are bound one to one', async (t) => {
   const f = await fixture(t);
   const entryId = `entry-${f.suffix}`;
   const journeyA = randomUUID();
@@ -479,21 +483,25 @@ test('enrollment จริงเกิดพร้อม intent ในทรา�
   });
   const enrollments = await f.owner.jrEnrollment.findMany({ where: { tenantId: f.tenantId } });
   assert.equal(intents.length, 2);
-  assert.equal(enrollments.length, 2, 'fan-out ต้องได้ enrollment ครบทุก journey');
+  assert.equal(enrollments.length, 2, 'fan-out must produce an enrollment for every journey');
 
-  // ทุก enrollment ต้องชี้กลับไปหา intent ของตัวเอง ไม่ใช่ชี้มั่ว
+  // every enrollment must point back to its own intent, not point at random
   for (const enrollment of enrollments) {
     assert.ok(
       intents.some((intent) => intent.id === enrollment.segmentIntentId),
-      'enrollment ต้องผูกกับ intent ที่มีอยู่จริง',
+      'the enrollment must be bound to an intent that really exists',
     );
     assert.equal(enrollment.contactId, f.contactId);
-    assert.equal(enrollment.currentStepId, 'send', 'ต้องเริ่มที่ entry step ของ graph ที่ publish');
+    assert.equal(
+      enrollment.currentStepId,
+      'send',
+      'it must start at the entry step of the published graph',
+    );
     assert.equal(enrollment.state, 'PENDING');
   }
   assert.deepEqual(enrollments.map((row) => row.journeyId).sort(), [journeyA, journeyB].sort());
 
-  // trigger source ต้องเป็นแบบเดียว — ไม่มีการปนกับ source เดิมของ J1/J2
+  // the trigger source must be of a single kind — no mixing with the original sources of J1/J2
   for (const enrollment of enrollments) {
     assert.equal(enrollment.eventInboxId, null);
     assert.equal(enrollment.occurrenceId, null);
@@ -501,7 +509,7 @@ test('enrollment จริงเกิดพร้อม intent ในทรา�
   }
 });
 
-test('apply ซ้ำไม่สร้าง enrollment ใบที่สอง', async (t) => {
+test('applying again does not create a second enrollment', async (t) => {
   const f = await fixture(t);
   const entryId = `entry-${f.suffix}`;
   await publishJourney(f, randomUUID());

@@ -1,4 +1,4 @@
-/** Metrics ของ S1.5 ใช้เฉพาะชื่อ metric และตัวเลข ห้ามใส่ tenant/action/contact เป็น label. */
+/** S1.5 metrics use only the metric name and numbers; never put tenant/action/contact as a label. */
 export type JourneyGovernanceMetric =
   | 'journey_cg3_mutation_to_apply_ms'
   | 'journey_cg3_stale_revalidation_total'
@@ -40,7 +40,7 @@ export const noOpJourneyGovernanceMetrics: JourneyGovernanceMetrics = {
   observe() {},
 };
 
-/** ส่ง structured log ที่ metric backend เก็บได้ โดยไม่มี PII หรือ identifier ใด ๆ. */
+/** Emits a structured log the metric backend can keep, without any PII or identifier. */
 export class JsonJourneyGovernanceMetrics implements JourneyGovernanceMetrics {
   increment(metric: Parameters<JourneyGovernanceMetrics['increment']>[0]): void {
     console.info(JSON.stringify({ metric, value: 1 }));

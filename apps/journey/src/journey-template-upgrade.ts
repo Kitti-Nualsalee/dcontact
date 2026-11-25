@@ -20,15 +20,15 @@ import {
 import { deriveTemplateNodeId, validateTemplatePackage } from './journey-template-binder.js';
 
 /**
- * J5.4 (#342): explicit three-way upgrade (คำตัดสิน #330 §10, Phase Spec §7)
+ * J5.4 (#342): explicit three-way upgrade (decision #330 §10, Phase Spec §7)
  *
- * base = template version ที่ instance ใช้, remote = template version เป้าหมาย, local = draft ปัจจุบัน
- * จับคู่ด้วย `templateNodeKey` เท่านั้น (ห้าม fuzzy match ชื่อ) แล้วเทียบทีละ field/port:
- * - template ไม่เปลี่ยน → คงค่า local; local ไม่เปลี่ยน → ใช้ค่า template
- * - ทั้งสองฝั่งแก้ต่างกัน → conflict ที่ต้องเลือก KEEP_LOCAL / TAKE_TEMPLATE อย่าง explicit
- * - field ที่ bind ด้วย parameter คงค่าของ tenant ไว้เสมอ (template มีแค่ placeholder)
- * ผลลัพธ์เป็น deterministic: input เดิมได้ proposal/digest เดิมทุกครั้ง และ apply สร้าง draft revision
- * ใหม่เท่านั้น — ไม่ publish, ไม่ activate และไม่มี background merge
+ * base = the template version the instance uses, remote = the target template version, local = the current draft
+ * matched by `templateNodeKey` only (no fuzzy name matching), then compared field by field/port by port:
+ * - template unchanged → keep the local value; local unchanged → use the template value
+ * - both sides changed differently → a conflict that needs an explicit choice of KEEP_LOCAL / TAKE_TEMPLATE
+ * - a field bound by a parameter always keeps the tenant value (the template has only a placeholder)
+ * the result is deterministic: the same input gives the same proposal/digest every time and apply creates only a new draft
+ * revision — no publish, no activate and no background merge
  */
 
 type Fields = Record<string, unknown>;
@@ -49,7 +49,7 @@ function portsOf(type: string): Record<string, string> {
   >;
 }
 
-/** entity ของเอกสาร: step ตาม key, `@trigger`, `@settings`; port เก็บเป็น field `port:<id>` ที่ชี้ key ปลายทาง */
+/** document entities: a step by key, `@trigger`, `@settings`; a port is stored as a field `port:<id>` pointing at the target key */
 function entities(
   document: AuthoringDocumentV1,
   keyOfNode: (nodeId: string) => string | undefined,
@@ -90,7 +90,7 @@ function templateEntities(content: JourneyTemplateContentV1) {
   return entities(content.document, (nodeId) => keys.get(nodeId));
 }
 
-/** field ที่ bind ด้วย parameter → parameterKey */
+/** a field bound by a parameter → parameterKey */
 function boundFields(content: JourneyTemplateContentV1) {
   const bound = new Map<string, string>();
   for (const parameter of content.parameterSchema) {
@@ -118,7 +118,7 @@ export interface TemplateUpgradeInput {
 
 interface Merge {
   readonly proposal: JourneyTemplateUpgradeProposalV1;
-  /** ค่าที่แต่ละ conflict จะได้ตามทางเลือก */
+  /** the value each conflict gets per the choice */
   readonly choices: ReadonlyMap<
     string,
     { readonly apply: (choice: JourneyTemplateConflictResolution) => void }
@@ -157,7 +157,7 @@ function merge(input: TemplateUpgradeInput): Merge {
     if (apply) choices.set(conflictId, { apply });
   };
 
-  // package ปลายทางต้องผ่านกติกาเดียวกับตอน publish — node/capability ที่ไม่รู้จัก block ทั้ง upgrade
+  // the target package must pass the same rules as at publish — an unknown node/capability blocks the whole upgrade
   if (validateTemplatePackage(input.target, input.capabilities).length > 0) {
     conflict('UNKNOWN_NODE_OR_CAPABILITY', '@package', undefined);
   }
@@ -174,7 +174,7 @@ function merge(input: TemplateUpgradeInput): Merge {
           : deriveTemplateNodeId(input.journeyId, key);
 
     if (b && !t) {
-      // template ลบ node: local ที่ไม่ได้แตะลบตามได้; ถ้า local แก้ไว้ต้องเลือกเอง
+      // the template deletes a node: an untouched local can be deleted along with it; if local edited it, the user must choose
       if (!l) continue;
       if (same(l.fields, b.fields) || nodeUnchangedExceptBound(l, b, key, boundBase)) {
         result.set(key, null);
@@ -190,7 +190,7 @@ function merge(input: TemplateUpgradeInput): Merge {
       continue;
     }
     if (!b && t) {
-      // node ใหม่จาก template: field ที่ bind ต้องมีค่าจาก binding เดิมหรือ default
+      // a new node from the template: a bound field needs a value from the existing binding or a default
       const fields: Fields = {};
       for (const [field, value] of Object.entries(t.fields)) {
         const parameterKey = boundTarget.get(`${key}|${field}`);
@@ -201,7 +201,7 @@ function merge(input: TemplateUpgradeInput): Merge {
     }
     if (!b || !t) continue;
     if (!l) {
-      // ผู้ใช้ลบ node เอง: template ไม่เปลี่ยนก็ลบต่อ, template แก้ต้องเลือกเอง
+      // the user deleted the node themself: if the template did not change, delete on; if the template edited it, the user must choose
       if (!same(b, t)) {
         result.set(key, null);
         conflict('NODE_REMOVED_BUT_EDITED', key, undefined, (choice) => {
@@ -225,7 +225,7 @@ function merge(input: TemplateUpgradeInput): Merge {
         fields[field] =
           l.fields[field] ?? boundValue(boundTarget.get(slot)!, key, field, t.fields[field]);
       } else if (boundBase.has(slot) || boundTarget.has(slot)) {
-        // binding ถูกลบ/เปลี่ยน parameter — คงค่า tenant ได้เท่านั้น ไม่เอา placeholder ของ template มาใส่
+        // the binding was removed/the parameter changed — can only keep the tenant value, never put in the template placeholder
         fields[field] = l.fields[field];
         conflict('PARAMETER_BREAKING', key, field, (choice) => {
           if (choice === 'TAKE_TEMPLATE')
@@ -253,7 +253,7 @@ function merge(input: TemplateUpgradeInput): Merge {
     result.set(key, { type: l.type === b.type && b.type !== t.type ? t.type : l.type, fields });
   }
 
-  // parameter ใหม่ที่ required และไม่มี default แต่ไม่มีค่าเดิมให้ใช้ต่อ → block
+  // a new parameter that is required with no default and has no existing value to continue with → block
   function boundValue(parameterKey: string, key: string, field: string, placeholder: unknown) {
     for (const [slot, existing] of boundBase) {
       if (existing !== parameterKey) continue;
@@ -417,7 +417,7 @@ export class TemplateUpgradeConflictError extends Error {
   readonly code = 'TEMPLATE_UPGRADE_CONFLICT' as const;
 
   constructor(readonly conflictIds: readonly string[]) {
-    super(`template upgrade มี conflict ที่ยังไม่ได้เลือก: ${conflictIds.join(', ')}`);
+    super(`template upgrade has conflicts that have not been chosen: ${conflictIds.join(', ')}`);
     this.name = 'TemplateUpgradeConflictError';
   }
 }
@@ -426,12 +426,12 @@ export class TemplateUpgradeStaleError extends Error {
   readonly code = 'TEMPLATE_UPGRADE_STALE' as const;
 
   constructor() {
-    super('proposal/conflict digest ไม่ตรงกับสถานะปัจจุบัน');
+    super('proposal/conflict digest does not match the current state');
     this.name = 'TemplateUpgradeStaleError';
   }
 }
 
-/** read-only: คำนวณ proposal แบบ deterministic */
+/** read-only: computes the proposal deterministically */
 export function checkTemplateUpgrade(
   input: TemplateUpgradeInput,
 ): JourneyTemplateUpgradeProposalV1 {
@@ -439,8 +439,8 @@ export function checkTemplateUpgrade(
 }
 
 /**
- * apply ได้เมื่อ proposal/conflict digest ยังตรงกับที่ผู้ใช้เห็น และทุก conflict มีทางเลือก explicit;
- * conflict ชนิด block ต้องแก้ต้นทาง (bind/instantiate ใหม่) ก่อน
+ * apply is allowed when the proposal/conflict digest still matches what the user saw and every conflict has an explicit choice;
+ * a blocking conflict must be fixed at the source (bind/instantiate again) first
  */
 export function applyTemplateUpgrade(
   input: TemplateUpgradeInput,

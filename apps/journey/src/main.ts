@@ -33,14 +33,14 @@ import { JsonJourneyGovernanceMetrics } from './journey-governance-metrics.js';
 
 function positiveInteger(name: string, fallback: number): number {
   const value = Number(process.env[name] ?? fallback);
-  if (!Number.isInteger(value) || value < 1) throw new Error(`${name} ต้องเป็นจำนวนเต็มบวก`);
+  if (!Number.isInteger(value) || value < 1) throw new Error(`${name} must be a positive integer`);
   return value;
 }
 
 function configuredChannel(): 'EMAIL' | 'LINE' {
   const channel = process.env.JOURNEY_TRIGGER_CHANNEL ?? 'EMAIL';
   if (channel !== 'EMAIL' && channel !== 'LINE') {
-    throw new Error('JOURNEY_TRIGGER_CHANNEL ต้องเป็น EMAIL หรือ LINE');
+    throw new Error('JOURNEY_TRIGGER_CHANNEL must be EMAIL or LINE');
   }
   return channel;
 }
@@ -96,20 +96,20 @@ const ownerDialerPort = createKafkaOwnerCommandPort({
   topic: KAFKA_TOPICS.DIALER_COMMANDS,
   producer,
 });
-// owner เงียบเกิน deadline -> ถาม owner ก่อน ไม่ retry มั่ว; ครบเพดานแล้วส่งต่อให้คน
+// owner silent past the deadline -> ask the owner first, no blind retry; once the ceiling is reached hand over to a person
 const ownerMetrics = new JsonJourneyOwnerMetrics();
 const ownerAckEscalator = new JourneyOwnerAckEscalator(
   database,
   new JourneyOwnerResultReconciler(database, ownerCasePort, ownerDialerPort),
   { metrics: ownerMetrics },
 );
-// J2.8 (#136): owner command ออกทาง Kafka จริง — Cases/Dialer consume จาก topic ของตัวเอง
-// แทนการถูกเรียกแบบ in-process; relay mark SENT ต่อเมื่อ broker ack แล้วเท่านั้น
+// J2.8 (#136): the owner command goes out through real Kafka — Cases/Dialer consume from their own topic
+// instead of being called in-process; the relay marks SENT only after the broker acks
 const ownerCommandRelay = new JourneyOwnerCommandRelay(database, ownerCasePort, ownerDialerPort, {
   metrics: ownerMetrics,
 });
 
-// ขารับผลกลับจาก owner — คู่ตรงข้ามของ ownerCommandRelay ที่ publish ออกไป
+// the leg receiving results back from the owner — the counterpart of the ownerCommandRelay that publishes out
 const ownerResultConsumer = await createJourneyOwnerResultConsumer({
   database,
   clientId: 'dcontact-journey-owner-result-consumer',

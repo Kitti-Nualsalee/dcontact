@@ -42,7 +42,7 @@ export class JourneyOwnerCommandRelay {
     this.metrics = options.metrics ?? noOpJourneyOwnerMetrics;
   }
 
-  /** relay ได้สูงสุดหนึ่ง command ต่อครั้ง; caller กำหนด polling/backoff เอง */
+  /** relays at most one command per call; the caller sets polling/backoff itself */
   async executeNext(tenantId: string): Promise<JourneyOwnerCommandRelayResult> {
     const claimed = await withTenantDatabaseTransaction(
       this.database,
@@ -57,9 +57,9 @@ export class JourneyOwnerCommandRelay {
             AND state = 'PENDING'
             AND payload IS NOT NULL
             AND available_at <= ${this.now()}
-            -- cancel/supersede ต้องตามหลัง command ต้นเรื่องของ action เดียวกันเสมอ ถ้าตัวแรก
-            -- ยัง retry ค้าง (backoff ทำให้ available_at ช้ากว่า) owner จะเห็น cancel ก่อนมี
-            -- effect ให้ยกเลิกแล้วปฏิเสธทิ้ง ขณะที่ effect เดิมถูกสร้างตามมาทีหลัง
+            -- a cancel/supersede must always follow the original command of the same action; if the first
+            -- is still stuck retrying (backoff makes available_at later) the owner would see the cancel before there is
+            -- an effect to cancel and reject it, while the original effect is created afterwards
             AND NOT EXISTS (
               SELECT 1
               FROM jr_owner_command_outbox AS earlier
