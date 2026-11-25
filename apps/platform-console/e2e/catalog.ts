@@ -16,7 +16,7 @@ function strict(lng: 'th' | 'en') {
  * Expected UI text read from the app's own catalogs, so specs assert on keys instead of
  * hardcoding Thai copy. Use `th` in suites that run with `locale: 'th-TH'` and `en` otherwise:
  *
- *   page.getByRole('button', { name: th('common:actions.save') })
+ *   page.getByRole('link', { name: th('common:navigation.skip') })
  */
 export const th = strict('th');
 export const en = strict('en');
