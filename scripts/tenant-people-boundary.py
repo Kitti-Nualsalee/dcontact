@@ -73,8 +73,9 @@ def run_boundary(root,work,postgres,network,container,postgres_port):
         def mailbox(path):
             with urllib.request.urlopen('http://127.0.0.1:'+smtp_port+path,timeout=10) as response:return json.loads(response.read())
         def messages_for_attempt(attempt):
-            subject='คำเชิญเข้าใช้งาน D-Contact [dc-attempt:'+attempt+']'
-            return [message for message in mailbox('/api/v1/messages').get('messages',[]) if message.get('Subject')==subject]
+            # The subject text follows the invitee's locale; the attempt marker is language-independent
+            marker=' [dc-attempt:'+attempt+']'
+            return [message for message in mailbox('/api/v1/messages').get('messages',[]) if message.get('Subject','').endswith(marker)]
         args=['docker','run','-d','--pull=never','--name',container,'--network',network,'--memory','1g','--cpus','2','--security-opt','no-new-privileges','--cap-drop','ALL','-p','127.0.0.1::8080',
             '-v',str(work/'dcontact-tenant-people.jar')+':/opt/keycloak/providers/dcontact-tenant-people.jar:ro',
             '-v',str(work/'dcontact-invitation-guard.jar')+':/opt/keycloak/providers/dcontact-invitation-guard.jar:ro',

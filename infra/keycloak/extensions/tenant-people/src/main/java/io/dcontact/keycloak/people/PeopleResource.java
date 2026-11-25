@@ -63,9 +63,9 @@ public class PeopleResource {
   }
   static void uuid(String value) { if(value==null||!UUID.matcher(value).matches())throw denied(400,"INVALID_REQUEST"); }
   /**
-   * Invitation email subject and body from the realm's email theme in the invitee's locale
-   * (keys dcPeopleInvitationSubject/Body). The [dc-attempt:...] marker stays outside the template
-   * because boundary tests find the email by it.
+   * Invitation email subject and body in the invitee's locale (keys dcPeopleInvitationSubject/Body,
+   * shipped in this jar under theme-resources/messages so any email theme has them). The
+   * [dc-attempt:...] marker stays outside the template because boundary tests find the email by it.
    */
   private String[] invitationText(RealmModel realm,UserModel user,String attemptRef,String link) {
     Properties messages;
