@@ -4,8 +4,8 @@ import { totp } from '../../../scripts/keycloak-platform-login.mjs';
 import { PLATFORM_DEV_USERS } from '../../../scripts/keycloak-platform-setup.mjs';
 
 /**
- * UAT flow ของ #412 ผ่าน UI จริงทั้งเส้น: login (password + OTP) → create → track จน ACTIVE →
- * search → timeline → recovery preview ของคำขอที่ติด ACTION_REQUIRED
+ * UAT flow of #412 through the real UI end to end: login (password + OTP) → create → track until ACTIVE →
+ * search → timeline → recovery preview of a request stuck in ACTION_REQUIRED
  */
 const operator = PLATFORM_DEV_USERS.find((user) => user.role === 'platform_operator')!;
 const run = randomUUID().slice(0, 6);
@@ -16,17 +16,17 @@ async function login(page: Page) {
   await page.locator('#username').fill(operator.username);
   await page.locator('#password').fill(operator.password);
   await page.locator('#kc-login').click();
-  // รหัส OTP ใช้ซ้ำใน window เดิมไม่ได้ — รอ window ใหม่ก่อนกรอก
+  // an OTP cannot be reused in the same window — wait for a new window before entering
   const window = Math.floor(Date.now() / 30_000);
   await page.waitForTimeout((window + 1) * 30_000 - Date.now() + 500);
   await page.locator('#otp').fill(totp(operator.totpSecret));
   await page.locator('#kc-login').click();
   await expect(page.getByRole('heading', { name: 'Tenants', level: 1 })).toBeVisible();
-  // callback ไม่ทิ้ง code/state ไว้ใน URL
+  // the callback leaves no code/state in the URL
   expect(page.url()).not.toMatch(/[?&](code|state)=/);
 }
 
-/** user ของคนอื่นใน realm (ผ่าน master admin ของ dev) — ใช้จำลองอีเมลชนกับ identity เดิม */
+/** another party's user in the realm (via the dev master admin) — used to simulate an email clashing with an existing identity */
 async function existingKeycloakIdentity(email: string) {
   const base = 'http://localhost:8081';
   const token = (await (
@@ -63,7 +63,7 @@ async function createTenant(page: Page, slug: string, email: string) {
   await expect(page).toHaveURL(/\/requests\/[0-9a-f-]{36}$/);
 }
 
-test('UAT: create → track → search → timeline → recovery preview ผ่าน UI จริง', async ({
+test('UAT: create → track → search → timeline → recovery preview through the real UI', async ({
   page,
 }) => {
   await login(page);
@@ -85,8 +85,8 @@ test('UAT: create → track → search → timeline → recovery preview ผ่�
   await expect(timeline.getByText('Platform Operator').first()).toBeVisible();
   await expect(timeline.getByText('System').first()).toBeVisible();
 
-  // อีเมลที่เป็นของ identity อื่นใน Keycloak อยู่แล้ว → FIRST_ADMIN หยุดที่ ACTION_REQUIRED แล้วลอง
-  // preview recovery (สร้างใหม่ทุกรอบ — อีเมลที่คำขอเก่าจองไว้ถูกปฏิเสธตั้งแต่รับคำขอ)
+  // an email that already belongs to another identity in Keycloak → FIRST_ADMIN stops at ACTION_REQUIRED then tries
+  // preview recovery (created fresh every round — an email reserved by an old request is rejected when the request is accepted)
   const taken = await existingKeycloakIdentity(`uat-${run}-taken@uat.example.test`);
   await page.getByRole('button', { name: 'Tenants' }).click();
   await createTenant(page, `uat-${run}-stuck`, taken);

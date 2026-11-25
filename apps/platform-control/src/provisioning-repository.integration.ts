@@ -1,9 +1,9 @@
 /**
- * A1.1 (#406) acceptance: control-plane foundation บน Postgres จริงด้วย role `dcontact_platform`
+ * A1.1 (#406) acceptance: the control-plane foundation on real Postgres with role `dcontact_platform`
  *
- * ครอบ: fresh accept + ledger, idempotency replay/conflict แบบ concurrent, slug/domain/email reservation
- * ผู้ชนะเดียว + tombstone 30 วัน, CAS/transition, completion invariant, cross-tenant swap แบบ generic,
- * append-only ledger/audit และ control plane ไม่เห็น tenant business data
+ * Covers: fresh accept + ledger, concurrent idempotency replay/conflict, a single winner for slug/domain/email reservation
+ * + a 30-day tombstone, CAS/transition, completion invariant, a generic cross-tenant swap,
+ * append-only ledger/audit and the control plane not seeing tenant business data
  */
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -53,7 +53,7 @@ const accept = (f: PlatformFixture, input = f.input(), key = `idem-${randomUUID(
     })
     .then((result) => (f.track(result.tenantId), result));
 
-/** เดินทุก step ที่เหลือให้ SUCCEEDED ด้วย worker (A1.3 จะเป็นคนทำจริง) */
+/** walks every remaining step to SUCCEEDED with a worker (A1.3 will really do this) */
 async function completeSteps(f: PlatformFixture, tenantId: string, requestId: string) {
   for (const stepKey of PROVISIONING_STEP_KEYS.filter((key) => key !== 'TENANT_RECORD')) {
     await f.repository().recordStepOutcome({
@@ -70,7 +70,7 @@ async function completeSteps(f: PlatformFixture, tenantId: string, requestId: st
   }
 }
 
-test('accept: สร้าง Tenant(PROVISIONING) + request + ledger + reservations ใน transaction เดียว', async (t) => {
+test('accept: creates Tenant(PROVISIONING) + request + ledger + reservations in one transaction', async (t) => {
   const f = await fixture(t);
   const input = f.input({ primaryDomain: 'Mixed.Case.Example.TEST' });
   const accepted = await accept(f, input);
@@ -81,7 +81,7 @@ test('accept: สร้าง Tenant(PROVISIONING) + request + ledger + reservat
 
   const tenant = await f.owner.tenant.findUniqueOrThrow({ where: { id: accepted.tenantId } });
   assert.equal(tenant.lifecycleStatus, 'PROVISIONING');
-  // placeholder จนกว่าจะ ACTIVE — slug จริงอยู่ที่ request/reservation
+  // placeholder until ACTIVE — the real slug is on the request/reservation
   assert.deepEqual(
     { slug: tenant.slug, sipDomain: tenant.sipDomain, primaryDomain: tenant.primaryDomain },
     { ...provisioningPlaceholder(accepted.tenantId), primaryDomain: null },
@@ -111,7 +111,7 @@ test('accept: สร้าง Tenant(PROVISIONING) + request + ledger + reservat
       ['FIRST_ADMIN_EMAIL', 'HELD'],
     ],
   );
-  // email เก็บเป็น hash เท่านั้นทั้ง reservation และ Action history
+  // the email is stored only as a hash in both the reservation and Action history
   const history = await f.repository().listActionHistory({ tenantId: accepted.tenantId });
   assert.deepEqual(
     history.map((row) => row.action),
@@ -121,7 +121,7 @@ test('accept: สร้าง Tenant(PROVISIONING) + request + ledger + reservat
   assert.ok(!serialized.includes(input.firstAdmin.email));
 });
 
-test('idempotency: key+payload เดิมพร้อมกันห้าคำขอได้ request เดียว ที่เหลือเป็น REPLAYED', async (t) => {
+test('idempotency: the same key+payload sent five times at once yields a single request, the rest are REPLAYED', async (t) => {
   const f = await fixture(t);
   const input = f.input();
   const key = `idem-${randomUUID()}`;
@@ -136,11 +136,11 @@ test('idempotency: key+payload เดิมพร้อมกันห้าค�
   const history = await f.repository().listActionHistory({ tenantId: results[0]!.tenantId });
   assert.equal(history.filter((row) => row.action === 'REQUEST_ACCEPTED').length, 1);
   assert.equal(history.filter((row) => row.action === 'COMMAND_REPLAYED').length, 4);
-  // ผู้แพ้ race ไม่ทิ้ง tenant กำพร้า
+  // the race loser leaves no orphan tenant
   assert.equal(await f.owner.tenant.count({ where: { name: input.displayName } }), 1);
 });
 
-test('idempotency: key เดิมแต่ payload ต่าง = IDEMPOTENCY_KEY_REUSED และไม่สร้าง identity ใหม่', async (t) => {
+test('idempotency: the same key with a different payload = IDEMPOTENCY_KEY_REUSED and creates no new identity', async (t) => {
   const f = await fixture(t);
   const key = `idem-${randomUUID()}`;
   const first = await accept(f, f.input(), key);
@@ -150,7 +150,7 @@ test('idempotency: key เดิมแต่ payload ต่าง = IDEMPOTENCY_
   assert.equal(await f.owner.pfCommandReceipt.count({ where: { tenantId: first.tenantId } }), 1);
 });
 
-test('reservation: slug/domain/email เดียวกันพร้อมกันมีผู้ชนะเดียว ที่เหลือได้ conflict code ของตัวเอง', async (t) => {
+test('reservation: the same slug/domain/email at once has a single winner, the rest get their own conflict code', async (t) => {
   const f = await fixture(t);
   const base = f.input();
   const cases = [
@@ -176,7 +176,7 @@ test('reservation: slug/domain/email เดียวกันพร้อมก�
     }
   }
 
-  // ผู้ชนะระหว่างคำขอใหม่หลายใบที่ชนกันเองก็มีได้คนเดียว
+  // among several new requests that clash with each other there is also only one winner
   const contested = f.input();
   const race = await Promise.allSettled(
     Array.from({ length: 5 }, (_, index) =>
@@ -191,7 +191,7 @@ test('reservation: slug/domain/email เดียวกันพร้อมก�
   );
 });
 
-test('reservation: slug/domain ของ tenant เดิม (legacy ACTIVE) ใช้ไม่ได้', async (t) => {
+test('reservation: the slug/domain of an existing tenant (legacy ACTIVE) cannot be used', async (t) => {
   const f = await fixture(t);
   const legacy = await f.owner.tenant.create({
     data: {
@@ -209,7 +209,7 @@ test('reservation: slug/domain ของ tenant เดิม (legacy ACTIVE) ใ
   );
 });
 
-test('tombstone: คำขอที่ CANCELLED กัน slug/domain/email ไว้ 30 วัน หมดแล้วคำขอใหม่รับช่วงได้', async (t) => {
+test('tombstone: a CANCELLED request holds the slug/domain/email for 30 days, after which a new request can take over', async (t) => {
   const f = await fixture(t);
   const input = f.input();
   const first = await accept(f, input);
@@ -244,7 +244,7 @@ test('tombstone: คำขอที่ CANCELLED กัน slug/domain/email ไ
   });
   assert.equal(heads.length, 3);
   assert.ok(heads.every((row) => row.state === 'HELD'));
-  // ประวัติของคำขอเดิมยังอยู่ครบ
+  // the history of the original request is still complete
   const old = await f.repository().listActionHistory({ tenantId: first.tenantId });
   assert.deepEqual(old.map((row) => row.action).sort(), [
     'CANCEL',
@@ -253,7 +253,7 @@ test('tombstone: คำขอที่ CANCELLED กัน slug/domain/email ไ
   ]);
 });
 
-test('transition: CAS revision, transition ต้องห้าม และ SUCCEEDED ก่อน step ครบถูกปฏิเสธ', async (t) => {
+test('transition: CAS revision, forbidden transitions, and SUCCEEDED before all steps complete is rejected', async (t) => {
   const f = await fixture(t);
   const accepted = await accept(f);
   const repository = f.repository();
@@ -295,7 +295,7 @@ test('transition: CAS revision, transition ต้องห้าม และ SU
     }),
     'INVALID_STATE_TRANSITION',
   );
-  // premature ACTIVE: step ยังไม่ครบ → DB ปฏิเสธ และ tenant ยัง PROVISIONING
+  // premature ACTIVE: steps incomplete → the DB rejects and the tenant stays PROVISIONING
   await rejectsWith(
     repository.complete({
       requestId: accepted.requestId,
@@ -309,7 +309,7 @@ test('transition: CAS revision, transition ต้องห้าม และ SU
   assert.equal(tenant.lifecycleStatus, 'PROVISIONING');
 });
 
-test('complete: step ครบแล้ว request SUCCEEDED + tenant ACTIVE พร้อม slug/domain จริง + reservation CONSUMED', async (t) => {
+test('complete: once steps are complete the request is SUCCEEDED + tenant ACTIVE with the real slug/domain + reservation CONSUMED', async (t) => {
   const f = await fixture(t);
   const input = f.input();
   const accepted = await accept(f, input);
@@ -340,14 +340,14 @@ test('complete: step ครบแล้ว request SUCCEEDED + tenant ACTIVE พ
   });
   assert.ok(reservations.every((row) => row.state === 'CONSUMED'));
 
-  // identity ของ tenant ACTIVE ห้าม reuse ตลอดไป — แม้ owner พยายามเปลี่ยน reservation ก็ไม่ได้
+  // the identity of an ACTIVE tenant must never be reused — even if the owner tries to change the reservation it cannot
   await rejectsWith(accept(f, { ...input, displayName: 'After active' }), 'TENANT_SLUG_CONFLICT');
   await assert.rejects(
     f.owner
       .$executeRaw`UPDATE "pf_identity_reservations" SET "state" = 'TOMBSTONED', "tombstoned_until" = now(), "revision" = "revision" + 1 WHERE "request_id" = ${accepted.requestId}::uuid`,
     /PF_RESERVATION_CONSUMED/,
   );
-  // terminal แล้วแก้ไม่ได้
+  // a terminal state cannot be edited
   await assert.rejects(
     f.platform
       .$executeRaw`UPDATE "pf_provisioning_requests" SET "status" = 'RUNNING', "revision" = "revision" + 1, "terminal_at" = NULL WHERE "id" = ${accepted.requestId}::uuid`,
@@ -355,7 +355,7 @@ test('complete: step ครบแล้ว request SUCCEEDED + tenant ACTIVE พ
   );
 });
 
-test('step receipt: replay ของ attempt ที่ SUCCEEDED เป็น no-op และ binding ข้าม tenant ถูกปฏิเสธแบบ generic', async (t) => {
+test('step receipt: replaying a SUCCEEDED attempt is a no-op and a cross-tenant binding is rejected generically', async (t) => {
   const f = await fixture(t);
   const a = await accept(f);
   const b = await accept(f);
@@ -383,7 +383,7 @@ test('step receipt: replay ของ attempt ที่ SUCCEEDED เป็น no
     'INVALID_STATE_TRANSITION',
   );
 
-  // สลับ tenantId/requestId ข้ามกัน = NOT_FOUND เหมือนไม่มี ไม่เผยว่ามีอยู่
+  // swapping tenantId/requestId across = NOT_FOUND as if it did not exist, not revealing that it does
   await rejectsWith(repository.recordStepOutcome({ ...step, tenantId: b.tenantId }), 'NOT_FOUND');
   await rejectsWith(
     repository.recordStepOutcome({ ...step, requestId: b.requestId, stepKey: 'PLAN_BOOTSTRAP' }),
@@ -395,7 +395,7 @@ test('step receipt: replay ของ attempt ที่ SUCCEEDED เป็น no
   );
   assert.equal(await repository.findRequest({ requestId: randomUUID() }), null);
   assert.equal(await repository.findRequest({ requestId: 'not-a-uuid' }), null);
-  // DB เองก็ปฏิเสธ receipt ที่ binding ไม่ตรง (composite FK) แม้เขียนตรงไม่ผ่าน repository
+  // the DB itself also rejects a receipt whose binding does not match (composite FK) even when written directly, bypassing the repository
   await assert.rejects(
     f.platform.pfProvisioningStepReceipt.create({
       data: {
@@ -409,12 +409,12 @@ test('step receipt: replay ของ attempt ที่ SUCCEEDED เป็น no
       },
     }),
   );
-  // ประวัติของ b ไม่มีเหตุการณ์ของ a ปน
+  // the history of b has none of a's events mixed in
   const historyB = await repository.listActionHistory({ tenantId: b.tenantId });
   assert.ok(historyB.every((row) => row.stepKey === null));
 });
 
-test('append-only: control-plane role แก้/ลบ ledger, receipt และ audit ไม่ได้ (รวม owner สำหรับ trigger)', async (t) => {
+test('append-only: the control-plane role cannot edit/delete ledger, receipts and audit (including the owner, for triggers)', async (t) => {
   const f = await fixture(t);
   const accepted = await accept(f);
   for (const table of [
@@ -461,13 +461,13 @@ test('append-only: control-plane role แก้/ลบ ledger, receipt และ
       table,
     );
   }
-  // identity/pin ของ request แก้ไม่ได้แม้มีสิทธิ์ UPDATE
+  // the identity/pin of a request cannot be edited even with UPDATE privilege
   await assert.rejects(
     f.platform
       .$executeRaw`UPDATE "pf_provisioning_requests" SET "slug" = 'hijack', "revision" = "revision" + 1 WHERE "id" = ${accepted.requestId}::uuid`,
     /PF_REQUEST_IDENTITY_IMMUTABLE/,
   );
-  // tenant ที่ยัง PROVISIONING จะถูกตั้งเป็น ACTIVE ตรง ๆ ไม่ได้
+  // a tenant still PROVISIONING cannot be set directly to ACTIVE
   await assert.rejects(
     f.platform
       .$executeRaw`UPDATE "tenants" SET "lifecycle_status" = 'ACTIVE' WHERE "id" = ${accepted.tenantId}::uuid`,
@@ -475,7 +475,7 @@ test('append-only: control-plane role แก้/ลบ ledger, receipt และ
   );
 });
 
-test('isolation: control-plane role ไม่มีสิทธิ์บน tenant business data และ tenant app มองไม่เห็น control plane', async (t) => {
+test('isolation: the control-plane role has no privilege on tenant business data and the tenant app cannot see the control plane', async (t) => {
   const f = await fixture(t);
   await accept(f);
   for (const table of [
@@ -504,7 +504,7 @@ test('isolation: control-plane role ไม่มีสิทธิ์บน tena
       table,
     );
   }
-  // tenant ลบไม่ได้ และแก้ค่าอื่นนอกจาก lifecycle/identity ไม่ได้
+  // a tenant cannot be deleted, and nothing other than lifecycle/identity can be edited
   await assert.rejects(
     f.platform.$executeRawUnsafe('DELETE FROM "tenants" WHERE false'),
     /permission denied/,
@@ -517,8 +517,8 @@ test('isolation: control-plane role ไม่มีสิทธิ์บน tena
   );
 });
 
-// เทียบเป็นชุดคำ: ADD VALUE บน DB ที่ migrate ไปแล้วอาจเรียงต่างจาก fresh DB แต่ vocabulary ต้องตรงกัน
-test('contract: vocabulary ใน shared ตรงกับ Postgres enum ของ migration', async (t) => {
+// compared as a set of words: ADD VALUE on an already-migrated DB may order differently from a fresh DB but the vocabulary must match
+test('contract: the vocabulary in shared matches the Postgres enum of the migration', async (t) => {
   const f = await fixture(t);
   const enumValues = async (type: string) =>
     (
@@ -542,7 +542,7 @@ test('contract: vocabulary ใน shared ตรงกับ Postgres enum ขอ
   assert.deepEqual(await enumValues('PfActionKind'), [...PLATFORM_ACTION_KINDS].sort());
 });
 
-test('template: REVOKED/ไม่มี template = BOOTSTRAP_TEMPLATE_UNAVAILABLE และ manifest แก้ไม่ได้', async (t) => {
+test('template: REVOKED/no template = BOOTSTRAP_TEMPLATE_UNAVAILABLE and the manifest cannot be edited', async (t) => {
   const f = await fixture(t);
   await rejectsWith(
     accept(f, f.input({ bootstrapTemplateVersion: 'missing-v9' })),

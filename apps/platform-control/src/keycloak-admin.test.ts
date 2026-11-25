@@ -35,14 +35,14 @@ async function stepError(work: Promise<unknown>) {
     await work;
   } catch (error) {
     assert.ok(error instanceof ProvisioningStepError, String(error));
-    // ไม่มี response body/email/token หลุดออกไปกับ error
+    // no response body/email/token leaks out with the error
     assert.equal(`${error.message}${error.stack}`.includes('leak@example.test'), false);
     return `${error.kind}:${error.code}`;
   }
-  throw new Error('ต้อง throw');
+  throw new Error('must throw');
 }
 
-test('แปลง status เป็น step error แบบ sanitize: อ่าน 5xx retry ได้, เขียน 5xx ไม่รู้ผล, 4xx ถาวร', async () => {
+test('maps status to a sanitized step error: read 5xx retryable, write 5xx unknown outcome, 4xx permanent', async () => {
   const cases: Array<[string, number, string]> = [
     ['GET', 503, 'TRANSIENT:KEYCLOAK_SERVER_ERROR'],
     ['POST', 502, 'AMBIGUOUS:KEYCLOAK_SERVER_ERROR'],
@@ -60,7 +60,7 @@ test('แปลง status เป็น step error แบบ sanitize: อ่า�
   }
 });
 
-test('network failure: คำสั่งอ่าน retry ได้ คำสั่งเขียนถือว่าอาจเกิดแล้ว; abort = timeout', async () => {
+test('network failure: reads are retryable, writes are treated as possibly done; abort = timeout', async () => {
   const { keycloak } = client(() => {
     throw new TypeError('fetch failed');
   });
@@ -74,7 +74,7 @@ test('network failure: คำสั่งอ่าน retry ได้ คำส�
   );
 });
 
-test('status ที่ผู้เรียกยอมรับคืนให้ตัดสินเอง และ 401 ขอ token ใหม่หนึ่งครั้ง', async () => {
+test('a status the caller accepts is returned for the caller to decide, and a 401 requests a new token once', async () => {
   let unauthorized = true;
   const { keycloak, calls } = client(() => {
     if (unauthorized) {
@@ -93,7 +93,7 @@ test('status ที่ผู้เรียกยอมรับคืนให�
   ]);
 });
 
-test('first-admin user id deterministic ต่อ request และเป็น UUID ที่ Postgres รับได้', () => {
+test('first-admin user id is deterministic per request and a UUID Postgres accepts', () => {
   const requestId = '0ecbd23a-3cb9-4992-8577-b3039abb5a07';
   assert.equal(firstAdminUserId(requestId), firstAdminUserId(requestId));
   assert.notEqual(firstAdminUserId(requestId), firstAdminUserId(requestId.replace('0e', '1e')));

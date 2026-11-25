@@ -1,6 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
 
-/** #744: regression ใช้ Platform API จำลอง; auth ใช้ production root กับ OIDC จำลอง */
+/** #744: regression uses a mocked Platform API; auth uses the production root with a mocked OIDC */
 export default defineConfig({
   testDir: './e2e',
   timeout: 30_000,

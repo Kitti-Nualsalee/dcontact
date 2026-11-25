@@ -2,16 +2,16 @@
  * Owner: Platform control plane — Postgres-backed provisioning saga worker (A1.3 #408)
  *
  * Authority: #390 (ordered steps, verified adoption, forward recovery, lease/retry), #389 (states),
- * Phase Contract #388 (lease 2 นาที, heartbeat 30 วินาที, timeout 60 วินาที, 5 attempts, deadline 30 นาที)
+ * Phase Contract #388 (lease 2 minutes, heartbeat 30 seconds, timeout 60 seconds, 5 attempts, deadline 30 minutes)
  *
- * database เป็น authority เดียว — worker ไม่มี state ในหน่วยความจำที่ใช้ตัดสินอะไร:
- * - claim step ด้วย CAS บน `(revision, lease)` จึงมีผู้ชนะคนเดียวแม้หลาย worker แย่งกัน
- * - ทุก attempt ถาม `find` ก่อน `execute` เสมอ: response ที่หายหรือ timeout ครั้งก่อนจบด้วย verified
- *   adoption ไม่ใช่ blind create ซ้ำ; correlation ไม่ตรง = `ACTION_REQUIRED` ห้ามยึดหรือลบ
- * - ผลของ attempt เขียนได้เฉพาะเมื่อ lease ยังเป็นของ worker นี้และ revision ตรง — worker ที่ lease
- *   หมดไปแล้วเขียนทับไม่ได้ (`LEASE_LOST`)
- * - timeout/attempt/deadline ไม่ทำให้ `FAILED_FINAL` เอง — ไปจบที่ `ACTION_REQUIRED` ให้ operator
- * - `ACTIVE` เกิดเฉพาะใน transaction สุดท้ายหลัง receipt ครบ (DB trigger บังคับซ้ำ)
+ * the database is the sole authority — the worker holds no in-memory state that decides anything:
+ * - claim a step with a CAS on `(revision, lease)` so there is a single winner even when several workers contend
+ * - every attempt asks `find` before `execute`: a response lost or timed out last time ends in verified
+ *   adoption, not a blind repeated create; correlation mismatch = `ACTION_REQUIRED`, never adopt or delete
+ * - an attempt's result can be written only while the lease still belongs to this worker and the revision matches — a worker whose lease
+ *   has expired cannot overwrite (`LEASE_LOST`)
+ * - timeout/attempt/deadline never make it `FAILED_FINAL` by themselves — they end at `ACTION_REQUIRED` for an operator
+ * - `ACTIVE` happens only in the final transaction after all receipts exist (a DB trigger enforces it again)
  */
 import { createHash, randomUUID } from 'node:crypto';
 import { Prisma, type PrismaClient } from '@d-contact/db';
@@ -28,13 +28,13 @@ import type { TenantConsoleContext } from './tenant-console-context.js';
 
 export type ExternalProvisioningStepKey = Exclude<ProvisioningStepKey, 'TENANT_RECORD'>;
 
-/** ข้อมูลที่ port ได้รับ — correlation `tenantId/requestId` ต้องถูก stamp ลง resource ภายนอกเสมอ */
+/** data a port receives — the correlation `tenantId/requestId` must always be stamped on the external resource */
 export interface ProvisioningStepContext {
   tenantId: string;
   requestId: string;
   stepKey: ExternalProvisioningStepKey;
   attempt: number;
-  /** identity ที่ deterministic ต่อ (request, step) — ใช้เป็น message/operation id ของ side effect */
+  /** identity deterministic per (request, step) — used as the message/operation id of the side effect */
   operationKey: string;
   request: {
     displayName: string;
@@ -56,27 +56,27 @@ export interface ProvisioningStepContext {
 export type ProvisioningAdoption =
   | { status: 'FOUND'; externalRef: string; outputDigest?: string }
   | { status: 'NOT_FOUND' }
-  /** มี resource ชื่อเดียวกันแต่ correlation ไม่ตรง — ห้ามยึดหรือลบ (#390) */
+  /** a resource with the same name but a mismatching correlation exists — never adopt or delete (#390) */
   | { status: 'MISMATCH'; code: string };
 
 export interface ProvisioningStepPort {
-  /** lookup ด้วย correlation แล้ว verify ก่อน adopt — read-only เสมอ */
+  /** lookup by correlation then verify before adopting — always read-only */
   find(context: ProvisioningStepContext): Promise<ProvisioningAdoption>;
-  /** side effect จริง; ต้อง stamp correlation และเคารพ `signal` เมื่อ timeout */
+  /** the real side effect; must stamp the correlation and respect `signal` on timeout */
   execute(
     context: ProvisioningStepContext,
     signal: AbortSignal,
   ): Promise<{ externalRef: string; outputDigest?: string }>;
-  /** ชดเชยได้เฉพาะ resource ที่ `find` พิสูจน์ ownership แล้ว; ไม่มี = step นี้ compensate ไม่ได้ */
+  /** may compensate only a resource whose ownership `find` has proven; none = this step cannot be compensated */
   compensate?(context: ProvisioningStepContext, externalRef: string): Promise<void>;
 }
 
 export type ProvisioningStepPorts = Record<ExternalProvisioningStepKey, ProvisioningStepPort>;
 
 /**
- * - `TRANSIENT`: ยังไม่เกิด side effect แน่นอน (เช่น 503 ก่อนส่ง) — retry ได้
- * - `AMBIGUOUS`: อาจเกิดแล้ว (timeout/lost response) — retry ได้เพราะรอบหน้าถาม `find` ก่อน
- * - `PERMANENT`: validation/policy ที่ retry เดิมแก้ไม่ได้ — `ACTION_REQUIRED` ทันที
+ * - `TRANSIENT`: certainly no side effect yet (e.g. a 503 before sending) — retryable
+ * - `AMBIGUOUS`: may have happened (timeout/lost response) — retryable because the next round asks `find` first
+ * - `PERMANENT`: validation/policy that the same retry cannot fix — `ACTION_REQUIRED` immediately
  */
 export class ProvisioningStepError extends Error {
   constructor(
@@ -91,7 +91,7 @@ export class ProvisioningStepError extends Error {
 export interface ProvisioningSagaOptions {
   workerId: string;
   now?: () => Date;
-  /** [0, 1) สำหรับ jitter — inject เพื่อให้เทสต์ deterministic */
+  /** [0, 1) for jitter — injected to keep tests deterministic */
   random?: () => number;
   id?: () => string;
   leaseMs?: number;
@@ -100,11 +100,11 @@ export interface ProvisioningSagaOptions {
   maxAttempts?: number;
   backoffBaseMs?: number;
   backoffMaxMs?: number;
-  /** จำนวน request ที่ดูต่อรอบ */
+  /** number of requests looked at per round */
   batchSize?: number;
-  /** จำกัดชุด request ที่ worker นี้รับ (sharding หรือแยก fixture ของเทสต์) — ไม่ใช่ authority */
+  /** restrict the set of requests this worker takes (sharding or separating test fixtures) — not an authority */
   scope?: () => Prisma.PfProvisioningRequestWhereInput;
-  /** #901: issuer/client ของ tenant Console ที่ binding ของ first admin ผูกไว้ตอนปิดงาน */
+  /** #901: issuer/client of the tenant Console that the first admin's binding is tied to when closing the work */
   tenantConsole?: TenantConsoleContext;
 }
 
@@ -164,7 +164,7 @@ export function provisioningStepContext(
   };
 }
 
-/** step แรกที่ยังไม่ SUCCEEDED — saga ไม่ข้าม step และไม่ทำสอง step พร้อมกันใน request เดียว */
+/** the first step not yet SUCCEEDED — the saga does not skip a step and does not do two steps at once in one request */
 export function currentStep(request: LoadedRequest) {
   return [...request.steps]
     .sort((left, right) => left.ordinal - right.ordinal)
@@ -209,7 +209,7 @@ export class ProvisioningSagaWorker {
     });
   }
 
-  /** exponential backoff + jitter ครึ่งบน — attempt ในงบปัจจุบันเริ่มที่ 1 */
+  /** exponential backoff + upper-half jitter — an attempt in the current budget starts at 1 */
   backoffMs(attemptInBudget: number): number {
     const ceiling = Math.min(
       this.backoffBaseMs * 2 ** Math.max(0, attemptInBudget - 1),
@@ -218,7 +218,7 @@ export class ProvisioningSagaWorker {
     return Math.round(ceiling / 2 + (ceiling / 2) * this.random());
   }
 
-  /** ทำงานหนึ่งหน่วย: finalize request ที่ครบแล้ว หรือ claim + ทำ step ปัจจุบันของ request หนึ่งใบ */
+  /** does one unit of work: finalize a request whose steps are complete, or claim + do the current step of one request */
   async runOnce(): Promise<SagaRunResult> {
     const candidates = await this.database.pfProvisioningRequest.findMany({
       where: {
@@ -247,7 +247,7 @@ export class ProvisioningSagaWorker {
       const claimed = await this.claim(request, step, now);
       if (!claimed) continue;
       const stepKey = step.stepKey as ExternalProvisioningStepKey;
-      // A1.8b: step ทุก attempt (รวมหลัง worker restart) เป็น child ของ trace ตอนรับคำขอ
+      // A1.8b: every attempt's step (including after a worker restart) is a child of the trace from when the request was accepted
       return withSpan(
         `provisioning.step ${stepKey}`,
         {
@@ -273,7 +273,7 @@ export class ProvisioningSagaWorker {
     return { kind: 'IDLE' };
   }
 
-  /** เรียกซ้ำจนไม่มีงาน — ใช้ใน worker loop และเทสต์ */
+  /** repeats until there is no work — used in the worker loop and tests */
   async drain(limit = 50): Promise<SagaRunResult[]> {
     const results: SagaRunResult[] = [];
     for (let index = 0; index < limit; index += 1) {
@@ -346,7 +346,7 @@ export class ProvisioningSagaWorker {
     if (attemptInBudget > this.maxAttempts) {
       return this.escalate(request, stepKey, lease, 'ATTEMPTS_EXHAUSTED');
     }
-    // #392: template ที่ถูก REVOKED ห้ามเริ่ม step ใหม่ — request ที่ค้างอยู่ไปรอ operator
+    // #392: a REVOKED template must not start a new step — a request left pending goes to wait for an operator
     const template = await this.database.pfBootstrapTemplate.findUnique({
       where: { version: request.bootstrapTemplateVersion },
       select: { status: true },
@@ -377,7 +377,7 @@ export class ProvisioningSagaWorker {
     return this.scheduleRetry(request, stepKey, lease, outcome.code, attemptInBudget);
   }
 
-  /** find → (FOUND = adopt | MISMATCH = หยุด | NOT_FOUND = execute ภายใต้ timeout) */
+  /** find → (FOUND = adopt | MISMATCH = stop | NOT_FOUND = execute under a timeout) */
   private async attempt(port: ProvisioningStepPort, context: ProvisioningStepContext) {
     let adoption: ProvisioningAdoption;
     try {
@@ -433,7 +433,7 @@ export class ProvisioningSagaWorker {
           if (extended.count === 1) lease.revision += 1;
           else lost = true;
         })
-        // DB error ครั้งเดียวต้องไม่ทำให้ heartbeat รอบถัดไปเงียบหาย — ถ้า lease หมดจริง CAS ตอนเขียนผลจะจับได้
+        // a single DB error must not make the next round's heartbeat go silent — if the lease really expired the CAS at write time will catch it
         .catch(() => undefined);
     };
     const timer = setInterval(beat, this.heartbeatMs);
@@ -548,7 +548,7 @@ export class ProvisioningSagaWorker {
     return { kind: 'RETRY_SCHEDULED', requestId: request.id, stepKey, nextAttemptAt };
   }
 
-  /** ปัญหาที่ worker แก้เองไม่ได้: step + request เป็น ACTION_REQUIRED พร้อม receipt ของ attempt นี้ */
+  /** a problem the worker cannot fix itself: step + request become ACTION_REQUIRED with a receipt of this attempt */
   private async escalate(
     request: LoadedRequest,
     stepKey: ExternalProvisioningStepKey,
@@ -613,7 +613,7 @@ export class ProvisioningSagaWorker {
     return { kind: 'ACTION_REQUIRED', requestId: request.id, stepKey, code };
   }
 
-  /** receipt ครบแล้ว: SUCCEEDED + ACTIVE ใน transaction เดียว (crash ก่อนนี้ = worker ถัดไปมาทำต่อ) */
+  /** receipts complete: SUCCEEDED + ACTIVE in one transaction (a crash before this = the next worker continues) */
   private async finalize(request: LoadedRequest): Promise<SagaRunResult | null> {
     if (request.status !== 'RUNNING') return null;
     try {
@@ -663,7 +663,7 @@ export class ProvisioningSagaWorker {
   }
 }
 
-/** timeout ของ external call = ผลไม่ทราบ (AMBIGUOUS) และ abort ส่งไปให้ port หยุดงาน */
+/** a timeout of an external call = unknown outcome (AMBIGUOUS) and the abort is passed to the port to stop the work */
 async function withTimeout<T>(
   work: (signal: AbortSignal) => Promise<T>,
   timeoutMs: number,
@@ -690,7 +690,7 @@ function guard<T>(signal: AbortSignal) {
   };
 }
 
-/** error ที่ไม่รู้จักถือว่าไม่รู้ผล — ปลอดภัยเพราะรอบหน้าถาม find ก่อนเสมอ */
+/** an unrecognized error is treated as unknown outcome — safe because the next round always asks find first */
 function classify(error: unknown): { kind: 'ESCALATE' | 'RETRY'; code: string } {
   if (error instanceof ProvisioningStepError) {
     return { kind: error.kind === 'PERMANENT' ? 'ESCALATE' : 'RETRY', code: stepCode(error.code) };

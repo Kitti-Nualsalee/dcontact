@@ -1,5 +1,5 @@
 /**
- * D1.13 (#452): เปิด/ปิด `ui.shell.v2` ด้วย role `dcontact_platform` จริง (NOBYPASSRLS)
+ * D1.13 (#452): turn `ui.shell.v2` on/off with the real `dcontact_platform` role (NOBYPASSRLS)
  */
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -11,7 +11,7 @@ const PLATFORM_DATABASE_URL =
   process.env.PLATFORM_DATABASE_URL ??
   'postgresql://dcontact_platform:dcontact_platform@localhost:5433/dcontact?schema=public';
 
-test('platform operator เปิด/ปิด ui.shell.v2 พร้อม audit และต้องยืนยัน gate #77 ก่อนเปิด', async (t) => {
+test('a platform operator turns ui.shell.v2 on/off with audit and must confirm gate #77 before turning it on', async (t) => {
   const owner = new PrismaClient();
   const platform = new PrismaClient({ datasources: { db: { url: PLATFORM_DATABASE_URL } } });
   const tenantId = randomUUID();
@@ -29,7 +29,7 @@ test('platform operator เปิด/ปิด ui.shell.v2 พร้อม audit
   const base = {
     tenantSlug: slug,
     flagKey: 'ui.shell.v2',
-    reason: 'UAT ของ D1',
+    reason: 'D1 UAT',
     actor: 'ops@test',
   };
   const code = (error: unknown) => (error as TenantUiFlagError).code;
@@ -65,7 +65,7 @@ test('platform operator เปิด/ปิด ui.shell.v2 พร้อม audit
     await setTenantUiFlag(platform, { ...base, enabled: true, voicePilotAcknowledged: true }),
     { tenantId, flagKey: 'ui.shell.v2', enabled: true, previous: false },
   );
-  // ปิดได้ทันทีโดยไม่ต้อง ack — เป็นทาง rollback
+  // can be turned off immediately without an ack — it is the rollback path
   assert.deepEqual(
     await setTenantUiFlag(platform, { ...base, enabled: false, reason: 'rollback' }),
     { tenantId, flagKey: 'ui.shell.v2', enabled: false, previous: true },
@@ -77,12 +77,12 @@ test('platform operator เปิด/ปิด ui.shell.v2 พร้อม audit
     select: { enabled: true, reason: true, actor: true },
   });
   assert.deepEqual(audit, [
-    { enabled: true, reason: 'UAT ของ D1', actor: 'ops@test' },
+    { enabled: true, reason: 'D1 UAT', actor: 'ops@test' },
     { enabled: false, reason: 'rollback', actor: 'ops@test' },
   ]);
 });
 
-test('#583: workSession.lease.enforced ไม่ใช่ flag ที่ตั้งได้แล้ว (lease บังคับทุก tenant)', async () => {
+test('#583: workSession.lease.enforced is no longer a settable flag (the lease is enforced for every tenant)', async () => {
   const platform = new PrismaClient({ datasources: { db: { url: PLATFORM_DATABASE_URL } } });
   try {
     await assert.rejects(
@@ -90,7 +90,7 @@ test('#583: workSession.lease.enforced ไม่ใช่ flag ที่ตั�
         tenantSlug: 'any',
         flagKey: 'workSession.lease.enforced',
         enabled: true,
-        reason: 'ไม่ควรตั้งได้',
+        reason: 'should not be settable',
         actor: 'ops@test',
         voicePilotAcknowledged: true,
       }),

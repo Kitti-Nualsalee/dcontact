@@ -1,8 +1,8 @@
 /**
- * Owner: Platform control plane — เขียน Action history แบบ append-only (A1.1 #406, #393 §5)
+ * Owner: Platform control plane — append-only Action history writer (A1.1 #406, #393 §5)
  *
- * ทางเดียวที่ repository/saga/recovery เพิ่มเหตุการณ์ลง `pf_action_history` — ไม่มี raw email,
- * payload หรือ secret; external reference เก็บเป็น hash เท่านั้น
+ * The only way the repository/saga/recovery add events to `pf_action_history` — no raw email,
+ * payload or secret; external references are stored as hashes only
  */
 import type { Prisma, PrismaClient } from '@d-contact/db';
 import type { PlatformActionKind, ProvisioningStepKey } from '@d-contact/shared';

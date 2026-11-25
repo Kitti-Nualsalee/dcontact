@@ -1,13 +1,13 @@
 /**
- * Owner: Platform operations — distributed trace ของ Platform provisioning (A1.8b #473, #388 checkpoint 2)
+ * Owner: Platform operations — distributed trace of Platform provisioning (A1.8b #473, #388 checkpoint 2)
  *
- * - OpenTelemetry SDK + OTLP (decision ใน #473): เปิดเมื่อตั้ง `OTEL_EXPORTER_OTLP_ENDPOINT` เท่านั้น
- *   — ไม่ตั้ง = API ของ OTel เป็น no-op ทั้งหมด และ provisioning ทำงานเหมือนเดิม; collector ล่มก็ไม่กระทบ
- *   (BatchSpanProcessor ทิ้ง span เอง ไม่ throw กลับมา)
- * - ไม่ใช้ auto-instrumentation: URL/query/SQL มีโอกาสมี email/slug/domain — span เขียนเองเฉพาะจุด
- *   และ attribute ผ่าน `safeAttributes` ที่รับเฉพาะ key ในรายการ + ค่าที่เป็น id/code เท่านั้น
- * - trace เดียวต่อคำขอ: Platform API เก็บ W3C traceparent ลง `pf_provisioning_requests` /
- *   `pf_operator_commands` แล้ว worker ใช้เป็น parent ของ span — ต่อกันได้แม้ worker restart
+ * - OpenTelemetry SDK + OTLP (decision in #473): enabled only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set
+ *   — unset = the OTel API is a total no-op and provisioning works as before; a collector outage has no effect either
+ *   (BatchSpanProcessor drops spans itself, never throws back)
+ * - no auto-instrumentation: URLs/queries/SQL may contain an email/slug/domain — spans are written by hand at specific points
+ *   and attributes go through `safeAttributes`, which accepts only keys on the list + id/code values
+ * - one trace per request: the Platform API stores the W3C traceparent in `pf_provisioning_requests` /
+ *   `pf_operator_commands` and the worker uses it as the span parent — it stays connected even across a worker restart
  */
 import {
   context,
@@ -32,7 +32,7 @@ import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
 
 export const PLATFORM_TRACER = 'dcontact-platform-provisioning';
 
-/** attribute ที่อนุญาต — ค่าเป็น opaque id, enum หรือ stable code เท่านั้น */
+/** allowed attributes — values are opaque ids, enums or stable codes only */
 const ALLOWED = new Set([
   'dcontact.request_id',
   'dcontact.tenant_id',
@@ -60,7 +60,7 @@ export function safeAttributes(input: Record<string, unknown>): Attributes {
   for (const [key, value] of Object.entries(input)) {
     if (!ALLOWED.has(key) || value === undefined || value === null) continue;
     if (typeof value === 'number' || typeof value === 'boolean') output[key] = value;
-    // ค่าที่มี '@' หรืออักขระนอกชุด id/code ถูกทิ้ง — กัน email/ข้อความอิสระหลุด
+    // a value containing '@' or characters outside the id/code set is dropped — keeps an email/free text from leaking
     else if (typeof value === 'string' && SAFE_TEXT.test(value)) output[key] = value;
   }
   return output;
@@ -72,7 +72,7 @@ function tracer() {
 
 const propagator = new W3CTraceContextPropagator();
 
-/** traceparent ของ span ที่ active อยู่ — ไม่มี span ที่ sample = null (tracing ปิด) */
+/** traceparent of the active span — no sampled span = null (tracing off) */
 export function currentTraceparent(): string | null {
   const span = trace.getActiveSpan();
   if (!span?.spanContext().traceFlags) return null;
@@ -98,8 +98,8 @@ function parentContext(traceparent: string | null | undefined): Context {
 }
 
 /**
- * รัน `work` ใน span ใหม่ — `parent` = traceparent ที่เก็บไว้ใน DB (ถ้ามี) ไม่อย่างนั้นใช้ context ปัจจุบัน
- * error ถูกบันทึกเป็นชื่อ class เท่านั้น (message อาจมีข้อมูลจาก dependency)
+ * runs `work` in a new span — `parent` = the traceparent stored in the DB (if any), otherwise the current context
+ * an error is recorded by class name only (the message may carry data from a dependency)
  */
 export async function withSpan<T>(
   name: string,
@@ -131,7 +131,7 @@ export function setSpanAttributes(span: Span, attributes: Record<string, unknown
   span.setAttributes(safeAttributes(attributes));
 }
 
-/** ชื่อ operation ของ Keycloak Admin API: method + path ที่แทน id ด้วย `{id}` และตัด query ทิ้ง */
+/** operation name of the Keycloak Admin API: method + a path with ids replaced by `{id}` and the query dropped */
 export function keycloakOperation(method: string, path: string): string {
   const template = path
     .split('?')[0]!
@@ -145,7 +145,7 @@ export interface PlatformTracing {
 }
 
 /**
- * เปิด tracing ของ process — `exporter` ใช้ในเทสต์ (in-memory) นอกนั้นอ่าน OTLP จาก env มาตรฐานของ OTel
+ * enables tracing for the process — `exporter` is for tests (in-memory), otherwise reads OTLP from the standard OTel env
  */
 export function startPlatformTracing(options: {
   serviceName: string;

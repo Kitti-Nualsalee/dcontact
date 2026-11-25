@@ -1,20 +1,20 @@
 /**
- * Owner: Platform provisioning + Tenant metadata — step PLAN_BOOTSTRAP และ READINESS (A1.5 #410)
+ * Owner: Platform provisioning + Tenant metadata — the PLAN_BOOTSTRAP and READINESS steps (A1.5 #410)
  *
  * Authority: #392 (Bootstrap scope, Plan binding, Readiness evidence), #390 (verified adoption),
  * #388 decision "Tenant bootstrap write boundary"
  *
  * PLAN_BOOTSTRAP
- * - ใช้ manifest/plan snapshot ที่ request pin ไว้เท่านั้น และคำนวณ digest ซ้ำก่อน seed ทุกครั้ง
- *   (pinned catalog แก้ไม่ได้อยู่แล้ว แต่ digest ไม่ตรง = หยุด ไม่ใช่ seed จากค่าที่ไม่รู้ที่มา)
- * - seed ผ่าน `dcontact_provisioner` (RLS ยอมเฉพาะ tenant ที่ยัง PROVISIONING) ด้วย id ที่ deterministic
- *   ต่อ request: replay/worker ซ้ำ = `skipDuplicates` ไม่สร้างซ้ำ; แถวชื่อชนแต่ไม่ใช่ของเรา = MISMATCH
- * - Admin Team พร้อมใช้; General Team/Queue inactive และ business hours เป็น DRAFT — ไม่มี traffic
+ * - uses only the manifest/plan snapshot the request pinned, and recomputes the digest before every seed
+ *   (a pinned catalog is already immutable, but a digest mismatch = stop, not seed from a value of unknown origin)
+ * - seeds through `dcontact_provisioner` (RLS allows only tenants still PROVISIONING) with ids that are deterministic
+ *   per request: a replay/duplicate worker = `skipDuplicates` creates nothing twice; a row with a clashing name that is not ours = MISMATCH
+ * - the Admin Team is ready to use; General Team/Queue are inactive and business hours are DRAFT — no traffic
  *
  * READINESS
- * - พิสูจน์ก่อน ACTIVE: receipt ครบ, manifest/plan digest ตรง pin, settings ตรง request, baseline ครบ
- *   และ inactive, first-admin เป็นสมาชิก Admin Team และมี invitation ที่ส่งแล้ว, ไม่มี cross-tenant binding
- * - evidence ไม่มี email/ชื่อคน — digest ของ evidence ลง receipt เป็น `outputDigest`
+ * - proves before ACTIVE: receipts complete, manifest/plan digest match the pin, settings match the request, baseline complete
+ *   and inactive, the first-admin is a member of the Admin Team and has a sent invitation, no cross-tenant binding
+ * - the evidence has no email/person name — the digest of the evidence goes into the receipt as `outputDigest`
  */
 import { createHash } from 'node:crypto';
 import { Prisma, type PrismaClient } from '@d-contact/db';
@@ -36,7 +36,7 @@ import {
 
 const sha256 = (value: string) => createHash('sha256').update(value, 'utf8').digest('hex');
 
-/** อ่าน manifest/plan ที่ pin แล้วตรวจ digest ซ้ำ — ใช้ร่วมกันระหว่าง seed และ readiness */
+/** reads the pinned manifest/plan and re-verifies the digest — shared between seed and readiness */
 async function loadPinned(platform: PrismaClient, context: ProvisioningStepContext) {
   const { request } = context;
   const template = await platform.pfBootstrapTemplate.findUnique({
@@ -69,9 +69,9 @@ async function loadPinned(platform: PrismaClient, context: ProvisioningStepConte
 
 export class TenantBootstrapPort implements ProvisioningStepPort {
   constructor(
-    /** Prisma ของ `dcontact_platform` — อ่าน catalog */
+    /** Prisma of `dcontact_platform` — reads the catalog */
     private readonly platform: PrismaClient,
-    /** Prisma ของ `dcontact_provisioner` — seed tenant rows */
+    /** Prisma of `dcontact_provisioner` — seeds tenant rows */
     private readonly provisioner: PrismaClient,
   ) {}
 
@@ -94,7 +94,7 @@ export class TenantBootstrapPort implements ProvisioningStepPort {
       this.provisioner.tenantPlanBinding.findUnique({ where: { tenantId: context.tenantId } }),
     ]);
     const ours = new Set(Object.values(ids));
-    // แถวใน tenant นี้ที่ไม่ได้มาจาก request นี้ = มีคนเขียนก่อน — ห้าม adopt
+    // a row in this tenant that did not come from this request = someone wrote first — never adopt
     if ([...teams, ...queues, ...hours].some((row) => !ours.has(row.id))) {
       return { status: 'MISMATCH', code: 'BOOTSTRAP_CORRELATION_MISMATCH' };
     }
@@ -235,7 +235,7 @@ export type ReadinessCheck = (typeof READINESS_CHECKS)[number];
 export interface ReadinessReport {
   passed: boolean;
   failed: ReadinessCheck[];
-  /** ไม่มี email/ชื่อคน — id เป็น UUID และ digest เท่านั้น */
+  /** no email/person name — ids are UUIDs and digests only */
   evidence: Record<string, unknown>;
   evidenceDigest: string;
 }
@@ -244,11 +244,11 @@ export class TenantReadinessPort implements ProvisioningStepPort {
   constructor(
     private readonly platform: PrismaClient,
     private readonly provisioner: PrismaClient,
-    /** ตรวจ identity ภายนอก (Keycloak) ว่ายังตรง correlation — ไม่ส่งมา = ข้ามการตรวจภายนอก */
+    /** checks the external identity (Keycloak) still matches the correlation — not passed = skip the external check */
     private readonly identity?: (context: ProvisioningStepContext) => Promise<boolean>,
   ) {}
 
-  /** readiness ไม่มี resource ภายนอกให้ adopt — ประเมินใหม่ทุก attempt */
+  /** readiness has no external resource to adopt — re-evaluated on every attempt */
   async find(): Promise<ProvisioningAdoption> {
     return { status: 'NOT_FOUND' };
   }
@@ -270,7 +270,7 @@ export class TenantReadinessPort implements ProvisioningStepPort {
       if (!ok) failed.add(name);
     };
 
-    // 1) step ก่อนหน้าสำเร็จครบและมี receipt SUCCEEDED
+    // 1) previous steps all succeeded and have a SUCCEEDED receipt
     const readinessOrdinal = PROVISIONING_STEP_KEYS.indexOf('READINESS');
     const prior = PROVISIONING_STEP_KEYS.slice(0, readinessOrdinal);
     const [steps, receipts] = await Promise.all([
@@ -284,13 +284,13 @@ export class TenantReadinessPort implements ProvisioningStepPort {
       steps.filter((step) => step.state === 'SUCCEEDED').map((s) => s.stepKey),
     );
     const receipted = new Set(receipts.map((receipt) => receipt.stepKey));
-    // TENANT_RECORD สำเร็จใน transaction ของ accept จึงไม่มี receipt ของ worker
+    // TENANT_RECORD succeeds in the accept transaction so there is no worker receipt
     check(
       'RECEIPTS',
       prior.every((key) => succeeded.has(key) && (key === 'TENANT_RECORD' || receipted.has(key))),
     );
 
-    // 2–3) manifest/plan ตรง pin และ digest คำนวณซ้ำได้
+    // 2–3) manifest/plan match the pin and the digest can be recomputed
     const pinned = await loadPinned(this.platform, context);
     check('MANIFEST', pinned.manifest !== null && pinned.templateStatus !== 'REVOKED');
     const binding = await this.provisioner.tenantPlanBinding.findUnique({ where: { tenantId } });
@@ -309,7 +309,7 @@ export class TenantReadinessPort implements ProvisioningStepPort {
         ) === request.planSnapshotDigest,
     );
 
-    // 4) settings ตรงกับ request ปัจจุบัน (รวมค่าที่ operator แก้ก่อน bootstrap)
+    // 4) settings match the current request (including values an operator edited before bootstrap)
     const settings = await this.provisioner.tenantSettings.findUnique({ where: { tenantId } });
     check(
       'SETTINGS',
@@ -322,7 +322,7 @@ export class TenantReadinessPort implements ProvisioningStepPort {
         settings.bootstrapTemplateDigest === request.bootstrapTemplateDigest,
     );
 
-    // 5) baseline ครบ ไม่เกิน และทุกอย่างนอก Admin Team ยัง inactive (ไม่มี traffic อัตโนมัติ)
+    // 5) baseline complete, nothing extra, and everything outside the Admin Team is still inactive (no automatic traffic)
     const [teams, queues, hours, users] = await Promise.all([
       this.provisioner.team.findMany({ where: { tenantId } }),
       this.provisioner.queue.findMany({ where: { tenantId } }),
@@ -361,7 +361,7 @@ export class TenantReadinessPort implements ProvisioningStepPort {
         canonicalJson(hours[0]!.weekly) === canonicalJson(manifest.drafts.businessHours.weekly),
     );
 
-    // 6) first-admin คนเดียว เป็น ADMIN ของ Admin Team และผูก Keycloak identity แล้ว
+    // 6) a single first-admin, an ADMIN of the Admin Team, already bound to a Keycloak identity
     const admin = users.find((user) => user.id === adminUserId);
     check(
       'ADMIN',
@@ -373,7 +373,7 @@ export class TenantReadinessPort implements ProvisioningStepPort {
         admin.teamId === ids.adminTeamId,
     );
 
-    // 7) invitation intent ล่าสุดถูกส่งแล้ว (delivery accepted) ถึง identity เดียวกัน
+    // 7) the latest invitation intent has been sent (delivery accepted) to the same identity
     const invitation = await this.platform.pfInvitation.findFirst({
       where: { requestId },
       orderBy: { generation: 'desc' },
@@ -386,8 +386,8 @@ export class TenantReadinessPort implements ProvisioningStepPort {
         invitation.keycloakUserId === admin?.keycloakId,
     );
 
-    // 8) ไม่มี binding ข้าม tenant: ทุก reference ชี้แถวของ tenant นี้ และ Keycloak identity
-    //    ไม่ถูกผูกกับ users ของ tenant อื่นที่ provisioner มองเห็น
+    // 8) no cross-tenant binding: every reference points at this tenant's rows, and the Keycloak identity
+    //    is not bound to a users row of another tenant that the provisioner can see
     const teamIds = new Set(teams.map((row) => row.id));
     const sharedIdentity = admin?.keycloakId
       ? await this.provisioner.user.count({
@@ -404,7 +404,7 @@ export class TenantReadinessPort implements ProvisioningStepPort {
         sharedIdentity === 0,
     );
 
-    // 9) identity ภายนอกยังตรง correlation (เช่น Keycloak Organization membership)
+    // 9) the external identity still matches the correlation (e.g. Keycloak Organization membership)
     if (this.identity) check('IDENTITY', await this.identity(context).catch(() => false));
 
     const evidence = {

@@ -1,10 +1,10 @@
 /**
- * id ที่ deterministic ต่อ provisioning request (A1.4/A1.5) — แถวที่ saga seed ใช้ id เหล่านี้เสมอ
- * จึง replay ได้โดยไม่สร้างซ้ำ และตรวจ correlation ได้จาก id โดยไม่ต้องเก็บ mapping เพิ่ม
+ * ids that are deterministic per provisioning request (A1.4/A1.5) — the rows the saga seeds always use these ids
+ * so they can replay without duplicating and the correlation can be checked from the id without storing an extra mapping
  */
 import { createHash } from 'node:crypto';
 
-/** UUID รูปแบบ v5 จาก sha256(namespace:value) — Postgres `uuid` รับได้ */
+/** a v5-style UUID from sha256(namespace:value) — accepted by Postgres `uuid` */
 export function deterministicUuid(namespace: string, value: string): string {
   const hex = createHash('sha256').update(`${namespace}:${value}`).digest('hex');
   const variant = ((parseInt(hex[16]!, 16) & 0x3) | 0x8).toString(16);
@@ -15,7 +15,7 @@ export function firstAdminUserId(requestId: string): string {
   return deterministicUuid('dcontact:first-admin', requestId);
 }
 
-/** แถว baseline ของ PLAN_BOOTSTRAP (#392 Bootstrap scope) */
+/** baseline rows of PLAN_BOOTSTRAP (#392 Bootstrap scope) */
 export function bootstrapRowIds(requestId: string) {
   return {
     adminTeamId: deterministicUuid('dcontact:bootstrap:admin-team', requestId),

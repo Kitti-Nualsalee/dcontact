@@ -1,6 +1,6 @@
 /**
- * Platform API — process แยกจาก tenant API (`apps/api`) ตาม #387: คนละ port, คนละ audience,
- * และ (A1.4 เป็นต้นไป) คนละ database role (`dcontact_platform` ผ่าน `PLATFORM_DATABASE_URL`)
+ * Platform API — a process separate from the tenant API (`apps/api`) per #387: its own port, its own audience,
+ * and (from A1.4 on) its own database role (`dcontact_platform` via `PLATFORM_DATABASE_URL`)
  */
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
@@ -18,12 +18,12 @@ import { JosePlatformAccessTokenVerifier } from './platform-verifier.js';
 
 function required(name: string): string {
   const value = process.env[name];
-  if (!value) throw new Error(`ต้องตั้ง ${name}`);
+  if (!value) throw new Error(`${name} must be set`);
   return value;
 }
 
 async function bootstrap() {
-  // A1.8b (#473): เปิดเมื่อตั้ง OTEL_EXPORTER_OTLP_ENDPOINT เท่านั้น
+  // A1.8b (#473): enabled only when OTEL_EXPORTER_OTLP_ENDPOINT is set
   const tracing = startPlatformTracing({ serviceName: 'dcontact-platform-api' });
   process.once('SIGTERM', () => void tracing.shutdown());
   const issuer = required('PLATFORM_OIDC_ISSUER');
@@ -31,11 +31,11 @@ async function bootstrap() {
     issuer,
     jwksUri: process.env.PLATFORM_OIDC_JWKS_URI ?? `${issuer}/protocol/openid-connect/certs`,
   });
-  // role เฉพาะ control plane (#387) — ห้ามใช้ DATABASE_URL ของ tenant application
+  // control-plane-only role (#387) — must not use the tenant application's DATABASE_URL
   const database = new PrismaClient({
     datasources: { db: { url: required('PLATFORM_DATABASE_URL') } },
   });
-  // A1.8 (#413): /metrics บน port แยก — ไม่เปิดผ่าน hostname ของ Platform Console
+  // A1.8 (#413): /metrics on a separate port — not exposed through the Platform Console hostname
   const registry = new Registry();
   collectDefaultMetrics({ register: registry, prefix: 'dcontact_platform_api_' });
   await startMetricsServer(registry, {
@@ -45,7 +45,7 @@ async function bootstrap() {
   const app = await NestFactory.create(
     PlatformApiModule.register({
       verifier,
-      // A1.8 (#413): default ปิด — PLATFORM_PROVISIONING_ENABLED=true + PLATFORM_OPERATOR_ALLOWLIST
+      // A1.8 (#413): off by default — PLATFORM_PROVISIONING_ENABLED=true + PLATFORM_OPERATOR_ALLOWLIST
       rollout: PlatformRollout.fromEnv(process.env),
       services: createPlatformServices(database, {
         sipBaseDomain: required('PLATFORM_SIP_BASE_DOMAIN'),

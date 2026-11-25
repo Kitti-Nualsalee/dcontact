@@ -1,11 +1,11 @@
 /**
- * Owner: Platform control plane — canonical input ของ provisioning request (A1.1 #406)
+ * Owner: Platform control plane — canonical input of a provisioning request (A1.1 #406)
  *
  * Authority: #389 (slug/domain canonical form), #390 (canonical payload digest), #392 (first admin),
- * decision บน #406 (sipDomain derive จาก slug)
+ * decision on #406 (sipDomain derives from slug)
  *
- * server เป็น authority เดียวของ canonical form: digest ที่ idempotency เทียบคือ digest ของรูปนี้
- * ไม่ใช่ JSON ดิบจาก browser — field order/whitespace/ตัวพิมพ์ของ domain จึงไม่ทำให้เป็นคนละคำขอ
+ * the server is the sole authority of the canonical form: the digest idempotency compares is the digest of this form,
+ * not the raw JSON from the browser — so field order/whitespace/domain case do not make a different request
  */
 import { createHash } from 'node:crypto';
 import { domainToASCII } from 'node:url';
@@ -20,13 +20,13 @@ const SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])?$/;
 const DOMAIN_LABEL = /^(?!-)[a-z0-9-]{1,63}(?<!-)$/;
 const EMAIL_PATTERN = /^[^\s@]{1,64}@[^\s@]{1,253}$/;
 
-/** slug เป็น DNS label ตัวเล็ก ใช้เป็น subdomain และ derive sipDomain จึงต้อง canonical ก่อน reserve */
+/** slug is a lowercase DNS label, used as a subdomain and to derive sipDomain, so it must be canonical before reserving */
 export function normalizeTenantSlug(value: string): string | null {
   const slug = value.trim().toLowerCase();
   return SLUG_PATTERN.test(slug) && !slug.includes('--') ? slug : null;
 }
 
-/** primary domain → lowercase IDNA (punycode) ไม่มี trailing dot; ต้องมีอย่างน้อยสอง label */
+/** primary domain → lowercase IDNA (punycode) with no trailing dot; needs at least two labels */
 export function normalizePrimaryDomain(value: string): string | null {
   const ascii = toAsciiHostname(value.trim().replace(/\.$/, ''));
   if (!ascii || ascii.length > 253) return null;
@@ -34,13 +34,13 @@ export function normalizePrimaryDomain(value: string): string | null {
   return labels.length >= 2 && labels.every((label) => DOMAIN_LABEL.test(label)) ? ascii : null;
 }
 
-/** IDNA (UTS #46) ผ่าน Node — ค่าที่มี path/port/userinfo ถือว่าไม่ใช่ hostname */
+/** IDNA (UTS #46) via Node — a value with a path/port/userinfo is not a hostname */
 function toAsciiHostname(value: string): string | null {
   if (!value || /[/:@?#\s]/.test(value)) return null;
   return domainToASCII(value) || null;
 }
 
-/** email ของ first admin: local part คงเดิม (อาจ case-sensitive) แต่ domain เป็น canonical */
+/** the first admin's email: the local part is unchanged (may be case-sensitive) but the domain is canonical */
 export function normalizeFirstAdminEmail(value: string): string | null {
   const email = value.trim();
   if (!EMAIL_PATTERN.test(email)) return null;
@@ -49,7 +49,7 @@ export function normalizeFirstAdminEmail(value: string): string | null {
   return domain ? `${email.slice(0, at)}@${domain}` : null;
 }
 
-/** sipDomain ของ tenant ใหม่ derive จาก slug (decision บน #406) — immutable ตาม slug */
+/** the sipDomain of a new tenant derives from slug (decision on #406) — immutable along with slug */
 export function deriveTenantSipDomain(slug: string, platformSipBaseDomain: string): string {
   const base = normalizePrimaryDomain(platformSipBaseDomain);
   if (!base) throw new PlatformProvisioningError('VALIDATION_FAILED');
@@ -57,8 +57,8 @@ export function deriveTenantSipDomain(slug: string, platformSipBaseDomain: strin
 }
 
 /**
- * แปลง operational input เป็นรูป canonical หรือ throw `VALIDATION_FAILED` พร้อม field errors
- * — digest ของรูปนี้คือสิ่งที่ idempotency เทียบ ไม่ใช่ JSON ดิบจาก browser
+ * converts operational input into canonical form or throws `VALIDATION_FAILED` with field errors
+ * — the digest of this form is what idempotency compares, not the raw JSON from the browser
  */
 export function canonicalizeProvisioningRequest(
   input: ProvisioningRequestInput,
@@ -115,14 +115,14 @@ function sha256(value: string): string {
 }
 
 /**
- * hash ที่เก็บแทนค่าดิบใน reservation/audit (email, idempotency key, external ref) — มี domain
- * separator กันค่าต่างชนิดชนกัน และทำให้ log/evidence ไม่มีค่าดิบ
+ * hash stored in place of the raw value in reservations/audit (email, idempotency key, external ref) — has a domain
+ * separator so values of different kinds do not collide, and keeps raw values out of logs/evidence
  */
 export function platformIdentityHash(kind: string, value: string): string {
   return sha256(`dcontact-platform|${kind}|${value}`);
 }
 
-/** digest ของ canonical payload — key เรียงตายตัวจึงไม่ขึ้นกับลำดับ field ที่ client ส่ง */
+/** digest of the canonical payload — keys are sorted deterministically so it does not depend on the field order the client sent */
 export function provisioningPayloadDigest(request: CanonicalProvisioningRequest): string {
   const ordered = Object.fromEntries(
     Object.entries(request).sort(([left], [right]) => left.localeCompare(right)),

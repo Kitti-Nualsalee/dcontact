@@ -1,13 +1,13 @@
 import { defineConfig, devices } from '@playwright/test';
 
 /**
- * A1.7 (#412) UAT flow กับระบบจริง — ไม่อยู่ใน CI
- * ต้องมี: Keycloak (+ `pnpm infra:identity:platform`), Platform API ที่ :3019 และ platform worker
+ * A1.7 (#412) UAT flow against the real system — not in CI
+ * Requires: Keycloak (+ `pnpm infra:identity:platform`), the Platform API at :3019 and the platform worker
  */
 export default defineConfig({
   testDir: './uat',
   timeout: 180_000,
-  // บัญชี operator เดียวกัน: OTP ใน window เดียวกันใช้ซ้ำไม่ได้ — รันทีละ test
+  // the same operator account: an OTP cannot be reused within the same window — run one test at a time
   workers: 1,
   use: { baseURL: 'http://localhost:5180', trace: 'retain-on-failure' },
   webServer: {

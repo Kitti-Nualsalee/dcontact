@@ -28,7 +28,7 @@ function AuthenticatedConsole() {
   useEffect(() => {
     if (auth.isLoading || auth.isAuthenticated || auth.error || auth.activeNavigator) return;
     if (beginPlatformSessionRestore(window.sessionStorage)) {
-      // Full-page OIDC redirect ใช้ Keycloak SSO cookie ได้โดยไม่เก็บ token ใน browser storage
+      // a full-page OIDC redirect can use the Keycloak SSO cookie without keeping a token in browser storage
       void auth.signinRedirect({ prompt: 'none', redirectMethod: 'replace' });
     }
   }, [auth.isLoading, auth.isAuthenticated, auth.error, auth.activeNavigator, auth.signinRedirect]);
@@ -92,7 +92,7 @@ function ProductionRoot() {
   );
 }
 
-/** e2e harness เท่านั้น: API ถูก mock บน origin เดียวกัน ไม่มี OIDC */
+/** e2e harness only: the API is mocked on the same origin, no OIDC */
 function E2eRoot() {
   const api = useMemo(
     () =>

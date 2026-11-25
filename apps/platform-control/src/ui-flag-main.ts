@@ -1,6 +1,6 @@
 /**
- * D1.13 (#452): CLI ของ platform operator — `pnpm d1:shell-flag -- --tenant demo --on --reason "UAT" --actor ops@x --ack-voice-pilot`
- * ปิด: `--off` (ไม่ต้อง ack — เป็นทาง rollback) มีผลกับผู้ใช้ตอนโหลดหน้าครั้งถัดไป ไม่ต้อง deploy
+ * D1.13 (#452): CLI of a platform operator — `pnpm d1:shell-flag -- --tenant demo --on --reason "UAT" --actor ops@x --ack-voice-pilot`
+ * off: `--off` (no ack needed — it is the rollback path) takes effect for users on their next page load, no deploy needed
  */
 import { PrismaClient } from '@d-contact/db';
 import { setTenantUiFlag, TenantUiFlagError } from './tenant-ui-flags.js';
@@ -15,7 +15,7 @@ const off = process.argv.includes('--off');
 const tenantSlug = option('tenant');
 if (on === off || !tenantSlug) {
   process.stderr.write(
-    'ใช้: --tenant <slug> (--on | --off) --reason "<เหตุผล>" --actor <operator> [--flag ui.shell.v2] [--ack-voice-pilot]\n',
+    'Usage: --tenant <slug> (--on | --off) --reason "<reason>" --actor <operator> [--flag ui.shell.v2] [--ack-voice-pilot]\n',
   );
   process.exit(2);
 }

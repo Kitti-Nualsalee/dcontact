@@ -1,11 +1,11 @@
 /**
- * #907: ลงทะเบียน redirect แบบ exact ของ tenant ให้ Console client ของ deployment ระหว่างขั้น FIRST_ADMIN
+ * #907: registers the tenant's exact redirect on the deployment's Console client during the FIRST_ADMIN step
  *
- * - รูปแบบเดียวกับ Console (`createConsoleOidcSettings`): `<origin>/?tenant=<slug>` ทั้ง login และ post-logout
- * - provisioner ได้ `view`/`manage` ผ่าน fine-grained admin permission v2 เฉพาะ client นี้ (ดู
- *   `scripts/keycloak-provisioning-setup.mjs`) ไม่มี `manage-clients` ทั้ง realm
- * - Keycloak รับ client ทั้งก้อนตอน PUT จึงกัน lost update ระหว่าง worker หลายตัวด้วย advisory lock ของ Postgres
- *   แล้วอ่านกลับตรวจทุกครั้ง; ไม่แตะ redirect ของ tenant อื่นหรือค่าอื่นของ client
+ * - same format as the Console (`createConsoleOidcSettings`): `<origin>/?tenant=<slug>` for both login and post-logout
+ * - the provisioner gets `view`/`manage` through fine-grained admin permission v2 on this client only (see
+ *   `scripts/keycloak-provisioning-setup.mjs`), with no realm-wide `manage-clients`
+ * - Keycloak takes the whole client on PUT, so a lost update among several workers is prevented with a Postgres advisory lock
+ *   and a read-back verifies every time; it does not touch another tenant's redirect or the client's other values
  */
 import type { PrismaClient } from '@d-contact/db';
 import type { KeycloakAdminClient } from './keycloak-admin.js';
@@ -24,7 +24,7 @@ interface KeycloakClient {
   [key: string]: unknown;
 }
 
-/** URL เดียวกับที่ Console สร้างเป็น `redirect_uri` และ `post_logout_redirect_uri` */
+/** the same URL the Console builds as `redirect_uri` and `post_logout_redirect_uri` */
 export function tenantConsoleRedirect(origin: string, slug: string): string {
   if (!SLUG.test(slug) || slug.includes('--')) {
     throw new ProvisioningStepError('PERMANENT', 'TENANT_CONSOLE_SLUG_INVALID');
@@ -43,7 +43,7 @@ export function redirectRegistered(client: KeycloakClient, redirect: string): bo
   return (client.redirectUris ?? []).includes(redirect) && postLogout(client).includes(redirect);
 }
 
-/** client ที่ได้มาต้องเป็น tenant Console แบบ public + PKCE เท่านั้น — กันการเพิ่ม redirect ให้ client อื่น */
+/** the client obtained must be a public + PKCE tenant Console only — keeps a redirect from being added to another client */
 function assertConsoleClient(client: KeycloakClient | undefined, clientId: string): KeycloakClient {
   if (
     !client ||
@@ -59,7 +59,7 @@ function assertConsoleClient(client: KeycloakClient | undefined, clientId: strin
 export class TenantConsoleRedirects {
   constructor(
     private readonly keycloak: Pick<KeycloakAdminClient, 'admin'>,
-    /** ใช้เพียง advisory lock — role ใดก็ได้ที่ต่อฐานเดียวกับ worker ตัวอื่น */
+    /** only the advisory lock is used — any role connected to the same DB as the other workers */
     private readonly lock: Pick<PrismaClient, '$transaction'>,
     private readonly context: TenantConsoleContext,
   ) {}
@@ -94,7 +94,7 @@ export class TenantConsoleRedirects {
     const redirect = this.redirect(slug);
     await this.lock.$transaction(
       async (transaction) => {
-        // worker ทุกตัวเขียน client เดียวกัน: serialize GET → PUT → read-back ทั้งชุด
+        // every worker writes the same client: serialize GET → PUT → read-back for the whole set
         await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`dc:tenant-console-redirects:${this.context.clientId}`}, 0))`;
         const current = await this.client(signal);
         if (redirectRegistered(current, redirect)) return;

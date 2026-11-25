@@ -32,7 +32,7 @@ function rejection(claims: Record<string, unknown>): PlatformIdentityRejection |
 }
 
 describe('toVerifiedPlatformIdentity — token matrix (#387 invariants)', () => {
-  test('operator ได้ read + mutate; auditor ได้ read เท่านั้น', () => {
+  test('operator gets read + mutate; auditor gets read only', () => {
     const operator = toVerifiedPlatformIdentity(platformClaims('platform_operator'), TEST_NOW);
     assert.deepEqual(operator.roles, ['platform_operator']);
     assert.deepEqual(operator.capabilities, ['CONTROL_PLANE_READ', 'PROVISIONING_MUTATE']);
@@ -46,69 +46,65 @@ describe('toVerifiedPlatformIdentity — token matrix (#387 invariants)', () => 
   const cases: Array<[string, Record<string, unknown>, PlatformIdentityRejection]> = [
     ['tenant-only token', tenantClaims(), 'WRONG_CLIENT'],
     [
-      'platform token ที่ปน tenant_id',
+      'platform token mixed with tenant_id',
       platformClaims('platform_operator', { tenant_id: 't-1' }),
       'TENANT_CONTEXT_PRESENT',
     ],
     [
-      'platform token ที่ปน tenant_slug',
+      'platform token mixed with tenant_slug',
       platformClaims('platform_operator', { tenant_slug: 'demo' }),
       'TENANT_CONTEXT_PRESENT',
     ],
     [
-      'platform token ที่ปน organization',
+      'platform token mixed with organization',
       platformClaims('platform_operator', { organization: { demo: {} } }),
       'TENANT_CONTEXT_PRESENT',
     ],
     [
-      'platform token ที่ปน dc_user_id',
+      'platform token mixed with dc_user_id',
       platformClaims('platform_operator', { dc_user_id: 'u-1' }),
       'TENANT_CONTEXT_PRESENT',
     ],
     [
-      'platform token ที่มี tenant realm role',
+      'platform token with a tenant realm role',
       platformClaims('platform_operator', { realm_access: { roles: ['admin'] } }),
       'TENANT_ROLE_PRESENT',
     ],
     [
-      'realm_access ผิดรูป',
+      'malformed realm_access',
       platformClaims('platform_operator', { realm_access: { roles: 'admin' } }),
       'TENANT_ROLE_PRESENT',
     ],
     [
-      'azp ไม่ใช่ platform-console',
+      'azp is not platform-console',
       platformClaims('platform_operator', { azp: 'dcontact-console' }),
       'WRONG_CLIENT',
     ],
     ['ID token (typ=ID)', platformClaims('platform_operator', { typ: 'ID' }), 'NOT_ACCESS_TOKEN'],
     ['refresh token', platformClaims('platform_operator', { typ: 'Refresh' }), 'NOT_ACCESS_TOKEN'],
     [
-      'หมดอายุ',
+      'expired',
       platformClaims('platform_operator', { exp: Math.floor(TEST_NOW.getTime() / 1000) }),
       'EXPIRED',
     ],
-    ['ไม่มี exp', platformClaims('platform_operator', { exp: undefined }), 'MALFORMED'],
-    ['ไม่มี sid', platformClaims('platform_operator', { sid: undefined }), 'MALFORMED'],
-    ['ไม่มี sub', platformClaims('platform_operator', { sub: '' }), 'MALFORMED'],
+    ['missing exp', platformClaims('platform_operator', { exp: undefined }), 'MALFORMED'],
+    ['missing sid', platformClaims('platform_operator', { sid: undefined }), 'MALFORMED'],
+    ['missing sub', platformClaims('platform_operator', { sub: '' }), 'MALFORMED'],
     [
-      'login ด้วยรหัสผ่านอย่างเดียว',
+      'login with password only',
       platformClaims('platform_operator', { amr: ['pwd'] }),
       'MFA_REQUIRED',
     ],
-    ['ไม่มี amr', platformClaims('platform_operator', { amr: undefined }), 'MFA_REQUIRED'],
+    ['missing amr', platformClaims('platform_operator', { amr: undefined }), 'MFA_REQUIRED'],
+    ['otp only, no pwd', platformClaims('platform_operator', { amr: ['otp'] }), 'MFA_REQUIRED'],
     [
-      'otp อย่างเดียวไม่มี pwd',
-      platformClaims('platform_operator', { amr: ['otp'] }),
-      'MFA_REQUIRED',
-    ],
-    [
-      'ไม่มี platform role',
+      'no platform role',
       platformClaims('platform_operator', { resource_access: {} }),
       'NO_PLATFORM_ROLE',
     ],
-    ['role ที่ไม่รู้จัก', platformClaims('platform_superuser'), 'NO_PLATFORM_ROLE'],
+    ['unknown role', platformClaims('platform_superuser'), 'NO_PLATFORM_ROLE'],
     [
-      'role ของ client อื่น',
+      'role of another client',
       platformClaims('x', {
         resource_access: { 'dcontact-api': { roles: ['platform_operator'] } },
       }),
@@ -116,10 +112,10 @@ describe('toVerifiedPlatformIdentity — token matrix (#387 invariants)', () => 
     ],
   ];
   for (const [name, claims, reason] of cases) {
-    test(`ปฏิเสธ: ${name} → ${reason}`, () => assert.equal(rejection(claims), reason));
+    test(`rejected: ${name} → ${reason}`, () => assert.equal(rejection(claims), reason));
   }
 
-  test('role ที่ไม่รู้จักปนกับ role จริงถูกตัดทิ้ง ไม่ได้ capability เพิ่ม', () => {
+  test('an unknown role mixed with a real role is dropped and grants no extra capability', () => {
     const identity = toVerifiedPlatformIdentity(
       platformClaims('platform_auditor', {
         resource_access: { 'dcontact-platform-api': { roles: ['platform_auditor', 'root'] } },
@@ -130,7 +126,7 @@ describe('toVerifiedPlatformIdentity — token matrix (#387 invariants)', () => 
     assert.deepEqual(identity.capabilities, ['CONTROL_PLANE_READ']);
   });
 
-  test('platform token ใช้กับ tenant boundary ไม่ได้ (toVerifiedWorkspaceIdentity ปฏิเสธ)', () => {
+  test('a platform token cannot be used at the tenant boundary (toVerifiedWorkspaceIdentity rejects it)', () => {
     for (const role of ['platform_operator', 'platform_auditor']) {
       assert.throws(() => toVerifiedWorkspaceIdentity(platformClaims(role) as never, TEST_NOW));
     }
@@ -143,13 +139,13 @@ describe('JosePlatformAccessTokenVerifier', () => {
     signer = await createTestSigner();
   });
 
-  test('รับ token ที่ลงนามด้วย key ของ realm และ audience ถูก', async () => {
+  test('accepts a token signed with the realm key and the right audience', async () => {
     const claims = await signer.verifier.verifyAccessToken(
       await signer.sign(platformClaims('platform_operator')),
     );
     assert.equal(claims.azp, 'platform-console');
   });
-  test('ปฏิเสธ key ปลอม, audience ของ tenant API, issuer อื่น และ header typ ผิด', async () => {
+  test('rejects a forged key, the tenant API audience, another issuer and a wrong typ header', async () => {
     const attempts = [
       signer.forger(platformClaims('platform_operator')),
       signer.sign(platformClaims('platform_operator', { aud: 'dcontact-api' })),
@@ -179,14 +175,14 @@ class ProbeController {
     return { ok: 'mutate' };
   }
 
-  /** ลืมประกาศ capability — ต้องถูกปฏิเสธ (deny by default) */
+  /** a capability left undeclared — must be rejected (deny by default) */
   @Get('undeclared')
   undeclared() {
     return { ok: 'leak' };
   }
 }
 
-describe('PlatformAuthGuard ผ่าน HTTP จริง', () => {
+describe('PlatformAuthGuard over real HTTP', () => {
   let app: INestApplication;
   let baseUrl: string;
   let signer: TestSigner & { forger: TestSigner['sign'] };
@@ -248,7 +244,7 @@ describe('PlatformAuthGuard ผ่าน HTTP จริง', () => {
     });
   });
 
-  test('tenant, mixed, no-OTP, forged และไม่มี token → 401 envelope เดียวกันทุกกรณี', async () => {
+  test('tenant, mixed, no-OTP, forged and missing tokens → the same 401 envelope in every case', async () => {
     const expected = {
       status: 401,
       code: 'UNAUTHENTICATED',
@@ -264,13 +260,13 @@ describe('PlatformAuthGuard ผ่าน HTTP จริง', () => {
     }
   });
 
-  test('route ที่ไม่ประกาศ capability ถูกปฏิเสธแม้เป็น operator', async () => {
+  test('a route that declares no capability is rejected even for an operator', async () => {
     const result = await call('/api/v1/probe/undeclared', tokens.operator);
     assert.equal(result.status, 403);
     assert.equal(JSON.stringify(result.body).includes('leak'), false);
   });
 
-  test('GET /api/v1/session คืน roles/capabilities โดยไม่มี token หรือ claim ดิบ', async () => {
+  test('GET /api/v1/session returns roles/capabilities without a token or raw claims', async () => {
     const result = await call('/api/v1/session', tokens.auditor);
     assert.deepEqual(result, {
       status: 200,
@@ -285,7 +281,7 @@ describe('PlatformAuthGuard ผ่าน HTTP จริง', () => {
     assert.equal((await call('/health/live')).status, 200);
   });
 
-  test('A1.8 canary: operator นอก allowlist mutate ไม่ได้ (403) แต่อ่านได้ และ session เป็นอ่านอย่างเดียว', async () => {
+  test('A1.8 canary: an operator outside the allowlist cannot mutate (403) but can read, and the session is read-only', async () => {
     assert.equal((await call('/api/v1/probe', tokens.outsider)).status, 200);
     const denied = await call('/api/v1/probe', tokens.outsider, 'POST');
     assert.deepEqual([denied.status, denied.body.code], [403, 'FORBIDDEN']);
@@ -301,7 +297,7 @@ describe('PlatformAuthGuard ผ่าน HTTP จริง', () => {
     );
   });
 
-  test('A1.8 rollback: flag ปิด = mutate 503 PROVISIONING_DISABLED (ไม่ retryable), อ่านได้ปกติ', async (t) => {
+  test('A1.8 rollback: flag off = mutate returns 503 PROVISIONING_DISABLED (not retryable), reads work as usual', async (t) => {
     rollout.enabled = false;
     t.after(() => {
       rollout.enabled = true;
@@ -318,7 +314,7 @@ describe('PlatformAuthGuard ผ่าน HTTP จริง', () => {
       },
     });
     assert.equal((await call('/api/v1/probe', tokens.operator)).status, 200);
-    // auditor ยังได้ 403 เหมือนเดิม — flag ไม่เปลี่ยนสิทธิ์ของ role
+    // the auditor still gets 403 as before — the flag does not change a role's permissions
     assert.equal((await call('/api/v1/probe', tokens.auditor, 'POST')).status, 403);
     const session = await call('/api/v1/session', tokens.operator);
     assert.deepEqual(
@@ -327,7 +323,7 @@ describe('PlatformAuthGuard ผ่าน HTTP จริง', () => {
     );
   });
 
-  test('diagnostics มีเหตุผลเชิงลึกแต่ไม่มี token หรือ PII', async () => {
+  test('diagnostics carry detailed reasons but no token or PII', async () => {
     const reasons = new Set(diagnostics.map((diagnostic) => diagnostic.reason));
     for (const reason of [
       'WRONG_CLIENT',
@@ -340,12 +336,12 @@ describe('PlatformAuthGuard ผ่าน HTTP จริง', () => {
       'ROLLOUT_NOT_ALLOWLISTED',
       'PROVISIONING_DISABLED',
     ]) {
-      assert.ok(reasons.has(reason as never), `ขาด diagnostic reason ${reason}`);
+      assert.ok(reasons.has(reason as never), `missing diagnostic reason ${reason}`);
     }
     const serialized = JSON.stringify(diagnostics);
     for (const token of Object.values(tokens)) assert.equal(serialized.includes(token), false);
     for (const secret of ['@', 'demo', 'tenant-admin-sub', '1111']) {
-      assert.equal(serialized.includes(secret), false, `diagnostics รั่ว ${secret}`);
+      assert.equal(serialized.includes(secret), false, `diagnostics leaked ${secret}`);
     }
   });
 });

@@ -13,21 +13,21 @@ import {
 
 const USER = '6f1c2b1e-8e0a-4d6b-9a57-0d6f3c1b2a90';
 
-test('ไม่ตั้ง OTLP endpoint = ปิด (no-op) และไม่มี traceparent ให้เก็บ', async () => {
+test('no OTLP endpoint = off (no-op) and no traceparent to store', async () => {
   assert.equal(startPlatformTracing({ serviceName: 's', env: {} }).enabled, false);
   await withSpan('noop', {}, async () => {
     assert.equal(currentTraceparent(), null);
   });
 });
 
-test('safeAttributes รับเฉพาะ key ที่อนุญาตและค่าที่เป็น id/code — email/ข้อความอิสระถูกทิ้ง', () => {
+test('safeAttributes accepts only allowed keys and id/code values — an email/free text is dropped', () => {
   assert.deepEqual(
     safeAttributes({
       'dcontact.request_id': USER,
       'dcontact.step_key': 'FIRST_ADMIN',
       'dcontact.attempt': 2,
       'dcontact.code': 'owner@example.test',
-      'dcontact.action': 'แก้อีเมล',
+      'dcontact.action': 'edit email',
       'user.email': 'owner@example.test',
       'http.route': '/api/v1/provisioning-requests/:requestId',
     }),
@@ -44,7 +44,7 @@ test('safeAttributes รับเฉพาะ key ที่อนุญาตแ
   );
 });
 
-test('span ต่อจาก traceparent ที่เก็บไว้ (worker restart) และ Keycloak call เป็น CLIENT span ที่ไม่มี query', async (t) => {
+test('a span continues from the stored traceparent (worker restart) and the Keycloak call is a CLIENT span without a query', async (t) => {
   const exporter = new InMemorySpanExporter();
   const tracing = startPlatformTracing({ serviceName: 'test', exporter });
   t.after(async () => {
@@ -68,7 +68,7 @@ test('span ต่อจาก traceparent ที่เก็บไว้ (worker
         ? new Response(JSON.stringify({ access_token: 'token', expires_in: 60 }))
         : new Response('[]', { status: 200 }),
   });
-  // process ใหม่ไม่มี context ในหน่วยความจำ — มีแค่ traceparent จาก DB
+  // a new process has no in-memory context — only the traceparent from the DB
   await withSpan('provisioning.step FIRST_ADMIN', { parent: stored }, async () => {
     await keycloak.admin(
       'GET',
@@ -79,7 +79,7 @@ test('span ต่อจาก traceparent ที่เก็บไว้ (worker
 
   const spans = exporter.getFinishedSpans();
   const traceIds = new Set(spans.map((span) => span.spanContext().traceId));
-  assert.equal(traceIds.size, 1, 'ทุก span ต้องอยู่ใน trace เดียวกับ HTTP request');
+  assert.equal(traceIds.size, 1, 'every span must be in the same trace as the HTTP request');
   assert.deepEqual(spans.map((span) => span.name).sort(), [
     'HTTP POST',
     'keycloak GET /users',

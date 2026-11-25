@@ -3,9 +3,9 @@
  *
  * Authority: #392 (Bootstrap template authority/versioning, Plan binding)
  *
- * - manifest และ plan snapshot immutable เมื่อ publish แล้ว (DB trigger บังคับ) — แก้ = ออก version ใหม่
- * - digest คำนวณจาก canonical JSON เสมอ จึงตรวจซ้ำตอน seed/readiness ได้ว่าเนื้อหาตรงกับที่ pin
- * - `DEPRECATED`: request เดิมทำต่อได้ แต่ request ใหม่เลือกไม่ได้; `REVOKED`: ห้ามเริ่ม step ใหม่
+ * - manifests and plan snapshots are immutable once published (enforced by a DB trigger) — a change = issue a new version
+ * - the digest is always computed from canonical JSON, so seed/readiness can re-verify that the content matches what was pinned
+ * - `DEPRECATED`: an existing request can continue but a new request cannot select it; `REVOKED`: no new step may start
  */
 import { createHash } from 'node:crypto';
 import { Prisma, type PrismaClient } from '@d-contact/db';
@@ -26,7 +26,7 @@ export function bootstrapManifestDigest(manifest: BootstrapManifestV1): string {
   return sha256(canonicalJson(manifest));
 }
 
-/** digest ผูก code + version เข้ากับ entitlement เพื่อไม่ให้ snapshot เดียวกันสลับ version ได้ */
+/** the digest binds code + version to the entitlement so the same snapshot cannot be swapped between versions */
 export function planSnapshotDigest(
   planCode: string,
   version: number,
@@ -43,10 +43,10 @@ export interface PublishedPlan {
 }
 
 export class PlatformCatalog {
-  /** `database` = Prisma ของ role `dcontact_platform` */
+  /** `database` = Prisma with role `dcontact_platform` */
   constructor(private readonly database: PrismaClient) {}
 
-  /** idempotent: version เดิม + เนื้อหาเดิม = คืนค่าเดิม; เนื้อหาต่างใน version เดิม = ปฏิเสธ */
+  /** idempotent: same version + same content = returns the existing one; different content in the same version = rejected */
   async publishBootstrapTemplate(input: { version: string; manifest: BootstrapManifestV1 }) {
     const errors = bootstrapManifestErrors(input.manifest);
     if (!/^[a-z0-9][a-z0-9._-]{1,63}$/.test(input.version)) errors.push('version');
@@ -80,7 +80,7 @@ export class PlatformCatalog {
     await this.database.pfBootstrapTemplate.update({ where: { version }, data: { status } });
   }
 
-  /** ออก version ใหม่ของ plan (ต่อจาก version ล่าสุด) — publish พร้อมกันชน PK แล้วลองใหม่ */
+  /** issues a new plan version (after the latest version) — concurrent publishes hit the PK and retry */
   async publishPlanVersion(input: {
     planCode: PlatformPlanCode;
     entitlements: PlanEntitlements;
@@ -135,7 +135,7 @@ export class PlatformCatalog {
     });
   }
 
-  /** plan version ล่าสุดที่ ACTIVE — ค่าที่ API ส่งเข้า `accept` เพื่อ pin */
+  /** the latest ACTIVE plan version — the value the API passes into `accept` to pin */
   async activePlan(planCode: PlatformPlanCode): Promise<PublishedPlan> {
     const plan = await this.database.pfPlanVersion.findFirst({
       where: { planCode, status: 'ACTIVE' },

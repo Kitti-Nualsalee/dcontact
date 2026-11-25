@@ -1,4 +1,4 @@
-/* #745: คงเฉพาะ layout/timeline ของ platform; controls มาจาก ui-react และใช้ token กลาง */
+/* #745: keep only the platform layout/timeline; controls come from ui-react and use the shared tokens */
 * {
   box-sizing: border-box;
 }
