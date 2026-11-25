@@ -21,7 +21,10 @@
       "LAST_USABLE_ADMIN": "The last usable Admin cannot be disabled.",
       "CONFIG_BUSY": "The user or affected queues have unfinished work. Complete that work first.",
       "REVISION_CONFLICT": "Data changed. Refresh before submitting another command.",
-      "PROTECTED_OR_FOREIGN_IDENTITY": "This account is outside the permitted disable scope."
+      "PROTECTED_OR_FOREIGN_IDENTITY": "This account is outside the permitted disable scope.",
+      "FORBIDDEN": "You don't have permission to disable this account. The command was not saved.",
+      "NOT_SAVED": "The disable command was not accepted and nothing changed. Check the details and try again.",
+      "NOT_RECORDED": "The original disable command was not found, so nothing changed. You can send it again."
     },
     "notEligible": "This account can't be disabled yet: it isn't active, is still provisioning, or has a pending request.",
     "dialogTitle": "Disable {{name}}?",
@@ -255,7 +258,8 @@
       "ACTION_REQUIRED": "Could not confirm the rename yet. The current name is still shown and the result is being checked."
     },
     "refresh": "Check rename result",
-    "unchanged": "Change the name to save"
+    "unchanged": "Change the name to save",
+    "notManaged": "This account wasn't created or activated through People, so its name can't be changed here. Contact your system administrator."
   },
   "enable": {
     "title": "Re-enable account",
@@ -288,10 +292,14 @@
       "PROTECTED_OR_FOREIGN_IDENTITY": "This account is outside the scope you can change.",
       "IDENTITY_STATE_CONFLICT": "The identity service state does not match the app. Contact your system administrator.",
       "NOT_ACCEPTED": "The command was not accepted because the service is not ready. Try again later.",
-      "FAILED": "Could not confirm the result. Check the original command before trying again."
+      "FAILED": "Could not confirm the result. Check the original command before trying again.",
+      "FORBIDDEN": "You don't have permission to change this account. The command was not saved.",
+      "NOT_SAVED": "The command was not accepted and nothing changed. Check the details and try again.",
+      "NOT_RECORDED": "The original command was not found, so nothing changed. You can send it again."
     },
     "cancel": "Cancel",
     "reason": "Reason (1–500 characters)",
-    "notReady": "Renaming is unavailable right now because the identity service is not ready."
+    "notReady": "Renaming is unavailable right now because the identity service is not ready.",
+    "checking": "Checking whether the identity service is ready…"
   }
 }

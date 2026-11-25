@@ -109,6 +109,29 @@ export interface TeamChangeCommand {
   reason: string;
 }
 
+/**
+ * ผลของคำสั่งที่ส่งไป (หรือคำสั่งที่ตามผล) ตามสิ่งที่ server ตอบ
+ * - `REJECTED`: ปฏิเสธแบบรู้ผลแน่นอน server ไม่ได้บันทึกคำสั่ง (4xx ทั่วไป หรือ 503 บริการยังไม่พร้อม)
+ * - `AMBIGUOUS`: 4xx ที่อาจเกิดระหว่างคำสั่งเดียวกันกำลังทำงาน (408 timeout, 409 CONFIG_BUSY) ต้องตรวจคำสั่งเดิมก่อน
+ * - `UNKNOWN`: เครือข่าย/5xx/response ผิดรูป ไม่รู้ว่ารับคำสั่งหรือยัง
+ */
+export function commandOutcome(value: unknown): 'REJECTED' | 'AMBIGUOUS' | 'UNKNOWN' {
+  if (!(value instanceof CatalogApiError)) return 'UNKNOWN';
+  if (value.status === 503)
+    return ['CAPABILITY_NOT_READY', 'IDENTITY_UNAVAILABLE'].includes(value.code)
+      ? 'REJECTED'
+      : 'UNKNOWN';
+  if (value.status < 400 || value.status >= 500) return 'UNKNOWN';
+  if (value.status === 408 || (value.status === 409 && value.code === 'CONFIG_BUSY'))
+    return 'AMBIGUOUS';
+  return 'REJECTED';
+}
+
+/** server ตอบว่าไม่มีคำสั่ง/operation นี้: ไม่ได้บันทึกไว้ ล้างคำสั่งค้างแล้วให้ลองใหม่ได้ */
+export function commandMissing(value: unknown): boolean {
+  return value instanceof CatalogApiError && value.status === 404;
+}
+
 function object(raw: unknown): Record<string, unknown> {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw))
     throw new CatalogApiError(502, 'FAILED');

@@ -3,11 +3,13 @@ import { useTranslation } from '@d-contact/i18n/react';
 import { Button, Dialog, TextField } from '@d-contact/ui-react';
 import { CatalogApiError } from '../voice-routing/api.js';
 import { peopleUuid } from './api.js';
-import type {
-  PeopleAccountChangeKind,
-  PeopleAccountChangeState,
-  PeopleDirectoryApi,
-  PeopleDirectoryUser,
+import {
+  commandMissing,
+  commandOutcome,
+  type PeopleAccountChangeKind,
+  type PeopleAccountChangeState,
+  type PeopleDirectoryApi,
+  type PeopleDirectoryUser,
 } from './directory-api.js';
 import { accountStatus } from './directory.js';
 
@@ -22,7 +24,8 @@ const KNOWN = [
   'PROTECTED_OR_FOREIGN_IDENTITY',
   'IDENTITY_STATE_CONFLICT',
 ] as const;
-type Failure = (typeof KNOWN)[number] | 'NOT_ACCEPTED' | 'FAILED';
+type Failure =
+  (typeof KNOWN)[number] | 'NOT_ACCEPTED' | 'FORBIDDEN' | 'NOT_SAVED' | 'NOT_RECORDED' | 'FAILED';
 const PENDING: readonly PeopleAccountChangeState[] = [
   'QUEUED',
   'WAITING_EXTERNAL',
@@ -70,7 +73,8 @@ function useAccountChange(
       ? { commandId: user.accountChange.commandId, operationId: user.accountChange.operationId }
       : undefined);
   const [pending, setPending] = useState(existing);
-  const [ready, setReady] = useState(false);
+  /** undefined = กำลังตรวจ capabilities ครั้งแรก (ยังไม่รู้ว่าพร้อมหรือไม่) */
+  const [ready, setReady] = useState<boolean>();
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<PeopleAccountChangeState | ''>('');
   const [error, setError] = useState<Failure>();
@@ -86,36 +90,81 @@ function useAccountChange(
     } catch {}
     setPending(value);
   }
-  function failed(value: unknown) {
+  /**
+   * 401 (session หมด) ส่งต่อให้หน้า People เสมอ; 403 ส่งต่อเฉพาะตอนอ่าน (capabilities/รายละเอียด)
+   * ส่วน 403 ของคำสั่งแก้ไขแสดงในการ์ด/Dialog และคงหน้ารายละเอียดไว้
+   */
+  function failed(value: unknown, write = false) {
     if (!mounted.current) return;
-    if (value instanceof CatalogApiError && [401, 403].includes(value.status)) {
+    setReady((current) => current ?? false);
+    if (
+      value instanceof CatalogApiError &&
+      (value.status === 401 || (value.status === 403 && !write))
+    ) {
       setReady(false);
       callbacks.current.onFailure(value);
       return;
     }
+    const definite = write && commandOutcome(value) === 'REJECTED';
     setError(
       value instanceof CatalogApiError && (KNOWN as readonly string[]).includes(value.code)
         ? (value.code as Failure)
-        : 'FAILED',
+        : definite && value instanceof CatalogApiError && value.status === 403
+          ? 'FORBIDDEN'
+          : definite
+            ? 'NOT_SAVED'
+            : 'FAILED',
     );
+  }
+  /** อ่านผลคำสั่งเดิม; คืน undefined เมื่อ server ไม่มีคำสั่ง/operation นี้ (ล้างคำสั่งค้างแล้ว) */
+  async function follow(reference: PendingChange): Promise<PendingChange | undefined> {
+    try {
+      if (!reference.operationId) {
+        const accepted = await api.invitationCommand(reference.commandId, user.id);
+        reference = { ...reference, operationId: accepted.operationId };
+        if (mounted.current) remember(reference);
+      }
+      return reference;
+    } catch (value) {
+      if (!commandMissing(value)) throw value;
+      if (mounted.current) remember(undefined);
+      return undefined;
+    }
   }
   async function refresh(reference = pending) {
     if (inFlight.current || !supported) return;
     inFlight.current = true;
     setBusy(true);
     setError(undefined);
+    let missing = false;
     try {
-      if (reference && !reference.operationId) {
-        const accepted = await api.invitationCommand(reference.commandId, user.id);
-        reference = { ...reference, operationId: accepted.operationId };
+      if (reference) {
+        const followed = await follow(reference);
         if (!mounted.current) return;
-        remember(reference);
+        if (!followed) missing = true;
+        else {
+          const result = await api.accountChangeOperation!(
+            followed.operationId!,
+            user.id,
+            kind,
+          ).catch((value: unknown) => {
+            if (!commandMissing(value)) throw value;
+            return undefined;
+          });
+          if (!mounted.current) return;
+          if (!result) {
+            missing = true;
+            remember(undefined);
+          } else {
+            setStatus(result);
+            if (result === 'SUCCEEDED' || result === 'REJECTED') remember(undefined);
+          }
+        }
       }
-      if (reference?.operationId) {
-        const result = await api.accountChangeOperation!(reference.operationId, user.id, kind);
-        if (!mounted.current) return;
-        setStatus(result);
-        if (result === 'SUCCEEDED' || result === 'REJECTED') remember(undefined);
+      // ไม่มีคำสั่งเดิมใน server: ไม่มีอะไรเปลี่ยน บอกผู้ใช้แล้วเปิดให้ส่งใหม่ได้
+      if (missing) {
+        setStatus('');
+        setError('NOT_RECORDED');
       }
       const [detail, enabled] = await Promise.all([api.detail(user.id), api.accountChangeReady!()]);
       if (mounted.current) {
@@ -139,7 +188,7 @@ function useAccountChange(
           .then((enabled) => {
             if (mounted.current) setReady(enabled);
           })
-          .catch(failed);
+          .catch((value: unknown) => failed(value));
     }
     return () => {
       mounted.current = false;
@@ -178,19 +227,34 @@ function useAccountChange(
       if (detail && mounted.current) callbacks.current.onUser(detail);
       return true;
     } catch (value) {
-      const notAccepted =
+      if (!mounted.current) return true;
+      let outcome = commandOutcome(value);
+      // 408/CONFIG_BUSY: ตรวจคำสั่งเดิมทันที ถ้า server ไม่มีคำสั่งนี้ก็ถือว่าปฏิเสธแน่นอน
+      if (outcome === 'AMBIGUOUS') {
+        try {
+          const accepted = await api.invitationCommand(reference.commandId, user.id);
+          if (!mounted.current) return true;
+          remember({ ...reference, operationId: accepted.operationId });
+          setStatus('QUEUED');
+          return true;
+        } catch (lookup) {
+          if (!mounted.current) return true;
+          outcome = commandMissing(lookup) ? 'REJECTED' : 'UNKNOWN';
+        }
+      }
+      const rejected = outcome === 'REJECTED';
+      if (rejected) remember(undefined);
+      failed(value, true);
+      if (
+        rejected &&
         value instanceof CatalogApiError &&
         value.status === 503 &&
-        ['CAPABILITY_NOT_READY', 'IDENTITY_UNAVAILABLE'].includes(value.code);
-      const rejected =
-        value instanceof CatalogApiError && ([400, 409, 429].includes(value.status) || notAccepted);
-      if (mounted.current && rejected) remember(undefined);
-      failed(value);
-      if (mounted.current && notAccepted) {
+        ['CAPABILITY_NOT_READY', 'IDENTITY_UNAVAILABLE'].includes(value.code)
+      ) {
         setReady(false);
         setError('NOT_ACCEPTED');
       }
-      // ไม่ได้ปฏิเสธชัด: ไม่รู้ว่ารับคำสั่งหรือยัง ปิด Dialog ให้แผงตามคำสั่งเดิมด้วย commandId ที่เก็บไว้
+      // ปฏิเสธแน่นอน: คง Dialog ให้แก้/ลองใหม่; ไม่รู้ผล: ปิด Dialog ให้แผงตามคำสั่งเดิมด้วย commandId ที่เก็บไว้
       return !rejected;
     } finally {
       inFlight.current = false;
@@ -222,7 +286,10 @@ export function PeopleProfileEdit({
   const [reason, setReason] = useState('');
   if (!change.supported) return null;
   const status = accountStatus(user);
-  const eligible = status === 'ACTIVE' || (status === 'UNKNOWN' && user.isActive);
+  // บัญชีที่ไม่มี lifecycle ของ People (เช่นบัญชีจาก seed) ระบบยืนยันตัวตนไม่ยอมให้แก้ผ่าน People
+  const managed = status !== 'UNKNOWN';
+  const eligible = status === 'ACTIVE';
+  const checking = change.ready === undefined;
   const normalized = name.trim().replace(/\s+/gu, ' ');
   const valid =
     textLength(name) >= 1 &&
@@ -267,10 +334,15 @@ export function PeopleProfileEdit({
           </Button>
         </p>
       ) : null}
-      {!change.ready && !change.busy && !change.pending ? (
+      {!managed && !change.pending ? (
+        <p className="tp-muted tp-help">{label('profile.notManaged')}</p>
+      ) : checking && !change.pending ? (
+        <p role="status" className="tp-muted tp-help">
+          {label('accountChange.checking')}
+        </p>
+      ) : change.ready === false && !change.busy && !change.pending ? (
         <p className="tp-muted tp-help">{label('accountChange.notReady')}</p>
-      ) : null}
-      {change.ready && !eligible && !change.pending ? (
+      ) : change.ready && !eligible && !change.pending ? (
         <p className="tp-muted tp-help">{label('profile.notEligible')}</p>
       ) : null}
       {change.error && !open ? (
@@ -383,6 +455,11 @@ export function PeopleEnable({
       ) : null}
       {change.pending ? <p>{label('enable.pending')}</p> : null}
       {disabled && !change.pending ? <p className="tp-muted">{label('enable.help')}</p> : null}
+      {disabled && !change.pending && change.ready === undefined ? (
+        <p role="status" className="tp-muted">
+          {label('accountChange.checking')}
+        </p>
+      ) : null}
       <Button
         variant="primary"
         isDisabled={change.busy || !!change.pending || !change.ready || !disabled}
