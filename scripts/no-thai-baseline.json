@@ -312,7 +312,7 @@
   "apps/console/e2e/home.spec.ts": 40,
   "apps/console/e2e/i18n.spec.ts": 10,
   "apps/console/e2e/journey-authoring.spec.ts": 233,
-  "apps/console/e2e/qm-review.spec.ts": 15,
+  "apps/console/e2e/qm-review.spec.ts": 8,
   "apps/console/e2e/quality.spec.ts": 111,
   "apps/console/e2e/shell.spec.ts": 59,
   "apps/console/e2e/support/home-navigation.ts": 1,

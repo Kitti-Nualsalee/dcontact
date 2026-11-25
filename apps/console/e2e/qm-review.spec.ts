@@ -1,5 +1,8 @@
 import { expect, test } from '@playwright/test';
 
+// Browser locale is English, so the review screen renders the English catalog
+test.use({ locale: 'en-US' });
+
 test('ผู้ตรวจฟัง signed playback เห็น transcript gap และ publish หลัง server ยืนยัน', async ({
   page,
 }) => {
@@ -53,10 +56,10 @@ test('ผู้ตรวจฟัง signed playback เห็น transcript gap
 
   await page.goto('/?context=e5e94bea-4a4f-4f45-a4fb-d0d1db07e899');
   await expect(page.getByRole('heading', { name: 'Interaction interaction-100' })).toBeVisible();
-  await expect(page.getByText('ช่วง PCI ไม่มีหลักฐานเสียง')).toBeVisible();
+  await expect(page.getByText('PCI pause, no audio evidence')).toBeVisible();
   await expect(page.getByText('สวัสดีค่ะ')).toBeVisible();
-  await page.getByRole('button', { name: 'ขอสิทธิ์ฟัง recording' }).focus();
-  await expect(page.getByRole('button', { name: 'ขอสิทธิ์ฟัง recording' })).toBeFocused();
+  await page.getByRole('button', { name: 'Request access to the recording' }).focus();
+  await expect(page.getByRole('button', { name: 'Request access to the recording' })).toBeFocused();
   await page.keyboard.press('Enter');
   await expect(page.locator('audio')).toHaveAttribute(
     'src',
@@ -65,10 +68,10 @@ test('ผู้ตรวจฟัง signed playback เห็น transcript gap
 
   await page.getByRole('button', { name: 'Publish evaluation' }).focus();
   await page.keyboard.press('Enter');
-  await expect(page.getByRole('dialog')).toContainText('Agent จะเห็นผลประเมินนี้');
-  await page.getByRole('button', { name: 'ยืนยัน Publish' }).focus();
+  await expect(page.getByRole('dialog')).toContainText('The Agent will see this evaluation');
+  await page.getByRole('button', { name: 'Confirm publish' }).focus();
   await page.keyboard.press('Enter');
-  await expect(page.getByText('กำลังรอ server ยืนยัน')).toBeVisible();
+  await expect(page.getByText('Waiting for the server to confirm')).toBeVisible();
   await expect(page.getByText('PUBLISHED')).toBeVisible();
   expect(publishBody?.commandId).toEqual(expect.any(String));
 });
@@ -99,7 +102,9 @@ test('ลบ media แล้ว transcript และ evaluation ยังแส�
   );
 
   await page.goto('/?context=48ef8d3d-c90e-4e71-a5e0-ebd58d78de59');
-  await expect(page.getByText('ไฟล์เสียงถูกลบตาม retention แล้ว')).toBeVisible();
+  await expect(
+    page.getByText('The audio file was deleted under the retention policy'),
+  ).toBeVisible();
   await expect(page.getByText('หลักฐานที่เก็บไว้')).toBeVisible();
   await expect(page.getByText('92')).toBeVisible();
 });
