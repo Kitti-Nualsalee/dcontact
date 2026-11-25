@@ -13,7 +13,7 @@ import styles from './Tabs.module.css';
 
 type WithClass<P> = Omit<P, 'className'> & { className?: string };
 
-/** ลูกศรซ้าย/ขวาเลื่อนแท็บ (React Aria) — แท็บสูง `--dc-control-sm` */
+/** left/right arrows move between tabs (React Aria) — tab height `--dc-control-sm` */
 export function Tabs({ className, ...props }: WithClass<TabsProps>) {
   return <AriaTabs {...props} className={cx(styles.tabs, className)} />;
 }

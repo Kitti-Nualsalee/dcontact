@@ -1,9 +1,9 @@
 /**
- * D1.10 (#449): ข้อความของ component เอง (ปุ่มปิด, placeholder) อยู่ใน namespace `ui`
- * แอปรวม `uiResources` เข้า resources ของตัวเอง (D1.11) — component อ่านผ่าน i18n instance ของแอป
+ * D1.10 (#449): the component's own messages (close button, placeholder) live in the `ui` namespace
+ * apps merge `uiResources` into their own resources (D1.11) — components read through the app's i18n instance
  *
- * ไม่ประกาศ `CustomTypeOptions` ที่นี่ เพราะแอปเป็นเจ้าของ declaration นั้น (ประกาศซ้ำจะชนกัน)
- * จึงตรึงชนิดของ key ด้วย `UiKey` ที่คำนวณจาก catalog ภาษาไทยแทน
+ * does not declare `CustomTypeOptions` here because the app owns that declaration (declaring it twice would clash)
+ * so the key type is pinned with `UiKey`, computed from the Thai catalog instead
  */
 import { useTranslation } from 'react-i18next';
 import uiEn from './locales/en/ui.json' with { type: 'json' };
@@ -23,7 +23,7 @@ export type UiText = (key: UiKey, values?: Record<string, string | number>) => s
 
 export function useUiText(): UiText {
   const { i18n } = useTranslation();
-  // ผูก namespace ตายตัว — ภาษาเปลี่ยนตาม i18n ของแอปโดยไม่ต้อง remount
+  // namespace is fixed — the language follows the app's i18n without remounting
   const t = i18n.getFixedT(null, UI_NAMESPACE) as unknown as (
     key: string,
     values?: Record<string, string | number>,

@@ -1,13 +1,13 @@
 /**
- * E1.11 (#485): normalize และตรวจ origin ที่ tenant อนุญาตให้ฝัง dphone (E1.5 #461 ข้อ 2)
+ * E1.11 (#485): normalizes and validates the origins a tenant allows to embed dphone (E1.5 #461 item 2)
  *
- * ใช้ทั้งที่ API (ตัวตัดสิน) และ Console (ตรวจทันทีที่กรอก) ให้ผลตรงกัน
- * - `https://` เท่านั้น; `http://localhost` / `http://127.0.0.1` ได้เฉพาะเมื่อ `allowLocalhost` (dev)
- * - normalize เป็น `scheme://host[:port]` ตัวพิมพ์เล็ก ตัด default port
- * - ห้าม path, query, fragment, userinfo, wildcard, IP ดิบ และ origin ของ D-Contact เอง
+ * Used by both the API (the decider) and the Console (checks as you type) so results agree
+ * - `https://` only; `http://localhost` / `http://127.0.0.1` only when `allowLocalhost` (dev)
+ * - normalized to lowercase `scheme://host[:port]`, default port stripped
+ * - no path, query, fragment, userinfo, wildcard, raw IP, or the D-Contact origin itself
  */
 
-// shared build ไม่มี DOM lib — ใช้ WHATWG URL ที่มีทั้ง Node และเบราว์เซอร์ เฉพาะ field ที่ต้องใช้
+// the shared build has no DOM lib — uses the WHATWG URL available in both Node and browsers, only the fields needed
 declare const URL: new (input: string) => {
   username: string;
   password: string;
@@ -54,7 +54,7 @@ export function normalizeEmbedOrigin(
   if (url.username || url.password || /^[a-z]+:\/\/[^/]*@/i.test(raw)) {
     return { ok: false, reason: 'USERINFO' };
   }
-  // มีอะไรต่อท้าย host[:port] นอกจาก "/" เดียว = path/query/fragment
+  // anything after host[:port] other than a single "/" = path/query/fragment
   const afterAuthority = raw.slice(raw.indexOf('//') + 2).replace(/^[^/?#]*/, '');
   if (afterAuthority !== '' && afterAuthority !== '/') {
     return { ok: false, reason: 'PATH_QUERY_FRAGMENT' };
@@ -69,7 +69,7 @@ export function normalizeEmbedOrigin(
   }
   if (local && !options.allowLocalhost) return { ok: false, reason: 'LOCALHOST_NOT_ALLOWED' };
   if (!local && isIpLiteral(hostname)) return { ok: false, reason: 'IP_ADDRESS' };
-  // URL ตัด default port ให้แล้ว (https:443, http:80)
+  // URL already strips the default port (https:443, http:80)
   const origin = url.origin.toLowerCase();
   const reserved = (options.reservedOrigins ?? []).map((value) => value.toLowerCase());
   if (reserved.includes(origin)) return { ok: false, reason: 'RESERVED_ORIGIN' };

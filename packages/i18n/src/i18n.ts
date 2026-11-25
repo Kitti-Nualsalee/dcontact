@@ -1,11 +1,11 @@
 /**
- * D1.11 (#450): สร้าง i18next instance ของแต่ละแอป
+ * D1.11 (#450): creates the i18next instance for each app
  *
- * - bundle ทั้ง `th` และ `en` ถูก import ตั้งแต่เริ่ม (ไม่มี lazy backend) เพื่อให้ `changeLanguage`
- *   สลับได้ทันทีโดยไม่มี request — Workspace สลับภาษาระหว่างมีสายได้โดยไม่แตะ WebRTC/WS
- * - instance แยกต่อแอปผ่าน `createInstance` ไม่ใช้ singleton ของ i18next
- * - key ถูกตรวจชนิดผ่าน `CustomTypeOptions` ที่แต่ละแอปประกาศเอง และ CI ตรวจว่า key ครบสองภาษา
- *   (`dc-i18n-check`) fallback ไป `th` จึงเป็นแค่ตาข่ายกันจอว่าง ไม่ใช่ทางปกติ
+ * - both `th` and `en` bundles are imported up front (no lazy backend) so `changeLanguage`
+ *   switches instantly with no request — Workspace can switch language during a call without touching WebRTC/WS
+ * - one instance per app via `createInstance`, not the i18next singleton
+ * - keys are type-checked through `CustomTypeOptions`, which each app declares itself, and CI checks that keys exist in both languages
+ *   (`dc-i18n-check`); the fallback to `th` is therefore only a safety net against a blank screen, not a normal path
  */
 import i18next, { type i18n as I18nInstance } from 'i18next';
 import { initReactI18next } from 'react-i18next';
@@ -14,7 +14,7 @@ import { DEFAULT_LOCALE, SUPPORTED_LOCALES, type SupportedLocale } from './local
 export type LocaleCatalog = Record<string, Record<string, unknown>>;
 
 export interface CreateI18nInput {
-  /** `{ th: { common: {...}, journeys: {...} }, en: {...} }` — namespace ต้องตรงกันทั้งสองภาษา */
+  /** `{ th: { common: {...}, journeys: {...} }, en: {...} }` — namespaces must match in both languages */
   resources: Record<SupportedLocale, LocaleCatalog>;
   locale: SupportedLocale;
   defaultNamespace: string;
@@ -29,9 +29,9 @@ export function createI18n(input: CreateI18nInput): I18nInstance {
     supportedLngs: [...SUPPORTED_LOCALES],
     ns: Object.keys(input.resources[DEFAULT_LOCALE]),
     defaultNS: input.defaultNamespace,
-    // React escape ให้อยู่แล้ว; escape ซ้ำจะทำให้ชื่อที่มี & แสดงเป็น &amp;
+    // React already escapes; escaping twice would show names containing & as &amp;
     interpolation: { escapeValue: false },
-    // resources อยู่ในหน่วยความจำ จึง init แบบ sync ได้ ไม่มีจังหวะที่จอแสดง key ดิบ
+    // resources are in memory, so init can be sync and the screen never shows a raw key
     initAsync: false,
     returnNull: false,
   });

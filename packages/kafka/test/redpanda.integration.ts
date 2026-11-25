@@ -13,7 +13,7 @@ import {
 } from '@d-contact/kafka';
 
 test(
-  'service produce/consume contract ผ่าน Redpanda และ dedupe event ซ้ำ',
+  'service produce/consume contract through Redpanda and dedupe duplicate events',
   { timeout: 30_000 },
   async () => {
     const suffix = randomUUID();
@@ -68,7 +68,7 @@ test(
         new Promise<never>(
           (_, reject) =>
             (timeout = setTimeout(
-              () => reject(new Error('ไม่พบ duplicate event จาก Redpanda ภายในเวลา')),
+              () => reject(new Error('duplicate event from Redpanda not found in time')),
               10_000,
             )),
         ),
@@ -86,7 +86,7 @@ test(
 );
 
 test(
-  'schema version ที่ไม่รองรับถูกเขียนเข้า DLQ ก่อน consumer commit offset ต้นทาง',
+  'unsupported schema version is written to the DLQ before the consumer commits the source offset',
   { timeout: 45_000 },
   async () => {
     const suffix = randomUUID();
@@ -174,7 +174,7 @@ test(
         new Promise<never>(
           (_, reject) =>
             (timeout = setTimeout(
-              () => reject(new Error('ไม่พบ invalid event ใน DLQ ภายในเวลา')),
+              () => reject(new Error('invalid event not found in DLQ in time')),
               20_000,
             )),
         ),
@@ -195,7 +195,7 @@ test(
           .find((partition) => partition.partition === source.partition)?.offset;
         if (committed && BigInt(committed) > sourceOffset) break;
         if (Date.now() >= deadline) {
-          throw new Error('source offset ไม่ถูก commit หลัง DLQ acknowledgement');
+          throw new Error('source offset was not committed after DLQ acknowledgement');
         }
         await new Promise((resolve) => setTimeout(resolve, 50));
       }

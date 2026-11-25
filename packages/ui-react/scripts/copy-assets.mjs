@@ -1,6 +1,6 @@
 /**
- * tsc ไม่คัดลอก CSS — คัดลอก `*.module.css` ไปข้าง JS ใน dist ให้ Vite ของแอปที่ใช้ประมวลผล CSS Modules เอง
- * (ADR-028: package ส่ง JS + d.ts + CSS Modules ไม่ bundle CSS ล่วงหน้า)
+ * tsc does not copy CSS — copies `*.module.css` next to the JS in dist so the app's Vite can process CSS Modules itself
+ * (ADR-028: the package ships JS + d.ts + CSS Modules and does not pre-bundle CSS)
  */
 import { cpSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
@@ -20,4 +20,4 @@ function walk(dir) {
   }
 }
 walk(src);
-console.log(`คัดลอก CSS ${copied} ไฟล์ลง dist`);
+console.log(`copied ${copied} CSS file(s) to dist`);

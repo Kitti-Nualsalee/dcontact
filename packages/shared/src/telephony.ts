@@ -6,11 +6,11 @@ export type TelephonyCallEventType =
 export interface TelephonyCallEvent extends Record<string, unknown> {
   callUuid: string;
   vendor: TelephonyVendor;
-  /** node ที่ครอบครอง media session นี้; tenant ไม่ได้ผูกกับ node */
+  /** the node that owns this media session; the tenant is not bound to a node */
   telephonyNodeId: string;
   caller: string;
   destination: string;
-  /** มีเฉพาะสาย outbound ที่ Delivery สั่ง originate; เป็น opaque identifiers */
+  /** only for outbound calls that Delivery ordered to originate; opaque identifiers */
   deliveryId?: string;
   providerRequestKey?: string;
   hangupCause?: string;
@@ -21,7 +21,7 @@ export interface TelephonyCallEvent extends Record<string, unknown> {
 interface TelephonyCallCommandBase extends Record<string, unknown> {
   callUuid: string;
   vendor: TelephonyVendor;
-  /** command ต้องกลับไป node เดียวกับ event ต้นทาง */
+  /** the command must return to the same node as the originating event */
   telephonyNodeId: string;
 }
 
@@ -63,20 +63,20 @@ export interface TelephonySipRegistrationFlushCommand extends Record<string, unk
   workSessionLeaseId: string;
 }
 
-/** E1.18 (#520): command ไม่พาเบอร์ปลายทาง — Telephony resolve `targetIdentityId` ใน tenant เอง */
+/** E1.18 (#520): the command carries no destination number — Telephony resolves `targetIdentityId` inside the tenant itself */
 export interface TelephonyOriginateCommand extends Record<string, unknown> {
   type: 'call.originate';
   vendor: TelephonyVendor;
   telephonyNodeId: string;
   deliveryId: string;
-  /** opaque correlation สำหรับ provider-submission barrier และ terminal outcome */
+  /** opaque correlation for the provider-submission barrier and terminal outcome */
   providerRequestKey: string;
   originationUuid: string;
   agentExtension: string;
   targetIdentityId: string;
 }
 
-/** E1.18: ขอหยุด originate หลัง submission barrier; outcome จริงยังมาจาก ESL เท่านั้น */
+/** E1.18: asks to stop originate after the submission barrier; the real outcome still comes only from ESL */
 export interface TelephonyCancelCommand extends Record<string, unknown> {
   type: 'call.cancel';
   vendor: TelephonyVendor;

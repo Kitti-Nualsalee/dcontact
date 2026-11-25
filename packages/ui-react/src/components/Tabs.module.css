@@ -29,7 +29,7 @@
 }
 
 .tab[data-selected] {
-  /* เส้นใต้แท็บที่เลือก — ใช้ inset shadow แทน border จึงไม่ต้องดึง margin ติดลบทับเส้นของ list */
+  /* underline of the selected tab — uses an inset shadow instead of a border so no negative margin is needed to overlap the list line */
   box-shadow: inset 0 -2px 0 var(--dc-brand-700);
   color: var(--dc-text-brand-strong);
   font-weight: var(--dc-weight-semibold);
@@ -53,9 +53,9 @@
   box-shadow: var(--dc-focus-ring);
 }
 
-/* forced-colors: เส้นใต้แท็บที่เลือกเป็น inset box-shadow ซึ่งโหมดนี้ลบทิ้ง จนบอกไม่ได้ว่าแท็บไหนเปิดอยู่
-   วาดแถบ Highlight ตำแหน่งเดิมด้วย pseudo-element แทน (ไม่ใช้ border เพราะจะดันความสูงแท็บ)
-   หนา 4px เท่าตัวบอกสถานะที่เลือกอื่นในโหมดนี้ (แถว Table, โหนด Journey) ให้แยกจากเส้นใต้ของ list ได้ชัด */
+/* forced-colors: the selected tab underline is an inset box-shadow, which this mode removes, so you cannot tell which tab is open
+   draw a Highlight bar in the same position with a pseudo-element instead (not a border because it would push up the tab height)
+   4px thick, the same as other selected-state indicators in this mode (Table rows, Journey nodes), to stand apart from the list underline */
 @media (forced-colors: active) {
   .tab {
     position: relative;

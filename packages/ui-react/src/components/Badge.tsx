@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { cx } from '../cx.js';
 import styles from './Badge.module.css';
 
-/** severity ของ token (tokens.css) — "เรื่องนี้หนักแค่ไหน" */
+/** severity of the token (tokens.css) — "how serious is this" */
 export type BadgeTone = 'success' | 'attention' | 'critical' | 'info' | 'neutral' | 'accent';
 
 export interface BadgeProps {
@@ -11,12 +11,12 @@ export interface BadgeProps {
   className?: string;
 }
 
-/** ป้ายข้อความสั้น มุมโค้ง `--dc-radius-sm` */
+/** short text badge, corner radius `--dc-radius-sm` */
 export function Badge({ tone = 'neutral', children, className }: BadgeProps) {
   return <span className={cx(styles.badge, styles[tone], className)}>{children}</span>;
 }
 
-/** สถานะของเอเจนต์ (identity ของ token) — สีต้องไม่ใช่ตัวบอกความหมายตัวเดียว จึงมีข้อความเสมอ */
+/** agent status (token identity) — color must not be the only carrier of meaning, so there is always text */
 export type AgentStatus = 'available' | 'busy' | 'acw' | 'break' | 'offline' | 'cooldown';
 
 export interface StatusChipProps {
@@ -25,7 +25,7 @@ export interface StatusChipProps {
   className?: string;
 }
 
-/** ป้ายทรง pill พร้อมจุดสถานะ — ใช้กับสถานะที่เปลี่ยนตามเวลา */
+/** pill-shaped badge with a status dot — for statuses that change over time */
 export function StatusChip({ status, children, className }: StatusChipProps) {
   return <span className={cx(styles.chip, styles[status], className)}>{children}</span>;
 }

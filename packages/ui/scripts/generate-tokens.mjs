@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * สร้าง src/tokens.generated.ts จาก src/tokens.css
+ * Generates src/tokens.generated.ts from src/tokens.css
  *
- * tokens.css เป็นแหล่งความจริงเดียว ไฟล์ TS เป็นของที่ถูกสร้างขึ้นเพื่อให้โค้ดที่
- * ต้องใช้ค่าสีนอก CSS (canvas, chart, inline style ของ waveform) อ้างค่าเดียวกันได้
- * ห้ามแก้ไฟล์ที่ถูกสร้างด้วยมือ
+ * tokens.css is the single source of truth; the TS file is generated so that code which
+ * needs color values outside CSS (canvas, chart, inline style of the waveform) can reference the same values
+ * Do not edit the generated file by hand
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -18,7 +18,7 @@ const css = readFileSync(cssPath, 'utf8');
 const entries = [];
 const seen = new Set();
 for (const [, name, value] of css.matchAll(/(--dc-[a-z0-9-]+):\s*([^;]+);/g)) {
-  if (seen.has(name)) continue; // ค่าที่ประกาศซ้ำใน media query ไม่นับ
+  if (seen.has(name)) continue; // value declared more than once in a media query is not counted
   seen.add(name);
   entries.push([
     name,
@@ -32,8 +32,8 @@ for (const [, name, value] of css.matchAll(/(--dc-[a-z0-9-]+):\s*([^;]+);/g)) {
 const camel = (name) =>
   name.replace(/^--dc-/, '').replace(/-([a-z0-9])/g, (_, c) => c.toUpperCase());
 
-// ไฟล์ที่สร้างยังอยู่ใต้ prettier --check จึงต้องเลือก quote แบบเดียวกับ prettier:
-// single quote เป็นค่าตั้งต้น แต่สลับเป็น double quote เมื่อค่ามี ' มากกว่า " (escape น้อยกว่า)
+// The generated file is still under prettier --check, so it must choose quotes the way prettier does:
+// single quote by default, but switch to double quote when the value has more ' than " (fewer escapes)
 const quote = (value) => {
   const singles = (value.match(/'/g) ?? []).length;
   const doubles = (value.match(/"/g) ?? []).length;
@@ -47,21 +47,21 @@ const varBody = entries.map(([name]) => `  ${camel(name)}: ${quote(name)},`).joi
 
 writeFileSync(
   outPath,
-  `/* สร้างอัตโนมัติจาก tokens.css โดย scripts/generate-tokens.mjs — ห้ามแก้ด้วยมือ */
+  `/* generated from tokens.css by scripts/generate-tokens.mjs — do not edit by hand */
 
-/** ค่าจริงของ token — ใช้เมื่อต้องส่งสีให้ canvas หรือไลบรารีที่รับ CSS ไม่ได้ */
+/** actual token values — use when passing a color to a canvas or a library that cannot take CSS */
 export const tokens = {
 ${body}
 } as const;
 
-/** ชื่อ custom property ของแต่ละ token — ใช้เมื่อเขียน inline style ได้ */
+/** custom property name of each token — use when writing an inline style */
 const cssNames = {
 ${varBody}
 } as const;
 
 export type TokenName = keyof typeof tokens;
 
-/** เช่น cssVar('brand700') === 'var(--dc-brand-700)' */
+/** e.g. cssVar('brand700') === 'var(--dc-brand-700)' */
 export function cssVar(name: TokenName): string {
   return 'var(' + cssNames[name] + ')';
 }
@@ -69,4 +69,4 @@ export function cssVar(name: TokenName): string {
   'utf8',
 );
 
-console.log(`เขียน ${entries.length} token ลง src/tokens.generated.ts`);
+console.log(`wrote ${entries.length} tokens to src/tokens.generated.ts`);

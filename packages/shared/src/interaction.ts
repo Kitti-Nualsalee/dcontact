@@ -1,7 +1,7 @@
 /**
- * Unified Interaction Model — หัวใจของ omnichannel
- * ทุก channel (call, chat, social, email) map เป็น Interaction เดียวกัน
- * และวิ่งผ่าน router ตัวเดียวกัน (ดู docs/adr/001)
+ * Unified Interaction Model — the heart of omnichannel
+ * every channel (call, chat, social, email) maps to the same Interaction
+ * and flows through the same router (see docs/adr/001)
  */
 
 export type Channel = 'voice' | 'webchat' | 'line' | 'facebook' | 'whatsapp' | 'email';
@@ -9,17 +9,17 @@ export type Channel = 'voice' | 'webchat' | 'line' | 'facebook' | 'whatsapp' | '
 export type Direction = 'inbound' | 'outbound';
 
 export type InteractionState =
-  | 'queued' // เข้า queue รอ agent
-  | 'assigned' // router จองให้ agent แล้ว (ringing)
-  | 'active' // agent กำลังคุย
-  | 'wrapup' // จบแล้ว agent กำลังทำ after-call work
+  | 'queued' // in the queue, waiting for an agent
+  | 'assigned' // the router has reserved it for an agent (ringing)
+  | 'active' // the agent is talking
+  | 'wrapup' // finished, the agent is doing after-call work
   | 'completed'
-  | 'abandoned'; // ลูกค้าวางสาย/ออกก่อนเจอ agent
+  | 'abandoned'; // the customer hung up/left before reaching an agent
 
 export type AgentState =
   | 'offline'
   | 'available'
-  | 'reserved' // ถูกจองโดย router (มีงาน ringing)
+  | 'reserved' // reserved by the router (a ringing job exists)
   | 'busy'
   | 'acw' // after-call work
   | 'break';
@@ -33,7 +33,7 @@ export interface InteractionSummary {
   queueId: string | null;
   agentId: string | null;
   contactId: string | null;
-  /** id ฝั่งระบบภายนอก เช่น FreeSWITCH call UUID, LINE message id */
+  /** id on the external system, e.g. FreeSWITCH call UUID, LINE message id */
   externalId: string | null;
   queuedAt: string;
   assignedAt: string | null;

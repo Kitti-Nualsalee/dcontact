@@ -56,7 +56,7 @@ const v2Headers = {
   aggregateId: v2Event.aggregateId,
 };
 
-test('อนุญาตเฉพาะ topic กลางและปฏิเสธ dc.fs.events', () => {
+test('allows only the central topics and rejects dc.fs.events', () => {
   assert.doesNotThrow(() => assertKafkaTopic(KAFKA_TOPICS.AGENT_EVENTS));
   assert.doesNotThrow(() => assertKafkaTopic(KAFKA_TOPICS.CASE_COMMANDS));
   assert.doesNotThrow(() => assertKafkaTopic(KAFKA_TOPICS.CASE_EVENTS));
@@ -73,7 +73,7 @@ test('อนุญาตเฉพาะ topic กลางและปฏิเ�
   );
 });
 
-test('J3 customer membership ใช้ topic กลางและ Kafka V2 header/stream binding เดิม', () => {
+test('J3 customer membership uses the central topic and the existing Kafka V2 header/stream binding', () => {
   const membershipEvent: KafkaEventEnvelopeV2<Record<string, unknown>> = {
     schemaVersion: 2,
     eventKind: 'CANONICAL',
@@ -130,7 +130,7 @@ test('J3 customer membership ใช้ topic กลางและ Kafka V2 head
   );
 });
 
-test('J2 outcome, owner command และ owner result ใช้ V2 aggregate/ordering contract โดยไม่เปลี่ยน envelope', () => {
+test('J2 outcome, owner command and owner result use the V2 aggregate/ordering contract without changing the envelope', () => {
   const outcomeEvent: KafkaEventEnvelopeV2<Record<string, unknown>> = {
     schemaVersion: 2,
     eventKind: 'CANONICAL',
@@ -171,7 +171,7 @@ test('J2 outcome, owner command และ owner result ใช้ V2 aggregate/or
   assert.deepEqual(validateEventEnvelope(resultEvent), resultEvent);
 });
 
-test('ตรวจ envelope, tenant/correlation headers และ ordering key ก่อนเข้า handler', () => {
+test('validates the envelope, tenant/correlation headers and ordering key before the handler', () => {
   assert.deepEqual(
     validateConsumedEvent(KAFKA_TOPICS.AGENT_EVENTS, event.orderingKey, headers, event),
     event,
@@ -195,12 +195,12 @@ test('ตรวจ envelope, tenant/correlation headers และ ordering key �
   );
 });
 
-test('รับ V1 แบบ legacy และ normalize โดยไม่สร้าง aggregate fact', () => {
+test('accepts legacy V1 and normalizes it without creating an aggregate fact', () => {
   const validated = validateEventEnvelope(event);
   assert.deepEqual(normalizeKafkaEventEnvelope(validated), { format: 'V1_LEGACY', event });
 });
 
-test('ตรวจ V2 aggregate metadata และ headers ก่อนเข้า handler', () => {
+test('validates V2 aggregate metadata and headers before the handler', () => {
   assert.deepEqual(
     validateConsumedEvent(KAFKA_TOPICS.AGENT_EVENTS, v2Event.orderingKey, v2Headers, v2Event),
     v2Event,
@@ -229,7 +229,7 @@ test('ตรวจ V2 aggregate metadata และ headers ก่อนเข้
   );
 });
 
-test('ปฏิเสธ schema version ที่ไม่รองรับเพื่อให้ consumer route เข้า DLQ ได้', () => {
+test('rejects an unsupported schema version so the consumer can route it to the DLQ', () => {
   assert.throws(
     () => validateEventEnvelope({ ...v2Event, schemaVersion: 3 }),
     (error: unknown) =>
@@ -249,12 +249,12 @@ test('ปฏิเสธ schema version ที่ไม่รองรับเ�
   );
 });
 
-test('ปฏิเสธ envelope ที่ไม่มี stable event identifier หรือ correlation context', () => {
+test('rejects an envelope without a stable event identifier or correlation context', () => {
   assert.throws(() => validateEventEnvelope({ ...event, eventId: '' }), KafkaContractError);
   assert.throws(() => validateEventEnvelope({ ...event, correlationId: '' }), KafkaContractError);
 });
 
-test('idempotency boundary ประมวลผล (consumerGroup, tenantId, eventId) ครั้งเดียว', async () => {
+test('idempotency boundary processes (consumerGroup, tenantId, eventId) exactly once', async () => {
   const store = createInMemoryIdempotencyStore();
   const key = { consumerGroup: 'router', tenantId: 'tenant-a', eventId: 'event-34' };
   let handled = 0;
@@ -273,7 +273,7 @@ test('idempotency boundary ประมวลผล (consumerGroup, tenantId, ev
   assert.deepEqual(results.sort(), ['duplicate', 'processed']);
 });
 
-test('งานที่ล้มเหลวไม่ถูกทำเครื่องหมายว่าสำเร็จและ retry ได้', async () => {
+test('a failed job is not marked as succeeded and can be retried', async () => {
   const store = createInMemoryIdempotencyStore();
   const key = { consumerGroup: 'router', tenantId: 'tenant-a', eventId: 'retry-34' };
 
@@ -283,7 +283,7 @@ test('งานที่ล้มเหลวไม่ถูกทำเคร�
   assert.equal(await store.execute(key, async () => undefined), 'processed');
 });
 
-test('idempotency key เดียวกันคนละ tenant มี lifecycle แยกกัน', async () => {
+test('the same idempotency key in different tenants has separate lifecycles', async () => {
   const store = createInMemoryIdempotencyStore();
   const key = { consumerGroup: 'router', eventId: 'event-shared' };
 
@@ -297,11 +297,11 @@ test('idempotency key เดียวกันคนละ tenant มี lifecyc
   );
 });
 
-test('production consumer ปฏิเสธ in-memory store และ durable contract ส่ง context เข้า handler', async () => {
+test('production consumer rejects the in-memory store and a durable contract passes context to the handler', async () => {
   const ephemeral = createInMemoryIdempotencyStore();
   assert.throws(
     () => assertIdempotencyStoreAllowed(ephemeral, 'production'),
-    /durability เป็น DURABLE/,
+    /durability is DURABLE/,
   );
 
   const transaction = { transactionId: 'tx-1' };
@@ -332,11 +332,11 @@ test('production consumer ปฏิเสธ in-memory store และ durable c
   assert.throws(
     () =>
       assertIdempotencyStoreAllowed({ execute: async (_key, _work) => 'processed' }, 'production'),
-    /durability เป็น DURABLE/,
+    /durability is DURABLE/,
   );
 });
 
-test('createConsumer ปฏิเสธ in-memory store ก่อนเชื่อมต่อ production broker', async () => {
+test('createConsumer rejects the in-memory store before connecting to a production broker', async () => {
   await assert.rejects(
     () =>
       createConsumer({
@@ -347,11 +347,11 @@ test('createConsumer ปฏิเสธ in-memory store ก่อนเชื่
         idempotency: createInMemoryIdempotencyStore(),
         handler: async () => undefined,
       }),
-    /durability เป็น DURABLE/,
+    /durability is DURABLE/,
   );
 });
 
-test('production consumer ต้องมี DlqPublisher ก่อนเชื่อมต่อ broker', async () => {
+test('production consumer must have a DlqPublisher before connecting to the broker', async () => {
   const durableFixture: EventIdempotencyStore = {
     durability: 'DURABLE',
     execute: async (_key, work) => {

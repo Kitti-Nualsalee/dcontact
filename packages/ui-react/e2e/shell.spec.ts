@@ -2,8 +2,8 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 
 /**
- * D1.13 (#452) acceptance: axe 0 serious/critical, keyboard ของ rail/launcher และไม่มี PII ใน URL ข้ามแอป
- * หน้า `?view=shell` ใช้ Navigation API จำลอง (maxPins = 3) ผ่าน `useShellNavigation`
+ * D1.13 (#452) acceptance: axe 0 serious/critical, rail/launcher keyboard, and no PII in cross-app URLs
+ * the `?view=shell` page uses a simulated Navigation API (maxPins = 3) through `useShellNavigation`
  */
 async function seriousViolations(page: Page) {
   const result = await new AxeBuilder({ page }).analyze();
@@ -15,7 +15,9 @@ async function seriousViolations(page: Page) {
 const rail = (page: Page) => page.getByRole('navigation', { name: /เมนูหลัก|Main navigation/ });
 
 for (const lang of ['th', 'en'] as const) {
-  test(`axe: shell 0 serious/critical (${lang}) ทั้งปกติและตอนเปิด launcher`, async ({ page }) => {
+  test(`axe: shell 0 serious/critical (${lang}) both normally and with the launcher open`, async ({
+    page,
+  }) => {
     await page.goto(`/?view=shell&lang=${lang}`);
     await expect(rail(page)).toBeVisible();
     expect(await seriousViolations(page)).toEqual([]);
@@ -25,12 +27,12 @@ for (const lang of ['th', 'en'] as const) {
   });
 }
 
-test('rail: หมุดตามลำดับ, หน้าปัจจุบันมี aria-current, แอปอีกฝั่งเปิดแท็บใหม่ด้วย path + tenant เท่านั้น', async ({
+test('rail: pins in order, the current page has aria-current, and the other app opens a new tab with path + tenant only', async ({
   page,
 }) => {
   await page.goto('/?view=shell');
   const links = rail(page).getByRole('link');
-  await expect(links).toHaveCount(3); // กล่องงาน, Journeys, ตั้งค่า
+  await expect(links).toHaveCount(3); // Inbox, Journeys, Settings
   const inbox = rail(page).getByRole('link', { name: /กล่องงาน/ });
   await expect(inbox).toHaveAttribute('target', '_blank');
   await expect(inbox).toHaveAttribute('rel', 'noopener noreferrer');
@@ -42,7 +44,7 @@ test('rail: หมุดตามลำดับ, หน้าปัจจุบ
   await expect(journeys).not.toHaveAttribute('target', /.*/);
 });
 
-test('keyboard: skip link พาไปที่เนื้อหา', async ({ page }) => {
+test('keyboard: the skip link goes to the content', async ({ page }) => {
   await page.goto('/?view=shell');
   await page.keyboard.press('Tab');
   const skip = page.getByRole('link', { name: 'ข้ามไปที่เนื้อหา' });
@@ -51,7 +53,7 @@ test('keyboard: skip link พาไปที่เนื้อหา', async ({ 
   await expect(page.locator('#dc-main')).toBeFocused();
 });
 
-test('keyboard: เปิด launcher ด้วย Enter, focus ที่ช่องค้นหา, ค้นหาได้, Esc ปิดแล้ว focus กลับที่ปุ่ม', async ({
+test('keyboard: opens the launcher with Enter, focus on the search field, search works, Esc closes and focus returns to the button', async ({
   page,
 }) => {
   await page.goto('/?view=shell');
@@ -63,18 +65,18 @@ test('keyboard: เปิด launcher ด้วย Enter, focus ที่ช่�
   await expect(dialog.getByRole('searchbox')).toBeFocused();
 
   await page.keyboard.type('gov');
-  await expect(dialog.getByRole('link')).toHaveCount(2); // Governance + สร้าง Journey
+  await expect(dialog.getByRole('link')).toHaveCount(2); // Governance + Create Journey
   await expect(dialog.getByRole('link', { name: 'Governance' })).toBeVisible();
   await page.keyboard.type('zzz');
   await expect(dialog.getByRole('status').first()).toHaveText('ไม่พบแอปที่ตรงกับคำค้น');
 
-  await page.keyboard.press('Escape'); // ล้างคำค้นหา
-  await page.keyboard.press('Escape'); // ปิด launcher
+  await page.keyboard.press('Escape'); // clear the search
+  await page.keyboard.press('Escape'); // close the launcher
   await expect(dialog).toBeHidden();
   await expect(trigger).toBeFocused();
 });
 
-test('keyboard: ปักหมุดด้วย Space → rail อัปเดต, PUT ส่ง expectedRevision และถึงเพดานแล้วปักเพิ่มไม่ได้', async ({
+test('keyboard: pinning with Space → rail updates, PUT sends expectedRevision, and nothing more can be pinned once the cap is reached', async ({
   page,
 }) => {
   await page.goto('/?view=shell');
@@ -101,15 +103,15 @@ test('keyboard: ปักหมุดด้วย Space → rail อัปเด
     },
   ]);
 
-  // เพดาน 3 (mock) — แอปที่ยังไม่ปักถูกปิดใช้ และมีข้อความบอกเหตุผล
+  // cap of 3 (mock) — apps not yet pinned are disabled, with a message giving the reason
   await expect(page.getByRole('button', { name: 'ปักหมุด ทีมสด' })).toBeDisabled();
   await expect(page.getByText('ปักหมุดได้สูงสุด 3 แอป')).toBeVisible();
 
-  // เลิกปักด้วยคีย์บอร์ด → revision ถัดไป
+  // unpin with the keyboard → next revision
   await page.getByRole('button', { name: 'เลิกปักหมุด Governance' }).focus();
   await page.keyboard.press('Space');
   await expect(rail(page).getByRole('link', { name: 'Governance' })).toHaveCount(0);
-  // PUT ถูกส่งทีละคำขอ — รอคำขอเลิกปักที่ต่อคิวหลังคำขอแรก แล้วต้องใช้ revision ถัดไป
+  // PUT requests are sent one at a time — wait for the unpin request queued behind the first, which must use the next revision
   await expect
     .poll(() =>
       page.evaluate(() => {
@@ -124,7 +126,9 @@ test('keyboard: ปักหมุดด้วย Space → rail อัปเด
     .toBe(1);
 });
 
-test('สลับภาษาในแถบบนเปลี่ยนป้ายของ rail/launcher ทันทีโดยไม่ reload', async ({ page }) => {
+test('switching the language in the top bar changes the rail/launcher labels immediately without a reload', async ({
+  page,
+}) => {
   await page.goto('/?view=shell');
   const origin = await page.evaluate(() => performance.timeOrigin);
   await page.getByRole('button', { name: 'English' }).click();
@@ -137,15 +141,15 @@ test('สลับภาษาในแถบบนเปลี่ยนป้�
   expect(await page.evaluate(() => performance.timeOrigin)).toBe(origin);
 });
 
-test('กดปัก/เลิกปักหมุดติดกันเร็ว ๆ — คำขอถูกส่งทีละคำขอด้วย revision ล่าสุด ไม่ชนกันเองและไม่มีหมุดหาย', async ({
+test('rapid pin/unpin presses — requests are sent one at a time with the latest revision, never collide, and no pin is lost', async ({
   page,
 }) => {
   await page.goto('/?view=shell');
   await page.getByRole('button', { name: 'แอปทั้งหมด' }).click();
-  // สองคลิกติดกันระหว่างที่ PUT แรกยังไม่ตอบ (mock หน่วง 150ms)
+  // two clicks in a row while the first PUT has not been answered (the mock delays 150ms)
   await page.getByRole('button', { name: 'ปักหมุด Governance', exact: true }).click();
   await page.getByRole('button', { name: 'เลิกปักหมุด Journeys', exact: true }).click();
-  // launcher เป็น popover แบบ modal — ปิดก่อนตรวจ rail (ส่วนอื่นของหน้าถูกซ่อนจาก a11y tree ระหว่างเปิด)
+  // the launcher is a modal popover — close it before checking the rail (the rest of the page is hidden from the a11y tree while open)
   await page.keyboard.press('Escape');
   await expect(rail(page).getByRole('link', { name: 'Governance' })).toBeVisible();
   await expect(rail(page).getByRole('link', { name: 'Journeys' })).toHaveCount(0);
@@ -160,7 +164,7 @@ test('กดปัก/เลิกปักหมุดติดกันเร�
       ),
     )
     .toBeGreaterThanOrEqual(1);
-  // รอให้คิวว่าง แล้วตรวจว่า server ได้ชุดสุดท้ายโดยไม่มี 409 ระหว่างทาง
+  // wait for the queue to drain, then check that the server got the final set with no 409 along the way
   await page.waitForTimeout(300);
   const puts = await page.evaluate(() =>
     (
@@ -173,7 +177,7 @@ test('กดปัก/เลิกปักหมุดติดกันเร�
   );
   expect(puts.map((body) => body.expectedRevision)).toEqual(puts.map((_, index) => index));
   expect(puts.at(-1)!.appIds).toEqual(['agent-workspace', 'contact-governance']);
-  // ไม่มี 409 → ไม่มีการโหลด navigation ใหม่หลัง PUT แรก
+  // no 409 → no new navigation load after the first PUT
   const methods = await page.evaluate(() =>
     (window as unknown as { __navRequests: { method: string }[] }).__navRequests.map(
       (r) => r.method,
@@ -183,15 +187,15 @@ test('กดปัก/เลิกปักหมุดติดกันเร�
 });
 
 /**
- * #588 acceptance: เมนูผู้ใช้บนแถบบน — keyboard, axe, จอแคบ, ยืนยันก่อนออกระหว่างมีสาย และไม่มีลิงก์ไป Keycloak
- * หน้า demo ใช้ claims จำลอง (สมชาย ใจดี, supervisor + agent + offline_access) และนับการออกใน `__signOuts`
+ * #588 acceptance: user menu on the top bar — keyboard, axe, narrow screen, confirmation before sign-out during a call, and no link to Keycloak
+ * the demo page uses simulated claims (a Thai display name, supervisor + agent + offline_access) and counts sign-outs in `__signOuts`
  */
 const userTrigger = (page: Page) => page.getByRole('button', { name: /เมนูผู้ใช้|User menu/ });
 const signOuts = (page: Page) =>
   page.evaluate(() => (window as unknown as { __signOuts?: number }).__signOuts ?? 0);
 
 for (const lang of ['th', 'en'] as const) {
-  test(`axe: เมนูผู้ใช้ 0 serious/critical (${lang}) ทั้งเมนูและ dialog ยืนยัน`, async ({
+  test(`axe: user menu 0 serious/critical (${lang}) for both the menu and the confirmation dialog`, async ({
     page,
   }) => {
     await page.goto(`/?view=shell&lang=${lang}&signout=confirm`);
@@ -204,7 +208,7 @@ for (const lang of ['th', 'en'] as const) {
   });
 }
 
-test('เมนูผู้ใช้: keyboard เปิดด้วย Enter, เมนูอ่านชื่อ/email/องค์กร/บทบาท, Esc ปิดแล้ว focus กลับปุ่ม', async ({
+test('user menu: opens with Enter, the menu reads name/email/organization/role, Esc closes and focus returns to the button', async ({
   page,
 }) => {
   await page.goto('/?view=shell');
@@ -219,7 +223,7 @@ test('เมนูผู้ใช้: keyboard เปิดด้วย Enter, �
     /สมชาย ใจดี.*somchai@demo\.example.*องค์กร demo.*หัวหน้างาน.*เอเจนต์/,
   );
   await expect(page.getByText('offline_access')).toHaveCount(0);
-  // AC5 (#598): "บัญชีของฉัน" มาก่อน "ออกจากระบบ" และชี้หน้าของ D-Contact (แท็บใหม่แบบ Workspace)
+  // AC5 (#598): "My account" comes before "Sign out" and points to the D-Contact page (new tab, like Workspace)
   const account = page.getByRole('menuitem', { name: 'บัญชีของฉัน' });
   await expect(account).toBeFocused();
   await expect(account).toHaveAttribute('href', 'https://console.demo.example/?view=account');
@@ -227,7 +231,7 @@ test('เมนูผู้ใช้: keyboard เปิดด้วย Enter, �
   await expect(account).toHaveAttribute('rel', 'noopener noreferrer');
   await page.keyboard.press('ArrowDown');
   await expect(page.getByRole('menuitem', { name: 'ออกจากระบบ' })).toBeFocused();
-  // #588 D3: ไม่มีลิงก์หรือข้อความที่อ้างถึง Keycloak
+  // #588 D3: no link or text that refers to Keycloak
   await expect(page.locator('[data-trigger=MenuTrigger]').getByRole('link')).toHaveCount(0);
   expect((await page.locator('body').innerText()).toLowerCase()).not.toContain('keycloak');
 
@@ -237,7 +241,7 @@ test('เมนูผู้ใช้: keyboard เปิดด้วย Enter, �
   expect(await signOuts(page)).toBe(0);
 });
 
-test('เมนูผู้ใช้: ออกจากระบบทันทีเมื่อไม่ต้องยืนยัน', async ({ page }) => {
+test('user menu: signs out immediately when no confirmation is needed', async ({ page }) => {
   await page.goto('/?view=shell');
   await userTrigger(page).click();
   await page.getByRole('menuitem', { name: 'ออกจากระบบ' }).click();
@@ -245,15 +249,15 @@ test('เมนูผู้ใช้: ออกจากระบบทันท
   expect(await signOuts(page)).toBe(1);
 });
 
-test('เมนูผู้ใช้: ระหว่างมีสายถามยืนยันก่อน — ยกเลิกไม่ออกและ focus กลับปุ่ม, ยืนยันแล้วออก', async ({
+test('user menu: during a call it asks for confirmation first — cancel does not sign out and focus returns to the button, confirm signs out', async ({
   page,
 }) => {
   await page.goto('/?view=shell&signout=confirm');
   const trigger = userTrigger(page);
   await trigger.focus();
   await page.keyboard.press('Enter');
-  await page.keyboard.press('ArrowDown'); // AC5 (#598): ข้าม "บัญชีของฉัน"
-  await page.keyboard.press('Enter'); // เลือก "ออกจากระบบ"
+  await page.keyboard.press('ArrowDown'); // AC5 (#598): skip "My account"
+  await page.keyboard.press('Enter'); // choose "Sign out"
   const dialog = page.getByRole('alertdialog', { name: 'ออกจากระบบระหว่างมีสาย?' });
   await expect(dialog).toBeVisible();
   await dialog.getByRole('button', { name: 'ยกเลิก' }).click();
@@ -268,7 +272,9 @@ test('เมนูผู้ใช้: ระหว่างมีสายถา
   expect(await signOuts(page)).toBe(1);
 });
 
-test('เมนูผู้ใช้: จอแคบเหลือวงกลมอักษรย่อ แต่ชื่อยังอยู่ใน aria-label', async ({ page }) => {
+test('user menu: a narrow screen leaves the initials circle but the name stays in the aria-label', async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 640, height: 800 });
   await page.goto('/?view=shell');
   const trigger = page.getByRole('button', { name: 'เมนูผู้ใช้ สมชาย ใจดี' });
@@ -279,7 +285,7 @@ test('เมนูผู้ใช้: จอแคบเหลือวงกล
 
 for (const lang of ['th', 'en'] as const) {
   for (const width of [390, 768, 950, 1280, 1440]) {
-    test(`TopBar actions อยู่ในจอและเปิดเมนูด้วย keyboard ที่ ${width}px (${lang})`, async ({
+    test(`TopBar actions are on screen and open the menu with keyboard at ${width}px (${lang})`, async ({
       page,
     }) => {
       await page.setViewportSize({ width, height: 900 });
@@ -306,7 +312,7 @@ for (const lang of ['th', 'en'] as const) {
 
 for (const lang of ['th', 'en'] as const) {
   for (const width of [390, 768]) {
-    test(`เมนูจอแคบ: keyboard, focus และเนื้อหาไม่ remount ที่ ${width}px (${lang})`, async ({
+    test(`narrow-screen menu: keyboard, focus and content do not remount at ${width}px (${lang})`, async ({
       page,
     }) => {
       await page.setViewportSize({ width, height: 900 });
@@ -356,7 +362,7 @@ for (const lang of ['th', 'en'] as const) {
   }
 }
 
-test('#861: focus ตอนเปลี่ยน breakpoint และ Escape ของ launcher ไม่ปิดเมนูนำทางก่อน', async ({
+test('#861: focus on a breakpoint change, and Escape in the launcher does not close the navigation menu first', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 900 });

@@ -18,7 +18,7 @@ import styles from './Table.module.css';
 
 type WithClass<P> = Omit<P, 'className'> & { className?: string };
 
-/** แถวสูง ≈ `--dc-row-table` (36px) — ต้องมี `aria-label` หรือ `aria-labelledby` */
+/** row height ≈ `--dc-row-table` (36px) — needs `aria-label` or `aria-labelledby` */
 export function Table({ className, ...props }: WithClass<TableProps>) {
   return <AriaTable {...props} className={cx(styles.table, className)} />;
 }

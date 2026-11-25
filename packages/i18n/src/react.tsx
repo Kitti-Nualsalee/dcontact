@@ -1,8 +1,8 @@
 /**
- * D1.11 (#450): React binding ของระบบภาษา — ครอบแอปครั้งเดียวที่ root
+ * D1.11 (#450): React binding for the i18n system — wrap the app once at the root
  *
- * สลับภาษาด้วย `i18n.changeLanguage` + state ของ React เท่านั้น ห้าม reload หรือ remount root:
- * Workspace ต้องสลับภาษาระหว่างมีสายได้โดย SIP session และ WS connection เดิมอยู่ครบ (Phase Contract)
+ * switch language only with `i18n.changeLanguage` + React state; never reload or remount the root:
+ * Workspace must switch language during a call with the existing SIP session and WS connection fully intact (Phase Contract)
  */
 import {
   createContext,
@@ -25,7 +25,7 @@ export interface LocaleContextValue {
   locale: SupportedLocale;
   timeZone: string;
   formatters: Formatters;
-  /** สลับภาษาทันที แล้วเรียก `onLocaleChange` เพื่อบันทึก — reject ถ้าบันทึกไม่สำเร็จ (จอสลับไปแล้ว) */
+  /** switches language immediately, then calls `onLocaleChange` to save — rejects if saving fails (the screen has already switched) */
   setLocale(locale: SupportedLocale): Promise<void>;
 }
 
@@ -33,11 +33,11 @@ const LocaleContext = createContext<LocaleContextValue | null>(null);
 
 export interface LocaleProviderProps {
   i18n: I18nInstance;
-  /** ภาษาที่ resolve แล้ว (`resolveLocale`) — เปลี่ยนค่าได้เมื่อรู้ภาษาของผู้ใช้หลัง login */
+  /** resolved language (`resolveLocale`) — can change once the user's language is known after login */
   locale: SupportedLocale;
-  /** timezone ที่ resolve แล้ว (`resolveTimeZone`) */
+  /** resolved timezone (`resolveTimeZone`) */
   timeZone: string;
-  /** บันทึกภาษาที่ผู้ใช้เลือก เช่น `saveUserLocale` ไป Keycloak */
+  /** saves the language the user chose, e.g. `saveUserLocale` to Keycloak */
   onLocaleChange?: (locale: SupportedLocale) => Promise<void>;
   children: ReactNode;
 }
@@ -59,11 +59,11 @@ export function LocaleProvider(props: LocaleProviderProps) {
     [i18n],
   );
 
-  // ภาษาที่ผู้ใช้เพิ่งเลือกเอง — token เดิมยังถือ claim `locale` เก่าจนกว่าจะ renew
+  // the language the user just chose themselves — the old token still holds the old `locale` claim until renewed
   const chosen = useRef<SupportedLocale | null>(null);
 
-  // ภาษาที่ resolve ใหม่จากต้นทาง (claim ของผู้ใช้/ค่า tenant ที่มาถึงทีหลัง) ชนะค่าที่ใช้ระหว่างรอ
-  // ยกเว้นเมื่อผู้ใช้เพิ่งเลือกเองและต้นทางยังตามไม่ทัน
+  // a language resolved anew from the source (user claim/tenant value that arrived later) wins over the value used while waiting
+  // unless the user just chose it themselves and the source has not caught up
   useEffect(() => {
     if (chosen.current && chosen.current !== props.locale) return;
     chosen.current = null;
@@ -93,18 +93,18 @@ export function LocaleProvider(props: LocaleProviderProps) {
 }
 
 export interface LocaleSession {
-  /** claims ของ ID token (`auth.user.profile`) — อ่าน `locale` และ `zoneinfo` */
+  /** claims of the ID token (`auth.user.profile`) — reads `locale` and `zoneinfo` */
   claims: Record<string, unknown> | undefined;
   accessToken: string;
-  /** base URL ของ D-Contact API สำหรับค่าเริ่มต้นของ tenant */
+  /** base URL of the D-Contact API for the tenant defaults */
   apiBaseUrl: string;
-  /** issuer ของ Keycloak realm สำหรับบันทึกภาษาของผู้ใช้ */
+  /** Keycloak realm issuer for saving the user's language */
   issuer: string;
 }
 
 export interface SessionLocaleProviderProps {
   i18n: I18nInstance;
-  /** ไม่มี session (ยังไม่ login/e2e) → ใช้ภาษา browser และไม่บันทึกอะไร */
+  /** no session (not logged in / e2e) → use the browser language and save nothing */
   session?: LocaleSession;
   children: ReactNode;
 }
@@ -114,8 +114,8 @@ function browserLanguages(): readonly string[] {
 }
 
 /**
- * ประกอบลำดับ ผู้ใช้ → tenant → browser → `th` จาก session แล้วครอบ `LocaleProvider`
- * ค่าของ tenant ถูกดึงครั้งเดียวต่อ session (ไม่ดึงซ้ำทุกครั้งที่ access token หมุน)
+ * composes the order user → tenant → browser → `th` from the session, then wraps `LocaleProvider`
+ * the tenant value is fetched once per session (not again every time the access token rotates)
  */
 export function SessionLocaleProvider({ i18n, session, children }: SessionLocaleProviderProps) {
   const [tenant, setTenant] = useState<TenantLocaleDefaults | null>(null);
@@ -130,7 +130,7 @@ export function SessionLocaleProvider({ i18n, session, children }: SessionLocale
     let active = true;
     fetchTenantLocaleDefaults({ apiBaseUrl, accessToken: token.current })
       .then((defaults) => active && setTenant(defaults))
-      // ค่า tenant เป็นแค่ขั้นหนึ่งของลำดับ — ดึงไม่ได้ก็ไหลไป browser → th โดยไม่ขวางการทำงาน
+      // the tenant value is only one step in the order — if it cannot be fetched, fall through to browser → th without blocking
       .catch(() => undefined);
     return () => {
       active = false;
@@ -165,7 +165,7 @@ export function SessionLocaleProvider({ i18n, session, children }: SessionLocale
 
 export function useLocale(): LocaleContextValue {
   const value = useContext(LocaleContext);
-  if (!value) throw new Error('useLocale ต้องอยู่ภายใต้ <LocaleProvider>');
+  if (!value) throw new Error('useLocale must be used within <LocaleProvider>');
   return value;
 }
 

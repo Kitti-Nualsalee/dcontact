@@ -97,7 +97,7 @@
   border-radius: var(--dc-radius-lg);
 }
 
-/* สีประจำกลุ่ม (identity) — ใช้ token ที่มีอยู่ ไม่ใช่ severity */
+/* group identity color — uses existing tokens, not severity */
 .tileIcon[data-group='live'] {
   background: var(--dc-brand-50);
   color: var(--dc-brand-700);

@@ -1,10 +1,10 @@
 /**
- * D1.13 (#452): client ของ Navigation API (D1.12) สำหรับ shell
+ * D1.13 (#452): client of the Navigation API (D1.12) for the shell
  *
- * - รายการแอปมาจาก server (คัดตาม role/plan แล้ว) — shell ไม่ซ่อนหรือเดาสิทธิ์เอง
- * - ลิงก์ข้าม host app ใช้ path จาก registry + tenant alias เท่านั้น (ห้าม PII ใน URL)
- * - `shellEnabled` (flag `ui.shell.v2`) ตัดสิน **ครั้งเดียวต่อการโหลดหน้า** — ไม่สลับ shell กลางคัน
- *   เพราะ Workspace ที่ถูก remount จะตัดสายและ WS (ADR-026); เรียกไม่สำเร็จ = shell เดิม (fail-safe)
+ * - the app list comes from the server (already filtered by role/plan) — the shell does not hide or guess permissions itself
+ * - cross-host-app links use only the registry path + tenant alias (no PII in URLs)
+ * - `shellEnabled` (flag `ui.shell.v2`) is decided **once per page load** — the shell is never switched mid-session
+ *   because a remounted Workspace would drop the call and WS (ADR-026); a failed call = the old shell (fail-safe)
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ShellApp, ShellArea, ShellGroup } from './types.js';
@@ -14,14 +14,14 @@ export type HostApp = 'console' | 'workspace';
 export interface NavigationResponseV1 {
   groups: { id: string; labelKey: string }[];
   apps: { id: string; groupId: string; labelKey: string; hostApp: HostApp; path: string }[];
-  /** #651: พื้นที่งานบน rail + เมนูย่อย — API รุ่นเก่าไม่ส่ง (rail กลับไปแสดงหมุดแอปแบบเดิม) */
+  /** #651: work areas on the rail + sub-menu — an older API does not send them (the rail goes back to showing the old app pins) */
   areas?: {
     id: string;
     labelKey: string;
     sections: {
       id: string;
       labelKey: string;
-      /** #658: `pages` = หน้าย่อยของแอป (แท็บเดิมในหน้า) — ไม่ส่ง = รายการเดียวของแอป */
+      /** #658: `pages` = the app's sub-pages (the former tabs in the page) — not sent = a single item for the app */
       items: { appId: string; pages?: { id: string; labelKey: string; path: string }[] }[];
     }[];
   }[];
@@ -33,16 +33,16 @@ export interface NavigationResponseV1 {
 export interface AppHrefInput {
   hostApp: HostApp;
   path: string;
-  /** แอปที่กำลังแสดงอยู่ */
+  /** the app currently shown */
   currentHost: HostApp;
   hostOrigins: Partial<Record<HostApp, string>>;
-  /** ตัวระบุ organization ที่แอปใช้อยู่แล้ว (ไม่ใช่ข้อมูลบุคคล) — ส่งต่อเฉพาะเมื่อมี */
+  /** the organization identifier the app already uses (not personal data) — forwarded only when present */
   tenantAlias?: string;
 }
 
 /**
- * path ในแอปเดียวกัน = relative; อีกแอป = absolute ตาม origin ที่ตั้งค่าไว้
- * ไม่รู้ origin ของอีกแอป = `null` (ห้ามเดาเป็น localhost — ลิงก์ใน production จะชี้เครื่องผู้ใช้)
+ * a path in the same app = relative; the other app = absolute per the configured origin
+ * unknown origin of the other app = `null` (never guess localhost — a link in production would point at the user's machine)
  */
 export function buildAppHref(input: AppHrefInput): string | null {
   const base =
@@ -66,7 +66,7 @@ export function toShellModel(
     translate: (key: string) => string;
   },
 ): { apps: ShellApp[]; groups: ShellGroup[]; areas: ShellArea[] } {
-  // แอปที่ไม่รู้ origin (ไม่ได้ตั้งค่า deployment) ถูกตัดออกจาก shell แทนการเดา URL
+  // an app with an unknown origin (deployment not configured) is dropped from the shell instead of guessing a URL
   const apps = response.apps.flatMap((app) => {
     const href = buildAppHref({
       hostApp: app.hostApp,
@@ -98,8 +98,8 @@ export function toShellModel(
 }
 
 /**
- * #651: พื้นที่/เมนูย่อยจาก server — รายการที่ไม่รู้ origin (ไม่อยู่ใน `apps`) ถูกตัดออก แล้วกลุ่มย่อยหรือพื้นที่ที่ว่างตามไปด้วย
- * (rail ไม่มีปุ่มที่กดแล้วไปไหนไม่ได้); `href` ของพื้นที่ = รายการแรกที่เหลือ
+ * #651: areas/sub-menu from the server — items with an unknown origin (not in `apps`) are dropped, then sub-groups or areas left empty go with them
+ * (the rail has no button that goes nowhere); the area `href` = the first remaining item
  */
 function toShellAreas(
   response: NavigationResponseV1,
@@ -120,7 +120,7 @@ function toShellAreas(
         const app = byId.get(item.appId);
         const hostApp = hostOf.get(item.appId);
         if (!app || !hostApp) return [];
-        // #658: หน้าย่อยแต่ละหน้าเป็นรายการของตัวเอง; หน้าที่ประกอบ href ไม่ได้ถูกตัด (เหมือนแอปที่ไม่รู้ origin)
+        // #658: each sub-page is its own item; a page whose href cannot be composed is dropped (like an app with an unknown origin)
         if (item.pages && item.pages.length > 0) {
           return item.pages.flatMap((page) => {
             const href = buildAppHref({
@@ -168,11 +168,11 @@ export interface ShellNavigationOptions {
   apiBaseUrl: string;
   accessToken: () => string | undefined;
   currentHost: HostApp;
-  /** origin ของอีกแอปที่ไม่ได้ระบุ = แอปของฝั่งนั้นไม่แสดงใน shell */
+  /** unknown origin of the other app = that side's apps are not shown in the shell */
   hostOrigins: Partial<Record<HostApp, string>>;
   tenantAlias?: string;
   translate: (key: string) => string;
-  /** แจ้งเมื่อบันทึกหมุดไม่สำเร็จ (จอย้อนกลับค่าเดิมแล้ว) */
+  /** called when saving pins fails (the screen has already reverted to the previous value) */
   onPinError?: (error: unknown) => void;
   fetch?: typeof fetch;
 }
@@ -184,7 +184,7 @@ export type ShellNavigationState =
       status: 'ready';
       apps: ShellApp[];
       groups: ShellGroup[];
-      /** #651: พื้นที่งานบน rail; ว่าง = API รุ่นเก่า → rail ใช้หมุดแอปเดิม */
+      /** #651: work areas on the rail; empty = an older API → the rail uses the old app pins */
       areas: ShellArea[];
       pinnedIds: string[];
       maxPins: number;
@@ -195,8 +195,8 @@ export function useShellNavigation(options: ShellNavigationOptions): ShellNaviga
   const optionsRef = useRef(options);
   optionsRef.current = options;
   const [response, setResponse] = useState<NavigationResponseV1 | null>(null);
-  // ref คือค่าล่าสุดจริง (รวม optimistic) — เขียนเฉพาะผ่าน update() ไม่เขียนตอน render
-  // เพราะ render ที่มาก่อน update จะ commit อาจเขียนค่าเก่าทับ แล้วการกดครั้งถัดไปคำนวณจากค่าเก่า
+  // ref is the real latest value (including optimistic) — written only through update(), never during render
+  // because a render that comes before the update commits may write a stale value over it, and the next press computes from the stale value
   const responseRef = useRef<NavigationResponseV1 | null>(null);
   const update = useCallback(
     (next: (current: NavigationResponseV1 | null) => NavigationResponseV1 | null) => {
@@ -242,7 +242,7 @@ export function useShellNavigation(options: ShellNavigationOptions): ShellNaviga
     };
   }, [load]);
 
-  // หมุดที่ server ยืนยันล่าสุด — ทุก PUT ใช้ revision นี้ และคำขอถูกส่งทีละคำขอ (ไม่ชนกันเอง)
+  // the pins last confirmed by the server — every PUT uses this revision and requests are sent one at a time (no self-collision)
   const confirmed = useRef<{ appIds: string[]; revision: number } | null>(null);
   const queue = useRef<Promise<void>>(Promise.resolve());
 
@@ -255,7 +255,7 @@ export function useShellNavigation(options: ShellNavigationOptions): ShellNaviga
     confirmed.current = body.pins;
   }, [load]);
 
-  // ส่ง request นอก setState updater — StrictMode เรียก updater สองครั้ง ซึ่งจะยิง PUT ซ้ำ
+  // send the request outside the setState updater — StrictMode calls the updater twice, which would fire a duplicate PUT
   const togglePin = useCallback(
     (appId: string) => {
       const current = responseRef.current;
@@ -269,7 +269,7 @@ export function useShellNavigation(options: ShellNavigationOptions): ShellNaviga
       queue.current = queue.current.then(async () => {
         const base = confirmed.current ?? current.pins;
         const desired = responseRef.current?.pins.appIds ?? appIds;
-        // คำขอก่อนหน้าบันทึกชุดเดียวกันไปแล้ว (กดติดกันหลายครั้ง) — ไม่ต้องส่งซ้ำ
+        // the previous request already saved the same set (pressed repeatedly) — no need to send again
         if (
           desired.length === base.appIds.length &&
           desired.every((id, i) => id === base.appIds[i])
@@ -283,7 +283,7 @@ export function useShellNavigation(options: ShellNavigationOptions): ShellNaviga
           if (reply.ok) {
             const saved = (await reply.json()) as { appIds: string[]; revision: number };
             confirmed.current = saved;
-            // คงลำดับที่ผู้ใช้เห็นอยู่ (อาจมีการกดเพิ่มระหว่างรอ) แต่รับ revision จาก server
+            // keep the order the user currently sees (more presses may have happened while waiting) but take the revision from the server
             update((latest) =>
               latest
                 ? { ...latest, pins: { ...latest.pins, revision: saved.revision, source: 'USER' } }
@@ -291,7 +291,7 @@ export function useShellNavigation(options: ShellNavigationOptions): ShellNaviga
             );
             return;
           }
-          // revision ชนจริง (อีกแท็บ/อีกเครื่องแก้ไปแล้ว) → ใช้ค่าล่าสุดจาก server
+          // a real revision conflict (another tab/machine already edited) → use the latest value from the server
           if (reply.status === 409) await reload();
           else {
             const fallback = confirmed.current ?? base;
@@ -313,7 +313,7 @@ export function useShellNavigation(options: ShellNavigationOptions): ShellNaviga
   );
 
   if (decision === 'pending') return { status: 'loading' };
-  // #684: ปิด shell ก็ยังใช้รายการที่ server คัดสิทธิ์แล้วใน Home ได้; โหลดล้มเหลวไม่เดารายการ
+  // #684: with the shell off, the Home can still use the list the server already filtered by permission; a failed load does not guess the list
   if (decision === 'legacy' || !response) {
     return {
       status: 'legacy',

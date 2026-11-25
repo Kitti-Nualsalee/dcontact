@@ -3,7 +3,7 @@ import { cx } from '../cx.js';
 import styles from './Button.module.css';
 
 export interface ButtonProps extends Omit<AriaButtonProps, 'className'> {
-  /** primary = การกระทำหลักหนึ่งอย่างต่อพื้นที่; danger = ลบ/ยกเลิกที่ย้อนไม่ได้ */
+  /** primary = one main action per area; danger = irreversible delete/cancel */
   variant?: 'primary' | 'secondary' | 'ghost' | 'danger';
   /** md = `--dc-control-md` (32px), sm = `--dc-control-sm` (26px) */
   size?: 'md' | 'sm';

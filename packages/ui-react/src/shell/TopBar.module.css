@@ -98,9 +98,9 @@
   box-shadow: var(--dc-focus-ring-inset);
 }
 
-/* forced-colors: outline มาจาก tokens.css — วาดด้านในให้ตรงกับ ring แบบ inset
-   ภาษาที่เลือกอยู่บอกด้วยพื้น brand ซึ่งโหมดนี้ลบทิ้ง จึงใช้ Highlight ของระบบแทน
-   (ปิด forced-color-adjust ไม่งั้นแผ่น Canvas หลังข้อความบังข้อความ) และ outline ด้านในเป็น HighlightText */
+/* forced-colors: the outline comes from tokens.css — drawn inside to match the inset ring
+   the selected language is shown by a brand background, which this mode removes, so the system Highlight is used instead
+   (forced-color-adjust is turned off, otherwise the Canvas plate behind the text hides it) and the inner outline is HighlightText */
 @media (forced-colors: active) {
   .languageButton:focus-visible {
     outline-offset: -4px;
@@ -182,7 +182,7 @@
   }
 }
 
-/* ความกว้าง TopBar ลดลงตาม rail และ SubNav แม้ viewport ยังเป็น tablet */
+/* TopBar width shrinks with the rail and SubNav even when the viewport is still tablet */
 @container dc-shell-content (max-width: 800px) {
   .systemLabel {
     display: none;
