@@ -135,6 +135,9 @@ services:
     command: ['node', 'dist/main.js']
     environment:
       PORT: '3000'
+      # API ต้องต่อฐานด้วย dcontact_app (ไม่ใช่ owner ที่เป็น superuser) ให้ RLS มีผลเหมือน production
+      # และ definer ที่ปฏิเสธ session แบบ superuser/bypassrls (เช่นรับคำสั่ง People #998) ทำงานได้
+      DATABASE_URL: ${APPLICATION_DATABASE_URL:?APPLICATION_DATABASE_URL is required}
     mem_limit: 900m
     depends_on:
       redis:
