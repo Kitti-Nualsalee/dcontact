@@ -5,7 +5,7 @@ import { VoiceOriginateDispatcher } from './voice-originate-dispatcher.js';
 import { VoiceOriginateEnqueuer } from './voice-originate-enqueue.js';
 import { VoiceOriginateOutcomeProcessor } from './voice-originate-outcome.js';
 
-test('voice outcome: acceptance แล้ว terminal outcome แรกชนะและ settle durable เพียงครั้งเดียว', async (t) => {
+test('voice outcome: after acceptance the first terminal outcome wins and settles durably exactly once', async (t) => {
   const context = await createDeliveryFixture();
   t.after(() => context.dispose());
   const reservation = await context.createVoiceReservation('outcome');

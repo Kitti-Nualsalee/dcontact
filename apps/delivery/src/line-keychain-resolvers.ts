@@ -1,13 +1,13 @@
 /**
- * Owner: Delivery/Channels — resolver ของ recipient/token สำหรับ LINE pilot บน macOS Keychain
- * (S2.6b #403; decision บน #368 2026-09-23: recipient อยู่ Keychain อ้างด้วย opaque ref)
+ * Owner: Delivery/Channels — resolver of recipient/token for the LINE pilot on the macOS Keychain
+ * (S2.6b #403; decision on #368 2026-09-23: the recipient lives in the Keychain, referenced by an opaque ref)
  *
- * - recipient: Keychain service `d-contact.line.<channel>` account `recipient.<ref>`; ค่าที่อ่านได้
- *   ต้องเป็น LINE user ID และ fingerprint ต้องตรง allowlist ของ ref นั้น ไม่ตรง = `null` ก่อน barrier
- *   (กันการส่งผิดคนเมื่อ Keychain item ถูกเปลี่ยน)
- * - token: metadata จาก `dl_line_credential_refs` → `LineCredentialBoundary` (status/expiry/version/
- *   fingerprint) → ค่าในหน่วยความจำเท่านั้น
- * - capture: บันทึกผู้ส่ง signed message webhook เป็น recipient ของ pilot โดยค่าไม่ออกนอก callback
+ * - recipient: Keychain service `d-contact.line.<channel>` account `recipient.<ref>`; the value read
+ *   must be a LINE user ID and the fingerprint must match the allowlist of that ref, otherwise `null` before the barrier
+ *   (prevents sending to the wrong person if the Keychain item is replaced)
+ * - token: metadata from `dl_line_credential_refs` → `LineCredentialBoundary` (status/expiry/version/
+ *   fingerprint) → value in memory only
+ * - capture: records the sender of a signed message webhook as the pilot recipient, with the value never leaving the callback
  */
 import { randomUUID } from 'node:crypto';
 import {
@@ -34,7 +34,7 @@ export function lineRecipientKeychainReference(
   recipientProtectedRef: string,
 ): LineKeychainReference {
   if (!RECIPIENT_REF.test(recipientProtectedRef)) {
-    throw new TypeError('recipientProtectedRef ไม่ใช่ Keychain ref ของ pilot');
+    throw new TypeError('recipientProtectedRef is not a Keychain ref of the pilot');
   }
   return {
     keychainService: lineKeychainServiceName(channelAccountId),
@@ -123,8 +123,8 @@ export interface CapturedLineRecipient {
 }
 
 /**
- * ใช้ signed message webhook ล่าสุดของ one-to-one chat (เช่นที่ส่งมาตอน PR01) เป็น recipient:
- * ผู้ใช้ไม่ต้องพิมพ์หรือเห็น user ID และค่าเขียนลง Keychain ได้ทางเดียว คืนแค่ ref + fingerprint
+ * Uses the latest signed message webhook of a one-to-one chat (e.g. the one sent at PR01) as the recipient:
+ * the user need not type or see the user ID, and the value can be written to the Keychain only one way, returning just ref + fingerprint
  */
 export async function captureLineRecipientFromWebhook(input: {
   database: PrismaClient;

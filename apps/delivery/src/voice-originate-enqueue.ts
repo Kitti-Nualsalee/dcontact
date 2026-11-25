@@ -1,8 +1,8 @@
 /**
- * Owner: Channels/Dialer — durable enqueue ของ server originate (E1.18 #520).
+ * Owner: Channels/Dialer — durable enqueue of the server originate (E1.18 #520).
  *
- * Provider I/O อยู่คนละ slice: class นี้ claim reservation แล้ว commit interaction,
- * generic outbox และ voice extension ให้ครบก่อนตอบ QUEUED เท่านั้น.
+ * Provider I/O is a different slice: this class claims the reservation then commits the interaction,
+ * generic outbox and voice extension in full before answering QUEUED only.
  */
 import { createHash, randomUUID } from 'node:crypto';
 import { type Prisma, type PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
@@ -37,7 +37,7 @@ export type VoiceOriginateEnqueueResult =
   | { status: 'UNAVAILABLE'; reasonCode: string; reservationReleased?: true };
 
 export interface VoiceOriginateEnqueuerOptions {
-  /** kill switch ของ queue; default-off จนกว่าจะมี rollout control plane ที่อนุมัติแล้ว */
+  /** the queue kill switch; default-off until an approved rollout control plane exists */
   enabled?: boolean;
   now?: () => Date;
   id?: () => string;

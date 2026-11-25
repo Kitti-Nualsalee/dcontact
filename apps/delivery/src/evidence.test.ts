@@ -54,7 +54,7 @@ test('evidence exposes only allowlisted opaque fields', () => {
 test('evidence never carries contentRef, sender binding or purpose text', () => {
   const serialized = JSON.stringify(deliveryEvidence(entry()));
   for (const leaked of ['template:welcome/v3', 'sender-1', 'contentRef', 'senderIdentityId']) {
-    assert.equal(serialized.includes(leaked), false, `evidence ยังมี ${leaked}`);
+    assert.equal(serialized.includes(leaked), false, `evidence still contains ${leaked}`);
   }
 });
 
@@ -87,7 +87,7 @@ test('canonical hash ignores correlation and causation but tracks payload', () =
 test('contentRef that is really an address or a message body is rejected', () => {
   assert.throws(() => assertOpaqueContentRef(IDENTITY_VALUE), InlineContentRejectedError);
   assert.throws(
-    () => assertOpaqueContentRef('สวัสดีคุณสมชาย โปรโมชันวันนี้'),
+    () => assertOpaqueContentRef('Hello Somchai, today promotion'),
     InlineContentRejectedError,
   );
   assert.throws(() => assertOpaqueContentRef('+66812345678'), InlineContentRejectedError);

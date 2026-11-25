@@ -16,7 +16,7 @@ export interface VoiceOutcomeRecorder {
   record(input: VoiceOriginateOutcomeInput): Promise<VoiceOriginateOutcomeResult>;
 }
 
-/** แปลงเฉพาะ outbound events ที่มี opaque delivery metadata; สาย inbound ถูกข้ามทั้งหมด. */
+/** Converts only outbound events that have opaque delivery metadata; inbound calls are skipped entirely. */
 export class VoiceTelephonyOutcomeHandler {
   constructor(private readonly recorder: VoiceOutcomeRecorder) {}
 

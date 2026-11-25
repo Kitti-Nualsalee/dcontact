@@ -1,13 +1,13 @@
 /**
- * Owner: Delivery/Channels — ที่มาของ secret ของ webhook binding (S2.6b #403, #362 §9)
+ * Owner: Delivery/Channels — source of the webhook binding secrets (S2.6b #403, #362 §9)
  *
- * channel secret และ payload key ห้ามอยู่ใน env/Git/log — composition root รับจาก env ได้แค่ "โหมด":
- * - `keychain`: อ่านจาก macOS Keychain (service `d-contact.line.<channel>`, account `channel-secret`
- *   และ `webhook-payload-key` แบบ base64 32 bytes) ใช้บนเครื่อง protected runner ของ pilot
- * - `file`: อ่านจากไฟล์ Compose `secrets` บน Linux (#565 S4) — `line-channel-secret` และ
- *   `line-webhook-payload-key` ใน `LINE_CREDENTIAL_DIR` (ค่าเริ่ม `/run/secrets`)
- * - `disabled` (ค่าเริ่มต้น): สุ่ม secret/key ในหน่วยความจำ — signature จริงจาก LINE ตรวจไม่ผ่านเสมอ
- *   route จึงตอบ 401 ทุก request (fail closed) แต่ API ยังบูตบน CI/Linux ได้
+ * the channel secret and payload key must not be in env/Git/log — the composition root accepts only a "mode" from env:
+ * - `keychain`: read from the macOS Keychain (service `d-contact.line.<channel>`, account `channel-secret`
+ *   and `webhook-payload-key` as base64 32 bytes), used on the pilot's protected runner machine
+ * - `file`: read from the Compose `secrets` files on Linux (#565 S4) — `line-channel-secret` and
+ *   `line-webhook-payload-key` in `LINE_CREDENTIAL_DIR` (default `/run/secrets`)
+ * - `disabled` (default): randomize the secret/key in memory — a real signature from LINE always fails verification,
+ *   so the route answers 401 to every request (fail closed) but the API can still boot on CI/Linux
  */
 import { randomBytes } from 'node:crypto';
 import type { LineSecretSource } from './line-credential-boundary.js';
@@ -32,7 +32,7 @@ export class LineWebhookSecretError extends Error {
   constructor(
     detail: 'MODE_UNKNOWN' | 'KEYCHAIN_UNAVAILABLE' | 'FILE_UNAVAILABLE' | 'PAYLOAD_KEY_INVALID',
   ) {
-    super(`webhook secret ใช้ไม่ได้: ${detail}`);
+    super(`webhook secret unusable: ${detail}`);
     this.name = 'LineWebhookSecretError';
   }
 }
@@ -41,7 +41,7 @@ export async function resolveLineWebhookSecrets(input: {
   mode: string | undefined;
   channelAccountId: string;
   source?: LineSecretSource;
-  /** directory ของไฟล์ secret ในโหมด `file` */
+  /** directory of the secret files in `file` mode */
   secretDir?: string;
 }): Promise<LineWebhookSecrets> {
   const mode = input.mode ?? 'disabled';

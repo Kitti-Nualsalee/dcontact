@@ -1,34 +1,34 @@
 /**
- * Owner: Delivery/Channels — CLI ของ capped pilot บน protected runner (S2.7 #368, #360 §C/§D)
+ * Owner: Delivery/Channels — CLI of the capped pilot on the protected runner (S2.7 #368, #360 §C/§D)
  *
  *   pnpm --filter @d-contact/delivery pilot <command> [--flag value]
  *
- * ลำดับ (แต่ละคำสั่งคือคนละ role ตาม #358 §E):
- *   capture-recipient --since <iso>                      Platform Operator — recipient จาก signed webhook
+ * Order (each command is a different role per #358 §E):
+ *   capture-recipient --since <iso>                      Platform Operator — recipient from a signed webhook
  *   allowlist --actor <ref> --recipient-ref <ref> --recipient-fingerprint <hex> --approval-audit-ref <ref>
  *                                                        Tenant Admin
  *   propose --actor <ref> --contact-id <uuid> [--identity-id <uuid>]
  *                                                        Platform Operator — reserve + enqueue + proposal view
  *   approve --role TENANT_ADMIN|COMPLIANCE --actor <ref> --digest <presentationDigest>
- *   send --actor <ref> --digest <presentationDigest>     Platform Operator — push 1 ใบ + replay probe 409
- *   await-touch [--timeout-minutes <n>]                  worker + รอ quoted reply → PR02 evidence
+ *   send --actor <ref> --digest <presentationDigest>     Platform Operator — push 1 message + 409 replay probe
+ *   await-touch [--timeout-minutes <n>]                  worker + wait for a quoted reply → PR02 evidence
  *   rollback --actor <ref>                               Platform Operator — RB01
- *   bundle                                               sanitized bundle ของ PR02 + RB01
+ *   bundle                                               sanitized bundle of PR02 + RB01
  *
- * #567 team trial (หลัง marker ของ #548; ใช้ credential ใหม่):
+ * #567 team trial (after the marker of #548; uses a new credential):
  *   trial-allowlist --actor <ref> --recipient-ref <ref> --recipient-fingerprint <hex> --approval-audit-ref <ref>
- *                   [--valid-days 31]                    Tenant Admin — allowlist แบบ content class (text ≤500)
+ *                   [--valid-days 31]                    Tenant Admin — content-class allowlist (text ≤500)
  *   trial-propose --actor <ref> --recipients <allowlistEntryId=contactId[:identityId],...>
  *                 [--days 30] [--per-recipient 20] [--per-day 100] [--lifetime 3000]
- *                                                        Platform Operator — พิมพ์ trialRef + trial digest
+ *                                                        Platform Operator — prints trialRef + trial digest
  *   trial-approve --role TENANT_ADMIN|COMPLIANCE --actor <ref> --trial-ref <ref> --digest <trial digest>
- *   trial-status [--trial-ref <ref>]                     สถานะ authorization ของ trial
- *   trial-close --actor <ref> --trial-ref <ref>          Platform Operator — revoke ทั้งชุด + kill
+ *   trial-status [--trial-ref <ref>]                     authorization status of the trial
+ *   trial-close --actor <ref> --trial-ref <ref>          Platform Operator — revoke the whole set + kill
  *
- * env มีแค่ reference: `CXA_S2_PILOT_TENANT_ID`, `CXA_S2_CREDENTIAL_REF_ID`, `CXA_S2_PILOT_SENDER`
- * secret/recipient อ่านจาก Keychain (macOS) หรือไฟล์ Compose `secrets` บน UAT (`LINE_SECRET_SOURCE=file`,
- * #565) — ดู `line-pilot-runtime.ts`; state ระหว่างขั้นเก็บ ID/digest (ไม่มี PII) ใน `state.json` ของ
- * state directory และ `send` ยิงได้เฉพาะเมื่อ digest ที่พิมพ์ตรง proposal ทุกตัวอักษร
+ * env holds only references: `CXA_S2_PILOT_TENANT_ID`, `CXA_S2_CREDENTIAL_REF_ID`, `CXA_S2_PILOT_SENDER`.
+ * secret/recipient are read from the Keychain (macOS) or the Compose `secrets` files on UAT (`LINE_SECRET_SOURCE=file`,
+ * #565) — see `line-pilot-runtime.ts`; state between steps keeps IDs/digests (no PII) in `state.json` of the
+ * state directory, and `send` can fire only when the digest typed matches the proposal character for character
  */
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -121,13 +121,13 @@ function flag(name: string): string | undefined {
 
 function requiredFlag(name: string): string {
   const value = flag(name);
-  if (!value) throw new Error(`ต้องระบุ --${name}`);
+  if (!value) throw new Error(`--${name} is required`);
   return value;
 }
 
 function requiredEnv(name: string): string {
   const value = process.env[name];
-  if (!value) throw new Error(`ต้องตั้ง ${name}`);
+  if (!value) throw new Error(`${name} must be set`);
   return value;
 }
 
@@ -200,7 +200,7 @@ type Pilot = ReturnType<typeof pilot>;
 async function gateOf(p: Pilot) {
   const gate = await p.control.findGate(p.scope);
   if (!gate?.configDigest)
-    throw new Error('gate ของ pilot ยังไม่ถึง PROVIDER_CONFORMANCE (ไม่มี config digest)');
+    throw new Error('the pilot gate has not reached PROVIDER_CONFORMANCE (no config digest)');
   return gate;
 }
 
@@ -216,13 +216,13 @@ async function payloadVault(p: Pilot) {
   });
 }
 
-/** view ต้องสร้างซ้ำได้ตรงทุก byte จาก state + DB — ใช้ทั้งตอนแสดงและตอนตรวจ digest ก่อนอนุมัติ/ส่ง */
+/** The view must be reproducible byte for byte from state + DB — used both for display and for checking the digest before approving/sending */
 async function proposalView(p: Pilot, state: PilotState): Promise<LineRunProposalView> {
   if (!state.runAuthorizationId || !state.quota || !state.capUsage || !state.finalMainSha) {
-    throw new Error('ยังไม่มี proposal — รัน propose ก่อน');
+    throw new Error('no proposal yet — run propose first');
   }
   const run = await p.repository.findRun(p.tenantId, state.runAuthorizationId);
-  if (!run) throw new Error('ไม่พบ run authorization');
+  if (!run) throw new Error('run authorization not found');
   const gate = await gateOf(p);
   const entry = await withTenantDatabaseTransaction(p.database, p.tenantId, (transaction) =>
     transaction.dlLineAllowlistEntry.findFirstOrThrow({ where: { id: run.allowlistEntryId } }),
@@ -261,7 +261,7 @@ function submitCommand(
     !state.recipientFingerprint ||
     !state.recipientProtectedRef
   ) {
-    throw new Error('state ไม่ครบ — รัน propose ก่อน');
+    throw new Error('state is incomplete — run propose first');
   }
   const observed = quota ?? state.quota;
   return {
@@ -295,10 +295,10 @@ async function quotaSnapshot(p: Pilot) {
       )
     ).version,
   });
-  if (!token) throw new Error('อ่าน access token ไม่ได้');
+  if (!token) throw new Error('cannot read the access token');
   const quota = await p.transport.getQuota(token.accessToken);
   const consumption = await p.transport.getConsumption(token.accessToken);
-  if (quota.type !== 'limited' && quota.type !== 'none') throw new Error('อ่าน quota ไม่ได้');
+  if (quota.type !== 'limited' && quota.type !== 'none') throw new Error('cannot read quota');
   return {
     type: quota.type,
     targetLimit: quota.value,
@@ -307,7 +307,7 @@ async function quotaSnapshot(p: Pilot) {
   } as const;
 }
 
-/** digest ของทั้งชุด trial — approver ยืนยันค่านี้ (เหมือน proposal digest ของ S2) */
+/** Digest of the whole trial set — the approver confirms this value (like the S2 proposal digest) */
 function trialDigest(runs: Array<{ proposalDigest: string }>): string {
   return sha256(
     JSON.stringify(
@@ -327,7 +327,7 @@ async function trialRuns(p: Pilot, trialRef: string) {
 
 function intFlag(name: string, fallback: number): number {
   const value = Number(flag(name) ?? fallback);
-  if (!Number.isInteger(value)) throw new Error(`--${name} ต้องเป็นจำนวนเต็ม`);
+  if (!Number.isInteger(value)) throw new Error(`--${name} must be an integer`);
   return value;
 }
 
@@ -366,7 +366,7 @@ const commands: Record<string, (p: Pilot) => Promise<void>> = {
       const [entryId, contact] = item.split('=');
       const [contactId, identityId] = (contact ?? '').split(':');
       if (!entryId || !contactId)
-        throw new Error('--recipients ต้องเป็น allowlistEntryId=contactId[:identityId]');
+        throw new Error('--recipients must be allowlistEntryId=contactId[:identityId]');
       const allowlistEntry = await withTenantDatabaseTransaction(
         p.database,
         p.tenantId,
@@ -395,7 +395,7 @@ const commands: Record<string, (p: Pilot) => Promise<void>> = {
       now,
     );
     if (proposed.status !== 'APPLIED')
-      throw new Error(`เสนอ trial ไม่ได้: ${JSON.stringify(proposed)}`);
+      throw new Error(`cannot propose the trial: ${JSON.stringify(proposed)}`);
     const runs = proposed.value;
     process.stdout.write(
       `${JSON.stringify({
@@ -415,13 +415,15 @@ const commands: Record<string, (p: Pilot) => Promise<void>> = {
   async 'trial-approve'(p) {
     const trialRef = requiredFlag('trial-ref');
     const runs = await trialRuns(p, trialRef);
-    if (runs.length === 0) throw new Error('ไม่พบ trial');
+    if (runs.length === 0) throw new Error('trial not found');
     if (trialDigest(runs) !== requiredFlag('digest')) {
-      throw new Error('digest ไม่ตรง trial ปัจจุบัน — ค่าใดค่าหนึ่งเปลี่ยน ต้องเสนอใหม่');
+      throw new Error(
+        'digest does not match the current trial — a value changed, must propose again',
+      );
     }
     const role = requiredFlag('role');
     if (role !== 'TENANT_ADMIN' && role !== 'COMPLIANCE')
-      throw new Error('role ต้องเป็น TENANT_ADMIN หรือ COMPLIANCE');
+      throw new Error('role must be TENANT_ADMIN or COMPLIANCE');
     const results = [];
     for (const run of runs) {
       const approved = await p.control.approveRun(actor(role), p.tenantId, run.id, new Date());
@@ -480,7 +482,8 @@ const commands: Record<string, (p: Pilot) => Promise<void>> = {
       channelAccountId: LINE_PILOT_CHANNEL_ACCOUNT_ID,
       since: new Date(requiredFlag('since')),
     });
-    if (!captured) throw new Error('ไม่พบ signed message webhook แบบ one-to-one หลังเวลาที่ระบุ');
+    if (!captured)
+      throw new Error('no one-to-one signed message webhook found after the given time');
     writeState({ ...readState(), ...captured });
     process.stdout.write(`${JSON.stringify(captured)}\n`);
   },
@@ -511,7 +514,7 @@ const commands: Record<string, (p: Pilot) => Promise<void>> = {
   async propose(p) {
     const state = readState();
     if (!state.recipientProtectedRef || !state.recipientFingerprint) {
-      throw new Error('ยังไม่มี recipient — รัน capture-recipient และ allowlist ก่อน');
+      throw new Error('no recipient yet — run capture-recipient and the allowlist first');
     }
     const provenance = runtime.provenance();
     provenance.assertFinalMain();
@@ -536,7 +539,7 @@ const commands: Record<string, (p: Pilot) => Promise<void>> = {
       policyVersion: 1,
     });
     if (decision.decision !== 'ALLOW' || !decision.reservationId) {
-      throw new Error(`Governance ไม่อนุญาต: ${decision.decision}/${decision.reasonCode}`);
+      throw new Error(`Governance does not permit: ${decision.decision}/${decision.reasonCode}`);
     }
     const queued = await new LineDeliveryEnqueue(p.database, p.governance).enqueue({
       tenantId: toTenantId(p.tenantId),
@@ -552,7 +555,7 @@ const commands: Record<string, (p: Pilot) => Promise<void>> = {
       leaseExpiresAt:
         decision.reservationExpiresAt ?? new Date(Date.now() + 10 * 60_000).toISOString(),
     });
-    if (queued.status === 'ERROR') throw new Error(`enqueue ไม่ได้: ${queued.code}`);
+    if (queued.status === 'ERROR') throw new Error(`cannot enqueue: ${queued.code}`);
 
     const allowlist = await withTenantDatabaseTransaction(p.database, p.tenantId, (transaction) =>
       transaction.dlLineAllowlistEntry.findFirstOrThrow({
@@ -580,7 +583,7 @@ const commands: Record<string, (p: Pilot) => Promise<void>> = {
       new Date(),
     );
     if (proposed.status !== 'APPLIED')
-      throw new Error(`เสนอ run ไม่ได้: ${JSON.stringify(proposed)}`);
+      throw new Error(`cannot propose the run: ${JSON.stringify(proposed)}`);
 
     const since = new Date(Date.now() - 86_400_000);
     const ledger = await withTenantDatabaseTransaction(p.database, p.tenantId, (transaction) =>
@@ -618,11 +621,13 @@ const commands: Record<string, (p: Pilot) => Promise<void>> = {
     const state = readState();
     const view = await proposalView(p, state);
     if (!lineProposalApprovalMatches(view, requiredFlag('digest'))) {
-      throw new Error('digest ไม่ตรง proposal ปัจจุบัน — ค่าใดค่าหนึ่งเปลี่ยน ต้องเสนอใหม่');
+      throw new Error(
+        'digest does not match the current proposal — a value changed, must propose again',
+      );
     }
     const role = requiredFlag('role');
     if (role !== 'TENANT_ADMIN' && role !== 'COMPLIANCE')
-      throw new Error('role ต้องเป็น TENANT_ADMIN หรือ COMPLIANCE');
+      throw new Error('role must be TENANT_ADMIN or COMPLIANCE');
     const approved = await p.control.approveRun(
       actor(role),
       p.tenantId,
@@ -638,10 +643,10 @@ const commands: Record<string, (p: Pilot) => Promise<void>> = {
     const state = readState();
     const view = await proposalView(p, state);
     if (!lineProposalApprovalMatches(view, requiredFlag('digest'))) {
-      throw new Error('digest ไม่ตรง proposal ที่อนุมัติ — ไม่ส่ง');
+      throw new Error('digest does not match the approved proposal — not sending');
     }
     const run = await p.repository.findRun(p.tenantId, state.runAuthorizationId!);
-    if (run?.state !== 'APPROVED') throw new Error('run ยังไม่ได้รับอนุมัติครบสอง role');
+    if (run?.state !== 'APPROVED') throw new Error('the run has not been approved by both roles');
     const gate = await gateOf(p);
     const operator = actor('PLATFORM_OPERATOR');
     const deps = {
@@ -653,13 +658,13 @@ const commands: Record<string, (p: Pilot) => Promise<void>> = {
       actor: operator,
       configDigest: gate.configDigest!,
     };
-    // quota ต้องสดกว่า TTL ครึ่งหนึ่ง (#358 §D) — poll ใหม่ก่อนข้าม barrier
+    // the quota must be fresher than half the TTL (#358 §D) — poll again before crossing the barrier
     const command = submitCommand(p, state, await quotaSnapshot(p));
     const adapter = new LineOutboundAdapter({ ...deps, governance: p.governance });
     const submitted = await adapter.submit(command);
     if (submitted.status !== 'ACCEPTED') {
       await p.control.kill(operator, gate, 'OPERATOR_KILL', new Date());
-      throw new Error(`push ไม่ accepted (${JSON.stringify(submitted)}) — kill scope แล้ว`);
+      throw new Error(`push not accepted (${JSON.stringify(submitted)}) — scope killed`);
     }
     const probe = await runLineReplayProbe(deps, command);
     writeState({ ...state, probe });
@@ -675,7 +680,7 @@ const commands: Record<string, (p: Pilot) => Promise<void>> = {
   async 'await-touch'(p) {
     const state = readState();
     if (!state.probe || !state.deliveryId || !state.presentationDigest)
-      throw new Error('ยังไม่ได้ send');
+      throw new Error('send has not been run yet');
     const worker = new LineWebhookWorker({
       database: p.database,
       payloads: await payloadVault(p),
@@ -683,7 +688,9 @@ const commands: Record<string, (p: Pilot) => Promise<void>> = {
       leaseOwner: `s2-pilot-${hostname()}`,
     });
     const deadline = Date.now() + Number(flag('timeout-minutes') ?? 60) * 60_000;
-    process.stderr.write('รอ Quote/Reply ข้อความ pilot ใน LINE (ภายใน 24 ชม. ของ LINE)\n');
+    process.stderr.write(
+      'Waiting for a Quote/Reply to the pilot message in LINE (within the LINE 24-hour window)\n',
+    );
     let touches = 0;
     for (;;) {
       await worker.runOnce(p.tenantId);
@@ -694,8 +701,8 @@ const commands: Record<string, (p: Pilot) => Promise<void>> = {
       if (touches > 0 || Date.now() >= deadline) break;
       await new Promise((resolve_) => setTimeout(resolve_, 10_000));
     }
-    // acceptance evidence (#368 owner: cross-domain acceptance) — อ่าน canonical facts แบบ read-only
-    // เพื่อพิสูจน์ Attempt/Touch/refund; ไม่มี write ใดไป cg_* จาก CLI นี้
+    // acceptance evidence (#368 owner: cross-domain acceptance) — read canonical facts read-only
+    // to prove Attempt/Touch/refund; this CLI writes nothing to cg_*
     const facts = await withTenantDatabaseTransaction(
       p.database,
       p.tenantId,
@@ -782,8 +789,9 @@ const commands: Record<string, (p: Pilot) => Promise<void>> = {
 
   async bundle(p) {
     const state = readState();
-    if (!state.pr02 || !state.rb01) throw new Error('ต้องมีผล await-touch และ rollback ก่อน');
-    // exact-value scan ด้วย secret จริงที่ยังอ่านได้ (token ถูก revoke แล้วแต่ค่ายังอยู่ใน Keychain/ไฟล์)
+    if (!state.pr02 || !state.rb01)
+      throw new Error('the await-touch and rollback results are required first');
+    // exact-value scan with the real secrets that can still be read (the token was revoked but the value remains in the Keychain/file)
     const secrets: string[] = [];
     for (const account of ['channel-access-token', 'channel-secret']) {
       try {
@@ -794,10 +802,10 @@ const commands: Record<string, (p: Pilot) => Promise<void>> = {
           }),
         );
       } catch {
-        // item ที่ไม่มีไม่ใช่ความลับที่ต้องสแกน
+        // an item that does not exist is not a secret that needs scanning
       }
     }
-    if (secrets.length === 0) throw new Error('อ่าน secret สำหรับ exact-value scan ไม่ได้');
+    if (secrets.length === 0) throw new Error('cannot read the secrets for the exact-value scan');
     const bundle = buildLineProviderEvidenceBundle({
       commitSha: state.finalMainSha!,
       generatedAt: new Date(),
@@ -824,10 +832,10 @@ const commands: Record<string, (p: Pilot) => Promise<void>> = {
 };
 
 async function main(): Promise<void> {
-  // keychain = protected runner บน macOS เท่านั้น; file = runner `line-pilot` บน UAT (#565)
+  // keychain = protected runner on macOS only; file = the `line-pilot` runner on UAT (#565)
   runtime = resolveLinePilotRuntime();
   const command = commands[process.argv[2] ?? ''];
-  if (!command) throw new Error(`คำสั่งที่รองรับ: ${Object.keys(commands).join(', ')}`);
+  if (!command) throw new Error(`supported commands: ${Object.keys(commands).join(', ')}`);
   const p = pilot();
   try {
     await command(p);
@@ -837,6 +845,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((error: unknown) => {
-  process.stderr.write(`${error instanceof Error ? error.message : 'pilot ล้มเหลว'}\n`);
+  process.stderr.write(`${error instanceof Error ? error.message : 'pilot failed'}\n`);
   process.exitCode = 1;
 });

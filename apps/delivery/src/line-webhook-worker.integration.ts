@@ -1,13 +1,13 @@
 /**
- * S2.5 (#369) — inbox worker, projection dedupe และ Touch correlation บน PostgreSQL/RLS จริง
+ * S2.5 (#369) — inbox worker, projection dedupe and Touch correlation on real PostgreSQL/RLS
  *
- * ครอบ acceptance `S2-LINE-F04`, `ID01`, `RC03`, `TI01`: message object เดิม project ครั้งเดียว,
- * Touch เกิดจาก quoted response ที่ผูกกับ accepted Attempt เท่านั้น, response ที่มาก่อน acceptance
- * ค้างเป็น pending แล้ว bind ได้ภายใน window, เลย window เป็น `USER_RESPONSE_UNBOUND` และ
- * unknown event type ไม่ทำให้ worker ล้ม
+ * Covers acceptance `S2-LINE-F04`, `ID01`, `RC03`, `TI01`: the same message object is projected once,
+ * a Touch arises only from a quoted response bound to an accepted Attempt, a response that arrives before acceptance
+ * stays pending then can bind within the window, past the window it is `USER_RESPONSE_UNBOUND`, and
+ * an unknown event type does not make the worker fail
  *
- * Governance port ใช้ `AttemptTouchRepository` ตัวจริง (devDependency ของเทสต์) เพื่อพิสูจน์ว่า
- * Channels ไม่ได้เขียน `cg_*` เอง — Touch ทุกใบผ่าน owner เดิม
+ * The Governance port uses the real `AttemptTouchRepository` (a devDependency of the test) to prove that
+ * Channels does not write `cg_*` itself — every Touch goes through the original owner
  */
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -46,7 +46,7 @@ function event(overrides: Record<string, unknown> = {}) {
     deliveryContext: { isRedelivery: false },
     timestamp: Date.parse('2026-09-22T10:05:00.000Z') + sequence,
     source: { type: 'user', userId: USER_ID },
-    message: { id: `${500_000_000_000 + sequence}`, type: 'text', text: 'รับทราบครับ' },
+    message: { id: `${500_000_000_000 + sequence}`, type: 'text', text: 'Acknowledged' },
     ...overrides,
   };
 }
@@ -95,7 +95,7 @@ async function setup(t: TestContext) {
       now,
     });
 
-  /** accepted delivery + Attempt ที่ Governance เขียนไว้ และ message ID ที่ผู้ใช้จะ quote */
+  /** an accepted delivery + the Attempt Governance wrote, and the message ID the user will quote */
   const seedAccepted = async (tenantId: string, providerMessageId: string, userId = USER_ID) => {
     const delivery = await fixture.seedDelivery(tenantId);
     const attemptId = await fixture.seedAcceptedAttempt(delivery);
@@ -113,12 +113,12 @@ async function setup(t: TestContext) {
   return { fixture, send, worker, seedAccepted, governanceCalls, attempts };
 }
 
-test('S2-LINE-F04 quoted response ที่ตรง accepted Attempt ได้ Touch ใบเดียวผ่าน Governance', async (t) => {
+test('S2-LINE-F04 a quoted response matching an accepted Attempt gets exactly one Touch through Governance', async (t) => {
   const f = await setup(t);
   const sent = '500000000999';
   const accepted = await f.seedAccepted(f.fixture.tenantA, sent);
   await f.send(f.fixture.tenantA, [
-    event({ message: { id: '600000000001', type: 'text', text: 'ครับ', quotedMessageId: sent } }),
+    event({ message: { id: '600000000001', type: 'text', text: 'Yes', quotedMessageId: sent } }),
   ]);
 
   const result = await f.worker(f.fixture.tenantA).runOnce(f.fixture.tenantA);
@@ -136,7 +136,7 @@ test('S2-LINE-F04 quoted response ที่ตรง accepted Attempt ได้ 
     where: { tenantId: f.fixture.tenantA },
   });
   assert.deepEqual([correlation.state, correlation.attemptId], ['BOUND', accepted.attemptId]);
-  // Channels ส่งแค่ binding + evidence ref ไม่มี userId/body ผ่าน port
+  // Channels sends only the binding + evidence ref, no userId/body through the port
   assert.ok(!JSON.stringify(f.governanceCalls).includes(USER_ID));
   const events = await f.fixture.owner.dlLineEventOutboxEntry.findMany({
     where: { tenantId: f.fixture.tenantA, eventType: 'contact.touch.correlated.v1' },
@@ -144,36 +144,40 @@ test('S2-LINE-F04 quoted response ที่ตรง accepted Attempt ได้ 
   assert.equal(events.length, 1);
 });
 
-test('S2-LINE-ID01 message object เดิมที่มาคนละ webhookEventId ถูก project ครั้งเดียว', async (t) => {
+test('S2-LINE-ID01 the same message object arriving under different webhookEventIds is projected once', async (t) => {
   const f = await setup(t);
   const providerMessageId = '500000000777';
-  const first = event({ message: { id: providerMessageId, type: 'text', text: 'สวัสดี' } });
-  const second = event({ message: { id: providerMessageId, type: 'text', text: 'สวัสดี' } });
+  const first = event({ message: { id: providerMessageId, type: 'text', text: 'Hello' } });
+  const second = event({ message: { id: providerMessageId, type: 'text', text: 'Hello' } });
 
   await f.send(f.fixture.tenantA, [first]);
   await f.send(f.fixture.tenantA, [second]);
   const result = await f.worker(f.fixture.tenantA).runOnce(f.fixture.tenantA);
 
   assert.equal(result.processed, 2);
-  assert.equal(result.projected, 1, 'ชั้นที่สองกัน message เดิมไม่ให้ project ซ้ำ');
+  assert.equal(
+    result.projected,
+    1,
+    'the second layer stops the same message from being projected again',
+  );
   const projected = await f.fixture.owner.dlLineInboundMessage.findMany({
     where: { tenantId: f.fixture.tenantA },
   });
   assert.equal(projected.length, 1);
   assert.equal(projected[0]!.providerMessageId, providerMessageId);
   assert.ok(!JSON.stringify(projected).includes(USER_ID));
-  // ทั้งสอง inbox entry จบงานแล้ว ไม่มีอันไหนค้าง
+  // both inbox entries are finished, none stuck
   const inbox = await f.fixture.owner.dlLineWebhookInboxEntry.findMany({
     where: { tenantId: f.fixture.tenantA },
   });
   assert.ok(inbox.every((entry) => entry.state === 'COMPLETED'));
 });
 
-test('S2-LINE-RC03 response ที่มาก่อน acceptance ค้าง pending แล้ว bind ได้เมื่อ Attempt commit', async (t) => {
+test('S2-LINE-RC03 a response arriving before acceptance stays pending then binds once the Attempt commits', async (t) => {
   const f = await setup(t);
   const sent = '500000000555';
   await f.send(f.fixture.tenantA, [
-    event({ message: { id: '600000000002', type: 'text', text: 'ครับ', quotedMessageId: sent } }),
+    event({ message: { id: '600000000002', type: 'text', text: 'Yes', quotedMessageId: sent } }),
   ]);
 
   const early = await f.worker(f.fixture.tenantA).runOnce(f.fixture.tenantA);
@@ -184,7 +188,7 @@ test('S2-LINE-RC03 response ที่มาก่อน acceptance ค้าง 
   assert.equal(pending.state, 'PENDING');
   assert.equal(await f.fixture.owner.cgTouch.count({ where: { tenantId: f.fixture.tenantA } }), 0);
 
-  // acceptance commit ทีหลัง — worker รอบถัดไปผูกให้เองโดยไม่ต้องให้ provider ส่งซ้ำ
+  // acceptance commits later — the next worker round binds it itself without the provider resending
   const accepted = await f.seedAccepted(f.fixture.tenantA, sent);
   const resolved = await f.worker(f.fixture.tenantA).resolvePending(f.fixture.tenantA);
   assert.deepEqual([resolved.touches, resolved.quarantined], [1, 0]);
@@ -194,11 +198,11 @@ test('S2-LINE-RC03 response ที่มาก่อน acceptance ค้าง 
   assert.equal(touch.attemptId, accepted.attemptId);
 });
 
-test('S2-LINE-RC03 เลย window แล้วยัง bind ไม่ได้ ถูก quarantine เป็น USER_RESPONSE_UNBOUND', async (t) => {
+test('S2-LINE-RC03 past the window and still unbound, it is quarantined as USER_RESPONSE_UNBOUND', async (t) => {
   const f = await setup(t);
   await f.send(f.fixture.tenantA, [
     event({
-      message: { id: '600000000003', type: 'text', text: 'ครับ', quotedMessageId: '500000000444' },
+      message: { id: '600000000003', type: 'text', text: 'Yes', quotedMessageId: '500000000444' },
     }),
   ]);
   await f.worker(f.fixture.tenantA).runOnce(f.fixture.tenantA);
@@ -216,25 +220,25 @@ test('S2-LINE-RC03 เลย window แล้วยัง bind ไม่ได�
   assert.equal(await f.fixture.owner.cgTouch.count({ where: { tenantId: f.fixture.tenantA } }), 0);
 });
 
-test('S2-LINE-F04 plain/group/ผู้ส่งไม่ตรง binding ไม่สร้าง Touch และ unknown type ถูก quarantine', async (t) => {
+test('S2-LINE-F04 plain/group/a sender not matching the binding creates no Touch and an unknown type is quarantined', async (t) => {
   const f = await setup(t);
   const sent = '500000000333';
   await f.seedAccepted(f.fixture.tenantA, sent);
 
   await f.send(f.fixture.tenantA, [
-    // 1. ข้อความธรรมดาไม่ได้ quote
-    event({ message: { id: '600000000004', type: 'text', text: 'สวัสดี' } }),
-    // 2. quote แต่มาจาก group ไม่ใช่ one-to-one
+    // 1. a plain message with no quote
+    event({ message: { id: '600000000004', type: 'text', text: 'Hello' } }),
+    // 2. a quote but from a group, not one-to-one
     event({
       source: { type: 'group', groupId: 'Cgroup', userId: USER_ID },
-      message: { id: '600000000005', type: 'text', text: 'ครับ', quotedMessageId: sent },
+      message: { id: '600000000005', type: 'text', text: 'Yes', quotedMessageId: sent },
     }),
-    // 3. quote ถูกต้องแต่ผู้ส่งไม่ใช่ผู้รับของ delivery นั้น
+    // 3. a correct quote but the sender is not the recipient of that delivery
     event({
       source: { type: 'user', userId: OTHER_USER_ID },
-      message: { id: '600000000006', type: 'text', text: 'ครับ', quotedMessageId: sent },
+      message: { id: '600000000006', type: 'text', text: 'Yes', quotedMessageId: sent },
     }),
-    // 4. event type ที่ registry ยังไม่รองรับ
+    // 4. an event type the registry does not support yet
     event({ type: 'videoPlayComplete', message: undefined }),
   ]);
 
@@ -252,7 +256,7 @@ test('S2-LINE-F04 plain/group/ผู้ส่งไม่ตรง binding ไ�
     [unsupported[0]!.state, unsupported[0]!.outcomeCode],
     ['QUARANTINED', 'WEBHOOK_UNSUPPORTED_EVENT_TYPE'],
   );
-  // ผู้ส่งไม่ตรง binding → correlation ถูก quarantine ไม่ใช่เดาว่าเป็น Touch
+  // a sender not matching the binding → the correlation is quarantined, not guessed to be a Touch
   const correlations = await f.fixture.owner.dlLineTouchCorrelation.findMany({
     where: { tenantId: f.fixture.tenantA },
   });
@@ -263,7 +267,7 @@ test('S2-LINE-F04 plain/group/ผู้ส่งไม่ตรง binding ไ�
   );
 });
 
-test('S2-LINE-TI01 worker ของ tenant หนึ่งไม่แตะ inbox ของอีก tenant', async (t) => {
+test('S2-LINE-TI01 the worker of one tenant does not touch the inbox of another tenant', async (t) => {
   const f = await setup(t);
   const eventForB = event();
   await f.send(f.fixture.tenantB, [eventForB]);
@@ -276,24 +280,28 @@ test('S2-LINE-TI01 worker ของ tenant หนึ่งไม่แตะ inb
     where: { tenantId: f.fixture.tenantB },
   });
   assert.equal(inboxB.length, 1);
-  assert.equal(inboxB[0]!.state, 'PENDING', 'tenant B ยังไม่ถูกประมวลผลโดย worker ของ tenant A');
+  assert.equal(
+    inboxB[0]!.state,
+    'PENDING',
+    'tenant B has not been processed by the worker of tenant A',
+  );
   assert.equal(
     await f.fixture.owner.dlLineInboundMessage.count({ where: { tenantId: f.fixture.tenantB } }),
     0,
   );
 });
 
-test('S2-LINE-ID01 worker ที่รันซ้ำบน inbox เดิมไม่สร้าง Touch หรือ projection ใบที่สอง', async (t) => {
+test('S2-LINE-ID01 a worker rerun on the same inbox creates no second Touch or projection', async (t) => {
   const f = await setup(t);
   const sent = '500000000222';
   await f.seedAccepted(f.fixture.tenantA, sent);
   await f.send(f.fixture.tenantA, [
-    event({ message: { id: '600000000007', type: 'text', text: 'ครับ', quotedMessageId: sent } }),
+    event({ message: { id: '600000000007', type: 'text', text: 'Yes', quotedMessageId: sent } }),
   ]);
 
   const first = await f.worker(f.fixture.tenantA).runOnce(f.fixture.tenantA);
   assert.equal(first.touches, 1);
-  // lease หมดอายุแล้วมี worker อื่นมาหยิบต่อ: inbox COMPLETED แล้วจึงไม่ถูก claim ซ้ำ
+  // the lease expired and another worker takes over: the inbox is COMPLETED so it is not claimed again
   const second = await f
     .worker(f.fixture.tenantA, () => new Date('2026-09-22T12:00:00.000Z'))
     .runOnce(f.fixture.tenantA);
@@ -312,11 +320,11 @@ test('S2-LINE-ID01 worker ที่รันซ้ำบน inbox เดิม�
   );
 });
 
-test('#567 T4: สอง worker (loop + await-touch) พร้อมกันบน inbox เดียว project แต่ละข้อความครั้งเดียว', async (t) => {
+test('#567 T4: two workers (loop + await-touch) at once on a single inbox project each message exactly once', async (t) => {
   const f = await setup(t);
   const tenantId = f.fixture.tenantA;
   const events = Array.from({ length: 12 }, (_, index) =>
-    event({ message: { id: `${700_000_000_000 + index}`, type: 'text', text: 'พร้อมกัน' } }),
+    event({ message: { id: `${700_000_000_000 + index}`, type: 'text', text: 'concurrent' } }),
   );
   assert.equal((await f.send(tenantId, events)).status, 200);
   const make = (owner: string) =>

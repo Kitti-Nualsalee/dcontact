@@ -39,7 +39,7 @@ async function setup(t: TestContext) {
   return { context, at, rollout, reservation, input };
 }
 
-test('voice delivery service ครบ enqueue → publish → telephony outcomes → settle', async (t) => {
+test('voice delivery service end to end enqueue → publish → telephony outcomes → settle', async (t) => {
   const fixture = await setup(t);
   const commands: Array<Record<string, unknown>> = [];
   const service = new VoiceOriginateDeliveryService(
@@ -77,7 +77,7 @@ test('voice delivery service ครบ enqueue → publish → telephony outcome
   );
 });
 
-test('publish failure หลัง barrier คง UNKNOWN_RECONCILING และไม่ release reservation', async (t) => {
+test('a publish failure after the barrier keeps UNKNOWN_RECONCILING and does not release the reservation', async (t) => {
   const fixture = await setup(t);
   const service = new VoiceOriginateDeliveryService(
     fixture.context.application,
@@ -95,7 +95,7 @@ test('publish failure หลัง barrier คง UNKNOWN_RECONCILING และ�
   assert.equal(reservation?.settlementStatus, 'UNKNOWN_RECONCILING');
 });
 
-test('cancel หลัง barrier บันทึก reconcile ก่อนส่ง call.cancel และ replay ไม่ส่งซ้ำ', async (t) => {
+test('cancel after the barrier records reconcile before sending call.cancel and a replay does not send again', async (t) => {
   const fixture = await setup(t);
   const commands: Array<Record<string, unknown>> = [];
   const service = new VoiceOriginateDeliveryService(
@@ -128,7 +128,7 @@ test('cancel หลัง barrier บันทึก reconcile ก่อนส�
   );
 });
 
-test('cancel ก่อน barrier release reservation และไม่ publish provider command', async (t) => {
+test('cancel before the barrier releases the reservation and does not publish a provider command', async (t) => {
   const fixture = await setup(t);
   const enqueuer = new VoiceOriginateEnqueuer(
     fixture.context.application,

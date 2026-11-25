@@ -1,9 +1,9 @@
 /**
- * S2.5 (#369) — LINE webhook ingress บน PostgreSQL/RLS จริง
+ * S2.5 (#369) — LINE webhook ingress on real PostgreSQL/RLS
  *
- * ครอบ acceptance `S2-LINE-F03`, `ID01`, `TI01`, `OB01/OB02` ฝั่ง ingress: signature เป็น authority,
- * commit ทั้ง request แบบ atomic, dedupe/conflict, empty verify, destination mismatch และ
- * durability failure ที่ต้องไม่ตอบ 2xx
+ * Covers acceptance `S2-LINE-F03`, `ID01`, `TI01`, `OB01/OB02` on the ingress side: signature as the authority,
+ * atomic commit of the whole request, dedupe/conflict, empty verify, destination mismatch and
+ * a durability failure that must not answer 2xx
  */
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -49,7 +49,7 @@ function messageEvent(overrides: Record<string, unknown> = {}) {
     deliveryContext: { isRedelivery: false },
     timestamp: 1_790_000_000_000 + sequence,
     source: { type: 'user', userId: `U${'a'.repeat(31)}${sequence % 10}` },
-    message: { id: `${400_000_000_000 + sequence}`, type: 'text', text: 'ขอบคุณครับ' },
+    message: { id: `${400_000_000_000 + sequence}`, type: 'text', text: 'Thank you' },
     ...overrides,
   };
 }
@@ -65,7 +65,7 @@ const inboxOf = (fixture: LinePersistenceFixture, tenantId: string) =>
     orderBy: { receivedAt: 'asc' },
   });
 
-test('S2-LINE-F03 signature ที่ไม่ผ่านตอบ 401 และไม่มีแถวใดถูกเขียน', async (t) => {
+test('S2-LINE-F03 a failed signature answers 401 and no row is written', async (t) => {
   const { fixture, binding } = await setup(t);
   const ingress = new LineWebhookIngress(fixture.application, binding(fixture.tenantA));
   const valid = request([messageEvent()]);
@@ -85,7 +85,7 @@ test('S2-LINE-F03 signature ที่ไม่ผ่านตอบ 401 แล�
   );
 });
 
-test('S2-LINE-F03 request หลาย event commit พร้อมกันและ verify request ตอบ 200 โดยไม่สร้างแถว', async (t) => {
+test('S2-LINE-F03 a request with many events commits together and a verify request answers 200 without creating a row', async (t) => {
   const { fixture, binding } = await setup(t);
   const ingress = new LineWebhookIngress(fixture.application, binding(fixture.tenantA));
 
@@ -107,28 +107,28 @@ test('S2-LINE-F03 request หลาย event commit พร้อมกันแ�
       (row) => row.state === 'PENDING' && row.channelAccountId === PILOT_CHANNEL_ACCOUNT_ID,
     ),
   );
-  // inbox เก็บได้แค่ ref/hash — userId และข้อความไม่อยู่ในแถวใดเลย (#362 §5)
+  // the inbox keeps only a ref/hash — the userId and the text are in no row at all (#362 §5)
   const serialized = JSON.stringify(rows);
-  assert.ok(!serialized.includes('ขอบคุณครับ') && !/U[0-9a-f]{31}/.test(serialized));
+  assert.ok(!serialized.includes('Thank you') && !/U[0-9a-f]{31}/.test(serialized));
 
-  // event outbox ได้ channel.line.inbound.v1 หนึ่งใบต่อ event ที่รับใหม่
+  // the event outbox gets one channel.line.inbound.v1 per newly accepted event
   const outbox = await fixture.owner.dlLineEventOutboxEntry.findMany({
     where: { tenantId: fixture.tenantA },
   });
   assert.equal(outbox.length, 3);
   assert.ok(outbox.every((entry) => entry.eventType === 'channel.line.inbound.v1'));
-  assert.ok(!JSON.stringify(outbox).includes('ขอบคุณครับ'));
+  assert.ok(!JSON.stringify(outbox).includes('Thank you'));
 });
 
-test('S2-LINE-ID01 redelivery เดิมเป็น duplicate ส่วน payload ต่างบน event ID เดิมถูก quarantine', async (t) => {
+test('S2-LINE-ID01 an original redelivery is a duplicate while a different payload on the original event ID is quarantined', async (t) => {
   const { fixture, binding } = await setup(t);
   const ingress = new LineWebhookIngress(fixture.application, binding(fixture.tenantA));
   const event = messageEvent();
 
   const first = await ingress.handle(request([event]));
   assert.equal(first.accepted, 1);
-  // LINE ส่งซ้ำด้วย event ID เดิมแต่ตั้ง `deliveryContext.isRedelivery = true` (#359 §D) — ต้องยัง
-  // เป็น duplicate ไม่ใช่ idempotency conflict และแถวเดิมต้องไม่ถูก quarantine
+  // LINE resends with the original event ID but sets `deliveryContext.isRedelivery = true` (#359 §D) — it must still
+  // be a duplicate, not an idempotency conflict, and the original row must not be quarantined
   const redelivered = await ingress.handle(
     request([{ ...event, deliveryContext: { isRedelivery: true } }]),
   );
@@ -138,7 +138,7 @@ test('S2-LINE-ID01 redelivery เดิมเป็น duplicate ส่วน pa
   assert.equal(afterRedelivery[0]!.state, 'PENDING');
 
   const tampered = await ingress.handle(
-    request([{ ...event, message: { id: '999999999999', type: 'text', text: 'แก้ไขแล้ว' } }]),
+    request([{ ...event, message: { id: '999999999999', type: 'text', text: 'edited' } }]),
   );
   assert.deepEqual([tampered.code, tampered.conflicts], ['WEBHOOK_IDEMPOTENCY_CONFLICT', 1]);
 
@@ -148,7 +148,7 @@ test('S2-LINE-ID01 redelivery เดิมเป็น duplicate ส่วน pa
     [rows[0]!.state, rows[0]!.outcomeCode],
     ['QUARANTINED', 'WEBHOOK_IDEMPOTENCY_CONFLICT'],
   );
-  // payload เดิมไม่ถูกเขียนทับ
+  // the original payload is not overwritten
   assert.equal(
     await fixture.owner.dlLineWebhookPayload.count({ where: { tenantId: fixture.tenantA } }),
     1,
@@ -159,7 +159,7 @@ test('S2-LINE-ID01 redelivery เดิมเป็น duplicate ส่วน pa
   assert.ok(audit.some((entry) => entry.code === 'WEBHOOK_IDEMPOTENCY_CONFLICT'));
 });
 
-test('S2-LINE-F03 destination ที่ไม่ตรง binding ถูก quarantine แต่ยังตอบ 200 เพื่อไม่ให้เกิด redelivery storm', async (t) => {
+test('S2-LINE-F03 a destination not matching the binding is quarantined but still answers 200 to avoid a redelivery storm', async (t) => {
   const { fixture, binding } = await setup(t);
   const ingress = new LineWebhookIngress(fixture.application, binding(fixture.tenantA));
   const result = await ingress.handle(
@@ -173,7 +173,7 @@ test('S2-LINE-F03 destination ที่ไม่ตรง binding ถูก quar
     [rows[0]!.state, rows[0]!.outcomeCode],
     ['QUARANTINED', 'WEBHOOK_DESTINATION_MISMATCH'],
   );
-  // payload ของ request ที่ destination ผิดไม่ถูกเก็บ และไม่มี inbound event ออกไป
+  // the payload of a request with a wrong destination is not kept, and no inbound event goes out
   assert.equal(
     await fixture.owner.dlLineWebhookPayload.count({ where: { tenantId: fixture.tenantA } }),
     0,
@@ -184,10 +184,10 @@ test('S2-LINE-F03 destination ที่ไม่ตรง binding ถูก quar
   );
 });
 
-test('S2-LINE-RC03 durability ล้มตอบ 503 และไม่ทิ้งแถวครึ่งเดียว', async (t) => {
+test('S2-LINE-RC03 a durability failure answers 503 and leaves no half-written row', async (t) => {
   const { fixture, binding } = await setup(t);
   const failing = new LineWebhookIngress(fixture.application, binding(fixture.tenantA), () => {
-    throw new Error('durable store ล่มกลาง transaction');
+    throw new Error('the durable store went down mid-transaction');
   });
   const result = await failing.handle(request([messageEvent(), messageEvent()]));
 
@@ -198,20 +198,20 @@ test('S2-LINE-RC03 durability ล้มตอบ 503 และไม่ทิ้
     0,
   );
 
-  // ส่งซ้ำหลังระบบกลับมาแล้วได้แถวครบ ไม่มีของค้างจากครั้งก่อน
+  // resending after the system recovers gets full rows, with nothing left over from the previous attempt
   const ingress = new LineWebhookIngress(fixture.application, binding(fixture.tenantA));
   const retry = await ingress.handle(request([messageEvent(), messageEvent()]));
   assert.deepEqual([retry.status, retry.accepted], [200, 2]);
 });
 
-test('S2-LINE-TI01 tenant อื่นที่ใช้ binding เดียวกันไม่เห็นและไม่ชน event ID กัน', async (t) => {
+test('S2-LINE-TI01 another tenant using the same binding neither sees nor collides on the event ID', async (t) => {
   const { fixture, binding } = await setup(t);
   const event = messageEvent();
   const forTenantA = new LineWebhookIngress(fixture.application, binding(fixture.tenantA));
   const forTenantB = new LineWebhookIngress(fixture.application, binding(fixture.tenantB));
 
   assert.equal((await forTenantA.handle(request([event]))).accepted, 1);
-  // webhookEventId เดียวกันของอีก tenant เป็นคนละแถว ไม่ใช่ duplicate ข้าม tenant
+  // the same webhookEventId of another tenant is a different row, not a cross-tenant duplicate
   assert.equal((await forTenantB.handle(request([event]))).accepted, 1);
 
   assert.equal((await inboxOf(fixture, fixture.tenantA)).length, 1);
@@ -225,7 +225,7 @@ test('S2-LINE-TI01 tenant อื่นที่ใช้ binding เดียว
   assert.equal(visibleToA[0]!.tenantId, fixture.tenantA);
 });
 
-test('S2-LINE-OB02 payload ถูกเก็บเป็น ciphertext และ ref ไม่มีร่องรอยของ userId', async (t) => {
+test('S2-LINE-OB02 the payload is stored as ciphertext and the ref carries no trace of the userId', async (t) => {
   const { fixture, binding } = await setup(t);
   const ingress = new LineWebhookIngress(fixture.application, binding(fixture.tenantA));
   const event = messageEvent();
@@ -241,12 +241,12 @@ test('S2-LINE-OB02 payload ถูกเก็บเป็น ciphertext แล�
   assert.equal(stored.iv.length, 12);
   assert.equal(stored.authTag.length, 16);
   const ciphertext = Buffer.from(stored.ciphertext).toString('utf8');
-  assert.ok(!ciphertext.includes('ขอบคุณครับ'));
+  assert.ok(!ciphertext.includes('Thank you'));
   assert.ok(!ciphertext.includes(event.source.userId));
   assert.ok(!stored.protectedPayloadRef.includes(event.source.userId));
 });
 
-test('S2-LINE-F03 body ที่ผิดรูปหลัง verify ตอบ 400 โดยไม่สร้างแถว', async (t) => {
+test('S2-LINE-F03 a malformed body after verify answers 400 without creating a row', async (t) => {
   const { fixture, binding } = await setup(t);
   const ingress = new LineWebhookIngress(fixture.application, binding(fixture.tenantA));
   const malformed = [

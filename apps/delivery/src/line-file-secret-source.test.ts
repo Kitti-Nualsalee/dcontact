@@ -25,7 +25,7 @@ async function fixture() {
   return { secretDir, stateDir, put };
 }
 
-test('#565 file secret: อ่านไฟล์ตามชื่อคงที่และตัด newline ท้าย', async () => {
+test('#565 file secret: reads the file by fixed name and trims the trailing newline', async () => {
   const { secretDir, put } = await fixture();
   await put('line-channel-access-token', 'synthetic-token\n');
   const source = new FileLineSecretSource({ channelAccountId: CHANNEL, secretDir });
@@ -35,7 +35,7 @@ test('#565 file secret: อ่านไฟล์ตามชื่อคงท�
   );
 });
 
-test('#565 file secret: สิทธิ์กว้าง, ไฟล์หาย, ค่าว่าง, symlink, account/service แปลก = fail closed', async () => {
+test('#565 file secret: broad permissions, missing file, empty value, symlink, odd account/service = fail closed', async () => {
   const { secretDir, put } = await fixture();
   const source = new FileLineSecretSource({ channelAccountId: CHANNEL, secretDir });
   const read = (account: string, service = SERVICE) =>
@@ -52,11 +52,11 @@ test('#565 file secret: สิทธิ์กว้าง, ไฟล์หาย
   await assert.rejects(read('channel-access-token'), LineFileSecretReadError);
   await assert.rejects(read('../etc/passwd'), LineFileSecretReadError);
   await assert.rejects(read('channel-secret', 'd-contact.line.other'), LineFileSecretReadError);
-  // recipient ต้องมี state directory
+  // the recipient needs a state directory
   await assert.rejects(read(`recipient.${RECIPIENT}`), LineFileSecretReadError);
 });
 
-test('#565 file secret: error ไม่มี path หรือค่า', async () => {
+test('#565 file secret: the error carries no path or value', async () => {
   const { secretDir } = await fixture();
   const source = new FileLineSecretSource({ channelAccountId: CHANNEL, secretDir });
   const error = await source
@@ -66,7 +66,7 @@ test('#565 file secret: error ไม่มี path หรือค่า', async
   assert.ok(!error.message.includes(secretDir));
 });
 
-test('#565 file secret: recipient เขียนเป็น 0600 ใน state directory แล้วอ่านกลับได้', async () => {
+test('#565 file secret: the recipient is written as 0600 in the state directory and can be read back', async () => {
   const { secretDir, stateDir } = await fixture();
   const options = { channelAccountId: CHANNEL, secretDir, stateDir };
   const reference = { keychainService: SERVICE, keychainAccount: `recipient.${RECIPIENT}` };
@@ -79,7 +79,7 @@ test('#565 file secret: recipient เขียนเป็น 0600 ใน state 
   assert.equal(await new FileLineSecretSource(options).read(reference), userId);
 });
 
-test('#565 file secret: writer เขียน secret ของ operator ไม่ได้', async () => {
+test('#565 file secret: the writer cannot write the operator secret', async () => {
   const { secretDir, stateDir } = await fixture();
   const writer = new FileLineSecretWriter({ channelAccountId: CHANNEL, secretDir, stateDir });
   await assert.rejects(
@@ -92,7 +92,7 @@ test('#565 file secret: writer เขียน secret ของ operator ไม�
   );
 });
 
-test('#565 webhook secrets: โหมด file อ่าน channel secret + payload key จากไฟล์', async () => {
+test('#565 webhook secrets: file mode reads the channel secret + payload key from files', async () => {
   const { secretDir, put } = await fixture();
   await put('line-channel-secret', 'synthetic-channel-secret');
   await put('line-webhook-payload-key', Buffer.alloc(32, 7).toString('base64'));
@@ -106,7 +106,7 @@ test('#565 webhook secrets: โหมด file อ่าน channel secret + payl
   assert.deepEqual(secrets.payloadKey, Buffer.alloc(32, 7));
 });
 
-test('#565 pilot runtime: keychain บนเครื่องที่ไม่ใช่ macOS และโหมดแปลก = ปฏิเสธ', () => {
+test('#565 pilot runtime: keychain on a non-macOS machine and an odd mode = rejected', () => {
   assert.throws(
     () => resolveLinePilotRuntime({ environment: {}, platform: 'linux' }),
     (error: unknown) =>
@@ -120,7 +120,7 @@ test('#565 pilot runtime: keychain บนเครื่องที่ไม่
   );
 });
 
-test('#565 pilot runtime: โหมด file ต้องมี state dir และ release SHA ของ image', () => {
+test('#565 pilot runtime: file mode needs a state dir and the release SHA of the image', () => {
   assert.throws(
     () =>
       resolveLinePilotRuntime({ environment: { LINE_SECRET_SOURCE: 'file' }, platform: 'linux' }),
@@ -154,7 +154,7 @@ test('#565 pilot runtime: โหมด file ต้องมี state dir แล�
   );
 });
 
-test('#565 webhook secrets: โหมด file ที่ไม่มีไฟล์รายงาน FILE_UNAVAILABLE ไม่ใช่ Keychain', async () => {
+test('#565 webhook secrets: file mode with a missing file reports FILE_UNAVAILABLE, not Keychain', async () => {
   const { secretDir } = await fixture();
   await assert.rejects(
     resolveLineWebhookSecrets({ mode: 'file', channelAccountId: CHANNEL, secretDir }),

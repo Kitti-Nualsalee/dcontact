@@ -1,16 +1,16 @@
 /**
- * Owner: Delivery/Channels — ช่วงทีมทดสอบส่ง-รับ LINE บน UAT (#567, amendment #358 2026-10-01)
+ * Owner: Delivery/Channels — the team test period for sending/receiving LINE on UAT (#567, amendment #358 2026-10-01)
  *
- * ทางเดียวของการตอบกลับ (T1/T2): admin ของ tenant pilot ตอบข้อความขาเข้าหนึ่งรายการด้วย text ≤500 ตัวอักษร
- * ระบบส่ง push ไปหาผู้ส่งคนนั้น ผ่าน Contact Governance + gate/cap/barrier ของ S2 ชุดเดิมทั้งหมด:
+ * The only route of a reply (T1/T2): an admin of the pilot tenant replies to one inbound message with text ≤500 characters
+ * and the system pushes to that sender through Contact Governance + the existing S2 gate/cap/barrier set in full:
  *
- * 1. ผู้รับ = ผู้ส่งของข้อความขาเข้าแบบ one-to-one (fingerprint จาก vault — userId ไม่ออกนอก vault)
- * 2. ต้องมี authorization ของ trial (`S2_LINE_TEAM_TRIAL_V1`) ที่ APPROVED และยังไม่หมดอายุของผู้รับคนนั้น
- * 3. Governance อนุญาตและจอง (consent/quiet hours/frequency) ก่อนเข้า outbox
- * 4. text เข้ารหัสลง `dl_line_trial_sends` ก่อน barrier — retry เป็น request เดิม byte ต่อ byte
- * 5. outbound adapter เดิมตัดสิน gate/cap/attempt; cap ของ trial มาจากแถว authorization
+ * 1. the recipient = the sender of the one-to-one inbound message (fingerprint from the vault — userId never leaves the vault)
+ * 2. there must be an APPROVED and unexpired trial authorization (`S2_LINE_TEAM_TRIAL_V1`) for that recipient
+ * 3. Governance permits and reserves (consent/quiet hours/frequency) before entering the outbox
+ * 4. the text is encrypted into `dl_line_trial_sends` before the barrier — a retry is the original request byte for byte
+ * 5. the existing outbound adapter decides gate/cap/attempt; the trial's cap comes from the authorization row
  *
- * ไม่มี log ของ text หรือ userId; audit มีแค่ digest และ machine code
+ * No log of text or userId; audit has only a digest and a machine code
  */
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from 'node:crypto';
 import {
@@ -50,12 +50,12 @@ const TRIAL_CONTENT_PREFIX = 'trial-text:';
 const TRIAL_CONTENT_REF =
   /^trial-text:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
 const IDEMPOTENCY_KEY = /^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/;
-/** control character ยกเว้นขึ้นบรรทัดใหม่ — LINE text รองรับ newline */
+/** control characters except newline — LINE text supports newline */
 const CONTROL = /[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/;
 const QUOTA_CACHE_MS = 5 * 60_000;
 const ACCEPTED_OUTCOMES = new Set(['LINE_ACCEPTED', 'LINE_ACCEPTED_REPLAY']);
 
-/** digest ของ content class ที่ allowlist ของ trial ผูกไว้ */
+/** digest of the content class that the trial allowlist binds */
 export function lineTeamTrialContentDigest(): string {
   return lineContentClassDigest(
     LINE_TEAM_TRIAL_CONTENT_CLASS,
@@ -67,7 +67,7 @@ export function isLineTeamTrialContentRef(contentRef: string): boolean {
   return TRIAL_CONTENT_REF.test(contentRef);
 }
 
-/** text ที่ส่งได้: trim แล้ว 1–500 ตัวอักษร (นับ code point) ไม่มี control character นอกจาก newline */
+/** text that can be sent: trimmed, 1–500 characters (counted by code point), no control character other than newline */
 export function normalizeLineTrialText(input: unknown): string | null {
   if (typeof input !== 'string') return null;
   const text = input.replace(/\r\n?/g, '\n').trim();
@@ -90,8 +90,8 @@ function encrypt(text: string, key: Buffer) {
 }
 
 /**
- * แหล่งเนื้อหาของ adapter: `trial-text:<sendId>` → text ที่ถอดรหัสจาก `dl_line_trial_sends`
- * อย่างอื่นส่งต่อให้ fixture ของ S2 — gate จึงเห็น digest ของ content class สำหรับ trial เสมอ
+ * source of content for the adapter: `trial-text:<sendId>` → the text decrypted from `dl_line_trial_sends`
+ * anything else is forwarded to the S2 fixture — so the gate always sees the content class digest for a trial
  */
 export class LineTeamTrialContentSource implements LineContentSource {
   constructor(
@@ -116,7 +116,7 @@ export class LineTeamTrialContentSource implements LineContentSource {
     } catch {
       throw new LineTeamTrialContentError();
     }
-    // digest ใน DB ต้องตรงกับ text ที่ถอดได้ — ไม่ตรง = แถวถูกแก้ ห้ามส่ง
+    // the digest in the DB must match the decrypted text — a mismatch = the row was edited, must not send
     if (createHash('sha256').update(text, 'utf8').digest('hex') !== row.contentDigest) {
       throw new LineTeamTrialContentError();
     }
@@ -132,7 +132,7 @@ export class LineTeamTrialContentSource implements LineContentSource {
 export class LineTeamTrialContentError extends Error {
   readonly code = 'LINE_CONTENT_REJECTED';
   constructor() {
-    super('เนื้อหาของ trial ใช้ไม่ได้');
+    super('the trial content is unusable');
     this.name = 'LineTeamTrialContentError';
   }
 }
@@ -163,7 +163,7 @@ const CAP_CODES = new Set([
   'CONCURRENT_UNKNOWN_RECONCILING_CAP_EXCEEDED',
 ]);
 
-/** แปลง code ของ gate/adapter เป็น code ที่หน้าจอแสดงได้ — ไม่บอกรายละเอียดภายใน */
+/** Convert a gate/adapter code into a code the screen can show — reveals no internal detail */
 export function lineTeamTrialFailureCode(code: string): LineTeamTrialReplyCode {
   if (code === 'LINE_GATE_KILLED') return 'KILLED';
   if (CAP_CODES.has(code)) return 'CAP_EXCEEDED';
@@ -181,25 +181,25 @@ export interface LineTeamTrialStatus {
   killed: boolean;
   expiresAt: string | null;
   recipients: number;
-  /** การส่งที่นับใน cap 24 ชม. ล่าสุด (ทั้ง gate) และเพดานของ trial */
+  /** sends counted in the latest 24-hour cap (the whole gate) and the trial ceiling */
   last24h: number;
   per24h: number | null;
   perRecipientPer24h: number | null;
 }
 
-/** dependency ที่ service ต้องใช้ — แยกให้เทสต์ประกอบด้วยของปลอมได้ */
+/** dependencies the service needs — separated so tests can assemble it with fakes */
 export interface LineTeamTrialDependencies {
   database: PrismaClient;
   control: LineControlPlane;
   governance: Pick<ContactGovernanceService, 'authorizeAndReserve' | 'claimReservationForDelivery'>;
-  /** adapter ต่อ config digest ของ gate ณ ตอนส่ง (operator ตั้ง gate ใหม่ได้โดยไม่ต้อง restart) */
+  /** the adapter attaches to the gate's config digest at send time (the operator can set a new gate without restarting) */
   adapter: (configDigest: string) => Pick<LineOutboundAdapter, 'submit'>;
   vault: Pick<EncryptedLineWebhookPayloadVault, 'read'>;
   payloadKey: LinePayloadKey;
   credentials: LineAccessTokenResolver;
   transport: Pick<LineProviderTransport, 'getQuota' | 'getConsumption'>;
   scope: LineGateScope;
-  /** actor ระบบที่ execute run (EXECUTE_RUN เป็นของ Platform Operator ตาม #358 §E) */
+  /** the system actor that executes the run (EXECUTE_RUN belongs to the Platform Operator per #358 §E) */
   executor: LineControlActor;
   now?: () => Date;
   id?: () => string;
@@ -239,7 +239,7 @@ export class LineTeamTrialReplies {
     }
     const contentDigest = createHash('sha256').update(text, 'utf8').digest('hex');
 
-    // idempotency: key เดิม + text เดิม = ผลเดิม (ส่งต่อถ้ายังไม่จบ); text ต่าง = conflict
+    // idempotency: same key + same text = same result (forward on if not finished); different text = conflict
     const previous = await this.tx((transaction) =>
       transaction.dlLineTrialSend.findFirst({
         where: { tenantId: this.tenantId, idempotencyKey: input.idempotencyKey },
@@ -334,7 +334,7 @@ export class LineTeamTrialReplies {
     return this.submit(run.id, queued.deliveryId, false);
   }
 
-  /** ส่ง (หรือส่งต่อ) delivery ของ trial หนึ่งใบผ่าน adapter เดิม */
+  /** send (or forward) one trial delivery through the existing adapter */
   private async submit(
     runAuthorizationId: string,
     deliveryId: string,
@@ -382,7 +382,7 @@ export class LineTeamTrialReplies {
     }
   }
 
-  /** delivery ที่จบไปแล้ว: ผลจริงมาจาก receipt ล่าสุด (accepted = ส่งแล้ว, อย่างอื่น = ถูกปฏิเสธ) */
+  /** a delivery already finished: the real result comes from the latest receipt (accepted = sent, anything else = rejected) */
   private async settled(deliveryId: string): Promise<LineTeamTrialReplyResult> {
     const attempts = await new LineProviderAttemptRepository(this.deps.database).listForDelivery(
       this.tenantId,
@@ -395,7 +395,7 @@ export class LineTeamTrialReplies {
     return { status: 'FAILED', code: 'REJECTED', deliveryId };
   }
 
-  /** authorization ของ trial ที่ใช้ได้ของผู้รับคนนี้ หรือบอกว่าไม่อยู่ใน allowlist ของ trial */
+  /** the trial authorization usable by this recipient, or says it is not in the trial allowlist */
   private async trialRunFor(
     gate: DlLineScopeGate,
     recipientFingerprint: string,
@@ -432,7 +432,7 @@ export class LineTeamTrialReplies {
     return run ? { run } : null;
   }
 
-  /** quota advisory ของ LINE (#358 §D) — cache 5 นาทีเพื่อไม่ให้ทุกการตอบยิง quota API */
+  /** advisory LINE quota (#358 §D) — cached 5 minutes so that not every reply fires the quota API */
   private async quota(run: DlLineRunAuthorization): Promise<LineQuotaSnapshot | undefined> {
     const now = this.now().getTime();
     if (this.quotaCache && now - this.quotaCache.at < QUOTA_CACHE_MS) {
@@ -506,7 +506,7 @@ export class LineTeamTrialReplies {
     };
   }
 
-  /** T5: admin คนไหนก็ kill ได้ทันที — ยก kill ทำได้ทาง CLI + approval เท่านั้น */
+  /** T5: any admin can kill immediately — lifting a kill is possible only via the CLI + approval */
   async kill(actorRef: string): Promise<{ killed: boolean }> {
     const gate = await this.deps.control.findGate(this.deps.scope);
     if (!gate) return { killed: false };

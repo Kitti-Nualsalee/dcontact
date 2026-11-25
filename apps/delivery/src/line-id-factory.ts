@@ -1,9 +1,9 @@
 /**
- * Owner: Delivery/Channels — deterministic id minting ของ LINE simulation (S1.6)
+ * Owner: Delivery/Channels — deterministic id minting of the LINE simulation (S1.6)
  *
- * ทุก id derive จาก (tenantId, actionKey, kind, salt) ผ่าน sha256 ไม่มี `randomUUID`
- * หรือ counter ที่ผูกกับ process — restart บน shared store ต้อง mint id เดิมซ้ำได้
- * เมื่อ input เดิม (ดู `line-delivery-port.ts` §restart/replay)
+ * Every id is derived from (tenantId, actionKey, kind, salt) via sha256, with no `randomUUID`
+ * or process-bound counter — a restart on a shared store must mint the same id again
+ * for the same input (see `line-delivery-port.ts` §restart/replay)
  */
 import { createHash } from 'node:crypto';
 

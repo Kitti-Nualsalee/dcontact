@@ -1,20 +1,20 @@
 /**
- * Owner: Delivery/Channels — metrics/alerts ของ LINE pilot (S2.6 #366, `S2-LINE-OB01`)
+ * Owner: Delivery/Channels — metrics/alerts of the LINE pilot (S2.6 #366, `S2-LINE-OB01`)
  *
  * Authority: #360 §B (OB01), #362 §5/§6/§7/§9
  *
- * snapshot อ่านจาก canonical tables ของ Delivery ใน transaction เดียวของ tenant จึงไม่หายตอน restart
- * ยกเว้น signature ที่ไม่ผ่าน ซึ่ง ingress ห้าม persist อะไรเลย (#362 §7) — ตัวนับนั้นจึงมาจาก process
- * ที่ถือ ingress แนบเข้ามา เหมือน cache counter ของ CG4
+ * The snapshot is read from the canonical tables of Delivery in a single tenant transaction so it survives a restart,
+ * except for failed signatures, for which ingress must persist nothing (#362 §7) — that counter therefore comes from the process
+ * holding the ingress and is attached in, like the CG4 cache counter
  *
- * label มีเพียง `tenant_id` (opaque) — ห้าม recipient/fingerprint/delivery/message/event ID ใน label
+ * The only label is `tenant_id` (opaque) — no recipient/fingerprint/delivery/message/event ID in labels
  */
 import { withTenantDatabaseTransaction, type PrismaClient } from '@d-contact/db';
 import type { LineKillReason } from '@d-contact/cxa-contracts';
 import { LINE_CONTROL_SIGNALS } from './line-control-policy.js';
 
 export interface LineIngressCounters {
-  /** request ที่ signature ไม่ผ่านในหน้าต่างล่าสุด — ไม่มีแถวใน DB ตาม #362 §7 */
+  /** requests whose signature failed in the latest window — no row in the DB per #362 §7 */
   signatureInvalid: number;
   durabilityUnavailable: number;
 }
@@ -24,7 +24,7 @@ export interface LineObservabilitySnapshot {
   observedAt: string;
   windowSeconds: number;
   settlement: {
-    /** LINE outbox ที่ข้าม barrier แล้วแต่ยังไม่ SETTLED */
+    /** LINE outbox rows that crossed the barrier but are not yet SETTLED */
     inFlight: number;
     reconciling: number;
     oldestInFlightAgeSeconds: number | null;
@@ -59,7 +59,7 @@ const ageSeconds = (from: Date | null | undefined, now: Date): number | null =>
 const IN_FLIGHT_STATES = ['SUBMITTING', 'SUBMITTED', 'RECONCILING'] as const;
 const AUTOMATIC_KILL_REASONS: readonly LineKillReason[] = LINE_CONTROL_SIGNALS;
 
-/** หน้าต่างของตัวนับเหตุการณ์ (provider outcome/run denial) — gauge ของสถานะค้างไม่ใช้หน้าต่าง */
+/** Window of the event counters (provider outcome/run denial) — the stuck-state gauge uses no window */
 export const LINE_OBSERVABILITY_WINDOW_SECONDS = 60 * 60;
 
 export async function lineObservabilitySnapshot(
@@ -244,7 +244,7 @@ export function lineMetricSamples(snapshot: LineObservabilitySnapshot): LineMetr
 // ── Alerts ───────────────────────────────────────────────────────────────────
 
 export interface LineAlertThresholds {
-  /** backoff สูงสุด 15 นาที (#357 §3) — เกินสองรอบโดยยังไม่ settle ถือว่าค้าง */
+  /** max backoff 15 minutes (#357 §3) — beyond two rounds without settling counts as stuck */
   settlementStuckSeconds: number;
   webhookBacklogSeconds: number;
   eventOutboxAgeSeconds: number;
@@ -294,7 +294,7 @@ export function evaluateLineAlerts(
   ) => {
     if (value !== null && value > threshold) alerts.push({ code, severity, value, threshold });
   };
-  // settlement ที่ค้างคือ unknown ที่อาจกลายเป็นข้อความซ้ำ — CRITICAL เสมอ
+  // a stuck settlement is an unknown that may become a duplicate message — always CRITICAL
   over(
     'LINE_SETTLEMENT_STUCK',
     'CRITICAL',
@@ -328,7 +328,7 @@ export function evaluateLineAlerts(
   over('LINE_TOUCH_CORRELATION_QUARANTINED', 'WARNING', snapshot.correlation.quarantined, 0);
   over('LINE_CAP_OR_RUN_DENIED', 'WARNING', snapshot.control.runDenials, 0);
   over('LINE_AUTOMATIC_KILL', 'CRITICAL', snapshot.control.automaticKills, 0);
-  // kill ที่คนสั่ง (รวม rollback) เป็นสถานะที่ตั้งใจ แต่ยังต้องมองเห็น
+  // a human-ordered kill (including rollback) is an intentional state but still must be visible
   over(
     'LINE_SCOPE_KILLED',
     'WARNING',

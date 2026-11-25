@@ -1,13 +1,13 @@
 /**
- * Owner: Delivery/Channels — durable inbox ของ LINE webhook และ Touch correlation (S2.1 #365)
+ * Owner: Delivery/Channels — durable inbox of the LINE webhook and Touch correlation (S2.1 #365)
  *
- * primitive ของ #359 §C/§D และ #361 §D/§F เท่านั้น: signature verification, parse และการตัดสิน
- * ว่า response ผูกกับ Attempt ใดเป็นของ S2.5 ที่นี่รับประกันว่า
- * - event ทั้ง request commit แบบ atomic (ล้ม = ไม่มีแถวใดเลย ผู้เรียกตอบ 503)
- * - event ID เดิม + hash เดิม = duplicate no-op; hash ต่าง = conflict ที่ quarantine ของเดิม
- *   และบันทึก audit โดยไม่เขียนทับ payload เดิม
- * - worker claim ด้วย `FOR UPDATE SKIP LOCKED` + lease จึงไม่หยิบ event เดียวกันพร้อมกัน
- * ไม่มี body, userId, replyToken หรือ signature ผ่าน repository นี้ — มีแค่ hash และ opaque ref
+ * Only the primitives of #359 §C/§D and #361 §D/§F: signature verification, parsing and deciding
+ * which Attempt a response binds to belong to S2.5. What is guaranteed here:
+ * - the events of a whole request commit atomically (failing = no row at all, the caller answers 503)
+ * - the same event ID + the same hash = a duplicate no-op; a different hash = a conflict that quarantines the original
+ *   and records audit without overwriting the original payload
+ * - the worker claims with `FOR UPDATE SKIP LOCKED` + lease so it does not pick the same event concurrently
+ * No body, userId, replyToken or signature passes through this repository — only a hash and an opaque ref
  */
 import {
   Prisma,
@@ -50,7 +50,7 @@ export interface LineWebhookAcceptance {
   >;
 }
 
-/** code ที่ทำให้ inbox entry จบแบบ quarantine ได้ — ตรงกับ CHECK ของ `dl_line_webhook_inbox` */
+/** codes that can end an inbox entry as quarantine — matches the CHECK of `dl_line_webhook_inbox` */
 export type LineWebhookQuarantineCode = Extract<
   LineWebhookCode,
   | 'WEBHOOK_DESTINATION_MISMATCH'
@@ -79,7 +79,7 @@ export class LineWebhookRepository {
 
   // ── Inbox ─────────────────────────────────────────────────────────────────
 
-  /** batch ว่าง (LINE verify request) ไม่แตะ database และไม่สร้าง business row */
+  /** an empty batch (the LINE verify request) does not touch the database and creates no business row */
   async acceptBatch(input: AcceptLineWebhookBatchInput): Promise<LineWebhookAcceptance[]> {
     if (input.events.length === 0) return [];
     return withTenantDatabaseTransaction(this.database, input.tenantId, async (transaction) => {
@@ -162,8 +162,8 @@ export class LineWebhookRepository {
   }
 
   /**
-   * หยิบ event ที่ PENDING หรือ PROCESSING ที่ lease หมด (worker ตาย) ตามลำดับที่รับเข้ามา —
-   * ไม่สมมติว่า provider ส่งมาตามลำดับ แค่ทำให้ restart แล้วงานไม่ค้าง
+   * pick events that are PENDING or PROCESSING with an expired lease (the worker died) in the order received —
+   * does not assume the provider sends in order, only makes sure work is not stuck after a restart
    */
   claim(
     tenantId: string,
@@ -200,7 +200,7 @@ export class LineWebhookRepository {
     });
   }
 
-  /** จบได้เฉพาะ worker ที่ถือ lease อยู่ — lease ที่ถูกแย่งไปแล้วคืน false */
+  /** can be finished only by the worker holding the lease — a lease that was taken over returns false */
   complete(tenantId: string, id: string, leaseOwner: string, at: Date): Promise<boolean> {
     return withTenantDatabaseTransaction(this.database, tenantId, async (transaction) => {
       const updated = await transaction.dlLineWebhookInboxEntry.updateMany({
@@ -240,7 +240,7 @@ export class LineWebhookRepository {
 
   // ── Touch correlation ─────────────────────────────────────────────────────
 
-  /** evidence ref เดิม + input เดิมคืนแถวเดิม (redelivery); input ต่างเป็น conflict */
+  /** the same evidence ref + the same input returns the original row (redelivery); a different input is a conflict */
   async openCorrelation(input: OpenLineTouchCorrelationInput): Promise<DlLineTouchCorrelation> {
     try {
       return await rejectingForeignBinding(() =>
@@ -278,8 +278,8 @@ export class LineWebhookRepository {
   }
 
   /**
-   * PENDING -> BOUND ครั้งเดียวกับ delivery/Attempt ที่ระบุ; Attempt หนึ่งมี Touch ได้ครั้งเดียว
-   * (partial unique) — correlation ที่สองของ Attempt เดิมเป็น conflict ไม่ใช่ Touch ที่สอง
+   * PENDING -> BOUND exactly once with the specified delivery/Attempt; one Attempt can have a Touch only once
+   * (partial unique) — a second correlation of the same Attempt is a conflict, not a second Touch
    */
   async bindCorrelation(
     tenantId: string,
@@ -321,7 +321,7 @@ export class LineWebhookRepository {
     });
   }
 
-  /** correlation ที่ยังรอ bind เรียงตาม window ที่ใกล้หมดก่อน — ให้ worker quarantine เมื่อเลย window */
+  /** correlations still waiting to bind, ordered by the window closest to expiry first — so the worker quarantines once past the window */
   listPendingCorrelations(tenantId: string, limit: number): Promise<DlLineTouchCorrelation[]> {
     return withTenantDatabaseTransaction(this.database, tenantId, (transaction) =>
       transaction.dlLineTouchCorrelation.findMany({

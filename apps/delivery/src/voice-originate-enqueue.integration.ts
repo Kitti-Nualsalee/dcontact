@@ -30,7 +30,7 @@ async function fixture(t: TestContext) {
   return { context, enqueuer, input, reservation };
 }
 
-test('kill switch ปิดเป็นค่าเริ่มต้น: ไม่ claim reservation และไม่สร้าง durable record', async (t) => {
+test('the kill switch is off by default: no reservation is claimed and no durable record is created', async (t) => {
   const context = await createDeliveryFixture();
   t.after(() => context.dispose());
   const reservation = await context.createVoiceReservation('disabled');
@@ -53,7 +53,7 @@ test('kill switch ปิดเป็นค่าเริ่มต้น: ไม
   assert.equal((await context.reservationRow(reservation.rawId))?.settlementStatus, 'UNCLAIMED');
 });
 
-test('claim แล้ว commit interaction, generic outbox และ voice extension ก่อนตอบ QUEUED', async (t) => {
+test('after claim, the interaction, generic outbox and voice extension are committed before answering QUEUED', async (t) => {
   const { context, enqueuer, input, reservation } = await fixture(t);
 
   assert.equal((await enqueuer.enqueue(input)).status, 'QUEUED');
@@ -98,7 +98,7 @@ test('claim แล้ว commit interaction, generic outbox และ voice exte
   assert.equal(persisted.includes('0812345678'), false);
 });
 
-test('actionKey เดิม replay durable voice delivery เดิมโดยไม่สร้าง interaction ซ้ำ', async (t) => {
+test('the same actionKey replays the original durable voice delivery without creating a duplicate interaction', async (t) => {
   const { context, enqueuer, input } = await fixture(t);
 
   const first = await enqueuer.enqueue(input);
@@ -117,7 +117,7 @@ test('actionKey เดิม replay durable voice delivery เดิมโดย
   );
 });
 
-test('transaction ล้มเหลวหลัง claim ต้อง rollback interaction/outbox และ release reservation แบบ bound', async (t) => {
+test('a transaction failure after claim must roll back the interaction/outbox and release the reservation in a bound way', async (t) => {
   const { context, enqueuer, input, reservation } = await fixture(t);
   await context.owner.agentSipCredential.update({
     where: { workSessionLeaseId: context.agent.leaseId },

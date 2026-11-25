@@ -1,23 +1,23 @@
 /**
- * Owner: Delivery/Channels — canonical request ก่อน submission barrier (S2.4 #370, #357 §2)
+ * Owner: Delivery/Channels — canonical request before the submission barrier (S2.4 #370, #357 §2)
  *
- * ทุกอย่างที่ตัดสินเนื้อหาของ request ต้องเกิด "ก่อน" barrier และถูก persist ครั้งเดียว:
- * fixture version, recipient ที่ resolve แล้ว, canonical payload, payload digest และ retry key
+ * Everything that decides the content of a request must happen "before" the barrier and be persisted once:
+ * the fixture version, the resolved recipient, the canonical payload, the payload digest and the retry key
  *
- * หลัง barrier ห้ามเปลี่ยน recipient/content และห้าม mint key ใหม่ — retry ทุกครั้งต้องเป็น
- * byte-identical request เดิมพร้อม `X-Line-Retry-Key` เดิม ไม่งั้น LINE จะถือเป็นคนละ request
- * และผู้รับจะได้ข้อความซ้ำ
+ * After the barrier the recipient/content must not change and a new key must not be minted — every retry must be a
+ * byte-identical copy of the original request with the original `X-Line-Retry-Key`, otherwise LINE treats it as a different request
+ * and the recipient would get a duplicate message
  */
 import { createHash } from 'node:crypto';
 
-/** fixture ที่อนุมัติแล้วของ S2 — immutable และเป็นชุดปิด (#357 §1) */
+/** An approved fixture of S2 — immutable and a closed set (#357 §1) */
 export const LINE_SERVICE_NOTIFICATION_FIXTURES = Object.freeze({
   'fixture:service-notification/v1': Object.freeze({
     version: 1,
     messages: Object.freeze([
       Object.freeze({
         type: 'text',
-        text: 'แจ้งเตือนจากระบบบริการลูกค้า กรุณาตอบกลับข้อความนี้หากต้องการให้ติดต่อกลับ',
+        text: 'แจ้งเตือนจากระบบบริการลูกค้า กรุณาตอบกลับข้อความนี้หากต้องการให้ติดต่อกลับ', // allow-thai: customer-facing LINE message content, bound by payload digest
       }),
     ]),
   }),
@@ -28,7 +28,7 @@ export type LineFixtureRef = keyof typeof LINE_SERVICE_NOTIFICATION_FIXTURES;
 export class LineFixtureUnknownError extends Error {
   readonly code = 'LINE_FIXTURE_UNKNOWN';
   constructor(readonly contentRef: string) {
-    super(`LINE fixture ไม่อยู่ในชุดที่อนุมัติ: ${contentRef}`);
+    super(`LINE fixture is not in the approved set: ${contentRef}`);
     this.name = 'LineFixtureUnknownError';
   }
 }
@@ -53,14 +53,14 @@ export interface LineCanonicalRequest {
   contentRef: string;
   fixtureVersion: number;
   messages: ReadonlyArray<Record<string, unknown>>;
-  /** digest ของ payload ที่จะส่งจริง (รวมผู้รับแบบ fingerprint ไม่ใช่ค่าจริง) */
+  /** digest of the payload actually sent (includes the recipient as a fingerprint, not the real value) */
   providerPayloadDigest: string;
   recipientFingerprint: string;
 }
 
 /**
- * payload digest ผูกกับผู้รับด้วย fingerprint ไม่ใช่ userId — receipt จึงพิสูจน์ได้ว่า retry
- * เป็น request เดิมโดยไม่ต้องเก็บ raw recipient ไว้ใน evidence (#357 §4)
+ * The payload digest binds to the recipient by fingerprint, not userId — so the receipt can prove that a retry
+ * is the original request without keeping the raw recipient in evidence (#357 §4)
  */
 export function buildLineCanonicalRequest(input: {
   contentRef: string;
@@ -87,12 +87,12 @@ export function buildLineCanonicalRequest(input: {
   };
 }
 
-// ── เนื้อหาที่ไม่ใช่ fixture (#567 team trial) ───────────────────────────────
+// ── Content that is not a fixture (#567 team trial) ───────────────────────────────
 
 /**
- * เนื้อหาที่ resolve แล้วของ delivery หนึ่งใบ: fixture ของ S2 หรือ text ของ trial ที่ persist ก่อน barrier
- * `gateDigest` คือค่าที่ gate เทียบกับ allowlist — fixture = digest ของ fixture, trial = digest ของ content class
- * (ทุก text ของ trial อยู่ใน class เดียว; digest ของ text จริงอยู่ใน `dl_line_trial_sends`)
+ * The resolved content of one delivery: an S2 fixture or the trial's text persisted before the barrier.
+ * `gateDigest` is the value the gate compares with the allowlist — fixture = the fixture digest, trial = the content class digest
+ * (every trial text is in one class; the digest of the real text is in `dl_line_trial_sends`)
  */
 export interface LineResolvedContent {
   contentRef: string;
@@ -105,7 +105,7 @@ export interface LineContentSource {
   resolve(tenantId: string, contentRef: string): Promise<LineResolvedContent>;
 }
 
-/** แหล่งเนื้อหาเดิมของ S2: fixture ชุดปิดเท่านั้น */
+/** The original content source of S2: the closed fixture set only */
 export const LINE_FIXTURE_CONTENT_SOURCE: LineContentSource = Object.freeze({
   async resolve(_tenantId: string, contentRef: string): Promise<LineResolvedContent> {
     const fixture = resolveLineFixture(contentRef);
@@ -118,14 +118,14 @@ export const LINE_FIXTURE_CONTENT_SOURCE: LineContentSource = Object.freeze({
   },
 });
 
-/** digest ของ content class ที่ allowlist ของ trial ผูกไว้ (text ≤ maxLength) */
+/** digest of the content class that the trial allowlist binds (text ≤ maxLength) */
 export function lineContentClassDigest(contentClass: string, maxLength: number): string {
   return createHash('sha256')
     .update(JSON.stringify({ contentClass, version: 1, type: 'text', maxLength }))
     .digest('hex');
 }
 
-/** canonical request จากเนื้อหาที่ resolve แล้ว — fixture ให้ผลเท่ากับ `buildLineCanonicalRequest` ทุก byte */
+/** canonical request from resolved content — a fixture yields the same as `buildLineCanonicalRequest` byte for byte */
 export function buildLineCanonicalRequestFrom(
   content: LineResolvedContent,
   recipientFingerprint: string,
@@ -151,19 +151,19 @@ export function buildLineCanonicalRequestFrom(
 
 const HEX_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
-/** `X-Line-Retry-Key` ต้องเป็น hexadecimal UUID (#357 §2) — ค่าอื่น LINE ปฏิเสธ */
+/** `X-Line-Retry-Key` must be a hexadecimal UUID (#357 §2) — LINE rejects any other value */
 export function isLineRetryKey(value: string): boolean {
   return HEX_UUID.test(value);
 }
 
 /**
- * retry key ของ delivery หนึ่งใบ derive จาก identity ที่ persist ไว้แล้ว จึงได้ค่าเดิมทุกครั้ง
- * แม้ worker restart — ไม่ใช้ `randomUUID` เพราะค่าใหม่ = ผู้รับได้ข้อความซ้ำ
+ * the retry key of one delivery is derived from the identity already persisted, so it is the same every time
+ * even when a worker restarts — no `randomUUID` because a new value = the recipient gets a duplicate message
  */
 export function deriveLineRetryKey(tenantId: string, deliveryId: string): string {
   const digest = createHash('sha256').update(`line-retry|${tenantId}|${deliveryId}`).digest('hex');
   const hex = digest.slice(0, 32);
-  // บังคับรูป UUID v4/variant ให้ LINE ยอมรับ โดยยังคงความ deterministic
+  // force the UUID v4/variant shape so LINE accepts it while staying deterministic
   const v4 = `${hex.slice(0, 12)}4${hex.slice(13, 16)}`;
   const variant = `${((Number.parseInt(hex[16]!, 16) & 0x3) | 0x8).toString(16)}${hex.slice(17, 20)}`;
   return `${v4.slice(0, 8)}-${v4.slice(8, 12)}-${v4.slice(12, 16)}-${variant}-${hex.slice(20, 32)}`;
@@ -171,12 +171,12 @@ export function deriveLineRetryKey(tenantId: string, deliveryId: string): string
 
 // ── Retry window / backoff (#357 §3, #358 caps) ─────────────────────────────
 
-/** หลัง 24 ชม. LINE อาจมอง retry key เดิมเป็น request ใหม่ — เราหยุดก่อนถึงเส้นนั้น */
+/** After 24 hours LINE may see the original retry key as a new request — we stop before reaching that line */
 export const LINE_RETRY_WINDOW_MS = 23 * 60 * 60 * 1000;
 export const LINE_BACKOFF_BASE_MS = 30_000;
 export const LINE_BACKOFF_MAX_MS = 15 * 60_000;
 
-/** exponential backoff แบบ bounded: ทุก retry นับ rate limit จึงห้ามถี่ (#357 §3) */
+/** bounded exponential backoff: every retry counts toward the rate limit so it must not be frequent (#357 §3) */
 export function lineBackoffMs(attemptNo: number): number {
   const exponent = Math.max(0, attemptNo - 1);
   return Math.min(LINE_BACKOFF_BASE_MS * 2 ** exponent, LINE_BACKOFF_MAX_MS);

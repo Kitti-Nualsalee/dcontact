@@ -1,12 +1,12 @@
 /**
- * Owner: Delivery/Channels — durable primitives ของ LINE rollout control plane (S2.1 #365)
+ * Owner: Delivery/Channels — durable primitives of the LINE rollout control plane (S2.1 #365)
  *
- * gate/allowlist/credential ref/run authorization/cap ledger ตาม #358 — ที่นี่มีแค่ primitive
- * ที่ atomic และ tenant-isolated; policy (ใครสั่งอะไรได้, effective gate, ค่า cap จริง) เป็นของ
- * S2.3 ที่เรียก primitive เหล่านี้ DB ยังตรวจ invariant ซ้ำด้วย CHECK/trigger เสมอ
+ * gate/allowlist/credential ref/run authorization/cap ledger per #358 — here there are only primitives
+ * that are atomic and tenant-isolated; policy (who may order what, effective gate, real cap values) belongs to
+ * S2.3, which calls these primitives. The DB still re-checks invariants with CHECK/trigger every time
  *
- * ความ race-safe มาจากสามกลไกเท่านั้น: conditional update (CAS/one-shot), unique index และ
- * row lock ของ gate (`FOR UPDATE`) ที่ serialize การนับ cap ต่อ scope — ไม่มี counter ใน memory
+ * Race safety comes from three mechanisms only: conditional update (CAS/one-shot), unique index and
+ * the gate's row lock (`FOR UPDATE`) that serializes cap counting per scope — no counter in memory
  */
 import {
   Prisma,
@@ -89,7 +89,7 @@ export interface ProposeLineRunInput {
   proposedBy: string;
   proposedAt: Date;
   expiresAt: Date;
-  /** #567: มีเฉพาะ profile `S2_LINE_TEAM_TRIAL_V1` */
+  /** #567: present only for the profile `S2_LINE_TEAM_TRIAL_V1` */
   profile?: string;
   capRecipientPer24h?: number;
   capPer24h?: number;
@@ -115,15 +115,15 @@ export interface LineCapLimit {
   code: LineGateErrorCode;
   capKind: LineCapKind;
   max: number;
-  /** นับเฉพาะ recipient เดียวกัน (เช่น 1/recipient/24h) */
+  /** Counts only the same recipient (e.g. 1/recipient/24h) */
   sameRecipient?: boolean;
-  /** นับเฉพาะ run authorization เดียวกัน (เช่น 1/run) */
+  /** Counts only the same run authorization (e.g. 1/run) */
   sameRun?: boolean;
-  /** นับเฉพาะ logical delivery เดียวกัน (เช่น provider attempts ≤4 ต่อหนึ่ง delivery) */
+  /** Counts only the same logical delivery (e.g. provider attempts ≤4 per delivery) */
   sameDelivery?: boolean;
-  /** หน้าต่างเวลาแบบ rolling: นับเฉพาะ reservedAt >= since */
+  /** Rolling time window: counts only reservedAt >= since */
   since?: Date;
-  /** concurrency slot นับเฉพาะ RESERVED; ค่าอื่นนับ RESERVED + COMMITTED */
+  /** A concurrency slot counts only RESERVED; other values count RESERVED + COMMITTED */
   activeOnly?: boolean;
 }
 
@@ -149,7 +149,7 @@ export class LineControlRepository {
 
   // ── Gate ──────────────────────────────────────────────────────────────────
 
-  /** สร้าง gate ของ scope เป็น DISABLED ถ้ายังไม่มี; ผู้แข่งกันสร้างได้แถวเดียวกันเสมอ */
+  /** Create the gate of the scope as DISABLED if it does not exist yet; racing creators always get the same row */
   ensureGate(id: string, scope: LineGateScope): Promise<DlLineScopeGate> {
     return withTenantDatabaseTransaction(this.database, scope.tenantId, async (transaction) => {
       await transaction.dlLineScopeGate.createMany({
@@ -166,7 +166,7 @@ export class LineControlRepository {
     );
   }
 
-  /** CAS บน version: คืน null ถ้ามีคนเปลี่ยน gate ไปก่อน — ผู้เรียกต้องอ่านใหม่ ห้ามเขียนทับ */
+  /** CAS on version: returns null if someone changed the gate first — the caller must re-read, never overwrite */
   compareAndSetGate(
     tenantId: string,
     gateId: string,
@@ -184,8 +184,8 @@ export class LineControlRepository {
   }
 
   /**
-   * kill ชนะทุก state และไม่ต้องรู้ version: latch ครั้งแรกบันทึกเหตุผล ครั้งต่อไปเป็น no-op
-   * ที่คืน gate ซึ่ง latch อยู่แล้ว technical switch ถูกปิดในแถวเดียวกันเสมอ
+   * kill beats every state and needs no version: the first latch records the reason, later calls are a no-op
+   * that returns the already latched gate. The technical switch is always turned off in the same row
    */
   killGate(
     tenantId: string,
@@ -210,7 +210,7 @@ export class LineControlRepository {
     });
   }
 
-  /** ยก kill ต้องมี approval ref ใหม่และกลับไป DISABLED (trigger บังคับซ้ำ) */
+  /** Lifting a kill needs a new approval ref and returns to DISABLED (a trigger enforces it again) */
   clearGateKill(
     tenantId: string,
     gateId: string,
@@ -251,8 +251,8 @@ export class LineControlRepository {
   }
 
   /**
-   * exact tuple lookup ตาม unique index `..._tuple_key` — ผู้เรียกต้องรู้ recipient/content/config
-   * ครบถึงจะเจอแถว จึงใช้เป็น "ตรงทุกมิติ" ของ #358 §B ได้โดยไม่ต้องไล่เทียบทีละคอลัมน์
+   * exact tuple lookup per the unique index `..._tuple_key` — the caller must know the full recipient/content/config
+   * to find the row, so it can serve as the "match on every dimension" of #358 §B without comparing column by column
    */
   findAllowlistEntryByTuple(
     tenantId: string,
@@ -268,7 +268,7 @@ export class LineControlRepository {
     );
   }
 
-  /** revoke ได้ครั้งเดียว; คืน false ถ้าไม่พบหรือ revoke ไปแล้ว */
+  /** Can be revoked only once; returns false if not found or already revoked */
   revokeAllowlistEntry(tenantId: string, id: string, code: string, at: Date): Promise<boolean> {
     return withTenantDatabaseTransaction(this.database, tenantId, async (transaction) => {
       const updated = await transaction.dlLineAllowlistEntry.updateMany({
@@ -301,9 +301,9 @@ export class LineControlRepository {
   }
 
   /**
-   * version ที่ ACTIVE อยู่จริงของ channel ตอนนี้ (unique index `..._one_active_key` บังคับว่ามีได้
-   * ตัวเดียวต่อ class) — ผู้เรียกใช้เทียบกับ version ที่ run authorization pin ไว้ เพื่อไม่ให้
-   * worker ข้าม barrier ด้วย token คนละ version กับที่อนุมัติ (#358 §G/§I)
+   * The version that is really ACTIVE for the channel now (the unique index `..._one_active_key` enforces at most
+   * one per class) — the caller compares it with the version the run authorization pinned, so that a
+   * worker cannot cross the barrier with a token of a different version from the one approved (#358 §G/§I)
    */
   findActiveCredentialRef(
     tenantId: string,
@@ -326,8 +326,8 @@ export class LineControlRepository {
   }
 
   /**
-   * rotation แบบ atomic (#358 §G): retire version ที่ ACTIVE อยู่ของ class เดียวกันแล้ว activate
-   * candidate ใน transaction เดียว — ไม่มีจังหวะที่ worker เห็นสอง version หรือไม่เห็นเลย
+   * Atomic rotation (#358 §G): retire the ACTIVE version of the same class and activate the
+   * candidate in a single transaction — there is no moment where a worker sees two versions or none
    */
   activateCredentialRef(
     tenantId: string,
@@ -379,7 +379,7 @@ export class LineControlRepository {
     );
   }
 
-  /** proposal digest เดิมคืนแถวเดิม; digest เดิมที่ binding ต่างเป็น conflict */
+  /** The same proposal digest returns the original row; the same digest with a different binding is a conflict */
   async proposeRun(input: ProposeLineRunInput): Promise<DlLineRunAuthorization> {
     try {
       return await rejectingForeignBinding(() =>
@@ -412,8 +412,8 @@ export class LineControlRepository {
   }
 
   /**
-   * approval แต่ละ role ใส่ได้ครั้งเดียวขณะ PROPOSED; ครบทั้งสอง role แล้วเลื่อนเป็น APPROVED
-   * ใน transaction เดียวกัน คืน null ถ้าไม่พบ/ปิดแล้ว/role นั้นอนุมัติไปแล้ว
+   * Each role's approval can be added once while PROPOSED; once both roles are in it advances to APPROVED
+   * in the same transaction. Returns null if not found/already closed/that role already approved
    */
   approveRun(
     tenantId: string,
@@ -453,8 +453,8 @@ export class LineControlRepository {
   }
 
   /**
-   * one-shot: conditional update จาก APPROVED ที่ยังไม่หมดอายุไปเป็น CONSUMED — worker สองตัว
-   * แข่งกันได้ผู้ชนะหนึ่งตัวเสมอ ผู้แพ้ได้ code ที่บอกเหตุผลโดยไม่แตะแถว
+   * one-shot: a conditional update from APPROVED, not yet expired, to CONSUMED — two workers
+   * racing always yield exactly one winner, and the loser gets a code stating the reason without touching the row
    */
   async consumeRun(
     tenantId: string,
@@ -465,7 +465,7 @@ export class LineControlRepository {
     try {
       return await this.consumeRunOnce(tenantId, id, deliveryId, at);
     } catch (error) {
-      // delivery นี้ consume authorization ใบอื่นไปแล้ว — หนึ่ง delivery ต่อหนึ่ง run เท่านั้น
+      // This delivery already consumed another authorization — one delivery per run only
       if (isUniqueViolation(error))
         throw new LineIdempotencyConflictError('dl_line_run_authorizations');
       throw error;
@@ -503,7 +503,7 @@ export class LineControlRepository {
     );
   }
 
-  /** ปิด authorization ที่ยังไม่ถูกใช้ (หมดอายุ/เพิกถอน) — terminal แล้วแก้ไม่ได้อีก */
+  /** Close an authorization that has not been used (expired/revoked) — terminal, cannot be edited again */
   closeRun(tenantId: string, id: string, state: 'EXPIRED' | 'REVOKED', at: Date): Promise<boolean> {
     return withTenantDatabaseTransaction(this.database, tenantId, async (transaction) => {
       const updated = await transaction.dlLineRunAuthorization.updateMany({
@@ -517,9 +517,9 @@ export class LineControlRepository {
   // ── Cap ledger ────────────────────────────────────────────────────────────
 
   /**
-   * จอง cap หนึ่งหน่วยภายใต้ row lock ของ gate: kill latch และทุก limit ถูกตรวจกับ ledger
-   * ที่ commit แล้วใน transaction เดียวกับ insert จึงไม่มี worker สองตัวผ่าน limit เดียวกันได้
-   * reservation key เดิม (delivery, kind, attempt) เป็น replay; binding ต่างเป็น conflict
+   * Reserve one cap unit under the gate's row lock: the kill latch and every limit are checked against the ledger
+   * committed within the same transaction as the insert, so two workers cannot pass the same limit
+   * The same reservation key (delivery, kind, attempt) is a replay; a different binding is a conflict
    */
   reserveCap(input: ReserveLineCapInput): Promise<ReserveLineCapResult> {
     const attemptNo = input.attemptNo ?? 0;
@@ -587,7 +587,7 @@ export class LineControlRepository {
     );
   }
 
-  /** reservation ที่ยังถือ slot อยู่ของ scope นี้ — ใช้ตัดสิน auto-pause ของ unknown (#358 §C) */
+  /** Reservations still holding a slot of this scope — used to decide auto-pause of unknown (#358 §C) */
   listActiveCapEntries(
     tenantId: string,
     gateId: string,
@@ -601,7 +601,7 @@ export class LineControlRepository {
     );
   }
 
-  /** RESERVED -> COMMITTED (ข้าม barrier แล้ว) หรือ RELEASED (ก่อน barrier/slot ว่าง) ครั้งเดียว */
+  /** RESERVED -> COMMITTED (crossed the barrier) or RELEASED (before the barrier/slot free) exactly once */
   settleCap(
     tenantId: string,
     deliveryId: string,

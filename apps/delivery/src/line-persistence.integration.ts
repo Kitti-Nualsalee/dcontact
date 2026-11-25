@@ -1,9 +1,9 @@
 /**
- * S2.1 (#365) acceptance: persistence foundation ของ LINE provider บน Postgres จริงด้วย
- * application role (RLS ทำงาน) — ไม่มี network, SDK, credential value หรือ PII ใน fixture
+ * S2.1 (#365) acceptance: persistence foundation of the LINE provider on real Postgres with the
+ * application role (RLS in effect) — no network, SDK, credential value or PII in the fixture
  *
- * ครอบคลุม: composite binding, uniqueness/idempotency, append-only, race-safe primitives,
- * two-tenant ID/binding swap แบบ generic และ mixed-version guard ของ worker เดิม
+ * Covers: composite binding, uniqueness/idempotency, append-only, race-safe primitives,
+ * generic two-tenant ID/binding swap, and the mixed-version guard of the existing worker
  */
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -36,7 +36,7 @@ async function fixture(t: TestContext): Promise<LinePersistenceFixture> {
 const T0 = new Date('2026-09-22T10:00:00.000Z');
 const at = (minutes: number) => new Date(T0.getTime() + minutes * 60_000);
 
-/** error ที่ DB โยนกลับมาต้องไม่มี ID ของ tenant อื่นหลุดออกไป */
+/** An error the DB throws back must not leak the ID of another tenant */
 async function rejectsGenerically(work: Promise<unknown>, ...secrets: string[]) {
   await assert.rejects(work, (error: unknown) => {
     assert.ok(error instanceof LineBindingRejectedError, String(error));
@@ -47,7 +47,7 @@ async function rejectsGenerically(work: Promise<unknown>, ...secrets: string[]) 
 
 // ── Provider attempt receipts ────────────────────────────────────────────────
 
-test('attempt receipt: replay เดิมคืนแถวเดิม, input ต่างเป็น conflict และได้ผลแล้วห้ามต่อ', async (t) => {
+test('attempt receipt: the same replay returns the same row, different input is a conflict, and once a result exists no continuing', async (t) => {
   const context = await fixture(t);
   const delivery = await context.seedDelivery(context.tenantA);
   const base = {
@@ -106,7 +106,7 @@ test('attempt receipt: replay เดิมคืนแถวเดิม, input 
   );
 });
 
-test('attempt receipt: ผูก providerRequestKey เดิมและ LINE outbox เท่านั้น, เรียงต่อกัน, จบใน 24 ชม.', async (t) => {
+test('attempt receipt: binds only the original providerRequestKey and the LINE outbox, sequential, ends within 24 hours', async (t) => {
   const context = await fixture(t);
   const delivery = await context.seedDelivery(context.tenantA);
   const testDelivery = await context.seedDelivery(context.tenantA, 'TEST_ADAPTER');
@@ -124,7 +124,7 @@ test('attempt receipt: ผูก providerRequestKey เดิมและ LINE o
     ...overrides,
   });
 
-  // key ใหม่ = binding ไม่ตรงกับ outbox → generic rejection ไม่ใช่ receipt ใหม่
+  // a new key = the binding does not match the outbox → generic rejection, not a new receipt
   await rejectsGenerically(context.attempts.record(attempt({ providerRequestKey: randomUUID() })));
   await rejectsGenerically(
     context.attempts.record(
@@ -138,7 +138,7 @@ test('attempt receipt: ผูก providerRequestKey เดิมและ LINE o
     context.attempts.record(attempt({ attemptNo: 2 })),
     /DL_LINE_ATTEMPT_SEQUENCE/,
   );
-  // BEFORE INSERT trigger ทำงานก่อน CHECK จึงอาจชนข้อใดข้อหนึ่งก่อน — ทั้งคู่ปฏิเสธ attempt ที่ 5
+  // The BEFORE INSERT trigger runs before the CHECK so it may hit either one first — both reject the 5th attempt
   await assert.rejects(
     context.attempts.record(attempt({ attemptNo: 5 })),
     /DL_LINE_ATTEMPT_SEQUENCE|attempt_no_check/,
@@ -154,7 +154,7 @@ test('attempt receipt: ผูก providerRequestKey เดิมและ LINE o
   await context.attempts.record(
     attempt({ attemptNo: 2, startedAt: at(24 * 60 - 1), finishedAt: at(24 * 60 - 1) }),
   );
-  // quarantine หลัง window เป็นการปิดงาน ไม่ใช่ HTTP retry จึงบันทึกได้
+  // quarantine after the window is closing the job, not an HTTP retry, so it can be recorded
   const expired = await context.attempts.record(
     attempt({
       attemptNo: 3,
@@ -167,7 +167,7 @@ test('attempt receipt: ผูก providerRequestKey เดิมและ LINE o
   assert.equal(expired.outcomeClass, 'QUARANTINED');
 });
 
-test('attempt receipt: class/rejection/acceptance evidence ถูกตรวจทั้งใน contract และ DB', async (t) => {
+test('attempt receipt: class/rejection/acceptance evidence is checked in both the contract and the DB', async (t) => {
   const context = await fixture(t);
   const delivery = await context.seedDelivery(context.tenantA);
   const base = {
@@ -189,12 +189,12 @@ test('attempt receipt: class/rejection/acceptance evidence ถูกตรวจ
     }),
     /LINE_AUTH_INVALID/,
   );
-  // 2xx ที่ไม่มี x-line-request-id ไม่ใช่หลักฐาน acceptance
+  // a 2xx without x-line-request-id is not acceptance evidence
   await assert.rejects(
     context.attempts.record({ ...base, outcomeCode: 'LINE_ACCEPTED', httpStatus: 200 }),
     /acceptance_check/,
   );
-  // caller ที่ข้าม repository แล้วยัด class เองก็ยังผ่าน CHECK ไม่ได้
+  // a caller that bypasses the repository and stuffs in a class itself still cannot pass the CHECK
   await assert.rejects(
     context.asApplication(
       context.tenantA,
@@ -213,7 +213,7 @@ test('attempt receipt: class/rejection/acceptance evidence ถูกตรวจ
   assert.equal(recipientReject.rejectionScope, 'RECIPIENT');
 });
 
-test('attempt receipt และ audit เป็น append-only สำหรับ application role', async (t) => {
+test('attempt receipt and audit are append-only for the application role', async (t) => {
   const context = await fixture(t);
   const delivery = await context.seedDelivery(context.tenantA);
   const receipt = await context.attempts.record({
@@ -247,7 +247,7 @@ test('attempt receipt และ audit เป็น append-only สำหรั�
   ]) {
     await assert.rejects(context.asApplication(context.tenantA, sql), /permission denied/, sql);
   }
-  // owner ที่มีสิทธิ์ UPDATE ก็ยังชน trigger — หลักฐานแก้ย้อนหลังไม่ได้ทั้งสองชั้น
+  // even an owner with UPDATE privilege still hits the trigger — evidence cannot be edited retroactively, in both layers
   await assert.rejects(
     context.owner.$executeRawUnsafe(
       `UPDATE dl_provider_submission_attempts SET http_status = 200 WHERE id = '${receipt.id}'`,
@@ -288,7 +288,7 @@ test('attempt receipt และ audit เป็น append-only สำหรั�
 
 // ── Rollout gate ─────────────────────────────────────────────────────────────
 
-test('gate: สร้างพร้อมกันได้แถวเดียว, CAS, เลื่อนทีละขั้น และ kill latch ชนะทุก state', async (t) => {
+test('gate: concurrent creation yields one row, CAS, one-step promotion, and the kill latch beats every state', async (t) => {
   const context = await fixture(t);
   const scope = context.scope(context.tenantA);
   const created = await Promise.all(
@@ -307,7 +307,7 @@ test('gate: สร้างพร้อมกันได้แถวเดี�
       technicalSwitchOn: true,
     }),
     null,
-    'version เก่าต้องไม่เขียนทับ',
+    'an old version must not overwrite',
   );
   await assert.rejects(
     context.control.compareAndSetGate(context.tenantA, gate.id, 2, {
@@ -320,7 +320,7 @@ test('gate: สร้างพร้อมกันได้แถวเดี�
       businessState: 'PROVIDER_CONFORMANCE',
     }),
     /config_check/,
-    'ออกจาก DRY_RUN ต้องมี config digest',
+    'leaving DRY_RUN needs a config digest',
   );
   const conformance = await context.control.compareAndSetGate(context.tenantA, gate.id, 2, {
     businessState: 'PROVIDER_CONFORMANCE',
@@ -331,9 +331,13 @@ test('gate: สร้างพร้อมกันได้แถวเดี�
 
   const killed = await context.control.killGate(context.tenantA, gate.id, 'AUTH_FAILURE', at(5));
   assert.equal(killed.killed, true);
-  assert.equal(killed.technicalSwitchOn, false, 'kill ต้องปิด switch ในแถวเดียวกัน');
+  assert.equal(killed.technicalSwitchOn, false, 'kill must turn off the switch in the same row');
   const again = await context.control.killGate(context.tenantA, gate.id, 'OPERATOR_KILL', at(6));
-  assert.equal(again.killReason, 'AUTH_FAILURE', 'kill ซ้ำไม่เขียนทับเหตุผลเดิม');
+  assert.equal(
+    again.killReason,
+    'AUTH_FAILURE',
+    'a repeated kill does not overwrite the original reason',
+  );
   assert.equal(again.version, killed.version);
 
   await assert.rejects(
@@ -374,7 +378,7 @@ test('gate: สร้างพร้อมกันได้แถวเดี�
 
 // ── Run authorization ────────────────────────────────────────────────────────
 
-test('run authorization: approval ครบสอง role, consume ได้ครั้งเดียวเมื่อแข่งกัน และ proposal แก้ไม่ได้', async (t) => {
+test('run authorization: full approval of two roles, consume works once under a race, and a proposal cannot be edited', async (t) => {
   const context = await fixture(t);
   const { run, proposedAt } = await context.seedApprovedRun(context.tenantA);
   assert.equal(run.state, 'APPROVED');
@@ -416,7 +420,7 @@ test('run authorization: approval ครบสอง role, consume ได้ค�
     new Date(proposedAt.getTime() + 31 * 60_000),
   );
   assert.deepEqual(expired, { status: 'DENIED', code: 'RUN_AUTHORIZATION_EXPIRED' });
-  // delivery ที่ consume authorization ใบหนึ่งไปแล้ว consume ใบที่สองไม่ได้
+  // a delivery that already consumed one authorization cannot consume a second
   const winner = results.findIndex((result) => result.status === 'CONSUMED');
   await assert.rejects(
     context.control.consumeRun(
@@ -429,7 +433,7 @@ test('run authorization: approval ครบสอง role, consume ได้ค�
   );
 });
 
-test('run authorization: TTL เกิน 30 นาทีหรือ cap เกิน profile ถูกปฏิเสธที่ DB', async (t) => {
+test('run authorization: a TTL over 30 minutes or a cap over the profile is rejected at the DB', async (t) => {
   const context = await fixture(t);
   const { gate, allowlist, credential } = await context.seedApprovedRun(context.tenantA);
   const proposal = {
@@ -464,7 +468,7 @@ test('run authorization: TTL เกิน 30 นาทีหรือ cap เก
     (await context.control.proposeRun({ ...proposal, id: randomUUID() })).id,
     created.id,
   );
-  // approval role เดิมซ้ำไม่นับเป็น approval ที่สอง
+  // repeating the same approval role does not count as a second approval
   await context.control.approveRun(context.tenantA, created.id, 'TENANT_ADMIN', 'admin-1', T0);
   assert.equal(
     await context.control.approveRun(context.tenantA, created.id, 'TENANT_ADMIN', 'admin-2', T0),
@@ -478,7 +482,7 @@ test('run authorization: TTL เกิน 30 นาทีหรือ cap เก
 
 // ── Cap ledger ───────────────────────────────────────────────────────────────
 
-test('cap ledger: จองพร้อมกันเกิน limit ไม่ได้, kill ปิดการจองใหม่ และ COMMITTED คืนไม่ได้', async (t) => {
+test('cap ledger: concurrent reservations cannot exceed the limit, kill closes new reservations, and COMMITTED cannot be returned', async (t) => {
   const context = await fixture(t);
   const { gate, run, allowlist } = await context.seedApprovedRun(context.tenantA);
   const deliveries = await Promise.all(
@@ -522,7 +526,7 @@ test('cap ledger: จองพร้อมกันเกิน limit ไม่�
   const replay = await reserve(deliveries[winner]!.deliveryId);
   assert.equal(replay.status === 'RESERVED' && replay.replay, true);
 
-  // recipient อื่นยังจองได้จนชน cap รวมของวัน (3)
+  // another recipient can still reserve until hitting the combined daily cap (3)
   assert.equal((await reserve(deliveries[4]!.deliveryId, digest('r2'))).status, 'RESERVED');
   assert.equal(
     await context.control.settleCap(
@@ -545,7 +549,7 @@ test('cap ledger: จองพร้อมกันเกิน limit ไม่�
       at(3),
     ),
     false,
-    'ข้าม barrier แล้วคืนหน่วยไม่ได้',
+    'once the barrier is crossed the unit cannot be returned',
   );
 
   await context.control.killGate(context.tenantA, gate.id, 'CAP_ACCOUNTING_INCONSISTENCY', at(4));
@@ -557,7 +561,7 @@ test('cap ledger: จองพร้อมกันเกิน limit ไม่�
 
 // ── Credential reference ─────────────────────────────────────────────────────
 
-test('credential ref: เก็บแค่ reference, v2.1 ≤ 30 วัน, long-lived ต้องมี exception และ rotation atomic', async (t) => {
+test('credential ref: keeps only a reference, v2.1 ≤ 30 days, long-lived needs an exception, and rotation is atomic', async (t) => {
   const context = await fixture(t);
   const credential = (overrides: Record<string, unknown>) => ({
     id: randomUUID(),
@@ -584,7 +588,7 @@ test('credential ref: เก็บแค่ reference, v2.1 ≤ 30 วัน, lo
     ),
     /kind_check/,
   );
-  // ค่าที่ไม่ใช่ชื่อ reference (มีช่องว่าง/สัญลักษณ์แบบ secret) เข้าช่อง reference ไม่ได้
+  // a value that is not a reference name (has whitespace/secret-like symbols) cannot enter the reference column
   await assert.rejects(
     context.control.registerCredentialRef(
       credential({ keychainService: 'value with spaces/and=padding==' }),
@@ -623,13 +627,13 @@ test('credential ref: เก็บแค่ reference, v2.1 ≤ 30 วัน, lo
     columns.every(
       ({ column_name }) => !/^(secret|token|value|access_token|channel_secret)$/.test(column_name),
     ),
-    'ต้องไม่มีคอลัมน์สำหรับ secret value',
+    'there must be no column for a secret value',
   );
 });
 
 // ── Webhook inbox + Touch correlation ────────────────────────────────────────
 
-test('webhook inbox: batch atomic, duplicate no-op, hash ต่าง quarantine + audit, claim ไม่ทับกัน', async (t) => {
+test('webhook inbox: atomic batch, duplicate no-op, a different hash quarantines + audits, claims do not overlap', async (t) => {
   const context = await fixture(t);
   const event = (webhookEventId: string, overrides: Record<string, unknown> = {}) => ({
     id: randomUUID(),
@@ -651,7 +655,7 @@ test('webhook inbox: batch atomic, duplicate no-op, hash ต่าง quarantine
     });
 
   assert.deepEqual(await batch([]), []);
-  // event ที่สองผิด (payload ref เป็น LINE user ID) → ทั้ง request ไม่มีแถวใดเลย
+  // the second event is bad (payload ref is a LINE user ID) → the whole request has no row at all
   await assert.rejects(
     batch([
       event('01J0ATOMICA'),
@@ -682,7 +686,11 @@ test('webhook inbox: batch atomic, duplicate no-op, hash ต่าง quarantine
     where: { id: first[1]!.inboxEntryId },
   });
   assert.equal(quarantined.state, 'QUARANTINED');
-  assert.equal(quarantined.payloadHash, digest('payload-01J0EVENT2'), 'ห้ามเขียนทับ payload เดิม');
+  assert.equal(
+    quarantined.payloadHash,
+    digest('payload-01J0EVENT2'),
+    'must not overwrite the original payload',
+  );
   assert.equal((await context.audit.list(context.tenantA, 'WEBHOOK')).length, 1);
 
   await batch([event('01J0EVENT3'), event('01J0EVENT4')]);
@@ -691,7 +699,7 @@ test('webhook inbox: batch atomic, duplicate no-op, hash ต่าง quarantine
     context.webhooks.claim(context.tenantA, 'worker-b', at(1), 60_000, 2),
   ]);
   const claimed = [...workerA, ...workerB].map((row) => row.id);
-  assert.equal(claimed.length, new Set(claimed).size, 'worker สองตัวต้องไม่หยิบ event เดียวกัน');
+  assert.equal(claimed.length, new Set(claimed).size, 'two workers must not pick the same event');
   assert.equal(claimed.length, 3);
 
   const mine = workerA[0] ?? workerB[0]!;
@@ -705,7 +713,7 @@ test('webhook inbox: batch atomic, duplicate no-op, hash ต่าง quarantine
     ),
     /DL_LINE_INBOX_TERMINAL/,
   );
-  // lease หมด = worker ตาย → worker อื่นหยิบต่อได้หลัง restart
+  // lease expired = the worker died → another worker can take over after restart
   const recovered = await context.webhooks.claim(context.tenantA, 'worker-c', at(5), 60_000, 10);
   assert.equal(recovered.length, 2);
   assert.ok(recovered.every((row) => row.attempts === 2));
@@ -718,7 +726,7 @@ test('webhook inbox: batch atomic, duplicate no-op, hash ต่าง quarantine
   );
 });
 
-test('touch correlation: redelivery replay, bind ครั้งเดียวต่อ Attempt และ cg_touches มี evidence ref แบบ unique', async (t) => {
+test('touch correlation: redelivery replay, bind once per Attempt, and cg_touches has a unique evidence ref', async (t) => {
   const context = await fixture(t);
   const delivery = await context.seedDelivery(context.tenantA);
   const attemptId = await context.seedAcceptedAttempt(delivery);
@@ -771,7 +779,7 @@ test('touch correlation: redelivery replay, bind ครั้งเดียว�
       at(3),
     ),
     LineIdempotencyConflictError,
-    'Attempt หนึ่งมี Touch ได้ครั้งเดียว',
+    'one Attempt can have a Touch only once',
   );
   assert.equal(
     await context.webhooks.quarantineCorrelation(
@@ -791,10 +799,10 @@ test('touch correlation: redelivery replay, bind ครั้งเดียว�
       at(5),
     ),
     null,
-    'BOUND แล้ว resolve ซ้ำไม่ได้',
+    'once BOUND it cannot be resolved again',
   );
 
-  // Governance-owned additive columns: evidence ต้องมาคู่กันและ ref ใช้ได้ครั้งเดียวต่อ tenant
+  // Governance-owned additive columns: evidence must come as a pair and the ref can be used once per tenant
   const touch = {
     tenantId: context.tenantA,
     attemptId,
@@ -825,7 +833,7 @@ test('touch correlation: redelivery replay, bind ครั้งเดียว�
 
 // ── Tenant isolation ─────────────────────────────────────────────────────────
 
-test('two-tenant: ID/binding ของ tenant อื่นถูกปฏิเสธแบบ generic และมองไม่เห็นข้ามกัน', async (t) => {
+test('two-tenant: the ID/binding of another tenant is rejected generically and invisible across tenants', async (t) => {
   const context = await fixture(t);
   const deliveryA = await context.seedDelivery(context.tenantA);
   const attemptA = await context.seedAcceptedAttempt(deliveryA);
@@ -833,7 +841,7 @@ test('two-tenant: ID/binding ของ tenant อื่นถูกปฏิเ�
   const runB = await context.seedApprovedRun(context.tenantB);
   const deliveryB = await context.seedDelivery(context.tenantB);
 
-  // tenant B ใช้ delivery/key ของ A
+  // tenant B uses A's delivery/key
   await rejectsGenerically(
     context.attempts.record({
       id: randomUUID(),
@@ -849,7 +857,7 @@ test('two-tenant: ID/binding ของ tenant อื่นถูกปฏิเ�
     deliveryA.deliveryId,
     context.tenantA,
   );
-  // tenant B จอง cap บน gate/run ของ A
+  // tenant B reserves a cap on A's gate/run
   await rejectsGenerically(
     context.control.reserveCap({
       id: randomUUID(),
@@ -864,7 +872,7 @@ test('two-tenant: ID/binding ของ tenant อื่นถูกปฏิเ�
     }),
     runA.gate.id,
   );
-  // tenant B ผูก run ของตัวเองกับ gate ของ A (binding swap ภายใน row)
+  // tenant B binds its own run to A's gate (binding swap within a row)
   await rejectsGenerically(
     context.control.reserveCap({
       id: randomUUID(),
@@ -879,7 +887,7 @@ test('two-tenant: ID/binding ของ tenant อื่นถูกปฏิเ�
     }),
     runA.run.id,
   );
-  // tenant B consume authorization ของ A / ผูก delivery ของ A
+  // tenant B consumes A's authorization / binds A's delivery
   assert.deepEqual(
     await context.control.consumeRun(context.tenantB, runA.run.id, deliveryB.deliveryId, at(1)),
     { status: 'DENIED', code: 'RUN_AUTHORIZATION_MISSING' },
@@ -888,7 +896,7 @@ test('two-tenant: ID/binding ของ tenant อื่นถูกปฏิเ�
     context.control.consumeRun(context.tenantB, runB.run.id, deliveryA.deliveryId, at(1)),
     deliveryA.deliveryId,
   );
-  // allowlist ของ B ที่อ้าง gate ของ A
+  // B's allowlist that references A's gate
   await rejectsGenerically(
     context.control.addAllowlistEntry({
       id: randomUUID(),
@@ -904,7 +912,7 @@ test('two-tenant: ID/binding ของ tenant อื่นถูกปฏิเ�
       approvalAuditRef: 'audit:allowlist:swap',
     }),
   );
-  // correlation ของ B ผูก Attempt/delivery ของ A
+  // B's correlation binds A's Attempt/delivery
   const [inboxB] = await context.webhooks.acceptBatch({
     tenantId: context.tenantB,
     channelAccountId: PILOT_CHANNEL_ACCOUNT_ID,
@@ -943,7 +951,7 @@ test('two-tenant: ID/binding ของ tenant อื่นถูกปฏิเ�
     attemptA,
   );
 
-  // RLS: B มองไม่เห็นแถวของ A และ update ข้าม tenant ไม่โดนแถวใด
+  // RLS: B cannot see A's rows and a cross-tenant update hits no row
   assert.equal(
     await context.lineOutbox.findByDeliveryId(context.tenantB, deliveryA.deliveryId),
     null,
@@ -972,7 +980,7 @@ test('two-tenant: ID/binding ของ tenant อื่นถูกปฏิเ�
 
 // ── Mixed-version / S1 compatibility ─────────────────────────────────────────
 
-test('mixed-version: worker TEST_ADAPTER ไม่เห็น/ไม่ reconcile แถว LINE และไม่ replay actionKey ของ LINE', async (t) => {
+test('mixed-version: the TEST_ADAPTER worker neither sees nor reconciles LINE rows and does not replay a LINE actionKey', async (t) => {
   const context = await fixture(t);
   const line = await context.seedDelivery(context.tenantA);
   const legacy = await context.seedDelivery(context.tenantA, 'TEST_ADAPTER');
@@ -996,13 +1004,13 @@ test('mixed-version: worker TEST_ADAPTER ไม่เห็น/ไม่ reconci
       state: 'SETTLED',
     }),
     null,
-    'worker เดิมเลื่อน state ของแถว LINE ไม่ได้',
+    'the existing worker cannot advance the state of a LINE row',
   );
 
-  // governance ห้ามถูกเรียก: actionKey ของ LINE ต้องจบที่ conflict ก่อน claim
+  // governance must not be called: a LINE actionKey must end at conflict before claim
   const governance = new Proxy({} as ContactGovernancePort, {
     get() {
-      throw new Error('ห้ามแตะ Governance เมื่อ actionKey เป็นของ adapter อื่น');
+      throw new Error('must not touch Governance when the actionKey belongs to another adapter');
     },
   });
   const adapter = new DeliveryTestAdapter(context.application, governance);
@@ -1025,7 +1033,7 @@ test('mixed-version: worker TEST_ADAPTER ไม่เห็น/ไม่ reconci
   assert.deepEqual(result, { status: 'ERROR', code: 'IDEMPOTENCY_CONFLICT' });
 });
 
-test('outbox: แถว LINE ต้องเป็น channel LINE + UUID key, ห้าม DELIVERED และ identity แก้ไม่ได้ทุก adapter', async (t) => {
+test('outbox: a LINE row must be channel LINE + a UUID key, DELIVERED is forbidden, and identity cannot be edited by any adapter', async (t) => {
   const context = await fixture(t);
   const line = await context.seedDelivery(context.tenantA);
   const legacy = await context.seedDelivery(context.tenantA, 'TEST_ADAPTER');

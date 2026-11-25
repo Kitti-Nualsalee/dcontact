@@ -22,7 +22,7 @@ function recording(stdout = 'synthetic-secret-value\n') {
   return { calls, exec };
 }
 
-test('S2-LINE Keychain: เรียก security โดยตรงไม่ผ่าน shell และตัดแค่ newline ท้าย', async () => {
+test('S2-LINE Keychain: calls security directly not through a shell and trims only the trailing newline', async () => {
   const { calls, exec } = recording();
   const secret = await new KeychainLineSecretSource(exec, 'darwin').read(REFERENCE);
   assert.equal(secret, 'synthetic-secret-value');
@@ -41,7 +41,7 @@ test('S2-LINE Keychain: เรียก security โดยตรงไม่ผ�
   ]);
 });
 
-test('S2-LINE Keychain: นอก macOS หรือ reference แปลกปลอมถูกปฏิเสธก่อนเรียก process', async () => {
+test('S2-LINE Keychain: non-macOS or a bogus reference is rejected before calling the process', async () => {
   const { calls, exec } = recording();
   await assert.rejects(
     new KeychainLineSecretSource(exec, 'linux').read(REFERENCE),
@@ -54,7 +54,7 @@ test('S2-LINE Keychain: นอก macOS หรือ reference แปลกป�
   assert.equal(calls.length, 0);
 });
 
-test('S2-LINE Keychain: error หรือค่าว่างจาก Keychain กลายเป็น code เดียวโดยไม่พาข้อความเดิม', async () => {
+test('S2-LINE Keychain: an error or empty value from the Keychain becomes a single code without carrying the original message', async () => {
   const failing: LineKeychainExec = async () => {
     throw new Error('item d-contact.line secret=leaked');
   };
@@ -68,7 +68,7 @@ test('S2-LINE Keychain: error หรือค่าว่างจาก Keychai
   );
 });
 
-test('S2-LINE Keychain writer: ค่าไปทาง stdin ของ `security -i` ไม่อยู่ใน argv', async () => {
+test('S2-LINE Keychain writer: the value goes through the stdin of `security -i` and is not in argv', async () => {
   const calls: Array<{ file: string; arguments_: readonly string[]; stdin: string }> = [];
   const writer = new KeychainLineSecretWriter(async (file, arguments_, stdin) => {
     calls.push({ file, arguments_, stdin });
@@ -83,7 +83,7 @@ test('S2-LINE Keychain writer: ค่าไปทาง stdin ของ `securit
   );
 });
 
-test('S2-LINE Keychain writer: ค่าที่จะแทรกคำสั่งได้, นอก macOS หรือ error ของ process ถูกปฏิเสธโดยไม่พาค่า', async () => {
+test('S2-LINE Keychain writer: a value that could inject a command, non-macOS or a process error is rejected without carrying the value', async () => {
   const calls: string[] = [];
   const recordingWriter = (platform: NodeJS.Platform) =>
     new KeychainLineSecretWriter(async (_file, _arguments, stdin) => {

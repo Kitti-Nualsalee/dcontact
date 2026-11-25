@@ -1,15 +1,15 @@
 /**
- * Owner: Delivery/Channels — CLI ของ protected provider runner (S2.6 #366, #360 §C)
+ * Owner: Delivery/Channels — CLI of the protected provider runner (S2.6 #366, #360 §C)
  *
- * รันบนเครื่อง macOS ที่ถือ Keychain + local ngrok binding ของ pilot:
+ * Runs on a macOS machine holding the Keychain + the pilot's local ngrok binding:
  *   pnpm --filter @d-contact/delivery provider:pr01
- * หรือบน runner `line-pilot` ของ UAT ด้วย `LINE_SECRET_SOURCE=file` (#565) — ดู `line-pilot-runtime.ts`
+ * or on the UAT `line-pilot` runner with `LINE_SECRET_SOURCE=file` (#565) — see `line-pilot-runtime.ts`
  *
- * input เป็น reference ทั้งหมด (ไม่มี secret): tenant, credential ref, digest ของ webhook endpoint
- * ที่อนุมัติ และ commit ที่คาดไว้ — token อ่านจาก secret source ผ่าน `LineCredentialBoundary` เท่านั้น
- * output คือ sanitized bundle หนึ่งไฟล์ที่ CI ingestion ตรวจซ้ำ; stdout มีแค่ path/digest/status
+ * Inputs are all references (no secret): tenant, credential ref, digest of the approved webhook endpoint
+ * and the expected commit — the token is read from the secret source only through `LineCredentialBoundary`
+ * Output is one sanitized bundle file that the CI ingestion re-checks; stdout has only a path/digest/status
  *
- * S2.6 รันได้แค่ PR01 (ไม่มี push) — PR02/RB01 เป็นของ S2.7 และต้องมี one-shot approval ใหม่
+ * S2.6 can run only PR01 (no push) — PR02/RB01 belong to S2.7 and need a new one-shot approval
  */
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -29,13 +29,13 @@ import {
 import { HttpLineProviderTransport } from './line-provider-transport.js';
 
 const APPROVED_FIXTURE = 'fixture:service-notification/v1';
-/** probe ยิงไป endpoint ของเราเองเท่านั้น — inject แบบเดียวกับ `HttpLineProviderTransport` */
+/** the probe fires only at our own endpoint — injected the same way as `HttpLineProviderTransport` */
 const http: typeof globalThis.fetch = globalThis.fetch;
 const POLL_INTERVAL_MS = 5_000;
 
 function required(name: string): string {
   const value = process.env[name];
-  if (!value) throw new Error(`ต้องตั้ง ${name}`);
+  if (!value) throw new Error(`${name} must be set`);
   return value;
 }
 
@@ -46,8 +46,8 @@ async function main(): Promise<void> {
   const approvedEndpointDigest = required('CXA_S2_APPROVED_WEBHOOK_ENDPOINT_DIGEST');
   const waitSeconds = Number(process.env.CXA_S2_MESSAGE_WAIT_SECONDS ?? 300);
 
-  // bundle ต้องผูกกับ commit ที่ตรวจซ้ำได้: Git = tree clean + ตรง commit ที่คาดไว้ (หรือ origin/main),
-  // release = SHA ของ image ตรง commit ที่คาดไว้
+  // the bundle must be bound to a commit that can be re-checked: Git = clean tree + matches the expected commit (or origin/main),
+  // release = the image SHA matches the expected commit
   const provenance = runtime.provenance();
   provenance.assertFinalMain(process.env.CXA_S2_EXPECTED_COMMIT_SHA);
   const commitSha = provenance.commitSha;
@@ -58,10 +58,10 @@ async function main(): Promise<void> {
       transaction.dlLineCredentialRef.findUnique({ where: { id: credentialRefId } }),
     );
     if (!credential || credential.tenantId !== tenantId) {
-      throw new Error('ไม่พบ credential ref ของ tenant นี้');
+      throw new Error('credential ref of this tenant not found');
     }
     if (credential.channelAccountId !== LINE_PILOT_CHANNEL_ACCOUNT_ID) {
-      throw new Error('credential ref ไม่ใช่ของ pilot channel');
+      throw new Error('the credential ref does not belong to the pilot channel');
     }
 
     const handle = await new LineCredentialBoundary(runtime.source).resolve(
@@ -73,15 +73,15 @@ async function main(): Promise<void> {
     const transport = new HttpLineProviderTransport();
     const evidence = await runLineProviderConformance({
       transport: {
-        // เก็บค่า token ไว้ตรวจ exact-value ของ bundle ทั้งก้อนอีกรอบ แล้วล้างทิ้งตอนจบ
+        // keep the token value for another exact-value check of the whole bundle, then clear it at the end
         verifyToken: (token) => (secrets.push(token), transport.verifyToken(token)),
         getQuota: (token) => transport.getQuota(token),
         getConsumption: (token) => transport.getConsumption(token),
         validatePush: (request) => transport.validatePush(request),
-        push: () => Promise.reject(new Error('PR01 ห้าม push')),
+        push: () => Promise.reject(new Error('PR01 must not push')),
         getWebhookEndpoint: (token) => transport.getWebhookEndpoint(token),
         testWebhookEndpoint: (token) => transport.testWebhookEndpoint(token),
-        revokeToken: () => Promise.reject(new Error('PR01 ห้าม revoke')),
+        revokeToken: () => Promise.reject(new Error('PR01 must not revoke')),
       },
       accessToken: handle,
       credential,
@@ -98,7 +98,7 @@ async function main(): Promise<void> {
       },
       countSignedMessages: async (since) => {
         process.stderr.write(
-          `รอ signed message webhook: ส่งข้อความใดก็ได้ถึง OA ทดสอบภายใน ${waitSeconds} วินาที\n`,
+          `waiting for a signed message webhook: send any message to the test OA within ${waitSeconds} seconds\n`,
         );
         const deadline = Date.now() + waitSeconds * 1_000;
         for (;;) {
@@ -147,7 +147,7 @@ async function main(): Promise<void> {
 }
 
 main().catch((error: unknown) => {
-  // error ของ boundary/runner เป็น machine message อยู่แล้ว — ไม่พิมพ์ stack/cause ที่อาจพาค่าออกมา
-  process.stderr.write(`${error instanceof Error ? error.message : 'provider runner ล้มเหลว'}\n`);
+  // errors from the boundary/runner are already machine messages — print no stack/cause that could carry a value out
+  process.stderr.write(`${error instanceof Error ? error.message : 'provider runner failed'}\n`);
   process.exitCode = 1;
 });

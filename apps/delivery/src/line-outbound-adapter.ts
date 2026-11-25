@@ -1,20 +1,20 @@
 /**
- * Owner: Delivery/Channels — LINE outbound adapter และ exact-key reconciliation (S2.4 #370)
+ * Owner: Delivery/Channels — LINE outbound adapter and exact-key reconciliation (S2.4 #370)
  *
  * Authority: #357 (submission/retry matrix), #358 (rollout/caps), #361 (Attempt/Touch), #362 §6
  *
- * กติกาที่ทั้งไฟล์นี้ยืนอยู่บน:
+ * Rules the whole file stands on:
  *
- * 1. **Barrier**: canonical payload + `providerRequestKey` ถูก persist ก่อนแตะ network เสมอ
- *    แถวที่ผ่าน `SUBMITTING` แล้วห้าม submit ใหม่ — ทำได้แค่ reconcile ด้วย request เดิม
- * 2. **Exact-key retry**: retry คือ re-POST ของ request เดิม byte ต่อ byte พร้อม `X-Line-Retry-Key`
- *    เดิม ไม่ใช่การส่งใหม่ ดังนั้นห้าม mint key ใหม่ไม่ว่ากรณีใด
- * 3. **ไม่เดา acceptance**: `2xx` และ `409 + accepted request id` เท่านั้นที่เป็น accepted;
- *    timeout/5xx/response ผิดรูปคือ "ไม่รู้ผล" ซึ่งต่างจาก "ไม่ได้ส่ง"
- * 4. **ไม่มี DELIVERED/DELIVERY_FAILED**: LINE push ไม่มี receipt ต่อข้อความ (#359 §F) adapter จึง
- *    รายงานได้แค่ accepted/rejected/unknown แล้วให้ Governance ตัดสิน Attempt/refund
- * 5. **window 24 ชม.**: เลย window แล้วยังไม่รู้ผล = `LINE_RETRY_WINDOW_EXPIRED` + quarantine + kill
- *    ห้ามส่งซ้ำด้วย key ใหม่เพื่อ "ให้จบ"
+ * 1. **Barrier**: the canonical payload + `providerRequestKey` are always persisted before touching the network.
+ *    A row that has passed `SUBMITTING` must not submit again — it can only reconcile with the original request
+ * 2. **Exact-key retry**: a retry is a re-POST of the original request byte for byte with the original `X-Line-Retry-Key`,
+ *    not a new send, so never mint a new key under any circumstance
+ * 3. **Never guess acceptance**: only `2xx` and `409 + accepted request id` are accepted;
+ *    timeout/5xx/malformed response means "outcome unknown", which differs from "not sent"
+ * 4. **No DELIVERED/DELIVERY_FAILED**: a LINE push has no per-message receipt (#359 §F), so the adapter
+ *    can only report accepted/rejected/unknown and lets Governance decide Attempt/refund
+ * 5. **24-hour window**: past the window with the outcome still unknown = `LINE_RETRY_WINDOW_EXPIRED` + quarantine + kill;
+ *    never resend with a new key just to "make it finish"
  */
 import { randomUUID } from 'node:crypto';
 import type { DlOutboxEntry, PrismaClient } from '@d-contact/db';
@@ -56,7 +56,7 @@ import {
 } from './line-provider-transport.js';
 import { OutboxRepository } from './outbox-repository.js';
 
-/** recipient จริงอยู่ใน protected store; adapter เห็นแค่ ref แล้วให้ resolver คืนค่าในหน่วยความจำ */
+/** The real recipient lives in the protected store; the adapter sees only a ref and has the resolver return the value in memory */
 export interface LineRecipientResolver {
   resolve(input: {
     tenantId: string;
@@ -64,7 +64,7 @@ export interface LineRecipientResolver {
   }): Promise<{ userId: string } | null>;
 }
 
-/** access token ออกมาในหน่วยความจำเท่านั้น (S2.3 `LineCredentialBoundary`) */
+/** The access token exists only in memory (S2.3 `LineCredentialBoundary`) */
 export interface LineAccessTokenResolver {
   resolve(input: {
     tenantId: string;
@@ -82,7 +82,7 @@ export interface LineOutboundAdapterOptions {
   credentials: LineAccessTokenResolver;
   actor: LineControlActor;
   configDigest: string;
-  /** #567: แหล่งเนื้อหาของ `contentRef` — ไม่ระบุ = fixture ชุดปิดของ S2 เท่านั้น */
+  /** #567: source of content for `contentRef` — unspecified = only the closed S2 fixture set */
   content?: LineContentSource;
   now?: () => Date;
   id?: () => string;
@@ -97,8 +97,8 @@ export interface LineSubmitCommand {
   recipientProtectedRef: string;
   correlationId: string;
   /**
-   * quota advisory ที่ผู้เรียก poll มาก่อนสั่งรัน (#358 §A) — ไม่มี snapshot = gate ปฏิเสธ
-   * adapter ไม่ poll เองเพื่อไม่ให้ทุก retry ยิง quota API เพิ่มและกิน rate limit
+   * Advisory quota that the caller polls before ordering a run (#358 §A) — no snapshot = the gate rejects.
+   * The adapter does not poll itself so that not every retry fires the quota API again and eats the rate limit
    */
   quota?: LineQuotaSnapshot;
 }
@@ -137,8 +137,8 @@ export class LineOutboundAdapter {
   }
 
   /**
-   * ส่งครั้งแรกของ delivery หนึ่งใบ — เรียกได้เฉพาะแถวที่ยัง `QUEUED`
-   * แถวที่ผ่าน barrier แล้วต้องไป `reconcile` เท่านั้น
+   * The first send of one delivery — callable only on a row still `QUEUED`.
+   * A row that has crossed the barrier must go through `reconcile` only
    */
   async submit(command: LineSubmitCommand): Promise<LineSubmitOutcome> {
     const entry = await this.require(command);
@@ -160,14 +160,14 @@ export class LineOutboundAdapter {
       at: this.now(),
     });
     if (grant.status === 'DENIED') return { status: 'DENIED', code: grant.code };
-    // restart หลังข้าม barrier: cap บอกว่า commit ไปแล้ว ห้าม submit ใหม่ (#362 §11)
+    // restart after crossing the barrier: the cap says it was already committed, must not submit again (#362 §11)
     if (grant.barrier === 'POST') return this.reconcile(command, grant);
 
     await this.emit(entry, 'PRE_BARRIER', command.correlationId);
     return this.attempt(entry, command, canonical, grant, 1, content);
   }
 
-  /** เนื้อหาของแถวนี้ — resolve ครั้งเดียวต่อการเรียกและใช้ทั้ง gate และ request (ห้ามต่างกัน) */
+  /** Content of this row — resolved once per call and used for both the gate and the request (they must not differ) */
   private content(entry: DlOutboxEntry): Promise<LineResolvedContent> {
     return (this.options.content ?? LINE_FIXTURE_CONTENT_SOURCE).resolve(
       entry.tenantId,
@@ -176,8 +176,8 @@ export class LineOutboundAdapter {
   }
 
   /**
-   * exact-key reconciliation — ใช้กับแถวที่ผ่าน barrier แล้วและยังไม่รู้ผล
-   * ไม่มี path ไหนในเมธอดนี้ที่สร้าง key ใหม่หรือเปลี่ยน payload
+   * exact-key reconciliation — for rows that have crossed the barrier and whose outcome is still unknown.
+   * No path in this method creates a new key or changes the payload
    */
   async reconcile(command: LineSubmitCommand, granted?: LineRunGrant): Promise<LineSubmitOutcome> {
     const entry = await this.require(command);
@@ -214,7 +214,7 @@ export class LineOutboundAdapter {
     return this.attempt(entry, command, canonical, grant, attemptNo, content);
   }
 
-  /** หนึ่ง attempt = หนึ่ง HTTP request + หนึ่ง receipt เสมอ ไม่ว่าผลจะเป็นอะไร */
+  /** One attempt = one HTTP request + one receipt, always, whatever the result */
   private async attempt(
     entry: DlOutboxEntry,
     command: LineSubmitCommand,
@@ -241,7 +241,7 @@ export class LineOutboundAdapter {
       attemptNo,
     );
     if (reserved.status === 'DENIED') {
-      // attempt cap หมด = ไม่มีสิทธิ์ยิงเพิ่ม แต่ผลเดิมยังไม่รู้ จึงคงเป็น unknown ไม่ใช่ failure
+      // attempt cap exhausted = no right to fire more but the original outcome is still unknown, so it stays unknown, not failure
       return { status: 'DENIED', code: reserved.code };
     }
 
@@ -285,7 +285,7 @@ export class LineOutboundAdapter {
         accessToken: credential.accessToken,
       });
     } catch {
-      // transport โยน = ไม่รู้ผล ห้ามถือว่าไม่ได้ส่ง
+      // transport threw = outcome unknown, must not be treated as not sent
       result = { kind: 'NO_RESPONSE', reason: 'NETWORK' };
     }
     const finishedAt = this.now();
@@ -323,7 +323,7 @@ export class LineOutboundAdapter {
     return this.markReconciling(entry, command, classification.outcomeCode, attemptNo, content);
   }
 
-  /** provider รับ request แล้ว: Attempt 1 / Touch 0 / refund 0 (#361 §B) */
+  /** The provider accepted the request: Attempt 1 / Touch 0 / refund 0 (#361 §B) */
   private async confirm(
     entry: DlOutboxEntry,
     command: LineSubmitCommand,
@@ -379,7 +379,7 @@ export class LineOutboundAdapter {
       rejectionScope: settlement.countsAsAttempt ? 'RECIPIENT' : 'OPERATIONAL',
       occurredAt: this.now().toISOString(),
     });
-    // auth/quota เป็นปัญหาระดับบัญชี ไม่ใช่ของ delivery ใบเดียว — ดึง kill switch ทันที (#358 §F)
+    // auth/quota is an account-level problem, not of a single delivery — pull the kill switch immediately (#358 §F)
     if (outcomeCode === 'LINE_AUTH_INVALID' || outcomeCode === 'LINE_MONTHLY_QUOTA_EXHAUSTED') {
       const gate = await this.options.control.findGate(command.scope);
       if (gate) {
@@ -394,7 +394,7 @@ export class LineOutboundAdapter {
     return { status: 'REJECTED', outcomeCode, rejectionScope, attemptNo };
   }
 
-  /** ไม่รู้ผล: reservation ค้างเป็น UNKNOWN_RECONCILING และ sweeper ห้าม release (#362 §6) */
+  /** Unknown outcome: the reservation stays UNKNOWN_RECONCILING and the sweeper must not release (#362 §6) */
   private async markReconciling(
     entry: DlOutboxEntry,
     command: LineSubmitCommand,
@@ -442,7 +442,7 @@ export class LineOutboundAdapter {
     };
   }
 
-  /** เลย retry window: หยุดยิง ปล่อยให้คนมาตรวจ และ kill gate — ห้ามส่งใหม่ด้วย key ใหม่ */
+  /** Past the retry window: stop firing, leave it for a human to inspect, and kill the gate — never resend with a new key */
   private async quarantine(
     entry: DlOutboxEntry,
     command: LineSubmitCommand,
@@ -487,7 +487,7 @@ export class LineOutboundAdapter {
   }
 
   private retryKey(entry: DlOutboxEntry): string {
-    // key ที่ persist ไว้ตั้งแต่ enqueue เป็นค่าจริงเสมอ; derive ใช้เฉพาะแถวเก่าที่ key ไม่ใช่ UUID
+    // the key persisted since enqueue is always the real value; derive is used only for old rows whose key is not a UUID
     return isLineRetryKey(entry.providerRequestKey)
       ? entry.providerRequestKey
       : deriveLineRetryKey(entry.tenantId, entry.deliveryId);
@@ -499,11 +499,11 @@ export class LineOutboundAdapter {
 
   private async require(command: LineSubmitCommand): Promise<DlOutboxEntry> {
     const entry = await this.outbox.findByDeliveryId(command.tenantId, command.deliveryId);
-    if (!entry) throw new Error(`LINE outbox ไม่มี delivery ${command.deliveryId}`);
+    if (!entry) throw new Error(`LINE outbox has no delivery ${command.deliveryId}`);
     return entry;
   }
 
-  /** lifecycle event เป็น metadata ล้วน — ไม่มี recipient, payload หรือ token (#362 §5) */
+  /** lifecycle event is pure metadata — no recipient, payload or token (#362 §5) */
   private async emit(
     entry: DlOutboxEntry,
     state: LineLifecycleState,

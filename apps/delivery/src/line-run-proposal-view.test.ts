@@ -52,7 +52,7 @@ function viewInput(overrides: Partial<LineRunProposalViewInput> = {}): LineRunPr
   };
 }
 
-test('S2-LINE-AU01: proposal view แสดงทุกค่าที่ต้องอนุมัติและผูกด้วย digest เดียว', () => {
+test('S2-LINE-AU01: the proposal view shows every value that must be approved and binds them with a single digest', () => {
   const view = buildLineRunProposalView(viewInput());
   assert.equal(view.fixture.contentDigest, lineContentDigest(CONTENT_REF));
   assert.ok(view.fixture.text[0]!.length > 0);
@@ -71,7 +71,7 @@ test('S2-LINE-AU01: proposal view แสดงทุกค่าที่ต้�
     assert.ok(text.includes(expected), expected);
 });
 
-test('S2-LINE-AU01: ค่าใดเปลี่ยน digest เปลี่ยน และอนุมัติได้เฉพาะ digest ตรงทุกตัวอักษร', () => {
+test('S2-LINE-AU01: any changed value changes the digest, and approval is possible only with a digest matching every character', () => {
   const view = buildLineRunProposalView(viewInput());
   const changed = buildLineRunProposalView(
     viewInput({ retryKey: '5f0c7a6e-1b2d-4c3e-8f40-123456789abd' }),
@@ -84,7 +84,7 @@ test('S2-LINE-AU01: ค่าใดเปลี่ยน digest เปลี่�
   assert.equal(lineProposalApprovalMatches(edited, view.presentationDigest), false);
 });
 
-test('S2-LINE-OB02: evidence ของ proposal ไม่มีข้อความ fixture และ Channel ID ดิบ', () => {
+test('S2-LINE-OB02: the proposal evidence has no fixture text and no raw Channel ID', () => {
   const view = buildLineRunProposalView(viewInput());
   const evidence = lineRunProposalEvidence(view);
   const serialized = JSON.stringify(evidence);
@@ -94,7 +94,7 @@ test('S2-LINE-OB02: evidence ของ proposal ไม่มีข้อคว�
   assert.match(evidence.channelAccountFingerprint, /^[0-9a-f]{64}$/);
 });
 
-test('S2-LINE-AU01: content/config digest ไม่ตรง, TTL เกิน, cap เต็ม หรือ retry key ผิดรูป = ไม่แสดง', () => {
+test('S2-LINE-AU01: content/config digest mismatch, TTL exceeded, cap full or a malformed retry key = not shown', () => {
   const code = (input: LineRunProposalViewInput) => {
     try {
       buildLineRunProposalView(input);

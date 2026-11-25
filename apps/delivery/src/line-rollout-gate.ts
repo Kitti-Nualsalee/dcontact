@@ -1,16 +1,16 @@
 /**
- * Owner: Delivery/Channels — rollout gate ของ LINE simulation (S1.6, decision #100/#102)
+ * Owner: Delivery/Channels — rollout gate of the LINE simulation (S1.6, decision #100/#102)
  *
- * แยกจาก delivery lifecycle โดยตั้งใจ: gate ตัดสินว่า scope นี้ "เปิดสถานีทำงานได้แค่ไหน"
- * ส่วน delivery lifecycle (`line-delivery-port.ts`) ตัดสินว่า "งานใบนี้ไปถึงไหนแล้ว"
+ * Deliberately separate from the delivery lifecycle: the gate decides "how far this scope may open the work station"
+ * while the delivery lifecycle (`line-delivery-port.ts`) decides "how far this job has got"
  *
- * Maker-checker: Tenant Admin เสนอ (`propose`) -> Compliance อนุมัติ (`approve`) เลื่อนได้
- * ทีละขั้น DISABLED -> DRY_RUN -> SIMULATED_CAPPED_PILOT เท่านั้น Platform Operator คุม
- * technical switch แยกอิสระ — switch ปิดบังคับ effective state เป็น DISABLED เสมอไม่ว่า
- * business state จะเลื่อนไปถึงไหน Compliance หรือ Platform Operator สั่ง kill ได้ทันที
- * โดยไม่ต้องรออีกฝ่าย และ kill ชนะทุก state เสมอ
+ * Maker-checker: the Tenant Admin proposes (`propose`) -> Compliance approves (`approve`), promoting
+ * one step at a time DISABLED -> DRY_RUN -> SIMULATED_CAPPED_PILOT only. The Platform Operator controls the
+ * technical switch independently — a switched-off switch forces the effective state to DISABLED always, however far the
+ * business state has advanced. Compliance or the Platform Operator can order a kill immediately
+ * without waiting for the other side, and kill beats every state always
  *
- * นี่คือ test-harness authority model ไม่ใช่ production release API หรือ IAM จริง
+ * This is a test-harness authority model, not a production release API or a real IAM
  */
 import { isAllowlistedScope, type LineScopeTuple, scopeKey } from './line-simulation-fixture.js';
 
@@ -36,7 +36,7 @@ export class LineGateAuthorizationError extends Error {
     readonly actorRole: LineActorRole,
     readonly action: string,
   ) {
-    super(`actor role ${actorRole} ไม่มีสิทธิ ${action}`);
+    super(`actor role ${actorRole} is not permitted to ${action}`);
     this.name = 'LineGateAuthorizationError';
   }
 }
@@ -44,7 +44,7 @@ export class LineGateAuthorizationError extends Error {
 export class LineGateScopeNotAllowedError extends Error {
   readonly code = 'LINE_GATE_SCOPE_NOT_ALLOWED';
   constructor(readonly scope: LineScopeTuple) {
-    super(`scope นี้ไม่ใช่ pilot tuple ที่ freeze ไว้: ${scopeKey(scope)}`);
+    super(`this scope is not the frozen pilot tuple: ${scopeKey(scope)}`);
     this.name = 'LineGateScopeNotAllowedError';
   }
 }
@@ -55,7 +55,7 @@ export class LineGateInvalidTransitionError extends Error {
     readonly from: LineBusinessGateState,
     readonly to: LineBusinessGateState,
   ) {
-    super(`เลื่อน gate ทีละขั้นเท่านั้น: ${from} -> ${to}`);
+    super(`the gate can be promoted one step at a time only: ${from} -> ${to}`);
     this.name = 'LineGateInvalidTransitionError';
   }
 }
@@ -102,7 +102,7 @@ export class LineRolloutGate {
     this.audit.push({ ...entry, atMs: this.clock.nowMs() });
   }
 
-  /** effective state: KILLED ชนะทุกอย่าง, technical switch ปิดบังคับ DISABLED */
+  /** effective state: KILLED beats everything, the technical switch being off forces DISABLED */
   currentState(scope: LineScopeTuple): LineEffectiveGateState {
     if (!isAllowlistedScope(scope)) return 'DISABLED';
     const state = this.stateFor(scope);
@@ -147,7 +147,7 @@ export class LineRolloutGate {
     this.log({ scope, action: 'TECHNICAL_SWITCH', actorRole, detail: String(enabled) });
   }
 
-  /** kill ใช้ได้กับทุก scope ที่รู้จัก (รวม scope ที่ระบุไม่ได้ให้ caller kill ทั้ง pilot scope) */
+  /** kill applies to every known scope (including a scope that cannot be specified, so the caller kills the whole pilot scope) */
   kill(scope: LineScopeTuple, actorRole: LineActorRole, trigger: LineKillTrigger): void {
     if (actorRole !== 'COMPLIANCE' && actorRole !== 'PLATFORM_OPERATOR') {
       throw new LineGateAuthorizationError(actorRole, 'kill');
@@ -164,9 +164,9 @@ export class LineRolloutGate {
   }
 
   /**
-   * Kill ที่ระบบ trigger เอง (เช่น unknown-reconciling ค้างเกิน threshold ตาม #102 §6)
-   * ไม่ใช่คำสั่งของ actor — เอกสารเดียวกันระบุว่านี่เป็นเงื่อนไข automatic ไม่ใช่การตัดสินใจ
-   * ของ Compliance/Platform Operator ต่อ event นั้น ๆ
+   * A kill the system triggers itself (e.g. unknown-reconciling stuck beyond the threshold per #102 §6)
+   * is not an actor's command — the same document says this is an automatic condition, not a decision
+   * of Compliance/Platform Operator on that particular event
    */
   systemKill(scope: LineScopeTuple, trigger: LineKillTrigger): void {
     const state = this.stateFor(scope);

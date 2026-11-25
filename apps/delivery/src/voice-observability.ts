@@ -110,7 +110,7 @@ export function evaluateVoiceAlerts(
 }
 
 /**
- * Kill เฉพาะ scope ที่มี voice delivery ค้างหลัง barrier; ไม่มีการ resend หรือ settle อัตโนมัติ.
+ * Kill only the scope that has a voice delivery stuck after the barrier; no automatic resend or settle.
  */
 export async function killStuckVoiceScopes(
   database: PrismaClient,

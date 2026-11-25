@@ -1,6 +1,6 @@
 /**
- * S2.6 (#366) `S2-LINE-OB01`: snapshot ของ LINE observability อ่านจาก canonical tables จริงด้วย
- * application role (RLS ทำงาน) — ค่าที่ค้างอยู่ใน DB ต้องกลายเป็น metric/alert ที่ไม่มี PII
+ * S2.6 (#366) `S2-LINE-OB01`: the LINE observability snapshot read from the real canonical tables with the
+ * application role (RLS in effect) — values left in the DB must become PII-free metrics/alerts
  */
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -16,14 +16,14 @@ import {
   lineObservabilitySnapshot,
 } from './line-observability.js';
 
-test('S2-LINE-OB01: stuck settlement, provider auth/quota, webhook quarantine, run denial และ kill ถูกนับจาก DB', async (t) => {
+test('S2-LINE-OB01: stuck settlement, provider auth/quota, webhook quarantine, run denial and kill are counted from the DB', async (t) => {
   const context = await createLinePersistenceFixture();
   t.after(() => context.dispose());
   const now = new Date();
   const minutesAgo = (minutes: number) => new Date(now.getTime() - minutes * 60_000);
   const tenantId = context.tenantA;
 
-  // provider outcome สามแบบในหน้าต่าง — คนละ delivery เพราะ terminal outcome ปิด delivery นั้น
+  // three provider outcomes in the window — different deliveries because a terminal outcome closes that delivery
   const seeded = [];
   for (const [outcomeCode, httpStatus] of [
     ['LINE_AUTH_INVALID', 401],
@@ -45,7 +45,7 @@ test('S2-LINE-OB01: stuck settlement, provider auth/quota, webhook quarantine, r
       ...(httpStatus ? { httpStatus, rejectionScope: 'OPERATIONAL' as const } : {}),
     });
   }
-  // ใบที่ไม่รู้ผลค้าง RECONCILING มา 40 นาที = เกินสองรอบของ backoff สูงสุด
+  // an unknown-outcome row stuck RECONCILING for 40 minutes = beyond two rounds of the maximum backoff
   await context.owner.dlOutboxEntry.update({
     where: {
       id: (
@@ -131,7 +131,7 @@ test('S2-LINE-OB01: stuck settlement, provider auth/quota, webhook quarantine, r
   for (const delivery of seeded) assert.ok(!samples.includes(delivery.deliveryId));
   assert.ok(!samples.includes(PILOT_CHANNEL_ACCOUNT_ID));
 
-  // RLS: อีก tenant เห็นศูนย์ทั้งหมดและไม่มี alert
+  // RLS: another tenant sees all zeros and no alert
   const other = await lineObservabilitySnapshot(context.application, {
     tenantId: context.tenantB,
     now,

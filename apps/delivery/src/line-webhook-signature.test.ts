@@ -9,15 +9,15 @@ import {
 
 const SECRET = 's2-synthetic-channel-secret';
 
-test('S2-LINE signature คิดจาก raw bytes ที่ได้รับจริง รวม whitespace, newline และ emoji', () => {
+test('S2-LINE signature is computed from the raw bytes actually received, including whitespace, newline and emoji', () => {
   const bodies = [
     '{"destination":"Ubot","events":[]}',
     '{"destination":"Ubot",\n  "events": [ ]\n}',
-    '{"destination":"Ubot","events":[{"type":"message","text":"ยืนยันแล้ว 🙏"}]}',
-    '{"destination":"Ubot","events":[{"type":"message","text":"ยืนยันแล้ว 🙏 "}]}',
+    '{"destination":"Ubot","events":[{"type":"message","text":"ยืนยันแล้ว 🙏"}]}', // allow-thai: non-ASCII raw-byte signature input
+    '{"destination":"Ubot","events":[{"type":"message","text":"ยืนยันแล้ว 🙏 "}]}', // allow-thai: non-ASCII raw-byte signature input
   ];
   const digests = bodies.map((body) => lineSignature(Buffer.from(body, 'utf8'), SECRET));
-  // ต่างกันแม้ต่างแค่ whitespace ท้ายบรรทัด — reserialize ก่อน verify จึงใช้ไม่ได้
+  // they differ even when the difference is only trailing whitespace — so re-serializing before verify is unusable
   assert.equal(new Set(digests).size, bodies.length);
   for (const [index, body] of bodies.entries()) {
     const raw = Buffer.from(body, 'utf8');
@@ -25,23 +25,23 @@ test('S2-LINE signature คิดจาก raw bytes ที่ได้รับ
     assert.equal(
       digests[index],
       createHmac('sha256', SECRET).update(raw).digest('base64'),
-      'ต้องเป็น HMAC-SHA256 base64 ตามสัญญาของ LINE',
+      'must be HMAC-SHA256 base64 per the LINE contract',
     );
   }
 });
 
-test('S2-LINE signature ที่ขาด, ผิด, ความยาวต่าง หรือ secret ผิด ไม่ผ่านทั้งหมด', () => {
+test('S2-LINE a missing signature, a wrong one, a different length or a wrong secret all fail', () => {
   const raw = Buffer.from('{"destination":"Ubot","events":[]}', 'utf8');
   const valid = lineSignature(raw, SECRET);
   assert.equal(verifyLineSignature(raw, SECRET, undefined), false);
   assert.equal(verifyLineSignature(raw, SECRET, ''), false);
   assert.equal(verifyLineSignature(raw, SECRET, `${valid}x`), false);
   assert.equal(verifyLineSignature(raw, SECRET, valid.slice(0, -1)), false);
-  assert.equal(verifyLineSignature(raw, 'secret-ที่ไม่ใช่ของ-channel-นี้', valid), false);
+  assert.equal(verifyLineSignature(raw, 'secret-ที่ไม่ใช่ของ-channel-นี้', valid), false); // allow-thai: non-ASCII wrong-secret input
   assert.equal(verifyLineSignature(Buffer.concat([raw, Buffer.from(' ')]), SECRET, valid), false);
   assert.ok(verifyLineSignature(raw, SECRET, valid));
 });
 
-test('S2-LINE เพดาน body ถูกประกาศไว้ให้ ingress ปฏิเสธก่อนอ่าน', () => {
+test('S2-LINE the body ceiling is declared so ingress rejects before reading', () => {
   assert.equal(LINE_WEBHOOK_MAX_BODY_BYTES, 1024 * 1024);
 });

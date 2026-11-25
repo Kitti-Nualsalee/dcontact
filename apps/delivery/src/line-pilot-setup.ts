@@ -1,18 +1,18 @@
 /**
- * Owner: Delivery/Channels — ขั้น setup ของ capped pilot ที่ wizard เรียก (S2.7 #368)
+ * Owner: Delivery/Channels — setup steps of the capped pilot that the wizard calls (S2.7 #368)
  *
  *   pnpm --filter @d-contact/delivery pilot:setup <command>
  *
- * - `tenant`                 สร้าง/หา dedicated test tenant ของ pilot แล้วพิมพ์ tenant ID
- * - `bot-info`               พิมพ์ bot user ID (= webhook destination) โดยใช้ token จาก secret source
- * - `endpoint-digest <url>`  พิมพ์ digest ของ webhook endpoint ที่อนุมัติ
- * - `gate <endpoint-url>`    ensure scope แล้วเลื่อน DISABLED → DRY_RUN → PROVIDER_CONFORMANCE
- * - `credential`             verify token (client_id ต้องเป็น Channel ID ของ pilot) → register → activate
- *                            (`CXA_S2_CREDENTIAL_KIND=V2_1|LONG_LIVED`, long-lived ต้องมี exception ref)
+ * - `tenant`                 create/find the dedicated test tenant of the pilot and print the tenant ID
+ * - `bot-info`               print the bot user ID (= webhook destination) using the token from the secret source
+ * - `endpoint-digest <url>`  print the digest of the approved webhook endpoint
+ * - `gate <endpoint-url>`    ensure the scope then promote DISABLED → DRY_RUN → PROVIDER_CONFORMANCE
+ * - `credential`             verify the token (client_id must be the pilot Channel ID) → register → activate
+ *                            (`CXA_S2_CREDENTIAL_KIND=V2_1|LONG_LIVED`, long-lived needs an exception ref)
  *
- * token/secret อ่านจาก Keychain หรือไฟล์ (`LINE_SECRET_SOURCE=file` บน UAT #565) ในหน่วยความจำเท่านั้น
- * และไม่ถูกพิมพ์; stdout มีแค่ ID/digest — บน UAT tenant ของ pilot มาจาก `uat-provision` ไม่ใช่ `tenant`
- * actor ของแต่ละคำสั่งมาจาก env `CXA_S2_OPERATOR_REF` และ `CXA_S2_COMPLIANCE_REF` (ห้ามเป็นค่าเดียวกัน)
+ * the token/secret are read from the Keychain or a file (`LINE_SECRET_SOURCE=file` on UAT #565) in memory only
+ * and are never printed; stdout has only IDs/digests — on UAT the pilot tenant comes from `uat-provision`, not `tenant`
+ * the actor of each command comes from the env `CXA_S2_OPERATOR_REF` and `CXA_S2_COMPLIANCE_REF` (they must not be the same value)
  */
 import { createHash } from 'node:crypto';
 import { PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
@@ -35,7 +35,7 @@ const TOKEN_ACCOUNT = 'channel-access-token';
 
 function requiredEnv(name: string): string {
   const value = process.env[name];
-  if (!value) throw new Error(`ต้องตั้ง ${name}`);
+  if (!value) throw new Error(`${name} must be set`);
   return value;
 }
 
@@ -43,7 +43,7 @@ function actors(): { operator: LineControlActor; compliance: LineControlActor } 
   const operator = requiredEnv('CXA_S2_OPERATOR_REF');
   const compliance = requiredEnv('CXA_S2_COMPLIANCE_REF');
   if (operator === compliance)
-    throw new Error('operator กับ compliance ต้องเป็นคนละ ref (#358 §E)');
+    throw new Error('operator and compliance must be different refs (#358 §E)');
   return {
     operator: { role: 'PLATFORM_OPERATOR', ref: operator },
     compliance: { role: 'COMPLIANCE', ref: compliance },
@@ -60,7 +60,7 @@ function scope(tenantId: string): LineGateScope {
   };
 }
 
-/** config digest ของ pilot: binding ทั้งชุดที่ allowlist/run authorization ต้องตรงกัน (#358 §B) */
+/** config digest of the pilot: the whole binding that the allowlist/run authorization must match (#358 §B) */
 export function linePilotConfigDigest(input: {
   scope: LineGateScope;
   endpointDigest: string;
@@ -101,17 +101,17 @@ const commands: Record<string, (database: PrismaClient, argument?: string) => Pr
 
   async 'bot-info'() {
     const { userId } = await new HttpLineProviderTransport().getBotInfo(await readToken());
-    if (!userId) throw new Error('อ่าน bot info ไม่ได้ — ตรวจ token');
+    if (!userId) throw new Error('cannot read bot info — check the token');
     process.stdout.write(`${userId}\n`);
   },
 
   async 'endpoint-digest'(_database, url) {
-    if (!url?.startsWith('https://')) throw new Error('ต้องระบุ endpoint แบบ https');
+    if (!url?.startsWith('https://')) throw new Error('an https endpoint is required');
     process.stdout.write(`${lineWebhookEndpointDigest(url)}\n`);
   },
 
   async gate(database, url) {
-    if (!url?.startsWith('https://')) throw new Error('ต้องระบุ endpoint แบบ https');
+    if (!url?.startsWith('https://')) throw new Error('an https endpoint is required');
     const tenantId = requiredEnv('CXA_S2_PILOT_TENANT_ID');
     const { operator, compliance } = actors();
     const control = new LineControlPlane({
@@ -138,11 +138,11 @@ const commands: Record<string, (database: PrismaClient, argument?: string) => Pr
         new Date(),
       );
       if (advanced.status !== 'APPLIED')
-        throw new Error(`เลื่อน gate ไป ${target} ไม่ได้: ${JSON.stringify(advanced)}`);
+        throw new Error(`cannot advance the gate to ${target}: ${JSON.stringify(advanced)}`);
       gate = advanced.value;
     }
     if (gate.configDigest !== configDigest)
-      throw new Error('config digest ของ gate ไม่ตรง endpoint นี้');
+      throw new Error('the gate config digest does not match this endpoint');
     process.stdout.write(
       `${JSON.stringify({ gateId: gate.id, state: gate.businessState, configDigest })}\n`,
     );
@@ -158,17 +158,17 @@ const commands: Record<string, (database: PrismaClient, argument?: string) => Pr
     const token = await readToken();
     const verification = await new HttpLineProviderTransport().verifyToken(token);
     if (!verification.valid || verification.clientId !== LINE_PILOT_CHANNEL_ACCOUNT_ID) {
-      throw new Error('token ไม่ผ่าน verify หรือ client_id ไม่ใช่ Channel ID ของ pilot');
+      throw new Error('the token failed verify or its client_id is not the pilot Channel ID');
     }
     const now = new Date();
-    // v2.1 (≤30 วัน) เป็นค่าแนะนำ; long-lived ต้องมี approved test-only exception และ revoke หลัง S2
+    // v2.1 (≤30 days) is the recommended value; long-lived needs an approved test-only exception and is revoked after S2
     const kind =
       process.env.CXA_S2_CREDENTIAL_KIND === 'LONG_LIVED'
         ? ('CHANNEL_ACCESS_TOKEN_LONG_LIVED' as const)
         : ('CHANNEL_ACCESS_TOKEN_V2_1' as const);
     const exceptionRef = process.env.CXA_S2_LONG_LIVED_EXCEPTION_REF;
     if (kind === 'CHANNEL_ACCESS_TOKEN_LONG_LIVED' && !exceptionRef) {
-      throw new Error('long-lived token ต้องมี CXA_S2_LONG_LIVED_EXCEPTION_REF (#358 §G)');
+      throw new Error('a long-lived token needs CXA_S2_LONG_LIVED_EXCEPTION_REF (#358 §G)');
     }
     const fingerprint = lineSecretFingerprint(token);
     const existing = await withTenantDatabaseTransaction(database, tenantId, (transaction) =>
@@ -211,7 +211,7 @@ const commands: Record<string, (database: PrismaClient, argument?: string) => Pr
         now,
       );
       if (activated.status !== 'APPLIED')
-        throw new Error(`activate ไม่ได้: ${JSON.stringify(activated)}`);
+        throw new Error(`cannot activate: ${JSON.stringify(activated)}`);
     }
     process.stdout.write(`${credential.id}\n`);
   },
@@ -219,7 +219,7 @@ const commands: Record<string, (database: PrismaClient, argument?: string) => Pr
 
 async function main(): Promise<void> {
   const command = commands[process.argv[2] ?? ''];
-  if (!command) throw new Error(`คำสั่งที่รองรับ: ${Object.keys(commands).join(', ')}`);
+  if (!command) throw new Error(`supported commands: ${Object.keys(commands).join(', ')}`);
   const database = new PrismaClient();
   try {
     await command(database, process.argv[3]);
@@ -229,6 +229,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((error: unknown) => {
-  process.stderr.write(`${error instanceof Error ? error.message : 'pilot setup ล้มเหลว'}\n`);
+  process.stderr.write(`${error instanceof Error ? error.message : 'pilot setup failed'}\n`);
   process.exitCode = 1;
 });

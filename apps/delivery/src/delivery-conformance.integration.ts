@@ -1,16 +1,16 @@
 /**
- * DeliveryTestAdapter ต้องผ่าน conformance suite ของ #67 ตัวเดียวกับที่ E0 fake ผ่าน
+ * DeliveryTestAdapter must pass the same #67 conformance suite that the E0 fake passes.
  *
- * `makeHarness` ของ suite เป็น synchronous แต่ harness จริงต้องสร้าง tenant/reservation
- * ในฐานข้อมูลก่อน จึงเตรียม harness ไว้ล่วงหน้าเป็น pool แล้วแจกทีละใบ — หนึ่ง test
- * หนึ่ง tenant เพื่อให้ผลของแต่ละเคสไม่ปนกัน
+ * The suite's `makeHarness` is synchronous, but a real harness must first create the tenant/reservation
+ * in the database, so harnesses are prepared up front as a pool and handed out one at a time: one test,
+ * one tenant, so the cases do not contaminate each other.
  */
 import { after } from 'node:test';
 import { actionKey } from '@d-contact/cxa-contracts';
 import { runDeliveryPortConformanceSuite } from '@d-contact/cxa-contracts/testing/delivery-conformance.js';
 import { createDeliveryFixture, type DeliveryFixture } from './delivery-fixture.js';
 
-/** suite ของ #67 มี 8 เคส และเรียก makeHarness เคสละครั้ง */
+/** The #67 suite has 8 cases and calls makeHarness once per case */
 const HARNESS_COUNT = 8;
 
 const pool: DeliveryFixture[] = [];
@@ -28,7 +28,9 @@ runDeliveryPortConformanceSuite('DeliveryTestAdapter', () => {
   const fixture = pool[next];
   next += 1;
   if (!fixture) {
-    throw new Error(`conformance suite ขอ harness เกิน ${HARNESS_COUNT} ใบที่เตรียมไว้`);
+    throw new Error(
+      `conformance suite asked for more than the ${HARNESS_COUNT} prepared harnesses`,
+    );
   }
   return {
     delivery: fixture.delivery,

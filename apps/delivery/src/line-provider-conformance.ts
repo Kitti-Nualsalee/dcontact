@@ -1,18 +1,18 @@
 /**
  * Owner: Delivery/Channels — real-account provider conformance `S2-LINE-PR01` (S2.6 #366)
  *
- * Authority: #360 §B/§D ข้อ 1–3, #358 §D/§G, #362 §9
+ * Authority: #360 §B/§D items 1–3, #358 §D/§G, #362 §9
  *
- * PR01 พิสูจน์ว่า account/token/quota/payload/webhook พร้อม "โดยไม่มี push" เลยสักครั้ง:
- * - token verify แล้ว `client_id` ต้องตรง Channel ID ของ pilot และอายุ token ตรง policy
- * - quota/consumption อ่านได้และเหลือพอสำหรับ run เดียว
- * - approved fixture ผ่าน `validate/push` (ไม่มีผู้รับ ไม่มีการส่ง)
- * - webhook endpoint ที่ตั้งไว้ active + ตรง digest ที่อนุมัติ, LINE ยิง signed empty webhook
- *   มาได้ `200`, signature ปลอมได้ `401` และมี signed message webhook จริงผ่าน raw-byte verification
+ * PR01 proves that the account/token/quota/payload/webhook are ready "without a single push":
+ * - once the token is verified, `client_id` must match the pilot Channel ID and the token lifetime match the policy
+ * - quota/consumption is readable and enough remains for a single run
+ * - the approved fixture passes `validate/push` (no recipient, no send)
+ * - the configured webhook endpoint is active + matches the approved digest, LINE can fire a signed empty webhook
+ *   and get `200`, a forged signature gets `401`, and a real signed message webhook passes raw-byte verification
  *
- * token ถูกใช้ผ่าน `LineSecretHandle.use` ครั้งเดียวสำหรับทุก call ของ PR01 แล้วทิ้ง
- * evidence ที่คืนออกไปมีแค่ code/fingerprint/digest — ไม่มี token, channel ID ดิบ, endpoint URL
- * หรือเนื้อหาข้อความ และถูกตรวจด้วยค่า secret จริง (exact-value scan) ก่อนคืนเสมอ
+ * the token is used through `LineSecretHandle.use` once for every call of PR01 and then discarded.
+ * The evidence returned has only a code/fingerprint/digest — no token, raw channel ID, endpoint URL
+ * or message content, and it is always checked with the real secret values (exact-value scan) before being returned
  */
 import { createHash } from 'node:crypto';
 import { LINE_PILOT_CAPS, LINE_V2_1_TOKEN_MAX_DAYS } from '@d-contact/cxa-contracts';
@@ -26,7 +26,7 @@ import { lineContentDigest, resolveLineFixture } from './line-push-request.js';
 import type { LineProviderTransport } from './line-provider-transport.js';
 
 export const LINE_PROVIDER_CONFORMANCE_CHECK_ID = 'S2-LINE-PR01';
-/** Channel ID ของ test OA `D-Contact` ที่ pilot ผูกไว้ (#356 §2) — token ต้องตอบ `client_id` นี้ */
+/** Channel ID of the test OA `D-Contact` the pilot is bound to (#356 §2) — the token must answer this `client_id` */
 export const LINE_PILOT_CHANNEL_ACCOUNT_ID = '2007056595';
 
 export const LINE_CONFORMANCE_STEPS = [
@@ -41,7 +41,7 @@ export const LINE_CONFORMANCE_STEPS = [
 ] as const;
 export type LineConformanceStepId = (typeof LINE_CONFORMANCE_STEPS)[number];
 
-/** เหตุผลของ step ที่ล้มเป็น machine code เท่านั้น — ไม่มีข้อความจาก provider */
+/** The reason a step failed as a machine code only — no message from the provider */
 export type LineConformanceFailureCode =
   | 'TOKEN_INVALID'
   | 'TOKEN_CLIENT_ID_MISMATCH'
@@ -66,14 +66,14 @@ export interface LineConformanceStep {
   code?: LineConformanceFailureCode;
 }
 
-/** type alias (ไม่ใช่ interface) เพื่อให้ใส่ลง bundle ที่รับ evidence แบบ record ได้ */
+/** type alias (not an interface) so it can be put into a bundle that accepts evidence as a record */
 export type LineProviderConformanceEvidence = {
   type: 'line.provider-conformance';
   checkId: typeof LINE_PROVIDER_CONFORMANCE_CHECK_ID;
   status: 'PASS' | 'FAIL';
   startedAt: string;
   finishedAt: string;
-  /** sha256 ของ Channel ID — ค่าดิบรูปเหมือนเบอร์โทรจนผ่าน PII scan ไม่ได้และไม่จำเป็นต้องเก็บ */
+  /** sha256 of the Channel ID — the raw value looks like a phone number so it cannot pass the PII scan and need not be kept */
   channelAccountFingerprint: string;
   token: {
     credentialRefId: string;
@@ -98,26 +98,26 @@ export type LineProviderConformanceEvidence = {
     signedMessagesAccepted: number;
   };
   steps: LineConformanceStep[];
-  /** true = ไม่มี push ใด ๆ ใน PR01 (#360 §A ข้อ 3) */
+  /** true = no push at all in PR01 (#360 §A item 3) */
   pushAttempted: false;
 };
 
 export interface LineProviderConformanceInput {
   transport: LineProviderTransport;
-  /** handle ของ access token ที่ `LineCredentialBoundary.resolve` คืนมา — ถูก consume ที่นี่ */
+  /** handle of the access token returned by `LineCredentialBoundary.resolve` — consumed here */
   accessToken: LineSecretHandle;
   credential: LineCredentialMetadata & { longLivedExceptionRef?: string | null };
   channelAccountId: string;
   contentRef: string;
-  /** sha256 ของ webhook endpoint URL ที่ Platform Operator อนุมัติ (local ngrok binding) */
+  /** sha256 of the webhook endpoint URL the Platform Operator approved (local ngrok binding) */
   approvedEndpointDigest: string;
   /**
-   * ยิง request ที่ signature ผิดไปยัง endpoint สาธารณะของเราเอง (ไม่ใช่ LINE) แล้วคืน HTTP status
-   * — พิสูจน์ว่า binding ที่ LINE เห็นปฏิเสธ signature ปลอมจริง ถูกเรียกเฉพาะเมื่อ endpoint ที่ LINE
-   * ตั้งไว้ตรง digest ที่อนุมัติแล้ว จึงไม่มีทางยิงไป URL อื่น
+   * Fire a request with a bad signature at our own public endpoint (not LINE) and return the HTTP status
+   * — proves that the binding LINE sees really rejects a forged signature. Called only when the endpoint LINE
+   * has configured matches the approved digest, so there is no way to fire at another URL
    */
   probeInvalidSignature: (endpoint: string) => Promise<number>;
-  /** จำนวน signed message webhook ที่ ingress รับเข้า inbox ตั้งแต่ `since` (อ่านจาก DB ของ tenant) */
+  /** number of signed message webhooks ingress accepted into the inbox since `since` (read from the tenant's DB) */
   countSignedMessages: (since: Date) => Promise<number>;
   now?: () => Date;
 }
@@ -162,8 +162,8 @@ const step = (
   failure ? { id, status: 'FAIL', code: failure } : { id, status: 'PASS' };
 
 /**
- * รัน PR01 ครบทุก step เสมอแม้ step ก่อนหน้าล้ม เพื่อให้ evidence บอกได้ว่าอะไรพร้อม/ไม่พร้อม
- * — ยกเว้น provider call ที่ throw ซึ่งถือเป็น FAIL ของ step นั้น ไม่ใช่ข้ามไปเงียบ ๆ
+ * Run every PR01 step even if an earlier step fails so the evidence can say what is ready/not ready
+ * — except a provider call that throws, which counts as a FAIL of that step, not silently skipped
  */
 export async function runLineProviderConformance(
   input: LineProviderConformanceInput,
@@ -312,14 +312,14 @@ export class LineSecretLeakError extends Error {
   readonly code = 'PII_OR_CREDENTIAL_LEAK';
 
   constructor() {
-    super('evidence มีค่า secret จริงปนอยู่');
+    super('the evidence contains a real secret value');
     this.name = 'LineSecretLeakError';
   }
 }
 
 /**
- * exact-value scan: pattern scan ใน CI ไม่รู้ค่า secret จริง แต่ protected runner รู้ จึงตรวจด้วย
- * ค่าจริงได้ก่อนที่ bundle จะออกจากเครื่อง — ข้อความ error ไม่บอกตำแหน่งหรือค่า
+ * exact-value scan: the pattern scan in CI does not know the real secret values but the protected runner does, so it can check with
+ * the real values before the bundle leaves the machine — the error message does not reveal the location or the value
  */
 export function assertNoSecretValue(value: unknown, secrets: readonly string[]): void {
   const serialized = typeof value === 'string' ? value : JSON.stringify(value);

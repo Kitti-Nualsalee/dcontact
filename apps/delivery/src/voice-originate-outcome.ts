@@ -1,4 +1,4 @@
-/** Durable outcome path ของ E1.18: Telephony ส่ง fact ที่ normalize แล้วเท่านั้น. */
+/** Durable outcome path of E1.18: Telephony sends only already-normalized facts. */
 import type { PrismaClient } from '@d-contact/db';
 import {
   actionKey as toActionKey,

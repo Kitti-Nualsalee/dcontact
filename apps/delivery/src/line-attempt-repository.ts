@@ -1,9 +1,9 @@
 /**
- * Owner: Delivery/Channels — append-only receipt ของ LINE provider attempt (S2.1 #365, #357 §4)
+ * Owner: Delivery/Channels — append-only receipt of a LINE provider attempt (S2.1 #365, #357 §4)
  *
- * บันทึกหลัง HTTP attempt จบเท่านั้น: เก็บ digest/status/request IDs/outcome code ไม่มี body,
- * token หรือ recipient. outcome class ไม่รับจาก caller — คำนวณจาก code ตาม #357 §5 และ DB
- * ตรวจซ้ำด้วย CHECK เดียวกัน การ replay attempt เดิมด้วยค่าเดิมคืนแถวเดิม ค่าต่างเป็น conflict
+ * Recorded only after the HTTP attempt ends: keeps digest/status/request IDs/outcome code, with no body,
+ * token or recipient. The outcome class is not accepted from the caller — it is computed from the code per #357 §5 and the DB
+ * re-checks it with the same CHECK. Replaying the same attempt with the same values returns the original row; different values are a conflict
  */
 import {
   type DlProviderSubmissionAttempt,
