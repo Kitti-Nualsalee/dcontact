@@ -50,7 +50,7 @@ test('rules: an empty/too long/duplicate name points at the row, and at least on
       reason('', 'Break'),
       reason('Staff meeting', 'meeting'),
       reason('Staff meeting', 'MEETING'),
-      reason('x'.repeat(41), 'Long'),
+      reason('ก'.repeat(41), 'Long'), // allow-thai: Thai label length is counted in characters
     ]),
     {
       'reasons.0.labelTh': 'core.validation.notReadyReasonLabel',

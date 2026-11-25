@@ -114,8 +114,8 @@ test('actions by status: cannot close directly from OPEN, and CLOSED is read-onl
 test('note: after trimming it must be 1–2,000 long', () => {
   assert.deepEqual(validateNote('  ok  '), { ok: true, value: 'ok' });
   assert.equal(validateNote('   ').ok, false);
-  assert.equal(validateNote('a'.repeat(2000)).ok, true);
-  assert.equal(validateNote('a'.repeat(2001)).ok, false);
+  assert.equal(validateNote('ก'.repeat(2000)).ok, true); // allow-thai: limit counts Thai characters, not bytes
+  assert.equal(validateNote('ก'.repeat(2001)).ok, false); // allow-thai: limit counts Thai characters, not bytes
 });
 
 const activity = (id: string, occurredAt: string): CaseActivity => ({

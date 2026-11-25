@@ -312,8 +312,8 @@ test(
     stopped = true;
     const start = Date.now();
     await assert.rejects(first.consume(input));
-    (assert.ok(Date.now() - start < 2500, 'Redis unavailable must answer within a bounded time'),
-      execFileSync('docker', ['unpause', name], { stdio: 'ignore' }));
+    assert.ok(Date.now() - start < 2500, 'Redis unavailable must answer within a bounded time');
+    execFileSync('docker', ['unpause', name], { stdio: 'ignore' });
     stopped = false;
     let recovered = false;
     for (let i = 0; i < 80; i++) {
@@ -324,7 +324,7 @@ test(
       } catch {}
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
-    (assert.equal(recovered, true, 'Redis must be able to reconnect'),
-      assert.equal(await first.consume({ ...input, actorId: randomUUID() }), null));
+    assert.equal(recovered, true, 'Redis must be able to reconnect');
+    assert.equal(await first.consume({ ...input, actorId: randomUUID() }), null);
   },
 );

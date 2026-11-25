@@ -74,8 +74,9 @@ test('S5 HTTP: the custodian grant is platform-operator only, with a PII-free dr
     assert.equal(preview.status, 200);
     assert.equal((preview.body as unknown as Body).outcome, 'WOULD_APPLY');
     const text = JSON.stringify(preview.body);
+    const contactName = 'ลูกค้า C1'; // allow-thai: displayName of the shared fixture contact
     assert.ok(
-      !text.includes('@core.test') && !text.includes('ustomer'),
+      !text.includes('@core.test') && !text.includes(contactName),
       'the preview must have no PII',
     );
     assert.equal(await f.owner.c360ProfileCommand.count({ where: { tenantId: f.tenantId } }), 0);
