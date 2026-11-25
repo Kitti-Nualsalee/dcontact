@@ -1,8 +1,10 @@
 /**
- * ASR simulator ตาม D-Contact ASR Provider Protocol v1 (docs/qm-asr-provider-protocol.md)
+ * ASR simulator implementing the D-Contact ASR Provider Protocol v1 (docs/qm-asr-provider-protocol.md).
  *
- * ใช้แทน ASR จริงระหว่างที่ยังไม่มีโมเดล: ดาวน์โหลดไฟล์เสียงจาก signed URL จริง หาช่วงที่มีเสียงในแต่ละ channel
- * แล้วคืน segment ที่มี speaker และเวลาจริง แต่ข้อความเป็นประโยคจำลองที่ขึ้นต้นด้วย "[จำลอง]" เสมอ
+ * Stands in for a real ASR model until one exists: it downloads the real recording through the signed URL,
+ * finds the regions with sound on each channel and returns segments with real speakers and timings,
+ * but the text is a canned Thai phrase that always starts with the simulated prefix from
+ * locales/asr-simulator.th.json.
  */
 import { createHash, timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
@@ -21,11 +23,14 @@ import type {
   TranscriptionSegmentResult,
   TranscriptSpeaker,
 } from './qm-transcription-worker.js';
+import phrases from './locales/asr-simulator.th.json';
 import { detectSpeechRegions, parsePcmWav, WavFormatError } from './wav-speech-regions.js';
 
 export const ASR_SIMULATOR_MODEL_ID = 'dcontact-asr-simulator-v1';
-/** ค่าคงที่ต่ำพอให้ไม่มีใครเข้าใจว่าเป็นผลจากโมเดลจริง */
+/** Fixed and low so that nobody mistakes the output for a real model's result. */
 export const ASR_SIMULATOR_CONFIDENCE = 0.5;
+/** Prefix of every simulated transcript line. */
+export const ASR_SIMULATOR_TEXT_PREFIX = phrases.prefix;
 
 const MAX_REQUEST_BYTES = 64 * 1024;
 const MAX_SEGMENTS = 2_000;
@@ -34,7 +39,7 @@ type Fetch = (input: string | URL | Request, init?: RequestInit) => Promise<Resp
 
 export interface AsrSimulatorConfiguration {
   apiKey: string;
-  /** hostname ที่อนุญาตให้ดาวน์โหลด media (กัน SSRF) */
+  /** Hostnames media may be downloaded from (SSRF guard). */
   mediaHosts: readonly string[];
   maxMediaBytes?: number;
   mediaTimeoutMs?: number;
@@ -47,7 +52,7 @@ export interface AsrSimulatorRequest {
   path: string;
   headers: Record<string, string | undefined>;
   body: string;
-  /** true เมื่อ body เกินเพดานและถูกตัดตอนอ่าน */
+  /** True when the body exceeded the limit and was dropped while reading. */
   oversized?: boolean;
 }
 
@@ -64,26 +69,9 @@ export interface AsrSimulatorLog {
   code?: string;
 }
 
-const AGENT_LINES = [
-  'สวัสดีค่ะ ยินดีให้บริการค่ะ',
-  'รบกวนขอชื่อและเบอร์ติดต่อด้วยค่ะ',
-  'ขอตรวจสอบข้อมูลสักครู่นะคะ',
-  'ดำเนินการให้เรียบร้อยแล้วค่ะ',
-  'มีอะไรให้ช่วยเพิ่มเติมไหมคะ',
-  'ขอบคุณที่ใช้บริการค่ะ',
-];
-
-const CONTACT_LINES = [
-  'สวัสดีครับ ขอสอบถามเรื่องบริการหน่อยครับ',
-  'ชื่อสมชายครับ',
-  'ครับ รอได้ครับ',
-  'ขอบคุณครับ',
-  'ไม่มีแล้วครับ',
-];
-
 function simulatedText(speaker: TranscriptSpeaker, turn: number): string {
-  const lines = speaker === 'AGENT' ? AGENT_LINES : CONTACT_LINES;
-  return `[จำลอง] ${lines[turn % lines.length]}`;
+  const lines = speaker === 'AGENT' ? phrases.agent : phrases.contact;
+  return `${phrases.prefix} ${lines[turn % lines.length]}`;
 }
 
 class SimulatorError extends Error {
@@ -224,7 +212,7 @@ export class AsrSimulator {
     } catch {
       throw new SimulatorError(400, 'INVALID_REQUEST', 'mediaUrl is not a URL');
     }
-    // บังคับ port 443: host เดียวกันอาจมีบริการอื่นที่ port อื่น
+    // Port 443 only: the same host may run other services on other ports.
     if (
       url.protocol !== 'https:' ||
       url.port !== '' ||
@@ -309,12 +297,12 @@ export class AsrSimulator {
 
     const tracks: Array<{ speaker?: TranscriptSpeaker; channel: number }> =
       input.channelLayout === 'STEREO' && wav.channels === 2
-        ? // RECORD_STEREO ของ FreeSWITCH: ซ้าย = ผู้โทร (CONTACT ของสายขาเข้า), ขวา = สิ่งที่ผู้โทรได้ยิน (AGENT)
+        ? // FreeSWITCH RECORD_STEREO: left = caller (CONTACT on inbound calls), right = what the caller hears (AGENT)
           [
             { speaker: 'CONTACT', channel: 0 },
             { speaker: 'AGENT', channel: 1 },
           ]
-        : // mono/เสียงรวม: จำลอง diarization ด้วยการสลับ AGENT/CONTACT ทีละช่วง
+        : // Mono/mixed audio: simulate diarization by alternating AGENT and CONTACT per region
           [{ channel: 0 }];
 
     const timed = tracks.flatMap(({ speaker, channel }) =>
@@ -340,12 +328,12 @@ export class AsrSimulator {
       });
 
     if (segments.length === 0) {
-      // protocol v1 ต้องมีอย่างน้อย 1 segment: สายที่เงียบทั้งสายคืน SYSTEM segment เดียวเต็มความยาว
+      // Protocol v1 requires at least one segment: a silent call returns one SYSTEM segment covering it all
       segments.push({
         speaker: 'SYSTEM',
         startMs: 0,
         endMs: wav.durationMs,
-        text: '[จำลอง] ไม่พบช่วงที่มีเสียงพูด',
+        text: `${phrases.prefix} ${phrases.noSpeech}`,
         confidence: ASR_SIMULATOR_CONFIDENCE,
       });
     }
@@ -362,14 +350,14 @@ export class AsrSimulator {
   }
 }
 
-/** แปลง node http request เป็น AsrSimulatorRequest โดยอ่าน body ไม่เกินเพดาน */
+/** Converts a node http request into an AsrSimulatorRequest, keeping at most the body limit. */
 export async function readSimulatorRequest(request: IncomingMessage): Promise<AsrSimulatorRequest> {
   const chunks: Buffer[] = [];
   let total = 0;
   for await (const chunk of request) {
     const buffer = chunk as Buffer;
     total += buffer.length;
-    // อ่านจนจบเพื่อให้ตอบ 413 ได้ แต่เก็บเฉพาะส่วนที่ไม่เกินเพดาน
+    // Drain the whole body so a 413 can be answered, but keep only what fits the limit.
     if (total <= MAX_REQUEST_BYTES) chunks.push(buffer);
   }
   const headers: Record<string, string | undefined> = {};

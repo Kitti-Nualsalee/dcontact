@@ -1,6 +1,6 @@
 /**
- * อ่าน WAV แบบ PCM 16-bit แล้วหาช่วงที่มีเสียงในแต่ละ channel ด้วยพลังงานของ frame
- * ใช้ใน ASR simulator เท่านั้น ไม่ใช่ VAD สำหรับงานจริง
+ * Reads 16-bit PCM WAV and finds the regions with sound on each channel from frame energy.
+ * Used by the ASR simulator only; this is not a production VAD.
  */
 
 export class WavFormatError extends Error {
@@ -10,10 +10,10 @@ export class WavFormatError extends Error {
 export interface PcmWav {
   sampleRate: number;
   channels: number;
-  /** จำนวน sample ต่อ channel */
+  /** Samples per channel. */
   frames: number;
   durationMs: number;
-  /** sample ของ channel ที่ index (0 = ซ้าย) */
+  /** Sample of the channel at index (0 = left). */
   sample(frame: number, channel: number): number;
 }
 
@@ -40,7 +40,7 @@ export function parsePcmWav(buffer: Buffer): PcmWav {
         throw new WavFormatError('fmt chunk is truncated');
       let audioFormat = buffer.readUInt16LE(body);
       if (audioFormat === WAVE_FORMAT_EXTENSIBLE && size >= 40 && body + 26 <= buffer.length) {
-        // sub-format GUID เริ่มที่ byte 24 ของ fmt; 2 byte แรกคือ format code จริง
+        // The sub-format GUID starts at byte 24 of fmt; its first 2 bytes are the real format code
         audioFormat = buffer.readUInt16LE(body + 24);
       }
       if (audioFormat !== WAVE_FORMAT_PCM) throw new WavFormatError('only PCM WAV is supported');
@@ -50,7 +50,7 @@ export function parsePcmWav(buffer: Buffer): PcmWav {
         bitsPerSample: buffer.readUInt16LE(body + 14),
       };
     } else if (id === 'data') {
-      // writer ที่ยังไม่ปิดไฟล์เขียนขนาดเป็น 0 หรือ 0xFFFFFFFF และไฟล์ที่ถูกตัดกลางคันอาจมีขนาดเกินจริง: อ่านเท่าที่มี
+      // An unfinished writer leaves the size at 0 or 0xFFFFFFFF and a truncated file may overstate it: read what is there
       const available = buffer.length - body;
       const streaming = size === 0 || size === 0xffffffff;
       data = { offset: body, length: streaming ? available : Math.min(size, available) };
@@ -87,15 +87,15 @@ export interface SpeechRegion {
 
 export interface SpeechRegionOptions {
   frameMs?: number;
-  /** RMS ขั้นต่ำ (int16) ที่ถือว่ามีเสียง */
+  /** Minimum RMS (int16) that counts as sound. */
   minRms?: number;
-  /** ช่องว่างที่สั้นกว่านี้ถูกรวมเป็นช่วงเดียว */
+  /** Gaps shorter than this are merged into one region. */
   mergeGapMs?: number;
-  /** ช่วงที่สั้นกว่านี้ถูกตัดทิ้ง */
+  /** Regions shorter than this are dropped. */
   minRegionMs?: number;
-  /** ช่วงที่ยาวกว่านี้ถูกแบ่งเป็นหลาย segment */
+  /** Regions longer than this are split into several segments. */
   maxRegionMs?: number;
-  /** เพดานของเกณฑ์: channel ที่มีเสียงเกือบทั้งสาย (เพลงรอสาย, เสียงวน) noise floor จะสูงจนไม่เจอเสียงพูดเลย */
+  /** Threshold cap: on a channel that is loud for most of the call (hold music, looped audio) the noise floor would hide all speech. */
   maxThresholdRms?: number;
 }
 
@@ -108,7 +108,7 @@ const DEFAULTS: Required<SpeechRegionOptions> = {
   maxThresholdRms: 1_500,
 };
 
-/** หาช่วงที่มีเสียงของ channel เดียว: เกณฑ์ = 4 เท่าของ noise floor ที่ percentile 20 อยู่ระหว่าง minRms ถึง maxThresholdRms */
+/** Finds sound regions of one channel: threshold = 4x the 20th-percentile noise floor, clamped to [minRms, maxThresholdRms]. */
 export function detectSpeechRegions(
   wav: PcmWav,
   channel: number,

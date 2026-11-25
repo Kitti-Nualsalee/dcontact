@@ -5,6 +5,7 @@ import test from 'node:test';
 import { runAsrProviderContract } from './asr-provider-contract.js';
 import {
   ASR_SIMULATOR_MODEL_ID,
+  ASR_SIMULATOR_TEXT_PREFIX,
   AsrSimulator,
   readSimulatorRequest,
   writeSimulatorResponse,
@@ -24,7 +25,7 @@ interface Burst {
   endMs: number;
 }
 
-/** WAV PCM 16-bit ที่มี tone 440 Hz ในช่วงที่กำหนด ส่วนอื่นเป็นเสียงรบกวนเบา ๆ แบบ deterministic */
+/** 16-bit PCM WAV with a 440 Hz tone in the given bursts and faint deterministic noise elsewhere. */
 function buildWav(input: { channels: number; durationMs: number; bursts: Burst[] }): Buffer {
   const frames = Math.round((SAMPLE_RATE * input.durationMs) / 1_000);
   const data = Buffer.alloc(frames * input.channels * 2);
@@ -61,7 +62,7 @@ function buildWav(input: { channels: number; durationMs: number; bursts: Burst[]
   return Buffer.concat([header, data]);
 }
 
-// ซ้าย (channel 0) = ลูกค้า, ขวา (channel 1) = Agent ตาม RECORD_STEREO ของ FreeSWITCH
+// Left (channel 0) = customer, right (channel 1) = agent, as FreeSWITCH RECORD_STEREO records them
 const STEREO = buildWav({
   channels: 2,
   durationMs: 6_000,
@@ -88,7 +89,7 @@ const MEDIA: Record<string, Buffer> = {
   '/recordings/demo/not-wav.wav': Buffer.from('not a wav file'),
 };
 
-/** media host จำลองที่ตอบเฉพาะ URL ที่มี signature */
+/** Fake media host that only serves signed URLs. */
 async function mediaFetch(input: string | URL | Request): Promise<Response> {
   const url = new URL(input instanceof Request ? input.url : String(input));
   const media = MEDIA[url.pathname];
@@ -115,7 +116,7 @@ function createSimulator(overrides: Partial<ConstructorParameters<typeof AsrSimu
   });
 }
 
-/** fetch ที่ส่งคำขอเข้า simulator ตรง ๆ แทน network (endpoint ของ QM ต้องเป็น https) */
+/** fetch that hands requests straight to the simulator instead of the network (QM endpoints must be https). */
 function simulatorFetch(simulator: AsrSimulator) {
   return async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
     const url = new URL(input instanceof Request ? input.url : String(input));
@@ -200,9 +201,11 @@ test('QM HttpTranscriptionProvider gets simulated STEREO segments from the simul
     result.segments.map((segment) => segment.speaker),
     ['AGENT', 'CONTACT', 'AGENT'],
   );
-  assert.ok(result.segments.every((segment) => segment.text.startsWith('[จำลอง] ')));
+  assert.ok(
+    result.segments.every((segment) => segment.text.startsWith(`${ASR_SIMULATOR_TEXT_PREFIX} `)),
+  );
   assert.notEqual(result.segments[0]!.text, result.segments[2]!.text);
-  // field ที่ไม่อยู่ใน protocol (simulated) ไม่หลุดเข้า QM
+  // Fields outside the protocol (simulated) do not leak into QM
   assert.equal('simulated' in result, false);
 });
 
@@ -311,7 +314,7 @@ test('ASR simulator HTTP server answers health and rejects oversized bodies', as
 });
 
 test('detectSpeechRegions still finds speech on a channel that is loud for most of the call', () => {
-  // เพลงรอสายหรือเสียงวน: เสียงดังเกิน 80% ของสาย ทำให้ noise floor สูงเท่าเสียงพูด
+  // Hold music or looped audio: loud for over 80% of the call, so the noise floor reaches speech level
   const looped = parsePcmWav(
     buildWav({
       channels: 1,

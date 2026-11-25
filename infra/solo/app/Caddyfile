@@ -32,9 +32,9 @@
 			reverse_proxy api:3000
 		}
 
-		# QM: host ของ media และ ASR มาก่อน route ตาม path เพื่อไม่ให้ host เหล่านี้เข้า API/Console ได้
-		# nginx บน VM voice รับ host ทั้งสองจาก VM app เท่านั้น
-		# media: signed URL ของ bucket recordings ส่งต่อแบบคง Host เดิม (signature ผูกกับ host) อ่านได้อย่างเดียว
+		# QM: the media and ASR hosts come before the path routes so they can never reach the API or Console
+		# nginx on the voice VM accepts both hosts from the app VM only
+		# media: signed URLs of the recordings bucket, forwarded with the original Host (the signature covers it), read-only
 		@media host {$SOLO_MEDIA_HOST}
 		handle @media {
 			@signedRecording {
@@ -49,7 +49,7 @@
 				respond 404
 			}
 		}
-		# ASR provider ตาม protocol v1 (ตอนนี้เป็น simulator) เปิดเฉพาะ path ของ protocol
+		# ASR provider per protocol v1 (the simulator for now): only the protocol paths are open
 		@asr host {$SOLO_ASR_HOST}
 		handle @asr {
 			@asrProtocol path /v1/transcriptions /v1/health

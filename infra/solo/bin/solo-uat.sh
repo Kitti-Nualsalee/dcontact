@@ -40,7 +40,7 @@ load_hosts() {
   DATA_IP="$(env_value SOLO_DATA_IP)"
   CONSOLE_HOST="$(env_value SOLO_CONSOLE_HOST)"
   WORKSPACE_HOST="$(env_value SOLO_WORKSPACE_HOST)"
-  # host ของ QM media/ASR ไม่บังคับ: solo.env เดิมไม่มีค่าเหล่านี้ จึงใช้ชื่อ .invalid ที่ไม่มีคำขอไหนตรง
+  # QM media/ASR hosts are optional: older solo.env files lack them, so fall back to .invalid names no request matches
   MEDIA_HOST="$(env_value SOLO_MEDIA_HOST)"; MEDIA_HOST="${MEDIA_HOST:-media.invalid}"
   ASR_HOST="$(env_value SOLO_ASR_HOST)"; ASR_HOST="${ASR_HOST:-asr.invalid}"
   IMAGE_TAG="$(env_value SOLO_IMAGE_TAG)"
@@ -69,7 +69,7 @@ SOLO_APP_IP=$app
 SOLO_DATA_IP=$data
 SOLO_CONSOLE_HOST=$console
 SOLO_WORKSPACE_HOST=$workspace
-# host ของ QM (เข้าได้จาก VM app เท่านั้น ไม่ต้องมีใน DNS: container ใช้ extra_hosts)
+# QM hosts (reachable from the app VM only; no DNS needed, containers use extra_hosts)
 SOLO_MEDIA_HOST=$media
 SOLO_ASR_HOST=$asr
 SOLO_IMAGE_TAG=dev
@@ -139,13 +139,13 @@ LINE_WEBHOOK_SECRET_SOURCE=disabled
 LINE_WEBHOOK_CHANNEL_ACCOUNT_ID=solo-disabled
 LINE_WEBHOOK_DESTINATION=solo-disabled
 LINE_WEBHOOK_PAYLOAD_KEY_REF=solo-disabled
-# QM ใช้ ASR simulator ตาม protocol v1 จนกว่าจะมีโมเดลจริง; QM ยังไม่เริ่มจนกว่าจะใส่ COMPOSE_PROFILES=qm
+# QM uses the protocol v1 ASR simulator until a real model exists; QM stays off until COMPOSE_PROFILES=qm is set
 QM_MEDIA_ENDPOINT=https://$media
 QM_TRANSCRIPTION_PROVIDER_ID=dcontact-asr-simulator
 QM_TRANSCRIPTION_ENDPOINT=https://$asr/v1/transcriptions
 QM_TRANSCRIPTION_API_KEY=$(secret)
 QM_SCORING_PROVIDER_ID=deployment-scorer
-# ยังไม่มี scorer: ค่าว่าง = ถอดเสียงอย่างเดียว ไม่สร้าง auto-QM draft
+# No scorer yet: empty = transcription only, no auto-QM draft
 QM_SCORING_ENDPOINT=
 QM_SCORING_MODEL_ID=not-configured
 QM_SCORING_PROMPT_VERSION=not-configured
@@ -367,7 +367,7 @@ cmd_voice() {
         -keyout tls/server.key -out tls/server.crt 2>/dev/null && echo '# ใช้ cert self-signed ชั่วคราว';
     fi; chmod 644 tls/server.crt; chmod 640 tls/server.key; sudo chgrp 101 tls/server.key"
   export_recordings
-  # nginx.conf ถูกแตกทับเป็นไฟล์ใหม่ (inode ใหม่) container ที่รันอยู่ยังเห็นไฟล์เดิมและ compose ไม่ recreate เพราะ config ไม่เปลี่ยน
+  # nginx.conf is extracted as a new file (new inode): the running container keeps the old one and compose does not recreate it
   remote "$VOICE_IP" "cd $REMOTE_ROOT/voice && docker compose up -d && docker compose up -d --force-recreate --no-deps nginx && sleep 15 && docker compose ps --format 'table {{.Service}}\t{{.Status}}'"
   # Telephony ต่อ ESL ครั้งเดียวตอนเริ่มและไม่ลองใหม่ จึงเริ่มใหม่หลัง FreeSWITCH ขึ้นแล้ว
   remote "$APP_IP" "docker restart dcontact-solo-telephony-1 >/dev/null"

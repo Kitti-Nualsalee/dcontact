@@ -98,7 +98,7 @@ test('HTTP transcription provider rejects responses outside the v1 contract', as
       languageHint: 'th-TH',
       dataUse: 'NO_TRAINING',
     });
-  const segment = { speaker: 'AGENT', startMs: 0, endMs: 900, text: 'สวัสดีค่ะ' };
+  const segment = { speaker: 'AGENT', startMs: 0, endMs: 900, text: 'Hello' };
   const valid = { modelId: 'm', language: 'th-TH', confidenceAvg: 0.9, segments: [segment] };
   await assert.rejects(
     respond({ ...valid, segments: [{ ...segment, speaker: 'CALLER' }] }),
@@ -122,7 +122,7 @@ test('HTTP transcription provider stops waiting after the configured timeout', a
         init?.signal?.addEventListener('abort', () => reject(init.signal?.reason));
       }),
   );
-  // timer ของ AbortSignal.timeout เป็น unref: ถือ handle ไว้ไม่ให้ test runner จบก่อน abort
+  // AbortSignal.timeout uses an unref'd timer: hold a handle so the runner does not finish before the abort
   const keepAlive = setInterval(() => undefined, 1_000);
   try {
     await assert.rejects(

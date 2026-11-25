@@ -1,8 +1,8 @@
 /**
- * Contract test ของ D-Contact ASR Provider Protocol v1 — ADR-010 ข้อ 6: "contract test ต้องเขียวทุก provider"
+ * Contract test for the D-Contact ASR Provider Protocol v1 — ADR-010 point 6: every provider must pass it.
  *
- * ตรวจแบบ black-box ผ่าน HTTP: ใช้ได้ทั้งกับ simulator และ provider/gateway จริง
- * ผู้เรียกต้องเตรียม media URL ที่ provider ดาวน์โหลดได้จริง (ไฟล์ WAV แบบ STEREO ที่มีเสียงพูดทั้งสองฝั่ง)
+ * Black-box over HTTP, so it runs against the simulator and against a real provider or gateway alike.
+ * The caller provides a media URL the provider can really download (a STEREO WAV with speech on both sides).
  */
 import {
   ASR_DATA_USE_HEADER,
@@ -24,13 +24,13 @@ export interface AsrSpeakerWindow {
 }
 
 export interface AsrProviderContractInput {
-  /** URL เต็มของ POST transcriptions เช่น https://asr.example/v1/transcriptions */
+  /** Full URL of the transcriptions POST, e.g. https://asr.example/v1/transcriptions */
   endpoint: string;
   apiKey: string;
   stereoMediaUrl: string;
-  /** ความยาวของไฟล์ STEREO: ทุก segment ต้องจบไม่เกินค่านี้ + 500 ms */
+  /** Duration of the STEREO file: every segment must end within this value + 500 ms. */
   stereoDurationMs: number;
-  /** ช่วงเวลาที่รู้ว่าใครพูด: ต้องมี segment ของ speaker นั้นทับช่วงนี้ */
+  /** Known speech windows: a segment of that speaker must overlap each window. */
   expectedSpeakers?: AsrSpeakerWindow[];
   languageHint?: string;
   fetch?: Fetch;

@@ -1,11 +1,11 @@
 /**
- * HTTP server ของ ASR simulator (D-Contact ASR Provider Protocol v1)
- * ฟัง HTTP ธรรมดา: TLS จบที่ reverse proxy ข้างหน้า เพราะ QM ส่งคำขอไปที่ endpoint แบบ HTTPS เท่านั้น
+ * HTTP server of the ASR simulator (D-Contact ASR Provider Protocol v1).
+ * Plain HTTP: TLS ends at the reverse proxy in front, because QM only calls HTTPS endpoints.
  *
- *   ASR_SIMULATOR_API_KEY       bearer token ที่ QM ส่งมา (ค่าเดียวกับ QM_TRANSCRIPTION_API_KEY)
- *   ASR_SIMULATOR_MEDIA_HOSTS   hostname ที่ดาวน์โหลด media ได้ คั่นด้วย comma (host ของ QM_MEDIA_ENDPOINT)
- *   ASR_SIMULATOR_MAX_MEDIA_MB  เพดานขนาดไฟล์เสียง ค่าเริ่มต้น 128
- *   PORT                        ค่าเริ่มต้น 8090
+ *   ASR_SIMULATOR_API_KEY       bearer token QM sends (same value as QM_TRANSCRIPTION_API_KEY)
+ *   ASR_SIMULATOR_MEDIA_HOSTS   comma-separated hostnames media may come from (host of QM_MEDIA_ENDPOINT)
+ *   ASR_SIMULATOR_MAX_MEDIA_MB  maximum recording size, default 128
+ *   PORT                        default 8090
  */
 import { createServer } from 'node:http';
 import { AsrSimulator, readSimulatorRequest, writeSimulatorResponse } from './asr-simulator.js';
@@ -38,7 +38,7 @@ const server = createServer((request, response) => {
       const result = await simulator.handle(input);
       writeSimulatorResponse(response, result, input.method);
       if (input.path !== '/v1/health') {
-        // ไม่ log mediaUrl: query string เป็น signature ที่ใช้อ่านไฟล์เสียงได้
+        // Never log mediaUrl: its query string is a signature that can read the recording
         console.log(
           JSON.stringify({
             msg: 'asr-simulator request',

@@ -1,6 +1,7 @@
 /**
- * D-Contact ASR Provider Protocol v1 — สัญญา HTTP ระหว่าง QM กับ ASR provider ทุกตัว
- * สเปกเต็มอยู่ใน docs/qm-asr-provider-protocol.md; ไฟล์นี้เป็น type และ validator ที่ QM กับ contract test ใช้ร่วมกัน
+ * D-Contact ASR Provider Protocol v1 — the HTTP contract between QM and every ASR provider.
+ * Full specification: docs/qm-asr-provider-protocol.md. This file holds the types and the validator
+ * shared by the QM client and the contract test.
  */
 import type {
   TranscriptionProviderResult,
@@ -68,7 +69,7 @@ function isNonNegativeInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value >= 0;
 }
 
-/** ตรวจ response body ตาม protocol v1 แล้วคืนเฉพาะ field ที่ QM ใช้ (field อื่นของ provider ถูกตัดทิ้ง) */
+/** Validates a v1 response body and returns only the fields QM uses (other provider fields are dropped). */
 export function parseTranscriptionResult(payload: unknown): TranscriptionProviderResult {
   if (!isRecord(payload)) throw new AsrProtocolError('response must be a JSON object');
   const { modelId, language, confidenceAvg, segments } = payload;
@@ -111,7 +112,7 @@ export function parseTranscriptionResult(payload: unknown): TranscriptionProvide
   return { modelId, language, confidenceAvg, segments: parsed };
 }
 
-/** อ่าน error.code จาก body ของ response ที่ไม่ใช่ 2xx ถ้า provider ไม่ได้ส่งตามรูปแบบคืน undefined */
+/** Reads error.code from a non-2xx response body; undefined when the provider did not follow the format. */
 export function readAsrErrorCode(payload: unknown): string | undefined {
   if (!isRecord(payload) || !isRecord(payload.error)) return undefined;
   const code = payload.error.code;

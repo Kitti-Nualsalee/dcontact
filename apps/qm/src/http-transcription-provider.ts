@@ -15,7 +15,7 @@ export interface HttpTranscriptionProviderConfiguration {
   id: string;
   endpoint: string;
   apiKey?: string;
-  /** เวลารอ provider ต่อคำขอ ค่าเริ่มต้น 5 นาที (protocol v1 เป็น synchronous) */
+  /** How long to wait for the provider per request; default 5 minutes (protocol v1 is synchronous). */
   timeoutMs?: number;
 }
 
@@ -24,8 +24,8 @@ export const DEFAULT_TRANSCRIPTION_TIMEOUT_MS = 300_000;
 type Fetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
 /**
- * Client ของ D-Contact ASR Provider Protocol v1 (docs/qm-asr-provider-protocol.md)
- * provider จริงหรือ gateway ของ deployment แปลงสัญญานี้ไปเป็น ASR แบบ cloud หรือ on-prem
+ * Client of the D-Contact ASR Provider Protocol v1 (docs/qm-asr-provider-protocol.md).
+ * A real provider or the deployment's gateway maps this contract onto a cloud or on-prem ASR.
  */
 export class HttpTranscriptionProvider implements TranscriptionProvider {
   readonly id: string;
