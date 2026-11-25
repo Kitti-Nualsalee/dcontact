@@ -1,6 +1,6 @@
 import type { WorkspaceSession } from './workspace-session.js';
 
-/** Binding ภายใน server เท่านั้น ห้ามรวมใน WorkspaceSession หรือ socket payload ที่ส่ง browser */
+/** Binding internal to the server only; must not be included in WorkspaceSession or a socket payload sent to the browser */
 export interface WorkspaceMutationAuthBinding {
   tenantId: string;
   userId: string;

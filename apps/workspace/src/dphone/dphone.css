@@ -1,4 +1,4 @@
-/* D1.15 (#454): dphone widget — token ล้วน (stylelint) */
+/* D1.15 (#454): dphone widget — tokens only (stylelint) */
 .dp-widget {
   display: flex;
   flex-direction: column;
@@ -168,7 +168,7 @@
   font-size: var(--dc-text-xs);
 }
 
-/* หน้า /dphone: widget เต็มหน้าต่าง */
+/* the /dphone page: widget fills the window */
 .dp-page {
   display: flex;
   min-height: 100vh;
@@ -189,7 +189,7 @@
   text-align: center;
 }
 
-/* E1.14: dphone ที่ถูกฝังใน host — เต็มกรอบ iframe และ prompt ของ click-to-call */
+/* E1.14: dphone embedded in a host — fills the iframe frame, plus the click-to-call prompt */
 .aw-embedded {
   display: flex;
   flex-direction: column;
@@ -209,8 +209,8 @@
   gap: var(--dc-space-2);
 }
 
-/* forced-colors: ปุ่มที่กดค้างบอกด้วยพื้นสีอย่างเดียว ซึ่งโหมดนี้บังคับเป็น Canvas จึงใช้ Highlight ของระบบแทน
-   (ปิด forced-color-adjust ไม่งั้นแผ่น Canvas หลังข้อความบังข้อความ) outline โฟกัสอยู่ด้านนอกบน Canvas จึงใช้สีเดิมได้ */
+/* forced-colors: a pressed button shows only through a background color, which this mode forces to Canvas, so the system Highlight is used instead
+   (forced-color-adjust is turned off, otherwise the Canvas plate behind the text hides the text); the focus outline is outside on Canvas so the original color works */
 @media (forced-colors: active) {
   .dp-icon-button[aria-pressed='true'] {
     forced-color-adjust: none;

@@ -5,14 +5,14 @@ import { fileURLToPath } from 'node:url';
 import { expect, test, type Page } from '@playwright/test';
 
 /**
- * D1.16 (#455): acceptance ที่ห้าม waive ของ D1 (#428) บนสายจริงใน dev stack
+ * D1.16 (#455): the non-waivable acceptance of D1 (#428) on a real call in the dev stack
  *
- * เอเจนต์ agent1000 login ผ่าน Keycloak (PKCE) → ตรวจอุปกรณ์เสียงด้วย fake media → SIP.js ลงทะเบียนกับ
- * FreeSWITCH → SIPp โทรเข้าคิว 2000 → Router เสนอสาย → รับสายใน dphone แล้ววัดทุกขั้นว่า
- * SIP session ID, WS connection ID, `performance.timeOrigin` และจำนวน navigation entry ไม่เปลี่ยน
- * และ channel ของสายใน FreeSWITCH ยังเป็นชุดเดิมที่ ACTIVE (สายไม่ถูกตัดหรือสร้างใหม่ฝั่ง media)
+ * agent1000 logs in through Keycloak (PKCE) → check audio devices with fake media → SIP.js registers with
+ * FreeSWITCH → SIPp calls queue 2000 → Router offers the call → answer in dphone, then measure at every step that the
+ * SIP session ID, WS connection ID, `performance.timeOrigin` and the number of navigation entries do not change
+ * and the call's channel in FreeSWITCH is still the same ACTIVE one (the call was not cut or recreated on the media side)
  *
- * รันผ่าน `pnpm d1:real-call` เท่านั้น — harness เตรียม stack ให้
+ * run only through `pnpm d1:real-call` — the harness prepares the stack
  */
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, '../../..');
@@ -35,11 +35,11 @@ function fsChannels(): FsChannel[] {
     [...compose, 'exec', '-T', 'freeswitch', 'fs_cli', '-x', 'show channels as json'],
     { cwd: repoRoot, encoding: 'utf8' },
   );
-  if (result.status !== 0) throw new Error(`fs_cli ล้มเหลว: ${result.stderr}`);
+  if (result.status !== 0) throw new Error(`fs_cli failed: ${result.stderr}`);
   return (JSON.parse(result.stdout) as { rows?: FsChannel[] }).rows ?? [];
 }
 
-/** leg ขาเข้าจาก SIPp (ปลายทาง 2000) และ leg ที่ bridge ไปหาเอเจนต์ 1000 */
+/** inbound leg from SIPp (destination 2000) and the leg bridged to agent 1000 */
 function callLegs() {
   const rows = fsChannels();
   const inbound = rows.find((row) => row.initial_dest === '2000');
@@ -63,7 +63,7 @@ function placeCall(): { process: ChildProcess; output: () => string } {
       '-v',
       `${resolve(repoRoot, 'scripts/fixtures/d1-real-call-uac.xml')}:/scenario.xml:ro`,
       sippImage,
-      // #562: สายลูกค้าเข้าทาง trunk จำลอง `pstn-sim`
+      // #562: the customer call arrives through the simulated trunk `pstn-sim`
       'freeswitch:5080',
       '-sf',
       '/scenario.xml',
@@ -99,7 +99,7 @@ async function login(page: Page) {
   await page.goto('/?tenant=demo');
   await page.getByRole('button', { name: 'เข้าสู่ระบบ' }).click();
   await page.waitForURL(/\/realms\/dcontact\//);
-  // Keycloak Organizations ใช้ identity-first: กรอก username แล้วส่งก่อน จึงได้หน้ารหัสผ่าน
+  // Keycloak Organizations uses identity-first: enter the username and submit first, to get the password page
   await page.locator('#username').fill('agent1000@demo.local');
   if (!(await page.locator('#password').isVisible())) await page.locator('#kc-login').click();
   await page.locator('#password').fill('agent1234');
@@ -107,7 +107,7 @@ async function login(page: Page) {
   await page.waitForURL((url) => url.origin === 'http://localhost:5173');
 }
 
-test('สายจริง: ย่อ/ขยาย 3 ขนาด แยกหน้าต่าง/ดึงกลับ และสลับภาษา — ไม่ reload ไม่ตัดสาย/WS', async ({
+test('real call: collapse/expand 3 sizes, detach/pull back, and switch language — no reload, no cut call/WS', async ({
   page,
   context,
 }) => {
@@ -116,7 +116,7 @@ test('สายจริง: ย่อ/ขยาย 3 ขนาด แยกห�
   context.on('console', (message) =>
     consoleLines.push(`[${message.type()}] ${message.text()}`.slice(0, 2_000)),
   );
-  // SIP ระหว่าง browser กับ FreeSWITCH (บรรทัดแรก + SDP ที่มีผลกับการต่อ media) สำหรับวินิจฉัยเมื่อ fail
+  // SIP between the browser and FreeSWITCH (first line + SDP that affects the media connection) for diagnosing a failure
   const sipLines: string[] = [];
   const sipSummary = (direction: string, payload: string | Buffer) => {
     const text = payload.toString();
@@ -136,7 +136,7 @@ test('สายจริง: ย่อ/ขยาย 3 ขนาด แยกห�
   const steps: Array<{ step: string; evidence: unknown; legs: unknown }> = [];
 
   await login(page);
-  // locale ถูกเก็บใน Keycloak — รอบก่อนที่ล้มกลางทางอาจค้างเป็น English
+  // the locale is stored in Keycloak — a previous run that failed midway may leave it as English
   await page.getByRole('button', { name: 'ไทย' }).click();
   const dphone = page.getByRole('region', { name: 'dphone' });
   await expect(dphone).toBeVisible();
@@ -173,21 +173,21 @@ test('สายจริง: ย่อ/ขยาย 3 ขนาด แยกห�
     await dphone.getByRole('button', { name: 'ย่อเป็นแถบ' }).click();
     await expect(dphone.getByRole('button', { name: 'ปิดไมค์' })).toHaveCount(0);
     await dphone.screenshot({ path: resolve(evidenceDir, 'dphone-th-bar.png') });
-    await check('ย่อเป็นแถบ');
+    await check('collapse to bar');
 
     await dphone.getByRole('button', { name: 'ขยายพร้อมแป้นกด' }).click();
     await dphone.getByRole('button', { name: 'ส่ง DTMF 5' }).click();
     await dphone.screenshot({ path: resolve(evidenceDir, 'dphone-th-expanded.png') });
-    await check('ขยายพร้อมแป้นกด + DTMF');
+    await check('expand with keypad + DTMF');
 
     await dphone.getByRole('button', { name: 'กะทัดรัด' }).click();
     await dphone.screenshot({ path: resolve(evidenceDir, 'dphone-th-compact.png') });
-    await check('กะทัดรัด');
+    await check('compact');
 
     await page.getByRole('button', { name: 'English' }).click();
     await expect(dphone.getByRole('status', { name: 'dphone' })).toHaveText('On a call');
     await page.screenshot({ path: resolve(evidenceDir, 'workspace-en-call-compact.png') });
-    await check('สลับเป็น English');
+    await check('switch to English');
 
     const [popup] = await Promise.all([
       context.waitForEvent('page'),
@@ -199,17 +199,17 @@ test('สายจริง: ย่อ/ขยาย 3 ขนาด แยกห�
     await expect(remote.getByRole('status', { name: 'dphone' })).toHaveText('On hold');
     await remote.getByRole('button', { name: 'Resume' }).click();
     await expect(remote.getByRole('status', { name: 'dphone' })).toHaveText('On a call');
-    await check('แยกหน้าต่าง + พัก/กลับเข้าสายจากหน้าต่างแยก');
+    await check('detach window + hold/resume the call from the detached window');
 
     await page.getByRole('button', { name: 'ไทย' }).click();
     await expect(remote.getByRole('status', { name: 'dphone' })).toHaveText('กำลังสนทนา');
-    await check('สลับกลับเป็นไทยขณะแยกหน้าต่าง');
+    await check('switch back to Thai while detached');
 
     const closed = popup.waitForEvent('close');
     await page.getByRole('button', { name: 'กลับมาที่ Workspace' }).click();
     await closed;
     await expect(dphone.getByRole('button', { name: 'วางสาย' })).toBeVisible();
-    await check('ดึง dphone กลับ');
+    await check('pull dphone back');
 
     await dphone.getByRole('button', { name: 'วางสาย' }).click();
     const callerExit = await new Promise<number | null>((done) => {

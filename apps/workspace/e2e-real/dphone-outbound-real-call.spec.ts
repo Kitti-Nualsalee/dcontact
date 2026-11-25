@@ -18,7 +18,7 @@ function psql(sql: string): string {
     [...compose, 'exec', '-T', 'postgres', 'psql', '-U', 'dcontact', '-d', database, '-Atc', sql],
     { cwd: repoRoot, encoding: 'utf8' },
   );
-  if (result.status !== 0) throw new Error(`psql ล้มเหลว: ${result.stdout}${result.stderr}`);
+  if (result.status !== 0) throw new Error(`psql failed: ${result.stdout}${result.stderr}`);
   return result.stdout.trim();
 }
 
@@ -53,7 +53,9 @@ async function requestCall(page: Page, frame: Frame, number: string, expected: R
   return prompt;
 }
 
-test('E1.18 real stack: ALLOW โทรจริง; BLOCK/DEFER/REVIEW ไม่แตะ provider', async ({ page }) => {
+test('E1.18 real stack: ALLOW places a real call; BLOCK/DEFER/REVIEW never touch the provider', async ({
+  page,
+}) => {
   mkdirSync(evidenceDir, { recursive: true });
   await page.goto('/');
   await expect(page.locator('body')).toHaveAttribute('data-dphone-ready', 'true');
@@ -136,9 +138,10 @@ test('E1.18 real stack: ALLOW โทรจริง; BLOCK/DEFER/REVIEW ไม�
     ],
     { cwd: repoRoot, encoding: 'utf8' },
   );
-  expect(`${direct.stdout}${direct.stderr}`, 'agent direct outbound ต้องถูกปฏิเสธด้วย 603').toMatch(
-    /Successful call\s+\|\s+0\s+\|\s+1/,
-  );
+  expect(
+    `${direct.stdout}${direct.stderr}`,
+    'agent direct outbound must be rejected with 603',
+  ).toMatch(/Successful call\s+\|\s+0\s+\|\s+1/);
   expect(direct.status).toBe(0);
   writeFileSync(
     resolve(evidenceDir, 'e1-18-real-call-evidence.json'),

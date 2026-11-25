@@ -30,7 +30,7 @@ function transport(overrides: Partial<BrowserSipTransport> = {}): BrowserSipTran
   };
 }
 
-test('working tab ที่ media พร้อม register SIP และ accept invitation เพียงครั้งเดียว', async () => {
+test('a working tab with ready media registers SIP and accepts the invitation exactly once', async () => {
   const calls: string[] = [];
   const softphone = new BrowserDphone(
     transport({
@@ -53,11 +53,11 @@ test('working tab ที่ media พร้อม register SIP และ accept 
   });
 });
 
-test('SIP.js แจ้ง Established ก่อน accept() resolve → dphone เป็น ACTIVE ไม่ค้างที่ CONNECTING', async () => {
+test('SIP.js reports Established before accept() resolves → dphone is ACTIVE, not stuck at CONNECTING', async () => {
   let softphone: BrowserDphone;
   softphone = new BrowserDphone(
     transport({
-      // ลำดับจริงของ SIP.js: 200 OK → ACK → Established (callback) → accept() resolve
+      // actual SIP.js order: 200 OK → ACK → Established (callback) → accept() resolve
       accept: async () => void softphone.connected(),
     }),
   );
@@ -68,7 +68,7 @@ test('SIP.js แจ้ง Established ก่อน accept() resolve → dphone �
   assert.equal(softphone.current().phase, 'ACTIVE');
 });
 
-test('accept ล้มเหลว → กลับเป็น RINGING เพื่อให้ลองรับสายใหม่หรือรอ BYE', async () => {
+test('accept fails → back to RINGING so the call can be retried or wait for BYE', async () => {
   const softphone = new BrowserDphone(
     transport({
       accept: async () => {
@@ -83,7 +83,7 @@ test('accept ล้มเหลว → กลับเป็น RINGING เพ�
   assert.equal(softphone.current().phase, 'RINGING');
 });
 
-test('passive tab หรือ media ไม่พร้อมจะไม่ register และปฏิเสธ invitation', async () => {
+test('a passive tab or media not ready does not register and rejects the invitation', async () => {
   const calls: string[] = [];
   const softphone = new BrowserDphone(
     transport({
@@ -100,7 +100,7 @@ test('passive tab หรือ media ไม่พร้อมจะไม่ reg
   assert.deepEqual(softphone.current(), { phase: 'OFFLINE' });
 });
 
-test('SIP reconnect ใช้ bounded backoff หกครั้งแล้วเปลี่ยนเป็น manual recovery', async () => {
+test('SIP reconnect uses bounded backoff six times then switches to manual recovery', async () => {
   const delays: number[] = [];
   let attempts = 0;
   const softphone = new BrowserDphone(
@@ -125,7 +125,7 @@ test('SIP reconnect ใช้ bounded backoff หกครั้งแล้ว�
   });
 });
 
-test('active call รองรับ local mute, hold/resume, DTMF และ hangup ตามลำดับ', async () => {
+test('active call supports local mute, hold/resume, DTMF and hangup in order', async () => {
   const calls: string[] = [];
   const softphone = new BrowserDphone(
     transport({
@@ -155,7 +155,7 @@ test('active call รองรับ local mute, hold/resume, DTMF และ han
   });
 });
 
-test('#687: hangup เก่ากลับมาช้าห้ามทับ invitation ของสายใหม่', async () => {
+test('#687: a stale hangup returning late must not overwrite the invitation of a new call', async () => {
   let finishHangup!: () => void;
   const softphone = new BrowserDphone(
     transport({
@@ -179,7 +179,7 @@ test('#687: hangup เก่ากลับมาช้าห้ามทับ 
   assert.equal('interactionId' in current && current.interactionId, 'call-new');
 });
 
-test('remote BYE จบ active Interaction เดิมและคืน softphone เป็น READY', async () => {
+test('remote BYE ends the existing active Interaction and returns the softphone to READY', async () => {
   const softphone = new BrowserDphone(transport());
   await softphone.start(lease, { ownsWorkingTab: true, mediaReady: true });
   await softphone.receiveInvitation('interaction-remote-bye');

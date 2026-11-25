@@ -1,6 +1,8 @@
 import { expect, test } from './fixtures';
 
-test('Agent เปิดรับสายได้หลัง browser ยืนยัน media readiness เท่านั้น', async ({ page }) => {
+test('an Agent can open for calls only after the browser confirms media readiness', async ({
+  page,
+}) => {
   await page.goto('/');
 
   await expect(page.getByRole('heading', { name: 'Agent Workspace' })).toBeVisible();
@@ -20,7 +22,9 @@ test('Agent เปิดรับสายได้หลัง browser ยื�
   await expect(page.getByText('พร้อมรับสาย', { exact: true })).toBeVisible();
 });
 
-test('Agent ถูกถอนจาก AVAILABLE เมื่อ media track จบระหว่างรอรับสาย', async ({ page }) => {
+test('an Agent is withdrawn from AVAILABLE when the media track ends while waiting for a call', async ({
+  page,
+}) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'ตรวจอุปกรณ์เสียง' }).click();
   await page.getByRole('button', { name: 'เปิดรับสาย' }).click();

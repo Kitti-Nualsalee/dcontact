@@ -36,13 +36,13 @@ class MemoryStorage implements Storage {
   }
 }
 
-test('tenant alias มาจาก query ใน local dev และ hostname ใน tenant workspace', () => {
+test('tenant alias comes from the query in local dev and from the hostname in a tenant workspace', () => {
   assert.equal(resolveTenantAlias(new URL('http://localhost:5173/?tenant=demo')), 'demo');
   assert.equal(resolveTenantAlias(new URL('https://acme.d-contact.io/')), 'acme');
   assert.throws(() => resolveTenantAlias(new URL('http://localhost:5173/')), /tenant alias/);
 });
 
-test('OIDC ใช้ Authorization Code + PKCE และไม่เก็บ access token ใน sessionStorage', async () => {
+test('OIDC uses Authorization Code + PKCE and does not store the access token in sessionStorage', async () => {
   const sessionStorage = new MemoryStorage();
   const settings = createOidcSettings({
     issuer: 'https://identity.example/realms/dcontact',
@@ -63,7 +63,7 @@ test('OIDC ใช้ Authorization Code + PKCE และไม่เก็บ ac
   assert.equal(await settings.userStore?.get('oidc.user:test'), '{"access_token":"secret"}');
 });
 
-test('Supervisor Workspace เปิดได้เฉพาะ realm role supervisor หรือ admin', () => {
+test('Supervisor Workspace opens only for realm role supervisor or admin', () => {
   const supervisorUrl = new URL('https://acme.d-contact.io/?view=supervisor');
 
   assert.equal(
@@ -81,7 +81,7 @@ test('Supervisor Workspace เปิดได้เฉพาะ realm role super
   assert.equal(resolveAuthorizedWorkspaceView(supervisorUrl, {}), 'forbidden');
 });
 
-test('Agent Workspace เป็น view เริ่มต้นแม้ profile มีข้อมูล role ผิดรูปแบบ', () => {
+test('Agent Workspace is the default view even when the profile has malformed role data', () => {
   assert.equal(
     resolveAuthorizedWorkspaceView(new URL('https://acme.d-contact.io/'), {
       realm_access: { roles: 'supervisor' },
@@ -90,7 +90,7 @@ test('Agent Workspace เป็น view เริ่มต้นแม้ profil
   );
 });
 
-test('Supervisor callback คืน view เดิม ล้าง OAuth parameters และไม่รับ external/cross-tenant destination', () => {
+test('Supervisor callback returns the original view, clears OAuth parameters, and rejects external/cross-tenant destinations', () => {
   const before = new URL('https://workspace.example/?tenant=uat&view=supervisor');
   const callback = new URL(
     'https://workspace.example/?tenant=uat&code=secret&state=opaque&session_state=x&iss=idp',
@@ -108,7 +108,7 @@ test('Supervisor callback คืน view เดิม ล้าง OAuth paramet
   }
 });
 
-test('Workspace ใช้ role จาก access token เพราะ roles scope ของ Keycloak ไม่ใส่ role ใน ID token', () => {
+test('Workspace uses roles from the access token because the Keycloak roles scope puts no roles in the ID token', () => {
   const token = (roles: unknown) =>
     `header.${btoa(JSON.stringify({ realm_access: { roles } }))}.signature`;
   const url = new URL('https://workspace.example/?tenant=uat&view=supervisor');

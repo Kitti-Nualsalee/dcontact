@@ -8,9 +8,9 @@ export interface AgentWorkspaceSnapshot {
     displayName: string;
     extension: string | null;
     state: 'OFFLINE' | 'AVAILABLE' | 'RESERVED' | 'BUSY' | 'ACW' | 'BREAK';
-    /** #937 เวลาเริ่มสถานะปัจจุบัน */
+    /** #937 start time of the current state */
     stateSince?: string | null;
-    /** #937 เหตุผล Not Ready ของ tenant (มีเฉพาะ BREAK ที่ Agent เลือก) */
+    /** #937 the tenant's Not Ready reason (only BREAK that the Agent chose) */
     reasonCode?: string | null;
     changedBy?: 'AGENT' | 'SUPERVISOR' | 'SYSTEM';
     changedByName?: string | null;
@@ -33,7 +33,7 @@ export interface AgentWorkspaceSnapshot {
 
 export type AfterWork = { state: 'AVAILABLE' } | { state: 'BREAK'; reasonCode: string };
 
-/** #937 เหตุผล Not Ready ที่ Agent เลือกได้ ตามลำดับที่ Admin ตั้ง */
+/** #937 Not Ready reasons the Agent can choose, in the order the Admin set */
 export interface NotReadyReason {
   code: string;
   labelTh: string;
@@ -57,7 +57,7 @@ export interface WrapupIntentV1 {
   commandId: string;
 }
 
-/** #956 เปิดเคสจากงานปัจจุบัน */
+/** #956 open a case from the current work */
 export interface OpenCaseIntent {
   interactionId: string;
   subject: string;
@@ -89,7 +89,7 @@ export interface AgentWorkspaceApi {
   customer?: WorkCustomerApi;
   snapshot(): Promise<AgentWorkspaceSnapshot>;
   becomeAvailable(workSessionLeaseId: string): Promise<void>;
-  /** #937 Agent ตั้ง Not Ready + เหตุผล หรือ Offline เอง */
+  /** #937 the Agent sets Not Ready + reason, or Offline, themselves */
   setAgentState?(
     workSessionLeaseId: string,
     state: { state: 'BREAK'; reasonCode: string } | { state: 'OFFLINE' },
@@ -119,20 +119,20 @@ export interface AgentWorkspaceApi {
 
 export interface WorkspaceLiveHandlers {
   onEvent(event: unknown): void;
-  /** `code` = WebSocket close code (เช่น 4409 เมื่อ server ไม่รับ work-session lease) */
+  /** `code` = WebSocket close code (e.g. 4409 when the server does not accept the work-session lease) */
   onDisconnect(code?: number): void;
 }
 
 export interface WorkspaceLiveOptions {
-  /** E1.12: work-session lease ที่ถืออยู่ — แนบใน `auth:connect` (tenant ที่บังคับ lease) */
+  /** E1.12: work-session lease currently held — attached in `auth:connect` (tenants that enforce the lease) */
   leaseId?: string;
 }
 
 export interface WorkspaceLiveConnection {
-  /** id ของ socket นี้ (สร้างฝั่ง client ต่อหนึ่งการเชื่อมต่อ) — socket ใหม่ = id ใหม่ */
+  /** id of this socket (created client-side per connection) — a new socket = a new id */
   id?: string;
   close(): void;
-  /** ส่งข้อความหลังยืนยันตัวตนแล้ว (เช่น `lease:heartbeat`) — socket ยังไม่เปิด/ปิดแล้วถูกทิ้ง */
+  /** send a message after authentication (e.g. `lease:heartbeat`) — a socket that is not yet open/already closed is dropped */
   send?(message: Record<string, unknown>): void;
 }
 
@@ -141,8 +141,8 @@ export interface AgentWorkspaceApiOptions {
   accessToken(): string | undefined;
   fetch?: typeof globalThis.fetch;
   /**
-   * E1.14: fetch ที่แนบ token เอง (dphone ที่ถูกฝัง — `EmbeddedAuth.fetch` เข้าคิวเมื่อต้อง login ใหม่)
-   * มีค่านี้ = REST ไม่ใช้ `accessToken()` (WS ยังใช้)
+   * E1.14: fetch that attaches the token itself (embedded dphone — `EmbeddedAuth.fetch` queues when a new login is needed)
+   * with this value = REST does not use `accessToken()` (WS still does)
    */
   authorizedFetch?: (url: string, init: RequestInit) => Promise<Response>;
 }
@@ -405,7 +405,7 @@ export function createAgentWorkspaceApi(options: AgentWorkspaceApiOptions): Agen
         try {
           handlers.onEvent(JSON.parse(String(event.data)));
         } catch {
-          // ข้อความที่อ่านไม่ได้ไม่มี authority ใด จึงไม่เปลี่ยน Workspace state
+          // an unreadable message has no authority, so it does not change Workspace state
         }
       });
       socket.addEventListener('close', (event) => handlers.onDisconnect(event.code));

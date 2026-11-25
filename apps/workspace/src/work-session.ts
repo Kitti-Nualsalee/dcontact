@@ -1,17 +1,17 @@
 /**
- * E1.12 (#486): client ของ work-session lease (E1.9 #483) สำหรับ Workspace และ dphone
+ * E1.12 (#486): client of the work-session lease (E1.9 #483) for Workspace and dphone
  *
- * Authority: E1.3 #459, Phase Contract E1.8 #464, ADR-026 ข้อ 2 และข้อ 4
+ * Authority: E1.3 #459, Phase Contract E1.8 #464, ADR-026 items 2 and 4
  *
- * - server เป็นผู้ตัดสินจุดรับงานเดียวต่อ agent ต่อ tenant — client แค่ขอ/ต่ออายุ/ย้าย และหยุดรับงานเมื่อเสีย lease
- * - ลำดับบังคับ: ได้ lease ก่อน แล้วจึงต่อ WS ของ routing (แนบ `leaseId`) และ register SIP
- * - heartbeat ทาง WS (`lease:heartbeat`) ทุก `heartbeatSeconds` (20 วินาที); lease ไม่หมดระหว่างมีงาน (server)
- * - `lease.revoked` / `lease.expired` / WS ปิด 4409 = หยุดรับงานใหม่ทันที; สายที่คุยอยู่ไม่ถูกตัด (ADR-026 ข้อ 4)
- *   การถอน SIP register เป็นหน้าที่ของผู้เรียก เมื่อ `ownsWork` เป็นเท็จและไม่มีสายในมือ
- * - "ย้ายมาที่นี่" = takeover ที่ผู้ใช้ยืนยันแล้ว พร้อม `expectedLeaseId`; ถูกปฏิเสธ (มีงานค้าง/lease เปลี่ยน)
- *   ไม่แตะอะไรของที่เดิม — ทั้งสายและ WS ของที่เดิมอยู่ครบ
- * - #583 (#582): ทุก tenant บังคับ lease — ไม่มี flag และไม่มีสถานะ "ไม่บังคับ" อีกแล้ว
- *   SIP credential ออกให้เฉพาะผู้ถือ lease (E1.10 #551) อ่านสถานะ lease ไม่ได้ = error แล้วลองใหม่ (fail closed)
+ * - the server decides the single work point per agent per tenant — the client only requests/renews/moves and stops taking work on losing the lease
+ * - mandatory order: get the lease first, then connect the routing WS (with `leaseId`) and register SIP
+ * - heartbeat over WS (`lease:heartbeat`) every `heartbeatSeconds` (20 seconds); the lease does not expire while there is work (server)
+ * - `lease.revoked` / `lease.expired` / WS close 4409 = stop taking new work immediately; a call in progress is not cut (ADR-026 item 4)
+ *   withdrawing the SIP register is the caller's job when `ownsWork` is false and there is no work in hand
+ * - "move here" = a user-confirmed takeover with `expectedLeaseId`; if rejected (work pending/lease changed)
+ *   nothing at the old place is touched — both its call and WS stay intact
+ * - #583 (#582): every tenant enforces the lease — no flag and no "not enforced" state anymore
+ *   SIP credentials are issued only to the lease holder (E1.10 #551); failing to read the lease state = error then retry (fail closed)
  */
 
 export type WorkSessionSurface = 'workspace' | 'dphone' | 'embedded';
@@ -22,7 +22,7 @@ export interface WorkSessionHolder {
   surface: WorkSessionHolderSurface;
   hostOrigin: string | null;
   acquiredAt: string;
-  /** มีสายหรือ wrap-up อยู่ — ย้ายไม่ได้จนกว่างานจบ */
+  /** has a call or wrap-up — cannot move until the work ends */
   busy: boolean;
 }
 
@@ -69,9 +69,9 @@ export interface WorkSessionApiOptions {
   baseUrl: string;
   accessToken(): string | undefined;
   fetch?: typeof globalThis.fetch;
-  /** E1.14: host origin ที่ iframe ล็อกไว้ — ส่งไปกับ surface `embedded` ให้ server ตรวจกับ allowlist ซ้ำ */
+  /** E1.14: host origin the iframe is locked to — sent with surface `embedded` so the server re-checks it against the allowlist */
   hostOrigin?: string;
-  /** E1.14: fetch ที่แนบ token เอง (ดู `AgentWorkspaceApiOptions.authorizedFetch`) */
+  /** E1.14: fetch that attaches the token itself (see `AgentWorkspaceApiOptions.authorizedFetch`) */
   authorizedFetch?: (url: string, init: RequestInit) => Promise<Response>;
 }
 
@@ -165,7 +165,7 @@ export function createWorkSessionApi(options: WorkSessionApiOptions): WorkSessio
   return {
     async status() {
       const result = await call('GET', '');
-      // #583: lease บังคับทุก tenant — 403/404/5xx ไม่ใช่ "ไม่บังคับ" แต่เป็นความล้มเหลวที่ต้องลองใหม่
+      // #583: the lease is enforced for every tenant — 403/404/5xx is not "not enforced" but a failure that must be retried
       if (result.status !== 200) throw failure(result);
       const body = (result.body ?? {}) as { holder?: unknown };
       return { holder: parseHolder(body.holder) ?? null };
@@ -192,9 +192,9 @@ export function createWorkSessionApi(options: WorkSessionApiOptions): WorkSessio
 
 // ── state machine ────────────────────────────────────────────────────────────
 
-/** เหตุที่ที่นี่เสีย lease — แสดงให้ผู้ใช้รู้ว่าทำไมหยุดรับงาน */
+/** reason this place lost the lease — shown to the user so they know why work stopped */
 export type WorkSessionLoss = 'takeover' | 'auth_revoked' | 'released' | 'expired';
-/** takeover ถูกปฏิเสธ — ไม่มีอะไรเปลี่ยนทั้งที่นี่และที่เดิม */
+/** takeover rejected — nothing changed, neither here nor at the old place */
 export type WorkSessionRejection = 'busy' | 'changed' | 'failed';
 
 export type WorkSessionState =
@@ -202,7 +202,7 @@ export type WorkSessionState =
   | { phase: 'checking' }
   | { phase: 'acquiring' }
   | { phase: 'held'; lease: WorkSessionLease }
-  /** ไม่ได้ถือ lease: ดูได้อย่างเดียว — มีผู้ถือที่อื่นหรือยังไม่ได้เริ่ม */
+  /** does not hold the lease: view only — someone else holds it or it has not started */
   | {
       phase: 'standby';
       holder: WorkSessionHolder | null;
@@ -210,7 +210,7 @@ export type WorkSessionState =
       rejection?: WorkSessionRejection;
     }
   | { phase: 'takingOver'; holder: WorkSessionHolder; loss?: WorkSessionLoss }
-  /** คุยกับ server ไม่สำเร็จ — ลองใหม่อัตโนมัติ */
+  /** could not talk to the server — retry automatically */
   | { phase: 'error'; loss?: WorkSessionLoss };
 
 export interface WorkSessionSocketSender {
@@ -227,11 +227,11 @@ export interface WorkSessionTimers {
 export interface WorkSessionClientOptions {
   surface: WorkSessionSurface;
   api: WorkSessionApi;
-  /** มีสาย/งานในมือที่นี่ — ห้ามถือว่า lease หมดอายุเองระหว่างนี้ (server ไม่ปล่อย lease ระหว่างมีงาน) */
+  /** has a call/work in hand here — must not assume the lease expires by itself meanwhile (the server does not release the lease while there is work) */
   busy?: () => boolean;
   now?: () => number;
   timers?: WorkSessionTimers;
-  /** ช่วงลองใหม่เมื่อคุยกับ server ไม่สำเร็จ และช่วงตรวจผู้ถือใหม่ระหว่าง standby */
+  /** retry interval when talking to the server fails, and interval for re-checking the holder during standby */
   retryMs?: number;
 }
 
@@ -242,7 +242,7 @@ const browserTimers: WorkSessionTimers = {
   clearTimeout: (handle) => globalThis.clearTimeout(handle as ReturnType<typeof setTimeout>),
 };
 
-/** ข้อความจาก WS ที่เกี่ยวกับ lease (E1.9 `WorkspaceSessionWebSocketAdapter`) */
+/** WS messages about the lease (E1.9 `WorkspaceSessionWebSocketAdapter`) */
 type LeaseSocketEvent =
   | { type: 'lease.active'; leaseId: string; expiresAt: string }
   | { type: 'lease.revoked'; leaseId: string; reason: 'takeover' | 'auth_revoked' | 'released' }
@@ -259,7 +259,7 @@ function isLeaseEvent(event: unknown): event is LeaseSocketEvent {
   );
 }
 
-/** WS close code ของ server เมื่อไม่มี lease ที่ active (E1.9) */
+/** server WS close code when there is no active lease (E1.9) */
 export const LEASE_REQUIRED_CLOSE_CODE = 4409;
 
 export class WorkSessionClient {
@@ -275,7 +275,7 @@ export class WorkSessionClient {
   private expiresAt = 0;
   private autoAcquire = false;
   private stopped = false;
-  /** นับรุ่นของคำขอ — คำตอบที่มาหลังสถานะเปลี่ยนไปแล้วถูกทิ้ง */
+  /** counts request generations — an answer arriving after the state has changed is dropped */
   private generation = 0;
 
   constructor(private readonly options: WorkSessionClientOptions) {
@@ -288,7 +288,7 @@ export class WorkSessionClient {
     return this.state;
   }
 
-  /** รับงานใหม่ได้ (ถือ lease อยู่) — `disabled` ให้ผู้เรียกใช้กติกาเดิมเอง */
+  /** can take new work (holds the lease) — `disabled` lets the caller apply its own old rules */
   ownsWork(): boolean {
     return this.state.phase === 'held';
   }
@@ -303,8 +303,8 @@ export class WorkSessionClient {
   }
 
   /**
-   * อ่าน flag + ผู้ถือ แล้ว (ถ้า `autoAcquire`) ขอ lease ทันที — `autoAcquire` คือแท็บ leader ของ origin นี้
-   * (leader election เหลือหน้าที่ลดภาระ: แท็บอื่นใน browser เดียวกันไม่ยิงขอ lease พร้อมกัน)
+   * reads flag + holder, then (if `autoAcquire`) requests the lease immediately — `autoAcquire` is the leader tab of this origin
+   * (leader election now only reduces load: other tabs in the same browser do not fire a lease request simultaneously)
    */
   async start(options: { autoAcquire: boolean }): Promise<void> {
     this.stopped = false;
@@ -313,7 +313,7 @@ export class WorkSessionClient {
     await this.check();
   }
 
-  /** แท็บนี้เป็น/ไม่เป็น leader ของ origin แล้ว — เป็น leader ที่ยังไม่ถือ lease และไม่มีผู้ถือ → ขอ */
+  /** this tab is/is not the origin's leader now — a leader that does not hold the lease while there is no holder → request */
   setAutoAcquire(autoAcquire: boolean): void {
     const changed = this.autoAcquire !== autoAcquire;
     this.autoAcquire = autoAcquire;
@@ -328,7 +328,7 @@ export class WorkSessionClient {
     }
   }
 
-  /** เริ่มรับงานที่นี่เมื่อไม่มีผู้ถือ (ปุ่มของผู้ใช้หรือ leader) — มีผู้ถือ → standby พร้อมข้อมูลผู้ถือ */
+  /** start taking work here when there is no holder (user button or leader) — with a holder → standby with the holder's info */
   async acquire(): Promise<void> {
     if (this.stopped || this.state.phase === 'held') return;
     const generation = this.transition({ phase: 'acquiring' });
@@ -347,8 +347,8 @@ export class WorkSessionClient {
   }
 
   /**
-   * "ย้ายมาที่นี่" หลังผู้ใช้ยืนยันแล้ว — ต้องรู้ lease ของที่เดิม (`expectedLeaseId`)
-   * มีงานค้างที่เดิม: ไม่ส่งคำขอเลย; server ปฏิเสธ: กลับ standby พร้อมเหตุผล ที่เดิมไม่ถูกแตะ
+   * "move here" after the user confirmed — must know the old place's lease (`expectedLeaseId`)
+   * work pending at the old place: send no request at all; server rejects: back to standby with the reason, the old place is untouched
    */
   async takeover(): Promise<void> {
     if (this.stopped || this.state.phase !== 'standby') return;
@@ -379,7 +379,7 @@ export class WorkSessionClient {
         return;
       }
       if (code === 'WORK_SESSION_CHANGED') {
-        // ผู้ถือเปลี่ยนระหว่างนั้น — อ่านใหม่ ให้ผู้ใช้เห็นผู้ถือปัจจุบันก่อนยืนยันอีกครั้ง
+        // the holder changed meanwhile — re-read so the user sees the current holder before confirming again
         await this.refresh({ rejection: 'changed', loss: standby.loss });
         return;
       }
@@ -387,7 +387,7 @@ export class WorkSessionClient {
     }
   }
 
-  /** อ่านผู้ถือปัจจุบันใหม่ระหว่าง standby (ปุ่ม "ตรวจอีกครั้ง" และรอบอัตโนมัติ) */
+  /** re-read the current holder during standby (the "check again" button and the automatic round) */
   async refresh(
     extra: { rejection?: WorkSessionRejection; loss?: WorkSessionLoss } = {},
   ): Promise<void> {
@@ -415,7 +415,7 @@ export class WorkSessionClient {
     }
   }
 
-  /** ผูก WS ที่ต่อด้วย `leaseId` ของ lease นี้ — heartbeat ส่งผ่าน socket นี้ */
+  /** bind the WS connected with this lease's `leaseId` — heartbeat is sent over this socket */
   attachSocket(socket: WorkSessionSocketSender): () => void {
     this.socket = socket;
     return () => {
@@ -423,7 +423,7 @@ export class WorkSessionClient {
     };
   }
 
-  /** ข้อความจาก WS — คืน true เมื่อเป็นข้อความของ lease (ผู้เรียกไม่ต้องจัดการต่อ) */
+  /** message from the WS — returns true when it is a lease message (the caller need not handle it further) */
   handleSocketEvent(event: unknown): boolean {
     if (!isLeaseEvent(event)) return false;
     if (this.state.phase !== 'held' || this.state.lease.leaseId !== event.leaseId) return true;
@@ -436,7 +436,7 @@ export class WorkSessionClient {
     return true;
   }
 
-  /** WS ปิด — 4409 = server ไม่รับ lease นี้แล้ว (หมดอายุ/ถูกย้าย) */
+  /** WS closed — 4409 = the server no longer accepts this lease (expired/moved) */
   handleSocketClosed(code?: number): void {
     this.socket = undefined;
     if (code === LEASE_REQUIRED_CLOSE_CODE && this.state.phase === 'held') this.lose('expired');
@@ -459,7 +459,7 @@ export class WorkSessionClient {
     return true;
   }
 
-  /** ปิดหน้า: ปล่อย lease ให้ที่อื่นรับงานต่อได้ทันที (best effort — ไม่สำเร็จก็หมดอายุเองใน 60 วินาที) */
+  /** page close: release the lease so somewhere else can take over immediately (best effort — if it fails it expires by itself in 60 seconds) */
   releaseOnExit(): void {
     if (this.state.phase !== 'held') return;
     if (this.options.busy?.()) return;
@@ -502,7 +502,7 @@ export class WorkSessionClient {
     );
   }
 
-  /** heartbeat รอบหนึ่ง + ตรวจเองว่า lease เลยอายุตอนว่างหรือยัง (WS หลุดนานเกิน TTL) */
+  /** one heartbeat round + self-check whether the lease passed its age while idle (WS dropped longer than the TTL) */
   private beat(): void {
     if (this.state.phase !== 'held') return;
     const leaseId = this.state.lease.leaseId;
@@ -513,7 +513,7 @@ export class WorkSessionClient {
     this.socket?.send({ type: 'lease:heartbeat', leaseId });
   }
 
-  /** เสีย lease: หยุดรับงานใหม่ทันที แล้วอ่านผู้ถือปัจจุบันเพื่อแสดงหน้าย้าย */
+  /** lost the lease: stop taking new work immediately, then read the current holder to show the move page */
   private lose(loss: WorkSessionLoss): void {
     this.socket = undefined;
     this.transition({ phase: 'standby', holder: null, loss });
@@ -526,7 +526,7 @@ export class WorkSessionClient {
     rejection?: WorkSessionRejection;
   }): void {
     this.transition({ phase: 'standby', ...stripUndefined(state) });
-    // ผู้ถือเดิมอาจจบงานหรือหลุดไป — ตรวจเป็นรอบ ปุ่มย้ายจะเปิดเองเมื่อย้ายได้
+    // the old holder may have finished work or dropped — check periodically; the move button enables itself when moving is possible
     this.pollTimer = this.timers.setInterval(() => void this.refresh(), this.retryMs);
   }
 

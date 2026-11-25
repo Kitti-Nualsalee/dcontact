@@ -3,9 +3,9 @@ import { expect, test } from './fixtures';
 import type { Page } from '@playwright/test';
 
 /**
- * #938 หน้าเลือกสถานะหลัง login และตัวเลือกสถานะใน Workspace (docs/agent-readiness-setup.md)
- * server จำลองเก็บสถานะของ Agent ตามคำสั่ง availability/after-work ที่ส่งมา (สัญญา API ของ #937)
- * `AGENT_STATUS_EVIDENCE_DIR=<dir>` = เก็บภาพหลักฐานสำหรับ PR
+ * #938 status picker page after login and the status selector in Workspace (docs/agent-readiness-setup.md)
+ * the mock server stores the Agent's status according to the availability/after-work commands sent (the API contract of #937)
+ * `AGENT_STATUS_EVIDENCE_DIR=<dir>` = save evidence screenshots for the PR
  */
 test.use({ locale: 'th-TH', viewport: { width: 1440, height: 900 } });
 
@@ -142,7 +142,7 @@ async function evidence(page: Page, name: string) {
   if (dir) await page.screenshot({ path: `${dir}/${name}.png` });
 }
 
-test('หลัง login เลือก Not Ready ต้องเลือกเหตุผลก่อน — เข้า Workspace โดยไม่ขอไมค์และไม่ register โทรศัพท์', async ({
+test('after login, choosing Not Ready requires choosing a reason first — enter Workspace without asking for the mic and without registering the phone', async ({
   page,
 }) => {
   const server = await open(page);
@@ -176,7 +176,7 @@ test('หลัง login เลือก Not Ready ต้องเลือก�
   await evidence(page, 'agent-status-selector');
 });
 
-test('Ready → เตรียมรับสายครบแล้วเข้า Workspace, เปลี่ยนเป็น Offline จากตัวเลือกปล่อยโทรศัพท์', async ({
+test('Ready → fully prepared to take calls then enter Workspace, switch to Offline from the release-phone option', async ({
   page,
 }) => {
   const server = await open(page);
@@ -187,7 +187,7 @@ test('Ready → เตรียมรับสายครบแล้วเข�
   const phone = page.getByRole('status', { name: 'สถานะ dphone' });
   await expect(phone).toHaveText('โทรศัพท์พร้อม');
 
-  // Not Ready ถือโทรศัพท์ไว้ — Offline เท่านั้นที่ปล่อย (คำตัดสิน owner ข้อ 5)
+  // Not Ready keeps the phone — only Offline releases it (owner decision item 5)
   await selector(page).click();
   await page.getByRole('option', { name: 'Not Ready · ประชุม', exact: true }).click();
   await expect(selector(page)).toContainText('Not Ready · ประชุม');
@@ -202,14 +202,16 @@ test('Ready → เตรียมรับสายครบแล้วเข�
     { state: 'OFFLINE' },
   ]);
 
-  // กลับเป็น Ready ต้องเตรียมรับสายใหม่
+  // going back to Ready must prepare for calls again
   await selector(page).click();
   await page.getByRole('option', { name: 'Ready', exact: true }).click();
   await expect(selector(page)).toContainText('Ready');
   await expect(phone).toHaveText('โทรศัพท์พร้อม');
 });
 
-test('ไมค์ถูกปฏิเสธ → บอกวิธีแก้ และเข้าแบบ Not Ready · งานหลังบ้านได้', async ({ page }) => {
+test('mic denied → explains the fix, and enters as Not Ready · back-office work allowed', async ({
+  page,
+}) => {
   const server = await open(page, { mic: 'denied' });
   await enter(page).click();
   await expect(gate(page).getByRole('alert')).toContainText('ใช้ไมโครโฟนไม่ได้');
@@ -221,7 +223,9 @@ test('ไมค์ถูกปฏิเสธ → บอกวิธีแก้
   expect(server.commands).toEqual([{ state: 'BREAK', reasonCode: 'BACK_OFFICE' }]);
 });
 
-test('มีสายในมือตอนเปิดหน้า → ข้ามหน้าเลือกสถานะ และตั้งสถานะหลังจบงานได้', async ({ page }) => {
+test('a call in hand when the page opens → skip the status picker page, and the status can be set after the work ends', async ({
+  page,
+}) => {
   const server = await open(page, {
     agent: { state: 'BUSY' },
     interaction: {
@@ -248,12 +252,12 @@ test('มีสายในมือตอนเปิดหน้า → ข้
   expect(server.commands).toEqual([]);
 });
 
-test('หน้าเลือกสถานะจำสถานะล่าสุดที่เลือกไว้', async ({ page }) => {
+test('the status picker page remembers the last chosen status', async ({ page }) => {
   await page.addInitScript(() =>
     localStorage.setItem('dcontact.workspace.lastStatus', JSON.stringify({ state: 'OFFLINE' })),
   );
   const server = await open(page);
-  // คำตัดสิน owner ข้อ 6
+  // owner decision item 6
   await expect(gate(page).getByRole('radio', { name: /^Offline/ })).toBeChecked();
   await enter(page).click();
   await expect(gate(page)).toHaveCount(0);
@@ -264,7 +268,9 @@ test('หน้าเลือกสถานะจำสถานะล่า�
   );
 });
 
-test('Supervisor เปลี่ยนสถานะระหว่างใช้งาน → แถบแจ้งและกดรับทราบ', async ({ page }) => {
+test('a Supervisor changes the status during use → a bar notifies and the user acknowledges', async ({
+  page,
+}) => {
   await page.clock.install();
   const server = await open(page);
   await gate(page)
@@ -281,7 +287,7 @@ test('Supervisor เปลี่ยนสถานะระหว่างใช
     changeNote: 'ประชุมทีมด่วน',
     stateSince: new Date().toISOString(),
   };
-  // ตอนว่างงาน Workspace อ่าน snapshot ทุก 15 วินาที
+  // when idle, Workspace reads the snapshot every 15 seconds
   await page.clock.fastForward(16_000);
   const notice = page.locator('.aw-supervisor-notice');
   await expect(notice).toContainText('หัวหน้าทีม ทดสอบ');
@@ -291,7 +297,7 @@ test('Supervisor เปลี่ยนสถานะระหว่างใช
   await expect(notice).toHaveCount(0);
 });
 
-test('EN → หน้าเลือกสถานะเปลี่ยนภาษาโดยไม่ reload', async ({ page }) => {
+test('EN → the status picker page changes language without a reload', async ({ page }) => {
   await open(page);
   await page.getByRole('button', { name: 'English' }).click();
   await expect(page.getByRole('region', { name: 'Hello, สมชาย ใจดี' })).toBeVisible();

@@ -9,7 +9,7 @@ function live(sequence: number, payload: Record<string, unknown>) {
 const DIGEST_A = 'a'.repeat(64);
 const DIGEST_B = 'b'.repeat(64);
 
-test('CG4.8: relaxation ไม่ปลด outbound gate เอง ต้องยืนยัน canonical version เท่านั้น', () => {
+test('CG4.8: relaxation does not lift the outbound gate by itself; only confirming the canonical version does', () => {
   const gate = new WorkspaceOutboundGate();
   gate.apply(
     live(1, {
@@ -35,7 +35,7 @@ test('CG4.8: relaxation ไม่ปลด outbound gate เอง ต้อง�
   assert.equal(gate.confirmCanonicalVersion(5)?.state, 'READY');
 });
 
-test('CG4.8: version เดียวกันแต่ state digest ต่างทำให้ gate เป็น STALE', () => {
+test('CG4.8: the same version but a different state digest makes the gate STALE', () => {
   const gate = new WorkspaceOutboundGate();
   const payload = {
     event: 'contact_governance.invalidated',
@@ -50,7 +50,7 @@ test('CG4.8: version เดียวกันแต่ state digest ต่าง
   assert.equal(gate.apply(live(3, { ...payload, stateDigest: DIGEST_B }))?.state, 'STALE');
 });
 
-test('CG4.8: contract version ที่ไม่รู้จัก fail closed และ relaxation ไม่ล้าง STALE', () => {
+test('CG4.8: an unknown contract version fails closed and relaxation does not clear STALE', () => {
   const gate = new WorkspaceOutboundGate();
   const unknown = gate.apply(
     live(1, {

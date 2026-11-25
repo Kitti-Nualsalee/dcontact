@@ -24,7 +24,7 @@ function voiceSnapshot(interactionId = originalId, state = 'WRAPUP') {
 }
 
 for (const fixture of ['Wrong tenant fixture', 'Missing claim fixture', 'Wrong issuer fixture']) {
-  test(`${fixture}: authenticated identity ที่ตรวจไม่ผ่านต้องซ่อนและล้างร่างคนเดิม`, async ({
+  test(`${fixture}: an authenticated identity that fails verification must hide and clear the previous person's draft`, async ({
     page,
   }) => {
     await recoveryPage(page);
@@ -56,7 +56,7 @@ async function recoveryPage(page: Page, current: () => string = () => originalId
   await page.getByRole('textbox', { name: 'โน้ตสรุป' }).fill('ร่างสังเคราะห์');
 }
 
-test('คำตอบ POST ของ identity เก่าไม่คืนร่างหรือ saved summary หลังเปลี่ยนบัญชี', async ({
+test('the POST answer of an old identity does not return a draft or saved summary after switching accounts', async ({
   page,
 }) => {
   let release: (() => void) | undefined;
@@ -98,7 +98,7 @@ test('คำตอบ POST ของ identity เก่าไม่คืนร�
   expect(stored).not.toContain('ร่างสังเคราะห์');
 });
 
-test('refresh/expire/locale ระหว่างสายใช้ SIP session และ lease เดิม แล้วจึงกรอก wrapup', async ({
+test('refresh/expire/locale during a call keeps the same SIP session and lease, then wrap-up is filled in', async ({
   page,
 }) => {
   let state = 'ASSIGNED';
@@ -221,7 +221,9 @@ test('refresh/expire/locale ระหว่างสายใช้ SIP session 
   await expect(page.getByRole('textbox', { name: 'โน้ตสรุป' })).toHaveValue('synthetic draft');
 });
 
-test('unknown หลัง refresh/reconnect ใช้ intent เดิมและไม่ยกร่างให้งานใหม่', async ({ page }) => {
+test('unknown after refresh/reconnect uses the same intent and does not carry the draft over to new work', async ({
+  page,
+}) => {
   let currentId = originalId;
   const attempts: Record<string, unknown>[] = [];
   const tokens: string[] = [];
@@ -266,7 +268,9 @@ test('unknown หลัง refresh/reconnect ใช้ intent เดิมแล
   expect(tokens).toEqual(['Bearer token-one', 'Bearer token-two']);
 });
 
-test('popup ถูกบล็อกโดยร่างยังอยู่ พร้อมเตือนก่อน navigation/reload/signout', async ({ page }) => {
+test('a blocked popup keeps the draft, with a warning before navigation/reload/signout', async ({
+  page,
+}) => {
   await page.route('**/oidc/.well-known/openid-configuration', (route) =>
     route.fulfill({
       json: {
@@ -312,7 +316,7 @@ test('popup ถูกบล็อกโดยร่างยังอยู่ �
 });
 
 for (const invalid of ['nonce', 'state', 'cancel'] as const) {
-  test(`OIDC popup ${invalid}: ปฏิเสธ callback ผิดและ retry บัญชีเดิมได้โดยร่างไม่หาย`, async ({
+  test(`OIDC popup ${invalid}: reject a wrong callback and retry the same account without losing the draft`, async ({
     page,
     context,
   }) => {
@@ -402,7 +406,7 @@ for (const invalid of ['nonce', 'state', 'cancel'] as const) {
   });
 }
 
-test('token refresh ไม่สร้าง lease ใหม่ และ auth หายยังเห็นร่างใน Workspace เดิม', async ({
+test('token refresh creates no new lease, and after auth is lost the draft is still visible in the same Workspace', async ({
   page,
 }) => {
   let leaseReads = 0;

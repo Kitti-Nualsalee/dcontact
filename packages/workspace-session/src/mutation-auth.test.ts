@@ -155,7 +155,7 @@ function fixture(strictCas = false, scope?: WorkspaceTenantScope) {
   };
 }
 
-test('takeover หลังตรวจ lease ก่อนติดตั้ง binding ไม่เปิด routing', async () => {
+test('takeover after the lease check but before installing the binding does not open routing', async () => {
   let reached!: () => void, release!: () => void;
   const waiting = new Promise<void>((resolve) => {
     reached = resolve;
@@ -193,7 +193,7 @@ test('takeover หลังตรวจ lease ก่อนติดตั้ง 
   assert.equal(f.registry.canReceiveRoutingWork(f.tenantId, f.userId, 'a'), false);
 });
 
-test('takeover mark binding ก่อนรอ tenant scope เพื่อหยุด routing ที่ผ่าน lease check แล้ว', async () => {
+test('takeover marks the binding before waiting for tenant scope to stop routing that already passed the lease check', async () => {
   let pause = false,
     count = 0,
     reachedRouting!: () => void,
@@ -254,7 +254,7 @@ test('takeover mark binding ก่อนรอ tenant scope เพื่อห�
   );
 });
 
-test('refresh ซ้อน: callback เก่า commit ก่อนแล้ว callback ใหม่ใช้ private epoch ล่าสุด', async () => {
+test('overlapping refresh: the old callback commits first, then the new callback uses the latest private epoch', async () => {
   const f = fixture(true);
   await f.adapter.handle(f.socket, {
     type: 'auth:connect',
@@ -290,7 +290,7 @@ test('refresh ซ้อน: callback เก่า commit ก่อนแล้�
   assert.equal(JSON.stringify(f.sent).includes('authEpoch'), false);
 });
 
-test('refresh ซ้อน: callback ใหม่ผ่านก่อน verifier เก่า ไม่ให้ callback เก่าแตะ durable auth', async () => {
+test('overlapping refresh: the new callback passes before the old verifier, so the old callback must not touch durable auth', async () => {
   const f = fixture(true);
   await f.adapter.handle(f.socket, {
     type: 'auth:connect',
@@ -319,7 +319,7 @@ test('refresh ซ้อน: callback ใหม่ผ่านก่อน verifi
   assert.equal(f.events.includes('persist-invalidation'), false);
 });
 
-test('disconnect ระหว่าง durable reauth ไม่ส่ง callback หรือ private binding ไป socket', async () => {
+test('disconnect during durable reauth sends no callback or private binding to the socket', async () => {
   const f = fixture(true);
   await f.adapter.handle(f.socket, {
     type: 'auth:connect',
@@ -343,7 +343,7 @@ test('disconnect ระหว่าง durable reauth ไม่ส่ง callbac
   assert.ok(f.events.includes('persist-invalidation'));
 });
 
-test('initial connect ซ้อนใช้ private epoch ที่ callback เก่า commit แล้ว', async () => {
+test('overlapping initial connect uses the private epoch that the old callback already committed', async () => {
   const f = fixture(true);
   const old = f.adapter.handle(f.socket, {
     type: 'auth:connect',
@@ -367,7 +367,7 @@ test('initial connect ซ้อนใช้ private epoch ที่ callback เ
   assert.equal(f.sent.filter((event) => event.type === 'workspace.session').length, 1);
 });
 
-test('failed refresh ที่ตาม callback เก่าต้อง invalidate epoch ที่ commit แล้ว', async () => {
+test('failed refresh following an old callback must invalidate the already-committed epoch', async () => {
   const f = fixture(true);
   await f.adapter.handle(f.socket, {
     type: 'auth:connect',
@@ -395,7 +395,7 @@ test('failed refresh ที่ตาม callback เก่าต้อง invali
   assert.ok(f.sent.some((event) => event.type === 'lease.revoked'));
 });
 
-test('initial connect ใหม่ที่ token ไม่ผ่านต้อง invalidate epoch ที่ callback เก่า commit', async () => {
+test('new initial connect with a failing token must invalidate the epoch the old callback committed', async () => {
   const f = fixture(true);
   const old = f.adapter.handle(f.socket, {
     type: 'auth:connect',
@@ -417,7 +417,7 @@ test('initial connect ใหม่ที่ token ไม่ผ่านต้อ
   assert.equal(f.sent.length, 0);
 });
 
-test('initial connect ไม่เปิด routing เมื่อ lease ถูก takeover ระหว่างรอ online auth', async () => {
+test('initial connect does not open routing when the lease is taken over while waiting for online auth', async () => {
   const f = fixture();
   const connect = f.adapter.handle(f.socket, {
     type: 'auth:connect',
@@ -436,7 +436,7 @@ test('initial connect ไม่เปิด routing เมื่อ lease ถู
   );
 });
 
-test('refresh ล้ม persist invalidation ก่อนส่ง lease signal และไม่เปิด private fields', async () => {
+test('failed refresh persists invalidation before sending the lease signal and does not open private fields', async () => {
   const f = fixture();
   await f.adapter.handle(f.socket, {
     type: 'auth:connect',
@@ -457,7 +457,7 @@ test('refresh ล้ม persist invalidation ก่อนส่ง lease signal 
   assert.equal(f.closed.length, 0, 'active media policy must not close socket on refresh failure');
 });
 
-test('heartbeat เก่าที่หมดสิทธิ์หลัง refresh ใหม่ไม่ลบหรือปิด binding ใหม่', async () => {
+test('stale heartbeat that lost authorization after a new refresh does not delete or close the new binding', async () => {
   const f = fixture();
   await f.adapter.handle(f.socket, {
     type: 'auth:connect',
@@ -486,7 +486,7 @@ test('heartbeat เก่าที่หมดสิทธิ์หลัง ref
   assert.equal(f.sent.at(-1)?.type, 'lease.active');
 });
 
-test('lease heartbeat เก่าที่หมดสิทธิ์หลัง refresh ใหม่ไม่ส่ง revoke', async () => {
+test('stale lease heartbeat that lost authorization after a new refresh sends no revoke', async () => {
   const f = fixture();
   await f.adapter.handle(f.socket, {
     type: 'auth:connect',
@@ -515,7 +515,7 @@ test('lease heartbeat เก่าที่หมดสิทธิ์หลั�
   assert.equal(f.sent.at(-1)?.type, 'lease.active');
 });
 
-test('lease หมดอายุระหว่าง refresh ที่ยังไม่ commit ต้องปิด routing ของ binding เดิม', async () => {
+test('lease expiring during a refresh that has not committed must close routing of the existing binding', async () => {
   const f = fixture();
   await f.adapter.handle(f.socket, {
     type: 'auth:connect',
@@ -543,7 +543,7 @@ test('lease หมดอายุระหว่าง refresh ที่ยั�
   assert.equal(f.sent.at(-1)?.type, 'lease.expired');
 });
 
-test('initial connect สองครั้งที่ค้าง heartbeat ต้องใช้ binding ของคำขอใหม่กว่า', async () => {
+test('two initial connects stuck on heartbeat must use the binding of the newer request', async () => {
   const f = fixture();
   const old = f.adapter.handle(
     f.socket,
@@ -571,7 +571,7 @@ test('initial connect สองครั้งที่ค้าง heartbeat �
   assert.equal(f.sent.at(-1)?.type, 'lease.active');
 });
 
-test('claim เก่าที่ค้าง lease ไม่เปลี่ยน working tab ของ refresh ใหม่', async () => {
+test('stale claim stuck on the lease does not change the working tab of the new refresh', async () => {
   const f = fixture();
   await f.adapter.handle(f.socket, {
     type: 'auth:connect',
@@ -598,7 +598,7 @@ test('claim เก่าที่ค้าง lease ไม่เปลี่ย�
   assert.equal(f.closed.length, 0);
 });
 
-test('token หมดอายุขณะรอ commit ไม่เปิด routing จาก lease', async () => {
+test('token expiring while waiting to commit does not open routing from the lease', async () => {
   const tenantId = randomUUID(),
     userId = randomUUID(),
     leaseId = randomUUID();
@@ -675,7 +675,7 @@ test('token หมดอายุขณะรอ commit ไม่เปิด ro
   );
 });
 
-test('signalLease ที่ค้างไม่ unbind หรือส่ง revoke ไปยัง binding ใหม่', async () => {
+test('stuck signalLease does not unbind or send revoke to the new binding', async () => {
   const tenantId = randomUUID(),
     userId = randomUUID(),
     leaseId = randomUUID();
@@ -745,7 +745,7 @@ test('signalLease ที่ค้างไม่ unbind หรือส่ง re
 });
 
 for (const initial of [false, true])
-  test(`verified callback เก่าที่กลับมาช้าไม่เขียน registry ทับ token ใหม่ (มี binding เดิม: ${initial})`, async () => {
+  test(`stale verified callback that returns late does not overwrite the registry over the new token (had existing binding: ${initial})`, async () => {
     const tenantId = randomUUID(),
       userId = randomUUID();
     let now = 1_700_000_000_000;
@@ -802,11 +802,11 @@ for (const initial of [false, true])
     assert.equal(
       registry.canReceiveRoutingWork(tenantId, userId, 'a'),
       true,
-      'registry ต้องใช้ expiry ของ token ใหม่',
+      'registry must use the expiry of the new token',
     );
   });
 
-test('ผล forbidden persist invalidation ก่อนลบ binding หรือรายงาน failure', async () => {
+test('forbidden result persists invalidation before deleting the binding or reporting failure', async () => {
   const f = fixture();
   await f.adapter.handle(f.socket, {
     type: 'auth:connect',
@@ -825,7 +825,7 @@ test('ผล forbidden persist invalidation ก่อนลบ binding หรื
   assert.deepEqual(f.closed, [4403]);
 });
 
-test('callback เก่าหลัง reauth สำเร็จไม่เปลี่ยน binding ใหม่', async () => {
+test('stale callback after a successful reauth does not change the new binding', async () => {
   const f = fixture();
   await f.adapter.handle(f.socket, {
     type: 'auth:connect',
@@ -853,7 +853,7 @@ test('callback เก่าหลัง reauth สำเร็จไม่เป
   assert.equal(f.closed.length, 0);
 });
 
-test('เมื่อ persist ล้มต้องไม่รายงาน lease revoked หรือ invalidation สำเร็จ', async () => {
+test('when persist fails, must not report lease revoked or successful invalidation', async () => {
   const f = fixture();
   await f.adapter.handle(f.socket, {
     type: 'auth:connect',
@@ -873,7 +873,7 @@ test('เมื่อ persist ล้มต้องไม่รายงาน l
   assert.deepEqual(f.closed, [4401]);
 });
 
-test('Cus360 online ล้มหลัง gateway ผ่านต้องคง Voice lease/routing session และปิดเฉพาะ customer mutation', async () => {
+test('Cus360 online failing after the gateway passed must keep the Voice lease/routing session and close only customer mutation', async () => {
   const f = fixture();
   await f.adapter.handle(f.socket, {
     type: 'auth:connect',
@@ -902,7 +902,7 @@ test('Cus360 online ล้มหลัง gateway ผ่านต้องคง
   assert.equal(f.events.includes('lease-revoke'), false);
 });
 
-test('Cus360 online และ persistence ล้มไม่อ้าง durable state และคง Voice binding เดิม', async () => {
+test('Cus360 online and persistence failing do not claim durable state and keep the existing Voice binding', async () => {
   const f = fixture();
   await f.adapter.handle(f.socket, {
     type: 'auth:connect',
@@ -924,11 +924,11 @@ test('Cus360 online และ persistence ล้มไม่อ้าง durable
   assert.equal(f.closed.length, 0);
   f.events.length = 0;
   await f.adapter.handle(f.socket, { type: 'lease:heartbeat', leaseId: f.leaseId });
-  assert.equal(f.sent.at(-1)?.type, 'lease.active', 'binding เดิมยังใช้ heartbeat ได้');
+  assert.equal(f.sent.at(-1)?.type, 'lease.active', 'the existing binding can still heartbeat');
   assert.equal(f.events.includes('lease-revoke'), false);
 });
 
-test('Cus360 ไม่พร้อมก่อนมี private binding ไม่อ้างว่าเปลี่ยน durable state', async () => {
+test('Cus360 not ready before a private binding exists does not claim a durable state change', async () => {
   const f = fixture();
   f.failOnline();
   await f.adapter.handle(f.socket, {
@@ -942,7 +942,7 @@ test('Cus360 ไม่พร้อมก่อนมี private binding ไม�
   assert.equal(f.events.includes('lease-revoke'), false);
 });
 
-test('Cus360 callback ที่ binding เก่ากว่าไม่รายงานหรือเปลี่ยน binding ใหม่', async () => {
+test('Cus360 callback with an older binding does not report or change the new binding', async () => {
   const f = fixture();
   await f.adapter.handle(f.socket, {
     type: 'auth:connect',
@@ -963,7 +963,7 @@ test('Cus360 callback ที่ binding เก่ากว่าไม่รา�
   assert.equal(f.closed.length, 0);
 });
 
-test('gateway expiry หลัง Cus360 invalidation เดิมยังใช้ Voice auth policy โดยไม่ bump epoch ซ้ำ', async () => {
+test('gateway expiry after the earlier Cus360 invalidation still uses the Voice auth policy without bumping the epoch again', async () => {
   const f = fixture();
   await f.adapter.handle(f.socket, {
     type: 'auth:connect',

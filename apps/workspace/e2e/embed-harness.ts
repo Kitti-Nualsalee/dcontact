@@ -5,19 +5,19 @@ import { expect } from './fixtures';
 import type { Frame, Page } from '@playwright/test';
 
 /**
- * E1.14/E1.15: harness ของ e2e dphone ที่ถูกฝัง — host ต่าง origin + shell `/dphone/embed` + Keycloak/API/WS จำลอง
- * E1.14 (#488): dphone ที่ถูกฝังในหน้า host ต่าง origin (Chromium จริง, iframe จริง)
+ * E1.14/E1.15: e2e harness of the embedded dphone — a host on another origin + the `/dphone/embed` shell + simulated Keycloak/API/WS
+ * E1.14 (#488): the dphone embedded in a host page on another origin (real Chromium, real iframe)
  *
- * API/Keycloak/WS จำลองด้วย route (ตรวจของจริงใน API integration และ Keycloak boundary) — หลักฐานที่นี่คือ
- * ฝั่ง browser: origin lock, popup login, lease `embedded`, dphone component ของ D1.15 ใน iframe,
- * screen-pop/activity/click-to-call ผ่าน postMessage v1 และ token ไม่ออกนอก iframe
+ * API/Keycloak/WS are simulated with routes (the real ones are checked in API integration and the Keycloak boundary) — the evidence here is on
+ * the browser side: origin lock, popup login, lease `embedded`, the D1.15 dphone component in the iframe,
+ * screen-pop/activity/click-to-call through postMessage v1, and the token never leaving the iframe
  */
 
 const releases = fileURLToPath(
   new URL('../../../packages/dphone-embed/releases/', import.meta.url),
 );
 
-/** ไฟล์ launcher ของ `v1` (alias) หรือ `v1.0.0` จาก `packages/dphone-embed/releases` */
+/** the launcher file of `v1` (alias) or `v1.0.0` from `packages/dphone-embed/releases` */
 export function launcherRelease(requested: string): string {
   const index = JSON.parse(readFileSync(`${releases}index.json`, 'utf8')) as {
     aliases: Record<string, string>;
@@ -67,7 +67,7 @@ const shell = (screenPopLevel: string, ownerWindow = false) => `<!doctype html>
 <script type="module" src="/src/embed/main.ts"></script>
 </head><body><div id="dphone-embed-root"></div></body></html>`;
 
-// หน้า callback เดียวกับ `/dphone/auth/callback` ของ API (ส่ง code/state ให้ opener บน origin เดียวกัน)
+// the same callback page as the API's `/dphone/auth/callback` (sends code/state to the opener on the same origin)
 const callbackPage = `<!doctype html><html><head><script>
   const params = new URLSearchParams(location.search);
   window.opener.postMessage({ type: 'dphone.auth.callback', code: params.get('code'),
@@ -92,7 +92,7 @@ export async function setup(
     ownerWindow?: boolean;
     screenPopLevel?: string;
     hostOrigin?: string;
-    /** หน้า host อื่น (เช่น host อ้างอิงของ E1.15) — ต้องมี iframe ของ dphone */
+    /** another host page (e.g. the E1.15 reference host) — must contain the dphone iframe */
     hostHtml?: (origin: string) => string;
     path?: string;
   } = {},
@@ -136,7 +136,7 @@ export async function setup(
     const redirect = new URL(url.searchParams.get('redirect_uri')!);
     redirect.searchParams.set('code', 'e2e-code');
     redirect.searchParams.set('state', url.searchParams.get('state')!);
-    // หน้า login จำลอง: navigate ใหม่ไปที่ callback (request ที่เกิดจาก 302 ไม่ผ่าน route ของ Playwright)
+    // simulated login page: navigate again to the callback (a request that comes from a 302 does not go through Playwright's route)
     return route.fulfill({
       contentType: 'text/html',
       body: `<!doctype html><script>location.replace(${JSON.stringify(redirect.toString())})</script>`,
@@ -274,7 +274,7 @@ export async function setup(
       }
     });
   });
-  // E1.15: `<dphone-launcher>` จาก release ใน repo ผ่าน alias เหมือน `GET /embed/v1/...` ของ API
+  // E1.15: `<dphone-launcher>` from the release in the repo through the alias, like the API's `GET /embed/v1/...`
   await page.context().route(`${DPHONE}/embed/*/dphone-launcher.js`, (route) =>
     route.fulfill({
       contentType: 'text/javascript',

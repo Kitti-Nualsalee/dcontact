@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://dcontact.dev/schemas/dphone-embed/v1.json",
   "title": "dphone embed postMessage v1",
-  "description": "ข้อความระหว่าง dphone ที่ถูกฝังกับ host — v1 เพิ่มได้อย่างเดียว ฝั่งรับต้องไม่สนใจ type/field ที่ไม่รู้จัก (E1.7 #463)",
+  "description": "Messages between the embedded dphone and the host — v1 is additive only; the receiver must ignore unknown types/fields (E1.7 #463)",
   "$defs": {
     "requestId": {
       "type": "string",

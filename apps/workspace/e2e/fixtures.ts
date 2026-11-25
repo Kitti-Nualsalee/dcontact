@@ -1,18 +1,18 @@
 import { test as base, expect, type Page } from '@playwright/test';
 
 /**
- * Workspace ใช้ media API เพียงสามอย่าง: getUserMedia({ audio: true }), getTracks()
- * และ track.addEventListener('ended') / track.stop() (apps/workspace/src/workspace-app.tsx)
+ * Workspace uses only three media APIs: getUserMedia({ audio: true }), getTracks()
+ * and track.addEventListener('ended') / track.stop() (apps/workspace/src/workspace-app.tsx)
  *
- * การให้ Chromium เปิดอุปกรณ์เสียงจำลองจริงจึงไม่ได้ครอบคลุมโค้ดของเราเพิ่มแม้แต่บรรทัดเดียว
- * แต่ทำให้เวลารอขึ้นกับภาระของเครื่อง: เมื่อวัดโดยให้เครื่องมีงานอื่นพร้อมกัน test ที่เปิด
- * อุปกรณ์จริงช้าขึ้นจาก 2.1 เป็น 4.8 วินาที ขณะที่ test ซึ่ง stub ไว้อยู่ที่ 0.73 วินาทีเท่าเดิม
- * เมื่อ acceptance gate รัน browser check ต่อจาก Phase 1 ที่เพิ่งใช้เครื่องหนัก ค่านี้จึงเลย
- * expect timeout 5 วินาทีของ Playwright และ gate ล้มโดยที่โค้ดไม่ได้เปลี่ยนอะไร
+ * so having Chromium open a real simulated audio device does not cover even one more line of our code
+ * but makes the wait depend on machine load: when measured with the machine running other work at the same time, tests that open
+ * the real device slowed from 2.1 to 4.8 seconds, while tests that stub stayed at 0.73 seconds
+ * when the acceptance gate runs the browser check right after Phase 1 that just used the machine heavily, this exceeds
+ * Playwright's 5-second expect timeout and the gate fails without any code change
  *
- * จึงติดตั้ง media stub ที่ให้ผลแน่นอนกับทุก test ผ่าน page fixture เดียว แทนที่จะยืดเวลารอ
- * ซึ่งได้แค่ซ่อนอาการ track ถูกผูกไว้ที่ window.__dContactTestMediaTrack เพื่อให้ test ที่ต้อง
- * จำลองไมโครโฟนหลุดกลางทางสั่ง dispatchEvent('ended') ได้
+ * so install a media stub that gives a deterministic result to every test through a single page fixture, instead of lengthening the wait
+ * which would only hide the symptom; the track is bound to window.__dContactTestMediaTrack so tests that need to
+ * simulate the microphone dropping midway can fire dispatchEvent('ended')
  */
 export const test = base.extend({
   page: async ({ page }, use) => {
@@ -34,10 +34,10 @@ export const test = base.extend({
 });
 
 /**
- * #569: ตั้งแต่ E1.10 (#551) Workspace ขอ SIP credential ได้เฉพาะเมื่อถือ work-session lease
- * (API ตอบ 403 ถ้าไม่มี lease) — ไม่มี lease = register SIP ไม่ได้ = ปุ่มรับสายใช้ไม่ได้
- * จึงจำลอง lease ที่ enforced และออกให้ทันทีเป็นค่าเริ่มต้นของทุก spec
- * spec ที่ทดสอบ lease เอง (embed-harness, work-session-lease) route ทับได้
+ * #569: since E1.10 (#551) Workspace can request a SIP credential only when it holds a work-session lease
+ * (the API answers 403 without a lease) — no lease = cannot register SIP = the answer button is unusable
+ * so simulate an enforced lease that is issued immediately, as the default for every spec
+ * a spec that tests the lease itself (embed-harness, work-session-lease) can override the route
  */
 async function mockWorkSessionLease(page: Page) {
   let current: { leaseId: string; surface: string; acquiredAt: string } | undefined;
@@ -68,7 +68,7 @@ async function mockWorkSessionLease(page: Page) {
       json: accepted ? { state: 'AVAILABLE' } : { code: 'WORK_SESSION_CHANGED' },
     });
   });
-  // ระดับ context: route ของ page และ context ที่ลงทะเบียนทีหลังใน spec จึงมาก่อน mock นี้
+  // context level: routes of the page and context registered later in a spec come before this mock
   await page.context().route('**/api/v1/me/work-session**', async (route) => {
     const request = route.request();
     if (request.method() === 'GET') {

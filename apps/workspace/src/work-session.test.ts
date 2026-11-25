@@ -13,7 +13,7 @@ import {
   type WorkSessionTimers,
 } from './work-session.js';
 
-/** นาฬิกา + timer จำลอง — เดินเวลาเองด้วย `advance` */
+/** fake clock + timer — time advances by hand with `advance` */
 function fakeClock(start = Date.parse('2026-09-28T09:00:00.000Z')) {
   let now = start;
   let nextId = 1;
@@ -77,7 +77,7 @@ const holderA: WorkSessionHolder = {
   busy: false,
 };
 
-/** API จำลอง: บันทึกทุกคำขอ และตอบตามที่ test ตั้งไว้ */
+/** fake API: records every request and answers as the test sets it up */
 interface FakeApi {
   status: WorkSessionStatus;
   acquireResult?: WorkSessionLease | WorkSessionRequestError;
@@ -131,7 +131,7 @@ function setup(options: { busy?: () => boolean; surface?: 'workspace' | 'dphone'
   return { clock, api, client, phases };
 }
 
-test('#583: lease บังคับทุก tenant — อ่านสถานะไม่ได้ (เช่น 403/404) = error แล้วลองใหม่ ไม่ข้ามไปทำงานแบบไม่มี lease', async () => {
+test('#583: lease enforced for every tenant — an unreadable state (e.g. 403/404) = error then retry, never skipping to work without a lease', async () => {
   const { api, client } = setup();
   api.impl.status = async () => {
     api.calls.push('status');
@@ -144,7 +144,7 @@ test('#583: lease บังคับทุก tenant — อ่านสถา�
   assert.deepEqual(api.calls, ['status']);
 });
 
-test('acquire → heartbeat ทุก 20 วินาทีผ่าน WS → lease.revoked (takeover) หยุดรับงานทันทีและแสดงผู้ถือใหม่', async () => {
+test('acquire → heartbeat every 20 seconds over WS → lease.revoked (takeover) stops taking work immediately and shows the new holder', async () => {
   const { api, client, clock, phases } = setup();
   await client.start({ autoAcquire: true });
   assert.equal(client.current().phase, 'held');
@@ -157,7 +157,7 @@ test('acquire → heartbeat ทุก 20 วินาทีผ่าน WS → l
   assert.equal(sent.length, 0);
   await clock.advance(1);
   assert.deepEqual(sent, [{ type: 'lease:heartbeat', leaseId: 'lease-new' }]);
-  // server ต่ออายุ → ผ่านเลย TTL เดิมได้โดยไม่ถือว่าหมดอายุ
+  // the server renews → passing the old TTL is not treated as expiry
   client.handleSocketEvent({
     type: 'lease.active',
     leaseId: 'lease-new',
@@ -167,7 +167,7 @@ test('acquire → heartbeat ทุก 20 วินาทีผ่าน WS → l
   assert.equal(client.current().phase, 'held');
   assert.equal(sent.length, 3);
 
-  // lease ของคนอื่น/เก่าไม่มีผล
+  // someone else's/old lease has no effect
   assert.equal(
     client.handleSocketEvent({ type: 'lease.revoked', leaseId: 'other', reason: 'takeover' }),
     true,
@@ -176,20 +176,24 @@ test('acquire → heartbeat ทุก 20 วินาทีผ่าน WS → l
 
   api.status = { holder: { ...holderA, leaseId: 'lease-b', surface: 'dphone' } };
   client.handleSocketEvent({ type: 'lease.revoked', leaseId: 'lease-new', reason: 'takeover' });
-  assert.equal(client.ownsWork(), false, 'หยุดรับงานทันทีก่อนคำตอบของ server');
+  assert.equal(
+    client.ownsWork(),
+    false,
+    'stops taking work immediately, before the server answers',
+  );
   await flush();
   assert.deepEqual(client.current(), {
     phase: 'standby',
     holder: { ...holderA, leaseId: 'lease-b', surface: 'dphone' },
     loss: 'takeover',
   });
-  // ไม่มี heartbeat อีกหลังเสีย lease
+  // no more heartbeat after losing the lease
   await clock.advance(20_000);
   assert.equal(sent.length, 3);
   assert.deepEqual(phases.slice(0, 3), ['checking', 'acquiring', 'held']);
 });
 
-test('lease.expired และ WS ปิด 4409 = หมดอายุ; หลุด WS เกิน TTL ตอนว่างถือว่าหมดอายุเอง แต่ระหว่างมีงานไม่หมด', async () => {
+test('lease.expired and WS close 4409 = expired; WS dropped past the TTL while idle counts as self-expired, but not while there is work', async () => {
   let busy = false;
   const expired = setup({ busy: () => busy });
   await expired.client.start({ autoAcquire: true });
@@ -202,13 +206,13 @@ test('lease.expired และ WS ปิด 4409 = หมดอายุ; หล�
   rejected.client.handleSocketClosed(LEASE_REQUIRED_CLOSE_CODE);
   await flush();
   assert.equal(rejected.client.current().phase, 'standby');
-  // WS ปิดด้วยเหตุอื่น (เช่นเครือข่าย) ไม่ใช่การเสีย lease
+  // WS closed for another reason (e.g. network) is not a lost lease
   const network = setup();
   await network.client.start({ autoAcquire: true });
   network.client.handleSocketClosed(1006);
   assert.equal(network.client.current().phase, 'held');
 
-  // มีสายอยู่: WS หลุดนานเกิน TTL ก็ยังถือ lease (server ไม่ปล่อยระหว่างมีงาน — ADR-026 ข้อ 4)
+  // a call in progress: even if the WS drops past the TTL it still holds the lease (the server does not release while there is work — ADR-026 item 4)
   const silent = setup({ busy: () => busy });
   await silent.client.start({ autoAcquire: true });
   busy = true;
@@ -219,7 +223,7 @@ test('lease.expired และ WS ปิด 4409 = หมดอายุ; หล�
   assert.deepEqual(silent.client.current(), { phase: 'standby', holder: null, loss: 'expired' });
 });
 
-test('มีผู้ถืออยู่ → standby พร้อมผู้ถือ; แท็บที่ไม่ใช่ leader ไม่ขอ lease เอง; ปล่อย lease ตอนปิดหน้า', async () => {
+test('has a holder → standby with the holder; a non-leader tab does not request a lease itself; release the lease on page close', async () => {
   const held = setup();
   held.api.acquireResult = new WorkSessionRequestError(409, 'WORK_SESSION_HELD', holderA);
   await held.client.start({ autoAcquire: true });
@@ -229,7 +233,7 @@ test('มีผู้ถืออยู่ → standby พร้อมผู้�
   await follower.client.start({ autoAcquire: false });
   assert.deepEqual(follower.client.current(), { phase: 'standby', holder: null });
   assert.deepEqual(follower.api.calls, ['status']);
-  // กลายเป็น leader ของ origin และไม่มีผู้ถือ → ขอเอง
+  // became the origin leader and no holder → request itself
   follower.client.setAutoAcquire(true);
   await flush();
   assert.equal(follower.client.current().phase, 'held');
@@ -240,13 +244,13 @@ test('มีผู้ถืออยู่ → standby พร้อมผู้�
   assert.equal(follower.clock.pending(), 0);
 });
 
-test('takeover: ยืนยันแล้วย้ายด้วย expectedLeaseId → ถือ lease ใหม่; ผู้ถือมีงาน = ไม่ส่งคำขอ', async () => {
+test('takeover: after confirming, move with expectedLeaseId → hold the new lease; a holder with work = no request sent', async () => {
   const { api, client } = setup({ surface: 'dphone' });
   api.status = { holder: { ...holderA, busy: true } };
   await client.start({ autoAcquire: true });
-  assert.deepEqual(api.calls, ['status'], 'มีผู้ถือ → ไม่ยิง acquire');
+  assert.deepEqual(api.calls, ['status'], 'has a holder → do not fire acquire');
   await client.takeover();
-  assert.deepEqual(api.calls, ['status'], 'ผู้ถือมีงาน → ไม่ส่ง takeover');
+  assert.deepEqual(api.calls, ['status'], 'holder has work → do not send takeover');
   assert.deepEqual(client.current(), {
     phase: 'standby',
     holder: { ...holderA, busy: true },
@@ -262,7 +266,7 @@ test('takeover: ยืนยันแล้วย้ายด้วย expectedL
   assert.equal(client.leaseId(), 'lease-moved');
 });
 
-test('takeover ถูกปฏิเสธ (BUSY/CHANGED/เครือข่าย) → กลับ standby พร้อมเหตุผล ไม่ถือ lease และลองใหม่ได้', async () => {
+test('takeover rejected (BUSY/CHANGED/network) → back to standby with the reason, not holding the lease, and retryable', async () => {
   const { api, client, clock } = setup();
   api.status = { holder: holderA };
   await client.start({ autoAcquire: true });
@@ -279,7 +283,7 @@ test('takeover ถูกปฏิเสธ (BUSY/CHANGED/เครือข่�
   });
   assert.equal(client.ownsWork(), false);
 
-  // รอบตรวจอัตโนมัติ: ผู้ถือจบงานแล้ว → ปุ่มย้ายเปิดเอง
+  // automatic check round: the holder finished work → the move button enables itself
   await clock.advance(20_000);
   assert.deepEqual(client.current(), { phase: 'standby', holder: holderA });
 
@@ -307,7 +311,7 @@ test('takeover ถูกปฏิเสธ (BUSY/CHANGED/เครือข่�
   );
 });
 
-test('คุยกับ server ไม่สำเร็จ → error แล้วลองใหม่อัตโนมัติ; คำตอบที่มาหลัง stop ถูกทิ้ง', async () => {
+test('failing to talk to the server → error then automatic retry; an answer arriving after stop is dropped', async () => {
   const { api, client, clock } = setup();
   let fail = true;
   const status = api.impl.status;
@@ -332,7 +336,7 @@ test('คุยกับ server ไม่สำเร็จ → error แล้�
   assert.deepEqual(late.api.calls, []);
 });
 
-test('HTTP: ส่ง bearer + surface, อ่าน envelope 409 พร้อมผู้ถือ, 404 = ไม่บังคับ, ปล่อยด้วย header', async () => {
+test('HTTP: sends bearer + surface, reads the 409 envelope with the holder, 404 = not enforced, releases with a header', async () => {
   const requests: { url: string; init?: RequestInit }[] = [];
   const replies: Response[] = [];
   const api = createWorkSessionApi({
@@ -357,7 +361,7 @@ test('HTTP: ส่ง bearer + surface, อ่าน envelope 409 พร้อ�
     'Bearer token-in-memory',
   );
 
-  // #583: ไม่มีโหมด "ไม่บังคับ" — 404/403 เป็นความล้มเหลว ส่วน body ที่ไม่มี holder = ไม่มีผู้ถือ
+  // #583: there is no "not enforced" mode — 404/403 are failures, and a body without a holder = no holder
   replies.push(new Response('not found', { status: 404 }));
   await assert.rejects(api.status(), WorkSessionRequestError);
   replies.push(new Response('<html></html>', { status: 200 }));

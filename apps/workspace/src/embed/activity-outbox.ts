@@ -1,11 +1,11 @@
 /**
- * E1.14 (#488): คิวของ `dphone.activity` ที่รอ host ack (E1.6 #462 ข้อ 4)
+ * E1.14 (#488): queue of `dphone.activity` awaiting the host ack (E1.6 #462 item 4)
  *
- * - เก็บใน `sessionStorage` ของแท็บ (partition ตาม host) จึงอยู่รอด reload แล้วส่งซ้ำได้
- * - `interactionId` เป็น idempotency key: เข้าคิวซ้ำด้วย id เดิมแทนที่รายการเดิม (ไม่เพิ่ม) และ
- *   `requestId` คงเดิมตลอดการส่งซ้ำ — host เห็นข้อความเดิมเสมอ
- * - ส่งซ้ำตาม backoff จนได้ `dphone.activity.ack`; ข้อความไม่มีไฟล์เสียง, transcript หรือโน้ต
- *   เพราะสร้างจาก type `ActivityMessage` ซึ่งไม่มี field เหล่านั้น และคัดลอกเฉพาะ field ที่รู้จัก
+ * - stored in the tab's `sessionStorage` (partitioned by host) so it survives reload and can be resent
+ * - `interactionId` is the idempotency key: enqueuing again with the same id replaces the existing entry (no addition) and
+ *   `requestId` stays the same across every resend — the host always sees the same message
+ * - resent with backoff until `dphone.activity.ack`; messages carry no audio file, transcript or note
+ *   because they are built from the `ActivityMessage` type, which has no such fields, and copy only known fields
  */
 import type { ActivityMessage } from '@d-contact/dphone-embed';
 
@@ -54,7 +54,7 @@ export class ActivityOutbox {
     return this.entries.map((entry) => entry.message);
   }
 
-  /** เข้าคิวแล้วส่งทันที — interactionId เดิมใช้ requestId เดิม (ส่งซ้ำ ไม่ใช่ข้อความใหม่) */
+  /** enqueue then send immediately — the same interactionId reuses the same requestId (a resend, not a new message) */
   enqueue(message: ActivityMessage): void {
     const existing = this.entries.find(
       (entry) => entry.message.interactionId === message.interactionId,
@@ -66,7 +66,7 @@ export class ActivityOutbox {
     this.deliver(message.interactionId);
   }
 
-  /** หลัง reload หรือ host ส่ง ready ใหม่: ส่งทุกรายการที่ค้าง */
+  /** after reload or when the host sends ready again: send every pending entry */
   resendAll(): void {
     for (const entry of this.entries) this.deliver(entry.message.interactionId);
   }
@@ -129,7 +129,7 @@ export class ActivityOutbox {
         this.deps.storage.removeItem(this.deps.storageKey);
       }
     } catch {
-      // storage เต็ม/ถูกปิด — คิวใน memory ยังส่งซ้ำได้จนกว่าจะปิดแท็บ
+      // storage full/disabled — the in-memory queue can still resend until the tab closes
     }
   }
 }

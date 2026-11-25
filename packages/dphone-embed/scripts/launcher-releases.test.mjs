@@ -21,21 +21,21 @@ function sandbox() {
   return { dir, run };
 }
 
-test('release ใน repo ตรงกับ integrity และ alias v1 ชี้ version ที่มีอยู่ของ major เดียวกัน', () => {
+test('the release in the repo matches the integrity and the alias v1 points at an existing version of the same major', () => {
   assert.deepEqual(checkReleases(join(root, 'releases')), []);
   const index = loadIndex(join(root, 'releases'));
   assert.ok(index.versions[index.aliases.v1]);
 });
 
-test('ไฟล์ release ถูกแก้ = integrity ไม่ตรง (immutable)', () => {
+test('a modified release file = integrity mismatch (immutable)', () => {
   const { dir } = sandbox();
   writeFileSync(join(dir, '1.0.0', 'dphone-launcher.js'), 'tampered');
-  assert.match(checkReleases(dir).join('\n'), /ไม่ตรงกับ integrity/);
+  assert.match(checkReleases(dir).join('\n'), /does not match the integrity/);
 });
 
-test('alias: rollback ไป version ที่ release แล้วได้; version ที่ไม่มีหรือข้าม major ไม่ได้', () => {
+test('alias: can roll back to an already released version; a missing version or crossing a major is not allowed', () => {
   const { dir, run } = sandbox();
-  // จำลอง 1.0.1 แล้วเลื่อน alias → rollback กลับ 1.0.0
+  // simulate 1.0.1, then move the alias → roll back to 1.0.0
   const content = 'export {};\n';
   cpSync(join(dir, '1.0.0'), join(dir, '1.0.1'), { recursive: true });
   writeFileSync(join(dir, '1.0.1', 'dphone-launcher.js'), content);

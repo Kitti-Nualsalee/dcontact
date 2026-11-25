@@ -13,7 +13,7 @@ import {
 } from './embed-harness';
 
 for (const receiptMode of ['committed', 'racing'] as const) {
-  test(`V1 recovery ${receiptMode}: ส่ง activity ครั้งเดียวและไม่ส่ง note ออกไป CRM`, async ({
+  test(`V1 recovery ${receiptMode}: sends the activity once and sends no note out to the CRM`, async ({
     page,
   }) => {
     const { server, frame } = await setup(page);
@@ -98,10 +98,10 @@ for (const receiptMode of ['committed', 'racing'] as const) {
 }
 
 /**
- * E1.14 (#488): dphone ที่ถูกฝังในหน้า host ต่าง origin — harness อยู่ใน `embed-harness.ts`
+ * E1.14 (#488): the dphone embedded in a host page on another origin — the harness is in `embed-harness.ts`
  */
 
-test('origin ไม่อยู่ใน allowlist → dphone ไม่เริ่มทำงานและไม่ส่งข้อความหา host', async ({
+test('origin not in the allowlist → dphone does not start and sends no message to the host', async ({
   page,
 }) => {
   const { frame } = await setup(page, { hostOrigin: 'https://evil.example.test' });
@@ -112,7 +112,7 @@ test('origin ไม่อยู่ใน allowlist → dphone ไม่เริ
   expect(await messages(page)).toEqual([]);
 });
 
-test('ฝังบน host: ready → popup login → lease embedded → สายเข้า screen-pop → รับสาย → wrap-up → activity + ack; token ไม่ออกนอก iframe', async ({
+test('embedded on the host: ready → popup login → lease embedded → incoming call screen-pop → answer → wrap-up → activity + ack; the token never leaves the iframe', async ({
   page,
 }) => {
   const { server, frame } = await setup(page);
@@ -130,7 +130,7 @@ test('ฝังบน host: ready → popup login → lease embedded → สา�
     .poll(() => server.leaseBodies)
     .toContainEqual({ surface: 'embedded', hostOrigin: HOST });
 
-  // dphone ของ D1.15 ใน iframe — ตรวจอุปกรณ์เสียงแล้วสายที่ assign มาดังขึ้น
+  // the D1.15 dphone in the iframe — after checking audio devices the assigned call rings
   await frame.getByRole('button', { name: 'ตรวจอุปกรณ์เสียง' }).click();
   const dphone = frame.getByRole('region', { name: 'dphone' });
   await expect(dphone.getByRole('status', { name: 'dphone' })).toHaveText('มีสายเรียกเข้า');
@@ -143,7 +143,7 @@ test('ฝังบน host: ready → popup login → lease embedded → สา�
   await expect(dphone.getByRole('status', { name: 'dphone' })).toHaveText('กำลังสนทนา');
   const sipBefore = await dphoneFrame(page).evaluate(() => window.__dcontactDphone?.sipSessionId());
 
-  // จบสาย → WRAPUP → บันทึก → activity ถึง host แล้ว host ack
+  // call ends → WRAPUP → save → activity reaches the host, then the host acks
   server.state = 'WRAPUP';
   await dphone.getByRole('button', { name: 'วางสาย' }).click();
   await frame.getByRole('button', { name: 'ลูกค้าได้รับความช่วยเหลือ' }).click();
@@ -158,14 +158,14 @@ test('ฝังบน host: ready → popup login → lease embedded → สา�
     disposition: 'CUSTOMER_ASSISTED',
   });
   expect(sipBefore).toMatch(/[0-9a-f-]{36}/);
-  // ack แล้วคิวว่าง (sessionStorage ของ iframe ไม่มีรายการค้าง)
+  // after ack the queue is empty (the iframe's sessionStorage has no pending entries)
   await expect
     .poll(() =>
       dphoneFrame(page).evaluate(() => sessionStorage.getItem('dphone.embed.activity.demo')),
     )
     .toBeNull();
 
-  // token ไม่ปรากฏใน host: postMessage, DOM, URL และ storage ของ host
+  // the token does not appear in the host: postMessage, DOM, URL and the host's storage
   const hostSurface = await page.evaluate(() =>
     JSON.stringify({
       messages: (window as unknown as { __messages: unknown[] }).__messages,
@@ -180,7 +180,7 @@ test('ฝังบน host: ready → popup login → lease embedded → สา�
   expect(server.authorization).toEqual(new Set([`Bearer ${ACCESS_TOKEN}`]));
 });
 
-test('click-to-call: host กรอกเบอร์ได้อย่างเดียว; agent กดโทร → ผลของ Governance ถึง host; ข้อความผิด origin/version ถูกจัดการ', async ({
+test('click-to-call: the host can only fill in the number; the agent presses call → the Governance result reaches the host; a wrong origin/version message is handled', async ({
   page,
 }) => {
   const { server, frame } = await setup(page);
@@ -190,7 +190,7 @@ test('click-to-call: host กรอกเบอร์ได้อย่างเ
     .poll(() => messages(page))
     .toContainEqual(expect.objectContaining({ type: 'dphone.screenpop' }));
 
-  // host ขอโทรพร้อม field ที่พยายามสั่งโทรเอง → ได้แค่ prefilled ไม่มีการเรียก server
+  // the host asks to call with a field trying to place the call itself → gets only prefilled, no server call
   await page.evaluate(() =>
     (window as unknown as { __send(m: unknown): void }).__send({
       v: 1,
@@ -226,7 +226,7 @@ test('click-to-call: host กรอกเบอร์ได้อย่างเ
   expect(server.clickToCalls[0]!.headers['x-work-session-lease-id']).toBe(server.lease);
   await expect(prompt.getByText('โทรออกไม่ได้ตามกติกาการติดต่อลูกค้า')).toBeVisible();
 
-  // v ที่ไม่รองรับ → unsupported_version
+  // an unsupported v → unsupported_version
   await page.evaluate(() =>
     (window as unknown as { __send(m: unknown): void }).__send({
       v: 2,
@@ -246,7 +246,7 @@ test('click-to-call: host กรอกเบอร์ได้อย่างเ
     });
 });
 
-test('refresh token ใช้ไม่ได้ระหว่างสาย (revoke/reuse) → ขึ้นแถบให้ login ใหม่ แต่สายและ SIP session เดิมไม่หลุด; axe ไม่มี serious/critical', async ({
+test('refresh token unusable during a call (revoke/reuse) → a bar asks to log in again, but the existing call and SIP session do not drop; axe has no serious/critical', async ({
   page,
 }) => {
   const { frame } = await setup(page);
@@ -258,7 +258,7 @@ test('refresh token ใช้ไม่ได้ระหว่างสาย (r
   const embed = dphoneFrame(page);
   const sipBefore = await embed.evaluate(() => window.__dcontactDphone?.sipSessionId());
 
-  // Keycloak ปฏิเสธ refresh token (admin revoke / reuse / session cap) แล้วสั่ง refresh ทันที
+  // Keycloak rejects the refresh token (admin revoke / reuse / session cap), then trigger refresh immediately
   await page.context().unroute(`${ISSUER}/protocol/openid-connect/token`);
   await page.context().route(`${ISSUER}/protocol/openid-connect/token`, (route) =>
     route.fulfill({
@@ -279,7 +279,7 @@ test('refresh token ใช้ไม่ได้ระหว่างสาย (r
   ).toEqual([]);
 });
 
-test('ลบ origin ระหว่างสาย → หยุดช่องทาง host ทันที แต่สายและ SIP session เดิมไม่หลุด', async ({
+test('deleting the origin during a call → the host channel stops immediately, but the existing call and SIP session do not drop', async ({
   page,
 }) => {
   const { server, frame } = await setup(page);

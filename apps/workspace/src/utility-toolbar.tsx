@@ -1,8 +1,8 @@
 /**
- * แถบเครื่องมือด้านขวาของ Workspace V3 เป็น toolbar แนวตั้งแบบ roving tabindex
- * (docs/ui-principles.md ข้อ 2 และ WAI-ARIA APG Toolbar pattern):
- * Tab เข้าแถบได้จุดเดียวแล้ว Tab ถัดไปออกจากแถบ ปุ่มภายในใช้ลูกศรขึ้น/ลง (วนรอบ), Home และ End
- * จุดที่ Tab เข้าคือปุ่มที่ focus ล่าสุดในแถบ ถ้ายังไม่เคย focus ใช้ปุ่มที่กดอยู่ (แท็บที่เปิด) หรือปุ่มแรก
+ * The right tool bar of Workspace V3 is a vertical toolbar with a roving tabindex
+ * (docs/ui-principles.md item 2 and the WAI-ARIA APG Toolbar pattern):
+ * Tab enters the bar at a single stop and the next Tab leaves it; buttons inside use arrow up/down (wrapping), Home and End
+ * the entry point is the last focused button in the bar; if none has been focused yet, use the pressed button (the open tab) or the first button
  */
 import { useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 

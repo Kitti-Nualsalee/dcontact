@@ -90,7 +90,7 @@ async function signIn(h: ReturnType<typeof harness>) {
   return popup;
 }
 
-test('authorize URL: PKCE S256 ที่ตรงกับ verifier, state, exact redirect และ scope ของ tenant', async () => {
+test('authorize URL: PKCE S256 matching the verifier, state, exact redirect and the tenant scope', async () => {
   const h = harness();
   await signIn(h);
   const url = new URL(h.popups[0]!.url);
@@ -114,7 +114,7 @@ test('authorize URL: PKCE S256 ที่ตรงกับ verifier, state, exac
   assert.equal(h.store.get('dphone.embed.refresh.demo'), 'refresh-1');
 });
 
-test('callback ที่ state ไม่ตรง/origin อื่น/source ไม่ใช่ popup ของเรา ไม่ถูกแลก token', async () => {
+test('a callback with a mismatched state/another origin/a source that is not our popup does not get its token exchanged', async () => {
   const h = harness();
   await h.auth.start();
   h.auth.login();
@@ -138,7 +138,7 @@ test('callback ที่ state ไม่ตรง/origin อื่น/source ไ
   assert.equal(h.auth.status, 'signed-out');
 });
 
-test('popup ถูกบล็อก → สถานะ popup-blocked และกดใหม่ได้', async () => {
+test('popup blocked → state popup-blocked and can be pressed again', async () => {
   const h = harness();
   await h.auth.start();
   h.block(true);
@@ -149,7 +149,7 @@ test('popup ถูกบล็อก → สถานะ popup-blocked และ
   assert.equal(h.auth.status, 'signing-in');
 });
 
-test('fetch แนบ bearer; refresh หมุน token ใช้ครั้งเดียวก่อนหมดอายุ', async () => {
+test('fetch attaches the bearer; refresh rotates the token, single use, before expiry', async () => {
   const h = harness();
   await signIn(h);
   h.responses.push(() => new Response('{}'));
@@ -166,7 +166,7 @@ test('fetch แนบ bearer; refresh หมุน token ใช้ครั้�
   assert.equal(h.store.get('dphone.embed.refresh.demo'), 'refresh-2');
 });
 
-test('reload host: มี refresh token ใน sessionStorage → เข้าสู่ระบบโดยไม่เปิด popup', async () => {
+test('host reload: a refresh token in sessionStorage → signs in without opening a popup', async () => {
   const h = harness();
   h.store.set('dphone.embed.refresh.demo', 'refresh-kept');
   h.responses.push(h.tokens('access-9', 'refresh-10'));
@@ -175,11 +175,11 @@ test('reload host: มี refresh token ใน sessionStorage → เข้า�
   assert.equal(h.popups.length, 0);
 });
 
-test('network ล้มระหว่าง refresh → backoff ตามลำดับ แล้วต้อง login ใหม่เมื่อครบ', async () => {
+test('network failing during refresh → backoff in order, then a new login is required when exhausted', async () => {
   const h = harness();
   await signIn(h);
   for (const delay of REFRESH_BACKOFF_MS) {
-    await h.fire(); // refresh ล้ม (ไม่มี response = network down)
+    await h.fire(); // refresh fails (no response = network down)
     assert.equal(h.auth.status, 'refreshing');
     assert.equal(h.timers[0]!.ms, delay);
   }
@@ -188,7 +188,7 @@ test('network ล้มระหว่าง refresh → backoff ตามลำ
   assert.equal(h.store.has('dphone.embed.refresh.demo'), false);
 });
 
-test('invalid_grant (revoke/reuse/session cap) → reauth ทันที; คำสั่ง API รอในคิวแล้วส่งหลัง login ใหม่', async () => {
+test('invalid_grant (revoke/reuse/session cap) → reauth immediately; API commands wait in the queue then send after the new login', async () => {
   const h = harness();
   await signIn(h);
   h.responses.push(() => Response.json({ error: 'invalid_grant' }, { status: 400 }));
@@ -201,7 +201,7 @@ test('invalid_grant (revoke/reuse/session cap) → reauth ทันที; ค�
   assert.equal(h.calls.length, sent);
   assert.equal(h.auth.queued, 1);
 
-  // สายจบระหว่าง reauth → ไม่พร้อม + ปล่อย lease (เข้าคิวเช่นกัน)
+  // the call ended during reauth → not ready + release the lease (queued as well)
   const order: string[] = [];
   assert.equal(
     h.auth.afterCallEnded({
@@ -229,7 +229,7 @@ test('invalid_grant (revoke/reuse/session cap) → reauth ทันที; ค�
   assert.deepEqual(order, ['not-ready', 'release']);
 });
 
-test('logout: ห้ามตอนมีสาย; ตอนว่าง ปล่อย lease → revoke refresh token → ล้าง storage', async () => {
+test('logout: not allowed during a call; when idle, release the lease → revoke the refresh token → clear storage', async () => {
   const h = harness();
   await signIn(h);
   const order: string[] = [];

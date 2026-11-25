@@ -1,7 +1,7 @@
 /**
- * #956 แท็บ "เคส" ในแผงงาน: เปิดเคสจากงานปัจจุบันแบบ non-modal
- * ร่างเก็บใน state ของ WorkspaceApp ต่อ workId (ไม่เขียน localStorage เพราะมี PII)
- * จึงไม่หายเมื่อสลับแท็บหรือปิดแผงงาน
+ * #956 "Case" tab in the work panel: open a case from the current work, non-modal
+ * the draft is kept in WorkspaceApp state per workId (not written to localStorage because it has PII)
+ * so it is not lost when switching tabs or closing the work panel
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button, Select, StatusChip, TextField, toastQueue } from '@d-contact/ui-react';
@@ -36,16 +36,16 @@ export function useCaseDrafts() {
 interface Props {
   api: AgentWorkspaceApi;
   workId: string;
-  /** undefined = ยังโหลดลูกค้าไม่เสร็จ, null = ยังไม่ผูกลูกค้า */
+  /** undefined = customer not loaded yet, null = no customer linked yet */
   customer: LinkedCustomer | null | undefined;
-  /** บันทึกผลงานนี้แล้ว จึงเปิดเคสจากงานนี้ไม่ได้ */
+  /** this work's outcome was saved, so a case cannot be opened from it */
   workClosed: boolean;
   self: { userId: string; displayName: string };
   draft: CaseDraft;
   onDraftChange(change: (draft: CaseDraft) => CaseDraft): void;
   consoleHref(caseId: string): string | undefined;
   onPickCustomer(): void;
-  /** เปลี่ยนค่าเมื่อผู้ใช้กดปุ่ม "เปิดเคส" ในแถบบริบท เพื่อย้าย focus มาที่ช่องหัวข้อ */
+  /** changes when the user presses the "Open case" button in the context bar, to move focus to the subject field */
   focusToken: number;
 }
 
@@ -90,7 +90,7 @@ export function CasePanel({
     return () => {
       active = false;
     };
-    // โหลดรายชื่อใหม่เมื่อผู้ใช้กดลองอีกครั้ง หรือหลังผู้รับผิดชอบถูกปฏิเสธ
+    // reload the list when the user presses retry, or after the assignee was rejected
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [api, teamRevision]);
 
@@ -98,7 +98,7 @@ export function CasePanel({
     if (focusToken === 0) return;
     if (draft.phase === 'created') createdRef.current?.focus();
     else subjectRef.current?.querySelector<HTMLInputElement>('input')?.focus();
-    // focus เฉพาะตอนผู้ใช้กดปุ่มในแถบบริบท ไม่ใช่ทุกครั้งที่ร่างเปลี่ยน
+    // focus only when the user presses the button in the context bar, not every time the draft changes
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusToken]);
 
@@ -117,7 +117,7 @@ export function CasePanel({
     await send(draft);
   }
 
-  /** ส่งร่างตามที่เห็นอยู่ ใช้ commandId ของร่าง จึงใช้ได้ทั้งการส่งครั้งแรกและการส่งคำสั่งเดิมซ้ำ */
+  /** send the draft as seen; uses the draft's commandId, so it works for both the first send and resending the same command */
   async function send(current: CaseDraft) {
     if (!api.openCase) return;
     const intent = {

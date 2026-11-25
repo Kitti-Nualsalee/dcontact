@@ -3,10 +3,10 @@ import { expect, test } from './fixtures';
 import type { Page } from '@playwright/test';
 
 /**
- * #939: ปุ่มทดสอบอุปกรณ์มุมซ้ายล่างของ Workspace (shell) — ไม่บังคับ แผงลอยไม่ใช่ modal
- * ไมโครโฟนจำลองด้วย oscillator (มีเสียงต่อเนื่อง) หรือ gain 0 (เงียบ) แทน media stub กลางของ fixtures
- * เพราะการทดสอบไมค์ต้องอ่านระดับเสียงจาก stream จริง
- * `DEVICE_TEST_EVIDENCE_DIR=<dir>` = เก็บภาพหลักฐานสำหรับ PR
+ * #939: the device-test button at the bottom left of Workspace (shell) — optional, the floating panel is not a modal
+ * the microphone is simulated with an oscillator (continuous sound) or gain 0 (silence) instead of the central media stub of fixtures
+ * because the mic test must read the sound level from a real stream
+ * `DEVICE_TEST_EVIDENCE_DIR=<dir>` = save evidence screenshots for the PR
  */
 test.use({ locale: 'th-TH', viewport: { width: 1440, height: 900 } });
 
@@ -53,7 +53,7 @@ async function open(
     Object.defineProperty(navigator.mediaDevices, 'getUserMedia', {
       configurable: true,
       value: async (constraints: MediaStreamConstraints) => {
-        // ปุ่ม "ตรวจอุปกรณ์เสียง" ของแผงความพร้อมใช้ stub กลางเดิม — เฉพาะแผงทดสอบที่ต้องการ stream จริง
+        // the "check audio device" button of the readiness panel uses the original central stub — only the test panel needs a real stream
         if (!document.querySelector('.aw-devtest-panel')) return fallback(constraints);
         if (mode === 'denied') throw new DOMException('blocked', 'NotAllowedError');
         const context = new AudioContext();
@@ -106,13 +106,13 @@ const mic = (page: Page) => panel(page).getByRole('region', { name: /^(ไมโ
 const speaker = (page: Page) =>
   panel(page).getByRole('region', { name: /^(ลำโพงหรือหูฟัง|Speaker or headset)$/ });
 
-test('เปิดจากมุมซ้ายล่าง → ไมค์ผ่านเมื่อได้ยินเสียง, ลำโพงผ่านเมื่อตอบว่าได้ยิน, Esc ปิดและผลอยู่ที่ปุ่มหลัง reload', async ({
+test('open from the bottom left → mic passes when sound is heard, speaker passes when answered heard, Esc closes and the result stays on the button after reload', async ({
   page,
 }) => {
   await open(page);
   await expect(trigger(page)).toContainText('ยังไม่เคยทดสอบ');
 
-  // มุมซ้ายล่าง: ซ้ายกว่ารายการงาน และไม่ทับ dphone ที่อยู่ขวาล่าง
+  // bottom left: left of the work list, and not overlapping dphone at the bottom right
   const box = (await trigger(page).boundingBox())!;
   expect(box.x).toBeLessThan(200);
   expect(box.y + box.height).toBeGreaterThan(900 - 80);
@@ -148,7 +148,7 @@ test('เปิดจากมุมซ้ายล่าง → ไมค์ผ
   await expect(trigger(page)).toContainText(/ผ่าน · วันนี้/);
 });
 
-test('ไมค์ถูกปฏิเสธ → บอกวิธีเปิดสิทธิ์ และลำโพงไม่ได้ยิน → ปุ่มขึ้นว่ามีข้อควรตรวจ', async ({
+test('mic denied → explains how to grant permission, and speaker not heard → the button says there is something to check', async ({
   page,
 }) => {
   await open(page, { mic: 'denied' });
@@ -161,13 +161,15 @@ test('ไมค์ถูกปฏิเสธ → บอกวิธีเปิ
   await expect(speaker(page).getByRole('alert')).toContainText('ไม่ได้ยินเสียงทดสอบ');
   await evidence(page, 'device-test-denied');
 
-  // ปิดด้วยการกดปุ่มเดิม
+  // close by pressing the same button
   await trigger(page).click();
   await expect(panel(page)).toHaveCount(0);
   await expect(trigger(page)).toContainText(/มีข้อควรตรวจ · วันนี้/);
 });
 
-test('ไม่ได้ยินเสียงจากไมค์ 8 วินาที → แนะนำให้ตรวจปุ่มปิดเสียง', async ({ page }) => {
+test('no sound from the mic for 8 seconds → suggests checking the mute button', async ({
+  page,
+}) => {
   await open(page, { mic: 'silent' });
   await trigger(page).click();
   await expect(mic(page).getByText('กำลังฟัง')).toBeVisible();
@@ -177,7 +179,9 @@ test('ไม่ได้ยินเสียงจากไมค์ 8 วิ�
   await expect(mic(page).getByRole('status')).toHaveText(/ตรวจปุ่มปิดเสียง/);
 });
 
-test('ระหว่างมีสาย → ปุ่มกดไม่ได้และบอกว่าทดสอบได้หลังจบสาย', async ({ page }) => {
+test('during a call → the button is disabled and says the test is possible after the call ends', async ({
+  page,
+}) => {
   await open(page, { call: true });
   await page.getByRole('button', { name: 'ตรวจอุปกรณ์เสียง' }).click();
   const dphone = page.getByRole('region', { name: 'dphone' });
@@ -188,7 +192,7 @@ test('ระหว่างมีสาย → ปุ่มกดไม่ได
   await expect(panel(page)).toHaveCount(0);
 });
 
-test('EN → ข้อความของปุ่มและแผงเปลี่ยนตามภาษา', async ({ page }) => {
+test('EN → the button and panel text change with the language', async ({ page }) => {
   await open(page);
   await page.getByRole('button', { name: 'English' }).click();
   await expect(trigger(page)).toContainText('Not tested yet');

@@ -13,12 +13,12 @@ const SUPPORTED_CONTRACT_VERSION = 1;
 const SHA256_HEX = /^[a-f0-9]{64}$/;
 
 /**
- * สถานะนี้เป็น projection เฉพาะ working tab: ห้ามใช้แทน canonical policy และเมื่อ
- * ลำดับ event ไม่ครบต้องปิด outbound ไว้ก่อนจนกว่าจะได้รับสถานะที่เชื่อถือได้ใหม่
+ * This state is a projection for the working tab only: it must not replace the canonical policy, and when
+ * the event sequence is incomplete outbound must stay closed until a new trustworthy state is received
  *
- * CG4.8 (#191): Workspace เป็นเพียง owner-local alert — ไม่เขียน canonical Governance state
- * - version เดียวกันแต่ state digest ต่าง หรือ contract version ที่ไม่รู้จัก → STALE
- * - relaxation ไม่ปลด gate เอง; ปลดได้ทางเดียวคือยืนยัน canonical version
+ * CG4.8 (#191): Workspace is only an owner-local alert — it does not write canonical Governance state
+ * - same version but a different state digest, or an unknown contract version → STALE
+ * - relaxation does not lift the gate by itself; the only way to lift it is confirming the canonical version
  */
 export class WorkspaceOutboundGate {
   private liveSequence?: number;
@@ -75,7 +75,7 @@ export class WorkspaceOutboundGate {
         ? payload.stateDigest
         : undefined;
     if (version === this.aggregateVersion) {
-      // version ซ้ำเป็น no-op เว้นแต่ digest ต่าง ซึ่งแปลว่ามีสองความจริงสำหรับ version เดียว
+      // a repeated version is a no-op unless the digest differs, which means two truths for one version
       return digest && this.stateDigest && digest !== this.stateDigest ? this.stale() : undefined;
     }
     if (version < (this.aggregateVersion ?? 0)) return undefined;

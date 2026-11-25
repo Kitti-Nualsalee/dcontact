@@ -1,7 +1,7 @@
 /**
- * Agent Workspace V3 (mockups/d-contact-agent-workspace-v3.html): ส่วนประกอบของ layout แบบแผงที่ปรับขนาดได้
- * — เส้นแบ่งแผง (ลาก, ปุ่มลูกศร, ดับเบิลคลิกคืนค่า) และไอคอนเส้นของ Workspace
- * ความกว้างที่ผู้ใช้ตั้งเก็บใน localStorage ของ browser เท่านั้น เป็นความสะดวกต่อผู้ใช้ ไม่ใช่สถานะงาน
+ * Agent Workspace V3 (mockups/d-contact-agent-workspace-v3.html): components of the resizable panel layout
+ * — panel dividers (drag, arrow keys, double-click to reset) and the Workspace line icons
+ * the width the user sets is kept in the browser's localStorage only, a convenience for the user, not work state
  */
 import { useState, type PointerEvent as ReactPointerEvent } from 'react';
 
@@ -13,7 +13,7 @@ export interface PaneWidth {
   set: (next: number) => void;
 }
 
-/** ความกว้างของแผงที่จำไว้ต่อ browser — อ่าน/เขียนไม่ได้ (private mode) ใช้ค่าเริ่มต้น */
+/** panel width remembered per browser — unreadable/unwritable (private mode) uses the default */
 export function usePaneWidth(key: string, initial: number, min: number, max: number): PaneWidth {
   const clamp = (n: number) => Math.min(max, Math.max(min, Math.round(n)));
   const [value, setValue] = useState(() => {
@@ -30,7 +30,7 @@ export function usePaneWidth(key: string, initial: number, min: number, max: num
     try {
       localStorage.setItem(key, String(width));
     } catch {
-      // ดูด้านบน — ไม่จำค่าได้ก็ใช้ต่อในหน้านี้
+      // see above — if it cannot be remembered, keep using it in this page
     }
   };
   return { value, min, max, initial, set };
@@ -39,7 +39,7 @@ export function usePaneWidth(key: string, initial: number, min: number, max: num
 const STEP = 16;
 
 /**
- * เส้นแบ่งแผงแนวตั้ง — `edge="end"` = แผงอยู่ด้านขวาของเส้น (ลากไปทางซ้ายแผงกว้างขึ้น)
+ * vertical panel divider — `edge="end"` = the panel is to the right of the line (dragging left widens the panel)
  */
 export function PaneSplitter({
   label,
@@ -91,7 +91,7 @@ export function PaneSplitter({
   );
 }
 
-/** ไอคอนเส้น (Tabler outline, MIT) ที่ Workspace ใช้ — ไม่ส่งความหมายด้วยไอคอนอย่างเดียว ต้องมีข้อความกำกับ */
+/** line icons (Tabler outline, MIT) used by Workspace — meaning is never conveyed by an icon alone, text must accompany it */
 const PATHS = {
   phone:
     'M5 4h4l2 5l-2.5 1.5a11 11 0 0 0 5 5l1.5 -2.5l5 2v4a2 2 0 0 1 -2 2a16 16 0 0 1 -15 -15a2 2 0 0 1 2 -2',

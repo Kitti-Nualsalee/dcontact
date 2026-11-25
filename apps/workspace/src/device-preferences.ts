@@ -1,7 +1,7 @@
 /**
- * อุปกรณ์เสียงที่ Agent เลือกจากปุ่มทดสอบอุปกรณ์ (#939) และผลทดสอบล่าสุด
- * เก็บใน localStorage ของ browser เท่านั้น ไม่ส่งขึ้น server เพราะชื่ออุปกรณ์อาจมีชื่อคน (คำตัดสิน owner ข้อ 8)
- * อ่าน/เขียนไม่ได้ (private mode, storage ถูกบล็อก) = ใช้อุปกรณ์เริ่มต้นของระบบ
+ * Audio devices the Agent chose from the device-test button (#939) and the latest test result
+ * stored only in the browser's localStorage, never sent to the server because a device name may contain a person's name (owner decision item 8)
+ * unreadable/unwritable (private mode, storage blocked) = use the system default device
  */
 export interface DevicePreferences {
   micId?: string;
@@ -27,7 +27,7 @@ export interface DevicePreferenceStore {
   lastTest(): DeviceTestRecord | undefined;
   setLastTest(record: DeviceTestRecord): void;
   subscribe(listener: () => void): () => void;
-  /** เปลี่ยนทุกครั้งที่ค่าเปลี่ยน — ใช้กับ useSyncExternalStore */
+  /** changes every time a value changes — used with useSyncExternalStore */
   version(): number;
 }
 
@@ -63,7 +63,7 @@ export function createDevicePreferenceStore(
   };
 }
 
-/** store ของหน้า Workspace — transport ของสายอ่านจากที่นี่ทุกครั้งที่รับสาย */
+/** store of the Workspace page — the call transport reads from here every time it takes a call */
 export const devicePreferences = createDevicePreferenceStore(() => {
   try {
     return globalThis.localStorage;
@@ -73,14 +73,14 @@ export const devicePreferences = createDevicePreferenceStore(() => {
 });
 
 /**
- * constraint ของไมค์สำหรับ getUserMedia — ใช้ `ideal` ไม่ใช่ `exact`
- * อุปกรณ์ที่จำไว้ถอดออกแล้ว browser จะใช้ค่าเริ่มต้นแทนการปฏิเสธสาย
+ * mic constraint for getUserMedia — uses `ideal`, not `exact`
+ * if the remembered device was unplugged the browser uses the default instead of rejecting the call
  */
 export function micConstraint(preferences: DevicePreferences): MediaTrackConstraints | true {
   return preferences.micId ? { deviceId: { ideal: preferences.micId } } : true;
 }
 
-/** อุปกรณ์ที่จำไว้ยังต่ออยู่ไหม — ไม่ได้เลือกไว้ถือว่าใช้ค่าเริ่มต้น ไม่ใช่หาย */
+/** is the remembered device still connected — not having chosen means using the default, not missing */
 export function rememberedDeviceMissing(
   id: string | undefined,
   available: readonly Pick<MediaDeviceInfo, 'deviceId'>[],
@@ -95,8 +95,8 @@ export function supportsSpeakerSelection(element: HTMLMediaElement): boolean {
 }
 
 /**
- * ส่งเสียงของ element ไปลำโพงที่เลือก — browser ที่เลือกลำโพงไม่ได้ (Firefox/Safari บางรุ่น) ใช้ค่าเริ่มต้น
- * ลำโพงที่เลือกถอดออกแล้ว setSinkId ปฏิเสธ → ใช้ค่าเริ่มต้นแทน ไม่ให้เสียงลูกค้าเงียบ
+ * send an element's audio to the chosen speaker — a browser that cannot choose a speaker (some Firefox/Safari versions) uses the default
+ * if the chosen speaker was unplugged, setSinkId rejects → use the default instead, so the customer's audio is not silent
  */
 export async function routeToSpeaker(
   element: HTMLMediaElement,
@@ -125,7 +125,7 @@ function write(storage: () => KeyValueStorage | undefined, key: string, value: s
   try {
     storage()?.setItem(key, value);
   } catch {
-    // ดูหัวไฟล์ — จำไม่ได้ก็ใช้ต่อในหน้านี้
+    // see the file header — if it cannot be remembered, keep using it in this page
   }
 }
 

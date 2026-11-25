@@ -106,7 +106,7 @@ async function privateDraft(page: Page, value: string) {
     value,
   );
 }
-test('เลือก candidate เองโดยไม่ auto-link แม้มีหนึ่งรายการและอ่านกลับก่อน success', async ({
+test('pick a candidate manually without auto-link even with a single result, and read back before success', async ({
   page,
 }) => {
   const f = await fixture(page, { unlinked: true });
@@ -123,7 +123,7 @@ test('เลือก candidate เองโดยไม่ auto-link แม้�
   expect(f.mutations()).toBe(1);
   await privateDraft(page, '+6621234511');
 });
-test('ร่างอยู่ memory และพักเมื่อsessionหาย กู้เฉพาะงานเดิมโดยไม่สร้าง Voice controls', async ({
+test('the draft lives in memory and pauses when the session is lost, recovering only the original work without creating Voice controls', async ({
   page,
 }) => {
   await fixture(page);
@@ -139,7 +139,9 @@ test('ร่างอยู่ memory และพักเมื่อsession�
   await expect(page.getByLabel('ชื่อลูกค้า')).toHaveCount(0);
   await expect(page.getByText('งานนี้ยังไม่เชื่อมกับลูกค้า')).toBeVisible();
 });
-test('responseหายหลังบันทึก ใช้commandเดิมตรวจผล ไม่สร้าง effectซ้ำ', async ({ page }) => {
+test('response lost after save: use the same command to check the result, without creating a duplicate effect', async ({
+  page,
+}) => {
   const f = await fixture(page, { unknown: true });
   await page.getByRole('button', { name: 'แก้ชื่อและบริษัท' }).click();
   await page.getByLabel('ชื่อลูกค้า').fill('ร่าง unknown');
@@ -152,7 +154,9 @@ test('responseหายหลังบันทึก ใช้commandเดิ�
   await expect(page.getByText('บันทึกข้อมูลลูกค้าแล้ว')).toBeVisible();
   expect(f.mutations()).toBe(1);
 });
-test('ถอดหรือเปลี่ยนลูกค้าต้องยืนยันพร้อมเหตุผลและจอ768ไม่ล้น', async ({ page }) => {
+test('removing or changing the customer must confirm with a reason and the 768 screen does not overflow', async ({
+  page,
+}) => {
   await fixture(page);
   await page.setViewportSize({ width: 768, height: 900 });
   await page.getByRole('button', { name: 'ถอดการเชื่อมลูกค้า', exact: true }).click();
@@ -162,7 +166,7 @@ test('ถอดหรือเปลี่ยนลูกค้าต้อง�
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
-test('admissionค้างแต่ไม่มีeffect ต้องreconcile PENDINGให้NOT_APPLIEDก่อนเริ่มใหม่', async ({
+test('admission stuck with no effect must reconcile PENDING to NOT_APPLIED before starting over', async ({
   page,
 }) => {
   await fixture(page, { pending: true });
@@ -175,7 +179,7 @@ test('admissionค้างแต่ไม่มีeffect ต้องreconcile 
   await expect(page.getByRole('button', { name: 'บันทึกลูกค้า' })).toBeEnabled();
 });
 
-test('ร่างของลูกค้าคนเดิมไม่ย้ายไปคนใหม่เมื่องานเดิมเปลี่ยน linkage ระหว่าง reauth', async ({
+test('the draft of the same customer does not move to a new one when the original work changes linkage during reauth', async ({
   page,
 }) => {
   const f = await fixture(page);

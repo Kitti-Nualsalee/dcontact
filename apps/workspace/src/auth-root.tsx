@@ -46,7 +46,7 @@ export function AuthenticatedWorkspace({
 }: AuthenticatedWorkspaceProps) {
   const auth = useAuth();
   const { t } = useTranslation('workspace');
-  // #588: เปลี่ยนแล้ว re-render เท่านั้น — WorkspaceShell/WorkspaceApp อยู่ตำแหน่งเดิมจึงไม่ remount (ADR-026)
+  // #588: only a re-render when it changes — WorkspaceShell/WorkspaceApp stay at the same position so they do not remount (ADR-026)
   const [workInHand, setWorkInHand] = useState(false);
   const [popupPending, setPopupPending] = useState(false);
   const [popupFailed, setPopupFailed] = useState(false);
@@ -147,7 +147,7 @@ export function AuthenticatedWorkspace({
       }),
     [readToken, apiBaseUrl],
   );
-  // E1.12: work-session lease — #583: บังคับทุก tenant (SIP ต้องมี lease)
+  // E1.12: work-session lease — #583: enforced for every tenant (SIP needs a lease)
   const workSession = useMemo(
     () =>
       createWorkSessionApi({
@@ -393,9 +393,9 @@ export function WorkspaceAuthRoot() {
 }
 
 /**
- * D1.11 (#450): ภาษา/timezone ตามลำดับ ผู้ใช้ → tenant → browser → th
- * provider อยู่ตำแหน่งเดิมใน tree ตลอด (มี/ไม่มี session) — Workspace จึงไม่ remount เมื่อ token มาถึง
- * หรือเมื่อสลับภาษา ซึ่งจะตัด WebRTC/WS ของสายที่คุยอยู่ (ADR-026)
+ * D1.11 (#450): language/timezone in order user → tenant → browser → th
+ * the provider stays at the same place in the tree always (with/without a session) — so Workspace does not remount when the token arrives
+ * or when the language switches, which would cut the WebRTC/WS of a call in progress (ADR-026)
  */
 function WorkspaceLocale({
   apiBaseUrl,

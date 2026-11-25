@@ -13,19 +13,19 @@ import {
 const schema = JSON.parse(readFileSync(new URL('../schema/v1.json', import.meta.url), 'utf8'));
 const validate = new Ajv2020.default({ strict: true }).compile(schema);
 
-/** source ที่มีข้อมูลครบทุก field — projection ต้องคัดเฉพาะของระดับ */
+/** source with every field populated — the projection must select only what the level allows */
 const source: ScreenPopSource & Record<string, unknown> = {
   interactionId: 'int-1',
   contactId: 'contact-1',
   externalId: 'CIF-0001',
   direction: 'INBOUND',
-  queue: { id: 'queue-service', name: 'บริการลูกค้า' },
+  queue: { id: 'queue-service', name: 'Customer service' },
   callState: 'RINGING',
   ani: '0812345678',
   dnis: '021234567',
-  displayName: 'ลูกค้า ทดสอบ',
-  customFields: { tier: 'gold', segment: 'retail', secretNote: 'ห้ามส่ง' },
-  // ข้อมูลที่ไม่มีระดับใดส่ง
+  displayName: 'Test Customer',
+  customFields: { tier: 'gold', segment: 'retail', secretNote: 'do not send' },
+  // data that no level sends
   email: 'x@example.test',
   recordingUrl: 'https://rec.example.test/1.wav',
   transcript: 'hello',
@@ -43,7 +43,7 @@ const expected: Record<ScreenPopLevel, string[]> = {
   custom: [...common, ...ids, ...contact, 'fields'],
 };
 
-test('payload มีเฉพาะ field ของระดับที่ตั้ง — ไม่มี field เกิน และผ่าน schema', () => {
+test('payload has only the fields of the set level — no extra fields, and it passes the schema', () => {
   for (const level of Object.keys(expected) as ScreenPopLevel[]) {
     const message = projectScreenPop({
       requestId: 'r1',
@@ -55,13 +55,13 @@ test('payload มีเฉพาะ field ของระดับที่ต�
     assert.deepEqual(Object.keys(message).sort(), [...expected[level]].sort(), level);
     assert.equal(validate(message), true, level);
     const json = JSON.stringify(message);
-    for (const leaked of ['x@example.test', 'rec.example.test', 'hello', 'ห้ามส่ง']) {
-      assert.equal(json.includes(leaked), false, `${level} รั่ว ${leaked}`);
+    for (const leaked of ['x@example.test', 'rec.example.test', 'hello', 'do not send']) {
+      assert.equal(json.includes(leaked), false, `${level} leaked ${leaked}`);
     }
   }
 });
 
-test('custom: ส่งเฉพาะ field ที่ origin เลือกและมีค่า', () => {
+test('custom: sends only the fields the origin chose and that have values', () => {
   const message = projectScreenPop({
     requestId: 'r1',
     source,
@@ -72,7 +72,7 @@ test('custom: ส่งเฉพาะ field ที่ origin เลือกแ
   assert.deepEqual(message.fields, { tier: 'gold' });
 });
 
-test('ระดับ ids ไม่มี ANI แม้ยังระบุ contact ไม่ได้; contact ขึ้นไปจึงส่ง ANI', () => {
+test('level ids has no ANI even if the contact is still unidentified; ANI is sent from level contact up', () => {
   const unknown = { ...source, contactId: null, externalId: null, displayName: null };
   const idsMessage = projectScreenPop({ requestId: 'r', source: unknown, level: 'ids', decision });
   assert.equal('ani' in idsMessage, false);
@@ -86,7 +86,7 @@ test('ระดับ ids ไม่มี ANI แม้ยังระบุ con
   assert.equal(contactMessage.ani, '0812345678');
 });
 
-test('ลดระดับ: ปิด = ไม่ส่ง; ไม่มี scope VIEW → interaction; restriction/objection → ไม่เกิน ids', () => {
+test('level lowering: off = do not send; no VIEW scope → interaction; restriction/objection → at most ids', () => {
   const ok = { teamSegmentView: true, restricted: false };
   assert.equal(effectiveScreenPopLevel('off', ok), null);
   assert.equal(effectiveScreenPopLevel('off', { teamSegmentView: false, restricted: true }), null);
@@ -121,7 +121,7 @@ test('ลดระดับ: ปิด = ไม่ส่ง; ไม่มี sco
   }
 });
 
-test('payload ที่ถูกลดระดับแนบ reasonCode, policyVersion และ decisionId', () => {
+test('payload that was lowered attaches reasonCode, policyVersion and decisionId', () => {
   const effective = effectiveScreenPopLevel('custom', {
     teamSegmentView: false,
     restricted: false,

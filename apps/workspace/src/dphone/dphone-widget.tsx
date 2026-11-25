@@ -1,8 +1,8 @@
 /**
- * D1.15 (#454): dphone widget — 3 ขนาด (แถบย่อ / กะทัดรัด / ขยายพร้อมแป้นกด), ลากย้ายได้, แยกหน้าต่างได้
+ * D1.15 (#454): dphone widget — 3 sizes (collapsed bar / compact / expanded with keypad), draggable, detachable
  *
- * เป็น UI ล้วน: รับ view และส่ง command — SIP session อยู่ที่ working tab เสมอ การเปลี่ยนขนาด/ตำแหน่ง/
- * แยกหน้าต่างจึงไม่แตะ WebRTC หรือ WS (ADR-026) ใช้ได้ทั้งใน Workspace (ลอย) และในหน้า `/dphone`
+ * pure UI: receives the view and sends commands — the SIP session always lives in the working tab, so changing size/position/
+ * detaching the window never touches WebRTC or WS (ADR-026); usable both in Workspace (floating) and on the `/dphone` page
  */
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { useTranslation } from '@d-contact/i18n/react';
@@ -19,9 +19,9 @@ export interface DphoneWidgetProps {
   onCommand(command: DphoneCommand): void;
   size: DphoneSize;
   onSizeChange(size: DphoneSize): void;
-  /** มีเมื่อแยกหน้าต่างได้ (working tab ใน Workspace) */
+  /** present when the window can be detached (the working tab in Workspace) */
   onDetach?(): void;
-  /** ลอยบนหน้า Workspace และลากได้ — ในหน้า `/dphone` เต็มหน้าต่าง */
+  /** floats over the Workspace page and is draggable — on the `/dphone` page it fills the window */
   floating?: boolean;
   basicControls?: boolean;
 }
@@ -38,7 +38,7 @@ function loadPosition(): Position {
     const saved = JSON.parse(localStorage.getItem(POSITION_KEY) ?? 'null') as Position | null;
     if (saved && Number.isFinite(saved.right) && Number.isFinite(saved.bottom)) return saved;
   } catch {
-    // ตำแหน่งเป็นความสะดวก ไม่ใช่ข้อมูลสำคัญ
+    // position is a convenience, not important data
   }
   return { right: 24, bottom: 24 };
 }
@@ -78,7 +78,7 @@ export function DphoneWidget({
     try {
       localStorage.setItem(POSITION_KEY, JSON.stringify(position));
     } catch {
-      // ดู loadPosition
+      // see loadPosition
     }
   };
 
@@ -220,7 +220,7 @@ function SizeIcon({ size }: { size: DphoneSize }) {
   );
 }
 
-/** ที่ว่างของ widget ระหว่างที่ dphone ถูกแยกไปเป็นหน้าต่าง */
+/** space for the widget while dphone has been detached into a window */
 export function DphoneDetachedBar({ view, onAttach }: { view: DphoneView; onAttach(): void }) {
   const { t } = useTranslation('dphone');
   return (

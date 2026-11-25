@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 for (const outcome of ['success', 'unknown'] as const) {
-  test(`V1 ${outcome}: แสดงผลที่ commit แล้วแม้ snapshot หลังบันทึกอ่านไม่ได้`, async ({
+  test(`V1 ${outcome}: shows the committed result even when the snapshot after saving cannot be read`, async ({
     page,
   }) => {
     let saved = false;
@@ -126,7 +126,9 @@ for (const outcome of ['success', 'unknown'] as const) {
   });
 }
 
-test('Agent ส่ง disposition จาก WRAPUP และรอ authoritative snapshot', async ({ page }) => {
+test('an Agent sends a disposition from WRAPUP and waits for the authoritative snapshot', async ({
+  page,
+}) => {
   let completed = false;
   let requestBody: Record<string, unknown> | undefined;
   await page.route('**/api/v1/workspace/agent/snapshot', (route) =>

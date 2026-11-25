@@ -34,7 +34,7 @@ async function activeOwner(page: Page, nested = false) {
   return { server, frame, owner, phone };
 }
 
-test('owner รักษาสายและ lease เดิมเมื่อ CRM reload แล้วส่ง wrap-up/activity กลับได้', async ({
+test('the owner keeps the call and the original lease when the CRM reloads, then can send wrap-up/activity back', async ({
   page,
   context,
 }) => {
@@ -84,7 +84,9 @@ test('owner รักษาสายและ lease เดิมเมื่อ 
   expect(context.pages()).toContain(page);
 });
 
-test('owner ไม่เริ่ม auth หรือ lease เมื่อ server ปฏิเสธ fresh policy', async ({ page }) => {
+test('the owner starts no auth or lease when the server rejects a fresh policy', async ({
+  page,
+}) => {
   const { server, frame } = await setup(page, { ownerWindow: true });
   server.ownerAllowed = false;
   const [owner] = await Promise.all([
@@ -97,7 +99,9 @@ test('owner ไม่เริ่ม auth หรือ lease เมื่อ ser
   await owner.close();
 });
 
-test('policy ช้ากว่า probe ไม่เกิด attach ซ้อนจนเริ่ม runtime ไม่ได้', async ({ page }) => {
+test('a policy slower than the probe causes no overlapping attach that leaves the runtime unable to start', async ({
+  page,
+}) => {
   const { frame } = await setup(page, { ownerWindow: true });
   let checks = 0;
   await page.context().route('**/dphone/embed/owner-policy**', async (route) => {
@@ -114,7 +118,9 @@ test('policy ช้ากว่า probe ไม่เกิด attach ซ้อ�
   await owner.close();
 });
 
-test('iframe reload ใน WindowProxy เดิมโดยไม่มี detach ต้องตรวจ policy ใหม่', async ({ page }) => {
+test('an iframe reload within the same WindowProxy with no detach must re-check the policy', async ({
+  page,
+}) => {
   const { server, frame, owner } = await activeOwner(page);
   const session = await owner.evaluate(() => window.__dcontactDphone?.sipSessionId());
   const checks = server.ownerPolicyChecks;
@@ -130,7 +136,9 @@ test('iframe reload ใน WindowProxy เดิมโดยไม่มี deta
   await owner.close();
 });
 
-test('reload CRM ชั้นนอกที่ฝังซ้อนแล้ว controller ใหม่เชื่อม owner เดิมได้', async ({ page }) => {
+test('after the outer CRM that is already nested reloads, the new controller can connect to the original owner', async ({
+  page,
+}) => {
   const { server, frame, owner, phone } = await activeOwner(page, true);
   const session = await owner.evaluate(() => window.__dcontactDphone?.sipSessionId());
   const leases = server.leaseBodies.length;
@@ -142,7 +150,9 @@ test('reload CRM ชั้นนอกที่ฝังซ้อนแล้ว
   await owner.close();
 });
 
-test('reload ซ้ำระหว่างรอ policy ไม่ให้ผลเก่าทับ document ใหม่', async ({ page }) => {
+test('repeated reloads while waiting for the policy must not let an old result overwrite the new document', async ({
+  page,
+}) => {
   const { frame, owner } = await activeOwner(page);
   const session = await owner.evaluate(() => window.__dcontactDphone?.sipSessionId());
   let capture!: (route: Route) => void;
@@ -167,7 +177,9 @@ test('reload ซ้ำระหว่างรอ policy ไม่ให้ผ�
   await owner.close();
 });
 
-test('reattach ถูกปฏิเสธแล้ว owner คุยต่อ แต่ CRM ส่งคำสั่งไม่ได้', async ({ page }) => {
+test('after a rejected reattach the owner keeps talking, but the CRM cannot send commands', async ({
+  page,
+}) => {
   const { server, frame, owner, phone } = await activeOwner(page);
   const session = await owner.evaluate(() => window.__dcontactDphone?.sipSessionId());
   const checks = server.ownerPolicyChecks;
@@ -201,7 +213,7 @@ test('reattach ถูกปฏิเสธแล้ว owner คุยต่อ 
   await owner.close();
 });
 
-test('attach ซ้ำที่ policy ปฏิเสธแล้ว recovery ต้องเชื่อมกลับได้โดยสายไม่เปลี่ยน', async ({
+test('a repeated attach after a rejected policy: recovery must be able to reconnect without the call changing', async ({
   page,
 }) => {
   const { server, frame, owner } = await activeOwner(page);
@@ -219,7 +231,9 @@ test('attach ซ้ำที่ policy ปฏิเสธแล้ว recovery �
   await owner.close();
 });
 
-test('เพิกถอน origin ปิด controller แต่ owner รักษา SIP session เดิม', async ({ page }) => {
+test('revoking the origin closes the controller but the owner keeps the original SIP session', async ({
+  page,
+}) => {
   const { server, frame, owner, phone } = await activeOwner(page);
   const session = await owner.evaluate(() => window.__dcontactDphone?.sipSessionId());
   server.sendWorkspaceEvent?.({ type: 'embed.origin.revoked', origin: 'https://crm.example.test' });
@@ -229,7 +243,7 @@ test('เพิกถอน origin ปิด controller แต่ owner รั�
   await owner.close();
 });
 
-test('popup ถูกบล็อกแสดงเหตุผลและไม่ขอ lease', async ({ page }) => {
+test('a blocked popup shows the reason and does not request a lease', async ({ page }) => {
   await page.addInitScript(() => {
     window.open = () => null;
   });
@@ -239,7 +253,7 @@ test('popup ถูกบล็อกแสดงเหตุผลและไ�
   expect(server.leaseBodies).toHaveLength(0);
 });
 
-test('owner ไม่ใช้ refresh token เดิมของ iframe และปิดแล้ว controller แจ้ง disconnected', async ({
+test('the owner does not use the iframe original refresh token, and after closing the controller reports disconnected', async ({
   page,
 }) => {
   const { server, frame } = await setup(page, { ownerWindow: true });

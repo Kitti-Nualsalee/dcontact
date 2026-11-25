@@ -20,7 +20,7 @@ function connection(authorize = async () => true) {
   return new OwnerConnection({ identity, dphoneOrigin: origin, authorize });
 }
 
-test('connection ต้องได้รับ authorization ก่อนรับคำสั่ง และผูก origin/source/id ทุกข้อความ', async () => {
+test('a connection must get authorization before accepting commands, and binds origin/source/id on every message', async () => {
   const owner = connection();
   assert.equal(owner.accepts(command), false);
   assert.equal(await owner.attach(event), true);
@@ -30,7 +30,7 @@ test('connection ต้องได้รับ authorization ก่อนรั
   assert.equal(owner.accepts({ ...command, connectionId: 'stale' }), false);
 });
 
-test('reject schema/tenant/host/origin/source ที่ผิดก่อนเรียก authorization', async () => {
+test('reject a wrong schema/tenant/host/origin/source before calling authorization', async () => {
   let checks = 0;
   const owner = connection(async () => {
     checks += 1;
@@ -53,7 +53,7 @@ test('reject schema/tenant/host/origin/source ที่ผิดก่อนเ�
   assert.equal(checks, 0);
 });
 
-test('authorization ปฏิเสธหรือ network error ต้อง fail closed', async () => {
+test('authorization rejection or network error must fail closed', async () => {
   for (const authorize of [
     async () => false,
     async () => {
@@ -66,7 +66,7 @@ test('authorization ปฏิเสธหรือ network error ต้อง fa
   }
 });
 
-test('reattach ตรวจ authorization ใหม่และ controller เก่าส่งคำสั่งไม่ได้', async () => {
+test('reattach re-checks authorization and the old controller cannot send commands', async () => {
   let checks = 0;
   const owner = connection(async () => {
     checks += 1;
@@ -81,7 +81,7 @@ test('reattach ตรวจ authorization ใหม่และ controller เ�
   assert.equal(owner.accepts({ ...command, source: replacement }), true);
 });
 
-test('authorization ที่ตอบช้าต้องไม่คืน connection เก่าทับ connection ใหม่', async () => {
+test('a slow authorization answer must not return an old connection over a new one', async () => {
   let complete!: (allowed: boolean) => void;
   let checks = 0;
   const owner = connection(() => {
@@ -100,7 +100,7 @@ test('authorization ที่ตอบช้าต้องไม่คืน co
   assert.equal(owner.accepts({ ...command, source: replacement }), true);
 });
 
-test('revoke ระหว่างรอ authorization ไม่คืน connection และไม่ตัด media ผ่าน module นี้', async () => {
+test('revoke while awaiting authorization returns no connection and does not cut media through this module', async () => {
   let complete!: (allowed: boolean) => void;
   const owner = connection(
     () =>
@@ -116,7 +116,7 @@ test('revoke ระหว่างรอ authorization ไม่คืน connec
   assert.equal(await owner.attach(event), false);
 });
 
-test('detach ของ controller ปัจจุบันปิดเฉพาะ connection', async () => {
+test('detach of the current controller closes only the connection', async () => {
   const owner = connection();
   await owner.attach(event);
   owner.detach(source);
@@ -124,7 +124,7 @@ test('detach ของ controller ปัจจุบันปิดเฉพา�
   assert.equal(await owner.attach(event), true);
 });
 
-test('detach ระหว่างรอ authorization ต้องไม่รับ controller ที่ปิดไปแล้ว', async () => {
+test('detach while awaiting authorization must not accept a controller that already closed', async () => {
   let complete!: (allowed: boolean) => void;
   const owner = connection(
     () =>
@@ -139,7 +139,7 @@ test('detach ระหว่างรอ authorization ต้องไม่ร�
   assert.equal(owner.accepts(command), false);
 });
 
-test('detach nonce เก่าของ WindowProxy เดิมไม่ยกเลิก connection ใหม่', async () => {
+test('an old detach nonce of the same WindowProxy does not cancel a new connection', async () => {
   const owner = connection();
   await owner.attach(event);
   owner.detach(source, 'stale-document');

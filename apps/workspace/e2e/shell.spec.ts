@@ -4,8 +4,8 @@ import type { Page } from '@playwright/test';
 import { homeNavigation } from '../../console/e2e/support/home-navigation.js';
 
 /**
- * D1.13 (#452): flag `ui.shell.v2` ของ Workspace — shell ตัดสินก่อน mount WorkspaceApp
- * และสลับภาษาใน shell ต้องไม่ remount WorkspaceApp (ADR-026: ห้ามตัดสาย/WS)
+ * D1.13 (#452): flag `ui.shell.v2` of Workspace — the shell decides before WorkspaceApp mounts
+ * and switching language in the shell must not remount WorkspaceApp (ADR-026: never cut the call/WS)
  */
 test.use({ locale: 'th-TH' });
 
@@ -31,7 +31,7 @@ function navigation(shellV2: boolean) {
         path: '/?view=journeys',
       },
     ],
-    // #651: พื้นที่งานบน rail (Workspace ไม่มีเมนูย่อย — D1.2)
+    // #651: work areas on the rail (Workspace has no submenu — D1.2)
     areas: [
       {
         id: 'workspace',
@@ -80,7 +80,9 @@ async function mockApis(page: Page, shellV2: boolean) {
 
 const rail = (page: Page) => page.getByRole('navigation', { name: /เมนูหลัก|Main navigation/ });
 
-test('#860: พื้นที่ลูกค้าจาก Workspace เปิด Console พร้อมภาษาและ tenant', async ({ page }) => {
+test('#860: the customer area from Workspace opens Console with the language and tenant', async ({
+  page,
+}) => {
   await mockApis(page, true);
   await page.route('**/api/v1/me/navigation', (route) =>
     route.fulfill({ status: 200, json: homeNavigation(['admin']) }),
@@ -107,21 +109,21 @@ test('#860: พื้นที่ลูกค้าจาก Workspace เปิ
   await expect(englishLauncher.getByRole('link', { name: /Customer activity/ })).toBeVisible();
 });
 
-test('flag ปิด → Workspace เดิมไม่มี rail', async ({ page }) => {
+test('flag off → the old Workspace has no rail', async ({ page }) => {
   await mockApis(page, false);
   await page.goto('/?tenant=demo');
   await expect(page.getByText('สมชาย ใจดี')).toBeVisible();
   await expect(rail(page)).toHaveCount(0);
 });
 
-test('flag เปิด → rail ไม่มี SubNav, Journeys เปิดแท็บใหม่ไป Console และ axe ของ shell ผ่าน', async ({
+test('flag on → the rail has no SubNav, Journeys opens a new tab to Console, and the shell axe passes', async ({
   page,
 }) => {
   await mockApis(page, true);
   await page.goto('/?tenant=demo');
   await expect(rail(page)).toBeVisible();
   await expect(page.getByText('สมชาย ใจดี')).toBeVisible();
-  await expect(page.getByRole('navigation')).toHaveCount(2); // rail + breadcrumb (ไม่มี SubNav)
+  await expect(page.getByRole('navigation')).toHaveCount(2); // rail + breadcrumb (no SubNav)
   const journeys = rail(page).getByRole('link', { name: /Journeys/ });
   await expect(journeys).toHaveAttribute(
     'href',
@@ -141,7 +143,7 @@ test('flag เปิด → rail ไม่มี SubNav, Journeys เปิด�
   ).toEqual([]);
 });
 
-test('#651: rail แสดงพื้นที่งานจาก Navigation API และ Workspace ยังไม่มีเมนูย่อย', async ({
+test('#651: the rail shows work areas from the Navigation API and Workspace still has no submenu', async ({
   page,
 }) => {
   await mockApis(page, true);
@@ -156,24 +158,24 @@ test('#651: rail แสดงพื้นที่งานจาก Navigation 
     'data-area',
     'workspace',
   );
-  // พื้นที่ของ Console เปิดแท็บใหม่ (ADR-026 ข้อ 3) — ลิงก์มีแค่ path + tenant ไม่มี PII
+  // the Console area opens a new tab (ADR-026 item 3) — the link has only the path + tenant, no PII
   const consoleArea = rail(page).locator('a[data-area=journeys]');
   await expect(consoleArea).toHaveAttribute('target', '_blank');
   await expect(consoleArea).toHaveAttribute(
     'href',
     'http://localhost:5174/?view=journeys&tenant=demo',
   );
-  // D1.2: Workspace ไม่มี SubNav — มีแค่ rail + breadcrumb
+  // D1.2: Workspace has no SubNav — only the rail + breadcrumb
   await expect(page.getByRole('navigation')).toHaveCount(2);
 });
 
-test('flag เปิด → สลับภาษาไม่ reload และไม่ remount WorkspaceApp', async ({ page }) => {
+test('flag on → switching language neither reloads nor remounts WorkspaceApp', async ({ page }) => {
   await mockApis(page, true);
   await page.goto('/?tenant=demo');
   const agentName = page.getByText('สมชาย ใจดี');
   await expect(agentName).toBeVisible();
   const before = await page.evaluate(() => performance.timeOrigin);
-  // marker บน DOM node ของ WorkspaceApp — ถ้า remount node ใหม่จะไม่มี marker
+  // marker on the WorkspaceApp DOM node — if it remounts the new node has no marker
   await agentName.evaluate(
     (el) => ((el as HTMLElement & { __d113?: string }).__d113 = 'same-node'),
   );
@@ -196,7 +198,9 @@ const userMenu = (page: Page) => page.getByRole('button', { name: 'เมนู�
 const signOuts = (page: Page) =>
   page.evaluate(() => (window as unknown as { __signOuts?: number }).__signOuts ?? 0);
 
-test('flag ปิด → ไม่มีเมนูผู้ใช้ และปุ่มออกจากระบบเดิมอยู่ที่แถบสถานะ', async ({ page }) => {
+test('flag off → no user menu, and the old sign-out button stays in the status bar', async ({
+  page,
+}) => {
   await mockApis(page, false);
   await page.goto('/?tenant=demo');
   await expect(page.getByText('สมชาย ใจดี')).toBeVisible();
@@ -204,19 +208,19 @@ test('flag ปิด → ไม่มีเมนูผู้ใช้ และ
   await expect(page.getByRole('button', { name: 'ออกจากระบบ' })).toBeVisible();
 });
 
-test('flag เปิด → เมนูผู้ใช้แสดงชื่อ/องค์กร/บทบาท, ไม่มีปุ่มออกซ้ำ และไม่มีสายก็ออกได้ทันที', async ({
+test('flag on → the user menu shows name/organization/role, there is no duplicate sign-out button, and with no call you can sign out at once', async ({
   page,
 }) => {
   await mockApis(page, true);
   await page.goto('/?tenant=demo');
   await expect(page.getByText('สมชาย ใจดี')).toBeVisible();
-  // ปุ่มเดิมในแถบสถานะถูกซ่อน — ออกจากระบบที่เมนูผู้ใช้ที่เดียว
+  // the old button in the status bar is hidden — sign out only at the user menu
   await expect(page.getByRole('button', { name: 'ออกจากระบบ' })).toHaveCount(0);
   await userMenu(page).click();
   await expect(page.getByRole('menu')).toHaveAccessibleName(
     /Workspace Tester.*workspace-e2e@demo\.example.*องค์กร demo.*เอเจนต์/,
   );
-  // AC5 (#598): "บัญชีของฉัน" เปิด Console ในแท็บใหม่ — Workspace ไม่ remount ระหว่างมีสาย (ADR-026)
+  // AC5 (#598): "My account" opens Console in a new tab — Workspace does not remount during a call (ADR-026)
   const account = page.getByRole('menuitem', { name: 'บัญชีของฉัน' });
   await expect(account).toHaveAttribute('href', 'http://localhost:5174/?tenant=demo&view=account');
   await expect(account).toHaveAttribute('target', '_blank');
@@ -225,7 +229,7 @@ test('flag เปิด → เมนูผู้ใช้แสดงชื่�
   expect(await signOuts(page)).toBe(1);
 });
 
-test('flag เปิด → มี wrap-up ที่ยังไม่บันทึก ต้องยืนยันก่อนออก และยกเลิกแล้ว wrap-up ยังอยู่', async ({
+test('flag on → with an unsaved wrap-up, confirm before signing out, and after cancelling the wrap-up is still there', async ({
   page,
 }) => {
   await page.route('**/api/v1/me/navigation', (route) =>
@@ -263,7 +267,7 @@ test('flag เปิด → มี wrap-up ที่ยังไม่บัน�
   expect(await signOuts(page)).toBe(0);
 });
 
-test('#588: มีสายถูก offer มา (ASSIGNED) แม้ dphone ยังไม่ดัง ต้องยืนยันก่อนออก', async ({
+test('#588: with a call offered (ASSIGNED) even though dphone is not yet ringing, confirm before signing out', async ({
   page,
 }) => {
   await page.route('**/api/v1/me/navigation', (route) =>
@@ -303,7 +307,9 @@ test('#588: มีสายถูก offer มา (ASSIGNED) แม้ dphone �
 });
 
 for (const width of [390, 768, 950, 1280, 1440]) {
-  test(`Workspace TopBar ใช้งานเมนูผู้ใช้ได้ที่ ${width}px ทั้งไทยและอังกฤษ`, async ({ page }) => {
+  test(`Workspace TopBar user menu works at ${width}px in both Thai and English`, async ({
+    page,
+  }) => {
     await page.setViewportSize({ width, height: 900 });
     await mockApis(page, true);
     await page.goto('/?tenant=demo');

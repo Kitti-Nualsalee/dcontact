@@ -14,7 +14,7 @@ const interaction = {
   direction: 'INBOUND' as const,
   version: '3',
   caller: '0812345678',
-  queue: { id: 'q-1', name: 'บริการลูกค้า' },
+  queue: { id: 'q-1', name: 'Customer service' },
   offerExpiresAt: null,
   answeredAt: '2026-09-28T10:00:00.000Z',
   endedAt: '2026-09-28T10:03:05.000Z',
@@ -53,7 +53,7 @@ const call = (requestId: string): CallRequestMessage => ({
   number: '0812345678',
 });
 
-test('dphone.call จาก host แค่กรอกเบอร์ (prefilled) — ไม่เรียก server จนกว่า agent จะกดโทร', () => {
+test('dphone.call from the host only fills in the number (prefilled) — no server call until the agent presses call', () => {
   const r = runtime();
   r.rt.setLease('lease-1');
   r.rt.prefillFromHost(call('h1'));
@@ -64,7 +64,7 @@ test('dphone.call จาก host แค่กรอกเบอร์ (prefilled
   assert.equal(r.requests.length, 0);
 });
 
-test('ยังไม่มี lease → unavailable ทันที; คำขอใหม่แทนที่คำขอเดิม (เดิมได้ cancelled)', () => {
+test('no lease yet → unavailable immediately; a new request replaces the old one (the old gets cancelled)', () => {
   const r = runtime();
   r.rt.prefillFromHost(call('h0'));
   const first = r.sent.at(-1)!;
@@ -82,7 +82,7 @@ test('ยังไม่มี lease → unavailable ทันที; คำข�
   ]);
 });
 
-test('agent กดโทร → เรียก click-to-call พร้อม lease header แล้วส่งผลของ server ให้ host', async () => {
+test('agent presses call → calls click-to-call with the lease header, then sends the server result to the host', async () => {
   const blocked = {
     v: 1,
     type: 'dphone.call.result',
@@ -109,7 +109,7 @@ test('agent กดโทร → เรียก click-to-call พร้อม le
   assert.equal(r.rt.state.phase, 'result');
 });
 
-test('หลัง server ตอบ dialing ปุ่มยกเลิกเรียก durable cancel ด้วย requestId + lease', async () => {
+test('after the server answers dialing, the cancel button calls durable cancel with requestId + lease', async () => {
   let requestCount = 0;
   const r = runtime({
     respond: () => {
@@ -151,7 +151,7 @@ test('หลัง server ตอบ dialing ปุ่มยกเลิกเร
   );
 });
 
-test('server ตอบ hostOrigin ไม่ตรงกับ origin ที่ล็อก → ไม่ส่งผลของ server ให้ host', async () => {
+test('server answers a hostOrigin that does not match the locked origin → the server result is not sent to the host', async () => {
   const r = runtime({
     respond: () =>
       Response.json({
@@ -173,7 +173,7 @@ test('server ตอบ hostOrigin ไม่ตรงกับ origin ที่�
   assert.equal(last.type === 'dphone.call.result' && last.reasonCode, 'SERVER_UNAVAILABLE');
 });
 
-test('screen-pop: ปิด = ไม่ขอ server; เปิด = ส่ง payload ของ server เฉพาะเมื่อ hostOrigin ตรง', async () => {
+test('screen-pop: off = no server request; on = send the server payload only when hostOrigin matches', async () => {
   const off = runtime({ screenPopLevel: 'off' });
   off.rt.setLease('lease-1');
   off.rt.onCallEvent({ type: 'offered', interaction: { ...interaction, state: 'ASSIGNED' } });
@@ -205,7 +205,7 @@ test('screen-pop: ปิด = ไม่ขอ server; เปิด = ส่ง p
   assert.equal(on.sent.length, 1);
 });
 
-test('จบ wrap-up → activity เข้าคิว ไม่มีเบอร์/เสียง/transcript/โน้ต', () => {
+test('wrap-up finished → activity is queued with no number/audio/transcript/note', () => {
   const r = runtime();
   r.rt.onCallEvent({ type: 'wrapup.completed', interaction, disposition: 'CUSTOMER_ASSISTED' });
   assert.deepEqual(r.activities, [
@@ -219,13 +219,13 @@ test('จบ wrap-up → activity เข้าคิว ไม่มีเบอ
       endedAt: '2026-09-28T10:03:05.000Z',
       durationSeconds: 185,
       disposition: 'CUSTOMER_ASSISTED',
-      queue: { id: 'q-1', name: 'บริการลูกค้า' },
+      queue: { id: 'q-1', name: 'Customer service' },
     },
   ]);
   assert.equal(JSON.stringify(r.activities).includes('0812345678'), false);
 });
 
-test('สายมาถึงก่อนได้ lease → ขอ screen-pop ทันทีที่ได้ lease', async () => {
+test('a call arrives before the lease is obtained → request screen-pop as soon as the lease is obtained', async () => {
   const r = runtime({ respond: () => Response.json({ status: 'off' }) });
   r.rt.onCallEvent({ type: 'offered', interaction: { ...interaction, state: 'ASSIGNED' } });
   await new Promise((resolve) => setImmediate(resolve));

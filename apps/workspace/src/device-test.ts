@@ -1,17 +1,17 @@
 /**
- * ตรรกะของการทดสอบอุปกรณ์ (#939) ที่ไม่ผูกกับ browser — ทดสอบได้ด้วยเวลาและระดับเสียงปลอม
+ * Device-test logic (#939) not tied to the browser — testable with fake time and sound levels
  */
 
 export type MicCheck = 'listening' | 'quiet' | 'pass';
 
 export interface SpeechDetectorOptions {
-  /** ระดับ RMS (0–1) ที่ถือว่ามีเสียงพูด */
+  /** RMS level (0–1) counted as speech */
   threshold: number;
-  /** เวลาที่มีเสียงพูดรวมกันจนถือว่าผ่าน */
+  /** total speech time counted as pass */
   voicedMs: number;
-  /** เงียบนานกว่านี้ = นับเวลาที่มีเสียงพูดใหม่ (ช่วงหยุดหายใจสั้น ๆ ไม่ตัด) */
+  /** silence longer than this = restart counting speech time (a short breath pause does not cut it) */
   gapMs: number;
-  /** ยังไม่ผ่านภายในเวลานี้ = แจ้งว่าไม่ได้ยินเสียง แต่ยังฟังต่อ */
+  /** not passed within this time = report that no sound is heard, but keep listening */
   quietMs: number;
 }
 
@@ -23,7 +23,7 @@ export const SPEECH_DETECTOR_DEFAULTS: SpeechDetectorOptions = {
 };
 
 export interface SpeechDetector {
-  /** ส่งระดับเสียงหนึ่งตัวอย่าง พร้อมเวลา (ms) — คืนผลล่าสุด ผ่านแล้วคงผ่าน */
+  /** feed one sound-level sample with its time (ms) — returns the latest result, and once passed it stays passed */
   sample(level: number, now: number): MicCheck;
 }
 
@@ -54,7 +54,7 @@ export function createSpeechDetector(options: Partial<SpeechDetectorOptions> = {
   };
 }
 
-/** ระดับเสียง RMS ของ time-domain samples (-1..1) จาก AnalyserNode.getFloatTimeDomainData */
+/** RMS sound level of time-domain samples (-1..1) from AnalyserNode.getFloatTimeDomainData */
 export function rmsLevel(samples: ArrayLike<number>): number {
   if (samples.length === 0) return 0;
   let sum = 0;
@@ -67,7 +67,7 @@ export function rmsLevel(samples: ArrayLike<number>): number {
 
 export type MicFailure = 'denied' | 'notFound' | 'busy' | 'failed';
 
-/** แปลง error ของ getUserMedia เป็นเหตุที่บอก Agent ได้ */
+/** convert a getUserMedia error into a reason that can be told to the Agent */
 export function micFailure(error: unknown): MicFailure {
   const name = error instanceof Error || isNamed(error) ? error.name : '';
   if (name === 'NotAllowedError' || name === 'SecurityError') return 'denied';

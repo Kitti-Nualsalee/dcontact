@@ -7,7 +7,7 @@ const api = createWorkCustomerApi((path, init) =>
     headers: { ...init.headers, authorization: 'Bearer isolated-ui-fixture' },
   }),
 );
-/** ใช้เฉพาะ Vite mode e2e; ไม่มี SIP/media จำลองที่อ้างเป็นเสียงจริง */
+/** Vite mode e2e only; no simulated SIP/media that passes itself off as real audio */
 export function E2eWorkCustomerHarness() {
   const [ready, setReady] = useState(true);
   const [work, setWork] = useState('11111111-1111-4111-8111-111111111111');

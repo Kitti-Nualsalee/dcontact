@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { WorkspaceOutboundGate } from './workspace-governance.js';
 
-test('owner-local governance event บล็อก outbound ถัดไปโดยไม่รับข้อมูลระบุตัวตน', () => {
+test('an owner-local governance event blocks the next outbound without accepting identifying data', () => {
   const gate = new WorkspaceOutboundGate();
   const alert = gate.apply({
     type: 'workspace.live',
@@ -18,7 +18,7 @@ test('owner-local governance event บล็อก outbound ถัดไปโ�
   assert.equal(gate.snapshot(), 'BLOCK_NEXT_OUTBOUND');
 });
 
-test('live sequence ที่ขาดหรือ socket หลุดเป็น fail-closed', () => {
+test('a missing live sequence or a dropped socket is fail-closed', () => {
   const gate = new WorkspaceOutboundGate();
   gate.apply({ type: 'workspace.live', sequence: 1, payload: { event: 'agent.state_changed' } });
   const alert = gate.apply({
@@ -32,7 +32,7 @@ test('live sequence ที่ขาดหรือ socket หลุดเป็�
   assert.equal(gate.markDisconnected().state, 'STALE');
 });
 
-test('เฉพาะ canonical version ที่ไม่เก่าจึงปลด outbound gate ได้', () => {
+test('only a canonical version that is not older can lift the outbound gate', () => {
   const gate = new WorkspaceOutboundGate();
   gate.apply({
     type: 'workspace.live',
