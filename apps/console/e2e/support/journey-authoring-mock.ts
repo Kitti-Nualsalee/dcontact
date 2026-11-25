@@ -14,7 +14,7 @@ export const DIGEST = (seed: string) => seed.repeat(64).slice(0, 64);
 
 export type Json = Record<string, unknown>;
 
-export function authoringDocument(name = 'ติดตามการชำระ') {
+export function authoringDocument(name = 'Payment follow-up') {
   return {
     schemaVersion: 'J5_AUTHORING_V1',
     registryVersion: 'J5_PALETTE_V1',

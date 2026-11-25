@@ -1,4 +1,9 @@
 import { expect, test, type Page } from '@playwright/test';
+import { th } from './support/catalog';
+
+function escapeRegExp(text: string) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 test.use({ locale: 'th-TH' });
 
 /** #986 team history and summary — mock API, verifies UI only and does not replace permission evidence from the DB (that is in integration) */
@@ -34,12 +39,12 @@ const item = (
 });
 const A = { id: teamA, name: 'Customer Care' };
 const B = { id: teamB, name: 'Sales' };
-const agentOne = { id: agentA, displayName: 'สมชาย' };
-const agentTwo = { id: agentA2, displayName: 'สมหญิง' };
+const agentOne = { id: agentA, displayName: 'Somchai' };
+const agentTwo = { id: agentA2, displayName: 'Somying' };
 const rows = [
   item(callA, agentOne, A, 'CUSTOMER_ASSISTED'),
   item(callA2, agentTwo, A, 'FOLLOW_UP_REQUIRED'),
-  item(callB, { id: agentA, displayName: 'สมชาย' }, B, 'CUSTOMER_ASSISTED'),
+  item(callB, { id: agentA, displayName: 'Somchai' }, B, 'CUSTOMER_ASSISTED'),
 ];
 
 async function harness(page: Page, role: 'supervisor' | 'admin') {
@@ -105,7 +110,11 @@ async function harness(page: Page, role: 'supervisor' | 'admin') {
     }
     if (path === `items/${callA2}`)
       return route.fulfill({
-        json: { ...rows[1], talkSeconds: 125, note: 'ลูกค้าขอให้โทรกลับพรุ่งนี้\nก่อน 10 โมง' },
+        json: {
+          ...rows[1],
+          talkSeconds: 125,
+          note: 'The customer asked for a call back tomorrow\nbefore 10 a.m.',
+        },
       });
     return route.fulfill({ status: 404, json: { code: 'RESOURCE_NOT_FOUND' } });
   });
@@ -117,32 +126,78 @@ test('a Supervisor sees their own team summary, presses an Agent number, and see
 }) => {
   const requests = await harness(page, 'supervisor');
   await page.goto('/?view=team-history&tenant=demo');
-  await expect(page.getByRole('heading', { name: 'ประวัติงานของทีม', level: 1 })).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: th('teamHistory:title'), level: 1 }),
+  ).toBeVisible();
   await expect(page.getByText('Customer Care', { exact: true })).toBeVisible();
-  await expect(page.getByRole('combobox', { name: 'ทีม' })).toHaveCount(0);
-  const summary = page.getByRole('region', { name: 'สรุปงานของทีม' });
-  await expect(summary.getByRole('button', { name: 'แสดงงานที่จบทั้งหมด 2 งาน' })).toBeVisible();
-  await expect(page.getByRole('grid', { name: 'รายการงานของทีม' }).getByRole('row')).toHaveCount(3);
-  await summary.getByRole('button', { name: /^สมหญิง: 1 งาน/ }).click();
-  await expect(summary.getByRole('button', { name: /^สมหญิง: 1 งาน/ })).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  );
-  await expect(page.getByRole('heading', { name: /สมหญิง · ทุกผลบันทึก · 1 งาน/ })).toBeVisible();
+  await expect(page.getByRole('combobox', { name: th('teamHistory:team') })).toHaveCount(0);
+  const summary = page.getByRole('region', { name: th('teamHistory:summary.title') });
+  await expect(
+    summary.getByRole('button', { name: th('teamHistory:summary.showAll', { count: 2 }) }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('grid', { name: th('teamHistory:list') }).getByRole('row'),
+  ).toHaveCount(3);
+  await summary
+    .getByRole('button', {
+      name: new RegExp(
+        `^${escapeRegExp(th('teamHistory:summary.agentCountNoTalk', { agent: 'Somying', count: 1 }))}`,
+      ),
+    })
+    .click();
+  await expect(
+    summary.getByRole('button', {
+      name: new RegExp(
+        `^${escapeRegExp(th('teamHistory:summary.agentCountNoTalk', { agent: 'Somying', count: 1 }))}`,
+      ),
+    }),
+  ).toHaveAttribute('aria-pressed', 'true');
+  await expect(
+    page.getByRole('heading', {
+      name: th('teamHistory:summary.listTitle', {
+        period: th('teamHistory:summary.period.7d'),
+        agent: 'Somying',
+        disposition: th('teamHistory:summary.allDispositions'),
+        count: 1,
+      }),
+    }),
+  ).toBeVisible();
   await expect
     .poll(() => requests.some((request) => request.includes(`agentId=${agentA2}`)))
     .toBe(true);
   await expect(page).toHaveURL(new RegExp(`agent=${agentA2}`));
-  await page.getByRole('button', { name: `เปิดงาน ${callA2} ของ สมหญิง` }).click();
-  await expect(page.getByRole('heading', { name: 'ผลที่บันทึก' })).toBeVisible();
-  await expect(page.getByText(/ลูกค้าขอให้โทรกลับพรุ่งนี้/)).toBeVisible();
-  await expect(page.getByText('เวลาสนทนา: 2:05')).toBeVisible();
-  await page.getByRole('button', { name: 'กลับรายการ' }).click();
-  await expect(page.getByRole('heading', { name: /สมหญิง · ทุกผลบันทึก · 1 งาน/ })).toBeVisible();
-  // both Agent and disposition selected: the summary has no count for this pair, so the list heading shows no count
-  await summary.getByRole('button', { name: /^ต้องติดตามต่อ/ }).click();
+  await page
+    .getByRole('button', {
+      name: th('teamHistory:openItem', { interactionId: callA2, agent: 'Somying' }),
+    })
+    .click();
+  await expect(page.getByRole('heading', { name: th('teamHistory:detail') })).toBeVisible();
+  await expect(page.getByText(/The customer asked for a call back tomorrow/)).toBeVisible();
+  await expect(page.getByText(`${th('teamHistory:talk')}: 2:05`)).toBeVisible();
+  await page.getByRole('button', { name: th('teamHistory:back') }).click();
   await expect(
-    page.getByRole('heading', { name: 'รายการงาน · 7 วัน · สมหญิง · ต้องติดตามต่อ', exact: true }),
+    page.getByRole('heading', {
+      name: th('teamHistory:summary.listTitle', {
+        period: th('teamHistory:summary.period.7d'),
+        agent: 'Somying',
+        disposition: th('teamHistory:summary.allDispositions'),
+        count: 1,
+      }),
+    }),
+  ).toBeVisible();
+  // both Agent and disposition selected: the summary has no count for this pair, so the list heading shows no count
+  await summary
+    .getByRole('button', { name: new RegExp(`^${escapeRegExp(th('teamHistory:followUp'))}`) })
+    .click();
+  await expect(
+    page.getByRole('heading', {
+      name: th('teamHistory:summary.listTitleNoCount', {
+        period: th('teamHistory:summary.period.7d'),
+        agent: 'Somying',
+        disposition: th('teamHistory:followUp'),
+      }),
+      exact: true,
+    }),
   ).toBeVisible();
   expect(requests.every((request) => !request.includes(`teamId=${teamB}`))).toBe(true);
 });
@@ -152,14 +207,23 @@ test('an Admin views all teams then picks one at a time, and a disabled team can
 }) => {
   const requests = await harness(page, 'admin');
   await page.goto('/?view=team-history&tenant=demo');
-  const summary = page.getByRole('region', { name: 'สรุปงานของทีม' });
-  await expect(summary.getByRole('button', { name: 'แสดงงานที่จบทั้งหมด 3 งาน' })).toBeVisible();
-  await expect(page.getByRole('columnheader', { name: 'ทีม' })).toBeVisible();
-  await page.getByRole('button', { name: /ทีม/ }).first().click();
-  await page.getByRole('option', { name: 'Sales (ปิดใช้งาน)' }).click();
-  await expect(summary.getByRole('button', { name: 'แสดงงานที่จบทั้งหมด 1 งาน' })).toBeVisible();
+  const summary = page.getByRole('region', { name: th('teamHistory:summary.title') });
+  await expect(
+    summary.getByRole('button', { name: th('teamHistory:summary.showAll', { count: 3 }) }),
+  ).toBeVisible();
+  await expect(page.getByRole('columnheader', { name: th('teamHistory:team') })).toBeVisible();
+  await page
+    .getByRole('button', { name: new RegExp(escapeRegExp(th('teamHistory:team'))) })
+    .first()
+    .click();
+  await page
+    .getByRole('option', { name: th('teamHistory:teamInactive', { name: 'Sales' }) })
+    .click();
+  await expect(
+    summary.getByRole('button', { name: th('teamHistory:summary.showAll', { count: 1 }) }),
+  ).toBeVisible();
   await expect(page).toHaveURL(new RegExp(`team=${teamB}`));
-  await expect(page.getByRole('columnheader', { name: 'ทีม' })).toHaveCount(0);
+  await expect(page.getByRole('columnheader', { name: th('teamHistory:team') })).toHaveCount(0);
   expect(requests.some((request) => request.startsWith('summary') && request.includes(teamB))).toBe(
     true,
   );
@@ -173,8 +237,8 @@ test('the API rejects permission, then shows a message and a try-again button', 
     route.fulfill({ status: 403, json: { code: 'TEAM_HISTORY_ACCESS_DENIED' } }),
   );
   await page.goto('/?view=team-history&tenant=demo');
-  await expect(page.getByRole('alert')).toContainText('ไม่มีสิทธิ์ดูประวัติของทีม');
-  await expect(page.getByRole('button', { name: 'ลองอีกครั้ง' })).toBeVisible();
+  await expect(page.getByRole('alert')).toContainText(th('teamHistory:forbidden'));
+  await expect(page.getByRole('button', { name: th('teamHistory:retry') })).toBeVisible();
 });
 
 test('a failed team-list load shows a message instead of a page for the wrong role, and can retry', async ({
@@ -188,10 +252,10 @@ test('a failed team-list load shows a message instead of a page for the wrong ro
       : route.fulfill({ json: { allTeams: true, items: [{ ...A, isActive: true }] } }),
   );
   await page.goto('/?view=team-history&tenant=demo');
-  await expect(page.getByRole('alert')).toContainText('โหลดประวัติของทีมไม่สำเร็จ');
-  await expect(page.getByText(/ซึ่งทีมของคุณรับ/)).toHaveCount(0);
+  await expect(page.getByRole('alert')).toContainText(th('teamHistory:failed'));
+  await expect(page.getByText(th('teamHistory:readOnlySupervisor'))).toHaveCount(0);
   fail = false;
-  await page.getByRole('button', { name: 'ลองอีกครั้ง' }).click();
-  await expect(page.getByText(/ของทุกทีม/)).toBeVisible();
-  await expect(page.getByRole('region', { name: 'สรุปงานของทีม' })).toBeVisible();
+  await page.getByRole('button', { name: th('teamHistory:retry') }).click();
+  await expect(page.getByText(th('teamHistory:readOnlyAdmin'))).toBeVisible();
+  await expect(page.getByRole('region', { name: th('teamHistory:summary.title') })).toBeVisible();
 });

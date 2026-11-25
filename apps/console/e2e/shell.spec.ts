@@ -1,6 +1,11 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { homeNavigation } from './support/home-navigation.js';
+import { th } from './support/catalog';
+
+function escapeRegExp(text: string) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 /**
  * D1.13 (#452): the Console flag `ui.shell.v2` — the Navigation API is mocked with page.route
@@ -86,7 +91,7 @@ async function mockNavigation(page: Page, response: { status: number; body?: unk
   );
 }
 
-const rail = (page: Page) => page.getByRole('navigation', { name: 'เมนูหลัก' });
+const rail = (page: Page) => page.getByRole('navigation', { name: th('ui:shell.mainNav') });
 
 test('#860: the customer menu per the registry works by keyboard and can switch language on a narrow screen', async ({
   page,
@@ -94,19 +99,27 @@ test('#860: the customer menu per the registry works by keyboard and can switch 
   await page.setViewportSize({ width: 375, height: 812 });
   await mockNavigation(page, { status: 200, body: homeNavigation(['admin']) });
   await page.goto('/?view=journeys&tenant=demo');
-  await page.getByRole('button', { name: 'เปิดเมนูนำทาง' }).click();
-  const customers = rail(page).getByRole('link', { name: 'ลูกค้า' });
+  await page.getByRole('button', { name: th('ui:shell.openNavigation') }).click();
+  const customers = rail(page).getByRole('link', { name: th('common:navigation.areas.customers') });
   await expect(customers).toBeVisible();
   await customers.focus();
   await expect(customers).toBeFocused();
   await page.keyboard.press('Enter');
-  await page.getByRole('button', { name: 'เปิดเมนูนำทาง' }).click();
+  await page.getByRole('button', { name: th('ui:shell.openNavigation') }).click();
   await expect(customers).toHaveAttribute('aria-current', 'page');
-  const subnav = page.getByRole('navigation', { name: 'ลูกค้า' });
-  await expect(subnav.getByRole('link', { name: 'ภาพรวมข้อมูลลูกค้า' })).toBeVisible();
-  await expect(subnav.getByRole('link', { name: 'กฎข้อมูล' })).toBeVisible();
-  await expect(subnav.getByRole('link', { name: 'กิจกรรมลูกค้า' })).toBeVisible();
-  await expect(subnav.getByRole('link', { name: 'จัดการแท็ก' })).toBeVisible();
+  const subnav = page.getByRole('navigation', { name: th('common:navigation.areas.customers') });
+  await expect(
+    subnav.getByRole('link', { name: th('common:navigation.apps.customerOverview') }),
+  ).toBeVisible();
+  await expect(
+    subnav.getByRole('link', { name: th('common:navigation.apps.customerRules') }),
+  ).toBeVisible();
+  await expect(
+    subnav.getByRole('link', { name: th('common:navigation.apps.customerActivity') }),
+  ).toBeVisible();
+  await expect(
+    subnav.getByRole('link', { name: th('common:navigation.apps.customerTags') }),
+  ).toBeVisible();
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'English' }).click();
   await page.getByRole('button', { name: 'Open navigation' }).click();
@@ -118,10 +131,14 @@ test('#860: the customer menu per the registry works by keyboard and can switch 
 test('#860: a Supervisor sees only the customer pages the server sends', async ({ page }) => {
   await mockNavigation(page, { status: 200, body: homeNavigation(['supervisor']) });
   await page.goto('/?view=journeys&tenant=demo');
-  await rail(page).getByRole('link', { name: 'ลูกค้า' }).click();
-  const subnav = page.getByRole('navigation', { name: 'ลูกค้า' });
+  await rail(page)
+    .getByRole('link', { name: th('common:navigation.areas.customers') })
+    .click();
+  const subnav = page.getByRole('navigation', { name: th('common:navigation.areas.customers') });
   await expect(subnav.getByRole('link')).toHaveCount(1);
-  await expect(subnav.getByRole('link', { name: 'ลูกค้า' })).toBeVisible();
+  await expect(
+    subnav.getByRole('link', { name: th('common:navigation.areas.customers') }),
+  ).toBeVisible();
 });
 
 test('the breadcrumb of a page with no specific form uses area / app per the menu, not Governance', async ({
@@ -129,13 +146,17 @@ test('the breadcrumb of a page with no specific form uses area / app per the men
 }) => {
   await mockNavigation(page, { status: 200, body: homeNavigation(['agent']) });
   for (const [view, area, app] of [
-    ['team-cases', 'เคส', 'เคสของทีม'],
-    ['agent-history', 'ประวัติ', 'ประวัติงานของฉัน'],
+    ['team-cases', th('common:navigation.areas.cases'), th('common:navigation.apps.teamCases')],
+    [
+      'agent-history',
+      th('common:navigation.areas.history'),
+      th('common:navigation.apps.agentHistory'),
+    ],
   ]) {
     await page.goto(`/?view=${view}&tenant=demo`);
     const breadcrumb = page
       .locator('#dc-main')
-      .getByRole('navigation', { name: 'ตำแหน่งปัจจุบัน' });
+      .getByRole('navigation', { name: th('ui:shell.breadcrumb') });
     await expect(breadcrumb).toContainText(area);
     await expect(breadcrumb.locator('[aria-current=page]')).toHaveText(app);
     await expect(breadcrumb).not.toContainText('Governance');
@@ -185,13 +206,15 @@ test('flag on → the shell wraps Journeys: rail, SubNav, top bar, and cross-app
   await expect(workspace).toHaveAttribute('rel', 'noopener noreferrer');
   await expect(rail(page).locator('a[data-area=workspace]')).toHaveCount(0);
   await expect(page.getByRole('navigation', { name: 'Journeys' })).toBeVisible(); // SubNav
-  await expect(page.getByRole('navigation', { name: 'ตำแหน่งปัจจุบัน' })).toContainText(
-    'ระบบอัตโนมัติ',
+  await expect(page.getByRole('navigation', { name: th('ui:shell.breadcrumb') })).toContainText(
+    th('common:navigation.groups.automation'),
   );
   await expect(
-    page.locator('header').getByRole('navigation', { name: 'ตำแหน่งปัจจุบัน' }),
+    page.locator('header').getByRole('navigation', { name: th('ui:shell.breadcrumb') }),
   ).toHaveCount(0);
-  const breadcrumb = page.locator('#dc-main').getByRole('navigation', { name: 'ตำแหน่งปัจจุบัน' });
+  const breadcrumb = page
+    .locator('#dc-main')
+    .getByRole('navigation', { name: th('ui:shell.breadcrumb') });
   await expect(breadcrumb).toBeVisible();
   await expect(breadcrumb.locator('[aria-current=page]')).toHaveText('Journeys');
 
@@ -219,7 +242,8 @@ test('flag on → switching language in the top bar changes the shell labels imm
  * #588: user menu — the harness user is "Console Tester" (admin + offline_access)
  * and sign-outs are counted in `__signOuts`
  */
-const userMenu = (page: Page) => page.getByRole('button', { name: 'เมนูผู้ใช้ Console Tester' });
+const userMenu = (page: Page) =>
+  page.getByRole('button', { name: th('ui:userMenu.open', { name: 'Console Tester' }) });
 
 test('flag off → no user menu', async ({ page }) => {
   await mockNavigation(page, { status: 200, body: navigation(false) });
@@ -237,12 +261,14 @@ test('flag on → the user menu shows name/organization/role, has no link elsewh
   await userMenu(page).click();
   const menu = page.getByRole('menu');
   await expect(menu).toHaveAccessibleName(
-    /Console Tester.*console-e2e@demo\.example.*องค์กร demo.*ผู้ดูแลระบบ/,
+    new RegExp(
+      `Console Tester.*console-e2e@demo\\.example.*${escapeRegExp(th('ui:userMenu.organization', { organization: 'demo' }))}.*${escapeRegExp(th('ui:userMenu.roles.admin'))}`,
+    ),
   );
   await expect(page.getByText('offline_access')).toHaveCount(0);
   // AC5 (#598): "My account" points only to the D-Contact Console page (same tab) + sign out
   await expect(menu.getByRole('menuitem')).toHaveCount(2);
-  await expect(menu.getByRole('menuitem', { name: 'บัญชีของฉัน' })).toHaveAttribute(
+  await expect(menu.getByRole('menuitem', { name: th('ui:userMenu.account') })).toHaveAttribute(
     'href',
     '/?view=account&tenant=demo',
   );
@@ -255,7 +281,7 @@ test('flag on → the user menu shows name/organization/role, has no link elsewh
       .map((v) => v.id),
   ).toEqual([]);
 
-  await page.getByRole('menuitem', { name: 'ออกจากระบบ' }).click();
+  await page.getByRole('menuitem', { name: th('ui:userMenu.signOut') }).click();
   expect(await page.evaluate(() => (window as { __signOuts?: number }).__signOuts ?? 0)).toBe(1);
 });
 
@@ -263,8 +289,8 @@ test('#588: sign-out fails → the user is notified, not silently swallowed', as
   await mockNavigation(page, { status: 200, body: navigation(true) });
   await page.goto('/?view=journeys&tenant=demo&signout=fail');
   await userMenu(page).click();
-  await page.getByRole('menuitem', { name: 'ออกจากระบบ' }).click();
-  await expect(page.getByText('ออกจากระบบไม่สำเร็จ กรุณาลองอีกครั้ง')).toBeVisible();
+  await page.getByRole('menuitem', { name: th('ui:userMenu.signOut') }).click();
+  await expect(page.getByText(th('common:shell.signOutFailed'))).toBeVisible();
 });
 
 /**
@@ -298,20 +324,30 @@ test('#758: the submenu shows only the current area, with no pins inserted from 
   await page.goto('/?view=journeys&tenant=demo');
   const sub = page.getByRole('navigation', { name: 'Journeys' });
   await expect(sub).toBeVisible();
-  await expect(sub.getByText('ปักหมุด')).toHaveCount(0);
-  await expect(sub.getByText('งาน', { exact: true })).toBeVisible();
+  await expect(sub.getByText(th('common:shell.pinned'))).toHaveCount(0);
+  await expect(
+    sub.getByText(th('common:shell.journeys.sectionWork'), { exact: true }),
+  ).toBeVisible();
   await expect(sub.getByRole('link', { name: 'Journeys' }).first()).toHaveAttribute(
     'aria-current',
     'page',
   );
-  await expect(sub.getByRole('link', { name: /กล่องงาน/ })).toHaveCount(0);
+  await expect(
+    sub.getByRole('link', {
+      name: new RegExp(escapeRegExp(th('common:navigation.apps.agentWorkspace'))),
+    }),
+  ).toHaveCount(0);
 });
 
 test('#651: the area rail and submenu pass axe in both Thai and English', async ({ page }) => {
   await mockNavigation(page, { status: 200, body: navigation(true) });
   await page.goto('/?view=journeys&tenant=demo');
   for (const language of ['TH', 'EN']) {
-    await page.getByRole('button', { name: language === 'TH' ? 'ไทย' : 'English' }).click();
+    await page
+      .getByRole('button', {
+        name: language === 'TH' ? th('ui:shell.languageNames.th') : 'English',
+      })
+      .click();
     const axe = await new AxeBuilder({ page }).include('nav').analyze();
     expect(
       axe.violations
@@ -341,9 +377,11 @@ for (const width of [390, 768, 1440]) {
     await page.setViewportSize({ width, height: 900 });
     await mockNavigation(page, { status: 200, body: homeNavigation(['admin']) });
     await page.goto('/?view=journeys&tenant=demo');
-    for (const language of ['ไทย', 'English']) {
+    for (const language of [th('ui:shell.languageNames.th'), 'English']) {
       await page.getByRole('button', { name: language, exact: true }).click();
-      const user = page.getByRole('button', { name: /เมนูผู้ใช้|User menu/ });
+      const user = page.getByRole('button', {
+        name: new RegExp(`${escapeRegExp(th('ui:userMenu.open', { name: '' }).trim())}|User menu`),
+      });
       await expect(user).toBeInViewport({ ratio: 1 });
       await user.focus();
       await page.keyboard.press('Enter');
@@ -352,12 +390,18 @@ for (const width of [390, 768, 1440]) {
       await expect(user).toBeFocused();
       if (width <= 768) {
         await expect(
-          page.getByRole('navigation', { name: /เมนูหลัก|Main navigation/ }),
+          page.getByRole('navigation', {
+            name: new RegExp(`${escapeRegExp(th('ui:shell.mainNav'))}|Main navigation`),
+          }),
         ).toBeHidden();
-        const trigger = page.getByRole('button', { name: /เปิดเมนูนำทาง|Open navigation/ });
+        const trigger = page.getByRole('button', {
+          name: new RegExp(`${escapeRegExp(th('ui:shell.openNavigation'))}|Open navigation`),
+        });
         await trigger.click();
         await expect(
-          page.getByRole('navigation', { name: /เมนูหลัก|Main navigation/ }),
+          page.getByRole('navigation', {
+            name: new RegExp(`${escapeRegExp(th('ui:shell.mainNav'))}|Main navigation`),
+          }),
         ).toBeVisible();
         await page.keyboard.press('Escape');
         await expect(trigger).toBeFocused();

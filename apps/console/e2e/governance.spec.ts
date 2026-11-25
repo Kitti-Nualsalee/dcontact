@@ -1,5 +1,13 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page, type Request } from '@playwright/test';
+import { th } from './support/catalog';
+
+function escapeRegExp(text: string) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+const MAIN_NAV = new RegExp(`${escapeRegExp(th('ui:shell.mainNav'))}|Main navigation`);
+const BREADCRUMB = new RegExp(`${escapeRegExp(th('ui:shell.breadcrumb'))}|Current location`);
 
 // the Governance page text comes from the catalog per the user's language (#662): the main suite checks Thai, and English is in the describe at the end of the file
 test.use({ locale: 'th-TH' });
@@ -292,21 +300,25 @@ test('A: the queue is ordered by risk, approve by keyboard binds revision/digest
   });
 
   await page.goto(workspaceUrl());
-  const queue = page.getByRole('complementary', { name: 'คิว exception' });
+  const queue = page.getByRole('complementary', { name: th('governance:exceptions.queue.label') });
   await expect(queue.getByRole('button').first()).toContainText('▲ HIGH');
   await expect(queue.getByRole('button').first()).toHaveAttribute('aria-current', 'true');
-  await expect(page.getByText('🔒 Guardrails ที่ override ไม่ได้')).toBeVisible();
+  await expect(page.getByText(th('governance:guardrails.title'))).toBeVisible();
   await expect(page.getByText('Evidence: INC-4821')).toBeVisible();
 
-  await page.getByRole('button', { name: 'Approve เป็น checker' }).focus();
+  await page.getByRole('button', { name: th('governance:exceptions.checker.approve') }).focus();
   await page.keyboard.press('Enter');
-  const dialog = page.getByRole('dialog', { name: 'ยืนยัน Approve' });
+  const dialog = page.getByRole('dialog', {
+    name: th('governance:exceptions.dialog.approveTitle'),
+  });
   await expect(dialog).toBeVisible();
   await expect(dialog.getByLabel('Evidence reference')).toBeFocused();
   await page.keyboard.type('TICKET-SYN-77');
   await page.keyboard.press('Enter');
 
-  await expect(page.getByRole('status')).toContainText('ยังไม่ใช่ ALLOW และยังไม่ Activate');
+  await expect(page.getByRole('status')).toContainText(
+    th('governance:exceptions.message.recorded', { current: 1, required: 2 }),
+  );
   expect(approval?.headers()['idempotency-key']).toEqual(expect.any(String));
   expect(approval?.postDataJSON()).toEqual({
     decision: 'APPROVE',
@@ -315,7 +327,9 @@ test('A: the queue is ordered by risk, approve by keyboard binds revision/digest
     expectedVersion: 4,
     evidenceRef: 'TICKET-SYN-77',
   });
-  await expect(page.getByRole('button', { name: 'Approve เป็น checker' })).toBeFocused();
+  await expect(
+    page.getByRole('button', { name: th('governance:exceptions.checker.approve') }),
+  ).toBeFocused();
   expect(problems).toEqual([]);
 });
 
@@ -330,14 +344,22 @@ test('redaction: a Supervisor sees only the digest, has no decide button, and ha
   });
 
   await page.goto(workspaceUrl('SUPERVISOR'));
-  await expect(page.getByText('Evidence: ปกปิด · digest …abcdef')).toBeVisible();
-  await expect(page.getByText('รายละเอียดหลักฐานเปิดได้เฉพาะผู้มีสิทธิ์ Compliance')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Approve เป็น checker' })).toHaveCount(0);
-  await expect(page.getByText('มุมมองนี้ดู summary ได้ แต่ approve/revoke ไม่ได้')).toBeVisible();
+  await expect(
+    page.getByText(
+      th('governance:exceptions.evidence.evidence', {
+        ref: th('governance:reference.redacted', { tail: 'abcdef' }),
+      }),
+    ),
+  ).toBeVisible();
+  await expect(page.getByText(th('governance:exceptions.evidence.redacted'))).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: th('governance:exceptions.checker.approve') }),
+  ).toHaveCount(0);
+  await expect(page.getByText(th('governance:exceptions.checker.readOnly'))).toBeVisible();
   await expect(page.locator('body')).not.toContainText('INC-4821');
 
   await page
-    .getByRole('complementary', { name: 'คิว exception' })
+    .getByRole('complementary', { name: th('governance:exceptions.queue.label') })
     .getByRole('button')
     .nth(1)
     .click();
@@ -359,16 +381,22 @@ test('stale approval: block the action until the canonical state is reloaded', a
   }));
 
   await page.goto(workspaceUrl());
-  await page.getByRole('button', { name: 'Approve เป็น checker' }).click();
+  await page.getByRole('button', { name: th('governance:exceptions.checker.approve') }).click();
   await page.getByLabel('Evidence reference').fill('TICKET-SYN-78');
-  await page.getByRole('button', { name: 'ยืนยัน Approve' }).click();
+  await page.getByRole('button', { name: th('governance:exceptions.dialog.approveTitle') }).click();
 
-  const alert = page.getByRole('alert').filter({ hasText: 'สิทธิ์อนุมัติ stale' });
+  const alert = page
+    .getByRole('alert')
+    .filter({ hasText: th('governance:recovery.title.STALE_APPROVAL') });
   await expect(alert).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Approve เป็น checker' })).toBeDisabled();
-  await alert.getByRole('button', { name: 'โหลด canonical state ล่าสุด' }).click();
+  await expect(
+    page.getByRole('button', { name: th('governance:exceptions.checker.approve') }),
+  ).toBeDisabled();
+  await alert.getByRole('button', { name: th('governance:recovery.reload') }).click();
   await expect(alert).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Approve เป็น checker' })).toBeEnabled();
+  await expect(
+    page.getByRole('button', { name: th('governance:exceptions.checker.approve') }),
+  ).toBeEnabled();
   expect(problems).toEqual([]);
 });
 
@@ -392,10 +420,12 @@ test('version conflict: show expected/current and do not resend the command by i
   await page.getByRole('button', { name: 'Revoke exception' }).click();
   await page.getByLabel('Reason code').fill('COMPLIANCE_WITHDRAWN');
   await page.getByLabel('Evidence reference').fill('TICKET-SYN-79');
-  await page.getByRole('button', { name: 'ยืนยัน Revoke' }).click();
+  await page
+    .getByRole('button', { name: th('governance:exceptions.dialog.revokeConfirm') })
+    .click();
 
   await expect(page.getByRole('alert').filter({ hasText: 'Version conflict' })).toContainText(
-    'คาด v4 แต่ปัจจุบันเป็น v5',
+    th('governance:recovery.message.versions', { expected: 4, actual: 5 }).trim(),
   );
   await expect(page.getByRole('button', { name: 'Revoke exception' })).toBeDisabled();
   expect(revokes).toBe(1);
@@ -421,17 +451,23 @@ test('uncertain result: resend only with the original Idempotency-Key', async ({
   });
 
   await page.goto(workspaceUrl());
-  await page.getByRole('button', { name: 'Approve เป็น checker' }).click();
+  await page.getByRole('button', { name: th('governance:exceptions.checker.approve') }).click();
   await page.getByLabel('Evidence reference').fill('TICKET-SYN-80');
-  await page.getByRole('button', { name: 'ยืนยัน Approve' }).click();
-  const alert = page.getByRole('alert').filter({ hasText: 'ผลของคำสั่งยังไม่แน่ชัด' });
+  await page.getByRole('button', { name: th('governance:exceptions.dialog.approveTitle') }).click();
+  const alert = page
+    .getByRole('alert')
+    .filter({ hasText: th('governance:recovery.title.OUTCOME_UNKNOWN') });
   await expect(alert).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Approve เป็น checker' })).toBeDisabled();
+  await expect(
+    page.getByRole('button', { name: th('governance:exceptions.checker.approve') }),
+  ).toBeDisabled();
 
-  await alert.getByRole('button', { name: 'ส่งซ้ำด้วยคำสั่งเดิม' }).click();
+  await alert.getByRole('button', { name: th('governance:recovery.retry') }).click();
   await page.getByLabel('Evidence reference').fill('TICKET-SYN-80');
-  await page.getByRole('button', { name: 'ยืนยัน Approve' }).click();
-  await expect(page.getByRole('status')).toContainText('บันทึก approval แล้ว');
+  await page.getByRole('button', { name: th('governance:exceptions.dialog.approveTitle') }).click();
+  await expect(page.getByRole('status')).toContainText(
+    th('governance:exceptions.message.recorded', { current: 1, required: 2 }),
+  );
   expect(keys).toHaveLength(2);
   expect(keys[1]).toBe(keys[0]);
   expect(problems).toEqual([]);
@@ -469,11 +505,15 @@ test('B: a policy head that changed after testing blocks approval before reachin
 
   await page.goto(studioUrl);
   await expect(
-    page.getByRole('alert').filter({ hasText: 'Policy head เปลี่ยนหลังทดสอบ' }),
+    page.getByRole('alert').filter({ hasText: th('governance:policies.headMismatch.title') }),
   ).toContainText('head v3');
-  await expect(page.getByRole('button', { name: 'บันทึก approval' })).toBeDisabled();
   await expect(
-    page.getByRole('list', { name: 'ขั้นตอน policy' }).locator('[aria-current="step"]'),
+    page.getByRole('button', { name: th('governance:policies.release.recordApproval') }),
+  ).toBeDisabled();
+  await expect(
+    page
+      .getByRole('list', { name: th('governance:policies.steps.label') })
+      .locator('[aria-current="step"]'),
   ).toContainText('Approvals');
   expect(mock.requests.filter((request) => request.method() === 'POST')).toHaveLength(0);
   expect(problems).toEqual([]);
@@ -504,13 +544,20 @@ test('B: publish binds the approval/test/head digest and does not claim the ackn
   });
 
   await page.goto(studioUrl);
-  await page.getByRole('button', { name: 'Publish / ตั้งเวลา Activate' }).click();
-  const dialog = page.getByRole('dialog', { name: 'ยืนยัน Publish' });
-  await expect(dialog).toContainText('ไม่เปิด provider traffic');
+  await page.getByRole('button', { name: th('governance:policies.release.publish') }).click();
+  const dialog = page.getByRole('dialog', { name: th('governance:policies.dialog.publishTitle') });
+  await expect(dialog).toContainText(th('governance:vocabulary.developmentComplete'));
   await dialog.getByLabel('Evidence reference').fill('CHG-SYN-12');
-  await dialog.getByRole('button', { name: 'ยืนยัน Publish' }).click();
+  await dialog
+    .getByRole('button', { name: th('governance:policies.dialog.publishConfirm') })
+    .click();
 
-  await expect(page.getByRole('status')).toContainText('ไม่อ้างว่ากระจายผลครบแล้ว');
+  await expect(page.getByRole('status')).toContainText(
+    th('governance:policies.message.published', {
+      state: 'SCHEDULED',
+      activate: th('governance:policies.message.activate', { at: '2026-09-15T14:00:00.000Z' }),
+    }),
+  );
   expect(publish?.postDataJSON()).toEqual({
     expectedContentDigest: DIGEST_A,
     expectedTestArtifactDigest: DIGEST_C,
@@ -539,12 +586,17 @@ test('B: rollback creates a new version instead of switching back', async ({ pag
   );
 
   await page.goto(studioUrl);
-  await page.getByRole('button', { name: 'สร้าง rollback candidate' }).click();
+  await page.getByRole('button', { name: th('governance:policies.release.rollback') }).click();
   await page.getByLabel('Reason code').fill('INCIDENT_ROLLBACK');
   await page.getByLabel('Evidence reference').fill('CHG-SYN-13');
-  await page.getByRole('dialog').getByRole('button', { name: 'สร้าง rollback candidate' }).click();
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: th('governance:policies.dialog.rollbackConfirm') })
+    .click();
 
-  await expect(page.getByRole('status')).toContainText('สร้าง rollback candidate v3');
+  await expect(page.getByRole('status')).toContainText(
+    th('governance:policies.message.rollback', { version: 3 }),
+  );
   await expect(page).toHaveURL(new RegExp(`versionId=${VERSION_3}`));
   await expect(page.getByRole('heading', { level: 1 })).toContainText('v3');
   expect(problems).toEqual([]);
@@ -593,7 +645,7 @@ test('C: the audit timeline and safety case come from the canonical history', as
   const timeline = page.getByRole('region', { name: 'Canonical timeline' });
   await expect(timeline.getByRole('listitem')).toHaveCount(3);
   await expect(timeline).toContainText('✓ Checker approve');
-  await expect(timeline).toContainText('ปกปิด · digest …334444');
+  await expect(timeline).toContainText(th('governance:reference.redacted', { tail: '334444' }));
   await expect(page.getByRole('region', { name: 'Safety case' })).toContainText('▲ HIGH');
   expect(problems).toEqual([]);
 });
@@ -628,7 +680,7 @@ test('#672: an approval the server recorded as APPROVED/REJECTED shows on the co
 
   await page.goto(workspaceUrl());
   const checker = page.getByRole('complementary', { name: 'Maker–Checker' });
-  await expect(checker).toContainText('Approvals ที่บันทึกแล้ว 1');
+  await expect(checker).toContainText(`${th('governance:exceptions.checker.recorded')} 1`);
   const list = checker.getByRole('list');
   await expect(list.getByRole('listitem').nth(0)).toContainText('✓ APPROVE');
   await expect(list.getByRole('listitem').nth(1)).toContainText('✕ REJECT');
@@ -646,13 +698,17 @@ test('mobile: no horizontal overflow, nav works by keyboard, and it opens only b
   await page.goto('/?view=governance&viewer=COMPLIANCE');
   await expect(page.getByRole('navigation', { name: 'Contact Governance' })).toBeVisible();
   await page.getByRole('textbox', { name: 'ID' }).fill('someone@example.com');
-  await page.getByRole('button', { name: 'เปิด', exact: true }).click();
-  await expect(page.getByRole('alert').filter({ hasText: 'รับเฉพาะ opaque ID' })).toBeVisible();
+  await page.getByRole('button', { name: th('governance:common.open'), exact: true }).click();
+  await expect(
+    page.getByRole('alert').filter({ hasText: th('governance:openById.error') }),
+  ).toBeVisible();
   expect(new URL(page.url()).search).not.toContain('example.com');
 
   await page.getByRole('textbox', { name: 'ID' }).fill(CONTACT_ID);
   await page.keyboard.press('Enter');
-  await expect(page.getByRole('heading', { level: 1 })).toContainText('คิว exception');
+  await expect(page.getByRole('heading', { level: 1 })).toContainText(
+    th('governance:exceptions.queue.label'),
+  );
   await expect(page.locator('#gov-main')).toBeFocused();
   const overflow = await page.evaluate(
     () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -691,12 +747,12 @@ test('CG5: filter alert, export validation, and a Supervisor has no export permi
     },
   }));
   await page.goto('/?view=governance&viewer=COMPLIANCE');
-  await page.getByLabel('สถานะ').selectOption('OPEN');
+  await page.getByLabel(th('governance:cg5.alerts.status')).selectOption('OPEN');
   await expect(page.getByText('CG5_BLOCK_RATE_SHIFT')).toBeVisible();
-  await expect(page.getByText('ต้องระบุเหตุผลก่อนสั่ง export')).toBeVisible();
+  await expect(page.getByText(th('governance:cg5.export.reasonRequired'))).toBeVisible();
   const beforeSupervisor = mock.requests.length;
   await page.goto('/?view=governance&viewer=SUPERVISOR');
-  await expect(page.getByText('ไม่มีสิทธิ์สั่ง export')).toBeVisible();
+  await expect(page.getByText(th('governance:cg5.export.supervisorNote'))).toBeVisible();
   await expect(page.getByText('CG5_BLOCK_RATE_SHIFT')).toBeVisible();
   const supervisorPaths = mock.requests
     .slice(beforeSupervisor)
@@ -745,12 +801,12 @@ test('CG5: ACK version conflict reloads the alert without resending the ACK by i
     return { status: 409, body: { code: 'CG5_ALERT_VERSION_CONFLICT' } };
   });
   await page.goto('/?view=governance&viewer=COMPLIANCE');
-  await page.getByRole('button', { name: 'รับทราบ' }).click();
+  await page.getByRole('button', { name: th('governance:cg5.alerts.acknowledge') }).click();
   const alert = page.getByRole('alert').filter({ hasText: 'CG5_ALERT_VERSION_CONFLICT' });
-  await expect(alert).toContainText('โหลดรายการใหม่');
+  await expect(alert).toContainText(th('governance:cg5.alerts.reload'));
   expect(acknowledgements).toBe(1);
   const readsBeforeReload = alertReads;
-  await alert.getByRole('button', { name: 'โหลดรายการใหม่' }).click();
+  await alert.getByRole('button', { name: th('governance:cg5.alerts.reload') }).click();
   await expect.poll(() => alertReads).toBeGreaterThan(readsBeforeReload);
   expect(acknowledgements).toBe(1);
   expect(problems).toEqual([]);
@@ -785,17 +841,19 @@ test('CG5-UX01: the freshness bar is separated by source and warns only when som
   mock.on('GET', /^\/metrics$/, () => ({ body: { asOf: metricsAsOf, items: [] } }));
   mock.on('GET', /^\/alerts$/, () => ({ body: { asOf: new Date().toISOString(), items: [] } }));
   await page.goto('/?view=governance&viewer=COMPLIANCE');
-  const freshness = page.getByRole('region', { name: 'ความสดของข้อมูล' });
+  const freshness = page.getByRole('region', { name: th('governance:cg5.freshness.title') });
   await expect(freshness).toContainText('Decision projection:');
   await expect(freshness).toContainText('Alert state:');
-  await expect(freshness).not.toContainText('ข้อมูลยังไม่พร้อม');
+  await expect(freshness).not.toContainText(th('governance:cg5.freshness.notReady'));
   await expect(freshness.getByRole('alert')).toHaveCount(0);
 
   // the projection is stuck longer than the SLO but the alert state is still fresh: must warn, without hiding each source's time
   metricsAsOf = new Date(Date.now() - 60 * 60 * 1000).toISOString();
   await page.reload();
-  await expect(freshness.getByRole('alert')).toContainText('ล่าช้ากว่า SLO');
-  await expect(freshness).not.toContainText('ข้อมูลยังไม่พร้อม');
+  await expect(freshness.getByRole('alert')).toContainText(
+    th('governance:cg5.freshness.lag', { detail: '' }).trim(),
+  );
+  await expect(freshness).not.toContainText(th('governance:cg5.freshness.notReady'));
   expect(problems).toEqual([]);
 });
 
@@ -813,13 +871,15 @@ test('CG5-UX01: during backfill show not ready, not numbers that are incomplete'
     body: { code: 'CG5_PROJECTION_NOT_READY', state: 'BACKFILL_RUNNING' },
   }));
   await page.goto('/?view=governance&viewer=COMPLIANCE');
-  const freshness = page.getByRole('region', { name: 'ความสดของข้อมูล' });
-  await expect(freshness).toContainText('Decision projection: ข้อมูลยังไม่พร้อม');
+  const freshness = page.getByRole('region', { name: th('governance:cg5.freshness.title') });
+  await expect(freshness).toContainText(
+    th('governance:cg5.freshness.decision', { value: th('governance:cg5.freshness.notReady') }),
+  );
   await expect(freshness.getByRole('alert')).toContainText('CG5_PROJECTION_NOT_READY');
   const cards = page.locator('.cg5-cards strong');
   await expect(cards).toHaveCount(4);
   for (const card of await cards.all()) {
-    await expect(card).toHaveText('ยังไม่พร้อม');
+    await expect(card).toHaveText(th('governance:cg5.cardNotReady'));
   }
   expect(problems).toEqual([]);
 });
@@ -852,14 +912,14 @@ test('CG5-UX01: the alert filter goes to the real API and includes suppressed ro
   await page.goto('/?view=governance&viewer=COMPLIANCE');
   const list = page.locator('.cg5-alerts');
   await expect(list.locator('li')).toHaveCount(3);
-  await expect(list).toContainText('ระงับชั่วคราว');
+  await expect(list).toContainText(th('governance:cg5.alerts.statusSuppressed'));
 
-  await page.getByLabel('ความรุนแรง').selectOption('CRITICAL');
+  await page.getByLabel(th('governance:cg5.alerts.severity')).selectOption('CRITICAL');
   await expect(list.locator('li')).toHaveCount(1);
   await expect(list).toContainText('CG5_UX01_CRITICAL');
 
-  await page.getByLabel('ความรุนแรง').selectOption('ALL');
-  await page.getByLabel('สถานะ').selectOption('SUPPRESSED');
+  await page.getByLabel(th('governance:cg5.alerts.severity')).selectOption('ALL');
+  await page.getByLabel(th('governance:cg5.alerts.status')).selectOption('SUPPRESSED');
   await expect(list.locator('li')).toHaveCount(1);
   await expect(list.locator('li.cg5-suppressed')).toHaveCount(1);
 
@@ -884,7 +944,7 @@ test('#654: flag on → Governance is in the shell: current area rail, a single 
   exceptionRoutes(mock);
   await page.goto(workspaceUrl());
 
-  const rail = page.getByRole('navigation', { name: /เมนูหลัก|Main navigation/ });
+  const rail = page.getByRole('navigation', { name: MAIN_NAV });
   await expect(rail).toBeVisible();
   await expect(rail.locator('a[aria-current=page]')).toHaveAttribute('data-area', 'governance');
   // an API that does not send `pages` yet (#658): the shell submenu has one item and the in-page tabs are all still there
@@ -894,7 +954,9 @@ test('#654: flag on → Governance is in the shell: current area rail, a single 
   await expect(page.locator('main')).toHaveCount(1);
   await expect(page.locator('.gov-header')).toHaveCount(0);
   await expect(page.locator('.gov-skip')).toHaveCount(0);
-  await expect(page.getByText('มุมมอง: Compliance · evidence')).toBeVisible();
+  await expect(
+    page.getByText(th('governance:viewer.label', { viewer: th('governance:viewer.compliance') })),
+  ).toBeVisible();
   await expect(page.locator('#gov-main')).toBeAttached();
 
   // usage inside the page is the same as before: switching tabs changes the URL/content, and focus moves to the new content
@@ -919,7 +981,7 @@ test('#654: flag off → Governance is the original page (its own header, skip l
   await page.goto(workspaceUrl());
   await expect(page.locator('.gov-header')).toBeVisible();
   await expect(page.locator('main#gov-main')).toHaveCount(1);
-  await expect(page.getByRole('navigation', { name: /เมนูหลัก|Main navigation/ })).toHaveCount(0);
+  await expect(page.getByRole('navigation', { name: MAIN_NAV })).toHaveCount(0);
 });
 
 test.describe('shell submenu and English content (#658, #662)', () => {
@@ -949,9 +1011,7 @@ test.describe('shell submenu and English content (#658, #662)', () => {
     await expect(page.getByRole('navigation', { name: 'Contact Governance' })).toHaveCount(0);
     await expect(page.getByRole('navigation', { name: 'Policies & Exceptions' })).toHaveCount(0);
     // the breadcrumb says the current page
-    await expect(
-      page.getByRole('navigation', { name: /ตำแหน่งปัจจุบัน|Current location/ }),
-    ).toContainText('Overview');
+    await expect(page.getByRole('navigation', { name: BREADCRUMB })).toContainText('Overview');
 
     // pressing a submenu item = changing page in place (same document, no reload), with URL and focus following
     await page.evaluate(() => {
@@ -988,7 +1048,7 @@ test.describe('shell submenu and English content (#658, #662)', () => {
     await page.goto('/?view=governance&section=policies&viewer=COMPLIANCE');
     const subNav = page.getByRole('navigation', { name: 'Governance', exact: true });
     await expect(subNav.locator('a[aria-current=page]')).toHaveText('Policies');
-    const rail = page.getByRole('navigation', { name: /เมนูหลัก|Main navigation/ });
+    const rail = page.getByRole('navigation', { name: MAIN_NAV });
     await expect(rail.locator('a[aria-current=page]')).toHaveAttribute('data-area', 'governance');
   });
 
@@ -999,7 +1059,7 @@ test.describe('shell submenu and English content (#658, #662)', () => {
     exceptionRoutes(mock);
     await page.goto(workspaceUrl());
     await expect(page.getByRole('navigation', { name: 'Contact Governance' })).toBeVisible();
-    await expect(page.getByRole('navigation', { name: /เมนูหลัก|Main navigation/ })).toHaveCount(0);
+    await expect(page.getByRole('navigation', { name: MAIN_NAV })).toHaveCount(0);
   });
 
   /**

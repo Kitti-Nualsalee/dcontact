@@ -1,6 +1,11 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
 import { homeNavigation } from './support/home-navigation.js';
+import { th } from './support/catalog';
+
+function escapeRegExp(text: string) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 test.use({ locale: 'th-TH', viewport: { width: 1440, height: 1024 } });
 
@@ -12,19 +17,21 @@ test('Home is the default, rail active, sidebar and the menu open the destinatio
   const nav = homeNavigation();
   await page.route('**/api/v1/me/navigation', (route) => route.fulfill({ json: nav }));
   await page.goto('/?tenant=demo');
-  await expect(page.getByRole('heading', { name: 'วันนี้ต้องการทำอะไร?' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: th('home:title') })).toBeVisible();
   // Home shows one item per app the server allows, except Home itself
   await expect(page.locator('.home__entry')).toHaveCount(
     nav.apps.filter((app) => app.id !== 'home').length,
   );
   await expect(
-    page.locator('header').getByRole('navigation', { name: 'ตำแหน่งปัจจุบัน' }),
+    page.locator('header').getByRole('navigation', { name: th('ui:shell.breadcrumb') }),
   ).toHaveCount(0);
   await expect(
-    page.locator('#dc-main').getByRole('navigation', { name: 'ตำแหน่งปัจจุบัน' }),
+    page.locator('#dc-main').getByRole('navigation', { name: th('ui:shell.breadcrumb') }),
   ).toBeVisible();
   await expect(page.locator('a[data-area=home]')).toHaveAttribute('aria-current', 'page');
-  const systems = page.locator('header').getByRole('navigation', { name: 'ระบบงานสด' });
+  const systems = page
+    .locator('header')
+    .getByRole('navigation', { name: th('common:shell.liveSystems') });
   await expect(systems.getByRole('link', { name: /^Workspace/ })).toHaveAttribute(
     'href',
     'http://localhost:5173/?tenant=demo',
@@ -39,26 +46,31 @@ test('Home is the default, rail active, sidebar and the menu open the destinatio
   }
   await expect(page.locator('a[data-area=workspace], a[data-area=supervisor]')).toHaveCount(0);
   const sidebar = page.locator('.home-sidebar');
-  await expect(sidebar.getByText('พื้นที่ทำงาน', { exact: true })).toHaveCount(0);
-  await expect(sidebar.getByText('ปักหมุด', { exact: true })).toBeVisible();
+  await expect(sidebar.getByText(th('home:nav'), { exact: true })).toHaveCount(0);
+  await expect(sidebar.getByText(th('common:shell.pinned'), { exact: true })).toBeVisible();
   const pinned = sidebar
     .locator('div')
-    .filter({ has: page.getByText('ปักหมุด', { exact: true }) })
+    .filter({ has: page.getByText(th('common:shell.pinned'), { exact: true }) })
     .last();
-  await expect(pinned.getByRole('link', { name: /กล่องงาน/ })).toHaveAttribute(
-    'href',
-    'http://localhost:5173/?tenant=demo',
-  );
-  await expect(pinned.getByRole('link', { name: /กล่องงาน/ })).toHaveAttribute('target', '_blank');
-  await expect(sidebar.getByRole('link', { name: 'หน้าแรก', exact: true })).toHaveAttribute(
-    'aria-current',
-    'page',
-  );
-  await expect(sidebar.getByRole('link', { name: 'บัญชีของฉัน' })).toHaveAttribute(
-    'href',
-    '/?view=account&tenant=demo',
-  );
-  const inbox = page.getByRole('link', { name: /กล่องงาน \(Agent Workspace/ });
+  await expect(
+    pinned.getByRole('link', {
+      name: new RegExp(escapeRegExp(th('common:navigation.apps.agentWorkspace'))),
+    }),
+  ).toHaveAttribute('href', 'http://localhost:5173/?tenant=demo');
+  await expect(
+    pinned.getByRole('link', {
+      name: new RegExp(escapeRegExp(th('common:navigation.apps.agentWorkspace'))),
+    }),
+  ).toHaveAttribute('target', '_blank');
+  await expect(
+    sidebar.getByRole('link', { name: th('common:navigation.apps.home'), exact: true }),
+  ).toHaveAttribute('aria-current', 'page');
+  await expect(
+    sidebar.getByRole('link', { name: th('common:shell.account.mine') }),
+  ).toHaveAttribute('href', '/?view=account&tenant=demo');
+  const inbox = page.getByRole('link', {
+    name: new RegExp(escapeRegExp(th('home:names.agent-workspace').replace(/\)$/, ''))),
+  });
   await expect(inbox).toHaveAttribute('target', '_blank');
   await expect(inbox).toHaveAttribute('rel', 'noopener noreferrer');
   await expect(inbox).toHaveAttribute('href', 'http://localhost:5173/?tenant=demo');
@@ -70,15 +82,17 @@ test('Home is the default, rail active, sidebar and the menu open the destinatio
   await inbox.press('Tab');
   await expect(page.locator('.home__entry').nth(1)).toBeFocused();
   for (const lang of ['EN', 'TH']) {
-    await page.getByRole('button', { name: lang === 'EN' ? 'English' : 'ไทย' }).click();
+    await page
+      .getByRole('button', { name: lang === 'EN' ? 'English' : th('ui:shell.languageNames.th') })
+      .click();
     await expect(page.getByRole('heading', { level: 1 })).toHaveText(
-      lang === 'EN' ? 'What would you like to do today?' : 'วันนี้ต้องการทำอะไร?',
+      lang === 'EN' ? 'What would you like to do today?' : th('home:title'),
     );
     await expect(
-      sidebar.getByText(lang === 'EN' ? 'Pinned' : 'ปักหมุด', { exact: true }),
+      sidebar.getByText(lang === 'EN' ? 'Pinned' : th('common:shell.pinned'), { exact: true }),
     ).toBeVisible();
     await expect(
-      sidebar.getByText(lang === 'EN' ? 'Workspaces' : 'พื้นที่ทำงาน', { exact: true }),
+      sidebar.getByText(lang === 'EN' ? 'Workspaces' : th('home:nav'), { exact: true }),
     ).toHaveCount(0);
     const axe = await new AxeBuilder({ page }).analyze();
     expect(
@@ -94,9 +108,9 @@ test('Home is the default, rail active, sidebar and the menu open the destinatio
   await journey.click();
   await expect(page).toHaveURL(/view=journeys/);
   await expect(page.locator('a[data-area=journeys]')).toHaveAttribute('aria-current', 'page');
-  await expect(page.getByText('ปักหมุด', { exact: true })).toHaveCount(0);
+  await expect(page.getByText(th('common:shell.pinned'), { exact: true })).toHaveCount(0);
   await page.goBack();
-  await expect(page.getByRole('heading', { name: 'วันนี้ต้องการทำอะไร?' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: th('home:title') })).toBeVisible();
   expect(errors).toEqual([]);
 });
 
@@ -111,7 +125,7 @@ test('compliance permission sees only Governance across the page and sidebar, re
   await expect(page.locator('.home__entry')).toContainText('Governance');
   await expect(page.locator('.home-sidebar')).not.toContainText('Journeys');
   await expect(page.locator('.home-sidebar')).not.toContainText('dphone');
-  await expect(page.getByRole('heading', { name: 'งานสด', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: th('home:live'), exact: true })).toHaveCount(0);
   await expect(
     page.locator('header').getByRole('link', { name: /^(Workspace|Supervisor)/ }),
   ).toHaveCount(0);
@@ -127,13 +141,12 @@ test('a plan that disables modules still keeps the Voice catalog per the registr
   await expect(page.locator('.home__entry')).toHaveCount(
     nav.apps.filter((app) => app.id !== 'home').length,
   );
-  await expect(page.getByText('ปักหมุด', { exact: true })).toHaveCount(0);
-  await expect(page.locator('.home__entry').filter({ hasText: 'ตั้งค่า Voice' })).toHaveAttribute(
-    'href',
-    '/?view=voice-routing&tenant=demo',
-  );
+  await expect(page.getByText(th('common:shell.pinned'), { exact: true })).toHaveCount(0);
+  await expect(
+    page.locator('.home__entry').filter({ hasText: th('home:names.voice-routing') }),
+  ).toHaveAttribute('href', '/?view=voice-routing&tenant=demo');
   await expect(page.locator('a[data-area=home]')).toHaveAttribute('aria-current', 'page');
-  await expect(page.getByRole('heading', { name: 'จัดการและตั้งค่า', exact: true })).toHaveCount(1);
+  await expect(page.getByRole('heading', { name: th('home:manage'), exact: true })).toHaveCount(1);
 });
 
 test('with the shell flag off the menu the server allows still shows, with language and account switching', async ({
@@ -144,11 +157,11 @@ test('with the shell flag off the menu the server allows still shows, with langu
   );
   await page.goto('/?tenant=demo');
   await expect(page.locator('.home__entry')).toHaveCount(2);
-  await expect(page.getByRole('navigation', { name: 'เมนูหลัก' })).toHaveCount(0);
+  await expect(page.getByRole('navigation', { name: th('ui:shell.mainNav') })).toHaveCount(0);
   await expect(
-    page.locator('header').getByRole('navigation', { name: 'ตำแหน่งปัจจุบัน' }),
+    page.locator('header').getByRole('navigation', { name: th('ui:shell.breadcrumb') }),
   ).toHaveCount(0);
-  await expect(page.getByRole('navigation', { name: 'ตำแหน่งปัจจุบัน' })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: th('ui:shell.breadcrumb') })).toBeVisible();
   await page.getByRole('button', { name: 'English' }).click();
   await expect(
     page.getByRole('heading', { name: 'What would you like to do today?' }),
@@ -163,10 +176,10 @@ test('an API failure does not guess the menu, try again recovers', async ({ page
     route.fulfill(fail ? { status: 503, json: {} } : { json: homeNavigation(['agent']) }),
   );
   await page.goto('/?tenant=demo');
-  await expect(page.getByRole('heading', { name: 'โหลดเมนูไม่สำเร็จ' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: th('home:error') })).toBeVisible();
   await expect(page.locator('.home__entry')).toHaveCount(0);
   fail = false;
-  await page.getByRole('button', { name: 'ลองอีกครั้ง' }).click();
+  await page.getByRole('button', { name: th('home:retry') }).click();
   await expect(page.locator('.home__entry')).toHaveCount(2);
 });
 
@@ -177,7 +190,7 @@ test('an empty list shows how to request permission, with no empty category or g
     route.fulfill({ json: homeNavigation([]) }),
   );
   await page.goto('/?tenant=demo');
-  await expect(page.getByRole('heading', { name: 'ยังไม่มีพื้นที่ทำงานที่เปิดได้' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: th('home:empty') })).toBeVisible();
   await expect(page.locator('.home__entry')).toHaveCount(0);
   await expect(page.locator('.home__group')).toHaveCount(0);
 });
@@ -191,7 +204,9 @@ test('an older API with no areas still uses Home and the menu links', async ({ p
   await page.goto('/?tenant=demo');
   await expect(page.locator('.home__entry')).toHaveCount(legacy.apps.length);
   await expect(
-    page.locator('.home-sidebar').getByRole('link', { name: 'หน้าแรก', exact: true }),
+    page
+      .locator('.home-sidebar')
+      .getByRole('link', { name: th('common:navigation.apps.home'), exact: true }),
   ).toHaveAttribute('aria-current', 'page');
 });
 
@@ -207,7 +222,9 @@ for (const shellV2 of [true, false]) {
       nav.apps.filter((app) => app.id !== 'home').length,
     );
     await expect(page.getByRole('button', { name: 'English' })).toBeInViewport();
-    await expect(page.getByRole('button', { name: 'เมนูผู้ใช้ Console Tester' })).toBeInViewport();
+    await expect(
+      page.getByRole('button', { name: th('ui:userMenu.open', { name: 'Console Tester' }) }),
+    ).toBeInViewport();
     await expect(page.locator('header').getByRole('link', { name: /^Workspace/ })).toBeInViewport();
     await expect(
       page.locator('header').getByRole('link', { name: /^Supervisor/ }),

@@ -2,6 +2,7 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { AuthoringMock, withShell } from './support/journey-authoring-mock';
+import { th } from './support/catalog';
 
 /**
  * inner ring (`--dc-focus-ring-inset`) of a control inside a container that clips overflow
@@ -54,10 +55,18 @@ test('the Journey paired buttons and the language button in the TopBar show an i
   await withShell(page, true);
   await new AuthoringMock().install(page);
   await page.goto('/?view=journeys');
-  const filter = page.getByRole('group', { name: 'ตัวกรองรายการ' });
+  const filter = page.getByRole('group', { name: th('journeys:list.filterLabel') });
   await expect(filter).toBeVisible();
 
-  await expectInsetRing(page, filter.getByRole('button', { name: 'ทั้งหมด' }), 'segmented-pressed');
-  await expectInsetRing(page, filter.getByRole('button', { name: 'รอตรวจ' }), 'segmented');
+  await expectInsetRing(
+    page,
+    filter.getByRole('button', { name: th('journeys:list.filterAll') }),
+    'segmented-pressed',
+  );
+  await expectInsetRing(
+    page,
+    filter.getByRole('button', { name: th('journeys:list.filterPending') }),
+    'segmented',
+  );
   await expectInsetRing(page, page.getByRole('button', { name: 'English' }), 'topbar-language');
 });
