@@ -99,7 +99,7 @@ function requiredString(value: unknown, field: string, maximum = 256): string {
   if (typeof value !== 'string' || value.trim().length === 0 || value.length > maximum) {
     throw new BadRequestException({
       code: 'VALIDATION_FAILED',
-      message: `${field} ต้องมีความยาว 1-${maximum} ตัวอักษร`,
+      message: `${field} must be 1-${maximum} characters long`,
     });
   }
   return value.trim();
@@ -114,7 +114,7 @@ function requiredInteger(value: unknown, field: string): number {
   if (!Number.isInteger(value)) {
     throw new BadRequestException({
       code: 'VALIDATION_FAILED',
-      message: `${field} ต้องเป็นจำนวนเต็ม`,
+      message: `${field} must be an integer`,
     });
   }
   return value as number;
@@ -125,7 +125,7 @@ function requiredInstant(value: unknown, field: string): string {
   if (Number.isNaN(new Date(raw).getTime())) {
     throw new BadRequestException({
       code: 'TIME_WINDOW_INVALID',
-      message: `${field} ต้องเป็น ISO-8601 timestamp`,
+      message: `${field} must be an ISO-8601 timestamp`,
     });
   }
   return raw;
@@ -134,14 +134,20 @@ function requiredInstant(value: unknown, field: string): string {
 function requiredDigest(value: unknown, field: string): string {
   const raw = requiredString(value, field, 64);
   if (!/^[a-f0-9]{64}$/.test(raw)) {
-    throw new BadRequestException({ code: 'DIGEST_INVALID', message: `${field} ต้องเป็น SHA-256` });
+    throw new BadRequestException({
+      code: 'DIGEST_INVALID',
+      message: `${field} must be a SHA-256 digest`,
+    });
   }
   return raw;
 }
 
 function requiredUuid(value: string, field: string): string {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) {
-    throw new BadRequestException({ code: 'VALIDATION_FAILED', message: `${field} ต้องเป็น UUID` });
+    throw new BadRequestException({
+      code: 'VALIDATION_FAILED',
+      message: `${field} must be a UUID`,
+    });
   }
   return value;
 }
@@ -163,7 +169,7 @@ function optionalChannel(value: unknown): ContactChannel | undefined {
   if (value === undefined) return undefined;
   const raw = requiredString(value, 'channel', 32);
   if (!CONTACT_CHANNELS.has(raw)) {
-    throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'channel ไม่ถูกต้อง' });
+    throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'channel is invalid' });
   }
   return raw as ContactChannel;
 }
@@ -172,7 +178,7 @@ function optionalRiskTier(value: unknown): Cg4ExceptionRiskTier | undefined {
   if (value === undefined) return undefined;
   const raw = requiredString(value, 'riskTier', 16);
   if (!RISK_TIERS.has(raw)) {
-    throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'riskTier ไม่ถูกต้อง' });
+    throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'riskTier is invalid' });
   }
   return raw as Cg4ExceptionRiskTier;
 }
@@ -183,7 +189,7 @@ function optionalWorkflowState(value: unknown): Cg4ExceptionWorkflowState | unde
   if (!WORKFLOW_STATES.has(raw)) {
     throw new BadRequestException({
       code: 'VALIDATION_FAILED',
-      message: 'workflowState ไม่ถูกต้อง',
+      message: 'workflowState is invalid',
     });
   }
   return raw as Cg4ExceptionWorkflowState;
@@ -195,7 +201,7 @@ function optionalLimit(value: unknown): number | undefined {
   if (!Number.isInteger(parsed) || parsed < 1 || parsed > 200) {
     throw new BadRequestException({
       code: 'VALIDATION_FAILED',
-      message: 'limit ต้องอยู่ระหว่าง 1-200',
+      message: 'limit must be between 1 and 200',
     });
   }
   return parsed;
@@ -204,7 +210,7 @@ function optionalLimit(value: unknown): number | undefined {
 function requiredChannel(value: unknown): ContactChannel {
   const raw = requiredString(value, 'channel', 32);
   if (!CONTACT_CHANNELS.has(raw)) {
-    throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'channel ไม่ถูกต้อง' });
+    throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'channel is invalid' });
   }
   return raw as ContactChannel;
 }
@@ -212,7 +218,7 @@ function requiredChannel(value: unknown): ContactChannel {
 function requiredSourceType(value: unknown): Cg4SourceType {
   const raw = requiredString(value, 'sourceType', 32);
   if (!SOURCE_TYPES.has(raw)) {
-    throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'sourceType ไม่ถูกต้อง' });
+    throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'sourceType is invalid' });
   }
   return raw as Cg4SourceType;
 }
@@ -220,7 +226,7 @@ function requiredSourceType(value: unknown): Cg4SourceType {
 function requiredRiskTier(value: unknown): Cg4ExceptionRiskTier {
   const raw = requiredString(value, 'riskTier', 16);
   if (!RISK_TIERS.has(raw)) {
-    throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'riskTier ไม่ถูกต้อง' });
+    throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'riskTier is invalid' });
   }
   return raw as Cg4ExceptionRiskTier;
 }
@@ -230,7 +236,7 @@ function requiredDecision(value: unknown): Cg4ApprovalDecision {
   if (raw !== 'APPROVE' && raw !== 'REJECT') {
     throw new BadRequestException({
       code: 'VALIDATION_FAILED',
-      message: 'decision ต้องเป็น APPROVE หรือ REJECT',
+      message: 'decision must be APPROVE or REJECT',
     });
   }
   return raw;
@@ -242,7 +248,7 @@ function requiredIdempotencyKey(request: AuthenticatedGatewayRequest): string {
   if (!value || value.trim().length === 0) {
     throw new BadRequestException({
       code: 'VALIDATION_FAILED',
-      message: 'header Idempotency-Key ต้องระบุ',
+      message: 'header Idempotency-Key is required',
     });
   }
   return value.trim();
@@ -250,7 +256,7 @@ function requiredIdempotencyKey(request: AuthenticatedGatewayRequest): string {
 
 function body(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'body ต้องเป็น object' });
+    throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'body must be an object' });
   }
   return value as Record<string, unknown>;
 }
@@ -261,20 +267,20 @@ function requiredFixturePack(value: unknown): Cg4PolicyFixturePack {
   if (typeof pack.packId !== 'string' || typeof pack.suiteVersion !== 'string') {
     throw new BadRequestException({
       code: 'VALIDATION_FAILED',
-      message: 'tenantPack ต้องมี packId และ suiteVersion',
+      message: 'tenantPack must include packId and suiteVersion',
     });
   }
   if (!Array.isArray(pack.checks)) {
     throw new BadRequestException({
       code: 'VALIDATION_FAILED',
-      message: 'tenantPack.checks ต้องเป็น array',
+      message: 'tenantPack.checks must be an array',
     });
   }
   return pack as unknown as Cg4PolicyFixturePack;
 }
 
 export function mapCg4Error(error: unknown): never {
-  // CG4.10 (#193): freeze ระหว่าง reconcile/forward-fix เป็น conflict ชั่วคราว ไม่ใช่ validation
+  // CG4.10 (#193): a freeze during reconcile/forward-fix is a temporary conflict, not a validation error
   if (error instanceof Cg4RolloutError) {
     if (error.code === GOVERNANCE_MUTATION_FROZEN || error.code === 'ROLLOUT_VERSION_CONFLICT') {
       throw new ConflictException({ code: error.code, message: error.message });
@@ -775,7 +781,7 @@ export class ContactGovernanceCg4ExceptionController extends Cg4ControllerBase {
     const series = await this.loadSeries(actor, requiredUuid(seriesId, 'seriesId'));
     const wanted = revision ? Number(revision) : series.revision;
     if (!Number.isInteger(wanted)) {
-      throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'revision ไม่ถูกต้อง' });
+      throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'revision is invalid' });
     }
     await this.auditEvidence(actor, 'EXCEPTION', series.seriesId);
     return {
@@ -1368,7 +1374,7 @@ export class ContactGovernanceCg4KillSwitchController extends Cg4ControllerBase 
   ) {
     const actor = await this.actor(request);
     if (state && state !== 'ACTIVE' && state !== 'CLEARED') {
-      throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'state ไม่ถูกต้อง' });
+      throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'state is invalid' });
     }
     const killSwitches = await cg4KillSwitches(this.database, this.queryContext(actor), {
       ...(scope ? { scopeKey: scope } : {}),
@@ -1381,8 +1387,8 @@ export class ContactGovernanceCg4KillSwitchController extends Cg4ControllerBase 
 // ---- CG4.11 (#194): additive read-only queries -----------------------------
 
 /**
- * Downstream acknowledgement ของ event หนึ่ง aggregate (#179 §4 additive query): consumer,
- * version ที่ apply, outcome และ applied state digest — ไม่มี payload หรือ identity ของผู้ถูกติดต่อ
+ * Downstream acknowledgements for one aggregate's events (#179 §4 additive query): consumer,
+ * applied version, outcome and applied state digest — no payload or identity of the contacted person
  */
 @Controller('api/v1/contact-governance/acknowledgements')
 export class ContactGovernanceCg4AcknowledgementController extends Cg4ControllerBase {
@@ -1405,7 +1411,7 @@ export class ContactGovernanceCg4AcknowledgementController extends Cg4Controller
     if (aggregateType !== 'POLICY' && aggregateType !== 'CONTACT') {
       throw new BadRequestException({
         code: 'VALIDATION_FAILED',
-        message: 'aggregateType ต้องเป็น POLICY หรือ CONTACT',
+        message: 'aggregateType must be POLICY or CONTACT',
       });
     }
     const parsedLimit = limit === undefined ? undefined : Number(limit);
@@ -1415,7 +1421,7 @@ export class ContactGovernanceCg4AcknowledgementController extends Cg4Controller
     ) {
       throw new BadRequestException({
         code: 'VALIDATION_FAILED',
-        message: 'limit ต้องอยู่ระหว่าง 1-500',
+        message: 'limit must be between 1 and 500',
       });
     }
     const acknowledgements = await cg4DownstreamAcknowledgements(
@@ -1431,7 +1437,7 @@ export class ContactGovernanceCg4AcknowledgementController extends Cg4Controller
   }
 }
 
-/** metrics/alerts ของ tenant ตาม #179 §7 (`CG4-OB01`) — label มีแค่ tenant_id */
+/** Tenant metrics/alerts per #179 §7 (`CG4-OB01`) — the only label is tenant_id */
 @Controller('api/v1/contact-governance/observability')
 export class ContactGovernanceCg4ObservabilityController extends Cg4ControllerBase {
   constructor(

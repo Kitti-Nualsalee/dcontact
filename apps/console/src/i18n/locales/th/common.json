@@ -139,6 +139,49 @@
     "restoring": {
       "title": "กำลังตรวจสอบการเข้าสู่ระบบ",
       "detail": "กำลังกู้ session เพื่อเปิดหน้าที่คุณเลือก"
+    },
+    "signIn": "เข้าสู่ระบบ",
+    "signingIn": {
+      "title": "กำลังเข้าสู่ระบบ",
+      "detail": "กำลังตรวจสอบ organization และ Console session"
+    },
+    "required": {
+      "qm": {
+        "title": "D-Contact Console",
+        "detail": "เข้าสู่ระบบก่อนเปิดหลักฐาน QM"
+      },
+      "governance": {
+        "title": "Contact Governance",
+        "detail": "เข้าสู่ระบบก่อนเปิด Exceptions, Policies และ Audit"
+      },
+      "dphoneEmbedding": {
+        "title": "dphone embedding",
+        "detail": "เข้าสู่ระบบก่อนจัดการ origin ที่ฝัง dphone"
+      },
+      "lineInbound": {
+        "title": "LINE inbound (pilot)",
+        "detail": "เข้าสู่ระบบก่อนดูข้อความขาเข้า"
+      },
+      "journeys": {
+        "title": "Journey authoring",
+        "detail": "เข้าสู่ระบบก่อนแก้ไข Journey"
+      },
+      "account": {
+        "title": "D-Contact",
+        "detail": "เข้าสู่ระบบก่อนจัดการบัญชีของคุณ"
+      }
+    },
+    "notFound": {
+      "title": "ไม่พบหน้าที่ต้องการ",
+      "detail": "ต้องระบุ Interaction context หรือ contactId"
+    },
+    "contextMissing": {
+      "title": "ไม่พบ Interaction context",
+      "detail": "เปิด Console จาก Workspace ด้วย opaque context"
+    },
+    "idpMissing": {
+      "title": "ยังไม่ได้ตั้งค่า Identity Provider",
+      "detail": "ต้องกำหนด VITE_KC_ISSUER และ VITE_KC_CLIENT_ID"
     }
   }
 }

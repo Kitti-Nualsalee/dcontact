@@ -66,7 +66,7 @@ function requiredString(value: unknown, field: string, maximum = 256): string {
   if (typeof value !== 'string' || value.trim().length === 0 || value.length > maximum) {
     throw new BadRequestException({
       code: 'VALIDATION_FAILED',
-      message: `${field} ต้องมีความยาว 1-${maximum} ตัวอักษร`,
+      message: `${field} must be 1-${maximum} characters long`,
     });
   }
   return value.trim();
@@ -79,7 +79,7 @@ function optionalString(value: unknown, field: string, maximum = 256): string | 
 
 function requiredChannel(value: unknown): ContactChannel {
   if (typeof value !== 'string' || !CONTACT_CHANNELS.has(value)) {
-    throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'channel ไม่ถูกต้อง' });
+    throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'channel is invalid' });
   }
   return value as ContactChannel;
 }
@@ -88,7 +88,7 @@ function requiredInteger(value: unknown, field: string): number {
   if (!Number.isInteger(value)) {
     throw new BadRequestException({
       code: 'VALIDATION_FAILED',
-      message: `${field} ต้องเป็นจำนวนเต็ม`,
+      message: `${field} must be an integer`,
     });
   }
   return value as number;
@@ -99,7 +99,7 @@ function requiredWindows(value: unknown): LocalTimeWindow[] {
   if (!Array.isArray(value)) {
     throw new BadRequestException({
       code: 'WINDOW_INVALID',
-      message: 'preferredWindows ต้องเป็น array',
+      message: 'preferredWindows must be an array',
     });
   }
   return value as LocalTimeWindow[];
@@ -111,7 +111,7 @@ function requiredIdempotencyKey(request: AuthenticatedGatewayRequest): string {
   if (!value || value.trim().length === 0) {
     throw new BadRequestException({
       code: 'VALIDATION_FAILED',
-      message: 'header Idempotency-Key ต้องระบุ',
+      message: 'header Idempotency-Key is required',
     });
   }
   return value.trim();
@@ -119,14 +119,17 @@ function requiredIdempotencyKey(request: AuthenticatedGatewayRequest): string {
 
 function requiredUuidParam(value: string, field: string): string {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) {
-    throw new BadRequestException({ code: 'VALIDATION_FAILED', message: `${field} ต้องเป็น UUID` });
+    throw new BadRequestException({
+      code: 'VALIDATION_FAILED',
+      message: `${field} must be a UUID`,
+    });
   }
   return value;
 }
 
 type Actor = { actorClass: string; actorRef: string; tenantId: string; isPrivileged: boolean };
 
-/** เฉพาะ workspace identity เท่านั้นในเวอร์ชันนี้ — customer/service auth ยังไม่ decide (S1.3 gap ที่ flag ไว้) */
+/** Workspace identity only in this version — customer/service auth is still undecided (flagged S1.3 gap) */
 function workspaceActor(request: AuthenticatedGatewayRequest): Actor {
   const identity = request.gatewayIdentity;
   if (!identity) throw new UnauthorizedException();
@@ -151,7 +154,7 @@ function mapDomainError(error: unknown): never {
     });
   }
   if (error instanceof Cg3ResourceNotFoundError) {
-    // generic message เสมอ — ไม่เผยว่ามี resource อยู่ tenant อื่นหรือไม่
+    // Always a generic message — never reveal whether the resource exists in another tenant
     throw new NotFoundException({ code: error.code });
   }
   if (error instanceof Cg3InvalidLifecycleTransitionError) {
@@ -194,16 +197,16 @@ export class ContactGovernancePreferencesController {
     if (Object.hasOwn(candidate, 'tenantId')) {
       throw new BadRequestException({
         code: 'VALIDATION_FAILED',
-        message: 'tenantId ต้องมาจาก access token ที่ตรวจสอบแล้ว',
+        message: 'tenantId must come from a verified access token',
       });
     }
 
     const decision = requiredString(candidate.decision, 'decision');
     if (decision !== 'ALLOW' && decision !== 'BLOCK' && decision !== 'DEFER') {
-      throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'decision ไม่ถูกต้อง' });
+      throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'decision is invalid' });
     }
 
-    // dual-mode route: service principal (CRM/Flow sync) หรือ workspace (Agent/Admin) — ดู gateway-auth.ts
+    // Dual-mode route: service principal (CRM/Flow sync) or workspace (Agent/Admin) — see gateway-auth.ts
     let tenantId: string;
     let sourceKind: string;
     let sourceVersion: string | undefined;
@@ -215,7 +218,7 @@ export class ContactGovernancePreferencesController {
       if (bodySourceKind !== 'CRM' && bodySourceKind !== 'FLOW') {
         throw new BadRequestException({
           code: 'VALIDATION_FAILED',
-          message: 'sourceKind ต้องเป็น CRM หรือ FLOW',
+          message: 'sourceKind must be CRM or FLOW',
         });
       }
       tenantId = identity.tenantId;
@@ -341,10 +344,11 @@ export const LEGACY_POLICY_PUBLISH_SUCCESSOR =
   '/api/v1/contact-governance/policy-versions/{versionId}/publish';
 
 /**
- * CG4.10 (#193): route เดิมของ CG3 คงไว้เป็น compatibility alias ระหว่าง migration แต่เข้า
- * CG4 validation/quorum/test/head transaction เดียวกับ successor (#179 §2) — `approvalRef` เป็นเพียง
- * evidence ref ไม่ใช่ authority จึง publish อะไรที่ยังไม่ผ่าน test + quorum ของ CG4 ไม่ได้
- * ทุก response มี deprecation metadata; route ถูกถอดใน versioned API ถัดไปหลัง compatibility window
+ * CG4.10 (#193): the old CG3 route stays as a compatibility alias during migration, but it goes through
+ * the same CG4 validation/quorum/test/head transaction as its successor (#179 §2) — `approvalRef` is only
+ * an evidence ref, not authority, so nothing that has not passed CG4 tests + quorum can be published.
+ * Every response carries deprecation metadata; the route is removed in the next versioned API after the
+ * compatibility window
  */
 @Controller('api/v1/contact-governance/policies')
 export class ContactGovernancePoliciesController {
@@ -380,7 +384,7 @@ export class ContactGovernancePoliciesController {
     const expectedVersion = requiredInteger(candidate.expectedVersion, 'expectedVersion');
     const rowId = requiredUuidParam(id, 'id');
 
-    // id เดิมคือแถว cg_policies ของ CG3 ซึ่ง backfill map ไว้; รับ policy version id ของ CG4 ด้วย
+    // The old id is a CG3 cg_policies row mapped by the backfill; a CG4 policy version id is accepted too
     const version = await withTenantDatabaseTransaction(
       this.database,
       identity.tenantId,
@@ -402,8 +406,9 @@ export class ContactGovernancePoliciesController {
         actualVersion: version.version,
       });
     }
-    // version ที่ยังไม่มี binding ของ approval ไม่มีอะไรให้ CG4 ตรวจ; ถ้ามีแล้วส่งต่อให้ publish เสมอ
-    // เพื่อให้ retry ด้วย Idempotency-Key เดิมได้ receipt เดิม และสถานะอื่นถูกปฏิเสธโดย lifecycle เอง
+    // A version without an approval binding has nothing for CG4 to check; once bound, always hand it to
+    // publish so a retry with the same Idempotency-Key gets the same receipt, and the lifecycle itself
+    // rejects other states
     if (
       !version.testArtifactDigest ||
       !version.approvalDigest ||
@@ -430,8 +435,8 @@ export class ContactGovernancePoliciesController {
     if (!subject) throw new ForbiddenException({ code: 'CAPABILITY_REQUIRED' });
 
     try {
-      // expected bindings มาจาก version ที่ approve ไว้เอง: publish ยังตรวจ digest, test ที่สด,
-      // quorum และ head CAS ซ้ำใน transaction ทั้งหมด หาก head ขยับหลัง approve จะได้ conflict
+      // Expected bindings come from the approved version itself: publish still re-checks the digest, fresh
+      // tests, quorum and head CAS in one transaction; if the head moved after approval it is a conflict
       const result = await this.policies.publish({
         tenantId: identity.tenantId,
         policyId: version.policyId,
@@ -652,9 +657,9 @@ export class ContactGovernanceDecisionQueryController {
   }
 }
 
-// TODO(S1.3 gap): "verified customer, own identity only" RBAC ที่ #107 ต้องการ (customer
-// self-service แก้ preference/callback ของตัวเอง) ยังไม่มี auth mechanism ใน repo นี้เลย —
-// gateway-auth.ts มีแค่ workspace identity (Keycloak org login: agent/admin/compliance/
-// platform-operator) กับ service identity (OAuth2 client_credentials: CRM/Flow) ไม่มี
-// customer session/token shape ใดๆ ยังไม่เปิด customer route ในเวอร์ชันนี้ ต้องมี decision
-// แยกเรื่อง customer auth (#103's Preference center frontend เป็นของ S1.8) ก่อนเปิดใช้งานจริง
+// TODO(S1.3 gap): the "verified customer, own identity only" RBAC that #107 needs (customers editing
+// their own preference/callback) has no auth mechanism in this repo yet — gateway-auth.ts only has
+// workspace identity (Keycloak org login: agent/admin/compliance/platform-operator) and service
+// identity (OAuth2 client_credentials: CRM/Flow), with no customer session/token shape. Customer
+// routes stay closed in this version until a separate customer-auth decision (#103's Preference
+// center frontend belongs to S1.8)

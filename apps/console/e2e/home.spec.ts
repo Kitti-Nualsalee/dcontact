@@ -151,7 +151,7 @@ test('ปิด shell flag ยังแสดงเมนูที่ server อ
   await expect(
     page.getByRole('heading', { name: 'What would you like to do today?' }),
   ).toBeVisible();
-  await page.getByRole('button', { name: 'User menu ผู้ทดสอบ คอนโซล' }).click();
+  await page.getByRole('button', { name: 'User menu Console Tester' }).click();
   await expect(page.getByRole('menuitem', { name: 'My account' })).toBeVisible();
 });
 
@@ -201,7 +201,7 @@ for (const shellV2 of [true, false]) {
       nav.apps.filter((app) => app.id !== 'home').length,
     );
     await expect(page.getByRole('button', { name: 'English' })).toBeInViewport();
-    await expect(page.getByRole('button', { name: 'เมนูผู้ใช้ ผู้ทดสอบ คอนโซล' })).toBeInViewport();
+    await expect(page.getByRole('button', { name: 'เมนูผู้ใช้ Console Tester' })).toBeInViewport();
     await expect(page.locator('header').getByRole('link', { name: /^Workspace/ })).toBeInViewport();
     await expect(
       page.locator('header').getByRole('link', { name: /^Supervisor/ }),

@@ -12,13 +12,16 @@ import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.text.MessageFormat;
 import java.security.MessageDigest;
 import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Properties;
 import java.util.Set;
 import java.util.regex.Pattern;
 import org.keycloak.connections.jpa.JpaConnectionProvider;
@@ -38,6 +41,7 @@ import org.keycloak.models.utils.SystemClientUtil;
 import org.keycloak.organization.OrganizationProvider;
 import org.keycloak.services.managers.AppAuthManager;
 import org.keycloak.services.resources.LoginActionsService;
+import org.keycloak.theme.Theme;
 import org.keycloak.userprofile.UserProfileProvider;
 
 @Produces(MediaType.APPLICATION_JSON)
@@ -58,6 +62,29 @@ public class PeopleResource {
     return (String)value;
   }
   static void uuid(String value) { if(value==null||!UUID.matcher(value).matches())throw denied(400,"INVALID_REQUEST"); }
+  /**
+   * Invitation email subject and body in the invitee's locale (keys dcPeopleInvitationSubject/Body,
+   * shipped in this jar under theme-resources/messages so any email theme has them). The
+   * [dc-attempt:...] marker stays outside the template because boundary tests find the email by it.
+   */
+  private String[] invitationText(RealmModel realm,UserModel user,String attemptRef,String link) {
+    String subject=INVITATION_SUBJECT_FALLBACK,body=MessageFormat.format(INVITATION_BODY_FALLBACK,link);
+    try {
+      Properties messages=session.theme().getTheme(Theme.Type.EMAIL).getEnhancedMessages(realm,session.getContext().resolveLocale(user));
+      String localizedBody=MessageFormat.format(messages.getProperty("dcPeopleInvitationBody",INVITATION_BODY_FALLBACK),link);
+      subject=messages.getProperty("dcPeopleInvitationSubject",INVITATION_SUBJECT_FALLBACK);
+      body=localizedBody;
+    } catch(IOException|RuntimeException failure) {
+      // A missing theme or a broken realm override must never stop the invitation from being sent
+      System.getLogger(PeopleResource.class.getName()).log(System.Logger.Level.WARNING,"INVITATION_TEMPLATE_FALLBACK:"+failure.getClass().getSimpleName());
+    }
+    return new String[] { subject+" [dc-attempt:"+attemptRef+"]", body };
+  }
+  // Keep in sync with theme-resources/messages/messages_en.properties (dcPeopleInvitation*)
+  private static final String INVITATION_SUBJECT_FALLBACK="D-Contact invitation";
+  private static final String INVITATION_BODY_FALLBACK=
+    "Set your password, verify your email and set up an Authenticator with this link within 72 hours:\n\n{0}\n\nIf you did not request access, ignore this email.";
+
   static String hash(String value) {
     try { return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8))); }
     catch(Exception failure) { throw new IllegalStateException("digest unavailable"); }
@@ -511,9 +538,8 @@ public class PeopleResource {
     String link=LoginActionsService.actionTokenProcessor(uri).queryParam("key",encoded).build(binding.realm().getName()).toString();
     String outcome;
     try {
-      sender.send(binding.realm().getSmtpConfig(),user,
-        "คำเชิญเข้าใช้งาน D-Contact [dc-attempt:"+intent.providerAttemptRef+"]",
-        "ตั้งรหัสผ่าน ยืนยันอีเมล และตั้งค่า Authenticator ผ่านลิงก์นี้ภายใน 72 ชั่วโมง:\n\n"+link+"\n\nหากไม่ได้ขอใช้งาน ให้เพิกเฉยต่ออีเมลนี้",null);
+      String[] text=invitationText(binding.realm(),user,intent.providerAttemptRef,link);
+      sender.send(binding.realm().getSmtpConfig(),user,text[0],text[1],null);
       outcome="SENT";
     } catch(EmailException failure) { outcome="UNKNOWN"; }
     PeopleInvitationFinished finished=new PeopleInvitationFinished();finished.id=intent.id;finished.outcome=outcome;finished.issuedAtEpoch=issuedAt;

@@ -395,5 +395,76 @@
       "fileRevoked": "ไฟล์ถูกเพิกถอนแล้ว",
       "expires": "หมดอายุ {{at}}"
     }
+  },
+  "preferenceCenter": {
+    "brand": "D-CONTACT",
+    "product": "Preference Center",
+    "version": "canonical v{{version}}",
+    "eyebrow": "CONTACT GOVERNANCE",
+    "title": "ตั้งค่าการติดต่อ",
+    "subtitle": "การเปลี่ยนแปลงจะบันทึกเป็น version ใหม่ ไม่แก้ไขประวัติเดิม",
+    "effective": "ผลที่มีผลอยู่: {{decision}}",
+    "checking": "กำลังตรวจสอบ",
+    "allowMeaning": "ALLOW หมายถึงผ่าน preference gate เท่านั้น ไม่ใช่ consent และไม่ลบล้าง hard restriction",
+    "messages": {
+      "loadFailed": "โหลด canonical preference ไม่สำเร็จ โปรดลองใหม่",
+      "agentCannotAllow": "Agent ทำให้ข้อกำหนดเข้มขึ้นได้เท่านั้น จึงไม่สามารถตั้ง ALLOW ได้",
+      "timezoneUnknown": "ยังไม่ทราบ Timezone: เลือกหรือยืนยัน Timezone ก่อน เพื่อให้ระบบ fail-closed ได้ถูกต้อง",
+      "saved": "บันทึก canonical version {{version}} แล้ว ระบบจะระงับ outbound ใหม่จน consumer ยืนยันการกระจายผล",
+      "versionConflict": "ข้อมูลถูกเปลี่ยนจากที่อื่นแล้ว กรุณาโหลด canonical version ล่าสุดก่อนส่งอีกครั้ง",
+      "relaxationNotAuthorized": "สิทธิ์ปัจจุบันไม่อนุญาตให้ผ่อนข้อกำหนดนี้",
+      "saveFailed": "บันทึก preference ไม่สำเร็จ ข้อมูลเดิมยังไม่ถูกแทนที่",
+      "callbackMissing": "ระบุเวลาติดต่อกลับและ Timezone ก่อนส่งคำขอ",
+      "callbackCreated": "สร้างคำขอติดต่อกลับแบบมีขอบเขตแล้ว ระบบยังคงตรวจ policy และเวลาเมื่อจะส่งจริง",
+      "callbackConflict": "ข้อมูลถูกเปลี่ยนแล้ว กรุณาโหลด version ล่าสุดก่อนส่งคำขออีกครั้ง",
+      "callbackFailed": "สร้างคำขอติดต่อกลับไม่สำเร็จ",
+      "reloadFailed": "โหลด canonical version ไม่สำเร็จ"
+    },
+    "form": {
+      "title": "การตั้งค่าที่ต้องการ",
+      "channel": "ช่องทาง",
+      "purpose": "วัตถุประสงค์",
+      "decision": "การตัดสินใจ",
+      "agentNote": "Agent เลือก BLOCK หรือ DEFER ได้; การผ่อนเป็น ALLOW จะถูกปฏิเสธ",
+      "allowNote": "ALLOW ไม่ใช่ consent และยังอยู่ใต้ hard restriction, revocation และ policy เสมอ",
+      "timezone": "Timezone",
+      "windowStart": "เริ่มเวลา",
+      "windowEnd": "สิ้นสุด",
+      "timezoneNote": "หากไม่ทราบ Timezone ระบบจะไม่ส่ง outbound และจะแสดงทางแก้ไขนี้",
+      "evidence": "หลักฐานอ้างอิง",
+      "saving": "กำลังบันทึก…",
+      "save": "บันทึก preference ใหม่"
+    },
+    "callback": {
+      "title": "ขอให้ติดต่อกลับ",
+      "note": "เป็นคำขอแบบมีขอบเขต ไม่ข้าม consent หรือ hard restriction",
+      "at": "วันและเวลา",
+      "submit": "ส่งคำขอติดต่อกลับ"
+    },
+    "propagation": {
+      "title": "สถานะการกระจายผล",
+      "note": "หลัง mutation ใหม่ Workspace จะบล็อก outbound ถัดไปจนได้ state ที่ยืนยันแล้ว",
+      "reload": "โหลด version ล่าสุด"
+    },
+    "history": {
+      "eyebrow": "READ-ONLY",
+      "title": "ประวัติการเปลี่ยนแปลง",
+      "count": "{{count}} รายการ",
+      "revoked": "ยกเลิก preference",
+      "scope": "{{channel}} / {{purpose}}",
+      "allChannels": "ทุกช่องทาง",
+      "allPurposes": "ทุกวัตถุประสงค์",
+      "callback": "ขอให้ติดต่อกลับ {{channel}} / {{purpose}}",
+      "versionPrefix": "v{{version}} ·",
+      "actor": "ผู้ดำเนินการ: {{actor}} · ผล: {{outcome}}",
+      "collapse": "แสดง 3 รายการล่าสุด",
+      "expand": "ขยายประวัติทั้งหมด"
+    },
+    "actors": {
+      "agent": "เจ้าหน้าที่",
+      "admin": "ผู้ดูแล tenant",
+      "compliance": "Compliance",
+      "system": "ระบบ"
+    }
   }
 }

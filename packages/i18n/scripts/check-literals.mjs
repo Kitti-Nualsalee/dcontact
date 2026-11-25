@@ -46,7 +46,9 @@ function files(target) {
   const extension = extname(target);
   if (
     !['.ts', '.tsx'].includes(extension) ||
-    /\.(test|spec|boundary|integration|d)\.tsx?$/.test(target)
+    /\.(test|spec|boundary|integration|d)\.tsx?$/.test(target) ||
+    // e2e-only harness controls (`e2e-*.tsx`) are not product UI
+    /(^|\/)e2e-[^/]*\.tsx?$/.test(target)
   )
     return [];
   return [target];

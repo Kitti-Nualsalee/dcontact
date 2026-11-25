@@ -38,5 +38,10 @@ Lead ทำงานเองเป็นค่าเริ่มต้น แ�
 
 ## ภาษา
 
-ใช้ภาษาไทยสำหรับการสื่อสารและ artifacts ที่คนอ่าน รวม issue, comment, specification, ADR และ handoff
+ใช้ภาษาไทยสำหรับการสื่อสารและเอกสารที่คนอ่าน รวม issue, PR, comment ใน GitHub, commit message, specification, ADR, `docs/` และ handoff
 คง code identifiers, API, event, command, product และ technical terms ที่แปลแล้วกำกวมเป็น English
+
+โค้ดเป็นภาษาอังกฤษทั้งหมด (owner ตัดสิน 25 พฤศจิกายน 2569): comment ในโค้ด, ชื่อ test, ข้อความ error/log,
+script, config และ CI ข้อความที่ผู้ใช้เห็นอยู่ใน i18n catalog (`locales/`, `messages_*.properties`) เท่านั้น
+ยกเว้น migration ที่รันแล้ว และข้อมูล seed/CSV `pnpm lint:thai` ใน CI กันภาษาไทยใหม่ในโค้ด
+ภาษาไทยเดิมทยอยแปลตาม baseline ใน `scripts/no-thai-baseline.json` — แก้ไฟล์ที่มีภาษาไทยแล้วให้รัน `pnpm lint:thai --update`

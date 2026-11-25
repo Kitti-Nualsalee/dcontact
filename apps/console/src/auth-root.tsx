@@ -112,16 +112,36 @@ function SignedOutSurface() {
 }
 
 function Status({ title, detail, action }: { title: string; detail: string; action?: () => void }) {
+  const { t } = useTranslation('common');
   return (
     <main className="empty">
       <h1>{title}</h1>
       <p>{detail}</p>
       {action ? (
         <button className="primary" onClick={action}>
-          เข้าสู่ระบบ
+          {t('auth.signIn')}
         </button>
       ) : null}
     </main>
+  );
+}
+
+function SigningIn() {
+  const { t } = useTranslation('common');
+  return <Status title={t('auth.signingIn.title')} detail={t('auth.signingIn.detail')} />;
+}
+
+type SignInSurface =
+  'qm' | 'governance' | 'dphoneEmbedding' | 'lineInbound' | 'journeys' | 'account';
+
+function SignInRequired({ surface, auth }: { surface: SignInSurface; auth: AuthContextProps }) {
+  const { t } = useTranslation('common');
+  return (
+    <Status
+      title={t(`auth.required.${surface}.title`)}
+      detail={t(`auth.required.${surface}.detail`)}
+      action={() => void signInFromCurrentPage(auth)}
+    />
   );
 }
 
@@ -176,31 +196,22 @@ function AuthenticatedConsole({
   viewer: 'AGENT' | 'ADMIN' | 'COMPLIANCE';
 }) {
   const auth = useAuth();
+  const { t } = useTranslation('common');
   const accessToken = auth.user?.access_token;
   const api = useMemo(
     () => createConsoleApi({ baseUrl: apiBaseUrl, accessToken: () => accessToken }),
     [accessToken, apiBaseUrl],
   );
-  if (auth.activeNavigator === 'signinRedirect' || auth.isLoading)
-    return (
-      <Status title="กำลังเข้าสู่ระบบ" detail="กำลังตรวจสอบ organization และ Console session" />
-    );
+  if (auth.activeNavigator === 'signinRedirect' || auth.isLoading) return <SigningIn />;
   if (auth.error || !auth.isAuthenticated || !accessToken)
-    return (
-      <Status
-        title="D-Contact Console"
-        detail="เข้าสู่ระบบก่อนเปิดหลักฐาน QM"
-        action={() => void signInFromCurrentPage(auth)}
-      />
-    );
+    return <SignInRequired surface="qm" auth={auth} />;
   if (contactId) return <PreferenceCenter api={api} contactId={contactId} viewer={viewer} />;
   if (contextId) return <ConsoleApp api={api} contextId={contextId} />;
-  return (
-    <Status title="ไม่พบหน้าที่ต้องการ" detail="ต้องระบุ Interaction context หรือ contactId" />
-  );
+  return <Status title={t('auth.notFound.title')} detail={t('auth.notFound.detail')} />;
 }
 
 export function ConsoleAuthRoot() {
+  const { t } = useTranslation('common');
   const issuer = import.meta.env.VITE_KC_ISSUER as string | undefined;
   const clientId = import.meta.env.VITE_KC_CLIENT_ID as string | undefined;
   const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '';
@@ -279,19 +290,11 @@ export function ConsoleAuthRoot() {
         : resolveConsoleContextId(url);
   } catch {
     return (
-      <Status
-        title="ไม่พบ Interaction context"
-        detail="เปิด Console จาก Workspace ด้วย opaque context"
-      />
+      <Status title={t('auth.contextMissing.title')} detail={t('auth.contextMissing.detail')} />
     );
   }
   if (!issuer || !clientId)
-    return (
-      <Status
-        title="ยังไม่ได้ตั้งค่า Identity Provider"
-        detail="ต้องกำหนด VITE_KC_ISSUER และ VITE_KC_CLIENT_ID"
-      />
-    );
+    return <Status title={t('auth.idpMissing.title')} detail={t('auth.idpMissing.detail')} />;
   const settings = createConsoleOidcSettings({
     issuer,
     clientId,
@@ -806,18 +809,9 @@ function GovernanceSurface({
     () => createCg5ConsoleApi({ baseUrl: apiBaseUrl, accessToken: () => accessToken }),
     [accessToken, apiBaseUrl],
   );
-  if (auth.activeNavigator === 'signinRedirect' || auth.isLoading)
-    return (
-      <Status title="กำลังเข้าสู่ระบบ" detail="กำลังตรวจสอบ organization และ Console session" />
-    );
+  if (auth.activeNavigator === 'signinRedirect' || auth.isLoading) return <SigningIn />;
   if (auth.error || !auth.isAuthenticated || !accessToken)
-    return (
-      <Status
-        title="Contact Governance"
-        detail="เข้าสู่ระบบก่อนเปิด Exceptions, Policies และ Audit"
-        action={() => void signInFromCurrentPage(auth)}
-      />
-    );
+    return <SignInRequired surface="governance" auth={auth} />;
   const roles = accessTokenRealmRoles(accessToken);
   const viewer: GovernanceViewer = roles.includes('compliance')
     ? 'COMPLIANCE'
@@ -860,18 +854,9 @@ function DphoneEmbeddingSurface({
     () => createTeamScopeApi({ baseUrl: apiBaseUrl, accessToken: () => accessToken }),
     [accessToken, apiBaseUrl],
   );
-  if (auth.activeNavigator === 'signinRedirect' || auth.isLoading)
-    return (
-      <Status title="กำลังเข้าสู่ระบบ" detail="กำลังตรวจสอบ organization และ Console session" />
-    );
+  if (auth.activeNavigator === 'signinRedirect' || auth.isLoading) return <SigningIn />;
   if (auth.error || !auth.isAuthenticated || !accessToken)
-    return (
-      <Status
-        title="dphone embedding"
-        detail="เข้าสู่ระบบก่อนจัดการ origin ที่ฝัง dphone"
-        action={() => void signInFromCurrentPage(auth)}
-      />
-    );
+    return <SignInRequired surface="dphoneEmbedding" auth={auth} />;
   const roles = accessTokenRealmRoles(accessToken);
   return (
     <ConsoleShell
@@ -908,18 +893,9 @@ function LineInboundSurface({
     () => createLineInboundApi({ baseUrl: apiBaseUrl, accessToken: () => accessToken }),
     [accessToken, apiBaseUrl],
   );
-  if (auth.activeNavigator === 'signinRedirect' || auth.isLoading)
-    return (
-      <Status title="กำลังเข้าสู่ระบบ" detail="กำลังตรวจสอบ organization และ Console session" />
-    );
+  if (auth.activeNavigator === 'signinRedirect' || auth.isLoading) return <SigningIn />;
   if (auth.error || !auth.isAuthenticated || !accessToken)
-    return (
-      <Status
-        title="LINE inbound (pilot)"
-        detail="เข้าสู่ระบบก่อนดูข้อความขาเข้า"
-        action={() => void signInFromCurrentPage(auth)}
-      />
-    );
+    return <SignInRequired surface="lineInbound" auth={auth} />;
   return (
     <ConsoleShell
       {...shellUserProps(auth, tenantAlias)}
@@ -952,20 +928,11 @@ function JourneySurface({ apiBaseUrl, tenantAlias }: { apiBaseUrl: string; tenan
     () => createLineInboundApi({ baseUrl: apiBaseUrl, accessToken: () => accessToken }),
     [accessToken, apiBaseUrl],
   );
-  if (auth.activeNavigator === 'signinRedirect' || auth.isLoading)
-    return (
-      <Status title="กำลังเข้าสู่ระบบ" detail="กำลังตรวจสอบ organization และ Console session" />
-    );
+  if (auth.activeNavigator === 'signinRedirect' || auth.isLoading) return <SigningIn />;
   if (auth.error || !auth.isAuthenticated || !accessToken) {
     // ออกจากระบบหรือ session หมด: การแก้ที่ค้างของ tenant นี้ต้องไม่ติดไปกับผู้ใช้คนถัดไป
     clearRecovery(window.sessionStorage, tenantAlias);
-    return (
-      <Status
-        title="Journey authoring"
-        detail="เข้าสู่ระบบก่อนแก้ไข Journey"
-        action={() => void signInFromCurrentPage(auth)}
-      />
-    );
+    return <SignInRequired surface="journeys" auth={auth} />;
   }
   const session = String(auth.user?.profile.sid ?? auth.user?.profile.sub ?? 'session');
   return (
@@ -1018,18 +985,9 @@ function AccountSurface({
     () => createAccountPolicyApi({ baseUrl: apiBaseUrl, accessToken: () => accessToken }),
     [accessToken, apiBaseUrl],
   );
-  if (auth.activeNavigator === 'signinRedirect' || auth.isLoading)
-    return (
-      <Status title="กำลังเข้าสู่ระบบ" detail="กำลังตรวจสอบ organization และ Console session" />
-    );
+  if (auth.activeNavigator === 'signinRedirect' || auth.isLoading) return <SigningIn />;
   if (auth.error || !auth.isAuthenticated || !accessToken)
-    return (
-      <Status
-        title="D-Contact"
-        detail="เข้าสู่ระบบก่อนจัดการบัญชีของคุณ"
-        action={() => void signInFromCurrentPage(auth)}
-      />
-    );
+    return <SignInRequired surface="account" auth={auth} />;
   return (
     <ConsoleShell
       {...shellUserProps(auth, tenantAlias)}

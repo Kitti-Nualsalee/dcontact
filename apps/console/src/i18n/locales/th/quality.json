@@ -254,5 +254,36 @@
       "title": "ลบหมวด {{name}}?",
       "body": "คำถาม {{count}} ข้อในหมวดนี้จะถูกลบด้วย (ย้อนได้ด้วยการออกโดยไม่บันทึก)"
     }
+  },
+  "interactionReview": {
+    "brand": "D-CONTACT",
+    "product": "Quality Console",
+    "eyebrow": "RECORDING · TRANSCRIPT · QM",
+    "heading": "Interaction {{id}}",
+    "loading": "กำลังโหลด",
+    "errors": {
+      "loadFailed": "เปิด Interaction context ไม่สำเร็จ",
+      "publishFailed": "Publish ไม่สำเร็จ ผลประเมินยังเป็น DRAFT"
+    },
+    "recording": {
+      "title": "Recording evidence",
+      "deleted": "ไฟล์เสียงถูกลบตาม retention แล้ว",
+      "requestPlayback": "ขอสิทธิ์ฟัง recording",
+      "pciGap": "ช่วง PCI ไม่มีหลักฐานเสียง · {{start}}–{{end}}",
+      "missing": "ไม่พบ recording"
+    },
+    "transcript": "Transcript",
+    "evaluation": {
+      "title": "Evaluation",
+      "draftNote": "AUTO_DRAFT — Agent ยังมองไม่เห็น",
+      "publish": "Publish evaluation",
+      "pending": "กำลังรอ server ยืนยัน"
+    },
+    "confirm": {
+      "title": "ยืนยัน Publish evaluation",
+      "detail": "Agent จะเห็นผลประเมินนี้ และการเผยแพร่จะถูกบันทึกใน audit log",
+      "cancel": "ยกเลิก",
+      "action": "ยืนยัน Publish"
+    }
   }
 }
