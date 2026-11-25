@@ -1,8 +1,8 @@
 /**
- * AC4 (#597): `/api/v1/me/account/*` — self-service บัญชีของผู้ใช้ทุก role ของ tenant (#589)
+ * AC4 (#597): `/api/v1/me/account/*` — account self-service for users of every role of the tenant (#589)
  *
- * tenant และผู้ใช้มาจาก token เสมอ (ไม่มี user id ใน path/body); envelope คงที่ `{ code, ...details }`
- * และไม่บอกชื่อระบบ identity (`IDENTITY_UNAVAILABLE`)
+ * the tenant and user always come from the token (no user id in the path/body); a fixed envelope `{ code, ...details }`
+ * and does not reveal the identity system name (`IDENTITY_UNAVAILABLE`)
  */
 import {
   Body,

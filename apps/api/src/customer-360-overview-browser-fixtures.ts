@@ -1,4 +1,4 @@
-/** ใช้เฉพาะ disposable overview browser harness เพื่อทดสอบ owner/proof/context จริง */
+/** used only by the disposable overview browser harness to test the real owner/proof/context */
 import { randomUUID } from 'node:crypto';
 import {
   C360SegmentEvaluator,

@@ -34,7 +34,7 @@ async function setup(...args: Parameters<typeof fixtureSetup>) {
   };
 }
 
-test('M1 Overview: actual list predicate, missing-head/ambiguous/merged, 2 tenants และ grant revoke', async (t) => {
+test('M1 Overview: actual list predicate, missing-head/ambiguous/merged, 2 tenants and grant revoke', async (t) => {
   const f = await setup([Customer360ReadController, Customer360OverviewController]);
   t.after(() => f.close());
   for (const state of ['ACTIVE', 'AMBIGUOUS', 'LEGACY'] as const) {
@@ -94,7 +94,7 @@ test('M1 Overview: actual list predicate, missing-head/ambiguous/merged, 2 tenan
   );
 });
 
-test('M1 Overview: stale IAM ไม่แปลงเป็น zero และ current role/proof ตรวจทุก endpoint', async (t) => {
+test('M1 Overview: stale IAM is not turned into zero, and the current role/proof is checked on every endpoint', async (t) => {
   const f = await setup([Customer360OverviewController]);
   t.after(() => f.close());
   await f.scopes.grant({
@@ -106,7 +106,7 @@ test('M1 Overview: stale IAM ไม่แปลงเป็น zero และ cu
   });
   await ownerCommit(f, 'GOLD');
   await deliverToIam(f);
-  // Admin ใช้ IAM team scope ได้ด้วย แต่ stale owner ต้องไม่รายงาน total ที่ดูครบ
+  // an Admin can also use the IAM team scope, but a stale owner must not report a total that looks complete
   await ownerCommit(f, 'SILVER');
   const stale = await f.request('customer-360/overview/customers', 'admin');
   assert.equal(stale.status, 503);
@@ -136,7 +136,7 @@ test('M1 Overview: stale IAM ไม่แปลงเป็น zero และ cu
   }
 });
 
-test('M1 Overview: catalog counts มาจาก owner จริงและ rules ใช้ registry/writer เดียวกัน', async (t) => {
+test('M1 Overview: catalog counts come from the real owner and the rules use the same registry/writer', async (t) => {
   const f = await setup([Customer360OverviewController, Customer360TagCatalogController]);
   t.after(() => f.close());
   assert.deepEqual((await f.request('customer-360/overview/tags', 'admin')).body.activeCount, '0');
@@ -166,7 +166,7 @@ test('M1 Overview: catalog counts มาจาก owner จริงและ ru
   assert.equal(fields.find((x) => x.name === 'vip')!.type, 'boolean');
 });
 
-test('M1 Rules: writer registry unavailable เป็น 503 ไม่ส่ง guessed rules', async (t) => {
+test('M1 Rules: a writer registry that is unavailable is a 503 and sends no guessed rules', async (t) => {
   const f = await setup([Customer360OverviewController], undefined, { ready: false });
   t.after(() => f.close());
   const r = await f.request('customer-360/field-rules', 'admin');

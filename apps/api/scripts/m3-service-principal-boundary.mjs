@@ -1,4 +1,4 @@
-/** #841: สร้าง PostgreSQL/Keycloak ของ runner เอง ไม่ใช้ DB/realm/VM ร่วม */
+/** #841: creates the runner's own PostgreSQL/Keycloak, never using the shared DB/realm/VM */
 import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { get } from 'node:http';

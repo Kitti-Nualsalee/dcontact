@@ -474,7 +474,7 @@ export class TenantPeopleKeycloak implements TenantPeopleIdentityPort, TenantPeo
     };
   }
 
-  /** #998 1B/2: port ของ UPDATE_PROFILE/ENABLE_ACCOUNT ใช้ client และ backchannel เดียวกัน */
+  /** #998 1B/2: the port of UPDATE_PROFILE/ENABLE_ACCOUNT uses the same client and backchannel */
   accountPort() {
     const adapter = new TenantPeopleAccountKeycloak(this.configuration, this.request);
     return {
@@ -503,7 +503,7 @@ export class TenantPeopleKeycloak implements TenantPeopleIdentityPort, TenantPeo
     );
   }
 
-  /** #868: readiness ดิบจาก extension สำหรับหลักฐานก่อนสลับ API; อ่านอย่างเดียวและไม่คืน token */
+  /** #868: the raw readiness from the extension for the evidence before switching the API; read-only and returns no token */
   async readReadinessEvidence(tenantId = this.configuration.tenantId): Promise<{
     version: unknown;
     ready: unknown;

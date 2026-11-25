@@ -9,7 +9,7 @@ import {
 } from '@d-contact/workspace-session';
 import { withLocalAccountAdmission } from './local-account-verifier.js';
 
-test('PostgreSQL/RLS: JWT เดิมเปิด Workspace ใหม่ไม่ได้หลัง local disable และข้าม tenant ไม่ได้', async (context) => {
+test('PostgreSQL/RLS: the original JWT cannot open a new Workspace after a local disable and cannot cross tenants', async (context) => {
   const owner = new PrismaClient();
   const application = new PrismaClient({
     datasources: {

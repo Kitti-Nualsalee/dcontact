@@ -85,14 +85,14 @@ import {
 import { coreBusy, coreRequestId } from './tenant-core-errors.js';
 
 /**
- * Cus360 C1 (#791) S3: HTTP gates ของ generic Console routes (R1 F)
+ * Cus360 C1 (#791) S3: the HTTP gates of the generic Console routes (R1 F)
  *
- * Identity มาจาก verified gateway claims + active User + proof binding (shared identity boundary
- * เดียวกับ core settings) แล้วตรวจ resource authorization ด้วย predicate ของ customer-360.
- * Agent/Compliance ไม่มี generic route; target นอกสิทธิ์ตอบเหมือนไม่พบ (ไม่มี existence oracle)
+ * Identity comes from verified gateway claims + an active User + the proof binding (the same shared identity boundary
+ * as core settings), then resource authorization is checked with the customer-360 predicate.
+ * Agent/Compliance have no generic route; a target outside permission answers like not found (no existence oracle)
  */
 export const CUSTOMER_360_DATABASE = Symbol('CUSTOMER_360_DATABASE');
-// จำกัด DB recovery ต่อ process เมื่อ Redis ไม่พร้อม; ไม่สร้างคิวที่โตไม่จำกัด
+// limits DB recovery per process when Redis is not ready; does not create an unbounded queue
 export class ReceiptRecoveryGate {
   private inFlight = 0;
   async run<T>(work: () => Promise<T>, unavailable: () => never): Promise<T> {
@@ -186,7 +186,7 @@ export interface C360RequestIdentity extends TenantConfigurationIdentity {
   caller: NonNullable<TenantConfigurationIdentity['caller']>;
 }
 
-/** Machine feature ปิดเป็นค่าเริ่มต้น: ไม่ได้ provide ช่องของ service = service token ถูกปฏิเสธทุก route */
+/** the Machine feature is off by default: not providing a service slot = a service token is rejected on every route */
 export function c360ServicePort(port: Customer360ServicePort | undefined): Customer360ServicePort {
   if (!port) throw new Customer360HttpError(403, 'CUSTOMER_ACCESS_DENIED');
   return port;
@@ -205,7 +205,7 @@ export function requestIdentity(req: AuthenticatedGatewayRequest): C360RequestId
   };
 }
 
-/** Active User + proof binding ปัจจุบันภายใน transaction; เปลี่ยน role/proof/disable = ปฏิเสธทันที */
+/** the current Active User + proof binding inside the transaction; a changed role/proof/disable = rejected at once */
 export async function c360CurrentActor(
   tx: Prisma.TransactionClient,
   identity: C360RequestIdentity,
@@ -228,7 +228,7 @@ export function commandActor(identity: C360RequestIdentity): C360CommandActor {
   };
 }
 
-/** คำสั่งโปรไฟล์เป็นของ Admin; replay ตรวจสิทธิ์ปัจจุบันและกรอง refs ตามสิทธิ์อ่านขณะนี้ */
+/** a profile command belongs to an Admin; a replay rechecks the current permission and filters refs by the current read permission */
 export function commandAuthorization(identity: C360RequestIdentity): C360CommandAuthorization {
   let actor: C360VerifiedActor | undefined;
   return {
@@ -709,8 +709,8 @@ export class Customer360Controller {
   }
 
   /**
-   * Capability hint ของ contact หนึ่งราย (R1 F: capabilities เป็น UI hint, server ตรวจซ้ำทุก mutation)
-   * DENY และไม่พบตอบ 404 เหมือนกัน; DEFER ตอบ 503 ไม่ตีความเป็นไม่มีสิทธิ์หรือมีสิทธิ์
+   * the Capability hint of one contact (R1 F: capabilities are a UI hint, the server rechecks every mutation)
+   * DENY and not found answer 404 identically; DEFER answers 503 and is not interpreted as having or lacking permission
    */
   @Get('contacts/:contactId/capabilities')
   @Header('Cache-Control', 'no-store')
@@ -766,7 +766,7 @@ export class Customer360Controller {
     } catch (error) {
       if (!(error instanceof Customer360HttpError) || error.code !== 'RATE_LIMITER_UNAVAILABLE')
         throw error;
-      // เมื่อ limiter ล่ม กู้ได้เฉพาะ receipt ที่ commit แล้วและยังมีสิทธิ์อ่าน
+      // when the limiter is down, only receipts that have committed and are still readable can be recovered
       return receiptRecoveryGate.run(
         async () => {
           const recovered = await lookupC360ProfileCommand(

@@ -33,11 +33,11 @@ import {
 } from './customer-360-api.js';
 
 /**
- * Cus360 C1 (#791) S5: operator command route ตาม E1 D
+ * Cus360 C1 (#791) S5: the operator command route per E1 D
  *
- * เฉพาะ `platform-operator` (realm role ใน org login ของ tenant, pattern เดียวกับ CG4 kill switch)
- * ไม่มี route ให้ Admin ให้สิทธิ์ตัวเอง. body: { commandId, evidenceRef, reasonCode, dryRun?, command }
- * dryRun=true คืน preview ที่ไม่มี PII และไม่ admit command; ของจริงคืน receipt จาก S2 engine
+ * only `platform-operator` (a realm role in the tenant's org login, the same pattern as the CG4 kill switch)
+ * there is no route for an Admin to grant themselves permission. body: { commandId, evidenceRef, reasonCode, dryRun?, command }
+ * dryRun=true returns a PII-free preview and does not admit the command; a real run returns the receipt from the S2 engine
  */
 function operator(req: AuthenticatedGatewayRequest): C360TrustedOperator {
   const identity = req.gatewayIdentity;

@@ -41,7 +41,7 @@ async function serve(t: TestContext, releasesDir: string) {
   return (path: string) => fetch(`${base}${path}`);
 }
 
-test('E1.15: alias v1 (cache 5 นาที) และ version ที่ตรึง (immutable 1 ปี) ได้ไฟล์เดียวกันพร้อม integrity; CORS สาธารณะ', async (t) => {
+test('E1.15: alias v1 (5-minute cache) and a pinned version (1-year immutable) get the same file with integrity; public CORS', async (t) => {
   const get = await serve(t, defaultLauncherReleasesDir());
   const alias = await get('/embed/v1/dphone-launcher.js');
   assert.equal(alias.status, 200);
@@ -64,7 +64,7 @@ test('E1.15: alias v1 (cache 5 นาที) และ version ที่ตร�
   );
 });
 
-test('E1.15: version ที่ไม่มี, path แปลก และไฟล์ที่ถูกแก้ = 404 (fail closed); ชี้ alias กลับ = rollback ทันที', async (t) => {
+test('E1.15: a missing version, a strange path and an edited file = 404 (fail closed); pointing the alias back = an immediate rollback', async (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'launcher-api-'));
   cpSync(defaultLauncherReleasesDir(), dir, { recursive: true });
   const get = await serve(t, dir);
@@ -77,7 +77,7 @@ test('E1.15: version ที่ไม่มี, path แปลก และไฟ
     assert.equal((await get(path)).status, 404, path);
   }
 
-  // สร้าง 1.0.1 แล้วเลื่อน alias → rollback กลับ 1.0.0 โดยไม่ restart
+  // create 1.0.1 then move the alias → roll back to 1.0.0 without a restart
   const { createHash } = await import('node:crypto');
   const index = JSON.parse(
     (await import('node:fs')).readFileSync(join(dir, 'index.json'), 'utf8'),

@@ -2,7 +2,7 @@ import type { Prisma } from '@d-contact/db';
 import { C360WorkError, type C360VerifiedActor } from '@d-contact/customer-360';
 import type { C360RequestIdentity } from './customer-360-api.js';
 
-/** Agent work boundary แยกจาก tenant configuration (ซึ่งรับเฉพาะ Admin/Supervisor) */
+/** the Agent work boundary is separate from tenant configuration (which accepts only Admin/Supervisor) */
 export async function currentC360WorkActor(
   tx: Prisma.TransactionClient,
   identity: C360RequestIdentity,

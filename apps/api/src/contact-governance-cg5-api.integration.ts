@@ -111,7 +111,7 @@ function request(url: string, token = 'tenant-token', init: RequestInit = {}) {
   return fetch(url, { ...init, headers: { authorization: `Bearer ${token}`, ...init.headers } });
 }
 
-test('CG5.7 route ปฏิเสธ projection ที่ยังไม่พร้อม และไม่รับ tenantId จาก query', async (t) => {
+test('CG5.7 the route rejects a projection that is not ready yet, and does not accept tenantId from the query', async (t) => {
   const f = await fixture(t);
   const unavailable = await request(`${f.base}/metrics?granularity=FIVE_MIN`);
   assert.equal(unavailable.status, 503);
@@ -169,7 +169,7 @@ test('CG5.7 route ปฏิเสธ projection ที่ยังไม่พ�
   );
 });
 
-test('CG5.7 ack map optimistic conflict เป็น CG5_ALERT_VERSION_CONFLICT', async (t) => {
+test('CG5.7 ack maps an optimistic conflict to CG5_ALERT_VERSION_CONFLICT', async (t) => {
   const f = await fixture(t);
   await ready(f.tenantId);
   const repository = new Cg5AlertRepository(application);

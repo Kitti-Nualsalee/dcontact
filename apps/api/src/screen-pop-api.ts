@@ -1,9 +1,9 @@
 /**
- * E1.14 (#488): `POST /api/v1/workspace/agent/screen-pop` — iframe ขอ payload ของ screen-pop ก่อนส่งให้ host
+ * E1.14 (#488): `POST /api/v1/workspace/agent/screen-pop` — the iframe requests the screen-pop payload before passing it to the host
  *
- * - ต้องแนบ `x-work-session-lease-id` ของ lease `embedded` ที่ยัง current — origin ของ host มาจาก lease นี้
- * - ตอบ `hostOrigin` กลับไปให้ iframe ตรวจกับ origin ที่ล็อกไว้ (ไม่ตรง = ไม่ส่ง)
- * - origin ที่ปิด screen-pop ตอบ `{ status: 'off' }` โดยไม่มีข้อมูลของสาย
+ * - must attach the `x-work-session-lease-id` of a still-current `embedded` lease — the host's origin comes from this lease
+ * - answers `hostOrigin` back so the iframe checks it against the locked origin (mismatch = not sent)
+ * - an origin with screen-pop off answers `{ status: 'off' }` with no call data
  */
 import {
   BadRequestException,

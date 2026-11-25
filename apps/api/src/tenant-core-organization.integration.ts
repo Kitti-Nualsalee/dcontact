@@ -5,7 +5,7 @@ import test from 'node:test';
 import { randomUUID } from 'node:crypto';
 import { coreFixture } from './tenant-core-test-fixtures.js';
 
-test('องค์กร: Admin อ่าน tenant เดิมที่ไม่มี defaults และ Supervisor อ่านได้โดยไม่เปิด Voice', async (t) => {
+test('Organization: an Admin reads an existing tenant with no defaults and a Supervisor can read without enabling Voice', async (t) => {
   const f = await coreFixture();
   t.after(() => f.close());
   const result = await f.request('tenant/core-settings/organization');
@@ -19,13 +19,13 @@ test('องค์กร: Admin อ่าน tenant เดิมที่ไม�
   assert.equal((await f.request('tenant/core-settings/organization', 'supervisor')).status, 200);
 });
 
-test('องค์กร: เปลี่ยนชื่อผ่าน PATCH แล้วอ่านกลับ revision1 โดยไม่สร้าง defaults และ replay ไม่ซ้ำ', async (t) => {
+test('Organization: rename via PATCH then read back revision 1 without creating defaults, and a replay does not duplicate', async (t) => {
   const f = await coreFixture();
   t.after(() => f.close());
   const body = {
     commandId: 'f7e4aba1-dc3c-4f02-9f3b-e050ee5ef7a0',
     expectedRevision: '0',
-    patch: { displayName: ' บริษัททดสอบ ' },
+    patch: { displayName: ' Test company ' },
   };
   const result = await f.request('tenant/core-settings/organization', 'admin', body, 'PATCH');
   assert.equal(result.status, 200);
@@ -33,7 +33,7 @@ test('องค์กร: เปลี่ยนชื่อผ่าน PATCH �
   const read = (await f.request('tenant/core-settings/organization')).body as unknown as {
     organization: { displayName: string; revision: string; defaults: null };
   };
-  assert.equal(read.organization.displayName, 'บริษัททดสอบ');
+  assert.equal(read.organization.displayName, 'Test company');
   assert.equal(read.organization.revision, '1');
   assert.equal(read.organization.defaults, null);
   assert.deepEqual(
@@ -42,7 +42,7 @@ test('องค์กร: เปลี่ยนชื่อผ่าน PATCH �
   );
 });
 
-test('องค์กร: tenant เดิมเริ่ม defaults ทั้งคู่ด้วย CORE_ADMIN และคง provenance เมื่อแก้ครั้งถัดไป', async (t) => {
+test('Organization: an existing tenant starts both defaults with CORE_ADMIN and keeps provenance on the next edit', async (t) => {
   const f = await coreFixture();
   t.after(() => f.close());
   const result = await f.request(
@@ -74,7 +74,10 @@ test('องค์กร: tenant เดิมเริ่ม defaults ทั้�
     {
       commandId: '784fe481-f120-4df4-a914-e8cde2c69cbd',
       expectedRevision: '1',
-      patch: { displayName: 'องค์กรตั้งค่าแล้ว', defaults: { locale: 'th', timeZone: 'UTC' } },
+      patch: {
+        displayName: 'Configured organization',
+        defaults: { locale: 'th', timeZone: 'UTC' },
+      },
     },
     'PATCH',
   );
@@ -82,7 +85,7 @@ test('องค์กร: tenant เดิมเริ่ม defaults ทั้�
   assert.equal(renamed.body.command.committedRevision, '2');
 });
 
-test('องค์กร: strict shape ก่อน admission และ semantic validation เก็บ REJECTED โดยไม่เปลี่ยน revision', async (t) => {
+test('Organization: strict shape before admission and semantic validation keeps REJECTED without changing the revision', async (t) => {
   const f = await coreFixture();
   t.after(() => f.close());
   for (const patch of [
@@ -123,7 +126,7 @@ test('องค์กร: strict shape ก่อน admission และ semantic
         await f.request(
           'tenant/core-settings/organization',
           'admin',
-          { ...body, patch: { displayName: 'แก้ร่างแล้ว' } },
+          { ...body, patch: { displayName: 'Edited draft' } },
           'PATCH',
         )
       ).body.error.code,
@@ -135,7 +138,7 @@ test('องค์กร: strict shape ก่อน admission และ semantic
   };
   assert.equal(read.organization.revision, '0');
 });
-test('องค์กร: UTF-16 boundary และ defaults ที่ไม่แก้คง legacy value/provisioning evidence', async (t) => {
+test('Organization: the UTF-16 boundary and defaults that are not edited keep the legacy value/provisioning evidence', async (t) => {
   const f = await coreFixture([], undefined, { locale: 'legacy-locale', timeZone: 'legacy-zone' });
   t.after(() => f.close());
   const requestId = (
@@ -174,7 +177,7 @@ test('องค์กร: UTF-16 boundary และ defaults ที่ไม่�
   assert.equal(preserved.provisioningRequestId, requestId);
   assert.equal(preserved.initializationSource, 'PROVISIONING');
 });
-test('องค์กร: stale CAS มาก่อน no-op และ validation; no-op ไม่เพิ่ม revision/audit', async (t) => {
+test('Organization: a stale CAS comes before no-op and validation; a no-op does not increase the revision/audit', async (t) => {
   const f = await coreFixture();
   t.after(() => f.close());
   const initial = (await f.request('tenant/core-settings/organization')).body as unknown as {
@@ -195,11 +198,11 @@ test('องค์กร: stale CAS มาก่อน no-op และ validatio
   const changed = await f.request(
     'tenant/core-settings/organization',
     'admin',
-    { commandId: randomUUID(), expectedRevision: '0', patch: { displayName: 'ชื่อใหม่' } },
+    { commandId: randomUUID(), expectedRevision: '0', patch: { displayName: 'New name' } },
     'PATCH',
   );
   assert.equal(changed.status, 200);
-  for (const displayName of ['ชื่อใหม่', ' ']) {
+  for (const displayName of ['New name', ' ']) {
     const conflict = await f.request(
       'tenant/core-settings/organization',
       'admin',
@@ -211,7 +214,7 @@ test('องค์กร: stale CAS มาก่อน no-op และ validatio
   }
   assert.equal(await f.owner.tenantCoreConfigAudit.count({ where: { tenantId: f.tenantId } }), 1);
 });
-test('องค์กร: role/proof/tenant isolation ครอบ read/write/navigation โดย Home ยังเข้าได้', async (t) => {
+test('Organization: role/proof/tenant isolation cover read/write/navigation while Home is still reachable', async (t) => {
   const f = await coreFixture();
   t.after(() => f.close());
   for (const alias of ['agent', 'compliance', 'unbound', 'disabled']) {
@@ -221,7 +224,7 @@ test('องค์กร: role/proof/tenant isolation ครอบ read/write/na
         await f.request(
           'tenant/core-settings/organization',
           alias,
-          { commandId: randomUUID(), expectedRevision: '0', patch: { displayName: 'ห้ามแก้' } },
+          { commandId: randomUUID(), expectedRevision: '0', patch: { displayName: 'Not allowed' } },
           'PATCH',
         )
       ).status,
@@ -238,7 +241,7 @@ test('องค์กร: role/proof/tenant isolation ครอบ read/write/na
       await f.request(
         'tenant/core-settings/organization',
         'supervisor',
-        { commandId: randomUUID(), expectedRevision: '0', patch: { displayName: 'ห้ามแก้' } },
+        { commandId: randomUUID(), expectedRevision: '0', patch: { displayName: 'Not allowed' } },
         'PATCH',
       )
     ).status,
@@ -255,7 +258,7 @@ test('องค์กร: role/proof/tenant isolation ครอบ read/write/na
   assert.deepEqual(locale.body, { locale: null, timeZone: null });
 });
 
-test('องค์กร: initialization metadata ตรง actor/command จริงและ app เปลี่ยนที่มาหรือสร้าง bootstrap ปลอมไม่ได้', async (t) => {
+test('Organization: initialization metadata matches the real actor/command and the app cannot change the source or create a fake bootstrap', async (t) => {
   const f = await coreFixture();
   t.after(() => f.close());
   const commandId = randomUUID();
@@ -314,7 +317,7 @@ test('องค์กร: initialization metadata ตรง actor/command จร
   assert.equal(privilege[0]?.allowed, false);
 });
 
-test('องค์กร: GET ระหว่างบันทึก defaults ต้องได้ aggregate ของ revision เดียวกัน', async (t) => {
+test('Organization: GET during a defaults save must get an aggregate of a single revision', async (t) => {
   const f = await coreFixture();
   t.after(() => f.close());
   const write = async (revision: number) => {
@@ -325,7 +328,7 @@ test('องค์กร: GET ระหว่างบันทึก defaults �
         commandId: randomUUID(),
         expectedRevision: String(revision - 1),
         patch: {
-          ...(revision === 1 ? { displayName: 'องค์กรทดสอบ snapshot' } : {}),
+          ...(revision === 1 ? { displayName: 'Snapshot test organization' } : {}),
           defaults: {
             locale: revision % 2 ? 'th' : 'en',
             timeZone: revision % 2 ? 'UTC' : 'Asia/Bangkok',
@@ -356,7 +359,7 @@ test('องค์กร: GET ระหว่างบันทึก defaults �
             }
           ).organization;
           const revision = Number(org.revision);
-          assert.equal(org.displayName, 'องค์กรทดสอบ snapshot');
+          assert.equal(org.displayName, 'Snapshot test organization');
           assert.equal(org.defaults.locale, revision % 2 ? 'th' : 'en');
           assert.equal(org.defaults.timeZone, revision % 2 ? 'UTC' : 'Asia/Bangkok');
         }

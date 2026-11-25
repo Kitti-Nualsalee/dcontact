@@ -39,7 +39,7 @@ function fixture() {
   return { attempt, configuration, proof };
 }
 
-test('disable ส่ง frozen descriptor และคืนเฉพาะ exact correlated receipt', async () => {
+test('disable sends a frozen descriptor and returns only the exactly correlated receipt', async () => {
   const { attempt, configuration, proof } = fixture();
   const bodies: unknown[] = [];
   const request: typeof fetch = async (input, options) => {
@@ -69,7 +69,7 @@ test('disable ส่ง frozen descriptor และคืนเฉพาะ exac
   ]);
 });
 
-test('lost response เป็น UNKNOWN และ reconcile อ่าน GET โดยไม่ POST ซ้ำ', async () => {
+test('a lost response is UNKNOWN and reconcile reads GET without POSTing again', async () => {
   const { attempt, configuration, proof } = fixture();
   let mutations = 0;
   const request: typeof fetch = async (input, options) => {
@@ -95,7 +95,7 @@ test('lost response เป็น UNKNOWN และ reconcile อ่าน GET �
   assert.equal(mutations, 1);
 });
 
-test('proof ผิด digest/tenant/shape/reason ไม่เป็นหลักฐานสำเร็จหรือ compensation', async () => {
+test('a proof with a wrong digest/tenant/shape/reason is not evidence of success or compensation', async () => {
   const { attempt, configuration, proof } = fixture();
   for (const invalid of [
     { ...proof, payloadDigest: '0'.repeat(64) },
@@ -117,7 +117,7 @@ test('proof ผิด digest/tenant/shape/reason ไม่เป็นหลั�
   }
 });
 
-test('durable REJECTED_NO_EFFECT ต้องผูก operation/digest เดิมเท่านั้น', async () => {
+test('a durable REJECTED_NO_EFFECT must bind only to the original operation/digest', async () => {
   const { attempt, configuration, proof } = fixture();
   const request: typeof fetch = async (input) =>
     String(input).endsWith('/token')
@@ -134,7 +134,7 @@ test('durable REJECTED_NO_EFFECT ต้องผูก operation/digest เด�
   );
 });
 
-test('tenant หรือ candidate ที่ผิดรูปถูกปฏิเสธก่อน network', async () => {
+test('a malformed tenant or candidate is rejected before the network', async () => {
   const { attempt, configuration } = fixture();
   let requests = 0;
   const request: typeof fetch = async () => {
@@ -164,7 +164,7 @@ test('tenant หรือ candidate ที่ผิดรูปถูกปฏ�
   );
 });
 
-test('preflight ใช้ check และยอมรับเฉพาะ fresh proof ที่ตรง descriptor', async () => {
+test('preflight uses check and accepts only a fresh proof that matches the descriptor', async () => {
   const { attempt, configuration } = fixture();
   const proof = {
     version: 1,

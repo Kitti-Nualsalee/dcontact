@@ -7,8 +7,8 @@ import { Customer360ReadController } from './customer-360-read-api.js';
 import { setup, type Fixture } from './customer-360-test-fixtures.js';
 
 /**
- * CSV import (#909): HTTP จริง → current authorization → create command ต่อแถว → PostgreSQL/RLS
- * ใช้ application role ที่ไม่ bypass RLS และข้อมูลสังเคราะห์เท่านั้น
+ * CSV import (#909): real HTTP → current authorization → a create command per row → PostgreSQL/RLS
+ * uses an application role that does not bypass RLS and synthetic data only
  */
 
 const mapping = {
@@ -18,7 +18,7 @@ const mapping = {
 };
 const csv = (lines: string[]) => ['name,company,phone,email', ...lines].join('\n');
 const GOOD = csv([
-  'สมชาย ใจดี,บริษัท เอ,0812345678,somchai@example.test',
+  'สมชาย ใจดี,บริษัท เอ,0812345678,somchai@example.test', // allow-thai: Thai CSV import row
   'Jane Roe,Acme,+14155550123,jane@example.test',
   'No Contact,,,',
 ]);
@@ -62,7 +62,7 @@ const fixture = () =>
   setup([Customer360OperatorController, Customer360ReadController, Customer360ImportController]);
 const contactCount = (f: Fixture) => f.owner.contact.count({ where: { tenantId: f.tenantId } });
 
-test('application role ไม่ bypass RLS', async (t) => {
+test('the application role does not bypass RLS', async (t) => {
   const f = await fixture();
   t.after(() => f.close());
   const [role] = await f.db.$queryRaw<
@@ -71,7 +71,7 @@ test('application role ไม่ bypass RLS', async (t) => {
   assert.deepEqual(role, { rolsuper: false, rolbypassrls: false });
 });
 
-test('preview ไม่สร้างข้อมูล; confirm สร้างเฉพาะแถวที่ผ่านและอ่านกลับตามสิทธิ์ได้', async (t) => {
+test('preview creates no data; confirm creates only the rows that pass and reads back per permission', async (t) => {
   const f = await fixture();
   t.after(() => f.close());
   await allowCreate(f);
@@ -84,11 +84,11 @@ test('preview ไม่สร้างข้อมูล; confirm สร้า�
   assert.equal(preview.status, 200);
   assert.deepEqual(preview.body.counts, { valid: 3, invalid: 1, warning: 0 });
   assert.match(preview.body.planHash, /^[0-9a-f]{64}$/);
-  assert.equal(await contactCount(f), before, 'preview ไม่สร้าง Contact');
+  assert.equal(await contactCount(f), before, 'preview creates no Contact');
   assert.equal(
     await f.owner.c360ProfileCommand.count({ where: { tenantId: f.tenantId } }),
     commandsBefore,
-    'preview ไม่สร้าง command',
+    'preview creates no command',
   );
 
   const commandId = randomUUID();
@@ -110,16 +110,16 @@ test('preview ไม่สร้างข้อมูล; confirm สร้า�
   const bad = done.body.rows.find((row: { rowNo: number }) => row.rowNo === 4);
   assert.equal(bad.state, 'NOT_SELECTED');
   assert.deepEqual(bad.fieldErrors, [{ field: 'phone', code: 'PHONE_INVALID' }]);
-  assert.ok(!JSON.stringify(done.body).includes('สมชาย'), 'ผลรายแถวไม่มีค่า raw');
+  assert.ok(!JSON.stringify(done.body).includes('สมชาย'), 'the per-row result has no raw value'); // allow-thai: Thai CSV import row
 
-  // อ่านกลับผ่าน HTTP ตามสิทธิ์ปัจจุบัน: creator ได้ MANAGE, Admin อีกคนไม่เห็น
+  // read back through HTTP per the current permission: the creator gets MANAGE, another Admin does not see it
   const first = done.body.rows[0];
   assert.equal(first.state, 'APPLIED');
   const profile = await f.request(`customer-360/contacts/${first.contactId}`, 'admin');
   assert.equal(profile.status, 200);
   assert.equal(
     (profile.body as unknown as { contact: { displayName: string } }).contact.displayName,
-    'สมชาย ใจดี',
+    'สมชาย ใจดี', // allow-thai: Thai CSV import row
   );
   assert.equal(
     (await f.request(`customer-360/contacts/${first.contactId}`, 'admin-two')).status,
@@ -132,7 +132,7 @@ test('preview ไม่สร้างข้อมูล; confirm สร้า�
     2,
   );
 
-  // ส่งซ้ำด้วย commandId เดิมต้องไม่สร้างลูกค้าซ้ำ และได้ผลเดิม
+  // resending with the original commandId must not create the customer again and gets the original result
   const replay = await post(f, 'confirm', 'admin', text, {
     commandId,
     planHash: preview.body.planHash,
@@ -142,7 +142,7 @@ test('preview ไม่สร้างข้อมูล; confirm สร้า�
   assert.equal(await contactCount(f), before + 3);
 });
 
-test('confirm ไม่ผ่านเมื่อไฟล์/mapping เปลี่ยนหรือ planHash ผิด และไม่สร้างข้อมูล', async (t) => {
+test('confirm fails when the file/mapping changes or the planHash is wrong, and creates no data', async (t) => {
   const f = await fixture();
   t.after(() => f.close());
   await allowCreate(f);
@@ -180,11 +180,11 @@ test('confirm ไม่ผ่านเมื่อไฟล์/mapping เปล
   assert.equal(await contactCount(f), before);
 });
 
-test('ไฟล์/mapping ที่ผิดคืน error ที่ไม่สะท้อนข้อมูลและไม่สร้างข้อมูล', async (t) => {
+test('an invalid file/mapping returns an error that does not echo the data and creates no data', async (t) => {
   const f = await fixture();
   t.after(() => f.close());
   await allowCreate(f);
-  const secret = 'ความลับ-ห้ามหลุด';
+  const secret = 'secret-must-not-leak';
   const cases: [string, number, string, unknown?][] = [
     [`name,name\n${secret},x`, 400, 'CSV_INVALID'],
     [`name,company,phone,email\n"${secret}`, 400, 'CSV_INVALID'],
@@ -202,7 +202,7 @@ test('ไฟล์/mapping ที่ผิดคืน error ที่ไม่�
   assert.equal((await post(f, 'preview', 'admin', max)).body.counts.valid, 1000);
 });
 
-test('ต้องเป็น Admin ที่มี CONTACT_CREATE; Agent/ไม่มี capability/ต่าง tenant ถูกปฏิเสธโดยไม่สร้างข้อมูล', async (t) => {
+test('must be an Admin with CONTACT_CREATE; an Agent/no capability/another tenant is rejected without creating data', async (t) => {
   const f = await fixture();
   t.after(() => f.close());
   const before = await contactCount(f);
@@ -218,9 +218,9 @@ test('ต้องเป็น Admin ที่มี CONTACT_CREATE; Agent/ไ�
   await allowCreate(f);
   const preview = await post(f, 'preview', 'admin', GOOD);
   assert.equal(preview.status, 200);
-  // admin-two ไม่ได้รับ capability แม้อยู่ tenant เดียวกัน
+  // admin-two does not get the capability even in the same tenant
   assert.equal((await post(f, 'preview', 'admin-two', GOOD)).status, 403);
-  // token ของ tenant อื่นสร้างข้อมูลใน tenant นี้ไม่ได้
+  // a token of another tenant cannot create data in this tenant
   const foreign = await post(f, 'confirm', 'foreign', GOOD, {
     commandId: randomUUID(),
     planHash: preview.body.planHash,
@@ -229,7 +229,7 @@ test('ต้องเป็น Admin ที่มี CONTACT_CREATE; Agent/ไ�
   assert.equal(await contactCount(f), before);
 });
 
-test('ซ้ำกับลูกค้าที่อ่านได้เป็น warning ที่ยังยืนยันได้ และไม่เปิดเผยลูกค้าที่อ่านไม่ได้', async (t) => {
+test('a duplicate of a readable customer is a warning that can still be confirmed, and does not reveal an unreadable customer', async (t) => {
   const f = await fixture();
   t.after(() => f.close());
   await allowCreate(f);
@@ -243,22 +243,22 @@ test('ซ้ำกับลูกค้าที่อ่านได้เป�
   const again = await post(f, 'preview', 'admin', seed);
   assert.deepEqual(again.body.counts, { valid: 1, invalid: 0, warning: 1 });
   assert.deepEqual(again.body.rows[0].warnings, ['READABLE_DUPLICATE']);
-  // Admin อีกคนที่ไม่เห็นลูกค้าเดิมต้องไม่ได้ warning (ไม่มี existence oracle)
+  // another Admin who cannot see the existing customer must not get a warning (no existence oracle)
   await allowCreate(f, 'admin-two');
   const other = await post(f, 'preview', 'admin-two', seed);
   assert.deepEqual(other.body.counts, { valid: 1, invalid: 0, warning: 0 });
 });
 
-test('สิทธิ์ถูกถอนกลางทาง: แถวที่ commit แล้วคงอยู่ ที่เหลือไม่ถูกเริ่ม และส่งซ้ำไม่สร้างซ้ำ', async (t) => {
+test('permission revoked midway: committed rows stay, the rest are not started, and resending does not duplicate', async (t) => {
   const f = await fixture();
   t.after(() => f.close());
   await allowCreate(f);
   const adminId = f.actors.get('admin')!.id;
   const before = await contactCount(f);
-  const text = csv(Array.from({ length: 6 }, (_, i) => `ลูกค้า ${i + 1},,,`));
+  const text = csv(Array.from({ length: 6 }, (_, i) => `Customer ${i + 1},,,`));
   const preview = await post(f, 'preview', 'admin', text);
   assert.equal(preview.body.counts.valid, 6);
-  // trigger สังเคราะห์: ปิด Admin ใน transaction ของแถวที่ 3 (สิทธิ์หายก่อน commit แถวนั้น)
+  // synthetic trigger: disables the Admin inside the transaction of row 3 (the permission is lost before that row commits)
   await f.owner.$executeRawUnsafe(`
     CREATE OR REPLACE FUNCTION test_909_revoke() RETURNS trigger AS $$
     BEGIN
@@ -284,14 +284,18 @@ test('สิทธิ์ถูกถอนกลางทาง: แถวที
   const applied = partial.body.rows.filter(
     (row: { state: string }) => row.state === 'APPLIED',
   ).length;
-  assert.equal(applied, 2, 'แถวที่ 1-2 commit แล้ว แถวที่ 3 rollback เพราะสิทธิ์หายก่อน commit');
+  assert.equal(
+    applied,
+    2,
+    'rows 1-2 are committed and row 3 rolls back because the permission was lost before commit',
+  );
   assert.equal(partial.body.rows[2].code, 'CUSTOMER_ACCESS_DENIED');
   assert.equal(
     partial.body.rows.filter((row: { state: string }) => row.state === 'NOT_ATTEMPTED').length,
     6 - applied,
   );
   assert.equal(await contactCount(f), before + applied);
-  // trigger ย้อนกลับพร้อมแถวที่ 3; ปิด Admin จริงแล้วส่งซ้ำต้องถูกปฏิเสธโดยไม่สร้างเพิ่ม
+  // the trigger is reverted together with row 3; actually disable the Admin then resend must be rejected without creating more
   await f.owner.$executeRawUnsafe('DROP TRIGGER test_909_revoke ON contacts');
   await f.owner.user.update({ where: { id: adminId }, data: { isActive: false } });
   const denied = await post(f, 'confirm', 'admin', text, {
@@ -300,7 +304,7 @@ test('สิทธิ์ถูกถอนกลางทาง: แถวที
   });
   assert.equal(denied.status, 403);
   assert.equal(await contactCount(f), before + applied);
-  // เปิดสิทธิ์กลับแล้วส่งซ้ำด้วย commandId เดิม: ครบ 6 ราย ไม่ซ้ำ
+  // re-enable the permission then resend with the original commandId: all 6 customers, no duplicates
   await f.owner.user.update({ where: { id: adminId }, data: { isActive: true } });
   const resumed = await post(f, 'confirm', 'admin', text, {
     commandId,

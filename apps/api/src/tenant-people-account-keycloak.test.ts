@@ -17,7 +17,7 @@ function fixture(step: PeopleAccountAttempt['step'] = 'UPDATE_PROFILE') {
     payloadDigest: 'a'.repeat(64),
     fencingToken: '2',
     role: 'AGENT',
-    displayName: step === 'UPDATE_PROFILE' ? 'สมชาย ใจดี' : null,
+    displayName: step === 'UPDATE_PROFILE' ? 'Somchai Jaidee' : null,
     reconcileOnly: false,
   };
   const configuration = {
@@ -40,7 +40,7 @@ function fixture(step: PeopleAccountAttempt['step'] = 'UPDATE_PROFILE') {
   return { attempt, configuration, proof };
 }
 
-test('UPDATE_PROFILE ส่ง descriptor ที่ frozen และรับเฉพาะ receipt ที่ correlate ตรง', async () => {
+test('UPDATE_PROFILE sends a frozen descriptor and accepts only a receipt that correlates exactly', async () => {
   const { attempt, configuration, proof } = fixture();
   const calls: { url: string; body: unknown }[] = [];
   const request: typeof fetch = async (input, options) => {
@@ -67,12 +67,12 @@ test('UPDATE_PROFILE ส่ง descriptor ที่ frozen และรับเ
     identityId: attempt.identityId,
     payloadDigest: attempt.payloadDigest,
     role: 'AGENT',
-    displayName: 'สมชาย ใจดี',
+    displayName: 'Somchai Jaidee',
     fencingToken: '2',
   });
 });
 
-test('ENABLE_ACCOUNT ไม่ส่ง displayName และ reconcile อ่าน GET อย่างเดียว', async () => {
+test('ENABLE_ACCOUNT does not send displayName and reconcile reads GET only', async () => {
   const { attempt, configuration, proof } = fixture('ENABLE_ACCOUNT');
   let mutations = 0;
   const urls: string[] = [];
@@ -100,7 +100,7 @@ test('ENABLE_ACCOUNT ไม่ส่ง displayName และ reconcile อ่�
   assert.throws(() => adapter.mutate({ ...attempt, reconcileOnly: true }), /REQUIRES_READ/);
 });
 
-test('คำตอบที่ไม่ตรงสัญญาเป๊ะเป็น UNKNOWN ไม่ใช่ความสำเร็จ', async () => {
+test('an answer that does not match the contract exactly is UNKNOWN, not a success', async () => {
   const { attempt, configuration, proof } = fixture();
   for (const variant of [
     { ...proof, extra: true },
@@ -123,7 +123,7 @@ test('คำตอบที่ไม่ตรงสัญญาเป๊ะเ�
   }
 });
 
-test('probe แยก READY/REJECTED และปฏิเสธ scope ที่ไม่ตรงก่อนเรียก network', async () => {
+test('probe separates READY/REJECTED and rejects a mismatched scope before calling the network', async () => {
   const { attempt, configuration } = fixture('ENABLE_ACCOUNT');
   let calls = 0;
   const request: typeof fetch = async (input) => {
@@ -149,7 +149,7 @@ test('probe แยก READY/REJECTED และปฏิเสธ scope ที่
   await assert.rejects(adapter.probe({ ...attempt, tenantId: randomUUID() }), /SCOPE_MISMATCH/);
   await assert.rejects(adapter.probe({ ...attempt, displayName: 'x' }), /SCOPE_MISMATCH/);
   await assert.rejects(
-    adapter.probe({ ...attempt, step: 'UPDATE_PROFILE', displayName: ' มีช่องว่าง' }),
+    adapter.probe({ ...attempt, step: 'UPDATE_PROFILE', displayName: ' has leading space' }),
     /SCOPE_MISMATCH/,
   );
   assert.equal(calls, 0);

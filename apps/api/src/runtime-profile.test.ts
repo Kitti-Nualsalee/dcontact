@@ -17,7 +17,7 @@ function rejectsWith(work: () => unknown, code: ApiRuntimeProfileError['code']) 
   });
 }
 
-test('ไม่ตั้ง profile = default ที่เปิด Kafka/LINE ตามเดิม', () => {
+test('no profile = the default that enables Kafka/LINE as before', () => {
   assert.deepEqual(resolveApiRuntimeProfile({}), {
     name: 'default',
     kafka: 'ENABLED',
@@ -27,7 +27,7 @@ test('ไม่ตั้ง profile = default ที่เปิด Kafka/LINE �
   });
 });
 
-test('uat ปิด Kafka/LINE/egress และจำกัด route เฉพาะ Journey authoring', () => {
+test('uat closes Kafka/LINE/egress and restricts routes to Journey authoring only', () => {
   const profile = resolveApiRuntimeProfile({
     DCONTACT_API_PROFILE: 'uat',
     DATABASE_URL: 'postgresql://uat',
@@ -44,7 +44,7 @@ test('uat ปิด Kafka/LINE/egress และจำกัด route เฉพ�
   ]);
 });
 
-test('uat-e1 แยกจาก uat และเปิดเฉพาะ Embedded dphone โดยยังปิด provider egress', () => {
+test('uat-e1 is separate from uat and enables only the Embedded dphone while still closing provider egress', () => {
   const profile = resolveApiRuntimeProfile({
     DCONTACT_API_PROFILE: 'uat-e1',
     DATABASE_URL: 'postgresql://uat',
@@ -72,14 +72,14 @@ test('uat-e1 แยกจาก uat และเปิดเฉพาะ Embedde
   );
 });
 
-test('profile ที่ไม่รู้จักทำให้บูตไม่ผ่าน', () => {
+test('an unknown profile makes the boot fail', () => {
   rejectsWith(
     () => resolveApiRuntimeProfile({ DCONTACT_API_PROFILE: 'staging' }),
     'UNKNOWN_PROFILE',
   );
 });
 
-test('uat + config ของ provider/Kafka/voice = fail closed และรายงานเฉพาะชื่อ env ไม่ใช่ค่า', () => {
+test('uat + provider/Kafka/voice config = fail closed and reports only env names, not values', () => {
   const secret = 'line-secret-value-must-not-leak';
   assert.throws(
     () =>
@@ -101,14 +101,14 @@ test('uat + config ของ provider/Kafka/voice = fail closed และรา�
       return true;
     },
   );
-  // ค่าว่างไม่ถือว่าตั้งไว้ (compose มักส่ง key ที่ไม่มีค่า)
+  // an empty value does not count as set (compose often passes a key with no value)
   assert.equal(
     resolveApiRuntimeProfile({ DCONTACT_API_PROFILE: 'uat', KAFKA_BROKERS: '' }).name,
     'uat',
   );
 });
 
-test('entrypoint รับ profile เดียว: main.ts ปฏิเสธ uat และ uat-main ปฏิเสธ default', () => {
+test('an entrypoint accepts a single profile: main.ts rejects uat and uat-main rejects default', () => {
   rejectsWith(
     () => assertEntrypointProfile('default', { DCONTACT_API_PROFILE: 'uat' }),
     'WRONG_ENTRYPOINT',
@@ -140,7 +140,7 @@ function fakeExchange(url: string, method = 'POST') {
   };
 }
 
-test('route guard ของ uat บล็อก route นอก allowlist พร้อม counter และ log ที่ไม่มี id', () => {
+test('the uat route guard blocks routes outside the allowlist with a counter and a log that has no id', () => {
   const diagnostics: RuntimeProfileDiagnostic[] = [];
   const guard = new RuntimeProfileRouteGuard(
     resolveApiRuntimeProfile({ DCONTACT_API_PROFILE: 'uat' }),
@@ -163,7 +163,7 @@ test('route guard ของ uat บล็อก route นอก allowlist พร
 
   const blocked = fakeExchange('/api/v1/line-webhook/1c1e8a7e-2a5b-4a57-9d0c-3a3f3f1b9f00');
   guard.middleware(blocked.request, blocked.asResponse, next);
-  // prefix ที่ขึ้นต้นเหมือนกันแต่ไม่ใช่ segment เดียวกันต้องไม่หลุด
+  // a prefix that starts the same but is not the same segment must not slip through
   const lookalike = fakeExchange('/api/v1/journey-authoring-admin/x');
   guard.middleware(lookalike.request, lookalike.asResponse, next);
 
@@ -187,7 +187,7 @@ test('route guard ของ uat บล็อก route นอก allowlist พร
   ]);
 });
 
-test('route guard ของ default ปล่อยทุก route', () => {
+test('the default route guard lets every route through', () => {
   const guard = new RuntimeProfileRouteGuard(resolveApiRuntimeProfile({}), {
     write: () => assert.fail('default must not block'),
   });
@@ -211,7 +211,7 @@ const UAT_LINE = {
   LINE_WEBHOOK_PAYLOAD_KEY_REF: 'payload-key-ref',
 };
 
-test('#565/#566 uat-line เปิดแค่ webhook: ไม่มี Kafka, ไม่ออก internet และ /api/ เหลือแค่ runtime profile + read-only ของ pilot', () => {
+test('#565/#566 uat-line opens only the webhook: no Kafka, no internet egress, and /api/ keeps only the runtime profile + the pilot read-only', () => {
   const profile = resolveApiRuntimeProfile(UAT_LINE);
   assert.equal(profile.name, 'uat-line');
   assert.equal(profile.kafka, 'DISABLED');
@@ -220,7 +220,7 @@ test('#565/#566 uat-line เปิดแค่ webhook: ไม่มี Kafka, �
   assert.deepEqual(profile.allowedRoutePrefixes, ['/api/v1/runtime-profile', '/api/v1/line-pilot']);
 });
 
-test('#565 uat-line + env นอก allowlist หรือ secret ที่ไม่ใช่ไฟล์ = fail closed โดยไม่รายงานค่า', () => {
+test('#565 uat-line + env outside the allowlist or a secret that is not a file = fail closed without reporting values', () => {
   for (const [name, value] of [
     ['LINE_CHANNEL_ACCESS_TOKEN', 'token-value-must-not-leak'],
     ['LINE_CHANNEL_SECRET', 'secret-value-must-not-leak'],
@@ -246,14 +246,14 @@ test('#565 uat-line + env นอก allowlist หรือ secret ที่ไ�
   }
 });
 
-test('#565 profile uat ยังปฏิเสธ LINE_* ทุกตัวรวมชุดที่ uat-line อนุญาต', () => {
+test('#565 the uat profile still rejects every LINE_* including the set uat-line allows', () => {
   rejectsWith(
     () => resolveApiRuntimeProfile({ ...UAT_LINE, DCONTACT_API_PROFILE: 'uat' }),
     'CONFLICTING_CONFIGURATION',
   );
 });
 
-test('#565 entrypoint ของ line-webhook รับแค่ uat-line และ uat-main ไม่รับ uat-line', () => {
+test('#565 the line-webhook entrypoint accepts only uat-line and uat-main does not accept uat-line', () => {
   assert.equal(assertEntrypointProfile('uat-line', UAT_LINE).name, 'uat-line');
   rejectsWith(
     () => assertEntrypointProfile('uat-line', { DCONTACT_API_PROFILE: 'uat' }),
@@ -262,7 +262,7 @@ test('#565 entrypoint ของ line-webhook รับแค่ uat-line แล�
   rejectsWith(() => assertEntrypointProfile('uat', UAT_LINE), 'WRONG_ENTRYPOINT');
 });
 
-test('B4 eligibility/destinations เปิดเฉพาะ workspace และไม่เปิด lookalike/provider routes', () => {
+test('B4 eligibility/destinations opens only workspace and does not open lookalike/provider routes', () => {
   const paths = [
     '/api/v1/tenant-voice/eligibility',
     '/api/v1/tenant-voice/destinations',
@@ -292,7 +292,7 @@ test('B4 eligibility/destinations เปิดเฉพาะ workspace แล�
     assert.equal(guard.isAllowed(path), false, path);
 });
 
-test('uat-workspace เปิด UI APIs เพิ่มแบบ opt-in และคง E1/provider boundary', () => {
+test('uat-workspace opens extra UI APIs opt-in and keeps the E1/provider boundary', () => {
   const profile = resolveApiRuntimeProfile({ DCONTACT_API_PROFILE: 'uat-workspace' });
   assert.equal(profile.kafka, 'DISABLED');
   assert.equal(profile.lineWebhook, 'DISABLED');

@@ -1,4 +1,4 @@
-/** HTTP adapter เฉพาะ tests ของ public command engine ไม่ถูก mount จาก runtime entrypoint */
+/** an HTTP adapter for tests of the public command engine only, not mounted from the runtime entrypoint */
 import { Body, Controller, Get, Inject, Post, Req, Res, UseFilters } from '@nestjs/common';
 import type { ServerResponse } from 'node:http';
 import { type PrismaClient } from '@d-contact/db';

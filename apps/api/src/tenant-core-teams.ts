@@ -54,7 +54,7 @@ export async function createCoreTeam(db: PrismaClient, identity: CoreIdentity, b
       });
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-        // Prisma อาจไม่ส่ง target เมื่อมี trigger; อ่าน unique ที่อยู่ใน tenant หลัง rollback statement
+        // Prisma may not send the target when there is a trigger; read the unique within the tenant after the statement rollback
         await tx.$executeRawUnsafe('ROLLBACK TO SAVEPOINT core_team_create');
         const duplicate = await tx.team.findFirst({
           where: { tenantId: identity.tenantId, name },
@@ -151,7 +151,7 @@ export function deactivateCoreTeam(
     payload: {},
   });
   return executeCoreCommand(db, identity, command, async (tx) => {
-    // Reference fence มาก่อน Team row เพื่อไม่สวนลำดับ material writer เดิม
+    // the Reference fence comes before the Team row so it does not go against the original material writer order
     await tx.$executeRaw`SELECT public.dc_team_reference_lock(${identity.tenantId}::uuid,ARRAY[${command.resourceId}::uuid],true)`;
     const locked = await tx.$queryRaw<
       { id: string }[]
@@ -187,7 +187,7 @@ export function deactivateCoreTeam(
   });
 }
 
-// Cursor มีอายุเท่า process; หลัง restart/สลับ replica ให้เริ่มรายการใหม่ ไม่มี mutable server cursor state
+// the Cursor lives as long as the process; after a restart/replica switch start a new list, there is no mutable server cursor state
 const cursorKey = randomBytes(32);
 function signCursor(payload: string) {
   return createHmac('sha256', cursorKey).update(payload).digest('base64url');

@@ -49,7 +49,7 @@ async function readAccepted(response: Response) {
   };
 }
 
-test('People authenticated HTTP → PostgreSQL/RLS: acceptance/readback/replay และ quota/สิทธิ์', async () => {
+test('People authenticated HTTP → PostgreSQL/RLS: acceptance/readback/replay and quota/permissions', async () => {
   const owner = new PrismaClient();
   const workerUrl = new URL(
     process.env.DATABASE_URL ?? 'postgresql://postgres:postgres@127.0.0.1:15438/dcontact',
@@ -100,7 +100,7 @@ test('People authenticated HTTP → PostgreSQL/RLS: acceptance/readback/replay �
       },
     });
     await owner.$executeRaw`INSERT INTO tenant_voice_identity_bindings(tenant_id,user_id,issuer,subject_id,client_id,tenant_slug,organization_id,identity_class,source_kind,evidence_ref,evidence_digest,verified_by_operator_subject,verified_at,revision,is_active) VALUES(${tenantId}::uuid,${adminId}::uuid,'https://b2-idp.test/realms/dcontact',${adminId},'dcontact-console',${slug},${tenantId}::uuid,'TENANT_USER','BOOTSTRAP_MANIFEST','isolated-bootstrap-manifest',${'a'.repeat(64)},'sandbox-operator',now(),1,true)`;
-    await owner.$executeRaw`INSERT INTO tenant_voice_provisioning_policies(tenant_id,revision,source_kind,accounts_limit,agents_limit,voice_queues_limit,skills_limit,approved_by_operator_subject,approved_at,approval_ref,reason,extension_pool) VALUES(${tenantId}::uuid,1,'UAT_EXPLICIT',5,1,1,1,'sandbox-operator',now(),'isolated-test','ทดสอบ reservation เท่านั้น',${JSON.stringify(pool)}::jsonb)`;
+    await owner.$executeRaw`INSERT INTO tenant_voice_provisioning_policies(tenant_id,revision,source_kind,accounts_limit,agents_limit,voice_queues_limit,skills_limit,approved_by_operator_subject,approved_at,approval_ref,reason,extension_pool) VALUES(${tenantId}::uuid,1,'UAT_EXPLICIT',5,1,1,1,'sandbox-operator',now(),'isolated-test','Reservation test only',${JSON.stringify(pool)}::jsonb)`;
     const actor: VoiceActor = {
       tenantId,
       userId: adminId,
@@ -115,7 +115,7 @@ test('People authenticated HTTP → PostgreSQL/RLS: acceptance/readback/replay �
     const command = {
       commandId: randomUUID(),
       teamId,
-      displayName: 'B2 ผู้ทดสอบ',
+      displayName: 'B2 Tester',
       email: `${randomUUID()}@b2.test`,
       role: 'AGENT',
       extensionRef: '1104',
@@ -639,7 +639,7 @@ test('People authenticated HTTP → PostgreSQL/RLS: acceptance/readback/replay �
         commandId: randomUUID(),
         expectedRevision: 1,
         reasonCode: 'DELIVERY_CHECK',
-        reason: 'ตรวจโดยไม่เริ่มส่งคำเชิญ',
+        reason: 'Check without starting to send the invitation',
       }),
     );
     const reconcileWorker = await import('./tenant-people-invitation-reconcile.js');
@@ -648,7 +648,7 @@ test('People authenticated HTTP → PostgreSQL/RLS: acceptance/readback/replay �
         worker,
         {
           async readOutcome() {
-            assert.fail('reconcile INTENT ต้องไม่เรียก provider');
+            assert.fail('reconcile INTENT must not call the provider');
           },
         },
         tenantId,
@@ -666,7 +666,7 @@ test('People authenticated HTTP → PostgreSQL/RLS: acceptance/readback/replay �
         worker,
         {
           async readOutcome() {
-            assert.fail('INTENT ไม่มี frozen dispatch ให้ reconcile');
+            assert.fail('INTENT has no frozen dispatch to reconcile');
           },
         },
         tenantId,
@@ -725,7 +725,7 @@ test('People authenticated HTTP → PostgreSQL/RLS: acceptance/readback/replay �
       commandId: randomUUID(),
       expectedRevision: 1,
       reasonCode: 'DELIVERY_CHECK',
-      reason: 'ตรวจผลการส่งเดิมโดยไม่ส่งใหม่',
+      reason: 'Check the original send result without resending',
     };
     const reconcilePath = `/people/users/${supervisor.userId}/reconcile`;
     assert.equal((await request(reconcilePath, reconcileCommand)).status, 503);
@@ -762,7 +762,7 @@ test('People authenticated HTTP → PostgreSQL/RLS: acceptance/readback/replay �
       { ...reconcileAccepted, generation: 1 },
     );
     assert.equal(
-      (await request(reconcilePath, { ...reconcileCommand, reason: 'เหตุผลคนละค่า' })).status,
+      (await request(reconcilePath, { ...reconcileCommand, reason: 'A different reason' })).status,
       409,
     );
     assert.equal(
@@ -796,7 +796,7 @@ test('People authenticated HTTP → PostgreSQL/RLS: acceptance/readback/replay �
           principal,
           tenantId,
           (transaction) =>
-            transaction.$executeRaw`UPDATE tenant_people_invitation_reconciles SET reason='เปลี่ยนเหตุผล' WHERE id=${reconcileAccepted.operationId}::uuid`,
+            transaction.$executeRaw`UPDATE tenant_people_invitation_reconciles SET reason='Changed reason' WHERE id=${reconcileAccepted.operationId}::uuid`,
         ),
       );
       await assert.rejects(() =>
@@ -1022,7 +1022,7 @@ test('People authenticated HTTP → PostgreSQL/RLS: acceptance/readback/replay �
         commandId: randomUUID(),
         expectedRevision: 1,
         reasonCode: 'DELIVERY_CHECK',
-        reason: 'อ่านผลรุ่นเดิมหลังมีรุ่นใหม่',
+        reason: 'Read the result of the previous generation after a new one exists',
       }),
     );
     const nextAttempt = randomUUID();
@@ -1040,10 +1040,14 @@ test('People authenticated HTTP → PostgreSQL/RLS: acceptance/readback/replay �
         worker,
         {
           async dispatch() {
-            assert.fail('generation ใหม่ยังไม่มี preparation barrier จึงห้าม dispatch');
+            assert.fail(
+              'the new generation has no preparation barrier yet so it must not dispatch',
+            );
           },
           async readOutcome() {
-            assert.fail('ต้องไม่หยิบ receipt รุ่นเดิมมาแทนรุ่นใหม่');
+            assert.fail(
+              'must not pick up the receipt of the previous generation in place of the new one',
+            );
           },
         },
         tenantId,
@@ -1058,7 +1062,9 @@ test('People authenticated HTTP → PostgreSQL/RLS: acceptance/readback/replay �
         worker,
         {
           async readOutcome() {
-            assert.fail('receipt รุ่นเดิมจบแล้ว ไม่ต้องอ่าน provider ใหม่');
+            assert.fail(
+              'the receipt of the previous generation is finished, no need to read the provider again',
+            );
           },
         },
         tenantId,
@@ -1084,7 +1090,7 @@ test('People authenticated HTTP → PostgreSQL/RLS: acceptance/readback/replay �
         commandId: randomUUID(),
         expectedRevision: 1,
         reasonCode: 'DELIVERY_CHECK',
-        reason: 'อ่าน proof ของ generation สองเท่านั้น',
+        reason: 'Read only the proof of generation two',
       }),
     );
     let secondGenerationReads = 0;
@@ -1119,7 +1125,7 @@ test('People authenticated HTTP → PostgreSQL/RLS: acceptance/readback/replay �
       commandId: randomUUID(),
       expectedRevision: 1,
       reasonCode: 'REQUEST_RESEND',
-      reason: 'ส่งคำเชิญใหม่สำหรับผู้ทดสอบ',
+      reason: 'Resend the invitation for the tester',
     };
     assert.equal((await request(resendPath, resendCommand)).status, 503);
     resendReady = true;
@@ -1141,7 +1147,7 @@ test('People authenticated HTTP → PostgreSQL/RLS: acceptance/readback/replay �
     assert.equal(resendResponse.headers.get('location'), resend.location);
     assert.deepEqual(await readObject(await request(resendPath, resendCommand)), resend);
     assert.equal(
-      (await request(resendPath, { ...resendCommand, reason: 'เปลี่ยนเหตุผล' })).status,
+      (await request(resendPath, { ...resendCommand, reason: 'A different reason' })).status,
       409,
     );
     const pendingResend = await readObject(await request(`/operations/${resend.operationId}`));
@@ -1589,7 +1595,7 @@ test('People authenticated HTTP → PostgreSQL/RLS: acceptance/readback/replay �
             transaction.$executeRaw`INSERT INTO tenant_people_invitation_resends(tenant_id,id,command_id,actor_user_id,user_id,source_operation_id,previous_generation,previous_attempt_ref,generation,provider_attempt_ref,expected_revision,status_revision,reason_code,reason)
               SELECT tenant_id,${randomUUID()}::uuid,${randomUUID()}::uuid,${adminId}::uuid,user_id,operation_id,generation,provider_attempt_ref,generation+1,${randomUUID()}::uuid,1,
                 (SELECT revision FROM tenant_user_lifecycles WHERE tenant_id=${tenantId}::uuid AND user_id=${supervisor.userId}::uuid),
-                'REQUEST_RESEND','ตรวจ cap ที่ DB' FROM tenant_people_invitation_intents WHERE tenant_id=${tenantId}::uuid AND user_id=${supervisor.userId}::uuid AND generation=5`,
+                'REQUEST_RESEND','DB cap check' FROM tenant_people_invitation_intents WHERE tenant_id=${tenantId}::uuid AND user_id=${supervisor.userId}::uuid AND generation=5`,
         ),
       /INVITATION_RESEND_LIMIT/,
     );

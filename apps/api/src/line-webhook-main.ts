@@ -1,6 +1,6 @@
 /**
- * Entrypoint ของ service `line-webhook` บน UAT (#565, ADR-031) — ต้องตั้ง `DCONTACT_API_PROFILE=uat-line`
- * ไม่เช่นนั้นบูตไม่ผ่าน; API ของ UAT คือ `uat-main.ts`
+ * Entrypoint of the `line-webhook` service on UAT (#565, ADR-031) — `DCONTACT_API_PROFILE=uat-line` must be set
+ * otherwise the boot fails; the UAT API is `uat-main.ts`
  */
 import { bootstrapLineWebhook } from './line-webhook-app.js';
 

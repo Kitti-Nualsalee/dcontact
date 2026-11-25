@@ -42,7 +42,7 @@ function actual(
   };
 }
 
-test('ปิด diagnostic คืน verifier เดิมโดยไม่ตรวจ config หรือ emit', async () => {
+test('turning the diagnostic off returns the original verifier without checking config or emitting', async () => {
   const claims = actual();
   const verifier: OidcAccessTokenVerifier = { verifyAccessToken: async () => claims };
   const wrapped = withLocalBootstrapClaimsEvidence(verifier, {}, () =>
@@ -52,7 +52,7 @@ test('ปิด diagnostic คืน verifier เดิมโดยไม่ต�
   assert.equal(await wrapped.verifyAccessToken('private-token'), claims);
 });
 
-test('config ผิดและ nonlocal fail closed ด้วย error คงที่ที่ไม่เผย manifest', () => {
+test('a wrong config and nonlocal fail closed with a fixed error that does not reveal the manifest', () => {
   const verifier = { verifyAccessToken: async () => actual() };
   for (const change of [
     { DCONTACT_API_PROFILE: 'default' },
@@ -83,7 +83,7 @@ test('config ผิดและ nonlocal fail closed ด้วย error คง�
   }
 });
 
-test('emit หลัง underlying verify ผ่านเท่านั้น และคืน claims object เดิม', async () => {
+test('emits only after the underlying verify passes and returns the original claims object', async () => {
   const claims = actual({
     otp: 'private-otp',
     password: 'private-password',
@@ -141,7 +141,7 @@ test('emit หลัง underlying verify ผ่านเท่านั้น �
   );
 });
 
-test('mismatch/service/platform claims ไม่ matched และไม่เปลี่ยนผล underlying authentication', async () => {
+test('mismatch/service/platform claims are not matched and do not change the underlying authentication result', async () => {
   for (const override of [
     { iss: 'https://other.example.test/realms/dcontact' },
     { azp: 'other-console' },
@@ -181,7 +181,7 @@ test('mismatch/service/platform claims ไม่ matched และไม่เ�
   }
 });
 
-test('classification ที่ไม่มีคง semantics caller guard เดิมและไม่อ้างว่า observed classification', async () => {
+test('a missing classification keeps the original caller guard semantics and does not claim an observed classification', async () => {
   const evidence: LocalBootstrapClaimsEvidence[] = [];
   const wrapped = withLocalBootstrapClaimsEvidence(
     { verifyAccessToken: async () => actual({ dc_identity_class: undefined }) },
@@ -196,7 +196,7 @@ test('classification ที่ไม่มีคง semantics caller guard เ�
   assert.equal(evidence[0].matched, true);
 });
 
-test('underlying verification/admission reject คง error เดิมและไม่ emit', async () => {
+test('an underlying verification/admission reject keeps the original error and does not emit', async () => {
   for (const reason of ['invalid signature', 'local account denied']) {
     const failure = new Error(reason);
     const wrapped = withLocalBootstrapClaimsEvidence(
@@ -212,7 +212,7 @@ test('underlying verification/admission reject คง error เดิมแล�
   }
 });
 
-test('dedupe ไม่ผูก session/token และ bounded สูงสุด 32 events ต่อ process instance', async () => {
+test('dedupe does not bind to a session/token and is bounded to at most 32 events per process instance', async () => {
   let claims = actual();
   let count = 0;
   const wrapped = withLocalBootstrapClaimsEvidence(
@@ -233,7 +233,7 @@ test('dedupe ไม่ผูก session/token และ bounded สูงสุ�
   assert.equal(count, 32);
 });
 
-test('sync/async sink failure ไม่เปลี่ยน authentication และไม่ emit ซ้ำ', async () => {
+test('a sync/async sink failure does not change authentication and does not emit twice', async () => {
   const claims = actual();
   for (const sink of [
     () => {
@@ -258,7 +258,7 @@ test('sync/async sink failure ไม่เปลี่ยน authentication แ�
   }
 });
 
-test('Organization UUID เปลี่ยนเฉพาะ manifest digest ไม่ปลอมเป็น actual JWT observation', async () => {
+test('an Organization UUID changes only the manifest digest and is not faked as an actual JWT observation', async () => {
   const evidence: LocalBootstrapClaimsEvidence[] = [];
   const verifier: OidcAccessTokenVerifier = { verifyAccessToken: async () => actual() };
   for (const organizationId of [expected.organizationId, expected.userId]) {
@@ -280,7 +280,7 @@ test('Organization UUID เปลี่ยนเฉพาะ manifest digest ไ
   assert.equal(evidence[1].matched, true);
 });
 
-test('UAT bootstrap ห่อ diagnostic นอก local account admission และไม่แก้ gateway guard', () => {
+test('the UAT bootstrap wraps the diagnostic outside local account admission and does not edit the gateway guard', () => {
   const source = readFileSync(`${__dirname}/e1-uat-api.ts`, 'utf8');
   assert.match(
     source,

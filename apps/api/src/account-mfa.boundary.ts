@@ -1,12 +1,12 @@
 /**
- * AC2 (#595) กับ Keycloak จริง (dev stack + `pnpm infra:keycloak:extensions` + `pnpm infra:identity:account`):
+ * AC2 (#595) against real Keycloak (dev stack + `pnpm infra:keycloak:extensions` + `pnpm infra:identity:account`):
  *
- * - extension `dc-account`: ไม่มี token → 401, token ของ client อื่น → 403, code ผิด → ไม่สร้าง credential,
- *   ผู้ใช้ต่าง org/platform user → ปฏิเสธ, code ถูก → สร้าง OTP credential, label ซ้ำ → 409
- * - port sync `dc_mfa_required` ของ AC1 แก้เฉพาะ attribute นั้นของ org ของ tenant
- * - browser flow: เปิดบังคับแล้ว session เดิมไม่หลุด; login ครั้งถัดไปต้องตั้ง OTP (CONFIGURE_TOTP),
- *   ผู้ใช้ที่มี OTP ถูกถาม OTP ครั้งเดียว ทั้งตอนบังคับและไม่บังคับ
- * - log ของ Keycloak ไม่มี secret/code (ตรวจเมื่อเรียก docker ได้)
+ * - extension `dc-account`: no token → 401, a token of another client → 403, a wrong code → no credential created,
+ *   a user from another org/platform user → rejected, a correct code → creates an OTP credential, a duplicate label → 409
+ * - the AC1 port sync of `dc_mfa_required` edits only that attribute of the tenant's org
+ * - browser flow: after enforcement is on the existing session is not dropped; the next login must set up OTP (CONFIGURE_TOTP),
+ *   a user who has OTP is asked for OTP once, both when enforced and when not
+ * - the Keycloak log has no secret/code (checked when docker can be called)
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -33,7 +33,7 @@ const PASSWORD = `ac2-${randomBytes(6).toString('hex')}`;
 
 type Organization = { id: string; alias: string; attributes?: Record<string, string[]> };
 
-/** RFC 6238 ด้วย secret ดิบแบบที่ Keycloak เก็บ (UTF-8 bytes) */
+/** RFC 6238 with the raw secret as Keycloak stores it (UTF-8 bytes) */
 function totp(secret: string, at = Date.now()) {
   const counter = Buffer.alloc(8);
   counter.writeBigUInt64BE(BigInt(Math.floor(at / 30_000)));
@@ -42,7 +42,7 @@ function totp(secret: string, at = Date.now()) {
   return String((digest.readUInt32BE(offset) & 0x7fffffff) % 1_000_000).padStart(6, '0');
 }
 
-/** code ที่ห่างจาก code ปัจจุบันเกิน look-ahead window — ถูกปฏิเสธแน่นอน */
+/** a code beyond the look-ahead window from the current code — certain to be rejected */
 function wrongCode(secret: string) {
   const valid = new Set([-1, 0, 1].map((step) => totp(secret, Date.now() + step * 30_000)));
   let code: string;
@@ -51,7 +51,7 @@ function wrongCode(secret: string) {
   return code;
 }
 
-/** Keycloak ไม่รับ code เดิมซ้ำใน window เดียวกัน — login ถัดไปของ secret เดียวกันต้องรอ window ใหม่ */
+/** Keycloak does not accept the same code twice in one window — the next login with the same secret must wait for a new window */
 const usedWindows = new Map<string, number>();
 async function freshTotp(secret: string) {
   let window = Math.floor(Date.now() / 30_000);
@@ -75,7 +75,7 @@ async function clientToken(clientId: string, clientSecret: string) {
       client_secret: clientSecret,
     }),
   });
-  assert.equal(response.status, 200, `token ของ ${clientId}`);
+  assert.equal(response.status, 200, `token of ${clientId}`);
   return ((await response.json()) as { access_token: string }).access_token;
 }
 
@@ -124,14 +124,14 @@ const tenantOf = (organization: Organization) => organization.attributes!.tenant
 async function organization(alias: string) {
   const { body } = await admin<Organization[]>(
     'GET',
-    // name ของ org dev ไม่เท่ากับ alias — ค้นทั้งหมดแล้วกรองด้วย alias
+    // the name of the dev org is not equal to the alias — search everything then filter by alias
     '/organizations?first=0&max=100',
   );
   const summary = body.find((candidate) => candidate.alias === alias);
-  assert.ok(summary, `ต้องมี org ${alias} (pnpm infra:bootstrap)`);
-  // list ไม่คืน attributes — อ่านตัวเต็มทีละ org
+  assert.ok(summary, `org ${alias} is required (pnpm infra:bootstrap)`);
+  // the list does not return attributes — read each org in full
   const { body: found } = await admin<Organization>('GET', `/organizations/${summary.id}`);
-  assert.ok(found.attributes?.tenant_id?.[0], `org ${alias} ต้องมี tenant_id`);
+  assert.ok(found.attributes?.tenant_id?.[0], `org ${alias} must have a tenant_id`);
   return found;
 }
 
@@ -161,7 +161,7 @@ async function otpCredentials(userId: string) {
   return body.filter((credential) => credential.type === 'otp');
 }
 
-async function enrol(userId: string, tenantId: string, label = 'โทรศัพท์') {
+async function enrol(userId: string, tenantId: string, label = 'Phone') {
   const value = secret();
   const code = totp(value);
   state.secrets.push(value);
@@ -185,7 +185,7 @@ type LoginResult =
   | { kind: 'REDIRECT'; steps: LoginStep[]; location: URL }
   | { kind: 'CONFIGURE_TOTP'; steps: LoginStep[] };
 
-/** authorization code + PKCE ผ่านฟอร์มจริงของ Keycloak; `jar` ใช้ซ้ำได้เพื่อทดสอบ SSO session เดิม */
+/** authorization code + PKCE through the real Keycloak form; the `jar` can be reused to test the existing SSO session */
 async function login(
   user: { username: string; otpSecret?: string },
   jar = new Map<string, string>(),
@@ -224,10 +224,10 @@ async function login(
     const html = await response.text();
     if (/name="totp"/.test(html)) return { kind: 'CONFIGURE_TOTP', steps };
     const action = /<form[^>]*action="([^"]+)"/.exec(html)?.[1]?.replaceAll('&amp;', '&');
-    assert.ok(action, `ไม่พบฟอร์ม login (${response.status})`);
+    assert.ok(action, `login form not found (${response.status})`);
     const fields: Record<string, string> = {};
     if (/name="otp"/.test(html)) {
-      assert.ok(user.otpSecret, 'ถูกถาม OTP แต่ผู้ใช้ไม่มี OTP');
+      assert.ok(user.otpSecret, 'asked for OTP but the user has no OTP');
       fields.otp = await freshTotp(user.otpSecret);
       steps.push('otp');
     } else {
@@ -247,7 +247,7 @@ async function login(
       body: new URLSearchParams(fields),
     });
   }
-  throw new Error(`login ไม่จบภายใน 6 ขั้น (${steps.join(',')})`);
+  throw new Error(`login did not finish within 6 steps (${steps.join(',')})`);
 }
 
 before(async () => {
@@ -270,14 +270,14 @@ before(async () => {
 
 after(async () => {
   for (const id of state.users) await admin('DELETE', `/users/${id}`).catch(() => undefined);
-  // คืนค่าเดิมของ org dev ด้วย port เดียวกับที่ API ใช้
+  // restore the dev org's original values with the same port the API uses
   await mfaPort().setMfaRequired(
     tenantOf(state.demo),
     state.originalMfa?.includes('true') ?? false,
   );
 });
 
-test('extension รับเฉพาะ token ของ dcontact-account-service', async () => {
+test('the extension accepts only tokens of dcontact-account-service', async () => {
   const user = await tenantUser(state.demo, 'auth');
   const body = { tenantId: tenantOf(state.demo), secret: secret(), code: '123456', label: 'x' };
   const path = `users/${user.id}/totp/verify-and-create`;
@@ -293,7 +293,7 @@ test('extension รับเฉพาะ token ของ dcontact-account-servic
   assert.deepEqual(await otpCredentials(user.id), []);
 });
 
-test('code ผิดไม่สร้าง credential; ผู้ใช้ต่าง org และ platform user ถูกปฏิเสธ; code ถูกสร้าง OTP ได้ครั้งเดียวต่อ label', async () => {
+test('a wrong code creates no credential; a user from another org and a platform user are rejected; a correct code creates an OTP once per label', async () => {
   const user = await tenantUser(state.demo, 'enrol');
   const foreign = await tenantUser(state.demoTwo, 'foreign');
   const tenantId = tenantOf(state.demo);
@@ -302,16 +302,16 @@ test('code ผิดไม่สร้าง credential; ผู้ใช้ต�
 
   const wrong = await extension(
     path(user.id),
-    { tenantId, secret: value, code: wrongCode(value), label: 'โทรศัพท์' },
+    { tenantId, secret: value, code: wrongCode(value), label: 'Phone' },
     state.serviceToken,
   );
   assert.deepEqual(wrong, { status: 400, body: { code: 'INVALID_OTP_CODE' } });
   assert.deepEqual(await otpCredentials(user.id), []);
 
-  // ผู้ใช้ของ demo-two ขอผ่าน tenant ของ demo → ไม่ใช่สมาชิก
+  // a demo-two user asking through the demo tenant → not a member
   const crossTenant = await extension(
     path(foreign.id),
-    { tenantId, secret: value, code: totp(value), label: 'โทรศัพท์' },
+    { tenantId, secret: value, code: totp(value), label: 'Phone' },
     state.serviceToken,
   );
   assert.deepEqual(crossTenant, { status: 403, body: { code: 'USER_NOT_IN_ORGANIZATION' } });
@@ -324,7 +324,7 @@ test('code ผิดไม่สร้าง credential; ผู้ใช้ต�
   if (platform[0]) {
     const result = await extension(
       path(platform[0].id),
-      { tenantId, secret: value, code: totp(value), label: 'โทรศัพท์' },
+      { tenantId, secret: value, code: totp(value), label: 'Phone' },
       state.serviceToken,
     );
     assert.equal(result.status, 403);
@@ -357,14 +357,14 @@ test('code ผิดไม่สร้าง credential; ผู้ใช้ต�
   assert.equal(created.status, 201, JSON.stringify(created.body));
   const [credential] = await otpCredentials(user.id);
   assert.equal(credential?.id, created.body.credentialId);
-  assert.equal(credential?.userLabel, 'โทรศัพท์');
+  assert.equal(credential?.userLabel, 'Phone');
 
   const duplicate = await enrol(user.id, tenantId);
   assert.deepEqual(duplicate.body, { code: 'LABEL_IN_USE' });
   assert.equal((await otpCredentials(user.id)).length, 1);
 });
 
-test('port sync ของ AC1 แก้เฉพาะ dc_mfa_required ของ org ของ tenant', async () => {
+test('the AC1 port sync edits only dc_mfa_required of the tenant org', async () => {
   const port = mfaPort();
   const before = await organization('demo');
   const otherBefore = await organization('demo-two');
@@ -383,7 +383,7 @@ test('port sync ของ AC1 แก้เฉพาะ dc_mfa_required ของ
   );
 });
 
-test('บังคับ 2FA: session เดิมไม่หลุด; login ครั้งถัดไปต้องตั้ง OTP; มี OTP แล้วถาม OTP ครั้งเดียว', async () => {
+test('enforce 2FA: the existing session is not dropped; the next login must set up OTP; with OTP it asks once', async () => {
   const port = mfaPort();
   const tenantId = tenantOf(state.demo);
   await port.setMfaRequired(tenantId, false);
@@ -392,7 +392,7 @@ test('บังคับ 2FA: session เดิมไม่หลุด; login �
   const enrolled = await enrol(withOtp.id, tenantId);
   assert.equal(enrolled.status, 201);
 
-  // ยังไม่บังคับ: ไม่มี OTP = ไม่ถาม
+  // not enforced yet: no OTP = not asked
   const jar = new Map<string, string>();
   const first = await login(withoutOtp, jar);
   assert.equal(first.kind, 'REDIRECT');
@@ -400,22 +400,22 @@ test('บังคับ 2FA: session เดิมไม่หลุด; login �
 
   await port.setMfaRequired(tenantId, true);
 
-  // session ที่ใช้อยู่ไม่ถูกตัด: cookie เดิมได้ code ทันทีโดยไม่ผ่านฟอร์ม
+  // the session in use is not cut: the existing cookie gets a code immediately without going through the form
   const restored = await login(withoutOtp, jar);
   assert.equal(restored.kind, 'REDIRECT');
   assert.deepEqual(restored.steps, []);
   assert.ok(restored.kind === 'REDIRECT' && restored.location.searchParams.get('code'));
 
-  // login ครั้งถัดไป (ไม่มี session) ต้องตั้ง OTP ก่อน
+  // the next login (no session) must set up OTP first
   const next = await login(withoutOtp);
   assert.equal(next.kind, 'CONFIGURE_TOTP');
 
-  // มี OTP แล้ว: ถาม OTP ครั้งเดียว (subflow 2FA เดิมถูกข้ามด้วย condition แบบ negate)
+  // has OTP: asked for OTP once (the original 2FA subflow is skipped with a negated condition)
   const required = await login({ ...withOtp, otpSecret: enrolled.secret });
   assert.equal(required.kind, 'REDIRECT');
   assert.equal(required.steps.filter((step) => step === 'otp').length, 1);
 
-  // ปิดบังคับ: ผู้ใช้ที่มี OTP ยังถูกถามครั้งเดียวตาม flow เดิม; ไม่มี OTP = ไม่ถาม
+  // enforcement off: a user with OTP is still asked once per the original flow; no OTP = not asked
   await port.setMfaRequired(tenantId, false);
   const optional = await login({ ...withOtp, otpSecret: enrolled.secret });
   assert.equal(optional.kind, 'REDIRECT');
@@ -425,15 +425,15 @@ test('บังคับ 2FA: session เดิมไม่หลุด; login �
   assert.ok(!plain.steps.includes('otp'));
 });
 
-test('log ของ Keycloak ไม่มี OTP secret หรือ code ที่ส่งให้ extension', (t) => {
+test('the Keycloak log has no OTP secret or code sent to the extension', (t) => {
   const logs = spawnSync('docker', ['logs', '--since', '30m', CONTAINER], { encoding: 'utf8' });
   if (logs.status !== 0) {
-    t.skip(`อ่าน log ของ ${CONTAINER} ไม่ได้`);
+    t.skip(`cannot read the log of ${CONTAINER}`);
     return;
   }
   const output = `${logs.stdout}${logs.stderr}`;
   assert.ok(state.secrets.length > 0);
   for (const value of [...state.secrets, ...state.codes]) {
-    assert.ok(!output.includes(value), 'พบ secret/code ใน log ของ Keycloak');
+    assert.ok(!output.includes(value), 'found a secret/code in the Keycloak log');
   }
 });

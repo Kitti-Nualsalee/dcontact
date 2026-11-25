@@ -15,7 +15,7 @@ type OrganizationSnapshot = {
   revision: string;
 };
 export async function coreOrganizationSnapshot(tx: Prisma.TransactionClient, tenantId: string) {
-  // GET ใน READ COMMITTED ต้องอ่าน aggregate จาก statement snapshot เดียวกันด้วย
+  // a GET under READ COMMITTED must also read the aggregate from the same statement snapshot
   const [row] = await tx.$queryRaw<{ value: OrganizationSnapshot | null }[]>`
     SELECT public.dc_core_organization_snapshot(${tenantId}::uuid) AS value`;
   if (!row?.value) coreFail('CORE_ACCESS_DENIED', 403);

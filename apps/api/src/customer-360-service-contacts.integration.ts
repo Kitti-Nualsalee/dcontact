@@ -14,8 +14,8 @@ import { CUSTOMER_360_SEARCH_LIMITER, type SharedRateLimiter } from './shared-ra
 import { coreFixture } from './tenant-core-test-fixtures.js';
 
 /**
- * External customer API (#954): HTTP → PostgreSQL ด้วย application role (RLS) ของ service principal
- * Token เป็น synthetic verified claims; รอบ Keycloak จริงอยู่ใน customer-360-service-oidc.integration.ts
+ * External customer API (#954): HTTP → PostgreSQL with the service principal's application role (RLS)
+ * The token is synthetic verified claims; the real Keycloak run is in customer-360-service-oidc.integration.ts
  */
 const ISSUER = 'https://service.test/realms/dcontact';
 const HUMAN_ISSUER = 'https://core-idp.test/realms/dcontact';
@@ -70,7 +70,7 @@ async function fixture(options: { enabled?: boolean } = {}) {
                 {
                   introspect: async () => {
                     if (introspection.fail) throw Error('idp down');
-                    // จำลองเหตุการณ์ที่เกิดระหว่าง online proof กับ transaction ของ effect
+                    // simulates an event that happens between the online proof and the effect transaction
                     await introspection.during?.();
                     return { active: introspection.active };
                   },
@@ -144,20 +144,20 @@ async function fixture(options: { enabled?: boolean } = {}) {
   return { f, introspection, clock, serviceToken, operate, bind, create, contacts, subject };
 }
 
-test('External customer API: service สร้างลูกค้า อ่านกลับ ค้นเจอ และ custodian Admin ดูแลรายนั้นได้', async () => {
+test('External customer API: service creates a customer, reads it back, finds it, and the custodian Admin can manage that one', async () => {
   const { f, serviceToken, operate, bind, create, contacts } = await fixture();
   try {
     const profile = {
-      displayName: 'ลูกค้าจาก CRM',
-      company: 'บริษัท ตัวอย่าง จำกัด',
+      displayName: 'Customer from CRM',
+      company: 'Example Co., Ltd.',
       points: [{ kind: 'EMAIL', value: 'crm-954@example.test' }],
     };
-    // ยังไม่มี binding: role/scope ใน token ไม่ให้สิทธิ์เอง
+    // no binding yet: role/scope in the token do not grant access by themselves
     assert.equal((await create('service', profile)).status, 403);
     assert.equal((await f.request('customer-360/contacts/search', 'service', {})).status, 403);
 
     const bindingId = await bind();
-    // มี binding แต่ไม่มี capability: อ่านได้ (ยังไม่มีรายการ) แต่สร้างไม่ได้
+    // has a binding but no capability: can read (no items yet) but cannot create
     const empty = await f.request('customer-360/contacts/search', 'service', {});
     assert.equal(empty.status, 200);
     assert.deepEqual((empty.body as Body).items, []);
@@ -171,13 +171,13 @@ test('External customer API: service สร้างลูกค้า อ่า
       expectedAuthzEpoch: '0',
       capability: 'CONTACT_CREATE',
     });
-    // client กำหนด custodian/tenant/id เองไม่ได้
+    // the client cannot set custodian/tenant/id itself
     assert.equal(
       (await create('service', { ...profile, custodianAdminId: f.actors.get('admin-two')!.id }))
         .status,
       400,
     );
-    // token ที่ไม่มี scope create ถูกตัดที่ gateway
+    // a token without the create scope is cut at the gateway
     assert.equal(
       (await create(serviceToken('read-only', { scope: 'customer360.contacts.read' }), profile))
         .status,
@@ -193,10 +193,10 @@ test('External customer API: service สร้างลูกค้า อ่า
     const receipt = (created.body as Body).command as Body;
     assert.equal(receipt.outcome, 'APPLIED');
     const contactId = receipt.resourceRefs[0].id as string;
-    // receipt ไม่มี PII snapshot
+    // the receipt has no PII snapshot
     assert.ok(!JSON.stringify(created.body).includes('crm-954@example.test'));
 
-    // commandId เดิม: ได้ receipt เดิม ไม่สร้างซ้ำ; payload ต่าง = 409
+    // same commandId: gets the same receipt, no duplicate; different payload = 409
     const replay = await f.request('customer-360/contacts', 'service', { commandId, ...profile });
     assert.deepEqual(replay.body, created.body);
     assert.equal(
@@ -204,7 +204,7 @@ test('External customer API: service สร้างลูกค้า อ่า
         await f.request('customer-360/contacts', 'service', {
           commandId,
           ...profile,
-          displayName: 'ชื่ออื่น',
+          displayName: 'Other name',
         })
       ).status,
       409,
@@ -214,7 +214,7 @@ test('External customer API: service สร้างลูกค้า อ่า
     const detail = await f.request(`customer-360/contacts/${contactId}`, 'service');
     assert.equal(detail.status, 200, JSON.stringify(detail.body));
     const view = detail.body as Body;
-    assert.equal(view.contact.displayName, 'ลูกค้าจาก CRM');
+    assert.equal(view.contact.displayName, 'Customer from CRM');
     assert.equal(view.contactPoints[0].value, 'crm-954@example.test');
     assert.deepEqual(view.capabilities, { read: true, manage: false });
     assert.equal(view.tags, undefined);
@@ -230,16 +230,16 @@ test('External customer API: service สร้างลูกค้า อ่า
     );
     const lookup = await f.request(`customer-360/commands/${commandId}`, 'service');
     assert.deepEqual(lookup.body, created.body);
-    // command ของ service อยู่คนละ namespace กับ human แม้ commandId เดียวกัน
+    // service commands live in a different namespace from human ones even with the same commandId
     assert.equal((await f.request(`customer-360/commands/${commandId}`, 'admin')).status, 404);
 
-    // custodian ที่ operator กำหนดได้ MANAGE; Admin คนอื่นไม่เห็น
+    // the custodian set by the operator gets MANAGE; other Admins do not see it
     const admin = await f.request(`customer-360/contacts/${contactId}`, 'admin');
     assert.equal(admin.status, 200, JSON.stringify(admin.body));
     assert.equal((admin.body as Body).capabilities.manage, true);
     assert.equal((await f.request(`customer-360/contacts/${contactId}`, 'admin-two')).status, 404);
 
-    // หลักฐานใน DB: custody INTEGRATION, ledger, service READ grant และ audit ที่ไม่ปลอมเป็น Admin
+    // evidence in the DB: custody INTEGRATION, ledger, service READ grant and an audit that does not pose as Admin
     const custody = await f.owner.c360ContactCustodianGrant.findFirstOrThrow({
       where: { tenantId: f.tenantId, contactId },
     });
@@ -263,7 +263,7 @@ test('External customer API: service สร้างลูกค้า อ่า
     assert.equal(audit.operation, 'CONTACT_CREATE');
     assert.equal(audit.actorUserId, null);
 
-    // route ที่ไม่ได้เปิดให้ service ยังปฏิเสธ
+    // routes not opened to the service are still rejected
     assert.equal(
       (
         await f.request(
@@ -273,7 +273,7 @@ test('External customer API: service สร้างลูกค้า อ่า
             commandId: randomUUID(),
             expectedProfileRevision: '0',
             expectedLineageRevision: '0',
-            company: 'แก้ผ่าน service',
+            company: 'Edited via service',
           },
           'PATCH',
         )
@@ -289,7 +289,7 @@ test('External customer API: service สร้างลูกค้า อ่า
   }
 });
 
-test('External customer API: อ่านได้เฉพาะ Contact ที่มี grant และหยุดทันทีเมื่อ operator ถอนหรือปิด binding', async () => {
+test('External customer API: reads only Contacts with a grant and stops immediately when the operator revokes or closes the binding', async () => {
   const { f, serviceToken, operate, bind, create } = await fixture();
   try {
     const bindingId = await bind();
@@ -299,24 +299,28 @@ test('External customer API: อ่านได้เฉพาะ Contact ที
       expectedAuthzEpoch: '0',
       capability: 'CONTACT_CREATE',
     });
-    const created = await create('service', { displayName: 'ลูกค้ามี grant' });
+    const created = await create('service', { displayName: 'Customer with grant' });
     assert.equal(created.status, 201, JSON.stringify(created.body));
     const mine = ((created.body as Body).command as Body).resourceRefs[0].id as string;
 
-    // Contact ที่ Admin มีอยู่เดิมและของ tenant อื่น: service ไม่มี grant = เหมือนไม่พบ และไม่ถูกนับ
+    // Contacts the Admin already had and those of another tenant: a service without a grant = not found, and not counted
     const hidden = randomUUID();
     const foreign = randomUUID();
     await f.owner.contact.create({
-      data: { id: hidden, tenantId: f.tenantId, displayName: 'ลูกค้ามี grant ซ้ำชื่อ' },
+      data: { id: hidden, tenantId: f.tenantId, displayName: 'Customer with grant duplicate name' },
     });
     await f.owner.contact.create({
-      data: { id: foreign, tenantId: f.otherTenantId, displayName: 'ลูกค้ามี grant ต่าง tenant' },
+      data: {
+        id: foreign,
+        tenantId: f.otherTenantId,
+        displayName: 'Customer with grant other tenant',
+      },
     });
     for (const id of [hidden, foreign, randomUUID(), 'not-a-uuid'])
       assert.equal((await f.request(`customer-360/contacts/${id}`, 'service')).status, 404);
     const byName = await f.request('customer-360/contacts/search', 'service', {
       type: 'NAME',
-      query: 'ลูกค้ามี grant',
+      query: 'Customer with grant',
     });
     assert.deepEqual(
       (byName.body as Body).items.map((item: Body) => item.contactId),
@@ -325,15 +329,15 @@ test('External customer API: อ่านได้เฉพาะ Contact ที
     const directory = await f.request('customer-360/contacts/search', 'service', {});
     assert.deepEqual((directory.body as Body).accessibleCount, { state: 'AVAILABLE', value: 1 });
 
-    // token ของ subject/client เดียวกันแต่อ้าง tenant อื่น: ไม่มี binding ใน tenant นั้น
+    // token with the same subject/client but claiming another tenant: no binding in that tenant
     const other = serviceToken('other-tenant', { tenantId: f.otherTenantId });
     assert.equal((await f.request(`customer-360/contacts/${mine}`, other)).status, 403);
     assert.equal((await f.request('customer-360/contacts/search', other, {})).status, 403);
-    // client อื่นที่ยังไม่ผูก
+    // another client that is not bound
     const unbound = serviceToken('unbound-client', { clientId: 'crm-other' });
     assert.equal((await f.request(`customer-360/contacts/${mine}`, unbound)).status, 403);
 
-    // operator ให้ READ ของ Contact เดิมเป็นราย ๆ ได้
+    // the operator can grant READ on existing Contacts one by one
     await operate({
       action: 'SERVICE_CONTACT_GRANT',
       bindingId,
@@ -343,7 +347,7 @@ test('External customer API: อ่านได้เฉพาะ Contact ที
     });
     assert.equal((await f.request(`customer-360/contacts/${hidden}`, 'service')).status, 200);
 
-    // ถอน grant ของ Contact ที่ service สร้างเอง: อ่านไม่ได้ทันที และ receipt ไม่คืน ref ที่อ่านไม่ได้แล้ว
+    // revoking the grant on a Contact the service created itself: it cannot be read immediately and the receipt no longer returns an unreadable ref
     const grant = await f.owner.intServiceContactGrant.findFirstOrThrow({
       where: { tenantId: f.tenantId, contactId: mine },
     });
@@ -358,18 +362,18 @@ test('External customer API: อ่านได้เฉพาะ Contact ที
     const receipt = await f.request(`customer-360/commands/${commandId}`, 'service');
     assert.deepEqual(((receipt.body as Body).command as Body).resourceRefs, []);
 
-    // ปิด binding: ทุก route ของ service ถูกปฏิเสธ
+    // closing the binding: every service route is rejected
     await operate({ action: 'SERVICE_BIND_DISABLE', bindingId, expectedAuthzEpoch: '3' });
     assert.equal((await f.request(`customer-360/contacts/${hidden}`, 'service')).status, 403);
     assert.equal((await f.request('customer-360/contacts/search', 'service', {})).status, 403);
-    assert.equal((await create('service', { displayName: 'หลังปิด' })).status, 403);
+    assert.equal((await create('service', { displayName: 'After close' })).status, 403);
     assert.equal((await f.request(`customer-360/commands/${commandId}`, 'service')).status, 403);
   } finally {
     await f.close();
   }
 });
 
-test('External customer API: create ต้องผ่าน online introspection และ custodian ที่ยัง active', async () => {
+test('External customer API: create must pass online introspection and an active custodian', async () => {
   const { f, introspection, operate, bind, create, contacts } = await fixture();
   try {
     const bindingId = await bind();
@@ -380,21 +384,21 @@ test('External customer API: create ต้องผ่าน online introspectio
       capability: 'CONTACT_CREATE',
     });
     introspection.active = false;
-    assert.equal((await create('service', { displayName: 'token ถูกถอน' })).status, 401);
+    assert.equal((await create('service', { displayName: 'Token revoked' })).status, 401);
     introspection.active = true;
     introspection.fail = true;
-    const unavailable = await create('service', { displayName: 'IdP ล่ม' });
+    const unavailable = await create('service', { displayName: 'IdP down' });
     assert.equal(unavailable.status, 503);
     assert.equal((unavailable.body as Body).error.code, 'SERVICE_IDENTITY_UNAVAILABLE');
     introspection.fail = false;
     assert.equal(await contacts(), 0);
 
-    // custodian ถูกปิดบัญชี: สร้างไม่ได้จน operator เปลี่ยน custodian
+    // custodian account disabled: cannot create until the operator changes the custodian
     await f.owner.user.update({
       where: { id: f.actors.get('admin')!.id },
       data: { isActive: false },
     });
-    assert.equal((await create('service', { displayName: 'ไม่มีผู้ดูแล' })).status, 403);
+    assert.equal((await create('service', { displayName: 'No custodian' })).status, 403);
     assert.equal(await contacts(), 0);
     await operate({
       action: 'SERVICE_BIND_REPLACE_CUSTODIAN',
@@ -402,12 +406,12 @@ test('External customer API: create ต้องผ่าน online introspectio
       expectedAuthzEpoch: '1',
       custodianAdminId: f.actors.get('admin-two')!.id,
     });
-    const created = await create('service', { displayName: 'ผู้ดูแลใหม่' });
+    const created = await create('service', { displayName: 'New custodian' });
     assert.equal(created.status, 201, JSON.stringify(created.body));
     const contactId = ((created.body as Body).command as Body).resourceRefs[0].id as string;
     assert.equal((await f.request(`customer-360/contacts/${contactId}`, 'admin-two')).status, 200);
 
-    // ถอน capability: สร้างไม่ได้ แต่ยังอ่านรายที่มี grant ได้
+    // capability revoked: cannot create, but can still read Contacts that have a grant
     const capability = await f.owner.intServiceCapabilityGrant.findFirstOrThrow({
       where: { tenantId: f.tenantId, principalId: bindingId },
     });
@@ -416,7 +420,7 @@ test('External customer API: create ต้องผ่าน online introspectio
       grantId: capability.id,
       expectedAuthzEpoch: '2',
     });
-    assert.equal((await create('service', { displayName: 'หลังถอน' })).status, 403);
+    assert.equal((await create('service', { displayName: 'After revoke' })).status, 403);
     assert.equal((await f.request(`customer-360/contacts/${contactId}`, 'service')).status, 200);
     assert.equal(await contacts(), 1);
   } finally {
@@ -424,16 +428,16 @@ test('External customer API: create ต้องผ่าน online introspectio
   }
 });
 
-test('External customer API: ปิดเป็นค่าเริ่มต้น และ route ของ Admin ไม่เปลี่ยน', async () => {
+test('External customer API: disabled by default, and the Admin routes are unchanged', async () => {
   const { f, bind, create } = await fixture({ enabled: false });
   try {
     await bind();
-    assert.equal((await create('service', { displayName: 'feature ปิด' })).status, 403);
+    assert.equal((await create('service', { displayName: 'Feature off' })).status, 403);
     assert.equal((await f.request('customer-360/contacts/search', 'service', {})).status, 403);
     assert.equal((await f.request(`customer-360/contacts/${randomUUID()}`, 'service')).status, 403);
     assert.equal((await f.request(`customer-360/commands/${randomUUID()}`, 'service')).status, 403);
-    // human: Admin ที่ไม่มี CONTACT_CREATE ยังได้ 403 เดิม และค้นได้ตามสิทธิ์เดิม
-    assert.equal((await create('admin', { displayName: 'Admin ไม่มี capability' })).status, 403);
+    // human: an Admin without CONTACT_CREATE still gets the same 403, and can search as before
+    assert.equal((await create('admin', { displayName: 'Admin without capability' })).status, 403);
     const directory = await f.request('customer-360/contacts/search', 'admin', {});
     assert.equal(directory.status, 200);
     assert.equal((await f.request('customer-360/contacts/search', 'agent', {})).status, 403);
@@ -442,7 +446,7 @@ test('External customer API: ปิดเป็นค่าเริ่มต้
   }
 });
 
-test('External customer API: operator เปลี่ยน binding หรือ proof หมดเวลาระหว่าง create แล้วไม่เกิด effect', async () => {
+test('External customer API: operator changes the binding or the proof times out during create and no effect happens', async () => {
   const { f, introspection, clock, serviceToken, operate, bind, create, contacts } =
     await fixture();
   try {
@@ -453,9 +457,9 @@ test('External customer API: operator เปลี่ยน binding หรือ
       expectedAuthzEpoch: '0',
       capability: 'CONTACT_CREATE',
     });
-    // operator เปลี่ยน custodian หลัง service ผ่าน proof แต่ก่อน transaction ของ effect
+    // operator changes the custodian after the service passed the proof but before the effect transaction
     const commandId = randomUUID();
-    const body = { commandId, displayName: 'แข่งกับ operator' };
+    const body = { commandId, displayName: 'Race with operator' };
     introspection.during = async () => {
       introspection.during = undefined;
       await operate({
@@ -470,7 +474,7 @@ test('External customer API: operator เปลี่ยน binding หรือ
     assert.equal((changed.body as Body).error.code, 'SERVICE_AUTHORIZATION_CHANGED');
     assert.equal(changed.headers.get('retry-after'), '1');
     assert.equal(await contacts(), 0);
-    // ส่ง commandId เดิมซ้ำ: ตรวจสิทธิ์ใหม่แล้วสร้างได้หนึ่งราย โดย custodian เป็นคนปัจจุบัน
+    // resending the same commandId: permissions are rechecked and exactly one is created, with the current custodian
     const retried = await f.request('customer-360/contacts', 'service', body);
     assert.equal(retried.status, 201, JSON.stringify(retried.body));
     const contactId = ((retried.body as Body).command as Body).resourceRefs[0].id as string;
@@ -478,24 +482,24 @@ test('External customer API: operator เปลี่ยน binding หรือ
     assert.equal((await f.request(`customer-360/contacts/${contactId}`, 'admin')).status, 404);
     assert.equal(await contacts(), 1);
 
-    // proof หมดเวลาก่อนถึง effect: 503 ที่ส่งซ้ำได้ และไม่สร้างลูกค้า
+    // proof times out before the effect: a retryable 503 and no customer is created
     introspection.during = async () => {
       introspection.during = undefined;
       clock.skewMs += 6_000;
     };
-    const late = await create('service', { displayName: 'proof หมดเวลา' });
+    const late = await create('service', { displayName: 'Proof timeout' });
     assert.equal(late.status, 503);
     assert.equal((late.body as Body).error.code, 'SERVICE_IDENTITY_UNAVAILABLE');
     assert.equal(await contacts(), 1);
 
-    // binding ถูกปิดระหว่าง proof: ไม่เกิด effect (ทำท้ายสุด เพราะ binding ที่ปิดแล้วเปิดกลับไม่ได้)
+    // binding closed during the proof: no effect (done last because a closed binding cannot be reopened)
     introspection.during = async () => {
       introspection.during = undefined;
       await operate({ action: 'SERVICE_BIND_DISABLE', bindingId, expectedAuthzEpoch: '2' });
     };
-    assert.equal((await create('service', { displayName: 'ปิดระหว่าง proof' })).status, 403);
+    assert.equal((await create('service', { displayName: 'Closed during proof' })).status, 403);
     assert.equal(await contacts(), 1);
-    // token ที่มีทั้ง claims ของ service และของผู้ใช้ไม่ถูกนับเป็น service บน route dual-mode
+    // a token with both service and user claims is not counted as a service on the dual-mode route
     const mixed = serviceToken('mixed', { userId: f.actors.get('admin')!.id });
     assert.equal((await create(mixed, { displayName: 'mixed token' })).status, 403);
     assert.equal((await f.request('customer-360/contacts/search', mixed, {})).status, 403);
@@ -505,7 +509,7 @@ test('External customer API: operator เปลี่ยน binding หรือ
   }
 });
 
-test('External customer API: reconcile ปิดคำสั่งที่ไม่รู้ผล และ POST ที่มาทีหลังไม่สร้างลูกค้า', async () => {
+test('External customer API: reconcile closes commands with unknown outcome and a later POST does not create a customer', async () => {
   const { f, introspection, operate, bind, contacts } = await fixture();
   try {
     const bindingId = await bind();
@@ -518,7 +522,7 @@ test('External customer API: reconcile ปิดคำสั่งที่ไ�
     const commandId = randomUUID();
     const path = `customer-360/commands/${commandId}`;
     assert.equal((await f.request(path, 'service')).status, 404);
-    // reconcile เปลี่ยนสถานะของ command จึงต้องผ่าน online proof
+    // reconcile changes the command status, so it must pass the online proof
     introspection.active = false;
     assert.equal((await f.request(`${path}/reconcile`, 'service', {})).status, 401);
     introspection.active = true;
@@ -528,11 +532,11 @@ test('External customer API: reconcile ปิดคำสั่งที่ไ�
     assert.equal(((closed.body as Body).command as Body).code, 'COMMAND_NOT_APPLIED');
     const late = await f.request('customer-360/contacts', 'service', {
       commandId,
-      displayName: 'มาถึงหลัง reconcile',
+      displayName: 'Arrived after reconcile',
     });
     assert.deepEqual(late.body, closed.body);
     assert.equal(await contacts(), 0);
-    // Admin ที่ใช้ commandId เดียวกันอยู่คนละ namespace: ไม่เห็น tombstone ของ service
+    // an Admin using the same commandId lives in a different namespace: does not see the service tombstone
     assert.equal((await f.request(path, 'admin')).status, 404);
   } finally {
     await f.close();

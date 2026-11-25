@@ -27,7 +27,7 @@ async function readObject(response: Response): Promise<Record<string, unknown>> 
   return Object.fromEntries(Object.entries(value));
 }
 
-test('disable แบบ idle ปิด local admission ทันที และ reconcile ไม่ส่ง mutation ซ้ำ', async () => {
+test('an idle disable closes local admission at once and reconcile does not resend the mutation', async () => {
   const owner = new PrismaClient();
   const application = new PrismaClient({
     datasources: { db: { url: process.env.APPLICATION_DATABASE_URL } },
@@ -119,13 +119,13 @@ test('disable แบบ idle ปิด local admission ทันที และ
         VALUES(${tenantId}::uuid,${id}::uuid,${actor.caller!.issuer},${id},'dcontact-console',${slug},${tenantId}::uuid,'TENANT_USER','BOOTSTRAP_MANIFEST','isolated-b6',${'a'.repeat(64)},'sandbox-operator',now(),1,true)`;
     }
     await owner.$executeRaw`INSERT INTO tenant_voice_provisioning_policies(tenant_id,revision,source_kind,accounts_limit,agents_limit,voice_queues_limit,skills_limit,approved_by_operator_subject,approved_at,approval_ref,reason,extension_pool)
-      VALUES(${tenantId}::uuid,1,'UAT_EXPLICIT',5,3,3,3,'sandbox-operator',now(),'isolated-b6','ทดสอบปิดบัญชี','[]'::jsonb)`;
+      VALUES(${tenantId}::uuid,1,'UAT_EXPLICIT',5,3,3,3,'sandbox-operator',now(),'isolated-b6','Disable test','[]'::jsonb)`;
     await owner.$executeRaw`INSERT INTO tenant_people_worker_bindings(tenant_id,database_principal,approval_ref) VALUES(${tenantId}::uuid,${principal},'isolated-b6')`;
     const command = {
       commandId: randomUUID(),
       expectedRevision: 1,
       reasonCode: 'OPERATOR_REQUEST',
-      reason: 'ทดสอบปิดบัญชี fixture',
+      reason: 'Disable fixture test',
     };
     const queue = await owner.queue.create({
       data: { tenantId, teamId, name: 'B6 busy fixture', channels: ['VOICE', 'EMAIL'] },

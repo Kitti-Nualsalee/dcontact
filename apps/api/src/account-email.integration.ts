@@ -1,8 +1,8 @@
 /**
- * AC3 (#596) บน Postgres จริงด้วย role ของแอป (`dcontact_app`, RLS) และ mailpit ของ dev stack:
- * ส่งสำเร็จ (ชื่อผู้ส่ง D-Contact, Message-ID คงที่), dedupeKey ซ้ำไม่เพิ่มงาน, SMTP ล้มแล้ว retry แบบ backoff,
- * 5xx/ครบจำนวนครั้ง = DEAD, ไม่ส่งซ้ำแม้ dispatcher สองตัวแย่งกัน, lease หมดแล้วจองใหม่ได้,
- * ล้างผู้รับ/token เมื่อจบ, log ไม่มีอีเมลหรือ token และ RLS แยก tenant
+ * AC3 (#596) on real Postgres with the app role (`dcontact_app`, RLS) and the dev stack's mailpit:
+ * sent successfully (sender name D-Contact, a fixed Message-ID), a repeated dedupeKey adds no work, SMTP fails then retries with backoff,
+ * 5xx/attempts exhausted = DEAD, no duplicate send even when two dispatchers compete, an expired lease can be claimed again,
+ * the recipient/token is cleared when finished, the log has no email or token, and RLS separates tenants
  */
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -42,7 +42,7 @@ const mailpit = new SmtpEmailSender({
   fromAddress: 'no-reply@dcontact.local',
   helo: 'dcontact.local',
 });
-/** port ที่ไม่มีใครฟัง — จำลอง SMTP ล่ม */
+/** a port nobody listens on — simulates SMTP being down */
 const unreachable = new SmtpEmailSender({
   host: '127.0.0.1',
   port: 1,
@@ -62,15 +62,15 @@ async function inbox(recipient: string): Promise<MailpitMessage[]> {
   const response = await fetch(
     `${MAILPIT_API}/api/v1/search?${new URLSearchParams({ query: `to:"${recipient}"` })}`,
   );
-  assert.equal(response.status, 200, 'mailpit ต้องรันอยู่ (dev stack)');
+  assert.equal(response.status, 200, 'mailpit must be running (dev stack)');
   return ((await response.json()) as { messages: MailpitMessage[] }).messages;
 }
 
-/** รอเงื่อนไขแบบมีเพดานเวลา — test ไม่ค้างถ้าเงื่อนไขไม่เกิด */
+/** waits for a condition with a time ceiling — the test does not hang if the condition never happens */
 async function until(condition: () => boolean | Promise<boolean>, label: string) {
   const deadline = Date.now() + 5_000;
   while (!(await condition())) {
-    assert.ok(Date.now() < deadline, `รอ ${label} เกิน 5 วินาที`);
+    assert.ok(Date.now() < deadline, `waiting for ${label} exceeded 5 seconds`);
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
 }
@@ -89,7 +89,7 @@ async function setup(t: TestContext) {
     await owner.accountEmailOutbox.deleteMany({ where: { tenantId: { in: [...tenants] } } });
     await owner.tenant.deleteMany({ where: { id: { in: [...tenants] } } });
   });
-  // available_at ตั้งด้วยเวลาของ Postgres ตอน insert — นาฬิกาของ test เริ่มนำหน้าเล็กน้อยให้งานใหม่ถึงเวลาทันที
+  // available_at is set with Postgres time at insert — the test clock starts slightly ahead so the new job is due immediately
   let clock = Date.now() + 5_000;
   const logs: Array<Record<string, unknown>> = [];
   const dispatcher = (sender: EmailSender, options: { maxAttempts?: number } = {}) =>
@@ -128,7 +128,7 @@ async function setup(t: TestContext) {
   };
 }
 
-test('ส่งผ่าน SMTP สำเร็จ: ผู้ส่ง D-Contact, Message-ID คงที่, ลิงก์ของ Console และล้างผู้รับ/token เมื่อจบ', async (t) => {
+test('sends through SMTP successfully: sender D-Contact, a fixed Message-ID, a Console link, and the recipient/token cleared when finished', async (t) => {
   const f = await setup(t);
   const { id, created, job } = await f.enqueue();
   assert.equal(created, true);
@@ -151,19 +151,19 @@ test('ส่งผ่าน SMTP สำเร็จ: ผู้ส่ง D-Contac
   assert.equal(sent.recipient, null);
   assert.equal(sent.variables, null);
 
-  // เรียกซ้ำ: ไม่มีงานค้าง ไม่ส่งซ้ำ
+  // calling again: no pending work, no duplicate send
   assert.deepEqual(await f.dispatcher(mailpit).drainTenant(f.tenants[0]), []);
   assert.equal((await inbox(job.recipient)).length, 1);
 });
 
-test('dedupeKey ซ้ำไม่เพิ่มงาน (เรียกซ้ำได้ ไม่ซ้ำผล)', async (t) => {
+test('a repeated dedupeKey adds no work (can be called again without a duplicate result)', async (t) => {
   const f = await setup(t);
   const first = await f.enqueue({ dedupeKey: 'password:1' });
   const again = await f.enqueue({ dedupeKey: 'password:1', recipient: first.job.recipient });
   assert.equal(again.created, false);
   assert.equal(again.id, first.id);
   assert.equal(await owner.accountEmailOutbox.count({ where: { tenantId: f.tenants[0] } }), 1);
-  // tenant อื่นใช้ key เดียวกันได้
+  // another tenant can use the same key
   const other = await f.enqueue({ tenantId: f.tenants[1], dedupeKey: 'password:1' });
   assert.equal(other.created, true);
 
@@ -171,7 +171,7 @@ test('dedupeKey ซ้ำไม่เพิ่มงาน (เรียกซ�
   assert.equal((await inbox(first.job.recipient)).length, 1);
 });
 
-test('SMTP ล่ม: retry แบบ backoff แล้วส่งสำเร็จเมื่อ SMTP กลับมา — ส่งครั้งเดียว', async (t) => {
+test('SMTP down: retry with backoff then sent successfully once SMTP is back — sent once', async (t) => {
   const f = await setup(t);
   const { id, job } = await f.enqueue();
   const down = f.dispatcher(unreachable);
@@ -181,16 +181,16 @@ test('SMTP ล่ม: retry แบบ backoff แล้วส่งสำเร�
   assert.equal(failed.status, 'PENDING');
   assert.equal(failed.attempts, 1);
   assert.equal(failed.lastErrorCode, 'SMTP_UNAVAILABLE');
-  assert.ok(failed.recipient, 'ยังไม่จบ ต้องเก็บผู้รับไว้ส่งรอบหน้า');
+  assert.ok(failed.recipient, 'not finished yet, the recipient must be kept for the next round');
   const firstRetryAt = failed.availableAt.getTime();
 
-  // ยังไม่ถึงเวลา = ไม่ลองซ้ำ
+  // not due yet = no retry
   assert.deepEqual(await down.drainTenant(f.tenants[0]), []);
   f.advance(30_000);
   assert.deepEqual(await down.drainTenant(f.tenants[0]), ['RETRY']);
   failed = await f.row(id);
   assert.equal(failed.attempts, 2);
-  assert.equal(failed.availableAt.getTime() - firstRetryAt, 60_000, 'backoff เพิ่มเป็นสองเท่า');
+  assert.equal(failed.availableAt.getTime() - firstRetryAt, 60_000, 'backoff doubles');
 
   f.advance(60_000);
   assert.deepEqual(await f.dispatcher(mailpit).drainTenant(f.tenants[0]), ['SENT']);
@@ -198,7 +198,7 @@ test('SMTP ล่ม: retry แบบ backoff แล้วส่งสำเร�
   assert.equal((await inbox(job.recipient)).length, 1);
 });
 
-test('5xx = DEAD ทันที; ล้มครบจำนวนครั้ง = DEAD; ทั้งสองกรณีล้างผู้รับ/token', async (t) => {
+test('5xx = DEAD at once; failing the full number of attempts = DEAD; both cases clear the recipient/token', async (t) => {
   const f = await setup(t);
   const rejected = await f.enqueue();
   const reject: EmailSender = {
@@ -222,7 +222,7 @@ test('5xx = DEAD ทันที; ล้มครบจำนวนครั้�
   assert.equal((await f.row(flaky.id)).recipient, null);
 });
 
-test('dispatcher สองตัวแย่งงานเดียวกัน: ส่งครั้งเดียว; lease หมด (process ตาย) แล้วจองใหม่ได้', async (t) => {
+test('two dispatchers compete for the same job: sent once; the lease expires (process dies) and can be claimed again', async (t) => {
   const f = await setup(t);
   const { id } = await f.enqueue();
   const sent: string[] = [];
@@ -235,18 +235,18 @@ test('dispatcher สองตัวแย่งงานเดียวกัน
     },
   };
   const first = f.dispatcher(slow).drainTenant(f.tenants[0]);
-  // รอให้ตัวแรกจองแถวแล้ว
-  await until(() => sent.length > 0, 'dispatcher ตัวแรกจองงาน');
+  // wait until the first one has claimed the row
+  await until(() => sent.length > 0, 'the first dispatcher claims the job');
   assert.deepEqual(await f.dispatcher(slow).drainTenant(f.tenants[0]), []);
   release();
   assert.deepEqual(await first, ['SENT']);
   assert.deepEqual(sent, [messageIdFor(id)]);
 
-  // จองแล้ว process ตาย (ไม่ปิดงาน) → lease หมดแล้วตัวใหม่จองต่อได้ และตัวเก่าที่กลับมาปิดงานทับไม่ได้
+  // claimed then the process dies (the job is not closed) → the lease expires, a new one can claim it, and the old one coming back cannot close over it
   const crashed = await f.enqueue();
   const hung: EmailSender = { send: () => new Promise(() => undefined) };
   void f.dispatcher(hung).dispatchNext(f.tenants[0]);
-  await until(async () => (await f.row(crashed.id)).status === 'SENDING', 'งานถูกจอง');
+  await until(async () => (await f.row(crashed.id)).status === 'SENDING', 'the job is claimed');
   assert.deepEqual(await f.dispatcher(mailpit).drainTenant(f.tenants[0]), []);
   f.advance(60_001);
   assert.deepEqual(await f.dispatcher(mailpit).drainTenant(f.tenants[0]), ['SENT']);
@@ -254,7 +254,7 @@ test('dispatcher สองตัวแย่งงานเดียวกัน
   assert.deepEqual([reclaimed.status, reclaimed.attempts], ['SENT', 2]);
 });
 
-test('log ไม่มีอีเมลผู้รับหรือ token', async (t) => {
+test('the log has no recipient email or token', async (t) => {
   const f = await setup(t);
   const ok = await f.enqueue();
   const retry = await f.enqueue();
@@ -269,7 +269,7 @@ test('log ไม่มีอีเมลผู้รับหรือ token', a
   }
 });
 
-test('RLS: tenant อื่นอ่าน outbox ไม่เห็น และ role ของแอปลบแถวไม่ได้', async (t) => {
+test('RLS: another tenant cannot see the outbox, and the app role cannot delete rows', async (t) => {
   const f = await setup(t);
   const { id } = await f.enqueue();
   const seen = await withTenantDatabaseTransaction(application, f.tenants[1], (tx) =>

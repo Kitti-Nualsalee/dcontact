@@ -239,7 +239,7 @@ test('supervisor sees and controls only its team while admin sees the tenant sna
     method: 'PUT',
     body: JSON.stringify({
       state: 'BREAK',
-      reason: 'ห้ามรบกวนสายที่กำลัง active',
+      reason: 'Do not disturb a call that is active',
       commandId: '04e5b24d-f298-4e5e-83d9-2cadfd7ed204',
     }),
   });
@@ -248,7 +248,7 @@ test('supervisor sees and controls only its team while admin sees the tenant sna
     method: 'PUT',
     body: JSON.stringify({
       state: 'BREAK',
-      reason: 'พักตามตาราง',
+      reason: 'Scheduled break',
       commandId: 'e5e94bea-4a4f-4f45-a4fb-d0d1db07e899',
     }),
   });
@@ -256,13 +256,13 @@ test('supervisor sees and controls only its team while admin sees the tenant sna
   assert.deepEqual(await forced.json(), {
     agentId: safeAgentId,
     state: 'BREAK',
-    reason: 'พักตามตาราง',
+    reason: 'Scheduled break',
   });
   const repeatedForce = await request(`/agents/${safeAgentId}/state`, 'supervisor-token', {
     method: 'PUT',
     body: JSON.stringify({
       state: 'BREAK',
-      reason: 'พักตามตาราง',
+      reason: 'Scheduled break',
       commandId: 'e5e94bea-4a4f-4f45-a4fb-d0d1db07e899',
     }),
   });
@@ -270,13 +270,13 @@ test('supervisor sees and controls only its team while admin sees the tenant sna
   assert.deepEqual(await repeatedForce.json(), {
     agentId: safeAgentId,
     state: 'BREAK',
-    reason: 'พักตามตาราง',
+    reason: 'Scheduled break',
   });
   assert.equal(
     (
       await request(`/agents/${agentBId}/state`, 'supervisor-token', {
         method: 'PUT',
-        body: JSON.stringify({ state: 'BREAK', reason: 'ข้ามทีม' }),
+        body: JSON.stringify({ state: 'BREAK', reason: 'Cross-team' }),
       })
     ).status,
     403,
@@ -286,7 +286,7 @@ test('supervisor sees and controls only its team while admin sees the tenant sna
       (
         await request(`/agents/${agentAId}/state`, 'supervisor-token', {
           method: 'PUT',
-          body: JSON.stringify({ state, reason: 'ห้าม force' }),
+          body: JSON.stringify({ state, reason: 'Do not force' }),
         })
       ).status,
       400,
@@ -297,7 +297,7 @@ test('supervisor sees and controls only its team while admin sees the tenant sna
     method: 'PUT',
     body: JSON.stringify({
       isActive: false,
-      reason: 'ปิดรับสายชั่วคราว',
+      reason: 'Temporarily stop taking calls',
       commandId: '48ef8d3d-c90e-4e71-a5e0-ebd58d78de59',
     }),
   });
@@ -307,7 +307,7 @@ test('supervisor sees and controls only its team while admin sees the tenant sna
     (
       await request(`/queues/${queueBId}/availability`, 'supervisor-token', {
         method: 'PUT',
-        body: JSON.stringify({ isActive: false, reason: 'ข้ามทีม' }),
+        body: JSON.stringify({ isActive: false, reason: 'Cross-team' }),
       })
     ).status,
     403,
@@ -319,7 +319,7 @@ test('supervisor sees and controls only its team while admin sees the tenant sna
   assert.deepEqual(afterDisable.interactions, [{ id: activeInteractionId, state: 'ACTIVE' }]);
   assert.ok(
     afterDisable.audit.some(
-      (event) => event.action === 'AGENT_STATE_FORCED' && event.reason === 'พักตามตาราง',
+      (event) => event.action === 'AGENT_STATE_FORCED' && event.reason === 'Scheduled break',
     ),
   );
   assert.ok(afterDisable.audit.some((event) => event.action === 'QUEUE_DISABLED'));

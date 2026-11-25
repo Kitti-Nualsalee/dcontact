@@ -251,8 +251,8 @@ export class QmController {
           existing?.status === 'FAILED' &&
           existing.failureCode === QM_RECORDING_FAILURE_CODES.RECORDING_NOT_ARCHIVED
         ) {
-          // #990: QM worker เลิกรอ archive เมื่อครบเพดาน แต่ Telephony อาจ archive ได้ภายหลัง (storage ล่มนาน)
-          // เปิด job เดิมใหม่แทนการสร้างแถวใหม่ เพราะ job มี unique (tenant_id, interaction_id)
+          // #990: the QM worker stops waiting for the archive at the cap but Telephony may archive later (a long storage outage)
+          // reopen the original job instead of creating a new row, because a job has unique (tenant_id, interaction_id)
           if (existing.recordingId !== recording.id || !recording.archivedAt) {
             throw new ConflictException({
               code: QM_RECORDING_FAILURE_CODES.RECORDING_NOT_ARCHIVED,
@@ -287,7 +287,7 @@ export class QmController {
                 resourceType: 'TRANSCRIPTION_JOB',
                 resourceId: existing.id,
                 details: {
-                  // trigger ของ job ไม่เปลี่ยน (เช่น AUTOMATIC) ส่วนการขอเปิดใหม่มาจากคนเสมอ
+                  // the job's trigger is unchanged (e.g. AUTOMATIC) while a reopen request always comes from a person
                   requestTrigger: 'MANUAL',
                   jobTrigger: existing.trigger,
                   reopened: true,
@@ -330,8 +330,8 @@ export class QmController {
       },
     );
     if (result.shouldDispatch) {
-      // claim ก่อน publish (เหมือน QmTranscriptionWorkflow ของ apps/qm): ไม่ทับ dispatchedAt ที่ QM worker ล้างไว้
-      // ตอนเลื่อน job ที่รอ recording archive และไม่ publish job ที่มี nextAttemptAt ซึ่ง QmRetryDispatcher ดูแลอยู่
+      // claim before publish (like QmTranscriptionWorkflow of apps/qm): do not overwrite the dispatchedAt that the QM worker cleared
+      // when it postponed a job waiting for the recording archive, and do not publish a job with nextAttemptAt, which QmRetryDispatcher handles
       const dispatchedAt = new Date();
       const claimed = await withTenantDatabaseTransaction(
         this.database,
@@ -512,7 +512,7 @@ export class QmController {
               },
             },
           },
-          // #971: route นี้เป็นของ auto-QM เท่านั้น ผลประเมินโดยคนใช้ /api/v1/qm/interactions/:id/human-evaluation
+          // #971: this route belongs to auto-QM only; human evaluation results use /api/v1/qm/interactions/:id/human-evaluation
           qmEvaluations: {
             where: { source: 'AUTO_DRAFT' },
             orderBy: { createdAt: 'desc' },

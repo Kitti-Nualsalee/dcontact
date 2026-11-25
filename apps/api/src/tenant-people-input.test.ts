@@ -8,7 +8,7 @@ const teamId = '10a1d4f0-35f4-477a-922d-e3b527b612b1';
 const input = {
   commandId,
   teamId,
-  displayName: 'ทดสอบ ทีม',
+  displayName: 'Test Team',
   email: 'Agent@EXAMPLE.TEST',
   role: 'AGENT',
   extension: '1104',
@@ -26,28 +26,28 @@ function invalid(value: unknown, field: string) {
   );
 }
 
-test('normalize create คง local-part และ derive username จาก email เท่านั้น', () => {
-  const result = normalizePeopleCreate({ ...input, displayName: '  ทดสอบ   ทีม  ' });
-  assert.equal(result.displayName, 'ทดสอบ ทีม');
+test('normalize create keeps the local-part and derives the username from the email only', () => {
+  const result = normalizePeopleCreate({ ...input, displayName: '  Test   Team  ' });
+  assert.equal(result.displayName, 'Test Team');
   assert.equal(result.email, 'Agent@example.test');
   assert.equal(result.username, result.email);
   assert.equal(result.teamId, teamId);
 });
 
-test('email ใช้ IDNA lowercase และ trailing-dot normalization แบบ first-admin', () => {
+test('email uses IDNA lowercase and trailing-dot normalization like the first-admin', () => {
   assert.equal(
     normalizePeopleCreate({ ...input, email: 'Agent@BÜCHER.TEST.' }).email,
     'Agent@xn--bcher-kva.test',
   );
 });
 
-test('digest ของ payload normalized ไม่เปลี่ยนจาก field order/commandId/whitespace', () => {
+test('the digest of the normalized payload does not change with field order/commandId/whitespace', () => {
   const normalized = normalizePeopleCreate(input);
   const equivalent = normalizePeopleCreate({
     extension: '1104',
     role: 'AGENT',
     email: ' Agent@example.test ',
-    displayName: ' ทดสอบ  ทีม ',
+    displayName: ' Test  Team ',
     teamId: teamId.toUpperCase(),
     commandId: '10a1d4f0-35f4-477a-922d-e3b527b612b2',
   });
@@ -72,7 +72,7 @@ test('digest ของ payload normalized ไม่เปลี่ยนจา�
   );
 });
 
-test('รับเฉพาะสาม domain roles และ extension เฉพาะ AGENT', () => {
+test('accepts only the three domain roles and an extension only for AGENT', () => {
   for (const role of ['SUPERVISOR', 'ADMIN']) {
     assert.equal(normalizePeopleCreate({ ...input, role, extension: null }).extension, null);
     const { extension, ...withoutExtension } = input;
@@ -86,7 +86,7 @@ test('รับเฉพาะสาม domain roles และ extension เฉ�
   }
 });
 
-test('ไม่รับ identity/authority/credential/unknown attributes จาก browser', () => {
+test('does not accept identity/authority/credential/unknown attributes from the browser', () => {
   for (const field of [
     'tenantId',
     'userId',
@@ -104,24 +104,17 @@ test('ไม่รับ identity/authority/credential/unknown attributes จา
   for (const value of [null, [], 'create', 12]) invalid(value, 'body');
 });
 
-test('ชื่อใช้ Unicode codepoints 1–120 และปฏิเสธ control ก่อนยุบ whitespace', () => {
+test('the name uses Unicode codepoints 1–120 and rejects control characters before collapsing whitespace', () => {
   assert.equal(
     normalizePeopleCreate({ ...input, displayName: '😀'.repeat(120) }).displayName.length,
     240,
   );
-  for (const displayName of [
-    '',
-    ' ',
-    '😀'.repeat(121),
-    'ชื่อ\nใหม่',
-    'ชื่อ\tใหม่',
-    'ชื่อ\u0000ใหม่',
-  ]) {
+  for (const displayName of ['', ' ', '😀'.repeat(121), 'Name\nNew', 'Name\tNew', 'Name\x00New']) {
     invalid({ ...input, displayName }, 'displayName');
   }
 });
 
-test('email ปฏิเสธ malformed/controls/URL/เกินความยาวโดยไม่คืน payload', () => {
+test('email rejects malformed/controls/URL/over-length without returning the payload', () => {
   invalid({ ...input, email: 'Agent\u200b@example.test' }, 'email');
   invalid({ ...input, displayName: 'Agent\u200b' }, 'displayName');
   for (const email of [
@@ -138,7 +131,7 @@ test('email ปฏิเสธ malformed/controls/URL/เกินความ�
   }
 });
 
-test('team และ command ต้องเป็น UUID; canonical เป็น lowercase', () => {
+test('team and command must be UUIDs; canonical is lowercase', () => {
   assert.equal(
     normalizePeopleCreate({ ...input, commandId: commandId.toUpperCase() }).commandId,
     commandId,

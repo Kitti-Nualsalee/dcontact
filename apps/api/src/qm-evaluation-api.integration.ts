@@ -1,4 +1,4 @@
-/** #971: HTTP → PostgreSQL ด้วย application role ที่ไม่ bypass RLS */
+/** #971: HTTP → PostgreSQL with an application role that does not bypass RLS */
 import 'reflect-metadata';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -40,20 +40,33 @@ const FORM = {
   sections: [
     {
       id: 'opening',
-      name: 'การเปิดสาย',
+      name: 'Call opening',
       weight: 20,
       questions: [
-        { id: 'greet', type: 'YES_NO', text: 'กล่าวชื่อบริษัทและชื่อตัวเอง', points: 10 },
-        { id: 'verify', type: 'YES_NO', text: 'ยืนยันตัวตนลูกค้า', points: 10, autoFail: true },
+        { id: 'greet', type: 'YES_NO', text: 'States company name and own name', points: 10 },
+        {
+          id: 'verify',
+          type: 'YES_NO',
+          text: 'Verifies customer identity',
+          points: 10,
+          autoFail: true,
+        },
       ],
     },
     {
       id: 'solve',
-      name: 'การแก้ปัญหา',
+      name: 'Problem solving',
       weight: 80,
       questions: [
-        { id: 'tone', type: 'SCALE', text: 'น้ำเสียง', points: 10, scale: [1, 5], allowNa: true },
-        { id: 'note', type: 'TEXT', text: 'สิ่งที่ทำได้ดี' },
+        {
+          id: 'tone',
+          type: 'SCALE',
+          text: 'Tone of voice',
+          points: 10,
+          scale: [1, 5],
+          allowNa: true,
+        },
+        { id: 'note', type: 'TEXT', text: 'What went well' },
       ],
     },
   ],
@@ -136,7 +149,7 @@ async function fixture(t: TestContext, enabled: boolean) {
     data: { id: ids.queue, tenantId, name: 'Support', channels: ['VOICE'] },
   });
 
-  /** สายที่จบแล้ว; `team` คือทีมที่ Router บันทึกตอนรับสาย (undefined = ไม่มีหลักฐาน) */
+  /** a finished call; `team` is the team the Router recorded at answer time (undefined = no evidence) */
   async function call(input: {
     agentId: string;
     team?: string;
@@ -191,7 +204,7 @@ async function fixture(t: TestContext, enabled: boolean) {
   await app.listen(0, '127.0.0.1');
   t.after(async () => {
     await app.close();
-    // ผลประเมินที่ publish แล้วถูก trigger กันลบ: ล้างข้อมูลทดสอบโดยปิด trigger เฉพาะ transaction นี้
+    // a published evaluation is protected from deletion by a trigger: clean up test data by disabling the trigger for this transaction only
     await owner.$transaction(async (tx) => {
       await tx.$executeRaw`SET LOCAL session_replication_role = 'replica'`;
       for (const tenant of [tenantId, foreignTenantId]) {
@@ -238,7 +251,7 @@ async function fixture(t: TestContext, enabled: boolean) {
       admin: token(tenantId, ids.admin, 'admin'),
       foreignSupervisor: token(foreignTenantId, ids.foreignSupervisor, 'supervisor'),
       foreignAdmin: token(foreignTenantId, ids.foreignAdmin, 'admin'),
-      /** token อ้างเป็น admin แต่ DB เป็น Supervisor */
+      /** the token claims admin but the DB says Supervisor */
       forgedAdmin: token(tenantId, ids.supervisorA, 'admin'),
     },
   };
@@ -246,7 +259,7 @@ async function fixture(t: TestContext, enabled: boolean) {
 
 type Fixture = Awaited<ReturnType<typeof fixture>>;
 
-async function publishedForm(f: Fixture, name = 'แบบประเมินสายเข้า') {
+async function publishedForm(f: Fixture, name = 'Inbound call evaluation') {
   const created = await f.http(f.tokens.admin, 'POST', '/forms', {
     commandId: randomUUID(),
     name,
@@ -266,7 +279,7 @@ async function publishedForm(f: Fixture, name = 'แบบประเมิน�
   return published.json;
 }
 
-test('สวิตช์ปิดเป็นค่าเริ่มต้น: ทุก route ตอบ 403 FEATURE_DISABLED', async (t) => {
+test('the switch is off by default: every route returns 403 FEATURE_DISABLED', async (t) => {
   const f = await fixture(t, false);
   for (const [bearer, path] of [
     [f.tokens.admin, '/forms'],
@@ -279,14 +292,14 @@ test('สวิตช์ปิดเป็นค่าเริ่มต้น: 
   }
 });
 
-test('Admin สร้าง แก้ร่าง publish และออกเวอร์ชันใหม่ เวอร์ชันที่ publish แล้วแก้ไม่ได้', async (t) => {
+test('Admin creates, edits a draft, publishes and issues a new version; a published version cannot be edited', async (t) => {
   const f = await fixture(t, true);
   const created = await f.http(f.tokens.admin, 'POST', '/forms', {
     commandId: randomUUID(),
-    name: '  ฟอร์มหลัก ',
+    name: '  Main form ',
   });
   assert.equal(created.status, 201);
-  assert.equal(created.json.name, 'ฟอร์มหลัก');
+  assert.equal(created.json.name, 'Main form');
   assert.deepEqual(created.json.draft.definition, {
     scoreMethod: 'WEIGHTED_POINTS',
     requireCommentBelow: null,
@@ -294,15 +307,15 @@ test('Admin สร้าง แก้ร่าง publish และออกเ�
   });
   const formId = created.json.formId as string;
 
-  // ชื่อซ้ำไม่สนตัวพิมพ์และช่องว่าง
+  // a duplicate name ignores case and whitespace
   const duplicate = await f.http(f.tokens.admin, 'POST', '/forms', {
     commandId: randomUUID(),
-    name: 'ฟอร์มหลัก',
+    name: 'Main form',
   });
   assert.equal(duplicate.status, 409);
   assert.equal(duplicate.json.code, 'FORM_NAME_TAKEN');
 
-  // ร่างว่าง publish ไม่ได้
+  // an empty draft cannot be published
   const empty = await f.http(f.tokens.admin, 'POST', `/forms/${formId}/draft/publish`, {
     commandId: randomUUID(),
     revision: 1,
@@ -310,7 +323,7 @@ test('Admin สร้าง แก้ร่าง publish และออกเ�
   assert.equal(empty.status, 422);
   assert.deepEqual(empty.json.errors, [{ path: 'sections', code: 'EMPTY_FORM' }]);
 
-  // Supervisor ยังไม่เห็นฟอร์มที่ไม่มีเวอร์ชันใช้งาน
+  // a Supervisor does not yet see a form with no active version
   assert.deepEqual((await f.http(f.tokens.supervisorA, 'GET', '/forms')).json.items, []);
 
   const saved = await f.http(f.tokens.admin, 'PUT', `/forms/${formId}/draft`, {
@@ -334,7 +347,7 @@ test('Admin สร้าง แก้ร่าง publish และออกเ�
   assert.equal(published.status, 200);
   assert.equal(published.json.draft, null);
   assert.equal(published.json.current.version, 1);
-  // retry ด้วย commandId เดิมได้ผลเดิม
+  // retry with the same commandId gives the same result
   const replay = await f.http(f.tokens.admin, 'POST', `/forms/${formId}/draft/publish`, {
     commandId: publishCommand,
     revision: 2,
@@ -349,10 +362,10 @@ test('Admin สร้าง แก้ร่าง publish และออกเ�
       item.current.questionCount,
       'draft' in item,
     ]),
-    [['ฟอร์มหลัก', 1, 4, false]],
+    [['Main form', 1, 4, false]],
   );
 
-  // แก้เวอร์ชันที่ publish แล้วตรง ๆ ใน DB ไม่ได้
+  // a published version cannot be edited directly in the DB
   await assert.rejects(
     owner.qmFormVersion.updateMany({
       where: { tenantId: f.tenantId, formId, version: 1 },
@@ -365,7 +378,7 @@ test('Admin สร้าง แก้ร่าง publish และออกเ�
     /QM_FORM_VERSION_IMMUTABLE/,
   );
 
-  // ออกร่างเวอร์ชันใหม่จากเวอร์ชันที่ใช้อยู่ แล้ว publish แทน
+  // issue a new draft version from the active one, then publish it as the replacement
   const draft2 = await f.http(f.tokens.admin, 'POST', `/forms/${formId}/draft`, {
     commandId: randomUUID(),
   });
@@ -393,17 +406,17 @@ test('Admin สร้าง แก้ร่าง publish และออกเ�
   assert.equal(audits, 2);
 });
 
-test('ฟอร์มใช้ได้เฉพาะ Admin ปัจจุบันของ tenant เดียวกัน', async (t) => {
+test('forms are usable only by a current Admin of the same tenant', async (t) => {
   const f = await fixture(t, true);
   const form = await publishedForm(f);
-  // role ใน token ไม่พอ ต้องเป็น ADMIN ใน DB
+  // the role in the token is not enough; it must be ADMIN in the DB
   const forged = await f.http(f.tokens.forgedAdmin, 'POST', '/forms', {
     commandId: randomUUID(),
-    name: 'ปลอม',
+    name: 'Fake',
   });
   assert.equal(forged.status, 403);
   assert.equal((await f.http(f.tokens.supervisorA, 'GET', `/forms/${form.formId}`)).status, 403);
-  // tenant อื่นมองไม่เห็นทั้งรายการและรายละเอียด
+  // another tenant sees neither the list nor the details
   assert.deepEqual((await f.http(f.tokens.foreignAdmin, 'GET', '/forms')).json.items, []);
   assert.equal((await f.http(f.tokens.foreignAdmin, 'GET', `/forms/${form.formId}`)).status, 404);
   assert.equal(
@@ -411,12 +424,12 @@ test('ฟอร์มใช้ได้เฉพาะ Admin ปัจจุบ�
       .status,
     404,
   );
-  // Admin ที่ถูกปิดบัญชีถูกปฏิเสธทันที
+  // a disabled Admin is rejected immediately
   await owner.user.update({ where: { id: f.ids.admin }, data: { isActive: false } });
   assert.equal((await f.http(f.tokens.admin, 'GET', '/forms')).status, 403);
 });
 
-test('Supervisor ประเมินสายที่ทีมตัวเองรับ บันทึกร่าง แล้ว publish; Agent เห็นผลของตัวเอง', async (t) => {
+test('a Supervisor evaluates calls answered by their own team, saves a draft, then publishes; an Agent sees their own result', async (t) => {
   const f = await fixture(t, true);
   const form = await publishedForm(f);
   const versionId = form.current.versionId as string;
@@ -451,7 +464,7 @@ test('Supervisor ประเมินสายที่ทีมตัวเอ
     [[teamCall, 'Agent A', null]],
   );
 
-  // ทีมอื่น, tenant อื่น และสายที่ตัวเองรับ
+  // another team, another tenant, and a call they answered themselves
   assert.equal(
     (await f.http(f.tokens.supervisorA, 'GET', `/interactions/${otherTeamCall}/human-evaluation`))
       .status,
@@ -478,7 +491,7 @@ test('Supervisor ประเมินสายที่ทีมตัวเอ
   assert.equal(empty.json.evaluation, null);
   assert.equal(empty.json.interaction.agentName, 'Agent A');
 
-  // ร่างแรก: ตอบไม่ครบได้ ยังไม่มีคะแนน
+  // first draft: incomplete answers are allowed, no score yet
   const firstCommand = randomUUID();
   const firstBody = {
     commandId: firstCommand,
@@ -496,9 +509,9 @@ test('Supervisor ประเมินสายที่ทีมตัวเอ
   assert.equal(first.json.evaluation.revision, 1);
   assert.equal(first.json.evaluation.score, null);
   assert.deepEqual(first.json.evaluation.progress, { answered: 1, required: 3 });
-  assert.equal(first.json.evaluation.form.formName, 'แบบประเมินสายเข้า');
+  assert.equal(first.json.evaluation.form.formName, 'Inbound call evaluation');
 
-  // retry ด้วย commandId เดิมไม่สร้างผลซ้ำ; payload ต่างได้ conflict
+  // retry with the same commandId does not create a duplicate result; a different payload gets a conflict
   const replay = await f.http(
     f.tokens.supervisorA,
     'PUT',
@@ -518,7 +531,7 @@ test('Supervisor ประเมินสายที่ทีมตัวเอ
   assert.equal(mismatch.json.code, 'COMMAND_PAYLOAD_MISMATCH');
   assert.equal(await owner.qmEvaluation.count({ where: { tenantId: f.tenantId } }), 1);
 
-  // ร่างที่ล้าสมัย
+  // stale draft
   const stale = await f.http(
     f.tokens.secondSupervisorA,
     'PUT',
@@ -531,7 +544,7 @@ test('Supervisor ประเมินสายที่ทีมตัวเอ
   );
   assert.equal(stale.json.code, 'STALE_REVISION');
 
-  // publish ทั้งที่ตอบไม่ครบ
+  // publish with incomplete answers
   const incomplete = await f.http(
     f.tokens.supervisorA,
     'POST',
@@ -547,7 +560,7 @@ test('Supervisor ประเมินสายที่ทีมตัวเอ
     ['answers.verify', 'answers.tone'],
   );
 
-  // ตอบครบแต่ auto-fail และไม่มีความเห็น — คะแนนต่ำกว่าเกณฑ์ต้องเขียนเหตุผล
+  // fully answered but auto-fail and no comment — a score below the threshold must have a reason
   const complete = await f.http(
     f.tokens.secondSupervisorA,
     'PUT',
@@ -560,7 +573,7 @@ test('Supervisor ประเมินสายที่ทีมตัวเอ
         greet: { value: true },
         verify: { value: false },
         tone: { value: 4 },
-        note: { value: 'สุภาพ' },
+        note: { value: 'Polite' },
       },
     },
   );
@@ -588,7 +601,7 @@ test('Supervisor ประเมินสายที่ทีมตัวเอ
       formVersionId: versionId,
       revision: 2,
       answers: complete.json.evaluation.answers,
-      comment: 'ไม่ยืนยันตัวตนก่อนเปิดเผยข้อมูล',
+      comment: 'Did not verify identity before disclosing information',
     },
   );
   assert.equal(commented.json.evaluation.revision, 3);
@@ -632,7 +645,7 @@ test('Supervisor ประเมินสายที่ทีมตัวเอ
   );
   assert.deepEqual(publishReplay.json, published.json);
 
-  // publish แล้วแก้ไม่ได้ทั้งผ่าน API และตรงใน DB
+  // once published it cannot be edited, through the API or directly in the DB
   const edit = await f.http(
     f.tokens.supervisorA,
     'PUT',
@@ -662,7 +675,7 @@ test('Supervisor ประเมินสายที่ทีมตัวเอ
   });
   assert.equal((audit.details as Json).source, 'HUMAN');
 
-  // รายการของ Supervisor แสดงสถานะและคะแนน
+  // the Supervisor list shows status and score
   const afterList = await f.http(
     f.tokens.supervisorA,
     'GET',
@@ -679,7 +692,7 @@ test('Supervisor ประเมินสายที่ทีมตัวเอ
     [],
   );
 
-  // Agent เห็นผลของตัวเองพร้อมคำตอบรายข้อจาก snapshot
+  // the Agent sees their own result with per-item answers from the snapshot
   const mine = await f.http(f.tokens.agentA, 'GET', '/my-evaluations');
   assert.equal(mine.status, 200);
   assert.deepEqual(
@@ -690,19 +703,19 @@ test('Supervisor ประเมินสายที่ทีมตัวเอ
       item.rawScore,
       item.autoFailed,
     ]),
-    [[evaluation.evaluationId, 'แบบประเมินสายเข้า', 0, 70, true]],
+    [[evaluation.evaluationId, 'Inbound call evaluation', 0, 70, true]],
   );
   const detail = await f.http(f.tokens.agentA, 'GET', `/my-evaluations/${evaluation.evaluationId}`);
-  assert.equal(detail.json.comment, 'ไม่ยืนยันตัวตนก่อนเปิดเผยข้อมูล');
+  assert.equal(detail.json.comment, 'Did not verify identity before disclosing information');
   assert.deepEqual(detail.json.answers.verify, { value: false });
   assert.equal(detail.json.form.definition.sections.length, 2);
-  // Agent อื่นมองไม่เห็น
+  // another Agent cannot see it
   assert.deepEqual((await f.http(f.tokens.agentB, 'GET', '/my-evaluations')).json.items, []);
   assert.equal(
     (await f.http(f.tokens.agentB, 'GET', `/my-evaluations/${evaluation.evaluationId}`)).status,
     404,
   );
-  // Supervisor ทีมอื่นไม่เห็นรายละเอียด
+  // a Supervisor of another team does not see the details
   assert.equal(
     (await f.http(f.tokens.supervisorB, 'GET', `/interactions/${teamCall}/human-evaluation`))
       .status,
@@ -710,7 +723,7 @@ test('Supervisor ประเมินสายที่ทีมตัวเอ
   );
 });
 
-test('Agent ไม่เห็นร่าง และ Supervisor ที่ย้ายทีมเสียสิทธิ์ทันที', async (t) => {
+test('an Agent does not see drafts, and a Supervisor who moves team loses access immediately', async (t) => {
   const f = await fixture(t, true);
   const form = await publishedForm(f);
   const teamCall = await f.call({
@@ -730,7 +743,7 @@ test('Agent ไม่เห็นร่าง และ Supervisor ที่ย�
     },
   );
   assert.equal(draft.status, 200);
-  // retry ที่ลำดับ key ของคำตอบต่างกันยังเป็นคำสั่งเดิม
+  // a retry with a different answer key order is still the same command
   const reordered = await f.http(
     f.tokens.supervisorA,
     'PUT',
@@ -750,7 +763,7 @@ test('Agent ไม่เห็นร่าง และ Supervisor ที่ย�
   );
 
   await owner.user.update({ where: { id: f.ids.supervisorA }, data: { teamId: f.ids.teamB } });
-  // receipt เดิมไม่คืนผลให้ผู้ที่เสียสิทธิ์แล้ว
+  // the original receipt does not return a result to someone who lost access
   const replayAfterMove = await f.http(
     f.tokens.supervisorA,
     'PUT',
@@ -779,7 +792,7 @@ test('Agent ไม่เห็นร่าง และ Supervisor ที่ย�
   assert.equal(publish.status, 404);
 });
 
-test('ร่างเดิมใช้ฟอร์มเวอร์ชันที่ถูกแทนที่ต่อได้ แต่ร่างใหม่ต้องใช้เวอร์ชันปัจจุบัน', async (t) => {
+test('an existing draft can continue on a replaced form version, but a new draft must use the current version', async (t) => {
   const f = await fixture(t, true);
   const form = await publishedForm(f);
   const v1 = form.current.versionId as string;
@@ -810,7 +823,7 @@ test('ร่างเดิมใช้ฟอร์มเวอร์ชัน�
   });
   await f.http(f.tokens.admin, 'PUT', `/forms/${form.formId}/draft`, {
     revision: draft2.json.draft.revision,
-    name: 'แบบประเมินสายเข้า v2',
+    name: 'Inbound call evaluation v2',
     definition: { ...FORM, requireCommentBelow: null },
   });
   const v2 = await f.http(f.tokens.admin, 'POST', `/forms/${form.formId}/draft/publish`, {
@@ -843,8 +856,8 @@ test('ร่างเดิมใช้ฟอร์มเวอร์ชัน�
     },
   );
   assert.equal(continued.status, 200);
-  // snapshot คงชื่อและเวอร์ชันเดิมของฟอร์ม
-  assert.equal(continued.json.evaluation.form.formName, 'แบบประเมินสายเข้า');
+  // the snapshot keeps the original form name and version
+  assert.equal(continued.json.evaluation.form.formName, 'Inbound call evaluation');
   assert.equal(continued.json.evaluation.form.version, 1);
   const published = await f.http(
     f.tokens.supervisorA,

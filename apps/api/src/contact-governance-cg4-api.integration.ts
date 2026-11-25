@@ -169,7 +169,7 @@ async function dropTenant(tenantId: string): Promise<void> {
   await owner.cg4ExceptionHead.deleteMany({ where: { tenantId } });
   await owner.cg4Exception.deleteMany({ where: { tenantId } });
   await owner.cg4ContactExceptionHead.deleteMany({ where: { tenantId } });
-  // CG4.8 (#191): exception event ขยับ contact stream version ใน cg_contact_state_heads ด้วย
+  // CG4.8 (#191): an exception event also advances the contact stream version in cg_contact_state_heads
   await owner.cgContactStateHead.deleteMany({ where: { tenantId } });
   await owner.cg4PolicyApproval.deleteMany({ where: { tenantId } });
   await owner.cg4PolicyTestArtifact.deleteMany({ where: { tenantId } });
@@ -213,7 +213,7 @@ async function fixture(t: TestContext) {
   };
 
   @Module({
-    // CG4.10 (#193): legacy publish alias ต้องทำงานร่วมกับ controller ของ CG4 บน prefix เดียวกัน
+    // CG4.10 (#193): the legacy publish alias must work together with the CG4 controller on the same prefix
     controllers: [...CG4_API_CONTROLLERS, ContactGovernancePoliciesController],
     providers: [
       { provide: CG4_DATABASE, useValue: application },
@@ -301,14 +301,14 @@ function exceptionRequest(f: { primary: TenantFixture }, overrides: Record<strin
   };
 }
 
-test('subject ที่ไม่มีใน authorization store ถูกปฏิเสธแม้ gateway role จะผ่าน', async (t) => {
+test('a subject that is not in the authorization store is rejected even if the gateway role passes', async (t) => {
   const f = await fixture(t);
   const response = await post(`${f.base}/exceptions`, 'stranger-token', exceptionRequest(f));
   assert.equal(response.status, 403);
   assert.equal(((await response.json()) as { code: string }).code, 'CAPABILITY_REQUIRED');
 });
 
-test('maker สร้าง exception ได้ และ actorRef มาจาก identity ไม่ใช่ body', async (t) => {
+test('a maker can create an exception, and actorRef comes from the identity, not the body', async (t) => {
   const f = await fixture(t);
   const created = await post(
     `${f.base}/exceptions`,
@@ -322,11 +322,11 @@ test('maker สร้าง exception ได้ และ actorRef มาจา�
   const row = await owner.cg4Exception.findFirstOrThrow({
     where: { tenantId: f.primary.tenantId, exceptionId: payload.seriesId },
   });
-  assert.equal(row.actorRef, f.primary.maker, 'actorRef ต้องมาจาก verified identity');
-  assert.equal(row.tenantId, f.primary.tenantId, 'tenantId ใน body ต้องถูกละเว้น');
+  assert.equal(row.actorRef, f.primary.maker, 'actorRef must come from the verified identity');
+  assert.equal(row.tenantId, f.primary.tenantId, 'tenantId in the body must be ignored');
 });
 
-test('checker คนอื่น approve ได้ และ maker approve ตัวเองไม่ได้', async (t) => {
+test('another checker can approve, and a maker cannot approve their own', async (t) => {
   const f = await fixture(t);
   const created = await post(`${f.base}/exceptions`, 'maker-token', exceptionRequest(f));
   const { seriesId } = (await created.json()) as { seriesId: string };
@@ -360,7 +360,7 @@ test('checker คนอื่น approve ได้ และ maker approve ต�
   assert.equal(result.workflowState, 'APPROVED');
 });
 
-test('resource ของ tenant อื่นตอบ 404 แบบเดียวกับที่ไม่มีอยู่จริง', async (t) => {
+test('a resource of another tenant returns 404, the same as a nonexistent one', async (t) => {
   const f = await fixture(t);
   const created = await post(`${f.base}/exceptions`, 'maker-token', exceptionRequest(f));
   const { seriesId } = (await created.json()) as { seriesId: string };
@@ -372,7 +372,7 @@ test('resource ของ tenant อื่นตอบ 404 แบบเดีย�
   assert.deepEqual(await crossTenant.json(), await missing.json());
 });
 
-test('reader ที่ไม่มี approval capability เห็น evidence/ticket/actor เป็น digest เท่านั้น', async (t) => {
+test('a reader without approval capability sees evidence/ticket/actor only as digests', async (t) => {
   const f = await fixture(t);
   const created = await post(`${f.base}/exceptions`, 'maker-token', exceptionRequest(f));
   const { seriesId } = (await created.json()) as { seriesId: string };
@@ -397,7 +397,7 @@ test('reader ที่ไม่มี approval capability เห็น evidence/
   assert.equal(evidence.actorRef, f.primary.maker);
 });
 
-test('การอ่าน evidence ถูกบันทึกไว้ ส่วนการอ่านแบบ summary ไม่ถูกบันทึก', async (t) => {
+test('evidence reads are recorded, while summary reads are not', async (t) => {
   const f = await fixture(t);
   const created = await post(`${f.base}/exceptions`, 'maker-token', exceptionRequest(f));
   const { seriesId } = (await created.json()) as { seriesId: string };
@@ -412,7 +412,7 @@ test('การอ่าน evidence ถูกบันทึกไว้ ส่
   assert.equal(f.evidenceReads[0]?.viewerSubjectId, f.primary.checker);
 });
 
-test('Idempotency-Key ที่หายไปถูกปฏิเสธ และ key เดิม body ต่างเป็น conflict', async (t) => {
+test('a missing Idempotency-Key is rejected, and the same key with a different body is a conflict', async (t) => {
   const f = await fixture(t);
   const noKey = await fetch(`${f.base}/exceptions`, {
     method: 'POST',
@@ -439,7 +439,7 @@ test('Idempotency-Key ที่หายไปถูกปฏิเสธ แล
   assert.equal(((await conflicting.json()) as { code: string }).code, 'IDEMPOTENCY_CONFLICT');
 });
 
-test('expectedVersion ที่ล้าสมัยเป็น 409 VERSION_CONFLICT', async (t) => {
+test('a stale expectedVersion is a 409 VERSION_CONFLICT', async (t) => {
   const f = await fixture(t);
   await post(`${f.base}/exceptions`, 'maker-token', exceptionRequest(f));
   const stale = await post(
@@ -454,7 +454,7 @@ test('expectedVersion ที่ล้าสมัยเป็น 409 VERSION_CON
   assert.equal(((await stale.json()) as { code: string }).code, 'VERSION_CONFLICT');
 });
 
-test('GET คืน ETag ที่ผูกกับ revision ปัจจุบัน', async (t) => {
+test('GET returns an ETag bound to the current revision', async (t) => {
   const f = await fixture(t);
   const created = await post(`${f.base}/exceptions`, 'maker-token', exceptionRequest(f));
   const { seriesId } = (await created.json()) as { seriesId: string };
@@ -462,7 +462,7 @@ test('GET คืน ETag ที่ผูกกับ revision ปัจจุบ
   const etag = response.headers.get('etag');
   assert.ok(etag);
   assert.match(etag, new RegExp(`^"cg4-exception:${seriesId}:1:`));
-  // CG4.9 (#192): query คืน current CAS version ที่ Console ต้องส่งกลับเป็น expectedVersion (#179 §2)
+  // CG4.9 (#192): the query returns the current CAS version that the Console must send back as expectedVersion (#179 §2)
   const view = (await response.json()) as { aggregateVersion: number };
   assert.equal(view.aggregateVersion, 1);
   const listing = (await (
@@ -471,7 +471,7 @@ test('GET คืน ETag ที่ผูกกับ revision ปัจจุบ
   assert.equal(listing.exceptions[0]?.aggregateVersion, 1);
 });
 
-test('history และ contact listing ถูก redact ตาม viewer และไม่ข้าม tenant', async (t) => {
+test('history and contact listing are redacted per viewer and do not cross tenants', async (t) => {
   const f = await fixture(t);
   const created = await post(`${f.base}/exceptions`, 'maker-token', exceptionRequest(f));
   const { seriesId } = (await created.json()) as { seriesId: string };
@@ -486,7 +486,7 @@ test('history และ contact listing ถูก redact ตาม viewer แล
   const listed = (await listing.json()) as { exceptions: unknown[] };
   assert.equal(listed.exceptions.length, 1);
 
-  // contact ของ tenant นี้ เมื่อมองจาก tenant อื่น ต้องว่างเปล่า ไม่ใช่ 403 ที่บอกว่ามีอยู่
+  // this tenant's contact, seen from another tenant, must be empty, not a 403 that says it exists
   const crossTenant = await get(
     `${f.base}/contacts/${f.primary.contactId}/exceptions`,
     'other-maker-token',
@@ -495,7 +495,7 @@ test('history และ contact listing ถูก redact ตาม viewer แล
   assert.deepEqual(((await crossTenant.json()) as { exceptions: unknown[] }).exceptions, []);
 });
 
-test('policy draft สร้าง scope key จาก scope object ไม่ใช่จาก string ที่ caller ส่ง', async (t) => {
+test('a policy draft builds the scope key from the scope object, not from a string the caller sends', async (t) => {
   const f = await fixture(t);
   const created = await post(`${f.base}/policies`, 'maker-token', {
     scope: { channel: 'VOICE', purpose: 'SERVICE_NOTIFICATION' },
@@ -513,10 +513,10 @@ test('policy draft สร้าง scope key จาก scope object ไม่ใ
   });
   assert.equal(created.status, 201);
   const payload = (await created.json()) as { scopeKey: string; policyId: string };
-  assert.equal(payload.scopeKey, SCOPE_KEY, 'scopeKey ใน body ต้องถูกละเว้น');
+  assert.equal(payload.scopeKey, SCOPE_KEY, 'scopeKey in the body must be ignored');
 });
 
-test('content ที่หลุด non-overridable rule ถูกปฏิเสธที่ API', async (t) => {
+test('content that escapes a non-overridable rule is rejected at the API', async (t) => {
   const f = await fixture(t);
   const created = await post(`${f.base}/policies`, 'maker-token', {
     scope: { channel: 'VOICE', purpose: 'SERVICE_NOTIFICATION' },
@@ -535,16 +535,16 @@ test('content ที่หลุด non-overridable rule ถูกปฏิเ�
   assert.equal(((await created.json()) as { code: string }).code, 'NON_OVERRIDABLE_RULE');
 });
 
-test('agent role ที่ไม่มี grant ถูกกันตั้งแต่ gateway และ subject ที่ไม่มี capability ตรง scope ถูกกันที่ domain', async (t) => {
+test('an agent role without a grant is blocked at the gateway, and a subject without a capability matching the scope is blocked at the domain', async (t) => {
   const f = await fixture(t);
-  // reader มี subject อยู่ใน store แต่ไม่มี capability ใด ๆ
+  // the reader has a subject in the store but no capability at all
   const denied = await post(`${f.base}/exceptions`, 'reader-token', exceptionRequest(f));
   assert.equal(denied.status, 403);
   const payload = (await denied.json()) as { code: string; capability?: string };
   assert.equal(payload.code, 'CAPABILITY_REQUIRED');
 });
 
-test('kill switch เปิดได้และ list กรองตาม state', async (t) => {
+test('a kill switch can be opened and the list filters by state', async (t) => {
   const f = await fixture(t);
   const activated = await post(`${f.base}/kill-switches`, 'checker-token', {
     scopeKey: SCOPE_KEY,
@@ -559,12 +559,12 @@ test('kill switch เปิดได้และ list กรองตาม stat
   assert.equal(rows.killSwitches.length, 1);
   assert.equal(rows.killSwitches[0]?.killSwitchId, killSwitchId);
 
-  // tenant อื่นต้องไม่เห็น kill switch ของ tenant นี้
+  // another tenant must not see this tenant's kill switch
   const crossTenant = await get(`${f.base}/kill-switches?state=ACTIVE`, 'other-maker-token');
   assert.deepEqual(((await crossTenant.json()) as { killSwitches: unknown[] }).killSwitches, []);
 });
 
-test('kill switch clear ต้องเป็นคนละ subject และมี approval ref', async (t) => {
+test('a kill switch clear must be a different subject and have an approval ref', async (t) => {
   const f = await fixture(t);
   const activated = await post(`${f.base}/kill-switches`, 'checker-token', {
     scopeKey: SCOPE_KEY,
@@ -606,9 +606,9 @@ const POLICY_CONTENT = {
   holidays: [],
 };
 
-test('policy เดินครบวงจรผ่าน API: draft → tests → submit → approve → publish', async (t) => {
+test('a policy goes through the full cycle via the API: draft → tests → submit → approve → publish', async (t) => {
   const f = await fixture(t);
-  // ปล่อย scope ที่ fixture ยึดไว้ เพื่อให้ head ของ scope นี้ว่างสำหรับ publish จริง
+  // release the scope the fixture holds, so this scope head is free for a real publish
   await owner.cg4Policy.deleteMany({ where: { tenantId: f.primary.tenantId } });
 
   const created = await post(`${f.base}/policies`, 'maker-token', {
@@ -701,7 +701,7 @@ test('policy เดินครบวงจรผ่าน API: draft → tests 
   assert.equal(head.headVersion, 1);
 });
 
-test('CG4.10: legacy POST /policies/{id}/publish เข้า CG4 transaction เดียวกันพร้อม deprecation metadata', async (t) => {
+test('CG4.10: legacy POST /policies/{id}/publish enters the same CG4 transaction with deprecation metadata', async (t) => {
   const f = await fixture(t);
   await owner.cg4Policy.deleteMany({ where: { tenantId: f.primary.tenantId } });
 
@@ -717,7 +717,7 @@ test('CG4.10: legacy POST /policies/{id}/publish เข้า CG4 transaction �
     draftRevision: number;
   }>(created, 201);
 
-  // approvalRef อย่างเดียวไม่ใช่ authority: version ที่ยังไม่ผ่าน test/quorum ถูกปฏิเสธ
+  // approvalRef alone is not authority: a version that has not passed test/quorum is rejected
   const early = await post(`${f.base}/policies/${draft.policyVersionId}/publish`, 'checker-token', {
     expectedVersion: 1,
     approvalRef: 'approval://legacy',
@@ -790,7 +790,7 @@ test('CG4.10: legacy POST /policies/{id}/publish เข้า CG4 transaction �
   assert.equal(result.deprecation.deprecated, true);
   assert.match(result.deprecation.successor, /policy-versions\/\{versionId\}\/publish$/);
 
-  // retry ด้วย key เดิมคืน receipt เดิมจาก CG4 ไม่ขยับ head ซ้ำ
+  // retry with the same key returns the original receipt from CG4 and does not advance the head again
   const replay = await post(
     `${f.base}/policies/${draft.policyVersionId}/publish`,
     'checker-token',
@@ -806,7 +806,7 @@ test('CG4.10: legacy POST /policies/{id}/publish เข้า CG4 transaction �
   );
 });
 
-test('maker submit แล้ว approve ตัวเองไม่ได้ แม้จะมี publish capability', async (t) => {
+test('a maker submits and cannot approve their own, even with the publish capability', async (t) => {
   const f = await fixture(t);
   await owner.cg4CapabilityGrant.create({
     data: {
@@ -871,7 +871,7 @@ test('maker submit แล้ว approve ตัวเองไม่ได้ แ
   assert.equal(((await selfApproval.json()) as { code: string }).code, 'SELF_APPROVAL_FORBIDDEN');
 });
 
-test('exception ที่ approve แล้ว revoke ได้ และ history เก็บทุก revision', async (t) => {
+test('an approved exception can be revoked, and history keeps every revision', async (t) => {
   const f = await fixture(t);
   const created = await post(`${f.base}/exceptions`, 'maker-token', exceptionRequest(f));
   const { seriesId } = (await created.json()) as { seriesId: string };
@@ -903,7 +903,7 @@ test('exception ที่ approve แล้ว revoke ได้ และ histor
   assert.equal(body.revisions[0]?.revision, 1);
 });
 
-test('cancel ทำได้เฉพาะ maker ของ request นั้น', async (t) => {
+test('cancel is allowed only for the maker of that request', async (t) => {
   const f = await fixture(t);
   const created = await post(`${f.base}/exceptions`, 'maker-token', exceptionRequest(f));
   const { seriesId } = (await created.json()) as { seriesId: string };
@@ -938,7 +938,7 @@ test('cancel ทำได้เฉพาะ maker ของ request นั้น
     reasonCode: 'WITHDRAWN',
     evidenceRef: 'evidence://cancel',
   };
-  // checker มี capability แต่ไม่ใช่ maker — ต้องเป็น 404 ไม่ใช่ 403 ที่ยืนยันว่า resource มีอยู่
+  // the checker has the capability but is not the maker — must be 404, not a 403 that confirms the resource exists
   const byChecker = await post(`${f.base}/exceptions/${seriesId}/cancel`, 'checker-token', payload);
   assert.equal(byChecker.status, 404);
 
@@ -947,7 +947,7 @@ test('cancel ทำได้เฉพาะ maker ของ request นั้น
   assert.equal(cancelled.workflowState, 'CANCELLED');
 });
 
-test('CG4.11: acknowledgement query แบบ additive ตรวจ input และไม่ข้าม tenant', async (t) => {
+test('CG4.11: the additive acknowledgement query validates input and does not cross tenants', async (t) => {
   const f = await fixture(t);
   const aggregateId = randomUUID();
   await owner.cgConsumerAcknowledgement.create({
@@ -1005,7 +1005,7 @@ test('CG4.11: acknowledgement query แบบ additive ตรวจ input แล
   assert.deepEqual(otherTenant.acknowledgements, []);
 });
 
-test('CG4.11: observability คืน snapshot/alerts/metrics ของ tenant ตัวเองโดยไม่มี customer identifier', async (t) => {
+test('CG4.11: observability returns the own tenant snapshot/alerts/metrics without customer identifiers', async (t) => {
   const f = await fixture(t);
   await owner.cg4ScopeKillSwitch.create({
     data: {
@@ -1092,7 +1092,7 @@ async function seedQueueSeries(
   return exceptionId;
 }
 
-test('CG4.11+: GET /exceptions เป็นคิวระดับ tenant, cross-tenant คือว่างเปล่าไม่ใช่ 403, บันทึก evidence access ต่อรายการ', async (t) => {
+test('CG4.11+: GET /exceptions is a tenant-level queue, cross-tenant is empty not 403, records evidence access per item', async (t) => {
   const f = await fixture(t);
   const mine = await seedQueueSeries(f.primary, { tier: 'EMERGENCY' });
   await seedQueueSeries(f.other, { tier: 'EMERGENCY' });
@@ -1109,7 +1109,7 @@ test('CG4.11+: GET /exceptions เป็นคิวระดับ tenant, cros
     f.evidenceReads.some((read) => read.resourceKind === 'EXCEPTION' && read.level === 'EVIDENCE'),
   );
 
-  // tenant อื่นเห็นเฉพาะของตัวเอง (ว่างเปล่าถ้าไม่มี ไม่ใช่ 403 หรือเห็นของ tenant เรา)
+  // another tenant sees only its own (empty if none, not a 403 or seeing our tenant)
   const otherView = await expectJson<{ items: Array<{ seriesId: string }> }>(
     await get(`${f.base}/exceptions`, 'other-maker-token'),
     200,
@@ -1120,7 +1120,7 @@ test('CG4.11+: GET /exceptions เป็นคิวระดับ tenant, cros
   );
 });
 
-test('CG4.11+: GET /exceptions ปฏิเสธ filter ที่ผิดชนิดและ limit นอกช่วง', async (t) => {
+test('CG4.11+: GET /exceptions rejects a filter of the wrong type and an out-of-range limit', async (t) => {
   const f = await fixture(t);
   for (const query of [
     'riskTier=URGENT',
@@ -1136,9 +1136,9 @@ test('CG4.11+: GET /exceptions ปฏิเสธ filter ที่ผิดช�
 });
 
 /**
- * GET พร้อม If-None-Match: ใช้ตรวจว่า validator ที่ client ถืออยู่ยังตรงกับ body ปัจจุบันหรือไม่
- * ต้องส่ง `cache-control` เอง — ถ้าไม่ส่ง สเปก Fetch (undici) จะเติม `Cache-Control: no-cache` ให้เมื่อมี
- * If-None-Match ซึ่ง Express ถือว่า request ไม่ fresh และตอบ 200 เสมอ จึงทดสอบ 304 ไม่ได้
+ * GET with If-None-Match: checks whether the validator the client holds still matches the current body
+ * must send `cache-control` itself — otherwise the Fetch spec (undici) adds `Cache-Control: no-cache` when
+ * If-None-Match is present, which Express treats as a non-fresh request and always answers 200, so 304 could not be tested
  */
 function conditionalGet(url: string, token: string, etag: string) {
   return fetch(url, {
@@ -1150,7 +1150,7 @@ function conditionalGet(url: string, token: string, etag: string) {
   });
 }
 
-test('#673: ETag ของ exception เปลี่ยนเมื่อสถานะเปลี่ยน — client ที่ถือ ETag เก่าต้องไม่ได้ 304', async (t) => {
+test('#673: the exception ETag changes when the status changes — a client holding the old ETag must not get 304', async (t) => {
   const f = await fixture(t);
   const created = await post(`${f.base}/exceptions`, 'maker-token', exceptionRequest(f));
   const { seriesId } = (await created.json()) as { seriesId: string };
@@ -1160,7 +1160,7 @@ test('#673: ETag ของ exception เปลี่ยนเมื่อสถ�
   const pendingEtag = before.headers.get('etag');
   assert.ok(pendingEtag);
   assert.equal(((await before.json()) as { workflowState: string }).workflowState, 'PENDING');
-  // validator ยังใช้งานได้: ไม่มีอะไรเปลี่ยนก็ 304
+  // the validator still works: nothing changed gives 304
   assert.equal((await conditionalGet(url, 'checker-token', pendingEtag)).status, 304);
 
   const row = await owner.cg4Exception.findFirstOrThrow({
@@ -1176,7 +1176,7 @@ test('#673: ETag ของ exception เปลี่ยนเมื่อสถ�
   assert.equal(approved.status, 200);
 
   const after = await conditionalGet(url, 'checker-token', pendingEtag);
-  assert.equal(after.status, 200, 'ETag เก่าห้ามตรงกับ body ที่สถานะเปลี่ยนไปแล้ว');
+  assert.equal(after.status, 200, 'the old ETag must not match a body whose status has changed');
   const approvedEtag = after.headers.get('etag');
   assert.ok(approvedEtag);
   assert.notEqual(approvedEtag, pendingEtag);
@@ -1184,18 +1184,18 @@ test('#673: ETag ของ exception เปลี่ยนเมื่อสถ�
   assert.equal(((await after.json()) as { workflowState: string }).workflowState, 'APPROVED');
   assert.equal((await conditionalGet(url, 'checker-token', approvedEtag)).status, 304);
 
-  // body เดียวกัน = ETag เดียวกัน ไม่ว่าอ่านผ่าน detail หรือ listing ของ contact
+  // the same body = the same ETag, whether read via detail or the contact listing
   const listing = (await (
     await get(`${f.base}/contacts/${f.primary.contactId}/exceptions`, 'checker-token')
   ).json()) as { exceptions: Array<{ seriesId: string; etag: string }> };
   assert.equal(listing.exceptions.find((item) => item.seriesId === seriesId)?.etag, approvedEtag);
 
-  // ผู้อ่านที่เห็น evidence ต่างระดับได้ body ต่างกัน จึงต้องได้ ETag ต่างกัน
+  // readers who see evidence at different levels get different bodies, so they must get different ETags
   const reader = await get(url, 'reader-token');
   assert.notEqual(reader.headers.get('etag'), approvedEtag);
 });
 
-test('#673: ETag ของ policy version และ scope head เปลี่ยนตาม lifecycle และ kill switch', async (t) => {
+test('#673: the ETags of a policy version and scope head change with the lifecycle and kill switch', async (t) => {
   const f = await fixture(t);
   await owner.cg4Policy.deleteMany({ where: { tenantId: f.primary.tenantId } });
 
@@ -1218,7 +1218,7 @@ test('#673: ETag ของ policy version และ scope head เปลี่�
     const response = staleEtag
       ? await conditionalGet(versionUrl, 'checker-token', staleEtag)
       : await get(versionUrl, 'checker-token');
-    assert.equal(response.status, 200, 'ETag เก่าห้ามตรงกับ lifecycle ที่เปลี่ยนไปแล้ว');
+    assert.equal(response.status, 200, 'the old ETag must not match a lifecycle that has changed');
     const etag = response.headers.get('etag');
     assert.ok(etag);
     etags.push(etag);
@@ -1281,9 +1281,13 @@ test('#673: ETag ของ policy version และ scope head เปลี่�
     200,
   );
   await readVersionEtag(etags[etags.length - 1]);
-  assert.equal(new Set(etags).size, etags.length, 'ทุกสถานะของ policy version ต้องมี ETag ต่างกัน');
+  assert.equal(
+    new Set(etags).size,
+    etags.length,
+    'every policy version status must have a different ETag',
+  );
 
-  // scope head: kill switch มาจากตารางอื่น headVersion จึงไม่เปลี่ยน แต่ body เปลี่ยน
+  // scope head: the kill switch comes from another table so headVersion does not change, but the body does
   const scopeUrl = `${f.base}/policy-scopes/${encodeURIComponent(published.scopeKey)}/effective`;
   const scopeBefore = await get(scopeUrl, 'checker-token');
   const scopeEtag = scopeBefore.headers.get('etag');
@@ -1301,7 +1305,7 @@ test('#673: ETag ของ policy version และ scope head เปลี่�
   });
   assert.equal(activated.status, 201);
   const scopeAfter = await conditionalGet(scopeUrl, 'checker-token', scopeEtag);
-  assert.equal(scopeAfter.status, 200, 'kill switch ที่เปิดแล้วห้ามถูกซ่อนด้วย 304');
+  assert.equal(scopeAfter.status, 200, 'an opened kill switch must not be hidden by a 304');
   assert.notEqual(scopeAfter.headers.get('etag'), scopeEtag);
   assert.equal(((await scopeAfter.json()) as { killSwitchActive: boolean }).killSwitchActive, true);
 });

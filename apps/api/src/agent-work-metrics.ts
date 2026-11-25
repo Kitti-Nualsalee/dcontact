@@ -2,26 +2,26 @@ import { BadRequestException } from '@nestjs/common';
 import { Prisma } from '@d-contact/db';
 
 /**
- * #964 นิยามตัวเลข "งานของฉัน" ที่เดียว (ADR-019 ข้อ 1) — รายการประวัติและสรุปใช้ CTE และตัวกรองชุดนี้
- * งานที่จบ = งาน VOICE ของ Agent ที่ COMPLETED และมีผลบันทึก (หรือเป็นงาน LEGACY ก่อนระบบบันทึกผล)
- * งานเข้าช่วงเวลาตาม recorded_at; เวลาสนทนา = ended_at - answered_at เมื่อมีทั้งสองค่า
+ * #964 defines the "my work" numbers in one place (ADR-019 item 1) — the history list and summary use this CTE and filter set
+ * finished work = an Agent's VOICE work that is COMPLETED and has a wrap-up result (or is LEGACY work from before the result recording system)
+ * work falls in a period by recorded_at; conversation time = ended_at - answered_at when both values exist
  */
 export type WorkActor = { tenantId: string; userId: string };
 
 export const SUMMARY_PERIODS = ['today', '7d', '30d', 'all'] as const;
 export type SummaryPeriod = (typeof SUMMARY_PERIODS)[number];
 export const DEFAULT_SUMMARY_PERIOD: SummaryPeriod = '7d';
-/** ใช้กรองงานที่ไม่มีผลบันทึก (งานเดิม) — ผลบันทึกจริงไม่มีขีดล่างนำหน้า */
+/** used to filter work with no wrap-up result (old work) — a real wrap-up result has no leading underscore */
 export const NO_DISPOSITION = '__none__';
-/** wrap_up_code เป็น TEXT; endpoint LEGACY รับได้ถึง 80 ตัว — เผื่อค่าที่เก็บอยู่แล้ว */
+/** wrap_up_code is TEXT; the LEGACY endpoint accepts up to 80 characters — leaving room for values already stored */
 export const MAX_DISPOSITION_LENGTH = 256;
 
 export interface WorkFilter {
   from: Date | null;
   to: Date | null;
-  /** undefined = ทุกผลบันทึก, null = งานที่ไม่มีผลบันทึก */
+  /** undefined = every wrap-up result, null = work with no wrap-up result */
   disposition?: string | null;
-  /** #986 เฉพาะงานของ Agent คนนี้ในขอบเขตทีม */
+  /** #986 only this Agent's work within the team scope */
   agentId?: string;
 }
 
@@ -38,7 +38,7 @@ export function summaryPeriodFrom(value: unknown): SummaryPeriod {
   throw new BadRequestException({ code: 'INVALID_PERIOD' });
 }
 
-/** เขตเวลาของ tenant ที่ Intl รู้จัก ไม่เช่นนั้นใช้ UTC และรายงานค่าที่ใช้จริงกลับไป */
+/** the tenant time zone if Intl knows it, otherwise UTC, and reports the value actually used back */
 export function resolveTimeZone(value: string | null | undefined): string {
   if (!value) return 'UTC';
   try {
@@ -76,7 +76,7 @@ function wallClock(instant: number, timeZone: string) {
   };
 }
 
-/** เวลาเที่ยงคืนตามเขตเวลา ของวันที่ย้อนจากวันของ instant ไป daysBack วัน (ค่าลบ = วันถัดไป) */
+/** midnight in the time zone, for the day daysBack days before the day of the instant (a negative value = a later day) */
 export function zonedDayStart(instant: Date, timeZone: string, daysBack: number): Date {
   const today = wallClock(instant.getTime(), timeZone);
   const target = Date.UTC(today.year, today.month - 1, today.day - daysBack);
@@ -84,7 +84,7 @@ export function zonedDayStart(instant: Date, timeZone: string, daysBack: number)
   const offset = (at: number) => wallClock(at, timeZone).utc - Math.floor(at / 1000) * 1000;
   const first = target - offset(target);
   const second = target - offset(first);
-  // เที่ยงคืนที่หายไปตอนเปลี่ยน DST (เช่น America/Santiago) — ใช้ instant แรกที่ยังอยู่ในวันเป้าหมาย
+  // midnight that disappears at a DST change (e.g. America/Santiago) — use the first instant still within the target day
   const sameDay = [first, second].filter(
     (candidate) =>
       new Date(wallClock(candidate, timeZone).utc).toISOString().slice(0, 10) === targetDay,
@@ -92,7 +92,7 @@ export function zonedDayStart(instant: Date, timeZone: string, daysBack: number)
   return new Date(sameDay.length ? Math.min(...sameDay) : second);
 }
 
-/** ช่วงของสรุปสิ้นสุดที่เวลาคำนวณ (as of) — รายการที่ใช้ช่วงเดียวกันจึงไม่รวมงานที่จบหลังโหลดสรุป */
+/** the summary period ends at the as-of time — so lists using the same period do not include work that finished after the summary loaded */
 export function periodWindow(period: SummaryPeriod, now: Date, timeZone: string): WorkFilter {
   return {
     from: period === 'all' ? null : zonedDayStart(now, timeZone, PERIOD_DAYS[period]),
@@ -148,30 +148,30 @@ export function workFilterFrom(query: {
   };
 }
 
-/** ค่าที่ผูกกับ cursor เพื่อไม่ให้นำ cursor ของตัวกรองหนึ่งไปใช้กับอีกตัวกรอง */
+/** a value bound to the cursor so a cursor of one filter cannot be used with another filter */
 export function filterKey(filter: WorkFilter): string {
   return [
     filter.from?.toISOString() ?? '',
     filter.to?.toISOString() ?? '',
     filter.disposition === undefined ? '*' : (filter.disposition ?? NO_DISPOSITION),
-    // ต่อท้ายเฉพาะเมื่อมี — key ของงานของฉัน (#964) จึงเหมือนเดิม cursor ที่ออกไปแล้วยังใช้ได้
+    // append only when present — so the key of my work (#964) stays the same and cursors already issued still work
     ...(filter.agentId ? [filter.agentId] : []),
   ].join('|');
 }
 
 /**
- * ขอบเขตของงานที่จบ: งานของ Agent คนเดียว หรือ #986 งานที่ทีมรับตามหลักฐาน
- * `voice_interaction_handling_attributions` (ทีมของ Agent ตอนรับสาย ไม่ใช่ทีมปัจจุบัน)
- * `teamId: null` = ทุกทีมของ tenant ที่มีหลักฐาน — สายที่ไม่มีหลักฐานหรือ Agent ไม่มีทีมตอนรับไม่ถูกนับ
+ * the scope of finished work: a single Agent's work, or #986 work the team answered per the evidence
+ * `voice_interaction_handling_attributions` (the Agent's team at answer time, not the current team)
+ * `teamId: null` = every team of the tenant that has evidence — a call with no evidence or whose Agent had no team at answer time is not counted
  */
 export type WorkScope = { agentId: string } | { teamId: string | null };
 
-/** แถวงานที่จบของ Agent — ใช้เป็น CTE `work` */
+/** a row of an Agent's finished work — used as the CTE `work` */
 export function completedWorkSql(actor: WorkActor): Prisma.Sql {
   return completedScopeWorkSql(actor.tenantId, { agentId: actor.userId });
 }
 
-/** นิยามเดียวของงานที่จบ (ADR-019 ข้อ 1) ใช้ทั้งงานของฉัน (#964) และงานของทีม (#986) */
+/** the single definition of finished work (ADR-019 item 1), used by both my work (#964) and team work (#986) */
 export function completedScopeWorkSql(tenantId: string, scope: WorkScope): Prisma.Sql {
   const team = 'teamId' in scope;
   return Prisma.sql`
@@ -207,7 +207,7 @@ export function completedScopeWorkSql(tenantId: string, scope: WorkScope): Prism
       AND (interaction.voice_wrapup_policy = 'LEGACY' OR result.interaction_id IS NOT NULL)`;
 }
 
-/** เงื่อนไขบนแถวของ CTE `work` */
+/** conditions on the rows of the CTE `work` */
 export function workFilterSql(filter: WorkFilter): Prisma.Sql[] {
   const conditions: Prisma.Sql[] = [];
   if (filter.from) conditions.push(Prisma.sql`recorded_at >= ${filter.from}::timestamptz`);

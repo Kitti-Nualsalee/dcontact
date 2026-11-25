@@ -1,4 +1,4 @@
-/** ทดสอบ Keycloak/native Organization + verified proof + HTTP/PostgreSQL จริง ไม่ใช้ verifier stub */
+/** tests Keycloak/native Organization + a verified proof + real HTTP/PostgreSQL without a verifier stub */
 import assert from 'node:assert/strict';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { KeycloakAccessTokenVerifier } from '@d-contact/workspace-session';
@@ -31,7 +31,7 @@ interface KcRole {
   name: string;
 }
 
-/** ให้ controller และ provider ถูกโหลดผ่าน module context เดียวกันเมื่อเรียกจาก Console ESM harness */
+/** lets the controller and provider load through the same module context when called from the Console ESM harness */
 export function coreM1IdentitySandbox(registerCleanup: (cleanup: () => Promise<unknown>) => void) {
   return coreIdentitySandbox(registerCleanup, [
     Customer360Controller,
@@ -39,7 +39,7 @@ export function coreM1IdentitySandbox(registerCleanup: (cleanup: () => Promise<u
   ]);
 }
 
-/** M1-B trial ใช้ auth จริงกับ overview/rules และ read owner เดิม */
+/** the M1-B trial uses real auth with overview/rules and the original owner read */
 export function coreOverviewIdentitySandbox(
   registerCleanup: (cleanup: () => Promise<unknown>) => void,
 ) {
@@ -60,7 +60,7 @@ export function coreActivityIdentitySandbox(
   ]);
 }
 
-/** C4 browser trial ใช้ route อ่านและเขียนจริงภายใน identity sandbox เดียวกัน */
+/** the C4 browser trial uses the real read and write routes inside the same identity sandbox */
 export async function coreC4IdentitySandbox(
   registerCleanup: (cleanup: () => Promise<unknown>) => void,
 ) {
@@ -69,19 +69,19 @@ export async function coreC4IdentitySandbox(
   const expectedDb = process.env.CXA_ACCEPTANCE_DATABASE_NAME;
   assert.ok(
     ownerUrl && appUrl && expectedDb && /^dcontact_[a-z0-9_]+_test$/.test(expectedDb),
-    'C4 trial ต้องระบุ database sandbox แยก',
+    'the C4 trial must name a separate database sandbox',
   );
   const owner = new URL(ownerUrl);
   const app = new URL(appUrl);
   assert.ok(
     ['127.0.0.1', 'localhost'].includes(owner.hostname) &&
       ['127.0.0.1', 'localhost'].includes(app.hostname),
-    'C4 trial ใช้ database บน loopback เท่านั้น',
+    'the C4 trial uses a loopback database only',
   );
-  assert.equal(owner.port, app.port, 'owner และ app ต้องใช้ database sandbox เดียวกัน');
+  assert.equal(owner.port, app.port, 'owner and app must use the same database sandbox');
   assert.equal(owner.pathname, `/${expectedDb}`);
   assert.equal(app.pathname, `/${expectedDb}`);
-  assert.notEqual(owner.username, app.username, 'owner และ app ต้องใช้คนละ role');
+  assert.notEqual(owner.username, app.username, 'owner and app must use different roles');
   const check = new PrismaClient({ datasources: { db: { url: appUrl } } });
   try {
     const [role] = await check.$queryRaw<
@@ -92,7 +92,7 @@ export async function coreC4IdentitySandbox(
         !role.rolsuper &&
         !role.rolbypassrls &&
         role.name === decodeURIComponent(app.username),
-      'application role ต้องไม่ใช่ superuser หรือ BYPASSRLS',
+      'the application role must not be a superuser or BYPASSRLS',
     );
     const tables = await check.$queryRaw<
       { relname: string; rls: boolean; owner_access: boolean }[]
@@ -105,10 +105,10 @@ export async function coreC4IdentitySandbox(
         'c360_tags', 'c360_contact_tags', 'c360_contact_custodian_grants',
         'c360_actor_capability_grants'
       )`;
-    assert.equal(tables.length, 11, 'ต้องมีตาราง C4 ครบใน sandbox');
+    assert.equal(tables.length, 11, 'the sandbox must have all the C4 tables');
     assert.ok(
       tables.every((table) => table.rls && !table.owner_access),
-      'application role ต้องไม่เป็น owner/สมาชิก owner และต้องเปิด RLS',
+      'the application role must not be an owner/owner member and must have RLS on',
     );
   } finally {
     await check.$disconnect();
@@ -116,7 +116,7 @@ export async function coreC4IdentitySandbox(
   const url = process.env.C360_C4_TEST_REDIS_URL;
   assert.ok(
     url && ['127.0.0.1', 'localhost'].includes(new URL(url).hostname),
-    'C4 trial ต้องใช้ Redis loopback แยก',
+    'the C4 trial must use a separate loopback Redis',
   );
   const redis = new Redis(url, {
     lazyConnect: true,
@@ -138,7 +138,7 @@ export async function coreC4IdentitySandbox(
 
 export async function coreIdentitySandbox(
   registerCleanup: (cleanup: () => Promise<unknown>) => void,
-  /** controller เพิ่มของ boundary test เฉพาะเรื่อง (ไม่ระบุ = พฤติกรรมเดิม) */
+  /** extra controllers of a boundary test for a specific topic (unset = the original behavior) */
   extraControllers: Parameters<typeof coreFixture>[0] = [],
   limiter?: SharedRateLimiter,
   extraProviders: Parameters<typeof coreFixture>[5] = [],
@@ -147,13 +147,16 @@ export async function coreIdentitySandbox(
   const origin = new URL(sandbox);
   assert.ok(
     ['127.0.0.1', 'localhost'].includes(origin.hostname),
-    'ใช้เฉพาะ isolated loopback sandbox; ไม่เขียน realm บน VM',
+    'use only an isolated loopback sandbox; do not write a realm on the VM',
   );
   const realm = `core725-${randomUUID()}`;
   const issuer = `${origin.origin}/realms/${realm}`;
   const password = `Core-${randomBytes(16).toString('hex')}`;
   const adminPassword = process.env.CORE_IDENTITY_SANDBOX_ADMIN_PASSWORD;
-  assert.ok(adminPassword, 'ต้องมี sandbox admin password; ไม่ใช้ค่าของระบบจริง');
+  assert.ok(
+    adminPassword,
+    'a sandbox admin password is required; do not use a value from the real system',
+  );
   const loginResponse = await fetch(
     `${origin.origin}/realms/master/protocol/openid-connect/token`,
     {
@@ -185,12 +188,12 @@ export async function coreIdentitySandbox(
   assert.equal(
     server.systemInfo.version,
     '26.7.5',
-    'identity boundary ต้องตรง pinned Keycloak version',
+    'the identity boundary must match the pinned Keycloak version',
   );
   operatorSubject =
     (await admin<{ id: string }[]>('GET', 'realms/master/users?username=admin&exact=true'))[0]
       ?.id ?? '';
-  assert.ok(operatorSubject, 'operator evidence ใช้identityที่อ่านจากadminAPIจริง');
+  assert.ok(operatorSubject, 'operator evidence uses the identity read from the real admin API');
   await admin('POST', 'realms', {
     realm,
     enabled: true,
@@ -227,7 +230,7 @@ export async function coreIdentitySandbox(
   ]);
   const scopes = await admin<Scope[]>('GET', `${prefix}/client-scopes`);
   const orgScope = scopes.find((s) => s.name === 'organization')!;
-  assert.ok(orgScope, 'native Organization client scope ต้องมีจริง');
+  assert.ok(orgScope, 'the native Organization client scope must really exist');
   const orgMapper = orgScope.protocolMappers?.find(
     (m) => m.protocolMapper === 'oidc-organization-membership-mapper',
   )!;

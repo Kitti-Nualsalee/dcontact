@@ -1,7 +1,7 @@
 /**
- * #868: CLI หลักฐาน identity ของ People ก่อน/หลังสลับ API บน UAT — รันใน API container เดิม
- * (`docker exec <api> node dist/tenant-people-identity-evidence-main.js`) เพื่อให้ secret อยู่ใน container
- * ไม่ใช่ส่วนของ API server; exit 0 = CONSISTENT, 2 = INCONSISTENT, 1 = configuration/DB ใช้ไม่ได้
+ * #868: the CLI for People identity evidence before/after switching the API version on UAT — runs in the existing API container
+ * (`docker exec <api> node dist/tenant-people-identity-evidence-main.js`) so the secret stays inside the container
+ * not part of the API server; exit 0 = CONSISTENT, 2 = INCONSISTENT, 1 = configuration/DB unusable
  */
 import { PrismaClient } from '@d-contact/db';
 import { peopleConfiguration } from './tenant-people-composition.js';

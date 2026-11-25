@@ -1,4 +1,4 @@
-/** C4: Keycloak จริง → gateway/proof → write command → PostgreSQL/RLS (sandbox แยกเท่านั้น) */
+/** C4: real Keycloak → gateway/proof → write command → PostgreSQL/RLS (a separate sandbox only) */
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test from 'node:test';
@@ -9,9 +9,11 @@ import { coreIdentitySandbox } from './tenant-core-identity-sandbox.js';
 const sandbox = process.env.CORE_IDENTITY_SANDBOX_URL;
 
 test(
-  'C4 actual OIDC: create/readback/replay ผูก actor เดิมและตรวจสิทธิ์ปัจจุบัน',
+  'C4 actual OIDC: create/readback/replay bind the original actor and check the current permission',
   {
-    skip: !sandbox ? 'NOT_RUN: ต้องระบุ CORE_IDENTITY_SANDBOX_URL ของ sandbox แยก' : false,
+    skip: !sandbox
+      ? 'NOT_RUN: CORE_IDENTITY_SANDBOX_URL of a separate sandbox must be given'
+      : false,
     timeout: 180_000,
   },
   async (t) => {
@@ -25,7 +27,7 @@ test(
       displayName: 'OIDC denied',
     });
     assert.equal(denied.status, 403);
-    // สิทธิ์เริ่มต้นเป็น fixture ที่มี command FK จริง; mutation ที่ทดสอบใช้ token Keycloak จริงทุกตัว
+    // the initial permission is a fixture with a real command FK; every mutation tested uses a real Keycloak token
     const grantCommand = randomUUID();
     const fixtureActor = 'oidc-fixture-operator';
     await f.owner.c360ProfileCommand.create({

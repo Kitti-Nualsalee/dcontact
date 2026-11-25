@@ -25,7 +25,7 @@ export const C360_RECEIPT_POLICY = Object.freeze({
   tenantLimit: 1200,
   windowMs: 60_000,
 });
-/** CSV import (#909): หนึ่ง request = หนึ่ง token; ต้นทุนรายแถวถูกจำกัดด้วยขนาดไฟล์และ deadline */
+/** CSV import (#909): one request = one token; the per-row cost is bounded by the file size and deadline */
 export const C360_IMPORT_POLICY = Object.freeze({
   name: 'c360-import-v1',
   actorLimit: 12,

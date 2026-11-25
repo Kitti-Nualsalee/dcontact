@@ -1,7 +1,7 @@
 /**
- * U1.5 (#433) acceptance — หลักฐานภาพหน้าจอ, negative scan และ evidence bundle ผ่าน HTTP จริง
- * (guard + RLS + trigger บน Postgres); mock ได้เฉพาะ token verifier และ object storage (in-memory แทน object storage จริง
- * ของ UAT stack — adapter จริงครอบใน uat-evidence-storage.test.ts)
+ * U1.5 (#433) acceptance — screenshot evidence, the negative scan and the evidence bundle over real HTTP
+ * (guard + RLS + trigger on Postgres); only the token verifier and object storage may be mocked (in-memory in place of the UAT stack's real
+ * object storage — the real adapter is covered in uat-evidence-storage.test.ts)
  */
 import 'reflect-metadata';
 import assert from 'node:assert/strict';
@@ -48,7 +48,7 @@ const fixture = JSON.parse(
   readFileSync(resolve(__dirname, '../../journey/test/fixtures/j5/j1-schedule.json'), 'utf8'),
 ) as JourneyDefinitionContent;
 
-/** token ปลอมรูป JWT — ไม่ใช่ credential จริง */
+/** a fake JWT-shaped token — not a real credential */
 const FAKE_JWT = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1YXQtZmFrZSJ9.c2lnbmF0dXJlLWZha2U';
 
 type Persona = 'maker' | 'reviewer' | 'outsider' | 'foreign';
@@ -62,7 +62,7 @@ function chunk(type: string, data: Uint8Array): Buffer {
   return Buffer.concat([length, body, crc]);
 }
 
-/** PNG 1x1 จริง — `shade` ทำให้ byte ต่างกันได้ */
+/** a real 1x1 PNG — `shade` makes the bytes differ */
 function png(shade = 0x80, extra: Buffer[] = []): Buffer {
   const header = Buffer.alloc(13);
   header.writeUInt32BE(1, 0);
@@ -77,7 +77,7 @@ function png(shade = 0x80, extra: Buffer[] = []): Buffer {
   ]);
 }
 
-/** object storage ในหน่วยความจำ — แทน bucket ส่วนตัวของ UAT stack */
+/** in-memory object storage — stands in for the UAT stack's private bucket */
 function memoryStorage() {
   const objects = new Map<string, { bytes: Uint8Array; contentType: string }>();
   const storage: UatEvidenceStorage = {
@@ -154,7 +154,7 @@ async function harness(t: TestContext) {
 
   const verifier = {
     verifyAccessToken: async (token: string): Promise<VerifiedOidcClaims> => {
-      if (!(token in users)) throw new Error('token ไม่ถูกต้อง');
+      if (!(token in users)) throw new Error('invalid token');
       const persona = token as Persona;
       const tenant = persona === 'foreign' ? otherTenantId : tenantId;
       const slug = `u1-5-${tenant.slice(0, 8)}`;
@@ -273,13 +273,13 @@ async function harness(t: TestContext) {
         {
           stepId: 'LOGIN',
           title: 'Login',
-          expected: 'เห็น Journey list',
+          expected: 'Sees the Journey list',
           stateLabel: 'REAL_STATE',
         },
         {
           stepId: 'SIMULATE',
           title: 'Simulate',
-          expected: 'เห็น transitions ที่ติดป้ายจำลอง',
+          expected: 'Sees transitions labelled as simulated',
           stateLabel: 'SIMULATION_ONLY',
         },
       ],
@@ -307,7 +307,7 @@ async function harness(t: TestContext) {
   };
 }
 
-test('U1.5 อัปโหลด/อ่านภาพหน้าจอตามสิทธิ์ของผู้ทดสอบ idempotent และไม่รั่วข้าม tenant', async (t) => {
+test("U1.5 uploads/reads screenshots per the tester's permissions, idempotently and without leaking across tenants", async (t) => {
   const f = await harness(t);
   const run = await f.started();
   const shot = png();
@@ -329,20 +329,20 @@ test('U1.5 อัปโหลด/อ่านภาพหน้าจอตา�
   assert.equal(view.contentType, 'image/png');
   assert.equal(view.sizeBytes, shot.length);
   assert.match(view.sha256, /^[a-f0-9]{64}$/);
-  // object อยู่ใต้ prefix ของ tenant/run/evidence เท่านั้น
+  // the object sits only under the tenant/run/evidence prefix
   assert.deepEqual(
     [...f.objects.keys()],
     [`uat-evidence/${f.tenantId}/${run.runId}/${view.evidenceId}`],
   );
 
-  // key เดิม + ไฟล์เดิม = replay ไม่เก็บซ้ำ; key เดิม + ไฟล์อื่น = conflict และไม่ทิ้ง object ค้าง
+  // same key + same file = replay without storing again; same key + a different file = conflict and no orphan object left
   assert.deepEqual(await f.upload(run.runId, 'maker', shot, { key }), uploaded);
   const reused = await f.upload(run.runId, 'maker', png(0x10), { key });
   assert.deepEqual([reused.status, reused.body.code], [409, 'IDEMPOTENCY_CONFLICT']);
   assert.equal(await f.evidenceCount(), 1);
   assert.equal(f.objects.size, 1);
 
-  // reviewer ของ pack อ่านได้: list + byte ผ่าน API พร้อม header ที่ห้าม cache/sniff
+  // the pack reviewer can read: list + bytes through the API with headers that forbid caching/sniffing
   const listed = await f.call('GET', `uat-runs/${run.runId}/evidence`, 'reviewer');
   assert.deepEqual(listed.body, { runId: run.runId, items: [view] });
   const read = await f.content(run.runId, view.evidenceId, 'reviewer');
@@ -352,7 +352,7 @@ test('U1.5 อัปโหลด/อ่านภาพหน้าจอตา�
   assert.equal(read.headers.get('x-content-type-options'), 'nosniff');
   assert.deepEqual(Buffer.from(await read.arrayBuffer()), shot);
 
-  // ต้อง login; ผู้ที่ไม่ใช่ผู้ทดสอบของ pack และ tenant อื่นเห็นเป็น run ที่ไม่มีอยู่
+  // must be logged in; someone who is not a tester of the pack and another tenant see it as a run that does not exist
   assert.equal((await f.call('GET', `uat-runs/${run.runId}/evidence`, null)).status, 401);
   for (const persona of ['outsider', 'foreign'] as const) {
     const upload = await f.upload(run.runId, persona, png(0x20));
@@ -370,7 +370,7 @@ test('U1.5 อัปโหลด/อ่านภาพหน้าจอตา�
   }
   assert.equal(await f.evidenceCount(), 1);
   assert.equal(f.objects.size, 1);
-  // RLS: tenant อื่นมองไม่เห็นแถว metadata แม้ query ตรง
+  // RLS: another tenant cannot see the metadata rows even with a direct query
   assert.equal(
     await withTenantDatabaseTransaction(f.application, f.otherTenantId, (tx) =>
       tx.uatRunEvidence.count(),
@@ -378,7 +378,7 @@ test('U1.5 อัปโหลด/อ่านภาพหน้าจอตา�
     0,
   );
 
-  // step ต้องอยู่ใน catalog ของ run และต้องมี header step
+  // the step must be in the run's catalog and must have a step header
   const unknownStep = await f.upload(run.runId, 'maker', shot, { stepId: 'NOT_IN_CATALOG' });
   assert.deepEqual([unknownStep.status, unknownStep.body.safeParams], [400, { field: 'stepId' }]);
   const noStep = await f.upload(run.runId, 'maker', shot, { stepId: null });
@@ -388,7 +388,7 @@ test('U1.5 อัปโหลด/อ่านภาพหน้าจอตา�
   assert.equal(((await missing.json()) as { code: string }).code, 'EVIDENCE_NOT_FOUND');
 });
 
-test('U1.5 trace/HAR/network log ถูกปฏิเสธและไม่มีอะไรถูกเก็บ', async (t) => {
+test('U1.5 a trace/HAR/network log is rejected and nothing is stored', async (t) => {
   const f = await harness(t);
   const run = await f.started();
   const trace = Buffer.concat([Buffer.from('PK\u0003\u0004', 'latin1'), Buffer.alloc(64)]);
@@ -397,11 +397,11 @@ test('U1.5 trace/HAR/network log ถูกปฏิเสธและไม่�
     [trace, 'application/zip', { reason: 'CONTENT_TYPE' }],
     [har, 'application/json', { reason: 'CONTENT_TYPE' }],
     [Buffer.from('GET /x 200\n'), 'text/plain', { reason: 'CONTENT_TYPE' }],
-    // ประกาศว่าเป็นภาพแต่ magic bytes ไม่ใช่
+    // declared as an image but the magic bytes are not
     [trace, 'image/png', { detected: 'ZIP' }],
     [har, 'image/jpeg', { detected: 'JSON' }],
     [Buffer.from('GET /x 200\n'), 'image/png', { detected: 'TEXT' }],
-    // polyglot: PNG ที่พ่วง trace.zip ต่อท้าย
+    // polyglot: a PNG with a trace.zip appended
     [Buffer.concat([png(), trace]), 'image/png', { detected: 'PNG', reason: 'TRAILING_DATA' }],
   ];
   for (const [bytes, contentType, safeParams] of cases) {
@@ -420,7 +420,7 @@ test('U1.5 trace/HAR/network log ถูกปฏิเสธและไม่�
   assert.deepEqual([oversized.status, oversized.body.code], [413, 'EVIDENCE_TOO_LARGE']);
   assert.equal(await f.evidenceCount(), 0);
   assert.equal(f.objects.size, 0);
-  // DB ปฏิเสธ content type อื่นแม้เขียนตรง
+  // the DB rejects other content types even on a direct write
   await assert.rejects(
     f.owner.uatRunEvidence.create({
       data: {
@@ -440,22 +440,22 @@ test('U1.5 trace/HAR/network log ถูกปฏิเสธและไม่�
   );
 });
 
-test('U1.5 หลักฐานของ run ที่ปิดแล้วเพิ่ม/แก้/ลบไม่ได้ แต่ยังอ่านได้', async (t) => {
+test('U1.5 evidence of a closed run cannot be added/edited/deleted but can still be read', async (t) => {
   const f = await harness(t);
   const run1 = await f.started();
   const first = await f.upload(run1.runId, 'maker', png());
   assert.equal(first.status, 200);
-  // run 1 ยังไม่ publish → เริ่มรอบใหม่ = ABANDONED
+  // run 1 not yet published → start a new round = ABANDONED
   const run2 = await f.started('pack-1', run1.revision);
   assert.notEqual(run2.runId, run1.runId);
 
   const late = await f.upload(run1.runId, 'maker', png(0x11));
   assert.deepEqual([late.status, late.body.code], [409, 'UAT_RUN_CLOSED']);
-  assert.equal(f.objects.size, 1, 'ไม่มี object ค้างจากคำขอที่ถูกปฏิเสธ');
+  assert.equal(f.objects.size, 1, 'no orphan object from a rejected request');
   const read = await f.content(run1.runId, first.body.evidenceId, 'reviewer');
   assert.equal(read.status, 200);
 
-  // trigger ของ DB: insert เข้า run ที่ปิดแล้ว / update / delete ไม่ได้ แม้ใช้ connection ของ owner
+  // the DB trigger: insert into a closed run / update / delete is not allowed even with the owner connection
   const evidenceId = randomUUID();
   await assert.rejects(
     f.owner.uatRunEvidence.create({
@@ -485,7 +485,7 @@ test('U1.5 หลักฐานของ run ที่ปิดแล้วเ�
     f.owner.uatRunEvidence.delete({ where: { id: first.body.evidenceId } }),
     /UAT_APPEND_ONLY/,
   );
-  // app role ไม่มีสิทธิ์ UPDATE/DELETE เลย
+  // the app role has no UPDATE/DELETE permission at all
   await assert.rejects(
     withTenantDatabaseTransaction(
       f.application,
@@ -496,11 +496,11 @@ test('U1.5 หลักฐานของ run ที่ปิดแล้วเ�
   );
 });
 
-test('U1.5 negative scan: token ปลอมใน fixture ทำให้ run FAIL (S1) โดยไม่สะท้อนค่าที่พบ', async (t) => {
+test('U1.5 negative scan: a fake token in a fixture makes the run FAIL (S1) without echoing the value found', async (t) => {
   const f = await harness(t);
   const run = await f.started();
   const leaked = await f.call('POST', `uat-runs/${run.runId}/step-results`, 'maker', {
-    body: { stepId: 'LOGIN', outcome: 'PASS', actual: `เห็นหน้าจอ token ${FAKE_JWT}` },
+    body: { stepId: 'LOGIN', outcome: 'PASS', actual: `Sees the screen with token ${FAKE_JWT}` },
   });
   assert.equal(leaked.status, 200, JSON.stringify(leaked.body));
   const withMetadata = await f.upload(
@@ -545,7 +545,7 @@ test('U1.5 negative scan: token ปลอมใน fixture ทำให้ run F
     ],
   );
   assert.doesNotMatch(JSON.stringify(scan.body), /eyJ|code=|state=/);
-  // scan ซ้ำบนเนื้อหาเดิม = ผลเดิม ไม่เพิ่มแถว
+  // a repeated scan on the same content = the same result, no new rows
   const again = await f.call('POST', `uat-runs/${run.runId}/scan`, 'maker');
   assert.deepEqual(again.body, scan.body);
   assert.equal(await f.owner.uatRunScan.count({ where: { runId: run.runId } }), 1);
@@ -554,19 +554,19 @@ test('U1.5 negative scan: token ปลอมใน fixture ทำให้ run F
   assert.equal(bundle.verdict, 'FAIL');
   assert.deepEqual(bundle.scan, scan.body);
   assert.ok(verifyUatEvidenceBundleDigest(bundle));
-  // ผล scan เป็น append-only
+  // scan results are append-only
   await assert.rejects(
     f.owner.uatRunScan.delete({ where: { id: scan.body.scanId } }),
     /UAT_APPEND_ONLY/,
   );
 });
 
-test('U1.5 bundle ของ run ตัวอย่างผ่าน scan, digest ตรวจซ้ำได้ และไม่มี byte/PII', async (t) => {
+test('U1.5 the bundle of a sample run passes the scan, the digest can be rechecked, and there are no bytes/PII', async (t) => {
   const f = await harness(t);
   const run = await f.started();
   for (const stepId of ['LOGIN', 'SIMULATE']) {
     const recorded = await f.call('POST', `uat-runs/${run.runId}/step-results`, 'maker', {
-      body: { stepId, outcome: 'PASS', actual: 'เป็นไปตามที่คาด', correlationId: `corr-${stepId}` },
+      body: { stepId, outcome: 'PASS', actual: 'As expected', correlationId: `corr-${stepId}` },
     });
     assert.equal(recorded.status, 200, JSON.stringify(recorded.body));
   }
@@ -600,19 +600,19 @@ test('U1.5 bundle ของ run ตัวอย่างผ่าน scan, diges
     ],
   );
   assert.deepEqual(bundle.screenshots, [shot.body]);
-  assert.ok(bundle.auditRefs.length >= 1, 'มี audit ของ Journey ที่สร้างใน run');
+  assert.ok(bundle.auditRefs.length >= 1, 'the Journey audit created in the run is present');
   assert.ok(bundle.auditRefs.every((ref) => ref.action !== 'AUDIT_READ'));
   assert.equal(bundle.scan.status, 'PASSED');
   assert.deepEqual(bundle.scan.findings, []);
   assert.equal(bundle.verdict, 'PASS');
 
-  // digest คำนวณซ้ำจาก canonical JSON ได้ค่าเดิม; แก้เนื้อหาแล้วไม่ผ่าน
+  // the digest recomputed from canonical JSON gives the same value; after editing the content it fails
   assert.ok(verifyUatEvidenceBundleDigest(bundle));
   assert.equal(verifyUatEvidenceBundleDigest({ ...bundle, verdict: 'FAIL' }), false);
-  // bundle ทั้งก้อนผ่าน scanner เดียวกัน และไม่มี byte ของภาพ
+  // the whole bundle passes the same scanner, and has no image bytes
   assert.deepEqual(scanUatText(JSON.stringify(bundle)), []);
   assert.doesNotMatch(JSON.stringify(bundle), /iVBOR|base64|"bytes"/);
-  // export ซ้ำบนเนื้อหาเดิมได้ bundle เดิม (scan ถูกใช้ซ้ำ)
+  // a repeated export on the same content gets the same bundle
   const again = await f.call('GET', `uat-runs/${run.runId}/bundle`, 'maker');
   assert.equal(again.body.digest, bundle.digest);
 });

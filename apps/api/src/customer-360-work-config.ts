@@ -1,8 +1,8 @@
 /**
- * #916: config ของ confidential client ที่ API ใช้ introspect access token ของ Workspace (Cus360 work)
+ * #916: the config of the confidential client the API uses to introspect the Workspace access token (Cus360 work)
  *
- * ไม่ตั้งทั้งคู่ = ปิดเฉพาะ Cus360 work (Workspace ไม่ประกาศ `workCustomerV1`) และต้องเห็นสาเหตุใน log
- * ตั้งไม่ครบ = config ผิด หยุด API ตั้งแต่เริ่ม; diagnostic ไม่พิมพ์ secret
+ * neither set = disables only Cus360 work (the Workspace does not announce `workCustomerV1`) and the cause must be visible in the log
+ * incompletely set = a wrong config, the API stops at start; the diagnostic never prints a secret
  */
 export const C360_WORK_CLIENT_ENV = Object.freeze([
   'KEYCLOAK_C360_CLIENT_ID',
@@ -43,7 +43,7 @@ export type C360WorkReadinessDiagnostic =
       readonly remediation: string;
     };
 
-/** สถานะเดียวกับที่ใช้ตัดสิน `AGENT_WORKSPACE_CUSTOMER_AVAILABLE` — มีแค่ client id ไม่มี secret */
+/** the same status used to decide `AGENT_WORKSPACE_CUSTOMER_AVAILABLE` — only the client id, no secret */
 export function c360WorkReadiness(
   config: C360WorkConfig,
   writeRuntimeReady: boolean,
@@ -58,9 +58,9 @@ export function c360WorkReadiness(
     status: 'DISABLED',
     reasons,
     missingEnv: config.configured ? [] : [...C360_WORK_CLIENT_ENV],
-    impact: 'Workspace ไม่แสดงแผงข้อมูลลูกค้าของงาน (ไม่ประกาศ workCustomerV1)',
+    impact: 'The Workspace does not show the work customer panel (workCustomerV1 is not announced)',
     remediation: config.configured
-      ? 'ตรวจ contact-points runtime (dev) หรือ C360_WRITE_RELEASE_MANIFEST/C360_IMAGE_DIGEST ของ release (production)'
-      : 'ตั้ง KEYCLOAK_C360_CLIENT_ID/SECRET เป็น confidential client ที่อยู่ใน aud ของ token Workspace — ดู docs/agent-usecase-dev.md',
+      ? 'Check the contact-points runtime (dev) or C360_WRITE_RELEASE_MANIFEST/C360_IMAGE_DIGEST of the release (production)'
+      : 'Set KEYCLOAK_C360_CLIENT_ID/SECRET to a confidential client that is in the aud of the Workspace token — see docs/agent-usecase-dev.md',
   };
 }

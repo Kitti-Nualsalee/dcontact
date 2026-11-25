@@ -1,8 +1,8 @@
 /**
- * E1.11 (#485) บน Postgres จริงด้วย role ของแอป (`dcontact_app`, RLS):
- * CRUD + สิทธิ์ ADMIN/SUPERVISOR, สูงสุด 10, audit ก่อน/หลัง, entitlement, `/dphone/embed` ต่อ tenant
- * (flag ปิด/ไม่มี entitlement/alias ไม่มี = 'none', tenant A ไม่ได้ allowlist ของ B), cache ≤ 30 วินาที
- * และ lease `embedded` ที่ origin ถูกปิด
+ * E1.11 (#485) on real Postgres with the app role (`dcontact_app`, RLS):
+ * CRUD + ADMIN/SUPERVISOR permission, max 10, before/after audit, entitlement, `/dphone/embed` per tenant
+ * (flag off/no entitlement/no alias = 'none', tenant A does not get B's allowlist), cache ≤ 30 seconds
+ * and an `embedded` lease whose origin is disabled
  */
 import 'reflect-metadata';
 import assert from 'node:assert/strict';
@@ -185,12 +185,12 @@ async function setup(t: TestContext) {
 
 const PATH = '/api/v1/tenant/embed-origins';
 
-test('ADMIN จัดการ allowlist ได้ (normalize, ซ้ำ 409, revision 409, สูงสุด 10) พร้อม audit ก่อน/หลัง; SUPERVISOR อ่านได้อย่างเดียว; AGENT ไม่ได้', async (t) => {
+test('an ADMIN manages the allowlist (normalize, duplicate 409, revision 409, max 10) with before/after audit; a SUPERVISOR reads only; an AGENT cannot', async (t) => {
   const f = await setup(t);
   const created = await f.call('POST', PATH, f.token('admin'), {
     origin: 'HTTPS://CRM.Example.test:443/',
-    label: 'CRM ภายใน',
-    reason: 'ทดสอบ E1',
+    label: 'Internal CRM',
+    reason: 'E1 test',
   });
   assert.equal(created.status, 201, JSON.stringify(created.body));
   assert.deepEqual(
@@ -215,7 +215,7 @@ test('ADMIN จัดการ allowlist ได้ (normalize, ซ้ำ 409, re
   assert.equal(reserved.body.reason, 'RESERVED_ORIGIN');
   const duplicate = await f.call('POST', PATH, f.token('admin'), {
     origin: 'https://crm.example.test',
-    label: 'ซ้ำ',
+    label: 'Duplicate',
   });
   assert.deepEqual([duplicate.status, duplicate.body.code], [409, 'EMBED_ORIGIN_DUPLICATE']);
 
@@ -229,18 +229,18 @@ test('ADMIN จัดการ allowlist ได้ (normalize, ซ้ำ 409, re
 
   const stale = await f.call('PATCH', `${PATH}/${created.body.id}`, f.token('admin'), {
     expectedRevision: 9,
-    label: 'ใหม่',
+    label: 'New',
   });
   assert.deepEqual([stale.status, stale.body.code], [409, 'REVISION_CONFLICT']);
   const renamed = await f.call('PATCH', `${PATH}/${created.body.id}`, f.token('admin'), {
     expectedRevision: 1,
-    label: 'CRM ฝ่ายขาย',
+    label: 'Sales CRM',
   });
   assert.equal(renamed.body.revision, 2);
   const disabled = await f.call('PATCH', `${PATH}/${created.body.id}`, f.token('admin'), {
     expectedRevision: 2,
     enabled: false,
-    reason: 'ปิดชั่วคราว',
+    reason: 'Temporarily off',
   });
   assert.equal(disabled.body.enabled, false);
   assert.deepEqual(f.revoked, [[f.tenantA, 'https://crm.example.test']]);
@@ -254,13 +254,13 @@ test('ADMIN จัดการ allowlist ได้ (normalize, ซ้ำ 409, re
   }
   const eleventh = await f.call('POST', PATH, f.token('admin'), {
     origin: 'https://crm11.example.test',
-    label: 'เกิน',
+    label: 'Over',
   });
   assert.deepEqual([eleventh.status, eleventh.body.code], [409, 'EMBED_ORIGIN_LIMIT_REACHED']);
 
   const removed = await f.call('DELETE', `${PATH}/${created.body.id}`, f.token('admin'), {
     expectedRevision: 3,
-    reason: 'เลิกใช้',
+    reason: 'Deprecated',
   });
   assert.equal(removed.status, 204);
   const audit = await owner.tenantEmbedOriginAuditEvent.findMany({
@@ -275,10 +275,10 @@ test('ADMIN จัดการ allowlist ได้ (normalize, ซ้ำ 409, re
       row.reason,
     ]),
     [
-      ['CREATED', null, 'CRM ภายใน', 'ทดสอบ E1'],
-      ['UPDATED', 'CRM ภายใน', 'CRM ฝ่ายขาย', null],
-      ['DISABLED', 'CRM ฝ่ายขาย', 'CRM ฝ่ายขาย', 'ปิดชั่วคราว'],
-      ['DELETED', 'CRM ฝ่ายขาย', null, 'เลิกใช้'],
+      ['CREATED', null, 'Internal CRM', 'E1 test'],
+      ['UPDATED', 'Internal CRM', 'Sales CRM', null],
+      ['DISABLED', 'Sales CRM', 'Sales CRM', 'Temporarily off'],
+      ['DELETED', 'Sales CRM', null, 'Deprecated'],
     ],
   );
   assert.ok(
@@ -286,7 +286,7 @@ test('ADMIN จัดการ allowlist ได้ (normalize, ซ้ำ 409, re
   );
 });
 
-test('/dphone/embed: ฝังได้เมื่อ flag + entitlement + origin ครบ; ขาดข้อใด/alias ไม่มี = none; tenant A ไม่ได้ allowlist ของ B', async (t) => {
+test("/dphone/embed: embeds when flag + entitlement + origin are all present; any missing/no alias = none; tenant A does not get B's allowlist", async (t) => {
   const f = await setup(t);
   await f.service.create(
     { tenantId: f.tenantA, userId: f.users.admin },
@@ -298,7 +298,7 @@ test('/dphone/embed: ฝังได้เมื่อ flag + entitlement + orig
     { origin: 'https://crm-b.example.test', label: 'B' },
     'c',
   );
-  // flag ยังปิด
+  // flag still off
   assert.equal(await f.ancestors(f.slugs[0]!), "'none'");
   await f.flag(f.tenantA, true);
   await f.flag(f.tenantB, true);
@@ -311,7 +311,7 @@ test('/dphone/embed: ฝังได้เมื่อ flag + entitlement + orig
   assert.match(shell.body, /"allowedHostOrigins":\["https:\/\/crm-a\.example\.test"\]/);
   assert.equal(shell.body.includes('crm-b'), false);
 
-  // plan binding ที่ไม่มี module_api_cti = ห้ามฝังและเพิ่ม origin ไม่ได้ (fail closed)
+  // a plan binding without module_api_cti = no embedding and an origin cannot be added (fail closed)
   await owner.tenantPlanBinding.create({
     data: {
       tenantId: f.tenantA,
@@ -336,7 +336,7 @@ test('/dphone/embed: ฝังได้เมื่อ flag + entitlement + orig
   );
 });
 
-test('owner-policy อ่าน policy สดแม้ instance cache ไว้ และไม่เปิดเผยข้อมูล tenant ที่ไม่อนุญาต', async (t) => {
+test('owner-policy reads the live policy even when an instance caches it, and does not reveal data of an unauthorized tenant', async (t) => {
   const fixture = await setup(t);
   const hostOrigin = 'https://crm.example.test';
   const path = `/dphone/embed/owner-policy?tenant=${fixture.slugs[0]}&hostOrigin=${encodeURIComponent(hostOrigin)}`;
@@ -358,7 +358,7 @@ test('owner-policy อ่าน policy สดแม้ instance cache ไว้ 
   await fixture.service.update(
     { tenantId: fixture.tenantA, userId: fixture.users.admin },
     origin.id,
-    { expectedRevision: origin.revision, enabled: false, reason: 'ทดสอบเพิกถอน' },
+    { expectedRevision: origin.revision, enabled: false, reason: 'Revoke test' },
     'owner-policy-test',
   );
   assert.deepEqual((await fixture.call('GET', path)).body, { allowed: false });
@@ -373,10 +373,10 @@ test('owner-policy อ่าน policy สดแม้ instance cache ไว้ 
   );
 });
 
-test('origin ใหม่ใช้ได้ภายใน 30 วินาทีแม้ instance อื่น cache ไว้; ปิด origin แล้ว lease embedded ตอนว่างถูกปล่อย', async (t) => {
+test('a new origin is usable within 30 seconds even though another instance cached it; after the origin is disabled an idle embedded lease is released', async (t) => {
   const f = await setup(t);
   await f.flag(f.tenantA, true);
-  const other = f.make(); // API instance อื่นที่ cache นโยบายเก่า
+  const other = f.make(); // another API instance that cached the old policy
   assert.deepEqual((await other.shellPolicy(f.slugs[0]!))?.origins, []);
   const origin = await f.service.create(
     { tenantId: f.tenantA, userId: f.users.admin },

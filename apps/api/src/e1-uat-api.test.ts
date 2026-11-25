@@ -9,7 +9,7 @@ import { createE1UatApiModule } from './e1-uat-api.js';
 import { createWorkspaceUatApiModule, WORKSPACE_UAT_APPS } from './workspace-uat-api.js';
 import { RuntimeProfileRouteGuard, resolveApiRuntimeProfile } from './runtime-profile.js';
 
-test('uat-e1 mount launcher กับ E1 API เท่านั้น และยังบังคับ OIDC', async (t) => {
+test('uat-e1 mounts only the launcher and the E1 API and still enforces OIDC', async (t) => {
   const profile = resolveApiRuntimeProfile({ DCONTACT_API_PROFILE: 'uat-e1' });
   const routeGuard = new RuntimeProfileRouteGuard(profile, { write: () => undefined });
   const module = createE1UatApiModule({
@@ -48,7 +48,7 @@ test('uat-e1 mount launcher กับ E1 API เท่านั้น และ�
   assert.equal(((await blocked.json()) as { code: string }).code, 'ROUTE_NOT_AVAILABLE_IN_PROFILE');
 });
 
-test('composition root ของ uat-e1 ใช้ Voice Delivery Gate แต่ไม่มี Kafka หรือ external provider', () => {
+test('the uat-e1 composition root uses the Voice Delivery Gate but has no Kafka or external provider', () => {
   const source = readFileSync(join(__dirname, 'e1-uat-api.ts'), 'utf8')
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .replace(/^\s*\/\/.*$/gm, '');
@@ -64,7 +64,7 @@ test('composition root ของ uat-e1 ใช้ Voice Delivery Gate แต่�
   assert.doesNotMatch(source, /sip_registration_flush_required/);
 });
 
-test('uat-workspace mount UI APIs จริง แต่ยังบังคับ OIDC และซ่อนแอปที่ไม่เปิดบริการ', async (t) => {
+test('uat-workspace mounts the real UI APIs but still enforces OIDC and hides apps whose service is not enabled', async (t) => {
   const profile = resolveApiRuntimeProfile({ DCONTACT_API_PROFILE: 'uat-workspace' });
   const routeGuard = new RuntimeProfileRouteGuard(profile, { write: () => undefined });
   const { module } = createWorkspaceUatApiModule({

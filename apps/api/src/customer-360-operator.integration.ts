@@ -11,8 +11,8 @@ import { Customer360OperatorController } from './customer-360-operator-api.js';
 import { ownerCommit, deliverToIam, setup, type Fixture } from './customer-360-test-fixtures.js';
 
 /**
- * Cus360 C1 (#791) S5: operator grant/revoke/recovery/seed/head-init ตาม E1 D ผ่าน HTTP จริง
- * และ synthetic fixture matrix (≥2 tenants, หลาย roles, legacy/shared/ambiguous/merged/revoked)
+ * Cus360 C1 (#791) S5: operator grant/revoke/recovery/seed/head-init per E1 D over real HTTP
+ * and the synthetic fixture matrix (≥2 tenants, multiple roles, legacy/shared/ambiguous/merged/revoked)
  */
 async function operatorSetup() {
   return setup([Customer360OperatorController]);
@@ -54,11 +54,11 @@ const access = (f: Fixture, who: C360VerifiedActor, contactId: string = f.contac
 
 async function contact(f: Fixture, tenantId = f.tenantId) {
   const id = randomUUID();
-  await f.owner.contact.create({ data: { id, tenantId, displayName: `ลูกค้าสังเคราะห์ ${id}` } });
+  await f.owner.contact.create({ data: { id, tenantId, displayName: `Synthetic customer ${id}` } });
   return id;
 }
 
-test('S5 HTTP: custodian grant เฉพาะ platform-operator มี dry-run ไม่มี PII, evidence/audit และ idempotency', async () => {
+test('S5 HTTP: the custodian grant is platform-operator only, with a PII-free dry-run, evidence/audit and idempotency', async () => {
   const f = await operatorSetup();
   try {
     const grant = {
@@ -74,7 +74,10 @@ test('S5 HTTP: custodian grant เฉพาะ platform-operator มี dry-run 
     assert.equal(preview.status, 200);
     assert.equal((preview.body as unknown as Body).outcome, 'WOULD_APPLY');
     const text = JSON.stringify(preview.body);
-    assert.ok(!text.includes('@core.test') && !text.includes('ลูกค้า'), 'preview ต้องไม่มี PII');
+    assert.ok(
+      !text.includes('@core.test') && !text.includes('ustomer'),
+      'the preview must have no PII',
+    );
     assert.equal(await f.owner.c360ProfileCommand.count({ where: { tenantId: f.tenantId } }), 0);
 
     const commandId = randomUUID();
@@ -101,7 +104,7 @@ test('S5 HTTP: custodian grant เฉพาะ platform-operator มี dry-run 
       identity: 'LEGACY_MISSING_HEAD',
     });
 
-    // replay เดิมคืน receipt เดิม; payload ต่างใต้ ID เดิม 409; คำสั่งใหม่ซ้ำสิทธิ์เดิมเป็น NO_OP
+    // an exact replay returns the original receipt; a different payload under the same ID is 409; a new command repeating the existing permission is NO_OP
     const replay = await operate(f, grant, { commandId });
     assert.deepEqual(receipt(replay), receipt(applied));
     assert.equal((await operate(f, { ...grant, permission: 'MANAGE' }, { commandId })).status, 409);
@@ -113,14 +116,14 @@ test('S5 HTTP: custodian grant เฉพาะ platform-operator มี dry-run 
     );
     assert.equal(await f.owner.c360ProfileAudit.count({ where: { tenantId: f.tenantId } }), 1);
 
-    // evidence/reason เป็น reference และ code เท่านั้น
-    assert.equal((await operate(f, grant, { evidenceRef: 'ข้อความอิสระ มี PII' })).status, 400);
+    // evidence/reason are references and codes only
+    assert.equal((await operate(f, grant, { evidenceRef: 'Free text with PII' })).status, 400);
   } finally {
     await f.close();
   }
 });
 
-test('S5: grantee ต้องเป็น active ADMIN ที่ไม่ใช่ operator เอง และ contact ต้องเป็น canonical ใน tenant', async () => {
+test('S5: the grantee must be an active ADMIN who is not the operator themselves, and the contact must be canonical in the tenant', async () => {
   const f = await operatorSetup();
   try {
     const grant = (granteeUserId: string, contactId = f.contactId) => ({
@@ -143,7 +146,7 @@ test('S5: grantee ต้องเป็น active ADMIN ที่ไม่ใช
       'REJECTED',
       'GRANTEE_NOT_ACTIVE_ADMIN',
     ]);
-    // บัญชี Admin ที่ผูก subject เดียวกับ operator = self-grant
+    // an Admin account bound to the same subject as the operator = self-grant
     const self = randomUUID();
     await f.owner.user.create({
       data: {
@@ -158,7 +161,7 @@ test('S5: grantee ต้องเป็น active ADMIN ที่ไม่ใช
       },
     });
     assert.deepEqual(await rejected(grant(self)), [422, 'REJECTED', 'SELF_GRANT_FORBIDDEN']);
-    // contact/grantee ต่าง tenant มองไม่เห็นผ่าน RLS
+    // a contact/grantee in another tenant is invisible through RLS
     const foreignContact = await contact(f, f.otherTenantId);
     assert.deepEqual(await rejected(grant(f.actors.get('admin')!.id, foreignContact)), [
       404,
@@ -180,7 +183,7 @@ test('S5: grantee ต้องเป็น active ADMIN ที่ไม่ใช
   }
 });
 
-test('S5: head init ผ่าน owner, recovery ถอน grant เดิมพร้อมให้ Admin ใหม่ใน transaction เดียว และ revoke idempotent', async () => {
+test('S5: head init through the owner, recovery revokes the old grant while giving the new Admin in one transaction, and revoke is idempotent', async () => {
   const f = await operatorSetup();
   try {
     const admin = f.actors.get('admin')!.id;
@@ -202,7 +205,7 @@ test('S5: head init ผ่าน owner, recovery ถอน grant เดิมพ
     );
     assert.equal(((await access(f, actor(f, 'admin'))) as { manage: boolean }).manage, true);
 
-    // Admin เดิมถูกปิดบัญชี: สิทธิ์ใช้ไม่ได้ตาม active gate; operator กู้ไปที่ admin-two ตามหลักฐาน
+    // the original Admin is disabled: the permission is unusable per the active gate; the operator recovers to admin-two per the evidence
     await f.owner.user.update({ where: { id: admin }, data: { isActive: false } });
     const [old] = await f.owner.c360ContactCustodianGrant.findMany({
       where: { tenantId: f.tenantId, granteeUserId: admin },
@@ -242,12 +245,12 @@ test('S5: head init ผ่าน owner, recovery ถอน grant เดิมพ
       basis: 'CUSTODIAN_MANAGE',
       identity: 'ACTIVE',
     });
-    // creator เดิมกลับมา active ก็ไม่ได้สิทธิ์คืน เพราะ grant ถูกถอนแบบ append-only
+    // the original creator coming back active does not get the permission back, because the grant was revoked append-only
     await f.owner.user.update({ where: { id: admin }, data: { isActive: true } });
     assert.equal((await access(f, actor(f, 'admin'))).decision, 'DENY');
     const revokeAgain = await operate(f, { action: 'CUSTODIAN_REVOKE', grantId: old!.id });
     assert.equal(receipt(revokeAgain).outcome, 'NO_OP');
-    // grant/revocation เป็นหลักฐาน append-only แม้ application role ก็แก้ไม่ได้
+    // grant/revocation is append-only evidence that even the application role cannot edit
     await assert.rejects(
       f.db
         .$executeRaw`UPDATE c360_contact_custodian_grants SET permission = 'READ' WHERE id = ${old!.id}::uuid`,
@@ -257,7 +260,7 @@ test('S5: head init ผ่าน owner, recovery ถอน grant เดิมพ
   }
 });
 
-test('S5: create capability grant/revoke และ tag seed ใช้ validator เดียวกับ M1 พร้อม RETIRED reserve', async () => {
+test('S5: create capability grant/revoke and tag seed use the same validator as M1 with a RETIRED reserve', async () => {
   const f = await operatorSetup();
   try {
     const adminTwo = actor(f, 'admin-two');
@@ -315,7 +318,7 @@ test('S5: create capability grant/revoke และ tag seed ใช้ validator 
     );
     assert.equal((await operate(f, { action: 'TAG_SEED', names: ['x'.repeat(81)] })).status, 400);
 
-    // ชื่อของ tag ที่ RETIRED แล้วถูกสงวน ไม่สร้างซ้ำ
+    // the name of a RETIRED tag is reserved and not created again
     const vip = tags.find((tag) => tag.nameKey === 'vip')!;
     await f.owner.c360Tag.update({
       where: { id: vip.id },
@@ -330,7 +333,7 @@ test('S5: create capability grant/revoke และ tag seed ใช้ validator 
   }
 });
 
-test('S5 fixture: synthetic matrix ≥2 tenants/legacy/shared/ambiguous/merged/revoked ตัดสินตาม E1 และไม่แตะ tenant อื่น', async () => {
+test('S5 fixture: the synthetic matrix ≥2 tenants/legacy/shared/ambiguous/merged/revoked decides per E1 and does not touch another tenant', async () => {
   const startedAt = new Date(Date.now() - 1000);
   const f = await operatorSetup();
   try {
@@ -339,10 +342,10 @@ test('S5 fixture: synthetic matrix ≥2 tenants/legacy/shared/ambiguous/merged/r
     const grant = (contactId: string, permission = 'MANAGE') =>
       operate(f, { action: 'CUSTODIAN_GRANT', contactId, granteeUserId: adminId, permission });
 
-    // legacy: ไม่มี head, READ grant อ่านได้แต่แก้ไม่ได้
+    // legacy: no head, a READ grant can read but cannot edit
     const legacy = await contact(f);
     await grant(legacy, 'READ');
-    // shared: point ค่าเดียวกันบนสอง contact (fixture ของ output C4 ใต้ command สังเคราะห์) ไม่รวมสิทธิ์กัน
+    // shared: the same point value on two contacts (a C4 output fixture under a synthetic command) does not combine permissions
     const sharedA = await contact(f);
     const sharedB = await contact(f);
     const fixtureKey = `synthetic-fixture-writer:${randomUUID()}`;
@@ -366,7 +369,7 @@ test('S5 fixture: synthetic matrix ≥2 tenants/legacy/shared/ambiguous/merged/r
           '+12133734253', 'fixture', 'ACTIVE', 'PROFILE_COMMAND', ${fixtureKey}, ${fixtureCommand}::uuid)`;
     }
     await grant(sharedA, 'READ');
-    // ambiguous: head AMBIGUOUS จาก migration inventory ให้ operator grant ไม่ได้
+    // ambiguous: a head AMBIGUOUS from the migration inventory cannot be granted by an operator
     const ambiguous = await contact(f);
     await f.owner.c360IdentityHead.create({
       data: {
@@ -377,7 +380,7 @@ test('S5 fixture: synthetic matrix ≥2 tenants/legacy/shared/ambiguous/merged/r
         stateDigest: 'a'.repeat(64),
       },
     });
-    // merged: grant ไม่ตามไป canonical target และ grant ใหม่บน source ถูกปฏิเสธ
+    // merged: a grant does not follow to the canonical target and a new grant on the source is rejected
     const mergedSource = await contact(f);
     const mergedTarget = await contact(f);
     await grant(mergedSource, 'MANAGE');
@@ -390,7 +393,7 @@ test('S5 fixture: synthetic matrix ≥2 tenants/legacy/shared/ambiguous/merged/r
       expectedSourceLineageRevision: 0,
       correlationId: 'c1-s5-fixture-merge',
     });
-    // revoked custodian และ revoked IAM scope
+    // revoked custodian and revoked IAM scope
     const revoked = await contact(f);
     await grant(revoked, 'MANAGE');
     const [revokedGrant] = await f.owner.c360ContactCustodianGrant.findMany({
@@ -449,7 +452,7 @@ test('S5 fixture: synthetic matrix ≥2 tenants/legacy/shared/ambiguous/merged/r
     );
     assert.equal(receipt(await grant(ambiguous)).code, 'CONTACT_NOT_CANONICAL');
     assert.equal(receipt(await grant(mergedSource)).code, 'CONTACT_NOT_CANONICAL');
-    // tenant ที่สองมี Admin ของตัวเองแต่ไม่เห็นอะไรของ tenant แรก
+    // the second tenant has its own Admin but sees nothing of the first tenant
     const foreign = {
       tenantId: f.otherTenantId,
       userId: f.actors.get('foreign')!.id,
@@ -460,7 +463,7 @@ test('S5 fixture: synthetic matrix ≥2 tenants/legacy/shared/ambiguous/merged/r
       authorizeC360ContactAccess(tx, foreign, legacy),
     );
     assert.equal(crossTenant.decision, 'DENY');
-    // fixture เขียนเฉพาะ tenant สังเคราะห์ที่สร้างขึ้นใหม่ใน run นี้ ไม่แตะบัญชีจริง/บัญชีพักของ tenant อื่น
+    // the fixture writes only a synthetic tenant newly created in this run and does not touch real accounts/parked accounts of other tenants
     const fixtureTenants = [f.tenantId, f.otherTenantId];
     const tenants = await f.owner.tenant.findMany({ where: { id: { in: fixtureTenants } } });
     assert.ok(tenants.every((tenant) => tenant.createdAt >= startedAt));

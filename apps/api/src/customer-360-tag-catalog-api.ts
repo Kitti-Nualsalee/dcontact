@@ -52,7 +52,7 @@ import {
   send,
 } from './customer-360-api.js';
 
-/** M1-A catalog ของ tenant: ไม่ให้สิทธิ์อ่านหรือแก้ลูกค้าจากสิทธิ์จัดการแท็ก */
+/** the M1-A tenant catalog: tag-management permission does not grant the right to read or edit customers */
 @UseFilters(Customer360Errors)
 @Controller('api/v1/customer-360/tags')
 @GatewayRoles('admin')

@@ -10,7 +10,7 @@ export interface TenantPeopleReadiness {
   canResendInvitation?(tenantId: string): Promise<boolean>;
   canDisable?(tenantId: string): Promise<boolean>;
   disablePortForTenant?(tenantId: string): TenantPeopleDisablePort | undefined;
-  /** #998 1B/2: แก้ชื่อที่แสดงและเปิดบัญชีกลับ */
+  /** #998 1B/2: rename the display name and re-enable an account */
   canChangeAccount?(tenantId: string): Promise<boolean>;
   accountPortForTenant?(tenantId: string): TenantPeopleAccountPort | undefined;
   nodesForTenant?(tenantId: string): readonly PeopleTelephonyNode[];

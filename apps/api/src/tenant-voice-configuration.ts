@@ -317,7 +317,7 @@ export async function mutateConfiguration(
           for (const item of command.items)
             await tx.$executeRaw`INSERT INTO queue_skills(tenant_id,queue_id,skill_id,min_level) VALUES(${identity.tenantId}::uuid,${id}::uuid,${item.skillId}::uuid,${item.level})`;
         } else {
-          // #977: แทนเฉพาะทักษะ v1 — ทักษะ legacy ของ Agent (แก้ใน Console ไม่ได้) ยังใช้กับคิว legacy ต่อ
+          // #977: replaces only v1 skills — an Agent's legacy skills (not editable in the Console) still apply to legacy queues
           await tx.$executeRaw`DELETE FROM agent_skills WHERE tenant_id=${identity.tenantId}::uuid AND user_id=${id}::uuid AND skill_id IN (SELECT s.id FROM skills s WHERE s.tenant_id=${identity.tenantId}::uuid AND s.voice_config_version=1)`;
           for (const item of command.items)
             await tx.$executeRaw`INSERT INTO agent_skills(tenant_id,user_id,skill_id,level) VALUES(${identity.tenantId}::uuid,${id}::uuid,${item.skillId}::uuid,${item.level})`;

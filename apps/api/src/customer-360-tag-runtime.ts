@@ -5,7 +5,7 @@ export interface C360TagCatalogRuntime {
   readonly ready: boolean;
 }
 
-/** Catalog เปิดเฉพาะ deployment ที่เปิด feature ชัดเจนและ parser/release runtime ผ่าน */
+/** the Catalog is on only for a deployment that explicitly enables the feature and whose parser/release runtime passes */
 export function createC360TagCatalogRuntime(
   env: NodeJS.ProcessEnv = process.env,
 ): C360TagCatalogRuntime {

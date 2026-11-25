@@ -6,7 +6,7 @@ import {
   type AgentSipCredentialService,
 } from './agent-sip-credentials.js';
 
-test('FreeSWITCH directory คืน XML เฉพาะ credential ที่ service ยืนยันและ escape ข้อมูลคน', async () => {
+test('the FreeSWITCH directory returns XML only for credentials the service confirms and escapes people data', async () => {
   let authorization: string | undefined;
   const service: AgentSipCredentialService = {
     issue: async () => {
@@ -51,7 +51,7 @@ test('FreeSWITCH directory คืน XML เฉพาะ credential ที่ se
   assert.doesNotMatch(body, /Agent <One>/);
 });
 
-test('FreeSWITCH directory คืน not found document เมื่อ lookup ไม่ใช่ directory', async () => {
+test('the FreeSWITCH directory returns a not-found document when the lookup is not a directory', async () => {
   const service: AgentSipCredentialService = {
     issue: async () => {
       throw new Error('not used');

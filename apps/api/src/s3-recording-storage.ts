@@ -4,7 +4,7 @@ import { readS3Bucket, readS3Configuration, type S3Configuration } from '@d-cont
 import type { RecordingStorage } from './recording-api.js';
 import type { RecordingPlaybackStorage } from './recording-playback-api.js';
 
-/** S3 adapter (ADR-029): browser ได้เฉพาะ presigned URL อายุสั้น ไม่ได้ credential ของ storage. */
+/** the S3 adapter (ADR-029): the browser gets only a short-lived presigned URL, never the storage credential. */
 export class S3RecordingStorage implements RecordingStorage, RecordingPlaybackStorage {
   private readonly client: S3Client;
 
@@ -44,7 +44,7 @@ export class S3RecordingStorage implements RecordingStorage, RecordingPlaybackSt
     return { url, expiresAt: new Date(Date.now() + input.expiresInSeconds * 1_000) };
   }
 
-  /** #967: อ่านเฉพาะช่วงที่ API คำนวณจาก frame ผู้ใช้ไม่ได้กำหนด byte หรือ key เอง */
+  /** #967: reads only a range the API computes from frames; the user does not set the byte or key themselves */
   async readRange(input: {
     tenantId: string;
     storageKey: string;
@@ -62,7 +62,7 @@ export class S3RecordingStorage implements RecordingStorage, RecordingPlaybackSt
       }),
     );
     if (!response.Body) throw new Error('recording object has no body');
-    // storage ที่ไม่รองรับ Range จะตอบทั้งไฟล์: ปฏิเสธก่อนโหลดเข้า memory ไม่ส่งต่อให้ผู้ฟัง
+    // a storage that does not support Range answers the whole file: reject before loading into memory, never forward to the listener
     const range = /^bytes (\d+)-(\d+)\/(\d+)$/.exec(response.ContentRange ?? '');
     const wanted = input.endInclusive - input.start + 1;
     if (

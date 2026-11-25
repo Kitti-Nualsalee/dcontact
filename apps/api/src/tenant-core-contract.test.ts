@@ -11,8 +11,8 @@ const descriptor = {
   expectedRevision: '0',
   payload: { displayName: 'Care', defaults: { locale: 'th', timeZone: 'Asia/Bangkok' } },
 };
-test('Core wire contract: canonical JSON/digest คง semantic key order และผูก expected revision', () => {
-  assert.equal(coreCanonicalJson({ z: 0, a: [1, 'ทดสอบ'] }), '{"a":[1,"ทดสอบ"],"z":0}');
+test('Core wire contract: canonical JSON/digest keep the semantic key order and bind the expected revision', () => {
+  assert.equal(coreCanonicalJson({ z: 0, a: [1, 'ทดสอบ'] }), '{"a":[1,"ทดสอบ"],"z":0}'); // allow-thai: Thai text stays raw UTF-8 in canonical JSON
   const first = prepareCoreCommand(descriptor);
   assert.equal(
     first.payloadDigest,
@@ -34,7 +34,7 @@ test('Core wire contract: canonical JSON/digest คง semantic key order แล
     first.payloadDigest,
   );
 });
-test('Core wire contract: revision ต้องเป็น decimal string ใน bigint range ไม่ coerce', () => {
+test('Core wire contract: the revision must be a decimal string within the bigint range, not coerced', () => {
   for (const expectedRevision of [0, -1, '00', '-1', '1e2', '9223372036854775808', null]) {
     assert.throws(
       () => prepareCoreCommand({ ...descriptor, expectedRevision }),
@@ -60,7 +60,7 @@ test('Core wire contract: revision ต้องเป็น decimal string ใ�
     null,
   );
 });
-test('Core wire contract: UUID canonical และรับเฉพาะ JSON values ที่ส่งข้าม API ได้', () => {
+test('Core wire contract: a canonical UUID, and accepts only JSON values that can cross the API', () => {
   assert.equal(
     prepareCoreCommand({ ...descriptor, commandId: descriptor.commandId.toUpperCase() }).commandId,
     descriptor.commandId,

@@ -3,7 +3,7 @@ import test from 'node:test';
 import { randomUUID } from 'node:crypto';
 import { coreFixture } from './tenant-core-test-fixtures.js';
 
-test('Core HTTP → PostgreSQL/RLS: verified Admin ใช้ Core ได้โดยไม่ต้องมี Voice policy', async (t) => {
+test('Core HTTP → PostgreSQL/RLS: a verified Admin can use Core without needing a Voice policy', async (t) => {
   const f = await coreFixture();
   t.after(() => f.close());
   const response = await f.request('tenant/core-settings/capabilities');
@@ -18,7 +18,7 @@ test('Core HTTP → PostgreSQL/RLS: verified Admin ใช้ Core ได้โ�
   });
 });
 
-test('Core HTTP: domain role/proof เป็น authority แม้ token มี role สูงกว่า', async (t) => {
+test('Core HTTP: the domain role/proof is the authority even if the token has a higher role', async (t) => {
   const f = await coreFixture();
   t.after(() => f.close());
   for (const token of ['unbound', 'disabled', 'agent']) {
@@ -33,7 +33,7 @@ test('Core HTTP: domain role/proof เป็น authority แม้ token มี
   assert.deepEqual(voice.body.configuration.reasons, ['RESOURCE_POLICY_NOT_READY']);
 });
 
-test('Core HTTP: command ที่ไม่พบเป็น UNKNOWN และมี error contract ที่ไม่อ้างว่า rollback', async (t) => {
+test('Core HTTP: a command that is not found is UNKNOWN and has an error contract that does not claim a rollback', async (t) => {
   const f = await coreFixture();
   t.after(() => f.close());
   const result = await f.request(
@@ -44,7 +44,7 @@ test('Core HTTP: command ที่ไม่พบเป็น UNKNOWN และ�
   assert.equal(result.headers.get('cache-control'), 'no-store');
 });
 
-test('Core HTTP: reconcile unknown เป็น durable NOT_APPLIED เฉพาะ identity ของผู้สั่ง', async (t) => {
+test("Core HTTP: reconcile of an unknown becomes a durable NOT_APPLIED only for the commander's own identity", async (t) => {
   const f = await coreFixture();
   t.after(() => f.close());
   const path = 'tenant/core-settings/commands/a2b431e9-297e-49bf-92a5-45c84b6cc218';
@@ -59,14 +59,14 @@ test('Core HTTP: reconcile unknown เป็น durable NOT_APPLIED เฉพา
   assert.equal((await f.request(`${path}/reconcile`, 'supervisor', {})).status, 403);
 });
 
-test('Core command HTTP: effects/audit/receipt commit พร้อมกันและ replay ไม่เพิ่ม revision', async (t) => {
+test('Core command HTTP: effects/audit/receipt commit together and a replay does not increase the revision', async (t) => {
   const { CoreCommandProbeController } = await import('./tenant-core-command-probe.js');
   const f = await coreFixture([CoreCommandProbeController]);
   t.after(() => f.close());
   const body = {
     commandId: 'e79282c2-5837-4750-8efc-aa222f292b73',
     expectedRevision: '0',
-    displayName: 'บริษัททดสอบ',
+    displayName: 'Test company',
   };
   const result = await f.request('tenant/core-settings/_test/organization', 'admin', body);
   assert.equal(result.status, 200);
@@ -87,7 +87,7 @@ test('Core command HTTP: effects/audit/receipt commit พร้อมกัน�
   assert.equal((await f.request('tenant/core-settings/_test/organization')).body.revision, '1');
 });
 
-test('Core HTTP: no-op คง revision0 และ stale command ใหม่ยัง conflict แม้เนื้อหาเหมือนปัจจุบัน', async (t) => {
+test('Core HTTP: a no-op keeps revision 0 and a new stale command still conflicts even if its content equals the current one', async (t) => {
   const { CoreCommandProbeController } = await import('./tenant-core-command-probe.js');
   const f = await coreFixture([CoreCommandProbeController]);
   t.after(() => f.close());
@@ -102,7 +102,7 @@ test('Core HTTP: no-op คง revision0 และ stale command ใหม่ย�
   const changed = {
     commandId: 'bf50ae72-3b17-40af-bf78-c14c1eaad728',
     expectedRevision: '0',
-    displayName: 'องค์กรใหม่',
+    displayName: 'New organization',
   };
   assert.equal(
     (await f.request('tenant/core-settings/_test/organization', 'admin', changed)).status,
@@ -127,14 +127,14 @@ test('Core HTTP: no-op คง revision0 และ stale command ใหม่ย�
   );
 });
 
-test('Core HTTP: process หยุดหลัง admission ยังไม่มี effects และ retry ID เดิมได้', async (t) => {
+test('Core HTTP: a process stopped after admission has no effects yet and can retry with the same ID', async (t) => {
   const { CoreCommandProbeController, probeHooks } = await import('./tenant-core-command-probe.js');
   const f = await coreFixture([CoreCommandProbeController]);
   t.after(() => f.close());
   const body = {
     commandId: 'b6b8edc6-3387-4bed-b120-42ff20b5a1db',
     expectedRevision: '0',
-    displayName: 'ทดสอบ admission',
+    displayName: 'Admission test',
   };
   t.after(() => probeHooks.delete(body.commandId));
   probeHooks.set(body.commandId, {
@@ -155,7 +155,7 @@ test('Core HTTP: process หยุดหลัง admission ยังไม่�
     (
       await f.request('tenant/core-settings/_test/organization', 'admin', {
         ...body,
-        displayName: 'ข้อมูลต่างกัน',
+        displayName: 'Different data',
       })
     ).body.error.code,
     'COMMAND_PAYLOAD_MISMATCH',
@@ -168,14 +168,14 @@ test('Core HTTP: process หยุดหลัง admission ยังไม่�
   );
 });
 
-test('Core HTTP: fault หลัง effects rollback ทั้ง resource ก่อน reconcile และกัน late POST', async (t) => {
+test('Core HTTP: a fault after effects rolls back the whole resource before reconcile and blocks a late POST', async (t) => {
   const { CoreCommandProbeController, probeHooks } = await import('./tenant-core-command-probe.js');
   const f = await coreFixture([CoreCommandProbeController]);
   t.after(() => f.close());
   const body = {
     commandId: '8f972a23-7d34-4499-92ea-0dd6ba909013',
     expectedRevision: '0',
-    displayName: 'ข้อมูลที่ต้อง rollback',
+    displayName: 'Data that must roll back',
   };
   t.after(() => probeHooks.delete(body.commandId));
   const before = (await f.request('tenant/core-settings/_test/organization')).body;
@@ -202,14 +202,14 @@ test('Core HTTP: fault หลัง effects rollback ทั้ง resource ก�
   assert.deepEqual((await f.request('tenant/core-settings/_test/organization')).body, before);
 });
 
-test('Core HTTP: response หายหลัง commit ตรวจพบ APPLIED และ replay ไม่มี effects ซ้ำ', async (t) => {
+test('Core HTTP: a response lost after commit is detected as APPLIED and a replay has no duplicate effects', async (t) => {
   const { CoreCommandProbeController, probeHooks } = await import('./tenant-core-command-probe.js');
   const f = await coreFixture([CoreCommandProbeController]);
   t.after(() => f.close());
   const body = {
     commandId: 'd4870294-3076-49ec-9ba5-aecfc011d44b',
     expectedRevision: '0',
-    displayName: 'บันทึกสำเร็จแต่ขาดการตอบกลับ',
+    displayName: 'Saved but the response was lost',
   };
   t.after(() => probeHooks.delete(body.commandId));
   probeHooks.set(body.commandId, {
@@ -233,14 +233,14 @@ test('Core HTTP: response หายหลัง commit ตรวจพบ APPLIE
   );
 });
 
-test('Core HTTP: proof ถูกถอนหลัง admission ห้าม execution/replay/read จนมี authority จริงอีกครั้ง', async (t) => {
+test('Core HTTP: a proof revoked after admission forbids execution/replay/read until there is real authority again', async (t) => {
   const { CoreCommandProbeController, probeHooks } = await import('./tenant-core-command-probe.js');
   const f = await coreFixture([CoreCommandProbeController]);
   t.after(() => f.close());
   const body = {
     commandId: '0ca97d55-5acc-49c4-b615-30b146bf6d0c',
     expectedRevision: '0',
-    displayName: 'ต้องไม่เกิดผลเมื่อ proof หาย',
+    displayName: 'Must have no effect when the proof is gone',
   };
   t.after(() => probeHooks.delete(body.commandId));
   const actor = f.actors.get('admin')!;
@@ -264,7 +264,7 @@ test('Core HTTP: proof ถูกถอนหลัง admission ห้าม exe
   );
 });
 
-test('Core HTTP race: command ระหว่าง execution คืน PENDING และ revoke proof แทรกไม่ได้', async (t) => {
+test('Core HTTP race: a command during execution returns PENDING and a revoke of the proof cannot slip in', async (t) => {
   const { CoreCommandProbeController, probeHooks } = await import('./tenant-core-command-probe.js');
   const f = await coreFixture([CoreCommandProbeController]);
   let enter!: () => void;
@@ -278,7 +278,7 @@ test('Core HTTP race: command ระหว่าง execution คืน PENDING 
   const body = {
     commandId: 'd4f25c7e-47e8-4f7e-9264-bd390a173951',
     expectedRevision: '0',
-    displayName: 'ทดสอบ concurrent execution',
+    displayName: 'Concurrent execution test',
   };
   const options = {
     afterCommandLock: async () => {
@@ -300,7 +300,7 @@ test('Core HTTP race: command ระหว่าง execution คืน PENDING 
   assert.equal(
     await Promise.race([entered.then(() => true), active.then(() => false)]),
     true,
-    'server checkpoint ต้องอยู่หลัง lock ก่อน effects',
+    'the server checkpoint must come after the lock and before the effects',
   );
   const pending = await f.request(
     `tenant/core-settings/commands/${body.commandId}/reconcile`,
@@ -323,7 +323,7 @@ test('Core HTTP race: command ระหว่าง execution คืน PENDING 
   assert.equal((await f.request('tenant/core-settings/_test/organization')).body.revision, '1');
 });
 
-test('Core HTTP race: reconcile ระหว่าง admission/execution กัน original POST และ unknown late POST ได้', async (t) => {
+test('Core HTTP race: reconcile during admission/execution blocks the original POST and an unknown late POST', async (t) => {
   const { CoreCommandProbeController, probeHooks } = await import('./tenant-core-command-probe.js');
   const f = await coreFixture([CoreCommandProbeController]);
   let enter!: () => void;
@@ -337,7 +337,7 @@ test('Core HTTP race: reconcile ระหว่าง admission/execution กั
   const body = {
     commandId: '50a84065-4e2a-4965-85e4-39584978f784',
     expectedRevision: '0',
-    displayName: 'ต้องไม่มาถึงช้าแล้วเปลี่ยนข้อมูล',
+    displayName: 'Must not arrive late and change data',
   };
   probeHooks.set(body.commandId, {
     afterAdmission: async () => {
@@ -376,7 +376,7 @@ test('Core HTTP race: reconcile ระหว่าง admission/execution กั
   assert.equal((await f.request('tenant/core-settings/_test/organization')).body.revision, '0');
 });
 
-test('Core HTTP: error รองรับ X-Request-Id ที่ผ่านรูปแบบโดยไม่สะท้อนค่าที่ไม่ปลอดภัย', async (t) => {
+test('Core HTTP: an error supports an X-Request-Id that passes the format check, without echoing an unsafe value', async (t) => {
   const f = await coreFixture();
   t.after(() => f.close());
   const result = await f.request(
@@ -390,7 +390,7 @@ test('Core HTTP: error รองรับ X-Request-Id ที่ผ่านร�
   assert.equal(result.body.requestId, 'core-725-request');
 });
 
-test('Core HTTP: Admin ใน tenant เดียวกันใช้ UUID เดียวกันได้โดยไม่อ่านหรือยกเลิกคำสั่งของกัน', async (t) => {
+test("Core HTTP: Admins in the same tenant can use the same UUID without reading or cancelling each other's commands", async (t) => {
   const { CoreCommandProbeController } = await import('./tenant-core-command-probe.js');
   const f = await coreFixture([CoreCommandProbeController]);
   t.after(() => f.close());
@@ -401,7 +401,7 @@ test('Core HTTP: Admin ใน tenant เดียวกันใช้ UUID เ�
     'NOT_APPLIED',
   );
   assert.equal((await f.request(path, 'admin-two')).status, 404);
-  const body = { commandId, expectedRevision: '0', displayName: 'บันทึกจาก Admin อีกคน' };
+  const body = { commandId, expectedRevision: '0', displayName: 'Saved by another Admin' };
   assert.equal(
     (await f.request('tenant/core-settings/_test/organization', 'admin-two', body)).body.command
       .outcome,
@@ -412,7 +412,7 @@ test('Core HTTP: Admin ใน tenant เดียวกันใช้ UUID เ�
 });
 
 for (const drift of ['disable', 'role', 'team'] as const) {
-  test(`Core HTTP race: User ${drift} writer แทรก execution ไม่ได้ และ replay/reconcile ตรวจสถานะล่าสุด`, async (t) => {
+  test(`Core HTTP race: a User ${drift} writer cannot slip into execution, and replay/reconcile check the latest state`, async (t) => {
     const { CoreCommandProbeController, probeHooks } =
       await import('./tenant-core-command-probe.js');
     const f = await coreFixture([CoreCommandProbeController]);
@@ -454,14 +454,14 @@ for (const drift of ['disable', 'role', 'team'] as const) {
         await tx.$executeRawUnsafe("SET LOCAL lock_timeout='100ms'");
         await tx.user.update({ where: { id: actor.id }, data });
       }),
-      'writer ต้องไม่ได้เปลี่ยน authority ระหว่าง execution',
+      'the writer must not change authority during execution',
     );
     release();
     assert.equal((await active).body.command.outcome, 'APPLIED');
     await f.owner.user.update({ where: { id: actor.id }, data });
     const path = `tenant/core-settings/commands/${body.commandId}`;
     const expected = drift === 'team' ? 200 : 403;
-    // Admin มี tenant scope: ย้ายทีมแล้วคงสิทธิ์ Admin; disable/role drift ต้องห้าม stale token
+    // an Admin has tenant scope: after a team move the Admin permission stays; disable/role drift must forbid a stale token
     assert.equal((await f.request(path)).status, expected);
     assert.equal((await f.request(`${path}/reconcile`, 'admin', {})).status, expected);
     assert.equal(
@@ -476,7 +476,7 @@ for (const drift of ['disable', 'role', 'team'] as const) {
   });
 }
 
-test('Core HTTP race: Supervisor team drift ต้องได้ current own active Team และไม่อ่าน authority ระหว่าง writer ค้าง', async (t) => {
+test('Core HTTP race: Supervisor team drift must get the current own active Team and must not read authority while a writer is stuck', async (t) => {
   const f = await coreFixture();
   t.after(() => f.close());
   const actor = f.actors.get('supervisor')!;
@@ -493,8 +493,8 @@ test('Core HTTP race: Supervisor team drift ต้องได้ current own ac
       if (change === 'assignment')
         await tx.user.update({ where: { id: actor.id }, data: { teamId: null } });
       else {
-        // owner-only legacy fault: guard ใหม่ห้ามปิด Team ที่ยังมี User อ้างถึงตามปกติ
-        // ยังต้องพิสูจน์ authorization เมื่อพบข้อมูลเก่าและ row lock ที่ค้างจริง
+        // owner-only legacy fault: the new guard forbids deactivating a Team that still has Users referencing it as usual
+        // we still have to prove authorization when old data is found and a row lock is genuinely held
         await tx.$executeRawUnsafe("SET LOCAL session_replication_role='replica'");
         await tx.team.update({ where: { id: f.teamId }, data: { isActive: false } });
       }

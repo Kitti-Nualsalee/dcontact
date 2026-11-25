@@ -1,8 +1,8 @@
 /**
- * J5.5 (#343): REST adapter ของ Journey template catalog (Phase Spec #337 §5, §7)
+ * J5.5 (#343): the REST adapter of the Journey template catalog (Phase Spec #337 §5, §7)
  *
- * ใช้ parser/auth/error mapping ชุดเดียวกับ `journey-authoring-api.ts`; ค่า parameter binding ผ่าน
- * controller ไปถึง binder เท่านั้น ไม่ถูก log หรือสะท้อนกลับใน error
+ * uses the same parser/auth/error mapping as `journey-authoring-api.ts`; parameter binding values go through the
+ * controller to the binder only, and are never logged or reflected back in an error
  */
 import {
   Body,
@@ -43,7 +43,7 @@ const templateContent = {
 };
 const headLifecycle = { expectedHeadVersion: parse.positiveInt, reasonCode: parse.reasonCode };
 
-/** document/schema ถูกตรวจเชิงลึกโดย binder/validator ใน domain — ที่นี่แค่รูปชั้นนอก */
+/** the document/schema is deeply checked by the binder/validator in the domain — here only the outer shape */
 const asDocument = (value: Record<string, unknown>) => value as unknown as AuthoringDocumentV1;
 const asSchema = (value: unknown[]) => value as unknown as JourneyTemplateParameterV1[];
 

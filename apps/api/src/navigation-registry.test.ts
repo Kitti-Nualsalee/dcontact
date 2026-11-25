@@ -16,7 +16,7 @@ import {
 const ids = (apps: { id: string }[]) => apps.map((app) => app.id);
 const FULL = { module_journey: true, module_contact_governance: true };
 
-test('registry: id ไม่ซ้ำ, กลุ่มอยู่ในชุดที่ตกลง, path ไม่มี PII placeholder และเป็น path ภายใน', () => {
+test('registry: ids are unique, groups are in the agreed set, paths have no PII placeholder and are internal paths', () => {
   assert.equal(new Set(ids([...NAVIGATION_APPS])).size, NAVIGATION_APPS.length);
   for (const app of NAVIGATION_APPS) {
     assert.ok(NAVIGATION_GROUPS.includes(app.group), app.id);
@@ -28,7 +28,7 @@ test('registry: id ไม่ซ้ำ, กลุ่มอยู่ในชุ�
   }
 });
 
-test('role ต่างกันเห็นรายการต่างกัน', () => {
+test('different roles see different items', () => {
   assert.deepEqual(ids(visibleApps({ roles: ['agent'], entitlements: FULL })), [
     'home',
     'agent-workspace',
@@ -55,7 +55,7 @@ test('role ต่างกันเห็นรายการต่างกั
   assert.deepEqual(ids(visibleApps({ roles: ['journey-ingress'], entitlements: FULL })), []);
 });
 
-test('plan ต่างกันเห็นรายการต่างกัน — key ต้องเป็น true เท่านั้น (fail-closed)', () => {
+test('different plans see different items — the key must be exactly true (fail-closed)', () => {
   const admin = ['admin'];
   assert.deepEqual(ids(visibleApps({ roles: admin, entitlements: { module_journey: true } })), [
     'home',
@@ -116,7 +116,7 @@ test('plan ต่างกันเห็นรายการต่างกั
   );
 });
 
-test('tenant ที่ไม่มี plan binding (null) ใช้ role อย่างเดียว', () => {
+test('a tenant with no plan binding (null) uses the role alone', () => {
   assert.deepEqual(ids(visibleApps({ roles: ['admin'], entitlements: null })), [
     'home',
     'agent-workspace',
@@ -138,7 +138,7 @@ test('tenant ที่ไม่มี plan binding (null) ใช้ role อย�
   ]);
 });
 
-test('E1.11: dphone embedding เห็นเฉพาะ ADMIN/SUPERVISOR ของ plan ที่มี module_api_cti', () => {
+test('E1.11: dphone embedding is visible only to ADMIN/SUPERVISOR of a plan that has module_api_cti', () => {
   const cti = { module_api_cti: true };
   assert.deepEqual(ids(visibleApps({ roles: ['admin'], entitlements: cti })), [
     'home',
@@ -167,7 +167,7 @@ test('E1.11: dphone embedding เห็นเฉพาะ ADMIN/SUPERVISOR ข�
   );
 });
 
-test('ชุดเริ่มต้นของ tenant ขึ้นกับ entitlement ไม่ขึ้นกับ role ของ admin', () => {
+test("the tenant's starter set depends on the entitlement, not the admin's role", () => {
   assert.deepEqual(ids(tenantAvailableApps({ module_contact_governance: true })), [
     'home',
     'agent-workspace',
@@ -189,7 +189,7 @@ test('ชุดเริ่มต้นของ tenant ขึ้นกับ en
   ]);
 });
 
-test('หมุดที่มีผล: ผู้ใช้ทับ tenant ทับ system และกรองแอปที่มองไม่เห็นออก', () => {
+test('effective pins: a user overrides the tenant over the system and invisible apps are filtered out', () => {
   const visible = visibleApps({ roles: ['agent'], entitlements: FULL });
   assert.deepEqual(
     effectivePins({
@@ -217,7 +217,7 @@ test('หมุดที่มีผล: ผู้ใช้ทับ tenant ท�
   });
 });
 
-test('ตรวจหมุด: เกิน 15 ก่อน แล้วแอปที่ไม่มีอยู่กับไม่มีสิทธิ์ได้ error เดียวกัน', () => {
+test('pin validation: over 15 first, then an app that does not exist and one without permission get the same error', () => {
   const allowed = visibleApps({ roles: ['agent'], entitlements: FULL });
   const tooMany = Array.from({ length: MAX_PINS + 1 }, (_, i) => `app-${i}`);
   assert.equal(pinValidationError(tooMany, allowed), 'PIN_LIMIT_EXCEEDED');
@@ -227,7 +227,7 @@ test('ตรวจหมุด: เกิน 15 ก่อน แล้วแอ�
   assert.equal(pinValidationError([], allowed), null);
 });
 
-test('#651: พื้นที่เมนูคัดตาม role/plan; ลำดับตาม rail; พื้นที่ว่างไม่ถูกส่ง', () => {
+test('#651: menu areas are filtered by role/plan; order follows the rail; empty areas are not sent', () => {
   const areaIds = (input: Parameters<typeof visibleApps>[0]) =>
     visibleAreas(visibleApps(input)).map((area) => area.id);
   assert.deepEqual(areaIds({ roles: ['agent'], entitlements: FULL }), [
@@ -251,7 +251,7 @@ test('#651: พื้นที่เมนูคัดตาม role/plan; ล�
   ]);
   assert.deepEqual(areaIds({ roles: ['compliance'], entitlements: FULL }), ['home', 'governance']);
   assert.deepEqual(areaIds({ roles: ['journey-ingress'], entitlements: FULL }), []);
-  // ลำดับพื้นที่ตาม NAVIGATION_AREAS ไม่ใช่ตามลำดับแถวใน registry
+  // the area order follows NAVIGATION_AREAS, not the row order in the registry
   const reversed = [...NAVIGATION_APPS].reverse();
   assert.deepEqual(
     visibleAreas(reversed).map((area) => area.id),
@@ -259,7 +259,7 @@ test('#651: พื้นที่เมนูคัดตาม role/plan; ล�
   );
 });
 
-test('#860: เมนูลูกค้าอยู่พื้นที่เดียวตามสิทธิ์ (หน้านำเข้า CSV #909 และสิทธิ์ทีม #915 เฉพาะ admin)', () => {
+test('#860: the customer menu is in a single area per permission (the CSV import page #909 and the team permission #915 are admin only)', () => {
   const customerArea = (roles: string[]) =>
     visibleAreas(visibleApps({ roles, entitlements: null })).find(
       (area) => area.id === 'customers',
@@ -293,7 +293,7 @@ test('#860: เมนูลูกค้าอยู่พื้นที่เ�
   );
 });
 
-test('#651: ทุกแอปที่มองเห็นอยู่ในพื้นที่หนึ่งเดียว และ item อ้าง appId จริง', () => {
+test('#651: every visible app is in exactly one area and an item references a real appId', () => {
   const visible = visibleApps({ roles: ['admin'], entitlements: null });
   const items = visibleAreas(visible).flatMap((area) =>
     area.sections.flatMap((section) => section.items.map((item) => item.appId)),
@@ -302,7 +302,7 @@ test('#651: ทุกแอปที่มองเห็นอยู่ใน�
   assert.equal(new Set(items).size, items.length);
 });
 
-test('#651: แอปหลายตัวในพื้นที่/กลุ่มย่อยเดียวกันเรียงตาม registry และแยกกลุ่มย่อยตาม section', () => {
+test('#651: several apps in the same area/sub-group follow the registry order and sub-groups split by section', () => {
   const base = NAVIGATION_APPS[0]!;
   const fake = [
     { ...base, id: 'a-one', area: 'routing', section: 'setup' },
@@ -320,7 +320,7 @@ test('#651: แอปหลายตัวในพื้นที่/กลุ�
   ]);
 });
 
-test('#658: Governance และ Voice ส่งหน้าย่อยจาก registry โดยแอปอื่นไม่มี pages', () => {
+test('#658: Governance and Voice send sub-pages from the registry while other apps have no pages', () => {
   const visible = visibleApps({ roles: ['compliance'], entitlements: FULL });
   const area = visibleAreas(visible).find((a) => a.id === 'governance');
   assert.equal(area!.id, 'governance');
@@ -333,9 +333,12 @@ test('#658: Governance และ Voice ส่งหน้าย่อยจา�
   for (const page of item!.pages!) {
     assert.match(page.id, /^[a-z][a-z-]*$/);
     assert.ok(page.path.startsWith('/?view=governance&section='), page.path);
-    assert.ok(!/(contact|series|policy|version)Id/i.test(page.path), 'ห้ามมี id ใน path');
+    assert.ok(
+      !/(contact|series|policy|version)Id/i.test(page.path),
+      'there must be no id in the path',
+    );
   }
-  // หน้าย่อยไม่ใช่แอป: ไม่อยู่ใน launcher/หมุด
+  // a sub-page is not an app: not in the launcher/pins
   assert.ok(!visible.some((app) => app.id === 'overview' || app.id === 'audit'));
   const everyone = visibleAreas(visibleApps({ roles: ['admin'], entitlements: null }));
   const withoutPages = everyone
@@ -357,7 +360,7 @@ test('#658: Governance และ Voice ส่งหน้าย่อยจา�
   );
 });
 
-test('#967 เสียงบันทึกของทีมอยู่ในเมนูของ Supervisor เฉพาะ deployment ที่เปิดใช้', () => {
+test('#967 team recordings are in the Supervisor menu only for deployments that enable it', () => {
   assert.equal(
     navigationApps(false).some((app) => app.id === 'team-recordings'),
     false,
@@ -375,7 +378,7 @@ test('#967 เสียงบันทึกของทีมอยู่ใน
   );
 });
 
-test('#971 แอปประเมินคุณภาพอยู่ในเมนูตามบทบาทเฉพาะ deployment ที่เปิดใช้', () => {
+test('#971 the quality evaluation app is in the menu by role only for deployments that enable it', () => {
   const qmIds = ['team-evaluations', 'my-quality', 'qm-forms'];
   assert.equal(
     navigationApps(true, false).some((app) => qmIds.includes(app.id)),
@@ -388,7 +391,7 @@ test('#971 แอปประเมินคุณภาพอยู่ในเ
   assert.deepEqual(visibleTo(['agent']), ['my-quality']);
   assert.deepEqual(visibleTo(['admin']), ['qm-forms']);
   assert.ok(enabled.filter((app) => qmIds.includes(app.id)).every((app) => app.area === 'qm'));
-  // เปิดทั้งสองสวิตช์: ลำดับเดิมของเสียงบันทึกของทีมไม่เปลี่ยน
+  // both switches on: the original order of team recordings does not change
   const both = navigationApps(true, true).map((app) => app.id);
   assert.equal(both.indexOf('team-recordings'), both.indexOf('supervisor-workspace') + 1);
 });

@@ -3,22 +3,22 @@ import { PrismaClient } from '@d-contact/db';
 import { UatFixtureProvisioner, importJourneyDefinition } from '@d-contact/journey';
 
 /**
- * U1.7 (#435): ข้อมูลสังเคราะห์ของ acceptance gate — ทำแบบเดียวกับที่ operator ทำใน UAT
- * (docs/u1-uat-deployment.md §5) ด้วย connection ของ owner แล้ว provision fixture pack ผ่าน
- * `UatFixtureProvisioner` จริง (preflight/digest ครบ) ไม่มีการเขียน run/Journey ตรง ๆ
+ * U1.7 (#435): synthetic data for the acceptance gate — done the same way an operator does in UAT
+ * (docs/u1-uat-deployment.md §5) with the owner connection, then provisions the fixture pack through the real
+ * `UatFixtureProvisioner` (full preflight/digest) with no direct run/Journey writes
  *
- * - tenant A = tenant ของ UAT: owner team, maker/reviewer (grant แบบ TEAM ตาม runbook), rollout, fixture pack
- *   maker ได้ `journey.review` เพิ่มเพื่อให้ negative self-approval ไปถึง guard maker-checker จริง
- *   (ไม่ใช่ถูกตัดตั้งแต่ capability check) — reviewer ยังเป็นคนละบัญชีตาม pack
- * - tenant B = tenant อื่นที่มีผู้ใช้ `foreign` ถือ grant แบบ TENANT ครบใน tenant ของตัวเอง ใช้พิสูจน์ว่า
- *   token ของ tenant อื่นแตะ run/Journey ของ tenant A ไม่ได้แม้มีสิทธิ์กว้างใน tenant ตัวเอง
- * - ทุก id สุ่มใหม่ต่อรอบของ gate จึงรันซ้ำบน DB เดิมได้โดยไม่ชนกัน
+ * - tenant A = the UAT tenant: owner team, maker/reviewer (TEAM-style grants per the runbook), rollout, fixture pack
+ *   the maker gets `journey.review` in addition so the negative self-approval reaches the real maker-checker guard
+ *   (not being cut at the capability check) — the reviewer is still a different account per the pack
+ * - tenant B = another tenant with a `foreign` user holding a full TENANT-style grant in its own tenant, used to prove that
+ *   a token of another tenant cannot touch the run/Journey of tenant A even with broad permission in its own tenant
+ * - every id is regenerated each gate round so it can be rerun on the same DB without colliding
  */
 const MAKER_CAPABILITIES = ['journey.read', 'journey.edit', 'journey.publish', 'journey.review'];
 const REVIEWER_CAPABILITIES = ['journey.read', 'journey.review'];
 const FOREIGN_CAPABILITIES = ['journey.read', 'journey.edit', 'journey.review', 'journey.publish'];
 
-/** Journey ตั้งต้นของทุก run: EVENT_TRIGGER → SEND → EXIT (maker แทรก WAIT เองใน Console) */
+/** the starting Journey of every run: EVENT_TRIGGER → SEND → EXIT (the maker inserts WAIT themselves in the Console) */
 function baselineSource(ownerTeamId) {
   return {
     name: 'U1 gate synthetic journey',
@@ -96,7 +96,7 @@ export async function provisionU1AcceptanceFixture({
           id: user.id,
           tenantId: tenant.id,
           email: `${role}.${tag}@u1-gate.invalid`,
-          // ไม่มี login ผ่าน DB — ตัวตนมาจาก Keycloak เท่านั้น
+          // no login through the DB — identity comes only from Keycloak
           passwordHash: '!',
           displayName: `U1 gate ${role}`,
           role: 'ADMIN',

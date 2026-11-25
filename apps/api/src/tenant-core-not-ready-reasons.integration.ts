@@ -4,7 +4,7 @@ import test from 'node:test';
 import { withTenantDatabaseTransaction } from '@d-contact/db';
 import { coreFixture } from './tenant-core-test-fixtures.js';
 
-/** #936 รายการเหตุผล Not Ready ผ่าน Core Settings บนฐานจริง — สิทธิ์, tenant isolation, revision และการลบ */
+/** #936 the Not Ready reason list through Core Settings on a real database — permission, tenant isolation, revision and deletion */
 const PATH = 'tenant/core-settings/not-ready-reasons';
 type Reason = { code: string; labelTh: string; labelEn: string; isActive: boolean; inUse: boolean };
 type Snapshot = { id: string; revision: string; reasons: Reason[] };
@@ -32,7 +32,7 @@ async function read(f: Awaited<ReturnType<typeof coreFixture>>, token = 'admin')
   };
 }
 
-test('tenant ใหม่ได้เหตุผลตั้งต้น 7 ข้อ revision 1 — Admin และ Supervisor อ่านได้ Agent ไม่ได้', async (t) => {
+test('a new tenant gets 7 initial reasons at revision 1 — Admin and Supervisor can read, an Agent cannot', async (t) => {
   const f = await coreFixture();
   t.after(() => f.close());
   const admin = await read(f);
@@ -45,7 +45,7 @@ test('tenant ใหม่ได้เหตุผลตั้งต้น 7 ข�
   );
   assert.deepEqual(admin.snapshot.reasons[0], {
     code: 'BREAK',
-    labelTh: 'พักสั้น',
+    labelTh: 'พักสั้น', // allow-thai: default reason label seeded by the migration
     labelEn: 'Break',
     isActive: true,
     inUse: false,
@@ -63,17 +63,17 @@ test('tenant ใหม่ได้เหตุผลตั้งต้น 7 ข�
   assert.deepEqual(await capabilities('supervisor'), { read: true, write: false });
 });
 
-test('Admin แก้ทั้งรายการ: เปลี่ยนชื่อ เรียงใหม่ ปิด เพิ่ม และลบ — replay ได้ผลเดิม, no-op ไม่เพิ่ม revision, revision เก่าถูกปฏิเสธ', async (t) => {
+test('an Admin edits the whole list: rename, reorder, disable, add and delete — a replay gives the same result, a no-op does not increase the revision, an old revision is rejected', async (t) => {
   const f = await coreFixture();
   t.after(() => f.close());
   const before = (await read(f)).snapshot;
   const [breakReason, lunch, meeting, ...rest] = before.reasons.map(draft);
   const reasons = [
-    { ...lunch!, labelTh: 'พักกลางวัน' },
+    { ...lunch!, labelTh: 'Lunch break' },
     breakReason!,
     { ...meeting!, isActive: false },
     ...rest.filter((r) => r.code !== 'PERSONAL'),
-    { labelTh: 'ตรวจคุณภาพ', labelEn: 'Quality check', isActive: true },
+    { labelTh: 'Quality check', labelEn: 'Quality check', isActive: true },
   ];
   const body = { commandId: randomUUID(), expectedRevision: '1', reasons };
   const changed = await f.request(PATH, 'admin', body, 'PUT');
@@ -87,13 +87,13 @@ test('Admin แก้ทั้งรายการ: เปลี่ยนชื
   assert.deepEqual(
     after.reasons.map((r) => [r.code, r.labelTh, r.isActive]),
     [
-      ['LUNCH', 'พักกลางวัน', true],
-      ['BREAK', 'พักสั้น', true],
-      ['MEETING', 'ประชุม', false],
-      ['TRAINING', 'อบรม', true],
-      ['COACHING', 'โค้ช/ประเมิน', true],
-      ['BACK_OFFICE', 'งานหลังบ้าน', true],
-      ['QUALITY_CHECK', 'ตรวจคุณภาพ', true],
+      ['LUNCH', 'Lunch break', true],
+      ['BREAK', 'พักสั้น', true], // allow-thai: default reason label seeded by the migration
+      ['MEETING', 'ประชุม', false], // allow-thai: default reason label seeded by the migration
+      ['TRAINING', 'อบรม', true], // allow-thai: default reason label seeded by the migration
+      ['COACHING', 'โค้ช/ประเมิน', true], // allow-thai: default reason label seeded by the migration
+      ['BACK_OFFICE', 'งานหลังบ้าน', true], // allow-thai: default reason label seeded by the migration
+      ['QUALITY_CHECK', 'Quality check', true],
     ],
   );
 
@@ -111,7 +111,7 @@ test('Admin แก้ทั้งรายการ: เปลี่ยนชื
   assert.equal(stale.body.error.code, 'REVISION_CONFLICT');
   assert.equal(errorOf(stale).currentRevision, '2');
 
-  // audit ของ Core Settings เก็บก่อน/หลังของทั้งรายการ
+  // the Core Settings audit keeps the before/after of the whole list
   const audit = await withTenantDatabaseTransaction(f.owner, f.tenantId, (tx) =>
     tx.tenantCoreConfigAudit.findFirstOrThrow({
       where: { tenantId: f.tenantId, resourceType: 'NOT_READY_REASONS' },
@@ -122,7 +122,7 @@ test('Admin แก้ทั้งรายการ: เปลี่ยนชื
   assert.equal(audit.afterRevision, 2n);
 });
 
-test('กติกา: ปิดทุกเหตุผลไม่ได้, ชื่อซ้ำไม่ได้, code ที่ไม่มีอยู่ไม่ได้ — ไม่เพิ่ม revision', async (t) => {
+test('rules: cannot disable every reason, duplicate names are not allowed, a nonexistent code is not allowed — the revision does not increase', async (t) => {
   const f = await coreFixture();
   t.after(() => f.close());
   const reasons = (await read(f)).snapshot.reasons.map(draft);
@@ -143,7 +143,7 @@ test('กติกา: ปิดทุกเหตุผลไม่ได้, �
 
   const duplicate = await put([
     ...reasons,
-    { labelTh: 'พักสั้น', labelEn: 'Short break', isActive: true },
+    { labelTh: 'พักสั้น', labelEn: 'Short break', isActive: true }, // allow-thai: default reason label seeded by the migration
   ]);
   assert.equal(duplicate.status, 422);
   assert.equal(
@@ -153,7 +153,7 @@ test('กติกา: ปิดทุกเหตุผลไม่ได้, �
 
   const unknown = await put([
     ...reasons,
-    { code: 'GHOST', labelTh: 'ผี', labelEn: 'Ghost', isActive: true },
+    { code: 'GHOST', labelTh: 'Ghost', labelEn: 'Ghost', isActive: true },
   ]);
   assert.equal(unknown.status, 422);
   assert.equal(
@@ -164,7 +164,7 @@ test('กติกา: ปิดทุกเหตุผลไม่ได้, �
   assert.equal((await read(f)).snapshot.revision, '1');
 });
 
-test('เหตุผลที่เคยถูกใช้แล้วลบไม่ได้ ปิดได้เท่านั้น — ฐานข้อมูลกันการลบตรงด้วย', async (t) => {
+test('a reason that has been used cannot be deleted, only disabled — the database also blocks a direct delete', async (t) => {
   const f = await coreFixture();
   t.after(() => f.close());
   await withTenantDatabaseTransaction(
@@ -216,7 +216,7 @@ test('เหตุผลที่เคยถูกใช้แล้วลบ�
   );
 });
 
-test('สิทธิ์และ tenant isolation: Supervisor แก้ไม่ได้, Admin ของ tenant อื่นเห็นและแก้ได้เฉพาะของตัวเอง', async (t) => {
+test('permission and tenant isolation: a Supervisor cannot edit, and an Admin of another tenant sees and edits only their own', async (t) => {
   const f = await coreFixture();
   t.after(() => f.close());
   const reasons = (await read(f)).snapshot.reasons.map(draft);
@@ -236,7 +236,7 @@ test('สิทธิ์และ tenant isolation: Supervisor แก้ไม�
     PATH,
     'foreign',
     body(
-      [{ ...foreign.snapshot.reasons[0]!, labelTh: 'พักของอีก tenant' }]
+      [{ ...foreign.snapshot.reasons[0]!, labelTh: 'Break of another tenant' }]
         .map(draft)
         .concat(foreign.snapshot.reasons.slice(1).map(draft)),
     ),
@@ -246,7 +246,7 @@ test('สิทธิ์และ tenant isolation: Supervisor แก้ไม�
 
   const mine = (await read(f)).snapshot;
   assert.equal(mine.revision, '1');
-  assert.equal(mine.reasons[0]?.labelTh, 'พักสั้น');
+  assert.equal(mine.reasons[0]?.labelTh, 'พักสั้น'); // allow-thai: default reason label seeded by the migration
   const rows = await withTenantDatabaseTransaction(
     f.db,
     f.tenantId,

@@ -12,7 +12,7 @@ function required(name: string) {
   return value;
 }
 
-test('real Keycloak disable adapter อ่าน exact receipt หลัง commit และไม่ resend ระหว่าง reconcile', async () => {
+test('the real Keycloak disable adapter reads the exact receipt after commit and does not resend during reconcile', async () => {
   const tenantId = required('B2_KEYCLOAK_TENANT_ID');
   let mutations = 0;
   const request: typeof fetch = (input, options) => {

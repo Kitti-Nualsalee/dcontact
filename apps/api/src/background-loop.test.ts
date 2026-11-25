@@ -7,7 +7,7 @@ class TransactionTimeout extends Error {
   code = 'P2028';
 }
 
-test('รอบที่ throw (เช่น P2028) ถูก log แบบ structured แล้ว loop ทำรอบถัดไปต่อ', async () => {
+test('a round that throws (e.g. P2028) is logged in a structured way and the loop continues with the next round', async () => {
   const events: Array<Record<string, unknown>> = [];
   let calls = 0;
   let resolveThird!: () => void;
@@ -34,11 +34,11 @@ test('รอบที่ throw (เช่น P2028) ถูก log แบบ stru
     { event: 'work_session.sweep_failed', error: 'PrismaClientKnownRequestError', code: 'P2028' },
     { event: 'work_session.sweep_failed', error: 'PrismaClientKnownRequestError', code: 'P2028' },
   ]);
-  // message ของ error อาจมี query/PII — ห้ามหลุดไปใน log
+  // the error message may contain a query/PII — it must not leak into the log
   assert.equal(JSON.stringify(events).includes('agent@example.com'), false);
 });
 
-test('runOnce ไม่ throw และคืน false เมื่อรอบล้ม — ไม่มี unhandled rejection', async () => {
+test('runOnce does not throw and returns false when the round fails — no unhandled rejection', async () => {
   const unhandled: unknown[] = [];
   const onUnhandled = (reason: unknown) => unhandled.push(reason);
   process.on('unhandledRejection', onUnhandled);
@@ -62,7 +62,7 @@ test('runOnce ไม่ throw และคืน false เมื่อรอบ�
   assert.deepEqual(unhandled, []);
 });
 
-test('describeBackgroundError เก็บแค่ชื่อและ code', () => {
+test('describeBackgroundError keeps only the name and code', () => {
   assert.deepEqual(describeBackgroundError(new TransactionTimeout('x')), {
     error: 'PrismaClientKnownRequestError',
     code: 'P2028',

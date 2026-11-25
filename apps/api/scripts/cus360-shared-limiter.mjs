@@ -1,4 +1,4 @@
-/** #866: Redis/PostgreSQL แบบ disposable สำหรับทดสอบ shared limiter เท่านั้น */
+/** #866: a disposable Redis/PostgreSQL for testing the shared limiter only */
 import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';

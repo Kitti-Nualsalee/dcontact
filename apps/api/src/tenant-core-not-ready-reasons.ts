@@ -1,10 +1,10 @@
 /**
- * #936 รายการเหตุผล Not Ready ต่อ tenant (docs/agent-readiness-setup.md, คำตัดสิน owner ข้อ 4)
+ * #936 the Not Ready reason list per tenant (docs/agent-readiness-setup.md, owner decision item 4)
  *
- * ทั้งรายการเป็น resource เดียวต่อ tenant (resource_id = tenant_id เหมือน ORGANIZATION) แก้ด้วย command
- * `NOT_READY_REASONS_UPDATE` ที่ส่งรายการใหม่ทั้งชุด: ลำดับในรายการ = ลำดับที่ Agent เห็น,
- * เหตุผลที่ไม่มี code = เพิ่มใหม่, code เดิมที่หายไป = ลบ (ลบได้เฉพาะที่ยังไม่เคยถูกใช้)
- * สิทธิ์ใช้กติกา Core Settings เดิม: ทุกบทบาทที่เข้า Core Settings อ่านได้ เฉพาะ ADMIN แก้ได้
+ * the whole list is one resource per tenant (resource_id = tenant_id like ORGANIZATION), edited with the command
+ * `NOT_READY_REASONS_UPDATE` that sends the whole new list: order in the list = the order the Agent sees,
+ * a reason with no code = newly added, an existing code that disappears = deleted (only reasons never used can be deleted)
+ * permission uses the original Core Settings rules: every role that enters Core Settings can read, only ADMIN can edit
  */
 import type { Prisma, PrismaClient } from '@d-contact/db';
 import {
@@ -25,7 +25,7 @@ export interface NotReadyReason {
   labelTh: string;
   labelEn: string;
   isActive: boolean;
-  /** เคยถูกใช้แล้ว = ลบไม่ได้ ปิดได้เท่านั้น */
+  /** has been used = cannot be deleted, can only be disabled */
   inUse: boolean;
 }
 export interface NotReadyReasonsSnapshot {
@@ -76,7 +76,7 @@ export function readNotReadyReasons(db: PrismaClient, identity: CoreIdentity) {
   });
 }
 
-/** ตรวจรูปแบบ request (400) แยกจากกติกาทางธุรกิจที่ตรวจกับข้อมูลปัจจุบัน (422/409) */
+/** validates the request shape (400), separate from business rules checked against current data (422/409) */
 export function parseNotReadyReasonsRequest(body: unknown): {
   commandId: unknown;
   expectedRevision: unknown;
@@ -120,8 +120,8 @@ export function parseNotReadyReasonsRequest(body: unknown): {
 }
 
 /**
- * กติกาของรายการใหม่เทียบกับรายการปัจจุบัน — คืน field error ตามตำแหน่ง (`reasons.<i>.labelTh`)
- * ให้หน้าจอชี้แถวที่ต้องแก้ได้
+ * the rules of the new list against the current list — returns field errors by position (`reasons.<i>.labelTh`)
+ * so the screen can point at the row to fix
  */
 export function notReadyReasonsFieldErrors(
   drafts: readonly NotReadyReasonDraft[],
@@ -149,7 +149,7 @@ export function notReadyReasonsFieldErrors(
   return errors;
 }
 
-/** code ของเหตุผลใหม่จากชื่อภาษาอังกฤษ — ไม่ชนกับ code ที่มีอยู่ (ทั้งที่ยังอยู่และที่เพิ่มในคำสั่งเดียวกัน) */
+/** the code of a new reason from the English name — does not collide with existing codes (both those still present and those added in the same command) */
 export function newNotReadyReasonCode(labelEn: string, taken: ReadonlySet<string>): string {
   const base =
     labelEn

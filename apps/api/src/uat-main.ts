@@ -1,6 +1,6 @@
 /**
- * Entrypoint ของ API ใน UAT first slice (U1.2 #430) — ต้องตั้ง `DCONTACT_API_PROFILE=uat`
- * ไม่เช่นนั้นบูตไม่ผ่าน; composition root ของ profile อื่นคือ `main.ts`
+ * Entrypoint of the API in the UAT first slice (U1.2 #430) — `DCONTACT_API_PROFILE=uat` must be set
+ * otherwise the boot fails; the composition root of other profiles is `main.ts`
  */
 import { bootstrapUatApi } from './uat-api.js';
 

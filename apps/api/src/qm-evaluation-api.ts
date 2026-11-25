@@ -1,11 +1,11 @@
 /**
- * #971 — Supervisor ประเมินสายของทีมด้วยฟอร์ม แล้ว Agent เห็นคะแนนของตัวเอง (`/api/v1/qm`)
+ * #971 — a Supervisor evaluates the team's calls with a form, then the Agent sees their own score (`/api/v1/qm`)
  *
- * - Admin สร้างฟอร์ม แก้ร่าง และ publish เวอร์ชัน เวอร์ชันที่ publish แล้วแก้ไม่ได้ (ADR-010 ข้อ 9)
- * - Supervisor ประเมินได้เฉพาะสายที่ทีมตัวเองรับจริง (`voice_interaction_handling_attributions`)
- *   เทียบกับทีมปัจจุบันทุก request แบบเดียวกับ #967 และประเมินสายที่ตัวเองรับไม่ได้
- * - Agent เห็นเฉพาะผลที่ publish แล้วของตัวเอง; ผลเก็บ snapshot ของฟอร์มจึงอ่านย้อนหลังได้เสมอ
- * - role ใน token เป็นด่านแรก บทบาทและสถานะปัจจุบันอ่านจาก DB ทุก request
+ * - an Admin creates a form, edits drafts and publishes versions; a published version cannot be edited (ADR-010 item 9)
+ * - a Supervisor can evaluate only calls that their own team really answered (`voice_interaction_handling_attributions`)
+ *   checked against the current team on every request the same as #967, and cannot evaluate calls they answered themselves
+ * - an Agent sees only their own published results; a result stores a snapshot of the form so it can always be read back later
+ * - the role in the token is the first gate; the current role and status are read from the DB on every request
  */
 import { createHash } from 'node:crypto';
 import {
@@ -60,7 +60,7 @@ interface Actor {
   userId: string;
 }
 
-/** snapshot ที่เก็บใน `qm_evaluations.form_snapshot` */
+/** the snapshot stored in `qm_evaluations.form_snapshot` */
 interface FormSnapshot {
   formId: string;
   formName: string;
@@ -84,7 +84,7 @@ interface TeamInteraction {
 
 const disabled = () => new ForbiddenException({ code: 'FEATURE_DISABLED' });
 const denied = () => new ForbiddenException({ code: 'QM_ACCESS_DENIED' });
-/** ไม่มี, ของทีมอื่น และของ tenant อื่น ตอบเหมือนกัน */
+/** not found, another team's and another tenant's all answer the same */
 const notFound = () => new NotFoundException({ code: 'RESOURCE_NOT_FOUND' });
 const invalid = (field: string) => new BadRequestException({ code: 'INVALID_REQUEST', field });
 const conflict = (code: string) => new ConflictException({ code });
@@ -112,7 +112,7 @@ function revisionOf(body: Record<string, unknown>, required: boolean): number | 
   return value as number;
 }
 
-/** เรียง key ของ object ก่อนทำ digest: retry ที่ลำดับ key ต่างกันยังถือเป็นคำสั่งเดิม */
+/** sort an object's keys before taking the digest: a retry with a different key order is still the same command */
 function canonical(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonical);
   if (typeof value !== 'object' || value === null) return value;
@@ -146,7 +146,7 @@ function encodeCursor(at: Date, id: string): string {
   return Buffer.from(JSON.stringify([at.toISOString(), id])).toString('base64url');
 }
 
-/** cursor เป็นตำแหน่งในรายการเท่านั้น สิทธิ์ถูกตรวจใหม่ทุก request */
+/** the cursor is only a position in the list; permission is rechecked on every request */
 function decodeCursor(value: unknown): { at: Date; id: string } | undefined {
   if (value === undefined) return undefined;
   try {
@@ -156,13 +156,13 @@ function decodeCursor(value: unknown): { at: Date; id: string } | undefined {
       if (!Number.isNaN(at.getTime())) return { at, id: String(parsed[1]) };
     }
   } catch {
-    // ตกไปตอบ 400 ด้านล่าง
+    // falls through to answer 400 below
   }
   throw invalid('cursor');
 }
 
 function sqlTime(value: Date): Prisma.Sql {
-  // ส่งเวลาเป็น timestamp ไม่มี zone เพื่อไม่ให้ผลขึ้นกับ TimeZone ของ DB session (บทเรียนจาก #967)
+  // send the time as a timestamp without a zone so the result does not depend on the DB session's TimeZone (lesson from #967)
   return Prisma.sql`${value.toISOString()}::timestamp(3)`;
 }
 
@@ -189,7 +189,7 @@ export class QmEvaluationController {
     @Optional() @Inject(QM_HUMAN_EVALUATION) private readonly enabled: boolean = false,
   ) {}
 
-  // ───────────────────────────── ฟอร์ม (Admin) ─────────────────────────────
+  // ───────────────────────────── forms (Admin) ─────────────────────────────
 
   @Get('forms')
   @GatewayRoles('admin', 'supervisor')
@@ -222,7 +222,7 @@ export class QmEvaluationController {
       const items = forms.flatMap((form) => {
         const current = form.versions.find((version) => version.status === 'PUBLISHED');
         const draft = form.versions.find((version) => version.status === 'DRAFT');
-        // Supervisor เห็นเฉพาะฟอร์มที่ใช้ประเมินได้แล้ว
+        // a Supervisor sees only forms that are ready to evaluate with
         if (role === 'SUPERVISOR' && !current) return [];
         return [
           {
@@ -270,7 +270,7 @@ export class QmEvaluationController {
     const payloadDigest = digest([actor.tenantId, actor.userId, name, definition]);
     return this.transaction(actor, async (tx) => {
       await this.lock(tx, `qm-command:${actor.tenantId}:${commandId}`);
-      // ตรวจสิทธิ์ปัจจุบันก่อนคืนผลเดิม: ผู้ที่เสียสิทธิ์แล้วต้องไม่ได้ผลจาก receipt
+      // check the current permission before returning the original result: someone who lost permission must not get a result from the receipt
       await this.requireAdmin(tx, actor);
       const replay = await this.replay(tx, actor, commandId, 'QM_FORM_CREATE', payloadDigest);
       if (replay) return replay.result;
@@ -307,7 +307,7 @@ export class QmEvaluationController {
     });
   }
 
-  /** แก้ร่าง (และชื่อฟอร์ม) — revision กันการแก้ทับกัน; retry หลังสำเร็จได้ STALE_REVISION แล้วโหลดใหม่ */
+  /** edit a draft (and the form name) — the revision prevents overwriting each other; a retry after success gets STALE_REVISION then reloads */
   @Put('forms/:formId/draft')
   @GatewayRoles('admin')
   @Header('Cache-Control', 'no-store')
@@ -344,7 +344,7 @@ export class QmEvaluationController {
     });
   }
 
-  /** ออกร่างเวอร์ชันใหม่จากเวอร์ชันที่ใช้อยู่ */
+  /** issue a new draft version from the active version */
   @Post('forms/:formId/draft')
   @GatewayRoles('admin')
   @Header('Cache-Control', 'no-store')
@@ -432,7 +432,7 @@ export class QmEvaluationController {
       if (draft.revision !== revision) throw conflict('STALE_REVISION');
       const definition = this.validate(() => parseFormDefinition(draft.definition, 'publish'));
       const publishedAt = new Date();
-      // ต้องเปลี่ยนเวอร์ชันเดิมก่อน: partial unique index ยอมให้มี PUBLISHED ได้หนึ่งแถวต่อฟอร์ม
+      // must change the original version first: the partial unique index allows one PUBLISHED row per form
       await tx.qmFormVersion.updateMany({
         where: { tenantId: actor.tenantId, formId, status: 'PUBLISHED' },
         data: { status: 'SUPERSEDED' },
@@ -463,7 +463,7 @@ export class QmEvaluationController {
     });
   }
 
-  /** เนื้อหาของเวอร์ชัน: Admin อ่านได้ทุกเวอร์ชัน Supervisor อ่านได้เฉพาะเวอร์ชันที่ใช้อยู่ */
+  /** the content of a version: an Admin can read every version, a Supervisor only the active version */
   @Get('form-versions/:versionId')
   @GatewayRoles('admin', 'supervisor')
   @Header('Cache-Control', 'no-store')
@@ -504,7 +504,7 @@ export class QmEvaluationController {
     });
   }
 
-  // ──────────────────────── ประเมินสายของทีม (Supervisor) ────────────────────────
+  // ──────────────────────── evaluate the team's calls (Supervisor) ────────────────────────
 
   @Get('team-interactions')
   @GatewayRoles('supervisor')
@@ -590,7 +590,7 @@ export class QmEvaluationController {
     });
   }
 
-  /** สร้างหรือแก้ร่างผลประเมิน — คำตอบตอบไม่ครบได้ คะแนนคำนวณเมื่อ publish */
+  /** create or edit a draft evaluation — answers may be incomplete, the score is computed on publish */
   @Put('interactions/:interactionId/human-evaluation')
   @GatewayRoles('supervisor')
   @Header('Cache-Control', 'no-store')
@@ -767,7 +767,7 @@ export class QmEvaluationController {
     });
   }
 
-  // ─────────────────────────── คะแนนของฉัน (Agent) ───────────────────────────
+  // ─────────────────────────── my score (Agent) ───────────────────────────
 
   @Get('my-evaluations')
   @GatewayRoles('agent')
@@ -860,7 +860,7 @@ export class QmEvaluationController {
     });
   }
 
-  // ──────────────────────────────── ภายใน ────────────────────────────────
+  // ──────────────────────────────── internal ────────────────────────────────
 
   private actor(request: AuthenticatedGatewayRequest): Actor {
     const identity = request.gatewayIdentity;
@@ -873,7 +873,7 @@ export class QmEvaluationController {
     return withTenantDatabaseTransaction(this.database, actor.tenantId, run).catch(
       (error: unknown) => {
         if (error instanceof HttpException) throw error;
-        // ชื่อฟอร์มชนกันจากสองคำขอพร้อมกันที่ผ่าน lock คนละชื่อ (ตัวพิมพ์ต่างกัน)
+        // form names collide from two concurrent requests that passed locks of different names (different letter case)
         if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
           throw conflict('CONCURRENT_UPDATE');
         }
@@ -967,7 +967,7 @@ export class QmEvaluationController {
     if (user.role !== 'ADMIN') throw denied();
   }
 
-  /** ทีมปัจจุบันของ Supervisor ที่ยัง active อ่านจาก DB ทุกครั้ง ไม่เชื่อ role ใน token อย่างเดียว */
+  /** the Supervisor's current active teams, read from the DB every time without trusting only the role in the token */
   private async supervisorTeam(tx: Prisma.TransactionClient, actor: Actor): Promise<string> {
     const user = await this.activeUser(tx, actor);
     if (user.role !== 'SUPERVISOR' || !user.teamId) throw denied();
@@ -1079,7 +1079,7 @@ export class QmEvaluationController {
     };
   }
 
-  /** สายที่ทีมนี้รับจริงและจบแล้ว */
+  /** calls that this team really answered and that have ended */
   private teamRows(
     tx: Prisma.TransactionClient,
     actor: Actor,
@@ -1119,7 +1119,7 @@ export class QmEvaluationController {
       Prisma.sql`AND a.interaction_id = ${interactionId}::uuid`,
     );
     if (!row) throw notFound();
-    // ผู้ประเมินต้องไม่ใช่ผู้ถูกประเมิน
+    // the evaluator must not be the one being evaluated
     if (row.agentId === actor.userId) {
       throw new ForbiddenException({ code: 'SELF_EVALUATION_NOT_ALLOWED' });
     }
@@ -1161,7 +1161,7 @@ export class QmEvaluationController {
     };
   }
 
-  /** ผลประเมินพร้อมฟอร์มจาก snapshot; คะแนนรายส่วนคำนวณจาก snapshot + คำตอบ (deterministic) */
+  /** an evaluation with its form from the snapshot; per-section scores are computed from snapshot + answers (deterministic) */
   private async evaluationView(tx: Prisma.TransactionClient, actor: Actor, interactionId: string) {
     const evaluation = await tx.qmEvaluation.findFirst({
       where: { tenantId: actor.tenantId, interactionId, source: 'HUMAN' },
@@ -1213,7 +1213,7 @@ export class QmEvaluationController {
         answered: required.filter((question) => answeredIds.has(question.id)).length,
         required: required.length,
       },
-      // ร่างที่ตอบครบแสดงคะแนนตัวอย่าง (preview) ให้ Supervisor ตรวจก่อน publish
+      // a fully answered draft shows a preview score to the Supervisor before publishing
       score:
         evaluation.status === 'PUBLISHED'
           ? {

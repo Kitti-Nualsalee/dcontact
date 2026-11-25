@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
 
 /**
- * #998 1B/2: client ของ `dc-tenant-people/account/{step}` (ADR-035) สำหรับ UPDATE_PROFILE และ ENABLE_ACCOUNT
- * แบบเดียวกับ TenantPeopleDisableKeycloak: ทุกคำตอบที่ไม่ตรงสัญญาเป๊ะถือเป็น UNKNOWN และไม่ยิง mutation ซ้ำหลัง attempted
+ * #998 1B/2: the client of `dc-tenant-people/account/{step}` (ADR-035) for UPDATE_PROFILE and ENABLE_ACCOUNT
+ * the same way as TenantPeopleDisableKeycloak: every answer that does not match the contract exactly counts as UNKNOWN and no mutation is resent after attempted
  */
 export type PeopleAccountStep = 'UPDATE_PROFILE' | 'ENABLE_ACCOUNT';
 
@@ -15,7 +15,7 @@ export interface PeopleAccountAttempt {
   payloadDigest: string;
   fencingToken: string;
   role: 'AGENT' | 'SUPERVISOR' | 'ADMIN';
-  /** ต้องมีเฉพาะ UPDATE_PROFILE */
+  /** required only for UPDATE_PROFILE */
   displayName: string | null;
   reconcileOnly: boolean;
 }
@@ -171,7 +171,7 @@ export class TenantPeopleAccountKeycloak implements TenantPeopleAccountPort {
         role: attempt.role,
         ...(attempt.displayName === null ? {} : { displayName: attempt.displayName }),
       };
-      // ชื่อจริงไม่อยู่ใน URL (access log/tracing): GET ส่งเฉพาะ SHA-256 ของชื่อ ซึ่ง descriptor ผูกไว้แล้ว
+      // the real name is not in the URL (access log/tracing): GET sends only the SHA-256 of the name, which the descriptor already binds
       if (mode === 'read') {
         const { displayName, ...query } = correlation;
         endpoint.search = new URLSearchParams({
@@ -265,7 +265,7 @@ export class TenantPeopleAccountKeycloak implements TenantPeopleAccountPort {
         fields.outcome === 'REJECTED_NO_EFFECT' &&
         typeof fields.reasonCode === 'string' &&
         rejections.includes(fields.reasonCode) &&
-        // credentials ไม่เกี่ยวกับการแก้ชื่อ
+        // credentials are unrelated to renaming
         !(attempt.step === 'UPDATE_PROFILE' && fields.reasonCode === 'CREDENTIALS_NOT_READY')
       )
         return {

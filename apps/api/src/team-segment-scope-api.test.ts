@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { BadRequestException } from '@nestjs/common';
 import { teamScopePermission, teamScopeSegment } from './team-segment-scope-api.js';
 
-test('#915: permission รับ VIEW และ WORK; ไม่ส่งใช้ค่าเริ่มต้นเฉพาะที่ระบุ', () => {
+test('#915: permission accepts VIEW and WORK; unspecified uses the default only', () => {
   assert.equal(teamScopePermission('VIEW'), 'VIEW');
   assert.equal(teamScopePermission('WORK'), 'WORK');
   assert.equal(teamScopePermission(undefined, 'VIEW'), 'VIEW');
@@ -11,7 +11,7 @@ test('#915: permission รับ VIEW และ WORK; ไม่ส่งใช�
     assert.throws(() => teamScopePermission(value), BadRequestException);
 });
 
-test('#915: segment ระบบที่มี `:` ผ่าน ส่วนค่าที่มีอักขระอื่นหรือยาวเกินถูกปฏิเสธ', () => {
+test('#915: a system segment with `:` passes while a value with other characters or too long is rejected', () => {
   assert.equal(teamScopeSegment('system:all-customers'), 'system:all-customers');
   assert.equal(teamScopeSegment('system:vip'), 'system:vip');
   assert.equal(teamScopeSegment('VIP'), 'VIP');

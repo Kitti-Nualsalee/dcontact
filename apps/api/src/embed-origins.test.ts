@@ -3,7 +3,7 @@ import test from 'node:test';
 import { normalizeEmbedOrigin } from '@d-contact/shared';
 import { embedShellHeaders, embedShellHtml } from './embed-origins-api.js';
 
-test('E1.11: normalize — รับ https exact origin, ตัด default port, ตัวพิมพ์เล็ก', () => {
+test('E1.11: normalize — accepts an https exact origin, strips the default port, lowercases', () => {
   const accepted: Array<[string, string]> = [
     ['https://crm.example.test', 'https://crm.example.test'],
     ['https://CRM.Example.Test/', 'https://crm.example.test'],
@@ -19,7 +19,7 @@ test('E1.11: normalize — รับ https exact origin, ตัด default port,
   }
 });
 
-test('E1.11: normalize — ปฏิเสธ path/query/fragment/userinfo/wildcard/IP/scheme อื่น/origin ของเรา', () => {
+test('E1.11: normalize — rejects path/query/fragment/userinfo/wildcard/IP/another scheme/our own origin', () => {
   const rejected: Array<[string, string]> = [
     ['crm.example.test', 'INVALID_URL'],
     ['', 'INVALID_URL'],
@@ -50,7 +50,7 @@ test('E1.11: normalize — ปฏิเสธ path/query/fragment/userinfo/wildc
   );
 });
 
-test('E1.11: localhost / 127.0.0.1 ได้เฉพาะ dev', () => {
+test('E1.11: localhost / 127.0.0.1 only in dev', () => {
   for (const input of ['http://localhost:4000', 'http://127.0.0.1:8080', 'https://localhost']) {
     assert.equal(normalizeEmbedOrigin(input, { allowLocalhost: true }).ok, true, input);
   }
@@ -60,7 +60,7 @@ test('E1.11: localhost / 127.0.0.1 ได้เฉพาะ dev', () => {
   });
 });
 
-test('E1 acceptance: script URL ที่ตรึง release query ยังโหลด CSS ของ release เดียวกัน', () => {
+test('E1 acceptance: a script URL that pins the release query still loads the CSS of the same release', () => {
   const options = {
     scriptUrl: 'https://workspace.dcontact.test/embed/dphone-embed.js?release=c02024b',
   };
@@ -80,7 +80,7 @@ test('E1 acceptance: script URL ที่ตรึง release query ยังโ
   assert.doesNotMatch(embedShellHtml(null, options, 'n1'), /type="module"|stylesheet/);
 });
 
-test('E1.11: shell — ไม่มี origin = frame-ancestors none และไม่โหลด script; มี = allowlist ชุดเดียวกับ JSON', () => {
+test('E1.11: shell — no origin = frame-ancestors none and no script loaded; with origins = the same allowlist as the JSON', () => {
   const options = { scriptUrl: 'https://workspace.dcontact.test/embed/dphone-embed.js' };
   const closed = embedShellHeaders(null, options, 'n1');
   assert.match(closed['content-security-policy']!, /frame-ancestors 'none'/);
@@ -120,7 +120,7 @@ test('E1.11: shell — ไม่มี origin = frame-ancestors none และ�
   );
   assert.doesNotMatch(embedShellHtml(null, options, 'n1'), /stylesheet/);
 
-  // ค่าใน JSON ต้องปิด tag ก่อนเวลาไม่ได้
+  // a value in the JSON must not be able to close the tag early
   const hostile = embedShellHtml(
     { ...policy, tenantAlias: '</script><script>alert(1)</script>' },
     options,
@@ -129,7 +129,7 @@ test('E1.11: shell — ไม่มี origin = frame-ancestors none และ�
   assert.equal(hostile.includes('</script><script>alert'), false);
 });
 
-test('E1.13: shell ส่ง OIDC ของ dphone-embedded เฉพาะเมื่อฝังได้ และเพิ่ม issuer ใน connect-src', () => {
+test('E1.13: the shell sends the OIDC of dphone-embedded only when embedding is possible, and adds the issuer to connect-src', () => {
   const auth = { issuer: 'https://id.dcontact.test/realms/dcontact', clientId: 'dphone-embedded' };
   const options = { scriptUrl: 'https://workspace.dcontact.test/embed/dphone-embed.js', auth };
   const policy = {

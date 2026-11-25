@@ -1,7 +1,7 @@
 /**
- * E1.9 (#483) บน Postgres จริงด้วย role ของแอป (`dcontact_app`, RLS):
- * lease ซ้อน 409, takeover ตอนว่าง/มีงาน, หลุดตอนว่างปล่อยใน 60 วินาที, หลุดระหว่างมีงานยังอยู่,
- * WS ที่ไม่มี lease หรือใช้ lease เก่าถูกปฏิเสธ และ tenant A มองไม่เห็น lease ของ tenant B
+ * E1.9 (#483) on real Postgres with the app role (`dcontact_app`, RLS):
+ * overlapping lease 409, takeover when idle/busy, dropped while idle is released within 60 seconds, dropped during work stays,
+ * a WS without a lease or with an old lease is rejected, and tenant A cannot see tenant B's lease
  */
 import 'reflect-metadata';
 import assert from 'node:assert/strict';
@@ -99,14 +99,14 @@ async function setup(t: TestContext): Promise<Fixture> {
     })),
   });
   await owner.queue.create({
-    data: { id: queueA, tenantId: tenantA, name: 'คิวทดสอบ', channels: ['VOICE'] },
+    data: { id: queueA, tenantId: tenantA, name: 'Test queue', channels: ['VOICE'] },
   });
   let clock = Date.parse('2026-09-25T10:00:00.000Z');
   const signals: Fixture['signals'] = [];
   const leases = new WorkSessionLeases(application, {
     now: () => new Date(clock),
     signals: { signal: (tenantId, userId, signal) => signals.push({ tenantId, userId, signal }) },
-    // E1.11: host ของ embedded ต้องอยู่ใน allowlist — test ของ lease ใช้ policy คงที่
+    // E1.11: the host of an embedded surface must be in the allowlist — the lease tests use a fixed policy
     embedOrigins: {
       isEmbeddable: async (_tenantId, origin) => origin === 'https://crm.example.test',
     },
@@ -183,7 +183,7 @@ async function setup(t: TestContext): Promise<Fixture> {
 
 const PATH = '/api/v1/me/work-session';
 
-test('lease ซ้อน 409 + holder; takeover ตอนว่างส่ง offer ที่รอกลับเข้าคิว + audit; takeover/ปล่อยระหว่างมีงาน 409', async (t) => {
+test('overlapping lease 409 + holder; takeover when idle returns a pending offer to the queue + audit; takeover/release during work 409', async (t) => {
   const f = await setup(t);
   const token = `${f.tenantA}|${f.agentA}`;
   const first = await f.call('POST', PATH, token, { surface: 'workspace' });
@@ -204,7 +204,7 @@ test('lease ซ้อน 409 + holder; takeover ตอนว่างส่ง o
   });
   assert.equal(held.body.code, 'WORK_SESSION_HELD');
 
-  // input ผิด: embedded ต้องมี https exact origin, surface อื่นห้ามมี origin
+  // wrong input: embedded needs an https exact origin, other surfaces must not have an origin
   for (const body of [
     { surface: 'embedded' },
     { surface: 'embedded', hostOrigin: 'http://crm.example.test' },
@@ -227,7 +227,7 @@ test('lease ซ้อน 409 + holder; takeover ตอนว่างส่ง o
   });
   assert.deepEqual([stale.status, stale.body.code], [409, 'WORK_SESSION_CHANGED']);
 
-  // offer ที่รอกดรับ = ไม่ใช่งานค้าง → takeover ได้ และ offer กลับเข้าคิว
+  // a pending offer = not outstanding work → takeover allowed, and the offer returns to the queue
   const offer = await f.interaction('ASSIGNED');
   const moved = await f.call('POST', `${PATH}/takeover`, token, {
     surface: 'embedded',
@@ -263,7 +263,7 @@ test('lease ซ้อน 409 + holder; takeover ตอนว่างส่ง o
     ],
   );
 
-  // มีสายอยู่: ห้ามย้ายและห้ามปล่อย
+  // on a call: moving and releasing are forbidden
   await f.interaction('ACTIVE');
   const busy = await f.call('POST', `${PATH}/takeover`, token, {
     surface: 'workspace',
@@ -279,7 +279,7 @@ test('lease ซ้อน 409 + holder; takeover ตอนว่างส่ง o
   assert.deepEqual([release.status, release.body.code], [409, 'WORK_SESSION_BUSY']);
 });
 
-test('ปล่อยตอนว่าง = OFFLINE ทันที; lease ของแท็บเก่าปล่อยของที่ใหม่ไม่ได้', async (t) => {
+test('release when idle = OFFLINE immediately; a lease of an old tab cannot release the new one', async (t) => {
   const f = await setup(t);
   const token = `${f.tenantA}|${f.agentA}`;
   const lease = (await f.call('POST', PATH, token, { surface: 'dphone' })).body;
@@ -299,7 +299,7 @@ test('ปล่อยตอนว่าง = OFFLINE ทันที; lease ข�
   assert.equal((await f.call('POST', PATH, token, { surface: 'workspace' })).status, 201);
 });
 
-test('บัญชี inactive ไม่รับ routing offer และ heartbeat เพิกถอน idle lease เดิม', async (t) => {
+test('an inactive account does not accept a routing offer and a heartbeat revokes its idle lease', async (t) => {
   const f = await setup(t);
   const actor = { tenantId: f.tenantA, userId: f.agentA };
   const lease = await f.leases.acquire(
@@ -324,7 +324,7 @@ test('บัญชี inactive ไม่รับ routing offer และ heartb
   );
 });
 
-test('บัญชี inactive ระหว่างมีงานหยุดรับงานใหม่ แต่ไม่ตัด active lease ก่อนงานจบ', async (t) => {
+test('an inactive account during work stops taking new work but its active lease is not cut before the work ends', async (t) => {
   const f = await setup(t);
   const actor = { tenantId: f.tenantA, userId: f.agentA };
   const lease = await f.leases.acquire(
@@ -345,7 +345,7 @@ test('บัญชี inactive ระหว่างมีงานหยุด�
   assert.equal(retained.releasedAt, null);
 });
 
-test('หลุดตอนว่าง: ปล่อยเมื่อครบ 60 วินาที; หลุดระหว่างมีงาน: lease ยังอยู่จนงานจบ', async (t) => {
+test('dropped while idle: released after 60 seconds; dropped during work: the lease stays until the work ends', async (t) => {
   const f = await setup(t);
   const actor = { tenantId: f.tenantA, userId: f.agentA };
   const idle = await f.leases.acquire(actor, { surface: 'workspace', hostOrigin: null }, 'c1');
@@ -363,14 +363,14 @@ test('หลุดตอนว่าง: ปล่อยเมื่อครบ
   });
   assert.equal(offline.reason, 'work_session_expired');
 
-  // มีสาย: หลุด heartbeat เกิน TTL ก็ยังเป็น lease ปัจจุบัน และ heartbeat ที่กลับมาต่ออายุได้
+  // on a call: a heartbeat gap beyond the TTL is still the current lease and a returning heartbeat renews it
   const busyLease = await f.leases.acquire(actor, { surface: 'workspace', hostOrigin: null }, 'c2');
   const call = await f.interaction('ACTIVE');
   f.advance(5 * 60_000);
   await f.leases.sweep();
   assert.equal(await f.leases.isCurrent(actor, busyLease.leaseId), true);
   assert.equal((await f.leases.heartbeat(actor, busyLease.leaseId)).status, 'ACTIVE');
-  // จบสาย + ไม่มี heartbeat อีก → ปล่อยเมื่อครบ TTL
+  // call ended + no more heartbeat → released when the TTL is up
   await owner.$executeRaw(
     Prisma.sql`UPDATE interactions SET state = 'COMPLETED' WHERE id = ${call}::uuid`,
   );
@@ -379,7 +379,7 @@ test('หลุดตอนว่าง: ปล่อยเมื่อครบ
   assert.equal(await f.leases.isCurrent(actor, busyLease.leaseId), false);
 });
 
-test('แยก tenant: A มองไม่เห็น lease ของ B และ lease id ของ B ใช้กับ identity ของ A ไม่ได้', async (t) => {
+test('tenant separation: A cannot see the lease of B and the lease id of B cannot be used with the identity of A', async (t) => {
   const f = await setup(t);
   const leaseB = await f.leases.acquire(
     { tenantId: f.tenantB, userId: f.agentB },
@@ -393,12 +393,12 @@ test('แยก tenant: A มองไม่เห็น lease ของ B แ�
   const actorA = { tenantId: f.tenantA, userId: f.agentA };
   assert.equal(await f.leases.isCurrent(actorA, leaseB.leaseId), false);
   assert.equal((await f.leases.heartbeat(actorA, leaseB.leaseId)).status, 'EXPIRED');
-  // lease ของ B ไม่บัง A
+  // the lease of B does not block A
   assert.equal(
     (await f.call('POST', PATH, `${f.tenantA}|${f.agentA}`, { surface: 'workspace' })).status,
     201,
   );
-  // ขอพร้อมกันสองที่: ได้แค่อันเดียว (partial unique index + row lock)
+  // two requests at once: only one succeeds (partial unique index + row lock)
   const actorB = { tenantId: f.tenantB, userId: f.agentB };
   await f.leases.release(actorB, leaseB.leaseId, 'c-release');
   const results = await Promise.allSettled([
@@ -419,8 +419,8 @@ class FakeSocket implements WorkspaceSessionSocket {
   }
 }
 
-// #583: ทุก tenant บังคับ lease — tenant ไม่มีแถว flag ใด ๆ ก็ได้ 4409 เมื่อไม่มี lease
-test('WS บังคับ lease ทุก tenant: ไม่มี lease/lease เก่า = 4409; งานส่งเฉพาะ socket ที่ถือ lease ปัจจุบัน', async (t) => {
+// #583: every tenant enforces the lease — a tenant may have no flag row at all and still gets 4409 when there is no lease
+test('WS enforces the lease for every tenant: no lease/old lease = 4409; work is sent only to the socket holding the current lease', async (t) => {
   const f = await setup(t);
   const gateway = new WorkspaceSessionGateway(
     { verifyAccessToken: async (token) => claims(token) },
@@ -448,7 +448,7 @@ test('WS บังคับ lease ทุก tenant: ไม่มี lease/lease 
   const holder = await connect(first.leaseId);
   assert.equal(holder.closed, null);
   assert.equal(holder.sent[0].session.routingEnabled, true);
-  // supervisor ที่ไม่ใช่ agent ต่อได้เพื่อดูข้อมูลสด แต่ไม่รับงาน
+  // a supervisor who is not an agent can connect to see live data but does not receive work
   const supervisorSocket = new FakeSocket();
   await adapter.handle(supervisorSocket, {
     type: 'auth:connect',
@@ -466,7 +466,7 @@ test('WS บังคับ lease ทุก tenant: ไม่มี lease/lease 
   };
   assert.equal(await adapter.deliverRoutingEvent(offer), 1);
 
-  // heartbeat ต่ออายุ; takeover จากที่ใหม่ → ที่เดิมได้ lease.revoked และไม่ได้งานอีก
+  // heartbeat renews; takeover from a new place → the old one gets lease.revoked and no more work
   await adapter.handle(holder, { type: 'lease:heartbeat', leaseId: first.leaseId });
   assert.equal(holder.sent.at(-1).type, 'lease.active');
   const moved = await f.leases.takeover(
@@ -486,11 +486,11 @@ test('WS บังคับ lease ทุก tenant: ไม่มี lease/lease 
   assert.equal(await adapter.deliverRoutingEvent({ ...offer, interactionId: randomUUID() }), 1);
   assert.equal(embedded.sent.filter((message) => message.type === 'routing.offered').length, 1);
   assert.equal(holder.sent.filter((message) => message.type === 'routing.offered').length, 1);
-  // lease เก่าต่อใหม่ไม่ได้ (client ค้าง)
+  // an old lease cannot be renewed (a stuck client)
   assert.deepEqual((await connect(first.leaseId)).closed, [4409, 'work session lease required']);
 });
 
-test('E1.12/#583: GET สถานะ — enforced เสมอ + ผู้ถือ (surface, เวลาเริ่ม, มีงาน); หมดอายุตอนว่าง = ไม่มีผู้ถือ', async (t) => {
+test('E1.12/#583: GET status — always enforced + holder (surface, start time, has work); expired while idle = no holder', async (t) => {
   const f = await setup(t);
   const token = `${f.tenantA}|${f.agentA}`;
   const empty = await f.call('GET', PATH, token);
@@ -510,15 +510,15 @@ test('E1.12/#583: GET สถานะ — enforced เสมอ + ผู้ถ�
   });
   await f.interaction('ACTIVE');
   assert.equal((await f.call('GET', PATH, token)).body.holder.busy, true);
-  // tenant B ไม่เห็น lease ของ A
+  // tenant B does not see the lease of A
   assert.deepEqual((await f.call('GET', PATH, `${f.tenantB}|${f.agentB}`)).body, {
     enforced: true,
     holder: null,
   });
-  // role อื่นที่ไม่ใช่ agent ไม่ได้อ่าน
+  // a role other than agent cannot read
   assert.equal((await f.call('GET', PATH, `${f.tenantA}|${f.agentA}|supervisor`)).status, 403);
 
-  // ว่างและเงียบเกิน TTL: ไม่แสดงผู้ถือ แม้ sweeper ยังไม่ได้ปิด
+  // idle and silent beyond the TTL: no holder is shown even though the sweeper has not closed it yet
   await owner.$executeRaw(
     Prisma.sql`UPDATE interactions SET state = 'COMPLETED' WHERE tenant_id = ${f.tenantA}::uuid`,
   );
@@ -526,7 +526,7 @@ test('E1.12/#583: GET สถานะ — enforced เสมอ + ผู้ถ�
   assert.equal((await f.call('GET', PATH, token)).body.holder, null);
 });
 
-test('E1.11: embedded ต้องใช้ origin ใน allowlist — ไม่อยู่ = 403 EMBED_ORIGIN_NOT_ALLOWED', async (t) => {
+test('E1.11: embedded needs an origin in the allowlist — not in it = 403 EMBED_ORIGIN_NOT_ALLOWED', async (t) => {
   const f = await setup(t);
   const denied = await f.call('POST', PATH, `${f.tenantA}|${f.agentA}`, {
     surface: 'embedded',

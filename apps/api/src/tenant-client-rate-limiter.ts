@@ -7,17 +7,17 @@ export class TenantClientRateLimiter {
   consume(input: {
     tenantId: string;
     clientId: string;
-    /** จำนวนครั้งต่อ window (ชื่อเดิมจาก CG5 — window เริ่มต้น 1 นาที) */
+    /** the count per window (the original name from CG5 — the default window is 1 minute) */
     limitPerMinute: number;
-    /** AC4 (#597): ความยาว window เช่น 1 ชม. สำหรับ self-service บัญชี */
+    /** AC4 (#597): the window length, e.g. 1 hour for account self-service */
     windowMs?: number;
   }): { retryAfterSeconds: number } | null {
     if (!Number.isInteger(input.limitPerMinute) || input.limitPerMinute < 1) {
-      throw new TypeError('limitPerMinute ต้องเป็น positive integer');
+      throw new TypeError('limitPerMinute must be a positive integer');
     }
     const windowMs = input.windowMs ?? 60_000;
     if (!Number.isInteger(windowMs) || windowMs < 1) {
-      throw new TypeError('windowMs ต้องเป็น positive integer');
+      throw new TypeError('windowMs must be a positive integer');
     }
     const now = this.now().valueOf();
     const key = `${input.tenantId}:${input.clientId}`;

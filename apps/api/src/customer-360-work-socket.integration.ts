@@ -10,7 +10,7 @@ import {
 } from '@d-contact/workspace-session';
 
 test(
-  'socket refresh ซ้อนใช้ durable epoch จาก PostgreSQL ก่อนส่ง session ล่าสุด',
+  'a nested socket refresh uses the durable epoch from PostgreSQL before sending the latest session',
   { timeout: 30_000 },
   async (t) => {
     const url = new URL(process.env.DATABASE_URL ?? 'postgresql://invalid/none');

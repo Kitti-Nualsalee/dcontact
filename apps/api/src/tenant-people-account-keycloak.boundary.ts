@@ -12,7 +12,7 @@ function required(name: string) {
   return value;
 }
 
-test('#998 real Keycloak account adapter อ่าน receipt ของ UPDATE_PROFILE/ENABLE_ACCOUNT หลัง commit โดยไม่ resend', async () => {
+test('#998 the real Keycloak account adapter reads the receipt of UPDATE_PROFILE/ENABLE_ACCOUNT after commit without resending', async () => {
   const tenantId = required('B2_KEYCLOAK_TENANT_ID');
   let mutations = 0;
   const request: typeof fetch = (input, options) => {
@@ -51,8 +51,8 @@ test('#998 real Keycloak account adapter อ่าน receipt ของ UPDATE_P
     receiptRef: required('P998_PROFILE_RECEIPT_REF'),
     identityId: profile.identityId,
   });
-  // ชื่อที่ไม่ตรง descriptor เป็น correlation conflict (409) → UNKNOWN
-  assert.deepEqual(await adapter.readOutcome({ ...profile, displayName: 'ชื่ออื่น' }), {
+  // a name that does not match the descriptor is a correlation conflict (409) → UNKNOWN
+  assert.deepEqual(await adapter.readOutcome({ ...profile, displayName: 'Other name' }), {
     outcome: 'UNKNOWN',
   });
   const enable: PeopleAccountAttempt = {

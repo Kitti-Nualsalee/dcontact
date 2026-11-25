@@ -10,7 +10,7 @@ function orderingKeyFor(command: TelephonyCommand): string {
   throw new Error(`telephony command ${command.type} has no ordering key`);
 }
 
-/** ส่งคำสั่ง recording หลัง transaction commit โดยใช้ contract เดียวกับ Router */
+/** sends recording commands after the transaction commits, using the same contract as the Router */
 export class KafkaTelephonyCommandPublisher implements TelephonyCommandPublisher {
   private producer?: Promise<DcProducer>;
 

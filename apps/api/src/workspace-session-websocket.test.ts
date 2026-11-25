@@ -9,7 +9,7 @@ import {
 } from '@d-contact/workspace-session';
 import { attachWorkspaceSessionWebSocket } from './workspace-session-websocket.js';
 
-/** A1.8a (#447): tenant ของ fixture เป็น ACTIVE — การปฏิเสธ PROVISIONING มีเทสต์ของตัวเอง */
+/** A1.8a (#447): the fixture tenant is ACTIVE — rejecting PROVISIONING has its own test */
 const ACTIVE_TENANTS = { isActive: async () => true };
 
 test('workspace WebSocket runtime forwards the authenticated handshake without client tenant data', async () => {

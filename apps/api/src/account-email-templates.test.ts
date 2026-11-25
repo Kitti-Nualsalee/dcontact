@@ -27,7 +27,7 @@ const variables = {
 const hrefs = (html: string) => [...html.matchAll(/href="([^"]+)"/g)].map((match) => match[1]!);
 const urls = (text: string) => text.match(/https?:\/\/\S+/g) ?? [];
 
-test('render ครบทุก template ทั้ง TH/EN: มี subject/html/text, ไม่มีคำว่า Keycloak, ลิงก์ชี้ host ของ D-Contact', () => {
+test('renders every template in both TH/EN: has subject/html/text, no word Keycloak, links point to the D-Contact host', () => {
   for (const template of ACCOUNT_EMAIL_TEMPLATES) {
     for (const locale of ACCOUNT_EMAIL_LOCALES) {
       const email = renderAccountEmail(template, locale, variables[template], {
@@ -46,14 +46,14 @@ test('render ครบทุก template ทั้ง TH/EN: มี subject/html
         assert.equal(url.origin, CONSOLE, `${label}: ${link}`);
         assert.equal(url.searchParams.get('view'), 'account', label);
       }
-      // html ไม่มี stylesheet/var() — mail client ไม่รองรับ
+      // html has no stylesheet/var() — mail clients do not support it
       assert.doesNotMatch(email.html, /<style|var\(--|rem;/, label);
       assert.match(email.text, /D-Contact/);
     }
   }
 });
 
-test('ภาษาตาม locale และเนื้อหาของแต่ละ template', () => {
+test('language follows the locale and the content of each template', () => {
   const verifyTh = renderAccountEmail('verify-new-email', 'th', variables['verify-new-email'], {
     consoleUrl: CONSOLE,
   });
@@ -67,7 +67,7 @@ test('ภาษาตาม locale และเนื้อหาของแต
   assert.equal(verifyEn.subject, 'Confirm the new email for your D-Contact account');
   assert.ok(verifyEn.text.includes('30 minutes'));
 
-  // ถึงอีเมลเดิม: อีเมลใหม่ถูกปิดบางส่วน และไม่มีลิงก์ยืนยัน
+  // to the old email: the new email is partly masked and has no confirmation link
   const changed = renderAccountEmail(
     'email-changed-notice',
     'en',
@@ -89,7 +89,7 @@ test('ภาษาตาม locale และเนื้อหาของแต
   assert.ok(password.text.includes('ติดต่อผู้ดูแลระบบ'));
 });
 
-test('ค่าที่ไม่น่าไว้ใจถูก escape และตัวแปรผิดถูกปฏิเสธ', () => {
+test('untrusted values are escaped and a wrong variable is rejected', () => {
   const email = renderAccountEmail(
     'verify-new-email',
     'th',
@@ -122,7 +122,7 @@ test('ค่าที่ไม่น่าไว้ใจถูก escape แล
   }
 });
 
-test('ลิงก์ของ Console ต้องเป็น https (ยกเว้น localhost ของ dev)', () => {
+test('the Console link must be https (except dev localhost)', () => {
   assert.equal(
     consoleAccountUrl('http://localhost:5173', 'a b'),
     'http://localhost:5173/?view=account&verify=a+b',
@@ -134,13 +134,13 @@ test('ลิงก์ของ Console ต้องเป็น https (ยกเ
   );
 });
 
-test('ปิดอีเมลบางส่วน', () => {
+test('partly mask the email', () => {
   assert.equal(maskEmail('somchai@example.com'), 's*****i@example.com');
   assert.equal(maskEmail('ab@example.com'), 'a*@example.com');
   assert.equal(maskEmail('broken'), '***');
 });
 
-test('config SMTP จาก env: ไม่ตั้ง host = ปิด; ค่าผิดถูกปฏิเสธ; ชื่อผู้ส่งไม่ขึ้นกับ SMTP_FROM', () => {
+test('SMTP config from env: host unset = off; a wrong value is rejected; the sender name does not depend on SMTP_FROM', () => {
   assert.equal(smtpConfigFromEnvironment({}), undefined);
   assert.deepEqual(
     smtpConfigFromEnvironment({

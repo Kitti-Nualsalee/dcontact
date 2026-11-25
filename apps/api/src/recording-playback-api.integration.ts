@@ -1,4 +1,4 @@
-/** #967: HTTP → PostgreSQL ด้วย application role ที่ไม่ bypass RLS; storage เป็น in-memory ที่เก็บ WAV จริง */
+/** #967: HTTP → PostgreSQL with an application role that does not bypass RLS; storage is in-memory holding real WAV */
 import 'reflect-metadata';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -42,7 +42,7 @@ test.after(() => Promise.all([owner.$disconnect(), application.$disconnect()]));
 const RATE = 8000;
 const SECONDS = 5;
 
-/** stereo 5 วินาที: ค่าของแต่ละ sample บอกตำแหน่ง frame เพื่อพิสูจน์ว่าได้ช่วงที่ขอจริง */
+/** 5 seconds of stereo: each sample's value says the frame position, to prove the requested range was really returned */
 function sourceWav(): Buffer {
   const pcm = Buffer.alloc(RATE * SECONDS * 4);
   for (let frame = 0; frame < RATE * SECONDS; frame++) {
@@ -136,7 +136,7 @@ async function fixture(t: TestContext, enabled: boolean) {
     data: { id: ids.queue, tenantId, name: 'Support', channels: ['VOICE'], recordingEnabled: true },
   });
 
-  /** สายที่จบแล้วพร้อมเสียง; `team` คือทีมที่ Router บันทึกตอนรับสาย (undefined = สายเก่าไม่มีหลักฐาน) */
+  /** a finished call with audio; `team` is the team the Router recorded at answer time (undefined = an old call with no evidence) */
   async function call(input: {
     agentId: string;
     team?: string;
@@ -314,7 +314,7 @@ test('a supervisor lists and plays only recordings of calls their own team answe
     team: f.ids.teamB,
     startedAt: '2026-11-20T05:00:00Z',
   });
-  // Agent อยู่ทีม A ตอนนี้ แต่ไม่มีหลักฐานว่าทีมไหนรับสาย จึงไม่เปิดให้ใคร
+  // the Agent is in team A now but there is no evidence of which team answered, so it is opened to no one
   const legacy = await f.call({ agentId: f.ids.agentA, startedAt: '2026-11-20T06:00:00Z' });
   const wrapUp = await f.call({
     agentId: f.ids.agentA,
@@ -431,7 +431,7 @@ test('a supervisor lists and plays only recordings of calls their own team answe
   assert.equal(first.bytes.readInt16LE(44), 100);
   assert.equal(first.bytes.readInt16LE(46), -100);
   assert.equal(first.bytes.readInt16LE(first.bytes.length - 4), 100 + RATE * 2 - 1);
-  // storage ถูกอ่านเฉพาะช่วงที่ขอ ไม่เกิน 2 วินาที
+  // storage is read only for the requested range, no more than 2 seconds
   assert.deepEqual(f.reads.at(-1), { start: 44 + 400, endInclusive: 44 + 400 + RATE * 2 * 4 - 1 });
 
   const tail = await f.http(f.tokens.supervisorA, 'POST', path, {
@@ -461,7 +461,7 @@ test('a supervisor lists and plays only recordings of calls their own team answe
       details: { transport: 'API_CHUNKS', sessionId: session.json!.sessionId },
     },
   ]);
-  // route presign เดิมปิดเมื่อเปิดฟังผ่าน API ไม่เหลือทางออก URL
+  // the old presign route is closed when listening through the API, leaving no exit URL
   const legacyRoute = await f.http(f.tokens.admin, 'POST', `/${own}/playback`, { download: false });
   assert.equal(legacyRoute.status, 403);
   assert.deepEqual(legacyRoute.json, { code: 'PLAYBACK_ACCESS_DENIED' });
@@ -484,7 +484,7 @@ test('every chunk rechecks the current team, account and session owner', async (
   let sessionId = await open();
   assert.equal((await play(sessionId)).status, 200);
 
-  // ย้ายทีมระหว่างฟัง: chunk ถัดไปไม่ออก แม้ token และ session ยังไม่หมดอายุ
+  // moving team while listening: the next chunk is not issued even though the token and session have not expired
   await supervisor({ teamId: f.ids.teamB });
   const moved = await play(sessionId);
   assert.equal(moved.status, 404);
@@ -500,7 +500,7 @@ test('every chunk rechecks the current team, account and session owner', async (
   assert.equal((await play(sessionId)).status, 403);
   await supervisor({ teamId: f.ids.teamA });
 
-  // สิทธิ์ถูกถอนระหว่างที่ API อ่าน storage: byte ที่อ่านมาแล้วต้องไม่ถูกส่ง
+  // permission revoked while the API reads storage: the bytes already read must not be sent
   f.hooks.beforeRead = async () => {
     await supervisor({ teamId: f.ids.teamB });
   };
@@ -510,12 +510,12 @@ test('every chunk rechecks the current team, account and session owner', async (
   f.hooks.beforeRead = undefined;
   await supervisor({ teamId: f.ids.teamA });
 
-  // session ไม่ใช่สิทธิ์ และใช้ข้ามผู้ใช้ในทีมเดียวกันไม่ได้
+  // a session is not a permission, and cannot be used across users in the same team
   assert.equal((await play(sessionId, f.tokens.secondSupervisorA)).status, 404);
   assert.equal((await play(sessionId, f.tokens.supervisorB)).status, 404);
   assert.equal((await play(randomUUID())).status, 404);
 
-  // เปิดใหม่แล้ว session เดิมของผู้ใช้คนเดียวกันถูกปิด
+  // reopening closes the same user's earlier session
   const replacement = await open();
   assert.deepEqual((await play(sessionId)).json, { code: 'PLAYBACK_SESSION_EXPIRED' });
   assert.equal((await play(replacement)).status, 200);
@@ -531,14 +531,14 @@ test('every chunk rechecks the current team, account and session owner', async (
 
   sessionId = await open();
   const closePath = `/${own}/playback-sessions/${sessionId}/close`;
-  // คนอื่นปิด session ของเราไม่ได้
+  // someone else cannot close our session
   assert.equal((await f.http(f.tokens.secondSupervisorA, 'POST', closePath)).status, 204);
   assert.equal((await play(sessionId)).status, 200);
   assert.equal((await f.http(f.tokens.supervisorA, 'POST', closePath)).status, 204);
   assert.equal((await f.http(f.tokens.supervisorA, 'POST', closePath)).status, 204);
   assert.equal((await play(sessionId)).status, 409);
 
-  // เสียงถูกลบตาม retention ระหว่างฟัง
+  // the audio was deleted by retention while listening
   sessionId = await open();
   await owner.recording.update({ where: { id: own }, data: { deletedAt: new Date() } });
   assert.equal((await play(sessionId)).status, 404);

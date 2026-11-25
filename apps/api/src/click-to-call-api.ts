@@ -1,8 +1,8 @@
 /**
- * E1.14 (#488): `POST /api/v1/workspace/agent/click-to-call` — agent กดโทรใน dphone ที่ถูกฝังหลัง host กรอกเบอร์
+ * E1.14 (#488): `POST /api/v1/workspace/agent/click-to-call` — the agent presses dial in the embedded dphone after the host fills in the number
  *
- * - ต้องแนบ `x-work-session-lease-id` ของ lease `embedded` ที่ยัง current
- * - ตอบ `dphone.call.result` ที่ไม่มี PII ให้ iframe ส่งต่อ host (+ `hostOrigin` ให้ตรวจกับ origin ที่ล็อกไว้)
+ * - must attach the `x-work-session-lease-id` of a still-current `embedded` lease
+ * - answers a PII-free `dphone.call.result` for the iframe to forward to the host (+ `hostOrigin` to check against the locked origin)
  */
 import {
   BadRequestException,

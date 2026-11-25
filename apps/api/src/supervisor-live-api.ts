@@ -396,7 +396,7 @@ export class SupervisorLiveController {
         extension: agent.extension,
         teamId: agent.teamId,
         state: agent.stateLogs[0]?.state ?? 'OFFLINE',
-        // #937 เหตุผล Not Ready ที่ Agent เลือก และเวลาที่เริ่มสถานะนี้
+        // #937 the Not Ready reason the Agent chose and the time this state started
         reasonCode: agent.stateLogs[0]?.reasonCode ?? null,
         stateSince: agent.stateLogs[0]?.startedAt.toISOString() ?? null,
       })),

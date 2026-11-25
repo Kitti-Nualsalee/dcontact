@@ -25,7 +25,7 @@ export interface TeamChangeResult {
   removedSkills: number;
 }
 
-/** body ของ PATCH /people/users/:id/team — ไม่รับ role/extension/email (#998: 1A เฉพาะทีม) */
+/** the body of PATCH /people/users/:id/team — accepts no role/extension/email (#998: 1A is team only) */
 export function normalizeTeamChangeCommand(raw: unknown) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) voiceFail('VALIDATION_FAILED', 400);
   const fields: Record<string, unknown> = Object.fromEntries(Object.entries(raw));
@@ -82,7 +82,7 @@ async function applyTeamChange(
       if (previous.payloadDigest !== payloadDigest) voiceFail('COMMAND_PAYLOAD_MISMATCH', 409);
       return previous.result;
     }
-    // target ต้องมี positive proof แบบเดียวกับ directory/disable (ไม่ใช่ platform/foreign identity)
+    // the target must have a positive proof the same way as directory/disable (not a platform/foreign identity)
     const [row] = await transaction.$queryRaw<{ snapshot: DisableSnapshot | null }[]>`
       SELECT dc_people_disable_snapshot(${identity.tenantId}::uuid,${userId}::uuid,${identity.caller!.issuer},${identity.caller!.clientId},${identity.caller!.tenantSlug}) AS snapshot`;
     const target = row?.snapshot?.target;
@@ -140,7 +140,7 @@ async function applyTeamChange(
   }).catch(mapTeamChangeError);
 }
 
-/** code ของ definer ที่ไม่อยู่ใน mapDatabaseError กลาง: แยกสถานะบัญชีและ session ออกจาก CONFIG_BUSY */
+/** a definer code that is not in the central mapDatabaseError: separates the account and session states from CONFIG_BUSY */
 function mapTeamChangeError(error: unknown): never {
   if (!(error instanceof HttpException)) {
     const message = error instanceof Error ? error.message : '';
@@ -162,7 +162,7 @@ export async function acceptPeopleTeamChange(
   try {
     return await applyTeamChange(database, identity, userId, command);
   } catch (error) {
-    // บันทึกการปฏิเสธแยก transaction หลัง rollback โดยไม่เก็บ payload หรือเหตุผลที่กรอก
+    // record the rejection in a separate transaction after the rollback, without keeping the payload or reason that was entered
     if (error instanceof HttpException && [409, 429, 503].includes(error.getStatus())) {
       const response = error.getResponse();
       const code =

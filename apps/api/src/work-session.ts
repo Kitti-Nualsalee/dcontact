@@ -1,14 +1,14 @@
 /**
  * Owner: Agent Workspace — work-session lease (E1.9 #483)
  *
- * Authority: E1.3 #459, Phase Contract E1.8 #464, ADR-026 ข้อ 2
+ * Authority: E1.3 #459, Phase Contract E1.8 #464, ADR-026 item 2
  *
- * - lease 1 อันต่อ agent ต่อ tenant ครอบทุก surface (`workspace | dphone | embedded` + host origin)
- *   — partial unique index ใน DB กัน race ข้าม API instance
- * - TTL 60 วินาที ต่ออายุด้วย heartbeat ทุก 20 วินาทีผ่าน `/api/v1/workspace-session`
- * - lease ไม่หมดระหว่างมีงาน (interaction `ACTIVE`/`WRAPUP` ของ agent): หมดอายุได้เฉพาะตอนว่าง
- * - takeover ต้องส่ง `expectedLeaseId`, ห้ามระหว่างมีงาน, offer ที่รอกดรับถูกส่งกลับเข้าคิว + audit
- * - ปล่อยหรือหมดอายุตอนว่าง = presence เป็น OFFLINE (router หยุดส่งงาน)
+ * - one lease per agent per tenant across every surface (`workspace | dphone | embedded` + host origin)
+ *   — a partial unique index in the DB prevents races across API instances
+ * - TTL 60 seconds, renewed by a heartbeat every 20 seconds through `/api/v1/workspace-session`
+ * - a lease does not expire while there is work (an `ACTIVE`/`WRAPUP` interaction of the agent): it can expire only when idle
+ * - takeover must send `expectedLeaseId`, is forbidden during work, and a pending offer is returned to the queue + audit
+ * - released or expired while idle = presence becomes OFFLINE (the router stops sending work)
  */
 import { randomUUID } from 'node:crypto';
 import { Prisma, withTenantDatabaseTransaction, type PrismaClient } from '@d-contact/db';
@@ -29,7 +29,7 @@ export type WorkSessionErrorCode =
   | 'WORK_SESSION_BUSY'
   | 'WORK_SESSION_CHANGED'
   | 'AGENT_NOT_FOUND'
-  /** E1.11: host origin ของ surface embedded ไม่อยู่ใน allowlist ที่ใช้งานได้ของ tenant */
+  /** E1.11: the host origin of an embedded surface is not in the tenant's effective allowlist */
   | 'EMBED_ORIGIN_NOT_ALLOWED';
 
 export interface WorkSessionHolder {
@@ -68,7 +68,7 @@ export type LeaseSignal =
     }
   | { type: 'lease.expired'; leaseId: string };
 
-/** ส่งสัญญาณไปที่ socket ที่ผูก lease นั้นใน instance นี้ (instance อื่นรู้ตอน heartbeat ถัดไป) */
+/** sends a signal to the socket bound to that lease in this instance (other instances learn at the next heartbeat) */
 export interface LeaseSignalSink {
   signal(tenantId: string, userId: string, signal: LeaseSignal): void;
 }
@@ -83,7 +83,7 @@ export interface SipRegistrationRevocationSink {
   }): void;
 }
 
-/** structured event สำหรับ metrics (log-based) — ไม่มี token/PII มีแค่ opaque id และ surface */
+/** structured event for metrics (log-based) — no token/PII, only an opaque id and the surface */
 export interface WorkSessionDiagnostic {
   event:
     | 'work_session.acquired'
@@ -118,8 +118,8 @@ type LeaseRow = {
 };
 
 /**
- * host origin ของ surface embedded: รูปแบบเดียวกับ allowlist (E1.11) และต้องส่งมาแบบ normalize แล้ว
- * — localhost รับได้ที่ชั้นนี้ แต่ใช้จริงได้เฉพาะเมื่ออยู่ใน allowlist (ซึ่งรับ localhost เฉพาะ dev)
+ * the host origin of an embedded surface: same format as the allowlist (E1.11) and must be sent already normalized
+ * — localhost is accepted at this layer but usable only when it is in the allowlist (which accepts localhost in dev only)
  */
 export function normalizeHostOrigin(value: unknown): string | null {
   if (typeof value !== 'string') return null;
@@ -148,7 +148,7 @@ export function parseWorkSessionRequest(body: unknown): WorkSessionRequest {
 export class WorkSessionLeases {
   private readonly now: () => Date;
   private readonly id: () => string;
-  /** สัญญาณที่รอส่งหลัง commit ของแต่ละ transaction — rollback = ไม่ส่ง */
+  /** signals waiting to be sent after the commit of each transaction — rollback = not sent */
   private readonly afterCommit = new WeakMap<Tx, Array<() => void>>();
 
   constructor(
@@ -158,9 +158,9 @@ export class WorkSessionLeases {
       id?: () => string;
       signals?: LeaseSignalSink;
       diagnostics?: { write(event: WorkSessionDiagnostic): void };
-      /** E1.11: ตรวจ host origin ของ surface embedded กับ allowlist (ไม่ตั้ง = ไม่อนุญาต embedded) */
+      /** E1.11: check the host origin of an embedded surface against the allowlist (unset = embedded not allowed) */
       embedOrigins?: { isEmbeddable(tenantId: string, origin: string): Promise<boolean> };
-      /** E1.10: revoke credential ใน transaction เดียวกัน แล้ว flush registration หลัง commit */
+      /** E1.10: revoke the credential in the same transaction, then flush the registration after commit */
       sipRegistrations?: SipRegistrationRevocationSink;
     } = {},
   ) {
@@ -169,16 +169,16 @@ export class WorkSessionLeases {
   }
 
   /**
-   * #583 (#582): ทุก tenant บังคับ work-session lease — ไม่มี flag `workSession.lease.enforced` แล้ว
-   * (SIP credential ออกให้เฉพาะผู้ถือ lease ตั้งแต่ E1.10 #551; tenant ที่ปิด flag เคยรับสายไม่ได้)
+   * #583 (#582): every tenant enforces the work-session lease — the `workSession.lease.enforced` flag no longer exists
+   * (SIP credentials have been issued only to the lease holder since E1.10 #551; a tenant that turned the flag off could not receive calls)
    */
   async enforced(_tenantId: string): Promise<boolean> {
     return true;
   }
 
   /**
-   * E1.12 (#486): สถานะที่ client อ่านก่อนขอ lease — flag ของ tenant + ผู้ถือปัจจุบัน (อ่านอย่างเดียว ไม่ lock)
-   * lease ที่หมดอายุตอนว่างแล้วแต่ sweeper ยังไม่ปิดถือว่าไม่มีผู้ถือ (acquire จะได้ lease ทันที)
+   * E1.12 (#486): the state a client reads before requesting a lease — the tenant flag + the current holder (read-only, no lock)
+   * a lease that expired while idle but that the sweeper has not yet closed counts as having no holder (acquire gets a lease immediately)
    */
   async status(
     actor: WorkSessionActor,
@@ -228,7 +228,7 @@ export class WorkSessionLeases {
       });
       return view;
     } catch (error) {
-      // สอง instance ขอพร้อมกัน: partial unique index ชนะ — ตอบเหมือนมีผู้ถืออยู่
+      // two instances ask at once: the partial unique index wins — answer as if a holder exists
       if (isUniqueViolation(error)) {
         const current = await this.holderOf(actor);
         throw new WorkSessionError('WORK_SESSION_HELD', current ?? undefined);
@@ -293,8 +293,8 @@ export class WorkSessionLeases {
   }
 
   /**
-   * heartbeat ของ socket ที่ผูก lease — ต่ออายุเมื่อยัง active; lease ที่ถูกย้าย/ปล่อย/หมดอายุตอบสถานะนั้น
-   * heartbeat ที่มาช้าเกิน TTL ตอนว่างถือว่าหมดอายุ (ไม่ชุบชีวิต)
+   * heartbeat of the socket bound to the lease — renews while active; a lease that was moved/released/expired answers with that state
+   * a heartbeat that arrives later than the TTL while idle counts as expired (not revived)
    */
   async heartbeat(
     actor: WorkSessionActor,
@@ -318,7 +318,7 @@ export class WorkSessionLeases {
           if (!busy) await this.close(tx, actor, open, 'auth_revoked', correlationId);
           return { status: 'REVOKED' as const, reason: 'auth_revoked' as const };
         }
-        // origin ถูกปิด/ลบ: ว่าง = ปล่อยทันที, มีสาย = คุยต่อจนจบแล้วค่อยปล่อย (E1.5 ข้อ 3)
+        // origin disabled/removed: idle = release immediately, on a call = continue until it ends and then release (E1.5 item 3)
         if (originRevoked && !busy) {
           await this.close(tx, actor, open, 'origin_revoked', correlationId);
           return { status: 'REVOKED' as const, reason: 'origin_revoked' as const };
@@ -351,7 +351,7 @@ export class WorkSessionLeases {
     });
   }
 
-  /** lease ยังเป็นของ agent คนนี้และยัง active อยู่ไหม (ใช้ตอนส่ง routing offer ให้ socket) */
+  /** whether the lease still belongs to this agent and is still active (used when sending a routing offer to the socket) */
   async isCurrent(actor: WorkSessionActor, leaseId: string): Promise<boolean> {
     if (await this.originRevoked(actor, leaseId)) return false;
     return this.transaction(actor, async (tx) => {
@@ -370,8 +370,8 @@ export class WorkSessionLeases {
   }
 
   /**
-   * E1.14: host origin ของ lease `embedded` ที่ยัง current — ใช้เป็นแหล่งเดียวของ origin ตอนส่งข้อมูลให้ host
-   * (ไม่เชื่อ origin ที่ browser ส่งมาเอง); lease อื่น/หมดแล้ว/origin ถูกเพิกถอน = null
+   * E1.14: the host origin of a still-current `embedded` lease — used as the single source of the origin when sending data to the host
+   * (does not trust an origin the browser sends itself); another lease/expired/origin revoked = null
    */
   async embeddedHostOrigin(actor: WorkSessionActor, leaseId: string): Promise<string | null> {
     if (!(await this.isCurrent(actor, leaseId))) return null;
@@ -385,8 +385,8 @@ export class WorkSessionLeases {
   }
 
   /**
-   * token ถูกเพิกถอนระหว่างถือ lease: ว่าง = ปล่อยทันที (`auth_revoked`), มีงาน = คง lease ไว้จนงานจบ
-   * (คุยต่อได้ ห้ามรับงานใหม่ — socket หยุดรับ offer เอง) แล้ว sweeper ปล่อยเมื่อหมดอายุ
+   * token revoked while holding a lease: idle = release immediately (`auth_revoked`), has work = keep the lease until the work ends
+   * (can continue but no new work — the socket stops accepting offers itself), then the sweeper releases it when it expires
    */
   async revokeForAuth(
     actor: WorkSessionActor,
@@ -416,7 +416,7 @@ export class WorkSessionLeases {
     return released;
   }
 
-  /** ปล่อย lease ที่หมดอายุตอนว่างของทุก tenant — รันเป็นรอบใน API ทุก instance (CAS ด้วย row lock) */
+  /** releases leases that expired while idle for every tenant — runs as a loop in every API instance (CAS with a row lock) */
   async sweep(): Promise<number> {
     const tenants = await this.database.tenant.findMany({
       where: { lifecycleStatus: 'ACTIVE' },
@@ -471,7 +471,7 @@ export class WorkSessionLeases {
     if (!allowed) throw new WorkSessionError('EMBED_ORIGIN_NOT_ALLOWED');
   }
 
-  /** lease embedded ที่ origin ไม่อยู่ใน allowlist แล้ว (ตรวจนอก transaction ของ lease) */
+  /** an embedded lease whose origin is no longer in the allowlist (checked outside the lease transaction) */
   private async originRevoked(actor: WorkSessionActor, leaseId: string): Promise<boolean> {
     const lease = await this.transaction(actor, (tx) =>
       tx.agentWorkSessionLease.findFirst({
@@ -494,7 +494,7 @@ export class WorkSessionLeases {
     if (!agent) throw new WorkSessionError('AGENT_NOT_FOUND');
   }
 
-  /** lock แถวของ lease ที่ยังไม่ปล่อย — request ของ agent เดียวกันเข้าคิวกันที่นี่ */
+  /** locks the row of a lease that has not been released — requests of the same agent queue here */
   private async lockOpen(tx: Tx, actor: WorkSessionActor): Promise<LeaseRow | null> {
     const rows = await tx.$queryRaw<LeaseRow[]>(Prisma.sql`
       SELECT id, surface, host_origin, acquired_at, expires_at
@@ -505,7 +505,7 @@ export class WorkSessionLeases {
     return rows[0] ?? null;
   }
 
-  /** มีสายหรืองานค้าง (รวม wrap-up) — offer ที่ยังไม่กดรับไม่นับ (ถูกส่งกลับเข้าคิวตอน takeover) */
+  /** has a call or pending work (including wrap-up) — an offer not yet accepted does not count (it is returned to the queue at takeover) */
   private async busy(tx: Tx, actor: WorkSessionActor): Promise<boolean> {
     const active = await tx.interaction.count({
       where: {
@@ -606,7 +606,7 @@ export class WorkSessionLeases {
       where: { id: lease.id },
       data: { releasedAt: now, releaseReason: reason },
     });
-    if (reason === 'takeover') return; // audit ของ takeover อยู่ในแถว TAKEOVER ของ lease ใหม่
+    if (reason === 'takeover') return; // the takeover audit is in the TAKEOVER row of the new lease
     await tx.agentWorkSessionEvent.create({
       data: {
         id: this.id(),
@@ -627,7 +627,7 @@ export class WorkSessionLeases {
         occurredAt: now,
       },
     });
-    // ไม่มีจุดรับงานแล้ว — router หยุดส่งงานให้ agent คนนี้
+    // no more work endpoint — the router stops sending work to this agent
     await tx.agentStateLog.create({
       data: {
         tenantId: actor.tenantId,
@@ -660,7 +660,7 @@ export class WorkSessionLeases {
     }
   }
 
-  /** offer ที่รอกดรับของ agent → กลับเข้าคิวทันที (router จ่ายใหม่ตาม `requeueAt`) */
+  /** a pending offer of the agent → back to the queue immediately (the router reassigns per `requeueAt`) */
   private async requeueOffers(tx: Tx, actor: WorkSessionActor): Promise<number> {
     const offers = await tx.interaction.findMany({
       where: { tenantId: actor.tenantId, agentId: actor.userId, state: 'ASSIGNED' },

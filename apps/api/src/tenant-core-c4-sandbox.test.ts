@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { coreC4IdentitySandbox } from './tenant-core-identity-sandbox.js';
 
-test('C4 identity trial ปฏิเสธฐานร่วม remote และ owner role ก่อนสร้าง fixture', async () => {
+test('the C4 identity trial rejects a shared remote database and an owner role before creating a fixture', async () => {
   const names = [
     'DATABASE_URL',
     'APPLICATION_DATABASE_URL',

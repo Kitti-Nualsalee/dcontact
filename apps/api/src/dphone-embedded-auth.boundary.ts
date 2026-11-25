@@ -1,7 +1,7 @@
 /**
- * E1.13 (#487) กับ Keycloak จริง (ต้องรัน `pnpm infra:identity:dphone-embedded` ก่อน):
- * client `dphone-embedded` — exact redirect, ห้าม implicit/direct grant, PKCE S256 บังคับ, state กลับมาตรง,
- * token 5 นาทีที่ gateway ของ API ยอมรับ, refresh rotation และ reuse detection (ระดับ realm, #487)
+ * E1.13 (#487) against real Keycloak (run `pnpm infra:identity:dphone-embedded` first):
+ * client `dphone-embedded` — exact redirect, no implicit/direct grant, PKCE S256 enforced, state comes back exact,
+ * a 5-minute token the API gateway accepts, refresh rotation and reuse detection (realm level, #487)
  */
 import assert from 'node:assert/strict';
 import { createHash, randomBytes } from 'node:crypto';
@@ -32,7 +32,7 @@ function authorizeUrl(params: Record<string, string>) {
   return url;
 }
 
-/** login ผ่านฟอร์มของ Keycloak แล้วคืน URL ที่ redirect กลับมา (ไม่ follow ไปที่ callback จริง) */
+/** logs in through the Keycloak form and returns the redirect URL (without following to the real callback) */
 async function login(url: URL): Promise<URL> {
   const cookies = new Map<string, string>();
   const remember = (response: Response) => {
@@ -44,14 +44,14 @@ async function login(url: URL): Promise<URL> {
   };
   const jar = () => [...cookies].map(([key, value]) => `${key}=${value}`).join('; ');
   let response = await fetch(url, { redirect: 'manual' });
-  // organization ทำให้ Keycloak ใช้ identity-first: หน้า username ก่อน แล้วค่อยหน้า password
+  // organization makes Keycloak use identity-first: the username page first, then the password page
   for (let step = 0; step < 4; step += 1) {
     remember(response);
     const location = response.headers.get('location');
     if (location) return new URL(location);
     const html = await response.text();
     const action = /<form[^>]*action="([^"]+)"/.exec(html)?.[1]?.replaceAll('&amp;', '&');
-    assert.ok(action, `ไม่พบฟอร์ม login (${response.status})`);
+    assert.ok(action, `login form not found (${response.status})`);
     const fields: Record<string, string> = {};
     if (/id="username"/.test(html)) fields.username = AGENT.username;
     if (/id="password"/.test(html)) fields.password = AGENT.password;
@@ -62,7 +62,7 @@ async function login(url: URL): Promise<URL> {
       body: new URLSearchParams(fields),
     });
   }
-  throw new Error('login ไม่ redirect กลับมาภายใน 4 ขั้น');
+  throw new Error('login did not redirect back within 4 steps');
 }
 
 async function token(body: Record<string, string>) {
@@ -94,7 +94,7 @@ async function signIn() {
   return { code, verifier };
 }
 
-test('redirect ต้องตรงแบบ exact; implicit และ direct grant ใช้ไม่ได้', async () => {
+test('the redirect must match exactly; implicit and direct grant are unusable', async () => {
   for (const redirect of [
     `${REDIRECT}/x`,
     `${ORIGIN}/dphone/auth/callback?x=1`,
@@ -109,7 +109,7 @@ test('redirect ต้องตรงแบบ exact; implicit และ direct g
       }),
       { redirect: 'manual' },
     );
-    assert.equal(response.status, 400, redirect); // Keycloak แสดงหน้า error ไม่ redirect ไป URL ที่ไม่รู้จัก
+    assert.equal(response.status, 400, redirect); // Keycloak shows an error page and does not redirect to an unknown URL
   }
   const implicit = await fetch(
     authorizeUrl({
@@ -126,7 +126,7 @@ test('redirect ต้องตรงแบบ exact; implicit และ direct g
   assert.equal(direct.body.error, 'unauthorized_client');
 });
 
-test('PKCE S256 บังคับ: ไม่ส่ง challenge = error; verifier ผิด = แลก code ไม่ได้', async () => {
+test('PKCE S256 is enforced: no challenge = error; a wrong verifier = the code cannot be exchanged', async () => {
   const missing = await fetch(
     authorizeUrl({
       client_id: CLIENT,
@@ -147,7 +147,7 @@ test('PKCE S256 บังคับ: ไม่ส่ง challenge = error; verifi
   });
   assert.equal(wrong.body.error, 'invalid_grant');
 
-  // code ใช้ได้ครั้งเดียว — ใช้ซ้ำแล้ว Keycloak เพิกถอน session ของ code นั้นด้วย
+  // a code is usable once — reusing it makes Keycloak also revoke the session of that code
   const fresh = await signIn();
   const exchange = () =>
     token({
@@ -166,7 +166,7 @@ test('PKCE S256 บังคับ: ไม่ส่ง challenge = error; verifi
   assert.equal(revoked.body.error, 'invalid_grant');
 });
 
-test('แลก code ได้ token 5 นาทีที่ gateway ของ API ยอมรับ; refresh rotate และการใช้ refresh token ซ้ำถูกปฏิเสธพร้อมปิด session', async () => {
+test('exchanging a code gets a 5-minute token the API gateway accepts; refresh rotates and reusing a refresh token is rejected and closes the session', async () => {
   const { code, verifier } = await signIn();
   const issued = await token({
     grant_type: 'authorization_code',
@@ -195,9 +195,13 @@ test('แลก code ได้ token 5 นาทีที่ gateway ของ A
     refresh_token: issued.body.refresh_token,
   });
   assert.equal(first.status, 200, JSON.stringify(first.body));
-  assert.notEqual(first.body.refresh_token, issued.body.refresh_token, 'refresh token ต้อง rotate');
+  assert.notEqual(
+    first.body.refresh_token,
+    issued.body.refresh_token,
+    'the refresh token must rotate',
+  );
 
-  // ใช้ refresh token เก่าซ้ำ → ปฏิเสธ และ session ถูกปิด (refresh token ใหม่ใช้ต่อไม่ได้)
+  // reusing an old refresh token → rejected, and the session is closed (the new refresh token can no longer be used)
   const reused = await token({
     grant_type: 'refresh_token',
     refresh_token: issued.body.refresh_token,

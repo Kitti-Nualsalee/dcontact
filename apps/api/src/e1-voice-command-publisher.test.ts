@@ -19,7 +19,7 @@ const input = {
   },
 };
 
-test('E1 publisher ส่ง command opaque ด้วย secret แยกและไม่ตาม redirect', async (context) => {
+test('the E1 publisher sends an opaque command with a separate secret and does not follow redirects', async (context) => {
   let requests = 0;
   const server = createServer(async (request, response) => {
     requests += 1;
@@ -41,7 +41,7 @@ test('E1 publisher ส่ง command opaque ด้วย secret แยกแล�
   assert.equal(requests, 1);
 });
 
-test('E1 publisher ส่ง flush แบบ opaque ผ่าน endpoint แยกโดยไม่ retry', async () => {
+test('the E1 publisher sends an opaque flush through a separate endpoint without retrying', async () => {
   const registration = {
     tenantId: input.tenantId,
     telephonyNodeId: 'e1-uat-sandbox',
@@ -65,7 +65,7 @@ test('E1 publisher ส่ง flush แบบ opaque ผ่าน endpoint แย
   assert.equal(attempts, 1);
 });
 
-test('E1 publisher ยืนยันเฉพาะ 202 และไม่ retry เมื่อ timeout/ผลไม่แน่นอน', async () => {
+test('the E1 publisher confirms only 202 and does not retry on timeout/uncertain outcomes', async () => {
   let attempts = 0;
   const publisher = new E1VoiceCommandPublisher(secret, async (url, options) => {
     attempts += 1;

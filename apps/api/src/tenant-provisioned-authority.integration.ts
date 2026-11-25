@@ -17,7 +17,7 @@ import {
 } from './tenant-voice-catalog.js';
 
 for (const role of ['ADMIN', 'SUPERVISOR'] as const) {
-  test(`B2 ${role} ที่ผ่าน provisioning และ activation ใช้ config ได้โดยไม่มี manual binding`, async () => {
+  test(`B2 ${role} that passed provisioning and activation can use config without a manual binding`, async () => {
     const owner = new PrismaClient();
     const application = new PrismaClient({
       datasources: { db: { url: process.env.APPLICATION_DATABASE_URL } },
@@ -81,7 +81,7 @@ for (const role of ['ADMIN', 'SUPERVISOR'] as const) {
       await owner.$executeRaw`INSERT INTO tenant_voice_identity_bindings(tenant_id,user_id,issuer,subject_id,client_id,tenant_slug,organization_id,identity_class,source_kind,evidence_ref,evidence_digest,verified_by_operator_subject,verified_at,revision,is_active)
       VALUES(${tenantId}::uuid,${initialAdminId}::uuid,${initial.caller!.issuer},${initialAdminId},'dcontact-console',${slug},${tenantId}::uuid,'TENANT_USER','BOOTSTRAP_MANIFEST','isolated-initial-admin',${'a'.repeat(64)},'isolated-operator',now(),1,true)`;
       await owner.$executeRaw`INSERT INTO tenant_voice_provisioning_policies(tenant_id,revision,source_kind,accounts_limit,agents_limit,voice_queues_limit,skills_limit,approved_by_operator_subject,approved_at,approval_ref,reason)
-      VALUES(${tenantId}::uuid,1,'UAT_EXPLICIT',20,10,3,3,'isolated-operator',now(),'isolated-authority','ทดสอบ authority ของบัญชีใหม่')`;
+      VALUES(${tenantId}::uuid,1,'UAT_EXPLICIT',20,10,3,3,'isolated-operator',now(),'isolated-authority','Authority test of a new account')`;
       await owner.$executeRaw`INSERT INTO tenant_people_worker_bindings(tenant_id,database_principal,approval_ref)
       VALUES(${tenantId}::uuid,${principal},'isolated-authority')`;
       const created = await acceptPeopleCreate(application, initial, {
@@ -206,7 +206,7 @@ for (const role of ['ADMIN', 'SUPERVISOR'] as const) {
             commandId: randomUUID(),
             expectedRevision: current.configRevision,
             reasonCode: 'OPERATOR_REQUEST',
-            reason: 'ทดสอบคืน authority หลังปฏิเสธ disable',
+            reason: 'Test restoring authority after a rejected disable',
           },
           rejection,
         );

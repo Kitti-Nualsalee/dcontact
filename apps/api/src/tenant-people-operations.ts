@@ -218,7 +218,7 @@ export function readPeopleOperation(db: PrismaClient, identity: VoiceActor, oper
       FROM tenant_people_disables operation LEFT JOIN tenant_user_lifecycles lifecycle ON lifecycle.tenant_id=operation.tenant_id AND lifecycle.user_id=operation.user_id
       WHERE operation.tenant_id=${identity.tenantId}::uuid AND operation.id=${id}::uuid`;
     if (disables[0]) return disables[0];
-    // #998 1B/2: step คือ UPDATE_PROFILE หรือ ENABLE_ACCOUNT; accountState สะท้อนสถานะที่ app ใช้จริง (ไม่คาดเดาผลที่ยังไม่รู้)
+    // #998 1B/2: the step is UPDATE_PROFILE or ENABLE_ACCOUNT; accountState reflects the state the app actually uses (does not guess an outcome not yet known)
     const accountChanges = await transaction.$queryRaw<typeof rows>`
       SELECT operation.id AS "operationId",operation.user_id AS "userId",operation.state,operation.kind AS step,operation.revision,
         CASE WHEN operation.kind='ENABLE_ACCOUNT' AND operation.state='ACTION_REQUIRED' THEN 'ATTENTION_REQUIRED'

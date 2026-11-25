@@ -1,7 +1,7 @@
 /**
- * Entrypoint ของ CLI provision tenant/บัญชี/fixture pack ของ UAT (U1.8 #502) — one-shot ใน ops image
+ * Entrypoint of the CLI that provisions a UAT tenant/accounts/fixture pack (U1.8 #502) — a one-shot in the ops image
  * (`docker compose --profile ops run --rm uat-provision --input /run/uat-provision.json [--check]`)
- * ไม่ใช่ส่วนของ API server และไม่ถูก import จาก `uat-main.ts`/`main.ts`
+ * not part of the API server and never imported from `uat-main.ts`/`main.ts`
  */
 import { runUatProvisionCli } from './uat-provision.js';
 

@@ -1,12 +1,12 @@
 /**
- * #566 (R2.1/R2.2): `GET /api/v1/line-pilot/inbound` — รายการข้อความขาเข้าของ LINE pilot แบบ read-only
+ * #566 (R2.1/R2.2): `GET /api/v1/line-pilot/inbound` — the read-only list of inbound LINE pilot messages
  *
- * mount ใน service `line-webhook` (profile `uat-line`) เท่านั้น และ Caddy ส่ง path นี้มาหลัง CIDR allowlist
- * - ต้อง login (OIDC) + role `admin` และ tenant ใน token ต้องเป็น tenant ของ binding — อื่น ๆ 403 เหมือนกันหมด
- *   ไม่บอกว่ามีข้อมูลหรือไม่
- * - response มาจาก `LinePilotInboundReader` ที่ไม่มี LINE ID ดิบ/replyToken และ audit ทุกการอ่าน
- * - `GET /api/v1/line-pilot/access` ตรวจสิทธิ์อย่างเดียว (204) — ไม่อ่านข้อความและไม่ audit ให้ Console ใช้ตัดสิน
- *   ว่าจะแสดงลิงก์หรือไม่ โดยไม่ทำให้การเปิดหน้าอื่นกลายเป็นการอ่านข้อความ
+ * mounted only in the `line-webhook` service (profile `uat-line`) and Caddy sends this path after the CIDR allowlist
+ * - needs login (OIDC) + the role `admin` and the tenant in the token must be the binding's tenant — anything else is the same 403
+ *   without saying whether data exists
+ * - the response comes from `LinePilotInboundReader`, which has no raw LINE ID/replyToken, and audits every read
+ * - `GET /api/v1/line-pilot/access` checks permission only (204) — reads no message and writes no audit, for the Console to decide
+ *   whether to show the link, without making opening other pages count as reading messages
  */
 import {
   BadRequestException,

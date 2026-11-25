@@ -15,7 +15,7 @@ const claims: VerifiedOidcClaims = {
   realm_access: { roles: ['admin'] },
 };
 
-test('JWT เดิมถูกปฏิเสธทันทีหลัง local disable โดยไม่ cache ผล active', async () => {
+test('the original JWT is rejected at once after a local disable, without caching the active result', async () => {
   let active = true;
   const calls: string[][] = [];
   const verifier = new LocalAccountAccessTokenVerifier(
@@ -34,7 +34,7 @@ test('JWT เดิมถูกปฏิเสธทันทีหลัง loc
   ]);
 });
 
-test('สถานะบัญชีอ่านไม่ได้ต้อง fail closed', async () => {
+test('an unreadable account state must fail closed', async () => {
   const verifier = new LocalAccountAccessTokenVerifier(
     { verifyAccessToken: async () => claims },
     async () => {
@@ -44,7 +44,7 @@ test('สถานะบัญชีอ่านไม่ได้ต้อง f
   await assert.rejects(verifier.verifyAccessToken('token'), /workspace/i);
 });
 
-test('signature verification ต้องผ่านก่อนอ่าน local account', async () => {
+test('signature verification must pass before reading the local account', async () => {
   let reads = 0;
   const verifier = new LocalAccountAccessTokenVerifier(
     {
@@ -61,7 +61,7 @@ test('signature verification ต้องผ่านก่อนอ่าน lo
   assert.equal(reads, 0);
 });
 
-test('service principal ที่ตรวจ shape แล้วไม่ต้องมี domain User', async () => {
+test('a service principal whose shape is checked does not need a domain User', async () => {
   const { dc_user_id, sid, ...common } = claims;
   const service = {
     ...common,
@@ -81,7 +81,7 @@ test('service principal ที่ตรวจ shape แล้วไม่ต้�
   assert.equal(reads, 0);
 });
 
-test('workspace token แอบมี service claims ไม่ข้าม local deny', async () => {
+test('a workspace token that sneaks in service claims does not bypass the local deny', async () => {
   const verifier = new LocalAccountAccessTokenVerifier(
     {
       verifyAccessToken: async () => ({

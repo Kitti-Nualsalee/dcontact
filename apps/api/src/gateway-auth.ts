@@ -22,7 +22,7 @@ import {
 
 export const OIDC_ACCESS_TOKEN_VERIFIER = Symbol('OIDC_ACCESS_TOKEN_VERIFIER');
 export const GATEWAY_DIAGNOSTICS = Symbol('GATEWAY_DIAGNOSTICS');
-/** A1.8a (#447): tenant ต้อง ACTIVE ก่อนเข้า tenant API (#393) — required เพื่อไม่ fail open เมื่อลืม wiring */
+/** A1.8a (#447): the tenant must be ACTIVE before entering the tenant API (#393) — required so it does not fail open when wiring is forgotten */
 export const TENANT_LIFECYCLE = Symbol('TENANT_LIFECYCLE');
 const GATEWAY_ROLES = Symbol('GATEWAY_ROLES');
 const GATEWAY_PUBLIC = Symbol('GATEWAY_PUBLIC');
@@ -31,7 +31,7 @@ const GATEWAY_SERVICE_SCOPES = Symbol('GATEWAY_SERVICE_SCOPES');
 
 export interface AuthenticatedGatewayRequest extends IncomingMessage {
   gatewayIdentity?: VerifiedWorkspaceIdentity;
-  /** Claims หลัง verifier ผ่านเท่านั้น สำหรับ policy เฉพาะของ API ใหม่; ไม่ส่งกลับ client */
+  /** claims only after the verifier passes, for the specific policy of a new API; not sent back to the client */
   gatewayVerifiedClaims?: VerifiedOidcClaims;
   gatewayServiceIdentity?: VerifiedServiceIdentity;
   correlationId?: string;
@@ -52,9 +52,9 @@ export interface GatewayDiagnosticSink {
 
 export const GatewayRoles = (...roles: string[]) => SetMetadata(GATEWAY_ROLES, roles);
 /**
- * route ที่พิสูจน์ตัวตนด้วยวิธีของตัวเองแทน bearer token — S2.5 (#359 §B) ใช้กับ `POST /webhook/line`
- * ซึ่ง provider ไม่ได้ถือ token ของเรา และ authority คือ HMAC signature บน raw body เท่านั้น
- * handler ของ route แบบนี้ต้อง verify เองก่อนแตะ payload ทุกครั้ง
+ * a route that proves identity by its own means instead of a bearer token — S2.5 (#359 §B) uses this for `POST /webhook/line`
+ * where the provider does not hold our token and the authority is the HMAC signature over the raw body only
+ * the handler of such a route must verify itself before touching the payload every time
  */
 export const GatewayPublic = () => SetMetadata(GATEWAY_PUBLIC, true);
 export const GatewayServiceRoles = (...roles: string[]) =>
@@ -133,8 +133,8 @@ export class OidcGlobalGuard implements CanActivate {
       try {
         serviceIdentity = toVerifiedServiceIdentity(claims);
       } catch {
-        // token ไม่ใช่ service principal shape; ถ้า route รองรับ workspace ด้วยให้ fallback
-        // ไปลอง workspace ต่อ (dual-mode route) ไม่เช่นนั้นคงพฤติกรรมเดิม: unauthenticated
+        // the token is not a service principal shape; if the route also supports workspace, fall back
+        // to trying workspace (a dual-mode route), otherwise keep the original behavior: unauthenticated
         if (requiredWorkspaceRoles === undefined) {
           this.diagnostics.write({
             event: 'gateway.request.denied',
@@ -204,7 +204,7 @@ export class OidcGlobalGuard implements CanActivate {
       throw new UnauthorizedException();
     }
 
-    // tenant ที่ยังไม่ ACTIVE (เช่น first admin ของ tenant ที่ยัง PROVISIONING) = เหมือน token ใช้ไม่ได้
+    // a tenant that is not ACTIVE yet (e.g. the first admin of a tenant still PROVISIONING) = treated like an unusable token
     if (!(await this.lifecycle.isActive(identity.tenantId))) {
       this.diagnostics.write({
         event: 'gateway.request.denied',

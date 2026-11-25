@@ -103,8 +103,8 @@ export async function findTenantConfigurationActor(
       AND subject_id=${caller.subject} AND issuer=${caller.issuer}
       AND client_id=${caller.clientId} AND tenant_slug=${caller.tenantSlug}
       AND identity_class='TENANT_USER' AND is_active`);
-  // B1 trigger บังคับ proof writer ให้ถือ User FOR UPDATE NOWAIT อยู่แล้ว
-  // ถือ User FOR SHARE จึงกันการเปลี่ยน proof โดยไม่เพิ่ม UPDATE grant ให้ตาราง proof
+  // the B1 trigger already forces the proof writer to hold User FOR UPDATE NOWAIT
+  // holding User FOR SHARE therefore blocks a proof change without adding an UPDATE grant to the proof table
   const provisioned = !binding[0]
     ? await tx.$queryRaw<
         { statusRevision: number; operationId: string; activationProbeRef: string }[]
