@@ -10,7 +10,7 @@ import { Cg3Cache } from './cg3-cache.js';
 import { Cg3EventRelay } from './cg3-event-relay.js';
 
 test(
-  'event relay เผยแพร่ cg_event_outbox ไป Kafka จริงและ invalidate head cache',
+  'the event relay publishes cg_event_outbox to real Kafka and invalidates the head cache',
   { timeout: 30_000 },
   async (t) => {
     const owner = new PrismaClient();
@@ -106,7 +106,7 @@ test(
       eventObserved,
       new Promise<never>((_, reject) => {
         timeout = setTimeout(
-          () => reject(new Error('ไม่พบ CG3 event จาก Redpanda ภายในเวลา')),
+          () => reject(new Error('CG3 event not found from Redpanda within the time limit')),
           10_000,
         );
       }),

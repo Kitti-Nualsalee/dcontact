@@ -17,7 +17,7 @@ class FakeRedis implements Cg5QueryCacheClient {
   }
 }
 
-test('CG5 cache ไม่ตอบข้อมูลเก่ากว่า asOf ที่ประกาศและไม่อยู่เกินรอบ refresh', async () => {
+test('the CG5 cache does not answer data older than the declared asOf and does not outlive the refresh interval', async () => {
   const redis = new FakeRedis();
   let now = new Date('2026-09-20T00:00:00.000Z');
   const cache = new Cg5QueryCache(redis, () => now);
@@ -38,11 +38,11 @@ test('CG5 cache ไม่ตอบข้อมูลเก่ากว่า asO
   const first = await cache.getOrLoad(input);
   const hit = await cache.getOrLoad(input);
   assert.equal(hit.value, first.value);
-  // entry ที่ตอบจาก cache ต้องประกาศ asOf เดียวกับ projection ที่ถูกอ่าน ไม่ใช่เวลาที่เขียน cache
+  // an entry answered from cache must declare the same asOf as the projection that was read, not the time the cache was written
   assert.equal(new Date(hit.asOf as Date | string).toISOString(), projectionAsOf.toISOString());
   assert.deepEqual(redis.ttls, [60]);
 
-  // Redis ยังถือ entry เดิมอยู่ แต่เกินรอบ refresh แล้ว: ต้องอ่าน projection ใหม่ ไม่ตอบของเก่า
+  // Redis still holds the original entry, but it is past the refresh interval: it must read the projection again, not answer with the old one
   projectionAsOf = new Date('2026-09-20T00:00:59.000Z');
   now = new Date('2026-09-20T00:01:00.000Z');
   const refreshed = await cache.getOrLoad(input);
@@ -50,7 +50,7 @@ test('CG5 cache ไม่ตอบข้อมูลเก่ากว่า asO
   assert.equal(refreshed.asOf, projectionAsOf);
   assert.ok(redis.ttls.every((ttl) => ttl <= input.refreshIntervalSeconds));
 
-  // entry ที่เสียหายหรือไม่มีเวลาหมดอายุถือเป็น miss ไม่ใช่ข้อมูลที่ไม่รู้อายุ
+  // a corrupt entry or one with no expiry counts as a miss, not data of unknown age
   redis.values.set(
     key,
     JSON.stringify({ asOf: projectionAsOf.toISOString(), value: { asOf: null } }),
@@ -58,7 +58,7 @@ test('CG5 cache ไม่ตอบข้อมูลเก่ากว่า asO
   assert.equal((await cache.getOrLoad(input)).value, first.value + 2);
 });
 
-test('CG5 cache key แยก team scope และ fallback เมื่อ Redis ล่ม', async () => {
+test('the CG5 cache key separates team scopes and falls back when Redis is down', async () => {
   const redis = new FakeRedis();
   const cache = new Cg5QueryCache(redis, () => new Date('2026-09-20T00:00:00.000Z'));
   const base = {

@@ -42,7 +42,7 @@ async function fixture(t: TestContext) {
   return { owner, application, tenantId };
 }
 
-test('CG5-OB01 snapshot อ่าน telemetry ของ projection และ export จากตารางจริงของ tenant', async (t) => {
+test('CG5-OB01 the snapshot reads the projection and export telemetry from the tenant real tables', async (t) => {
   const f = await fixture(t);
   await f.owner.cgDecisionLog.create({
     data: {
@@ -87,13 +87,13 @@ test('CG5-OB01 snapshot อ่าน telemetry ของ projection และ ex
     actorRef: 'cg5-export-worker',
   });
 
-  // เวลาที่ใช้ตรวจอยู่หลังรอบ reader จริงหนึ่งวัน เพื่อให้ lag เกิน SLO แน่นอนโดยไม่ขึ้นกับนาฬิกาเครื่อง
+  // the time used for the check is one day after a real reader run, so the lag definitely exceeds the SLO regardless of the machine clock
   const observedAt = new Date(Date.now() + 86_400_000);
   const snapshot = await cg5ObservabilitySnapshot(f.application, {
     tenantId: f.tenantId,
     now: observedAt,
-    // audit ของ export ถูกบันทึกที่ NOW (เวลาตายตัว) — window ต้องย้อนไปถึง NOW เสมอ ไม่งั้นเทสต์จะล้ม
-    // เองเมื่อวันจริงเลย NOW ไปเกินขนาด window (เดิมตั้งตายตัว 7 วันแล้วล้มตั้งแต่ 2026-09-28)
+    // the export audit is recorded at NOW (a fixed time): the window must always reach back to NOW, otherwise the test would fail
+    // on its own once the real day moves NOW past the window size (originally a fixed 7 days, which failed from 2026-09-28)
     windowSeconds: Math.ceil((observedAt.getTime() - NOW.getTime()) / 1_000) + 86_400,
   });
   assert.equal(snapshot.tenantId, f.tenantId);
@@ -108,12 +108,12 @@ test('CG5-OB01 snapshot อ่าน telemetry ของ projection และ ex
   assert.ok(codes.includes('GOVERNANCE_CG5_PROJECTION_LAG'));
   assert.ok(codes.includes('GOVERNANCE_CG5_EXPORT_FAILED'));
 
-  // telemetry ต้องไม่พาข้อมูล requester, reason หรือ export id ออกไป
+  // telemetry must not carry the requester, reason or export id data out
   const serialized = JSON.stringify({ snapshot, samples: cg5MetricSamples(snapshot) });
   assert.doesNotMatch(serialized, /person:ob01|ob01 telemetry/);
   assert.ok(!serialized.includes(job.exportId));
 
-  // tenant อื่นมองไม่เห็นตัวเลขของ tenant นี้ผ่าน RLS
+  // another tenant cannot see this tenant's numbers through RLS
   const other = await f.owner.tenant.create({
     data: {
       id: randomUUID(),

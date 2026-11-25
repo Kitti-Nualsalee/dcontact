@@ -1,10 +1,10 @@
 /**
- * CG4.10 (#193): คำสั่ง operator สำหรับ backfill CG3 → CG4 ต่อ tenant
+ * CG4.10 (#193): operator command to backfill CG3 -> CG4 per tenant
  *
  *   pnpm --filter @d-contact/contact-governance cg4:backfill --tenant=<uuid> --operator=<opaque-ref>
  *
- * พิมพ์ report เป็น JSON ที่มีเฉพาะ opaque id, version, scope key และ reason code — ไม่มี PII
- * รันซ้ำได้: source ที่ backfill แล้วถูกนับใน `alreadyRecorded` และไม่ถูกแตะซ้ำ
+ * Prints the report as JSON containing only opaque ids, versions, scope keys and reason codes: no PII
+ * Re-runnable: a source that was already backfilled is counted in `alreadyRecorded` and is not touched again
  */
 import { PrismaClient } from '@d-contact/db';
 import { Cg4LegacyBackfill } from './cg4-legacy-backfill.js';
@@ -21,7 +21,7 @@ if (!tenantId || !operatorRef) {
   process.exit(2);
 }
 
-// ใช้ application role (RLS) เหมือน owner service อื่น ไม่ใช้ owner connection
+// uses the application role (RLS) like the other owner services, not the owner connection
 const url = process.env.APPLICATION_DATABASE_URL ?? process.env.DATABASE_URL;
 const database = new PrismaClient(url ? { datasources: { db: { url } } } : undefined);
 try {

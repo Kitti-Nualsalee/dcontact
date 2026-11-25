@@ -80,7 +80,7 @@ async function snapshot(owner: PrismaClient, tenantId: string) {
   };
 }
 
-test('CG5.5 rebuild ซ้ำได้, readiness ชัดเจน และ retention ไม่แตะ canonical', async (t) => {
+test('CG5.5 a rebuild is repeatable, readiness is clear, and retention does not touch canonical', async (t) => {
   const f = await fixture(t);
   const maintenance = new Cg5ProjectionMaintenance(f.application, () => NOW);
   assert.equal((await maintenance.readiness(f.tenantId)).state, 'NOT_READY');
@@ -116,8 +116,8 @@ test('CG5.5 rebuild ซ้ำได้, readiness ชัดเจน และ r
 });
 
 /**
- * CG5-MG02 (#273 §4): fixture ข้ามเดือนแบบย่อขนาด — ปริมาณน้อยแต่คร่อมรอยต่อ ก.พ./มี.ค./เม.ย./พ.ค./มิ.ย.
- * เพื่อพิสูจน์ rollup ข้ามชั้นและ retention ของสามชั้น (default 14 วัน/90 วัน/13 เดือน) บนข้อมูลจริง
+ * CG5-MG02 (#273 §4): a scaled-down cross-month fixture: a small volume but straddling the Feb/Mar/Apr/May/Jun seams
+ * to prove the cross-tier rollup and the retention of the three tiers (default 14 days/90 days/13 months) on real data
  */
 const DRILL_NOW = new Date('2026-06-10T00:00:00.000Z');
 const DRILL_DECISIONS = [
@@ -168,26 +168,26 @@ async function drillTenant(t: TestContext, owner: PrismaClient, label: string) {
   return tenantId;
 }
 
-test('CG5-MG02 backfill/rebuild drill ข้ามเดือน: เต็มตาม retention, ซ้ำได้, รันต่อหลังล่มได้ผลเท่ารันรวดเดียว', async (t) => {
+test('CG5-MG02 backfill/rebuild drill across months: full per retention, repeatable, and resuming after a crash gives the same result as a single run', async (t) => {
   const f = await fixture(t);
   const maintenance = new Cg5ProjectionMaintenance(f.application, () => DRILL_NOW);
   const queries = new Cg5QueryService(f.application);
   const single = await drillTenant(t, f.owner, 'single');
   const resumed = await drillTenant(t, f.owner, 'resumed');
 
-  // รันรวดเดียว
+  // a single uninterrupted run
   await maintenance.backfill(single);
   const expected = await snapshot(f.owner, single);
   assert.deepEqual(expected.metrics, [
-    // 5 นาทีเก็บเฉพาะ 14 วันล่าสุด
+    // 5-minute keeps only the latest 14 days
     ['FIVE_MIN', '2026-05-31T23:55:00.000Z', '1', 1n],
     ['FIVE_MIN', '2026-06-01T00:00:00.000Z', '2', 2n],
-    // รายชั่วโมงเก็บ 90 วัน: ตัดที่ 2026-03-12 จึงเหลือตั้งแต่รอยต่อ มี.ค./เม.ย.
+    // hourly keeps 90 days: cut at 2026-03-12, so it keeps from the Mar/Apr seam onward
     ['HOUR', '2026-03-31T23:00:00.000Z', '1', 1n],
     ['HOUR', '2026-04-01T00:00:00.000Z', '1', 1n],
     ['HOUR', '2026-05-31T23:00:00.000Z', '1', 1n],
     ['HOUR', '2026-06-01T00:00:00.000Z', '2', 2n],
-    // รายวันเก็บ 13 เดือน: ครบทุกวันและไม่ไหลข้ามรอยต่อเดือน
+    // daily keeps 13 months: every day, and nothing flows across the month seam
     ['DAY', '2026-02-28T00:00:00.000Z', '1', 1n],
     ['DAY', '2026-03-01T00:00:00.000Z', '1', 1n],
     ['DAY', '2026-03-31T00:00:00.000Z', '1', 1n],
@@ -202,11 +202,11 @@ test('CG5-MG02 backfill/rebuild drill ข้ามเดือน: เต็ม�
     BigInt(DRILL_DECISIONS.length),
   );
 
-  // rebuild ช่วงเดิมซ้ำต้องได้ตัวเลขเท่าเดิมทุกแถว
+  // rebuilding the same range again must give the same numbers on every row
   await maintenance.backfill(single);
   assert.deepEqual(await snapshot(f.owner, single), expected);
 
-  // ทำไปครึ่งทางแล้ว process ล่ม: readiness ค้างที่ BACKFILL_RUNNING และหน้าจอต้องได้ "ไม่พร้อม"
+  // half done when the process crashes: readiness stays at BACKFILL_RUNNING and the screen must get "not ready"
   await maintenance.rebuild(resumed, {
     from: new Date('2026-02-01T00:00:00.000Z'),
     to: new Date('2026-04-01T00:00:00.000Z'),
@@ -223,7 +223,7 @@ test('CG5-MG02 backfill/rebuild drill ข้ามเดือน: เต็ม�
       error instanceof Cg5ProjectionNotReadyError && error.state === 'BACKFILL_RUNNING',
   );
 
-  // รันต่อจนจบต้องได้ผลเท่ากับรันรวดเดียวทุกแถว
+  // resuming to the end must give the same result as a single run on every row
   await maintenance.backfill(resumed);
   assert.equal((await maintenance.readiness(resumed)).state, 'READY');
   assert.deepEqual(await snapshot(f.owner, resumed), expected);

@@ -1,9 +1,9 @@
 import type { Redis } from 'ioredis';
 
 /**
- * Immutable snapshot cache + mutable head invalidation สำหรับ CG3 (#104 "Kafka,
- * cache, realtime และ submission race"). Redis ไม่ใช่ source of truth — ห้าม cache
- * final ALLOW, reservation หรือผล authorizeAndReserve() ข้าม actionKey (ADR-003)
+ * Immutable snapshot cache + mutable head invalidation for CG3 (#104 "Kafka,
+ * cache, realtime and submission race"). Redis is not the source of truth: never cache
+ * a final ALLOW, a reservation or the result of authorizeAndReserve() across actionKeys (ADR-003)
  *
  * key convention:
  *   cg:contact:{tenantId}:{contactId}:{aggregateVersion}  — immutable snapshot, TTL
@@ -100,7 +100,7 @@ export class Cg3Cache {
     return raw ? Number(raw) : undefined;
   }
 
-  /** เรียกหลัง publish event สำเร็จ — บังคับ reader รอบถัดไป fallback ไปอ่าน canonical DB */
+  /** call after a successful event publish: forces the next reader to fall back to reading the canonical DB */
   async invalidateContactHead(tenantId: string, contactId: string): Promise<void> {
     await this.redis.del(this.contactHeadKey(tenantId, contactId));
   }

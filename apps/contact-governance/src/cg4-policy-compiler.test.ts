@@ -24,7 +24,7 @@ function content(overrides: Record<string, unknown> = {}) {
   };
 }
 
-test('scope key เป็น canonical form ที่ round-trip ได้และนับ specificity จาก dimension ที่ผูกจริง', () => {
+test('a scope key is a canonical form that round-trips and counts specificity from the dimensions actually bound', () => {
   const key = buildCg4PolicyScopeKey({ channel: 'VOICE', purpose: 'MARKETING' });
   assert.equal(key, 'channel=VOICE|contactKind=*|purpose=MARKETING|sourceType=*');
   assert.deepEqual(parseCg4PolicyScopeKey(key), { channel: 'VOICE', purpose: 'MARKETING' });
@@ -32,24 +32,24 @@ test('scope key เป็น canonical form ที่ round-trip ได้แล
   assert.equal(cg4PolicyScopeSpecificity(buildCg4PolicyScopeKey({})), 0);
 });
 
-test('scope key ที่ไม่ใช่ canonical form ถูก reject', () => {
+test('a scope key that is not in canonical form is rejected', () => {
   for (const bad of ['channel=VOICE', 'channel=VOICE|purpose=X|contactKind=*|sourceType=*', '']) {
     assert.throws(() => parseCg4PolicyScopeKey(bad), Cg4PolicyValidationError);
   }
   assert.throws(() => buildCg4PolicyScopeKey({ channel: 'a|b' }), Cg4PolicyValidationError);
 });
 
-test('scope ที่ specificity เท่ากันแต่ผูกคนละ dimension ถือว่ากำกวม', () => {
+test('scopes with equal specificity that bind different dimensions count as ambiguous', () => {
   const byChannel = buildCg4PolicyScopeKey({ channel: 'VOICE' });
   const byPurpose = buildCg4PolicyScopeKey({ purpose: 'MARKETING' });
   assert.equal(cg4PolicyScopesAmbiguous(byChannel, byPurpose), true);
-  // request เดียวที่ match ทั้งคู่ได้จริง
+  // a single request that can really match both
   const request = { channel: 'VOICE' as const, purpose: 'MARKETING' };
   assert.equal(cg4PolicyScopeMatches(byChannel, request), true);
   assert.equal(cg4PolicyScopeMatches(byPurpose, request), true);
 });
 
-test('scope ที่ผูก dimension เดียวกันคนละค่า หรือ specificity ต่างกัน ไม่กำกวม', () => {
+test('scopes that bind the same dimension with different values, or have different specificity, are not ambiguous', () => {
   assert.equal(
     cg4PolicyScopesAmbiguous(
       buildCg4PolicyScopeKey({ channel: 'VOICE' }),
@@ -73,7 +73,7 @@ test('scope ที่ผูก dimension เดียวกันคนละค
   );
 });
 
-test('normalize ทำให้ payload ที่ต่างแค่ลำดับ/ค่าซ้ำ ได้ content digest เดียวกัน', () => {
+test('normalizing gives the same content digest to payloads that differ only in order/duplicate values', () => {
   const left = compileCg4Policy({ content: content(), version: 1 });
   const right = compileCg4Policy({
     content: content({
@@ -85,7 +85,7 @@ test('normalize ทำให้ payload ที่ต่างแค่ลำด�
   assert.equal(left.contentDigest, right.contentDigest);
 });
 
-test('content ที่มี field นอก schema ถูก reject แทนที่จะถูกทิ้งเงียบ ๆ', () => {
+test('content with a field outside the schema is rejected instead of being silently dropped', () => {
   assert.throws(
     () => normalizeCg4PolicyContent(content({ minGapSeconds: 900 })),
     (error: unknown) =>
@@ -93,7 +93,7 @@ test('content ที่มี field นอก schema ถูก reject แทน�
   );
 });
 
-test('rule ที่ override ไม่ได้หรือไม่อยู่ใน registry เข้า allowlist ไม่ได้', () => {
+test('a rule that cannot be overridden or is not in the registry cannot enter the allowlist', () => {
   assert.throws(
     () =>
       assertCg4PolicyRegistryConsistent(
@@ -112,7 +112,7 @@ test('rule ที่ override ไม่ได้หรือไม่อยู�
   );
 });
 
-test('rule ที่รองรับเฉพาะ callback ใส่ใน exception allowlist ไม่ได้ (และกลับกัน)', () => {
+test('a rule that supports only callback cannot be put in the exception allowlist (and vice versa)', () => {
   assert.throws(
     () =>
       assertCg4PolicyRegistryConsistent(
@@ -133,7 +133,7 @@ test('rule ที่รองรับเฉพาะ callback ใส่ใน e
   );
 });
 
-test('schema/registry/evaluator version ที่ไม่รู้จักทำให้ compile ไม่ผ่าน', () => {
+test('an unknown schema/registry/evaluator version makes the compile fail', () => {
   for (const overrides of [
     { schemaVersion: 2 },
     { registryVersion: 'CG4_RULE_REGISTRY_V0' },
@@ -147,7 +147,7 @@ test('schema/registry/evaluator version ที่ไม่รู้จักท�
   }
 });
 
-test('compile คืน facts ชุดเดียวกับที่ runtime evaluator กิน', () => {
+test('compile returns the same facts that the runtime evaluator consumes', () => {
   const compiled = compileCg4Policy({ content: content(), version: 3 });
   assert.equal(compiled.facts.version, 3);
   assert.equal(compiled.facts.timezoneFallback, 'Asia/Bangkok');
@@ -157,7 +157,7 @@ test('compile คืน facts ชุดเดียวกับที่ runtime
   assert.match(compiled.contentDigest, /^[a-f0-9]{64}$/);
 });
 
-test('timezone ที่ไม่ใช่ IANA zone และ holiday ที่ผิดรูปถูก reject', () => {
+test('a timezone that is not an IANA zone and a malformed holiday are rejected', () => {
   assert.throws(() => normalizeCg4PolicyContent(content({ timezoneFallback: 'Mars/Olympus' })));
   assert.throws(() =>
     normalizeCg4PolicyContent(content({ holidays: [{ localDate: '2026-1-1', effect: 'CLOSED' }] })),

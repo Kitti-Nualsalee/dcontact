@@ -6,7 +6,7 @@ import {
   transitionReservation,
 } from './reservation.js';
 
-test('confirm reservation หนึ่งครั้งและคืน state เดิมเมื่อ retry', () => {
+test('confirms a reservation once and returns the original state on retry', () => {
   const reserved = {
     id: 'reservation-001',
     state: 'RESERVED' as const,
@@ -22,7 +22,7 @@ test('confirm reservation หนึ่งครั้งและคืน state
   assert.deepEqual(retried, confirmed);
 });
 
-test('release reservation ที่รออยู่หนึ่งครั้งและคืน state เดิมเมื่อ retry', () => {
+test('releases a waiting reservation once and returns the original state on retry', () => {
   const reserved = {
     id: 'reservation-002',
     state: 'RESERVED' as const,
@@ -38,7 +38,7 @@ test('release reservation ที่รออยู่หนึ่งครั้
   assert.deepEqual(retried, released);
 });
 
-test('refund reservation ที่ยืนยันแล้วหนึ่งครั้งและคืน state เดิมเมื่อ retry', () => {
+test('refunds a confirmed reservation once and returns the original state on retry', () => {
   const confirmed = {
     id: 'reservation-003',
     state: 'CONFIRMED' as const,
@@ -55,7 +55,7 @@ test('refund reservation ที่ยืนยันแล้วหนึ่ง�
   assert.deepEqual(retried, refunded);
 });
 
-test('ปฏิเสธ refund เมื่อ outcome ไม่ใช่การส่งล้มเหลว', () => {
+test('rejects a refund when the outcome is not a delivery failure', () => {
   assert.throws(
     () =>
       transitionReservation(
@@ -70,7 +70,7 @@ test('ปฏิเสธ refund เมื่อ outcome ไม่ใช่กา
   );
 });
 
-test('ปฏิเสธ reservation transition ที่ย้อน state', () => {
+test('rejects a reservation transition that goes back in state', () => {
   assert.throws(
     () =>
       transitionReservation(

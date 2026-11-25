@@ -121,7 +121,7 @@
         "Core Team fence: actual reservation release deactivate-first",
         "Core Team fence: actual reservation settle writer-first",
         "Core Team fence: actual reservation settle deactivate-first",
-        "Core Team fence: actual settlement cleanup ยังทำได้บน legacy inactive Team โดยไม่เปิดกลับ"
+        "Core Team fence: actual settlement cleanup can still be done on a legacy inactive Team without reactivating it"
       ]
     },
     {

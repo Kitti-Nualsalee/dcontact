@@ -41,7 +41,7 @@ async function fixture(t: TestContext) {
   };
 }
 
-test('CG5.8 export request idempotent และ transition เขียน audit/outbox', async (t) => {
+test('a CG5.8 export request is idempotent and a transition writes audit/outbox', async (t) => {
   const f = await fixture(t);
   const input = {
     tenantId: f.tenantId,

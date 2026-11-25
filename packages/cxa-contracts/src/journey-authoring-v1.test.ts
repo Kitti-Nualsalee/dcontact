@@ -29,7 +29,7 @@ import {
   type JourneyDiagnosticV1,
 } from './index.js';
 
-test('error registry ไม่ซ้ำ, คง code เดิมของ J1–J3 และทุก code มี HTTP status', () => {
+test('the error registry has no duplicates, keeps the original J1-J3 codes and every code has an HTTP status', () => {
   assert.equal(new Set(JOURNEY_AUTHORING_ERROR_CODES).size, JOURNEY_AUTHORING_ERROR_CODES.length);
   for (const code of JOURNEY_LEGACY_ERROR_CODES) assert.ok(isJourneyAuthoringErrorCode(code));
   assert.deepEqual(
@@ -43,7 +43,7 @@ test('error registry ไม่ซ้ำ, คง code เดิมของ J1–
   assert.equal(isJourneyAuthoringErrorCode('SOMETHING_NEW'), false);
 });
 
-test('diagnostic เรียง severity → stage → node → edge → port → field → code และ block เฉพาะ ERROR', () => {
+test('diagnostics sort severity -> stage -> node -> edge -> port -> field -> code and block only on ERROR', () => {
   const diagnostic = (
     code: JourneyDiagnosticV1['code'],
     severity: JourneyDiagnosticV1['severity'],
@@ -78,7 +78,7 @@ test('diagnostic เรียง severity → stage → node → edge → port �
   assert.equal(journeyDiagnosticsBlockPublish([input[0]!]), false);
 });
 
-test('port catalog ปิดชุด: ทุก port อยู่ใน catalog, trigger ไม่มี input และ EXIT ไม่มี output', () => {
+test('the port catalog is closed: every port is in the catalog, a trigger has no input and EXIT has no output', () => {
   const ports = new Set<string>(JOURNEY_PORT_IDS);
   for (const [type, spec] of Object.entries(JOURNEY_NODE_PORTS)) {
     if (spec.input) assert.ok(ports.has(spec.input), type);
@@ -90,20 +90,20 @@ test('port catalog ปิดชุด: ทุก port อยู่ใน catalog
     true: 'whenTrue',
     false_or_error: 'whenFalse',
   });
-  // restricted action compile ลง runtime field เดิม next/onReject ไม่สร้าง field ใหม่
+  // a restricted action compiles into the original runtime fields next/onReject and creates no new field
   for (const type of JOURNEY_RESTRICTED_NODE_TYPES) {
     assert.deepEqual(JOURNEY_NODE_PORTS[type].outputs, { accepted: 'next', rejected: 'onReject' });
   }
 });
 
-test('lifecycle เดินตาม state machine ที่ตรึงไว้ และ DEPRECATED เป็น terminal', () => {
+test('lifecycle follows the pinned state machine, and DEPRECATED is terminal', () => {
   assert.deepEqual(JOURNEY_LIFECYCLE_TRANSITIONS.DEPRECATED, []);
   assert.ok(!(JOURNEY_LIFECYCLE_TRANSITIONS.ACTIVE as readonly string[]).includes('DRAFT_ONLY'));
   assert.deepEqual(JOURNEY_TEMPLATE_LIFECYCLE_TRANSITIONS.DRAFT_ONLY, ['ACTIVE']);
   assert.deepEqual(JOURNEY_AUTHORING_ROLLOUT_STAGES[0], 'DISABLED');
 });
 
-test('capability ปิดชุดและ delegation ใช้ได้แค่ read/edit ไม่เกิน 8 ชั่วโมง', () => {
+test('capabilities are a closed set and a delegation can only use read/edit for at most 8 hours', () => {
   assert.equal(JOURNEY_AUTHORING_CAPABILITIES.length, 13);
   for (const capability of JOURNEY_DELEGABLE_CAPABILITIES) {
     assert.ok(isJourneyAuthoringCapability(capability));
@@ -113,7 +113,7 @@ test('capability ปิดชุดและ delegation ใช้ได้แค
   assert.equal(JOURNEY_DELEGATION_MAX_SECONDS, 28_800);
 });
 
-test('template parameter ไม่มีชนิด secret/credential/json และ bind pointer แตะได้แค่ scalar ใน config', () => {
+test('template parameters have no secret/credential/json kind, and a bind pointer can touch only a scalar in config', () => {
   for (const forbidden of ['SECRET', 'CREDENTIAL', 'JSON', 'HTML', 'SCRIPT']) {
     assert.equal(isJourneyTemplateParameterType(forbidden), false, forbidden);
   }
@@ -125,7 +125,7 @@ test('template parameter ไม่มีชนิด secret/credential/json แ�
   assert.ok(JOURNEY_TEMPLATE_BLOCKING_CONFLICT_KINDS.includes('PARAMETER_REQUIRED_UNBOUND'));
 });
 
-test('command ของ Journey และ template ไม่ชนกัน และ request DTO ไม่มี tenantId', () => {
+test('Journey and template commands do not collide, and request DTOs have no tenantId', () => {
   const commands = [...JOURNEY_AUTHORING_COMMANDS, ...JOURNEY_TEMPLATE_COMMANDS];
   assert.equal(new Set(commands).size, commands.length);
 
@@ -150,7 +150,7 @@ test('command ของ Journey และ template ไม่ชนกัน แ�
   const request: CreateJourneyDraftRequestV1 = { ownerTeamId: 'team-1', document };
   assert.ok(!('tenantId' in request));
 
-  // runtime definition เป็น generic: contract ไม่ duplicate JourneyDefinitionContent
+  // the runtime definition is a generic: the contract does not duplicate JourneyDefinitionContent
   const artifact: Pick<CompileArtifactV1<{ name: string }>, 'runtimeDefinition'> = {
     runtimeDefinition: { name: 'synthetic' },
   };

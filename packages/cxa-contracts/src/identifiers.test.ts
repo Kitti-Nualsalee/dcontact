@@ -61,18 +61,18 @@ test('stable identifiers preserve their string JSON boundary', () => {
 });
 
 test('stable identifiers reject empty values', () => {
-  assert.throws(() => actionKey('   '), /ActionKey ต้องเป็น string ที่ไม่ว่าง/);
-  assert.throws(() => tenantId(''), /TenantId ต้องเป็น string ที่ไม่ว่าง/);
+  assert.throws(() => actionKey('   '), /ActionKey must be a non-empty string/);
+  assert.throws(() => tenantId(''), /TenantId must be a non-empty string/);
 });
 
 test('typed J3 versions preserve number boundaries and reject non-positive values', () => {
   assert.equal(JSON.stringify(membershipRevision(4)), '4');
   assert.throws(
     () => segmentDefinitionVersion(0),
-    /SegmentDefinitionVersion ต้องเป็นจำนวนเต็มตั้งแต่ 1/,
+    /SegmentDefinitionVersion must be an integer >= 1/,
   );
   assert.throws(
     () => customerSnapshotVersion(1.5),
-    /CustomerSnapshotVersion ต้องเป็นจำนวนเต็มตั้งแต่ 1/,
+    /CustomerSnapshotVersion must be an integer >= 1/,
   );
 });

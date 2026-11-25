@@ -48,7 +48,7 @@ async function markReady(owner: PrismaClient, tenantId: string) {
   });
 }
 
-test('CG5.7 ปฏิเสธ projection ที่ยังไม่พร้อม', async (t) => {
+test('CG5.7 rejects a projection that is not ready', async (t) => {
   const f = await fixture(t);
   await assert.rejects(
     f.service.metrics(f.tenantId, { kind: 'TENANT' }, { granularity: 'FIVE_MIN', limit: 20 }),
@@ -57,7 +57,7 @@ test('CG5.7 ปฏิเสธ projection ที่ยังไม่พร้�
   );
 });
 
-test('CG5.7 metrics กรอง tenant และ team scope ก่อน cursor paging', async (t) => {
+test('CG5.7 metrics filter by tenant and team scope before cursor paging', async (t) => {
   const f = await fixture(t);
   await markReady(f.owner, f.tenantId);
   await markReady(f.owner, f.otherTenantId);
@@ -114,7 +114,7 @@ test('CG5.7 metrics กรอง tenant และ team scope ก่อน cursor
   );
 });
 
-test('CG5-AU01 SUPERVISOR เห็นเฉพาะทีมตัวเองและไม่เห็นยอดรวมของ tenant', async (t) => {
+test('CG5-AU01 a SUPERVISOR sees only their own team and not the tenant total', async (t) => {
   const f = await fixture(t);
   await markReady(f.owner, f.tenantId);
   const teamA = randomUUID();
@@ -138,7 +138,7 @@ test('CG5-AU01 SUPERVISOR เห็นเฉพาะทีมตัวเอง
         updatedAt: at,
       },
     });
-  // แถว teamId=null คือยอดรวมทั้ง tenant ที่ Supervisor ต้องไม่เห็น
+  // a row with teamId=null is the tenant-wide total that a Supervisor must not see
   await Promise.all([bucket(null, 30), bucket(teamA, 10), bucket(teamB, 20)]);
   await f.owner.cg5PolicyImpactBucket.create({
     data: {
@@ -180,7 +180,7 @@ test('CG5-AU01 SUPERVISOR เห็นเฉพาะทีมตัวเอง
     alerts.items.map((item) => item.teamId),
     [teamA],
   );
-  // ตารางผลกระทบไม่มีมิติทีม: คืนให้ Supervisor เท่ากับเผยยอดรวม tenant จึงต้องปฏิเสธ
+  // the impact table has no team dimension: returning it to a Supervisor would reveal the tenant total, so it must be rejected
   await assert.rejects(
     f.service.policyImpact(f.tenantId, supervisor, { granularity: 'HOUR', limit: 20 }),
   );

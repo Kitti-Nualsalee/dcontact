@@ -2,7 +2,7 @@ import { PrismaClient } from '@d-contact/db';
 import { CG4_ROLLOUT_STAGES, Cg4RolloutRepository, type Cg4RolloutStage } from './cg4-rollout.js';
 
 /**
- * CG4.10 (#193): operator CLI ของ development rollout (ไม่มี provider traffic ในทุก stage)
+ * CG4.10 (#193): operator CLI for the development rollout (no provider traffic in any stage)
  *
  *   pnpm cg4:rollout --tenant=<id> --status
  *   pnpm cg4:rollout --tenant=<id> --to=SHADOW_EVALUATION --scopes=<scopeKey,...> \
@@ -17,7 +17,7 @@ function argument(name: string): string | undefined {
 
 function required(name: string): string {
   const value = argument(name);
-  if (!value) throw new TypeError(`ต้องระบุ --${name}=`);
+  if (!value) throw new TypeError(`--${name}= is required`);
   return value;
 }
 
@@ -51,7 +51,7 @@ async function main(): Promise<void> {
     }
     const toStage = required('to') as Cg4RolloutStage;
     if (!CG4_ROLLOUT_STAGES.includes(toStage)) {
-      throw new TypeError(`--to ต้องเป็น ${CG4_ROLLOUT_STAGES.join(' | ')}`);
+      throw new TypeError(`--to must be ${CG4_ROLLOUT_STAGES.join(' | ')}`);
     }
     const scopes = argument('scopes');
     const result = await repository.transition({

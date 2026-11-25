@@ -481,7 +481,7 @@ function runPack(pack: Cg4PolicyFixturePack, context: CheckContext): Cg4PolicyCh
 export function runCg4PolicyTests(input: RunCg4PolicyTestsInput): Cg4PolicyTestRun {
   const pinnedNow = new Date(input.pinnedEvaluationTime);
   if (Number.isNaN(pinnedNow.getTime())) {
-    throw new TypeError('pinnedEvaluationTime ต้องเป็น ISO-8601 timestamp');
+    throw new TypeError('pinnedEvaluationTime must be an ISO-8601 timestamp');
   }
   const platformPack = input.platformPack ?? CG4_PLATFORM_FIXTURE_PACK;
   const context: CheckContext = {

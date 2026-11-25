@@ -2,11 +2,11 @@ import { withTenantDatabaseTransaction, type PrismaClient } from '@d-contact/db'
 import type { Cg4QueryContext } from './cg4-query.js';
 
 /**
- * CG4.11 (#194): observability ของ Contact Governance ตาม #179 §7 และ `CG4-OB01`
+ * CG4.11 (#194): observability of Contact Governance per #179 §7 and `CG4-OB01`
  *
- * snapshot อ่านจาก canonical tables ใน transaction เดียวของ tenant (ไม่ใช่ counter ใน memory ที่หาย
- * ตอน restart) แล้วแปลงเป็น metric samples และ alerts. label มีเพียง `tenant_id` ซึ่งเป็น opaque id:
- * ห้าม contact/identity/actor/evidence หรือ label ที่ cardinality สูงตาม customer (#179 §7, `CG4-OB02`)
+ * The snapshot is read from the canonical tables in a single tenant transaction (not an in-memory counter that is lost
+ * on restart) and converted into metric samples and alerts. The only label is `tenant_id`, an opaque id:
+ * no contact/identity/actor/evidence or any label with high per-customer cardinality (#179 §7, `CG4-OB02`)
  */
 
 export interface Cg4ObservabilitySnapshot {
@@ -23,7 +23,7 @@ export interface Cg4ObservabilitySnapshot {
     oldestPendingExceptionAgeSeconds: number | null;
     policiesInReview: number;
     oldestPolicyInReviewAgeSeconds: number | null;
-    /** APPROVED version ที่ head ขยับไปแล้ว — publish จะชน POLICY_HEAD_CONFLICT */
+    /** an APPROVED version whose head has already moved on: a publish will hit POLICY_HEAD_CONFLICT */
     staleApprovals: number;
   };
   activation: {
@@ -51,7 +51,7 @@ export interface Cg4ObservabilitySnapshot {
     quarantined: number;
     oldestUnacknowledgedEventAgeSeconds: number | null;
   };
-  /** cache เป็น availability ไม่ใช่ truth จึงรับ counter จาก process ที่ถือ cache มาแนบเท่านั้น */
+  /** the cache is availability, not truth, so it takes only the counters from the process that holds the cache and attaches them */
   cache?: Readonly<Record<string, number>>;
 }
 
@@ -177,7 +177,7 @@ export async function cg4ObservabilitySnapshot(
       }).length;
     }
 
-    // ack lag: event ที่ publish แล้วแต่ยังไม่มี consumer ใด ack ถึง aggregate version นั้น
+    // ack lag: an event that was published but no consumer has acked up to that aggregate version yet
     const published = await transaction.cgEventOutbox.findMany({
       where: { tenantId, publishedAt: { not: null } },
       orderBy: { publishedAt: 'asc' },
@@ -377,7 +377,7 @@ export function evaluateCg4Alerts(
     thresholds.quorumWaitSeconds,
   );
   over('GOVERNANCE_STALE_APPROVAL', 'WARNING', snapshot.quorum.staleApprovals, 0);
-  // activation ที่ค้างทำให้ scope fail closed จึงเป็น CRITICAL เสมอ
+  // a pending activation makes the scope fail closed, so it is always CRITICAL
   over(
     'GOVERNANCE_ACTIVATION_LAG',
     'CRITICAL',

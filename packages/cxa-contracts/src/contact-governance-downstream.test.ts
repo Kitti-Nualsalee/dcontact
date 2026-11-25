@@ -58,16 +58,16 @@ function cg3Payload(version: number) {
 function accepted(
   result: GovernanceDownstreamClassification | undefined,
 ): GovernanceDownstreamEvent {
-  assert.ok(result?.ok, `ต้องจัดประเภทได้: ${JSON.stringify(result)}`);
+  assert.ok(result?.ok, `must be classifiable: ${JSON.stringify(result)}`);
   return result.event;
 }
 
 function rejected(result: GovernanceDownstreamClassification | undefined) {
-  assert.ok(result && !result.ok, 'ต้องถูกปฏิเสธ');
+  assert.ok(result && !result.ok, 'must be rejected');
   return result;
 }
 
-test('CG3 contact event เป็น REAUTHORIZE และต้องมี subjectVersion ตรง envelope', () => {
+test('a CG3 contact event is REAUTHORIZE and its subjectVersion must match the envelope', () => {
   const event = accepted(
     classifyGovernanceEvent({
       type: 'preference.changed',
@@ -93,7 +93,7 @@ test('CG3 contact event เป็น REAUTHORIZE และต้องมี sub
   assert.equal(mismatch.reason, 'MALFORMED_PAYLOAD');
 });
 
-test('CG4.2 exception.recorded ยังรับได้บน contact stream ในรูป CG3', () => {
+test('a CG4.2 exception.recorded is still accepted on the contact stream in CG3 shape', () => {
   const event = accepted(
     classifyGovernanceEvent({
       type: 'exception.recorded',
@@ -106,7 +106,7 @@ test('CG4.2 exception.recorded ยังรับได้บน contact stream 
   assert.equal(event.effect, 'REAUTHORIZE');
 });
 
-test('exception revoke/expiry ต้อง re-authorize แต่ approve เป็น relaxation ที่ไม่ resume งาน', () => {
+test('exception revoke/expiry must re-authorize, but approve is a relaxation that does not resume work', () => {
   const revoked = accepted(
     classifyGovernanceEvent({
       type: 'exception.changed',
@@ -118,7 +118,7 @@ test('exception revoke/expiry ต้อง re-authorize แต่ approve เป
   );
   assert.equal(revoked.family, 'CG4');
   assert.equal(revoked.effect, 'REAUTHORIZE');
-  // subjectVersion ของ CG4 เป็น revision ของ exception ไม่ต้องตรงกับ stream version
+  // the CG4 subjectVersion is the exception revision and need not match the stream version
   assert.equal(revoked.subjectVersion, 2);
   assert.equal(revoked.scope.sourceType, 'JOURNEY');
 
@@ -138,7 +138,7 @@ test('exception revoke/expiry ต้อง re-authorize แต่ approve เป
   assert.equal(approved.effect, 'NO_OP');
 });
 
-test('kill switch ACTIVE hold scope และ CLEARED ไม่ปลดงานที่ hold ไว้', () => {
+test('kill switch ACTIVE holds the scope, and CLEARED does not release work that was held', () => {
   const activated = accepted(
     classifyGovernanceEvent({
       type: 'governance.kill-switch.changed',
@@ -189,7 +189,7 @@ test('kill switch ACTIVE hold scope และ CLEARED ไม่ปลดงา�
   assert.equal(inconsistent.reason, 'MALFORMED_PAYLOAD');
 });
 
-test('policy.changed แยก CG3 กับ CG4 และ scheduled head ยังไม่มีผล', () => {
+test('policy.changed separates CG3 from CG4, and a scheduled head has no effect yet', () => {
   const legacy = accepted(
     classifyGovernanceEvent({
       type: 'policy.changed',
@@ -224,7 +224,7 @@ test('policy.changed แยก CG3 กับ CG4 และ scheduled head ยั
   assert.equal(activated.effect, 'REAUTHORIZE');
 });
 
-test('contract/schema/registry/evaluator ที่ไม่รู้จักถูกปฏิเสธเป็น unsupported ก่อนตรวจรูป payload', () => {
+test('an unknown contract/schema/registry/evaluator is rejected as unsupported before the payload shape is checked', () => {
   const cases = [
     [{ contractVersion: 2, transitionKind: undefined }, 'UNSUPPORTED_CONTRACT_VERSION'],
     [{ policySchemaVersion: 9 }, 'UNSUPPORTED_POLICY_SCHEMA_VERSION'],
@@ -249,7 +249,7 @@ test('contract/schema/registry/evaluator ที่ไม่รู้จักถ
   assert.equal(isGovernanceContractRejection('EVENT_HASH_CONFLICT'), false);
 });
 
-test('event type ผิด aggregate ถูกปฏิเสธ และ aggregate ที่ไม่ใช่ของ Governance คืน undefined', () => {
+test('an event type on the wrong aggregate is rejected, and an aggregate that is not Governance returns undefined', () => {
   const wrongAggregate = rejected(
     classifyGovernanceEvent({
       type: 'exception.changed',
@@ -272,7 +272,7 @@ test('event type ผิด aggregate ถูกปฏิเสธ และ aggre
   );
 });
 
-test('stream position ครอบ apply, duplicate, hash conflict, gap และ superseded', () => {
+test('stream position covers apply, duplicate, hash conflict, gap and superseded', () => {
   assert.deepEqual(
     classifyGovernanceStreamPosition({ incoming: { version: 1, digest: DIGEST_A } }),
     {
@@ -318,7 +318,7 @@ test('stream position ครอบ apply, duplicate, hash conflict, gap แล�
   );
 });
 
-test('scope ที่ไม่ผูก dimension กว้างกว่า และ source type ของ owner อื่นไม่ตรง', () => {
+test('a scope that does not bind a dimension is broader, and another owner source type does not match', () => {
   const work = {
     identityId: 'identity-1',
     channel: 'LINE',
@@ -336,6 +336,6 @@ test('scope ที่ไม่ผูก dimension กว้างกว่า �
   assert.equal(governanceScopeCovers(unbound, work), true);
   assert.equal(governanceScopeCovers({ ...unbound, channel: 'VOICE' }, work), false);
   assert.equal(governanceScopeCovers({ ...unbound, sourceType: 'DIALER' }, work), false);
-  // งานที่ไม่รู้ contactKind ถูกนับว่าอยู่ใน scope เพื่อ fail closed
+  // work with an unknown contactKind is counted as in scope so it fails closed
   assert.equal(governanceScopeCovers({ ...unbound, contactKind: 'LEAD' }, work), true);
 });

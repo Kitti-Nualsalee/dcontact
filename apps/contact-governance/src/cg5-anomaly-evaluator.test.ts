@@ -13,7 +13,7 @@ const observation = (overrides = {}) => ({
   ...overrides,
 });
 
-test('CG5.6 baseline rule ถูกระงับเมื่อ data gap หรือข้อมูลฐานไม่พอ', () => {
+test('a CG5.6 baseline rule is suppressed on a data gap or insufficient baseline data', () => {
   assert.equal(
     evaluateCg5Anomaly(observation({ scopePaused: true }), config, null).state,
     'SUPPRESSED',
@@ -25,7 +25,7 @@ test('CG5.6 baseline rule ถูกระงับเมื่อ data gap ห�
   assert.equal(evaluateCg5Anomaly(observation({ volume: 49 }), config, null).state, 'SUPPRESSED');
 });
 
-test('CG5.6 hysteresis คง alert ที่เปิดไว้จนต่ำกว่า close threshold', () => {
+test('CG5.6 hysteresis keeps an opened alert until it falls below the close threshold', () => {
   assert.equal(evaluateCg5Anomaly(observation({ value: 151 }), config, null).state, 'OPEN');
   assert.equal(
     evaluateCg5Anomaly(observation({ value: 130 }), config, { state: 'OPEN', consecutiveHits: 3 })
@@ -39,7 +39,7 @@ test('CG5.6 hysteresis คง alert ที่เปิดไว้จนต่�
   );
 });
 
-test('CG5.6 projection lag เป็น fixed rule และไม่ถูก suppress', () => {
+test('CG5.6 projection lag is a fixed rule and is not suppressed', () => {
   assert.equal(
     evaluateCg5Anomaly(
       observation({ ruleCode: 'CG5_PROJECTION_LAG', projectionLagSeconds: 301 }),

@@ -1,30 +1,30 @@
 /**
- * J5.3 (#341): port ของ authorization สำหรับ Journey authoring (คำตัดสิน #331 §1, §4, §6, §10, §13)
+ * J5.3 (#341): authorization port for Journey authoring (decision #331 §1, §4, §6, §10, §13)
  *
- * IAM เป็น authority เดียว: ทุก mutation/review/publish/lifecycle resolve subject, grant, delegation,
- * team active-state, authorization epoch และ scope version ใหม่จาก store ปัจจุบันใน transaction เดียวกับ
- * command — role/team/capability จาก token หรือ browser ไม่ใช่ authority (stop condition #341)
+ * IAM is the single authority: every mutation/review/publish/lifecycle resolves the subject, grant, delegation,
+ * team active-state, authorization epoch and scope version afresh from the current store in the same transaction as
+ * the command; role/team/capability from a token or browser is not authority (stop condition #341)
  */
 import type { JourneyAuthoringErrorCode } from './journey-authoring-errors-v1.js';
 import type { JourneyAuthoringCapability } from './journey-authoring-v1.js';
 
-/** presence เป็น advisory soft lease เท่านั้น — ไม่ให้สิทธิ์และไม่ใช่ lock (#331 §7) */
+/** presence is only an advisory soft lease: it grants no permission and is not a lock (#331 §7) */
 export const JOURNEY_PRESENCE_TTL_SECONDS = 60;
 export const JOURNEY_PRESENCE_HEARTBEAT_SECONDS = 20;
 
-/** strong auth ต้องสดพอสำหรับ unilateral publish (#331 §10) */
+/** strong auth must be fresh enough for a unilateral publish (#331 §10) */
 export const JOURNEY_STRONG_AUTH_MAX_AGE_SECONDS = 10 * 60;
 
 export interface JourneyAuthoringAuthentication {
   readonly strength: 'STANDARD' | 'STRONG';
-  /** เวลายืนยันตัวตนจาก verified token (`auth_time`) — เป็นหลักฐาน authentication ไม่ใช่ authorization */
+  /** authentication time from the verified token (`auth_time`): evidence of authentication, not authorization */
   readonly authenticatedAt: string;
 }
 
 export interface JourneyAuthoringAuthorizationScope {
-  /** owner team จาก canonical head เสมอ ไม่ใช่ค่าที่ client ส่งมา */
+  /** the owner team always comes from the canonical head, not a value sent by the client */
   readonly teamId: string;
-  /** resource ที่ delegation แบบแคบถึงระดับ object อ้างได้ */
+  /** a resource that a narrow, object-level delegation can reference */
   readonly resource?: { readonly kind: 'JOURNEY' | 'TEMPLATE'; readonly id: string };
 }
 
@@ -33,13 +33,13 @@ export interface JourneyAuthoringAuthorizationRequest {
   readonly subjectId: string;
   readonly capability: JourneyAuthoringCapability;
   readonly scope: JourneyAuthoringAuthorizationScope;
-  /** approve/publish/lifecycle/transfer/audit ใช้ delegation ไม่ได้ */
+  /** approve/publish/lifecycle/transfer/audit cannot use a delegation */
   readonly requireDirect?: boolean;
-  /** pause/deprecate/transfer ทำได้แม้ team inactive; edit/review/publish/resume ทำไม่ได้ */
+  /** pause/deprecate/transfer are allowed even when the team is inactive; edit/review/publish/resume are not */
   readonly allowInactiveTeam?: boolean;
   /**
-   * template ที่ visibility = TENANT อ่านได้ทุกคนใน tenant ที่ถือ capability นี้ใน scope ใดก็ได้
-   * (#330 §2) — ใช้กับ capability อ่านเท่านั้น
+   * a template with visibility = TENANT can be read by anyone in the tenant who holds this capability in any scope
+   * (#330 §2): used with read capabilities only
    */
   readonly anyTeam?: boolean;
 }

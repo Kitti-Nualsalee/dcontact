@@ -131,7 +131,7 @@ async function fixture(t: TestContext) {
   return { tenant, contact, policyId, queue };
 }
 
-test('เรียงตาม risk tier ก่อน (EMERGENCY > HIGH > STANDARD) แล้วตาม expiresAt', async (t) => {
+test('sorts by risk tier first (EMERGENCY > HIGH > STANDARD), then by expiresAt', async (t) => {
   const f = await fixture(t);
   const standard = await seedSeries({
     ...f,
@@ -158,7 +158,7 @@ test('เรียงตาม risk tier ก่อน (EMERGENCY > HIGH > STANDA
   assert.equal(page.nextCursor, undefined);
 });
 
-test('filter workflowState/riskTier/channel/purpose ทำงานร่วมกันแบบ AND', async (t) => {
+test('the workflowState/riskTier/channel/purpose filters work together as AND', async (t) => {
   const f = await fixture(t);
   const wanted = await seedSeries({
     ...f,
@@ -200,10 +200,10 @@ test('filter workflowState/riskTier/channel/purpose ทำงานร่วม�
   );
 
   const noWorkflowFilter = await f.queue({ riskTier: 'HIGH' });
-  assert.equal(noWorkflowFilter.items.length, 3, 'ไม่ระบุ workflowState เห็นทุกสถานะ');
+  assert.equal(noWorkflowFilter.items.length, 3, 'with no workflowState it sees every status');
 });
 
-test('cursor เดินหน้าเป็น opaque page ครบทุกแถวไม่ซ้ำไม่ขาด และหน้าสุดท้ายไม่มี nextCursor', async (t) => {
+test('the cursor advances as an opaque page covering every row with no repeats or gaps, and the last page has no nextCursor', async (t) => {
   const f = await fixture(t);
   const ids = [];
   for (let i = 0; i < 5; i += 1) {
@@ -227,7 +227,7 @@ test('cursor เดินหน้าเป็น opaque page ครบทุก
   assert.deepEqual(seen, ids);
 });
 
-test('tampered/expired cursor ไม่ throw แต่ตกกลับไปเป็นหน้าแรกอย่างปลอดภัย', async (t) => {
+test('a tampered/expired cursor does not throw but safely falls back to the first page', async (t) => {
   const f = await fixture(t);
   const only = await seedSeries({ ...f, tier: 'STANDARD', expiresAt: '2026-09-16T00:00:00.000Z' });
   const page = await f.queue({ cursor: 'not-a-real-cursor' });
@@ -237,7 +237,7 @@ test('tampered/expired cursor ไม่ throw แต่ตกกลับไป�
   );
 });
 
-test('scope ของ query อยู่ที่ tenantId ของ context เท่านั้น ไม่มีทาง param ใดข้าม tenant ได้', async (t) => {
+test('the query scope is only the tenantId of the context: no param can cross tenants', async (t) => {
   const a = await fixture(t);
   const b = await fixture(t);
   await seedSeries({ ...a, tier: 'EMERGENCY', expiresAt: '2026-09-16T00:00:00.000Z' });

@@ -23,7 +23,7 @@ const event = {
   },
 } as const;
 
-test('IAM scope event ยึด team ordering และ scope version เดียวกันทั้ง envelope/payload', () => {
+test('an IAM scope event holds the same team ordering and scope version across the envelope/payload', () => {
   assert.deepEqual(assertTeamSegmentScopeChangedEnvelope(event), event);
   assert.throws(
     () => assertTeamSegmentScopeChangedEnvelope({ ...event, orderingKey: 'other-team' }),

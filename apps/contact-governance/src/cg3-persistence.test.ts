@@ -7,7 +7,7 @@ import {
   validateCgScope,
 } from './cg3-persistence.js';
 
-test('normalize local-time windows และ digest ให้ผลคงที่จากข้อมูลเชิงความหมายเดียวกัน', () => {
+test('normalizing local-time windows and the digest give stable results from the same semantic data', () => {
   const normalized = normalizeLocalTimeWindows([
     { daysOfWeek: [5, 1, 5], startLocal: '09:00', endLocal: '17:30' },
   ]);
@@ -19,18 +19,18 @@ test('normalize local-time windows และ digest ให้ผลคงที�
   );
 });
 
-test('ปฏิเสธ local-time windows ที่ทับซ้อนกันหลัง normalize ข้ามเที่ยงคืน', () => {
+test('rejects local-time windows that overlap after normalizing across midnight', () => {
   assert.throws(
     () =>
       normalizeLocalTimeWindows([
         { daysOfWeek: [1], startLocal: '22:00', endLocal: '02:00' },
         { daysOfWeek: [2], startLocal: '01:00', endLocal: '03:00' },
       ]),
-    /ทับซ้อนกัน/,
+    /overlap/,
   );
 });
 
-test('validate scope และ event payload จาก JSON ที่ boundary พร้อม normalize ค่า optional', () => {
+test('validates scope and event payload from JSON at the boundary and normalizes optional values', () => {
   const scope = validateCgScope({ channel: 'LINE', purpose: ' SERVICE_NOTIFICATION ' });
   assert.deepEqual(scope, {
     identityId: null,
@@ -59,7 +59,7 @@ test('validate scope และ event payload จาก JSON ที่ boundary �
   );
 });
 
-test('ปฏิเสธ JSON scope/payload ที่ channel, version หรือ digest ไม่ถูกต้อง', () => {
+test('rejects JSON scope/payload with an invalid channel, version or digest', () => {
   assert.throws(() => validateCgScope({ channel: 'SMS' }), /channel/);
   assert.throws(
     () =>
@@ -93,8 +93,8 @@ test('ปฏิเสธ JSON scope/payload ที่ channel, version หรื
         affectedScope: {},
         effectiveAt: '2026-09-11T02:00:00.000Z',
         stateDigest: 'a'.repeat(64),
-        rawContact: 'ห้ามติดไปกับ event',
+        rawContact: 'must not travel with the event',
       }),
-    /field ที่ไม่รู้จัก: rawContact/,
+    /unknown field: rawContact/,
   );
 });

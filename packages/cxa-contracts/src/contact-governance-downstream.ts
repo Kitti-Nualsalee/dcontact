@@ -1,13 +1,13 @@
 /**
- * CG4.8 (#191): การอ่าน `dc.contact-governance.events` ฝั่ง downstream owner
+ * CG4.8 (#191): reading `dc.contact-governance.events` on the downstream owner side
  *
- * Journey, Dialer และ Workspace ไม่ประเมิน policy หรือ exception เอง (#174 §1) สิ่งที่ต้องรู้
- * จาก event มีเพียง: อยู่ใน stream ไหน version อะไร, ต้องทำอะไรกับงานที่ค้าง (ขอ canonical
- * re-authorization, hold scope หรือไม่ทำอะไร) และ scope ที่กระทบ ผลการตัดสินจริงยังมาจาก
- * Contact Governance ผ่าน revalidation port เท่านั้น
+ * Journey, Dialer and Workspace do not evaluate policy or exceptions themselves (#174 §1). All they need to know
+ * from an event is: which stream and which version it belongs to, what to do with pending work (ask for canonical
+ * re-authorization, hold the scope, or do nothing) and the affected scope. The actual decision always comes from
+ * Contact Governance through the revalidation port only.
  *
- * อยู่ใน contracts เพื่อให้ทุก consumer ตีความ event ชุดเดียวกันด้วยกติกาเดียว โดยไม่ต้อง
- * import แอป Contact Governance
+ * It lives in contracts so every consumer interprets the events with one set of rules, without having to
+ * import the Contact Governance app.
  */
 import { createHash } from 'node:crypto';
 import type { ContactChannel } from './contact-governance.js';
@@ -28,23 +28,23 @@ export const CG3_CONTACT_EVENT_TYPES = Object.freeze([
   'preference.changed',
 ] as const);
 
-/** CG4.2 foundation ยังเขียน event รูป CG3 ลง contact stream เดียวกัน */
+/** CG4.2 foundation still writes CG3-shaped events to the same contact stream */
 export const CG4_FOUNDATION_CONTACT_EVENT_TYPES = Object.freeze(['exception.recorded'] as const);
 
-/** reason ที่ registry ของ CG4 มีอยู่แล้ว ใช้เมื่อ scoped kill switch หยุดงาน */
+/** A reason the CG4 registry already has, used when a scoped kill switch stops work */
 export const GOVERNANCE_KILL_SWITCH_ACTIVE = 'GOVERNANCE_KILL_SWITCH_ACTIVE' as const;
 
 export type GovernanceStreamAggregate = 'CONTACT' | 'POLICY';
 export type GovernanceEventFamily = 'CG3' | 'CG4';
 
 /**
- * - `REAUTHORIZE` ขอ canonical re-authorization ให้งานที่อยู่ใน scope
- * - `HOLD_SCOPE` kill switch: hold งานใน scope ทันทีโดยไม่ต้องถาม evaluator
- * - `NO_OP` relaxation หรือ activation ที่ยังไม่ถึงเวลา: ห้าม resume หรือ retry งานเดิม
+ * - `REAUTHORIZE` asks for canonical re-authorization of work inside the scope
+ * - `HOLD_SCOPE` kill switch: hold work in the scope immediately without asking the evaluator
+ * - `NO_OP` relaxation, or an activation that is not due yet: never resume or retry the original work
  */
 export type GovernanceDownstreamEffect = 'REAUTHORIZE' | 'HOLD_SCOPE' | 'NO_OP';
 
-/** `null` หมายถึงไม่ผูก dimension นั้น ซึ่งกว้างกว่า ไม่ใช่ไม่ตรง */
+/** `null` means the dimension is not bound, which is broader, not a mismatch */
 export interface GovernanceDownstreamScope {
   identityId: string | null;
   channel: ContactChannel | null;
@@ -70,7 +70,7 @@ export interface GovernanceDownstreamEvent {
   stateDigest: string;
   effectiveAt: string;
   policyVersion?: number;
-  /** digest ของ payload ทั้งก้อน ใช้ตรวจ duplicate และ hash conflict ต่อ version */
+  /** digest of the whole payload, used to detect duplicates and hash conflicts per version */
   payloadDigest: string;
 }
 
@@ -87,7 +87,7 @@ export const GOVERNANCE_DOWNSTREAM_REJECTION_REASONS = Object.freeze([
 export type GovernanceDownstreamRejectionReason =
   (typeof GOVERNANCE_DOWNSTREAM_REJECTION_REASONS)[number];
 
-/** reason ที่ต้องส่ง DLQ (#179 §4 "unknown contract/schema version เข้า DLQ") ต่างจาก hash conflict */
+/** A reason that must go to the DLQ (#179 §4 "unknown contract/schema version goes to the DLQ"), unlike a hash conflict */
 export function isGovernanceContractRejection(
   reasonCode: string | undefined,
 ): reasonCode is GovernanceDownstreamRejectionReason {
@@ -143,8 +143,8 @@ export function governanceStreamAggregate(
 }
 
 /**
- * digest เดียวกับที่ inbox ของ Journey/Dialer ใช้มาตั้งแต่ S1 (key เรียงด้วย localeCompare)
- * คงไว้เพื่อให้แถว inbox เดิมเทียบกับ event ที่ส่งซ้ำได้ตรงกัน
+ * The same digest the Journey/Dialer inbox has used since S1 (keys sorted with localeCompare)
+ * kept so existing inbox rows can be compared correctly with redelivered events
  */
 export function governancePayloadDigest(value: unknown): string {
   const encode = (item: unknown): string => {
@@ -175,12 +175,12 @@ function malformed(detail: string): never {
 
 function objectField(value: unknown, name: string): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value))
-    malformed(`${name} ต้องเป็น object`);
+    malformed(`${name} must be an object`);
   return value as Record<string, unknown>;
 }
 
 function requiredString(value: unknown, name: string): string {
-  if (typeof value !== 'string' || value.length === 0) malformed(`${name} ต้องเป็น string`);
+  if (typeof value !== 'string' || value.length === 0) malformed(`${name} must be a string`);
   return value;
 }
 
@@ -191,14 +191,14 @@ function optionalString(value: unknown, name: string): string | null {
 
 function positiveInteger(value: unknown, name: string): number {
   if (!Number.isInteger(value) || (value as number) < 1) {
-    malformed(`${name} ต้องเป็น positive integer`);
+    malformed(`${name} must be a positive integer`);
   }
   return value as number;
 }
 
 function sha256(value: unknown, name: string): string {
   if (typeof value !== 'string' || !SHA256_HEX.test(value)) {
-    malformed(`${name} ต้องเป็น SHA-256 lowercase`);
+    malformed(`${name} must be a lowercase SHA-256`);
   }
   return value;
 }
@@ -206,7 +206,7 @@ function sha256(value: unknown, name: string): string {
 function instant(value: unknown, name: string): string {
   const text = requiredString(value, name);
   const parsed = new Date(text);
-  if (Number.isNaN(parsed.getTime())) malformed(`${name} ต้องเป็น ISO-8601`);
+  if (Number.isNaN(parsed.getTime())) malformed(`${name} must be ISO-8601`);
   return parsed.toISOString();
 }
 
@@ -216,7 +216,7 @@ function optionalPolicyVersion(payload: Record<string, unknown>): { policyVersio
     : { policyVersion: positiveInteger(payload.policyVersion, 'policyVersion') };
 }
 
-/** CG3 payload: subject version คือ aggregate version เสมอ และทุก change ต้อง re-authorize */
+/** CG3 payload: the subject version is always the aggregate version, and every change must re-authorize */
 function parseCg3Shape(
   input: GovernanceEventEnvelopeInput,
   aggregate: GovernanceStreamAggregate,
@@ -226,12 +226,12 @@ function parseCg3Shape(
   if (payload.contractVersion !== 1) {
     throw new PayloadRejection(
       'UNSUPPORTED_CONTRACT_VERSION',
-      `CG3 contractVersion ${String(payload.contractVersion)} ไม่รองรับ`,
+      `CG3 contractVersion ${String(payload.contractVersion)} is not supported`,
     );
   }
   const subjectVersion = positiveInteger(payload.subjectVersion, 'subjectVersion');
   if (subjectVersion !== input.aggregateVersion) {
-    malformed('CG3 subjectVersion ต้องตรงกับ envelope aggregateVersion');
+    malformed('CG3 subjectVersion must match the envelope aggregateVersion');
   }
   const scope = objectField(payload.affectedScope, 'affectedScope');
   return {
@@ -267,8 +267,8 @@ const TRANSITIONS_BY_EVENT_TYPE: Readonly<Record<string, (kind: string) => boole
 };
 
 /**
- * CG4 payload (#179 §4). version ของ contract/schema/registry/evaluator ถูกตรวจก่อน field อื่น:
- * payload ของ contract ที่ใหม่กว่าอาจมีรูปต่างไป และต้องออกมาเป็น unsupported ไม่ใช่ malformed
+ * CG4 payload (#179 §4). The contract/schema/registry/evaluator versions are checked before any other field:
+ * a payload from a newer contract may have a different shape and must come out as unsupported, not malformed
  */
 function parseCg4Shape(
   input: GovernanceEventEnvelopeInput,
@@ -284,7 +284,7 @@ function parseCg4Shape(
   ] as const;
   for (const [field, expected, reason] of versionChecks) {
     if (payload[field] !== expected) {
-      throw new PayloadRejection(reason, `${field} ${String(payload[field])} ไม่รองรับ`);
+      throw new PayloadRejection(reason, `${field} ${String(payload[field])} is not supported`);
     }
   }
 
@@ -292,14 +292,14 @@ function parseCg4Shape(
   if (!TRANSITION_KINDS.has(transitionKind)) {
     throw new PayloadRejection(
       'UNSUPPORTED_TRANSITION_KIND',
-      `transitionKind ${transitionKind} ไม่รองรับ`,
+      `transitionKind ${transitionKind} is not supported`,
     );
   }
   if (!TRANSITIONS_BY_EVENT_TYPE[input.type]?.(transitionKind)) {
-    malformed(`transitionKind ${transitionKind} ไม่ตรงกับ event type ${input.type}`);
+    malformed(`transitionKind ${transitionKind} does not match event type ${input.type}`);
   }
   const restrictiveness = requiredString(payload.restrictiveness, 'restrictiveness');
-  if (!RESTRICTIVENESS.has(restrictiveness)) malformed('restrictiveness ไม่ใช่ค่าที่รู้จัก');
+  if (!RESTRICTIVENESS.has(restrictiveness)) malformed('restrictiveness is not a known value');
   const state = requiredString(payload.state, 'state');
   const scope = objectField(payload.affectedScope, 'affectedScope');
   requiredString(payload.subjectId, 'subjectId');
@@ -308,15 +308,15 @@ function parseCg4Shape(
   let effect: GovernanceDownstreamEffect;
   if (input.type === CG4_EVENT_TYPES.KILL_SWITCH_CHANGED) {
     if (state === 'ACTIVE') {
-      if (restrictiveness !== 'TIGHTENING') malformed('kill switch ที่ ACTIVE ต้องเป็น TIGHTENING');
+      if (restrictiveness !== 'TIGHTENING') malformed('an ACTIVE kill switch must be TIGHTENING');
       effect = 'HOLD_SCOPE';
     } else if (state === 'CLEARED') {
       effect = 'NO_OP';
     } else {
-      malformed(`kill switch state ${state} ไม่รองรับ`);
+      malformed(`kill switch state ${state} is not supported`);
     }
   } else if (input.type === CG4_EVENT_TYPES.POLICY_CHANGED && state === 'SCHEDULED') {
-    // head ที่ยังไม่ถึงเวลา activate ยังไม่เปลี่ยนผลใด ๆ; activation จะออก event ของตัวเอง
+    // a head that has not reached its activation time does not change any result yet; the activation emits its own event
     effect = 'NO_OP';
   } else {
     effect = restrictiveness === 'RELAXATION' ? 'NO_OP' : 'REAUTHORIZE';
@@ -350,8 +350,8 @@ function parseCg4Shape(
 }
 
 /**
- * คืน `undefined` เฉพาะเมื่อ aggregateType ไม่ใช่ของ Contact Governance ซึ่งไม่มี scope
- * ให้ fail closed ได้เลย; ทุกกรณีอื่นคืนผลที่ consumer ใช้ตัดสินต่อได้
+ * returns `undefined` only when the aggregateType does not belong to Contact Governance, which has no scope,
+ * so it can fail closed right away; every other case returns a result the consumer can use to decide what to do next
  */
 export function classifyGovernanceEvent(
   input: GovernanceEventEnvelopeInput,
@@ -373,7 +373,7 @@ export function classifyGovernanceEvent(
   });
 
   if (!Number.isInteger(input.aggregateVersion) || input.aggregateVersion < 1) {
-    return rejection('MALFORMED_PAYLOAD', 'aggregateVersion ต้องเป็น positive integer');
+    return rejection('MALFORMED_PAYLOAD', 'aggregateVersion must be a positive integer');
   }
 
   try {
@@ -408,7 +408,7 @@ export function classifyGovernanceEvent(
   }
   return rejection(
     'UNSUPPORTED_EVENT_TYPE',
-    `event type ${input.type} ไม่รองรับบน ${input.aggregateType}`,
+    `event type ${input.type} is not supported on ${input.aggregateType}`,
   );
 }
 
@@ -416,9 +416,9 @@ export interface GovernanceWorkScope {
   identityId: string;
   channel: string;
   purpose: string;
-  /** ไม่รู้ contactKind ของงาน = ถือว่าอยู่ใน scope เพื่อ fail closed */
+  /** Unknown contactKind of the work = treat it as in scope so it fails closed */
   contactKind?: string | null;
-  /** source type ที่งานของ owner นี้เป็นได้ เช่น Dialer เป็นทั้ง DIALER และ CAMPAIGN */
+  /** source types this owner's work can have, e.g. Dialer is both DIALER and CAMPAIGN */
   sourceTypes: readonly string[];
 }
 
@@ -442,23 +442,23 @@ export interface GovernanceStreamCursor {
 }
 
 export type GovernanceStreamPosition =
-  /** version ถัดไปพอดี */
+  /** exactly the next version */
   | { kind: 'APPLY' }
-  /** version+digest ที่ apply แล้ว: ไม่มี effect ซ้ำ */
+  /** version+digest already applied: no duplicate effect */
   | { kind: 'DUPLICATE' }
-  /** version เดียวกันแต่ digest ต่าง: มีสองความจริงสำหรับ version เดียว */
+  /** same version but a different digest: two truths for one version */
   | { kind: 'HASH_CONFLICT'; version: number }
-  /** version ขาดหาย: ห้ามสร้าง projection บนช่องว่าง */
+  /** a version is missing: never build a projection over a gap */
   | { kind: 'GAP'; expectedVersion: number; receivedVersion: number }
-  /** version เก่ากว่าที่ cursor ข้ามไปแล้วด้วย canonical reload */
+  /** older than the version the cursor skipped past with a canonical reload */
   | { kind: 'SUPERSEDED' };
 
 /**
- * ตำแหน่งของ event ใน stream ของ aggregate เดียว (#179 §4) เป็น pure function เพื่อให้ทุก
- * consumer ตัดสินแบบเดียวกันและทดสอบได้ครบทุกกิ่งโดยไม่ต้องมี broker
+ * Position of an event within the stream of a single aggregate (#179 §4). A pure function so every
+ * consumer decides the same way and every branch can be tested without a broker
  *
- * `appliedAtIncomingVersion` ใช้เฉพาะเมื่อ event เก่ากว่า cursor: ถ้า version นั้นเคย apply
- * แล้วต้องเทียบ digest ของ version นั้นเอง ไม่ใช่ของ cursor
+ * `appliedAtIncomingVersion` is used only when the event is older than the cursor: if that version was already
+ * applied, compare the digest of that version itself, not that of the cursor
  */
 export function classifyGovernanceStreamPosition(input: {
   cursor?: GovernanceStreamCursor;

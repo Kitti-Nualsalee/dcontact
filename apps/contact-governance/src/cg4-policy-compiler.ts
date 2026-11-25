@@ -59,7 +59,7 @@ function scopeValue(dimension: Cg4PolicyScopeDimension, value: string | undefine
   if (!normalized || normalized === UNBOUND || /[|=]/.test(normalized)) {
     throw new Cg4PolicyValidationError(
       'SCOPE_INVALID',
-      `scope dimension ${dimension} มีค่าที่ไม่ canonical`,
+      `scope dimension ${dimension} has a non-canonical value`,
     );
   }
   return normalized;
@@ -74,27 +74,27 @@ export function buildCg4PolicyScopeKey(dimensions: Cg4PolicyScopeDimensions): st
 export function parseCg4PolicyScopeKey(scopeKey: string): Cg4PolicyScopeDimensions {
   const parts = scopeKey.split('|');
   if (parts.length !== CG4_POLICY_SCOPE_DIMENSIONS.length) {
-    throw new Cg4PolicyValidationError('SCOPE_INVALID', 'scopeKey ไม่ใช่ canonical form');
+    throw new Cg4PolicyValidationError('SCOPE_INVALID', 'scopeKey is not in canonical form');
   }
   const dimensions: Partial<Record<Cg4PolicyScopeDimension, string>> = {};
   parts.forEach((part, index) => {
     const expected = CG4_POLICY_SCOPE_DIMENSIONS[index] as Cg4PolicyScopeDimension;
     const separator = part.indexOf('=');
     if (separator < 0 || part.slice(0, separator) !== expected) {
-      throw new Cg4PolicyValidationError('SCOPE_INVALID', 'scopeKey ไม่ใช่ canonical form');
+      throw new Cg4PolicyValidationError('SCOPE_INVALID', 'scopeKey is not in canonical form');
     }
     const value = part.slice(separator + 1);
     if (!value)
-      throw new Cg4PolicyValidationError('SCOPE_INVALID', 'scopeKey ไม่ใช่ canonical form');
+      throw new Cg4PolicyValidationError('SCOPE_INVALID', 'scopeKey is not in canonical form');
     if (value !== UNBOUND) dimensions[expected] = value;
   });
   return dimensions;
 }
 
 /**
- * CG4.8 (#191): dimension ที่ใส่ใน `affectedScope` ของ event ให้ downstream match งานของตัวเอง
- * ได้โดยไม่ต้อง parse scopeKey เอง scopeKey ที่ไม่ใช่ canonical form (เช่น `contact:<id>`)
- * ส่งเฉพาะ scopeKey ซึ่ง downstream ต้องถือว่ากว้างที่สุดแบบ fail closed
+ * CG4.8 (#191): the dimensions put in the `affectedScope` of an event so a downstream can match its own work
+ * without parsing the scopeKey itself. A scopeKey that is not in canonical form (e.g. `contact:<id>`)
+ * sends only the scopeKey, which the downstream must treat as the broadest, failing closed
  */
 export function cg4EventScopeDimensions(scopeKey: string): Cg4PolicyScopeDimensions {
   try {
@@ -172,7 +172,7 @@ export interface Cg4PolicyContentV1 {
 
 function record(value: unknown, field: string): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Cg4PolicyValidationError('VALIDATION_FAILED', `${field} ต้องเป็น object`);
+    throw new Cg4PolicyValidationError('VALIDATION_FAILED', `${field} must be an object`);
   }
   return value as Record<string, unknown>;
 }
@@ -181,12 +181,15 @@ function ruleCodeList(value: unknown, field: string): string[] {
   if (!Array.isArray(value)) {
     throw new Cg4PolicyValidationError(
       'VALIDATION_FAILED',
-      `${field} ต้องเป็น array ของ rule code`,
+      `${field} must be an array of rule codes`,
     );
   }
   const codes = value.map((entry, index) => {
     if (typeof entry !== 'string' || !entry.trim()) {
-      throw new Cg4PolicyValidationError('VALIDATION_FAILED', `${field}[${index}] ต้องเป็น string`);
+      throw new Cg4PolicyValidationError(
+        'VALIDATION_FAILED',
+        `${field}[${index}] must be a string`,
+      );
     }
     return entry.trim();
   });
@@ -197,7 +200,10 @@ function ruleCodeList(value: unknown, field: string): string[] {
 function timezone(value: unknown): string | null {
   if (value === null || value === undefined) return null;
   if (typeof value !== 'string' || !value.trim()) {
-    throw new Cg4PolicyValidationError('VALIDATION_FAILED', 'timezoneFallback ต้องเป็น IANA zone');
+    throw new Cg4PolicyValidationError(
+      'VALIDATION_FAILED',
+      'timezoneFallback must be an IANA zone',
+    );
   }
   const normalized = value.trim();
   try {
@@ -205,7 +211,7 @@ function timezone(value: unknown): string | null {
   } catch {
     throw new Cg4PolicyValidationError(
       'VALIDATION_FAILED',
-      `timezoneFallback ${normalized} ไม่ใช่ IANA zone ที่รู้จัก`,
+      `timezoneFallback ${normalized} is not a known IANA zone`,
     );
   }
   return normalized;
@@ -221,7 +227,7 @@ function sortWindows(windows: LocalTimeWindow[]): LocalTimeWindow[] {
 
 function holidays(value: unknown): Cg3HolidayEntry[] {
   if (!Array.isArray(value)) {
-    throw new Cg4PolicyValidationError('VALIDATION_FAILED', 'holidays ต้องเป็น array');
+    throw new Cg4PolicyValidationError('VALIDATION_FAILED', 'holidays must be an array');
   }
   const entries = value.map((raw, index) => {
     const entry = record(raw, `holidays[${index}]`);
@@ -229,13 +235,13 @@ function holidays(value: unknown): Cg3HolidayEntry[] {
     if (typeof localDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(localDate)) {
       throw new Cg4PolicyValidationError(
         'VALIDATION_FAILED',
-        `holidays[${index}].localDate ต้องเป็น YYYY-MM-DD`,
+        `holidays[${index}].localDate must be YYYY-MM-DD`,
       );
     }
     if (entry.effect !== 'CLOSED' && entry.effect !== 'WINDOWS') {
       throw new Cg4PolicyValidationError(
         'VALIDATION_FAILED',
-        `holidays[${index}].effect ต้องเป็น CLOSED หรือ WINDOWS`,
+        `holidays[${index}].effect must be CLOSED or WINDOWS`,
       );
     }
     const windows =
@@ -245,14 +251,17 @@ function holidays(value: unknown): Cg3HolidayEntry[] {
     if (entry.effect === 'WINDOWS' && windows.length === 0) {
       throw new Cg4PolicyValidationError(
         'VALIDATION_FAILED',
-        `holidays[${index}] แบบ WINDOWS ต้องมีอย่างน้อยหนึ่ง window`,
+        `holidays[${index}] of kind WINDOWS must have at least one window`,
       );
     }
     return { localDate, effect: entry.effect, windows } satisfies Cg3HolidayEntry;
   });
   const dates = new Set(entries.map((entry) => entry.localDate));
   if (dates.size !== entries.length) {
-    throw new Cg4PolicyValidationError('VALIDATION_FAILED', 'holidays ต้องมี localDate ไม่ซ้ำ');
+    throw new Cg4PolicyValidationError(
+      'VALIDATION_FAILED',
+      'holidays must have unique localDate values',
+    );
   }
   return entries.sort((left, right) => (left.localDate < right.localDate ? -1 : 1));
 }
@@ -276,13 +285,13 @@ export function normalizeCg4PolicyContent(raw: unknown): Cg4PolicyContentV1 {
   if (unknown.length > 0) {
     throw new Cg4PolicyValidationError(
       'VALIDATION_FAILED',
-      `content มี field ที่ schema v${CG4_POLICY_SCHEMA_VERSION} ไม่รู้จัก: ${unknown.sort().join(', ')}`,
+      `content has a field that schema v${CG4_POLICY_SCHEMA_VERSION} does not recognize: ${unknown.sort().join(', ')}`,
     );
   }
   if (!CALLBACK_MODES.includes(content.callbackMode as Cg3CallbackMode)) {
     throw new Cg4PolicyValidationError(
       'VALIDATION_FAILED',
-      `callbackMode ต้องเป็น ${CALLBACK_MODES.join(' | ')}`,
+      `callbackMode must be ${CALLBACK_MODES.join(' | ')}`,
     );
   }
   return {
@@ -315,20 +324,20 @@ export function assertCg4PolicyRegistryConsistent(content: Cg4PolicyContentV1): 
       if (!resolution.known) {
         throw new Cg4PolicyValidationError(
           'RULE_NOT_REGISTERED',
-          `${field} อ้าง rule ${ruleCode} ที่ไม่อยู่ใน ${CG4_RULE_REGISTRY_VERSION}`,
+          `${field} references rule ${ruleCode}, which is not in ${CG4_RULE_REGISTRY_VERSION}`,
         );
       }
       if (!resolution.metadata.overridable) {
         throw new Cg4PolicyValidationError(
           'NON_OVERRIDABLE_RULE',
-          `${field} อ้าง rule ${ruleCode} ที่ override ไม่ได้`,
+          `${field} references rule ${ruleCode}, which cannot be overridden`,
         );
       }
       const mechanism = field === 'overridableRules' ? 'CUSTOMER_CALLBACK' : 'APPROVED_EXCEPTION';
       if (!resolution.metadata.allowedOverrideMechanisms.includes(mechanism)) {
         throw new Cg4PolicyValidationError(
           'NON_OVERRIDABLE_RULE',
-          `rule ${ruleCode} ไม่รองรับ mechanism ${mechanism}`,
+          `rule ${ruleCode} does not support mechanism ${mechanism}`,
         );
       }
     }
@@ -355,24 +364,24 @@ export interface CompileCg4PolicyInput {
 
 export function compileCg4Policy(input: CompileCg4PolicyInput): Cg4CompiledPolicy {
   if (!Number.isInteger(input.version) || input.version <= 0) {
-    throw new Cg4PolicyValidationError('VALIDATION_FAILED', 'version ต้องเป็น integer มากกว่า 0');
+    throw new Cg4PolicyValidationError('VALIDATION_FAILED', 'version must be an integer > 0');
   }
   if ((input.schemaVersion ?? CG4_POLICY_SCHEMA_VERSION) !== CG4_POLICY_SCHEMA_VERSION) {
     throw new Cg4PolicyValidationError(
       'POLICY_VERSION_UNSUPPORTED',
-      'ไม่รองรับ policy schema version นี้',
+      'this policy schema version is not supported',
     );
   }
   if ((input.registryVersion ?? CG4_RULE_REGISTRY_VERSION) !== CG4_RULE_REGISTRY_VERSION) {
     throw new Cg4PolicyValidationError(
       'POLICY_VERSION_UNSUPPORTED',
-      'ไม่รองรับ rule registry version นี้',
+      'this rule registry version is not supported',
     );
   }
   if ((input.evaluatorVersion ?? CG4_EVALUATOR_VERSION) !== CG4_EVALUATOR_VERSION) {
     throw new Cg4PolicyValidationError(
       'POLICY_VERSION_UNSUPPORTED',
-      'ไม่รองรับ evaluator version นี้',
+      'this evaluator version is not supported',
     );
   }
   const content = normalizeCg4PolicyContent(input.content);

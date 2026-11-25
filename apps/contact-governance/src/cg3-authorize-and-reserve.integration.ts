@@ -166,7 +166,7 @@ async function requestCallback(
   return id;
 }
 
-test('preference BLOCK ที่ scope เฉพาะเจาะจงปิดกั้นแม้ consent ยังมีผล', async (t) => {
+test('a preference BLOCK on a specific scope blocks even while consent is still in effect', async (t) => {
   const { owner, application, tenantId, contactId } = await createTenantFixture(t);
   const preferences = new Cg3PreferenceRepository(application);
   await preferences.append({
@@ -207,7 +207,7 @@ test('preference BLOCK ที่ scope เฉพาะเจาะจงปิ�
   assert.equal(await owner.cgReservation.count({ where: { tenantId } }), 0);
 });
 
-test('quiet hours ที่ไม่ overridable ให้ DEFER พร้อม nextEligibleAt ที่ persist ไว้', async (t) => {
+test('non-overridable quiet hours give DEFER with a persisted nextEligibleAt', async (t) => {
   const { owner, application, tenantId, contactId } = await createTenantFixture(t);
   await publishPolicy(owner, {
     tenantId,
@@ -215,7 +215,7 @@ test('quiet hours ที่ไม่ overridable ให้ DEFER พร้อม
   });
 
   const service = new ContactGovernanceService(application, {
-    now: () => new Date('2026-09-15T20:00:00.000Z'), // 03:00 Asia/Bangkok วันถัดไป
+    now: () => new Date('2026-09-15T20:00:00.000Z'), // 03:00 Asia/Bangkok the next day
   });
   const result = await service.authorizeAndReserve(tenantId, {
     contactId,
@@ -239,7 +239,7 @@ test('quiet hours ที่ไม่ overridable ให้ DEFER พร้อม
   assert.equal(decision.timezoneSource, 'POLICY_FALLBACK');
 });
 
-test('SCOPED_OVERRIDE callback ที่ valid ยก quiet hours แล้วสร้าง reservation พร้อม authorization version และ consume callback', async (t) => {
+test('a valid SCOPED_OVERRIDE callback lifts quiet hours, then creates a reservation with an authorization version and consumes the callback', async (t) => {
   const { owner, application, tenantId, contactId } = await createTenantFixture(t);
   await publishPolicy(owner, {
     tenantId,
@@ -289,7 +289,7 @@ test('SCOPED_OVERRIDE callback ที่ valid ยก quiet hours แล้ว�
   assert.equal(callbackHistory[1]!.supersedesId, callbackId);
 });
 
-test('preference ALLOW ยกไม่ได้เมื่อ consent ถูกเพิกถอน (S1-CG3-F02)', async (t) => {
+test('a preference ALLOW cannot lift a block when consent is revoked (S1-CG3-F02)', async (t) => {
   const { owner, application, tenantId, contactId } = await createTenantFixture(t);
   await owner.cgConsent.updateMany({
     where: { tenantId, contactId },
@@ -336,7 +336,7 @@ test('preference ALLOW ยกไม่ได้เมื่อ consent ถูก
   assert.equal(result.reservationId, undefined);
 });
 
-test('ไม่มี CG3 data เลยยัง ALLOW เหมือน C1 เดิม พร้อม trace ที่ผ่านทุก gate ใหม่', async (t) => {
+test('with no CG3 data at all it still ALLOWs like the original C1, with a trace that passes every new gate', async (t) => {
   const { owner, application, tenantId, contactId } = await createTenantFixture(t);
   const service = new ContactGovernanceService(application, {
     now: () => new Date('2026-09-15T10:00:00.000Z'),
@@ -372,7 +372,7 @@ test('ไม่มี CG3 data เลยยัง ALLOW เหมือน C1 �
   assert.equal(reservation.authorizationAggregateVersion, 0);
 });
 
-test('S1-CG3-CC01: callback หนึ่งครั้งถูก consume ได้แค่ครั้งเดียวแม้เรียกสองครั้งติดกัน', async (t) => {
+test('S1-CG3-CC01: a callback can be consumed only once even when called twice in a row', async (t) => {
   const { owner, application, tenantId, contactId } = await createTenantFixture(t);
   await publishPolicy(owner, {
     tenantId,
@@ -410,7 +410,7 @@ test('S1-CG3-CC01: callback หนึ่งครั้งถูก consume ไ�
   });
 
   assert.equal(first.decision, 'ALLOW');
-  // callback ถูก consume ไปแล้วจาก call แรก จึงยกไม่ได้อีกในครั้งที่สอง
+  // the callback was already consumed by the first call, so it cannot lift again on the second
   assert.equal(second.decision, 'DEFER');
   assert.equal(second.reasonCode, 'QUIET_HOURS');
 
@@ -420,7 +420,7 @@ test('S1-CG3-CC01: callback หนึ่งครั้งถูก consume ไ�
   assert.equal(consumeRows, 1);
 });
 
-test('beginProviderSubmission revalidate authorization aggregate version ก่อนข้าม submission barrier (#98 §3)', async (t) => {
+test('beginProviderSubmission revalidates the authorization aggregate version before crossing the submission barrier (#98 §3)', async (t) => {
   const { application, tenantId, contactId: rawContactId } = await createTenantFixture(t);
   const service = new ContactGovernanceService(application, {
     now: () => new Date('2026-09-15T10:00:00.000Z'),
@@ -452,7 +452,7 @@ test('beginProviderSubmission revalidate authorization aggregate version ก่�
   });
   assert.equal(claimed.status, 'CLAIMED');
 
-  // preference mutation ใหม่ bump aggregateVersion ของ contact นี้หลัง authorize ไปแล้ว
+  // a new preference mutation bumps this contact aggregateVersion after the authorize
   const preferences = new Cg3PreferenceRepository(application);
   await preferences.append({
     tenantId,

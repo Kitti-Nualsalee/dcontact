@@ -70,7 +70,7 @@ async function fixture(t: TestContext) {
   return { owner, application, tenantId, now, ready };
 }
 
-test('CG5.8 expiry และ data-erasure revoke ปิด job ก่อนลบ object', async (t) => {
+test('CG5.8 expiry and a data-erasure revoke close the job before deleting the object', async (t) => {
   const f = await fixture(t);
   const expired = await f.ready(new Date('2026-09-19T00:00:00.000Z'));
   const active = await f.ready(new Date('2026-09-21T00:00:00.000Z'));

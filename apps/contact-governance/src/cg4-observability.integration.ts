@@ -23,31 +23,31 @@ import { Cg4PolicyLifecycleRepository } from './cg4-policy-lifecycle.js';
 import { Cg4RolloutRepository } from './cg4-rollout.js';
 
 /**
- * CG4.11 (#194): `CG4-OB01` metrics/alerts และ `CG4-OB02` negative scan บน Postgres จริงผ่าน
- * application role โดยสร้าง state จาก owner path จริง (backfill, lifecycle, rollout, authorize)
- * แล้วจำลองเฉพาะฝั่ง downstream consumer (inbox/pause/ack) ที่เป็นของ owner อื่น
+ * CG4.11 (#194): `CG4-OB01` metrics/alerts and the `CG4-OB02` negative scan on a real Postgres through the
+ * application role, creating state from the real owner paths (backfill, lifecycle, rollout, authorize)
+ * and simulating only the downstream consumer side (inbox/pause/ack) that belongs to another owner
  */
 
 /**
- * T0 ต้องอยู่หลังเวลาจริงเสมอ ไม่ใช่วันที่ใกล้ ๆ ตอนเขียนเทส
+ * T0 must always be later than real time, not a date near when the test was written
  *
- * state ส่วนใหญ่ถูก backdate จาก T0 ตรง ๆ (quorum 7200s, activation 3600s, pause 1800s) แต่แถว
- * ใน cgEventOutbox ถูกสร้างโดย owner path จริง createdAt จึงเป็นนาฬิกาของฐานข้อมูล ไม่ใช่ T0
- * oldestPendingOutboxAgeSeconds คือ T0 ลบ createdAt พอเวลาจริงเดินผ่าน T0 ไป ค่านี้ติดลบ แล้ว
- * GOVERNANCE_OUTBOX_LAG ก็ไม่ยิงอีกเลย
+ * most state is backdated directly from T0 (quorum 7200s, activation 3600s, pause 1800s) but the rows
+ * in cgEventOutbox are created by the real owner path, so createdAt is the database clock, not T0
+ * oldestPendingOutboxAgeSeconds is T0 minus createdAt: once real time passes T0, this value goes negative and
+ * GOVERNANCE_OUTBOX_LAG never fires again
  *
- * เดิมตั้งไว้ 2026-09-15T05:00Z ซึ่งระเบิดตอน 05:00Z ของวันนั้นพอดี ทำให้ CG4-OB01 ล้มทุก run
- * ตั้งแต่นั้นมา (ตอนแรกดูเหมือน flaky เพราะ run ก่อนหน้าเวลานั้นยังผ่าน)
+ * It was originally set to 2026-09-15T05:00Z, which blew up exactly at 05:00Z that day, making CG4-OB01 fail on every run
+ * ever since (at first it looked flaky because runs before that time still passed)
  */
 const T0 = new Date('2099-09-15T05:00:00.000Z'); // 12:00 Asia/Bangkok
 const LINE_MARKETING = buildCg4PolicyScopeKey({ channel: 'LINE', purpose: 'MARKETING' });
 const VOICE_SERVICE = buildCg4PolicyScopeKey({ channel: 'VOICE', purpose: 'SERVICE' });
 const NIGHT = { daysOfWeek: [1, 2, 3, 4, 5, 6, 7], startLocal: '21:00', endLocal: '08:00' };
 const ZONE = 'Asia/Bangkok';
-/** ค่าที่ห้ามหลุดไปอยู่ใน event/decision trace/metric/alert/ack view */
+/** values that must not leak into an event/decision trace/metric/alert/ack view */
 const IDENTITY_VALUE = 'line-user-synthetic-0812345678';
 const DISPLAY_NAME = 'Synthetic Customer Name';
-const FREE_TEXT_EVIDENCE = 'หลักฐานข้อความอิสระของ checker synthetic';
+const FREE_TEXT_EVIDENCE = 'synthetic checker free-text evidence';
 const SOURCE_ID = 'journey-cg411-source';
 const MAKER = 'maker-cg411-person';
 const CHECKER = 'checker-cg411-person';
@@ -259,7 +259,7 @@ async function observedTenant(t: TestContext) {
     return { draft, tested };
   };
 
-  // backfill → scheduled tightening บน LINE (event จริง) → policy รอ quorum บน VOICE
+  // backfill -> scheduled tightening on LINE (real event) -> a policy waiting for quorum on VOICE
   await new Cg4LegacyBackfill(application, { now }).run({
     tenantId: tenant,
     operatorRef: 'operator-cg411',
@@ -325,7 +325,7 @@ async function observedTenant(t: TestContext) {
     window: { startLocal: '12:00', endLocal: '13:00' },
   });
 
-  // worker ไม่ activate ตามเวลา → shadow เห็นว่า CG4 fail closed ขณะที่ CG3 อนุญาต
+  // the worker does not activate on time -> shadow sees CG4 fail closed while CG3 allows
   clock = new Date(T0.getTime() + 2 * 3_600_000);
   await rollout.transition({
     tenantId: tenant,
@@ -365,14 +365,14 @@ async function observedTenant(t: TestContext) {
     reasonCode: 'CG4_READER_BROKEN',
   });
 
-  // ฝั่ง downstream consumer (owner อื่น): quarantine, scope pause และ ack ที่ล้ม
+  // the downstream consumer side (another owner): quarantine, scope pause and a failing ack
   const policyEvent = await owner.cgEventOutbox.findFirstOrThrow({
     where: { tenantId: tenant, eventType: 'policy.changed' },
     orderBy: { createdAt: 'asc' },
   });
-  // cg_event_outbox.created_at เป็น @default(now()) ของ Postgres เอง — ไม่ผูกกับ fake clock
-  // ของ fixture นี้เลย ต้อง backdate เองให้ age เทียบกับ T0 คงที่ ไม่งั้น GOVERNANCE_OUTBOX_LAG
-  // จะ flaky ตามวันจริงที่รันเทสต์ (อายุจะกลายเป็นค่าติดลบที่ถูก clamp เป็น 0 เมื่อเวลาจริงเดินผ่าน T0)
+  // cg_event_outbox.created_at is Postgres's own @default(now()): it is not tied to this fixture's fake clock
+  // at all, so it must be backdated manually so the age is compared against a fixed T0, otherwise GOVERNANCE_OUTBOX_LAG
+  // would be flaky depending on the real day the test runs (the age would become a negative value clamped to 0 once real time passes T0)
   await owner.cgEventOutbox.updateMany({
     where: { tenantId: tenant, publishedAt: null },
     data: { createdAt: new Date(T0.getTime() - 600_000) },
@@ -434,7 +434,7 @@ async function observedTenant(t: TestContext) {
   return { owner, application, tenant, contact, decision, policyEvent, now };
 }
 
-test('CG4-OB01: snapshot/metrics/alerts จาก canonical state ครอบ quorum age, activation lag, kill, DLQ, ack และ migration mismatch', async (t) => {
+test('CG4-OB01: snapshot/metrics/alerts from canonical state cover quorum age, activation lag, kill, DLQ, ack and migration mismatch', async (t) => {
   const f = await observedTenant(t);
   const snapshot = await cg4ObservabilitySnapshot(f.application, {
     tenantId: f.tenant,
@@ -475,7 +475,7 @@ test('CG4-OB01: snapshot/metrics/alerts จาก canonical state ครอบ q
     ),
   );
 
-  // ack query แบบ additive: เห็นเฉพาะ tenant ตัวเอง และคืน applied state digest
+  // an additive ack query: sees only its own tenant, and returns the applied state digest
   const acks = await cg4DownstreamAcknowledgements(
     f.application,
     { tenantId: f.tenant, level: 'SUMMARY' },
@@ -500,7 +500,7 @@ test('CG4-OB01: snapshot/metrics/alerts จาก canonical state ครอบ q
   assert.deepEqual(crossTenant, []);
 });
 
-test('CG4-OB02: negative scan ของ event/decision trace/shadow evidence/metric/alert/ack ไม่พบ PII, actor, free-text evidence หรือ credential', async (t) => {
+test('CG4-OB02: a negative scan of event/decision trace/shadow evidence/metric/alert/ack finds no PII, actor, free-text evidence or credential', async (t) => {
   const f = await observedTenant(t);
   const snapshot = await cg4ObservabilitySnapshot(f.application, {
     tenantId: f.tenant,
@@ -532,7 +532,7 @@ test('CG4-OB02: negative scan ของ event/decision trace/shadow evidence/met
       },
     ),
   ]);
-  assert.ok(outbox.length >= 2, 'ต้องมี event จาก owner path จริงให้ scan');
+  assert.ok(outbox.length >= 2, 'there must be events from the real owner path to scan');
   assert.equal(decisions.length, 1);
   assert.equal(mismatches.length, 1);
 
@@ -558,23 +558,23 @@ test('CG4-OB02: negative scan ของ event/decision trace/shadow evidence/met
   const patterns = [
     /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/,
     /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/,
-    // เบอร์ไทยขึ้นต้นด้วย 0/+66 แล้วตามด้วยรหัสพื้นที่/เครือข่าย 2-9 — รูปแบบเดิม (\d{8,9} ไม่มี \b
-    // ข้างหน้า) match เลขที่ต่อกันโดยบังเอิญกลาง random UUID ที่ถูก serialize ลงทุก surface ด้วย
-    // (วัดได้ ~1 ใน 410 UUID) เทสจึงแดงเป็นครั้งคราวโดยไม่มี PII หลุดจริง รูปแบบนี้ยังจับทั้งมือถือ
-    // และเบอร์บ้าน แต่ไม่ match UUID เลยใน 2,000,000 ตัวอย่าง
+    // A Thai phone number starts with 0/+66 followed by an area/network code 2-9: the original pattern (\d{8,9} with no \b
+    // in front) matched coincidentally adjacent digits in the middle of a random UUID that is serialized into every surface too
+    // (measured at ~1 in 410 UUIDs), so the test went red occasionally with no real PII leak. This pattern still catches both mobile
+    // and landline numbers, but matched no UUID at all in 2,000,000 samples
     /\b(?:\+?66|0)[2-9]\d{7,8}\b/,
     /(?:postgres(?:ql)?|redis|https?):\/\/[^:\s/@]+:[^@\s/]+@/i,
   ];
   for (const [surface, value] of Object.entries(surfaces)) {
     const serialized = JSON.stringify(value);
     for (const needle of forbidden) {
-      assert.equal(serialized.includes(needle), false, `${surface} มี ${needle}`);
+      assert.equal(serialized.includes(needle), false, `${surface} contains ${needle}`);
     }
     for (const pattern of patterns) {
       assert.equal(pattern.test(serialized), false, `${surface} match ${pattern}`);
     }
   }
-  // metric/alert/snapshot ห้ามมี customer identifier แม้เป็น opaque UUID (high cardinality label)
+  // a metric/alert/snapshot must not carry a customer identifier even as an opaque UUID (high cardinality label)
   for (const surface of ['metrics', 'alerts', 'snapshot'] as const) {
     assert.equal(JSON.stringify(surfaces[surface]).includes(f.contact), false, surface);
   }

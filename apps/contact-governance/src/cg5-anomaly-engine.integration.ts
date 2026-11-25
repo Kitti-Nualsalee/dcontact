@@ -35,7 +35,7 @@ async function fixture(t: TestContext) {
   return { owner, application, tenantId };
 }
 
-test('CG5.6 ข้อมูลฐานไม่พอเปิด alert จริงและ suppress กฎเทียบฐานโดยไม่แตะ canonical', async (t) => {
+test('CG5.6 insufficient baseline data opens a real alert and suppresses the baseline-comparison rule without touching canonical', async (t) => {
   const f = await fixture(t);
   await new Cg5AnomalyEngine(f.application, () => NOW).evaluateTenant(f.tenantId);
   const alerts = await f.owner.cg5AlertState.findMany({ where: { tenantId: f.tenantId } });

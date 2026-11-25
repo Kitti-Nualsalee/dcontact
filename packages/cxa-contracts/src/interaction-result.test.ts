@@ -347,7 +347,7 @@ test('owner result envelope builder produces a bound, replay-stable canonical ev
   const first = createOwnerResultEnvelope(commandEvent, result, '2026-09-11T10:00:02.000Z');
   const replayed = createOwnerResultEnvelope(commandEvent, result, '2026-09-11T10:05:00.000Z');
   assert.deepEqual(assertOwnerResultEnvelope(first), first);
-  assert.equal(first.eventId, replayed.eventId, 'redelivery ต้อง publish event เดิม');
+  assert.equal(first.eventId, replayed.eventId, 'redelivery must publish the original event');
   assert.equal(first.causationId, commandEvent.eventId);
   assert.equal(first.correlationId, commandEvent.correlationId);
   assert.equal(first.aggregateType, 'dialer_command_receipt');
@@ -409,7 +409,7 @@ test('owner answers an action query only from an existing receipt, never by deci
   assert.deepEqual(await processOwnerCommandEvent(queryEvent, options), {
     outcome: 'QUERY_NO_RECEIPT',
   });
-  assert.equal(persisted.length, 0, 'query ห้ามกลายเป็นการสร้าง effect');
+  assert.equal(persisted.length, 0, 'a query must not become the creation of an effect');
   assert.equal(published.length, 0);
 
   receipt = stored;

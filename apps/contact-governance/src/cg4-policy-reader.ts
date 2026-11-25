@@ -16,12 +16,12 @@ import {
 } from './cg4-policy-resolution.js';
 
 /**
- * CG4.10 (#193) PR-B: head-based policy reader ที่ `authorizeAndReserve()` ใช้แทน CG3 loader
- * หลัง switch และใช้ประเมินคู่กันระหว่าง shadow
+ * CG4.10 (#193) PR-B: the head-based policy reader that `authorizeAndReserve()` uses in place of the CG3 loader
+ * after the switch, and used to evaluate side by side during shadow
  *
- * อ่านจาก canonical head ใน transaction เดียวกับ decision เสมอ (ไม่ผ่าน cache) และไม่มี fallback:
- * head ที่กำกวม, version ที่ไม่รองรับ, content digest ไม่ตรง หรือ scheduled activation ที่ถึงเวลา
- * แต่ยังไม่ activate ได้ `FAIL_CLOSED` (#176 §4/§5, #179 §5)
+ * Always reads from the canonical head in the same transaction as the decision (not via cache) and has no fallback:
+ * an ambiguous head, an unsupported version, a content digest mismatch, or a scheduled activation that is due
+ * but not yet activated gets `FAIL_CLOSED` (#176 §4/§5, #179 §5)
  */
 
 export const CG4_POLICY_HEAD_TTL_SECONDS = 60;
@@ -67,9 +67,9 @@ export async function loadCg4PolicyFacts(
     }),
   ]);
 
-  // schedule ที่ถึงเวลาแล้วแต่ยังไม่ activate ห้ามอ่าน version เดิมต่อ. scope ที่มี head อยู่แล้วถูกกันด้วย
-  // head.nextActivationAt ซึ่ง publish แบบ immediate ล้างได้ (forward-fix); job ที่ worker park เป็น
-  // FAILED จึงนับเฉพาะ scope ที่ยังไม่มี head เลย ไม่งั้น forward-fix จะปลด scope นั้นไม่ได้ตลอดไป
+  // a schedule that is due but not yet activated must not keep reading the old version. A scope that already has a head is guarded by
+  // head.nextActivationAt, which an immediate publish can clear (forward-fix); a job the worker parked as
+  // FAILED therefore counts only for a scope that has no head at all, otherwise a forward-fix could never release that scope
   const headScopes = new Set(heads.map((head) => head.scopeKey));
   const due = dueJobs.find(
     (job) =>
@@ -80,7 +80,7 @@ export async function loadCg4PolicyFacts(
     return {
       outcome: 'FAIL_CLOSED',
       reason: 'POLICY_ACTIVATION_PENDING',
-      detail: `scheduled activation ของ ${due.scopeKey} ถึงเวลาแล้วแต่ยังไม่ activate`,
+      detail: `the scheduled activation of ${due.scopeKey} is due but not yet activated`,
     };
   }
 
@@ -97,7 +97,10 @@ export async function loadCg4PolicyFacts(
   const facts: Cg4ScopeHeadFacts[] = [];
   for (const head of matching) {
     const row = rowById.get(head.headPolicyRevisionId);
-    if (!row) return unavailable(`head ของ ${head.scopeKey} ชี้ policy version ที่ไม่มีอยู่`);
+    if (!row)
+      return unavailable(
+        `the head of ${head.scopeKey} points to a policy version that does not exist`,
+      );
     facts.push({
       scopeKey: head.scopeKey,
       policyId: head.headPolicyId,
@@ -122,14 +125,14 @@ export async function loadCg4PolicyFacts(
       cacheTtlSeconds: CG4_POLICY_HEAD_TTL_SECONDS,
     });
   } catch (error) {
-    return unavailable(error instanceof Error ? error.message : 'resolve head ไม่ได้');
+    return unavailable(error instanceof Error ? error.message : 'could not resolve the head');
   }
   if (resolution.outcome !== 'RESOLVED') return resolution;
 
   const head = resolution.head;
   const row = rowById.get(head.policyVersionId)!;
   if (row.status !== 'ACTIVE' || row.version !== head.policyVersion) {
-    return unavailable(`head ของ ${head.scopeKey} ไม่ตรงกับ policy version ที่ ACTIVE`);
+    return unavailable(`the head of ${head.scopeKey} does not match the ACTIVE policy version`);
   }
   let compiled: ReturnType<typeof compileCg4Policy>;
   try {
@@ -144,12 +147,14 @@ export async function loadCg4PolicyFacts(
     return {
       outcome: 'FAIL_CLOSED',
       reason: 'GOVERNANCE_POLICY_VERSION_UNSUPPORTED',
-      detail: error instanceof Error ? error.message : 'compile policy ไม่ได้',
+      detail: error instanceof Error ? error.message : 'could not compile the policy',
     };
   }
-  // canonical content ต้อง hash ได้ตรงกับ digest ที่ approve ไว้ ไม่งั้น reader ไม่รู้ว่ากำลังบังคับอะไร
+  // the canonical content must hash to the approved digest, otherwise the reader does not know what it is enforcing
   if (compiled.contentDigest !== row.contentDigest) {
-    return unavailable(`content digest ของ policy ${head.policyVersionId} ไม่ตรงกับที่บันทึกไว้`);
+    return unavailable(
+      `the content digest of policy ${head.policyVersionId} does not match the recorded one`,
+    );
   }
 
   return {
@@ -169,7 +174,7 @@ export async function loadCg4PolicyFacts(
   };
 }
 
-/** ผลของ reader ที่ fail closed ในรูปเดียวกับ CG3 gate outcome: ไม่มี callback consume และไม่มี reservation */
+/** result of a reader that fails closed, in the same shape as a CG3 gate outcome: no callback consumed and no reservation */
 export function cg4PolicyFailClosedOutcome(
   gate: 'POLICY_HEAD' | 'MIGRATION_SHADOW',
   reasonCode: string,
@@ -182,8 +187,8 @@ export function cg4PolicyFailClosedOutcome(
 }
 
 /**
- * PII-safe digest ของผลการตัดสิน: ไม่รวม contact/identity/callback id หรือ policy version (ซึ่ง
- * ต่างกันระหว่าง CG3 row กับ CG4 version โดยธรรมชาติ) เทียบเฉพาะสิ่งที่ผู้ถูกติดต่อได้รับผลจริง
+ * PII-safe digest of the decision result: excludes the contact/identity/callback id or policy version (which
+ * naturally differ between a CG3 row and a CG4 version); compares only what the contacted person actually receives
  */
 export function cg4ShadowDecisionDigest(outcome: Cg3GateOutcome): string {
   return stableDigest({

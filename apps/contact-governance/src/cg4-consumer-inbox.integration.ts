@@ -89,7 +89,7 @@ function event(
   };
 }
 
-test('event ที่ต่อเนื่องกัน apply ได้และเดิน cursor โดยไม่ pause scope', async (t) => {
+test('contiguous events can be applied and advance the cursor without pausing the scope', async (t) => {
   const f = await fixture(t);
   const first = await f.inbox.record(event(f, { aggregateVersion: 1, payloadHash: HASH_A }));
   const second = await f.inbox.record(event(f, { aggregateVersion: 2, payloadHash: HASH_B }));
@@ -103,7 +103,7 @@ test('event ที่ต่อเนื่องกัน apply ได้แล�
   );
 });
 
-test('redelivery ของ eventId เดิมเป็น duplicate โดยไม่แตะ cursor และไม่ pause', async (t) => {
+test('a redelivery of the same eventId is a duplicate without touching the cursor and without pausing', async (t) => {
   const f = await fixture(t);
   const original = event(f, { aggregateVersion: 1 });
   await f.inbox.record(original);
@@ -111,13 +111,13 @@ test('redelivery ของ eventId เดิมเป็น duplicate โดย�
   assert.equal(replay.decision.kind, 'DUPLICATE');
   assert.equal(replay.recorded, false);
   assert.equal(replay.applied, true);
-  // ต้องยัง apply version ถัดไปได้ตามปกติ
+  // the next version must still be appliable as usual
   const next = await f.inbox.record(event(f, { aggregateVersion: 2, payloadHash: HASH_B }));
   assert.equal(next.decision.kind, 'APPLY');
   assert.equal(await f.inbox.isPaused(f.tenant, { kind: 'CONTACT', ref: f.contactId }), false);
 });
 
-test('version ที่ข้ามไป pause scope ไว้ และ reload canonical เท่านั้นที่ปลดได้', async (t) => {
+test('a skipped version pauses the scope, and only a canonical reload can release it', async (t) => {
   const f = await fixture(t);
   await f.inbox.record(event(f, { aggregateVersion: 1 }));
   const gap = await f.inbox.record(event(f, { aggregateVersion: 5, payloadHash: HASH_B }));
@@ -142,12 +142,12 @@ test('version ที่ข้ามไป pause scope ไว้ และ reload
   assert.equal(resumed.cleared, 1);
   assert.equal(await f.inbox.isPaused(f.tenant, { kind: 'CONTACT', ref: f.contactId }), false);
 
-  // cursor ต้องกระโดดไปที่ 5 แล้ว ไม่งั้น event ถัดไปจะ pause ซ้ำทันที
+  // the cursor must have jumped to 5, otherwise the next event would immediately pause again
   const next = await f.inbox.record(event(f, { aggregateVersion: 6, payloadHash: HASH_A }));
   assert.equal(next.decision.kind, 'APPLY');
 });
 
-test('version เดิมแต่ digest ต่างถูก quarantine และ pause ด้วย HASH_CONFLICT', async (t) => {
+test('the same version with a different digest is quarantined and paused with HASH_CONFLICT', async (t) => {
   const f = await fixture(t);
   await f.inbox.record(event(f, { aggregateVersion: 1, payloadHash: HASH_A }));
   const conflict = await f.inbox.record(event(f, { aggregateVersion: 1, payloadHash: HASH_B }));
@@ -160,7 +160,7 @@ test('version เดิมแต่ digest ต่างถูก quarantine แ�
   );
 });
 
-test('event ที่ย้อนหลังด้วย eventId ใหม่ถือเป็น out-of-order และ pause scope', async (t) => {
+test('an event that goes backwards with a new eventId counts as out-of-order and pauses the scope', async (t) => {
   const f = await fixture(t);
   await f.inbox.record(event(f, { aggregateVersion: 1, payloadHash: HASH_A }));
   await f.inbox.record(event(f, { aggregateVersion: 2, payloadHash: HASH_B }));
@@ -170,7 +170,7 @@ test('event ที่ย้อนหลังด้วย eventId ใหม่�
   assert.equal(pause.reason, 'EVENT_OUT_OF_ORDER');
 });
 
-test('contract version ที่ไม่รองรับถูกกักไว้เป็น UNSUPPORTED ไม่ใช่ apply', async (t) => {
+test('an unsupported contract version is held as UNSUPPORTED, not applied', async (t) => {
   const f = await fixture(t);
   const unsupported = await f.inbox.record(
     event(f, { aggregateVersion: 1, payload: payload({ contractVersion: 99 }) }),
@@ -181,7 +181,7 @@ test('contract version ที่ไม่รองรับถูกกักไ
   assert.equal(pause.reason, 'UNSUPPORTED_CONTRACT');
 });
 
-test('anomaly ซ้ำบน scope เดิมไม่ซ้อน pause ใหม่ แต่ปรับ reason ของอันเดิม', async (t) => {
+test('a repeated anomaly on the same scope does not stack a new pause but adjusts the reason of the original', async (t) => {
   const f = await fixture(t);
   await f.inbox.record(event(f, { aggregateVersion: 1 }));
   const gap = await f.inbox.record(event(f, { aggregateVersion: 4, payloadHash: HASH_B }));
@@ -195,7 +195,7 @@ test('anomaly ซ้ำบน scope เดิมไม่ซ้อน pause ใ�
   assert.equal(pause.reason, 'HASH_CONFLICT');
 });
 
-test('policy event pause ที่ scopeKey ไม่ใช่ทั้ง policy series', async (t) => {
+test('a policy event pauses on the scopeKey, not the whole policy series', async (t) => {
   const f = await fixture(t);
   const policyId = randomUUID();
   const scopeKey = 'channel=EMAIL|contactKind=*|purpose=BILLING|sourceType=*';
@@ -213,11 +213,11 @@ test('policy event pause ที่ scopeKey ไม่ใช่ทั้ง polic
   assert.equal(pause.scopeKind, 'POLICY_SCOPE');
   assert.equal(pause.scopeRef, scopeKey);
   assert.equal(await f.inbox.isPaused(f.tenant, { kind: 'POLICY_SCOPE', ref: scopeKey }), true);
-  // scope อื่นของ tenant เดียวกันต้องไม่ถูกกักไปด้วย
+  // another scope of the same tenant must not be held along with it
   assert.equal(await f.inbox.isPaused(f.tenant, { kind: 'CONTACT', ref: f.contactId }), false);
 });
 
-test('scope ref ของ policy event ถอยไปใช้ aggregateId เมื่อ payload ไม่มี scopeKey', () => {
+test('the scope ref of a policy event falls back to the aggregateId when the payload has no scopeKey', () => {
   assert.deepEqual(cg4ScopeRefFor({ aggregateType: 'POLICY', aggregateId: 'p1', payload: {} }), {
     kind: 'POLICY_SCOPE',
     ref: 'p1',
@@ -232,7 +232,7 @@ test('scope ref ของ policy event ถอยไปใช้ aggregateId เ�
   );
 });
 
-test('inbox เป็น append-only ผ่าน application role', async (t) => {
+test('the inbox is append-only through the application role', async (t) => {
   const f = await fixture(t);
   const applied = await f.inbox.record(event(f, { aggregateVersion: 1 }));
   const application = new PrismaClient({

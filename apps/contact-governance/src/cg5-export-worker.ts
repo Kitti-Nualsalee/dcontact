@@ -55,7 +55,7 @@ export class Cg5ExportWorker {
     const job = await withTenantDatabaseTransaction(this.database, tenantId, (tx) =>
       tx.cg5ExportJob.findFirst({ where: { tenantId, exportId } }),
     );
-    if (!job) throw new TypeError('ไม่พบ export job');
+    if (!job) throw new TypeError('export job not found');
     if (job.state !== 'QUEUED') return;
     const storagePrefix = prefix(tenantId, exportId);
     const written: string[] = [];
@@ -82,7 +82,9 @@ export class Cg5ExportWorker {
       const rowCounts = Object.fromEntries(job.datasets.map((dataset) => [dataset, 0]));
       for (const file of files) {
         if (!requested.has(file.dataset) || seen.has(file.dataset)) {
-          throw new TypeError('canonical export reader ส่ง dataset ที่ไม่ได้ร้องขอหรือซ้ำ');
+          throw new TypeError(
+            'the canonical export reader returned a dataset that was not requested or is duplicated',
+          );
         }
         seen.add(file.dataset);
         const key = `${storagePrefix}/${file.dataset}.json`;

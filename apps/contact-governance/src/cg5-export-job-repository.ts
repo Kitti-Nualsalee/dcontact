@@ -14,21 +14,21 @@ const json = (value: unknown) => value as Prisma.InputJsonValue;
 
 export class Cg5ExportIdempotencyConflictError extends Error {
   constructor() {
-    super('idempotency key ถูกใช้กับ export คนละคำขอ');
+    super('the idempotency key was used with a different export request');
     this.name = 'Cg5ExportIdempotencyConflictError';
   }
 }
 
 export class Cg5ExportRangeTooLargeError extends Error {
   constructor(readonly maxRangeDays: number) {
-    super(`export range เกิน ${maxRangeDays} วัน`);
+    super(`export range exceeds ${maxRangeDays} days`);
     this.name = 'Cg5ExportRangeTooLargeError';
   }
 }
 
 export class Cg5ExportRateLimitError extends Error {
   constructor(readonly maxPerDay: number) {
-    super(`export เกิน ${maxPerDay} งานต่อวัน`);
+    super(`exports exceed ${maxPerDay} jobs per day`);
     this.name = 'Cg5ExportRateLimitError';
   }
 }
@@ -38,7 +38,7 @@ export class Cg5ExportTransitionError extends Error {
     readonly state: Cg5ExportState,
     readonly target: Cg5ExportState,
   ) {
-    super(`export transition ${state} -> ${target} ไม่ถูกต้อง`);
+    super(`invalid export transition ${state} -> ${target}`);
     this.name = 'Cg5ExportTransitionError';
   }
 }
@@ -71,7 +71,7 @@ export class Cg5ExportJobRepository {
     limits?: { maxRangeDays: number; maxPerDay: number };
   }) {
     if (!input.datasets.length || input.rangeFrom >= input.rangeTo)
-      throw new TypeError('export range หรือ dataset ไม่ถูกต้อง');
+      throw new TypeError('invalid export range or dataset');
     if (
       input.limits &&
       input.rangeTo.valueOf() - input.rangeFrom.valueOf() > input.limits.maxRangeDays * 86_400_000
@@ -79,7 +79,7 @@ export class Cg5ExportJobRepository {
       throw new Cg5ExportRangeTooLargeError(input.limits.maxRangeDays);
     }
     if (!input.reason.trim() || !input.requestedByRef.trim() || !input.idempotencyKey.trim())
-      throw new TypeError('reason, requester และ idempotency key ต้องไม่ว่าง');
+      throw new TypeError('reason, requester and idempotency key must not be empty');
     assertCg5PiiFreePayload({
       datasets: input.datasets,
       filters: input.filters,
@@ -167,8 +167,7 @@ export class Cg5ExportJobRepository {
   }
 
   async list(tenantId: string, limit = 50) {
-    if (!Number.isInteger(limit) || limit < 1 || limit > 100)
-      throw new TypeError('limit ไม่ถูกต้อง');
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new TypeError('invalid limit');
     return withTenantDatabaseTransaction(this.database, tenantId, (tx) =>
       tx.cg5ExportJob.findMany({
         where: { tenantId },
@@ -225,7 +224,7 @@ export class Cg5ExportJobRepository {
       const current = await tx.cg5ExportJob.findFirst({
         where: { tenantId: input.tenantId, exportId: input.exportId },
       });
-      if (!current) throw new TypeError('ไม่พบ export job');
+      if (!current) throw new TypeError('export job not found');
       if (!allowed[current.state].includes(input.target))
         throw new Cg5ExportTransitionError(current.state, input.target);
       const now = this.now();

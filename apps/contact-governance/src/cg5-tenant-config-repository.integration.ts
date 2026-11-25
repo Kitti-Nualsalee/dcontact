@@ -53,7 +53,7 @@ async function fixture(t: TestContext) {
   return { owner, application, repository, tenantId, otherTenantId, input };
 }
 
-test('CG5 config ใช้ defaults โดยไม่เขียน และเก็บ audit ของทุกการเปลี่ยน', async (t) => {
+test('CG5 config uses defaults without writing, and keeps an audit of every change', async (t) => {
   const { owner, repository, input, tenantId } = await fixture(t);
   const initial = await repository.read(tenantId);
   assert.equal(initial.version, 0);
@@ -78,7 +78,7 @@ test('CG5 config ใช้ defaults โดยไม่เขียน และ�
   assert.equal(audit[0]?.afterDigest, audit[1]?.beforeDigest);
 });
 
-test('CG5 concurrent create/update มีผู้ชนะหนึ่งคำสั่ง และ conflict audit ไม่ rollback', async (t) => {
+test('CG5 concurrent create/update has one winning command, and the conflict audit is not rolled back', async (t) => {
   const { owner, repository, input, tenantId } = await fixture(t);
   for (const expectedVersion of [0, 1]) {
     const results = await Promise.allSettled([
@@ -106,7 +106,7 @@ test('CG5 concurrent create/update มีผู้ชนะหนึ่งคำ
   }
 });
 
-test('CG5 config ปฏิเสธค่านอกช่วงและ field แปลกโดยไม่เปลี่ยนค่าเดิม', async (t) => {
+test('CG5 config rejects out-of-range values and strange fields without changing the original value', async (t) => {
   const { owner, repository, input, tenantId } = await fixture(t);
   await repository.update(input);
   await assert.rejects(
@@ -124,7 +124,7 @@ test('CG5 config ปฏิเสธค่านอกช่วงและ field
     }),
   );
   assert.equal((await repository.read(tenantId)).version, 1);
-  // DB บังคับช่วงค่าแม้ caller ไม่ผ่าน repository
+  // the DB enforces the range even when the caller does not go through the repository
   await assert.rejects(
     owner.cg5TenantConfig.update({
       where: { tenantId },
@@ -139,7 +139,7 @@ test('CG5 config ปฏิเสธค่านอกช่วงและ field
   );
 });
 
-test('CG5 dimensionKey ปิดช่อง duplicate เมื่อมิติเป็น null และแยก team scope', async (t) => {
+test('CG5 dimensionKey closes the duplicate gap when a dimension is null, and separates team scopes', async (t) => {
   const { owner, tenantId } = await fixture(t);
   const data = {
     tenantId,
@@ -163,7 +163,7 @@ test('CG5 dimensionKey ปิดช่อง duplicate เมื่อมิต�
   assert.equal(await owner.cg5MetricBucket.count({ where: { tenantId } }), 2);
 });
 
-test('CG5 RLS กันข้าม tenant และ config audit แก้หรือลบไม่ได้', async (t) => {
+test('CG5 RLS stops cross-tenant access, and the config audit cannot be edited or deleted', async (t) => {
   const { owner, application, repository, tenantId, otherTenantId, input } = await fixture(t);
   await repository.update(input);
   await withTenantDatabaseTransaction(application, otherTenantId, async (tx) => {
@@ -202,7 +202,7 @@ test('CG5 RLS กันข้าม tenant และ config audit แก้ห�
   assert.equal(await owner.cg5TenantConfigAudit.count({ where: { tenantId } }), 1);
 });
 
-test('CG5 ตารางใหม่ทุกตารางเปิด RLS และ bootstrap คงสิทธิ์ audit', async (t) => {
+test('CG5 every new table has RLS enabled, and the bootstrap keeps the audit privileges', async (t) => {
   const { owner } = await fixture(t);
   const rows = await owner.$queryRaw<
     Array<{ relname: string; relrowsecurity: boolean }>

@@ -244,8 +244,8 @@ export const J2_EVENT_TYPES = {
   CALLBACK_SUPERSEDE_REQUESTED: 'dialer.callback_supersede_requested',
   CALLBACK_SUPERSEDE_COMPLETED: 'dialer.callback_supersede_completed',
   /**
-   * J2.8 (#136) additive: Journey ถาม owner ด้วย `J2OwnerActionQueryV1` ก่อน retry ตอน ACK_UNKNOWN
-   * owner ตอบจาก receipt ที่มีอยู่เท่านั้น (ผลเดิม event เดิม) ไม่มีวันตัดสินหรือสร้าง effect ใหม่
+   * J2.8 (#136) additive: Journey asks the owner with `J2OwnerActionQueryV1` before retrying on ACK_UNKNOWN.
+   * The owner answers only from an existing receipt (same result, same event); it never decides or creates a new effect.
    */
   OWNER_ACTION_QUERY_REQUESTED: 'journey.owner_action_query_requested',
 } as const;
@@ -346,7 +346,7 @@ function fail(field: string, reason: string): never {
 
 function objectValue(value: unknown, field: string): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return fail(field, 'ต้องเป็น object');
+    return fail(field, 'must be an object');
   }
   return value as Record<string, unknown>;
 }
@@ -359,10 +359,10 @@ function exactKeys(
 ): void {
   const allowed = new Set([...required, ...optional]);
   for (const key of Object.keys(value)) {
-    if (!allowed.has(key)) fail(`${field}.${key}`, 'ไม่อยู่ใน closed contract');
+    if (!allowed.has(key)) fail(`${field}.${key}`, 'is not in the closed contract');
   }
   for (const key of required) {
-    if (!(key in value)) fail(`${field}.${key}`, 'จำเป็นต้องระบุ');
+    if (!(key in value)) fail(`${field}.${key}`, 'is required');
   }
 }
 
@@ -370,7 +370,7 @@ function contractVersion(value: unknown): asserts value is typeof J2_CONTRACT_VE
   if (value !== J2_CONTRACT_VERSION) {
     throw new J2PayloadContractError(
       'UNSUPPORTED_CONTRACT_VERSION',
-      `ไม่รองรับ J2 contractVersion: ${String(value)}`,
+      `Unsupported J2 contractVersion: ${String(value)}`,
     );
   }
 }
@@ -383,40 +383,42 @@ function opaqueReference(value: unknown, field: string): asserts value is string
     !/^[A-Za-z0-9][A-Za-z0-9:._-]{0,159}$/.test(value) ||
     (normalizedPhoneCandidate !== undefined && /^\d{7,}$/.test(normalizedPhoneCandidate))
   ) {
-    fail(field, 'ต้องเป็น opaque internal reference ที่ไม่ว่างและไม่ใช่ PII text');
+    fail(field, 'must be a non-empty opaque internal reference that is not PII text');
   }
 }
 
 function positiveVersion(value: unknown, field: string): asserts value is number {
-  if (!Number.isInteger(value) || (value as number) < 1) fail(field, 'ต้องเป็นจำนวนเต็มตั้งแต่ 1');
+  if (!Number.isInteger(value) || (value as number) < 1) fail(field, 'must be an integer >= 1');
 }
 
 function nonNegativeVersion(value: unknown, field: string): asserts value is number {
-  if (!Number.isInteger(value) || (value as number) < 0) fail(field, 'ต้องเป็นจำนวนเต็มไม่ติดลบ');
+  if (!Number.isInteger(value) || (value as number) < 0)
+    fail(field, 'must be a non-negative integer');
 }
 
 function timestamp(value: unknown, field: string): asserts value is string {
   if (typeof value !== 'string' || Number.isNaN(Date.parse(value))) {
-    fail(field, 'ต้องเป็น ISO-8601 timestamp');
+    fail(field, 'must be an ISO-8601 timestamp');
   }
 }
 
 function stableCode(value: unknown, field: string): asserts value is string {
   if (typeof value !== 'string' || !/^[A-Z][A-Z0-9_]{0,63}$/.test(value)) {
-    fail(field, 'ต้องเป็น allowlisted machine code รูปแบบ UPPER_SNAKE_CASE');
+    fail(field, 'must be an allowlisted machine code in UPPER_SNAKE_CASE');
   }
 }
 
 function hashValue(value: unknown, field: string): asserts value is string {
   if (typeof value !== 'string' || !/^[a-f0-9]{64}$/.test(value)) {
-    fail(field, 'ต้องเป็น lowercase SHA-256');
+    fail(field, 'must be a lowercase SHA-256');
   }
 }
 
 function validateOutcomeReference(value: unknown, field: string): J2OutcomeReferenceV1 {
   const candidate = objectValue(value, field);
   exactKeys(candidate, field, ['outcomeType', 'outcomeId', 'outcomeVersion']);
-  if (!OUTCOME_TYPES.has(String(candidate.outcomeType))) fail(`${field}.outcomeType`, 'ไม่รองรับ');
+  if (!OUTCOME_TYPES.has(String(candidate.outcomeType)))
+    fail(`${field}.outcomeType`, 'is not supported');
   opaqueReference(candidate.outcomeId, `${field}.outcomeId`);
   positiveVersion(candidate.outcomeVersion, `${field}.outcomeVersion`);
   return candidate as J2OutcomeReferenceV1;
@@ -439,7 +441,8 @@ export function validateInteractionOutcomePayload(value: unknown): InteractionOu
     ['contactId', 'supersedesVersion'],
   );
   contractVersion(candidate.contractVersion);
-  if (!OUTCOME_TYPES.has(String(candidate.outcomeType))) fail('payload.outcomeType', 'ไม่รองรับ');
+  if (!OUTCOME_TYPES.has(String(candidate.outcomeType)))
+    fail('payload.outcomeType', 'is not supported');
   opaqueReference(candidate.outcomeId, 'payload.outcomeId');
   positiveVersion(candidate.outcomeVersion, 'payload.outcomeVersion');
   opaqueReference(candidate.interactionId, 'payload.interactionId');
@@ -449,13 +452,13 @@ export function validateInteractionOutcomePayload(value: unknown): InteractionOu
     candidate.outcomeType as InteractionOutcomeType
   ] as readonly string[];
   if (!allowedOutcomeCodes.includes(candidate.outcomeCode as string)) {
-    fail('payload.outcomeCode', 'ไม่อยู่ใน outcomeType allowlist');
+    fail('payload.outcomeCode', 'is not in the outcomeType allowlist');
   }
   timestamp(candidate.effectiveAt, 'payload.effectiveAt');
   if (candidate.supersedesVersion !== undefined) {
     positiveVersion(candidate.supersedesVersion, 'payload.supersedesVersion');
     if ((candidate.supersedesVersion as number) >= (candidate.outcomeVersion as number)) {
-      fail('payload.supersedesVersion', 'ต้องน้อยกว่า outcomeVersion');
+      fail('payload.supersedesVersion', 'must be less than outcomeVersion');
     }
   }
   return candidate as InteractionOutcomePayloadV1;
@@ -532,7 +535,8 @@ export function validateOwnerCommandPayload(value: unknown): J2OwnerCommandPaylo
   opaqueReference(candidate.contactId, 'payload.contactId');
   opaqueReference(candidate.sourceOwnerTeamId, 'payload.sourceOwnerTeamId');
   opaqueReference(candidate.targetOwnerTeamId, 'payload.targetOwnerTeamId');
-  if (!COMMAND_TYPES.has(String(candidate.commandType))) fail('payload.commandType', 'ไม่รองรับ');
+  if (!COMMAND_TYPES.has(String(candidate.commandType)))
+    fail('payload.commandType', 'is not supported');
   if (candidate.expectedOwnerVersion !== undefined) {
     nonNegativeVersion(candidate.expectedOwnerVersion, 'payload.expectedOwnerVersion');
   }
@@ -542,7 +546,10 @@ export function validateOwnerCommandPayload(value: unknown): J2OwnerCommandPaylo
     'originalActionKey' in command.intent &&
     command.intent.originalActionKey !== command.actionKey
   ) {
-    fail('payload.intent.originalActionKey', 'ต้องตรงกับ actionKey ของ positive effect เดิม');
+    fail(
+      'payload.intent.originalActionKey',
+      'must match the actionKey of the original positive effect',
+    );
   }
   return command;
 }
@@ -599,7 +606,7 @@ function validateOwnerAggregate(value: unknown): J2OwnerAggregateReferenceV1 {
   const aggregate = objectValue(value, 'payload.ownerAggregate');
   exactKeys(aggregate, 'payload.ownerAggregate', ['type', 'id', 'version']);
   if (!['case', 'campaign_target', 'callback'].includes(String(aggregate.type))) {
-    fail('payload.ownerAggregate.type', 'ไม่รองรับ');
+    fail('payload.ownerAggregate.type', 'is not supported');
   }
   opaqueReference(aggregate.id, 'payload.ownerAggregate.id');
   positiveVersion(aggregate.version, 'payload.ownerAggregate.version');
@@ -631,17 +638,18 @@ export function validateOwnerResultPayload(value: unknown): J2OwnerResultPayload
   opaqueReference(candidate.commandId, 'payload.commandId');
   opaqueReference(candidate.actionKey, 'payload.actionKey');
   hashValue(candidate.requestHash, 'payload.requestHash');
-  if (!COMMAND_TYPES.has(String(candidate.commandType))) fail('payload.commandType', 'ไม่รองรับ');
+  if (!COMMAND_TYPES.has(String(candidate.commandType)))
+    fail('payload.commandType', 'is not supported');
   const commandType = candidate.commandType as J2OwnerCommandType;
   if (!STATUS_BY_COMMAND[commandType].has(candidate.status as J2OwnerResultStatus)) {
-    fail('payload.status', `ไม่รองรับสำหรับ ${commandType}`);
+    fail('payload.status', `is not supported for ${commandType}`);
   }
   stableCode(candidate.reasonCode, 'payload.reasonCode');
   if (!FAILURE_CLASSES.has(candidate.failureClass as J2FailureClass)) {
-    fail('payload.failureClass', 'ไม่รองรับ');
+    fail('payload.failureClass', 'is not supported');
   }
   if (!RETRY_DISPOSITIONS.has(candidate.retryDisposition as J2RetryDisposition)) {
-    fail('payload.retryDisposition', 'ไม่รองรับ');
+    fail('payload.retryDisposition', 'is not supported');
   }
   timestamp(candidate.observedAt, 'payload.observedAt');
   const ownerAggregate =
@@ -655,27 +663,30 @@ export function validateOwnerResultPayload(value: unknown): J2OwnerResultPayload
   const category = candidate.category as J2OwnerResultCategory;
   const positive = status !== 'REJECTED' && status !== 'TOO_LATE';
   if (positive && candidate.ownerAggregate === undefined) {
-    fail('payload.ownerAggregate', 'canonical successต้องอ้าง owner aggregate');
+    fail('payload.ownerAggregate', 'canonical success must reference the owner aggregate');
   }
   if (ownerAggregate && ownerAggregate.type !== AGGREGATE_TYPE_BY_COMMAND[commandType]) {
-    fail('payload.ownerAggregate.type', `ต้องตรงกับ owner ของ ${commandType}`);
+    fail('payload.ownerAggregate.type', `must match the owner of ${commandType}`);
   }
   if (positive && (candidate.failureClass !== 'NONE' || candidate.retryDisposition !== 'NONE')) {
-    fail('payload.failureClass', 'canonical successต้องใช้ NONE/NONE');
+    fail('payload.failureClass', 'canonical success must use NONE/NONE');
   }
   if (positive && (code !== status || category !== 'BUSINESS')) {
-    fail('payload.code', 'canonical successต้องใช้ status เป็น code และ BUSINESS category');
+    fail(
+      'payload.code',
+      'canonical success must use the status as the code and the BUSINESS category',
+    );
   }
   if (status === 'TOO_LATE') {
     if (candidate.failureClass !== 'BUSINESS' || candidate.retryDisposition !== 'DO_NOT_RETRY') {
-      fail('payload.failureClass', 'TOO_LATEต้องใช้ BUSINESS/DO_NOT_RETRY');
+      fail('payload.failureClass', 'TOO_LATE must use BUSINESS/DO_NOT_RETRY');
     }
     if (code !== 'ACTION_TOO_LATE' || category !== J2_ERROR_CONTRACT.ACTION_TOO_LATE.category) {
-      fail('payload.code', 'TOO_LATEต้องใช้ ACTION_TOO_LATE terminal code');
+      fail('payload.code', 'TOO_LATE must use the ACTION_TOO_LATE terminal code');
     }
   }
   if (status === 'REJECTED' && candidate.failureClass === 'NONE') {
-    fail('payload.failureClass', 'REJECTEDต้องมี failure class');
+    fail('payload.failureClass', 'REJECTED must have a failure class');
   }
   if (status === 'REJECTED') {
     const error = J2_ERROR_CONTRACT[code as J2ErrorCode];
@@ -684,7 +695,7 @@ export function validateOwnerResultPayload(value: unknown): J2OwnerResultPayload
       category !== error.category ||
       candidate.retryDisposition !== error.retryDisposition
     ) {
-      fail('payload.code', 'REJECTEDต้องใช้ frozen error code/category/retryDisposition');
+      fail('payload.code', 'REJECTED must use the frozen error code/category/retryDisposition');
     }
   }
   return candidate as J2OwnerResultPayloadV1;
@@ -703,7 +714,7 @@ function canonicalJson(value: unknown): string {
   if (value === null) return 'null';
   if (typeof value === 'string' || typeof value === 'boolean') return JSON.stringify(value);
   if (typeof value === 'number') {
-    if (!Number.isFinite(value)) fail('canonical payload', 'ตัวเลขต้องเป็น finite');
+    if (!Number.isFinite(value)) fail('canonical payload', 'numbers must be finite');
     return JSON.stringify(value);
   }
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
@@ -715,7 +726,7 @@ function canonicalJson(value: unknown): string {
       .map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`)
       .join(',')}}`;
   }
-  return fail('canonical payload', `ไม่รองรับ value type ${typeof value}`);
+  return fail('canonical payload', `unsupported value type ${typeof value}`);
 }
 
 function sha256(value: unknown): string {
@@ -751,16 +762,16 @@ export function withOwnerRequestHash(
 export function assertOwnerRequestHash(tenant: TenantId, value: unknown): J2OwnerCommandPayloadV1 {
   const command = validateOwnerCommandPayload(value);
   if (command.requestHash !== canonicalOwnerRequestHash(tenant, command)) {
-    fail('payload.requestHash', 'ไม่ตรงกับ canonical tenant/action/target/intent fields');
+    fail('payload.requestHash', 'does not match the canonical tenant/action/target/intent fields');
   }
   return command;
 }
 
 function validateEnvelope(value: unknown): J2KafkaEnvelopeV2<Record<string, unknown>> {
   const candidate = objectValue(value, 'envelope');
-  if (candidate.schemaVersion !== 2) fail('envelope.schemaVersion', 'J2 ต้องใช้ Kafka V2');
+  if (candidate.schemaVersion !== 2) fail('envelope.schemaVersion', 'J2 must use Kafka V2');
   if (candidate.eventKind !== 'CANONICAL' && candidate.eventKind !== 'COMMAND') {
-    fail('envelope.eventKind', 'ต้องเป็น CANONICAL หรือ COMMAND');
+    fail('envelope.eventKind', 'must be CANONICAL or COMMAND');
   }
   opaqueReference(candidate.eventId, 'envelope.eventId');
   opaqueReference(candidate.type, 'envelope.type');
@@ -791,7 +802,7 @@ export function assertInteractionOutcomeEnvelope(
     envelope.aggregateVersion !== payload.outcomeVersion ||
     envelope.orderingKey !== payload.interactionId
   ) {
-    fail('envelope', 'interaction outcome V2 metadata ไม่ตรงกับ canonical payload');
+    fail('envelope', 'interaction outcome V2 metadata does not match the canonical payload');
   }
   return { ...envelope, payload };
 }
@@ -810,7 +821,7 @@ export function assertOwnerCommandEnvelope(
     envelope.aggregateVersion !== 0 ||
     envelope.orderingKey !== command.actionKey
   ) {
-    fail('envelope', 'owner command V2 metadata ไม่ตรงกับ payload');
+    fail('envelope', 'owner command V2 metadata does not match the payload');
   }
   return { ...envelope, payload: command };
 }
@@ -828,7 +839,7 @@ export function assertOwnerResultEnvelope(
     envelope.aggregateVersion < 1 ||
     envelope.orderingKey !== result.actionKey
   ) {
-    fail('envelope', 'owner result V2 metadata ไม่ตรงกับ payload');
+    fail('envelope', 'owner result V2 metadata does not match the payload');
   }
   return { ...envelope, payload: result };
 }
@@ -856,11 +867,11 @@ function ownerResultEnvelope(
 }
 
 /**
- * J2.8 (#136): envelope ของผลที่ owner publish กลับ — owner ทุกรายใช้ builder เดียวกันจึงไม่ต้องรู้
- * metadata rule ของ contract เอง ผลลัพธ์ผ่าน `assertOwnerResultEnvelope` เสมอ
+ * J2.8 (#136): envelope for the result an owner publishes back. Every owner uses the same builder, so none needs to know
+ * the contract's own metadata rules; the result always passes `assertOwnerResultEnvelope`.
  *
- * eventId คงที่ต่อ commandId: receipt ของ owner immutable การ publish ซ้ำหลัง redelivery หรือตอบ
- * query จึงเป็น event เดิม ไม่ใช่ผลใบใหม่ และ causation ชี้ message ที่ทำให้ publish ครั้งนี้
+ * eventId is stable per commandId: the owner's receipt is immutable, so republishing after a redelivery or answering a
+ * query yields the same event, not a new result, and causation points at the message that triggered this publish.
  */
 export function createOwnerResultEnvelope(
   command: J2KafkaEnvelopeV2<J2OwnerCommandPayloadV1>,
@@ -889,12 +900,12 @@ export function assertOwnerActionQueryEnvelope(
     envelope.aggregateVersion !== 0 ||
     envelope.orderingKey !== query.actionKey
   ) {
-    fail('envelope', 'owner action query V2 metadata ไม่ตรงกับ payload');
+    fail('envelope', 'owner action query V2 metadata does not match the payload');
   }
   return { ...envelope, payload: query };
 }
 
-/** query ใช้ orderingKey = actionKey เดียวกับ command จึงตามหลัง command ต้นเรื่องใน partition เดียวกัน */
+/** The query uses orderingKey = the same actionKey as the command, so it follows the originating command in the same partition. */
 export function createOwnerActionQueryEnvelope(
   tenant: TenantId,
   queryValue: J2OwnerActionQueryV1,
@@ -921,12 +932,12 @@ const J2_COMMAND_ENVELOPE_TYPES = new Set<string>(Object.values(J2_COMMAND_EVENT
 
 export type OwnerCommandProcessingOutcome =
   | { outcome: 'PROCESSED'; commandId: CommandId }
-  /** ตอบ query จาก receipt ที่มีอยู่ — publish ผลเดิมด้วย event เดิม */
+  /** Answer the query from the existing receipt: publish the original result with the original event. */
   | { outcome: 'QUERY_ANSWERED'; commandId: CommandId }
-  /** owner ยังไม่เคยได้รับ command ใบนั้น — ไม่ตอบ ปล่อยให้ Journey ตัดสินผ่าน bounded escalation */
+  /** The owner never received that command: no answer; Journey decides through bounded escalation. */
   | { outcome: 'QUERY_NO_RECEIPT' }
   | { outcome: 'IGNORED' }
-  /** ห้าม retry: command อ่านไม่ได้ตาม contract หรือ commandId/actionKey เดิมแต่เนื้อหาต่าง */
+  /** Do not retry: the command is unreadable per the contract, or the same commandId/actionKey has different content. */
   | {
       outcome: 'QUARANTINED';
       code: 'PAYLOAD_VALIDATION_FAILED' | 'UNSUPPORTED_CONTRACT_VERSION' | 'IDEMPOTENCY_CONFLICT';
@@ -939,18 +950,18 @@ function isIdempotencyConflict(error: unknown): boolean {
 }
 
 /**
- * J2.8 (#136): ประมวลผล owner command หนึ่งใบสำหรับ owner transport ใดก็ได้ (ไม่ผูก Kafka)
+ * J2.8 (#136): process one owner command for any owner transport (not tied to Kafka).
  *
- * 1. `assertOwnerCommandEnvelope` — envelope/requestHash ต้องผ่าน contract
- * 2. `owner.persistCommand` — receipt + canonical mutation ใน transaction เดียวของ owner
- * 3. อ่านผลจาก receipt แล้ว `publish(createOwnerResultEnvelope(...))`
+ * 1. `assertOwnerCommandEnvelope`: the envelope/requestHash must satisfy the contract
+ * 2. `owner.persistCommand`: receipt + canonical mutation in one owner transaction
+ * 3. read the result from the receipt, then `publish(createOwnerResultEnvelope(...))`
  *
- * crash ระหว่าง 2 กับ 3 → redelivery เจอ receipt เดิมแล้ว publish ผลเดิมซ้ำด้วย eventId เดิม receipt
- * ของ owner จึงทำหน้าที่ result outbox โดยตรง
+ * A crash between 2 and 3: the redelivery finds the existing receipt and republishes the same result with the same
+ * eventId, so the owner's receipt acts directly as the result outbox.
  *
- * แยกผลสามแบบให้ transport ตัดสิน: `IGNORED` (ไม่ใช่ J2 owner command), `QUARANTINED` (ผิด contract
- * หรือ IDEMPOTENCY_CONFLICT — retry กี่ครั้งก็ได้ผลเดิม ต้องกักไว้ไม่ให้ block คิว) ส่วน error อื่น
- * (DB/broker ล่ม) ถูกโยนต่อเพื่อให้ retry ด้วย identity เดิม
+ * Three outcomes are separated for the transport to decide: `IGNORED` (not a J2 owner command), `QUARANTINED` (violates
+ * the contract or IDEMPOTENCY_CONFLICT: retrying any number of times gives the same result, so hold it aside to avoid
+ * blocking the queue); any other error (DB/broker down) is rethrown so it retries with the same identity.
  */
 export async function processOwnerCommandEvent<TCommand extends J2OwnerCommandPayloadV1>(
   event: unknown,
@@ -991,7 +1002,9 @@ export async function processOwnerCommandEvent<TCommand extends J2OwnerCommandPa
     requestHash: payload.requestHash,
   });
   if (!result) {
-    throw new Error(`owner receipt ของ command ${payload.commandId} หายหลัง persistCommand`);
+    throw new Error(
+      `owner receipt for command ${payload.commandId} is missing after persistCommand`,
+    );
   }
   await options.publish(createOwnerResultEnvelope(command, result, options.now().toISOString()));
   return { outcome: 'PROCESSED', commandId: payload.commandId };
@@ -1013,7 +1026,7 @@ async function answerOwnerActionQuery<TCommand extends J2OwnerCommandPayloadV1>(
       return { outcome: 'QUARANTINED', code: error.code };
     throw error;
   }
-  // owner.queryAction อ่านใน tenant context ของ envelope เท่านั้น — actionKey ของ tenant อื่นหาไม่เจอ
+  // owner.queryAction reads only within the envelope's tenant context: another tenant's actionKey is not found
   const result = await options.owner.queryAction(tenantId(query.tenantId), query.payload);
   if (!result) return { outcome: 'QUERY_NO_RECEIPT' };
   assertOwnerResultQueryBinding(query.payload, result);
@@ -1035,7 +1048,7 @@ export function assertOwnerCommandCausation(outcomeValue: unknown, commandValue:
   ) {
     fail(
       'envelope',
-      'owner command ต้อง bind tenant/root correlation/causation และ source outcome',
+      'owner command must bind tenant/root correlation/causation and source outcome',
     );
   }
 }
@@ -1052,7 +1065,7 @@ export function assertOwnerResultBinding(commandValue: unknown, resultValue: unk
     result.payload.requestHash !== command.payload.requestHash ||
     result.payload.commandType !== command.payload.commandType
   ) {
-    fail('envelope', 'owner result ต้อง bind tenant/command/action/request/correlation/causation');
+    fail('envelope', 'owner result must bind tenant/command/action/request/correlation/causation');
   }
 }
 
@@ -1060,6 +1073,6 @@ export function assertOwnerResultQueryBinding(queryValue: unknown, resultValue: 
   const query = validateOwnerActionQuery(queryValue);
   const result = validateOwnerResultPayload(resultValue);
   if (result.actionKey !== query.actionKey || result.requestHash !== query.requestHash) {
-    fail('result', 'owner query result ต้อง bind actionKey และ requestHash เดิม');
+    fail('result', 'owner query result must bind the original actionKey and requestHash');
   }
 }

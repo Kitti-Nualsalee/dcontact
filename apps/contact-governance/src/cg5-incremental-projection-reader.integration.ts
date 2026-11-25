@@ -75,7 +75,7 @@ async function summary(owner: PrismaClient, tenantId: string) {
   };
 }
 
-test('CG5.4 rerun และ interrupt/resume ให้ projection เดียวกับรันรวดเดียวโดยไม่แตะ canonical', async (t) => {
+test('CG5.4 a rerun and an interrupt/resume give the same projection as a single uninterrupted run, without touching canonical', async (t) => {
   const f = await fixture(t);
   const resumable = new Cg5IncrementalProjectionReader(f.application, 1, 1);
   await resumable.run(f.tenantId);
@@ -105,7 +105,7 @@ test('CG5.4 rerun และ interrupt/resume ให้ projection เดีย�
   assert.equal(await f.owner.cgDecisionLog.count({ where: { tenantId: f.tenantId } }), 3);
 });
 
-test('CG5-CC02 reader สองตัวรันพร้อมกันบนคนละ connection ไม่นับซ้ำ', async (t) => {
+test('CG5-CC02 two readers running at the same time on separate connections do not double count', async (t) => {
   const f = await fixture(t);
   const second = new PrismaClient({
     datasources: {
@@ -117,7 +117,7 @@ test('CG5-CC02 reader สองตัวรันพร้อมกันบน�
     },
   });
   t.after(() => second.$disconnect());
-  // batch เล็กเพื่อให้สองตัวแย่ง cursor กันหลายรอบ ไม่ใช่ตัวหนึ่งกวาดหมดในรอบเดียว
+  // a small batch so the two fight over the cursor for several rounds, rather than one sweeping everything in a single round
   const readers = [
     new Cg5IncrementalProjectionReader(f.application, 1),
     new Cg5IncrementalProjectionReader(second, 1),

@@ -91,10 +91,10 @@ type ReservationRuntimeRow = {
   authorizationAggregateVersion: number | null;
 };
 
-/** S2.2: ใช้ชนิดเดียวกับสัญญาข้าม domain (#362 §4) — คืนครบทั้งสาม Boolean */
+/** S2.2: uses the same type as the cross-domain contract (#362 §4): returns all three Booleans */
 export type SettlementPolicyDecision = DeliverySettlementPolicyDecision;
 
-/** settle ที่ผ่าน `UNKNOWN_RECONCILING` มาแล้ว — policy เห็นเฉพาะ outcome ที่ terminal จริง */
+/** a settle that has already passed through `UNKNOWN_RECONCILING`: the policy sees only a truly terminal outcome */
 export type TerminalSettleDeliveryInput = Omit<SettleDeliveryInput, 'outcome'> & {
   outcome: TerminalDeliveryOutcome;
 };
@@ -113,13 +113,13 @@ export interface ReservationRuntimeOptions {
 }
 
 /**
- * matrix Attempt/Touch/refund ของ Governance (#361, #362 §8)
+ * Governance Attempt/Touch/refund matrix (#361, #362 §8)
  *
- * - `PROVIDER_ACCEPTED` (LINE `2xx/409`): Attempt 1, Touch 0, refund 0 — acceptance ไม่ใช่ delivery
- *   และไม่ใช่ read; Touch มาได้ทางเดียวคือ `recordCorrelatedTouch`
+ * - `PROVIDER_ACCEPTED` (LINE `2xx/409`): Attempt 1, Touch 0, refund 0: acceptance is not delivery
+ *   and not a read; the only way a Touch arrives is `recordCorrelatedTouch`
  * - `PROVIDER_REJECTED`: `RECIPIENT` = Attempt 1, `OPERATIONAL` = Attempt 0
- *   ไม่ระบุ scope = พฤติกรรม S1 เดิม (Attempt 1) เพราะ channel เดิมไม่มี vocabulary นี้
- * - `DELIVERED`/`DELIVERY_FAILED`: คงสัญญา S1 เดิมทั้งคู่
+ *   no scope = the original S1 behavior (Attempt 1) because the original channels had no such vocabulary
+ * - `DELIVERED`/`DELIVERY_FAILED`: both keep the original S1 contract
  */
 export function defaultSettlementPolicy(input: {
   outcome: TerminalDeliveryOutcome;
@@ -142,8 +142,8 @@ export function defaultSettlementPolicy(input: {
 }
 
 /**
- * invariant ที่ policy ตัวไหนก็ละเมิดไม่ได้ — กันไม่ให้ policy ที่ inject เข้ามาเปลี่ยนความหมายของ
- * acceptance เป็น Touch หรือ refund นอกเส้นทาง failure (#362 §8, stop condition ของ #364)
+ * invariants that no policy may violate: prevents an injected policy from changing the meaning of
+ * acceptance into a Touch or a refund outside the failure path (#362 §8, stop condition of #364)
  */
 function assertSettlementDecision(
   outcome: TerminalDeliveryOutcome,
@@ -197,7 +197,7 @@ function canonicalHash(input: object): string {
 
 function parseTimestamp(value: string, field: string): Date {
   const result = new Date(value);
-  if (Number.isNaN(result.getTime())) throw new TypeError(`${field} ต้องเป็น ISO-8601 timestamp`);
+  if (Number.isNaN(result.getTime())) throw new TypeError(`${field} must be an ISO-8601 timestamp`);
   return result;
 }
 
@@ -428,7 +428,7 @@ export class ReservationRuntime {
         if (reservation.submissionStartedAt || reservation.providerRequestKey) {
           fail('DELIVERY_RECONCILIATION_REQUIRED');
         }
-        // revalidate CG3 authorization ก่อนข้าม submission barrier (#98 §3: GOVERNANCE_VERSION_STALE)
+        // revalidate CG3 authorization before crossing the submission barrier (#98 §3: GOVERNANCE_VERSION_STALE)
         if (reservation.authorizationAggregateVersion !== null) {
           const head = await transaction.cgContactStateHead.findUnique({
             where: {
@@ -535,8 +535,8 @@ export class ReservationRuntime {
   }
 
   /**
-   * Touch ที่มาจาก explicit response — append อย่างเดียว ไม่ผ่าน command receipt เพราะไม่ใช่
-   * reservation transition: reservation, lease และ terminal outcome ต้องเหมือนเดิมทุกประการ
+   * a Touch that comes from an explicit response: append only, not through a command receipt because it is not a
+   * reservation transition: the reservation, lease and terminal outcome must remain exactly the same
    */
   recordCorrelatedTouch(input: RecordCorrelatedTouchInput): Promise<CorrelatedTouchView> {
     return this.facts.recordCorrelatedTouch(input);
@@ -584,7 +584,7 @@ export class ReservationRuntime {
           if (reservation.state !== 'CONFIRMED') fail('DELIVERY_RECONCILIATION_REQUIRED');
           nextState = policy.refundOnFailure ? 'REFUNDED' : 'CONFIRMED';
         } else {
-          // PROVIDER_ACCEPTED และ DELIVERED: confirm + settle ในก้าวเดียว (#362 §6)
+          // PROVIDER_ACCEPTED and DELIVERED: confirm + settle in one step (#362 §6)
           nextState = 'CONFIRMED';
         }
 
@@ -603,7 +603,7 @@ export class ReservationRuntime {
           select: reservationRuntimeSelection,
         });
 
-        // operational rejection ปล่อยโควต้าคืนโดยไม่แตะผู้รับ จึงไม่มี Attempt/Touch (#361 §B)
+        // an operational rejection returns the quota without touching the recipient, so it has no Attempt/Touch (#361 §B)
         if (!policy.countsAsAttempt) return view(updated);
 
         await this.facts.record(

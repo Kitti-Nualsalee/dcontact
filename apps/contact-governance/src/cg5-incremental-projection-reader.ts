@@ -186,7 +186,7 @@ export class Cg5IncrementalProjectionReader {
   /** Rebuilds canonical-volume metrics in a range and advances only stale source cursors. */
   async rebuildRange(tenantId: string, range: Cg5ProjectionRange): Promise<void> {
     if (!(range.from instanceof Date) || !(range.to instanceof Date) || range.from >= range.to) {
-      throw new TypeError('range ต้องมี from ก่อน to');
+      throw new TypeError('range must have from before to');
     }
     const bucketRange = fiveMinuteRange(range);
     await withTenantDatabaseTransaction(this.database, tenantId, async (transaction) => {

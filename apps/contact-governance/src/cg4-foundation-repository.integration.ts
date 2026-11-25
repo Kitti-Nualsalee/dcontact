@@ -121,7 +121,7 @@ function command(
   };
 }
 
-test('CG4 exception revision/head/contact aggregate/receipt/audit/outbox ถูก commit แบบ atomic และ retry คืนผลเดิม', async (t) => {
+test('a CG4 exception revision/head/contact aggregate/receipt/audit/outbox is committed atomically, and a retry returns the original result', async (t) => {
   const f = await fixture(t);
   const repository = new Cg4FoundationRepository(f.application);
 
@@ -155,7 +155,7 @@ test('CG4 exception revision/head/contact aggregate/receipt/audit/outbox ถู�
   );
 });
 
-test('CG4.8: exception event ต่อ contact stream version ของ CG3 แต่ CAS/digest ของ exception command ยังแยก', async (t) => {
+test('CG4.8: an exception event continues the CG3 contact stream version, but the CAS/digest of the exception command remain separate', async (t) => {
   const f = await fixture(t);
   const preferences = new Cg3PreferenceRepository(f.application);
   await preferences.append({
@@ -182,11 +182,11 @@ test('CG4.8: exception event ต่อ contact stream version ของ CG3 แ�
   });
 
   const repository = new Cg4FoundationRepository(f.application);
-  // expectedVersion ของ exception command ไม่ขึ้นกับ preference ที่เพิ่ง append (migration 20260913122000)
+  // the expectedVersion of the exception command does not depend on the preference just appended (migration 20260913122000)
   const created = await repository.recordException(command(f, { expectedVersion: 0 }));
   assert.equal(created.aggregateVersion, 1);
 
-  // แต่ event อยู่บน contact stream เดียวกับ CG3 จึงต้องได้ version ถัดไป ไม่ใช่ 1 ซ้ำ (#179 §4)
+  // but the event is on the same contact stream as CG3, so it must get the next version, not a repeated 1 (#179 §4)
   const event = await f.owner.cgEventOutbox.findFirstOrThrow({
     where: { tenantId: f.tenantId, eventType: 'exception.recorded' },
   });
@@ -197,7 +197,7 @@ test('CG4.8: exception event ต่อ contact stream version ของ CG3 แ�
     where: { tenantId_contactId: { tenantId: f.tenantId, contactId: f.contactId } },
   });
   assert.equal(cg3Head.aggregateVersion, 2);
-  // digest chain ของ CG3 ไม่ถูกแตะ
+  // the CG3 digest chain is not touched
   assert.equal(cg3Head.currentDigest, cg3Before.currentDigest);
   const cg4Head = await f.owner.cg4ContactExceptionHead.findUniqueOrThrow({
     where: { tenantId_contactId: { tenantId: f.tenantId, contactId: f.contactId } },
@@ -206,7 +206,7 @@ test('CG4.8: exception event ต่อ contact stream version ของ CG3 แ�
   assert.notEqual(cg3Head.currentDigest, cg4Head.currentDigest);
 });
 
-test('CG4 exception ใช้ CAS ต่อ contact aggregate และ revision ใหม่ append-only', async (t) => {
+test('a CG4 exception uses CAS per contact aggregate, and a new revision is append-only', async (t) => {
   const f = await fixture(t);
   const repository = new Cg4FoundationRepository(f.application);
   const first = await repository.recordException(command(f));
@@ -256,7 +256,7 @@ test('CG4 exception ใช้ CAS ต่อ contact aggregate และ revision
   assert.ok(rejected.reason instanceof Cg3VersionConflictError);
 });
 
-test('idempotency key ที่ผูก canonical request คนละตัวถูกปฏิเสธก่อนสร้าง revision ใหม่', async (t) => {
+test('an idempotency key bound to a different canonical request is rejected before creating a new revision', async (t) => {
   const f = await fixture(t);
   const repository = new Cg4FoundationRepository(f.application);
   await repository.recordException(command(f));
@@ -267,7 +267,7 @@ test('idempotency key ที่ผูก canonical request คนละตัว
   assert.equal(await f.owner.cg4Exception.count({ where: { tenantId: f.tenantId } }), 1);
 });
 
-test('RLS และ tenant-bound identity/policy FK ไม่ให้ request ข้าม tenant เห็นหรือสลับ ID', async (t) => {
+test('RLS and tenant-bound identity/policy FKs stop a cross-tenant request from seeing or swapping IDs', async (t) => {
   const active = await fixture(t);
   const foreign = await fixture(t);
   const repository = new Cg4FoundationRepository(active.application);
@@ -301,7 +301,7 @@ test('RLS และ tenant-bound identity/policy FK ไม่ให้ request �
   assert.equal(hidden, null);
 });
 
-test('unique scope head, immutable exception/published policy และ kill-switch clear approval ถูกบังคับที่ DB', async (t) => {
+test('the unique scope head, an immutable exception/published policy and the kill-switch clear approval are enforced at the DB', async (t) => {
   const f = await fixture(t);
   const policy = await f.owner.cg4Policy.findFirstOrThrow({
     where: { tenantId: f.tenantId, policyId: f.policyId },
@@ -336,7 +336,7 @@ test('unique scope head, immutable exception/published policy และ kill-swi
       }),
     ),
   );
-  // ข้าม SCHEDULED ไป ACTIVE โดยตรงต้องถูกปฏิเสธ
+  // skipping SCHEDULED straight to ACTIVE must be rejected
   await assert.rejects(
     withTenantDatabaseTransaction(f.application, f.tenantId, (transaction) =>
       transaction.cg4Policy.update({

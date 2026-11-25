@@ -22,7 +22,7 @@ export class Cg4CapabilityRequiredError extends Error {
   readonly code = 'CAPABILITY_REQUIRED';
 
   constructor(readonly capability: Cg4Capability) {
-    super(`subject ไม่มี capability ${capability} ที่ current scope`);
+    super(`subject does not have capability ${capability} in the current scope`);
     this.name = 'Cg4CapabilityRequiredError';
   }
 }
@@ -31,7 +31,7 @@ export class Cg4SelfApprovalError extends Error {
   readonly code = 'SELF_APPROVAL_FORBIDDEN';
 
   constructor() {
-    super('maker ไม่สามารถ approve คำขอ/revision ของตนเองได้');
+    super('a maker cannot approve their own request/revision');
     this.name = 'Cg4SelfApprovalError';
   }
 }
@@ -40,7 +40,7 @@ export class Cg4DuplicateCheckerError extends Error {
   readonly code = 'FORBIDDEN';
 
   constructor() {
-    super('checker คนนี้ approve/reject revision นี้ไปแล้ว');
+    super('this checker has already approved/rejected this revision');
     this.name = 'Cg4DuplicateCheckerError';
   }
 }
@@ -58,7 +58,7 @@ export class Cg4ApprovalStaleError extends Error {
   readonly code = 'APPROVAL_STALE';
 
   constructor() {
-    super('authorization epoch หรือ scope version เปลี่ยนไปตั้งแต่ approval ถูกบันทึก');
+    super('the authorization epoch or scope version changed since the approval was recorded');
     this.name = 'Cg4ApprovalStaleError';
   }
 }
@@ -70,7 +70,7 @@ export class Cg4QuorumNotMetError extends Error {
     readonly required: number,
     readonly current: number,
   ) {
-    super(`quorum ยังไม่ครบ (${current}/${required})`);
+    super(`quorum not reached (${current}/${required})`);
     this.name = 'Cg4QuorumNotMetError';
   }
 }
@@ -93,7 +93,7 @@ function findActiveGrant(
 function assertDelegationAllowed(capability: Cg4Capability, grant: Cg4CapabilityGrant): void {
   if (grant.source === 'DELEGATED' && !CG4_DELEGABLE_CAPABILITIES.includes(capability)) {
     throw new Cg4DelegationNotAllowedError(
-      `delegated capability ใช้ได้เฉพาะ ${CG4_DELEGABLE_CAPABILITIES.join(', ')}`,
+      `a delegated capability may be only ${CG4_DELEGABLE_CAPABILITIES.join(', ')}`,
     );
   }
 }
@@ -264,23 +264,25 @@ export interface AssertCg4DelegationGrantAllowedInput {
 /** Pure validation for #173 §3: exact capability/scope/risk, no wildcard, no chaining, ≤8h. */
 export function assertCg4DelegationGrantAllowed(input: AssertCg4DelegationGrantAllowedInput): void {
   if (!CG4_DELEGABLE_CAPABILITIES.includes(input.capability)) {
-    throw new Cg4DelegationNotAllowedError(`capability ${input.capability} มอบหมายไม่ได้`);
+    throw new Cg4DelegationNotAllowedError(`capability ${input.capability} cannot be delegated`);
   }
   if (input.delegatorSubjectId === input.delegateSubjectId) {
-    throw new Cg4DelegationNotAllowedError('ผู้มอบหมายและผู้รับมอบหมายต้องเป็นคนละ subject');
+    throw new Cg4DelegationNotAllowedError(
+      'the delegator and the delegate must be different subjects',
+    );
   }
   if (!input.delegatorHoldsCapabilityDirectly) {
     throw new Cg4DelegationNotAllowedError(
-      'ห้าม sub-delegate capability ที่ได้จาก delegation อื่น',
+      'a capability obtained from another delegation must not be sub-delegated',
     );
   }
   if (input.delegateIsServicePrincipal) {
-    throw new Cg4DelegationNotAllowedError('ห้ามมอบหมายให้ service/shared principal');
+    throw new Cg4DelegationNotAllowedError('delegating to a service/shared principal is forbidden');
   }
   if (input.expiresAt.getTime() <= input.startsAt.getTime()) {
-    throw new RangeError('expiresAt ต้องอยู่หลัง startsAt');
+    throw new RangeError('expiresAt must be after startsAt');
   }
   if (input.expiresAt.getTime() - input.startsAt.getTime() > CG4_DELEGATION_MAX_WINDOW_MS) {
-    throw new Cg4DelegationNotAllowedError('delegation ต้องไม่เกิน 8 ชั่วโมง');
+    throw new Cg4DelegationNotAllowedError('a delegation must not exceed 8 hours');
   }
 }

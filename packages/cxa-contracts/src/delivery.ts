@@ -1,4 +1,4 @@
-/** Owner: Channels/Dialer — สัญญาข้าม domain; ไม่มี database, provider SDK หรือ transport dependency */
+/** Owner: Channels/Dialer: a cross-domain contract; no database, provider SDK or transport dependency */
 import type {
   ActionKey,
   ContactId,
@@ -57,21 +57,21 @@ export interface DeliveryEnqueueFailure {
 export type EnqueueDeliveryResult = DeliveryQueued | DeliveryEnqueueFailure;
 
 /**
- * Owner: Channels/Dialer; full port ของ E0 ยังไม่มี production implementation.
- * `enqueue` เป็น operation เดียวที่ port นี้เปิด — cancellation และ outcome
- * settlement ยังอยู่บน ContactGovernancePort เพื่อให้ Governance เป็น single
- * writer ของ reservation/Attempt/Touch ตัว adapter จริงต้อง persist outbox
- * row ก่อนตอบ QUEUED เสมอ และห้ามออก providerRequestKey ใหม่จาก retry ของ
- * actionKey เดิม
+ * Owner: Channels/Dialer; the full E0 port has no production implementation yet.
+ * `enqueue` is the only operation this port opens: cancellation and outcome
+ * settlement stay on ContactGovernancePort so that Governance is the single
+ * writer of reservation/Attempt/Touch. A real adapter must persist the outbox
+ * row before answering QUEUED, and must not issue a new providerRequestKey from a retry of
+ * the same actionKey
  */
 export interface DeliveryPort {
   enqueue(command: EnqueueDeliveryCommand): Promise<EnqueueDeliveryResult>;
 }
 
 /**
- * Delivery รายงาน lifecycle ที่ durable เข้า Journey owner-local inbox. นี่เป็น
- * immutable binding notification ไม่ใช่สิทธิ์ให้ Delivery เขียน Journey table โดยตรง
- * และ `eventId` ต้องคงที่เมื่อ retry transition เดิม
+ * Delivery reports durable lifecycle to the Journey owner-local inbox. This is an
+ * immutable binding notification, not permission for Delivery to write Journey tables directly,
+ * and `eventId` must stay the same when the same transition is retried
  */
 export interface JourneyActionLifecycleRecord {
   tenantId: TenantId;
@@ -90,8 +90,8 @@ export interface JourneyActionLifecyclePort {
 }
 
 /**
- * คำสั่งจาก Journey ไปยัง Delivery owner หลังข้าม submission barrier แล้วเท่านั้น.
- * Journey ไม่ settle reservation หรือสื่อสารกับ provider แทน Delivery.
+ * A command from Journey to the Delivery owner, only after crossing the submission barrier.
+ * Journey does not settle a reservation or talk to the provider in Delivery's place.
  */
 export interface ReconcileJourneyDeliveryCommand {
   tenantId: TenantId;
