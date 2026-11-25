@@ -1,13 +1,16 @@
 /**
- * Owner: IAM — template email บัญชีของ D-Contact (AC3 #596, #589)
+ * Owner: IAM — D-Contact account email templates (AC3 #596, #589)
  *
- * - TH/EN ตาม locale ของผู้ใช้; โทนและ layout เดียวกับ email theme `dcontact` ของ Keycloak (#522)
- *   ค่าสี/ตัวอักษรมาจาก token ของ `@d-contact/ui` (inline style เพราะ mail client ไม่รองรับ stylesheet/var())
- * - ลิงก์ชี้หน้า "บัญชีของฉัน" ของ Console เท่านั้น (`{consoleUrl}/?view=account`) — ไม่มีชื่อหรือ URL ของ
- *   ระบบ identity ในเนื้อหา
- * - ค่าที่มาจากผู้ใช้ถูก escape ทุกจุด; อีเมลใหม่ในข้อความถึงอีเมลเดิมถูกปิดบางส่วน
+ * - TH/EN by the user's locale; same tone and layout as the Keycloak `dcontact` email theme (#522)
+ *   Colors and type come from `@d-contact/ui` tokens (inline styles: mail clients ignore stylesheets/var())
+ * - Text lives in `locales/{th,en}/account-email.ts`
+ * - Links only point to the Console "My account" page (`{consoleUrl}/?view=account`); the content never
+ *   names or links the identity system
+ * - Every user-supplied value is escaped; the new address is partly masked in mail to the old address
  */
 import { tokens } from '@d-contact/ui';
+import { accountEmailEn } from './locales/en/account-email.js';
+import { accountEmailTh } from './locales/th/account-email.js';
 
 export const ACCOUNT_EMAIL_TEMPLATES = [
   'verify-new-email',
@@ -32,9 +35,9 @@ export interface RenderedEmail {
 }
 
 export interface RenderOptions {
-  /** origin ของ Console เช่น `https://uat.osd.co.th` — ต้องเป็น https ยกเว้น localhost */
+  /** Console origin, e.g. `https://uat.osd.co.th` — must be https except on localhost */
   consoleUrl: string;
-  /** เขตเวลาที่ใช้แสดงเวลาในอีเมล (ค่าเริ่มต้นของ tenant ไทย) */
+  /** Time zone for times shown in the email (defaults to the Thai tenant default) */
   timeZone?: string;
 }
 
@@ -45,69 +48,9 @@ export class AccountEmailTemplateError extends Error {
   }
 }
 
-const messages = {
-  th: {
-    footer: 'อีเมลนี้ส่งจากระบบ D-Contact โดยอัตโนมัติ กรุณาอย่าตอบกลับ',
-    fallback: 'หากปุ่มกดไม่ได้ ให้คัดลอกลิงก์นี้ไปเปิดในเบราว์เซอร์',
-    'verify-new-email': {
-      subject: 'ยืนยันอีเมลใหม่ของบัญชี D-Contact',
-      title: 'ยืนยันอีเมลใหม่ของคุณ',
-      intro: 'มีคำขอเปลี่ยนอีเมลของบัญชี D-Contact มาเป็นอีเมลนี้ กดปุ่มด้านล่างเพื่อยืนยัน',
-      action: 'ยืนยันอีเมล',
-      expiry: (minutes: number) => `ลิงก์นี้ใช้ได้ภายใน ${minutes} นาที และใช้ได้ครั้งเดียว`,
-      ignore: 'หากคุณไม่ได้ขอเปลี่ยนอีเมล ไม่ต้องทำอะไร อีเมลของบัญชีจะไม่เปลี่ยน',
-    },
-    'email-changed-notice': {
-      subject: 'อีเมลของบัญชี D-Contact ถูกเปลี่ยน',
-      title: 'อีเมลของบัญชีคุณถูกเปลี่ยน',
-      intro: (masked: string, at: string) =>
-        `อีเมลของบัญชี D-Contact ถูกเปลี่ยนเป็น ${masked} เมื่อ ${at} อีเมลนี้จะไม่ได้รับการแจ้งเตือนของบัญชีอีกต่อไป`,
-      action: 'เปิดบัญชีของฉัน',
-      warning: 'หากคุณไม่ได้เปลี่ยนเอง ให้ติดต่อผู้ดูแลระบบขององค์กรทันที',
-    },
-    'password-changed-notice': {
-      subject: 'รหัสผ่านของบัญชี D-Contact ถูกเปลี่ยน',
-      title: 'รหัสผ่านของคุณถูกเปลี่ยน',
-      intro: (at: string) => `รหัสผ่านของบัญชี D-Contact ถูกเปลี่ยนเมื่อ ${at}`,
-      action: 'เปิดบัญชีของฉัน',
-      warning: 'หากคุณไม่ได้เปลี่ยนเอง ให้ติดต่อผู้ดูแลระบบขององค์กรทันที',
-    },
-  },
-  en: {
-    footer: 'This email was sent automatically by D-Contact. Please do not reply.',
-    fallback: 'If the button does not work, copy this link into your browser',
-    'verify-new-email': {
-      subject: 'Confirm the new email for your D-Contact account',
-      title: 'Confirm your new email',
-      intro:
-        'A request was made to change your D-Contact account email to this address. Select the button below to confirm.',
-      action: 'Confirm email',
-      expiry: (minutes: number) =>
-        `This link expires in ${minutes} minutes and can be used only once.`,
-      ignore:
-        'If you did not request this change, no action is needed. Your account email stays the same.',
-    },
-    'email-changed-notice': {
-      subject: 'Your D-Contact account email was changed',
-      title: 'Your account email was changed',
-      intro: (masked: string, at: string) =>
-        `Your D-Contact account email was changed to ${masked} on ${at}. This address will no longer receive account notifications.`,
-      action: 'Open my account',
-      warning:
-        'If you did not make this change, contact your organization administrator immediately.',
-    },
-    'password-changed-notice': {
-      subject: 'Your D-Contact password was changed',
-      title: 'Your password was changed',
-      intro: (at: string) => `The password for your D-Contact account was changed on ${at}.`,
-      action: 'Open my account',
-      warning:
-        'If you did not make this change, contact your organization administrator immediately.',
-    },
-  },
-} as const;
+const messages = { th: accountEmailTh, en: accountEmailEn };
 
-/** rem → px (root 16px) เพราะ mail client บางตัวคิด rem ผิด — แบบเดียวกับ keycloak-theme-build.mjs */
+/** rem → px (16px root) because some mail clients miscompute rem — same as keycloak-theme-build.mjs */
 const px = (value: string) =>
   value.replace(/(\d*\.?\d+)rem\b/g, (_, rem: string) => `${Number(rem) * 16}px`);
 const dc = new Proxy(tokens as Record<string, string>, {
@@ -123,7 +66,7 @@ const escapeHtml = (value: string) =>
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;');
 
-/** `someone@example.com` → `s*****e@example.com` (ถึงอีเมลเดิม — ไม่เปิดเผยอีเมลใหม่ทั้งหมด) */
+/** `someone@example.com` → `s*****e@example.com` (mail to the old address never shows the full new one) */
 export function maskEmail(email: string): string {
   const at = email.lastIndexOf('@');
   if (at < 1) return '***';
@@ -193,7 +136,7 @@ ${note(m.fallback)}
 </body>
 </html>
 `;
-  // plain text: ลิงก์อยู่บรรทัดของตัวเองเสมอ (แบบเดียวกับ email theme ของ Keycloak)
+  // Plain text: the link always sits on its own line (same as the Keycloak email theme)
   const text = [
     content.title,
     '',
@@ -211,7 +154,7 @@ ${note(m.fallback)}
 
 const isString = (value: unknown): value is string => typeof value === 'string' && value.length > 0;
 
-/** ตรวจตัวแปรของ template — ใช้ทั้งตอน enqueue (ปฏิเสธก่อนเขียน) และตอน render */
+/** Validates template variables — used both on enqueue (reject before writing) and on render */
 export function assertAccountEmailVariables<T extends AccountEmailTemplate>(
   template: T,
   variables: unknown,

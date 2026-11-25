@@ -50,7 +50,10 @@ function identity(request: AuthenticatedGatewayRequest) {
 
 function uuid(value: string, field: string) {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)) {
-    throw new BadRequestException({ code: 'VALIDATION_FAILED', message: `${field} ต้องเป็น UUID` });
+    throw new BadRequestException({
+      code: 'VALIDATION_FAILED',
+      message: `${field} must be a UUID`,
+    });
   }
   return value;
 }
@@ -61,7 +64,7 @@ function date(value: unknown, field: string): Date {
   if (Number.isNaN(parsed.valueOf())) {
     throw new BadRequestException({
       code: 'VALIDATION_FAILED',
-      message: `${field} ต้องเป็น ISO date`,
+      message: `${field} must be an ISO date`,
     });
   }
   return parsed;
@@ -69,7 +72,7 @@ function date(value: unknown, field: string): Date {
 
 function requestBody(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'body ต้องเป็น object' });
+    throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'body must be an object' });
   }
   return value as Record<string, unknown>;
 }
@@ -80,10 +83,13 @@ function datasets(value: unknown): Cg5ExportDataset[] {
     value.length === 0 ||
     value.some((item) => typeof item !== 'string' || !DATASETS.has(item))
   ) {
-    throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'datasets ไม่ถูกต้อง' });
+    throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'datasets is invalid' });
   }
   if (new Set(value).size !== value.length) {
-    throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'datasets ต้องไม่ซ้ำ' });
+    throw new BadRequestException({
+      code: 'VALIDATION_FAILED',
+      message: 'datasets must not repeat',
+    });
   }
   return value as Cg5ExportDataset[];
 }
@@ -92,7 +98,7 @@ function reason(value: unknown): string {
   if (typeof value !== 'string' || value.trim().length === 0 || value.length > 500) {
     throw new BadRequestException({
       code: 'VALIDATION_FAILED',
-      message: 'reason ต้องมีความยาว 1-500 ตัวอักษร',
+      message: 'reason must be 1-500 characters long',
     });
   }
   return value.trim();
@@ -104,7 +110,7 @@ function idempotencyKey(request: AuthenticatedGatewayRequest): string {
   if (!value?.trim()) {
     throw new BadRequestException({
       code: 'VALIDATION_FAILED',
-      message: 'header Idempotency-Key ต้องระบุ',
+      message: 'header Idempotency-Key is required',
     });
   }
   return value.trim();
@@ -172,7 +178,7 @@ export class ContactGovernanceCg5ExportController {
     if (input.evidenceLevel !== undefined && evidenceLevel !== input.evidenceLevel) {
       throw new BadRequestException({
         code: 'VALIDATION_FAILED',
-        message: 'evidenceLevel ไม่ถูกต้อง',
+        message: 'evidenceLevel is invalid',
       });
     }
     if (evidenceLevel === 'EVIDENCE' && actor.level !== 'EVIDENCE') {
@@ -181,12 +187,12 @@ export class ContactGovernanceCg5ExportController {
     const rangeFrom = date(input.rangeFrom, 'rangeFrom');
     const rangeTo = date(input.rangeTo, 'rangeTo');
     if (rangeFrom >= rangeTo)
-      throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'range ไม่ถูกต้อง' });
+      throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'range is invalid' });
     const filters = input.filters ?? {};
     if (!filters || typeof filters !== 'object' || Array.isArray(filters)) {
       throw new BadRequestException({
         code: 'VALIDATION_FAILED',
-        message: 'filters ต้องเป็น object',
+        message: 'filters must be an object',
       });
     }
     try {

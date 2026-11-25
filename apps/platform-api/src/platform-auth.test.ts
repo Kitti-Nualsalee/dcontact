@@ -242,7 +242,7 @@ describe('PlatformAuthGuard ผ่าน HTTP จริง', () => {
     assert.deepEqual(denied.body, {
       status: 403,
       code: 'FORBIDDEN',
-      title: 'ไม่มีสิทธิ์ทำรายการนี้',
+      title: 'You do not have permission for this action',
       correlationId: 'corr-probe-1',
       retryable: false,
     });
@@ -252,7 +252,7 @@ describe('PlatformAuthGuard ผ่าน HTTP จริง', () => {
     const expected = {
       status: 401,
       code: 'UNAUTHENTICATED',
-      title: 'ต้องเข้าสู่ระบบ Platform Console ใหม่',
+      title: 'Sign in to Platform Console again',
       correlationId: 'corr-probe-1',
       retryable: false,
     };
@@ -312,7 +312,7 @@ describe('PlatformAuthGuard ผ่าน HTTP จริง', () => {
       body: {
         status: 503,
         code: 'PROVISIONING_DISABLED',
-        title: 'ปิดการสร้างและแก้ไขชั่วคราว ดูสถานะได้ตามปกติ',
+        title: 'Creating and editing are temporarily disabled; status is still available',
         correlationId: 'corr-probe-1',
         retryable: false,
       },

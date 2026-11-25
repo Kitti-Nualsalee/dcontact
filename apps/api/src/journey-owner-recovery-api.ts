@@ -1,17 +1,17 @@
 /**
- * J2.8 follow-up (#136) — internal sanitized query API และ audited replay/reconcile/cancel
- * ของ owner action
+ * J2.8 follow-up (#136) — internal sanitized query API and audited replay/reconcile/cancel
+ * of owner actions
  *
- * สามข้อที่ acceptance ของ #136 บังคับและมีผลกับทุก mutation ในไฟล์นี้:
- *   1. `Idempotency-Key` — บังคับทุก mutation ไม่มีค่า default
- *   2. `expectedVersion` — ต้องตรงกับ version ที่ operator เห็นจริง ไม่งั้น 409 VERSION_CONFLICT
- *      กัน "blind retry" ที่ทับ state ซึ่งขยับไปแล้ว
- *   3. structured reason — `reasonCode` ลง JrRecoveryAudit ทุกครั้ง (append-only)
+ * Three requirements from #136's acceptance that apply to every mutation in this file:
+ *   1. `Idempotency-Key` — required on every mutation, no default
+ *   2. `expectedVersion` — must match the version the operator actually saw, otherwise 409
+ *      VERSION_CONFLICT, preventing a "blind retry" from overwriting state that has moved on
+ *   3. structured reason — `reasonCode` is written to JrRecoveryAudit every time (append-only)
  *
- * sanitized: ไม่มี endpoint ไหนคืน command/result payload, requestHash หรือ resultHash
- * เพราะ payload อาจมี business data ที่ไม่ควรออกทาง forensic API — คืนแค่ identity, state
- * และเวลา; resource ของ tenant อื่นตอบ 404 RESOURCE_NOT_FOUND แบบเดียวกับที่ไม่เคยมีอยู่จริง
- * เพื่อไม่ให้ probe การมีอยู่ข้าม tenant ได้
+ * Sanitized: no endpoint returns the command/result payload, requestHash or resultHash, because the
+ * payload may hold business data that must not leave through a forensic API — only identity, state
+ * and time are returned. Another tenant's resource answers 404 RESOURCE_NOT_FOUND exactly like one
+ * that never existed, so existence cannot be probed across tenants
  */
 import {
   BadRequestException,
@@ -38,12 +38,12 @@ import { GatewayRoles, type AuthenticatedGatewayRequest } from './gateway-auth.j
 
 export const JOURNEY_RECOVERY_DATABASE = Symbol('JOURNEY_RECOVERY_DATABASE');
 
-/** admin recovery เป็นเครื่องมือ forensic — จำกัดไว้ที่ role ที่ดูแล incident เท่านั้น */
+/** Admin recovery is a forensic tool — limited to incident-handling roles */
 const RECOVERY_ROLES = ['admin', 'compliance'];
 
 function body(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'body ต้องเป็น object' });
+    throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'body must be an object' });
   }
   return value as Record<string, unknown>;
 }
@@ -54,7 +54,7 @@ function requiredIdempotencyKey(request: AuthenticatedGatewayRequest): string {
   if (!value || value.trim().length === 0) {
     throw new BadRequestException({
       code: 'VALIDATION_FAILED',
-      message: 'header Idempotency-Key ต้องระบุ',
+      message: 'header Idempotency-Key is required',
     });
   }
   return value.trim();
@@ -64,24 +64,24 @@ function requiredVersion(value: unknown): number {
   if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
     throw new BadRequestException({
       code: 'VALIDATION_FAILED',
-      message: 'expectedVersion ต้องเป็นจำนวนเต็มบวก',
+      message: 'expectedVersion must be a positive integer',
     });
   }
   return value;
 }
 
-/** reason ต้องเป็น code ที่ query รวมกลุ่มได้ ไม่ใช่ประโยคอิสระที่อาจมี PII หลุดมา */
+/** The reason must be a groupable code, not free text that could leak PII */
 function requiredReasonCode(value: unknown): string {
   if (typeof value !== 'string' || !/^[A-Z][A-Z0-9_]{2,63}$/.test(value)) {
     throw new BadRequestException({
       code: 'VALIDATION_FAILED',
-      message: 'reasonCode ต้องเป็น UPPER_SNAKE_CASE ความยาว 3-64 ตัวอักษร',
+      message: 'reasonCode must be UPPER_SNAKE_CASE, 3-64 characters long',
     });
   }
   return value;
 }
 
-/** admin recovery เปิดให้เฉพาะ workspace identity — service account ไม่ใช่ผู้รับผิดชอบ incident */
+/** Admin recovery is open to workspace identities only — a service account is not an incident owner */
 function recoveryActor(request: AuthenticatedGatewayRequest): {
   tenantId: string;
   actorId: string;
@@ -102,7 +102,7 @@ function mapRecoveryError(error: unknown): never {
   if (error instanceof OwnerActionCancellationUnavailableError) {
     throw new ConflictException({ code: error.code });
   }
-  // generic โดยตั้งใจ: action ของ tenant อื่นต้องแยกไม่ออกจาก action ที่ไม่เคยมี
+  // Generic on purpose: another tenant's action must be indistinguishable from one that never existed
   if (error instanceof OwnerActionNotFoundError) {
     throw new NotFoundException({ code: 'RESOURCE_NOT_FOUND' });
   }
@@ -237,9 +237,9 @@ export class JourneyOwnerRecoveryController {
   }
 
   /**
-   * reconcile ไม่เปลี่ยน state เอง — เป็นการบันทึกว่ามีการสั่งให้ไปถาม owner ใหม่
-   * ตัว pull จริงเป็นหน้าที่ `JourneyOwnerResultReconciler` ที่เดินเป็น worker
-   * API นี้จึงทำแค่ปลดล็อกให้ command กลับเข้าคิว แล้ว audit ไว้ ไม่ใช่ mutate canonical state
+   * Reconcile does not change state itself — it records that the owner should be asked again.
+   * The actual pull is done by `JourneyOwnerResultReconciler` running as a worker, so this API only
+   * releases the command back into the queue and audits it; it never mutates canonical state
    */
   @Post(':actionKey/reconcile')
   @GatewayRoles(...RECOVERY_ROLES)

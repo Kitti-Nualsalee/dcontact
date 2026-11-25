@@ -1,14 +1,14 @@
 /**
- * J3.8 (#219) — sanitized query API ของ segment membership stream
+ * J3.8 (#219) — sanitized query API for the segment membership stream
  *
- * หลักสามข้อที่บังคับทุก endpoint ในไฟล์นี้:
+ * Three rules every endpoint in this file enforces:
  *
- * 1. **generic 404** — stream ของ tenant อื่นต้องแยกไม่ออกจาก stream ที่ไม่เคยมีอยู่จริง
- *    ถ้าตอบต่างกัน ผู้เรียกจะ probe ได้ว่า contact/segment ไหนมีอยู่ใน tenant อื่น
- * 2. **ETag จากสถานะจริง** — ประกอบจาก `lastAppliedRevision` กับ `updatedAt` ของ head
- *    ไม่ใช่ hash ของ response body ที่จะเปลี่ยนทุกครั้งที่เราแก้รูปแบบ view
- * 3. **ไม่มี payload/digest ออกไป** — `JourneySegmentQuery` ไม่อ่านคอลัมน์พวกนั้นขึ้นมาตั้งแต่ต้น
- *    ที่นี่จึงไม่ต้องกรองซ้ำ (กรองซ้ำคือกติกาชุดที่สองที่ต้องคอยให้ตรงกัน)
+ * 1. **generic 404** — another tenant's stream must be indistinguishable from one that never existed;
+ *    different answers would let a caller probe which contact/segment exists in another tenant
+ * 2. **ETag from real state** — built from the head's `lastAppliedRevision` and `updatedAt`,
+ *    not a hash of the response body, which would change whenever the view shape changes
+ * 3. **no payload/digest leaves** — `JourneySegmentQuery` never reads those columns, so nothing
+ *    is filtered again here (a second filter would be a second rule set to keep in sync)
  */
 import {
   BadRequestException,
@@ -39,10 +39,10 @@ import { GatewayRoles, type AuthenticatedGatewayRequest } from './gateway-auth.j
 
 export const JOURNEY_SEGMENT_DATABASE = Symbol('JOURNEY_SEGMENT_DATABASE');
 
-/** forensic tool — จำกัดที่ role ที่ดูแล incident เหมือน owner recovery API ของ J2.8 */
+/** Forensic tool — limited to incident-handling roles, like the J2.8 owner recovery API */
 const SEGMENT_QUERY_ROLES = ['admin', 'compliance'];
 
-/** opaque id เท่านั้น — ปฏิเสธก่อนแตะฐานข้อมูลเพื่อไม่ให้ path กลายเป็นช่องส่ง free text */
+/** Opaque ids only — rejected before touching the database so the path cannot carry free text */
 const OPAQUE_ID = /^[A-Za-z0-9][A-Za-z0-9_:-]{0,127}$/;
 
 function actor(request: AuthenticatedGatewayRequest): { tenantId: string; actorId: string } {
@@ -53,7 +53,7 @@ function actor(request: AuthenticatedGatewayRequest): { tenantId: string; actorI
 
 function body(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'body ต้องเป็น object' });
+    throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'body must be an object' });
   }
   return value as Record<string, unknown>;
 }
@@ -64,7 +64,7 @@ function requiredIdempotencyKey(request: AuthenticatedGatewayRequest): string {
   if (!value || value.trim().length === 0) {
     throw new BadRequestException({
       code: 'VALIDATION_FAILED',
-      message: 'header Idempotency-Key ต้องระบุ',
+      message: 'header Idempotency-Key is required',
     });
   }
   return value.trim();
@@ -74,28 +74,28 @@ function requiredVersion(value: unknown): number {
   if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
     throw new BadRequestException({
       code: 'VALIDATION_FAILED',
-      message: 'expectedVersion ต้องเป็นจำนวนเต็มบวก',
+      message: 'expectedVersion must be a positive integer',
     });
   }
   return value;
 }
 
-/** reason ต้องเป็น code ที่ query รวมกลุ่มได้ ไม่ใช่ประโยคอิสระที่อาจมี PII หลุดมา */
+/** The reason must be a groupable code, not free text that could leak PII */
 function requiredReasonCode(value: unknown): string {
   if (typeof value !== 'string' || !/^[A-Z][A-Z0-9_]{2,63}$/.test(value)) {
     throw new BadRequestException({
       code: 'VALIDATION_FAILED',
-      message: 'reasonCode ต้องเป็น UPPER_SNAKE_CASE ความยาว 3-64 ตัวอักษร',
+      message: 'reasonCode must be UPPER_SNAKE_CASE, 3-64 characters long',
     });
   }
   return value;
 }
 
 /**
- * body รับได้แค่สามอย่าง — field อื่นถูกปฏิเสธ ไม่ใช่เพิกเฉย
+ * The body accepts only three fields — any other field is rejected, not ignored.
  *
- * ถ้าเพิกเฉย operator จะเข้าใจว่าส่ง payload ทดแทนเข้ามาแล้วมีผล ทั้งที่ระบบไม่เคยอ่านมันเลย
- * และการเปิดให้แก้เนื้อหาตอน recovery เท่ากับเปิดทางปลอม membership fact ผ่านช่อง forensic
+ * Ignoring it would let an operator believe a replacement payload took effect when it was never read,
+ * and allowing content edits during recovery would open a way to forge membership facts via forensics
  */
 const ALLOWED_RECOVERY_FIELDS = new Set(['expectedVersion', 'reasonCode', 'evidenceRef']);
 
@@ -109,7 +109,7 @@ function recoveryRequest(
   if (unknownFields.length > 0) {
     throw new BadRequestException({
       code: 'VALIDATION_FAILED',
-      message: `recovery ไม่รับ field: ${unknownFields.join(', ')}`,
+      message: `recovery does not accept fields: ${unknownFields.join(', ')}`,
     });
   }
   const evidenceRef = payload.evidenceRef;
@@ -119,7 +119,7 @@ function recoveryRequest(
   ) {
     throw new BadRequestException({
       code: 'VALIDATION_FAILED',
-      message: 'evidenceRef ต้องเป็น opaque reference',
+      message: 'evidenceRef must be an opaque reference',
     });
   }
   return {
@@ -140,7 +140,7 @@ function mapRecoveryError(error: unknown): never {
   if (error instanceof SegmentRecoveryNotAllowedError) {
     throw new ConflictException({ code: error.code, state: error.state });
   }
-  // generic โดยตั้งใจ: เป้าหมายของ tenant อื่นต้องแยกไม่ออกจากเป้าหมายที่ไม่เคยมี
+  // Generic on purpose: another tenant's target must be indistinguishable from one that never existed
   if (error instanceof SegmentRecoveryNotFoundError) {
     throw new NotFoundException({ code: 'RESOURCE_NOT_FOUND' });
   }
@@ -148,10 +148,10 @@ function mapRecoveryError(error: unknown): never {
 }
 
 /**
- * รูปแบบที่ผิดตอบ 404 ไม่ใช่ 400
+ * A malformed id answers 404, not 400.
  *
- * 400 บอกผู้เรียกว่า "รูปแบบผิด" ซึ่งแปลว่ารูปแบบที่ถูกจะได้คำตอบอื่น — เปิดทางให้ไล่เดา
- * ที่นี่ทุกอย่างที่หาไม่เจอด้วยเหตุใดก็ตามตอบเหมือนกันหมด
+ * A 400 tells the caller "wrong format", implying a well-formed id gets a different answer — an
+ * opening for guessing. Here everything not found, for any reason, answers the same way
  */
 function opaque(value: string): string {
   if (!OPAQUE_ID.test(value)) throw new NotFoundException({ code: 'RESOURCE_NOT_FOUND' });
