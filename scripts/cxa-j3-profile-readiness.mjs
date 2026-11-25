@@ -1,7 +1,7 @@
 import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
 
-/** #222: โปรไฟล์นี้เป็นหลักฐานของ owner boundary ไม่ใช่ feature flag ที่ caller เปลี่ยนได้ */
+/** #222: this profile is evidence of the owner boundary, not a feature flag the caller can change */
 export const J3_FIXED_FLAGS = Object.freeze({
   developmentAcceptance: true,
   releaseEnabled: false,
@@ -30,7 +30,7 @@ export function cxaJ3ProfileSummary(environment = process.env) {
   };
   for (const [owner, profile] of Object.entries(J3_OWNER_PROFILES)) {
     if (supplied[owner] !== profile) {
-      throw new Error(`J3 acceptance ต้องการ ${owner} profile ${profile} เท่านั้น`);
+      throw new Error(`J3 acceptance needs the ${owner} profile ${profile} only`);
     }
   }
   for (const name of [
@@ -39,7 +39,8 @@ export function cxaJ3ProfileSummary(environment = process.env) {
     'CXA_J3_PROVIDER_CONFORMANCE',
     'CXA_J3_REAL_CUSTOMER_DATA',
   ]) {
-    if (environment[name] === 'true') throw new Error(`J3 development acceptance ห้ามเปิด ${name}`);
+    if (environment[name] === 'true')
+      throw new Error(`J3 development acceptance must not enable ${name}`);
   }
   return {
     type: 'owner-profile.readiness',

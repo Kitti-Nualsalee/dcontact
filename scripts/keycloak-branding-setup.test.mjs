@@ -6,7 +6,7 @@ import {
   withHiddenInternalAttributes,
 } from './keycloak-branding-setup.mjs';
 
-test('consoleUrl: CONSOLE_PUBLIC_URL ก่อน แล้ว UAT_HOST; มี / ท้ายเสมอ; ไม่มีทั้งสอง = undefined', () => {
+test('consoleUrl: CONSOLE_PUBLIC_URL first, then UAT_HOST; always ends with /; neither = undefined', () => {
   assert.equal(
     consoleUrl({ CONSOLE_PUBLIC_URL: 'http://localhost:5173' }),
     'http://localhost:5173/',
@@ -23,7 +23,7 @@ test('consoleUrl: CONSOLE_PUBLIC_URL ก่อน แล้ว UAT_HOST; มี 
   assert.equal(consoleUrl({}), undefined);
 });
 
-test('consoleUrl: ปฏิเสธ URL ที่ใช้เป็นปลายทาง redirect ไม่ได้', () => {
+test('consoleUrl: rejects a URL that cannot be used as a redirect target', () => {
   for (const bad of [
     'not a url',
     'javascript:alert(1)',
@@ -36,7 +36,7 @@ test('consoleUrl: ปฏิเสธ URL ที่ใช้เป็นปลา
   }
 });
 
-test('attribute ภายในถูกซ่อนจากผู้ใช้ และไม่แตะ attribute อื่น', () => {
+test('internal attributes are hidden from the user, and other attributes are not touched', () => {
   const profile = {
     attributes: [
       { name: 'email', permissions: { view: ['admin', 'user'], edit: ['admin', 'user'] } },
@@ -52,11 +52,11 @@ test('attribute ภายในถูกซ่อนจากผู้ใช้ 
   for (const attribute of hidden.attributes.slice(1)) {
     assert.deepEqual(attribute.permissions, { view: ['admin'], edit: ['admin'] });
   }
-  // รันซ้ำ = ไม่มีอะไรเปลี่ยน (คืน object เดิม ไม่ PUT)
+  // a re-run = nothing changes (returns the original object, no PUT)
   assert.equal(withHiddenInternalAttributes(hidden), hidden);
 });
 
-test('attribute ที่ผู้ใช้แก้ได้ถูกบังคับให้ admin เท่านั้น', () => {
+test('attributes the user can edit are forced to admin only', () => {
   const profile = {
     attributes: [{ name: 'tenant_id', permissions: { view: ['admin'], edit: ['admin', 'user'] } }],
   };

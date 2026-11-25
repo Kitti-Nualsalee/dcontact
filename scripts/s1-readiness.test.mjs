@@ -22,7 +22,7 @@ const context = {
 };
 const passing = (check) => ({ checkId: check.id, status: 'PASS', durationMs: 1 });
 
-test('S1 registry มี 20 checks ครบทุก acceptance dimension', () => {
+test('the S1 registry has 20 checks covering every acceptance dimension', () => {
   assert.equal(S1_READINESS_CHECKS.length, 20);
   assert.deepEqual([...new Set(S1_READINESS_CHECKS.map((item) => item.id))].length, 20);
   assert.ok(S1_READINESS_CHECKS.some((item) => item.id === 'S1-PC-UX01'));
@@ -35,7 +35,7 @@ test('S1 registry มี 20 checks ครบทุก acceptance dimension', () 
   );
 });
 
-test('marker ออกได้เฉพาะ 20 checks ผ่านบน final main SHA เดียว', () => {
+test('the marker can be issued only when all 20 checks pass on a single final main SHA', () => {
   const result = runS1Readiness({
     context,
     executeCheck: passing,
@@ -48,7 +48,7 @@ test('marker ออกได้เฉพาะ 20 checks ผ่านบน fina
   assert.doesNotThrow(() => assertValidS1Manifest(result.manifest));
 });
 
-test('PR SHA หรือ check ที่ล้มต้องไม่ออก marker', () => {
+test('a PR SHA or a failed check must not issue the marker', () => {
   const diagnostics = S1_READINESS_CHECKS.map((item) => ({
     id: item.id,
     dimension: item.dimension,
@@ -63,7 +63,7 @@ test('PR SHA หรือ check ที่ล้มต้องไม่ออก
   assert.deepEqual(s1Summary(context, failed).markers, []);
 });
 
-test('subcheck ที่ล้มเก็บ diagnostic ที่ sanitize แล้วใน manifest', () => {
+test('a failed subcheck keeps a sanitized diagnostic in the manifest', () => {
   const result = runS1Readiness({
     context,
     executeCheck: (check) => {
@@ -90,7 +90,7 @@ test('subcheck ที่ล้มเก็บ diagnostic ที่ sanitize แ�
   assert.doesNotThrow(() => assertValidS1Manifest(result.manifest));
 });
 
-test('manifest ปฏิเสธ flags, SHA, artifacts หรือจำนวน check ที่ไม่ปลอดภัย', () => {
+test('the manifest rejects unsafe flags, SHA, artifacts or check count', () => {
   const diagnostics = S1_READINESS_CHECKS.map((item) => ({
     id: item.id,
     dimension: item.dimension,

@@ -2,10 +2,10 @@ import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
 
 /**
- * CG5-REG02/CG5-OB02 (#273 §5): owner profile และ fixed flags ของ CG5 Development Complete
+ * CG5-REG02/CG5-OB02 (#273 §5): owner profile and fixed flags of CG5 Development Complete
  *
- * marker ไม่ได้เปิดอะไรให้ใครใช้: external API และ export ระดับ EVIDENCE เป็น gate แยกราย tenant/client
- * (#273 §6) — ถ้า environment พยายามเปลี่ยน flag ใดให้ fail closed แทนการรายงานค่าที่ไม่ปลอดภัย
+ * the marker enables nothing for anyone: the external API and EVIDENCE-level export are separate per-tenant/client gates
+ * (#273 §6) - if the environment tries to change any flag, fail closed instead of reporting an unsafe value
  */
 
 export const CG5_FIXED_FLAGS = Object.freeze({
@@ -40,24 +40,24 @@ export function cxaCg5ProfileSummary(environment = process.env) {
   for (const [owner, expected] of Object.entries(CG5_OWNER_PROFILES)) {
     assert(
       profiles[owner] === expected,
-      `CG5 acceptance ต้องการ ${owner} profile ${expected} เท่านั้น`,
+      `CG5 acceptance needs the ${owner} profile ${expected} only`,
     );
   }
   assert(
     environment.CXA_PROVIDER_TRAFFIC_ENABLED !== 'true',
-    'CG5 acceptance ห้ามเปิด actual provider traffic',
+    'CG5 acceptance must not enable actual provider traffic',
   );
   assert(
     environment.CXA_CG5_RELEASE_ENABLED !== 'true',
-    'CG5 development acceptance ห้ามอ้าง releaseEnabled',
+    'CG5 development acceptance must not claim releaseEnabled',
   );
   assert(
     environment.CXA_CG5_EXTERNAL_API_ENABLED !== 'true',
-    'CG5 development acceptance ห้ามเปิด external API ให้ client จริง (gate แยกตาม #273 §6)',
+    'CG5 development acceptance must not open the external API to real clients (a separate gate per #273 §6)',
   );
   assert(
     environment.CXA_CG5_REAL_CUSTOMER_DATA !== 'true',
-    'CG5 development acceptance ใช้ synthetic fixture เท่านั้น',
+    'CG5 development acceptance uses synthetic fixtures only',
   );
   return {
     type: 'owner-profile.readiness',

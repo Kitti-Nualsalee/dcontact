@@ -39,21 +39,21 @@ const complete = [
   PROVISIONER_TABLES.length,
 ];
 
-test('A1.1 evidence ครบผ่าน; ขาดชิ้นใดหรือมีสิทธิ์เกินไม่ผ่าน', () => {
+test('A1.1 complete evidence passes; any missing piece or excess privilege fails', () => {
   assert.equal(parseA1SchemaEvidence(complete.join('|')).status, 'PASS');
   for (let index = 0; index < complete.length; index += 1) {
     const broken = [...complete];
-    // index 5/6/8 นับสิทธิ์เกิน (ต้องเป็นศูนย์) นอกนั้นขาดไปหนึ่งชิ้น
+    // indexes 5/6/8 count excess privileges (must be zero); the others are missing one piece
     broken[index] = [5, 6, 8].includes(index) ? 1 : broken[index] - 1;
     assert.equal(parseA1SchemaEvidence(broken.join('|')).status, 'FAIL', `index ${index}`);
   }
   assert.throws(() => parseA1SchemaEvidence('1|2'));
 });
 
-test('A1.1 ทุกชื่อใน registry มีอยู่จริงใน migration', () => {
+test('A1.1 every name in the registry exists in a migration', () => {
   for (const table of CANONICAL_A1_TABLES)
     assert.match(migration, new RegExp(`CREATE TABLE "${table}"`));
-  // A1.5: plan pin เพิ่มแบบ NOT VALID (ไม่ตรวจแถวเก่าย้อนหลัง) — ยังเป็น expand-only
+  // A1.5: the plan pin is added as NOT VALID (old rows are not re-checked) - still expand-only
   assert.match(migration, /"pf_provisioning_requests_plan_pin_fkey"[^;]*NOT VALID;/);
   for (const name of [
     ...REQUIRED_A1_CONSTRAINTS,
@@ -64,9 +64,9 @@ test('A1.1 ทุกชื่อใน registry มีอยู่จริง�
   }
 });
 
-test('A1 migration ทุกไฟล์เป็น expand-only และ tenants ได้แค่คอลัมน์ใหม่ที่มี default/nullable', () => {
+test('A1 every migration file is expand-only and tenants gets only new columns with a default/nullable', () => {
   assert.deepEqual(findDestructiveStatements(migration), []);
-  // enum value ใหม่ต้องแทรกตามลำดับ contract และอยู่คนละไฟล์กับ migration ที่ใช้มัน
+  // a new enum value must be inserted in contract order and live in a different file from the migration that uses it
   assert.match(
     migration,
     /ADD VALUE IF NOT EXISTS 'STEP_RETRY_SCHEDULED' AFTER 'STEP_ACTION_REQUIRED'/,
@@ -79,7 +79,7 @@ test('A1 migration ทุกไฟล์เป็น expand-only และ tenan
   assert.match(migration, /ADD COLUMN\s+"primary_domain" TEXT(?! NOT NULL)/);
 });
 
-test('A1.1 rls.sql ถอน pf_* จาก dcontact_app หลัง blanket GRANT และไม่ให้ platform ลบ/แก้หลักฐาน', () => {
+test('A1.1 rls.sql revokes pf_* from dcontact_app after the blanket GRANT and does not let platform delete/edit evidence', () => {
   const blanket = rls.indexOf(
     'GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO dcontact_app',
   );
@@ -87,7 +87,7 @@ test('A1.1 rls.sql ถอน pf_* จาก dcontact_app หลัง blanket GR
   assert.ok(blanket >= 0 && revoke > blanket);
   for (const table of CANONICAL_A1_TABLES) assert.ok(rls.includes(table), table);
   assert.doesNotMatch(rls, /GRANT[^;]*DELETE[^;]*TO dcontact_platform/);
-  // A1.4: invitation outbox ถูกถอนจาก tenant app และ provisioner ไม่มี DELETE หรือสิทธิ์นอก users/tenants
+  // A1.4: the invitation outbox is revoked from the tenant app and the provisioner has no DELETE or privilege outside users/tenants
   assert.ok(rls.indexOf('REVOKE ALL ON pf_invitations FROM dcontact_app') > blanket);
   assert.doesNotMatch(rls, /GRANT[^;]*DELETE[^;]*TO dcontact_provisioner/);
   for (const statement of rls.match(/GRANT [^;]*TO dcontact_provisioner/g) ?? []) {

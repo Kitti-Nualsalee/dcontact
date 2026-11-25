@@ -4,7 +4,7 @@ import test from 'node:test';
 
 const source = readFileSync(new URL('./e1-18-real-call-acceptance.mjs', import.meta.url), 'utf8');
 
-test('E1 real-call acceptance เปิดเฉพาะ embed flag ที่ยังใช้งานอยู่', () => {
+test('E1 real-call acceptance enables only the embed flags that are still in use', () => {
   assert.match(source, /'dphone\.embed\.enabled',true/);
   assert.doesNotMatch(source, /workSession\.lease\.enforced/);
 });

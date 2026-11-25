@@ -52,7 +52,7 @@ function fakeS3({ existing = [], withPolicy = [], unavailableFor = 0 } = {}) {
 
 const options = { environment: {}, sleep: async () => undefined };
 
-test('สร้างเฉพาะ bucket ที่ยังไม่มี และรันซ้ำได้โดยไม่สร้างซ้ำ', async () => {
+test('creates only buckets that do not exist yet, and can be re-run without creating duplicates', async () => {
   const { s3, sent } = fakeS3({ existing: ['recordings'] });
   assert.deepEqual(await initializeBuckets({ ...options, s3 }), [
     'governance-exports',
@@ -62,12 +62,12 @@ test('สร้างเฉพาะ bucket ที่ยังไม่มี �
   assert.deepEqual(await initializeBuckets({ ...options, s3 }), []);
 });
 
-test('bucket ที่มี bucket policy = ล้ม (dev bucket ต้องเป็น private)', async () => {
+test('a bucket that has a bucket policy = failure (a dev bucket must be private)', async () => {
   const { s3 } = fakeS3({ withPolicy: ['uat-evidence'] });
-  await assert.rejects(initializeBuckets({ ...options, s3 }), /uat-evidence มี bucket policy/);
+  await assert.rejects(initializeBuckets({ ...options, s3 }), /uat-evidence has a bucket policy/);
 });
 
-test('รอ storage พร้อมก่อน และล้มเมื่อเกินจำนวนครั้ง', async () => {
+test('waits for storage to be ready first, and fails when the number of attempts is exceeded', async () => {
   const ready = fakeS3({ unavailableFor: 2 });
   assert.equal((await initializeBuckets({ ...options, s3: ready.s3 })).length, 3);
   const down = fakeS3({ unavailableFor: 99 });

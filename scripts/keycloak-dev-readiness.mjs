@@ -33,20 +33,20 @@ function databaseIdentity(email) {
     `SELECT u.id, u.tenant_id, u.keycloak_id FROM users u WHERE u.email = '${safeEmail}';`,
   );
   const [userId, tenantId, keycloakId] = result.split('|');
-  assert(userId && tenantId && keycloakId, `Postgres identity ของ ${email} ยังเชื่อมไม่ครบ`);
+  assert(userId && tenantId && keycloakId, `the Postgres identity of ${email} is not fully linked`);
   return { userId, tenantId, keycloakId };
 }
 
 async function main() {
   const discoveryResponse = await fetch(discoveryUrl);
-  assert(discoveryResponse.ok, `OIDC discovery ตอบ ${discoveryResponse.status}`);
+  assert(discoveryResponse.ok, `OIDC discovery responded ${discoveryResponse.status}`);
   const discovery = await discoveryResponse.json();
-  assert(discovery.issuer === issuer, `issuer ไม่ตรง contract: ${discovery.issuer}`);
+  assert(discovery.issuer === issuer, `issuer does not match the contract: ${discovery.issuer}`);
 
   const jwksResponse = await fetch(discovery.jwks_uri);
-  assert(jwksResponse.ok, `JWKS ตอบ ${jwksResponse.status}`);
+  assert(jwksResponse.ok, `JWKS responded ${jwksResponse.status}`);
   const jwks = await jwksResponse.json();
-  assert(Array.isArray(jwks.keys) && jwks.keys.length > 0, 'JWKS ไม่มี signing key');
+  assert(Array.isArray(jwks.keys) && jwks.keys.length > 0, 'JWKS has no signing key');
 
   const issueAccessToken = async (identity, scope) => {
     const response = await fetch(discovery.token_endpoint, {
@@ -62,7 +62,7 @@ async function main() {
     });
     if (!response.ok) {
       throw new Error(
-        `ออก dev access token ไม่สำเร็จ (${response.status}): ${await response.text()}`,
+        `failed to issue a dev access token (${response.status}): ${await response.text()}`,
       );
     }
     return (await response.json()).access_token;
@@ -83,16 +83,19 @@ async function main() {
         if (!autoFallback) throw error;
         accessToken = await issueAccessToken(identity, 'openid');
         console.warn(
-          `⚠ native Organization token ของ ${identity.slug} ใช้ไม่ได้; ตรวจ fallback แทน: ${error.message}`,
+          `⚠ the native Organization token of ${identity.slug} is unusable; checking the fallback instead: ${error.message}`,
         );
       }
     }
     const [encodedHeader, encodedPayload, encodedSignature] = accessToken.split('.');
     const header = base64UrlJson(encodedHeader);
     const claims = base64UrlJson(encodedPayload);
-    assert(header.typ === 'JWT', `Keycloak access token typ ไม่ตรง contract: ${header.typ}`);
+    assert(
+      header.typ === 'JWT',
+      `the Keycloak access token typ does not match the contract: ${header.typ}`,
+    );
     const signingJwk = jwks.keys.find((key) => key.kid === header.kid);
-    assert(signingJwk, 'ไม่พบ signing key ของ token ใน JWKS');
+    assert(signingJwk, 'the signing key of the token was not found in JWKS');
     assert(
       verify(
         'RSA-SHA256',
@@ -100,7 +103,7 @@ async function main() {
         createPublicKey({ key: signingJwk, format: 'jwk' }),
         Buffer.from(encodedSignature, 'base64url'),
       ),
-      'ตรวจลายเซ็น access token ด้วย JWKS ไม่ผ่าน',
+      'verifying the access token signature with JWKS failed',
     );
     const tamperedPayload = Buffer.from(
       JSON.stringify({ ...claims, tenant_id: 'identity-that-was-not-verified' }),
@@ -112,21 +115,24 @@ async function main() {
         createPublicKey({ key: signingJwk, format: 'jwk' }),
         Buffer.from(encodedSignature, 'base64url'),
       ),
-      'token ที่ payload ถูกแก้ไขต้องไม่ผ่านการตรวจลายเซ็น',
+      'a token whose payload was edited must fail signature verification',
     );
 
     const database = databaseIdentity(identity.agentEmail);
     verifiedTenantIds.push(database.tenantId);
-    assert(claims.iss === issuer, 'token issuer ไม่ตรง contract');
+    assert(claims.iss === issuer, 'the token issuer does not match the contract');
     assert(
       claims.aud === 'dcontact-api' || claims.aud?.includes('dcontact-api'),
-      'token ไม่มี dcontact-api audience',
+      'the token has no dcontact-api audience',
     );
-    assert(claims.sub === database.keycloakId, 'token subject ไม่ตรง users.keycloak_id');
-    assert(claims.tenant_id === database.tenantId, 'tenant_id ไม่ตรง Postgres tenant');
-    assert(claims.tenant_slug === identity.slug, `tenant_slug ต้องเป็น ${identity.slug}`);
-    assert(claims.dc_user_id === database.userId, 'dc_user_id ไม่ตรง Postgres user');
-    assert(claims.realm_access?.roles?.includes('agent'), 'token ไม่มี agent role');
+    assert(
+      claims.sub === database.keycloakId,
+      'the token subject does not match users.keycloak_id',
+    );
+    assert(claims.tenant_id === database.tenantId, 'tenant_id does not match the Postgres tenant');
+    assert(claims.tenant_slug === identity.slug, `tenant_slug must be ${identity.slug}`);
+    assert(claims.dc_user_id === database.userId, 'dc_user_id does not match the Postgres user');
+    assert(claims.realm_access?.roles?.includes('agent'), 'the token has no agent role');
     if (!fallbackOnly && nativeTokenIssued) {
       const organization = claims.organization?.[identity.slug];
       const nativeClaimsMatch =
@@ -134,13 +140,13 @@ async function main() {
         organization?.tenant_slug?.[0] === identity.slug;
       if (!nativeClaimsMatch && autoFallback) {
         console.warn(
-          `⚠ native Organization mapper ของ ${identity.slug} ไม่มี tenant attributes; flat claims ยังพร้อมใช้`,
+          `⚠ the native Organization mapper of ${identity.slug} has no tenant attributes; the flat claims are still usable`,
         );
         nativeTokenIssued = false;
       } else {
         assert(
           nativeClaimsMatch,
-          `native Organization mapper ไม่มี tenant attributes ของ ${identity.slug}`,
+          `the native Organization mapper has no tenant attributes for ${identity.slug}`,
         );
       }
     }
@@ -149,26 +155,44 @@ async function main() {
     const fallbackClaims = base64UrlJson(
       (await issueAccessToken(identity, 'openid')).split('.')[1],
     );
-    assert(!fallbackClaims.organization, 'fallback evidence ต้องไม่พึ่ง native Organization claim');
-    assert(fallbackClaims.tenant_id === database.tenantId, 'fallback tenant_id ไม่ตรง contract');
+    assert(
+      !fallbackClaims.organization,
+      'the fallback evidence must not depend on the native Organization claim',
+    );
+    assert(
+      fallbackClaims.tenant_id === database.tenantId,
+      'the fallback tenant_id does not match the contract',
+    );
     assert(
       fallbackClaims.tenant_slug === identity.slug,
-      `fallback tenant_slug ต้องเป็น ${identity.slug}`,
+      `the fallback tenant_slug must be ${identity.slug}`,
     );
-    assert(fallbackClaims.dc_user_id === database.userId, 'fallback dc_user_id ไม่ตรง contract');
+    assert(
+      fallbackClaims.dc_user_id === database.userId,
+      'the fallback dc_user_id does not match the contract',
+    );
   }
-  assert(new Set(verifiedTenantIds).size === 2, 'Phase 1 ต้องยืนยัน tenant_id ที่ต่างกันสองค่า');
+  assert(
+    new Set(verifiedTenantIds).size === 2,
+    'Phase 1 must verify two different tenant_id values',
+  );
 
-  console.log('✓ OIDC discovery และ JWKS เข้าถึงได้');
-  console.log('✓ Access token มีลายเซ็น audience และ claims ที่ตรงกับ Postgres');
-  console.log('✓ identity จาก token ที่ถูกแก้ไขถูกปฏิเสธก่อนสร้าง tenant context');
-  console.log('✓ Access token ของสอง tenant มี claims ตรงกับ Postgres และ tenant_id ไม่ซ้ำกัน');
+  console.log('✓ OIDC discovery and JWKS are reachable');
+  console.log('✓ The access token has a signature, audience and claims that match Postgres');
+  console.log('✓ An identity from an edited token is rejected before a tenant context is created');
+  console.log(
+    '✓ The access tokens of the two tenants have claims matching Postgres and the tenant_id values differ',
+  );
   if (!fallbackOnly && verifiedNativeOrganizations === PHASE_ONE_TENANT_IDENTITIES.length)
-    console.log('✓ Keycloak 26 native Organization mapper ส่ง tenant attributes ครบสอง tenant');
-  console.log('✓ flat fallback claims คง public claim shape โดยไม่พึ่ง native mapper');
+    console.log(
+      '✓ The Keycloak 26 native Organization mapper sends the full tenant attributes for both tenants',
+    );
+  console.log(
+    '✓ The flat fallback claims keep the public claim shape without depending on the native mapper',
+  );
 }
 
 main().catch((error) => {
-  console.error(`✗ Keycloak dev identity ยังไม่พร้อม: ${error.message}`);
+  console.error(`✗ The Keycloak dev identity is not ready: ${error.message}`);
   process.exitCode = 1;
 });

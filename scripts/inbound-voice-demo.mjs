@@ -2,7 +2,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { observeChildExit, stopChild } from './child-process-lifecycle.mjs';
 
-// ใช้ DB เดียวกับ service ที่ demo start (DB แยกต่อ ticket บนเครื่อง dev); CI ใช้ `dcontact`
+// uses the same DB as the services the demo starts (a separate DB per ticket on the dev machine); CI uses `dcontact`
 const demoDatabase = process.env.DATABASE_URL
   ? new URL(process.env.DATABASE_URL).pathname.slice(1) || 'dcontact'
   : 'dcontact';
@@ -20,7 +20,7 @@ function run(command, args, options = {}) {
   const result = spawnSync(command, args, { cwd: process.cwd(), encoding: 'utf8', ...options });
   if (result.status !== 0) {
     throw new Error(
-      `${command} ${args.join(' ')} ล้มเหลว\n${result.stdout ?? ''}${result.stderr ?? ''}`,
+      `${command} ${args.join(' ')} failed\n${result.stdout ?? ''}${result.stderr ?? ''}`,
     );
   }
   return result.stdout ?? '';
@@ -62,7 +62,7 @@ async function waitForConsumerGroup(groupId) {
     }
     await wait(500);
   }
-  throw new Error(`consumer group ยังไม่พร้อม: ${groupId}`);
+  throw new Error(`consumer group is not ready: ${groupId}`);
 }
 
 function resetPreviousDemoInteractions() {
@@ -143,7 +143,7 @@ async function waitForDemoState(expectedState) {
     if (evidence.split('|')[3] === expectedState) return evidence;
     await wait(500);
   }
-  throw new Error(`demo interaction ไม่เข้าสู่ ${expectedState}: ${latestDemoEvidence()}`);
+  throw new Error(`demo interaction did not reach ${expectedState}: ${latestDemoEvidence()}`);
 }
 
 async function waitForArchivedDemoRecording() {
@@ -152,7 +152,7 @@ async function waitForArchivedDemoRecording() {
     if (evidence.split('|')[8] === 'ARCHIVED') return evidence;
     await wait(500);
   }
-  throw new Error(`demo recording ไม่ถูก archive: ${latestDemoEvidence()}`);
+  throw new Error(`demo recording was not archived: ${latestDemoEvidence()}`);
 }
 
 function currentMedia() {
@@ -176,7 +176,7 @@ async function waitForInboundLeg(destination) {
     if (leg?.uuid) return leg;
     await wait(500);
   }
-  throw new Error(`ไม่พบ inbound leg ของ ${destination}`);
+  throw new Error(`inbound leg of ${destination} not found`);
 }
 
 async function waitForActiveMedia(destination) {
@@ -191,7 +191,7 @@ async function waitForActiveMedia(destination) {
     }
     await wait(500);
   }
-  throw new Error(`FreeSWITCH ไม่ยืนยัน media สอง leg ของ ${destination}`);
+  throw new Error(`FreeSWITCH did not confirm the media of both legs of ${destination}`);
 }
 
 async function cleanup() {
@@ -211,8 +211,8 @@ async function cleanup() {
     }
   }
   spawnSync('docker', ['rm', '-f', agentContainer], { stdio: 'ignore' });
-  // Router และ Telephony shutdown แบบ async; เว้นช่วงให้ disconnect Kafka/DB/ESL
-  // ก่อน demo ถัดไปสร้าง consumer และ subscribe ESL ชุดใหม่
+  // the Router and Telephony shut down asynchronously; leave time to disconnect Kafka/DB/ESL
+  // before the next demo creates a new consumer and subscribes a new ESL set
   await wait(1_000);
 }
 
@@ -228,7 +228,7 @@ try {
   run('docker', ['pull', sippImage]);
   run('pnpm', ['db:seed']);
   run('docker', [...compose, 'exec', '-T', 'freeswitch', 'fs_cli', '-x', 'reloadxml']);
-  // ปิดสายค้างก่อนเริ่ม consumer ใหม่ เพื่อไม่ให้ hangup เก่าทำ demo group crash.
+  // close lingering calls before starting a new consumer, so an old hangup does not crash the demo group.
   resetPreviousDemoMedia();
   resetPreviousDemoInteractions();
   run('pnpm', ['db:seed']);
@@ -280,7 +280,7 @@ try {
     '-v',
     `${fixture}:/scenario.xml:ro`,
     sippImage,
-    // #562: สายลูกค้าเข้าทาง trunk จำลอง `pstn-sim` ไม่ใช่ profile internal ของ agent
+    // #562: the customer call comes in through the simulated trunk `pstn-sim`, not the agent internal profile
     'freeswitch:5080',
     '-sf',
     '/scenario.xml',
@@ -316,14 +316,14 @@ try {
   }
   const { active: activeMediaLegs } = await waitForActiveMedia(ivrDtmf ? '2001' : '2000');
   const callerExit = await callerExitPromise;
-  if (callerExit !== 0) throw new Error(`SIPp caller ล้มเหลว\n${caller}`);
+  if (callerExit !== 0) throw new Error(`SIPp caller failed\n${caller}`);
   if (!caller.includes('Successful call') || !caller.match(/Successful call\s+\|\s+0\s+\|\s+1/)) {
-    throw new Error(`SIPp ไม่ยืนยัน successful media call\n${caller}`);
+    throw new Error(`SIPp did not confirm a successful media call\n${caller}`);
   }
   const inboundLeg = activeMediaLegs.find(
     (row) => row.initial_dest === (ivrDtmf ? '2001' : '2000'),
   );
-  if (!inboundLeg?.uuid) throw new Error('ไม่พบ inbound media leg สำหรับปิดสายทดสอบ');
+  if (!inboundLeg?.uuid) throw new Error('inbound media leg to close the test call not found');
   run('docker', [
     ...compose,
     'exec',
@@ -355,7 +355,7 @@ try {
     Number(durationSec) < 1 ||
     archiveState !== 'ARCHIVED'
   ) {
-    throw new Error(`หลักฐาน recording/wrap-up ไม่ครบ: ${wrapupEvidence}`);
+    throw new Error(`recording/wrap-up evidence is incomplete: ${wrapupEvidence}`);
   }
   run('pnpm', [
     '--filter',

@@ -1,9 +1,9 @@
 import { fileURLToPath } from 'node:url';
 import { DEV_BUCKETS, loadS3, objectStorageConfiguration } from './object-storage-readiness.mjs';
 
-// ADR-029 (#533): bootstrap bucket ของ dev/CI ผ่าน S3 API เท่านั้น (ไม่ใช้ CLI ของผู้ผลิต)
-// idempotent: ตรวจด้วย HeadBucket ก่อนสร้าง — RustFS ตอบ CreateBucket ซ้ำว่าสำเร็จ ไม่ใช่ BucketAlreadyOwnedByYou
-// bucket ต้องเป็น private (ไม่มี bucket policy)
+// ADR-029 (#533): bootstrap the dev/CI buckets through the S3 API only (not the vendor CLI)
+// idempotent: check with HeadBucket before creating - RustFS answers a repeated CreateBucket as a success, not BucketAlreadyOwnedByYou
+// a bucket must be private (no bucket policy)
 
 export async function initializeBuckets({
   environment = process.env,
@@ -22,7 +22,7 @@ export async function initializeBuckets({
   } = s3 ?? (await loadS3());
   const client = new S3Client(objectStorageConfiguration(environment));
   try {
-    // รอ storage ตอบก่อน (container healthy แล้วแต่ S3 API อาจยังไม่พร้อมรับ auth)
+    // wait for storage to answer first (the container is healthy but the S3 API may not yet accept auth)
     for (let attempt = 1; ; attempt += 1) {
       try {
         await client.send(new ListBucketsCommand({}));
@@ -43,7 +43,7 @@ export async function initializeBuckets({
       }
       try {
         await client.send(new GetBucketPolicyCommand({ Bucket: bucket }));
-        throw new Error(`bucket ${bucket} มี bucket policy — dev bucket ต้องเป็น private`);
+        throw new Error(`bucket ${bucket} has a bucket policy - a dev bucket must be private`);
       } catch (error) {
         if (error?.name !== 'NoSuchBucketPolicy') throw error;
       }
@@ -58,8 +58,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   try {
     const created = await initializeBuckets();
     console.log(
-      `✓ object storage buckets พร้อม: ${DEV_BUCKETS.join(', ')}` +
-        (created.length ? ` (สร้างใหม่: ${created.join(', ')})` : ''),
+      `✓ object storage buckets ready: ${DEV_BUCKETS.join(', ')}` +
+        (created.length ? ` (newly created: ${created.join(', ')})` : ''),
     );
   } catch (error) {
     console.error(`✗ object storage init: ${error?.name ?? 'Error'}: ${error?.message ?? error}`);

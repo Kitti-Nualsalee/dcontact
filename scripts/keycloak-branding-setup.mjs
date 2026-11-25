@@ -2,21 +2,21 @@ import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
 
 /**
- * AC6 (#599): ซ่อนร่องรอยของ identity provider จากลูกค้า (#589) บน realm `dcontact` — idempotent ผ่าน Admin API
- * จึงใช้ได้ทั้ง realm ใหม่และ realm ที่ import/สร้างไปแล้ว (`--import-realm` ไม่ import ซ้ำ)
+ * AC6 (#599): hide the traces of the identity provider from customers (#589) on the `dcontact` realm - idempotent through the Admin API
+ * so it works on both a new realm and one already imported/created (`--import-realm` does not import again)
  *
- * - `displayName` = "D-Contact" (ชื่อ realm ปรากฏใน title/หัวข้อ/อีเมลที่ใช้ `${realmName}`)
- * - account theme `dcontact`: หน้า HTML ของ `/realms/dcontact/account/` พาไป D-Contact Console
- *   (extension `dc-account` — `DcAccountLanding`); Account REST API ไม่ถูกกระทบ
- * - `baseUrl` ของ client `account-console` และ `account` = URL ของ D-Contact Console
- *   - `account-console`: ปลายทางของ redirect ข้างบน
- *   - `account`: client เริ่มต้นของอีเมลเชิญ (`execute-actions-email` ไม่ส่ง client_id) — ลิงก์ "กลับแอป" หลังตั้งรหัสผ่าน
- *     เสร็จจึงไป D-Contact แทนหน้าของ identity provider; ไม่ปิด client นี้เพราะอีเมลเชิญต้องใช้
- * - attribute ภายใน (`tenant_id`, `tenant_slug`, `dc_user_id`, `zoneinfo`) ผู้ใช้ไม่เห็น/แก้ไม่ได้ — ไม่งั้นหน้า
- *   required action "แก้ไขข้อมูลบัญชี" แสดงเป็นช่องฟอร์ม (claim ใน token มาจาก mapper อ่าน attribute ตรง)
+ * - `displayName` = "D-Contact" (the realm name appears in the title/heading/emails that use `${realmName}`)
+ * - the account theme `dcontact`: the HTML page of `/realms/dcontact/account/` sends users to the D-Contact Console
+ *   (the `dc-account` extension - `DcAccountLanding`); the Account REST API is not affected
+ * - `baseUrl` of the clients `account-console` and `account` = the URL of the D-Contact Console
+ *   - `account-console`: the target of the redirect above
+ *   - `account`: the default client of the invitation email (`execute-actions-email` does not send a client_id) - the "back to app" link after setting the
+ *     password therefore goes to D-Contact instead of the identity provider page; this client is not disabled because the invitation email needs it
+ * - internal attributes (`tenant_id`, `tenant_slug`, `dc_user_id`, `zoneinfo`) are not visible/editable by the user - otherwise the
+ *   required action page "edit account information" shows them as form fields (the claims in the token come from a mapper reading the attributes directly)
  *
- * URL ของ Console: `CONSOLE_PUBLIC_URL` (เดียวกับ API) → `https://${UAT_HOST}/` (UAT) — ไม่มีทั้งสอง = ข้ามขั้น
- * baseUrl พร้อมเตือน (ไม่ล้มเหลว เพราะ displayName/profile ยังต้องตั้ง)
+ * Console URL: `CONSOLE_PUBLIC_URL` (the same as the API) -> `https://${UAT_HOST}/` (UAT) - with neither, this step is skipped
+ * for baseUrl with a warning (not a failure, because displayName/profile still need to be set)
  */
 export const BRANDING_REALM = 'dcontact';
 export const BRAND_NAME = 'D-Contact';
@@ -35,7 +35,7 @@ const adminUsername =
 const adminPassword =
   process.env.KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD ?? process.env.KEYCLOAK_ADMIN_PASSWORD ?? 'admin';
 
-/** URL สัมบูรณ์ http(s) ของ Console (มี `/` ท้ายเสมอ) หรือ `undefined` */
+/** An absolute http(s) URL of the Console (always ending with `/`) or `undefined` */
 export function consoleUrl(env = process.env) {
   const raw =
     env.CONSOLE_PUBLIC_URL?.trim() || (env.UAT_HOST ? `https://${env.UAT_HOST.trim()}/` : '');
@@ -44,18 +44,18 @@ export function consoleUrl(env = process.env) {
   try {
     url = new URL(raw);
   } catch {
-    throw new Error('CONSOLE_PUBLIC_URL ไม่ใช่ URL ที่ถูกต้อง');
+    throw new Error('CONSOLE_PUBLIC_URL is not a valid URL');
   }
   if (url.protocol !== 'https:' && url.protocol !== 'http:') {
-    throw new Error('CONSOLE_PUBLIC_URL ต้องเป็น http(s)');
+    throw new Error('CONSOLE_PUBLIC_URL must be http(s)');
   }
   if (url.search || url.hash || url.username || url.password) {
-    throw new Error('CONSOLE_PUBLIC_URL ต้องไม่มี query/fragment/credential');
+    throw new Error('CONSOLE_PUBLIC_URL must not have a query/fragment/credential');
   }
   return url.href.endsWith('/') ? url.href : `${url.href}/`;
 }
 
-/** user profile ที่ attribute ภายในไม่แสดงให้ผู้ใช้ — คืน object เดิมถ้าไม่มีอะไรต้องเปลี่ยน */
+/** A user profile whose internal attributes are not shown to the user - returns the original object if nothing needs to change */
 export function withHiddenInternalAttributes(profile) {
   let changed = false;
   const attributes = (profile.attributes ?? []).map((attribute) => {
@@ -81,7 +81,7 @@ async function request(path, { method = 'GET', token, body, form } = {}) {
     body: body === undefined ? form : JSON.stringify(body),
   });
   if (!response.ok) {
-    throw new Error(`${method} ${path} ล้มเหลว (${response.status})`);
+    throw new Error(`${method} ${path} failed (${response.status})`);
   }
   const text = await response.text();
   return text ? JSON.parse(text) : undefined;
@@ -155,8 +155,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     .then((result) => {
       if (!result.consoleBaseUrlSet) {
         console.warn(
-          'ไม่ได้ตั้ง baseUrl ของ client account/account-console: ไม่มี CONSOLE_PUBLIC_URL (หรือ UAT_HOST) — ' +
-            '/realms/dcontact/account/ จะตอบ 404 และลิงก์กลับแอปหลังเชิญไม่ไป Console',
+          'baseUrl of the clients account/account-console was not set: there is no CONSOLE_PUBLIC_URL (or UAT_HOST) - ' +
+            '/realms/dcontact/account/ will answer 404 and the back-to-app link after an invitation will not go to the Console',
         );
       }
       console.log(JSON.stringify({ type: 'keycloak.branding', status: 'PASS', ...result }));

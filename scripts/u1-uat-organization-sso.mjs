@@ -189,7 +189,7 @@ export async function applyOrganizationSso(
     'UAT_SSO_CREATED_EXECUTION_DRIFT',
   );
   await progress({ createdExecutionId, status: 'POSITIONED_DISABLED' });
-  // Enable เป็นคำสั่งสุดท้าย หลังตรวจว่า password/OTP และ broker guards ยังตรง preimage
+  // Enable is the last command, after checking that password/OTP and the broker guards still match the preimage
   await admin.call(`${FLOW}/executions`, {
     method: 'PUT',
     body: { id: added.id, priority: added.priority, requirement: 'ALTERNATIVE' },

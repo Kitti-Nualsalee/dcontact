@@ -8,7 +8,7 @@ const playwrightConfig = readFileSync(
   'utf8',
 );
 
-test('ปิด LINE webhook ด้วยค่าครบชุดเมื่อเปิด API สำหรับ real-call acceptance', () => {
+test('disables the LINE webhook with the full set of values when the API is started for the real-call acceptance', () => {
   assert.match(source, /LINE_WEBHOOK_SECRET_SOURCE: 'disabled'/);
   assert.match(source, /LINE_WEBHOOK_CHANNEL_ACCOUNT_ID: 'd1-16-disabled'/);
   assert.match(source, /LINE_WEBHOOK_DESTINATION: 'd1-16-disabled'/);
@@ -18,6 +18,6 @@ test('ปิด LINE webhook ด้วยค่าครบชุดเมื่
   assert.match(source, /const nodeId = 'fs-local'/);
 });
 
-test('แยก D1 real-call spec ออกจาก outbound harness', () => {
+test('separates the D1 real-call spec from the outbound harness', () => {
   assert.match(playwrightConfig, /testMatch: 'dphone-real-call\.spec\.ts'/);
 });

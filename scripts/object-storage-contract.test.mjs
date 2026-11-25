@@ -3,9 +3,9 @@ import { randomUUID } from 'node:crypto';
 import { after, before, test } from 'node:test';
 import { loadPresigner, loadS3, objectStorageConfiguration } from './object-storage-readiness.mjs';
 
-// ADR-029 "ผลที่ตามมา": contract ของ S3 API ที่แอปใช้ — ชุดเดียวกันต้องผ่านทั้ง RustFS (dev/CI) และ SeaweedFS
-// รันกับ storage จริง: `pnpm test:object-storage:contract` (อ่าน `S3_*`; default = dev compose)
-// ใช้ bucket ชั่วคราวและลบทิ้งเสมอ จึงไม่แตะ bucket ของแอป
+// ADR-029 "Consequences": the contract of the S3 API the app uses - the same set must pass on both RustFS (dev/CI) and SeaweedFS
+// runs against real storage: `pnpm test:object-storage:contract` (reads `S3_*`; default = the dev compose)
+// uses a temporary bucket that is always deleted, so it does not touch the app buckets
 
 const tenant = '11111111-1111-4111-8111-111111111111';
 const bucket = `contract-${randomUUID().slice(0, 8)}`;
@@ -30,7 +30,7 @@ after(async () => {
   client.destroy();
 });
 
-test('path-style: client ตั้ง forcePathStyle และ presigned URL ใช้ bucket ใน path', async () => {
+test('path-style: the client sets forcePathStyle and the presigned URL uses the bucket in the path', async () => {
   assert.equal(objectStorageConfiguration().forcePathStyle, true);
   const url = new URL(
     await getSignedUrl(client, new s3.GetObjectCommand({ Bucket: bucket, Key: 'x' }), {
@@ -40,7 +40,7 @@ test('path-style: client ตั้ง forcePathStyle และ presigned URL ใ
   assert.ok(url.pathname.startsWith(`/${bucket}/`), url.pathname);
 });
 
-test('put/get/delete ใต้ tenant prefix; object ที่ลบแล้ว = NoSuchKey', async () => {
+test('put/get/delete under the tenant prefix; a deleted object = NoSuchKey', async () => {
   const key = `recordings/${tenant}/contract.wav`;
   const body = new Uint8Array([82, 73, 70, 70, 1, 2, 3]);
   await client.send(
@@ -63,7 +63,7 @@ test('put/get/delete ใต้ tenant prefix; object ที่ลบแล้ว
   );
 });
 
-test('presigned GET ใช้ได้จริง, ตั้ง Content-Disposition ได้ และหมดอายุตามเวลา', async () => {
+test('a presigned GET really works, can set Content-Disposition, and expires on time', async () => {
   const key = `governance-exports/${tenant}/contract.json`;
   await client.send(new s3.PutObjectCommand({ Bucket: bucket, Key: key, Body: '{"ok":true}' }));
   const url = await getSignedUrl(
@@ -89,7 +89,7 @@ test('presigned GET ใช้ได้จริง, ตั้ง Content-Disposi
   assert.equal((await fetch(tampered)).status, 403);
 });
 
-test('lifecycle expiration ต่อ prefix ตั้งและอ่านกลับได้ (UAT evidence ใช้)', async () => {
+test('lifecycle expiration per prefix can be set and read back (used by UAT evidence)', async () => {
   await client.send(
     new s3.PutBucketLifecycleConfigurationCommand({
       Bucket: bucket,
@@ -109,13 +109,13 @@ test('lifecycle expiration ต่อ prefix ตั้งและอ่านก
     new s3.GetBucketLifecycleConfigurationCommand({ Bucket: bucket }),
   );
   const rule = lifecycle.Rules.find((candidate) => candidate.ID === 'contract-retention-90d');
-  assert.ok(rule, 'ไม่พบ lifecycle rule');
+  assert.ok(rule, 'lifecycle rule not found');
   assert.equal(rule.Status, 'Enabled');
   assert.equal(rule.Expiration.Days, 90);
   assert.equal(rule.Filter?.Prefix ?? rule.Prefix, 'uat-evidence/');
 });
 
-test('bucket ใหม่เป็น private: ไม่มี bucket policy และ GET แบบไม่ลงชื่อถูกปฏิเสธ', async () => {
+test('a new bucket is private: no bucket policy and an unsigned GET is rejected', async () => {
   await assert.rejects(
     client.send(new s3.GetBucketPolicyCommand({ Bucket: bucket })),
     (error) => error.name === 'NoSuchBucketPolicy',
@@ -127,7 +127,7 @@ test('bucket ใหม่เป็น private: ไม่มี bucket policy แ
   assert.equal(anonymous.status, 403);
 });
 
-test('HeadBucket: bucket ที่มี = ผ่าน, ไม่มี = 404 (readiness พึ่งพฤติกรรมนี้)', async () => {
+test('HeadBucket: an existing bucket = passes, a missing one = 404 (readiness depends on this behavior)', async () => {
   await client.send(new s3.HeadBucketCommand({ Bucket: bucket }));
   await assert.rejects(
     client.send(new s3.HeadBucketCommand({ Bucket: `${bucket}-missing` })),

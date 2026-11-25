@@ -66,7 +66,7 @@ const operatorPackageWorkflow = read('.github/workflows/uat-operator-package.yml
 const smokeWorkflow = read(UAT_FILES.smokeWorkflow);
 
 for (const guardExit of [0, 1]) {
-  test(`operator package: migration exit ${guardExit} คงผลและหยุดก่อน build เมื่อ guard ล้ม`, () => {
+  test(`operator package: migration exit ${guardExit} keeps the result and stops before build when the guard fails`, () => {
     const step = operatorPackageWorkflow.match(
       /      - name: Migration guard\n([\s\S]*?)(?=\n      - )/,
     )?.[1];
@@ -168,14 +168,14 @@ function restrictedReleaseFixture(context) {
   };
 }
 
-test('prepare คืน permission ของ mount templates หลัง staging umask 077 โดยไม่เปิด secret', (context) => {
+test('prepare restores the permissions of the mount templates after the staging umask 077 without exposing secrets', (context) => {
   const fixture = restrictedReleaseFixture(context);
   const result = fixture.prepare();
   assert.equal(result.status, 0, result.stderr);
   for (const name of fixture.templates)
     assert.ok(
       statSync(resolve(fixture.releaseDir, name)).mode & 0o004,
-      `${name} ต้องอ่านได้โดย container non-root`,
+      `${name} must be readable by a non-root container`,
     );
   for (const name of [
     'e1-freeswitch',
@@ -185,13 +185,13 @@ test('prepare คืน permission ของ mount templates หลัง stagin
   ])
     assert.ok(
       statSync(resolve(fixture.releaseDir, name)).mode & 0o001,
-      `${name} ต้อง traverse ได้โดย container non-root`,
+      `${name} must be traversable by a non-root container`,
     );
   assert.equal(statSync(fixture.secret).mode & 0o777, 0o600);
   assert.equal(statSync(resolve(fixture.releaseDir, 'release.env')).mode & 0o777, 0o600);
 });
 
-test('prepare ไม่เปิด permission ของ FreeSWITCH config ที่ render secret ลง source แล้ว', (context) => {
+test('prepare does not open the permissions of a FreeSWITCH config that has already rendered a secret into the source', (context) => {
   const fixture = restrictedReleaseFixture(context);
   const source = resolve(
     fixture.releaseDir,
@@ -208,7 +208,7 @@ test('prepare ไม่เปิด permission ของ FreeSWITCH config ท�
   assert.equal(statSync(fixture.secret).mode & 0o777, 0o600);
 });
 
-test('prepare ปฏิเสธ mount template ที่เป็น symlink โดยไม่เปลี่ยน permission ของ secret ปลายทาง', (context) => {
+test('prepare rejects a mount template that is a symlink without changing the permissions of the destination secret', (context) => {
   const fixture = restrictedReleaseFixture(context);
   const source = resolve(fixture.releaseDir, 'Caddyfile.3vm');
   unlinkSync(source);
@@ -219,7 +219,7 @@ test('prepare ปฏิเสธ mount template ที่เป็น symlink �
   assert.equal(statSync(fixture.secret).mode & 0o777, 0o600);
 });
 
-/** แทรก block ใต้ `services:` ของ compose จริง */
+/** Insert a block under `services:` of the real compose */
 function withService(block) {
   return compose.replace(/^services:\n/m, `services:\n${block}\n`);
 }
@@ -234,16 +234,16 @@ function failed(result, kind) {
   }
 }
 
-// ── static: artifact จริงของ repo ───────────────────────────────────────────
+// ── static: the real artifacts of the repo ───────────────────────────────────
 
-test('static readiness ผ่านบน artifact จริงของ repo', () => {
+test('static readiness passes on the real artifacts of the repo', () => {
   const result = runStaticChecks();
   const failures = result.checks.filter((entry) => entry.status !== 'PASS');
   assert.deepEqual(failures, []);
   assert.equal(result.status, 'PASS');
 });
 
-test('parser ของ compose อ่าน service/ports/env ของ UAT ได้ครบ', () => {
+test('the compose parser reads the UAT service/ports/env completely', () => {
   const services = parseComposeServices(compose);
   assert.deepEqual(Object.keys(services).sort(), [
     'api',
@@ -264,9 +264,9 @@ test('parser ของ compose อ่าน service/ports/env ของ UAT ไ�
   assert.deepEqual(services.keycloak.command, ['start', '--features=organization']);
 });
 
-// ── static: fixture ที่ผิด ─────────────────────────────────────────────────
+// ── static: bad fixtures ─────────────────────────────────────────────────────
 
-test('UAT-S01: worker/FreeSWITCH/Kafka/Redis ใน compose ไม่ผ่าน', () => {
+test('UAT-S01: a worker/FreeSWITCH/Kafka/Redis in compose fails', () => {
   assert.equal(checkComposeServices(compose).status, 'PASS');
   for (const [block, kind] of [
     ['  redis:\n    image: redis@sha256:' + 'a'.repeat(64), 'REDIS'],
@@ -276,7 +276,7 @@ test('UAT-S01: worker/FreeSWITCH/Kafka/Redis ใน compose ไม่ผ่า�
   ]) {
     failed(checkComposeServices(withService(block)), kind);
   }
-  // comment ที่กล่าวถึง FreeSWITCH ไม่นับ แต่ env จริงนับ
+  // a comment that mentions FreeSWITCH does not count, but a real env does
   failed(
     checkComposeServices(
       compose.replace(
@@ -288,7 +288,7 @@ test('UAT-S01: worker/FreeSWITCH/Kafka/Redis ใน compose ไม่ผ่า�
   );
 });
 
-test('UAT-S02: service อื่นที่เปิดพอร์ตหรือพอร์ตแปลกของ proxy ไม่ผ่าน', () => {
+test('UAT-S02: another service that publishes a port, or an odd proxy port, fails', () => {
   assert.equal(checkComposePorts(compose).status, 'PASS');
   failed(
     checkComposePorts(
@@ -306,7 +306,7 @@ test('UAT-S02: service อื่นที่เปิดพอร์ตหรื
   failed(checkComposePorts(compose.replace("      - '443:8443'\n", '')), 'HTTPS_NOT_PUBLISHED');
 });
 
-test('UAT-S03/S04: start-dev หรือ Keycloak ที่ไม่ได้อยู่หลัง proxy ไม่ผ่าน', () => {
+test('UAT-S03/S04: start-dev, or a Keycloak that is not behind the proxy, fails', () => {
   assert.equal(checkKeycloakProductionMode(compose).status, 'PASS');
   const dev = compose.replace('      - start\n', '      - start-dev\n');
   failed(checkNoStartDev({ compose: dev }), 'START_DEV');
@@ -321,7 +321,7 @@ test('UAT-S03/S04: start-dev หรือ Keycloak ที่ไม่ได้�
     checkKeycloakProductionMode(compose.replace('KC_HOSTNAME: https://', 'KC_HOSTNAME: http://')),
     'KC_HOSTNAME_NOT_HTTPS',
   );
-  // #680: grep คำว่า UP ทั้ง body = healthy ระหว่าง bootstrap (check ย่อย UP แต่ภาพรวม 503)
+  // #680: grepping the word UP across the whole body = healthy during bootstrap (a sub-check is UP but the overall state is 503)
   failed(
     checkKeycloakProductionMode(
       compose.replace("grep -m 1 '^HTTP/' <&3 | grep -q ' 200 '", 'grep -q UP <&3'),
@@ -330,7 +330,7 @@ test('UAT-S03/S04: start-dev หรือ Keycloak ที่ไม่ได้�
   );
 });
 
-test('UAT-S05: credential literal, default value หรือ secret ที่ไม่ใช่ :? ไม่ผ่าน', () => {
+test('UAT-S05: a credential literal, a default value, or a secret that is not :? fails', () => {
   assert.equal(checkComposeCredentials(compose).status, 'PASS');
   failed(
     checkComposeCredentials(
@@ -367,7 +367,7 @@ test('UAT-S05: credential literal, default value หรือ secret ที่�
   );
 });
 
-test('UAT-S06: image ที่ไม่ pin digest หรือ build บน VM ไม่ผ่าน', () => {
+test('UAT-S06: an image that does not pin a digest, or is built on the VM, fails', () => {
   assert.equal(checkComposeImages(compose).status, 'PASS');
   failed(
     checkComposeImages(
@@ -385,7 +385,7 @@ test('UAT-S06: image ที่ไม่ pin digest หรือ build บน VM 
   failed(checkComposeImages(withService('  extra:\n    build: .')), 'BUILD_ON_VM');
 });
 
-test('UAT-S19: realm ใช้ theme dcontact ต้องรัน Keycloak จาก image ที่มี theme (#515/#522)', () => {
+test('UAT-S19: a realm that uses the dcontact theme must run Keycloak from an image that has the theme (#515/#522)', () => {
   assert.equal(checkKeycloakTheme(compose, realm, keycloakDockerfile).status, 'PASS');
   failed(
     checkKeycloakTheme(
@@ -413,7 +413,7 @@ test('UAT-S19: realm ใช้ theme dcontact ต้องรัน Keycloak จ
   failed(checkKeycloakTheme(compose, realm, null), 'NO_KEYCLOAK_DOCKERFILE');
 });
 
-test('UAT-S07: FROM ที่ไม่ pin digest, :latest, root หรือไม่มี revision label ไม่ผ่าน', () => {
+test('UAT-S07: a FROM that does not pin a digest, :latest, root, or no revision label fails', () => {
   const pins = (text) => checkDockerfilePins({ Dockerfile: text });
   assert.equal(pins(apiDockerfile).status, 'PASS');
   assert.equal(pins(consoleDockerfile).status, 'PASS');
@@ -446,7 +446,7 @@ test('UAT-S07: FROM ที่ไม่ pin digest, :latest, root หรือไ
   failed(checkDockerfilePins({ missing: null }), 'MISSING');
 });
 
-test('UAT-S08: realm ที่มี user, secret, OTP ไม่บังคับ หรือ redirect wildcard ไม่ผ่าน', () => {
+test('UAT-S08: a realm that has a user, a secret, OTP not enforced, or a redirect wildcard fails', () => {
   assert.equal(checkRealm(realm).status, 'PASS');
   const mutate = (change) => {
     const value = JSON.parse(realm);
@@ -498,7 +498,7 @@ test('UAT-S08: realm ที่มี user, secret, OTP ไม่บังคั�
     mutate((r) => (r.sslRequired = 'none')),
     'SSL_NOT_REQUIRED',
   );
-  // #645: session ยาวเกิน max age ของ AMR ใน platform-console หรือ idle > max ไม่ผ่าน
+  // #645: a session longer than the AMR max age in platform-console, or idle > max, fails
   failed(
     mutate((r) => (r.ssoSessionMaxLifespan = PLATFORM_AMR_MAX_AGE_SECONDS + 1)),
     'SSO_SESSION_OUT_OF_BOUNDS',
@@ -514,7 +514,7 @@ test('UAT-S08: realm ที่มี user, secret, OTP ไม่บังคั�
   failed(checkRealm('{not json'), 'INVALID_JSON');
 });
 
-test('UAT-S24 (#645): account setup ของ Platform overlay ที่ผูก browser flow ของ realm ทับไม่ผ่าน', () => {
+test('UAT-S24 (#645): a Platform overlay account setup that binds the browser flow of the realm over it fails', () => {
   const overlay = read(UAT_FILES.composePlatform3vm);
   assert.equal(checkPlatformOverlayBrowserFlow(overlay).status, 'PASS');
   failed(
@@ -533,7 +533,7 @@ test('UAT-S24 (#645): account setup ของ Platform overlay ที่ผู�
   failed(checkPlatformOverlayBrowserFlow(null), 'MISSING_ARTIFACT');
 });
 
-test('UAT-S09: env ของ api ที่ขัดกับ profile uat ไม่ผ่าน', () => {
+test('UAT-S09: api env that conflicts with the uat profile fails', () => {
   assert.equal(checkApiEnvironment(compose).status, 'PASS');
   for (const name of ['LINE_CHANNEL_SECRET', 'KAFKA_BROKERS', 'SIP_BROWSER_NODES_JSON']) {
     failed(
@@ -554,11 +554,11 @@ test('UAT-S09: env ของ api ที่ขัดกับ profile uat ไม�
   );
 });
 
-test('UAT-S15: api ใช้ user เฉพาะของ object storage แบบ :? ต่อ network ภายใน และ bucket ไม่มี anonymous policy', () => {
+test('UAT-S15: the api uses a dedicated object storage user via :? on the internal network, and the bucket has no anonymous policy', () => {
   const ok = (text = compose, script = storageEntrypoint) => checkEvidenceStorage(text, script);
   assert.equal(ok().status, 'PASS');
   const apiKey = /S3_ACCESS_KEY: \$\{UAT_S3_API_ACCESS_KEY:\?[^}]*\}/;
-  // root credential ของ object storage ห้ามใช้ใน api
+  // the root credential of object storage must not be used in the api
   failed(
     ok(compose.replace(apiKey, 'S3_ACCESS_KEY: ${UAT_S3_ROOT_ACCESS_KEY:?required}')),
     'API_USES_ROOT_CREDENTIAL',
@@ -699,7 +699,7 @@ test('UAT-S15: api ใช้ user เฉพาะของ object storage แบ
   );
 });
 
-test('UAT-S16: provision เป็น one-shot ของ ops, owner connection, CLI อยู่ใน ops image และ input ทาง stdin', () => {
+test('UAT-S16: provision is an ops one-shot, with the owner connection, the CLI in the ops image, and the input through stdin', () => {
   assert.equal(checkUatProvision(compose, apiDockerfile, deployScript).status, 'PASS');
   const service = parseComposeServices(compose)['uat-provision'];
   assert.deepEqual(service.profiles, ['ops']);
@@ -707,7 +707,7 @@ test('UAT-S16: provision เป็น one-shot ของ ops, owner connection, 
   const ownerUrl =
     /DATABASE_URL: postgresql:\/\/\$\{UAT_POSTGRES_USER[^\n]*@postgres:5432\/dcontact\?schema=public\n(?=      UAT_TENANT_ID)/;
   assert.match(compose, ownerUrl);
-  // connection ของ application (dcontact_app) = ห้าม
+  // the application connection (dcontact_app) = forbidden
   failed(
     checkUatProvision(
       compose.replace(
@@ -749,7 +749,7 @@ test('UAT-S16: provision เป็น one-shot ของ ops, owner connection, 
   failed(
     checkUatProvision(
       compose,
-      // ลบเฉพาะใน ops stage — COPY เดียวกันของ runtime stage ต้องไม่ทำให้ผ่าน
+      // delete only in the ops stage - the same COPY of the runtime stage must not make it pass
       apiDockerfile.replace(/(AS ops\b[^]*?)COPY --from=build \/out\/api \/app\n/, '$1'),
       deployScript,
     ),
@@ -773,7 +773,7 @@ test('UAT-S16: provision เป็น one-shot ของ ops, owner connection, 
   );
 });
 
-test('E1.16: UAT เปิด/ปิด dphone embed ผ่าน audited platform-control CLI', () => {
+test('E1.16: UAT enables/disables the dphone embed through the audited platform-control CLI', () => {
   const service = parseComposeServices(compose)['tenant-ui-flag'];
   assert.deepEqual(service.profiles, ['ops']);
   assert.match(compose, /entrypoint: \['node', '\/platform-control\/dist\/ui-flag-main\.js'\]/);
@@ -789,7 +789,7 @@ test('E1.16: UAT เปิด/ปิด dphone embed ผ่าน audited platfo
   );
 });
 
-test('E1 acceptance: bootstrap asset ใช้ release SHA และ revalidate แทน heuristic cache', () => {
+test('E1 acceptance: the bootstrap asset uses the release SHA and revalidates instead of a heuristic cache', () => {
   const overlay = readFileSync('infra/uat/docker-compose.uat.e1.yml', 'utf8');
   const caddy = readFileSync('infra/uat/Caddyfile.3vm.e1', 'utf8');
   assert.equal(
@@ -803,7 +803,7 @@ test('E1 acceptance: bootstrap asset ใช้ release SHA และ revalidate 
   assert.match(caddy, /header @embedBootstrapAssets Cache-Control "no-cache"/);
 });
 
-test('E1.16: UAT image มี embed assets, host อ้างอิง และ route ของ dphone ครบ', () => {
+test('E1.16: the UAT image has the embed assets, the reference host and the dphone route complete', () => {
   assert.match(consoleDockerfile, /pnpm --filter @d-contact\/workspace build/);
   assert.match(
     consoleDockerfile,
@@ -881,7 +881,7 @@ test('E1.16: UAT image มี embed assets, host อ้างอิง และ
   assert.match(e1Overlay, /\.\/Caddyfile\.3vm\.e1:\/etc\/caddy\/Caddyfile:ro/);
   assert.match(
     caddyE1,
-    /handle \/sip-ws \{\s+reverse_proxy https:\/\/freeswitch:7443 \{\s+# SIP response ต้องส่งทันที ไม่รวม buffer ระหว่าง WebSocket tunnel\s+flush_interval -1\s+transport http \{\s+tls_insecure_skip_verify/,
+    /handle \/sip-ws \{\s+reverse_proxy https:\/\/freeswitch:7443 \{\s+# SIP response ต้องส่งทันที ไม่รวม buffer ระหว่าง WebSocket tunnel\s+flush_interval -1\s+transport http \{\s+tls_insecure_skip_verify/, // allow-thai: matches a Thai comment in infra/uat/Caddyfile.3vm.e1
   );
   assert.doesNotMatch(caddyfile3vm, /\/sip-ws/);
   assert.match(apiDockerfile, /test -f \/out\/api\/dist\/e1-uat-main\.js/);
@@ -911,17 +911,17 @@ test('E1.16: UAT image มี embed assets, host อ้างอิง และ
   assert.ok(wizard.indexOf('ui-flag') < wizard.indexOf('e1-disable'));
 });
 
-test('UAT-S22: owner สำหรับ migrate/backup อ่าน FORCE RLS ได้โดยไม่ยกสิทธิ์ให้ API', () => {
+test('UAT-S22: the owner for migrate/backup can read FORCE RLS without elevating privileges for the API', () => {
   const bootstrap = read('infra/uat/operator/vm3-bootstrap-uat.sh');
   const repair = read('infra/uat/operator/vm3-uat-backup-role.sh');
   assert.match(bootstrap, /CREATE ROLE dcontact_uat_owner LOGIN INHERIT BYPASSRLS NOSUPERUSER/);
   assert.match(bootstrap, /CREATE ROLE dcontact_app LOGIN INHERIT NOBYPASSRLS NOSUPERUSER/);
   assert.match(repair, /ALTER ROLE dcontact_uat_owner BYPASSRLS;/);
-  assert.match(repair, /role dcontact_app ต้องเป็น LOGIN INHERIT NOBYPASSRLS/);
+  assert.match(repair, /role dcontact_app ต้องเป็น LOGIN INHERIT NOBYPASSRLS/); // allow-thai: matches a Thai message in infra/uat/operator/vm3-uat-backup-role.sh
   assert.doesNotMatch(repair, /(?:PASSWORD\s*=|UAT_[A-Z_]*PASSWORD)/);
 });
 
-test('UAT-S23: VM1 ส่ง SIP WebSocket ผ่าน Caddy แบบไม่ buffer และไม่พึ่ง FreeSWITCH override ชั่วคราว', () => {
+test('UAT-S23: VM1 forwards the SIP WebSocket through Caddy without buffering and does not depend on a temporary FreeSWITCH override', () => {
   const vm1Bootstrap = read('infra/uat/operator/vm1-nginx-uat.sh');
   const vm1Migration = read('infra/uat/operator/vm1-nginx-websocket-uat.sh');
   assert.match(vm1Bootstrap, /proxy_set_header Upgrade \$http_upgrade;/);
@@ -935,26 +935,26 @@ test('UAT-S23: VM1 ส่ง SIP WebSocket ผ่าน Caddy แบบไม่
   assert.match(vm1Migration, /proxy_read_timeout 3600s/);
   assert.match(vm1Migration, /proxy_send_timeout 3600s/);
   assert.match(vm1Migration, /manual_sip_ws\.subn\('', source\)/);
-  assert.match(vm1Migration, /Caddy ใน release/);
+  assert.match(vm1Migration, /Caddy ใน release/); // allow-thai: matches Thai text in the VM1 migration operator script
   assert.match(vm1Migration, /nginx -t/);
   assert.match(vm1Migration, /cp --preserve=mode,ownership/);
   assert.ok(
     vm1Migration.indexOf('if cmp -s "$expected" "$config"; then') <
       vm1Migration.indexOf('python3 - "$config" "$candidate"'),
-    'state ใหม่ต้องผ่าน idempotency check ก่อนสร้าง candidate ของ migration',
+    'a new state must pass the idempotency check before creating the migration candidate',
   );
 });
 
-test('UAT-S10: proxy ที่เปิด admin ของ Keycloak หรือไม่มี allowlist ไม่ผ่าน', () => {
+test('UAT-S10: a proxy that exposes the Keycloak admin, or has no allowlist, fails', () => {
   assert.equal(checkProxy(caddyfile).status, 'PASS');
   failed(checkProxy(caddyfile.replace(' /auth/admin/*', '')), 'ADMIN_PATH_OPEN');
   failed(checkProxy(caddyfile.replace('respond @outside 403', '')), 'NO_ALLOWLIST');
   failed(checkProxy(caddyfile.replace('admin off', 'admin :2019')), 'CADDY_ADMIN_ON');
-  // respond นอก route = Caddy เรียง handle มาก่อน (พบจริงตอนทดสอบกับ Caddy 2.8.4)
+  // a respond outside route = Caddy orders handle first (found for real when testing with Caddy 2.8.4)
   failed(checkProxy(caddyfile.replace('\troute {', '\t{')), 'ORDER_NOT_ENFORCED');
 });
 
-test('UAT-S20: overlay 3 VM บังคับ relay, edge และ database แยก', () => {
+test('UAT-S20: the 3 VM overlay enforces a separate relay, edge and database', () => {
   const input = {
     overlay: compose3vm,
     caddyfile: caddyfile3vm,
@@ -976,7 +976,7 @@ test('UAT-S20: overlay 3 VM บังคับ relay, edge และ database �
   );
 });
 
-test('UAT-S21: overlay uat-line ที่เปิดกว้างเกิน รั่วออกนอก overlay หรือถอดไม่ได้ ไม่ผ่าน', () => {
+test('UAT-S21: a uat-line overlay that is too open, leaks outside the overlay, or cannot be removed fails', () => {
   const input = {
     compose,
     compose3vm,
@@ -989,7 +989,7 @@ test('UAT-S21: overlay uat-line ที่เปิดกว้างเกิน
   };
   assert.equal(checkLineOverlay(input).status, 'PASS');
   failed(checkLineOverlay({ ...input, overlay: null }), 'MISSING_ARTIFACT');
-  // service line-* ในไฟล์ฐาน = LINE เปิดแม้ไม่มี flag
+  // a line-* service in the base file = LINE is on even without a flag
   failed(
     checkLineOverlay({
       ...input,
@@ -997,7 +997,7 @@ test('UAT-S21: overlay uat-line ที่เปิดกว้างเกิน
     }),
     'LINE_SERVICE_OUTSIDE_OVERLAY',
   );
-  // overlay แตะ api
+  // the overlay touches api
   failed(
     checkLineOverlay({
       ...input,
@@ -1008,7 +1008,7 @@ test('UAT-S21: overlay uat-line ที่เปิดกว้างเกิน
     }),
     'UNEXPECTED_SERVICE',
   );
-  // service อื่นต่อ network ขาออก
+  // another service attaches to the outbound network
   failed(
     checkLineOverlay({
       ...input,
@@ -1019,7 +1019,7 @@ test('UAT-S21: overlay uat-line ที่เปิดกว้างเกิน
     }),
     'EGRESS_NETWORK_SHARED',
   );
-  // relay ที่ไม่กรอง SNI หรือมีปลายทางอื่น
+  // a relay that does not filter SNI or has another destination
   failed(
     checkLineOverlay({
       ...input,
@@ -1034,7 +1034,7 @@ test('UAT-S21: overlay uat-line ที่เปิดกว้างเกิน
     }),
     'EGRESS_BACKEND',
   );
-  // webhook ได้ access token หรือใช้ secret ใน env
+  // the webhook gets an access token or uses a secret in env
   failed(
     checkLineOverlay({
       ...input,
@@ -1055,7 +1055,7 @@ test('UAT-S21: overlay uat-line ที่เปิดกว้างเกิน
     }),
     'WEBHOOK_SECRET_NOT_FILE',
   );
-  // runner/relay ต้องไม่รันค้าง
+  // the runner/relay must not stay running
   failed(
     checkLineOverlay({
       ...input,
@@ -1066,7 +1066,7 @@ test('UAT-S21: overlay uat-line ที่เปิดกว้างเกิน
     }),
     'EGRESS_ALWAYS_ON',
   );
-  // alias api.line.me บน network ของ relay ทำให้ relay ส่งวนกลับหาตัวเอง; runner ต้องชี้ IP ของ relay
+  // an alias api.line.me on the relay network makes the relay loop back to itself; the runner must point at the relay IP
   failed(
     checkLineOverlay({
       ...input,
@@ -1084,7 +1084,7 @@ test('UAT-S21: overlay uat-line ที่เปิดกว้างเกิน
     }),
     'RUNNER_NOT_PINNED_TO_RELAY',
   );
-  // webhook หลัง allowlist (LINE ถูก 403) หรือก่อน edge check
+  // the webhook behind the allowlist (LINE gets 403) or before the edge check
   const moved = caddyfileLine
     .replace(/\n\t\t@lineWebhook \{[^]*?respond @webhookOther 404\n/, '\n')
     .replace(
@@ -1092,7 +1092,7 @@ test('UAT-S21: overlay uat-line ที่เปิดกว้างเกิน
       '\t\trespond @outside 403\n\n\t\t@lineWebhook {\n\t\t\tmethod POST\n\t\t\tpath /webhook/line\n\t\t}\n\t\thandle @lineWebhook {\n\t\t\treverse_proxy line-webhook:3000\n\t\t}\n',
     );
   failed(checkLineOverlay({ ...input, caddyfile: moved }), 'WEBHOOK_ROUTE_ORDER');
-  // #566: read API ของ pilot ก่อน allowlist = เปิดสู่ internet
+  // #566: the pilot read API before the allowlist = exposed to the internet
   const exposed = caddyfileLine
     .replace(/\t\t# #566:[^\n]*\n\t\thandle \/api\/v1\/line-pilot\/\* \{[^}]*\}\n/, '')
     .replace(
@@ -1120,7 +1120,7 @@ test('UAT-S21: overlay uat-line ที่เปิดกว้างเกิน
   );
 });
 
-test('UAT-S22: overlay team trial ที่เปิดกว้างเกินหรือ deploy ไม่ผูกกับ uat-line ไม่ผ่าน', () => {
+test('UAT-S22: a team trial overlay that is too open, or a deploy not bound to uat-line, fails', () => {
   const input = { overlay: composeLineTrial, lineOverlay: composeLine, deployScript };
   assert.equal(checkLineTrialOverlay(input).status, 'PASS');
   failed(checkLineTrialOverlay({ ...input, overlay: null }), 'MISSING_ARTIFACT');
@@ -1174,9 +1174,9 @@ test('UAT-S22: overlay team trial ที่เปิดกว้างเกิ�
   );
 });
 
-test('UAT-S11: workflow ที่ไม่ผูก environment/concurrency, echo secret หรือไม่รัน readiness ไม่ผ่าน', () => {
+test('UAT-S11: a workflow that does not bind environment/concurrency, echoes a secret, or does not run readiness fails', () => {
   assert.equal(checkWorkflow(workflow).status, 'PASS');
-  // #682: tail -n 1 ของขั้น keycloak = บรรทัด branding → realmConfigDigest เป็น null
+  // #682: tail -n 1 of the keycloak step = the branding line -> realmConfigDigest is null
   failed(
     checkWorkflow(workflow.replace(`| grep '"type":"u1.uat.keycloak"' | tail -n 1`, '| tail -n 1')),
     'KEYCLOAK_RECORD_LINE',
@@ -1212,9 +1212,9 @@ test('UAT-S11: workflow ที่ไม่ผูก environment/concurrency, ech
   );
 });
 
-test('UAT-S18: workflow uat-image-smoke ที่รันอัตโนมัติ ใช้ secret/environment/push ภายนอก หรือไม่ teardown ไม่ผ่าน', () => {
+test('UAT-S18: a uat-image-smoke workflow that runs automatically, uses a secret/environment/external push, or does not tear down fails', () => {
   assert.equal(checkSmokeWorkflow(smokeWorkflow).status, 'PASS');
-  // #682: tail -n 1 ของขั้น keycloak = บรรทัด branding → realmConfigDigest เป็น null
+  // #682: tail -n 1 of the keycloak step = the branding line -> realmConfigDigest is null
   failed(
     checkSmokeWorkflow(
       smokeWorkflow.replace(`| grep '"type":"u1.uat.keycloak"' | tail -n 1`, '| tail -n 1'),
@@ -1291,14 +1291,14 @@ test('UAT-S18: workflow uat-image-smoke ที่รันอัตโนมั�
   );
   failed(checkSmokeWorkflow(smokeWorkflow.replaceAll('down -v', 'down')), 'NO_TEARDOWN');
   failed(checkSmokeWorkflow(smokeWorkflow.replaceAll('::add-mask::', '')), 'NO_MASK');
-  // comment ไม่นับ — ข้อความอธิบายใน comment ไม่ทำให้ผ่าน/ล้มแทนโค้ด
+  // comments do not count - explanatory text in a comment must not make it pass/fail in place of the code
   failed(
     checkSmokeWorkflow(`${smokeWorkflow.replaceAll('down -v', 'down')}\n# if: always() down -v\n`),
     'NO_TEARDOWN',
   );
 });
 
-test('UAT-S12/S13: env example ที่มีค่า หรือ .dockerignore ที่ปล่อย .env ไม่ผ่าน', () => {
+test('UAT-S12/S13: an env example that has values, or a .dockerignore that lets .env through, fails', () => {
   assert.equal(checkEnvExample('A=\nB=\n').status, 'PASS');
   failed(checkEnvExample('UAT_POSTGRES_PASSWORD=hunter\n'), 'VALUE_PRESENT');
   assert.equal(checkDockerignore(read(UAT_FILES.dockerignore)).status, 'PASS');
@@ -1309,7 +1309,7 @@ test('UAT-S12/S13: env example ที่มีค่า หรือ .dockerigno
   );
 });
 
-test('UAT-S17: fixture template/provision example ที่มีค่าจริงของ deployment, id หรืออีเมลไม่ผ่าน', () => {
+test('UAT-S17: a fixture template/provision example that has real deployment values, ids or emails fails', () => {
   const templateText = read(UAT_FILES.fixtureTemplate);
   const exampleText = read(UAT_FILES.provisionExample);
   assert.equal(checkFixtureTemplate(templateText, exampleText).status, 'PASS');
@@ -1356,7 +1356,7 @@ test('UAT-S17: fixture template/provision example ที่มีค่าจร
   failed(checkFixtureTemplate(null, exampleText), 'MISSING');
 });
 
-test('UAT-S14: secret scan จับ key/JWT/token/credential literal', () => {
+test('UAT-S14: the secret scan catches a key/JWT/token/credential literal', () => {
   const segment = 'A'.repeat(24);
   const bad = {
     key: ['-----BEGIN', 'OPENSSH PRIVATE KEY-----'].join(' '),
@@ -1385,14 +1385,14 @@ test('UAT-S14: secret scan จับ key/JWT/token/credential literal', () => {
 
 // ── migration guard ─────────────────────────────────────────────────────────
 
-test('UAT-M01: migration ใหม่ที่มี DROP หรือการแก้ migration เดิมไม่ผ่าน', () => {
+test('UAT-M01: a new migration that has a DROP, or edits an existing migration, fails', () => {
   const path = (name) => `packages/db/prisma/migrations/${name}/migration.sql`;
   assert.equal(
     guardMigrations([
       {
         status: 'A',
         path: path('1_add'),
-        sql: 'CREATE TABLE x (id uuid);\n-- DROP TABLE x; ในอนาคต\n/* DROP */',
+        sql: 'CREATE TABLE x (id uuid);\n-- DROP TABLE x; in the future\n/* DROP */',
       },
     ]).status,
     'PASS',
@@ -1416,7 +1416,7 @@ test('UAT-M01: migration ใหม่ที่มี DROP หรือการ�
   assert.deepEqual(findDropStatements('SELECT 1; -- DROP TABLE x'), []);
 });
 
-test('UAT-M01 (#714): skill-scope ที่อนุมัติต้อง pin exact path และ digest', () => {
+test('UAT-M01 (#714): an approved skill-scope must pin the exact path and digest', () => {
   assert.ok(
     APPROVED_DROP_MIGRATIONS.some(
       (pin) =>
@@ -1427,7 +1427,7 @@ test('UAT-M01 (#714): skill-scope ที่อนุมัติต้อง pin
   );
 });
 
-test('UAT-M01 (#710): migration ที่ pin ไว้ผ่านเฉพาะ bytes เดิม แก้ไฟล์หรือย้าย path ยังล้ม', () => {
+test('UAT-M01 (#710): a pinned migration passes only with the original bytes; editing the file or moving the path still fails', () => {
   for (const pin of APPROVED_DROP_MIGRATIONS) {
     const sql = readFileSync(resolve(repositoryRoot, pin.path), 'utf8');
     assert.equal(guardMigrations([{ status: 'A', path: pin.path, sql }]).status, 'PASS');
@@ -1444,23 +1444,23 @@ test('UAT-M01 (#710): migration ที่ pin ไว้ผ่านเฉพา�
   }
 });
 
-test('UAT-M01 (#868): migration #841 ผ่านเฉพาะไฟล์ใหม่ที่ตรงกับ bytes ที่ซ้อม', () => {
+test('UAT-M01 (#868): migration #841 passes only as a new file that matches the rehearsed bytes', () => {
   const path = 'packages/db/prisma/migrations/20261103130000_m3_service_principals/migration.sql';
   const sql = readFileSync(resolve(repositoryRoot, path), 'utf8');
   assert.equal(guardMigrations([{ status: 'A', path, sql }]).status, 'PASS');
   failed(
-    guardMigrations([{ status: 'A', path, sql: `${sql}\n-- เปลี่ยนเพียง comment` }]),
+    guardMigrations([{ status: 'A', path, sql: `${sql}\n-- only a comment changed` }]),
     'DROP_STATEMENT',
   );
   failed(guardMigrations([{ status: 'M', path, sql }]), 'APPLIED_MIGRATION_CHANGED');
 });
 
-test('UAT-M01 (#567): แทนที่ CHECK ที่ review แล้วผ่าน แต่ชื่ออื่น/ไม่มี ADD ชื่อเดิม/DROP แบบอื่นยังล้ม', () => {
+test('UAT-M01 (#567): replacing a reviewed CHECK passes, but another name / no ADD of the original name / another kind of DROP still fails', () => {
   const path = (name) => `packages/db/prisma/migrations/${name}/migration.sql`;
   const name = 'dl_line_run_authorizations_caps_check';
   const replace = `ALTER TABLE t DROP CONSTRAINT "${name}";\nALTER TABLE t ADD CONSTRAINT "${name}" CHECK (true);`;
   assert.equal(guardMigrations([{ status: 'A', path: path('4_ok'), sql: replace }]).status, 'PASS');
-  // ชื่อไม่อยู่ใน allowlist
+  // a name not in the allowlist
   failed(
     guardMigrations([
       {
@@ -1471,7 +1471,7 @@ test('UAT-M01 (#567): แทนที่ CHECK ที่ review แล้วผ�
     ]),
     'DROP_STATEMENT',
   );
-  // drop อย่างเดียวไม่ add กลับ (หรือ add เป็นชื่ออื่น)
+  // a drop with no add back (or an add under another name)
   failed(
     guardMigrations([
       { status: 'A', path: path('6_drop_only'), sql: `ALTER TABLE t DROP CONSTRAINT "${name}";` },
@@ -1488,7 +1488,7 @@ test('UAT-M01 (#567): แทนที่ CHECK ที่ review แล้วผ�
     ]),
     'DROP_STATEMENT',
   );
-  // แทนที่ได้ แต่ DROP อื่นในไฟล์เดียวกันยังล้ม
+  // replaceable, but another DROP in the same file still fails
   failed(
     guardMigrations([
       { status: 'A', path: path('8_mixed'), sql: `${replace}\nALTER TABLE t DROP COLUMN y;` },
@@ -1497,7 +1497,7 @@ test('UAT-M01 (#567): แทนที่ CHECK ที่ review แล้วผ�
   );
 });
 
-test('UAT-M01 (#520): CHECK constraint ของ click-to-call และ voice rollout ที่ review แล้วแทนที่ได้', () => {
+test('UAT-M01 (#520): the click-to-call and voice rollout CHECK constraints that were reviewed can be replaced', () => {
   const path = (name) => `packages/db/prisma/migrations/${name}/migration.sql`;
   for (const name of [
     'dphone_click_to_call_audit_events_values_check',
@@ -1508,14 +1508,14 @@ test('UAT-M01 (#520): CHECK constraint ของ click-to-call และ voice r
   }
 });
 
-test('UAT-M01: guard อ่าน migration จาก git จริง (base = HEAD ไม่มีไฟล์ใหม่)', () => {
+test('UAT-M01: the guard reads migrations from real git (base = HEAD has no new file)', () => {
   const result = runMigrationGuard({ base: runMigrationGuard({ initial: true }).head });
   assert.equal(result.status, 'PASS');
   assert.deepEqual(result.checks[0].added, []);
   assert.throws(() => runMigrationGuard({ base: 'not-a-sha' }), /commit SHA/);
 });
 
-// ── live smoke กับ stub server ──────────────────────────────────────────────
+// ── live smoke against a stub server ─────────────────────────────────────────
 
 const TOKEN = ['stub', 'access', 'token', 'value'].join('-');
 
@@ -1558,7 +1558,7 @@ function stubUat({
       });
     }
     if (url.pathname === '/auth/realms/dcontact/protocol/openid-connect/auth') {
-      // Keycloak ตอบ error เป็น JSON เมื่อ Accept ไม่ได้ขอ HTML
+      // Keycloak answers the error as JSON when Accept does not ask for HTML
       if (!/^text\/html/.test(request.headers.accept ?? '')) {
         return send(400, { error: 'invalid_request' });
       }
@@ -1630,7 +1630,7 @@ async function smoke(stub, options = {}) {
   });
 }
 
-test('UAT-L: smoke ผ่านกับ UAT ที่ถูกต้อง; journey flow SKIPPED เมื่อไม่มี token', async () => {
+test('UAT-L: smoke passes against a correct UAT; the journey flow is SKIPPED when there is no token', async () => {
   const stub = await stubUat();
   try {
     const result = await smoke(stub);
@@ -1648,14 +1648,14 @@ test('UAT-L: smoke ผ่านกับ UAT ที่ถูกต้อง; jou
       'UAT-L08': 'PASS',
     });
     assert.equal(result.status, 'PASS');
-    // ต่อ 127.0.0.1 แต่ส่ง Host ของ UAT_HOST
+    // connect to 127.0.0.1 but send the Host of UAT_HOST
     assert.deepEqual([...stub.seen.hosts], [`uat.example.test:${stub.port}`]);
   } finally {
     stub.server.close();
   }
 });
 
-test('UAT-L02: smoke ยอมรับ profile uat-e1 เฉพาะเมื่อ operator ระบุ', async () => {
+test('UAT-L02: smoke accepts the uat-e1 profile only when the operator specifies it', async () => {
   const stub = await stubUat({ profile: { profile: 'uat-e1' } });
   try {
     assert.equal((await smoke(stub)).status, 'FAIL');
@@ -1665,7 +1665,7 @@ test('UAT-L02: smoke ยอมรับ profile uat-e1 เฉพาะเมื�
   }
 });
 
-test('UAT-L06: journey flow ผ่านด้วย token และรายงานไม่มี token', async () => {
+test('UAT-L06: the journey flow passes with a token and the report has no token', async () => {
   const stub = await stubUat();
   try {
     const result = await smoke(stub, { token: TOKEN });
@@ -1681,7 +1681,7 @@ test('UAT-L06: journey flow ผ่านด้วย token และรายง
   }
 });
 
-test('UAT-L: profile ผิด, admin เปิด, issuer ไม่ตรง หรือพอร์ตเปิด = FAIL', async () => {
+test('UAT-L: a wrong profile, an exposed admin, an issuer mismatch, or an open port = FAIL', async () => {
   const cases = [
     [{ profile: { kafka: 'ENABLED' } }, 'UAT-L02'],
     [{ profile: { profile: 'default' } }, 'UAT-L02'],
@@ -1710,7 +1710,7 @@ test('UAT-L: profile ผิด, admin เปิด, issuer ไม่ตรง �
   }
 });
 
-test('UAT-L: base URL ต้องเป็น https และ server ที่ไม่ตอบ = FAIL ไม่ใช่ crash', async () => {
+test('UAT-L: the base URL must be https and a server that does not answer = FAIL, not a crash', async () => {
   await assert.rejects(runLiveSmoke({ baseUrl: 'http://uat.example.test' }), /https/);
   await assert.rejects(runLiveSmoke({}), /UAT_BASE_URL/);
   const port = await closedPort();
@@ -1725,7 +1725,7 @@ test('UAT-L: base URL ต้องเป็น https และ server ที่�
 
 // ── deployment record ───────────────────────────────────────────────────────
 
-test('deployment record: บันทึก SHA/digest/realm/pack; ปฏิเสธ image ไม่ pin หรือ smoke ไม่ผ่าน', () => {
+test('deployment record: records the SHA/digest/realm/pack; rejects an unpinned image or a smoke that did not pass', () => {
   const sha = 'a'.repeat(40);
   const digest = (name) => `ghcr.io/o/${name}@sha256:${'b'.repeat(64)}`;
   const smokeReport = { status: 'PASS', checks: [{ id: 'UAT-L01 Console index', status: 'PASS' }] };
@@ -1778,7 +1778,7 @@ test('deployment record: บันทึก SHA/digest/realm/pack; ปฏิเ�
     () => buildDeploymentRecord({ ...input, smoke: { status: 'FAIL', checks: [] } }),
     /smoke/,
   );
-  // #682: บรรทัดสุดท้ายของขั้น keycloak เป็นของ branding — record ต้องไม่บันทึก null เงียบ ๆ
+  // #682: the last line of the keycloak step belongs to branding - the record must not silently record null
   assert.throws(
     () =>
       buildDeploymentRecord({
@@ -1789,7 +1789,7 @@ test('deployment record: บันทึก SHA/digest/realm/pack; ปฏิเ�
   );
 });
 
-test('Workspace overlay เป็น opt-in ต่อ release; rollback เดิมไม่ต้องมี overlay และ LINE conflict หยุดก่อน deploy', (t) => {
+test('Workspace overlay is opt-in per release; an existing rollback needs no overlay and a LINE conflict stops before deploy', (t) => {
   const fixture = restrictedReleaseFixture(t);
   const manifest = resolve(fixture.releaseDir, 'release.env');
   const original = readFileSync(manifest, 'utf8');

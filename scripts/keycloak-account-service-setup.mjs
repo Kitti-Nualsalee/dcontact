@@ -2,36 +2,36 @@ import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
 
 /**
- * AC0 (#592): service account ของ self-service บัญชี (#589) บน realm `dcontact` — idempotent ผ่าน Admin API
+ * AC0 (#592): the service account for account self-service (#589) on the `dcontact` realm - idempotent through the Admin API
  *
- * ใช้ fine-grained admin permissions v2 (Keycloak ≥ 26.2) แทน realm-management role ทั้ง realm:
- * - `dcontact-account-service`: confidential client + service account ไม่มี realm-management role ใด
- * - สิทธิ์ `view`/`manage`/`reset-password` บน Users — เท่าที่ API ของ D-Contact ต้องใช้แก้ชื่อ/email/รหัสผ่าน/OTP
- * - **deny ทุก scope** กับผู้ใช้ที่ไม่เป็นสมาชิก Organization ใดเลย (platform operator/auditor, service account
- *   ของระบบ, admin ของ realm) — ผล probe บน 26.7.5: deny ระดับ group ไม่ครอบ `reset-password`
- *   จึงต้อง deny เป็นราย user ซึ่งครอบทุก scope
- * - ผู้ถือ client role ของ `dcontact-platform-api` ถูก deny เสมอแม้อยู่ใน Organization (#685, #387: platform identity
- *   ห้ามเป็นสมาชิก tenant — กันกรณีถูกผูกผิดพลาดแบบที่พบบน UAT)
- * - รายชื่อที่ถูกป้องกันคำนวณใหม่ทุกครั้งที่รัน — เพิ่ม platform user ใหม่แล้วต้องรันสคริปต์นี้ซ้ำ (runbook)
- *   และ API ของ D-Contact ยังตรวจว่าเป้าหมายเป็นผู้ใช้เจ้าของ token ใน tenant เดียวกันเสมอ (ชั้นที่สอง)
+ * uses fine-grained admin permissions v2 (Keycloak >= 26.2) instead of the realm-wide realm-management role:
+ * - `dcontact-account-service`: a confidential client + a service account with no realm-management role
+ * - the `view`/`manage`/`reset-password` permissions on Users - only what the D-Contact API needs to edit name/email/password/OTP
+ * - **deny every scope** for users who are not members of any Organization (platform operator/auditor, system service accounts,
+ *   realm admins) - probe result on 26.7.5: a group-level deny does not cover `reset-password`,
+ *   so the deny must be per user, which covers every scope
+ * - holders of a client role of `dcontact-platform-api` are always denied even if they are in an Organization (#685, #387: a platform identity
+ *   must not be a tenant member - guards against a wrong binding like the one found on UAT)
+ * - the protected list is recomputed on every run - after adding a new platform user this script must be re-run (runbook)
+ *   and the D-Contact API still checks that the target is the token owner in the same tenant (the second layer)
  *
- * ผลข้างเคียงของการเปิด FGAP v2: การ list Organization กรองตาม permission ทันที ยกเว้นผู้มี
- * `view-organizations`/`manage-organizations` — provisioner จึงได้ `manage-organizations` ใน
- * keycloak-provisioning-setup.mjs (สคริปต์นั้นรันก่อนสคริปต์นี้ใน `infra:bootstrap`)
+ * side effect of enabling FGAP v2: listing Organizations is filtered by permission immediately, except for holders of
+ * `view-organizations`/`manage-organizations` - so the provisioner gets `manage-organizations` in
+ * keycloak-provisioning-setup.mjs (that script runs before this one in `infra:bootstrap`)
  *
- * AC2 (#595): browser flow ของ tenant `dcontact-browser` (copy จาก `browser` ของ Keycloak) บังคับ 2FA ตาม
- * Organization ด้วย extension `dc-account` (infra/keycloak/extensions/dc-account):
- * - subflow ใหม่ "Org 2FA" (CONDITIONAL): `dc-org-mfa-required` + `auth-otp-form` แบบ REQUIRED —
- *   ยังไม่มี OTP = required action `CONFIGURE_TOTP`; มีแล้ว = ถาม OTP
- * - subflow 2FA เดิม: เพิ่ม `dc-org-mfa-required` แบบ negate เพื่อไม่ถาม OTP สองรอบเมื่อ org บังคับ
- * - ผูกเป็น browser flow ของ realm — `platform-console` มี flow ของตัวเอง (keycloak-platform-setup.mjs) จึงไม่กระทบ
- * - ประเมินตอน login เท่านั้น: เปิดบังคับแล้วมีผล login ครั้งถัดไป ไม่ตัด session ที่ใช้อยู่ (#589 D10)
+ * AC2 (#595): the tenant browser flow `dcontact-browser` (a copy of Keycloak `browser`) enforces 2FA per
+ * Organization with the `dc-account` extension (infra/keycloak/extensions/dc-account):
+ * - a new subflow "Org 2FA" (CONDITIONAL): `dc-org-mfa-required` + `auth-otp-form` as REQUIRED -
+ *   no OTP yet = the required action `CONFIGURE_TOTP`; already has one = ask for OTP
+ * - the original 2FA subflow: adds `dc-org-mfa-required` as negate so OTP is not asked twice when the org enforces it
+ * - bound as the browser flow of the realm - `platform-console` has its own flow (keycloak-platform-setup.mjs) so it is not affected
+ * - evaluated at login only: once enforcement is on it takes effect at the next login and does not cut off a session in use (#589 D10)
  *
- * `--keep-realm-browser-flow` (#645): ตั้ง flow ครบแต่ไม่ผูกกับ realm — UAT ใช้ flow ของ realm template
- * (`uat browser password otp` ที่ `u1-uat-keycloak-users.mjs --config` ตั้ง) เป็นเจ้าของเดียว
+ * `--keep-realm-browser-flow` (#645): set up the whole flow but do not bind it to the realm - UAT uses the flow of the realm template
+ * (`uat browser password otp`, which `u1-uat-keycloak-users.mjs --config` sets) as its single owner
  *
- * `--verify` ตรวจด้วย token ของ service account จริง: แก้ผู้ใช้ tenant ได้, แตะผู้ใช้ที่ถูกป้องกันไม่ได้,
- * อ่าน client ของ realm ไม่ได้, เรียก extension `dc-account` ได้ (token อื่น = 403) และ flow ถูกตั้งครบ
+ * `--verify` checks with the token of the real service account: it can edit a tenant user, cannot touch a protected user,
+ * cannot read the realm clients, can call the `dc-account` extension (another token = 403), and the flow is fully set up
  */
 export const ACCOUNT_SERVICE_CLIENT = 'dcontact-account-service';
 export const ALLOW_POLICY = 'dc-account-service';
@@ -43,8 +43,8 @@ export const ORG_MFA_FLOW = `${TENANT_BROWSER_FLOW} Org 2FA`;
 export const ORG_MFA_CONDITION = 'dc-org-mfa-required';
 export const ORG_MFA_NEGATE_CONFIG = `${TENANT_BROWSER_FLOW}-org-mfa-negate`;
 /**
- * #685: client/roles ของ platform (ค่าเดียวกับ keycloak-platform-setup.mjs — ไม่ import เพราะโมดูลนั้นตรวจ env ตอนโหลด)
- * ผู้ใช้ที่มี role เหล่านี้ถูกป้องกันเสมอ แม้ถูกผูกเข้า Organization ของ tenant โดยผิดพลาด (#387)
+ * #685: the client/roles of the platform (the same values as keycloak-platform-setup.mjs - not imported because that module checks env on load)
+ * users with these roles are always protected, even if wrongly bound into a tenant Organization (#387)
  */
 export const PLATFORM_API_CLIENT = 'dcontact-platform-api';
 export const PLATFORM_ROLES = Object.freeze(['platform_operator', 'platform_auditor']);
@@ -67,14 +67,14 @@ export const accountServiceSecret =
 
 const PAGE = 100;
 
-/** ผู้ใช้ที่ไม่เป็นสมาชิก Organization ใดเลย = ไม่ใช่ผู้ใช้ของ tenant → ห้าม service account แตะ */
+/** A user who is not a member of any Organization = not a tenant user -> the service account must not touch them */
 export function protectedUserIds(allUserIds, organizationMemberIds, platformUserIds = []) {
   const members = new Set(organizationMemberIds);
   const platform = new Set(platformUserIds);
   return [...new Set(allUserIds)].filter((id) => !members.has(id) || platform.has(id)).sort();
 }
 
-/** ผู้ใช้ tenant ตัวแรกที่ไม่ถูกป้องกัน — ใช้เป็นเป้าของ `--verify` */
+/** The first tenant user who is not protected - used as the target of `--verify` */
 export function firstTenantUser(organizationMemberIds, protectedIds) {
   const blocked = new Set(protectedIds);
   return organizationMemberIds.find((id) => !blocked.has(id));
@@ -97,14 +97,14 @@ export function clientRepresentation(secret) {
 }
 
 /**
- * deny ที่ไม่มี resources = deny ผู้ใช้ทุกคน (resource type ทั้งชุด) — ไม่มีผู้ใช้ที่ต้องป้องกันจึงไม่สร้าง deny
+ * a deny with no resources = deny every user (the whole resource type) - with no user to protect, no deny is created
  */
 export function permissionRepresentations({ allowPolicyId, denyPolicyId, protectedIds }) {
   const permissions = [
     {
       name: USERS_PERMISSION,
-      description: '#589: self-service บัญชีผ่าน API ของ D-Contact',
-      // ไม่ระบุ resources = ผู้ใช้ทุกคนของ realm (ยกเว้นที่ถูก deny ด้านล่าง)
+      description: '#589: self-service บัญชีผ่าน API ของ D-Contact', // allow-thai: description is persisted in the Keycloak realm
+      // no resources = every user of the realm (except those denied below)
       resourceType: 'Users',
       scopes: [...ALLOWED_USER_SCOPES],
       policies: [allowPolicyId],
@@ -112,7 +112,7 @@ export function permissionRepresentations({ allowPolicyId, denyPolicyId, protect
     },
     {
       name: PROTECTED_PERMISSION,
-      description: '#592: ผู้ใช้ที่ไม่อยู่ใน Organization ใด (platform/service account/admin)',
+      description: '#592: ผู้ใช้ที่ไม่อยู่ใน Organization ใด (platform/service account/admin)', // allow-thai: description is persisted in the Keycloak realm
       resourceType: 'Users',
       resources: [...protectedIds],
       scopes: [...ALL_USER_SCOPES],
@@ -134,7 +134,7 @@ async function request(path, { method = 'GET', token, body, form, accept = [] } 
     body: body === undefined ? form : JSON.stringify(body),
   });
   if (!response.ok && !accept.includes(response.status)) {
-    throw new Error(`${method} ${path.split('?')[0]} ล้มเหลว (${response.status})`);
+    throw new Error(`${method} ${path.split('?')[0]} failed (${response.status})`);
   }
   const text = await response.text();
   return { status: response.status, body: text ? JSON.parse(text) : undefined };
@@ -197,7 +197,7 @@ async function ensureClient(accessToken) {
       token: accessToken,
     }));
   }
-  // ไม่มี realm-management role ใด — สิทธิ์ทั้งหมดมาจาก fine-grained permission ด้านล่าง
+  // no realm-management role at all - every permission comes from the fine-grained permissions below
   const { body: serviceAccount } = await request(
     `${realmPath}/clients/${client.id}/service-account-user`,
     { token: accessToken },
@@ -240,8 +240,8 @@ async function upsert(listPath, createPath, name, representation, accessToken) {
 }
 
 /**
- * ผู้ใช้ทุกคนของ realm รวม service account — `GET /users` ไม่คืน service account user จึงดึงจาก client ที่เปิด
- * service account อีกทาง (probe บน 26.7.5: service account ของ client อื่นถูกแก้ได้ถ้าไม่ deny)
+ * Every user of the realm including service accounts - `GET /users` does not return service account users, so fetch them from the clients that enable
+ * a service account by another route (probe on 26.7.5: the service account of another client can be edited unless denied)
  */
 async function realmUsers(accessToken) {
   const users = await pages(`${realmPath}/users?briefRepresentation=true`, accessToken);
@@ -265,7 +265,7 @@ async function realmUsers(accessToken) {
     );
     memberIds.push(...members.map((member) => member.id));
   }
-  // #685: ผู้ถือ platform role ทุกคน (direct mapping) — ต้องอยู่ใน deny list แม้เป็นสมาชิก Organization
+  // #685: every holder of a platform role (direct mapping) - must be in the deny list even if a member of an Organization
   const platformIds = [];
   const platformClient = clients.find((client) => client.clientId === PLATFORM_API_CLIENT);
   if (platformClient) {
@@ -285,8 +285,8 @@ async function realmUsers(accessToken) {
 }
 
 /**
- * execution ของ flow (เรียงแบบ depth-first พร้อม `level`) → execution ลูกโดยตรงของ subflow ที่ index นั้น
- * (`-1` = ระดับบนสุด)
+ * the executions of a flow (ordered depth-first with `level`) -> the direct child executions of the subflow at that index
+ * (`-1` = the top level)
  */
 export function childrenOf(executions, parentIndex) {
   const level = parentIndex < 0 ? 0 : executions[parentIndex].level + 1;
@@ -299,7 +299,7 @@ export function childrenOf(executions, parentIndex) {
   return children;
 }
 
-/** subflow `forms` (มี username/password) และ subflow 2FA เดิมของ Keycloak (มี OTP form + user configured) */
+/** The `forms` subflow (has username/password) and the original Keycloak 2FA subflow (has the OTP form + user configured) */
 export function locateBrowserSubflows(executions) {
   const subflows = executions
     .map((execution, index) => ({ ...execution, position: index }))
@@ -320,7 +320,7 @@ export function locateBrowserSubflows(executions) {
 }
 
 async function setRequirement(accessToken, { position: _position, ...execution }, requirement) {
-  // `position` เป็นของ childrenOf/locateBrowserSubflows — Keycloak ปฏิเสธ field ที่ไม่รู้จัก (400)
+  // `position` belongs to childrenOf/locateBrowserSubflows - Keycloak rejects unknown fields (400)
   if (execution.requirement === requirement) return;
   await request(`${realmPath}/authentication/flows/${TENANT_BROWSER_FLOW}/executions`, {
     method: 'PUT',
@@ -329,7 +329,7 @@ async function setRequirement(accessToken, { position: _position, ...execution }
   });
 }
 
-/** ตั้ง browser flow ของ tenant — idempotent (เพิ่มเฉพาะส่วนที่ยังไม่มี แล้วแก้ requirement/config ให้ตรง) */
+/** Set up the tenant browser flow - idempotent (add only the missing parts, then fix the requirement/config to match) */
 async function ensureTenantBrowserFlow(accessToken, { bindRealm }) {
   const flowsPath = `${realmPath}/authentication/flows`;
   const executionsPath = `${flowsPath}/${encodeURIComponent(TENANT_BROWSER_FLOW)}/executions`;
@@ -344,12 +344,14 @@ async function ensureTenantBrowserFlow(accessToken, { bindRealm }) {
   const executions = async () => (await request(executionsPath, { token: accessToken })).body;
   let located = locateBrowserSubflows(await executions());
   if (!located.forms || !located.twoFactor) {
-    throw new Error(`${TENANT_BROWSER_FLOW}: ไม่พบ subflow forms/2FA ที่ copy มาจาก browser`);
+    throw new Error(
+      `${TENANT_BROWSER_FLOW}: the forms/2FA subflows copied from browser were not found`,
+    );
   }
   const subflowPath = (subflow) =>
     `${flowsPath}/${encodeURIComponent(subflow.displayName)}/executions`;
 
-  // subflow 2FA เดิม: + condition แบบ negate
+  // the original 2FA subflow: + a negate condition
   if (
     !childrenOf(await executions(), located.twoFactor.position).some(
       (child) => child.providerId === ORG_MFA_CONDITION,
@@ -361,7 +363,7 @@ async function ensureTenantBrowserFlow(accessToken, { bindRealm }) {
       body: { provider: ORG_MFA_CONDITION },
     });
   }
-  // subflow Org 2FA ใน forms
+  // the Org 2FA subflow in forms
   if (!located.orgMfa) {
     await request(`${subflowPath(located.forms)}/flow`, {
       method: 'POST',
@@ -369,7 +371,7 @@ async function ensureTenantBrowserFlow(accessToken, { bindRealm }) {
       body: {
         alias: ORG_MFA_FLOW,
         description:
-          'AC2 #595: Organization บังคับ 2FA — ยังไม่มี OTP = ตั้งก่อน, มีแล้ว = ถาม OTP',
+          'AC2 #595: Organization บังคับ 2FA — ยังไม่มี OTP = ตั้งก่อน, มีแล้ว = ถาม OTP', // allow-thai: description is persisted in the Keycloak flow
         provider: 'registration-page-form',
         type: 'basic-flow',
       },
@@ -412,7 +414,7 @@ async function ensureTenantBrowserFlow(accessToken, { bindRealm }) {
     });
   }
 
-  // OTP form แบบ REQUIRED ตั้ง CONFIGURE_TOTP ให้ผู้ใช้ที่ยังไม่มี OTP — required action ต้องเปิดอยู่
+  // an OTP form as REQUIRED sets CONFIGURE_TOTP for a user without OTP - the required action must be enabled
   const { body: configureTotp } = await request(
     `${realmPath}/authentication/required-actions/CONFIGURE_TOTP`,
     { token: accessToken },
@@ -435,22 +437,22 @@ async function ensureTenantBrowserFlow(accessToken, { bindRealm }) {
   }
 }
 
-/** flow ที่ตั้งแล้วตรงกับที่ต้องการ — คืนรายการที่ผิด (ว่าง = ผ่าน) */
+/** The flow as set up matches what is wanted - returns the wrong items (empty = pass) */
 export function browserFlowFailures(realmRepresentation, executions, { bindRealm = true } = {}) {
   const failures = [];
   if (bindRealm && realmRepresentation.browserFlow !== TENANT_BROWSER_FLOW) {
-    failures.push(`browser flow ของ realm ต้องเป็น ${TENANT_BROWSER_FLOW}`);
+    failures.push(`the realm browser flow must be ${TENANT_BROWSER_FLOW}`);
   }
   const { twoFactor, orgMfa } = locateBrowserSubflows(executions);
   if (!orgMfa || orgMfa.requirement !== 'CONDITIONAL') {
-    failures.push(`${ORG_MFA_FLOW} ต้องเป็น CONDITIONAL`);
+    failures.push(`${ORG_MFA_FLOW} must be CONDITIONAL`);
   } else {
     const children = childrenOf(executions, orgMfa.position);
     for (const provider of [ORG_MFA_CONDITION, 'auth-otp-form']) {
       if (
         !children.some((child) => child.providerId === provider && child.requirement === 'REQUIRED')
       )
-        failures.push(`${ORG_MFA_FLOW} ต้องมี ${provider} แบบ REQUIRED`);
+        failures.push(`${ORG_MFA_FLOW} must have ${provider} as REQUIRED`);
     }
   }
   const negated =
@@ -459,7 +461,7 @@ export function browserFlowFailures(realmRepresentation, executions, { bindRealm
       (child) => child.providerId === ORG_MFA_CONDITION,
     );
   if (!negated || negated.requirement !== 'REQUIRED' || !negated.authenticationConfig) {
-    failures.push('subflow 2FA เดิมต้องมี dc-org-mfa-required แบบ negate');
+    failures.push('the original 2FA subflow must have dc-org-mfa-required as negate');
   }
   return failures;
 }
@@ -479,7 +481,8 @@ export async function setupAccountService({ bindRealm = true } = {}) {
   const {
     body: [adminPermissions],
   } = await request(`${realmPath}/clients?clientId=admin-permissions`, { token: accessToken });
-  if (!adminPermissions) throw new Error('ไม่พบ client admin-permissions — Keycloak ต้อง ≥ 26.2');
+  if (!adminPermissions)
+    throw new Error('client admin-permissions not found - Keycloak must be >= 26.2');
   const server = `${realmPath}/clients/${adminPermissions.id}/authz/resource-server`;
 
   const policy = (name, logic) => ({
@@ -535,14 +538,14 @@ export async function setupAccountService({ bindRealm = true } = {}) {
   return { protectedUsers: protectedIds.length, tenantUsers: new Set(memberIds).size };
 }
 
-/** ตรวจด้วย token ของ service account จริง — คืนรายการ check ที่ล้ม (ว่าง = ผ่าน) */
+/** Check with the token of the real service account - returns the checks that failed (empty = pass) */
 export async function verifyAccountService({ bindRealm = true } = {}) {
   const accessToken = await adminToken();
   const { userIds, memberIds, platformIds } = await realmUsers(accessToken);
   const protectedIds = protectedUserIds(userIds, memberIds, platformIds);
   const tenantUserId = firstTenantUser(memberIds, protectedIds);
   if (!tenantUserId || protectedIds.length === 0)
-    return ['ต้องมีผู้ใช้ tenant และผู้ใช้ที่ถูกป้องกันอย่างน้อยอย่างละหนึ่งคน'];
+    return ['there must be at least one tenant user and one protected user'];
 
   const serviceToken = await token(
     new URLSearchParams({
@@ -558,34 +561,34 @@ export async function verifyAccountService({ bindRealm = true } = {}) {
 
   const failures = [];
   const expect = (label, actual, expected) => {
-    if (actual !== expected) failures.push(`${label}: ได้ ${actual} ต้องได้ ${expected}`);
+    if (actual !== expected) failures.push(`${label}: got ${actual}, expected ${expected}`);
   };
-  expect('อ่านผู้ใช้ tenant', await status(`/users/${tenantUserId}`), 200);
+  expect('read a tenant user', await status(`/users/${tenantUserId}`), 200);
   expect(
-    'อ่าน credential ของผู้ใช้ tenant',
+    'read the credentials of a tenant user',
     await status(`/users/${tenantUserId}/credentials`),
     200,
   );
-  // ทุกคนที่ถูกป้องกัน รวม service account ของระบบ — ไม่ทดสอบด้วยคำสั่งเขียนเพื่อไม่ให้ verify แก้บัญชีจริง
+  // every protected user, including system service accounts - not tested with write commands so verify does not edit real accounts
   for (const id of protectedIds) {
-    expect(`อ่านผู้ใช้ที่ถูกป้องกัน ${id}`, await status(`/users/${id}`), 403);
+    expect(`read a protected user ${id}`, await status(`/users/${id}`), 403);
     expect(
-      `อ่าน credential ของผู้ใช้ที่ถูกป้องกัน ${id}`,
+      `read the credentials of a protected user ${id}`,
       await status(`/users/${id}/credentials`),
       403,
     );
   }
-  expect('อ่าน client ของ realm', await status('/clients'), 403);
-  // `view` อ่าน role mapping ได้ (แยก scope ไม่ได้) แต่ต้อง map role ไม่ได้ — ส่ง array ว่างจึงไม่เปลี่ยนอะไร
+  expect('read the realm clients', await status('/clients'), 403);
+  // `view` can read role mappings (the scope cannot be split) but must not be able to map roles - sending an empty array changes nothing
   const mapRoles = await request(`${realmPath}/users/${tenantUserId}/role-mappings/realm`, {
     method: 'POST',
     token: serviceToken,
     body: [],
     accept: [403],
   });
-  expect('map realm role ให้ผู้ใช้ tenant', mapRoles.status, 403);
+  expect('map a realm role to a tenant user', mapRoles.status, 403);
 
-  // extension dc-account: body ไม่ถูกต้อง = 400 ก่อนแตะข้อมูลใด (จึงไม่แก้บัญชีจริง); token อื่น = 403
+  // the dc-account extension: an invalid body = 400 before touching any data (so no real account is edited); another token = 403
   const extension = `/realms/${realm}/dc-account/users/${tenantUserId}/totp/verify-and-create`;
   const call = async (bearer) =>
     (
@@ -596,11 +599,13 @@ export async function verifyAccountService({ bindRealm = true } = {}) {
         accept: [400, 401, 403, 404],
       })
     ).status;
-  expect('extension dc-account ด้วย account service', await call(serviceToken), 400);
-  // token ของ admin (realm master) = token ของ realm อื่น → 401; token อื่นใน realm เดียวกัน → 403 (boundary test)
+  expect('the dc-account extension with the account service', await call(serviceToken), 400);
+  // an admin token (the master realm) = a token of another realm -> 401; another token in the same realm -> 403 (boundary test)
   const foreign = await call(accessToken);
   if (foreign !== 401 && foreign !== 403) {
-    failures.push(`extension dc-account ด้วย token ของ admin: ได้ ${foreign} ต้องถูกปฏิเสธ`);
+    failures.push(
+      `the dc-account extension with the admin token: got ${foreign}, expected it to be rejected`,
+    );
   }
 
   const { body: realmRepresentation } = await request(realmPath, { token: accessToken });

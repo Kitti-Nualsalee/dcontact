@@ -7,13 +7,13 @@ const adminUsername = process.env.KEYCLOAK_BOOTSTRAP_ADMIN_USERNAME ?? 'admin';
 const adminPassword = process.env.KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD ?? 'admin';
 const realm = 'dcontact';
 const fallbackOnly = process.argv.includes('--fallback-only');
-// #923 UAT Solo: รันใน container ops ที่ต่อ PostgreSQL ตรงด้วย URL นี้ ไม่มี docker compose ของ dev
-// ไม่ตั้ง = พฤติกรรม dev เดิม (psql ผ่าน compose และเปิด HTTP ของ realm master ด้วย kcadm)
+// #923 UAT Solo: runs in the ops container that connects to PostgreSQL directly with this URL, with no dev docker compose
+// not set = the original dev behavior (psql through compose and enabling HTTP on the master realm with kcadm)
 const directDatabaseUrl = process.env.DCONTACT_LINK_DATABASE_URL;
 const adminPasswordForUsers = process.env.DCONTACT_LINK_ADMIN_PASSWORD ?? 'admin1234';
 const agentPasswordForUsers = process.env.DCONTACT_LINK_AGENT_PASSWORD ?? 'agent1234';
 
-/** ส่งการเชื่อมต่อผ่าน PG* env ไม่ใส่ URL ใน argv — ข้อความ error ของ execFileSync จะไม่มีรหัสผ่าน */
+/** Pass the connection through PG* env, not a URL in argv - the error message of execFileSync then has no password */
 function postgresEnvironment(url) {
   const parsed = new URL(url);
   return {
@@ -93,7 +93,7 @@ async function request(path, { method = 'GET', token, body, form, rawBody } = {}
     body: rawBody ?? (body === undefined ? form : JSON.stringify(body)),
   });
   if (!response.ok) {
-    throw new Error(`${method} ${path} ล้มเหลว (${response.status}): ${await response.text()}`);
+    throw new Error(`${method} ${path} failed (${response.status}): ${await response.text()}`);
   }
   if (response.status === 204 || response.headers.get('content-length') === '0') return undefined;
   const text = await response.text();
@@ -114,7 +114,7 @@ async function adminToken() {
 }
 
 function allowDevHttpForAdminRealm() {
-  // Solo เรียก admin API จาก network ภายในซึ่ง realm master รับอยู่แล้ว (sslRequired=external)
+  // Solo calls the admin API from the internal network, where the master realm already accepts it (sslRequired=external)
   if (directDatabaseUrl) return;
   const kcadm = '/opt/keycloak/bin/kcadm.sh';
   compose(
@@ -142,7 +142,7 @@ function databaseUsers() {
     '-F',
     '|',
     '-c',
-    // #977: ผู้ใช้ที่ Admin เชิญผ่าน Tenant People (มี lifecycle) ตั้งรหัสผ่าน/TOTP เอง — ห้ามตั้งรหัสผ่านหรือ role ทับ
+    // #977: a user the Admin invited through Tenant People (has a lifecycle) sets their own password/TOTP - never override the password or role
     "SELECT u.id, u.tenant_id, u.email, lower(u.role::text), t.slug FROM users u JOIN tenants t ON t.id = u.tenant_id WHERE t.slug IN ('demo', 'demo-two') AND NOT EXISTS (SELECT 1 FROM tenant_user_lifecycles l WHERE l.tenant_id = u.tenant_id AND l.user_id = u.id) ORDER BY t.slug, u.email;",
   );
   return output
@@ -156,7 +156,7 @@ function databaseUsers() {
 
 function updateDatabaseIdentity(userId, keycloakId) {
   if (!/^[0-9a-f-]{36}$/i.test(userId) || !/^[0-9a-f-]{36}$/i.test(keycloakId)) {
-    throw new Error('Keycloak/Postgres identity id ไม่ใช่ UUID');
+    throw new Error('the Keycloak/Postgres identity id is not a UUID');
   }
   psql(
     '-v',
@@ -170,7 +170,7 @@ async function main() {
   allowDevHttpForAdminRealm();
   const token = await adminToken();
   const users = databaseUsers();
-  if (users.length === 0) throw new Error('ไม่พบ dev users ของ Phase 1; รัน pnpm db:seed ก่อน');
+  if (users.length === 0) throw new Error('Phase 1 dev users not found; run pnpm db:seed first');
 
   const userProfile = await request(`/admin/realms/${realm}/users/profile`, { token });
   const protectedAttributes = ['tenant_id', 'tenant_slug', 'dc_user_id'];
@@ -187,7 +187,7 @@ async function main() {
         ...protectedAttributes.map((name) => ({
           name,
           displayName: name,
-          // AC6 (#599): ผู้ใช้ไม่เห็น attribute ภายในในหน้าของ identity provider (claim ใน token มาจาก mapper)
+          // AC6 (#599): the user does not see internal attributes on the identity provider page (the claims in the token come from a mapper)
           permissions: { view: ['admin'], edit: ['admin'] },
           multivalued: false,
         })),
@@ -205,11 +205,12 @@ async function main() {
   const organizationMapper = organizationScope?.protocolMappers?.find(
     (mapper) => mapper.protocolMapper === 'oidc-organization-membership-mapper',
   );
-  if (!basicScope) throw new Error('Keycloak ไม่มี basic client scope ที่ token contract ต้องใช้');
+  if (!basicScope)
+    throw new Error('Keycloak has no basic client scope that the token contract needs');
   let clients = await request(`/admin/realms/${realm}/clients`, { token });
   for (const clientId of ['agent-desktop', 'dcontact-dev-readiness']) {
     const client = clients.find((candidate) => candidate.clientId === clientId);
-    if (!client) throw new Error(`ไม่พบ Keycloak client ${clientId}`);
+    if (!client) throw new Error(`Keycloak client ${clientId} not found`);
     await request(
       `/admin/realms/${realm}/clients/${client.id}/default-client-scopes/${basicScope.id}`,
       { method: 'PUT', token },
@@ -243,7 +244,9 @@ async function main() {
       },
     );
   } else if (!fallbackOnly) {
-    console.warn('ไม่พบ native Organization mapper; ใช้ flat user-attribute claims เป็น fallback');
+    console.warn(
+      'native Organization mapper not found; using flat user-attribute claims as the fallback',
+    );
   }
 
   let realmRoles = await request(`/admin/realms/${realm}/roles`, { token });
@@ -253,23 +256,25 @@ async function main() {
       token,
       body: {
         name: 'journey-ingress',
-        description: 'รับ external business events สำหรับ Journey ของ tenant',
+        description: 'รับ external business events สำหรับ Journey ของ tenant', // allow-thai: description is persisted in the Keycloak realm
       },
     });
     realmRoles = await request(`/admin/realms/${realm}/roles`, { token });
   }
   const journeyIngressRole = realmRoles.find((role) => role.name === 'journey-ingress');
-  if (!journeyIngressRole) throw new Error('สร้าง Keycloak role journey-ingress ไม่สำเร็จ');
+  if (!journeyIngressRole) throw new Error('failed to create the Keycloak role journey-ingress');
 
   const mode = fallbackOnly ? 'fallback user attributes' : 'native Organization + fallback';
   for (const tenantIdentity of PHASE_ONE_TENANT_IDENTITIES) {
     const tenantUsers = users.filter((user) => user.tenantSlug === tenantIdentity.slug);
     if (tenantUsers.length === 0) {
-      throw new Error(`ไม่พบ dev users ของ tenant ${tenantIdentity.slug}; รัน pnpm db:seed ก่อน`);
+      throw new Error(
+        `dev users of tenant ${tenantIdentity.slug} not found; run pnpm db:seed first`,
+      );
     }
     const tenantId = tenantUsers[0].tenantId;
     if (tenantUsers.some((user) => user.tenantId !== tenantId)) {
-      throw new Error(`dev users ของ ${tenantIdentity.slug} มี tenant_id ไม่ตรงกัน`);
+      throw new Error(`the dev users of ${tenantIdentity.slug} have mismatched tenant_id values`);
     }
 
     let organizations = await request(`/admin/realms/${realm}/organizations`, { token });
@@ -290,7 +295,7 @@ async function main() {
       organization = organizations.find((candidate) => candidate.alias === tenantIdentity.slug);
     }
     if (!organization) {
-      throw new Error(`สร้าง Keycloak Organization ${tenantIdentity.slug} ไม่สำเร็จ`);
+      throw new Error(`failed to create the Keycloak Organization ${tenantIdentity.slug}`);
     }
 
     const fullOrganization = await request(
@@ -326,7 +331,7 @@ async function main() {
       );
     }
     if (!eventClient) {
-      throw new Error(`สร้าง Keycloak client ${tenantIdentity.eventClientId} ไม่สำเร็จ`);
+      throw new Error(`failed to create the Keycloak client ${tenantIdentity.eventClientId}`);
     }
     const fullEventClient = await request(`/admin/realms/${realm}/clients/${eventClient.id}`, {
       token,
@@ -405,18 +410,18 @@ async function main() {
         );
       }
       if (matches.length !== 1) {
-        throw new Error(`Keycloak user ${databaseUser.email} ต้องมีหนึ่งรายการ`);
+        throw new Error(`Keycloak user ${databaseUser.email} must have exactly one entry`);
       }
       const keycloakUser = matches[0];
-      // ผู้ใช้ที่มี realm role platform-operator (operator@demo.local ของ solo-uat-seed / sales-demo-stack)
-      // มีรหัสผ่านสุ่มของตัวเอง ห้ามตั้งเป็นรหัสผ่านของ Agent และห้ามให้ role ของ tenant เพิ่ม
+      // a user with the realm role platform-operator (operator@demo.local of solo-uat-seed / sales-demo-stack)
+      // has their own random password - never set it to the Agent password and never add tenant roles
       const currentRoles = await request(
         `/admin/realms/${realm}/users/${keycloakUser.id}/role-mappings/realm`,
         { token },
       );
       if (currentRoles.some((role) => role.name === 'platform-operator')) {
         console.log(
-          `ข้าม ${databaseUser.email}: เป็น platform-operator ไม่ตั้งรหัสผ่านหรือ role ใหม่`,
+          `skipping ${databaseUser.email}: a platform-operator, no new password or role is set`,
         );
         continue;
       }
@@ -471,15 +476,15 @@ async function main() {
     }
 
     console.log(
-      `เชื่อม Keycloak Organization ${tenantIdentity.slug} กับ dev users ${tenantUsers.length} คนแล้ว (${mode})`,
+      `linked the Keycloak Organization ${tenantIdentity.slug} with ${tenantUsers.length} dev users (${mode})`,
     );
     console.log(
-      `เชื่อม service client ${tenantIdentity.eventClientId} กับ ${tenantIdentity.slug} แล้ว`,
+      `linked the service client ${tenantIdentity.eventClientId} with ${tenantIdentity.slug}`,
     );
   }
 }
 
 main().catch((error) => {
-  console.error(`เชื่อม dev identity ไม่สำเร็จ: ${error.message}`);
+  console.error(`failed to link the dev identity: ${error.message}`);
   process.exitCode = 1;
 });

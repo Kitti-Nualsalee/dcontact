@@ -39,7 +39,7 @@ export const CG4_VERSIONS = Object.freeze({
   manifestSchema: 1,
 });
 
-/** 9 มิติของ #178: ทุกมิติต้องมีอย่างน้อยหนึ่ง check */
+/** The 9 dimensions of #178: every dimension needs at least one check */
 export const CG4_DIMENSIONS = Object.freeze([
   'functional',
   'tenant-isolation',
@@ -53,8 +53,8 @@ export const CG4_DIMENSIONS = Object.freeze([
 ]);
 
 /**
- * หน่วยของ suite คือ "ไฟล์เทสต์หนึ่งไฟล์" (หรือหนึ่ง package script) เพื่อให้ runner รันแต่ละไฟล์ครั้งเดียว
- * แม้หลาย check จะใช้ไฟล์เดียวกันเป็นหลักฐาน — check แต่ละ ID ยังอ้าง suite ของตัวเองแยกตรวจได้
+ * The unit of a suite is "one test file" (or one package script) so the runner runs each file once
+ * even when several checks use the same file as evidence - each check ID still references its own suite so it can be verified separately
  */
 const testFiles =
   (filter) =>
@@ -84,17 +84,17 @@ function check(id, dimension, dependency, boundaries, commands, extra = {}) {
     dependency,
     boundaries,
     commands,
-    remediation: `แก้ ${id} ตาม #178`,
+    remediation: `Fix ${id} per #178`,
     ...extra,
   };
 }
 
-/** ทุก suite เป็น owner implementation จริงบน Postgres/Redpanda — in-memory fake ใช้เฉพาะ unit/conformance */
+/** Every suite is a real owner implementation on Postgres/Redpanda - in-memory fakes are used only for unit/conformance */
 export const CXA_CG4_READINESS_CHECKS = Object.freeze([
   check(
     'CG4-F01',
     'functional',
-    'closed rule taxonomy และ canonical precedence',
+    'closed rule taxonomy and canonical precedence',
     [
       'closed rule registry',
       'provisional operational rule only',
@@ -109,7 +109,7 @@ export const CXA_CG4_READINESS_CHECKS = Object.freeze([
   check(
     'CG4-F02',
     'functional',
-    'exception exact scope, immutable revision และ lifecycle',
+    'exception exact scope, immutable revision and lifecycle',
     [
       'immutable revision',
       'PENDING→APPROVED|REJECTED|CANCELLED',
@@ -128,14 +128,14 @@ export const CXA_CG4_READINESS_CHECKS = Object.freeze([
   check(
     'CG4-F03',
     'functional',
-    'risk tier/quorum, direct Compliance seat และ emergency',
+    'risk tier/quorum, direct Compliance seat and emergency',
     ['STANDARD|HIGH|EMERGENCY quorum', 'direct Compliance seat', 'current-scope re-authorization'],
     governance('cg4-authorization-engine.test.ts', 'cg4-authorization-repository.integration.ts'),
   ),
   check(
     'CG4-F04',
     'functional',
-    'policy lifecycle, deterministic preview/diff/tests และ publish',
+    'policy lifecycle, deterministic preview/diff/tests and publish',
     [
       'deterministic preview/diff/tests',
       'approval binding',
@@ -153,7 +153,7 @@ export const CXA_CG4_READINESS_CHECKS = Object.freeze([
   check(
     'CG4-F05',
     'functional',
-    'rollback-as-new-version และ scoped kill switch',
+    'rollback-as-new-version and scoped kill switch',
     [
       'monotonic rollback version',
       'kill switch tightening only',
@@ -194,14 +194,14 @@ export const CXA_CG4_READINESS_CHECKS = Object.freeze([
   check(
     'CG4-TI01',
     'tenant-isolation',
-    'two-tenant fixture และ generic not-found',
+    'two-tenant fixture and generic not-found',
     ['two tenant fixture', 'ID swap generic not-found', 'RLS owner transaction'],
     [...cg4Api, ...governance('cg4-foundation-repository.integration.ts'), dbRls],
   ),
   check(
     'CG4-TI02',
     'tenant-isolation',
-    'reused IDs ข้าม tenant ใน cache/head/receipt/event/inbox/ack',
+    'reused IDs across tenants in cache/head/receipt/event/inbox/ack',
     ['tenant-bound cache key', 'wrong-tenant event quarantine', 'no existence disclosure'],
     governance(
       'cg4-cache.test.ts',
@@ -214,7 +214,7 @@ export const CXA_CG4_READINESS_CHECKS = Object.freeze([
   check(
     'CG4-AU01',
     'authorization',
-    'trusted context + exact capability ทุก command',
+    'trusted context + exact capability on every command',
     [
       'exact capability per command',
       'gateway role coarse guard only',
@@ -229,7 +229,7 @@ export const CXA_CG4_READINESS_CHECKS = Object.freeze([
   check(
     'CG4-AU02',
     'authorization',
-    'self/shared/service approval, delegation และ stale epoch',
+    'self/shared/service approval, delegation and stale epoch',
     [
       'self approval rejected',
       'delegation boundary',
@@ -265,7 +265,7 @@ export const CXA_CG4_READINESS_CHECKS = Object.freeze([
   check(
     'CG4-ID02',
     'idempotency',
-    'outbox/inbox/job/ack identity ใน retry/replay/reconcile',
+    'outbox/inbox/job/ack identity in retry/replay/reconcile',
     ['event identity stable', 'duplicate no-op', 'no duplicate head swap or ack'],
     [
       ...governance(
@@ -279,7 +279,7 @@ export const CXA_CG4_READINESS_CHECKS = Object.freeze([
   check(
     'CG4-CC01',
     'concurrency',
-    'approve/reject/cancel race ด้วย CAS',
+    'approve/reject/cancel race with CAS',
     ['distinct checker counted once', 'first terminal commit wins'],
     governance(
       'cg4-authorization-engine.test.ts',
@@ -290,14 +290,14 @@ export const CXA_CG4_READINESS_CHECKS = Object.freeze([
   check(
     'CG4-CC02',
     'concurrency',
-    'authorizeAndReserve แข่งกับ revoke/expiry/permission change',
+    'authorizeAndReserve racing with revoke/expiry/permission change',
     ['commit order at database-time boundary', 'no reservation after restrictive commit'],
     governance('cg4-exception-authorize.integration.ts'),
   ),
   check(
     'CG4-CC03',
     'concurrency',
-    'publish/rollback/kill/evaluate แข่งกันด้วย scope lock/head CAS',
+    'publish/rollback/kill/evaluate racing with scope lock/head CAS',
     ['scope lock', 'head CAS', 'no partial head visible'],
     governance('cg4-policy-lifecycle.integration.ts', 'cg4-events-runtime.integration.ts'),
   ),
@@ -316,7 +316,7 @@ export const CXA_CG4_READINESS_CHECKS = Object.freeze([
   check(
     'CG4-RC01',
     'recovery',
-    'fault injection รอบ canonical revision/head/approval/audit/receipt/outbox',
+    'fault injection around canonical revision/head/approval/audit/receipt/outbox',
     ['atomic commit', 'restart/retry without loss or duplicate', 'migration switch boundary'],
     governance('cg4-foundation-repository.integration.ts', 'cg4-rollout-switch.integration.ts'),
   ),
@@ -335,7 +335,7 @@ export const CXA_CG4_READINESS_CHECKS = Object.freeze([
   check(
     'CG4-RC03',
     'recovery',
-    'cache/registry/canonical unavailable และ activation/expiry ล่าช้า fail closed',
+    'cache/registry/canonical unavailable and delayed activation/expiry fail closed',
     ['stale head fail closed', 'due activation fail closed', 'no fallback policy/exception'],
     governance(
       'cg4-cache.test.ts',
@@ -347,7 +347,7 @@ export const CXA_CG4_READINESS_CHECKS = Object.freeze([
   check(
     'CG4-MG01',
     'migration',
-    `fresh + upgrade จาก CG3 baseline ${CG3_BASELINE_SHA}`,
+    `fresh + upgrade from the CG3 baseline ${CG3_BASELINE_SHA}`,
     ['fresh migration', 'upgrade from final CG3 baseline', 'RLS/grants/immutable history'],
     [...governance('cg4-upgrade-drill.integration.ts'), dbRls],
   ),
@@ -374,7 +374,7 @@ export const CXA_CG4_READINESS_CHECKS = Object.freeze([
   check(
     'CG4-OB01',
     'observability',
-    'decision trace pins และ metrics/alerts ตาม #179 §7',
+    'decision trace pins and metrics/alerts per #179 §7',
     [
       'pinned policy/exception digests',
       'quorum age/activation lag/ack lag/DLQ alerts',
@@ -393,7 +393,7 @@ export const CXA_CG4_READINESS_CHECKS = Object.freeze([
   check(
     'CG4-OB02',
     'observability',
-    'negative scan ของ event/log/metric/URL/evidence',
+    'negative scan of event/log/metric/URL/evidence',
     [
       'no raw contact identity',
       'no actor name/email',
@@ -412,22 +412,22 @@ export const CXA_CG4_READINESS_CHECKS = Object.freeze([
   check(
     'CG4-REG01',
     'regression',
-    'root build/typecheck/lint, E0, C1, Inbound Voice และ S1 บน SHA เดียวกัน',
+    'root build/typecheck/lint, E0, C1, Inbound Voice and S1 on the same SHA',
     [
       'root build/typecheck/lint via S1-REG-01',
       'E0/C1/Inbound Voice acceptance via S1-REG-01',
       `${CG3_MARKER} same SHA`,
     ],
-    // S1-REG-01 รัน build/typecheck/lint/E0/C1/Inbound Voice อยู่แล้ว (#194 A)
-    // #572: ไม่รัน S1 ซ้อนอีก — พิสูจน์จาก S1 manifest ใน immutable CI artifact บน SHA เดียวกัน
-    // (`acceptance-fetch-evidence.mjs CG4` ดาวน์โหลดก่อนรัน) แบบเดียวกับ REG ของ J2/J3/J5 (#559)
+    // S1-REG-01 already runs build/typecheck/lint/E0/C1/Inbound Voice (#194 A)
+    // #572: S1 is not run nested again - prove it from the S1 manifest in the immutable CI artifact on the same SHA
+    // (`acceptance-fetch-evidence.mjs CG4` downloads it before the run), the same way as the REG of J2/J3/J5 (#559)
     [[process.execPath, 'scripts/cxa-cg4-dependency-readiness.mjs']],
     { evidencePrefix: 'CXA_CG4_DEPENDENCY_EVIDENCE:' },
   ),
   check(
     'CG4-REG02',
     'regression',
-    'J2 merged paths ใช้ final Governance result ผ่าน stable owner port',
+    'J2 merged paths use the final Governance result through a stable owner port',
     [
       'J2 targeted conformance',
       'no reservation from internal actions',
@@ -450,7 +450,7 @@ export const CXA_CG4_READINESS_CHECKS = Object.freeze([
 
 const suiteKey = (command) => JSON.stringify(command);
 
-/** รวมคำสั่งที่ซ้ำกันข้าม check ให้เหลือ suite เดียวต่อไฟล์/สคริปต์ ตามลำดับที่ปรากฏครั้งแรก */
+/** Merge commands repeated across checks into a single suite per file/script, in the order first seen */
 export function cg4SuitePlan(checks = CXA_CG4_READINESS_CHECKS) {
   const suites = new Map();
   for (const item of checks) {
@@ -474,8 +474,8 @@ export function cg4SuitePlan(checks = CXA_CG4_READINESS_CHECKS) {
 }
 
 /**
- * สรุป TAP ของ node test runner (รวมหลาย summary ได้ เช่น package ที่ build ก่อน test) —
- * คืน null เมื่อ output ไม่ใช่ TAP (เช่น build หรือ Playwright) ซึ่งตัดสินจาก exit code อย่างเดียว
+ * Summary of the node test runner TAP (can combine several summaries, e.g. a package that builds before the test) -
+ * returns null when the output is not TAP (e.g. build or Playwright), which is judged by exit code alone
  */
 export function parseTapSummary(output) {
   const total = (name) => {
@@ -505,9 +505,9 @@ const PII_VALUE_PATTERNS = [
   [/(?:\+?66|0)\d{8,9}\b/g, '[REDACTED_PHONE]'],
 ];
 
-/** detail ของ suite ที่ล้มเก็บเฉพาะบรรทัดล้มเหลวที่ redact แล้ว เพื่อไม่ให้ manifest ทั้งไฟล์ใช้ไม่ได้เพราะ PII */
+/** The detail of a failed suite keeps only redacted failure lines so the whole manifest does not become unusable because of PII */
 export function cg4FailureDetail(output, fallback) {
-  // #559: FAIL ของ acceptance ที่ซ้อนอยู่มาก่อน เพราะบอกได้ว่าล้มที่ suite ไหนของชั้นใน
+  // #559: the FAIL of a nested acceptance comes first, because it says which inner suite failed
   const nested = nestedReadinessFailures(output);
   const lines = sanitizeDiagnostic(output)
     .split('\n')
@@ -522,7 +522,7 @@ export function cg4FailureDetail(output, fallback) {
     selected.length > 0
       ? selected.join('\n')
       : tail.length > 0
-        ? [fallback, '... ท้าย output ...', ...tail].join('\n')
+        ? [fallback, '... end of output ...', ...tail].join('\n')
         : fallback;
   detail = redactRunId(detail);
   for (const [pattern, replacement] of PII_VALUE_PATTERNS) {
@@ -559,7 +559,7 @@ export function executeCg4Suite(suite, runner = spawnSync) {
   const output = `${result.stdout ?? ''}\n${result.stderr ?? ''}`;
   const tap = parseTapSummary(output);
   const exitedCleanly = result.status === 0 && !result.error;
-  // #178: ห้าม skip/todo/cancel — suite ที่ exit 0 แต่ข้ามเทสต์ถือว่าไม่ผ่าน
+  // #178: no skip/todo/cancel - a suite that exits 0 but skips tests does not pass
   const tapClean =
     tap === null ||
     (tap.tests > 0 &&
@@ -589,7 +589,7 @@ export function executeCg4Suite(suite, runner = spawnSync) {
 
 function runGit(arguments_) {
   const result = spawnSync('git', arguments_, { cwd: repositoryRoot, encoding: 'utf8' });
-  if (result.status !== 0 || result.error) throw new Error(`git ${arguments_.join(' ')} ล้มเหลว`);
+  if (result.status !== 0 || result.error) throw new Error(`git ${arguments_.join(' ')} failed`);
   return String(result.stdout).trim();
 }
 
@@ -598,7 +598,7 @@ function repositoryName(environment) {
   const match = runGit(['config', '--get', 'remote.origin.url']).match(
     /(?:github\.com[/:])([^/]+\/[^/.]+)(?:\.git)?$/,
   );
-  if (!match) throw new TypeError('ไม่สามารถระบุ repository สำหรับ CG4 manifest');
+  if (!match) throw new TypeError('cannot determine the repository for the CG4 manifest');
   return match[1];
 }
 
@@ -656,7 +656,7 @@ export function cg4RegistryDigest(checks = CXA_CG4_READINESS_CHECKS) {
       id,
       dimension,
       boundaries,
-      // path ของ node ต่างกันระหว่างเครื่อง: digest ใช้เฉพาะส่วนที่เป็น contract ของคำสั่ง
+      // the node path differs between machines: the digest uses only the part that is the command contract
       commands: commands.map((command) =>
         command[0] === process.execPath ? ['node', ...command.slice(1)] : command,
       ),
@@ -686,7 +686,7 @@ export function cg4MarkerBlockers(context, checks) {
   }
   if (context.pullRequest !== null) blockers.push('PULL_REQUEST_RUN');
   if (context.ref !== 'refs/heads/main') blockers.push('NOT_DEFAULT_BRANCH_REF');
-  // ADR-032: commit ต้องอยู่บน main แล้ว (ancestor ของ origin/main) ไม่ต้องเป็น HEAD
+  // ADR-032: the commit must already be on main (an ancestor of origin/main); it need not be HEAD
   if (!contextOnMain(context) || context.commitSha !== context.expectedCommitSha) {
     blockers.push('NOT_FINAL_MAIN_SHA');
   }
@@ -790,7 +790,7 @@ export function createCxaCg4EvidenceManifest(context, checks, summary, suites, d
       replayReconcileAck: status('CG4-RC02'),
       failClosedUnavailable: status('CG4-RC03'),
     },
-    // สำเนาอิสระจาก evidence ใน check: manifest ห้าม alias object ที่ถูก hash ไว้ใน artifact
+    // an independent copy of the evidence in the check: the manifest must not alias an object that is hashed in an artifact
     ownerProfiles: structuredClone(
       evidenceFor(checks, 'CG4-REG02', 'owner-profile.readiness')?.profiles ?? null,
     ),
@@ -817,58 +817,62 @@ export function assertValidCxaCg4EvidenceManifest(manifest) {
     manifest.phase !== 'CG4' ||
     manifest.evidenceType !== 'development-acceptance'
   ) {
-    throw new TypeError('CG4 manifest มี schemaVersion/phase/evidenceType ไม่ถูกต้อง');
+    throw new TypeError('CG4 manifest has an invalid schemaVersion/phase/evidenceType');
   }
   for (const field of ['commitSha', 'finalMainSha', 'expectedCommitSha', 'baselineSha']) {
     if (!FULL_SHA.test(manifest[field] ?? ''))
-      throw new TypeError(`CG4 manifest ต้องมี ${field} แบบ SHA เต็ม`);
+      throw new TypeError(`CG4 manifest must have a full SHA for ${field}`);
   }
   if (manifest.baselineSha !== CG3_BASELINE_SHA)
-    throw new TypeError('CG4 manifest อ้าง CG3 baseline ไม่ถูกต้อง');
+    throw new TypeError('CG4 manifest references an invalid CG3 baseline');
   if (JSON.stringify(manifest.flags) !== JSON.stringify(CG4_FIXED_FLAGS)) {
-    throw new TypeError('CG4 manifest flags ไม่ตรง fixed flags');
+    throw new TypeError('CG4 manifest flags do not match the fixed flags');
   }
 
   const checks = manifest.checks ?? [];
   const registered = new Map(CXA_CG4_READINESS_CHECKS.map((item) => [item.id, item]));
   if (new Set(checks.map((item) => item.id)).size !== checks.length) {
-    throw new TypeError('CG4 manifest มี check ซ้ำ');
+    throw new TypeError('CG4 manifest has a duplicate check');
   }
   const unknown = checks.find((item) => !registered.has(item.id));
-  if (unknown) throw new TypeError(`CG4 manifest มี check ที่ไม่รู้จัก: ${unknown.id}`);
+  if (unknown) throw new TypeError(`CG4 manifest has an unknown check: ${unknown.id}`);
   if (checks.length !== CXA_CG4_READINESS_CHECKS.length) {
-    throw new TypeError('CG4 manifest ต้องมี check ครบทั้ง 25 ตัว');
+    throw new TypeError('CG4 manifest must have all 25 checks');
   }
   if (checks.some((item) => registered.get(item.id).dimension !== item.dimension)) {
-    throw new TypeError('CG4 manifest มี dimension ของ check ไม่ตรง registry');
+    throw new TypeError('CG4 manifest has a check dimension that does not match the registry');
   }
   const dimensions = manifest.dimensions ?? [];
   if (
     dimensions.length !== CG4_DIMENSIONS.length ||
     CG4_DIMENSIONS.some((name) => !(dimensions.find((item) => item.name === name)?.checks > 0))
   ) {
-    throw new TypeError('CG4 manifest ต้องมีครบ 9 dimensions และไม่มี dimension ว่าง');
+    throw new TypeError('CG4 manifest must have all 9 dimensions and no empty dimension');
   }
 
-  // suite ที่ใช้ร่วมกันต้องเป็นผลเดียวกันในทุก check ที่อ้าง — ห้ามแต่ง status ของ check แยกจาก suite
+  // a shared suite must have the same result in every check that references it - a check status must not be made up apart from its suite
   const suites = new Map((manifest.suites ?? []).map((suite) => [suite.id, suite]));
   if (suites.size === 0 || suites.size !== (manifest.suites ?? []).length) {
-    throw new TypeError('CG4 manifest ต้องมี suites ที่ id ไม่ซ้ำ');
+    throw new TypeError('CG4 manifest must have suites with unique ids');
   }
   for (const item of checks) {
     const subchecks = item.subchecks ?? [];
     if (subchecks.length !== registered.get(item.id).commands.length) {
-      throw new TypeError(`CG4 check ${item.id} ต้องอ้าง suite ครบตาม registry`);
+      throw new TypeError(`CG4 check ${item.id} must reference every suite per the registry`);
     }
     for (const subcheck of subchecks) {
       const suite = suites.get(subcheck.suiteId);
       if (!suite || suite.status !== subcheck.status || !suite.checkIds.includes(item.id)) {
-        throw new TypeError(`CG4 check ${item.id} อ้าง suite ที่ไม่ตรงกับผลของ suite`);
+        throw new TypeError(
+          `CG4 check ${item.id} references a suite that does not match the suite result`,
+        );
       }
     }
     const derived = subchecks.every((subcheck) => subcheck.status === 'PASS') ? 'PASS' : 'FAIL';
     if (item.status !== derived) {
-      throw new TypeError(`CG4 check ${item.id} มี status ไม่ตรงกับ suite ที่อ้าง`);
+      throw new TypeError(
+        `CG4 check ${item.id} has a status that does not match the referenced suite`,
+      );
     }
   }
 
@@ -877,20 +881,22 @@ export function assertValidCxaCg4EvidenceManifest(manifest) {
     artifacts.length !== checks.length ||
     new Set(artifacts.map(({ id }) => id)).size !== checks.length
   ) {
-    throw new TypeError('CG4 manifest ต้องมี evidence artifact หนึ่งรายการต่อ check');
+    throw new TypeError('CG4 manifest must have one evidence artifact per check');
   }
   for (const artifact of artifacts) {
     const item = checks.find(({ id }) => `check:${id}` === artifact.id);
-    if (!item) throw new TypeError('CG4 evidence artifact อ้าง check ที่ไม่มี');
+    if (!item) throw new TypeError('CG4 evidence artifact references a check that does not exist');
     if (artifact.commitSha !== manifest.commitSha)
-      throw new TypeError('CG4 evidence artifact อ้าง commit ไม่ตรงกับ manifest');
+      throw new TypeError(
+        'CG4 evidence artifact references a commit that does not match the manifest',
+      );
     if (artifact.sha256 !== sha256(item))
-      throw new TypeError('SHA-256 ของ CG4 evidence artifact ไม่ตรงกับ check');
+      throw new TypeError('SHA-256 of the CG4 evidence artifact does not match the check');
   }
 
   const markers = manifest.markers ?? [];
   if (markers.some((marker) => marker !== CG4_MARKER) || new Set(markers).size !== markers.length) {
-    throw new TypeError('CG4 manifest มี marker ไม่ถูกต้อง');
+    throw new TypeError('CG4 manifest has an invalid marker');
   }
   if (markers.length === 0) return;
 
@@ -898,21 +904,21 @@ export function assertValidCxaCg4EvidenceManifest(manifest) {
     checks.some((item) => item.status !== 'PASS') ||
     [...suites.values()].some((s) => s.status !== 'PASS')
   ) {
-    throw new TypeError(`${CG4_MARKER} ต้องมี 25 checks PASS ทั้งหมด (ไม่มี skip/flaky/waiver)`);
+    throw new TypeError(`${CG4_MARKER} needs all 25 checks to PASS (no skip/flaky/waiver)`);
   }
   if (manifest.pullRequest?.number !== null && manifest.pullRequest?.number !== undefined) {
-    throw new TypeError('PR run ออก CG4 marker ไม่ได้ ได้แค่ candidate manifest');
+    throw new TypeError('a PR run cannot issue the CG4 marker, only a candidate manifest');
   }
   if (
     manifest.refProof?.commitOnMain !== true ||
     manifest.commitSha !== manifest.expectedCommitSha
   ) {
     throw new TypeError(
-      'CG4 marker ต้องมาจาก commit ที่อยู่บน main แล้วและตรง expectedCommitSha (ADR-032)',
+      'CG4 marker must come from a commit that is already on main and matches expectedCommitSha (ADR-032)',
     );
   }
   if (manifest.refProof?.ref !== 'refs/heads/main' || manifest.refProof?.cleanTree !== true) {
-    throw new TypeError('CG4 marker ต้องมาจาก clean checkout ของ default branch');
+    throw new TypeError('CG4 marker must come from a clean checkout of the default branch');
   }
   if (
     manifest.artifact?.immutable !== true ||
@@ -921,24 +927,26 @@ export function assertValidCxaCg4EvidenceManifest(manifest) {
     ) ||
     manifest.artifact?.name !== `cxa-cg4-evidence-${manifest.commitSha}`
   ) {
-    throw new TypeError('CG4 marker ต้องอ้าง immutable CI artifact ไม่ใช่ local/mutable reference');
+    throw new TypeError(
+      'CG4 marker must reference an immutable CI artifact, not a local/mutable reference',
+    );
   }
   if (
     manifest.dependencies?.cg3 !== 'INTEGRATED_SAME_SHA' ||
     manifest.dependencies?.cg3Marker !== CG3_MARKER
   ) {
-    throw new TypeError(`CG4 marker ต้องมี ${CG3_MARKER} บน SHA เดียวกัน`);
+    throw new TypeError(`CG4 marker needs ${CG3_MARKER} on the same SHA`);
   }
   if (!regressionPassed(manifest.dependencies)) {
     throw new TypeError(
-      'CG4 marker ต้องมี build/typecheck/lint/E0/C1/Inbound Voice PASS ใน S1-REG-01',
+      'CG4 marker needs build/typecheck/lint/E0/C1/Inbound Voice to PASS in S1-REG-01',
     );
   }
   if (!['ACCEPTED_SAME_SHA', 'CONTRACT_COMPATIBLE'].includes(manifest.dependencies?.j2)) {
-    throw new TypeError('CG4 marker ต้องบันทึกสถานะ J2 compatibility');
+    throw new TypeError('CG4 marker must record the J2 compatibility status');
   }
   if (JSON.stringify(manifest.ownerProfiles) !== JSON.stringify(CG4_OWNER_PROFILES)) {
-    throw new TypeError('CG4 marker ต้องมี owner profiles ตรง contract');
+    throw new TypeError('CG4 marker must have owner profiles that match the contract');
   }
 }
 

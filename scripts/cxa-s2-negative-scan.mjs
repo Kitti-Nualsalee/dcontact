@@ -6,17 +6,17 @@ import { assertPiiSafeEvidence, sha256 } from './cxa-c1-readiness.mjs';
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 /**
- * S2.6 (#366): negative scans ของ LINE pilot — `S2-LINE-OB02` (#360 §B/§E/§H)
+ * S2.6 (#366): negative scans of the LINE pilot - `S2-LINE-OB02` (#360 §B/§E/§H)
  *
- * ครอบสี่ชั้น: source, runtime log (output ของ suite ที่ readiness รัน), artifact (manifest/bundle)
- * และ field name denylist ของ evidence. พบรายการใดให้ check ล้ม ไม่มี runtime waiver
- * false positive ยกเว้นได้เฉพาะ `path + rule` ที่ review แล้วใน `S2_SCAN_ALLOWLIST` พร้อมเหตุผล
+ * covers four layers: source, runtime log (the output of the suites readiness runs), artifact (manifest/bundle)
+ * and the field name denylist of evidence. Any finding makes the check fail; there is no runtime waiver
+ * a false positive can be excepted only by a reviewed `path + rule` in `S2_SCAN_ALLOWLIST` with a reason
  */
 export const S2_PILOT_MARKER = 'OUTBOUND_DELIVERY_LINE_PILOT_READY';
 
 /**
- * mirror ของ `LINE_FORBIDDEN_EVIDENCE_FIELDS` (packages/cxa-contracts/src/line-delivery.ts)
- * — test ตรวจว่าสองรายการนี้ตรงกันเสมอ เพราะ script อ่าน TypeScript ตรง ๆ ไม่ได้
+ * mirror of `LINE_FORBIDDEN_EVIDENCE_FIELDS` (packages/cxa-contracts/src/line-delivery.ts)
+ * - a test checks that the two lists always match, because a script cannot read TypeScript directly
  */
 export const S2_FORBIDDEN_FIELD_NAMES = Object.freeze([
   'userId',
@@ -36,12 +36,12 @@ export const S2_FORBIDDEN_FIELD_NAMES = Object.freeze([
   'authorization',
 ]);
 
-/** ค่าที่ห้ามปรากฏใน evidence/log ไม่ว่าจะอยู่ใต้ field ชื่ออะไร */
+/** Values that must not appear in evidence/logs no matter which field name they sit under */
 export const S2_LEAK_PATTERNS = Object.freeze([
   { rule: 'raw-line-id', pattern: /\b[UCR][0-9a-f]{32}\b/ },
   { rule: 'bearer-token', pattern: /\bBearer\s+[A-Za-z0-9+/=._-]{16,}/ },
   { rule: 'jwt', pattern: /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/ },
-  // long-lived channel access token ของ LINE เป็น base64 ยาว ~172 ตัว
+  // a LINE long-lived channel access token is a long base64 string, about 172 characters
   { rule: 'long-token', pattern: /[A-Za-z0-9+/]{100,}={0,2}/ },
   {
     rule: 'line-signature-value',
@@ -49,7 +49,7 @@ export const S2_LEAK_PATTERNS = Object.freeze([
   },
 ]);
 
-/** คืนชื่อ rule ที่พบใน text — ไม่คืนค่าที่พบ เพื่อไม่ให้รายงานกลายเป็นช่องรั่วเสียเอง */
+/** Return the name of the rule found in the text - not the value found, so the report does not become a leak itself */
 export function scanTextForS2Leaks(text) {
   return S2_LEAK_PATTERNS.filter(({ pattern }) => pattern.test(String(text))).map(
     ({ rule }) => rule,
@@ -59,8 +59,8 @@ export function scanTextForS2Leaks(text) {
 const forbiddenFields = new Set(S2_FORBIDDEN_FIELD_NAMES.map((name) => name.toLowerCase()));
 
 /**
- * digest/SHA/UUID เป็น hex ล้วนจึงพา PII ไม่ได้ แต่ท้ายค่าที่เป็นเลขล้วนชน pattern เบอร์โทรของ C1
- * ได้แบบสุ่ม (~0.15% ต่อค่า) — manifest ที่มี digest หลายสิบตัวจะล้มแบบ flaky จึง mask ก่อนส่งเข้า C1
+ * digests/SHAs/UUIDs are pure hex so they cannot carry PII, but a purely numeric tail can collide with the C1 phone number pattern
+ * at random (~0.15% per value) - a manifest with dozens of digests would fail flakily, so mask them before passing to C1
  */
 const OPAQUE_HEX =
   /^(?:[0-9a-f]{40}|[0-9a-f]{64}|(?:local-)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
@@ -75,8 +75,8 @@ function maskOpaqueHex(value) {
 }
 
 /**
- * ด่านของ artifact/manifest/bundle: denylist ของ C1 (PII ทั่วไป) + ชื่อ field ต้องห้ามของ LINE +
- * pattern ของ LINE ID/token ในทุก string value. throw พร้อม path เท่านั้น ไม่มีค่า
+ * Gate for artifacts/manifests/bundles: the C1 denylist (general PII) + forbidden LINE field names +
+ * LINE ID/token patterns in every string value. Throws with the path only, never the value
  */
 export function assertS2EvidenceSafe(value) {
   assertPiiSafeEvidence(maskOpaqueHex(value));
@@ -88,13 +88,13 @@ export function assertS2EvidenceSafe(value) {
     if (candidate && typeof candidate === 'object') {
       for (const [key, nested] of Object.entries(candidate)) {
         if (forbiddenFields.has(key.toLowerCase()))
-          throw new TypeError(`S2 evidence มี field ต้องห้าม: ${path}.${key}`);
+          throw new TypeError(`S2 evidence has a forbidden field: ${path}.${key}`);
         visit(nested, `${path}.${key}`);
       }
       return;
     }
     if (typeof candidate === 'string' && scanTextForS2Leaks(candidate).length > 0)
-      throw new TypeError(`S2 evidence มี LINE ID หรือ credential ที่ตำแหน่ง ${path}`);
+      throw new TypeError(`S2 evidence has a LINE ID or credential at ${path}`);
   };
   visit(value, '$');
 }
@@ -104,65 +104,67 @@ export const S2_SCAN_ALLOWLIST = Object.freeze([
     path: 'apps/delivery/src/line-evidence.ts',
     rule: 'hard-coded-marker',
     reason:
-      'denylist ของ S1 simulation เก็บชื่อ marker ไว้เพื่อยืนยันว่า manifest นั้นห้ามออก marker',
+      'the S1 simulation denylist keeps the marker name to confirm that manifest must not issue a marker',
   },
   {
     path: 'apps/delivery/src/line-evidence.ts',
     rule: 'sdk-import',
     reason:
-      'denylist ของ S1 simulation เก็บชื่อ SDK ไว้เป็น string เพื่อสแกนไฟล์อื่น ไม่ได้ import',
+      'the S1 simulation denylist keeps the SDK name as a string to scan other files, it does not import it',
   },
   {
     path: 'apps/delivery/src/line-persistence-fixture.ts',
     rule: 'env-read',
-    reason: 'fixture ของ integration test (ไม่อยู่ใน build) อ่านแค่ database URL ของ test role',
+    reason:
+      'an integration test fixture (not in the build) reads only the database URL of the test role',
   },
   {
     path: 'apps/delivery/src/line-outbound-adapter.integration.ts',
     rule: 'secret-assignment',
-    reason: 'token สังเคราะห์ของ provider double — ไม่ใช่ credential จริงและไม่ออกนอก process',
+    reason:
+      'synthetic token of a provider double - not a real credential and never leaves the process',
   },
   {
     path: 'apps/delivery/src/line-pilot-wiring.integration.ts',
     rule: 'secret-assignment',
     reason:
-      'token สังเคราะห์ของ credential resolver double ใน wiring test — ไม่ใช่ credential จริง',
+      'synthetic token of the credential resolver double in a wiring test - not a real credential',
   },
   {
     path: 'apps/delivery/src/line-team-trial.integration.ts',
     rule: 'secret-assignment',
     reason:
-      '#567: token สังเคราะห์ของ credential resolver double ใน trial integration — ไม่ใช่ credential จริง',
+      '#567: synthetic token of the credential resolver double in a trial integration - not a real credential',
   },
   {
     path: 'apps/delivery/src/line-pilot-cli.ts',
     rule: 'env-read',
     reason:
-      'CLI ของ capped pilot อ่านเฉพาะ reference (tenant/credential ref/sender/payload key ref) จาก env ไม่มี secret',
+      'the capped pilot CLI reads only references (tenant/credential ref/sender/payload key ref) from env, no secret',
   },
   {
     path: 'apps/delivery/src/line-pilot-setup.ts',
     rule: 'env-read',
     reason:
-      'setup ของ pilot อ่านเฉพาะ reference (tenant/sender/actor refs) จาก env; token อ่านจาก Keychain',
+      'pilot setup reads only references (tenant/sender/actor refs) from env; the token is read from the Keychain',
   },
   {
     path: 'apps/delivery/src/line-provider-runner.ts',
     rule: 'env-read',
     reason:
-      'CLI ของ protected runner อ่านเฉพาะ reference (tenant/credential ref/endpoint digest) จาก env ไม่มี secret',
+      'the protected runner CLI reads only references (tenant/credential ref/endpoint digest) from env, no secret',
   },
   {
     path: 'apps/delivery/src/line-pilot-runtime.ts',
     rule: 'env-read',
     reason:
-      '#565: เลือกโหมด secret source และ path/release SHA ของ runner จาก env — secret อ่านจาก Keychain หรือไฟล์เท่านั้น',
+      '#565: picks the secret source mode and the runner path/release SHA from env - the secret is read only from the Keychain or a file',
   },
   {
     path: 'apps/api/src/line-webhook-app.ts',
     rule: 'env-read',
     reason:
-      '#565: composition root ของ line-webhook (profile uat-line) อ่านโหมด/reference จาก env — secret จากไฟล์ และถูกสแกนเป็น composition root',
+      '#565: the composition root of line-webhook (profile uat-line) reads the mode/references from env - the secret comes from a file, and it is scanned as a composition root',
   },
 ]);
 
@@ -192,8 +194,8 @@ export function s2ScanTargets() {
     ],
     readiness: list('scripts', /^cxa-s2-.*\.mjs$/, (name) => !name.endsWith('.test.mjs')),
     workflows: list('.github/workflows', /^ci\.yml$/),
-    // S2.6b (#403): ที่ประกอบ binding จริงต้องไม่รับ LINE secret จาก env (#362 §9)
-    // #565: line-webhook บน UAT เป็น composition root ที่สองของ binding จริง
+    // S2.6b (#403): the place that assembles the real binding must not accept a LINE secret from env (#362 §9)
+    // #565: line-webhook on UAT is the second composition root of the real binding
     compositionRoots: ['apps/api/src/main.ts', 'apps/api/src/line-webhook-app.ts', '.env.example'],
   };
 }
@@ -218,12 +220,12 @@ const RULES = {
       : [],
   'line-secret-env': (text) =>
     /LINE_CHANNEL_SECRET|LINE_CHANNEL_ACCESS_TOKEN|LINE_WEBHOOK_PAYLOAD_KEY(?!_REF)/.test(text)
-      ? ['LINE secret ผ่าน env']
+      ? ['LINE secret via env']
       : [],
-  // ข้อมูลลับต้องไม่ถูกส่งเป็น input/secret ของ workflow; runner อ่าน Keychain บนเครื่องเอง
+  // secrets must not be passed as a workflow input/secret; the runner reads the Keychain on its own machine
   'workflow-secret': (text) =>
     /secrets\.LINE_|LINE_CHANNEL_(?:ACCESS_TOKEN|SECRET)/.test(text)
-      ? ['LINE credential ผ่าน GitHub Actions']
+      ? ['LINE credential via GitHub Actions']
       : [],
 };
 
@@ -262,7 +264,7 @@ export function cxaS2NegativeScan(options = {}) {
     }
   }
 
-  // artifact ที่ส่งเข้ามา (bundle/manifest ก่อนหน้า) ต้องผ่าน evidence guard เดียวกับ manifest
+  // an incoming artifact (an earlier bundle/manifest) must pass the same evidence guard as the manifest
   const artifacts = (options.artifacts ?? []).map(({ path, value }) => {
     try {
       assertS2EvidenceSafe(value);
@@ -302,7 +304,7 @@ if (invokedUrl === import.meta.url) {
     for (const { path, rule, detail } of summary.violations)
       process.stderr.write(`${path}: ${rule}: ${detail}\n`);
     if (summary.emptyGroups.length > 0)
-      process.stderr.write(`ไม่พบไฟล์ในกลุ่ม: ${summary.emptyGroups.join(', ')}\n`);
+      process.stderr.write(`no files found in the group: ${summary.emptyGroups.join(', ')}\n`);
     process.exitCode = 1;
   }
 }

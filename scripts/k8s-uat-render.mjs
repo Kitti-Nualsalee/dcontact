@@ -38,17 +38,17 @@ function argumentsOf(argv) {
     ) {
       options[flag.slice(2)] = argv[++index];
     } else {
-      throw new Error(`argument ไม่ถูกต้อง: ${flag}`);
+      throw new Error(`invalid argument: ${flag}`);
     }
   }
   if (
     !['foundation', 'applications', 'exposure'].includes(options.phase) &&
     !(options.phase?.startsWith('job:') && jobs.has(options.phase.slice(4)))
   ) {
-    throw new Error('--phase ต้องเป็น foundation, applications, exposure หรือ job:<ชื่อที่รองรับ>');
+    throw new Error('--phase must be foundation, applications, exposure or job:<a supported name>');
   }
   if (options.template && options.check)
-    throw new Error('--template และ --check ใช้พร้อมกันไม่ได้');
+    throw new Error('--template and --check cannot be used together');
   return options;
 }
 
@@ -59,7 +59,7 @@ function releaseFile(path) {
     if (!line || line.startsWith('#')) continue;
     const match = /^([A-Z][A-Z0-9_]*)=(\S+)$/.exec(line);
     if (!match || values.has(match[1]))
-      throw new Error(`release file ผิดรูปแบบหรือมี key ซ้ำ: ${path}`);
+      throw new Error(`the release file is malformed or has a duplicate key: ${path}`);
     values.set(match[1], match[2]);
   }
   return values;
@@ -67,14 +67,14 @@ function releaseFile(path) {
 
 function required(map, key) {
   const value = map.get(key);
-  if (!value) throw new Error(`release file ไม่มี ${key}`);
+  if (!value) throw new Error(`the release file has no ${key}`);
   return value;
 }
 
 function image(map, key) {
   const value = required(map, key);
   if (!/^ghcr\.io\/[a-z0-9._/-]+@sha256:[a-f0-9]{64}$/.test(value)) {
-    throw new Error(`${key} ต้องเป็น GHCR image digest ที่ตรึงแล้ว`);
+    throw new Error(`${key} must be a pinned GHCR image digest`);
   }
   return value;
 }
@@ -83,7 +83,7 @@ function template(phase) {
   if (phase.startsWith('job:')) {
     return readFileSync(join(base, 'jobs', `${phase.slice(4)}.yaml`), 'utf8');
   }
-  // `kubectl kustomize` ทำงานกับไฟล์ local เท่านั้น; ไม่อ่าน kubeconfig หรือ API server
+  // `kubectl kustomize` works only with local files; it does not read kubeconfig or the API server
   return execFileSync('kubectl', ['kustomize', join(base, phase)], { encoding: 'utf8' });
 }
 
@@ -92,17 +92,17 @@ try {
   let manifest = template(options.phase);
   if (!options.template) {
     if (!options['tenant-release'] || !options['platform-release']) {
-      throw new Error('ต้องระบุ --tenant-release และ --platform-release');
+      throw new Error('--tenant-release and --platform-release must be specified');
     }
     const tenant = releaseFile(options['tenant-release']);
     const platform = releaseFile(options['platform-release']);
     const sourceSha = required(tenant, 'SOURCE_SHA');
     if (!/^[a-f0-9]{40}$/.test(sourceSha) || required(platform, 'SOURCE_SHA') !== sourceSha) {
-      throw new Error('SOURCE_SHA ของ release ทั้งสองต้องเป็น full SHA เดียวกัน');
+      throw new Error('SOURCE_SHA of both releases must be the same full SHA');
     }
     const storageClass = options['storage-class'];
     if (!/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/.test(storageClass ?? '')) {
-      throw new Error('ต้องระบุ --storage-class เป็นชื่อ StorageClass จริง');
+      throw new Error('--storage-class must be specified as a real StorageClass name');
     }
     const replacements = new Map([
       ['__API_IMAGE__', image(tenant, 'API_IMAGE')],
@@ -117,12 +117,12 @@ try {
       manifest = manifest.replaceAll(placeholder, value);
     }
     if (/__[A-Z_]+__|REPLACE_WITH_[A-Z_]+/.test(manifest)) {
-      throw new Error('ยังมี placeholder ใน manifest');
+      throw new Error('there is still a placeholder in the manifest');
     }
   }
   if (options.check) {
     process.stdout.write(
-      `PASS ${options.phase}: render แบบ offline, release SHA และ placeholder ผ่าน\n`,
+      `PASS ${options.phase}: offline render, release SHA and placeholder checks passed\n`,
     );
   } else {
     process.stdout.write(manifest);

@@ -12,8 +12,8 @@ export const CG3_MARKER = 'CONTACT_GOVERNANCE_CG3_ACCEPTED';
 export const J2_MARKER = 'JOURNEY_J2_ACCEPTED';
 
 /**
- * regression ของ `CG4-REG01` ที่ S1 รันอยู่แล้วใน `S1-REG-01` บน SHA เดียวกัน — CG4 ไม่รันซ้ำเอง
- * แต่ต้องพิสูจน์จาก S1 manifest ว่าทุกคำสั่ง PASS จริง (subcheck ที่ไม่ได้รันเพราะตัวก่อนหน้าล้มถือว่า MISSING)
+ * regression of `CG4-REG01` that S1 already runs in `S1-REG-01` on the same SHA - CG4 does not re-run it itself
+ * but must prove from the S1 manifest that every command really PASSED (a subcheck that did not run because an earlier one failed counts as MISSING)
  */
 export const S1_REGRESSION_SCRIPTS = Object.freeze([
   'build',
@@ -25,12 +25,12 @@ export const S1_REGRESSION_SCRIPTS = Object.freeze([
 ]);
 
 /**
- * CG4-REG01 (#178): dependency marker บน SHA เดียวกัน — S1 manifest ต้องมี
- * `CONTACT_GOVERNANCE_CG3_ACCEPTED` (#572: มาจาก CI artifact ของ run S1 บน SHA เดียวกัน ไม่ได้รันซ้อนใน job นี้); J2 marker ไม่เป็น prerequisite แต่ถ้ามีบน SHA เดียวกันให้บันทึก
- * `ACCEPTED_SAME_SHA` ไม่งั้นเป็น `CONTRACT_COMPATIBLE` ซึ่ง targeted conformance ของ CG4-REG02 พิสูจน์
+ * CG4-REG01 (#178): dependency marker on the same SHA - the S1 manifest must have
+ * `CONTACT_GOVERNANCE_CG3_ACCEPTED` (#572: from the CI artifact of the S1 run on the same SHA, not re-run nested in this job); the J2 marker is not a prerequisite, but if present on the same SHA record
+ * `ACCEPTED_SAME_SHA`, otherwise `CONTRACT_COMPATIBLE`, which the targeted conformance of CG4-REG02 proves
  *
- * run ที่ไม่ใช่ final main (PR/local) บันทึก `CANDIDATE_NOT_FINAL_MAIN` เพื่อให้ได้ candidate manifest
- * แต่ validator ไม่ยอมออก CG4 marker จาก profile นี้
+ * a run that is not final main (PR/local) records `CANDIDATE_NOT_FINAL_MAIN` so a candidate manifest is produced
+ * but the validator refuses to issue a CG4 marker from this profile
  */
 
 function git(arguments_) {
@@ -75,11 +75,11 @@ export function cxaCg4DependencySummary(options = {}) {
     Boolean(environment.GITHUB_RUN_ID) &&
     !environment.GITHUB_PR_NUMBER &&
     commitSha !== undefined &&
-    // ADR-032: commit อยู่บน main แล้ว (ancestor ของ origin/main) ไม่ต้องเป็น HEAD
+    // ADR-032: the commit is already on main (an ancestor of origin/main); it need not be HEAD
     (options.commitOnMain ?? (commitSha === mainSha || commitOnMain(commitSha))) &&
     commitSha === expectedCommitSha;
-  // #572: S1 ไม่ได้รันซ้อนใน job นี้แล้ว — ใช้ S1 manifest จาก CI artifact บน SHA เดียวกันที่มี provenance
-  // (เลือกตัวที่มี CG3 marker ก่อน เพราะ run ที่ล้มก็ upload manifest ไว้เหมือนกัน)
+  // #572: S1 is no longer run nested in this job - use the S1 manifest from a CI artifact on the same SHA that has provenance
+  // (pick the one with the CG3 marker first, because a failed run also uploads a manifest)
   const artifactsRoot = options.artifactsRoot ?? resolve(repositoryRoot, 'artifacts');
   const s1 =
     's1Manifest' in options ? options.s1Manifest : verifiedS1Manifest(artifactsRoot, commitSha);
@@ -87,7 +87,7 @@ export function cxaCg4DependencySummary(options = {}) {
     options.j2ManifestPath ?? resolve(repositoryRoot, 'artifacts', 'cxa-j2', `${runId}.json`);
   const j2 = options.j2Manifest ?? readManifest(j2Path);
 
-  // ADR-032: S1 ต้องออก marker จาก commit ที่อยู่บน main แล้ว (commitOnMain) ไม่ต้องเป็น HEAD
+  // ADR-032: S1 must issue the marker from a commit already on main (commitOnMain); it need not be HEAD
   const sameSha =
     s1 !== undefined &&
     s1.commitSha === commitSha &&
@@ -98,14 +98,16 @@ export function cxaCg4DependencySummary(options = {}) {
 
   if (finalMain && !cg3SameSha) {
     throw new Error(
-      `CG4 acceptance ต้องมี ${CG3_MARKER} จาก S1 manifest บน SHA เดียวกัน (${s1 ? 'marker/SHA ไม่ตรง' : 'ไม่พบ manifest'}) — สั่ง \`gh workflow run CI --ref main -f acceptance=s1\` ให้ผ่านก่อน`,
+      `CG4 acceptance needs ${CG3_MARKER} from the S1 manifest on the same SHA (${s1 ? 'marker/SHA mismatch' : 'manifest not found'}) - run \`gh workflow run CI --ref main -f acceptance=s1\` and let it pass first`,
     );
   }
   if (finalMain && !regressionPassed) {
     const failed = Object.entries(s1Regression)
       .filter(([, status]) => status !== 'PASS')
       .map(([script, status]) => `${script}=${status}`);
-    throw new Error(`CG4-REG01 ต้องมี regression ของ S1-REG-01 PASS ครบ: ${failed.join(', ')}`);
+    throw new Error(
+      `CG4-REG01 needs all of the S1-REG-01 regression to PASS: ${failed.join(', ')}`,
+    );
   }
   const j2SameSha =
     j2 !== undefined && j2.commitSha === commitSha && (j2.markers ?? []).includes(J2_MARKER);

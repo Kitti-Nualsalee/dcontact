@@ -7,11 +7,11 @@ import {
   dphoneTemplateClientId,
 } from './keycloak-dphone-embedded-setup.mjs';
 
-test('ใช้ agent-desktop เป็น template โดยค่าเริ่มต้น', () => {
+test('uses agent-desktop as the template by default', () => {
   assert.equal(dphoneTemplateClientId, 'agent-desktop');
 });
 
-test('สร้าง public client ที่คัดลอก mapper และจำกัด redirect ตาม origin', () => {
+test('creates a public client that copies the mappers and restricts redirects by origin', () => {
   const mapper = {
     id: 'mapper-id-from-template',
     name: 'dcontact-api audience',

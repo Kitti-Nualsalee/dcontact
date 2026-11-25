@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-test('E1 secret provisioning ไม่พิมพ์ secret ไม่เปิด rollout และ apply ซ้ำไม่เปลี่ยนไฟล์', (context) => {
+test('E1 secret provisioning does not print the secret, does not enable the rollout, and re-applying does not change the file', (context) => {
   const directory = mkdtempSync(join(tmpdir(), 'uat-e1-secret-'));
   context.after(() => rmSync(directory, { recursive: true, force: true }));
   const path = join(directory, 'uat.env');
