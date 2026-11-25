@@ -77,10 +77,10 @@ async function waitFor(check: () => Promise<boolean>, timeoutMs = 25_000): Promi
     if (await check()) return;
     await new Promise((resolve) => setTimeout(resolve, 150));
   }
-  throw new Error('เงื่อนไขไม่เป็นจริงภายในเวลาที่กำหนด');
+  throw new Error('condition did not become true within the allotted time');
 }
 
-test('grant/revoke เดิน scope version และเขียน restrictive invalidation append-only', async (t) => {
+test('grant/revoke advances the scope version and writes an append-only restrictive invalidation', async (t) => {
   const f = await fixture(t);
   const granted = await f.repository.grant({
     tenantId: f.tenantId,
@@ -133,7 +133,7 @@ test('grant/revoke เดิน scope version และเขียน restricti
   );
 });
 
-test('IAM outbox relay publish event ที่ตรวจ contract แล้วไป dc.admin.events เพียงครั้งเดียว', async (t) => {
+test('the IAM outbox relay publishes a contract-checked event to dc.admin.events exactly once', async (t) => {
   const f = await fixture(t);
   await f.repository.grant({
     tenantId: f.tenantId,
@@ -158,7 +158,7 @@ test('IAM outbox relay publish event ที่ตรวจ contract แล้ว
   assert.equal(sent[0]?.event.orderingKey, f.teamId);
 });
 
-test('membership projection ไม่ย้อน revision และ dedup event id แบบ durable', async (t) => {
+test('the membership projection never goes back in revision and dedupes event ids durably', async (t) => {
   const f = await fixture(t);
   const payload = {
     contractVersion: 1,
@@ -203,7 +203,7 @@ test('membership projection ไม่ย้อน revision และ dedup event
   assert.equal(projection.membershipRevision, 2);
 });
 
-test('runtime และ configuration adapter แยก authority และ fail closed เมื่อ projection ไม่สด', async (t) => {
+test('the runtime and configuration adapters keep authority separate and fail closed when the projection is stale', async (t) => {
   const f = await fixture(t);
   const now = () => new Date('2099-01-01T00:00:00.000Z');
   const runtime = new IamTeamContactScopeAuthorizer(f.application, now);
@@ -341,7 +341,7 @@ test('runtime และ configuration adapter แยก authority และ fail
   });
 });
 
-test('runtime adapter ไม่รับ caller-supplied segment เป็น authority', async (t) => {
+test('the runtime adapter does not accept a caller-supplied segment as authority', async (t) => {
   const f = await fixture(t);
   const runtime = new IamTeamContactScopeAuthorizer(
     f.application,
@@ -388,7 +388,7 @@ test('runtime adapter ไม่รับ caller-supplied segment เป็น au
 });
 
 test(
-  'Kafka customer.segment.changed เข้า IAM projection ผ่าน durable inbox',
+  'Kafka customer.segment.changed reaches the IAM projection through a durable inbox',
   { timeout: 60_000 },
   async (t) => {
     const f = await fixture(t);
@@ -480,7 +480,7 @@ function coreGate() {
   });
   return { promise, open };
 }
-test('Core Team fence: known IAM writer ต้องตรวจ Team fence ก่อนรอ scope-version row เดิม', async (t) => {
+test('Core Team fence: known IAM writer must check the Team fence before waiting on the existing scope-version row', async (t) => {
   const f = await fixture(t);
   await f.owner.iamTeamScopeVersion.create({
     data: { tenantId: f.tenantId, teamId: f.teamId, scopeVersion: 0 },
@@ -519,7 +519,10 @@ test('Core Team fence: known IAM writer ต้องตรวจ Team fence ก�
     const bounded = Promise.race([
       writer,
       new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('รอ domain row ก่อนตรวจ Team fence')), 1000),
+        setTimeout(
+          () => reject(new Error('waited on the domain row before checking the Team fence')),
+          1000,
+        ),
       ),
     ]);
     await assert.rejects(bounded, /TEAM_REFERENCE_BUSY/);

@@ -169,7 +169,7 @@ export function normalizeC360ServiceOperatorCommand(value: unknown): C360Service
       invalid();
   }
 }
-/** Namespace แยกจาก human/operator; ไม่ผูก token bytes จึงคง identity เมื่อหมุน credential */
+/** Namespace separate from human/operator; not bound to token bytes, so identity is preserved when a credential is rotated */
 export function c360ServiceActor(
   identity: C360ServiceIdentity,
   bindingId: string,
@@ -191,7 +191,7 @@ export function c360ServiceActor(
       .digest('hex'),
   };
 }
-/** อ่านและถือ guard ใน transaction เดียวกับ effect; revoke ใช้ row เดียวกันแบบ UPDATE NOWAIT */
+/** Reads and holds the guard in the same transaction as the effect; revoke uses the same row with UPDATE NOWAIT */
 export async function lockC360ServicePrincipal(
   tx: Prisma.TransactionClient,
   identity: C360ServiceIdentity,
@@ -243,7 +243,7 @@ async function custodian(tx: Prisma.TransactionClient, operator: C360TrustedOper
     reject('SELF_GRANT_FORBIDDEN', 422);
   if (!u.is_active || u.role !== 'ADMIN') reject('GRANTEE_NOT_ACTIVE_ADMIN', 422);
 }
-/** Plan ใช้ทั้ง preview และ shared C1 engine; ไม่มี DB effect จน apply ถูกเรียก */
+/** The plan is used for both the preview and the shared C1 engine; no DB effect until apply is called */
 export async function planC360ServiceOperator(
   tx: Prisma.TransactionClient,
   operator: C360TrustedOperator,
@@ -257,7 +257,7 @@ export async function planC360ServiceOperator(
   let targetId: string | null = null;
   const kind = c.action.startsWith('SERVICE_CONTACT') ? 'contact' : 'capability';
   if (c.action === 'SERVICE_BIND_CREATE') {
-    // lock key เดียวกันกับ concurrent create; shared mode ของ dry-run ยังไม่เขียน
+    // the same lock key as a concurrent create; the dry-run's shared mode writes nothing yet
     const key = `m3-binding:${tenantId}:${c.issuer}:${c.subject}:${c.clientId}`;
     const [l] = await tx.$queryRaw<
       { ok: boolean }[]
@@ -394,7 +394,7 @@ export async function planC360ServiceOperator(
   };
 }
 
-/** เรียกใน owner create transaction หลังสร้าง Contact ก่อน INTEGRATION custody; ไม่เปิด public CRUD ของ slice B */
+/** Called in the owner create transaction after creating the Contact and before INTEGRATION custody; does not open public CRUD of slice B */
 export async function recordC360ServiceCreateEvidence(
   tx: Prisma.TransactionClient,
   p: C360LockedServicePrincipal,

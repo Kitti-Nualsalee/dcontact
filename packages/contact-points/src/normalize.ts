@@ -4,11 +4,11 @@ import tr46 from 'tr46';
 import { caseFold } from 'unicode-case-folding';
 
 /**
- * Cus360 C3 (#793) S1: parser และ normalization contract v1 ตาม E1 C
+ * Cus360 C3 (#793) S1: parser and normalization contract v1 per E1 C
  *
- * กฎเดียวที่ API/operator/UI ใช้ร่วมกัน รุ่นของ dependency ถูก pin แบบ exact ใน package.json และ lockfile;
- * การ upgrade ต้องเปลี่ยน normalization version พร้อม collision review ไม่เปลี่ยน key เงียบ ๆ
- * ไม่มี network call: parser ทำงานบน metadata ที่ติดมากับ package เท่านั้น
+ * the single rule set shared by the API/operator/UI; dependency versions are pinned exactly in package.json and the lockfile;
+ * an upgrade must change the normalization version together with a collision review and never change keys silently
+ * no network call: the parser works only on the metadata shipped with the package
  */
 export const C360_PHONE_NORMALIZATION_VERSION = 'c360-phone-v1+libphonenumber-js@1.13.15/max';
 export const C360_EMAIL_NORMALIZATION_VERSION = 'c360-email-v1+email-addresses@5.0.0+tr46@5.1.1';
@@ -37,25 +37,25 @@ export class C360ContactPointError extends Error {
 
 export interface C360NormalizedContactPoint {
   kind: 'PHONE' | 'EMAIL';
-  /** ค่าที่ผู้ใช้กรอกตามจริง เก็บเป็น provenance ไม่ใช้จับคู่ */
+  /** The value the user actually entered; kept as provenance and not used for matching */
   rawValue: string;
   normalizedValue: string;
   normalizationVersion: string;
-  /** ประเทศที่ผู้ใช้เลือกเองเท่านั้น; null เมื่อกรอกแบบ international */
+  /** Only a country the user chose; null when entered in international form */
   explicitCountry: string | null;
 }
 
-/** lone surrogate ทำให้ข้อความไม่ well-formed (String.prototype.isWellFormed ยังไม่อยู่ใน lib target) */
+/** a lone surrogate makes the text not well-formed (String.prototype.isWellFormed is not yet in the lib target) */
 function wellFormed(value: string): boolean {
   return !/\p{Cs}/u.test(value);
 }
 
-/** ใช้ metadata รุ่นเดียวกับ C4 เพื่อตรวจประเทศที่ผู้ใช้ระบุ ไม่อนุมานจาก locale */
+/** Uses the same metadata version as C4 to check the user-specified country; never infers it from the locale */
 export function isC360SupportedPhoneCountry(value: unknown): value is CountryCode {
   return typeof value === 'string' && /^[A-Z]{2}$/.test(value) && isSupportedCountry(value);
 }
 
-/** E1 C PHONE: whole-input, international หรือประเทศที่เลือกชัดเจน, ห้ามตัดส่วนใดทิ้ง */
+/** E1 C PHONE: whole-input, international or an explicitly chosen country; no part may be dropped */
 export function normalizeC360Phone(
   value: unknown,
   explicitCountry: unknown = null,
@@ -63,7 +63,7 @@ export function normalizeC360Phone(
   if (typeof value !== 'string') throw new C360ContactPointError('PHONE_INVALID');
   if (value.length > C360_PHONE_RAW_MAX) throw new C360ContactPointError('PHONE_TOO_LONG');
   if (!wellFormed(value) || /[\r\n]/.test(value)) throw new C360ContactPointError('PHONE_INVALID');
-  // tel: URI และ parameter (;ext=, ;phone-context=) ถูกปฏิเสธก่อน parse ไม่ให้ parser ตีความแทน
+  // a tel: URI and parameters (;ext=, ;phone-context=) are rejected before parsing so the parser does not interpret them
   if (/[:;]/.test(value)) throw new C360ContactPointError('PHONE_INVALID');
   let country: CountryCode | undefined;
   if (explicitCountry !== null && explicitCountry !== undefined) {
@@ -80,12 +80,12 @@ export function normalizeC360Phone(
     });
   } catch (error) {
     const reason = error instanceof Error ? error.message : '';
-    // ไม่มี + และไม่มีประเทศที่ผู้ใช้เลือก: ห้ามเดาจาก locale/timezone/IP
+    // no + and no user-selected country: never guess from locale/timezone/IP
     if (reason === 'INVALID_COUNTRY' && !country)
       throw new C360ContactPointError('PHONE_COUNTRY_REQUIRED');
     throw new C360ContactPointError('PHONE_INVALID');
   }
-  // มี extension (ext./x/#/pause) ให้แจ้ง unsupported ไม่เก็บเบอร์หลักที่ตัดส่วนออก
+  // with an extension (ext./x/#/pause) report unsupported and do not store the main number with the part cut off
   if (parsed.ext) throw new C360ContactPointError('PHONE_EXTENSION_UNSUPPORTED');
   if (!parsed.isValid()) throw new C360ContactPointError('PHONE_INVALID');
   return {
@@ -93,7 +93,7 @@ export function normalizeC360Phone(
     rawValue: value,
     normalizedValue: parsed.number,
     normalizationVersion: C360_PHONE_NORMALIZATION_VERSION,
-    // provenance: เก็บประเทศเฉพาะเมื่อใช้ parse จริง (input แบบ international ไม่ใช้ประเทศที่เลือก)
+    // provenance: keep the country only when it was actually used to parse (an international input ignores the selected country)
     explicitCountry: country && !input.startsWith('+') ? country : null,
   };
 }
@@ -104,7 +104,7 @@ function validDomain(domain: string): boolean {
   if (domain.startsWith('[') || IDNA_DOTS.test(domain)) return false;
   const labels = domain.split('.');
   if (labels.length < 2 || labels.some((label) => label.length === 0)) return false;
-  // validation เท่านั้น: ผล A-label ถูกทิ้ง ไม่ใช่ค่าที่เก็บ
+  // validation only: the A-label result is discarded and is not the stored value
   const ascii = tr46.toASCII(domain, {
     checkHyphens: true,
     checkBidi: true,
@@ -115,12 +115,12 @@ function validDomain(domain: string): boolean {
     ignoreInvalidPunycode: false,
   });
   if (ascii === null) return false;
-  // IP domain ในรูป dot-atom และ TLD ตัวเลขล้วนไม่ใช่ DNS name ตาม E1 C; ตรวจหลัง IDNA mapping
-  // เพื่อให้ตัวเลข full-width (เช่น １.２.３.４) ที่ถูก map เป็น ASCII ไม่หลุด
+  // an IP domain in dot-atom form and an all-numeric TLD are not a DNS name per E1 C; checked after IDNA mapping
+  // so full-width digits (e.g. １.２.３.４) that get mapped to ASCII do not slip through
   return !/^[0-9]+$/.test(ascii.slice(ascii.lastIndexOf('.') + 1));
 }
 
-/** E1 C EMAIL: addr-spec เดี่ยว, คง local tokens ตรงเดิม, lowercase เฉพาะ domain */
+/** E1 C EMAIL: a single addr-spec, local tokens kept as is, lowercase only the domain */
 export function normalizeC360Email(value: unknown): C360NormalizedContactPoint {
   if (typeof value !== 'string') throw new C360ContactPointError('EMAIL_INVALID');
   if (value.length > C360_EMAIL_RAW_MAX) throw new C360ContactPointError('EMAIL_TOO_LONG');
@@ -138,7 +138,7 @@ export function normalizeC360Email(value: unknown): C360NormalizedContactPoint {
   const mailbox = result?.addresses.length === 1 ? result.addresses[0] : undefined;
   if (!mailbox || mailbox.type !== 'mailbox') throw new C360ContactPointError('EMAIL_INVALID');
   const { name, local, domain, address, comments } = mailbox.parts;
-  // display-name/angle wrapper/comment/CFWS ถูกปฏิเสธ; ช่องว่างภายใน quoted local-string ไม่ใช่ CFWS
+  // display-name/angle wrapper/comment/CFWS are rejected; whitespace inside a quoted local-string is not CFWS
   if (name !== null || comments.length > 0) throw new C360ContactPointError('EMAIL_INVALID');
   const rebuilt = `${local.tokens}@${domain.tokens}`;
   if (rebuilt !== input || address.tokens !== input)
@@ -147,7 +147,7 @@ export function normalizeC360Email(value: unknown): C360NormalizedContactPoint {
   return {
     kind: 'EMAIL',
     rawValue: value,
-    // ไม่ punycode/NFC/NFKC/alias-fold/unquote: local ตาม tokens ดิบ, domain lowercase เท่านั้น
+    // no punycode/NFC/NFKC/alias-fold/unquote: local follows the raw tokens, only the domain is lowercased
     normalizedValue: `${local.tokens}@${domain.tokens.toLowerCase()}`,
     normalizationVersion: C360_EMAIL_NORMALIZATION_VERSION,
     explicitCountry: null,
@@ -162,8 +162,8 @@ export class C360TagNameError extends Error {
 }
 
 /**
- * nameKey = NFC(fullDefaultCaseFold(NFC(trim(name)))) จาก Unicode C+F mappings
- * ห้าม Turkic T/NFKC/toLowerCase/locale collator; ชื่อแสดง 1–80 UTF-16 ตรวจก่อน fold, key ห้ามตัด
+ * nameKey = NFC(fullDefaultCaseFold(NFC(trim(name)))) from Unicode C+F mappings
+ * no Turkic T/NFKC/toLowerCase/locale collator; display name of 1–80 UTF-16 is checked before fold, the key must not be truncated
  */
 export function normalizeC360TagName(value: unknown): { name: string; nameKey: string } {
   if (

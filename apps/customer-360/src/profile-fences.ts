@@ -7,32 +7,32 @@ import {
 import { C360ProfileCommandError } from './profile-command.js';
 
 /**
- * Cus360 C1 (#791) S4: transaction-aware owner fences ตาม E1 G
+ * Cus360 C1 (#791) S4: transaction-aware owner fences per E1 G
  *
- * Key ทุกตัวเป็นของ owner เดิมและ owner writer ถือ key เดียวกันจริง ไม่ใช่ namespace ฝ่ายเดียว:
- * - identity: canonical writer ถือ exclusive, membership commit และ Cus360 ถือ shared
- * - IAM scope-version: grant/revoke UPDATE row, Cus360 ถือ FOR SHARE
- * - IAM contact projection: projection consumer ถือ exclusive, Cus360 ถือ shared
+ * Every key belongs to the original owner and the owner writer really holds the same key; this is not a one-sided namespace:
+ * - identity: the canonical writer holds exclusive; membership commit and Cus360 hold shared
+ * - IAM scope-version: grant/revoke UPDATE the row, Cus360 holds FOR SHARE
+ * - IAM contact projection: the projection consumer holds exclusive, Cus360 holds shared
  *
- * ฝั่ง Cus360 ใช้ try/NOWAIT ทั้งหมด จึงไม่เพิ่มการรอย้อนเข้า owner หรือ Voice; ล็อกไม่ได้ =
- * RESOURCE_BUSY ให้ engine rollback แล้ว retry ทั้ง transaction ไม่ทำต่อใน aborted transaction
+ * Cus360 uses try/NOWAIT throughout, so it adds no wait back into the owner or Voice; failing to lock =
+ * RESOURCE_BUSY, so the engine rolls back and retries the whole transaction and never continues in an aborted transaction
  */
 
 function sortedUnique(ids: readonly string[]): string[] {
   return [...new Set(ids)].sort();
 }
 
-/** Key เดิมของ canonical writer (`segment-membership-repository.ts`) ห้ามเปลี่ยนรูปแบบ */
+/** Existing key of the canonical writer (`segment-membership-repository.ts`); its format must not change */
 export function c360IdentityFenceKey(tenantId: string, contactId: string): string {
   return `c360-membership:${tenantId}:identity:${contactId}`;
 }
 
-/** Key ของ IAM projection consumer ต่อ contact (E1 G: `iam-contact-scope:<tenant>:<contact>`) */
+/** Key of the IAM projection consumer per contact (E1 G: `iam-contact-scope:<tenant>:<contact>`) */
 export function iamContactScopeFenceKey(tenantId: string, contactId: string): string {
   return `iam-contact-scope:${tenantId}:${contactId}`;
 }
 
-/** จัดลำดับ grant/revoke ของ custodian กับการเขียนโปรไฟล์หลัง identity fence */
+/** Orders custodian grant/revoke against profile writes after the identity fence */
 export async function tryC360CustodianFences(
   tx: Prisma.TransactionClient,
   tenantId: string,
@@ -50,7 +50,7 @@ function busy(): C360ProfileCommandError {
   return new C360ProfileCommandError('RESOURCE_BUSY', 503, true);
 }
 
-/** Shared identity fence แบบ try สำหรับ Cus360 command; กัน canonical transition ระหว่าง command */
+/** Shared try-style identity fence for Cus360 commands; blocks a canonical transition during a command */
 export async function tryC360IdentityFences(
   tx: Prisma.TransactionClient,
   tenantId: string,
@@ -64,7 +64,7 @@ export async function tryC360IdentityFences(
   }
 }
 
-/** Shared projection fence แบบ try; กัน consumer เปลี่ยน projection ระหว่างตัดสิน freshness */
+/** Shared try-style projection fence; blocks the consumer from changing the projection while freshness is being decided */
 export async function tryIamContactProjectionFences(
   tx: Prisma.TransactionClient,
   tenantId: string,
@@ -78,7 +78,7 @@ export async function tryIamContactProjectionFences(
   }
 }
 
-/** FOR SHARE NOWAIT บน scope-version ของทีม ขัดกับ UPDATE ของ IAM grant/revoke */
+/** FOR SHARE NOWAIT on the team's scope-version; conflicts with the UPDATE of IAM grant/revoke */
 export async function lockIamScopeVersionsShared(
   tx: Prisma.TransactionClient,
   tenantId: string,
@@ -99,11 +99,11 @@ function lockErrorToBusy(error: unknown): never {
 }
 
 /**
- * ล็อกตามลำดับ E1 G สำหรับ Cus360 mutation แล้วตัดสินสิทธิ์จาก state หลังล็อก:
- * Team reference → IAM scope-version → User → identity ของ contact ทั้งชุด → IAM projection
+ * Locks in the E1 G order for a Cus360 mutation, then decides permission from the state after locking:
+ * Team reference → IAM scope-version → User → identities of the whole contact set → IAM projection
  *
- * เรียกหลัง command fence (S2) และก่อน capability/profile/tag/point rows. ผลตัดสินเป็นของ
- * transaction นี้เท่านั้น pre-read ภายนอกใช้รวบรวม IDs อย่างเดียว
+ * Called after the command fence (S2) and before capability/profile/tag/point rows. The decision belongs to
+ * this transaction only; an outside pre-read is used only to collect IDs
  */
 export async function fenceC360ContactMutation(
   tx: Prisma.TransactionClient,
@@ -111,7 +111,7 @@ export async function fenceC360ContactMutation(
   contactIds: readonly string[],
 ): Promise<Map<string, C360ContactAccess>> {
   const contacts = sortedUnique(contactIds);
-  // IAM เกี่ยวเฉพาะ actor ที่มีทีม (Admin read ผ่าน VIEW หรือ Supervisor); custodian ไม่พึ่งทีม
+  // IAM applies only to actors with a team (Admin read via VIEW, or Supervisor); a custodian does not depend on a team
   const team = actor.teamId && actor.role !== 'AGENT' ? actor.teamId : null;
   try {
     if (team) {

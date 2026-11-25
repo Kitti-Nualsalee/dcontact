@@ -17,7 +17,7 @@ export class C360ImportPreviewError extends Error {
 
 export interface C360ImportPreviewRow {
   rowNo: number;
-  /** private data: คืนเฉพาะ owner ที่ตรวจสิทธิ์ใน request ปัจจุบัน ห้ามบันทึกใน audit */
+  /** private data: return only to the owner whose permission was verified in the current request; never record in audit */
   cells: readonly string[];
   valid: boolean;
   fieldErrors: readonly { field: string; code: string }[];
@@ -25,15 +25,15 @@ export interface C360ImportPreviewRow {
 }
 
 /**
- * ป้องกันข้อมูลซ้ำซ่อนเร้น: implementer ต้อง query เฉพาะ Contact ที่ actor ปัจจุบันอ่านได้;
- * หาก scope ไม่พร้อมต้อง throw ไม่คืน false แทนความไม่แน่นอน
+ * Hidden-duplicate protection: the implementer must query only Contacts the current actor can read;
+ * if scope is unavailable it must throw rather than return false to stand in for uncertainty
  */
 export interface C360ImportDuplicateAuthority {
-  /** คืนผลตามลำดับ input; implementation ต้องจำกัด query budget และตรวจ scope ปัจจุบัน */
+  /** Returns results in input order; the implementation must limit its query budget and check the current scope */
   findReadableDuplicates(profiles: readonly C360CreateProfile[]): Promise<readonly boolean[]>;
 }
 
-/** ผลภายใน service เท่านั้น: caller ต้อง authorize owner ก่อนอ่านและก่อนส่งแต่ละหน้า */
+/** Service-internal result only: the caller must authorize the owner before reading and before sending each page */
 export async function prepareC360ImportPreview(input: {
   source: Uint8Array;
   sourceDigest: string;
@@ -99,9 +99,9 @@ export async function prepareC360ImportPreview(input: {
       rows[rowIndex] = { ...rows[rowIndex]!, warnings: ['READABLE_DUPLICATE'] };
     }
   }
-  // ผูก selection กับ source/mapping/rules โดยไม่มี raw values ใน plan
-  // warnings เป็นข้อมูลเตือนอย่างเดียว ไม่เข้า plan: ไม่เช่นนั้นการส่ง confirm ซ้ำหลังสร้างแล้ว
-  // จะเห็นลูกค้าที่เพิ่งสร้างเป็นรายการซ้ำและ plan เปลี่ยน (ทำให้ replay ด้วย commandId เดิมไม่ได้)
+  // Bind the selection to source/mapping/rules without raw values in the plan
+  // Warnings are advisory only and stay out of the plan: otherwise re-sending confirm after creation
+  // would see the just-created customer as a duplicate and the plan would change (replay with the same commandId would fail)
   const plan = {
     version: 1,
     sourceDigest: digest,

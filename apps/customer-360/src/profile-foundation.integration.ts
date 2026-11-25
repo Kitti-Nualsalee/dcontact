@@ -3,9 +3,9 @@ import { randomUUID } from 'node:crypto';
 import test from 'node:test';
 import { PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
 
-test('Cus360 profile foundation: defaults, revision constraints และ tenant isolation ใน PostgreSQL', async (t) => {
-  assert.ok(process.env.DATABASE_URL, 'ต้องระบุ owner database ของ sandbox');
-  assert.ok(process.env.APPLICATION_DATABASE_URL, 'ต้องระบุ application role ของ sandbox');
+test('Cus360 profile foundation: defaults, revision constraints and tenant isolation in PostgreSQL', async (t) => {
+  assert.ok(process.env.DATABASE_URL, 'the sandbox owner database must be specified');
+  assert.ok(process.env.APPLICATION_DATABASE_URL, 'the sandbox application role must be specified');
   const owner = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
   const application = new PrismaClient({
     datasources: { db: { url: process.env.APPLICATION_DATABASE_URL } },
@@ -41,7 +41,7 @@ test('Cus360 profile foundation: defaults, revision constraints และ tenant
       },
     ],
   });
-  // ใช้ SQL โดยไม่ระบุ columns ใหม่ เพื่อทดสอบ defaults ที่ old writer จะได้รับ
+  // use SQL without naming the new columns, to test the defaults an old writer would receive
   await owner.$executeRaw`INSERT INTO contacts (id, tenant_id, display_name) VALUES (${contactId}::uuid, ${tenantId}::uuid, 'Legacy contact')`;
   await owner.$executeRaw`INSERT INTO interactions (id, tenant_id, channel, direction, contact_id) VALUES (${interactionId}::uuid, ${tenantId}::uuid, 'VOICE', 'INBOUND', ${contactId}::uuid)`;
   const contact = await owner.contact.findUniqueOrThrow({ where: { id: contactId } });

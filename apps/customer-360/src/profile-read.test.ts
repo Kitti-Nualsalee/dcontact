@@ -36,7 +36,7 @@ function code(fn: () => unknown): string {
   return 'OK';
 }
 
-test('cursor: seal/open ได้ตำแหน่งเดิม และไม่มี raw query/ID อ่านได้ใน token', () => {
+test('cursor: seal/open restores the same position and no raw query/ID is readable in the token', () => {
   let now = 1_000;
   const codec = createC360CursorCodec([key('k1', 1)], () => now);
   const token = codec.seal({ ...expected, position: ['2026-11-03T00:00:00.000000', 'id-1'] });
@@ -53,7 +53,7 @@ test('cursor: seal/open ได้ตำแหน่งเดิม และไ�
   );
 });
 
-test('cursor: tamper, ข้าม actor/tenant/filter/scope/kind และ key ที่ไม่รู้จักถูกปฏิเสธ', () => {
+test('cursor: tampering, crossing actor/tenant/filter/scope/kind and unknown keys are rejected', () => {
   const codec = createC360CursorCodec([key('k1', 1)]);
   const token = codec.seal({ ...expected, position: ['a', 'b'] });
   const [v, k, data] = token.split('.') as [string, string, string];
@@ -88,14 +88,14 @@ test('cursor: tamper, ข้าม actor/tenant/filter/scope/kind และ key 
     ),
     '409:CURSOR_CONTEXT_CHANGED',
   );
-  // key อื่นถอดไม่ได้แม้ใช้ id เดียวกัน
+  // another key cannot decrypt even with the same id
   assert.equal(
     code(() => createC360CursorCodec([key('k1', 2)]).open(token, expected)),
     '400:CURSOR_INVALID',
   );
 });
 
-test('cursor: key rotation ถอด token ของ key เก่าได้จนหมดอายุ แต่ออก token ใหม่ด้วย key แรก', () => {
+test('cursor: key rotation decrypts tokens of old keys until they expire but issues new tokens with the first key', () => {
   const oldCodec = createC360CursorCodec([key('k1', 1)]);
   const rotated = createC360CursorCodec([key('k2', 2), key('k1', 1)]);
   const oldToken = oldCodec.seal({ ...expected, position: ['a', 'b'] });
@@ -110,7 +110,7 @@ test('cursor: key rotation ถอด token ของ key เก่าได้�
   assert.throws(() => createC360CursorCodec([{ id: 'k', key: Buffer.alloc(16) }]), TypeError);
 });
 
-test('search input: strict allowlist, ชนิด, ความยาว และข้อความ error ไม่สะท้อนค่าที่กรอก', () => {
+test('search input: strict allowlist, type, length, and error messages do not echo the entered value', () => {
   assert.deepEqual(parseC360SearchInput({}), {
     type: 'DIRECTORY',
     key: null,
@@ -123,7 +123,7 @@ test('search input: strict allowlist, ชนิด, ความยาว แล
     limit: 100,
     cursor: null,
   });
-  // NFC: ก + สระ รวมเป็นรูปเดียวกัน
+  // NFC: a Thai consonant + vowel combine into one form
   assert.equal(parseC360SearchInput({ type: 'NAME', query: 'ée' }).key, 'ée');
   const rejected: [unknown, string][] = [
     [null, 'body'],
@@ -146,7 +146,7 @@ test('search input: strict allowlist, ชนิด, ความยาว แล
   for (const [input, field] of rejected) {
     try {
       parseC360SearchInput(input);
-      assert.fail(`ต้องปฏิเสธ ${JSON.stringify(input)}`);
+      assert.fail(`must reject ${JSON.stringify(input)}`);
     } catch (error) {
       assert.ok(error instanceof C360ReadError);
       assert.equal(error.status, 400);
@@ -156,7 +156,7 @@ test('search input: strict allowlist, ชนิด, ความยาว แล
   }
 });
 
-test('search input: PHONE ต้องเป็นรูปแบบสากล ไม่เดาประเทศ ไม่ fallback digits-only', () => {
+test('search input: PHONE must be in international format, with no guessed country and no digits-only fallback', () => {
   for (const [input, key] of [
     ['+1 213 373 4253', '+12133734253'],
     ['+66 (2) 123-4567', '+6621234567'],
@@ -185,7 +185,7 @@ test('search input: PHONE ต้องเป็นรูปแบบสากล
     );
 });
 
-test('search input: EMAIL คง local ตามเดิม lowercase เฉพาะ domain และปฏิเสธรูปแบบที่ไม่ใช่ addr-spec เดี่ยว', () => {
+test('search input: EMAIL keeps the local part as is, lowercases only the domain and rejects anything that is not a single addr-spec', () => {
   const key = (query: string) => parseC360SearchInput({ type: 'EMAIL', query }).key;
   assert.equal(key('  User.Name+Tag@EXAMPLE.COM  '), 'User.Name+Tag@example.com');
   assert.equal(key('"A@B"@EXAMPLE.COM'), '"A@B"@example.com');
@@ -212,12 +212,12 @@ test('search input: EMAIL คง local ตามเดิม lowercase เฉพ
     );
 });
 
-test('mask: ไม่คืนค่าเต็มของ channel', () => {
+test('mask: does not return the full channel value', () => {
   assert.equal(maskC360Channel('PHONE', '+12133734253'), '+12•••••4253');
   assert.equal(maskC360Channel('EMAIL', 'User.Name@example.com'), 'U•••@example.com');
 });
 
-test('cursor key จาก env: ไม่มี key ใน production แจ้งเตือน (ไม่ใช่เงียบ) และ key ที่ตั้งไว้ใช้งานได้', () => {
+test('cursor key from env: no key in production warns (not silent) and a configured key works', () => {
   const warnings: string[] = [];
   const original = process.emitWarning;
   process.emitWarning = ((message: string) => {

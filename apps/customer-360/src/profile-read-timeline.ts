@@ -13,14 +13,14 @@ import {
 import type { C360VerifiedActor } from './profile-authorization.js';
 
 /**
- * Cus360 C2 (#792) S2: Voice timeline ของโปรไฟล์ (R1 J, E1 I)
+ * Cus360 C2 (#792) S2: Voice timeline of the profile (R1 J, E1 I)
  *
- * - ตรวจสิทธิ์ลูกค้าด้วย predicate เดียวกับ detail ก่อนเสมอ (DENY=404, DEFER=503) แล้วจึงอ่าน owner (interactions)
- * - คืนเฉพาะ วัน-เวลา/ช่องทาง/สถานะ ไม่มี note/audio/transcript/Cases/ช่องทางอื่น และไม่มี interaction ID
- * - สิทธิ์ดูประวัติของ interaction: ปัจจุบัน owner พิสูจน์ได้เพียง "สายที่ผู้ใช้คนนี้เป็นเจ้าของงานเอง"
- *   (`agent_id`). interactions ไม่มี historical team attribution จึงห้ามเดา queue.team_id ปัจจุบันเป็นสิทธิ์
- *   ย้อนหลัง; รายการที่พิสูจน์ไม่ได้ไม่ถูกคืน และ `coverage = LIMITED` (ไม่ใช่ empty และไม่ใช่ allowed)
- * - owner ล้ม = section UNAVAILABLE ไม่ใช่ list ว่าง
+ * - always check customer permission first with the same predicate as detail (DENY=404, DEFER=503), then read the owner (interactions)
+ * - returns only date-time/channel/status; no note/audio/transcript/Cases/other channels and no interaction ID
+ * - permission to view interaction history: currently the owner can prove only "calls this user handled personally"
+ *   (`agent_id`). interactions have no historical team attribution, so the current queue.team_id must not be guessed as a permission
+ *   retroactively; items that cannot be proven are not returned and `coverage = LIMITED` (neither empty nor allowed)
+ * - owner failure = section UNAVAILABLE, not an empty list
  */
 
 export interface C360TimelineItem {
@@ -33,7 +33,7 @@ export interface C360TimelineItem {
 export interface C360TimelinePage {
   items: C360TimelineItem[];
   nextCursor: string | null;
-  /** LIMITED = มีสายของลูกค้านี้ที่พิสูจน์สิทธิ์ย้อนหลังให้ผู้ใช้คนนี้ไม่ได้ จึงไม่แสดง */
+  /** LIMITED = this customer has calls whose historical permission cannot be proven for this user, so they are not shown */
   coverage: 'COMPLETE' | 'LIMITED';
 }
 

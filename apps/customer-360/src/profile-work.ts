@@ -21,7 +21,7 @@ import {
 import { C360ReadError, c360FilterDigest, type C360CursorCodec } from './profile-read.js';
 import { normalizeC360ProfilePatch, type C360ProfilePatch } from './profile-write.js';
 
-/** #795: work routes มี predicate ของ Agent เอง ไม่เปิด generic directory ให้ Agent */
+/** #795: work routes have their own Agent predicate and do not open the generic directory to an Agent */
 export class C360WorkError extends Error {
   constructor(
     readonly status: number,
@@ -41,7 +41,7 @@ export interface C360WorkContext {
 }
 const denied = () => new C360WorkError(404, 'RESOURCE_NOT_FOUND');
 
-/** Team → scope → User → lease/auth → Interaction; identity/projection ตามมาภายหลัง */
+/** Team → scope → User → lease/auth → Interaction; identity/projection follow later */
 export async function fenceC360Work(
   tx: Prisma.TransactionClient,
   actor: C360VerifiedActor,
@@ -84,7 +84,7 @@ export async function fenceC360Work(
   };
 }
 
-/** IAM IN ต้องตรงกับ owner head ปัจจุบัน ไม่เชื่อ projection ที่ยังตามไม่ทัน */
+/** IAM IN must match the current owner head; do not trust a projection that has not caught up */
 function scopeRows(
   actor: C360VerifiedActor,
   permission: 'VIEW' | 'WORK',
@@ -118,7 +118,7 @@ export async function fenceC360WorkContacts(
   actor: C360VerifiedActor,
   ids: string[],
 ) {
-  // Membership writer ใช้ shared identity lock ด้วย จึงต้องใช้ exclusive เพื่อกัน head เปลี่ยน
+  // The membership writer also takes the shared identity lock, so exclusive is needed to prevent the head changing
   for (const id of [...new Set(ids)].sort()) {
     const [row] = await tx.$queryRaw<{ locked: boolean }[]>(
       Prisma.sql`SELECT pg_try_advisory_xact_lock(hashtext(${c360IdentityFenceKey(actor.tenantId, id)})) AS locked`,
@@ -214,7 +214,7 @@ export async function searchC360WorkCandidates(
     actor,
     initial.map((row) => row.id),
   );
-  // IDs ใช้ pre-read เพื่อรวบรวม lock เท่านั้น ต้องอ่านหลัง lock อีกครั้ง
+  // IDs from the pre-read are used only to collect locks; they must be read again after locking
   const [pendingAfter] = await tx.$queryRaw<{ exists: boolean }[]>(
     Prisma.sql`SELECT EXISTS(SELECT 1 FROM contacts c WHERE c.tenant_id=${actor.tenantId}::uuid AND ${matching} AND NOT ${scopeRows(actor, 'WORK', fresh)} AND ${scopeRows(actor, 'WORK', stale)}) AS exists`,
   );

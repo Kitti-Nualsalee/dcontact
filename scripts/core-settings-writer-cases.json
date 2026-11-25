@@ -6,22 +6,22 @@
       "file": "src/team-reference-guards.integration.ts",
       "pattern": null,
       "requiredCases": [
-        "Team guards: application User INSERT ไม่เพิ่ม reference เข้าทีมปิด แม้ไม่ผ่าน Core API",
-        "Team guards: final state กัน same-tx insert→deactivate และยอมรับเพิ่มแล้วถอนก่อนปิด",
-        "Team guards: Queue ที่ inactive และ Skill ยังเป็น current reference; ย้ายออก/ถอนได้ก่อนปิด",
-        "Team guards: future delegation ยังบล็อก แต่หมดอายุ/ถอนแล้วไม่บล็อก",
-        "Team guards: Journey ใช้ pinned version; terminal/history ไม่บล็อก และ unresolved legacy บล็อกเฉพาะการปิด",
-        "Team guards: CG และ outbound แยก terminal จริงจาก expiry/lease; reopening ต้องใช้ทีม active",
-        "Team guards: User writer-first/deactivate-first แข่งกันด้วย transaction จริงและ try-lock ไม่รอ",
-        "Team guards: owner intent legacy ไม่มี canonical binding ปิดทีมใดใน tenant ไม่ได้ แต่ rename/cleanup ยังทำได้",
-        "Team guards: validated owner payload ระบุ source/target โดยไม่เดา head และ ACK ยังบล็อกจน continuation durable",
-        "Team guards: schedule CLAIMED ต้องมี durable enrollment จึงเลิกบล็อก pinned owner",
-        "Team guards: scoped refilter/future work และ pending segment intent บล็อก; unscoped/terminal entry ไม่บล็อก",
-        "Team guards: SEND ที่ยัง HELD บล็อกแม้ enrollment terminal และ reservation release แล้ว; terminal SEND เป็น history",
-        "Team guards: resolve canonical owner receipt ก่อนถือว่า legacy unknown; version ที่ไม่รู้จักไม่ยืม proof ของ command เดิม",
-        "Team guards: legacy reference เดิมไม่อนุญาต reactivate User/Queue หรือยืด grant บนทีมปิด; cleanup ยังได้",
-        "Team guards: EXPLAIN ANALYZE closure บน 60,000 references อยู่ใน budget 2s และไม่รวม tenant อื่น",
-        "Team guards: app ไม่ยืม PROVISIONING lifecycle เพื่อข้าม Core effect receipt ของ provisioner"
+        "Team guards: application User INSERT does not add a reference to a closed team, even bypassing the Core API",
+        "Team guards: final state blocks same-tx insert→deactivate and accepts add then remove before closing",
+        "Team guards: an inactive Queue and a Skill are still current references; moving out/removing is allowed before closing",
+        "Team guards: future delegation still blocks, but expired/revoked delegation does not block",
+        "Team guards: Journey uses the pinned version; terminal/history does not block and unresolved legacy blocks only closing",
+        "Team guards: CG and outbound distinguish a true terminal from expiry/lease; reopening requires an active team",
+        "Team guards: User writer-first/deactivate-first race with real transactions and try-lock does not wait",
+        "Team guards: legacy owner intent without a canonical binding blocks closing any team in the tenant, but rename/cleanup still work",
+        "Team guards: validated owner payload identifies source/target without guessing the head and ACK still blocks until the continuation is durable",
+        "Team guards: a schedule in CLAIMED needs a durable enrollment before it stops blocking the pinned owner",
+        "Team guards: scoped refilter/future work and pending segment intent block; unscoped/terminal entry does not block",
+        "Team guards: a SEND still HELD blocks even when the enrollment is terminal and the reservation is released; a terminal SEND is history",
+        "Team guards: resolve the canonical owner receipt before treating it as legacy unknown; an unknown version does not borrow the proof of the original command",
+        "Team guards: a legacy reference does not allow reactivating a User/Queue or extending a grant on a closed team; cleanup still works",
+        "Team guards: EXPLAIN ANALYZE closure on 60,000 references stays within the 2s budget and excludes other tenants",
+        "Team guards: app does not borrow the PROVISIONING lifecycle to bypass the provisioner Core effect receipt"
       ]
     },
     {
@@ -72,7 +72,7 @@
       "requiredCases": [
         "Core Team fence: actual IAM grant writer-first",
         "Core Team fence: actual IAM grant deactivate-first",
-        "Core Team fence: known IAM writer ต้องตรวจ Team fence ก่อนรอ scope-version row เดิม",
+        "Core Team fence: known IAM writer must check the Team fence before waiting on the existing scope-version row",
         "Core Team fence: actual IAM current grant revoke writer-first",
         "Core Team fence: actual IAM current grant revoke deactivate-first"
       ]

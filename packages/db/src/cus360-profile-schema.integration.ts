@@ -5,8 +5,8 @@ import type { Prisma } from '@prisma/client';
 import { PrismaClient, withTenantDatabaseTransaction } from './index.js';
 
 /**
- * Cus360 C1 (#791): schema ตาม E1 A/H บน PostgreSQL จริง — composite tenant FK, RLS ด้วย
- * application role ที่ไม่ BYPASSRLS, append-only grants และ immutable/retire/epoch triggers
+ * Cus360 C1 (#791): schema per E1 A/H on real PostgreSQL — composite tenant FK, RLS with an
+ * application role without BYPASSRLS, append-only grants and immutable/retire/epoch triggers
  */
 const owner = new PrismaClient();
 const app = new PrismaClient({
@@ -160,7 +160,7 @@ function point(f: Awaited<ReturnType<typeof fixture>>, data: Record<string, unkn
   } as Prisma.C360ContactPointUncheckedCreateInput;
 }
 
-test('C1 schema: ตารางใหม่ทุกตารางเปิด RLS พร้อม USING/WITH CHECK และ app role ไม่ bypass', async () => {
+test('C1 schema: every new table has RLS enabled with USING/WITH CHECK and the app role does not bypass', async () => {
   const roles = await app.$queryRaw<{ rolsuper: boolean; rolbypassrls: boolean }[]>`
     SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user`;
   assert.deepEqual(roles, [{ rolsuper: false, rolbypassrls: false }]);
@@ -178,7 +178,7 @@ test('C1 schema: ตารางใหม่ทุกตารางเปิด
   }
 });
 
-test('C1 schema: tenant อื่นมองไม่เห็นและเขียนข้าม tenant ไม่ได้', async () => {
+test('C1 schema: another tenant cannot see or write across tenants', async () => {
   const f = await fixture();
   await asApp(f.tenantId, (tx) => tx.c360ContactPoint.create({ data: point(f) }));
   for (const [tenantId, expected] of [
@@ -198,12 +198,12 @@ test('C1 schema: tenant อื่นมองไม่เห็นและเ�
       expected,
     );
   }
-  // WITH CHECK: context ของ tenant อื่นสร้างแถวของ tenant นี้ไม่ได้
+  // WITH CHECK: another tenant's context cannot create a row for this tenant
   await assert.rejects(
     asApp(f.otherTenantId, (tx) => admit(tx, f.tenantId, randomUUID(), f.adminId)),
     /row-level security/,
   );
-  // composite FK: แถวของ tenant หนึ่งอ้าง contact/user ของอีก tenant ไม่ได้ แม้ owner เขียนเอง
+  // composite FK: a row of one tenant cannot reference a contact/user of another tenant, even when the owner writes it
   const outsiderCommand = randomUUID();
   await owner.c360ProfileCommand.create({
     data: {
@@ -240,14 +240,14 @@ test('C1 schema: tenant อื่นมองไม่เห็นและเ�
   );
 });
 
-test('C1 schema: command admission/tombstone/receipt และหลักฐาน append-only สำหรับ app role', async () => {
+test('C1 schema: command admission/tombstone/receipt and append-only evidence for the app role', async () => {
   const f = await fixture();
-  // คำสั่งเดิมซ้ำไม่ได้ (PK เป็นฐานของ COMMAND_PAYLOAD_MISMATCH/replay)
+  // the same command cannot be repeated (the PK is the basis of COMMAND_PAYLOAD_MISMATCH/replay)
   await assert.rejects(
     asApp(f.tenantId, (tx) => admit(tx, f.tenantId, f.commandId, f.adminId)),
     /Unique constraint/,
   );
-  // tombstone ไม่มี payload; admission จริงต้องมี digest/version
+  // a tombstone has no payload; a real admission must have a digest/version
   await assert.rejects(
     asApp(f.tenantId, (tx) =>
       tx.c360ProfileCommand.create({
@@ -298,7 +298,7 @@ test('C1 schema: command admission/tombstone/receipt และหลักฐา
       },
     });
   });
-  // REJECTED ต้องมี code; receipt เดียวต่อ command
+  // REJECTED needs a code; one receipt per command
   await assert.rejects(
     asApp(f.tenantId, (tx) =>
       tx.c360ProfileCommandReceipt.create({
@@ -367,11 +367,11 @@ test('C1 schema: command admission/tombstone/receipt และหลักฐา
   }
 });
 
-test('C1 schema: contact point เป็น retire+insert ไม่มี unique ข้าม contact และ legacy source ต้องเป็นของ contact เดียวกัน', async () => {
+test('C1 schema: a contact point is retire+insert with no unique across contacts, and a legacy source must belong to the same contact', async () => {
   const f = await fixture();
   const active = point(f);
   await asApp(f.tenantId, (tx) => tx.c360ContactPoint.create({ data: active }));
-  // ค่าเดียวกันซ้ำบน contact เดิมไม่ได้ แต่ contact อื่นใช้ได้
+  // the same value cannot repeat on the same contact, but another contact can use it
   await assert.rejects(
     asApp(f.tenantId, (tx) => tx.c360ContactPoint.create({ data: point(f) })),
     /Unique constraint/,
@@ -394,7 +394,7 @@ test('C1 schema: contact point เป็น retire+insert ไม่มี unique
     );
   }
 
-  // legacy identity ของ contact หนึ่งเชื่อมกับอีก contact ไม่ได้ และ import ซ้ำไม่ได้
+  // the legacy identity of one contact cannot be linked to another contact and cannot be imported twice
   const legacy = {
     rawValue: '0812345678',
     normalizedValue: null,
@@ -415,7 +415,7 @@ test('C1 schema: contact point เป็น retire+insert ไม่มี unique
     /Unique constraint/,
   );
 
-  // แก้ค่าทับไม่ได้; retire ได้ครั้งเดียว; ลบไม่ได้
+  // cannot overwrite the value; can retire only once; cannot delete
   await assert.rejects(
     asApp(f.tenantId, (tx) =>
       tx.c360ContactPoint.update({
@@ -437,7 +437,7 @@ test('C1 schema: contact point เป็น retire+insert ไม่มี unique
         retiredCommandId: retireCommand,
       },
     });
-    // retire แล้วเพิ่มค่าเดิมกลับใน transaction เดียวกันได้ (partial unique เฉพาะ ACTIVE)
+    // can retire and then add the same value back in the same transaction (partial unique on ACTIVE only)
     await tx.c360ContactPoint.create({ data: point(f, { createdCommandId: retireCommand }) });
   });
   await assert.rejects(
@@ -460,7 +460,7 @@ test('C1 schema: contact point เป็น retire+insert ไม่มี unique
   );
 });
 
-test('C1 schema: custodian grant/revocation เป็นหลักฐาน append-only และ creator ให้สิทธิ์ตัวเองแบบ MANAGE เท่านั้น', async () => {
+test('C1 schema: custodian grant/revocation is append-only evidence and the creator can grant itself MANAGE only', async () => {
   const f = await fixture();
   const grant = (data: Record<string, unknown>) =>
     ({
@@ -546,7 +546,7 @@ test('C1 schema: custodian grant/revocation เป็นหลักฐาน ap
   }
 });
 
-test('C1 schema: linkage history ตรวจ action/reason/revision และ lease ต้องเป็นของ actor', async () => {
+test('C1 schema: linkage history checks action/reason/revision and the lease must belong to the actor', async () => {
   const f = await fixture();
   const change = (data: Record<string, unknown>) =>
     ({
@@ -562,7 +562,7 @@ test('C1 schema: linkage history ตรวจ action/reason/revision และ l
       leaseId: f.leaseId,
       actorIdentityKey: ACTOR_KEY,
       commandId: f.commandId,
-      reason: 'ลูกค้าแจ้งชื่อใหม่',
+      reason: 'Customer reported a new name',
       ...data,
     }) as Prisma.C360InteractionCustomerChangeUncheckedCreateInput;
   for (const [data, pattern] of [
@@ -590,7 +590,7 @@ test('C1 schema: linkage history ตรวจ action/reason/revision และ l
   });
   await assert.rejects(
     asApp(f.tenantId, (tx) =>
-      tx.c360InteractionCustomerChange.create({ data: change({ reason: 'ซ้ำ' }) }),
+      tx.c360InteractionCustomerChange.create({ data: change({ reason: 'Duplicate' }) }),
     ),
     /Unique constraint/,
   );
@@ -616,7 +616,7 @@ test('C1 schema: linkage history ตรวจ action/reason/revision และ l
   );
 });
 
-test('C1 schema: tag ใช้ nameKey แบบ binary, ชื่อ RETIRED สงวนไว้ และแนบ tag ที่ retire แล้วไม่ได้', async () => {
+test('C1 schema: a tag uses a binary nameKey, a RETIRED name is reserved, and a retired tag cannot be attached', async () => {
   const f = await fixture();
   const tag = (name: string, nameKey: string) => ({
     id: randomUUID(),
@@ -631,7 +631,7 @@ test('C1 schema: tag ใช้ nameKey แบบ binary, ชื่อ RETIRED �
   await asApp(f.tenantId, async (tx) => {
     await tx.c360Tag.create({ data: vip });
     await tx.c360Tag.create({ data: gold });
-    // binary equality: key ต่างกันเพียง case หรือ combining sequence ถือเป็นคนละ key ที่ระดับ DB
+    // binary equality: keys that differ only by case or combining sequence are different keys at the DB level
     await tx.c360Tag.create({ data: tag('VIP upper', 'VIP') });
     await tx.c360Tag.create({ data: tag('e acute', 'é') });
     await tx.c360Tag.create({ data: tag('é', 'é') });
@@ -640,7 +640,7 @@ test('C1 schema: tag ใช้ nameKey แบบ binary, ชื่อ RETIRED �
     asApp(f.tenantId, (tx) => tx.c360Tag.create({ data: tag('vip', 'vip') })),
     /Unique constraint/,
   );
-  // ต่าง tenant ใช้ชื่อเดียวกันได้
+  // different tenants can use the same name
   const outsiderCommand = randomUUID();
   await asApp(f.otherTenantId, async (tx) => {
     await admit(tx, f.otherTenantId, outsiderCommand, f.outsiderId);
@@ -712,7 +712,7 @@ test('C1 schema: tag ใช้ nameKey แบบ binary, ชื่อ RETIRED �
     asApp(f.tenantId, (tx) => tx.c360Tag.delete({ where: { id: vip.id } })),
     /permission denied/,
   );
-  // relation ปัจจุบัน: detach = DELETE ได้ แต่ UPDATE ไม่ได้
+  // current relation: detach = DELETE is allowed, but UPDATE is not
   await assert.rejects(
     asApp(f.tenantId, (tx) =>
       tx.$executeRawUnsafe(
@@ -732,7 +732,7 @@ test('C1 schema: tag ใช้ nameKey แบบ binary, ชื่อ RETIRED �
   );
 });
 
-test('C1 schema: work mutation auth ผูก lease ของ user จริงและทุกการเปลี่ยน binding ต้องเพิ่ม epoch', async () => {
+test('C1 schema: work mutation auth binds to the lease of the real user and every binding change must bump the epoch', async () => {
   const f = await fixture();
   const auth = {
     tenantId: f.tenantId,
@@ -762,7 +762,7 @@ test('C1 schema: work mutation auth ผูก lease ของ user จริง�
     tenantId_userId_leaseId: { tenantId: f.tenantId, userId: f.agentId, leaseId: f.leaseId },
   };
 
-  // บันทึกเวลา online check ไม่ต้องเพิ่ม epoch
+  // recording the online check time does not need to bump the epoch
   await asApp(f.tenantId, (tx) =>
     tx.c360WorkMutationAuth.update({ where: key, data: { lastOnlineCheckStartedAt: new Date() } }),
   );
@@ -784,7 +784,7 @@ test('C1 schema: work mutation auth ผูก lease ของ user จริง�
       data: { authEpoch: 1n, authState: 'REAUTH_REQUIRED', invalidationReason: 'TOKEN_EXPIRED' },
     }),
   );
-  // reauth ด้วย sid ใหม่ของ subject เดิมผ่านได้เมื่อ CAS เพิ่ม epoch
+  // reauth with a new sid for the same subject passes when CAS bumps the epoch
   await asApp(f.tenantId, (tx) =>
     tx.c360WorkMutationAuth.update({
       where: key,

@@ -10,16 +10,16 @@ test.after(async () => {
   await app.$disconnect();
   await owner.$disconnect();
 });
-test('องค์กร DB: app เขียนชื่อโดยไม่มี revision/audit/receipt ไม่ได้', async () => {
+test('Organization DB: the app cannot write the name without a revision/audit/receipt', async () => {
   const id = randomUUID();
   await owner.tenant.create({
-    data: { id, name: 'ชื่อเดิม', slug: `core-org-${id}`, sipDomain: `${id}.core.test` },
+    data: { id, name: 'Original name', slug: `core-org-${id}`, sipDomain: `${id}.core.test` },
   });
   await assert.rejects(
     withTenantDatabaseTransaction(app, id, async (tx) => {
-      await tx.tenant.update({ where: { id }, data: { name: 'ต้อง rollback' } });
+      await tx.tenant.update({ where: { id }, data: { name: 'Must roll back' } });
       await tx.$executeRawUnsafe('SET CONSTRAINTS ALL IMMEDIATE');
     }),
   );
-  assert.equal((await owner.tenant.findUniqueOrThrow({ where: { id } })).name, 'ชื่อเดิม');
+  assert.equal((await owner.tenant.findUniqueOrThrow({ where: { id } })).name, 'Original name');
 });

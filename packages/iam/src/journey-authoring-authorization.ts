@@ -18,14 +18,14 @@ import {
 type Tx = Prisma.TransactionClient;
 
 /**
- * J5.3 (#341): IAM adapter ของ Journey authoring — แหล่งเดียวที่ resolve subject/team/grant/delegation
- * ปัจจุบัน (Phase Spec #337 §1 `packages/iam`, คำตัดสิน #331)
+ * J5.3 (#341): IAM adapter for Journey authoring — the only place that resolves subject/team/grant/delegation
+ * currently (Phase Spec #337 §1 `packages/iam`, decision #331)
  *
- * - อ่านจาก canonical store ใน transaction ของ command ทุกครั้ง ไม่มี cache และไม่อ่าน `users.role`
- * - service/shared principal ไม่มีสิทธิ์ authoring ใด ๆ (ห้ามเป็น maker/reviewer/approver/publisher)
- * - team inactive ทำให้ edit/review/publish/resume ไม่ได้ แต่ยังอ่านและโอนย้ายได้
- * - delegation ใช้ได้เฉพาะ read/edit(+submit), exact scope, อยู่ในช่วงเวลา, ยังไม่ถูกเพิกถอน และ
- *   delegator ต้องยังมี direct grant อยู่ ณ ตอนนี้ (ห้ามมอบต่อ)
+ * - reads from the canonical store inside the command transaction every time, with no cache and without reading `users.role`
+ * - a service/shared principal has no authoring permission at all (never maker/reviewer/approver/publisher)
+ * - an inactive team blocks edit/review/publish/resume but still allows reading and transferring
+ * - a delegation is usable only for read/edit(+submit), exact scope, within its time window, not revoked, and
+ *   the delegator must still hold a direct grant right now (no re-delegation)
  */
 
 const DELEGABLE: ReadonlySet<string> = new Set(JOURNEY_DELEGABLE_CAPABILITIES);
@@ -100,7 +100,7 @@ export class IamJourneyAuthoringAuthorizer implements JourneyAuthoringAuthorizat
         where: { tenantId_subjectId: { tenantId, subjectId: delegation.delegatorSubjectId } },
       });
       if (!delegator || delegator.isServicePrincipal) continue;
-      // no chaining: delegator ต้องยังถือ direct grant เอง — delegation ที่ได้มาต่อไม่นับ
+      // no chaining: the delegator must still hold a direct grant itself — a delegation received does not count
       if (await this.hasDirectGrant(transaction, request, delegation.delegatorSubjectId, now)) {
         return allowed('DELEGATION', delegation.id);
       }
@@ -125,7 +125,7 @@ export class IamJourneyAuthoringAuthorizer implements JourneyAuthoringAuthorizat
           {
             OR: [
               { scopeKind: 'TENANT', scopeId: tenantId },
-              // visibility TENANT: grant อ่านของทีมใดก็ได้ใน tenant นี้ก็พอ
+              // visibility TENANT: a read grant on any team in this tenant is enough
               request.anyTeam && READ_ONLY.has(capability)
                 ? { scopeKind: 'TEAM' }
                 : { scopeKind: 'TEAM', scopeId: scope.teamId },
@@ -158,8 +158,8 @@ export class JourneyAuthoringDelegationError extends Error {
 }
 
 /**
- * delegation แบบ append-only (#331 §6): สร้างได้เมื่อ delegator มี direct grant ตรง scope เอง,
- * มอบให้คนอื่นที่เป็นมนุษย์ใน tenant เดียวกัน, ไม่เกิน 8 ชั่วโมง; เพิกถอนคือแถวใหม่ ไม่ใช่แก้แถวเดิม
+ * append-only delegation (#331 §6): can be created when the delegator has a direct grant on the exact scope itself,
+ * given to another human in the same tenant, for at most 8 hours; revocation is a new row, not an edit of the original row
  */
 export class IamJourneyAuthoringDelegations {
   constructor(
@@ -250,7 +250,7 @@ export class IamJourneyAuthoringDelegations {
             revokedAt: this.now(),
           },
         ],
-        // เพิกถอนซ้ำเป็น no-op — แถวแรกคือหลักฐาน
+        // revoking again is a no-op — the first row is the evidence
         skipDuplicates: true,
       });
     });

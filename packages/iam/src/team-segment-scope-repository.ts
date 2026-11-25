@@ -134,8 +134,8 @@ export class IamTeamSegmentScopeRepository {
     payload: SegmentMembershipChangePayloadV1;
   }) {
     return withTenantDatabaseTransaction(this.database, input.tenantId, async (transaction) => {
-      // E1 G: per-contact fence ก่อน inbox/read/upsert ทั้งแถวที่ยังไม่มีและที่มีอยู่
-      // Cus360 ถือ key เดียวกันแบบ shared ระหว่างตัดสิน freshness
+      // E1 G: per-contact fence before inbox/read/upsert, for both rows that do not exist yet and ones that do
+      // Cus360 holds the same key in shared mode while deciding freshness
       await transaction.$queryRaw(
         Prisma.sql`SELECT 1 FROM pg_advisory_xact_lock(hashtextextended(${`iam-contact-scope:${input.tenantId}:${input.payload.contactId}`}, 0))`,
       );

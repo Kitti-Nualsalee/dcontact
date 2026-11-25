@@ -56,7 +56,7 @@ function objectValue(
   code: C360SegmentContractError['code'],
 ): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new C360SegmentContractError(code, `${field} ต้องเป็น object`);
+    throw new C360SegmentContractError(code, `${field} must be an object`);
   }
   return value as Record<string, unknown>;
 }
@@ -70,12 +70,12 @@ function exactKeys(
   const allowed = new Set(keys);
   for (const key of Object.keys(value)) {
     if (!allowed.has(key)) {
-      throw new C360SegmentContractError(code, `${field}.${key} ไม่อยู่ใน closed contract`);
+      throw new C360SegmentContractError(code, `${field}.${key} is not in the closed contract`);
     }
   }
   for (const key of keys) {
     if (!(key in value)) {
-      throw new C360SegmentContractError(code, `${field}.${key} จำเป็นต้องระบุ`);
+      throw new C360SegmentContractError(code, `${field}.${key} is required`);
     }
   }
 }
@@ -83,7 +83,7 @@ function exactKeys(
 function validateExpressionNode(value: unknown, field: string): asserts value is ExpressionNode {
   const node = objectValue(value, field, 'INVALID_DEFINITION');
   if (typeof node.type !== 'string') {
-    throw new C360SegmentContractError('INVALID_DEFINITION', `${field}.type ไม่รองรับ`);
+    throw new C360SegmentContractError('INVALID_DEFINITION', `${field}.type is not supported`);
   }
 
   switch (node.type) {
@@ -95,12 +95,12 @@ function validateExpressionNode(value: unknown, field: string): asserts value is
         typeof node.value !== 'number' &&
         typeof node.value !== 'boolean'
       ) {
-        throw new C360SegmentContractError('INVALID_DEFINITION', `${field}.value ต้องเป็น scalar`);
+        throw new C360SegmentContractError('INVALID_DEFINITION', `${field}.value must be a scalar`);
       }
       if (typeof node.value === 'number' && !Number.isFinite(node.value)) {
         throw new C360SegmentContractError(
           'INVALID_DEFINITION',
-          `${field}.value ต้องเป็น finite number`,
+          `${field}.value must be a finite number`,
         );
       }
       return;
@@ -113,20 +113,20 @@ function validateExpressionNode(value: unknown, field: string): asserts value is
       ) {
         throw new C360SegmentContractError(
           'INVALID_DEFINITION',
-          `${field}.path ต้องชี้ typed fact อย่างน้อยหนึ่ง field`,
+          `${field}.path must point to at least one typed fact field`,
         );
       }
       const root = node.path[0] as ExpressionReferenceRoot;
       if (root !== 'contact' && root !== 'vars') {
         throw new C360SegmentContractError(
           'FORBIDDEN_REFERENCE',
-          `${field}.path อ้างได้เฉพาะ contact หรือ vars`,
+          `${field}.path may reference only contact or vars`,
         );
       }
       if (node.path.some((part) => ['__proto__', 'prototype', 'constructor'].includes(part))) {
         throw new C360SegmentContractError(
           'FORBIDDEN_REFERENCE',
-          `${field}.path มี segment ที่ห้ามใช้`,
+          `${field}.path has a forbidden segment`,
         );
       }
       return;
@@ -137,7 +137,7 @@ function validateExpressionNode(value: unknown, field: string): asserts value is
       if (!Array.isArray(node.operands)) {
         throw new C360SegmentContractError(
           'INVALID_DEFINITION',
-          `${field}.operands ต้องเป็น array`,
+          `${field}.operands must be an array`,
         );
       }
       node.operands.forEach((child, index) =>
@@ -152,7 +152,10 @@ function validateExpressionNode(value: unknown, field: string): asserts value is
     case 'comparison':
       exactKeys(node, field, ['type', 'operator', 'left', 'right'], 'INVALID_DEFINITION');
       if (!['eq', 'ne', 'gt', 'gte', 'lt', 'lte'].includes(String(node.operator))) {
-        throw new C360SegmentContractError('INVALID_DEFINITION', `${field}.operator ไม่รองรับ`);
+        throw new C360SegmentContractError(
+          'INVALID_DEFINITION',
+          `${field}.operator is not supported`,
+        );
       }
       validateExpressionNode(node.left, `${field}.left`);
       validateExpressionNode(node.right, `${field}.right`);
@@ -160,7 +163,7 @@ function validateExpressionNode(value: unknown, field: string): asserts value is
     case 'in':
       exactKeys(node, field, ['type', 'value', 'items'], 'INVALID_DEFINITION');
       if (!Array.isArray(node.items)) {
-        throw new C360SegmentContractError('INVALID_DEFINITION', `${field}.items ต้องเป็น array`);
+        throw new C360SegmentContractError('INVALID_DEFINITION', `${field}.items must be an array`);
       }
       validateExpressionNode(node.value, `${field}.value`);
       node.items.forEach((child, index) =>
@@ -172,7 +175,7 @@ function validateExpressionNode(value: unknown, field: string): asserts value is
       if (!Array.isArray(node.operands) || node.operands.length === 0) {
         throw new C360SegmentContractError(
           'INVALID_DEFINITION',
-          `${field}.operands ต้องเป็น non-empty array`,
+          `${field}.operands must be a non-empty array`,
         );
       }
       node.operands.forEach((child, index) =>
@@ -182,7 +185,7 @@ function validateExpressionNode(value: unknown, field: string): asserts value is
     default:
       throw new C360SegmentContractError(
         'INVALID_DEFINITION',
-        `${field}.type ไม่รองรับ: ${node.type}`,
+        `${field}.type is not supported: ${node.type}`,
       );
   }
 }
@@ -193,16 +196,16 @@ export function validateSegmentDefinitionContent(value: unknown): C360SegmentDef
   if (content.contractVersion !== C360_SEGMENT_DEFINITION_CONTRACT_VERSION) {
     throw new C360SegmentContractError(
       'UNSUPPORTED_VERSION',
-      `ไม่รองรับ definition contractVersion: ${String(content.contractVersion)}`,
+      `unsupported definition contractVersion: ${String(content.contractVersion)}`,
     );
   }
   if (typeof content.name !== 'string' || content.name.trim().length === 0) {
-    throw new C360SegmentContractError('INVALID_DEFINITION', 'definition.name ต้องไม่ว่าง');
+    throw new C360SegmentContractError('INVALID_DEFINITION', 'definition.name must not be empty');
   }
   if (content.name.length > 160) {
     throw new C360SegmentContractError(
       'INVALID_DEFINITION',
-      'definition.name ยาวเกิน 160 ตัวอักษร',
+      'definition.name is longer than 160 characters',
     );
   }
   const document = objectValue(content.expression, 'definition.expression', 'INVALID_DEFINITION');
@@ -215,13 +218,13 @@ export function validateSegmentDefinitionContent(value: unknown): C360SegmentDef
   if (document.language !== 'DC_EXPR') {
     throw new C360SegmentContractError(
       'INVALID_DEFINITION',
-      'definition.expression.language ต้องเป็น DC_EXPR',
+      'definition.expression.language must be DC_EXPR',
     );
   }
   if (document.version !== 1) {
     throw new C360SegmentContractError(
       'UNSUPPORTED_VERSION',
-      `ไม่รองรับ DC_EXPR version: ${String(document.version)}`,
+      `unsupported DC_EXPR version: ${String(document.version)}`,
     );
   }
   validateExpressionNode(document.expression, 'definition.expression.expression');
@@ -238,47 +241,47 @@ function validateFactValue(value: unknown, field: string): ExpressionValue {
   switch (fact.type) {
     case 'STRING':
       if (typeof fact.value !== 'string') {
-        throw new C360SegmentContractError('TYPE_MISMATCH', `${field}.value ต้องเป็น string`);
+        throw new C360SegmentContractError('TYPE_MISMATCH', `${field}.value must be a string`);
       }
       return fact.value.normalize('NFC');
     case 'NUMBER':
       if (typeof fact.value !== 'number' || !Number.isFinite(fact.value)) {
         throw new C360SegmentContractError(
           'TYPE_MISMATCH',
-          `${field}.value ต้องเป็น finite number`,
+          `${field}.value must be a finite number`,
         );
       }
       return Object.is(fact.value, -0) ? 0 : fact.value;
     case 'BOOLEAN':
       if (typeof fact.value !== 'boolean') {
-        throw new C360SegmentContractError('TYPE_MISMATCH', `${field}.value ต้องเป็น boolean`);
+        throw new C360SegmentContractError('TYPE_MISMATCH', `${field}.value must be a boolean`);
       }
       return fact.value;
     case 'TIMESTAMP': {
       if (typeof fact.value !== 'string' || !/^\d{4}-\d{2}-\d{2}T/.test(fact.value)) {
         throw new C360SegmentContractError(
           'TIME_AMBIGUOUS',
-          `${field}.value ต้องเป็น ISO-8601 timestamp ที่มี timezone`,
+          `${field}.value must be an ISO-8601 timestamp with a timezone`,
         );
       }
       const instant = new Date(fact.value);
       if (Number.isNaN(instant.getTime()) || !/(Z|[+-]\d{2}:\d{2})$/.test(fact.value)) {
         throw new C360SegmentContractError(
           'TIME_AMBIGUOUS',
-          `${field}.value ต้องเป็น ISO-8601 timestamp ที่มี timezone`,
+          `${field}.value must be an ISO-8601 timestamp with a timezone`,
         );
       }
       return instant.toISOString();
     }
     case 'NULL':
       if (fact.value !== null) {
-        throw new C360SegmentContractError('TYPE_MISMATCH', `${field}.value ต้องเป็น null`);
+        throw new C360SegmentContractError('TYPE_MISMATCH', `${field}.value must be null`);
       }
       return null;
     default:
       throw new C360SegmentContractError(
         'INVALID_FACT_SNAPSHOT',
-        `${field}.type ไม่รองรับ: ${String(fact.type)}`,
+        `${field}.type is not supported: ${String(fact.type)}`,
       );
   }
 }
@@ -296,7 +299,7 @@ function normalizeFactMap(
     ) {
       throw new C360SegmentContractError(
         'INVALID_FACT_SNAPSHOT',
-        `${field}.${key} ไม่ใช่ typed fact key ที่รองรับ`,
+        `${field}.${key} is not a supported typed fact key`,
       );
     }
     normalized[key] = validateFactValue(facts[key], `${field}.${key}`);
@@ -319,14 +322,14 @@ export function normalizeFactSnapshot(value: unknown): C360NormalizedFactSnapsho
   ) {
     throw new C360SegmentContractError(
       'TIME_AMBIGUOUS',
-      'snapshot.sourceCutoffAt ต้องเป็น ISO-8601 timestamp ที่มี timezone',
+      'snapshot.sourceCutoffAt must be an ISO-8601 timestamp with a timezone',
     );
   }
   const sourceCutoffAt = new Date(snapshot.sourceCutoffAt);
   if (Number.isNaN(sourceCutoffAt.getTime())) {
     throw new C360SegmentContractError(
       'TIME_AMBIGUOUS',
-      'snapshot.sourceCutoffAt ต้องเป็น ISO-8601 timestamp ที่มี timezone',
+      'snapshot.sourceCutoffAt must be an ISO-8601 timestamp with a timezone',
     );
   }
   return {
@@ -341,7 +344,10 @@ export function canonicalJson(value: unknown): string {
   if (typeof value === 'string' || typeof value === 'boolean') return JSON.stringify(value);
   if (typeof value === 'number') {
     if (!Number.isFinite(value)) {
-      throw new C360SegmentContractError('TYPE_MISMATCH', 'canonical value ต้องเป็น finite number');
+      throw new C360SegmentContractError(
+        'TYPE_MISMATCH',
+        'canonical value must be a finite number',
+      );
     }
     return JSON.stringify(Object.is(value, -0) ? 0 : value);
   }
@@ -349,8 +355,8 @@ export function canonicalJson(value: unknown): string {
   if (typeof value === 'object') {
     const entries = Object.entries(value as Record<string, unknown>)
       .filter(([, entry]) => entry !== undefined)
-      // ห้ามใช้ localeCompare: ผลเรียงขึ้นกับ locale/ICU ของ runtime และทำให้ digest
-      // เดียวกันต่างกันได้ข้าม host. เปรียบเทียบ Unicode code units โดยตรงแทน
+      // Do not use localeCompare: the ordering depends on the runtime locale/ICU and can make the same digest
+      // differ across hosts. Compare Unicode code units directly instead
       .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0));
     return `{${entries
       .map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`)
@@ -358,7 +364,7 @@ export function canonicalJson(value: unknown): string {
   }
   throw new C360SegmentContractError(
     'TYPE_MISMATCH',
-    `canonical value ไม่รองรับ type ${typeof value}`,
+    `canonical value is not supported type ${typeof value}`,
   );
 }
 

@@ -3,18 +3,18 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { Prisma, withTenantDatabaseTransaction, type PrismaClient } from '@d-contact/db';
 
 /**
- * Cus360 C1 (#791) S2: command admission/receipt/reconcile ตาม Phase Contract E1 ข้อ B
+ * Cus360 C1 (#791) S2: command admission/receipt/reconcile per Phase Contract E1 item B
  *
- * - admission เป็น transaction ของตัวเองเพื่อให้ GET/reconcile เห็น PENDING ได้จริงหลัง crash
- * - execution ถือ command advisory lock เดียวกับ admission/reconcile และตรวจ receipt ซ้ำก่อน effect;
- *   business effect + audit + terminal receipt commit ใน transaction เดียว
- * - reconcile ที่ได้ lock ปิด command ด้วย REJECTED/COMMAND_NOT_APPLIED (tombstone ถ้ายังไม่ admit)
- *   late POST จึงไม่มีทางทำงานตามมา
- * - ไม่มี automatic purge; receipt เก็บเพียง revisions/refs ไม่มี payload/PII snapshot
+ * - admission is its own transaction so GET/reconcile can really see PENDING after a crash
+ * - execution holds the same command advisory lock as admission/reconcile and re-checks the receipt before the effect;
+ *   business effect + audit + terminal receipt commit in one transaction
+ * - a reconcile that gets the lock closes the command with REJECTED/COMMAND_NOT_APPLIED (tombstone if not yet admitted)
+ *   so a late POST can never run afterwards
+ * - no automatic purge; the receipt keeps only revisions/refs and no payload/PII snapshot
  */
 
 export const C360_PROFILE_COMMAND_SCHEMA_VERSION = 1;
-/** E1 G: lock_timeout/statement_timeout/transaction timeout ของ Cus360 mutation */
+/** E1 G: lock_timeout/statement_timeout/transaction timeout for Cus360 mutations */
 export const C360_MUTATION_LOCK_TIMEOUT = '250ms';
 export const C360_MUTATION_STATEMENT_TIMEOUT = '2s';
 export const C360_MUTATION_TRANSACTION_TIMEOUT_MS = 2_000;
@@ -35,8 +35,8 @@ export class C360ProfileCommandError extends Error {
 }
 
 /**
- * ผลปฏิเสธทางธุรกิจที่ต้องบันทึกเป็น terminal receipt (เช่น revision ไม่ตรง)
- * Authorization failure ห้ามใช้ class นี้: ให้ throw ตรง ๆ เพื่อไม่สร้างหลักฐานแก่ผู้ไม่มีสิทธิ์
+ * A business rejection that must be recorded as a terminal receipt (e.g. revision mismatch)
+ * Do not use this class for authorization failure: throw directly so no evidence is created for an unauthorized caller
  */
 export class C360ProfileCommandRejection extends Error {
   constructor(
@@ -50,9 +50,9 @@ export class C360ProfileCommandRejection extends Error {
 
 export interface C360CommandActor {
   tenantId: string;
-  /** จาก c360ActorIdentityKey — ไม่ผูกกับ token bytes หรือ browser session */
+  /** From c360ActorIdentityKey — not bound to token bytes or a browser session */
   actorIdentityKey: string;
-  /** null สำหรับ trusted operator ที่ไม่ใช่ domain User */
+  /** null for a trusted operator that is not a domain User */
   actorUserId: string | null;
 }
 
@@ -64,8 +64,8 @@ export interface C360TrustedIdentity {
 }
 
 /**
- * E1 B.1: identity key จาก trusted issuer/subject/domain user/tenant
- * ไม่รวม sid/client/token เพื่อให้เจ้าของเดิมตรวจผลหลัง reauth ด้วย session ใหม่ได้
+ * E1 B.1: identity key from trusted issuer/subject/domain user/tenant
+ * excludes sid/client/token so the original owner can check the result after reauth with a new session
  */
 export function c360ActorIdentityKey(identity: C360TrustedIdentity): string {
   if (!identity.issuer || !identity.subject)
@@ -92,7 +92,7 @@ export function c360Uuid(value: unknown): string {
   return value.toLowerCase();
 }
 
-/** Canonical JSON: key เรียงตามลำดับ code unit, ไม่รับ number ที่ไม่ finite/undefined/class instance */
+/** Canonical JSON: keys sorted by code unit; rejects non-finite numbers/undefined/class instances */
 export function c360CanonicalJson(value: unknown): string {
   if (value === null || typeof value === 'boolean' || typeof value === 'string')
     return JSON.stringify(value);
@@ -117,10 +117,10 @@ export interface C360ProfileCommandInput {
   action: string;
   resourceType: string;
   resourceId: string | null;
-  /** decimal strings ตามสัญญา R1 เช่น { profile: '3' } */
+  /** decimal strings per the R1 contract, e.g. { profile: '3' } */
   expectedRevisions: Record<string, string>;
   normalizationContractVersion: string;
-  /** request หลัง validate + normalize ตาม pinned version; ใช้คำนวณ digest เท่านั้น ไม่ถูกบันทึก */
+  /** the request after validate + normalize per the pinned version; used only to compute the digest and never stored */
   normalizedRequest: unknown;
 }
 
@@ -134,7 +134,7 @@ export interface C360PreparedProfileCommand {
   payloadDigest: string;
 }
 
-/** E1 B.2: digest รวม action/resource/expected revisions/normalized request แบบ canonical JSON */
+/** E1 B.2: digest covers action/resource/expected revisions/normalized request as canonical JSON */
 export function prepareC360ProfileCommand(
   input: C360ProfileCommandInput,
 ): C360PreparedProfileCommand {
@@ -200,7 +200,7 @@ export type C360ProfileEffect =
       resourceRefs: C360ResourceRef[];
       audits: C360AuditEvent[];
     }
-  /** E1 B/R1: NO_OP หลัง auth+revision ตรง มี receipt แต่ไม่มี data revision ใหม่หรือ change-audit */
+  /** E1 B/R1: NO_OP after auth + matching revision has a receipt but no new data revision or change-audit */
   | {
       outcome: 'NO_OP';
       committedRevisions: Record<string, string>;
@@ -218,7 +218,7 @@ export interface C360ProfileCommandReceiptView {
   committedRevisions: Record<string, string>;
   resourceRefs: C360ResourceRef[];
   committedAt: string;
-  /** Success UI ต้องอ่าน resource ปัจจุบันกลับตามสิทธิ์ ไม่ใช้ receipt แทนข้อมูล */
+  /** The success UI must read the current resource back according to permissions and not use the receipt in place of data */
   readbackRequired: boolean;
 }
 
@@ -237,19 +237,19 @@ type StoredCommandOwner = {
 
 export interface C360CommandAuthorization {
   /**
-   * ตรวจ active actor/current capability ภายใน transaction; เรียกซ้ำทุก transaction และหลัง effect
-   * ต้อง throw เมื่อไม่มีสิทธิ์ (ไม่สร้าง receipt)
+   * checks the active actor/current capability inside the transaction; called again in every transaction and after the effect
+   * must throw when not permitted (no receipt is created)
    */
   authorize: (tx: Prisma.TransactionClient) => Promise<void>;
-  /** ตรวจประเภทคำสั่งก่อนเปิด receipt หรือเปลี่ยนสถานะ */
-  /** Resource fences ใช้หลัง command fence เท่านั้น; read-only lookup เรียกก่อนอ่าน receipt */
+  /** Validates the command type before opening a receipt or changing state */
+  /** Resource fences are used only after the command fence; the read-only lookup is called before reading the receipt */
   fence?: (tx: Prisma.TransactionClient) => Promise<void>;
-  /** ตรวจ deadline/สิทธิ์หลัง audit+receipt+constraints โดยไม่ทำ network */
+  /** Checks deadline/permission after audit+receipt+constraints without any network call */
   beforeCommit?: (tx: Prisma.TransactionClient) => Promise<void>;
   canAccessCommand?: (command: StoredCommandOwner) => boolean;
-  /** รวบรวม resource IDs ทั้งชุดก่อนถือ fences เพื่อรักษาลำดับ lock ของ receipt */
+  /** Collects all resource IDs before taking fences to preserve the receipt lock order */
   fenceReceiptRefs?: (tx: Prisma.TransactionClient, refs: C360ResourceRef[]) => Promise<void>;
-  /** E1 B.8: refs ที่ผู้อ่านปัจจุบันไม่มีสิทธิ์ต้องไม่คืน */
+  /** E1 B.8: refs the current reader has no permission for must not be returned */
   canReadRef?: (tx: Prisma.TransactionClient, ref: C360ResourceRef) => Promise<boolean>;
 }
 
@@ -265,14 +265,14 @@ function ownsCommand(
 }
 
 export interface C360ProfileCommandHooks {
-  /** Checkpoints ควบคุมโดย server/tests เท่านั้น ห้ามรับค่าจาก HTTP input */
+  /** Checkpoints are controlled by the server/tests only and must never take values from HTTP input */
   afterAdmission?: () => Promise<void>;
   afterCommandLock?: () => Promise<void>;
   afterEffect?: () => Promise<void>;
   afterCommit?: () => Promise<void>;
 }
 
-/** Transaction ของ Cus360 mutation: READ COMMITTED + timeouts ตาม E1 G */
+/** Transaction for a Cus360 mutation: READ COMMITTED + timeouts per E1 G */
 export function c360MutationTransaction<T>(
   db: PrismaClient,
   tenantId: string,
@@ -293,7 +293,7 @@ export function c360MutationTransaction<T>(
   );
 }
 
-/** E1 B.3: advisory namespace เดียวกันสำหรับ admission/execution/reconcile */
+/** E1 B.3: one shared advisory namespace for admission/execution/reconcile */
 export async function tryC360CommandLock(
   tx: Prisma.TransactionClient,
   actor: C360CommandActor,
@@ -350,7 +350,7 @@ async function receiptView(
       commandId: command.commandId,
       action: command.action,
       resourceType: command.resourceType,
-      // resourceId ของ command อาจชี้ resource ที่ผู้อ่านไม่มีสิทธิ์แล้ว ให้ผ่าน filter เดียวกับ refs
+      // the command's resourceId may point to a resource the reader no longer has permission for, so pass it through the same filter as refs
       resourceId:
         command.resourceId &&
         command.resourceType &&
@@ -379,7 +379,7 @@ async function receiptView(
 
 function isLockBusy(error: unknown): boolean {
   if (error instanceof C360ProfileCommandError) return error.code === 'RESOURCE_BUSY';
-  // 55P03 lock_not_available (NOWAIT/lock_timeout); Prisma ห่อ PG error ไว้ใน message
+  // 55P03 lock_not_available (NOWAIT/lock_timeout); Prisma wraps the PG error in the message
   const text = error instanceof Error ? error.message : '';
   return /55P03|lock_not_available|could not obtain lock|canceling statement due to lock timeout/.test(
     text,
@@ -387,8 +387,8 @@ function isLockBusy(error: unknown): boolean {
 }
 
 /**
- * E1 G: retry ภายในไม่เกิน 2 ครั้งพร้อม jitter โดยเริ่ม transaction ใหม่ทั้งหมด
- * (ตรวจ auth/revisions ใหม่ทุกครั้ง) ไม่ catch แล้วทำต่อใน aborted transaction
+ * E1 G: retry internally at most 2 times with jitter, starting a whole new transaction
+ * (re-checking auth/revisions every time); never catch and continue inside an aborted transaction
  */
 async function withBusyRetry<T>(work: () => Promise<T>): Promise<T> {
   for (let attempt = 0; ; attempt += 1) {
@@ -404,8 +404,8 @@ async function withBusyRetry<T>(work: () => Promise<T>): Promise<T> {
 }
 
 /**
- * Engine ของ Cus360 profile mutation: perform ทำ effect ภายใต้ lock/fences ของตัวเองแล้วคืน
- * APPLIED/NO_OP หรือ throw C360ProfileCommandRejection เพื่อบันทึก REJECTED
+ * Engine for Cus360 profile mutations: perform applies the effect under its own locks/fences and returns
+ * APPLIED/NO_OP, or throws C360ProfileCommandRejection to record REJECTED
  */
 export async function executeC360ProfileCommand(
   db: PrismaClient,
@@ -436,7 +436,7 @@ export async function executeC360ProfileCommand(
         const receipt = await tx.c360ProfileCommandReceipt.findUnique({
           where: { tenantId_actorIdentityKey_commandId: key },
         });
-        // tombstone ปิด key แล้ว: late POST ได้ NOT_APPLIED เดิม ไม่ execute
+        // the tombstone has closed the key: a late POST gets the original NOT_APPLIED and does not execute
         if (row.isTombstone && receipt) return receiptView(tx, row, receipt, authorization);
         if (row.payloadDigest !== prepared.payloadDigest)
           throw new C360ProfileCommandError('COMMAND_PAYLOAD_MISMATCH', 409);
@@ -495,7 +495,7 @@ export async function executeC360ProfileCommand(
         });
         return receiptView(tx, row, receipt, authorization);
       }
-      // สิทธิ์ต้องยังมีผล ณ จุดก่อน commit effect/receipt
+      // permission must still hold at the point before the effect/receipt commit
       await authorization.authorize(tx);
       if (effect.outcome === 'APPLIED') {
         for (const [ordinal, audit] of effect.audits.entries()) {
@@ -532,7 +532,7 @@ export async function executeC360ProfileCommand(
   return result;
 }
 
-/** E1 B.4: GET receipt — PENDING เมื่อ admit แล้วแต่ยังไม่มี terminal receipt, UNKNOWN เมื่อไม่พบ */
+/** E1 B.4: GET receipt — PENDING when admitted but no terminal receipt yet, UNKNOWN when not found */
 export async function lookupC360ProfileCommand(
   db: PrismaClient,
   actor: C360CommandActor,
@@ -561,8 +561,8 @@ export async function lookupC360ProfileCommand(
 }
 
 /**
- * E1 B.4–B.5: reconcile รับเพียง commandId และ body ว่าง; ถ้าคำสั่งกำลังทำงานคืน 202 PENDING
- * ถ้าได้ lock และยังไม่มี terminal receipt ให้ปิดด้วย COMMAND_NOT_APPLIED (tombstone ถ้ายังไม่ admit)
+ * E1 B.4–B.5: reconcile takes only a commandId and an empty body; if the command is running it returns 202 PENDING
+ * if it gets the lock and there is no terminal receipt yet, close with COMMAND_NOT_APPLIED (tombstone if not yet admitted)
  */
 export async function reconcileC360ProfileCommand(
   db: PrismaClient,

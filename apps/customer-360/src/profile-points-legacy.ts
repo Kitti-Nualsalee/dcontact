@@ -11,17 +11,17 @@ import { tryC360IdentityFences } from './profile-fences.js';
 import { C360_CONTACT_POINT_QUOTA } from './profile-points.js';
 
 /**
- * Cus360 C3 (#793) S3: inventory และ import legacy ContactIdentity → contact point ตาม E1 D
+ * Cus360 C3 (#793) S3: inventory and import of legacy ContactIdentity → contact point per E1 D
  *
- * - อ่าน ContactIdentity อย่างเดียว ไม่แก้ owner/value/verification/consent ของแถวเดิม
- * - ผ่าน parser ตามค่าที่บันทึกไว้จริง = ACTIVE; ไม่มี + และไม่มีประเทศ, extension หรือรูปแบบผิด =
- *   REVIEW_REQUIRED (ไม่มี normalized key จึงไม่ถูก lookup/dispatch) ไม่เดาประเทศจาก tenant/locale
- * - identity หลายแถวของ contact เดียวที่ normalize แล้วซ้ำกัน (หรือซ้ำ point ACTIVE เดิม) เก็บเป็น point
- *   ที่ถูกแทนที่ตั้งแต่ import (RETIRED โดย command เดียวกับที่สร้าง, มี normalized key) เพราะ ACTIVE ซ้ำ
- *   บน contact เดียวไม่ได้; bridge ตัดสินแถวนี้ตาม ACTIVE ค่าเดียวกันบน contact เดียวกัน (เจ้าของงานเลือก)
- * - idempotent: unique (tenant_id, source_identity_id) และ FK (tenant, identity, contact) พิสูจน์
- *   provenance; รันซ้ำได้โดยไม่สร้างแถวซ้ำ legacy ที่เกิน quota ไม่ถูกตัดทิ้ง
- * - รายงานมีแค่ counts และ digest ไม่มีค่า phone/email ดิบ
+ * - reads ContactIdentity only; does not change owner/value/verification/consent of the original rows
+ * - passes the parser as stored = ACTIVE; no + and no country, an extension or a malformed format =
+ *   REVIEW_REQUIRED (no normalized key, so it is neither looked up nor dispatched); the country is not guessed from tenant/locale
+ * - several identity rows of one contact that normalize to the same value (or duplicate an existing ACTIVE point) are kept as a point
+ *   superseded at import time (RETIRED by the same command that created it, with a normalized key) because a duplicate ACTIVE
+ *   cannot exist on one contact; the bridge decides this row by the ACTIVE with the same value on the same contact (chosen by the work owner)
+ * - idempotent: unique (tenant_id, source_identity_id) and the FK (tenant, identity, contact) prove
+ *   provenance; re-running creates no duplicate rows and legacy rows over quota are not dropped
+ * - the report has only counts and a digest, no raw phone/email values
  */
 export const C360_LEGACY_IMPORT_BATCH_MAX = 200;
 
@@ -31,7 +31,7 @@ type ImportableType = (typeof IMPORTABLE)[number];
 export type C360LegacyClassification =
   | { state: 'ACTIVE'; normalizedValue: string; normalizationVersion: string }
   | { state: 'REVIEW_REQUIRED'; reason: C360ContactPointErrorCode }
-  /** ค่าซ้ำกับ ACTIVE บน contact เดียวกัน: เก็บเป็น RETIRED ที่ command เดียวกันสร้างและ retire */
+  /** value duplicates an ACTIVE on the same contact: kept as RETIRED, created and retired by the same command */
   | { state: 'SUPERSEDED'; normalizedValue: string; normalizationVersion: string };
 
 export function classifyC360LegacyIdentity(
@@ -39,7 +39,7 @@ export function classifyC360LegacyIdentity(
   value: string,
 ): C360LegacyClassification {
   try {
-    // legacy ไม่มีประเทศที่ผู้ใช้เลือกไว้ จึงรับเฉพาะเบอร์ international ที่ parse ได้ทั้งข้อความ
+    // legacy has no user-selected country, so only international numbers that parse as a whole string are accepted
     const point = type === 'PHONE' ? normalizeC360Phone(value, null) : normalizeC360Email(value);
     return {
       state: 'ACTIVE',
@@ -67,21 +67,21 @@ export interface C360LegacyInventory {
   imported: number;
   pending: { active: number; reviewRequired: number; superseded: number };
   reviewReasons: Record<string, number>;
-  /** contact ที่ ACTIVE ต่อชนิดเกิน quota หลัง import (ไม่ถูกตัดทิ้ง แต่เพิ่มใหม่ไม่ได้) */
+  /** contacts whose ACTIVE count per type exceeds the quota after import (not dropped, but new ones cannot be added) */
   contactsOverQuota: number;
-  /** normalized key เดียวกันบนหลาย contact (เก็บได้ตาม R1 แต่ต้องไม่ถูกตีความเป็นคนเดียวกัน) */
+  /** the same normalized key on several contacts (allowed by R1 but must not be interpreted as the same person) */
   sharedKeys: { keys: number; contacts: number; digest: string };
   identityHeads: { missing: number; merged: number; ambiguous: number };
 }
 
 function keyDigest(tenantId: string, keys: string[]): string {
-  // digest ผูก tenant เพื่อเทียบรอบต่อรอบได้ โดยไม่เปิดเผยค่าและเทียบข้าม tenant ไม่ได้
+  // the digest is bound to the tenant so runs can be compared without revealing values and it cannot be compared across tenants
   const hash = createHash('sha256').update(`c360-legacy-keys-v1\0${tenantId}`);
   for (const key of [...keys].sort()) hash.update(`\0${key}`);
   return hash.digest('hex');
 }
 
-/** ACTIVE ซ้ำบน contact เดียวกันทำไม่ได้ (unique index) จึงเก็บเป็น SUPERSEDED แทนการทิ้งแถว */
+/** a duplicate ACTIVE on the same contact is impossible (unique index), so keep it as SUPERSEDED instead of dropping the row */
 function dedupe(
   result: C360LegacyClassification,
   row: { contact_id: string; type: string },
@@ -117,7 +117,7 @@ async function legacyIdentities(
     ${options.limit === undefined ? Prisma.empty : Prisma.sql`LIMIT ${options.limit}`}`;
 }
 
-/** Dry-run: สำรวจสิ่งที่ import จะทำโดยไม่เขียนอะไร */
+/** Dry-run: surveys what the import would do without writing anything */
 export async function inventoryC360LegacyContactPoints(
   tx: Prisma.TransactionClient,
   tenantId: string,
@@ -129,7 +129,7 @@ export async function inventoryC360LegacyContactPoints(
   let active = 0;
   let review = 0;
   let superseded = 0;
-  // ACTIVE ที่จะมีหลัง import ต่อ contact/ชนิด และ key → contacts สำหรับ shared/collision
+  // ACTIVE rows after import per contact/type, and key → contacts for shared/collision
   const perContact = new Map<string, number>();
   const keyContacts = new Map<string, Set<string>>();
   const existing = await tx.c360ContactPoint.findMany({
@@ -220,9 +220,9 @@ export interface C360LegacyImportBatch {
 }
 
 /**
- * Import หนึ่ง batch ใต้ command ของ operator (FK created_command ชี้ไปที่ command นี้)
- * ล็อก contact ที่ได้รับผลเรียง ID แบบ NOWAIT แล้วเพิ่ม profile_revision ครั้งเดียวต่อ contact
- * เพื่อให้คำสั่งแก้ที่ถือ revision เก่าได้ REVISION_CONFLICT แทนการทับข้อมูลที่ import มา
+ * Import one batch under an operator command (the FK created_command points at this command)
+ * lock affected contacts in ID order with NOWAIT, then bump profile_revision once per contact
+ * so an edit command holding an old revision gets REVISION_CONFLICT instead of overwriting the imported data
  */
 export async function importC360LegacyContactPointsBatch(
   tx: Prisma.TransactionClient,
@@ -236,7 +236,7 @@ export async function importC360LegacyContactPointsBatch(
     limit: batchSize,
   });
   const contacts = [...new Set(rows.map((row) => row.contact_id))].sort();
-  // E1 G: identity fence ของ contact ทั้งชุดก่อน profile rows (canonical transition ถือ exclusive)
+  // E1 G: identity fence for the whole contact set before profile rows (the canonical transition holds exclusive)
   await tryC360IdentityFences(tx, context.tenantId, contacts);
   for (const contactId of contacts) {
     try {
@@ -254,7 +254,7 @@ export async function importC360LegacyContactPointsBatch(
   let reviewRequired = 0;
   let superseded = 0;
   let imported = 0;
-  // revision เพิ่มเฉพาะ contact ที่มีแถวถูก insert จริง (แถวที่ ON CONFLICT ไม่ใช่ mutation)
+  // the revision is bumped only for contacts that actually had a row inserted (a row hitting ON CONFLICT is not a mutation)
   const touched = new Set<string>();
   const contactKeys = new Set(
     contacts.length === 0
@@ -276,7 +276,7 @@ export async function importC360LegacyContactPointsBatch(
   );
   for (const row of rows) {
     const result = dedupe(classifyC360LegacyIdentity(row.type, row.value), row, contactKeys);
-    // ON CONFLICT: แถวที่ import ไปแล้วโดย run ก่อนหน้า (หรือ batch อื่นที่ commit ก่อน) ไม่ถูกสร้างซ้ำ
+    // ON CONFLICT: rows already imported by a previous run (or another batch that committed first) are not created again
     const inserted = await tx.$executeRaw`
       INSERT INTO c360_contact_points
         (id, tenant_id, contact_id, kind, raw_value, normalized_value, normalization_version, state,

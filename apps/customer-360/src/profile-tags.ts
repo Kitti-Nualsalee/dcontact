@@ -1,6 +1,6 @@
 /**
- * Cus360 C1 (#791) S5 → C3 (#793): tag name normalization ย้ายไปอยู่ที่ @d-contact/contact-points
- * เพื่อให้ API/operator/UI ใช้กฎและรุ่น dependency ชุดเดียวกับ phone/email; ไฟล์นี้คง export เดิมไว้
+ * Cus360 C1 (#791) S5 → C3 (#793): tag name normalization moved to @d-contact/contact-points
+ * so the API/operator/UI use the same rules and dependency version as phone/email; this file keeps its original exports
  */
 export {
   C360TagNameError,
@@ -9,7 +9,7 @@ export {
   normalizeC360TagName,
 } from '@d-contact/contact-points';
 
-/** รูปแบบผลลัพธ์เดิมที่ผู้เรียก customer-360 ใช้ร่วมกับ tag normalizer */
+/** The original result shape that customer-360 callers share with the tag normalizer */
 export interface C360TagName {
   name: string;
   nameKey: string;
@@ -25,7 +25,7 @@ import {
   type C360ProfileEffect,
 } from './profile-command.js';
 
-/** แหล่ง count สำหรับ Overview: ผู้เรียกต้อง authorize catalog ก่อนและใช้ tenant transaction */
+/** Count source for the Overview: the caller must authorize the catalog first and use a tenant transaction */
 export async function countC360CatalogTags(tx: Prisma.TransactionClient, tenantId: string) {
   const [row] = await tx.$queryRaw<{ active: bigint; retired: bigint; as_of: Date }[]>`
     SELECT COUNT(*) FILTER (WHERE state = 'ACTIVE') AS active,
@@ -39,7 +39,7 @@ export async function countC360CatalogTags(tx: Prisma.TransactionClient, tenantI
   };
 }
 
-/** สร้าง catalog tag ใต้ name-key fence เดียวกับ operator seed โดยไม่เปิดข้อมูลลูกค้า */
+/** Creates a catalog tag under the same name-key fence as the operator seed without exposing customer data */
 export async function createC360CatalogTag(
   tx: Prisma.TransactionClient,
   actor: C360CommandActor,
@@ -123,7 +123,7 @@ function tagResult(
   };
 }
 
-/** เปลี่ยนชื่อโดยถือ name-key fence ร่วมกับ seed และ tag row lock เดียวกับ assignment */
+/** Renames while holding the name-key fence shared with the seed and the same tag row lock as assignment */
 export async function renameC360CatalogTag(
   tx: Prisma.TransactionClient,
   tenantId: string,
@@ -166,7 +166,7 @@ export async function renameC360CatalogTag(
   return tagResult(id, tag.revision, 'TAG_RENAME');
 }
 
-/** Retire ถือ row lock ร่วมกับ attach; assignment เดิมคงอยู่และถอดออกภายหลังได้ */
+/** Retire holds the row lock shared with attach; existing assignments remain and can be removed later */
 export async function retireC360CatalogTag(
   tx: Prisma.TransactionClient,
   tenantId: string,

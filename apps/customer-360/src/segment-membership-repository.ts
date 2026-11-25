@@ -108,14 +108,14 @@ export class C360MembershipRepositoryError extends Error {
       | 'IDENTITY_LINEAGE_CONFLICT'
       | 'EVALUATION_FAILED'
       /**
-       * ช่วง revision ที่ขอมีรูโหว่ที่อธิบายด้วย supersession ไม่ได้
+       * The requested revision range has a gap that supersession cannot explain
        *
-       * แยกจาก SUPERSEDED โดยเจตนา: SUPERSEDED แปลว่า "เรารู้ว่าอะไรกลืน revision พวกนั้นไป
-       * ให้ไป reconcile จาก head" ซึ่งเป็นคำสัญญาที่ caller เชื่อแล้วข้าม change ที่หายไปได้
-       * ถ้าเราตอบแบบนั้นโดยไม่มีหลักฐาน เท่ากับกลบ data loss ให้ดูเหมือนเหตุการณ์ปกติ
+       * Deliberately distinct from SUPERSEDED: SUPERSEDED means "we know what swallowed those revisions;
+       * reconcile from the head", a promise the caller trusts enough to skip the missing changes.
+       * Answering that way without evidence would disguise data loss as a normal event
        */
       | 'MEMBERSHIP_CHANGE_GAP'
-      /** identity closure ถูกถือ fence อยู่หรือเปลี่ยนระหว่างล็อกจน retry ครบแล้ว; ลองใหม่ได้ */
+      /** The identity closure is held by a fence or changed while locking until retries ran out; can try again */
       | 'RESOURCE_BUSY',
     message: string,
   ) {
@@ -124,7 +124,7 @@ export class C360MembershipRepositoryError extends Error {
   }
 }
 
-/** สัญญาณภายใน: rollback transaction แล้ว retry canonical transition ใหม่ทั้งชุด */
+/** Internal signal: roll back the transaction and retry the whole canonical transition */
 class IdentityClosureBusy extends Error {}
 
 const IDENTITY_CLOSURE_ATTEMPTS = 5;
@@ -135,20 +135,20 @@ export interface C360MembershipRepositoryOptions {
 
 function nonEmpty(value: string, field: string): string {
   const normalized = value.trim();
-  if (!normalized) throw new TypeError(`${field} ต้องเป็น string ที่ไม่ว่าง`);
+  if (!normalized) throw new TypeError(`${field} must be a non-empty string`);
   return normalized;
 }
 
 function positiveInteger(value: number, field: string): number {
   if (!Number.isInteger(value) || value < 1) {
-    throw new TypeError(`${field} ต้องเป็นจำนวนเต็มตั้งแต่ 1`);
+    throw new TypeError(`${field} must be an integer >= 1`);
   }
   return value;
 }
 
 function nonNegativeInteger(value: number, field: string): number {
   if (!Number.isInteger(value) || value < 0) {
-    throw new TypeError(`${field} ต้องเป็นจำนวนเต็มไม่ติดลบ`);
+    throw new TypeError(`${field} must be a non-negative integer`);
   }
   return value;
 }
@@ -179,20 +179,20 @@ function resultDigest(value: Omit<C360MembershipCommitResult, 'responseDigest'>)
 }
 
 /**
- * Durable Customer 360 owner ของ membership stream. ทุก canonical transition, change ledger
- * และ outbox row ถูก commit ใน tenant transaction เดียว; Journey อ่านผ่าน read port ด้านล่างเท่านั้น.
+ * Durable Customer 360 owner of the membership stream. Every canonical transition, change ledger
+ * and outbox row is committed in a single tenant transaction; Journey reads only through the read port below.
  */
 export type C360IdentityHeadInitialization =
   | { outcome: 'INITIALIZED' | 'ALREADY_PRESENT'; lineageRevision: number; state: string }
   | { outcome: 'LINEAGE_CONFLICT' };
 
 /**
- * E1 D: initialize identity head ที่ขาดของ legacy contact ผ่าน owner ใต้ canonical fence
+ * E1 D: initialize the missing identity head of a legacy contact through the owner under the canonical fence
  *
- * caller ต้องอยู่ใน tenant transaction; ฟังก์ชันนี้ try-lock identity แบบ exclusive (key เดียวกับ
- * canonical transition) และไม่เดาว่า "ไม่มี head" = self-verified: ถ้ามี lineage อ้าง contact นี้อยู่แล้ว
- * แต่ head หาย ถือเป็น conflict ให้ตรวจด้วยคน ไม่สร้าง head ACTIVE ทับประวัติ merge
- * ล็อกไม่ได้ = throw C360MembershipRepositoryError('RESOURCE_BUSY')
+ * the caller must be inside a tenant transaction; this function try-locks the identity exclusively (the same key as
+ * the canonical transition) and does not assume "no head" = self-verified: if a lineage already references this contact
+ * but the head is missing, treat it as a conflict for human review and do not create an ACTIVE head over the merge history
+ * failing to lock = throw C360MembershipRepositoryError('RESOURCE_BUSY')
  */
 export async function initializeC360IdentityHead(
   transaction: Transaction,
@@ -204,7 +204,7 @@ export async function initializeC360IdentityHead(
     Prisma.sql`SELECT pg_try_advisory_xact_lock(hashtext(${`c360-membership:${tenantId}:identity:${contactId}`})) AS locked`,
   );
   if (!row?.locked) {
-    throw new C360MembershipRepositoryError('RESOURCE_BUSY', 'identity fence ถูกถืออยู่');
+    throw new C360MembershipRepositoryError('RESOURCE_BUSY', 'identity fence is held');
   }
   const existing = await transaction.c360IdentityHead.findUnique({
     where: { tenantId_contactId: { tenantId, contactId } },
@@ -272,7 +272,7 @@ export class C360SegmentMembershipRepository implements CustomerSegmentMembershi
     if (!contact) {
       throw new C360MembershipRepositoryError(
         'RESOURCE_NOT_FOUND',
-        'ไม่พบ contact ใน tenant ที่ระบุ',
+        'contact not found in the given tenant',
       );
     }
     return transaction.c360IdentityHead.create({
@@ -330,7 +330,7 @@ export class C360SegmentMembershipRepository implements CustomerSegmentMembershi
     if (!definition || definition.status === 'DRAFT' || !snapshot) {
       throw new C360MembershipRepositoryError(
         'RESOURCE_NOT_FOUND',
-        'ไม่พบ published definition หรือ owner snapshot ของ binding นี้',
+        'published definition or owner snapshot of this binding not found',
       );
     }
     const result = this.evaluator.evaluate({
@@ -552,7 +552,7 @@ export class C360SegmentMembershipRepository implements CustomerSegmentMembershi
     const headData = {
       state: nextState,
       membershipRevision: revision,
-      // LEFT อ้าง entry เดิมใน immutable change แต่ mutable OUT head ต้องไม่เก็บ active entry.
+      // LEFT references the original entry in the immutable change, but the mutable OUT head must not keep an active entry.
       entryId: nextState === 'IN' ? entryIdValue : null,
       segmentDefinitionVersion: evaluation.segmentDefinitionVersion,
       snapshotVersion: evaluation.snapshotVersion,
@@ -648,8 +648,8 @@ export class C360SegmentMembershipRepository implements CustomerSegmentMembershi
     });
 
     return withTenantDatabaseTransaction(this.database, input.tenantId, async (transaction) => {
-      // E1 G: identity fence ก่อน stream; canonical transition ถือ exclusive จึงไม่มี commit ที่อ่าน
-      // identity ACTIVE แล้วเขียน head ทับหลัง merge invalidate ไปแล้ว
+      // E1 G: identity fence before stream; the canonical transition holds exclusive, so no commit that reads
+      // identity ACTIVE then writes a head over it after the merge has already invalidated it
       await transaction.$queryRaw(
         Prisma.sql`SELECT 1 FROM pg_advisory_xact_lock_shared(hashtext(${`c360-membership:${input.tenantId}:identity:${input.contactId}`}))`,
       );
@@ -986,10 +986,10 @@ export class C360SegmentMembershipRepository implements CustomerSegmentMembershi
       correlationId: nonEmpty(inputValue.correlationId, 'correlationId'),
     };
     if (!['MERGE', 'SPLIT', 'UNMERGE'].includes(input.operation)) {
-      throw new TypeError('operation ไม่รองรับ');
+      throw new TypeError('operation is not supported');
     }
     if (input.sourceContactId === input.targetContactId) {
-      throw new TypeError('sourceContactId และ targetContactId ต้องต่างกัน');
+      throw new TypeError('sourceContactId and targetContactId must differ');
     }
     const requestHash = stableDigest(input);
 
@@ -1001,7 +1001,7 @@ export class C360SegmentMembershipRepository implements CustomerSegmentMembershi
         if (attempt >= IDENTITY_CLOSURE_ATTEMPTS - 1) {
           throw new C360MembershipRepositoryError(
             'RESOURCE_BUSY',
-            'identity closure ถูกล็อกหรือเปลี่ยนระหว่าง transition ให้ลองใหม่',
+            'the identity closure was locked or changed during the transition; try again',
           );
         }
         await new Promise((resolve) => setTimeout(resolve, 20 + Math.random() * 60));
@@ -1010,11 +1010,11 @@ export class C360SegmentMembershipRepository implements CustomerSegmentMembershi
   }
 
   /**
-   * E1 G: อ่าน closure → try identity locks ทุก affected contact เรียง ID → อ่าน closure ซ้ำ
-   * ถ้า closure เปลี่ยนหรือมีคนถือ fence อยู่ให้ rollback แล้ว retry; จากนั้นล็อก stream เรียงก่อนเขียน
+   * E1 G: read the closure → try identity locks on every affected contact in ID order → read the closure again
+   * if the closure changed or someone holds a fence, roll back and retry; then lock the streams in order before writing
    *
-   * closure = source, target และ contact ที่ MERGED อยู่ใต้ anchor (descendant ที่ repoint ได้จริง)
-   * ใช้ try เพื่อไม่รอ Cus360/membership ที่ถือ shared fence อยู่ และไม่สร้างการรอย้อนลำดับ
+   * closure = source, target and the contacts MERGED under the anchor (descendants that can really be repointed)
+   * uses try so it does not wait on Cus360/membership holding a shared fence and does not create a wait in reverse order
    */
   private async identityClosure(
     transaction: Transaction,
@@ -1082,7 +1082,7 @@ export class C360SegmentMembershipRepository implements CustomerSegmentMembershi
         if (existing.requestHash !== requestHash) {
           throw new C360MembershipRepositoryError(
             'IDENTITY_LINEAGE_CONFLICT',
-            'commandId เดิมมี identity transition hash ต่างกัน',
+            'the same commandId has a different identity transition hash',
           );
         }
         return this.identityTransitionResult(transaction, existing);
@@ -1094,31 +1094,31 @@ export class C360SegmentMembershipRepository implements CustomerSegmentMembershi
       if (source.lineageRevision !== input.expectedSourceLineageRevision) {
         throw new C360MembershipRepositoryError(
           'IDENTITY_LINEAGE_CONFLICT',
-          `expected lineage ${input.expectedSourceLineageRevision} แต่ current เป็น ${source.lineageRevision}`,
+          `expected lineage ${input.expectedSourceLineageRevision} but current is ${source.lineageRevision}`,
         );
       }
       if (input.operation === 'MERGE' && (source.state !== 'ACTIVE' || target.state !== 'ACTIVE')) {
         throw new C360MembershipRepositoryError(
           'IDENTITY_LINEAGE_CONFLICT',
-          'MERGE รับเฉพาะ source/target ที่เป็น ACTIVE canonical contact',
+          'MERGE accepts only a source/target that is an ACTIVE canonical contact',
         );
       }
 
       /**
-       * SPLIT/UNMERGE คือการ "ย้อน" การรวมที่เคยเกิดขึ้น จึงต้องมี merge edge จริงให้ย้อน
+       * SPLIT/UNMERGE "reverses" a merge that happened, so a real merge edge must exist to reverse
        *
-       * เดิมไม่ตรวจอะไรเลย ทำให้สร้าง lineage ระหว่าง contact สองใบที่ไม่เคยถูก merge กัน
-       * ได้ ผลคือ ledger บันทึกประวัติที่ไม่เคยเกิดขึ้นจริง และ membership ของ contact ที่
-       * ไม่เกี่ยวข้องกันถูก re-evaluate โดยไม่มีเหตุผล
+       * previously nothing was checked, which allowed creating a lineage between two contacts that were never merged
+       * with the result that the ledger recorded history that never happened and the membership of unrelated
+       * contacts was re-evaluated for no reason
        *
-       * พิสูจน์สองชั้น: head ต้องบอกว่าตอนนี้ source ถูก merge เข้า target อยู่จริง และต้องมี
-       * lineage row ของ MERGE คู่นี้อยู่ใน ledger
+       * Two-layer proof: the head must say the source is currently merged into the target, and there must be
+       * a lineage row for the MERGE of this pair in the ledger
        */
       if (input.operation === 'SPLIT' || input.operation === 'UNMERGE') {
         if (source.state !== 'MERGED' || source.canonicalContactId !== input.targetContactId) {
           throw new C360MembershipRepositoryError(
             'IDENTITY_LINEAGE_CONFLICT',
-            `${input.operation} ต้องย้อน merge ที่ยังมีผลอยู่ แต่ ${input.sourceContactId} ไม่ได้ถูก merge เข้า ${input.targetContactId}`,
+            `${input.operation} must reverse a merge that is still in effect, but ${input.sourceContactId} was not merged into ${input.targetContactId}`,
           );
         }
         const mergeEdge = await transaction.c360IdentityLineage.findFirst({
@@ -1133,7 +1133,7 @@ export class C360SegmentMembershipRepository implements CustomerSegmentMembershi
         if (!mergeEdge) {
           throw new C360MembershipRepositoryError(
             'IDENTITY_LINEAGE_CONFLICT',
-            `ไม่พบ merge edge ของ ${input.sourceContactId} -> ${input.targetContactId} ที่ ${input.operation} จะย้อน`,
+            `merge edge not found for ${input.sourceContactId} -> ${input.targetContactId} that ${input.operation} would reverse`,
           );
         }
       }
@@ -1256,17 +1256,17 @@ export class C360SegmentMembershipRepository implements CustomerSegmentMembershi
   }
 
   /**
-   * ย้าย canonical ของ contact ที่ถูก merge ไว้ใต้ contact ที่กำลังเปลี่ยนสถานะ
+   * Moves the canonical of contacts merged under the contact whose state is changing
    *
-   * canonicalContactId เป็น pointer ชั้นเดียว ไม่มี resolver เดิน chain อยู่ที่ไหนเลยในระบบนี้
-   * ถ้า A ถูก merge เข้า B แล้ว B ถูก merge เข้า C ต่อ โดยไม่ย้าย A ตามไป pointer ของ A จะชี้ค้าง
-   * ไว้ที่ B ซึ่งไม่ได้เป็น canonical อีกต่อไป owner guard ของ commitEvaluation อ่าน pointer นี้ตรง ๆ
-   * (identity.canonicalContactId !== input.contactId) จึงตัดสินเจ้าของจาก contact ที่ตายไปแล้ว และ
-   * membership ของ A ก็ไม่เคยถูกแจ้งว่าเจ้าของเปลี่ยนมือ
+   * canonicalContactId is a single-level pointer; no resolver in this system walks a chain.
+   * If A is merged into B and then B is merged into C without moving A along, A's pointer is left pointing
+   * at B, which is no longer canonical. The owner guard of commitEvaluation reads this pointer directly
+   * (identity.canonicalContactId !== input.contactId), so it decides the owner from a dead contact, and
+   * A's membership is never told that the owner changed hands
    *
-   * ขาย้อนกลับก็ต้องสมมาตร: ตอน SPLIT/UNMERGE ดึง source ออกจาก target คนที่ต้องตามกลับมาคือคนที่
-   * "ตาม source เข้าไป" เท่านั้น ไม่ใช่ทุกคนที่อยู่ใต้ target — แยกสองกลุ่มนี้ด้วย merge edge ล่าสุด
-   * ของแต่ละใบใน ledger เพราะ head เก็บแค่ปลายทางปัจจุบัน ไม่ได้เก็บว่ามาทางไหน
+   * The reverse leg must be symmetric: when SPLIT/UNMERGE pulls the source out of the target, the ones that must follow back are those that
+   * "followed the source in" only, not everyone under the target — tell these two groups apart by the latest merge edge
+   * of each contact in the ledger, because the head keeps only the current destination and not how it got there
    */
   private async repointMergeChain(
     transaction: Transaction,
@@ -1460,9 +1460,9 @@ export class C360SegmentMembershipRepository implements CustomerSegmentMembershi
         return { status: 'CHANGES', changes: rows.map(payloadFromChange) };
       }
 
-      // ไม่ contiguous ยังบอกไม่ได้ว่า SUPERSEDED — ต้องพิสูจน์ก่อนว่ามี change ใบหลังที่
-      // ประกาศว่ากลืน revision ที่หายไปจริง (supersedesRevision) ไม่งั้นรูโหว่นั้นคือ data
-      // loss ที่เราไม่รู้สาเหตุ และการตอบ SUPERSEDED จะทำให้ caller ข้ามมันไปอย่างสบายใจ
+      // not contiguous does not yet mean SUPERSEDED — first prove that a later change exists that
+      // really declares it swallowed the missing revision (supersedesRevision); otherwise that gap is data
+      // loss of unknown cause, and answering SUPERSEDED would let the caller skip it comfortably
       const missing: number[] = [];
       const present = new Set(rows.map((row) => row.membershipRevision));
       for (
@@ -1484,7 +1484,7 @@ export class C360SegmentMembershipRepository implements CustomerSegmentMembershi
         select: { membershipRevision: true, supersedesRevision: true },
       });
 
-      // change ใบหนึ่งกลืนช่วง [supersedesRevision, membershipRevision] ของตัวเอง
+      // a change swallows its own range [supersedesRevision, membershipRevision]
       const explained = (revision: number) =>
         supersedingRows.some(
           (row) =>
@@ -1497,7 +1497,7 @@ export class C360SegmentMembershipRepository implements CustomerSegmentMembershi
       if (unexplained.length > 0) {
         throw new C360MembershipRepositoryError(
           'MEMBERSHIP_CHANGE_GAP',
-          `membership change revision ${unexplained.join(', ')} หายไปโดยไม่มี supersession ใดอธิบาย`,
+          `membership change revision ${unexplained.join(', ')} is missing without any supersession explaining it`,
         );
       }
 
@@ -1531,7 +1531,10 @@ export class C360SegmentMembershipRepository implements CustomerSegmentMembershi
         include: { evaluation: true },
       });
       if (!evidence) {
-        throw new C360MembershipRepositoryError('RESOURCE_NOT_FOUND', 'ไม่พบ evidence ใน tenant');
+        throw new C360MembershipRepositoryError(
+          'RESOURCE_NOT_FOUND',
+          'evidence not found in tenant',
+        );
       }
       await transaction.c360EvidenceAccessAudit.create({
         data: { id: this.id(), ...input },

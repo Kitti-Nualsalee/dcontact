@@ -26,7 +26,7 @@ export async function withTenantDatabaseTransaction<T>(
   prisma: PrismaClient,
   tenantId: string,
   work: (transaction: Prisma.TransactionClient) => Promise<T>,
-  /** AC4 (#597): transaction ที่เรียกระบบภายนอกก่อน commit ต้องการ timeout ยาวกว่าค่าเริ่มต้น 5 วินาที */
+  /** AC4 (#597): a transaction that calls an external system before commit needs a timeout longer than the default 5 seconds */
   options?: {
     timeout?: number;
     maxWait?: number;
@@ -38,7 +38,7 @@ export async function withTenantDatabaseTransaction<T>(
   return prisma.$transaction(async (transaction) => {
     await transaction.$executeRawUnsafe("SELECT set_config('app.tenant_id', $1, true)", tenantId);
     const result = await withTenantContext(tenantId, () => work(transaction));
-    // ให้ caller เห็น deferred constraint failure ภายใน callback ด้วย; ห้ามนำผลสำเร็จออกก่อน final-state checks
+    // let the caller see a deferred constraint failure inside the callback too; never return a success result before the final-state checks
     await transaction.$executeRawUnsafe('SET CONSTRAINTS ALL IMMEDIATE');
     return result;
   }, options);

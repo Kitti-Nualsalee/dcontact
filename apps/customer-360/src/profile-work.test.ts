@@ -7,19 +7,19 @@ import {
   normalizeC360WorkSearch,
   openC360WorkCandidate,
 } from './profile-work.js';
-test('Agent patch ไม่รับ VIP/points/tags และ search ไม่เปิด NAME directory', () => {
+test('Agent patch does not accept VIP/points/tags and search does not open the NAME directory', () => {
   for (const field of ['vip', 'points', 'tags'])
     assert.throws(() =>
-      normalizeC360WorkPatch({ commandId: randomUUID(), displayName: 'ชื่อ', [field]: true }),
+      normalizeC360WorkPatch({ commandId: randomUUID(), displayName: 'Name', [field]: true }),
     );
   assert.throws(() => normalizeC360WorkSearch({ type: 'NAME', query: 'name' }));
   assert.throws(() => normalizeC360WorkSearch({ type: 'PHONE', query: '0812345678' }));
-  assert.deepEqual(normalizeC360WorkPatch({ displayName: '  ชื่อ  ', company: '' }), {
-    displayName: 'ชื่อ',
+  assert.deepEqual(normalizeC360WorkPatch({ displayName: '  Name  ', company: '' }), {
+    displayName: 'Name',
     company: null,
   });
 });
-test('CandidateRef เข้ารหัส, TTL5นาที และผูก work/actor/team-scope/linkage', () => {
+test('CandidateRef is encrypted, has a 5-minute TTL and is bound to work/actor/team-scope/linkage', () => {
   const now = Date.now();
   const codec = createC360CursorCodec([{ id: 'test', key: randomBytes(32) }], () => now);
   const actor = {

@@ -6,10 +6,10 @@ import { resolve } from 'node:path';
 import test from 'node:test';
 
 const repositoryRoot = resolve(process.cwd(), '../..');
-// ค่าเริ่มต้นคือ dev database เดิม; worktree ที่ต้องแยก database ตั้งค่านี้ได้ (ชื่อเดียวกับ readiness script)
+// the default is the existing dev database; a worktree that needs its own database can set this (same name as the readiness script)
 const databaseName = process.env.CXA_ACCEPTANCE_DATABASE_NAME ?? 'dcontact';
 if (!/^[a-zA-Z0-9_]+$/.test(databaseName))
-  throw new TypeError('CXA_ACCEPTANCE_DATABASE_NAME ไม่ถูกต้อง');
+  throw new TypeError('CXA_ACCEPTANCE_DATABASE_NAME is invalid');
 
 function queryAsApplicationRole(sql: string): string {
   const compactSql = sql.replace(/\s+/g, ' ').trim();
@@ -95,7 +95,7 @@ test('dcontact_app cannot read or mutate a second tenant queue', (t) => {
   assert.match(visibleToOwnerTenant, /\n1\nCOMMIT$/);
 });
 
-test('dcontact_app แยก Contact Governance และ Journey rows ระหว่าง tenant', (t) => {
+test('dcontact_app separates Contact Governance and Journey rows between tenants', (t) => {
   const tenantId = randomUUID();
   const contactId = randomUUID();
   const identityId = randomUUID();
@@ -191,7 +191,7 @@ test('dcontact_app แยก Contact Governance และ Journey rows ระห
   );
 });
 
-test('cg_attempts/cg_touches บังคับ tenant RLS, composite binding และ immutable application grants', (t) => {
+test('cg_attempts/cg_touches enforce tenant RLS, composite binding and immutable application grants', (t) => {
   const tenantId = randomUUID();
   const contactId = randomUUID();
   const reservationId = randomUUID();
@@ -262,7 +262,7 @@ test('cg_attempts/cg_touches บังคับ tenant RLS, composite binding �
   );
 });
 
-test('cg reservation command receipts บังคับ tenant RLS และเป็น append-only สำหรับ application role', (t) => {
+test('cg reservation command receipts enforce tenant RLS and are append-only for the application role', (t) => {
   const tenantId = randomUUID();
   const contactId = randomUUID();
   const reservationId = randomUUID();
@@ -326,7 +326,7 @@ test('cg reservation command receipts บังคับ tenant RLS และเ
   );
 });
 
-test('dl outbox entries บังคับ tenant RLS และห้าม application role ลบ delivery ที่ claim แล้ว', (t) => {
+test('dl outbox entries enforce tenant RLS and the application role may not delete a delivery that was already claimed', (t) => {
   const tenantId = randomUUID();
   const contactId = randomUUID();
   const reservationId = randomUUID();
@@ -369,7 +369,7 @@ test('dl outbox entries บังคับ tenant RLS และห้าม appl
     /\n0\nCOMMIT$/,
   );
 
-  // outbox เดินสถานะได้ (UPDATE ยังต้องผ่าน) แต่ห้ามหายไปทั้งแถว
+  // the outbox can change state (UPDATE must still pass) but a whole row must not disappear
   assert.match(
     queryAsApplicationRole(
       `BEGIN; SELECT set_config('app.tenant_id', '${tenantId}', true); UPDATE dl_outbox_entries SET state = 'SUBMITTING' WHERE id = '${entryId}'; COMMIT;`,
@@ -392,7 +392,7 @@ test('dl outbox entries บังคับ tenant RLS และห้าม appl
   );
 });
 
-test('jr schedule occurrences และ step runs บังคับ tenant RLS และเป็น durable evidence', (t) => {
+test('jr schedule occurrences and step runs enforce tenant RLS and are durable evidence', (t) => {
   const tenantId = randomUUID();
   const journeyId = randomUUID();
   const occurrenceId = randomUUID();
@@ -438,7 +438,7 @@ test('jr schedule occurrences และ step runs บังคับ tenant RLS 
     );
   }
 
-  // occurrence เดินสถานะได้ แต่ step run เป็น ledger ที่แก้ไม่ได้
+  // an occurrence can change state, but a step run is a ledger that cannot be edited
   assert.match(
     queryAsApplicationRole(
       `BEGIN; SELECT set_config('app.tenant_id', '${tenantId}', true); UPDATE jr_schedule_occurrences SET state = 'ENROLLED' WHERE id = '${occurrenceId}'; COMMIT;`,
@@ -467,7 +467,7 @@ test('jr schedule occurrences และ step runs บังคับ tenant RLS 
   );
 });
 
-test('J2.3 outcome receipt/owner action บังคับ tenant RLS และห้าม application role ลบแถว', (t) => {
+test('J2.3 outcome receipt/owner action enforce tenant RLS and the application role may not delete rows', (t) => {
   const tenantId = randomUUID();
   const receiptId = randomUUID();
   const actionId = randomUUID();
@@ -516,7 +516,7 @@ test('J2.3 outcome receipt/owner action บังคับ tenant RLS และ�
     );
   }
 
-  // receipt/action เดินสถานะได้ (UPDATE ผ่าน) แต่ห้ามหายไปทั้งแถว
+  // a receipt/action can change state (UPDATE passes) but a whole row must not disappear
   assert.match(
     queryAsApplicationRole(
       `BEGIN; SELECT set_config('app.tenant_id', '${tenantId}', true); UPDATE jr_outcome_receipts SET state = 'APPLIED' WHERE id = '${receiptId}'; UPDATE jr_owner_actions SET state = 'DISPATCHED' WHERE id = '${actionId}'; COMMIT;`,
@@ -536,7 +536,7 @@ test('J2.3 outcome receipt/owner action บังคับ tenant RLS และ�
     );
   }
 
-  // recovery audit เป็น append-only: INSERT ผ่าน แต่ UPDATE/DELETE ต้องถูกปฏิเสธ
+  // the recovery audit is append-only: INSERT passes but UPDATE/DELETE must be rejected
   const auditId = randomUUID();
   assert.match(
     queryAsApplicationRole(
@@ -571,7 +571,7 @@ test('J2.3 outcome receipt/owner action บังคับ tenant RLS และ�
   );
 });
 
-test('J2.4 Cases cs_cases/cs_command_inbox บังคับ tenant RLS และห้าม application role ลบแถว', (t) => {
+test('J2.4 Cases cs_cases/cs_command_inbox enforce tenant RLS and the application role may not delete rows', (t) => {
   const tenantId = randomUUID();
   const contactId = randomUUID();
   const caseId = randomUUID();
@@ -620,7 +620,7 @@ test('J2.4 Cases cs_cases/cs_command_inbox บังคับ tenant RLS แล�
     );
   }
 
-  // case เดินสถานะได้ (UPDATE ผ่าน) แต่ห้ามหายไปทั้งแถว
+  // a case can change state (UPDATE passes) but a whole row must not disappear
   assert.match(
     queryAsApplicationRole(
       `BEGIN; SELECT set_config('app.tenant_id', '${tenantId}', true); UPDATE cs_cases SET status = 'RESOLVED' WHERE id = '${caseId}'; COMMIT;`,
@@ -651,7 +651,7 @@ test('J2.4 Cases cs_cases/cs_command_inbox บังคับ tenant RLS แล�
   );
 });
 
-test('J2.5 Dialer ob_campaign_targets/ob_dialer_command_inbox บังคับ tenant RLS และห้าม application role ลบแถว', (t) => {
+test('J2.5 Dialer ob_campaign_targets/ob_dialer_command_inbox enforce tenant RLS and the application role may not delete rows', (t) => {
   const tenantId = randomUUID();
   const contactId = randomUUID();
   const campaignId = randomUUID();
@@ -705,7 +705,7 @@ test('J2.5 Dialer ob_campaign_targets/ob_dialer_command_inbox บังคับ
     );
   }
 
-  // target เดินสถานะได้ (UPDATE ผ่าน) แต่ห้ามหายไปทั้งแถว
+  // a target can change state (UPDATE passes) but a whole row must not disappear
   assert.match(
     queryAsApplicationRole(
       `BEGIN; SELECT set_config('app.tenant_id', '${tenantId}', true); UPDATE ob_campaign_targets SET state = 'DEFERRED' WHERE id = '${targetId}'; COMMIT;`,
@@ -735,7 +735,7 @@ test('J2.5 Dialer ob_campaign_targets/ob_dialer_command_inbox บังคับ
   );
 });
 
-test('J2.6 Dialer ob_callbacks บังคับ tenant RLS และห้าม application role ลบแถว', (t) => {
+test('J2.6 Dialer ob_callbacks enforce tenant RLS and the application role may not delete rows', (t) => {
   const tenantId = randomUUID();
   const contactId = randomUUID();
   const queueId = randomUUID();
@@ -783,7 +783,7 @@ test('J2.6 Dialer ob_callbacks บังคับ tenant RLS และห้า�
     /\n0\nCOMMIT$/,
   );
 
-  // callback เดินสถานะได้ (UPDATE ผ่าน) แต่ห้ามหายไปทั้งแถว
+  // a callback can change state (UPDATE passes) but a whole row must not disappear
   assert.match(
     queryAsApplicationRole(
       `BEGIN; SELECT set_config('app.tenant_id', '${tenantId}', true); UPDATE ob_callbacks SET state = 'CANCELLED' WHERE id = '${callbackId}'; COMMIT;`,
@@ -806,15 +806,15 @@ test('J2.6 Dialer ob_callbacks บังคับ tenant RLS และห้า�
   );
 });
 
-test('J3.5 jr_segment_* บังคับ RLS, transport/logical identity, composite binding และ immutable intent', (t) => {
+test('J3.5 jr_segment_* enforce RLS, transport/logical identity, composite binding and immutable intent', (t) => {
   const tenantId = randomUUID();
   const otherTenantId = randomUUID();
   const contactId = randomUUID();
   const otherContactId = randomUUID();
   /**
-   * contacts.id เป็น primary key ระดับ global จึง reuse ข้าม tenant ไม่ได้ — ตัวที่ reuse ได้จริง
-   * และต้องพิสูจน์คือ segment_id กับ event_id ซึ่งเป็น TEXT ที่ tenant ตั้งเองได้อิสระ ทั้งคู่ต้อง
-   * ชนกันเองภายใน tenant เท่านั้น ไม่ใช่ข้าม tenant
+   * contacts.id is a global primary key so it cannot be reused across tenants — what can really be reused
+   * and must be proven are segment_id and event_id, which are TEXT values the tenant can set freely; both must
+   * collide only within a tenant, not across tenants
    */
   const suffix = tenantId.slice(0, 8);
   const receiptId = randomUUID();
@@ -857,7 +857,7 @@ test('J3.5 jr_segment_* บังคับ RLS, transport/logical identity, comp
     /\nINSERT 0 1\nINSERT 0 1\nCOMMIT$/,
   );
 
-  // transport identity: event เดิมส่งซ้ำมาจาก broker ต้องชนถึงแม้จะเป็นคนละ row id
+  // transport identity: the same event redelivered by the broker must collide even with a different row id
   assert.throws(
     () =>
       queryAsApplicationRole(
@@ -866,7 +866,7 @@ test('J3.5 jr_segment_* บังคับ RLS, transport/logical identity, comp
     /jr_segment_receipts_transport_key|duplicate key/i,
   );
 
-  // logical identity: revision เดิมที่มาคนละ event ก็ต้องชน — คนละเหตุผลกับข้างบน
+  // logical identity: the same revision arriving as a different event must also collide — a different reason from the above
   assert.throws(
     () =>
       queryAsApplicationRole(
@@ -875,7 +875,7 @@ test('J3.5 jr_segment_* บังคับ RLS, transport/logical identity, comp
     /jr_segment_receipts_logical_key|duplicate key/i,
   );
 
-  // composite binding: tenant อื่นอ้าง contact ที่ไม่ใช่ของตัวเองต้องผูกไม่ได้
+  // composite binding: another tenant referencing a contact that is not its own must fail to bind
   assert.throws(
     () =>
       queryAsApplicationRole(
@@ -887,7 +887,7 @@ test('J3.5 jr_segment_* บังคับ RLS, transport/logical identity, comp
     /foreign key|violates/i,
   );
 
-  // reused ID: segment_id และ event_id ชุดเดียวกันเป๊ะ ๆ ต้องอยู่ได้ทั้งสอง tenant พร้อมกัน
+  // reused ID: exactly the same segment_id and event_id must be able to exist in both tenants at once
   assert.match(
     queryAsApplicationRole(
       `BEGIN;
@@ -898,7 +898,7 @@ test('J3.5 jr_segment_* บังคับ RLS, transport/logical identity, comp
     /\nINSERT 0 1\nCOMMIT$/,
   );
 
-  // RLS: อีก tenant มองไม่เห็นแถวของ tenant นี้เลยแม้ contact id จะซ้ำกัน
+  // RLS: the other tenant cannot see any row of this tenant even if the contact id is the same
   for (const table of [
     'jr_segment_receipts',
     'jr_segment_heads',
@@ -910,11 +910,11 @@ test('J3.5 jr_segment_* บังคับ RLS, transport/logical identity, comp
         `BEGIN; SELECT set_config('app.tenant_id', '${otherTenantId}', true); SELECT count(*) FROM ${table} WHERE tenant_id = '${tenantId}'; COMMIT;`,
       ),
       /\n0\nCOMMIT$/,
-      `${table} ต้องไม่รั่วข้าม tenant`,
+      `${table} must not leak across tenants`,
     );
   }
 
-  // lease ต้องมาเป็นคู่ — owner ที่ไม่มีวันหมดอายุคือ lease ค้างตลอดกาลเมื่อ worker ตาย
+  // a lease must come as a pair — an owner that never expires is a lease stuck forever when the worker dies
   assert.throws(
     () =>
       queryAsApplicationRole(
@@ -923,7 +923,7 @@ test('J3.5 jr_segment_* บังคับ RLS, transport/logical identity, comp
     /jr_segment_receipts_lease_check/i,
   );
 
-  // APPLIED ต้องมี applied_at เสมอ และห้ามมีเมื่อยังไม่ APPLIED
+  // APPLIED must always have applied_at, and it must be absent when not yet APPLIED
   assert.throws(
     () =>
       queryAsApplicationRole(
@@ -938,7 +938,7 @@ test('J3.5 jr_segment_* บังคับ RLS, transport/logical identity, comp
     /\nUPDATE 1\nCOMMIT$/,
   );
 
-  // first-terminal protection: terminal ต้องมาครบชุดและห้ามล้ำหน้า revision ที่ apply แล้ว
+  // first-terminal protection: a terminal must arrive as a complete set and must not get ahead of the applied revision
   assert.throws(
     () =>
       queryAsApplicationRole(
@@ -954,7 +954,7 @@ test('J3.5 jr_segment_* บังคับ RLS, transport/logical identity, comp
     /jr_segment_heads_terminal_check/i,
   );
 
-  // enrollment intent: เขียนได้ครั้งเดียว แก้หรือลบไม่ได้ทั้งที่ระดับ grant และ trigger
+  // enrollment intent: can be written only once and cannot be edited or deleted, at both the grant and trigger level
   const intentId = randomUUID();
   const journeyId = `journey-${suffix}`;
   const insertIntent = (id: string) =>
@@ -966,7 +966,7 @@ test('J3.5 jr_segment_* บังคับ RLS, transport/logical identity, comp
     ),
     /\nINSERT 0 1\nCOMMIT$/,
   );
-  // intent เดิมซ้ำต้องชน unique ไม่ใช่สร้างเหตุผลใบที่สองให้ enrollment เดียวกัน
+  // a repeated intent must hit the unique constraint and not create a second reason for the same enrollment
   assert.throws(
     () =>
       queryAsApplicationRole(
@@ -987,7 +987,7 @@ test('J3.5 jr_segment_* บังคับ RLS, transport/logical identity, comp
     );
   }
 
-  // recovery audit รับ target/operation ใหม่ได้แบบ additive โดยค่าเดิมยังใช้ได้เหมือนเดิม
+  // the recovery audit accepts new targets/operations additively while the existing values keep working as before
   assert.match(
     queryAsApplicationRole(
       `BEGIN;
@@ -1011,7 +1011,7 @@ test('J3.5 jr_segment_* บังคับ RLS, transport/logical identity, comp
   );
 });
 
-test('J3 bootstrap คงสิทธิ์ immutable evidence และ rollout ตาม migration', () => {
+test('J3 bootstrap keeps the immutable evidence and rollout permissions per the migration', () => {
   for (const [table, updateAllowed] of [
     ['jr_segment_enrollment_intents', false],
     ['jr_segment_shadow_mismatches', false],
@@ -1028,10 +1028,10 @@ test('J3 bootstrap คงสิทธิ์ immutable evidence และ rollout
 });
 
 /**
- * J2.10 (#138): migration ถอนสิทธิ์ที่ตารางหนึ่งต้องเป็น append-only/undeletable ไว้ แต่ rls.sql
- * (bootstrap) GRANT SELECT/INSERT/UPDATE/DELETE ทุกตารางก่อนแล้วค่อย REVOKE ทีละตาราง — ตารางใหม่
- * ที่ลืมใส่รายการ REVOKE จึงได้สิทธิ์คืนเงียบ ๆ บน environment ที่ bootstrap (CI) แต่ไม่ใช่บนเครื่อง
- * ที่รันแค่ migrate เทสนี้อ่าน REVOKE ทั้งหมดจาก migration แล้วยืนยันกับสิทธิ์จริงหลัง bootstrap
+ * J2.10 (#138): the migration revokes the privileges a table needs to be append-only/undeletable, but rls.sql
+ * (bootstrap) GRANTs SELECT/INSERT/UPDATE/DELETE on every table first and then REVOKEs table by table — a new table
+ * that is missing from the REVOKE list silently gets its privileges back on an environment that bootstraps (CI) but not on a machine
+ * that only runs migrate. This test reads all REVOKEs from the migrations and confirms them against the real privileges after bootstrap
  */
 function revokedApplicationPrivilegesFromMigrations(): Array<[string, string]> {
   const migrations = resolve(repositoryRoot, 'packages/db/prisma/migrations');
@@ -1049,9 +1049,9 @@ function revokedApplicationPrivilegesFromMigrations(): Array<[string, string]> {
   return [...revoked].sort().map((row) => row.split(' ') as [string, string]);
 }
 
-test('bootstrap ไม่คืนสิทธิ์ที่ migration ถอนจาก dcontact_app', () => {
+test('bootstrap does not give back privileges that a migration revoked from dcontact_app', () => {
   const revoked = revokedApplicationPrivilegesFromMigrations();
-  assert.ok(revoked.length >= 40, `อ่าน REVOKE จาก migration ได้ ${revoked.length} รายการ`);
+  assert.ok(revoked.length >= 40, `read REVOKEs from the migrations: ${revoked.length} entries`);
   const values = revoked.map(([table, privilege]) => `('${table}','${privilege}')`).join(',');
   assert.equal(
     queryAsOwner(
@@ -1059,11 +1059,11 @@ test('bootstrap ไม่คืนสิทธิ์ที่ migration ถอ�
          AS revoked(t, p) WHERE has_table_privilege('dcontact_app', t, p);`,
     ),
     '',
-    'packages/db/prisma/rls.sql ต้อง REVOKE สิทธิ์เหล่านี้ซ้ำหลัง GRANT ... ON ALL TABLES',
+    'packages/db/prisma/rls.sql must REVOKE these privileges again after GRANT ... ON ALL TABLES',
   );
 });
 
-test('J2.9 rollout gate: state ลบไม่ได้และ audit เป็น append-only สำหรับ application role', () => {
+test('J2.9 rollout gate: state cannot be deleted and the audit is append-only for the application role', () => {
   for (const [table, expected] of [
     ['ob_originate_rollout_state', 't|t|t|f'],
     ['ob_originate_rollout_scopes', 't|t|f|t'],
@@ -1079,7 +1079,7 @@ test('J2.9 rollout gate: state ลบไม่ได้และ audit เป็
   }
 });
 
-test('J5.1 authoring/template/IAM บังคับ RLS, composite binding, CAS และ append-only', (t) => {
+test('J5.1 authoring/template/IAM enforce RLS, composite binding, CAS and append-only', (t) => {
   const tenantA = randomUUID();
   const tenantB = randomUUID();
   const teamA = randomUUID();
@@ -1145,17 +1145,17 @@ test('J5.1 authoring/template/IAM บังคับ RLS, composite binding, CAS
   const insertHead = (tenantId: string, team: string, journey = journeyId, id = headId) =>
     `INSERT INTO jr_journey_heads (id, tenant_id, journey_id, name, owner_team_id, current_draft_id, current_draft_revision, current_draft_digest, updated_at) VALUES ('${id}', '${tenantId}', '${journey}', 'synthetic', '${team}', '${draftId}', 1, '${hashA}', now())`;
 
-  // head กับ draft แรกเกิดพร้อมกันใน transaction เดียวได้เพราะ FK ถูก defer ถึง commit
+  // the head and the first draft can be created together in one transaction because the FK is deferred until commit
   assert.match(
     as(tenantA, `${insertHead(tenantA, teamA)}; ${insertDraft(tenantA, draftId, 1)}`),
     /\nINSERT 0 1\nINSERT 0 1\nCOMMIT$/,
   );
-  // head ชี้ draft ของ journey อื่น (หรือที่ไม่มีอยู่จริง) ล้มตอน commit
+  // a head pointing at a draft of another journey (or a nonexistent one) fails at commit
   assert.throws(
     () => as(tenantA, insertHead(tenantA, teamA, randomUUID(), randomUUID())),
     /jr_journey_heads_current_draft_fkey|foreign key/i,
   );
-  // tenant B ผูกกับ team หรือ journey ของ tenant A ไม่ได้
+  // tenant B cannot bind to a team or journey of tenant A
   const foreignJourneyId = randomUUID();
   const foreignDraftId = randomUUID();
   assert.throws(
@@ -1171,7 +1171,7 @@ test('J5.1 authoring/template/IAM บังคับ RLS, composite binding, CAS
     /jr_journey_drafts_head_fkey|foreign key/i,
   );
 
-  // draft เป็น append-only ทั้งที่ grant และ trigger
+  // a draft is append-only at both the grant and trigger level
   for (const mutation of [
     `UPDATE jr_journey_drafts SET content_digest = '${hashB}' WHERE id = '${draftId}'`,
     `DELETE FROM jr_journey_drafts WHERE id = '${draftId}'`,
@@ -1183,10 +1183,10 @@ test('J5.1 authoring/template/IAM บังคับ RLS, composite binding, CAS
     /append-only/i,
   );
 
-  // head เป็น CAS: version ต้อง +1 และ ACTIVE ต้องชี้ definition ที่มีอยู่จริงของ journey เดียวกัน
+  // the head is CAS: version must be +1 and ACTIVE must point at a definition that really exists for the same journey
   assert.throws(
     () => as(tenantA, `UPDATE jr_journey_heads SET name = 'x' WHERE id = '${headId}'`),
-    /version ต้องเพิ่มทีละหนึ่ง/,
+    /version ต้องเพิ่มทีละหนึ่ง/, // allow-thai: matches the Thai RAISE text of an applied migration
   );
   assert.throws(
     () =>
@@ -1212,7 +1212,7 @@ test('J5.1 authoring/template/IAM บังคับ RLS, composite binding, CAS
     /jr_journey_heads_active_version_fkey|foreign key/i,
   );
 
-  // mixed-version: writer เดิมยังเขียน definition ได้โดยไม่ต้องมี head และ legacy row ไม่ถูกแก้
+  // mixed-version: the old writer can still write a definition without a head and legacy rows are not changed
   assert.match(
     as(
       tenantA,
@@ -1227,7 +1227,7 @@ test('J5.1 authoring/template/IAM บังคับ RLS, composite binding, CAS
     `PUBLISHED|${hashA}`,
   );
 
-  // receipt: key เดิมชน และเปลี่ยนสถานะได้ครั้งเดียวจาก PENDING
+  // receipt: the same key collides and the state can change only once from PENDING
   const receiptId = randomUUID();
   const insertReceipt = (id: string) =>
     `INSERT INTO jr_authoring_command_receipts (id, tenant_id, idempotency_key, command_name, resource_kind, resource_id, request_hash, correlation_id) VALUES ('${id}', '${tenantA}', 'key-${suffix}', 'UpdateJourneyDraft', 'JOURNEY', '${journeyId}', '${hashA}', 'corr-${suffix}')`;
@@ -1242,7 +1242,7 @@ test('J5.1 authoring/template/IAM บังคับ RLS, composite binding, CAS
         tenantA,
         `UPDATE jr_authoring_command_receipts SET request_hash = '${hashB}' WHERE id = '${receiptId}'`,
       ),
-    /แก้ key\/hash\/resource ไม่ได้/,
+    /แก้ key\/hash\/resource ไม่ได้/, // allow-thai: matches the Thai RAISE text of an applied migration
   );
   assert.match(
     as(
@@ -1257,10 +1257,10 @@ test('J5.1 authoring/template/IAM บังคับ RLS, composite binding, CAS
         tenantA,
         `UPDATE jr_authoring_command_receipts SET state = 'FAILED', http_status = 409, error_code = 'X' WHERE id = '${receiptId}'`,
       ),
-    /ที่จบแล้วแก้ไม่ได้/,
+    /ที่จบแล้วแก้ไม่ได้/, // allow-thai: matches the Thai RAISE text of an applied migration
   );
 
-  // review: candidate IN_REVIEW ได้ใบเดียวต่อ resource และ vote นับเฉพาะ capability review
+  // review: only one candidate can be IN_REVIEW per resource and a vote counts only for the review capability
   const candidateId = randomUUID();
   const insertCandidate = (id: string) =>
     `INSERT INTO jr_review_candidates (id, tenant_id, resource_kind, resource_id, draft_revision, draft_digest, compile_digest, runtime_hash, base_head_version, reference_digest, capability_digest, maker_subject_id, maker_authorization_epoch, maker_scope_version, updated_at) VALUES ('${id}', '${tenantA}', 'JOURNEY', '${journeyId}', 1, '${hashA}', '${hashA}', '${hashA}', 2, '${hashA}', '${hashA}', 'human-a', 1, 1, now())`;
@@ -1275,7 +1275,7 @@ test('J5.1 authoring/template/IAM บังคับ RLS, composite binding, CAS
         tenantA,
         `UPDATE jr_review_candidates SET compile_digest = '${hashB}' WHERE id = '${candidateId}'`,
       ),
-    /แก้ binding ที่ pin ไว้ไม่ได้/,
+    /แก้ binding ที่ pin ไว้ไม่ได้/, // allow-thai: matches the Thai RAISE text of an applied migration
   );
   const insertDecision = (capability: string) =>
     `INSERT INTO jr_review_decisions (id, tenant_id, candidate_id, decision, reviewer_subject_id, capability, capability_source, authorization_epoch, scope_version, evidence_ref, reason_code, decided_at) VALUES ('${randomUUID()}', '${tenantA}', '${candidateId}', 'APPROVE', 'human-b', '${capability}', 'DIRECT_GRANT', 1, 1, 'evidence-${suffix}', 'LOOKS_GOOD', now())`;
@@ -1285,7 +1285,7 @@ test('J5.1 authoring/template/IAM บังคับ RLS, composite binding, CAS
   );
   assert.match(as(tenantA, insertDecision('journey.review')), /\nINSERT 0 1\nCOMMIT$/);
 
-  // audit ใช้ closed code เท่านั้น ไม่รับ free text
+  // the audit uses closed codes only and accepts no free text
   assert.throws(
     () =>
       as(
@@ -1295,7 +1295,7 @@ test('J5.1 authoring/template/IAM บังคับ RLS, composite binding, CAS
     /jr_authoring_audit_code_check/,
   );
 
-  // template: built-in ห้ามมีแถวใน tenant table และ provenance ต้องอ้าง version ใน tenant เดียวกัน
+  // template: a built-in must not have a row in the tenant table and provenance must reference a version in the same tenant
   const templateDraftId = randomUUID();
   assert.match(
     as(
@@ -1314,15 +1314,15 @@ test('J5.1 authoring/template/IAM บังคับ RLS, composite binding, CAS
   assert.match(as(tenantA, insertVersion('TENANT', 1)), /\nINSERT 0 1\nCOMMIT$/);
   const insertProvenance = (sourceVersion: number) =>
     `INSERT INTO jr_template_provenance (id, tenant_id, journey_id, draft_revision, template_origin, source_template_id, source_template_version, source_content_digest, binding_digest, node_mapping, node_mapping_digest) VALUES ('${randomUUID()}', '${tenantA}', '${journeyId}', 1, 'TENANT', '${templateId}', ${sourceVersion}, '${hashA}', '${hashA}', '{}', '${hashA}')`;
-  assert.throws(() => as(tenantA, insertProvenance(9)), /ไม่มีใน tenant นี้/);
+  assert.throws(() => as(tenantA, insertProvenance(9)), /ไม่มีใน tenant นี้/); // allow-thai: matches the Thai RAISE text of an applied migration
   assert.match(as(tenantA, insertProvenance(1)), /\nINSERT 0 1\nCOMMIT$/);
-  // tenant B อ้าง template version ของ A ไม่ได้แม้รู้ ID
+  // tenant B cannot reference a template version of A even when it knows the ID
   assert.throws(
     () => as(tenantB, insertProvenance(1).replaceAll(`'${tenantA}'`, `'${tenantB}'`)),
-    /ไม่มีใน tenant นี้|foreign key/i,
+    /ไม่มีใน tenant นี้|foreign key/i, // allow-thai: matches the Thai RAISE text of an applied migration
   );
 
-  // rollout: DISABLED เปิด feature ไม่ได้, stage ถอยไม่ได้, version ต้อง +1
+  // rollout: DISABLED cannot enable a feature, the stage cannot go back, version must be +1
   assert.throws(
     () =>
       as(
@@ -1344,7 +1344,7 @@ test('J5.1 authoring/template/IAM บังคับ RLS, composite binding, CAS
         tenantA,
         `UPDATE jr_authoring_rollout_state SET stage = 'DISABLED', canvas_write_enabled = false, version = 2 WHERE tenant_id = '${tenantA}'`,
       ),
-    /ย้อน stage ไม่ได้/,
+    /ย้อน stage ไม่ได้/, // allow-thai: matches the Thai RAISE text of an applied migration
   );
   assert.match(
     as(
@@ -1354,7 +1354,7 @@ test('J5.1 authoring/template/IAM บังคับ RLS, composite binding, CAS
     /\nUPDATE 1\nCOMMIT$/,
   );
 
-  // IAM: app ขยายสิทธิ์ตัวเองไม่ได้; delegation human-to-human ≤ 8 ชม. และมอบได้แค่ read/edit
+  // IAM: the app cannot widen its own permissions; delegation is human-to-human ≤ 8 h and can grant only read/edit
   assert.throws(
     () =>
       as(
@@ -1382,7 +1382,7 @@ test('J5.1 authoring/template/IAM บังคับ RLS, composite binding, CAS
     /\nINSERT 0 1\nCOMMIT$/,
   );
 
-  // RLS: tenant B มองไม่เห็นแถวใดของ tenant A ในทุกตารางของ J5.1
+  // RLS: tenant B cannot see any row of tenant A in any J5.1 table
   for (const table of [
     'jr_journey_heads',
     'jr_journey_drafts',
@@ -1400,12 +1400,12 @@ test('J5.1 authoring/template/IAM บังคับ RLS, composite binding, CAS
     assert.match(
       as(tenantB, `SELECT count(*) FROM ${table} WHERE tenant_id = '${tenantA}'`),
       /\n0\nCOMMIT$/,
-      `${table} ต้องไม่รั่วข้าม tenant`,
+      `${table} must not leak across tenants`,
     );
   }
 });
 
-test('J5.1 bootstrap คงสิทธิ์ตาม migration: state ลบไม่ได้, หลักฐาน append-only, IAM อ่านอย่างเดียว', () => {
+test('J5.1 bootstrap keeps the permissions per the migration: state cannot be deleted, evidence is append-only, IAM is read-only', () => {
   for (const [table, expected] of [
     ['jr_journey_heads', 't|t|t|f'],
     ['jr_authoring_command_receipts', 't|t|t|f'],
@@ -1436,7 +1436,7 @@ test('J5.1 bootstrap คงสิทธิ์ตาม migration: state ลบ�
   }
 });
 
-test('S2.1 LINE persistence: RLS ทุกตาราง, bootstrap คงสิทธิ์ตาม migration และ append-only evidence', () => {
+test('S2.1 LINE persistence: RLS on every table, bootstrap keeps permissions per the migration and append-only evidence', () => {
   const tables = [
     ['dl_provider_submission_attempts', 't|t|f|f'],
     ['dl_line_audit_events', 't|t|f|f'],
@@ -1461,10 +1461,10 @@ test('S2.1 LINE persistence: RLS ทุกตาราง, bootstrap คงส�
         `SELECT relrowsecurity FROM pg_class WHERE relname = '${table}'; SELECT count(*) FROM pg_policies WHERE tablename = '${table}' AND policyname = 'tenant_isolation' AND qual IS NOT NULL AND with_check IS NOT NULL;`,
       ),
       't\n1',
-      `${table} ต้องมี RLS + tenant_isolation ทั้ง USING/WITH CHECK`,
+      `${table} must have RLS + tenant_isolation for both USING/WITH CHECK`,
     );
   }
-  // ไม่มี tenant context = ไม่เห็นอะไรเลยแม้แถวจะมีอยู่
+  // no tenant context = sees nothing even if rows exist
   for (const [table] of tables) {
     assert.equal(queryAsApplicationRole(`SELECT count(*) FROM ${table};`), '0', table);
   }

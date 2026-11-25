@@ -5,7 +5,7 @@ import { C360TagNameError, normalizeC360TagName } from './profile-tags.js';
 
 const key = (value: string) => normalizeC360TagName(value).nameKey;
 
-test('tag key vectors ตาม E1: full case fold แบบ C+F และ NFC', () => {
+test('tag key vectors per E1: full case fold (C+F) and NFC', () => {
   assert.equal(key('VIP'), key('vip'));
   assert.equal(key('Σ'), key('σ'));
   assert.equal(key('Σ'), key('ς'));
@@ -21,19 +21,19 @@ test('tag key vectors ตาม E1: full case fold แบบ C+F และ NFC',
   assert.equal(result.name, 'VIP');
 });
 
-test('ß 80 ตัวมี key 160 ตัวและไม่ถูกตัด; ชื่อเกิน 80 UTF-16 ถูกปฏิเสธก่อน fold', () => {
+test('80 ß characters give a 160-character key and are not truncated; a name over 80 UTF-16 units is rejected before fold', () => {
   const long = 'ß'.repeat(80);
   assert.equal(key(long), 's'.repeat(160));
   assert.throws(
     () => normalizeC360TagName('a'.repeat(81)),
     (error) => error instanceof C360TagNameError && error.code === 'TAG_NAME_TOO_LONG',
   );
-  // non-BMP นับตาม UTF-16: 40 ตัว = 80 code units ผ่าน, 41 ตัวไม่ผ่าน
+  // non-BMP counts by UTF-16: 40 characters = 80 code units passes, 41 characters fails
   assert.doesNotThrow(() => normalizeC360TagName('😀'.repeat(40)));
   assert.throws(() => normalizeC360TagName('😀'.repeat(41)), C360TagNameError);
 });
 
-test('ปฏิเสธชื่อว่าง, lone surrogate, CR/LF และค่าที่ไม่ใช่ string', () => {
+test('rejects an empty name, lone surrogate, CR/LF and non-string values', () => {
   for (const value of ['', '   ', '\ud800', 'a\nb', 'a\rb', 42, null]) {
     assert.throws(
       () => normalizeC360TagName(value),

@@ -12,7 +12,7 @@ const FORBIDDEN = [
   /from\s+['"](?:node:)?child_process['"]/,
 ];
 
-test('Customer 360 evaluator ไม่มี live CRM/network execution path', () => {
+test('Customer 360 evaluator has no live CRM/network execution path', () => {
   const srcDir = fileURLToPath(new URL('.', import.meta.url));
   const files = readdirSync(srcDir).filter(
     (name) =>
@@ -21,7 +21,11 @@ test('Customer 360 evaluator ไม่มี live CRM/network execution path', (
   for (const file of files) {
     const source = readFileSync(join(srcDir, file), 'utf8');
     for (const pattern of FORBIDDEN) {
-      assert.doesNotMatch(source, pattern, `${file} ต้องไม่แตะ network/child process: ${pattern}`);
+      assert.doesNotMatch(
+        source,
+        pattern,
+        `${file} must not touch network/child process: ${pattern}`,
+      );
     }
   }
 });

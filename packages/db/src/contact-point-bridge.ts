@@ -1,23 +1,23 @@
 import { Prisma } from '@prisma/client';
 
 /**
- * Cus360 C3 (#793) S4: compatibility bridge ของ consumer เดิมที่ lookup ContactIdentity จากค่า (E1 E)
+ * Cus360 C3 (#793) S4: compatibility bridge for existing consumers that look up ContactIdentity by value (E1 E)
  *
- * raw unique match ของ ContactIdentity ไม่ใช่ verified identity อีกต่อไป: identity จะใช้ lookup ได้
- * เมื่อมี contact point ที่ import จาก identity นั้น (source_kind = LEGACY_IDENTITY) และยัง ACTIVE
- * - ไม่มี mapping = ยังตัดสินไม่ได้ (UNMAPPED); REVIEW_REQUIRED / RETIRED = ไม่พบ; ไม่ fallback ไป raw value
- * - แถวที่ถูกแทนที่ตั้งแต่ import (ค่าซ้ำบน contact เดียว) ตัดสินตาม ACTIVE ค่าเดียวกันบน contact เดียวกัน
- * - normalized key เดียวกัน ACTIVE อยู่บน contact อื่นด้วย = กำกวม (shared ไม่ถูกตีความเป็นคนเดียวกัน)
+ * a raw unique match on ContactIdentity is no longer a verified identity: an identity can be used for lookup
+ * only when a contact point was imported from that identity (source_kind = LEGACY_IDENTITY) and is still ACTIVE
+ * - no mapping = cannot decide yet (UNMAPPED); REVIEW_REQUIRED / RETIRED = not found; no fallback to the raw value
+ * - a row superseded at import (a duplicate value on one contact) is decided by the ACTIVE with the same value on the same contact
+ * - the same normalized key ACTIVE on another contact too = ambiguous (shared is not interpreted as the same person)
  *
- * ใช้ภายใน tenant transaction (RLS) เท่านั้น; ไม่แก้ ContactIdentity หรือหลักฐาน CG
+ * used only inside a tenant transaction (RLS); does not modify ContactIdentity or CG evidence
  */
-/** UNMAPPED = identity ยังไม่ถูก import (ยังตัดสินไม่ได้); INELIGIBLE = import แล้วแต่ REVIEW_REQUIRED/RETIRED */
+/** UNMAPPED = the identity has not been imported (cannot decide yet); INELIGIBLE = imported but REVIEW_REQUIRED/RETIRED */
 export type LegacyIdentityEligibility = 'ELIGIBLE' | 'SHARED' | 'UNMAPPED' | 'INELIGIBLE';
 
 /**
- * แถวที่ import ซ้ำค่ากับ ACTIVE บน contact เดียวกันถูกเก็บเป็น RETIRED โดย command เดียวกับที่สร้าง
- * (ถูกแทนที่ตั้งแต่ import) แถวนี้ใช้ได้เมื่อ ACTIVE ค่าเดียวกันบน contact เดียวกันยังอยู่ (ชี้ไปตัวเดียวกัน)
- * point ที่ถูก retire ภายหลังโดยคำสั่งอื่นไม่เข้าเงื่อนไขนี้
+ * a row imported with the same value as an ACTIVE on the same contact is kept as RETIRED by the same command that created it
+ * (superseded at import); this row is usable while the ACTIVE with the same value on the same contact still exists (pointing to the same one)
+ * a point retired later by another command does not meet this condition
  */
 const SUPERSEDED_AT_IMPORT = Prisma.sql`p.state = 'RETIRED' AND p.normalized_value IS NOT NULL
   AND p.retired_command_id = p.created_command_id
@@ -49,8 +49,8 @@ export async function legacyIdentityEligibility(
 }
 
 /**
- * หา identity เดิมจาก normalized key: ต้องเป็นของ contact เดียว และ contact นั้นต้องมี ACTIVE point
- * ที่มาจาก legacy identity ค่านี้ (point ที่สร้างใหม่ไม่มี identity evidence จึงไม่สร้างเพื่อให้ dispatch ผ่าน)
+ * Finds the original identity from a normalized key: it must belong to a single contact and that contact must have an ACTIVE point
+ * that came from this legacy identity (a newly created point has no identity evidence, so none is created just to let dispatch pass)
  */
 export async function eligibleLegacyIdentityByKey(
   transaction: Prisma.TransactionClient,
@@ -75,8 +75,8 @@ export async function eligibleLegacyIdentityByKey(
     return { status: 'RESOLVED', contactId: legacy.contact_id, identityId: legacy.identity_id! };
   const [contactId] = contacts;
   if (!contactId) return { status: 'NOT_FOUND' };
-  // ACTIVE ของค่านี้ไม่ได้มาจาก legacy (เช่น สร้างผ่าน profile command) แต่มี legacy identity ค่าเดียวกัน
-  // บน contact เดียวกันที่ถูกแทนที่ตั้งแต่ import: ใช้ identity นั้นเป็นหลักฐาน (ชี้ไป ACTIVE ตัวเดียวกัน)
+  // the ACTIVE for this value did not come from legacy (e.g. created through a profile command) but there is a legacy identity with the same value
+  // on the same contact that was superseded at import: use that identity as evidence (pointing to the same ACTIVE)
   const [superseded] = await transaction.$queryRaw<{ identity_id: string }[]>`
     SELECT p.source_identity_id::text AS identity_id FROM c360_contact_points p
     WHERE p.tenant_id = ${tenantId}::uuid AND p.contact_id = ${contactId}::uuid

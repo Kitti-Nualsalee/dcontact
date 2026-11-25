@@ -8,7 +8,7 @@ import {
 } from '@d-contact/contact-points';
 import { C360_CONTACT_POINT_QUOTA } from './profile-points.js';
 
-/** C4 writer และ M1 metadata ใช้ authority เดียวกัน ไม่ใช่ UI validation fallback */
+/** The C4 writer and M1 metadata use the same authority; this is not a UI validation fallback */
 export const C360_PROFILE_RULE_VERSION = 'c360-profile-v1';
 export const C360_PROFILE_TEXT_RULES = Object.freeze({
   displayName: Object.freeze({ maxCodeUnits: 160, required: true }),
