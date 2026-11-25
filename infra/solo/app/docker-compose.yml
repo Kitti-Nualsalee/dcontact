@@ -195,10 +195,34 @@ services:
     environment:
       # ใช้ role แอป NOBYPASSRLS: ทุก query ของ QM อยู่ใน withTenantDatabaseTransaction ยกเว้นอ่าน tenants (ไม่มี RLS)
       DATABASE_URL: ${APPLICATION_DATABASE_URL:?APPLICATION_DATABASE_URL is required}
+    # The ASR host (QM_TRANSCRIPTION_ENDPOINT) is not in DNS: point it at nginx on the voice VM, which holds *.osd.co.th
+    # Use :- not :? because compose checks variables of services whose profile is off too
+    extra_hosts:
+      - '${SOLO_ASR_HOST:-asr.invalid}:${SOLO_VOICE_IP:?SOLO_VOICE_IP is required}'
     mem_limit: 384m
     depends_on:
       redpanda-init:
         condition: service_completed_successfully
+
+  qm-asr-simulator:
+    <<: *service
+    # Simulated ASR per D-Contact ASR Provider Protocol v1 (docs/qm-asr-provider-protocol.md) until a real model exists
+    # Downloads the real recording through the signed URL and finds the sound regions, but the text is a canned simulated phrase
+    # Behind the same `qm` profile as QM; reached only through https://SOLO_ASR_HOST (nginx -> web), no host port
+    profiles: ['qm']
+    image: dcontact-solo/services:${SOLO_IMAGE_TAG}
+    # Not the whole solo.env: the simulator only gets the token and the media host
+    env_file: []
+    working_dir: /app/qm
+    command: ['node', 'dist/asr-simulator-main.js']
+    environment:
+      PORT: '8090'
+      # An empty value stops the simulator from starting (checked in code)
+      ASR_SIMULATOR_API_KEY: ${QM_TRANSCRIPTION_API_KEY:-}
+      ASR_SIMULATOR_MEDIA_HOSTS: ${SOLO_MEDIA_HOST:-}
+    extra_hosts:
+      - '${SOLO_MEDIA_HOST:-media.invalid}:${SOLO_VOICE_IP:?SOLO_VOICE_IP is required}'
+    mem_limit: 448m
 
   web:
     <<: *service
@@ -208,6 +232,9 @@ services:
       SOLO_CONSOLE_HOST: ${SOLO_CONSOLE_HOST}
       SOLO_WORKSPACE_HOST: ${SOLO_WORKSPACE_HOST:?SOLO_WORKSPACE_HOST is required}
       SOLO_VOICE_IP: ${SOLO_VOICE_IP:?SOLO_VOICE_IP is required}
+      # QM hosts: when unset, use .invalid names that no request matches
+      SOLO_MEDIA_HOST: ${SOLO_MEDIA_HOST:-media.invalid}
+      SOLO_ASR_HOST: ${SOLO_ASR_HOST:-asr.invalid}
     cap_drop:
       - ALL
     mem_limit: 128m

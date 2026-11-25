@@ -1,3 +1,11 @@
+import {
+  ASR_DATA_USE_HEADER,
+  ASR_DATA_USE_NO_TRAINING,
+  ASR_PROTOCOL_HEADER,
+  ASR_PROTOCOL_VERSION,
+  parseTranscriptionResult,
+  readAsrErrorCode,
+} from './asr-provider-protocol.js';
 import type {
   TranscriptionProvider,
   TranscriptionProviderResult,
@@ -7,14 +15,23 @@ export interface HttpTranscriptionProviderConfiguration {
   id: string;
   endpoint: string;
   apiKey?: string;
+  /** How long to wait for the provider per request; default 5 minutes (protocol v1 is synchronous). */
+  timeoutMs?: number;
 }
+
+export const DEFAULT_TRANSCRIPTION_TIMEOUT_MS = 300_000;
 
 type Fetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
-/** Provider-neutral HTTPS adapter; deployment gateway maps this contract to cloud or on-prem ASR. */
+/**
+ * Client of the D-Contact ASR Provider Protocol v1 (docs/qm-asr-provider-protocol.md).
+ * A real provider or the deployment's gateway maps this contract onto a cloud or on-prem ASR.
+ */
 export class HttpTranscriptionProvider implements TranscriptionProvider {
   readonly id: string;
   private readonly endpoint: URL;
+  private readonly apiKey?: string;
+  private readonly timeoutMs: number;
 
   constructor(
     configuration: HttpTranscriptionProviderConfiguration,
@@ -27,9 +44,11 @@ export class HttpTranscriptionProvider implements TranscriptionProvider {
       throw new Error('transcription provider endpoint must use HTTPS');
     }
     this.apiKey = configuration.apiKey;
+    this.timeoutMs = configuration.timeoutMs ?? DEFAULT_TRANSCRIPTION_TIMEOUT_MS;
+    if (!Number.isInteger(this.timeoutMs) || this.timeoutMs <= 0) {
+      throw new Error('transcription provider timeout must be a positive integer');
+    }
   }
-
-  private readonly apiKey?: string;
 
   async transcribe(
     input: Parameters<TranscriptionProvider['transcribe']>[0],
@@ -40,26 +59,44 @@ export class HttpTranscriptionProvider implements TranscriptionProvider {
     if (new URL(input.mediaUrl).protocol !== 'https:') {
       throw new Error('transcription media URL must use HTTPS');
     }
-    const response = await this.request(this.endpoint, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-dcontact-data-use': 'no-training',
-        ...(this.apiKey ? { authorization: `Bearer ${this.apiKey}` } : {}),
-      },
-      body: JSON.stringify(input),
-    });
+    let response: Response;
+    try {
+      response = await this.request(this.endpoint, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          [ASR_DATA_USE_HEADER]: ASR_DATA_USE_NO_TRAINING,
+          [ASR_PROTOCOL_HEADER]: ASR_PROTOCOL_VERSION,
+          ...(this.apiKey ? { authorization: `Bearer ${this.apiKey}` } : {}),
+        },
+        body: JSON.stringify(input),
+        redirect: 'error',
+        signal: AbortSignal.timeout(this.timeoutMs),
+      });
+    } catch (error) {
+      if (error instanceof Error && error.name === 'TimeoutError') {
+        throw new Error(`transcription provider timed out after ${this.timeoutMs} ms`);
+      }
+      throw error;
+    }
     if (!response.ok) {
-      throw new Error(`transcription provider returned HTTP ${response.status}`);
+      const code = readAsrErrorCode(await response.json().catch(() => undefined));
+      throw new Error(
+        `transcription provider returned HTTP ${response.status}${code ? ` ${code}` : ''}`,
+      );
     }
-    const payload = (await response.json()) as unknown;
-    if (
-      !payload ||
-      typeof payload !== 'object' ||
-      !Array.isArray((payload as { segments?: unknown }).segments)
-    ) {
-      throw new Error('transcription provider returned an invalid response');
+    let payload: unknown;
+    try {
+      payload = await response.json();
+    } catch {
+      throw new Error('transcription provider returned an invalid response: body is not JSON');
     }
-    return payload as TranscriptionProviderResult;
+    try {
+      return parseTranscriptionResult(payload);
+    } catch (error) {
+      throw new Error(
+        `transcription provider returned an invalid response: ${(error as Error).message}`,
+      );
+    }
   }
 }
