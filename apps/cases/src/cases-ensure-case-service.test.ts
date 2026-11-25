@@ -3,7 +3,7 @@ import test from 'node:test';
 import { J2_ERROR_CONTRACT } from '@d-contact/cxa-contracts';
 import { rejection, success } from './cases-ensure-case-service.js';
 
-/** ต้องตรงกับ STATUS_BY_COMMAND.ENSURE_CASE ใน @d-contact/cxa-contracts (ไม่ export ตรงๆ) */
+/** Must match STATUS_BY_COMMAND.ENSURE_CASE in @d-contact/cxa-contracts (not exported directly) */
 const ENSURE_CASE_ALLOWED_STATUSES = new Set(['CREATED', 'LINKED', 'REOPENED', 'REJECTED']);
 
 test('rejection() derives category/retryDisposition from the shared J2_ERROR_CONTRACT, never invents its own', () => {
@@ -25,6 +25,9 @@ test('success() always uses status as code, BUSINESS category and NONE/NONE per 
     assert.equal(decision.category, 'BUSINESS');
     assert.equal(decision.failureClass, 'NONE');
     assert.equal(decision.retryDisposition, 'NONE');
-    assert.ok(ENSURE_CASE_ALLOWED_STATUSES.has(status), 'status ต้องอยู่ใน ENSURE_CASE allowlist');
+    assert.ok(
+      ENSURE_CASE_ALLOWED_STATUSES.has(status),
+      'status must be in the ENSURE_CASE allowlist',
+    );
   }
 });

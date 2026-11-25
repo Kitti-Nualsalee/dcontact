@@ -160,7 +160,7 @@ function commandFor(
   >;
 }
 
-test('campaign active ไม่มี target เดิม: ADMIT_CAMPAIGN_TARGET สร้าง record ใหม่และตอบ ADMITTED', async (t) => {
+test('active campaign without an existing target: ADMIT_CAMPAIGN_TARGET creates a new record and answers ADMITTED', async (t) => {
   const f = await fixture(t);
   const service = new DialerAdmitCampaignTargetService(f.application, allowAllScope);
   const tenant = toTenantId(f.rawTenantId);
@@ -185,7 +185,7 @@ test('campaign active ไม่มี target เดิม: ADMIT_CAMPAIGN_TARGET
   assert.equal(stored.campaignId, f.activeCampaignId);
 });
 
-test('retry ด้วย actionKey/requestHash เดิมคืนผลเดิมโดยไม่สร้าง target ซ้ำ', async (t) => {
+test('retry with the same actionKey/requestHash returns the same result without creating a duplicate target', async (t) => {
   const f = await fixture(t);
   const service = new DialerAdmitCampaignTargetService(f.application, allowAllScope);
   const tenant = toTenantId(f.rawTenantId);
@@ -199,7 +199,7 @@ test('retry ด้วย actionKey/requestHash เดิมคืนผลเด
   assert.equal(await f.owner.obDialerCommandInbox.count({ where: { tenantId: f.rawTenantId } }), 1);
 });
 
-test('actionKey เดิมกับ requestHash ต่างถูกปฏิเสธเป็น IDEMPOTENCY_CONFLICT', async (t) => {
+test('the same actionKey with a different requestHash is rejected as IDEMPOTENCY_CONFLICT', async (t) => {
   const f = await fixture(t);
   const service = new DialerAdmitCampaignTargetService(f.application, allowAllScope);
   const tenant = toTenantId(f.rawTenantId);
@@ -220,7 +220,7 @@ test('actionKey เดิมกับ requestHash ต่างถูกปฏิ
   );
 });
 
-test('target เดิมของ (campaign, contact) เดียวกัน: ตอบ ALREADY_ADMITTED โดยไม่สร้างแถวใหม่', async (t) => {
+test('an existing target for the same (campaign, contact): answers ALREADY_ADMITTED without creating a new row', async (t) => {
   const f = await fixture(t);
   const service = new DialerAdmitCampaignTargetService(f.application, allowAllScope);
   const tenant = toTenantId(f.rawTenantId);
@@ -245,7 +245,7 @@ test('target เดิมของ (campaign, contact) เดียวกัน:
   assert.equal(await f.owner.obCampaignTarget.count({ where: { tenantId: f.rawTenantId } }), 1);
 });
 
-test('campaign paused: admission สำเร็จแต่ target เป็น DEFERRED ภายใน ขณะที่ผลรายงานยังเป็น ADMITTED', async (t) => {
+test('paused campaign: admission succeeds but the target is DEFERRED internally while the reported result is still ADMITTED', async (t) => {
   const f = await fixture(t);
   const service = new DialerAdmitCampaignTargetService(f.application, allowAllScope);
   const tenant = toTenantId(f.rawTenantId);
@@ -260,7 +260,7 @@ test('campaign paused: admission สำเร็จแต่ target เป็น
   assert.equal(
     result?.status,
     'ADMITTED',
-    'Journey สนใจแค่ admit สำเร็จหรือไม่ ไม่ใช่ pacing ภายใน',
+    'Journey only cares whether admit succeeded, not internal pacing',
   );
 
   const stored = await f.owner.obCampaignTarget.findUniqueOrThrow({
@@ -269,7 +269,7 @@ test('campaign paused: admission สำเร็จแต่ target เป็น
   assert.equal(stored.state, 'DEFERRED');
 });
 
-test('campaign stopped/completed ถูกปฏิเสธเป็น REJECTED', async (t) => {
+test('a stopped/completed campaign is rejected as REJECTED', async (t) => {
   const f = await fixture(t);
   const service = new DialerAdmitCampaignTargetService(f.application, allowAllScope);
   const tenant = toTenantId(f.rawTenantId);
@@ -289,7 +289,7 @@ test('campaign stopped/completed ถูกปฏิเสธเป็น REJECTE
   assert.equal(await f.owner.obCampaignTarget.count({ where: { tenantId: f.rawTenantId } }), 0);
 });
 
-test('campaignId ที่ไม่มีอยู่จริงถูกปฏิเสธเป็น OWNER_REJECTED', async (t) => {
+test('a campaignId that does not exist is rejected as OWNER_REJECTED', async (t) => {
   const f = await fixture(t);
   const service = new DialerAdmitCampaignTargetService(f.application, allowAllScope);
   const tenant = toTenantId(f.rawTenantId);
@@ -305,7 +305,7 @@ test('campaignId ที่ไม่มีอยู่จริงถูกปฏ
   assert.equal(result?.reasonCode, 'CAMPAIGN_BINDING_INVALID');
 });
 
-test('contact เดิมใน campaign อื่นถูกปฏิเสธเมื่อ policy ไม่อนุญาต cross-campaign duplicate', async (t) => {
+test('a contact already in another campaign is rejected when the policy disallows cross-campaign duplicates', async (t) => {
   const f = await fixture(t);
   const service = new DialerAdmitCampaignTargetService(f.application, allowAllScope);
   const tenant = toTenantId(f.rawTenantId);
@@ -313,8 +313,8 @@ test('contact เดิมใน campaign อื่นถูกปฏิเส�
   const first = commandFor(f, { intent: { campaignId: campaignId(f.activeCampaignId) } });
   await service.persistCommand(tenant, first);
 
-  // pausedCampaignId ไม่มี admission policy fixture ของตัวเอง — default
-  // allowCrossCampaignDuplicate=false ต้องปฏิเสธ contact ที่ admit ไปแล้วใน campaign อื่น
+  // pausedCampaignId has no admission policy fixture of its own — the default
+  // allowCrossCampaignDuplicate=false must reject a contact already admitted in another campaign
   const second = commandFor(f, { intent: { campaignId: campaignId(f.pausedCampaignId) } });
   await service.persistCommand(tenant, second);
   const result = await service.queryAction(tenant, {
@@ -326,7 +326,7 @@ test('contact เดิมใน campaign อื่นถูกปฏิเส�
   assert.equal(result?.reasonCode, 'DUPLICATE_CONTACT_CROSS_CAMPAIGN');
 });
 
-test('contact ข้าม tenant ถูกปฏิเสธโดยไม่เปิดเผย existence', async (t) => {
+test('a cross-tenant contact is rejected without revealing existence', async (t) => {
   const f = await fixture(t);
   const other = await fixture(t);
   const service = new DialerAdmitCampaignTargetService(f.application, allowAllScope);
@@ -344,7 +344,7 @@ test('contact ข้าม tenant ถูกปฏิเสธโดยไม่�
   assert.equal(await f.owner.obCampaignTarget.count({ where: { tenantId: f.rawTenantId } }), 0);
 });
 
-test('team ข้าม tenant ถูกปฏิเสธเป็น TEAM_SEGMENT_NOT_ALLOWED', async (t) => {
+test('a cross-tenant team is rejected as TEAM_SEGMENT_NOT_ALLOWED', async (t) => {
   const f = await fixture(t);
   const other = await fixture(t);
   const service = new DialerAdmitCampaignTargetService(f.application, allowAllScope);
@@ -361,7 +361,7 @@ test('team ข้าม tenant ถูกปฏิเสธเป็น TEAM_SEGM
   assert.equal(result?.code, 'TEAM_SEGMENT_NOT_ALLOWED');
 });
 
-test('WORK scope ที่ IAM ปฏิเสธทำให้ admission fail closed', async (t) => {
+test('a WORK scope denied by IAM makes admission fail closed', async (t) => {
   const f = await fixture(t);
   const service = new DialerAdmitCampaignTargetService(f.application, denyAllScope);
   const tenant = toTenantId(f.rawTenantId);
@@ -378,7 +378,7 @@ test('WORK scope ที่ IAM ปฏิเสธทำให้ admission fail 
   assert.equal(await f.owner.obCampaignTarget.count({ where: { tenantId: f.rawTenantId } }), 0);
 });
 
-test('tenant คนละใบไม่เห็น campaign target ของกันและกัน', async (t) => {
+test('different tenants cannot see each other campaign targets', async (t) => {
   const a = await fixture(t);
   const b = await fixture(t);
   const service = new DialerAdmitCampaignTargetService(a.application, allowAllScope);
@@ -394,7 +394,7 @@ test('tenant คนละใบไม่เห็น campaign target ของ�
   assert.equal(otherView, undefined);
 });
 
-/** J2.1 contract: actionKey เดิมของ admit, commandId ใหม่ — supersede เพิ่ม superseding outcome */
+/** J2.1 contract: the original admit actionKey, a new commandId — supersede adds a superseding outcome */
 function targetCancelFor(
   f: Awaited<ReturnType<typeof fixture>>,
   admit: Extract<J2DialerOwnerCommandV1, { commandType: 'ADMIT_CAMPAIGN_TARGET' }>,
@@ -440,7 +440,7 @@ async function resultOf(
   });
 }
 
-test('CANCEL_CAMPAIGN_TARGET ยกเลิก target ที่ยังไม่ถึง originate barrier และ retry ได้ผลเดิม', async (t) => {
+test('CANCEL_CAMPAIGN_TARGET cancels a target that has not reached the originate barrier and a retry returns the same result', async (t) => {
   const f = await fixture(t);
   const service = new DialerAdmitCampaignTargetService(f.application, allowAllScope);
   const tenant = toTenantId(f.rawTenantId);
@@ -466,7 +466,7 @@ test('CANCEL_CAMPAIGN_TARGET ยกเลิก target ที่ยังไม�
   assert.equal(await f.owner.obDialerCommandInbox.count({ where: { tenantId: f.rawTenantId } }), 2);
 });
 
-test('SUPERSEDE_CAMPAIGN_TARGET บันทึก superseding outcome linkage', async (t) => {
+test('SUPERSEDE_CAMPAIGN_TARGET records the superseding outcome linkage', async (t) => {
   const f = await fixture(t);
   const service = new DialerAdmitCampaignTargetService(f.application, allowAllScope);
   const tenant = toTenantId(f.rawTenantId);
@@ -484,7 +484,7 @@ test('SUPERSEDE_CAMPAIGN_TARGET บันทึก superseding outcome linkage',
   assert.equal(target.supersedingOutcomeVersion, 2);
 });
 
-test('target ที่ originate barrier claim แล้วตอบ TOO_LATE และไม่ย้อน state', async (t) => {
+test('a target already claimed by the originate barrier answers TOO_LATE and does not roll back state', async (t) => {
   const f = await fixture(t);
   const service = new DialerAdmitCampaignTargetService(f.application, allowAllScope);
   const tenant = toTenantId(f.rawTenantId);
@@ -507,7 +507,7 @@ test('target ที่ originate barrier claim แล้วตอบ TOO_LATE �
   assert.equal(target.state, 'ORIGINATING');
 });
 
-test('cancel ไม่ถูกขวางด้วย scope ที่ถูกถอน แต่ต้อง bind กับ contact ของ target เดิม', async (t) => {
+test('cancel is not blocked by a revoked scope but must bind to the contact of the original target', async (t) => {
   const f = await fixture(t);
   const other = await fixture(t);
   const tenant = toTenantId(f.rawTenantId);
@@ -533,7 +533,7 @@ test('cancel ไม่ถูกขวางด้วย scope ที่ถูก
   assert.equal((await resultOf(denying, f, cancel))?.status, 'CANCELLED');
 });
 
-test('cancel ที่ไม่มี admit ต้นเรื่องถูกปฏิเสธเป็น ORIGINAL_ACTION_NOT_FOUND', async (t) => {
+test('a cancel without an originating admit is rejected as ORIGINAL_ACTION_NOT_FOUND', async (t) => {
   const f = await fixture(t);
   const service = new DialerAdmitCampaignTargetService(f.application, allowAllScope);
   const cancel = targetCancelFor(f, commandFor(f));

@@ -1,7 +1,7 @@
 import { type PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
 import type { FreeSwitchVoiceTargetResolver } from './freeswitch-command-adapter.js';
 
-/** Sandbox resolver: อ่าน identity ภายใต้ tenant RLS และยอมให้ dial เฉพาะ internal extension. */
+/** Sandbox resolver: reads identity under tenant RLS and allows dialing only internal extensions. */
 export class DatabaseFreeSwitchVoiceTargetResolver implements FreeSwitchVoiceTargetResolver {
   constructor(private readonly database: PrismaClient) {}
 

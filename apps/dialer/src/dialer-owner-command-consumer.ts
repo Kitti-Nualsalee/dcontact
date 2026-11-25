@@ -1,14 +1,14 @@
 /**
- * J2.8 (#136) — ขารับ owner command ของ Dialer จาก `dc.dialer.commands` แล้ว publish ผลกลับ
+ * J2.8 (#136) — the Dialer owner command receive path from `dc.dialer.commands`, publishing the result back
  * `dc.dialer.events`
  *
- * คู่ตรงข้ามของ relay ฝั่ง Journey: command ที่ relay mark SENT หลัง broker ack ต้องมีคนรับจริง
- * ไม่งั้น action ค้าง DISPATCHED จน ACK_UNKNOWN escalate ทุกใบ
+ * The counterpart of the Journey-side relay: a command the relay marks SENT after the broker ack must really be received
+ * otherwise actions stay DISPATCHED until every one escalates to ACK_UNKNOWN.
  *
- * ขั้นตอนต่อ message อยู่ที่ `processOwnerCommandEvent` ของ contract (ใช้ร่วมกับ Cases) — offset
- * commit หลัง handler สำเร็จเท่านั้น จึง publish ผลซ้ำได้แต่ไม่ตัดสินซ้ำ; command ที่ผิด contract
- * หรือชน IDEMPOTENCY_CONFLICT เข้า DLQ ส่วน event ชนิดอื่นบน topic เดียวกัน (เช่น
- * `dialer.reconcile_requested`) ข้ามเงียบ
+ * The per-message steps live in the contract `processOwnerCommandEvent` (shared with Cases) — the offset
+ * is committed only after the handler succeeds, so a result can be republished but not decided twice; a command violating the contract
+ * or hitting IDEMPOTENCY_CONFLICT goes to the DLQ, while an event of another kind on the same topic (e.g.
+ * `dialer.reconcile_requested`) is skipped silently
  */
 import { processOwnerCommandEvent, type J2DialerOwnerPort } from '@d-contact/cxa-contracts';
 import {
@@ -21,7 +21,7 @@ import {
 } from '@d-contact/kafka';
 import { KAFKA_TOPICS } from '@d-contact/shared';
 
-/** receipt ของ owner คือ durable dedup boundary — ไม่ต้องมี consumer inbox ซ้อนอีกชั้น */
+/** The owner receipt is the durable dedup boundary — no extra consumer inbox layer is needed */
 export function createOwnerReceiptIdempotencyStore(): EventIdempotencyStore {
   return {
     durability: 'DURABLE',

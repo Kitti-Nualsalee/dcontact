@@ -1,12 +1,12 @@
 /**
- * #956 — เคสที่ Agent เปิดจากงานและดูแลในทีม
+ * #956 — cases an Agent opens from a work item and handles within the team
  *
- * Cases ยังเป็นผู้เขียน `cs_*` เพียงรายเดียว: apps/api เรียกฟังก์ชันในไฟล์นี้แบบ in-process
- * (pattern เดียวกับ owner writer ของ customer-360) ไม่เขียนตารางเคสเอง
+ * Cases remains the only writer of `cs_*`: apps/api calls the functions in this file in-process
+ * (same pattern as the customer-360 owner writer) and does not write the case tables itself.
  *
- * ขอบเขตรอบแรก: เห็นและแก้ได้เฉพาะเคสของทีมตนเอง, สถานะ OPEN/RESOLVED/CLOSED,
- * ทุกคำสั่งมี commandId (command_receipts) และ expectedVersion บน `cs_cases.version`
- * เคสจาก J2 ENSURE_CASE ไม่มี team_id จึงไม่ปรากฏในมุมมองนี้
+ * First-round scope: an agent sees and edits only cases of their own team, statuses OPEN/RESOLVED/CLOSED,
+ * every command carries a commandId (command_receipts) and an expectedVersion on `cs_cases.version`.
+ * Cases from J2 ENSURE_CASE have no team_id, so they do not appear in this view.
  */
 import { createHash, randomUUID } from 'node:crypto';
 import { Prisma, type PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
@@ -34,7 +34,7 @@ export type AgentCaseErrorCode =
   | 'COMMAND_ID_REUSED'
   | 'COMMAND_PAYLOAD_MISMATCH';
 
-/** ชนิดของ error บอก apps/api ว่าควรตอบ HTTP แบบไหน โดยไม่ผูก Cases กับ NestJS */
+/** The error kind tells apps/api which HTTP response to use, without coupling Cases to NestJS */
 export type AgentCaseErrorKind = 'FORBIDDEN' | 'INVALID' | 'NOT_FOUND' | 'CONFLICT';
 
 const ERROR_KIND: Record<AgentCaseErrorCode, AgentCaseErrorKind> = {
@@ -98,7 +98,7 @@ export interface AgentCaseActivity {
   occurredAt: string;
   actorUserId: string | null;
   interactionId: string | null;
-  /** งานที่ผูกเป็นของผู้ดูเอง จึงเปิดดูในประวัติงานของตนได้ */
+  /** The linked work item belongs to the viewer, so they can open it in their own work history */
   interactionMine: boolean;
   interactionChannel: string | null;
   interactionDirection: 'INBOUND' | 'OUTBOUND' | null;
@@ -110,7 +110,7 @@ export interface AgentCaseActivity {
 
 export interface AgentCaseDetail extends AgentCaseSummary {
   teamId: string;
-  /** false เมื่อผู้รับผิดชอบย้ายทีมหรือถูกปิดบัญชี ต้องมอบหมายใหม่ */
+  /** false when the assignee moved team or the account was disabled; must be reassigned */
   assigneeInTeam: boolean;
   reopenCount: number;
   createdByUserId: string;
@@ -155,8 +155,8 @@ export interface CaseCommandInput {
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /**
- * เส้นทางสถานะที่ Agent ทำได้: ต้องผ่าน RESOLVED ก่อนปิด, RESOLVED กลับ OPEN ได้
- * และ CLOSED จบแล้วแก้ไม่ได้
+ * Status paths an Agent can take: must pass through RESOLVED before closing, RESOLVED can return to OPEN,
+ * and CLOSED is final and cannot be edited.
  */
 const TRANSITIONS: Record<AgentCaseStatus, readonly AgentCaseStatus[]> = {
   OPEN: ['RESOLVED'],
@@ -174,7 +174,7 @@ export function uuidInput(value: unknown, field: string): string {
   return value.toLowerCase();
 }
 
-/** ตัดช่องว่างหัวท้าย ข้อความว่างหรือยาวเกินถือว่าไม่ถูกต้อง */
+/** Trims both ends; empty or over-long text is invalid */
 export function textInput(value: unknown, field: string, max: number): string {
   if (typeof value !== 'string') throw new AgentCaseError('INVALID_INPUT', field);
   const text = value.trim();
@@ -200,7 +200,7 @@ export function statusFilterInput(value: unknown): AgentCaseStatusFilter | undef
   return statusInput(value);
 }
 
-/** cursor ผูกกับตำแหน่ง (updated_at, id) ของแถวสุดท้ายในหน้าก่อน */
+/** The cursor is bound to the (updated_at, id) position of the last row of the previous page */
 export function encodeCaseCursor(updatedAt: Date, id: string): string {
   return Buffer.from(JSON.stringify([updatedAt.toISOString(), id]), 'utf8').toString('base64url');
 }
@@ -218,7 +218,7 @@ export function decodeCaseCursor(value: unknown): { updatedAt: Date; id: string 
       }
     }
   } catch {
-    // ตกไปตอบ INVALID_INPUT ด้านล่าง
+    // Falls through to the INVALID_INPUT response below
   }
   throw new AgentCaseError('INVALID_INPUT', 'cursor');
 }
@@ -365,14 +365,14 @@ export class AgentCases {
          WHERE tenant_id = ${teamActor.tenantId}::uuid AND id = ${interactionId}::uuid
            AND agent_id = ${teamActor.userId}::uuid
          FOR NO KEY UPDATE`);
-        // งานของ Agent คนอื่นหรือของ tenant อื่นตอบเหมือนไม่พบ เพื่อไม่เปิดเผยว่ามีอยู่
+        // Work of another Agent or another tenant is answered as not found, so its existence is not revealed
         if (!interaction) throw new AgentCaseError('WORK_NOT_FOUND');
-        // รอบแรกเปิดเคสได้ระหว่างคุยหรือสรุปผลเท่านั้น งานที่บันทึกผลจบแล้วไม่รับ
+        // In the first round a case can be opened only during the conversation or wrap-up; wrapped-up work is not accepted
         if (interaction.state !== 'ACTIVE' && interaction.state !== 'WRAPUP') {
           throw new AgentCaseError('WORK_NOT_ACTIVE');
         }
         if (!interaction.contact_id) throw new AgentCaseError('CONTACT_REQUIRED');
-        // ADR-016 case 1 : N interaction — งานหนึ่งอยู่ได้ในเคสเดียว (มี partial unique index กันซ้ำ)
+        // ADR-016 case 1 : N interaction — one work item belongs to a single case (a partial unique index prevents duplicates)
         const existing = await transaction.csCase.findFirst({
           where: { tenantId: teamActor.tenantId, sourceInteractionId: interactionId },
           select: { id: true },
@@ -400,7 +400,7 @@ export class AgentCases {
             createdAt: now,
           },
         });
-        // ไทม์ไลน์เรียงตามเวลาแล้วตาม id จึงเลื่อนเวลาทีละ ms ให้ลำดับ เปิด → ผูกงาน → โน้ต คงที่
+        // The timeline is ordered by time then id, so times are shifted by 1 ms to keep the order open → link work → note stable
         await this.activity(transaction, teamActor, caseId, now, 0, {
           kind: 'CREATED',
           assigneeUserId,
@@ -525,7 +525,7 @@ export class AgentCases {
     };
   }
 
-  /** ผู้เรียกต้องเป็น Agent ที่ active และมีทีม ตรวจใหม่ทุกคำสั่งภายใต้ transaction เดียวกัน */
+  /** The caller must be an active Agent with a team; re-checked on every command inside the same transaction */
   private async teamActor(transaction: Transaction, actor: AgentCaseActor): Promise<TeamActor> {
     const user = await transaction.user.findFirst({
       where: { id: actor.userId, tenantId: actor.tenantId, role: 'AGENT', isActive: true },
@@ -564,8 +564,8 @@ export class AgentCases {
   }
 
   /**
-   * ทุกคำสั่งเขียนผ่านที่นี่: lock ต่อ commandId, ส่งผลเดิมคืนถ้าคำสั่งเคย commit แล้ว,
-   * แล้วบันทึก receipt ใน transaction เดียวกับการเปลี่ยนเคส
+   * Every command writes through here: lock per commandId, return the earlier result if the command was already committed,
+   * then record the receipt in the same transaction as the case change.
    */
   private async write(
     actor: AgentCaseActor,
@@ -612,7 +612,7 @@ export class AgentCases {
     });
   }
 
-  /** เคสของทีมอื่นหรือเคสจาก J2 ที่ไม่มีทีม ตอบเหมือนไม่พบ */
+  /** A case of another team, or a J2 case without a team, is answered as not found */
   private async lockOpenCase(
     transaction: Transaction,
     actor: TeamActor,

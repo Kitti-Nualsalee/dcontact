@@ -42,7 +42,7 @@ async function until<T>(
     if (accept(value)) return value;
     await wait(150);
   }
-  throw new Error(`รอหลักฐานเกิน ${timeout}ms`);
+  throw new Error(`waiting for evidence exceeded ${timeout}ms`);
 }
 
 interface Fixture {
@@ -663,7 +663,7 @@ async function suite() {
           journal.some(
             (entry) => entry.blegUuid === offer.bleg_uuid && entry.channels?.blegExists === true,
           ),
-          `ไม่เคยพบ B-leg จริง ${offer.bleg_uuid}`,
+          `no real B-leg was ever found ${offer.bleg_uuid}`,
         );
         assert.equal(await exists(offer.bleg_uuid), false);
       }

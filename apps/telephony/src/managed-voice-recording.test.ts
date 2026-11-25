@@ -39,7 +39,7 @@ const trigger = () =>
     now: () => '2026-11-22T03:00:00.000Z',
   });
 
-test('bridge ของสาย managed สร้าง call.answered ของสายลูกค้า', () => {
+test('a bridge of a managed call produces call.answered for the customer call', () => {
   const event = trigger().decide(bridge(caller), tenantId);
   assert.equal(event?.type, 'call.answered');
   assert.equal(event?.tenantId, tenantId);
@@ -47,7 +47,7 @@ test('bridge ของสาย managed สร้าง call.answered ของ�
   assert.equal(event?.payload.vendor, 'freeswitch');
 });
 
-test('bridge ซ้ำจากสองขาไม่เริ่มบันทึกซ้ำ และเริ่มใหม่ได้หลัง hangup', () => {
+test('a repeated bridge from both legs does not start recording again, and it can start again after hangup', () => {
   const recording = trigger();
   assert.equal(recording.decide(bridge(caller), tenantId)?.type, 'call.answered');
   assert.equal(recording.decide(bridge(bleg), tenantId), undefined);
@@ -59,7 +59,7 @@ test('bridge ซ้ำจากสองขาไม่เริ่มบัน�
   assert.equal(recording.pending, 0);
 });
 
-test('hangup ของขาลูกค้าสร้าง call.hangup แต่ขา Agent ไม่สร้าง', () => {
+test('a hangup of the customer leg produces call.hangup but the Agent leg does not', () => {
   const recording = trigger();
   const customerLeg = recording.decide(hangup(caller), tenantId);
   assert.equal(customerLeg?.type, 'call.hangup');
@@ -67,7 +67,7 @@ test('hangup ของขาลูกค้าสร้าง call.hangup แต
   assert.equal(recording.decide(hangup(bleg), tenantId), undefined);
 });
 
-test('event อื่นของสาย managed และ bridge ที่ไม่ครบเงื่อนไขไม่เริ่มบันทึก', () => {
+test('other events of a managed call and a bridge that does not meet all conditions do not start recording', () => {
   const recording = trigger();
   for (const name of ['CHANNEL_CREATE', 'CHANNEL_ANSWER']) {
     assert.equal(recording.decide({ ...bridge(caller), 'Event-Name': name }, tenantId), undefined);
@@ -83,7 +83,7 @@ test('event อื่นของสาย managed และ bridge ที่ไ
   assert.equal(recording.pending, 0);
 });
 
-test('tenant หรือ node ไม่ตรงถูกเมินโดยไม่ throw', () => {
+test('a mismatched tenant or node is ignored without throwing', () => {
   const recording = trigger();
   assert.equal(recording.decide(bridge(caller), 'other-tenant'), undefined);
   assert.equal(
@@ -92,7 +92,7 @@ test('tenant หรือ node ไม่ตรงถูกเมินโดย�
   );
 });
 
-test('ขา offer ยังปิดบันทึกเมื่อ managed runtime throw และไม่เรียกเมื่อ tenant ไม่ใช่ uuid', async () => {
+test('the offer leg still closes recording when the managed runtime throws, and is not called when the tenant is not a uuid', async () => {
   const recorded: string[] = [];
   const record = async (source: FreeSwitchEvent, tenant: string) => {
     recorded.push(`${source['Event-Name']}:${tenant}`);
@@ -119,7 +119,7 @@ test('ขา offer ยังปิดบันทึกเมื่อ managed r
   assert.equal(recorded.length, 1);
 });
 
-test('สายที่จำว่าเริ่มบันทึกแล้วมีเพดาน กันค้างเมื่อ hangup ไม่มา', () => {
+test('the set of calls remembered as already recording has a cap, to avoid leaks when hangup never arrives', () => {
   const subject = trigger();
   for (let index = 0; index < 1_005; index += 1) {
     const uuid = `caller-${index}`;

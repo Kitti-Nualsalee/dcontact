@@ -3,14 +3,14 @@ import type { TelephonyCallEvent } from '@d-contact/shared';
 import { describeError, type TelephonyRecordingLifecycle } from './recording-lifecycle.js';
 
 /**
- * งานบันทึกเสียงเรียงตาม key ตามลำดับที่เข้าคิว สายต่างกันทำพร้อมกันได้ และไม่ขวางการส่ง call event
- * ลำดับระหว่าง answered กับ hangup ของสายเดียวกันเท่ากับลำดับที่ caller เรียก publishTelephonyCallEvent
+ * Recording work is ordered per key in queue order; different calls run concurrently and do not block sending call events.
+ * The order between answered and hangup of the same call equals the order in which the caller invokes publishTelephonyCallEvent
  */
 export class RecordingTaskQueue {
   private readonly tails = new Map<string, Promise<void>>();
   private readonly running = new Set<Promise<void>>();
 
-  /** promise ที่คืนไม่ reject: งานต้องจัดการ error ของตัวเอง ส่วนที่หลุดมาจะถูก log */
+  /** The returned promise never rejects: the job must handle its own errors, and anything that escapes is logged */
   run(key: string, work: () => Promise<void>, onError: (error: unknown) => void): Promise<void> {
     const next = (this.tails.get(key) ?? Promise.resolve()).then(work).catch(onError);
     this.tails.set(key, next);
@@ -26,7 +26,7 @@ export class RecordingTaskQueue {
     return this.running.size;
   }
 
-  /** รองานที่ค้างตอนปิด process รวมงานที่เข้าคิวระหว่างรอ ไม่เกิน timeoutMs; คืน false ถ้ายังมีงานเหลือ */
+  /** Waits for pending work at process shutdown, including work queued while waiting, up to timeoutMs; returns false if work remains */
   async drain(timeoutMs: number): Promise<boolean> {
     const deadline = Date.now() + timeoutMs;
     while (this.running.size > 0) {
@@ -49,19 +49,19 @@ export interface TelephonyEventPublisherDependencies {
   recordingTasks: RecordingTaskQueue;
   publish(event: KafkaEventEnvelope<TelephonyCallEvent>): Promise<void>;
   /**
-   * เวลาที่ `call.hangup` รอปิดบันทึก (ตั้ง endedAt แล้ว archive) ก่อนส่ง ค่าเริ่มต้น 3 วินาที
-   * QM อ่าน recording ที่มี endedAt ตอนได้ interaction.ended และกรณีปกติ object ควรอยู่ใน storage แล้ว
-   * จึงรอแบบมีเพดานแทนการไม่รอเลย ขั้นตั้ง endedAt เป็น DB อย่างเดียว ไม่ต้องรอ storage ของขั้นเริ่มบันทึก
-   * 0 = ไม่รอเลย (#991 สาย managed ไม่มี Kafka event ที่ต้องเรียงหลัง archive) งานยังรันต่อใน recordingTasks
+   * How long `call.hangup` waits for the recording to close (set endedAt then archive) before sending. Default 3 seconds.
+   * QM reads the recording with endedAt when it gets interaction.ended, and normally the object should already be in storage,
+   * so it waits with a cap instead of not waiting at all. The set-endedAt step is DB only and need not wait for the storage of the start-recording step.
+   * 0 = do not wait (#991 managed calls have no Kafka event that must be ordered after archive); the work keeps running in recordingTasks
    */
   hangupRecordingBudgetMs?: number;
   log?(message: string, details: Record<string, unknown>): void;
 }
 
 /**
- * #923: งานบันทึกเสียงเป็นงานเสริมของสาย ความล้มเหลวหรือความช้าต้องไม่บล็อก call event
- * ถ้า `call.answered` ไม่ถึง Router ทัน offer timeout จะตั้ง Agent เป็น BREAK ระหว่างที่คุยอยู่
- * ลำดับ event ที่ส่งไม่เปลี่ยน เพราะ caller ยังรอ publish ของแต่ละ event ตามลำดับเดิม
+ * #923: recording work is auxiliary to the call; its failure or slowness must not block call events.
+ * If `call.answered` does not reach the Router in time, the offer timeout sets the Agent to BREAK while they are on the call.
+ * The order of sent events does not change, because the caller still awaits the publish of each event in the original order
  */
 export async function publishTelephonyCallEvent(
   event: KafkaEventEnvelope<TelephonyCallEvent>,
@@ -70,11 +70,11 @@ export async function publishTelephonyCallEvent(
   const log = dependencies.log ?? ((message, details) => console.error(message, details));
   const { recordings, recordingTasks } = dependencies;
   const { callUuid } = event.payload;
-  // key ของสาย: งาน DB (สร้างแถว, ตั้ง endedAt) ซึ่งเร็ว
-  // key ของ media: งาน storage (prepare, uuid_record, archive) ซึ่งอาจช้า เรียงหลังงาน DB ที่ส่งงานนั้นเข้ามา
+  // call key: DB work (create the row, set endedAt), which is fast
+  // media key: storage work (prepare, uuid_record, archive), which may be slow, ordered after the DB work that submitted it
   const mediaKey = `${callUuid}:media`;
   if (event.type === 'call.answered') {
-    // ไม่รอ: mkdir/ประกาศ/uuid_record ทำหลัง Router ได้ answered แล้ว
+    // Do not wait: mkdir/announcement/uuid_record run after the Router has received answered
     const startFailed = (error: unknown) =>
       log('[telephony] recording start failed', describeFailure(event, error));
     void recordingTasks.run(

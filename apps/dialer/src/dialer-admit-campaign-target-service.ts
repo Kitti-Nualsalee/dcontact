@@ -3,9 +3,9 @@
  * sole canonical writer of `ob_campaign_*` per #121 — Journey never creates/starts/pauses/edits a
  * Campaign, and admission here never originates/sends (that's the originate barrier, J2.9).
  *
- * J2.8 (#136) เพิ่ม `CANCEL_CAMPAIGN_TARGET`/`SUPERSEDE_CAMPAIGN_TARGET`: target ที่ยังไม่ถึง
- * originate barrier (ADMITTED/DEFERRED) ยกเลิก/แทนที่ได้ ส่วน state ที่ barrier claim ไปแล้ว
- * ตอบ `TOO_LATE` ตาม #123 — callback command ยังเป็นขอบเขตของ `DialerCallbackService`
+ * J2.8 (#136) adds `CANCEL_CAMPAIGN_TARGET`/`SUPERSEDE_CAMPAIGN_TARGET`: a target that has not yet reached the
+ * originate barrier (ADMITTED/DEFERRED) can be cancelled/superseded, while a state the barrier has already claimed
+ * answers `TOO_LATE` per #123 — callback commands remain the scope of `DialerCallbackService`
  */
 import { randomUUID } from 'node:crypto';
 import { Prisma, type PrismaClient } from '@d-contact/db';
@@ -33,7 +33,7 @@ import {
 
 export class DialerCommandNotImplementedError extends Error {
   constructor(readonly commandType: string) {
-    super(`Dialer ยังไม่รองรับ command type นี้: ${commandType}`);
+    super(`Dialer does not support this command type yet: ${commandType}`);
     this.name = 'DialerCommandNotImplementedError';
   }
 }
@@ -49,7 +49,7 @@ const CAMPAIGN_TARGET_COMMAND_TYPES: ReadonlySet<string> = new Set([
   'SUPERSEDE_CAMPAIGN_TARGET',
 ]);
 
-/** target ที่ originate barrier ยังไม่ claim — ยกเลิก/แทนที่ได้โดยไม่มี effect ที่ย้อนไม่ได้ */
+/** A target the originate barrier has not claimed — can be cancelled/superseded without irreversible effects */
 const REVERSIBLE_TARGET_STATES = new Set(['ADMITTED', 'DEFERRED']);
 
 export interface AdmitDecision extends DialerCommandDecision {
@@ -157,9 +157,9 @@ export class DialerAdmitCampaignTargetService implements J2DialerOwnerPort {
   }
 
   /**
-   * ไม่ตรวจ CONTACT scope ซ้ำ — การยกเลิกคือการ "ลด" การติดต่อ และเป็นทางที่ Journey ใช้ตอน scope
-   * ถูกถอน (J3 refilter) การบังคับ scope ที่นี่จะทำให้ยกเลิกไม่ได้พอดีตอนที่ต้องยกเลิกที่สุด
-   * แต่ต้อง bind กับ target เดิมจริง: contact และทีมทั้งสองต้องตรงกับที่ admit ไว้
+   * Does not re-check CONTACT scope — cancelling "reduces" contact, and is the path Journey uses when a scope
+   * is revoked (J3 refilter); enforcing scope here would block cancelling exactly when it is needed most.
+   * It must still bind to the real original target: both the contact and the team must match what was admitted.
    */
   private async decideCancelOrSupersede(
     transaction: Prisma.TransactionClient,
@@ -204,8 +204,8 @@ export class DialerAdmitCampaignTargetService implements J2DialerOwnerPort {
       return targetTooLate(target.id, target.version);
     }
 
-    // CAS บน version + state — originate barrier claim ด้วย state ADMITTED + version เดียวกัน
-    // จึงชนะได้ฝั่งเดียว ถ้า barrier ชนะก่อน การยกเลิกต้องกลายเป็น TOO_LATE ไม่ใช่ทับ ORIGINATING
+    // CAS on version + state — the originate barrier claims with state ADMITTED + the same version,
+    // so only one side can win. If the barrier wins first, the cancel must become TOO_LATE rather than overwrite ORIGINATING
     const now = this.now();
     const intent = command.intent as SupersedeOwnerActionIntentV1;
     const moved = await transaction.obCampaignTarget.updateMany({
@@ -260,7 +260,7 @@ export class DialerAdmitCampaignTargetService implements J2DialerOwnerPort {
       }),
     ]);
 
-    // ไม่เปิดเผยว่า contact/team มีอยู่จริงใน tenant อื่นหรือไม่ — ปฏิเสธเหมือนไม่พบเสมอ
+    // Do not reveal whether the contact/team exists in another tenant — always reject as if not found
     if (!contact) return rejection('CONTACT_NOT_FOUND', 'AUTHORIZATION', 'CONTACT_NOT_FOUND');
     if (!sourceTeam) {
       return rejection('TEAM_SEGMENT_NOT_ALLOWED', 'AUTHORIZATION', 'SOURCE_TEAM_NOT_FOUND');
@@ -269,7 +269,7 @@ export class DialerAdmitCampaignTargetService implements J2DialerOwnerPort {
       return rejection('TEAM_SEGMENT_NOT_ALLOWED', 'AUTHORIZATION', 'TARGET_TEAM_NOT_FOUND');
     }
 
-    // ตรวจ current WORK scope ของทั้งสอง team role ก่อน admit — audit ทั้งคู่ตาม #121
+    // Check the current WORK scope of both team roles before admit — audit both per #121
     const at = this.now().toISOString();
     const tenant = toTenantId(tenantId);
     const [sourceScope, targetScope] = await Promise.all([
@@ -312,7 +312,7 @@ export class DialerAdmitCampaignTargetService implements J2DialerOwnerPort {
     const admissionPolicyVersion = policy?.version ?? 1;
     const allowCrossCampaignDuplicate = policy?.allowCrossCampaignDuplicate ?? false;
 
-    // serialize decision ต่อ (campaign, contact) กันสอง command แข่งกัน admit ซ้ำ
+    // Serialize the decision per (campaign, contact) so two commands cannot race to admit twice
     await transaction.$queryRaw(
       Prisma.sql`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${`ob-admission:${tenantId}:${campaign.id}:${command.contactId}`}))`,
     );

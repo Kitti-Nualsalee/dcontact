@@ -25,7 +25,7 @@ const event: KafkaEventEnvelope<TelephonyCallEvent> = {
   },
 };
 
-test('outcome ตรวจ origination UUID/node/durable claim ก่อน settle และไม่รับขาอื่นหรือ metadata ปลอม', async () => {
+test('the outcome checks the origination UUID/node/durable claim before settling and rejects other legs or forged metadata', async () => {
   const outcomes: VoiceOriginateOutcomeInput[] = [];
   let claimed = true;
   const transaction = {
@@ -84,7 +84,7 @@ test('outcome ตรวจ origination UUID/node/durable claim ก่อน sett
   assert.equal(outcomes[1].outcomeRef, 'esl-job:job-1');
 });
 
-test('BACKGROUND_JOB failure ปิดเฉพาะ outbound ที่ยัง ASSIGNED ไม่ค้างงานและไม่แตะสาย ACTIVE', async () => {
+test('a BACKGROUND_JOB failure closes only outbound still ASSIGNED, leaves no stuck work and does not touch ACTIVE calls', async () => {
   let state = 'ASSIGNED';
   const events: unknown[] = [];
   const transaction = {

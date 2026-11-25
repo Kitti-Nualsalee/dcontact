@@ -95,7 +95,7 @@ test('sip.registration.flush removes only the revoked lease registration', async
   ]);
 });
 
-test('call.originate ปิดเป็นค่าเริ่มต้นและไม่ resolve target หรือแตะ ESL', async () => {
+test('call.originate is disabled by default and neither resolves a target nor touches ESL', async () => {
   const commands: string[] = [];
   const adapter = new FreeSwitchCommandAdapter({
     command: async (value) => void commands.push(value),
@@ -116,7 +116,7 @@ test('call.originate ปิดเป็นค่าเริ่มต้นแ�
   assert.deepEqual(commands, []);
 });
 
-test('call.originate resolve ได้เฉพาะ internal extension และส่ง opaque correlation ไป ESL', async () => {
+test('call.originate resolves only internal extensions and sends an opaque correlation to ESL', async () => {
   const commands: string[] = [];
   const adapter = new FreeSwitchCommandAdapter(
     { command: async (value) => void commands.push(value) },
@@ -146,7 +146,7 @@ test('call.originate resolve ได้เฉพาะ internal extension แล�
   ]);
 });
 
-test('call.cancel ฆ่าเฉพาะ deterministic origination UUID เมื่อ voice gate เปิด', async () => {
+test('call.cancel kills only the deterministic origination UUID when the voice gate is open', async () => {
   const commands: string[] = [];
   const adapter = new FreeSwitchCommandAdapter(
     { command: async (value) => void commands.push(value) },

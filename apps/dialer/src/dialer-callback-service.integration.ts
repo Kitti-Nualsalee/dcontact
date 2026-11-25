@@ -146,13 +146,13 @@ function cancelCommandFor(
   originalActionKey: string,
 ): CancelCommand {
   const enrollment = randomUUID();
-  // ไม่ประกาศ type ของ draft ตรง ๆ — commandType ของ CancelCommand ใน SDK เป็น union
-  // ร่วมกับ CANCEL_CAMPAIGN_TARGET การประกาศ type ตรงจะ widen literal 'CANCEL_CALLBACK'
-  // จนไม่ match กับ J2OwnerCommandDraftV1 ปล่อยให้ TS infer จาก literal ผ่าน `as const` แทน
+  // Do not declare the draft type directly — the SDK CancelCommand commandType is a union
+  // shared with CANCEL_CAMPAIGN_TARGET, and declaring the type directly would widen the literal 'CANCEL_CALLBACK'
+  // until it no longer matches J2OwnerCommandDraftV1; let TS infer from the literal via `as const` instead
   const draft = {
     contractVersion: 1,
     commandId: commandId(randomUUID()),
-    // J2.1 contract: cancel/supersede ใช้ actionKey เดิมของ positive effect แต่ commandId ใหม่
+    // J2.1 contract: cancel/supersede use the original actionKey of the positive effect but a new commandId
     actionKey: actionKey(originalActionKey),
     journeyId: journeyId('journey-outbound'),
     journeyVersion: 1,
@@ -184,7 +184,7 @@ function supersedeCommandFor(
   const draft = {
     contractVersion: 1,
     commandId: commandId(randomUUID()),
-    // J2.1 contract: cancel/supersede ใช้ actionKey เดิมของ positive effect แต่ commandId ใหม่
+    // J2.1 contract: cancel/supersede use the original actionKey of the positive effect but a new commandId
     actionKey: actionKey(originalActionKey),
     journeyId: journeyId('journey-outbound'),
     journeyVersion: 1,
@@ -216,7 +216,7 @@ function supersedeCommandFor(
   ) as SupersedeCommand;
 }
 
-test('ไม่มี callback เดิม: SCHEDULE_CALLBACK สร้าง record ใหม่และตอบ SCHEDULED', async (t) => {
+test('no existing callback: SCHEDULE_CALLBACK creates a new record and answers SCHEDULED', async (t) => {
   const f = await fixture(t);
   const service = new DialerCallbackService(f.application, allowAllScope);
   const tenant = toTenantId(f.rawTenantId);
@@ -241,7 +241,7 @@ test('ไม่มี callback เดิม: SCHEDULE_CALLBACK สร้าง r
   assert.equal(stored.queueId, f.rawQueueId);
 });
 
-test('retry ด้วย actionKey/requestHash เดิมคืนผลเดิมโดยไม่สร้าง callback ซ้ำ', async (t) => {
+test('retry with the same actionKey/requestHash returns the same result without creating a duplicate callback', async (t) => {
   const f = await fixture(t);
   const service = new DialerCallbackService(f.application, allowAllScope);
   const tenant = toTenantId(f.rawTenantId);
@@ -253,7 +253,7 @@ test('retry ด้วย actionKey/requestHash เดิมคืนผลเด
   assert.equal(await f.owner.obCallback.count({ where: { tenantId: f.rawTenantId } }), 1);
 });
 
-test('actionKey เดิมกับ requestHash ต่างถูกปฏิเสธเป็น IDEMPOTENCY_CONFLICT', async (t) => {
+test('the same actionKey with a different requestHash is rejected as IDEMPOTENCY_CONFLICT', async (t) => {
   const f = await fixture(t);
   const service = new DialerCallbackService(f.application, allowAllScope);
   const tenant = toTenantId(f.rawTenantId);
@@ -273,7 +273,7 @@ test('actionKey เดิมกับ requestHash ต่างถูกปฏิ
   );
 });
 
-test('contact ที่มี callback pending อยู่แล้ว: SCHEDULE_CALLBACK ใหม่ตอบ ALREADY_SCHEDULED', async (t) => {
+test('a contact that already has a pending callback: a new SCHEDULE_CALLBACK answers ALREADY_SCHEDULED', async (t) => {
   const f = await fixture(t);
   const service = new DialerCallbackService(f.application, allowAllScope);
   const tenant = toTenantId(f.rawTenantId);
@@ -298,7 +298,7 @@ test('contact ที่มี callback pending อยู่แล้ว: SCHEDUL
   assert.equal(await f.owner.obCallback.count({ where: { tenantId: f.rawTenantId } }), 1);
 });
 
-test('requestedFor ในอดีตถูกปฏิเสธเป็น OWNER_REJECTED', async (t) => {
+test('a requestedFor in the past is rejected as OWNER_REJECTED', async (t) => {
   const f = await fixture(t);
   const service = new DialerCallbackService(f.application, allowAllScope);
   const tenant = toTenantId(f.rawTenantId);
@@ -316,7 +316,7 @@ test('requestedFor ในอดีตถูกปฏิเสธเป็น OWN
   assert.equal(result?.reasonCode, 'REQUESTED_TIME_INVALID');
 });
 
-test('queueId ที่ไม่มีอยู่จริงถูกปฏิเสธเป็น OWNER_REJECTED', async (t) => {
+test('a queueId that does not exist is rejected as OWNER_REJECTED', async (t) => {
   const f = await fixture(t);
   const service = new DialerCallbackService(f.application, allowAllScope);
   const tenant = toTenantId(f.rawTenantId);
@@ -334,7 +334,7 @@ test('queueId ที่ไม่มีอยู่จริงถูกปฏิ
   assert.equal(result?.reasonCode, 'QUEUE_NOT_FOUND');
 });
 
-test('SCHEDULED callback ยกเลิกได้ผ่าน CANCEL_CALLBACK ด้วย original action linkage', async (t) => {
+test('a SCHEDULED callback can be cancelled via CANCEL_CALLBACK with the original action linkage', async (t) => {
   const f = await fixture(t);
   const service = new DialerCallbackService(f.application, allowAllScope);
   const tenant = toTenantId(f.rawTenantId);
@@ -357,7 +357,7 @@ test('SCHEDULED callback ยกเลิกได้ผ่าน CANCEL_CALLBACK
   assert.equal(stored.cancelReasonCode, 'OUTCOME_CORRECTED');
 });
 
-test('SCHEDULED callback แทนที่ได้ผ่าน SUPERSEDE_CALLBACK พร้อม superseding outcome linkage', async (t) => {
+test('a SCHEDULED callback can be superseded via SUPERSEDE_CALLBACK with the superseding outcome linkage', async (t) => {
   const f = await fixture(t);
   const service = new DialerCallbackService(f.application, allowAllScope);
   const tenant = toTenantId(f.rawTenantId);
@@ -380,7 +380,7 @@ test('SCHEDULED callback แทนที่ได้ผ่าน SUPERSEDE_CALLB
   assert.equal(stored.supersedingOutcomeVersion, 3);
 });
 
-test('callback ที่ irreversible แล้ว (ACTIVE) ปฏิเสธ cancel เป็น TOO_LATE โดยไม่ย้อน state', async (t) => {
+test('a callback that is already irreversible (ACTIVE) rejects cancel as TOO_LATE without rolling back state', async (t) => {
   const f = await fixture(t);
   const service = new DialerCallbackService(f.application, allowAllScope);
   const tenant = toTenantId(f.rawTenantId);
@@ -412,11 +412,11 @@ test('callback ที่ irreversible แล้ว (ACTIVE) ปฏิเสธ c
   assert.equal(
     stillActive.state,
     'ACTIVE',
-    'ห้าม hard-disconnect หรือย้อน state ของ call ที่ active แล้ว',
+    'must not hard-disconnect or roll back the state of an already active call',
   );
 });
 
-test('cancel ซ้ำของ callback ที่ cancel ไปแล้วคืนผลเดิมแบบ idempotent', async (t) => {
+test('a repeated cancel of an already cancelled callback returns the same result idempotently', async (t) => {
   const f = await fixture(t);
   const service = new DialerCallbackService(f.application, allowAllScope);
   const tenant = toTenantId(f.rawTenantId);
@@ -436,7 +436,7 @@ test('cancel ซ้ำของ callback ที่ cancel ไปแล้วค�
   assert.equal(await f.owner.obCallback.count({ where: { tenantId: f.rawTenantId } }), 1);
 });
 
-test('originalActionKey ที่ไม่มีอยู่จริงถูกปฏิเสธเป็น OWNER_REJECTED', async (t) => {
+test('an originalActionKey that does not exist is rejected as OWNER_REJECTED', async (t) => {
   const f = await fixture(t);
   const service = new DialerCallbackService(f.application, allowAllScope);
   const tenant = toTenantId(f.rawTenantId);
@@ -452,7 +452,7 @@ test('originalActionKey ที่ไม่มีอยู่จริงถู�
   assert.equal(result?.reasonCode, 'ORIGINAL_ACTION_NOT_FOUND');
 });
 
-test('contact ข้าม tenant ถูกปฏิเสธโดยไม่เปิดเผย existence', async (t) => {
+test('a cross-tenant contact is rejected without revealing existence', async (t) => {
   const f = await fixture(t);
   const other = await fixture(t);
   const service = new DialerCallbackService(f.application, allowAllScope);
@@ -470,7 +470,7 @@ test('contact ข้าม tenant ถูกปฏิเสธโดยไม่�
   assert.equal(await f.owner.obCallback.count({ where: { tenantId: f.rawTenantId } }), 0);
 });
 
-test('team ข้าม tenant ถูกปฏิเสธเป็น TEAM_SEGMENT_NOT_ALLOWED', async (t) => {
+test('a cross-tenant team is rejected as TEAM_SEGMENT_NOT_ALLOWED', async (t) => {
   const f = await fixture(t);
   const other = await fixture(t);
   const service = new DialerCallbackService(f.application, allowAllScope);
@@ -487,7 +487,7 @@ test('team ข้าม tenant ถูกปฏิเสธเป็น TEAM_SEGM
   assert.equal(result?.code, 'TEAM_SEGMENT_NOT_ALLOWED');
 });
 
-test('queue ข้าม tenant ถูกปฏิเสธเป็น OWNER_REJECTED โดยไม่เปิดเผย existence', async (t) => {
+test('a cross-tenant queue is rejected as OWNER_REJECTED without revealing existence', async (t) => {
   const f = await fixture(t);
   const other = await fixture(t);
   const service = new DialerCallbackService(f.application, allowAllScope);
@@ -509,7 +509,7 @@ test('queue ข้าม tenant ถูกปฏิเสธเป็น OWNER_RE
   assert.equal(result?.reasonCode, 'QUEUE_NOT_FOUND');
 });
 
-test('ไม่มี Governance reservation ถูกสร้างจาก SCHEDULE_CALLBACK', async (t) => {
+test('no Governance reservation is created from SCHEDULE_CALLBACK', async (t) => {
   const f = await fixture(t);
   const service = new DialerCallbackService(f.application, allowAllScope);
   const tenant = toTenantId(f.rawTenantId);
@@ -518,7 +518,7 @@ test('ไม่มี Governance reservation ถูกสร้างจาก S
   assert.equal(await f.owner.cgReservation.count({ where: { tenantId: f.rawTenantId } }), 0);
 });
 
-test('tenant คนละใบไม่เห็น callback ของกันและกัน', async (t) => {
+test('different tenants cannot see each other callbacks', async (t) => {
   const a = await fixture(t);
   const b = await fixture(t);
   const service = new DialerCallbackService(a.application, allowAllScope);
@@ -534,7 +534,7 @@ test('tenant คนละใบไม่เห็น callback ของกัน
   assert.equal(otherView, undefined);
 });
 
-test('cancel ตาม contract (actionKey เดิม) ไม่ชนกับ receipt ของ SCHEDULE และ query แยกด้วย requestHash', async (t) => {
+test('a contract cancel (original actionKey) does not collide with the SCHEDULE receipt and queries are separated by requestHash', async (t) => {
   const f = await fixture(t);
   const service = new DialerCallbackService(f.application, allowAllScope);
   const tenant = toTenantId(f.rawTenantId);
@@ -544,7 +544,7 @@ test('cancel ตาม contract (actionKey เดิม) ไม่ชนกั�
   assert.equal(cancel.actionKey, schedule.actionKey);
 
   await service.persistCommand(tenant, cancel);
-  // retry ของ cancel ใบเดิมเป็น duplicate ไม่ตัดสินใหม่
+  // A retry of the same cancel is a duplicate and is not decided again
   await service.persistCommand(tenant, cancel);
 
   const [scheduled, cancelled] = await Promise.all(
@@ -563,7 +563,7 @@ test('cancel ตาม contract (actionKey เดิม) ไม่ชนกั�
   assert.equal(await f.owner.obDialerCommandInbox.count({ where: { tenantId: f.rawTenantId } }), 2);
 });
 
-test('scope ที่ถูกถอนไม่ขวาง cancel — การยกเลิกคือทางที่ Journey ใช้ตอน scope ถูกถอน', async (t) => {
+test('a revoked scope does not block cancel — cancelling is the path Journey uses when a scope is revoked', async (t) => {
   const f = await fixture(t);
   const tenant = toTenantId(f.rawTenantId);
   const schedule = scheduleCommandFor(f);
@@ -588,7 +588,7 @@ test('scope ที่ถูกถอนไม่ขวาง cancel — กา�
   assert.equal(result?.status, 'CANCELLED');
 });
 
-test('cancel ที่ contact/team ไม่ตรงกับ callback เดิมถูกปฏิเสธเป็น BINDING_MISMATCH', async (t) => {
+test('a cancel whose contact/team does not match the original callback is rejected as BINDING_MISMATCH', async (t) => {
   const f = await fixture(t);
   const other = await fixture(t);
   const service = new DialerCallbackService(f.application, allowAllScope);

@@ -24,14 +24,14 @@ interface FakeRecording {
   legalHold?: boolean;
 }
 
-/** จำลองเฉพาะส่วนของ Prisma ที่ retryPendingArchives ใช้ */
+/** Fakes only the part of Prisma that retryPendingArchives uses */
 function fakeDatabase(recordings: FakeRecording[], failures: { findManyForTenant?: string } = {}) {
   const audits: Record<string, unknown>[] = [];
   const findManyCalls: { tenantId: string; excluded: string[] }[] = [];
   const transaction = {
     $executeRawUnsafe: async () => 0,
     recording: {
-      // hangup: สายนี้มี recording เดียวใน fake
+      // hangup: this call has a single recording in the fake
       findFirst: async ({ where }: { where: Record<string, any> }) => {
         const found = recordings.find((candidate) => candidate.tenantId === where.tenantId);
         return found ? { ...found, startedAt: new Date(found.endedAt!.getTime() - 60_000) } : null;
@@ -177,14 +177,14 @@ test('a failing recording backs off instead of logging every 5 seconds', async (
     { clock },
   );
 
-  await subject.retryPendingArchives(nodeId); // ล้มครั้งที่ 1 → เว้น 5 วินาที
+  await subject.retryPendingArchives(nodeId); // fails the 1st time → wait 5 seconds
   clock.now = new Date('2026-11-22T10:00:13.000Z');
-  await subject.retryPendingArchives(nodeId); // ยังไม่ถึงเวลา ไม่แตะไฟล์
+  await subject.retryPendingArchives(nodeId); // not time yet, the file is not touched
   assert.equal(attempts, 1);
   assert.deepEqual(findManyCalls.at(-2)?.excluded, ['a-missing']);
 
   clock.now = new Date('2026-11-22T10:00:16.000Z');
-  await subject.retryPendingArchives(nodeId); // ล้มครั้งที่ 2 → เว้น 10 วินาที
+  await subject.retryPendingArchives(nodeId); // fails the 2nd time → wait 10 seconds
   assert.equal(attempts, 2);
   assert.deepEqual(
     logs.map((log) => log.details.nextRetryInSec),
@@ -208,10 +208,10 @@ test('a file that never appeared is abandoned with audit evidence once storage i
     { clock },
   );
 
-  await subject.retryPendingArchives(nodeId); // ยังไม่ครบ 30 นาทีหลังวางสาย
+  await subject.retryPendingArchives(nodeId); // 30 minutes after hangup have not passed yet
   assert.equal(recordings[0]?.deletedAt, null);
 
-  // สายใหม่ archive สำเร็จ: storage มองเห็น แต่ยังเห็นไฟล์หายไม่ครบ 10 นาที
+  // A new call archived successfully: storage is visible, but the file has not been seen missing for 10 minutes yet
   recordings.push(row('later-call', tenantA, '2026-11-22T10:34:00.000Z'));
   clock.now = new Date('2026-11-22T10:35:00.000Z');
   await subject.retryPendingArchives(nodeId);
@@ -245,7 +245,7 @@ test('a file that never appeared is abandoned with audit evidence once storage i
 
   clock.now = new Date('2026-11-22T11:00:00.000Z');
   await subject.retryPendingArchives(nodeId);
-  assert.equal(missingAttempts, 3, 'แถวที่หยุดแล้วไม่ถูกลองอีก');
+  assert.equal(missingAttempts, 3, 'a row that has stopped is not retried');
 });
 
 test('a missing mount (every file ENOENT, nothing archives) never abandons recordings', async () => {
@@ -290,7 +290,7 @@ test('a recording under legal hold is not abandoned', async () => {
     { clock, missingFileObservationMs: 0 },
   );
 
-  await subject.retryPendingArchives(nodeId); // held ล้ม แล้ว ready สำเร็จ
+  await subject.retryPendingArchives(nodeId); // held fails, then ready succeeds
   clock.now = new Date('2026-11-22T10:01:00.000Z');
   await subject.retryPendingArchives(nodeId);
 
@@ -318,7 +318,7 @@ test('an archive that hangs times out so later retry runs are not blocked', asyn
   assert.equal(logs[0]?.details.errorCode, 'ETIMEDOUT');
   clock.now = new Date('2026-11-22T10:02:00.000Z');
   await subject.retryPendingArchives(nodeId);
-  assert.equal(logs.length, 2, 'รอบถัดไปยังทำงาน ไม่ค้างที่รอบแรก');
+  assert.equal(logs.length, 2, 'the next round still runs and does not stick at the first round');
 });
 
 test('errors other than a missing file keep retrying even after the grace period', async () => {
@@ -449,9 +449,9 @@ test('recording start gives up when storage prepare hangs, and discards the row'
       error.code === 'ETIMEDOUT' && /prepare timed out/.test(error.message),
   );
   assert.equal(created.length, 1);
-  // ลบได้แม้ hangup ตั้ง endedAt ไปแล้วระหว่างรอ storage (ไม่มีเงื่อนไข endedAt)
+  // Deletable even when hangup already set endedAt while waiting for storage (no endedAt condition)
   assert.deepEqual(deleted, [{ id: 'recording-1', tenantId: tenantA, archivedAt: null }]);
-  assert.deepEqual(commands, [], 'ไม่สั่ง uuid_record เมื่อเตรียม storage ไม่ทัน');
+  assert.deepEqual(commands, [], 'uuid_record is not sent when storage preparation is not in time');
 });
 
 function hangupEvent(): KafkaEventEnvelope<TelephonyCallEvent> {

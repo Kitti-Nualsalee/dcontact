@@ -36,10 +36,10 @@ import {
   queryDialerAction,
 } from './dialer-command-inbox.js';
 
-// `commandType` ของ CANCEL_*/SUPERSEDE_* ใน J2DialerOwnerCommandV1 เป็น union ร่วมกับ
-// Campaign (เช่น 'CANCEL_CAMPAIGN_TARGET' | 'CANCEL_CALLBACK') — Extract ด้วย commandType
-// เดี่ยวจึงคืน never เสมอ (property ที่เป็น union ไม่ assignable กับ literal เดียว)
-// ต้อง Extract ด้วย `intent` ซึ่งเป็น type เฉพาะของแต่ละ command แทน
+// The `commandType` of CANCEL_*/SUPERSEDE_* in J2DialerOwnerCommandV1 is a union shared with
+// Campaign (e.g. 'CANCEL_CAMPAIGN_TARGET' | 'CANCEL_CALLBACK') — Extract by commandType
+// alone therefore always yields never (a union property is not assignable to a single literal),
+// so Extract by `intent`, which is a type specific to each command, instead.
 type ScheduleCallbackCommand = Extract<
   J2DialerOwnerCommandV1,
   { intent: ScheduleCallbackIntentV1 }
@@ -58,17 +58,17 @@ const CALLBACK_COMMAND_TYPES = new Set([
 function isCallbackCommand(command: J2DialerOwnerCommandV1): command is CallbackCommand {
   return CALLBACK_COMMAND_TYPES.has(command.commandType);
 }
-/** callback ที่ยังไม่ถึงจุด irreversible ตาม #134 — state อื่นทั้งหมดตอบ TOO_LATE */
+/** A callback that has not reached the irreversible point per #134 — every other state answers TOO_LATE */
 const REVERSIBLE_STATES = new Set(['SCHEDULED']);
-/** ระยะเวลาที่ callback ยัง valid หลัง requestedFor ก่อนถือว่า expired */
+/** How long a callback stays valid after requestedFor before it counts as expired */
 const EXPIRY_GRACE_MS = 24 * 60 * 60 * 1_000;
 
-/** alias คงชื่อเดิมไว้ให้ caller — receipt identity ของ Dialer ทั้งหมดอยู่ที่ dialer-command-inbox */
+/** Alias keeping the original name for callers — all Dialer receipt identity lives in dialer-command-inbox */
 export { DialerCommandHashConflictError as CallbackCommandHashConflictError } from './dialer-command-inbox.js';
 
 export class CallbackCommandNotImplementedError extends Error {
   constructor(readonly commandType: string) {
-    super(`DialerCallbackService ไม่รองรับ command type นี้: ${commandType}`);
+    super(`DialerCallbackService does not support this command type: ${commandType}`);
     this.name = 'CallbackCommandNotImplementedError';
   }
 }
@@ -183,7 +183,7 @@ export class DialerCallbackService implements J2DialerOwnerPort {
     command: CallbackCommand,
   ): Promise<CallbackDecision> {
     const tenantId: string = tenant;
-    // cancel/supersede ไม่ตรวจ scope ซ้ำ (ดู decideCancelOrSupersede) — ยกเลิกต้องทำได้แม้ scope ถูกถอน
+    // cancel/supersede do not re-check scope (see decideCancelOrSupersede) — cancelling must work even when the scope is revoked
     if (command.commandType !== 'SCHEDULE_CALLBACK') {
       return this.decideCancelOrSupersede(transaction, tenantId, command);
     }
@@ -303,8 +303,8 @@ export class DialerCallbackService implements J2DialerOwnerPort {
   }
 
   /**
-   * ไม่ตรวจ CONTACT scope ซ้ำ — การยกเลิกลดการติดต่อ และเป็นทางที่ Journey ใช้ตอน scope ถูกถอน
-   * แต่ต้อง bind กับ callback เดิมจริง: contact และทีมทั้งสองต้องตรงกับที่ schedule ไว้
+   * Does not re-check CONTACT scope — cancelling reduces contact and is the path Journey uses when a scope is revoked.
+   * It must still bind to the real original callback: both the contact and the team must match what was scheduled.
    */
   private async decideCancelOrSupersede(
     transaction: Prisma.TransactionClient,
@@ -347,18 +347,18 @@ export class DialerCallbackService implements J2DialerOwnerPort {
         targetStatus === 'CANCELLED' ? 'CALLBACK_ALREADY_CANCELLED' : 'CALLBACK_ALREADY_SUPERSEDED';
       return positive(targetStatus, reasonCode, callback.id, callback.version);
     }
-    // state อื่นที่ไม่ใช่ SCHEDULED ถือว่า irreversible แล้ว — ทั้ง ORIGINATING/ACTIVE/
-    // CONSUMED จริง และกรณีที่ command นี้ต่างชนิดกับ terminal state เดิม (เช่นเคย
-    // CANCELLED ไปแล้วแต่มา SUPERSEDE) ไม่มี effect เดิมให้แก้ไขซ้ำอีก
+    // Any state other than SCHEDULED is treated as irreversible — both ORIGINATING/ACTIVE/
+    // actual CONSUMED, and the case where this command differs in kind from the earlier terminal state (e.g. it was
+    // already CANCELLED but now comes a SUPERSEDE) has no earlier effect left to change again
     if (!REVERSIBLE_STATES.has(callback.state)) {
       return tooLate('CALLBACK_IRREVERSIBLE', callback.id, callback.version);
     }
 
     const now = this.now();
-    // commandType ของ union member นี้ยังรวม CANCEL_CAMPAIGN_TARGET/SUPERSEDE_CAMPAIGN_TARGET
-    // อยู่ (ตาม shared J2DialerOwnerCommandV1) จึงไม่ narrow `intent` ให้แน่นอนได้ — ใช้
-    // shape ของ intent เองแทน เพราะ SupersedeOwnerActionIntentV1 มี supersedingOutcome
-    // เพิ่มจาก CancelOwnerActionIntentV1 จริง ๆ
+    // The commandType of this union member still includes CANCEL_CAMPAIGN_TARGET/SUPERSEDE_CAMPAIGN_TARGET
+    // (per the shared J2DialerOwnerCommandV1), so `intent` cannot be narrowed reliably — use
+    // the shape of intent itself instead, because SupersedeOwnerActionIntentV1 has supersedingOutcome
+    // in addition to CancelOwnerActionIntentV1
     if (!('supersedingOutcome' in command.intent)) {
       const cancelled = await transaction.obCallback.update({
         where: { id: callback.id },

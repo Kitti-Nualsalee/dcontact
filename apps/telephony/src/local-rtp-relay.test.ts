@@ -159,7 +159,7 @@ async function fixture(
   };
 }
 
-test('local RTP relay รักษา datagram และ return path ผ่าน connected backend socket เดิม', async (context) => {
+test('the local RTP relay preserves the datagram and return path through the same connected backend socket', async (context) => {
   const setup = await fixture(context);
   const relay = await setup.start();
   assert.equal(relay.snapshot().ready, true);
@@ -190,7 +190,7 @@ test('local RTP relay รักษา datagram และ return path ผ่า�
   assert.equal(relay.snapshot().flowCount, 0);
 });
 
-test('แยกสอง peers และสอง front ports โดยไม่เปลี่ยน destination จาก payload', async (context) => {
+test('separates two peers and two front ports without changing the destination from the payload', async (context) => {
   const setup = await fixture(context);
   const relay = await setup.start();
   const first = await setup.peer();
@@ -214,7 +214,7 @@ test('แยกสอง peers และสอง front ports โดยไม่
   assert.equal(relay.snapshot().flowCount, 3);
 });
 
-test('expiry ไม่คืน backend port และ delayed packet เข้า flow ใหม่ไม่ได้', async (context) => {
+test('expiry does not return the backend port and a delayed packet cannot enter a new flow', async (context) => {
   const setup = await fixture(context);
   const relay = await setup.start();
   const peer = await setup.peer();
@@ -235,7 +235,7 @@ test('expiry ไม่คืน backend port และ delayed packet เข้�
   assert.equal(relay.snapshot().usedBackendPortCount >= 2, true);
 });
 
-test('บังคับ transport คืน port เก่าแล้วต้อง fail closed ก่อน forward', async (context) => {
+test('a forced transport returning an old port must fail closed before forwarding', async (context) => {
   let reused: number | undefined;
   let force = false;
   const setup = await fixture(context, { backendBind: (port) => (force ? reused! : port) });
@@ -256,7 +256,7 @@ test('บังคับ transport คืน port เก่าแล้วต้
   assert.equal(peer.messages.length, 0);
 });
 
-test('connected backend ปฏิเสธ rogue source และไม่ต่อ idle lifetime', async (context) => {
+test('a connected backend rejects a rogue source and does not extend the idle lifetime', async (context) => {
   const setup = await fixture(context);
   const relay = await setup.start();
   const peer = await setup.peer();
@@ -271,7 +271,7 @@ test('connected backend ปฏิเสธ rogue source และไม่ต่
   assert.equal(peer.messages.length, 0);
 });
 
-test('per-port 8 และ global 128 flows ไม่ evict active flow', async (context) => {
+test('per-port 8 and global 128 flows do not evict an active flow', async (context) => {
   const setup = await fixture(context);
   const relay = await setup.start();
   const peers = await Promise.all(Array.from({ length: 9 }, () => setup.peer()));
@@ -299,7 +299,7 @@ test('per-port 8 และ global 128 flows ไม่ evict active flow', async 
   assert.equal(relay.snapshot().flowCount, 1);
 });
 
-test('16 collisions ต่อ flow และใช้ครบ4096แล้วปฏิเสธ flow ใหม่จน process restart', async (context) => {
+test('16 collisions per flow and after all 4096 are used, new flows are rejected until the process restarts', async (context) => {
   const candidates: number[] = [];
   const setup = await fixture(context, {
     backendBind: (port) => {
@@ -325,7 +325,7 @@ test('16 collisions ต่อ flow และใช้ครบ4096แล้ว�
   assert.equal(restarted.snapshot().backendPortAllocationExhausted, true);
 });
 
-test('partial front bind failure ปิดทุก socket และไม่ตั้ง sweep', async (context) => {
+test('a partial front bind failure closes every socket and does not set up the sweep', async (context) => {
   const sockets: Socket[] = [];
   const setup = await fixture(context, {
     failFrontPort: 16390,
@@ -338,7 +338,7 @@ test('partial front bind failure ปิดทุก socket และไม่ต
   for (const socket of sockets) assert.throws(() => socket.address());
 });
 
-test('config ที่ผิดถูกปฏิเสธก่อนสร้าง socket', async (context) => {
+test('an invalid config is rejected before creating a socket', async (context) => {
   const setup = await fixture(context);
   const invalid = [
     { ...setup.config, extra: true },
@@ -361,7 +361,7 @@ test('config ที่ผิดถูกปฏิเสธก่อนสร้�
     );
 });
 
-test('setup burst มี backend เดียวและ close ระหว่าง bind ไม่ทิ้ง socket', async (context) => {
+test('a setup burst has a single backend and a close during bind leaves no socket behind', async (context) => {
   let bound: (() => void) | undefined;
   const setup = await fixture(context, {
     backendBound: (callback) => {
@@ -386,7 +386,7 @@ test('setup burst มี backend เดียวและ close ระหว่�
   assert.throws(() => setup.backendSockets[0].address());
 });
 
-test('pending send budget จำกัด256 datagrams และคืน counters เมื่อ callback/close', async (context) => {
+test('the pending send budget is limited to 256 datagrams and counters are returned on callback/close', async (context) => {
   const completions: (() => void)[] = [];
   const setup = await fixture(context, {
     decorate: (socket, backend) => {
@@ -418,7 +418,7 @@ test('pending send budget จำกัด256 datagrams และคืน counte
   assert.equal(relay.snapshot().pendingDatagrams, 0);
 });
 
-test('injected transport pressure จำกัด4MiB และ backend error คืน flow/budget', async (context) => {
+test('injected transport pressure is limited to 4MiB and a backend error returns the flow/budget', async (context) => {
   let started = 0;
   const setup = await fixture(context, {
     decorate: (socket, backend) => {
@@ -452,7 +452,7 @@ test('injected transport pressure จำกัด4MiB และ backend error �
   assert.equal(relay.snapshot().pendingBytes, 0);
 });
 
-test('valid backend activity ต่อ idle แต่ stale callbacks ไม่กระทบ flow ใหม่', async (context) => {
+test('valid backend activity extends idle but stale callbacks do not affect a new flow', async (context) => {
   const setup = await fixture(context);
   const relay = await setup.start();
   const peer = await setup.peer();
@@ -474,7 +474,7 @@ test('valid backend activity ต่อ idle แต่ stale callbacks ไม่�
   assert.equal(peer.messages.length, 1);
 });
 
-test('front runtime failure ปิดทั้ง adapter ไม่คง partial-ready', async (context) => {
+test('a front runtime failure closes the whole adapter and does not stay partially ready', async (context) => {
   const setup = await fixture(context);
   const relay = await setup.start();
   setup.frontSockets[0].emit('error', new Error('synthetic failure'));

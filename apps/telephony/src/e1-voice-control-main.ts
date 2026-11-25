@@ -22,7 +22,9 @@ async function main() {
 
 if (require.main === module) {
   void main().catch(() => {
-    console.error('E1_VOICE_CONTROL_FAILED; ตรวจ arguments/scope ผ่าน operator โดยไม่พิมพ์ secret');
+    console.error(
+      'E1_VOICE_CONTROL_FAILED; check the arguments/scope via the operator without printing secrets',
+    );
     process.exitCode = 1;
   });
 }

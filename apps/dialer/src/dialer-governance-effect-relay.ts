@@ -59,7 +59,7 @@ export class DialerGovernanceEffectRelay {
         });
       } else {
         if (!effect.delivery_id || !effect.provider_request_key)
-          throw new Error('post-barrier Dialer attempt ไม่มี immutable binding');
+          throw new Error('post-barrier Dialer attempt has no immutable binding');
         this.metrics.observe(
           'dialer_cg3_reconcile_age_ms',
           this.now().getTime() - effect.created_at.getTime(),

@@ -32,7 +32,7 @@ test('recording archive maps the FreeSWITCH path to a tenant-safe shared volume 
   assert.equal(
     recordingDirectory.mode & 0o777,
     0o777,
-    'FreeSWITCH container ต้องเขียน tenant recording directory ได้',
+    'the FreeSWITCH container must be able to write the tenant recording directory',
   );
   await writeFile(join(hostDirectory, tenantId, 'call.wav'), Buffer.from('RIFF-test-wave'));
   await archive.archive({

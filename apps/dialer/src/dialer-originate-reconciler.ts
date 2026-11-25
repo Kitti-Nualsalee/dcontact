@@ -1,22 +1,22 @@
 /**
- * J2.9 follow-up — crash recovery ของ originate barrier.
+ * J2.9 follow-up — crash recovery of the originate barrier.
  *
- * `DialerOriginateBarrier` เดินสอง transaction สั้น ๆ คือ claim (`-> ORIGINATING`)
- * แล้วค่อย settle (`-> CONSUMED/DEFERRED/SCHEDULED`) ถ้า process ตายระหว่างสองจังหวะนี้
- * target/callback จะค้างใน `ORIGINATING` ตลอดไป
+ * `DialerOriginateBarrier` runs two short transactions: claim (`-> ORIGINATING`)
+ * then settle (`-> CONSUMED/DEFERRED/SCHEDULED`). If the process dies between these two steps,
+ * the target/callback stays in `ORIGINATING` forever.
  *
- * sweeper นี้เก็บกวาดเฉพาะแถวที่ `originateLeaseExpiresAt` หมดอายุแล้ว โดยยึดสัญญา
- * เดียวกับ `DeliveryTestAdapter.reconcileExpired` ของ C1: **ห้าม release reservation,
- * ห้าม refund และห้าม originate ซ้ำ** เพราะ ณ จุดที่ lease หมดเราไม่มีทางรู้ว่า provider
- * (TEST_ADAPTER) รับสายไปแล้วหรือยัง การเดาแล้วยิงซ้ำอาจกลายเป็นโทรหา contact สองครั้ง
- * ซึ่งละเมิด governance boundary ของ #124 — จึงย้ายไป `RECONCILING` ให้ CG3 primitive
- * หรือคนตัดสินแทน
+ * This sweeper cleans up only rows whose `originateLeaseExpiresAt` has expired, following the same
+ * contract as C1 `DeliveryTestAdapter.reconcileExpired`: **do not release the reservation,
+ * do not refund and do not originate again**, because when the lease expires we cannot know whether the provider
+ * (TEST_ADAPTER) has already taken the call; guessing and firing again could mean calling the contact twice,
+ * which violates the governance boundary of #124 — so the row moves to `RECONCILING` for a CG3 primitive
+ * or a person to decide instead.
  */
 import { type PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
 
 export type OriginateReconcileKind = 'campaign_target' | 'callback';
 
-/** evidence สำหรับ J2-OB01: ไม่มี contactId/PII — มีแค่ identity ของ record กับเวลา */
+/** Evidence for J2-OB01: no contactId/PII — only the record identity and the time */
 export interface OriginateReconcileEvidence {
   kind: OriginateReconcileKind;
   recordId: string;
@@ -27,7 +27,7 @@ export interface OriginateReconcileEvidence {
 
 export interface DialerOriginateReconcilerOptions {
   now?: () => Date;
-  /** กันรอบ sweep เดียวกวาดทั้ง tenant จนล็อกยาว */
+  /** Prevents a single sweep round from sweeping a whole tenant and holding locks for a long time */
   batchSize?: number;
 }
 
@@ -44,10 +44,10 @@ export class DialerOriginateReconciler {
   }
 
   /**
-   * ย้ายทุกแถวที่ค้าง `ORIGINATING` จน lease หมดไปเป็น `RECONCILING`
+   * Moves every row stuck in `ORIGINATING` until its lease expires to `RECONCILING`.
    *
-   * idempotent โดยโครงสร้าง: เงื่อนไข update บังคับ `state: 'ORIGINATING'` เสมอ รอบที่สอง
-   * จึงไม่เจออะไรและคืน array ว่าง ไม่ใช่การ settle ซ้ำ
+   * Idempotent by construction: the update condition always forces `state: 'ORIGINATING'`, so the second round
+   * finds nothing and returns an empty array rather than settling again.
    */
   async reconcileExpired(
     tenantId: string,
@@ -74,7 +74,7 @@ export class DialerOriginateReconciler {
           data: { state: 'RECONCILING', originateLeaseExpiresAt: null, version: { increment: 1 } },
         }),
       );
-      if (moved.count === 0) continue; // แข่งกับ settle ที่มาถึงก่อน — ปล่อยให้ settle ชนะ
+      if (moved.count === 0) continue; // lost the race to a settle that arrived first — let the settle win
       evidence.push({
         kind: 'campaign_target',
         recordId: target.id,

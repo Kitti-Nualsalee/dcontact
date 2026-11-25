@@ -53,7 +53,7 @@ async function createTenant(label: string, destination: string): Promise<TenantF
     },
   });
   await owner.team.create({
-    data: { id: fixture.teamId, tenantId: fixture.tenantId, name: `ทีม ${label}` },
+    data: { id: fixture.teamId, tenantId: fixture.tenantId, name: `Team ${label}` },
   });
   await owner.user.createMany({
     data: [
@@ -87,7 +87,7 @@ async function createTenant(label: string, destination: string): Promise<TenantF
     ],
   });
   await owner.skill.create({
-    data: { id: skillId, tenantId: fixture.tenantId, name: `บริการ-${label}` },
+    data: { id: skillId, tenantId: fixture.tenantId, name: `Service-${label}` },
   });
   await owner.queue.create({
     data: {
@@ -97,7 +97,7 @@ async function createTenant(label: string, destination: string): Promise<TenantF
       name: `Thai Support ${label}`,
       channels: ['VOICE'],
       recordingEnabled: true,
-      recordingAnnouncement: 'สายนี้มีการบันทึกเสียงเพื่อพัฒนาบริการ',
+      recordingAnnouncement: 'สายนี้มีการบันทึกเสียงเพื่อพัฒนาบริการ', // allow-thai: Thai recording announcement fixture (th-TH)
       recordingAnnouncementLanguage: 'th-TH',
       recordingAgentSelfAccess: true,
       recordingChannelLayout: 'STEREO',
@@ -267,14 +267,14 @@ test(
                 speaker: 'AGENT',
                 startMs: 500,
                 endMs: 2_500,
-                text: 'สวัสดีค่ะ ยินดีให้บริการค่ะ',
+                text: 'สวัสดีค่ะ ยินดีให้บริการค่ะ', // allow-thai: Thai transcript fixture
                 confidence: 0.95,
               },
               {
                 speaker: 'CONTACT',
                 startMs: 2_700,
                 endMs: 5_500,
-                text: 'ต้องการสอบถามยอดชำระค่ะ',
+                text: 'ต้องการสอบถามยอดชำระค่ะ', // allow-thai: Thai transcript fixture
                 confidence: 0.89,
               },
             ],
@@ -297,7 +297,7 @@ test(
                   segmentIds: [segments[0]!.id],
                   startMs: 500,
                   endMs: 2_500,
-                  quote: 'สวัสดีค่ะ ยินดีให้บริการค่ะ',
+                  quote: 'สวัสดีค่ะ ยินดีให้บริการค่ะ', // allow-thai: Thai transcript quote fixture
                 },
               ],
             },
@@ -376,7 +376,7 @@ test(
     console.log(
       `PHASE_ONE_EVIDENCE ${JSON.stringify({
         kind: 'thai-asr-qm-development-baseline',
-        corpus: 'คำทักทายและคำถามยอดชำระภาษาไทย',
+        corpus: 'คำทักทายและคำถามยอดชำระภาษาไทย', // allow-thai: Thai evaluation corpus label
         samples: results.length,
         successful: results.length,
         audioDurationMs: results.map(({ baseline }) => baseline.audioDurationMs),

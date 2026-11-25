@@ -72,8 +72,8 @@ export interface OpenOriginateGateOptions {
 }
 
 /**
- * fixture ของ test: เลื่อน originate gate ไปถึง `target` ผ่าน maker-checker จริง (คนละ actor) และเพิ่ม
- * allowlist ของ SCOPED_INTERNAL_ENABLED — ไม่ใช่ทางลัดข้าม authority model ของ gate
+ * Test fixture: advances the originate gate to `target` through the real maker-checker (different actors) and adds to the
+ * SCOPED_INTERNAL_ENABLED allowlist — not a shortcut around the gate authority model
  */
 export async function openOriginateGate(
   database: PrismaClient,
