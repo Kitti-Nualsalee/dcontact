@@ -22,7 +22,7 @@ const tap = (pass, extra = {}) =>
     `# todo ${extra.todo ?? 0}`,
   ].join('\n');
 
-test('parseTap: ผ่านเมื่อ pass > 0 และไม่มี fail/skip/todo; ไม่มี summary = UNKNOWN', () => {
+test('parseTap: passes when pass > 0 and no fail/skip/todo; no summary = UNKNOWN', () => {
   assert.equal(parseTap(tap(3)).status, 'PASS');
   assert.equal(parseTap(`${tap(3)}\n${tap(2)}`).counters.pass, 5);
   assert.equal(parseTap(tap(3, { fail: 1 })).status, 'FAIL');
@@ -32,7 +32,7 @@ test('parseTap: ผ่านเมื่อ pass > 0 และไม่มี fa
   assert.equal(parseTap('ELIFECYCLE Command failed').status, 'UNKNOWN');
 });
 
-test('parsePlaywright/judge: flaky/skipped ไม่ผ่าน และ exit code ≠ 0 ชนะ summary', () => {
+test('parsePlaywright/judge: flaky/skipped do not pass and exit code != 0 beats the summary', () => {
   assert.equal(parsePlaywright('  6 passed (10.2s)').status, 'PASS');
   assert.equal(parsePlaywright('  5 passed\n  1 flaky').status, 'SKIPPED');
   assert.equal(parsePlaywright('  1 failed\n  5 passed').status, 'FAIL');
@@ -42,7 +42,7 @@ test('parsePlaywright/judge: flaky/skipped ไม่ผ่าน และ exit 
   assert.equal(judge({ parser: 'exit' }, 0, '').status, 'PASS');
 });
 
-test('redactLog: ตัด JWT, email, credential ใน URL และ action token', () => {
+test('redactLog: strips JWT, email, credentials in URLs and action tokens', () => {
   const redacted = redactLog(
     'token eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abc owner@example.test postgresql://u:secret@db/x ' +
       'http://kc/login-actions/action-token?key=abc.def&client=x',
@@ -52,7 +52,7 @@ test('redactLog: ตัด JWT, email, credential ใน URL และ action to
   }
 });
 
-test('ทุก non-waivable gate มี check ครอบใน fast profile', () => {
+test('every non-waivable gate has a covering check in the fast profile', () => {
   const fast = A1_CHECKS.filter((check) => check.profile === 'fast');
   for (const gate of NON_WAIVABLE_GATES) {
     assert.ok(
@@ -63,7 +63,7 @@ test('ทุก non-waivable gate มี check ครอบใน fast profile',
   assert.equal(new Set(A1_CHECKS.map((check) => check.id)).size, A1_CHECKS.length);
 });
 
-test('runA1Acceptance: skip = FAIL, manifest ผูก commit/config digest และเก็บ log ที่ redact แล้วเฉพาะ check ที่ล้ม', () => {
+test('runA1Acceptance: skip = FAIL, manifest binds commit/config digest and keeps redacted logs only for failed checks', () => {
   const outputs = new Map([
     ['A1-F-CONTRACT', tap(4)],
     ['A1-F-SCHEMA-REGISTRY', tap(4, { skipped: 1 })],
@@ -91,7 +91,7 @@ test('runA1Acceptance: skip = FAIL, manifest ผูก commit/config digest แ�
       ['A1-F-SCHEMA-REGISTRY', 'SKIPPED'],
     ],
   );
-  // gate ที่ check ใน run นี้ไม่ครอบ = UNCOVERED (ไม่ถือว่าผ่าน)
+  // a gate not covered by any check in this run = UNCOVERED (not treated as passing)
   assert.equal(manifest.nonWaivable.isolation, 'UNCOVERED');
   assert.match(manifest.source.config.sha256, /^[a-f0-9]{64}$/);
   assert.equal(manifest.artifacts.length, 1);
@@ -99,7 +99,7 @@ test('runA1Acceptance: skip = FAIL, manifest ผูก commit/config digest แ�
   assert.equal(log.includes('owner@example.test'), false);
 });
 
-test('digest ผูก container Image ID จริง โดยไม่ต้องมี bare-tag alias ของ pinned reference', () => {
+test('digest binds the real container Image ID without needing a bare-tag alias of the pinned reference', () => {
   const calls = [];
   const result = collectA1ImageDigests((command, args) => {
     assert.equal(command, 'docker');
@@ -115,7 +115,7 @@ test('digest ผูก container Image ID จริง โดยไม่ต้�
   assert.equal(calls.length, 9);
 });
 
-test('digest ที่ container/image inspection ล้มหรือไม่มี RepoDigest คง missing เพื่อให้ bundle fail closed', () => {
+test('a digest stays missing when container/image inspection fails or has no RepoDigest, so the bundle fails closed', () => {
   for (const missing of ['container', 'image', 'digest', 'empty-digest']) {
     const result = collectA1ImageDigests((_command, args) => {
       if (args[0] === 'compose')

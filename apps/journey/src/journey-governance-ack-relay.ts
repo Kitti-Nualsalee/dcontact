@@ -24,7 +24,7 @@ const aggregateTypeName = {
   EXPORT: 'contact_governance_export',
 } as const;
 
-/** Durable Journey outbox relay; ไม่ apply event ซ้ำและไม่ปล่อย raw contact data */
+/** Durable Journey outbox relay; does not re-apply events and does not release raw contact data */
 export class JourneyGovernanceAcknowledgementRelay {
   private readonly now: () => Date;
   private readonly backoffMs: (attempts: number) => number;

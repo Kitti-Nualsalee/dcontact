@@ -27,12 +27,12 @@ import {
 import { validateAuthoringDocument } from './journey-authoring-validator.js';
 
 /**
- * J5.4 (#342): closed parameter binder ของ template (คำตัดสิน #330 §4–§7)
+ * J5.4 (#342): the closed parameter binder of a template (decision #330 §4–§7)
  *
- * - template เป็น package ที่ต้อง instantiate เป็น Journey draft ใหม่เท่านั้น ไม่มี live pointer
- * - reference เฉพาะ tenant ทุกช่องต้องมาทาง parameter — ช่องที่ฝังค่าไว้ใน graph ถือว่าไม่น่าเชื่อถือ
- * - ค่า parameter ถูกตรวจตามชนิดแบบปิดชุด; literal ห้ามเป็น PII/ข้อความรูปแบบ credential
- * - node ID ของ instance derive แบบ deterministic จาก journeyId + templateNodeKey จึงไม่ชนข้าม Journey
+ * - a template is a package that must be instantiated into a new Journey draft only; there is no live pointer
+ * - every tenant-specific reference slot must come through a parameter — a slot with a value embedded in the graph is untrusted
+ * - parameter values are checked by a closed set of types; a literal must not be PII/credential-shaped text
+ * - the instance node ID is derived deterministically from journeyId + templateNodeKey so it does not collide across Journeys
  */
 
 const OPAQUE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
@@ -62,7 +62,7 @@ const COMMON_FIELDS = [
   'bindTargets',
 ];
 
-/** ช่องที่เป็น reference ของ tenant — ต้องถูก bind ด้วย parameter เสมอ (#330 §4) */
+/** slots that are tenant references — must always be bound by a parameter (#330 §4) */
 const REFERENCE_FIELDS: Readonly<Record<string, readonly string[]>> = {
   '@settings': ['senderIdentityId'],
   SEGMENT_ENTRY_TRIGGER: ['segmentId'],
@@ -87,7 +87,7 @@ const diagnostic = (
   ...(safeParams ? { safeParams } : {}),
 });
 
-/** node ที่ bind target อ้างถึง: step node ตาม templateNodeKey, `@trigger` หรือ `@settings` */
+/** the node a bind target refers to: a step node by templateNodeKey, `@trigger` or `@settings` */
 function targetSlot(document: AuthoringDocumentV1, templateNodeKey: string): Json | undefined {
   if (templateNodeKey === '@settings') return document.settings as unknown as Json;
   if (templateNodeKey === '@trigger') return document.trigger.config as unknown as Json;
@@ -99,7 +99,7 @@ function targetSlot(document: AuthoringDocumentV1, templateNodeKey: string): Jso
 
 const fieldOf = (pointer: string) => pointer.slice('/config/'.length);
 
-/** ตรวจ package ทั้งชุดก่อน publish/instantiate — built-in และ tenant ใช้กติกาเดียวกัน */
+/** checks the whole package before publish/instantiate — built-in and tenant use the same rules */
 export function validateTemplatePackage(
   content: unknown,
   capabilities: readonly JourneyRuntimeCapability[],
@@ -166,7 +166,7 @@ export function validateTemplatePackage(
     parameterKeys.add(parameterKey);
     const type = parameter.type;
     if (!isJourneyTemplateParameterType(type)) {
-      // ชนิดนอกชุด (SECRET, CREDENTIAL, JSON, script …) ถูกปฏิเสธทั้ง package
+      // a type outside the set (SECRET, CREDENTIAL, JSON, script …) rejects the whole package
       out.push(diagnostic('TEMPLATE_PARAMETER_INVALID', path, { reason: 'TYPE' }));
       continue;
     }
@@ -230,7 +230,7 @@ export function validateTemplatePackage(
       const pointer = String(target.pointer ?? '');
       const slot = isJourneyTemplateBindPointer(pointer) ? targetSlot(document, key) : undefined;
       const current = slot?.[fieldOf(pointer)];
-      // bind ได้เฉพาะ scalar ที่มีอยู่แล้ว — แทนทั้ง object, เปลี่ยน node/edge หรือเพิ่ม field ใหม่ไม่ได้
+      // can bind only an existing scalar — cannot replace a whole object, change a node/edge or add a new field
       if (!slot || current === undefined || (current !== null && typeof current === 'object')) {
         out.push(
           diagnostic('TEMPLATE_BIND_TARGET_INVALID', {
@@ -242,7 +242,7 @@ export function validateTemplatePackage(
         continue;
       }
       const slotKey = `${key}|${fieldOf(pointer)}`;
-      // ช่องเดียวถูกสอง parameter ผูกไม่ได้ — ค่าที่ได้จะขึ้นกับลำดับ ซึ่งไม่ deterministic
+      // one slot cannot be bound by two parameters — the resulting value would depend on the order, which is not deterministic
       if (bound.has(slotKey)) {
         out.push(
           diagnostic(
@@ -257,7 +257,7 @@ export function validateTemplatePackage(
     }
   }
 
-  // reference ของ tenant ที่ไม่ได้ผ่าน parameter แปลว่า template ฝังค่าจริงไว้ใน graph
+  // a tenant reference that does not go through a parameter means the template embedded a real value in the graph
   const nodes: Array<[string, string, Json]> = [
     ['@settings', '@settings', document.settings as unknown as Json],
     ['@trigger', document.trigger.type, document.trigger.config as unknown as Json],
@@ -280,7 +280,7 @@ export function validateTemplatePackage(
   return sortJourneyDiagnostics(out);
 }
 
-/** คืนเหตุผลที่ค่าใช้ไม่ได้ หรือ undefined เมื่อค่าถูกต้อง */
+/** returns the reason a value cannot be used, or undefined when the value is valid */
 function checkValue(
   parameter: JourneyTemplateParameterV1,
   value: JourneyTemplateParameterValue,
@@ -327,17 +327,17 @@ export function deriveTemplateNodeId(journeyId: string, templateNodeKey: string)
 
 export interface BindTemplateResult {
   readonly document: AuthoringDocumentV1 | null;
-  /** templateNodeKey (รวม `@trigger`) → journey nodeId */
+  /** templateNodeKey (including `@trigger`) → journey nodeId */
   readonly nodeMapping: Readonly<Record<string, string>>;
   readonly bindingDigest: string;
   readonly diagnostics: readonly JourneyDiagnosticV1[];
-  /** reference ที่ต้องตรวจกับ tenant/scope ปัจจุบันก่อน commit — ค่าเป็น opaque id เท่านั้น */
+  /** references that must be checked against the current tenant/scope before commit — values are opaque ids only */
   readonly references: ReadonlyArray<{ readonly resourceKind: string; readonly id: string }>;
 }
 
 /**
- * instantiate: ตรวจ binding แล้วสร้าง document ใหม่ทั้งฉบับ (detached) ที่ node ID ผูกกับ journeyId ใหม่
- * ค่า parameter อยู่ใน document ของ tenant เท่านั้น; ภายนอกเห็นเพียง `bindingDigest`
+ * instantiate: checks the binding and creates a whole new (detached) document whose node IDs are bound to the new journeyId
+ * parameter values live only in the tenant's document; from outside only the `bindingDigest` is visible
  */
 export function bindTemplate(
   content: JourneyTemplateContentV1,
@@ -419,7 +419,7 @@ export function bindTemplate(
     };
   }
 
-  // node ID ใหม่แบบ deterministic: instance คนละ Journey ไม่ใช้ ID ชุดเดียวกัน
+  // new deterministic node IDs: instances of different Journeys do not share the same set of IDs
   const localToNew = new Map<string, string>();
   const nodeMapping: Record<string, string> = {};
   const triggerId = deriveTemplateNodeId(target.journeyId, '@trigger');

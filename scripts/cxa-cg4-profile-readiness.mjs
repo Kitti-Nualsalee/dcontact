@@ -2,11 +2,11 @@ import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
 
 /**
- * CG4-REG02/CG4-OB01 (#178): owner profile และ fixed flags ของ CG4 Development Complete
+ * CG4-REG02/CG4-OB01 (#178): owner profile and fixed flags of CG4 Development Complete
  *
- * Contact Governance ต้องเป็น durable owner จริง, Console เรียกเฉพาะ D-Contact API, CG3 ต้อง
- * integrated บน SHA เดียวกัน และไม่มี provider ใดเลย — flag ทั้งห้าคงค่าเสมอ ถ้า environment พยายาม
- * เปลี่ยนค่าใดให้ fail closed แทนการรายงานค่าที่ไม่ปลอดภัย
+ * Contact Governance must be a real durable owner, Console calls only the D-Contact API, CG3 must be
+ * integrated on the same SHA and there is no provider at all - all five flags stay fixed; if the environment tries to
+ * change any value, fail closed instead of reporting an unsafe value
  */
 
 export const CG4_FIXED_FLAGS = Object.freeze({
@@ -39,24 +39,24 @@ export function cxaCg4ProfileSummary(environment = process.env) {
   for (const [owner, expected] of Object.entries(CG4_OWNER_PROFILES)) {
     assert(
       profiles[owner] === expected,
-      `CG4 acceptance ต้องการ ${owner} profile ${expected} เท่านั้น`,
+      `CG4 acceptance needs the ${owner} profile ${expected} only`,
     );
   }
   assert(
     environment.CXA_PROVIDER_TRAFFIC_ENABLED !== 'true',
-    'CG4 acceptance ห้ามเปิด actual provider traffic',
+    'CG4 acceptance must not enable actual provider traffic',
   );
   assert(
     environment.CXA_CG4_RELEASE_ENABLED !== 'true',
-    'CG4 development acceptance ห้ามอ้าง releaseEnabled',
+    'CG4 development acceptance must not claim releaseEnabled',
   );
   assert(
     environment.CXA_CG4_PROVIDER_CONFORMANCE !== 'true',
-    'CG4 development acceptance ห้ามอ้าง providerConformance',
+    'CG4 development acceptance must not claim providerConformance',
   );
   assert(
     environment.CXA_CG4_REAL_CUSTOMER_DATA !== 'true',
-    'CG4 development acceptance ใช้ synthetic fixture เท่านั้น',
+    'CG4 development acceptance uses synthetic fixtures only',
   );
   return {
     type: 'owner-profile.readiness',

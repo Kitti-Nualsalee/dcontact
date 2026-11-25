@@ -220,28 +220,28 @@ exec "$@"
   return { root, run, log, env, targetHash, seedPending };
 }
 
-test('158 rollback หลัง skill scope ต้องหยุดก่อน up', (context) => {
+test('158 rollback after the skill scope must stop before up', (context) => {
   const result = fixture(context, { capability: 'UNSCOPED' }).run();
   assert.notEqual(result.status, 0);
   assert.doesNotMatch(result.commands, /up -d|migrate|record/);
   assert.match(result.stderr, /ROLLBACK_SKILL_SCOPE_INCOMPATIBLE/);
 });
 
-test('migration authority ของ B7 ต้องหยุด rollback จนกว่าจะรับรอง compatibility', (context) => {
+test('the B7 migration authority must stop rollback until compatibility is certified', (context) => {
   const result = fixture(context, { ledger: 'B7_AUTHORITY_APPLIED' }).run(compatibleSha);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /ROLLBACK_B7_COMPATIBILITY_NOT_CERTIFIED/);
   assert.doesNotMatch(result.commands, /up -d|migrate|record/);
 });
 
-test('rollback ต้องหยุดก่อน up หาก Keycloak ที่ไม่เปลี่ยนไม่ตรง target', (context) => {
+test('rollback must stop before up if the unchanged Keycloak does not match the target', (context) => {
   const result = fixture(context, { badSourceService: 'keycloak' }).run(compatibleSha);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /RECORD_RUNTIME_COMPONENT_MISMATCH/);
   assert.doesNotMatch(result.commands, /up -d/);
 });
 
-test('rollback ห้ามใช้ release.env ที่ digest ต่างจาก record ของ target', (context) => {
+test('rollback must not use a release.env whose digest differs from the target record', (context) => {
   const setup = fixture(context);
   const target = join(setup.root, 'deployments', `20200101T000000Z-${compatibleSha}.json`);
   writeFileSync(
@@ -273,7 +273,7 @@ test('rollback ห้ามใช้ release.env ที่ digest ต่าง�
   assert.throws(() => readFileSync(setup.log), { code: 'ENOENT' });
 });
 
-test('rollback หยุดก่อนสลับ runtime หาก transaction ยังไม่รับรอง', (context) => {
+test('rollback stops before switching the runtime if the transaction is not yet certified', (context) => {
   const setup = fixture(context);
   const result = setup.run(compatibleSha);
   assert.notEqual(result.status, 0);
@@ -284,7 +284,7 @@ test('rollback หยุดก่อนสลับ runtime หาก transactio
   });
 });
 
-test('rollback หยุดก่อนเปลี่ยน runtime เมื่อ record เป้าหมายเปลี่ยนหลังเลือก', (context) => {
+test('rollback stops before changing the runtime when the target record changed after it was selected', (context) => {
   const setup = fixture(context);
   const selectedHash = setup.targetHash(compatibleSha);
   const target = join(setup.root, 'deployments', `20200101T000000Z-${compatibleSha}.json`);
@@ -301,7 +301,7 @@ test('rollback หยุดก่อนเปลี่ยน runtime เมื�
   assert.throws(() => readFileSync(setup.log), { code: 'ENOENT' });
 });
 
-test('rollback เลือก previous ที่มี SHA เดียวกับ archive แต่เป็นคนละ record ได้', (context) => {
+test('rollback can select a previous that has the same SHA as an archive but is a different record', (context) => {
   const setup = fixture(context);
   writeFileSync(
     join(setup.root, 'deployments', 'previous.json'),
@@ -339,7 +339,7 @@ test('rollback เลือก previous ที่มี SHA เดียวก�
   assert.doesNotMatch(readFileSync(setup.log, 'utf8'), /up -d/);
 });
 
-test('เมื่อมี pending ห้าม mutation อื่นจน reconcile', (context) => {
+test('when there is a pending item, no other mutation is allowed until reconcile', (context) => {
   const setup = fixture(context);
   setup.seedPending();
   const marker = JSON.parse(
@@ -371,7 +371,7 @@ test('เมื่อมี pending ห้าม mutation อื่นจน rec
   }
 });
 
-test('record rollback ที่อ้าง smoke PASS เองยังปลด pending ไม่ได้', (context) => {
+test('a rollback record that claims a smoke PASS by itself still cannot clear pending', (context) => {
   const setup = fixture(context);
   setup.seedPending();
   const input = join(setup.root, 'rollback.json');
@@ -397,7 +397,7 @@ test('record rollback ที่อ้าง smoke PASS เองยังปล�
   assert.ok(readFileSync(join(setup.root, 'operator', 'uat-rollback.pending')));
 });
 
-test('record rollback ที่ smoke ไม่ผ่านต้องคง pending และ current เดิม', (context) => {
+test('a rollback record whose smoke did not pass must keep the original pending and current', (context) => {
   const setup = fixture(context);
   setup.seedPending();
   const current = join(setup.root, 'deployments', 'current.json');
@@ -426,7 +426,7 @@ test('record rollback ที่ smoke ไม่ผ่านต้องคง pe
   assert.ok(readFileSync(join(setup.root, 'operator', 'uat-rollback.pending')));
 });
 
-test('คำสั่งเปลี่ยน release ต้องหยุดถ้า reconciliation กำลังถือ lock', async (context) => {
+test('a release-changing command must stop if a reconciliation holds the lock', async (context) => {
   const setup = fixture(context);
   mkdirSync(join(setup.root, 'operator'), { mode: 0o700 });
   const lock = join(setup.root, 'operator', 'b714-cutover.lock');
@@ -467,7 +467,7 @@ test('คำสั่งเปลี่ยน release ต้องหยุด�
   holder.stdin.end();
 });
 
-test('ระบุ SHA ตรงก็ห้าม rollback จาก reconciliation ที่ยังไม่รับรอง', (context) => {
+test('even with an exact SHA, rollback from an uncertified reconciliation is forbidden', (context) => {
   const setup = fixture(context);
   writeFileSync(
     join(setup.root, 'deployments', 'current.json'),
@@ -484,7 +484,7 @@ test('ระบุ SHA ตรงก็ห้าม rollback จาก reconcilia
   assert.throws(() => readFileSync(setup.log), { code: 'ENOENT' });
 });
 
-test('current record เสียต้องหยุดก่อนสั่ง rollback', (context) => {
+test('a corrupt current record must stop before ordering a rollback', (context) => {
   const setup = fixture(context);
   writeFileSync(join(setup.root, 'deployments', 'current.json'), '{broken', { mode: 0o600 });
   const result = spawnSync('bash', [deploy, 'rollback', compatibleSha], {
@@ -497,7 +497,7 @@ test('current record เสียต้องหยุดก่อนสั่�
   assert.throws(() => readFileSync(setup.log), { code: 'ENOENT' });
 });
 
-test('current record ที่เป็น symlink ต้องหยุดก่อนสั่ง rollback', (context) => {
+test('a current record that is a symlink must stop before ordering a rollback', (context) => {
   const setup = fixture(context);
   const other = join(setup.root, 'other.json');
   writeFileSync(other, JSON.stringify({ action: 'deploy' }), { mode: 0o600 });
@@ -513,7 +513,7 @@ test('current record ที่เป็น symlink ต้องหยุดก�
   assert.throws(() => readFileSync(setup.log), { code: 'ENOENT' });
 });
 
-test('3VM rollback ที่ไม่มี current record ต้องหยุดก่อนสั่ง container', (context) => {
+test('a 3VM rollback with no current record must stop before ordering a container', (context) => {
   const setup = fixture(context);
   rmSync(join(setup.root, 'deployments', 'current.json'));
   const result = spawnSync('bash', [deploy, 'rollback', compatibleSha], {
@@ -526,7 +526,7 @@ test('3VM rollback ที่ไม่มี current record ต้องหยุ
   assert.throws(() => readFileSync(setup.log), { code: 'ENOENT' });
 });
 
-test('reconciliation ค้างต้องหยุด rollback แม้ lock ว่างแล้ว', (context) => {
+test('a pending reconciliation must stop rollback even when the lock is free', (context) => {
   const setup = fixture(context);
   mkdirSync(join(setup.root, 'operator'), { mode: 0o700 });
   writeFileSync(join(setup.root, 'operator', 'b714-reconciliation.pending'), '{}', { mode: 0o600 });
@@ -540,7 +540,7 @@ test('reconciliation ค้างต้องหยุด rollback แม้ loc
   assert.throws(() => readFileSync(setup.log), { code: 'ENOENT' });
 });
 
-test('record transaction ค้างต้องหยุด mutation แม้ lock ว่างแล้ว', (context) => {
+test('a pending record transaction must stop mutation even when the lock is free', (context) => {
   const setup = fixture(context);
   mkdirSync(join(setup.root, 'operator', 'uat-record-transaction'), {
     recursive: true,
@@ -562,7 +562,7 @@ test('record transaction ค้างต้องหยุด mutation แม้
   assert.throws(() => readFileSync(setup.log), { code: 'ENOENT' });
 });
 
-test('record retirement ค้างต้องหยุด mutation แม้ journal ถูกย้ายแล้ว', (context) => {
+test('a pending record retirement must stop mutation even when the journal was moved', (context) => {
   const setup = fixture(context);
   mkdirSync(join(setup.root, 'operator'), { recursive: true, mode: 0o700 });
   writeFileSync(join(setup.root, 'operator', 'uat-record-retirement.pending'), '{}', {
@@ -584,7 +584,7 @@ test('record retirement ค้างต้องหยุด mutation แม้ 
   assert.throws(() => readFileSync(setup.log), { code: 'ENOENT' });
 });
 
-test('deploy workflow ต้องหยุดก่อนเปลี่ยน runtime เมื่อ current เป็น reconciliation', (context) => {
+test('the deploy workflow must stop before changing the runtime when current is a reconciliation', (context) => {
   const setup = fixture(context);
   const current = join(setup.root, 'deployments', 'current.json');
   const original = JSON.stringify({ action: 'reconciliation', rollbackEligible: false });
@@ -613,7 +613,7 @@ test('deploy workflow ต้องหยุดก่อนเปลี่ยน 
   }
 });
 
-test('release เก่าที่มี record ต้องผ่าน rollback guard ไม่ใช่ deploy ตรง', (context) => {
+test('an old release that has a record must pass the rollback guard, not a direct deploy', (context) => {
   const setup = fixture(context);
   writeFileSync(join(setup.root, 'deployments', `20261101T000000Z-${oldSha}.json`), '{}', {
     mode: 0o600,
@@ -630,7 +630,7 @@ test('release เก่าที่มี record ต้องผ่าน rollba
   }
 });
 
-test('target ที่ไม่มีประวัติและยังไม่มีหลักฐาน compatibility ต้องหยุดก่อน migrate', (context) => {
+test('a target with no history and no compatibility evidence yet must stop before migrate', (context) => {
   const setup = fixture(context);
   rmSync(join(setup.root, 'deployments', `20200101T000000Z-${oldSha}.json`));
   for (const action of ['migrate', 'keycloak', 'deploy']) {
@@ -645,7 +645,7 @@ test('target ที่ไม่มีประวัติและยังไ�
   }
 });
 
-test('deploy source เดิมยังผ่าน target gate', (context) => {
+test('the original deploy source still passes the target gate', (context) => {
   const setup = fixture(context);
   const result = spawnSync('bash', [deploy, 'deploy', compatibleSha], {
     encoding: 'utf8',
@@ -656,7 +656,7 @@ test('deploy source เดิมยังผ่าน target gate', (context) =>
   assert.match(readFileSync(setup.log, 'utf8'), /up -d/);
 });
 
-test('current record หายแต่มีประวัติ deployment ต้องไม่ถือเป็น initial deploy', (context) => {
+test('a missing current record with deployment history must not be treated as an initial deploy', (context) => {
   const setup = fixture(context);
   rmSync(join(setup.root, 'deployments', 'current.json'));
   writeFileSync(join(setup.root, 'deployments', `20261101T000000Z-${oldSha}.json`), '{}', {
@@ -672,7 +672,7 @@ test('current record หายแต่มีประวัติ deployment �
   assert.throws(() => readFileSync(setup.log), { code: 'ENOENT' });
 });
 
-test('record ห้ามเขียนเมื่อ API runtime เป็นคนละ source', (context) => {
+test('a record must not be written when the API runtime is from a different source', (context) => {
   const setup = fixture(context, { runtimeSha: oldSha });
   const current = join(setup.root, 'deployments', 'current.json');
   const original = readFileSync(current, 'utf8');
@@ -697,7 +697,7 @@ test('record ห้ามเขียนเมื่อ API runtime เป็น
   assert.equal(readFileSync(current, 'utf8'), original);
 });
 
-test('record ห้ามเขียนเมื่อ proxy image digest ไม่ตรง release', (context) => {
+test('a record must not be written when the proxy image digest does not match the release', (context) => {
   const setup = fixture(context, { badService: 'console' });
   const current = join(setup.root, 'deployments', 'current.json');
   const original = readFileSync(current, 'utf8');
@@ -722,7 +722,7 @@ test('record ห้ามเขียนเมื่อ proxy image digest ไ�
   assert.equal(readFileSync(current, 'utf8'), original);
 });
 
-test('record ห้ามอ้าง ops digest ที่ต่างจาก release', (context) => {
+test('a record must not claim an ops digest that differs from the release', (context) => {
   const setup = fixture(context);
   const current = join(setup.root, 'deployments', 'current.json');
   const original = readFileSync(current, 'utf8');
@@ -748,7 +748,7 @@ test('record ห้ามอ้าง ops digest ที่ต่างจาก 
   assert.throws(() => readFileSync(setup.log), { code: 'ENOENT' });
 });
 
-test('record ตรวจ sandbox เมื่อเปิด E1', (context) => {
+test('a record checks the sandbox when E1 is enabled', (context) => {
   const setup = fixture(context, { badSourceService: 'e1-sandbox' });
   const release = join(setup.root, 'releases', compatibleSha);
   mkdirSync(join(release, 'e1-freeswitch'));
@@ -776,7 +776,7 @@ test('record ตรวจ sandbox เมื่อเปิด E1', (context) => 
   assert.match(result.stderr, /RECORD_RUNTIME_COMPONENT_MISMATCH/);
 });
 
-test('record เขียนได้เมื่อ API source ตรงและเก็บ previous', (context) => {
+test('a record can be written when the API source matches and the previous is kept', (context) => {
   const setup = fixture(context);
   const current = join(setup.root, 'deployments', 'current.json');
   const original = readFileSync(current, 'utf8');
@@ -801,7 +801,7 @@ test('record เขียนได้เมื่อ API source ตรงแล�
   assert.equal(statSync(archive).mode & 0o777, 0o600);
 });
 
-test('record ใช้ bytes ที่ตรวจแล้วแม้ input ถูกเปลี่ยนระหว่างตรวจ runtime', (context) => {
+test('a record uses the bytes that were checked even if the input changed during the runtime check', (context) => {
   const setup = fixture(context);
   const input = join(setup.root, 'input.json');
   const next = JSON.stringify({
@@ -831,7 +831,7 @@ for (const hasPrevious of [false, true]) {
     'marker-empty',
     'marker',
   ]) {
-    test(`record ถูกขัดจังหวะหลัง ${phase} (previous ${hasPrevious}) ต้องคง journal`, (context) => {
+    test(`a record interrupted after ${phase} (previous ${hasPrevious}) must keep the journal`, (context) => {
       const setup = fixture(context);
       chmodSync(join(setup.root, 'deployments'), 0o700);
       const current = join(setup.root, 'deployments', 'current.json');
@@ -936,7 +936,7 @@ os.execv(sys.executable, [sys.executable, *sys.argv[1:]])
   }
 }
 
-test('record ไม่เขียนทับ archive ชื่อซ้ำและไม่เปลี่ยน current', (context) => {
+test('a record does not overwrite an archive with a duplicate name and does not change current', (context) => {
   const setup = fixture(context);
   const current = join(setup.root, 'deployments', 'current.json');
   const archive = join(setup.root, 'deployments', `20200101T000000Z-${compatibleSha}.json`);
@@ -971,7 +971,7 @@ test('record ไม่เขียนทับ archive ชื่อซ้ำแ�
   );
 });
 
-test('archive เขียนไม่ได้ต้องเก็บ snapshots และปฏิเสธ mutation ถัดไป', (context) => {
+test('an archive that cannot be written must keep the snapshots and reject the next mutation', (context) => {
   const setup = fixture(context);
   const deployments = join(setup.root, 'deployments');
   const current = readFileSync(join(deployments, 'current.json'), 'utf8');
@@ -1009,7 +1009,7 @@ test('archive เขียนไม่ได้ต้องเก็บ snapshot
 
 for (const interruptPhase of ['ledger', 'capability']) {
   for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP']) {
-    test(`${signal} ระหว่าง ${interruptPhase} cleanup เฉพาะ probe และไม่ up`, async (context) => {
+    test(`${signal} during ${interruptPhase} cleans up only the probe and does not up`, async (context) => {
       const setup = fixture(context, { interruptPhase, cleanupOwner: 'own' });
       const child = spawn(
         'bash',
@@ -1058,7 +1058,7 @@ for (const interruptPhase of ['ledger', 'capability']) {
   }
 }
 
-test('explicit compatible target ผ่าน narrow capability แล้วหยุดก่อน up', (context) => {
+test('an explicit compatible target passes the narrow capability and stops before up', (context) => {
   const setup = fixture(context);
   const result = setup.run(compatibleSha);
   assert.notEqual(result.status, 0);
@@ -1081,7 +1081,7 @@ test('explicit compatible target ผ่าน narrow capability แล้วห�
   assert.doesNotMatch(result.stdout + result.stderr, /not-for-output|PRIVATE_DB_ERROR/);
 });
 
-test('capability process failure ปฏิเสธโดยไม่เผย stderr', (context) => {
+test('a capability process failure is rejected without revealing stderr', (context) => {
   const result = fixture(context, { capabilityFailure: true }).run(compatibleSha);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /ROLLBACK_CAPABILITY_QUERY_FAILED/);
@@ -1089,7 +1089,7 @@ test('capability process failure ปฏิเสธโดยไม่เผย s
   assert.doesNotMatch(result.commands, /up -d/);
 });
 
-test('predicate จริงตรวจทั้งสอง generated models และ required mapped tenant field', (context) => {
+test('the real predicate checks both generated models and the required mapped tenant field', (context) => {
   const setup = fixture(context);
   assert.match(setup.run(compatibleSha).stderr, /UAT_ROLLBACK_TRANSACTION_NOT_CERTIFIED/);
   const code = readFileSync(join(setup.root, 'capability.js'), 'utf8');
@@ -1139,7 +1139,7 @@ test('predicate จริงตรวจทั้งสอง generated models �
   }
 });
 
-test('pre-skill ledger ไม่รัน target capability และหยุดก่อน up', (context) => {
+test('a pre-skill ledger does not run the target capability and stops before up', (context) => {
   const result = fixture(context, {
     ledger: 'ABSENT',
     capability: 'UNSCOPED',
@@ -1159,7 +1159,7 @@ for (const ledger of [
   'AMBIGUOUS_LEDGER',
   'INVALID_SCOPE',
 ]) {
-  test(`ledger ${JSON.stringify(ledger)} ปฏิเสธก่อนเปลี่ยน runtime`, (context) => {
+  test(`ledger ${JSON.stringify(ledger)} is rejected before changing the runtime`, (context) => {
     const result = fixture(context, { ledger }).run(compatibleSha);
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /ROLLBACK_LEDGER_INVALID/);
@@ -1167,7 +1167,7 @@ for (const ledger of [
   });
 }
 
-test('query error ไม่เผย stderr/credentials และไม่ up', (context) => {
+test('a query error does not reveal stderr/credentials and does not up', (context) => {
   const result = fixture(context, { queryFailure: true }).run(compatibleSha);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /ROLLBACK_LEDGER_QUERY_FAILED/);
@@ -1176,7 +1176,7 @@ test('query error ไม่เผย stderr/credentials และไม่ up', 
   assert.doesNotMatch(result.commands, /rm -f/);
 });
 
-test('query failure cleanup เฉพาะ exact owned probe', (context) => {
+test('query failure cleans up only the exact owned probe', (context) => {
   const result = fixture(context, { queryFailure: true, cleanupOwner: 'own' }).run();
   assert.notEqual(result.status, 0);
   assert.match(result.commands, new RegExp(`rm -f ${'b'.repeat(64)}`));
@@ -1184,7 +1184,7 @@ test('query failure cleanup เฉพาะ exact owned probe', (context) => {
 });
 
 for (const cleanupFailure of ['inspect', 'rm', 'ps']) {
-  test(`cleanup ${cleanupFailure} failure ต้องรายงาน reconciliation ไม่ up`, (context) => {
+  test(`cleanup ${cleanupFailure} failure must report reconciliation and not up`, (context) => {
     const result = fixture(context, {
       queryFailure: true,
       cleanupOwner: 'own',
@@ -1197,7 +1197,7 @@ for (const cleanupFailure of ['inspect', 'rm', 'ps']) {
   });
 }
 
-test('capability failure cleanup ต้องใช้ ownership ของ capability เอง', (context) => {
+test('capability failure cleanup must use the ownership of the capability itself', (context) => {
   const result = fixture(context, { capabilityFailure: true, cleanupOwner: 'own' }).run();
   assert.notEqual(result.status, 0);
   assert.match(result.commands, /-capability/);
@@ -1212,7 +1212,7 @@ test('unknown capability output fail-closed', (context) => {
   assert.doesNotMatch(result.commands, /up -d/);
 });
 
-test('target จาก previous record ยังต้องผ่าน guard เดียวกัน', (context) => {
+test('a target from a previous record must still pass the same guard', (context) => {
   const setup = fixture(context, { capability: 'UNSCOPED' });
   mkdirSync(join(setup.root, 'deployments'), { recursive: true });
   writeFileSync(

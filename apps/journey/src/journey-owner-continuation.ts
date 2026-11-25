@@ -33,7 +33,7 @@ export interface ContinueOwnerResultInput {
   resultHash: string;
   correlationId: string;
   action: JrOwnerAction;
-  /** state หลังใช้ J2 terminal precedence แล้ว */
+  /** the state after applying J2 terminal precedence */
   effectiveState: JrOwnerAction['state'];
 }
 
@@ -51,7 +51,7 @@ export class OwnerContinuationBindingError extends Error {
     readonly actionKey: string,
     detail: string,
   ) {
-    super(`owner action ${actionKey} bind กับ Journey cursor ไม่ได้: ${detail}`);
+    super(`owner action ${actionKey} cannot be bound to the Journey cursor: ${detail}`);
     this.name = 'OwnerContinuationBindingError';
   }
 }
@@ -112,7 +112,7 @@ export async function continueOwnerResultInTransaction(
     if (existing.resultHash !== input.resultHash) {
       throw new OwnerContinuationBindingError(
         action.actionKey,
-        'continuation เดิมมี resultHash ต่างกัน',
+        'the existing continuation has a different resultHash',
       );
     }
     return existing;
@@ -138,7 +138,7 @@ export async function continueOwnerResultInTransaction(
   if (!enrollment) {
     throw new OwnerContinuationBindingError(
       action.actionKey,
-      'ไม่พบ enrollment ใน tenant เดียวกัน',
+      'enrollment not found in the same tenant',
     );
   }
 
@@ -165,7 +165,7 @@ export async function continueOwnerResultInTransaction(
   }
 
   if (!enrollment.journeyId) {
-    throw new OwnerContinuationBindingError(action.actionKey, 'enrollment ไม่มี journeyId');
+    throw new OwnerContinuationBindingError(action.actionKey, 'enrollment has no journeyId');
   }
   if (
     enrollment.currentStepId !== action.stepId ||
@@ -173,7 +173,7 @@ export async function continueOwnerResultInTransaction(
   ) {
     throw new OwnerContinuationBindingError(
       action.actionKey,
-      `cursor อยู่ที่ ${enrollment.currentStepId ?? 'null'}:${enrollment.stepSequence}`,
+      `cursor is at ${enrollment.currentStepId ?? 'null'}:${enrollment.stepSequence}`,
     );
   }
 
@@ -190,7 +190,7 @@ export async function continueOwnerResultInTransaction(
   if (!definition || definition.status !== 'PUBLISHED') {
     throw new OwnerContinuationBindingError(
       action.actionKey,
-      'ไม่พบ published definition ที่ enrollment pin ไว้',
+      'published definition pinned by the enrollment not found',
     );
   }
 
@@ -198,7 +198,7 @@ export async function continueOwnerResultInTransaction(
   if (!step || step.type !== action.kind) {
     throw new OwnerContinuationBindingError(
       action.actionKey,
-      'step type ไม่ตรงกับ owner action kind',
+      'step type does not match the owner action kind',
     );
   }
   const nextStepId = input.effectiveState === 'ACKNOWLEDGED' ? step.next : step.onReject;
@@ -258,7 +258,7 @@ export async function continueOwnerResultInTransaction(
     },
   });
   if (moved.count !== 1) {
-    throw new OwnerContinuationBindingError(action.actionKey, 'cursor CAS ไม่สำเร็จ');
+    throw new OwnerContinuationBindingError(action.actionKey, 'cursor CAS failed');
   }
   return continuation;
 }

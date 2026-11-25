@@ -66,17 +66,17 @@ function check(id, dimension, dependency, boundaries, commands, extra = {}) {
     dependency,
     boundaries,
     commands,
-    remediation: `แก้ ${id} ตาม #222`,
+    remediation: `Fix ${id} per #222`,
     ...extra,
   };
 }
 
-/** Registry คือ contract ของ #208: check เดียวอ้างได้หลาย suite แต่ suite เดียวรันได้ครั้งเดียว */
+/** The registry is the contract of #208: one check can reference several suites but a suite runs only once */
 export const CXA_J3_READINESS_CHECKS = Object.freeze([
   check(
     'J3-F01',
     'functional',
-    'Customer 360 canonical membership และ OUT→IN entry identity',
+    'Customer 360 canonical membership and OUT->IN entry identity',
     ['definition immutable', 'membership/head/change/outbox atomic', 'OUT→IN only creates entry'],
     customer360(
       'segment-definition.test.ts',
@@ -87,7 +87,7 @@ export const CXA_J3_READINESS_CHECKS = Object.freeze([
   check(
     'J3-F02',
     'functional',
-    'customer.segment.changed V1 และ owner read/reconcile contract',
+    'customer.segment.changed V1 and the owner read/reconcile contract',
     ['closed payload', 'resolveEntry statuses', 'ordered readChanges'],
     [
       ...contracts('segment-membership.test.ts'),
@@ -98,7 +98,7 @@ export const CXA_J3_READINESS_CHECKS = Object.freeze([
   check(
     'J3-F03',
     'functional',
-    'SEGMENT_ENTRY re-read และ immutable PII-safe enrollment reason',
+    'SEGMENT_ENTRY re-read and an immutable PII-safe enrollment reason',
     ['published version pinned', 'intent exactly once', 'no caller snapshot/raw attribute'],
     journey(
       'journey-segment-trigger-processor.integration.ts',
@@ -108,7 +108,7 @@ export const CXA_J3_READINESS_CHECKS = Object.freeze([
   check(
     'J3-F04',
     'functional',
-    're-filter, correction และ merge/split ไม่ revive predecessor',
+    're-filter, correction and merge/split do not revive the predecessor',
     ['LEFT/CORRECTED/refilter', 'barrier-aware cancellation', 'new canonical entry required'],
     journey(
       'journey-segment-refilter-processor.integration.ts',
@@ -119,7 +119,7 @@ export const CXA_J3_READINESS_CHECKS = Object.freeze([
   check(
     'J3-TI01',
     'tenant-isolation',
-    'two-tenant binding/RLS และ generic foreign result',
+    'two-tenant binding/RLS and a generic foreign result',
     ['tenant envelope/read/query/recovery', 'RLS all J3 tables', 'no foreign disclosure'],
     [
       db,
@@ -231,7 +231,7 @@ export const CXA_J3_READINESS_CHECKS = Object.freeze([
     'J3-REG01',
     'regression',
     'E0/C1/J1/Core plus merged J2/S1/CG3/CG4 paths on target SHA',
-    // #559: ไม่รัน S1/J2/CG4 acceptance ซ้ำ — ตรวจ marker จาก immutable CI artifact บน SHA เดียวกันแทน
+    // #559: do not re-run the S1/J2/CG4 acceptance - check the marker from an immutable CI artifact on the same SHA instead
     ['no regression disabled', 'S1/J2/CG4 markers same SHA', 'provider traffic stays disabled'],
     [dependency, profile],
     { evidencePrefix: ['CXA_J3_PROFILE_EVIDENCE:', 'ACCEPTANCE_DEPENDENCY_EVIDENCE:'] },
@@ -333,18 +333,18 @@ export function executeJ3Suite(suite, runner = spawnSync) {
   };
 }
 
-/** #559: FAIL ของ acceptance ที่ซ้อนอยู่ขึ้นก่อน แล้วตามด้วยท้าย output */
+/** #559: the FAIL of a nested acceptance comes first, followed by the tail of the output */
 export function j3FailureDetail(output) {
   const detail = redactRunId(
-    [...nestedReadinessFailures(output), '... ท้าย output ...', ...outputTail(output)].join('\n'),
+    [...nestedReadinessFailures(output), '... end of output ...', ...outputTail(output)].join('\n'),
   ).trim();
-  // ตัดจากท้ายเพื่อให้บรรทัด nested FAIL ที่อยู่ต้นข้อความยังอยู่
+  // cut from the end so the nested FAIL lines at the start of the text are kept
   return detail.length > 4_000 ? `${detail.slice(0, 4_000)}\n... truncated ...` : detail;
 }
 
 function git(arguments_) {
   const result = spawnSync('git', arguments_, { cwd: repositoryRoot, encoding: 'utf8' });
-  if (result.status !== 0 || result.error) throw new Error(`git ${arguments_.join(' ')} ล้มเหลว`);
+  if (result.status !== 0 || result.error) throw new Error(`git ${arguments_.join(' ')} failed`);
   return String(result.stdout).trim();
 }
 function repositoryName(environment) {
@@ -352,7 +352,7 @@ function repositoryName(environment) {
   const match = git(['config', '--get', 'remote.origin.url']).match(
     /(?:github\.com[/:])([^/]+\/[^/.]+)(?:\.git)?$/,
   );
-  if (!match) throw new TypeError('ไม่สามารถระบุ repository สำหรับ J3 manifest');
+  if (!match) throw new TypeError('cannot determine the repository for the J3 manifest');
   return match[1];
 }
 export function createJ3EvidenceContext(environment = process.env) {
@@ -424,7 +424,7 @@ export function j3MarkerBlockers(context, checks) {
     blockers.push('CHECKS_NOT_ALL_PASS');
   if (context.pullRequest !== null) blockers.push('PULL_REQUEST_RUN');
   if (context.ref !== 'refs/heads/main') blockers.push('NOT_DEFAULT_BRANCH_REF');
-  // ADR-032: commit ต้องอยู่บน main แล้ว (ancestor ของ origin/main) ไม่ต้องเป็น HEAD
+  // ADR-032: the commit must already be on main (an ancestor of origin/main); it need not be HEAD
   if (!contextOnMain(context) || context.commitSha !== context.expectedCommitSha)
     blockers.push('NOT_FINAL_MAIN_SHA');
   if (!context.cleanTree) blockers.push('DIRTY_TREE');
@@ -544,86 +544,96 @@ export function assertValidCxaJ3EvidenceManifest(manifest) {
     manifest.phase !== 'J3' ||
     manifest.evidenceType !== 'development-acceptance'
   )
-    throw new TypeError('J3 manifest มี schemaVersion/phase/evidenceType ไม่ถูกต้อง');
+    throw new TypeError('J3 manifest has an invalid schemaVersion/phase/evidenceType');
   for (const name of ['commitSha', 'finalMainSha', 'expectedCommitSha'])
     if (!FULL_SHA.test(manifest[name] ?? ''))
-      throw new TypeError(`J3 manifest ต้องมี ${name} แบบ SHA เต็ม`);
+      throw new TypeError(`J3 manifest must have a full SHA for ${name}`);
   if (JSON.stringify(manifest.flags) !== JSON.stringify(J3_FIXED_FLAGS))
-    throw new TypeError('J3 manifest flags ไม่ตรง fixed flags');
+    throw new TypeError('J3 manifest flags do not match the fixed flags');
   const registered = new Map(CXA_J3_READINESS_CHECKS.map((item) => [item.id, item]));
   const checks = manifest.checks ?? [];
   if (
     checks.length !== registered.size ||
     new Set(checks.map((item) => item.id)).size !== checks.length
   )
-    throw new TypeError('J3 manifest ต้องมี check ครบ 16 ตัวและไม่ซ้ำ');
+    throw new TypeError('J3 manifest must have all 16 checks with no duplicates');
   for (const item of checks)
     if (!registered.has(item.id) || registered.get(item.id).dimension !== item.dimension)
-      throw new TypeError(`J3 manifest มี check/dimension ที่ไม่ตรง registry: ${item.id}`);
+      throw new TypeError(
+        `J3 manifest has a check/dimension that does not match the registry: ${item.id}`,
+      );
   const dimensions = manifest.dimensions ?? [];
   if (
     dimensions.length !== J3_DIMENSIONS.length ||
     J3_DIMENSIONS.some((name) => !(dimensions.find((item) => item.name === name)?.checks > 0))
   )
-    throw new TypeError('J3 manifest ต้องมีครบ 9 dimensions และไม่มี dimension ว่าง');
+    throw new TypeError('J3 manifest must have all 9 dimensions and no empty dimension');
   const suites = new Map((manifest.suites ?? []).map((suite) => [suite.id, suite]));
   if (!suites.size || suites.size !== (manifest.suites ?? []).length)
-    throw new TypeError('J3 manifest ต้องมี suites id ไม่ซ้ำ');
+    throw new TypeError('J3 manifest must have suites with unique ids');
   for (const item of checks) {
     const registeredCheck = registered.get(item.id);
     if ((item.subchecks ?? []).length !== registeredCheck.commands.length)
-      throw new TypeError(`J3 check ${item.id} ต้องอ้าง suite ครบตาม registry`);
+      throw new TypeError(`J3 check ${item.id} must reference every suite per the registry`);
     for (const subcheck of item.subchecks) {
       const suite = suites.get(subcheck.suiteId);
       if (!suite || suite.status !== subcheck.status || !suite.checkIds.includes(item.id))
-        throw new TypeError(`J3 check ${item.id} อ้าง suite ที่ไม่ตรงกับผลของ suite`);
+        throw new TypeError(
+          `J3 check ${item.id} references a suite that does not match the suite result`,
+        );
     }
     const derived = item.subchecks.every((subcheck) => subcheck.status === 'PASS')
       ? 'PASS'
       : 'FAIL';
     if (item.status !== derived)
-      throw new TypeError(`J3 check ${item.id} มี status ไม่ตรงกับ suite ที่อ้าง`);
+      throw new TypeError(
+        `J3 check ${item.id} has a status that does not match the referenced suite`,
+      );
   }
   for (const suite of suites.values()) {
     if (suite.tap && (!suite.tap.clean || !/^[0-9a-f]{64}$/.test(suite.tap.titlesSha256 ?? '')))
-      throw new TypeError(`J3 suite ${suite.id} มี TAP summary ที่ไม่ผ่านหรือ digest ไม่ถูกต้อง`);
+      throw new TypeError(
+        `J3 suite ${suite.id} has a TAP summary that did not pass or an invalid digest`,
+      );
   }
   const artifacts = manifest.artifacts ?? [];
   if (
     artifacts.length !== checks.length ||
     new Set(artifacts.map((item) => item.id)).size !== artifacts.length
   )
-    throw new TypeError('J3 manifest ต้องมี evidence artifact หนึ่งรายการต่อ check');
+    throw new TypeError('J3 manifest must have one evidence artifact per check');
   for (const artifact of artifacts) {
     const item = checks.find((check) => artifact.id === `check:${check.id}`);
     if (!item || artifact.commitSha !== manifest.commitSha || artifact.sha256 !== sha256(item))
-      throw new TypeError('J3 evidence artifact ไม่ bind กับ check/commit/digest');
+      throw new TypeError('J3 evidence artifact is not bound to the check/commit/digest');
   }
   const markers = manifest.markers ?? [];
   if (markers.some((marker) => marker !== J3_MARKER) || new Set(markers).size !== markers.length)
-    throw new TypeError('J3 manifest มี marker ไม่ถูกต้อง');
+    throw new TypeError('J3 manifest has an invalid marker');
   if (!markers.length) return;
   if (
     checks.some((item) => item.status !== 'PASS') ||
     [...suites.values()].some((suite) => suite.status !== 'PASS')
   )
-    throw new TypeError(`${J3_MARKER} ต้องมีทุก check/suite PASS`);
+    throw new TypeError(`${J3_MARKER} needs every check/suite to PASS`);
   if (manifest.pullRequest?.number !== null && manifest.pullRequest?.number !== undefined)
-    throw new TypeError('PR run ออก J3 marker ไม่ได้');
+    throw new TypeError('a PR run cannot issue the J3 marker');
   if (
     manifest.refProof?.commitOnMain !== true ||
     manifest.commitSha !== manifest.expectedCommitSha ||
     manifest.refProof?.ref !== 'refs/heads/main' ||
     manifest.refProof?.cleanTree !== true
   )
-    throw new TypeError('J3 marker ต้องมาจาก clean commit ที่อยู่บน main แล้ว (ADR-032)');
+    throw new TypeError(
+      'the J3 marker must come from a clean commit that is already on main (ADR-032)',
+    );
   if (
     manifest.artifact?.immutable !== true ||
     manifest.artifact?.name !== `cxa-j3-evidence-${manifest.commitSha}`
   )
-    throw new TypeError('J3 marker ต้องอ้าง immutable CI artifact');
+    throw new TypeError('the J3 marker must reference an immutable CI artifact');
   if (JSON.stringify(manifest.ownerProfiles) !== JSON.stringify(J3_OWNER_PROFILES))
-    throw new TypeError('J3 marker ต้องมี owner profiles ตรง contract');
+    throw new TypeError('the J3 marker must have owner profiles that match the contract');
 }
 export function runCxaJ3Readiness(options = {}) {
   const startedAt = options.now?.() ?? new Date();

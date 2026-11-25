@@ -18,7 +18,7 @@ import {
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const template = JSON.parse(readFileSync(resolve(repositoryRoot, UAT_REALM_TEMPLATE), 'utf8'));
-test('UAT realm มี VERIFY_EMAIL provider ที่เปิดใช้งานสำหรับ onboarding แต่ไม่บังคับทุกบัญชี', () => {
+test('the UAT realm has a VERIFY_EMAIL provider that is enabled for onboarding but does not enforce it on every account', () => {
   const rendered = renderRealm(template, environment);
   const actions = rendered.requiredActions.filter((entry) => entry.alias === 'VERIFY_EMAIL');
   assert.equal(actions.length, 1);
@@ -58,7 +58,7 @@ const accounts = {
   ],
 };
 
-test('render realm: แทน ${env.*} ครบ, redirect ตรง host/tenant และ digest คงที่', () => {
+test('render realm: substitutes every ${env.*}, the redirect matches host/tenant, and the digest is stable', () => {
   const rendered = renderRealm(template, environment);
   const text = JSON.stringify(rendered);
   assert.ok(!text.includes('${env.'));
@@ -73,7 +73,7 @@ test('render realm: แทน ${env.*} ครบ, redirect ตรง host/tenant
   );
 });
 
-test('additional tenants: exact Console login/logout, deterministic และ Workspace ไม่ขยาย', () => {
+test('additional tenants: exact Console login/logout, deterministic, and the Workspace is not widened', () => {
   const options = {
     ...environment,
     UAT_ADDITIONAL_TENANT_SLUGS: 'tenant-z,tenant-a,tenant-z,uat-tenant',
@@ -101,7 +101,7 @@ test('additional tenants: exact Console login/logout, deterministic และ Wo
   );
 });
 
-test('additional tenants: ค่าผิดรูปและ redirect injection ถูกปฏิเสธก่อน apply', () => {
+test('additional tenants: malformed values and redirect injection are rejected before apply', () => {
   for (const value of [
     'ok,,two',
     'BAD',
@@ -120,7 +120,7 @@ test('additional tenants: ค่าผิดรูปและ redirect injectio
   }
 });
 
-test('Console redirect reconciliation: check, compare-before-apply, idempotency และ rollback', async () => {
+test('Console redirect reconciliation: check, compare-before-apply, idempotency and rollback', async () => {
   const initial = renderRealm(template, environment);
   const desired = renderRealm(template, {
     ...environment,
@@ -161,7 +161,7 @@ test('Console redirect reconciliation: check, compare-before-apply, idempotency 
     expectedDigest: check.targetDigest,
   });
   assert.equal(same.changed, false);
-  // #907: redirect ราย tenant ใน client ไม่ถูกถอดด้วยรายการใน env (saga ลงทะเบียนเองได้)
+  // #907: per-tenant redirects in the client are not removed by the list in env (the saga can register them itself)
   const reverse = await reconcileConsoleRedirects(admin, initial);
   assert.equal(reverse.changed, false);
   assert.deepEqual(client.redirectUris, [
@@ -172,7 +172,7 @@ test('Console redirect reconciliation: check, compare-before-apply, idempotency 
   assert.equal(calls.filter((call) => call.method === 'PUT').length, 1);
 });
 
-test('#907: รวม redirect ราย tenant เดิมเฉพาะรูปแบบ exact ของ origin เดียวกัน', () => {
+test('#907: merges the existing per-tenant redirects only in the exact form of the same origin', () => {
   const desired = renderRealm(template, environment).clients.find(
     (entry) => entry.clientId === 'dcontact-uat-console',
   );
@@ -201,7 +201,7 @@ test('#907: รวม redirect ราย tenant เดิมเฉพาะร�
   );
 });
 
-test('#907: config ไม่ลบ redirect ราย tenant ที่ saga ลงทะเบียนไว้', async () => {
+test('#907: config does not delete the per-tenant redirects the saga registered', async () => {
   const rendered = renderRealm(template, environment);
   const auto = 'https://uat.example.test/?tenant=auto-tenant';
   const puts = [];
@@ -230,7 +230,7 @@ test('#907: config ไม่ลบ redirect ราย tenant ที่ saga ล�
   assert.ok(consolePut.attributes['post.logout.redirect.uris'].split('##').includes(auto));
 });
 
-test('Console redirect reconciliation: Keycloak คืนลำดับต่างกันได้ digest เดียวกันและ verify ผ่าน', async () => {
+test('Console redirect reconciliation: Keycloak may return a different order, with the same digest, and verify passes', async () => {
   const initial = renderRealm(template, environment);
   const desired = renderRealm(template, {
     ...environment,
@@ -285,7 +285,7 @@ test('Console redirect reconciliation: Keycloak คืนลำดับต่�
   assert.equal(puts, 1);
 });
 
-test('render realm: env ขาดหรือผิดรูป = fail closed', () => {
+test('render realm: a missing or malformed env = fail closed', () => {
   assert.throws(
     () => renderRealm(template, { ...environment, UAT_HOST: '' }),
     /REALM_ENV_MISSING: UAT_HOST/,
@@ -300,7 +300,7 @@ test('render realm: env ขาดหรือผิดรูป = fail closed', 
   );
 });
 
-test('บัญชี: maker/reviewer คนละบัญชี, ไม่ใช้บัญชี/รหัสผ่านของ dev', () => {
+test('accounts: maker/reviewer are different accounts, and no dev account/password is used', () => {
   assert.equal(validateAccounts(accounts).length, 2);
   const mutate = (index, change) => {
     const copy = structuredClone(accounts);
@@ -311,7 +311,7 @@ test('บัญชี: maker/reviewer คนละบัญชี, ไม่ใ�
     mutate(1, { dcUserId: accounts.accounts[0].dcUserId }),
     /ACCOUNTS_INVALID: dcUserId/,
   );
-  assert.throws(mutate(1, { role: 'maker' }), /maker และ reviewer/);
+  assert.throws(mutate(1, { role: 'maker' }), /maker and reviewer/);
   assert.throws(mutate(0, { username: 'admin@demo.local' }), /SHARED_CREDENTIAL_WITH_DEV/);
   assert.throws(mutate(0, { temporaryPassword: 'admin1234' }), /SHARED_CREDENTIAL_WITH_DEV/);
   assert.throws(mutate(0, { temporaryPassword: 'short' }), /ACCOUNTS_INVALID/);
@@ -319,7 +319,7 @@ test('บัญชี: maker/reviewer คนละบัญชี, ไม่ใ�
   assert.throws(() => validateAccounts({}), /ACCOUNTS_INVALID/);
 });
 
-/** Keycloak admin REST ปลอม — เก็บ state ขั้นต่ำและบันทึก call (ไม่มี network) */
+/** A fake Keycloak admin REST - keeps minimal state and records calls (no network) */
 function fakeKeycloak({ realmExists = false, existingUsers = [], roleMappings = {} } = {}) {
   const calls = [];
   const state = {
@@ -444,7 +444,7 @@ async function admin(fake) {
   return client;
 }
 
-test('config: realm ใหม่ถูกสร้างจาก template ที่ render แล้ว + Organization mapper มี attribute', async () => {
+test('config: a new realm is created from the rendered template + the Organization mapper has the attribute', async () => {
   const fake = fakeKeycloak();
   const rendered = renderRealm(template, environment);
   const result = await applyRealmConfig(await admin(fake), rendered);
@@ -463,7 +463,7 @@ test('config: realm ใหม่ถูกสร้างจาก template ท�
   );
 });
 
-test('config (#645): realm เดิมกลับไปใช้ browser flow/session ของ template และ Organization ไม่เสีย attribute เดิม', async () => {
+test('config (#645): an existing realm goes back to the template browser flow/session and the Organization does not lose its existing attributes', async () => {
   const fake = fakeKeycloak({ realmExists: true });
   fake.state.realm.browserFlow = 'dcontact-browser';
   fake.state.organizations[0].attributes.dc_mfa_required = ['true'];
@@ -488,7 +488,7 @@ test('config (#645): realm เดิมกลับไปใช้ browser flow/
   });
 });
 
-test('users: บัญชีใหม่ได้รหัสผ่าน temporary + ต้องตั้ง TOTP และเป็นสมาชิก Organization', async () => {
+test('users: a new account gets a temporary password + must set up TOTP and is an Organization member', async () => {
   const fake = fakeKeycloak({ realmExists: true });
   const results = await applyAccounts(await admin(fake), {
     realm: 'dcontact',
@@ -514,7 +514,7 @@ test('users: บัญชีใหม่ได้รหัสผ่าน tempor
   assert.ok(!JSON.stringify(results).includes(password));
 });
 
-test('users: บัญชีเดิมที่ผูก dc_user_id อื่นไว้ = หยุด ไม่ย้ายเงียบ ๆ', async () => {
+test('users: an existing account bound to another dc_user_id = stop, no silent move', async () => {
   const fake = fakeKeycloak({
     realmExists: true,
     existingUsers: [
@@ -536,7 +536,7 @@ test('users: บัญชีเดิมที่ผูก dc_user_id อื่�
   );
 });
 
-test('Workspace client opt-in แยก origin ใช้ exact redirect/PKCE และคง Console เดิม', () => {
+test('Workspace client opt-in with a separate origin uses exact redirect/PKCE and keeps the existing Console', () => {
   assert.equal(
     renderRealm(template, environment).clients.some((c) => c.clientId === 'dcontact-uat-workspace'),
     false,
@@ -570,7 +570,7 @@ test('Workspace client opt-in แยก origin ใช้ exact redirect/PKCE แ
   }
 });
 
-test('users (#685): บัญชีเดิมที่มี platform role = หยุด ไม่เติม tenant attribute/Organization', async () => {
+test('users (#685): an existing account that has a platform role = stop, no tenant attribute/Organization is added', async () => {
   const fake = fakeKeycloak({
     realmExists: true,
     existingUsers: [{ id: 'platform-1', username: 'maker.one@uat.example.test', attributes: {} }],

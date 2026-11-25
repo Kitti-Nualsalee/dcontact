@@ -7,7 +7,7 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 const composeArguments = ['compose', '-f', 'infra/docker/docker-compose.dev.yml'];
 
-/** ตารางที่ J5.1 (#339) เพิ่ม — authoring/template/review/receipt/audit/outbox/rollout และ IAM store */
+/** Tables J5.1 (#339) adds - authoring/template/review/receipt/audit/outbox/rollout and the IAM store */
 export const CANONICAL_J5_TABLES = Object.freeze([
   'jr_journey_heads',
   'jr_journey_drafts',
@@ -30,9 +30,9 @@ export const CANONICAL_J5_TABLES = Object.freeze([
 ]);
 
 /**
- * CHECK ที่เป็น invariant ไม่ใช่แค่รูปแบบ — หายตัวเดียวก็ถือว่า migration ไม่ผ่าน เพราะของที่กันไว้
- * (active ครึ่งชุด, receipt จบแบบไม่มีผล, built-in ใน tenant table, delegation เกิน 8 ชม.)
- * จะไม่มีใครเห็นจนกว่าข้อมูลเสียจริง
+ * CHECKs that are invariants, not just shapes - losing even one fails the migration, because what they guard
+ * (a half-active set, a receipt that ends with no effect, a built-in in a tenant table, a delegation over 8 hours)
+ * would go unnoticed until the data is actually corrupted
  */
 export const REQUIRED_J5_CONSTRAINTS = Object.freeze([
   'jr_journey_heads_active_check',
@@ -53,7 +53,7 @@ export const REQUIRED_J5_CONSTRAINTS = Object.freeze([
   'iam_authoring_delegations_window_check',
 ]);
 
-/** identity/idempotency boundary — รวม partial unique ของ candidate ที่กำลัง review */
+/** identity/idempotency boundary - including the partial unique of the candidate under review */
 export const REQUIRED_J5_UNIQUE_INDEXES = Object.freeze([
   'jr_journey_heads_tenant_journey_key',
   'jr_journey_drafts_revision_key',
@@ -73,7 +73,7 @@ export const REQUIRED_J5_UNIQUE_INDEXES = Object.freeze([
   'iam_authoring_delegation_revocations_delegation_key',
 ]);
 
-/** trigger ที่บังคับ append-only, CAS, pinned binding และ stage เดินหน้าอย่างเดียว */
+/** triggers that enforce append-only, CAS, pinned binding and stages that only move forward */
 export const REQUIRED_J5_TRIGGERS = Object.freeze([
   'jr_journey_drafts_immutable',
   'jr_review_decisions_immutable',
@@ -94,7 +94,7 @@ export const REQUIRED_J5_TRIGGERS = Object.freeze([
   'iam_authoring_delegations_human_guard',
 ]);
 
-/** composite FK ขั้นต่ำ — ทุกตารางลูกที่อ้าง entity อื่นต้องผูกด้วย tenant_id ร่วมเสมอ */
+/** minimum composite FKs - every child table that references another entity must always bind with a shared tenant_id */
 export const MINIMUM_J5_COMPOSITE_FOREIGN_KEYS = 19;
 
 function sqlArray(values) {
@@ -147,7 +147,7 @@ export function parseJ5SchemaEvidence(value) {
     .trim()
     .match(/^(\d+)\|(\d+)\|(\d+)\|(\d+)\|(\d+)\|(\d+)\|(\d+)\|(\d+)$/);
   if (!match) {
-    throw new TypeError('schema evidence ต้องมีแปดตัวเลขคั่นด้วย |');
+    throw new TypeError('schema evidence must have eight numbers separated by |');
   }
   const [
     ,
@@ -178,7 +178,7 @@ export function parseJ5SchemaEvidence(value) {
       uniqueIndexes === REQUIRED_J5_UNIQUE_INDEXES.length &&
       triggers === REQUIRED_J5_TRIGGERS.length &&
       compositeKeys >= MINIMUM_J5_COMPOSITE_FOREIGN_KEYS &&
-      // application role ลบแถวของ J5.1 ไม่ได้เลยทุกตาราง
+      // the application role cannot delete J5.1 rows at all, on any table
       applicationDeletes === 0
         ? 'PASS'
         : 'FAIL',
@@ -194,7 +194,7 @@ function execute(command, arguments_, options = {}) {
   });
   if (result.status !== 0 || result.error) {
     throw new Error(
-      `${command} ล้มเหลวด้วย status ${result.status ?? result.error?.code ?? 'unknown'}`,
+      `${command} failed with status ${result.status ?? result.error?.code ?? 'unknown'}`,
     );
   }
   return String(result.stdout ?? '').trim();
@@ -218,14 +218,14 @@ function inspectDatabase(databaseName) {
 }
 
 /**
- * J5-MG01: migration ของ J5.1 ครบทั้งบน database ที่ upgrade มาจากของเดิม (มี J1–J3 และ J5.0
- * อยู่แล้ว) และบน fresh migrate — ต้องตรวจทั้งสองทางเพราะ migration ที่เขียนมืออาจผ่านทางหนึ่ง
- * แต่พังอีกทาง
+ * J5-MG01: the J5.1 migration is complete both on a database upgraded from the existing one (which already has J1-J3 and J5.0)
+ * and on a fresh migrate - both ways must be checked because a hand-written migration may pass one way
+ * but break the other
  */
 export function runCxaJ5SchemaReadiness() {
   const existingDatabase = process.env.CXA_ACCEPTANCE_DATABASE_NAME ?? 'dcontact';
   if (!/^[a-zA-Z0-9_]+$/.test(existingDatabase)) {
-    throw new TypeError('CXA_ACCEPTANCE_DATABASE_NAME มีชื่อฐานข้อมูลไม่ถูกต้อง');
+    throw new TypeError('CXA_ACCEPTANCE_DATABASE_NAME contains an invalid database name');
   }
   const freshDatabase = `dcontact_cxa_j5_verify_${randomBytes(6).toString('hex')}`;
 

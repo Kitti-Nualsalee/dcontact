@@ -51,7 +51,7 @@ function runFixture(options = {}) {
   });
 }
 
-test('E0 readiness ครอบคลุม acceptance matrix ทั้งเก้ามิติและ regression gate', () => {
+test('E0 readiness covers all nine dimensions of the acceptance matrix and the regression gate', () => {
   assert.deepEqual(
     CXA_E0_READINESS_CHECKS.map(({ dimension }) => dimension),
     [
@@ -81,7 +81,7 @@ test('E0 readiness ครอบคลุม acceptance matrix ทั้งเก
   }
 });
 
-test('marker ออกเฉพาะเมื่อ mandatory E0 checks ผ่านทั้งหมด', () => {
+test('the marker is issued only when all mandatory E0 checks pass', () => {
   const allPassing = CXA_E0_READINESS_CHECKS.map(({ id, dimension }) => ({
     checkId: id,
     dimension,
@@ -92,7 +92,7 @@ test('marker ออกเฉพาะเมื่อ mandatory E0 checks ผ่�
   assert.equal(cxaE0Summary([...allPassing, { status: 'FAIL' }]).entryCondition, 'NOT_READY');
 });
 
-test('เมื่อแต่ละมิติล้ม marker ต้องไม่ออก', () => {
+test('when each dimension fails, the marker must not be issued', () => {
   for (const failedCheck of CXA_E0_READINESS_CHECKS) {
     const result = runFixture({
       executeCheck(check) {
@@ -109,7 +109,7 @@ test('เมื่อแต่ละมิติล้ม marker ต้องไ
   }
 });
 
-test('subcheck ที่ล้มส่งต่อ diagnostic ที่ sanitize แล้วลง evidence manifest', () => {
+test('a failed subcheck passes a sanitized diagnostic into the evidence manifest', () => {
   const result = runFixture({
     executeCheck(check) {
       if (check.id === 'regression' && check.command.at(-1) === 'cxa:phase1:acceptance') {
@@ -134,21 +134,21 @@ test('subcheck ที่ล้มส่งต่อ diagnostic ที่ sanitiz
   assert.doesNotThrow(() => assertValidEvidenceManifest(result.manifest));
 });
 
-test('manifest ผูก check artifact กับ commit เดียวและปฏิเสธ SHA/commit mismatch', () => {
+test('manifest binds check artifacts to a single commit and rejects SHA/commit mismatch', () => {
   const result = runFixture();
   assert.equal(result.manifest.marker, 'CX_AUTOMATION_E0_CONTRACTS_ACCEPTED');
   assert.doesNotThrow(() => assertValidEvidenceManifest(result.manifest));
 
   const changedCommit = structuredClone(result.manifest);
   changedCommit.artifacts[0].commitSha = 'c'.repeat(40);
-  assert.throws(() => assertValidEvidenceManifest(changedCommit), /commit ไม่ตรง/);
+  assert.throws(() => assertValidEvidenceManifest(changedCommit), /commit that does not match/);
 
   const changedHash = structuredClone(result.manifest);
   changedHash.artifacts[0].sha256 = '0'.repeat(64);
   assert.throws(() => assertValidEvidenceManifest(changedHash), /SHA-256/);
 });
 
-test('marker ถูกปฏิเสธเมื่อ mandatory check, artifact หรือ adapter evidence ไม่ครบ', () => {
+test('marker is rejected when the mandatory check, artifact or adapter evidence is incomplete', () => {
   const result = runFixture();
 
   const missingCheck = structuredClone(result.manifest);
@@ -158,7 +158,10 @@ test('marker ถูกปฏิเสธเมื่อ mandatory check, artifac
 
   const missingArtifact = structuredClone(result.manifest);
   missingArtifact.artifacts.pop();
-  assert.throws(() => assertValidEvidenceManifest(missingArtifact), /หนึ่งรายการต่อ check/);
+  assert.throws(
+    () => assertValidEvidenceManifest(missingArtifact),
+    /one evidence artifact per check/,
+  );
 
   const missingProfileEvidence = structuredClone(result.manifest);
   missingProfileEvidence.checks
@@ -175,21 +178,21 @@ test('marker ถูกปฏิเสธเมื่อ mandatory check, artifac
   assert.throws(() => assertValidEvidenceManifest(missingProfileEvidence), /TEST_ADAPTER/);
 });
 
-test('evidence manifest ปฏิเสธ PII และ credential', () => {
+test('evidence manifest rejects PII and credentials', () => {
   assert.throws(() => assertPiiSafeEvidence({ value: 'customer@example.test' }), /PII/);
-  assert.throws(() => assertPiiSafeEvidence({ client_secret: 'do-not-record' }), /field ต้องห้าม/);
-  assert.throws(() => assertPiiSafeEvidence({ contactRef: 'line-user-1234' }), /field ต้องห้าม/);
-  assert.throws(() => assertPiiSafeEvidence({ lineId: 'U1234' }), /field ต้องห้าม/);
-  assert.throws(() => assertPiiSafeEvidence({ crmId: 'crm-1234' }), /field ต้องห้าม/);
+  assert.throws(() => assertPiiSafeEvidence({ client_secret: 'do-not-record' }), /forbidden field/);
+  assert.throws(() => assertPiiSafeEvidence({ contactRef: 'line-user-1234' }), /forbidden field/);
+  assert.throws(() => assertPiiSafeEvidence({ lineId: 'U1234' }), /forbidden field/);
+  assert.throws(() => assertPiiSafeEvidence({ crmId: 'crm-1234' }), /forbidden field/);
 });
 
-test('GitHub Actions run metadata ไม่ใช่ PII แต่เลขเดียวกันใน business evidence ยังถูกปฏิเสธ', () => {
+test('GitHub Actions run metadata is not PII, but the same number in business evidence is still rejected', () => {
   const runId = '35063553495';
   assert.doesNotThrow(() => assertPiiSafeEvidence({ run: { id: runId, attempt: 1 } }));
   assert.throws(() => assertPiiSafeEvidence({ value: runId }), /PII/);
 });
 
-test('E0 adapter profile fail closed และห้าม actual provider traffic', () => {
+test('E0 adapter profile fails closed and must not enable actual provider traffic', () => {
   assert.deepEqual(cxaE0AdapterProfileSummary({}), {
     type: 'adapter-profile.readiness',
     workflow: 'cx-automation-e0-adapter-profile',
@@ -199,15 +202,15 @@ test('E0 adapter profile fail closed และห้าม actual provider traff
   });
   assert.throws(
     () => cxaE0AdapterProfileSummary({ CXA_PROVIDER_TRAFFIC_ENABLED: 'true' }),
-    /ห้ามเปิด actual provider traffic/,
+    /must not enable actual provider traffic/,
   );
   assert.throws(
     () => cxaE0AdapterProfileSummary({ CXA_E0_ADAPTER_PROFILE: 'LIVE_PROVIDER' }),
-    /TEST_ADAPTER เท่านั้น/,
+    /supports only the TEST_ADAPTER/,
   );
 });
 
-test('adapter profile evidence ถูกเก็บจาก child process ใน manifest diagnostic', () => {
+test('adapter profile evidence is collected from a child process in the manifest diagnostic', () => {
   const profileCheck = CXA_E0_READINESS_CHECKS.find(
     ({ id }) => id === 'observability-pii-redaction',
   );
@@ -227,7 +230,7 @@ test('adapter profile evidence ถูกเก็บจาก child process ใ�
   ]);
 });
 
-test('manifest factory ระบุ migration และ rollback evidence จาก check เดียวกัน', () => {
+test('manifest factory identifies migration and rollback evidence from the same check', () => {
   const diagnostics = [
     {
       checkId: 'migration-compatibility',

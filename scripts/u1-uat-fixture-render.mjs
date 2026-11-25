@@ -3,33 +3,33 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 /**
- * U1.9 (#506): render fixture pack ของ UAT first slice จาก template ที่ commit ไว้ → input `UatProvisionV1`
- * ที่ `uat-deploy.sh provision` / CLI `uat-provision` (U1.8 #502) รับได้ — ไม่มี dependency นอกจาก Node
+ * U1.9 (#506): renders the fixture pack of the UAT first slice from the committed template -> a `UatProvisionV1` input
+ * that `uat-deploy.sh provision` / the `uat-provision` CLI (U1.8 #502) accepts - no dependency other than Node
  *
- * - template (`infra/uat/fixtures/<name>.template.json`) เป็นข้อมูลสังเคราะห์ล้วน; ค่าที่ผูกกับ deployment
- *   (tenant/team/maker/reviewer, environment, pack version, build SHA) เป็น placeholder `__UAT_*__`
- * - input คือสำเนาของ `infra/uat/uat-provision.example.json` ที่ operator กรอกจาก secret store แล้ว:
- *   `fixturePack` เป็น stub `{ template, environment, packVersion }` — id ของ tenant/team/บัญชีเอามาจาก
- *   input เดียวกัน (ไม่ต้องกรอกซ้ำ) และ `buildSha` มาจาก `--build-sha` = SHA ของ release ที่ deploy
- * - placeholder ที่ยังไม่กรอก (ที่ใดก็ตามใน input) = ปฏิเสธ ไม่ render
- * - output = input เดิมที่ `fixturePack` ถูกแทนด้วย manifest เต็ม (stdout หรือ `--output` แบบ mode 600)
- * - ข้อความสถานะ/ข้อผิดพลาดเป็น JSON บรรทัดเดียวทาง stderr: มีแค่รหัสและชื่อ field ไม่พิมพ์ค่าจาก input
- *   (input มีอีเมลจริงของผู้ทดสอบ)
+ * - the template (`infra/uat/fixtures/<name>.template.json`) is purely synthetic data; values bound to a deployment
+ *   (tenant/team/maker/reviewer, environment, pack version, build SHA) are `__UAT_*__` placeholders
+ * - the input is a copy of `infra/uat/uat-provision.example.json` that the operator filled in from the secret store:
+ *   `fixturePack` is a stub `{ template, environment, packVersion }` - the ids of the tenant/team/accounts are taken from
+ *   the same input (no need to fill them in twice) and `buildSha` comes from `--build-sha` = the SHA of the release being deployed
+ * - a placeholder that is not filled in (anywhere in the input) = rejected, not rendered
+ * - output = the original input with `fixturePack` replaced by the full manifest (stdout or `--output` with mode 600)
+ * - status/error messages are a single JSON line on stderr: only codes and field names, never values from the input
+ *   (the input has the real emails of the testers)
  *
- * การตรวจรูปแบบ/negative scan/digest เต็มเป็นของ CLI `uat-provision` (`--check`) — ที่นี่ไม่ทำซ้ำ
+ * Format checks/negative scan/full digest belong to the `uat-provision` CLI (`--check`) - not repeated here
  */
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const LINE_TYPE = 'u1.uat.fixture-render';
 
-/** template ที่ render ได้ — ชื่อ → path จาก root ของ repository */
+/** Templates that can be rendered - name -> path from the repository root */
 export const UAT_FIXTURE_TEMPLATES = Object.freeze({
   'uat-first-slice.v1': 'infra/uat/fixtures/uat-first-slice.v1.template.json',
 });
 
-/** placeholder ของ template/example — รูปแบบนี้ห้ามเหลือใน input ที่จะ provision */
+/** placeholders of the template/example - this pattern must not remain in an input that will be provisioned */
 export const UAT_PLACEHOLDER = /__UAT_[A-Z0-9_]+__/;
-/** SHA ของ commit เต็ม (git SHA-1 หรือ SHA-256) — ตัวย่อไม่รับ เพราะ digest ของ pack ผูกกับค่านี้ */
+/** Full commit SHA (git SHA-1 or SHA-256) - a short form is not accepted because the pack digest is bound to this value */
 const BUILD_SHA = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
 
 export class UatFixtureRenderError extends Error {
@@ -37,12 +37,12 @@ export class UatFixtureRenderError extends Error {
     super(`uat fixture render: ${code}`);
     this.name = 'UatFixtureRenderError';
     this.code = code;
-    /** ชื่อ field/template เท่านั้น — ห้ามใส่ค่าจาก input */
+    /** field/template names only - never put a value from the input */
     this.safeParams = safeParams;
   }
 }
 
-/** path ของ string แรกที่ยังเป็น placeholder (เช่น `maker.email`) หรือ null */
+/** path of the first string that is still a placeholder (e.g. `maker.email`), or null */
 export function findUatPlaceholder(value, path = '') {
   if (typeof value === 'string') return UAT_PLACEHOLDER.test(value) ? path || '(root)' : null;
   if (!value || typeof value !== 'object') return null;
@@ -79,8 +79,8 @@ export function readUatFixtureTemplate(name, root = repositoryRoot) {
 }
 
 /**
- * แทน placeholder ของ template ทีละค่าแบบทั้ง string (ไม่ต่อข้อความ) — placeholder ที่ template มีแต่ไม่อยู่ใน
- * `values` หรือ value ที่ template ไม่ได้ใช้ = template ผิด (fail closed)
+ * Replace the template placeholders one value at a time as a whole string (no concatenation) - a placeholder the template has but that is not in
+ * `values`, or a value the template does not use = a bad template (fail closed)
  */
 export function renderUatFixtureTemplate(template, values) {
   const used = new Set();
@@ -105,7 +105,7 @@ export function renderUatFixtureTemplate(template, values) {
   return rendered;
 }
 
-/** input (สำเนาที่กรอกแล้วของ example) + build SHA → input `UatProvisionV1` ที่มี manifest เต็ม */
+/** input (a filled-in copy of the example) + build SHA -> a `UatProvisionV1` input that has the full manifest */
 export function renderUatProvisionInput(input, { buildSha, root = repositoryRoot } = {}) {
   if (!isObject(input) || input.schema !== 'UatProvisionV1') {
     throw new UatFixtureRenderError('INPUT_INVALID', { field: 'schema' });
@@ -153,7 +153,7 @@ function parseArguments(argv) {
 
 /**
  * `node scripts/u1-uat-fixture-render.mjs --input <file|-> --build-sha <sha> [--output <file>]`
- * คืน exit code; stdout = JSON ของ input ที่ render แล้ว (ถ้าไม่มี `--output`), stderr = สถานะหนึ่งบรรทัด
+ * returns an exit code; stdout = the JSON of the rendered input (if there is no `--output`), stderr = a single status line
  */
 export function runUatFixtureRenderCli(argv, io = {}) {
   const readInput = io.readInput ?? ((path) => readFileSync(path === '-' ? 0 : path, 'utf8'));
@@ -171,7 +171,7 @@ export function runUatFixtureRenderCli(argv, io = {}) {
     const text = `${JSON.stringify(rendered, null, 2)}\n`;
     if (options.output) {
       try {
-        // มีอีเมลจริง: สร้างใหม่เท่านั้น (ไม่เขียนทับ) และอ่านได้เฉพาะเจ้าของ
+        // contains real emails: create new only (never overwrite) and readable only by the owner
         writeFileSync(options.output, text, { mode: 0o600, flag: 'wx' });
       } catch {
         throw new UatFixtureRenderError('OUTPUT_NOT_WRITTEN', { field: '--output' });

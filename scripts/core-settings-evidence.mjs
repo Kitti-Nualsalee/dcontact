@@ -52,7 +52,7 @@ function captureEvidence() {
     !/^[a-f0-9]{40}$/.test(env.GITHUB_SHA ?? '') ||
     !/^\d+$/.test(env.GITHUB_RUN_ID ?? '')
   )
-    throw Error('ต้องมี CI job/SHA/run context จริงก่อนเก็บ evidence');
+    throw Error('a real CI job/SHA/run context is required before collecting evidence');
   const checks = expected.map((file) => {
     try {
       const content = readFileSync(resolve(directory, file));
@@ -121,7 +121,7 @@ function captureEvidence() {
     checks,
     metadata,
     runtime: { icu: process.versions.icu, tzdb: process.versions.tz },
-    // หลักฐาน CI ของ foundation ไม่ใช่ VM UAT หรือ marker ของ first slice
+    // foundation CI evidence is not a UAT VM or a first-slice marker
     vmUat: 'NOT_RUN',
     recordedAt: new Date().toISOString(),
   };

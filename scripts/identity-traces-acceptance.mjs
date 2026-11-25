@@ -1,17 +1,17 @@
 /**
- * AC6 (#599) acceptance: ทุกหน้าและอีเมลที่ผู้ใช้ของ D-Contact เจอ ต้องไม่มีคำว่า Keycloak
+ * AC6 (#599) acceptance: every page and email a D-Contact user sees must not contain the word Keycloak
  *
- * `node scripts/identity-traces-acceptance.mjs` — ต้องมี dev stack (Keycloak + mailpit), extension/theme ล่าสุด
+ * `node scripts/identity-traces-acceptance.mjs` - needs the dev stack (Keycloak + mailpit) and the latest extension/theme
  * (`pnpm infra:keycloak:extensions`, `pnpm infra:identity:theme`, `pnpm infra:identity:branding`)
  *
- * เปิดด้วย Chromium จริงและตรวจ (gate) `/keycloak/i` ใน: `<title>`, ข้อความที่มองเห็น (`innerText`) และค่า attribute ที่ผู้ใช้
- * อ่านได้ (alt, aria-label, title, placeholder, value); ทุก email: ชื่อผู้ส่ง, หัวเรื่อง, HTML และ text; และชื่อ cookie ทุกตัว
- * ส่วน URL ของ resource ที่มีคำนี้ (เช่น `/common/keycloak/...` ของ asset ที่ IdP เสิร์ฟ) รายงานไว้เป็นข้อมูล ไม่ใช่ gate
- * (ตัดสินใจเดียวกับ path `/auth/realms/...` ใน #589 D9)
+ * opens with a real Chromium and checks (gate) `/keycloak/i` in: `<title>`, the visible text (`innerText`) and the attribute values the user
+ * can read (alt, aria-label, title, placeholder, value); every email: sender name, subject, HTML and text; and every cookie name
+ * resource URLs that contain this word (e.g. `/common/keycloak/...` of an asset the IdP serves) are reported as information, not a gate
+ * (the same decision as the `/auth/realms/...` path in #589 D9)
  *
- * หน้าที่ครอบ: login (username/password/OTP), error, logout-confirm, page-expired, reset-password (+info + email),
- * required action (update-password, update-profile, verify-email + email, configure-totp) และ flow อีเมลเชิญ (execute-actions)
- * ไปจนถึงหน้าที่ผู้ใช้ลงท้าย; Account Console ต้องเข้าไม่ถึง
+ * pages covered: login (username/password/OTP), error, logout-confirm, page-expired, reset-password (+info + email),
+ * required actions (update-password, update-profile, verify-email + email, configure-totp) and the invitation email flow (execute-actions)
+ * all the way to the page where the user ends up; the Account Console must be unreachable
  */
 import { createHmac, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
@@ -67,7 +67,7 @@ async function admin(method, path, body) {
 }
 
 const createdUsers = [];
-// ภาษาที่กำลังสแกน — ผู้ใช้ชั่วคราวถือ attribute locale นี้ อีเมลที่ Keycloak ส่งจึงตามภาษาของรอบนั้น
+// the language being scanned - the temporary user holds this locale attribute, so the emails Keycloak sends follow the language of that round
 let scanLocale = 'th';
 
 async function createUser(label, { requiredActions = [], otp = false, emailVerified = true } = {}) {
@@ -111,7 +111,7 @@ async function createUser(label, { requiredActions = [], otp = false, emailVerif
 const ACCOUNT_SERVICE_SECRET =
   process.env.KEYCLOAK_ACCOUNT_SERVICE_SECRET ?? 'dcontact-account-service-dev-secret';
 
-/** TOTP (RFC 6238, SHA1, 6 หลัก, 30 วินาที) — key = bytes ของ secret ตามที่ Keycloak ใช้กับ credential ที่เก็บเป็นตัวอักษร */
+/** TOTP (RFC 6238, SHA1, 6 digits, 30 seconds) - key = the bytes of the secret as Keycloak uses them for a credential stored as characters */
 function totp(secret, at = Date.now()) {
   const counter = Buffer.alloc(8);
   counter.writeBigUInt64BE(BigInt(Math.floor(at / 30_000)));
@@ -198,7 +198,7 @@ async function scanPage(where, page, { control = false } = {}) {
       .split('\n')
       .map((line) => line.trim())
       .filter(Boolean),
-    // หัวข้อของเนื้อหาจริง (แผงแบรนด์ด้านซ้ายเหมือนกันทุกหน้า) — ใช้ยืนยันว่าเปิดถึงหน้าที่ตั้งใจ
+    // the heading of the real content (the brand panel on the left is the same on every page) - used to confirm the intended page was reached
     heading: (
       document.querySelector('#kc-content h1, #kc-page-title, main h1, h1')?.innerText ?? ''
     )
@@ -218,7 +218,7 @@ async function scanPage(where, page, { control = false } = {}) {
   for (const value of snapshot.attrs) gate(where, 'attribute', value);
   for (const url of snapshot.resources.filter((name) => TRACE.test(name)))
     infoSet.add(new URL(url).pathname);
-  // TRACE_SHOTS=<dir> เก็บภาพหน้าจอของทุกหน้าที่สแกน (ไว้ตรวจด้วยตา — gate ตรวจแค่ข้อความ)
+  // TRACE_SHOTS=<dir> keeps screenshots of every scanned page (for visual inspection - the gate checks only text)
   if (process.env.TRACE_SHOTS && !control) {
     const slug = where
       .replace(/[^\p{L}\p{N}]+/gu, '-')
@@ -226,13 +226,13 @@ async function scanPage(where, page, { control = false } = {}) {
       .slice(0, 80);
     await page.screenshot({ path: `${process.env.TRACE_SHOTS}/${slug}.png`, fullPage: true });
   }
-  // TRACE_DUMP=<regex ของชื่อหน้า> พิมพ์ข้อความและลิงก์เต็มของหน้านั้น (ไว้ดูตอนแก้)
+  // TRACE_DUMP=<page name regex> prints the full text and links of that page (for use while fixing)
   if (process.env.TRACE_DUMP && new RegExp(process.env.TRACE_DUMP).test(where)) {
     console.log(
-      `\n--- ${where}\n${snapshot.lines.join(' | ')}\nลิงก์: ${snapshot.links.map((l) => `${l.text}→${new URL(l.href).pathname}`).join(' ; ')}\n`,
+      `\n--- ${where}\n${snapshot.lines.join(' | ')}\nlinks: ${snapshot.links.map((l) => `${l.text}→${new URL(l.href).pathname}`).join(' ; ')}\n`,
     );
   }
-  // ลิงก์ไป Account Console ของ IdP = ผู้ใช้หลุดไปหน้าที่ไม่ใช่ของ D-Contact (#589 D2/D3) — gate
+  // a link to the IdP Account Console = the user is dropped onto a page that is not D-Contact (#589 D2/D3) - gate
   for (const link of snapshot.links) {
     if (
       /\/realms\/[^/]+\/account(\/|$|\?)/.test(
@@ -242,11 +242,11 @@ async function scanPage(where, page, { control = false } = {}) {
       findings.push({
         where,
         kind: 'link',
-        excerpt: `ลิงก์ "${link.text}" ไป ${new URL(link.href).pathname}`,
+        excerpt: `link "${link.text}" goes to ${new URL(link.href).pathname}`,
       });
     }
   }
-  // ข้อมูล (ไม่ใช่ gate): บรรทัดภาษาอังกฤษล้วนในหน้าภาษาไทย = ข้อความที่ยังไม่แปล
+  // information (not a gate): purely English lines on a Thai page = text that has not been translated
   if (/\[th\]/.test(where) && !control) {
     for (const line of snapshot.lines) {
       if (/^[\x20-\x7E]+$/.test(line) && /[A-Za-z]{3,}\s+[A-Za-z]{2,}/.test(line))
@@ -255,12 +255,12 @@ async function scanPage(where, page, { control = false } = {}) {
   }
   const detail = [
     snapshot.heading && `h1: ${snapshot.heading}`,
-    snapshot.notice && `แจ้ง: ${snapshot.notice}`,
+    snapshot.notice && `notice: ${snapshot.notice}`,
   ]
     .filter(Boolean)
     .join(' | ');
   visited.push(
-    `${where} — ${new URL(page.url()).pathname} — "${snapshot.title}" — ${detail || '(ไม่มีหัวข้อ)'}`,
+    `${where} - ${new URL(page.url()).pathname} - "${snapshot.title}" - ${detail || '(no heading)'}`,
   );
   return snapshot;
 }
@@ -309,7 +309,7 @@ async function run(browser, locale) {
   await page.locator('#password').waitFor();
   await scanPage(tag('login: password'), page);
 
-  // 2) reset password (ลิงก์ "ลืมรหัสผ่าน") → info + email
+  // 2) reset password (the "forgot password" link) -> info + email
   const reset = page.locator('a[href*="reset-credentials"]');
   if ((await reset.count()) > 0) {
     await reset.first().click();
@@ -318,28 +318,28 @@ async function run(browser, locale) {
     await page.locator('#username').fill(plain.username);
     await page.locator('input[type=submit], button[type=submit]').first().click();
     await page.waitForLoadState('domcontentloaded');
-    await scanPage(tag('reset-password: info (ส่งอีเมลแล้ว)'), page);
+    await scanPage(tag('reset-password: info (email sent)'), page);
     for (const message of await mailTo(plain.username))
       scanEmail(tag('email: password-reset'), message);
   } else {
     infos.push(
-      `[${locale}] ไม่มีลิงก์ลืมรหัสผ่านใน realm นี้ (resetPasswordAllowed=false) — ไม่ได้สแกนหน้า/อีเมล reset`,
+      `[${locale}] no forgot-password link in this realm (resetPasswordAllowed=false) - the reset page/email was not scanned`,
     );
   }
 
-  // 3) page-expired: เปิดฟอร์มเดิมด้วย session_code ที่ไม่ตรง
+  // 3) page-expired: open the original form with a mismatched session_code
   await page.goto(pkceUrl());
   const action = await page.locator('form').first().getAttribute('action');
   const stale = new URL(action, KEYCLOAK);
   stale.searchParams.set('session_code', 'expired-code');
   await page.goto(stale.href);
-  await scanPage(tag('page-expired / ข้อผิดพลาดของ session'), page);
+  await scanPage(tag('page-expired / session error'), page);
 
-  // 4) error: redirect_uri ที่ไม่อนุญาต
+  // 4) error: a redirect_uri that is not allowed
   await page.goto(pkceUrl({ redirect_uri: 'https://evil.example.test/' }));
-  await scanPage(tag('error: redirect_uri ไม่ถูกต้อง'), page);
+  await scanPage(tag('error: invalid redirect_uri'), page);
   await page.goto(pkceUrl({ client_id: 'no-such-client' }));
-  await scanPage(tag('error: ไม่พบ client'), page);
+  await scanPage(tag('error: client not found'), page);
 
   // 5) OTP
   const withOtp = await createUser('otp', { otp: true });
@@ -349,15 +349,15 @@ async function run(browser, locale) {
   await page.locator('#otp').waitFor();
   await scanPage(tag('login: OTP'), page);
 
-  // 5b) ลงทะเบียน TOTP ผ่าน extension เดียวกับที่ API ใช้ (ผู้ใช้สแกน secret) แล้ว login ต้องถาม OTP และโค้ดที่ถูกผ่าน
+  // 5b) enrol TOTP through the same extension the API uses (the user scans the secret), then login must ask for OTP and the correct code passes
   const enrolled = await createUser('enrol');
   const enrolSecret = randomBytes(10).toString('hex');
   const enrol = await enrolTotpViaExtension(enrolled, enrolSecret);
   if (enrol.status !== 201) {
     findings.push({
-      where: tag('ลงทะเบียน TOTP'),
+      where: tag('enrol TOTP'),
       kind: 'acceptance',
-      excerpt: `extension ตอบ ${enrol.status}`,
+      excerpt: `extension answered ${enrol.status}`,
     });
   } else {
     const enrolContext = await browser.newContext({
@@ -372,18 +372,20 @@ async function run(browser, locale) {
     await enrolPage.locator('#kc-login').click();
     try {
       await enrolPage.waitForURL(`${ORIGIN}/**`, { timeout: 15_000 });
-      infos.push(`[${locale}] ลงทะเบียน TOTP แล้ว login ถาม OTP และโค้ดที่ถูกผ่าน`);
+      infos.push(
+        `[${locale}] after enrolling TOTP, login asks for OTP and the correct code passes`,
+      );
     } catch {
       findings.push({
-        where: tag('login ด้วย OTP ที่ลงทะเบียน'),
+        where: tag('login with the enrolled OTP'),
         kind: 'acceptance',
-        excerpt: 'ใส่โค้ด TOTP ที่ถูกต้องแล้วไม่ผ่าน',
+        excerpt: 'entering the correct TOTP code did not pass',
       });
     }
     await enrolContext.close();
   }
 
-  // 6) logout-confirm (ล็อกอินก่อน แล้วออกโดยไม่มี id_token_hint)
+  // 6) logout-confirm (log in first, then log out without an id_token_hint)
   const loggedIn = await createUser('logout');
   await page.goto(pkceUrl());
   await submitUsername(page, loggedIn.username);
@@ -399,11 +401,11 @@ async function run(browser, locale) {
   if ((await confirm.count()) > 0) {
     await confirm.click();
     await page.waitForLoadState('domcontentloaded');
-    await scanPage(tag('หลังยืนยันออกจากระบบ'), page);
+    await scanPage(tag('after confirming logout'), page);
   }
 
-  // 6b) เปลี่ยนรหัสผ่านแล้ว login ด้วยรหัสใหม่ในเบราว์เซอร์จริง (รหัสเดิมต้องไม่ผ่าน)
-  // — การเปลี่ยนจริงผ่าน API ของ D-Contact ตรวจใน apps/api account-api.boundary.ts (ใช้ reset-password ตัวเดียวกัน)
+  // 6b) change the password, then log in with the new password in a real browser (the old password must not pass)
+  // - the real change through the D-Contact API is checked in apps/api account-api.boundary.ts (which uses the same reset-password)
   const NEW_PASSWORD = `${PASSWORD}-new`;
   await admin('PUT', `/users/${loggedIn.id}/reset-password`, {
     type: 'password',
@@ -417,22 +419,22 @@ async function run(browser, locale) {
   await afterChange.locator('#password').fill(PASSWORD);
   await afterChange.locator('#kc-login').click();
   await afterChange.locator('#password').waitFor();
-  await scanPage(tag('login: รหัสเดิมหลังเปลี่ยน (ต้องไม่ผ่าน)'), afterChange);
+  await scanPage(tag('login: old password after the change (must not pass)'), afterChange);
   await afterChange.locator('#password').fill(NEW_PASSWORD);
   await afterChange.locator('#kc-login').click();
   try {
     await afterChange.waitForURL(`${ORIGIN}/**`, { timeout: 15_000 });
-    infos.push(`[${locale}] login ด้วยรหัสผ่านใหม่สำเร็จ และรหัสเดิมไม่ผ่าน`);
+    infos.push(`[${locale}] login with the new password succeeded and the old password did not`);
   } catch {
     findings.push({
-      where: tag('login หลังเปลี่ยนรหัสผ่าน'),
+      where: tag('login after the password change'),
       kind: 'acceptance',
-      excerpt: 'login ด้วยรหัสผ่านใหม่ไม่สำเร็จ',
+      excerpt: 'login with the new password did not succeed',
     });
   }
   await freshContext.close();
 
-  // 7) required actions (หนึ่งผู้ใช้ต่อหนึ่ง action เพื่อเห็นทุกหน้า)
+  // 7) required actions (one user per action so every page is seen)
   for (const [label, action] of [
     ['update-password', 'UPDATE_PASSWORD'],
     ['update-profile', 'UPDATE_PROFILE'],
@@ -456,7 +458,7 @@ async function run(browser, locale) {
     await fresh.close();
   }
 
-  // 8) อีเมลเชิญ (execute-actions) แล้วเดินตามลิงก์จนถึงหน้าที่ผู้ใช้ลงท้าย
+  // 8) the invitation email (execute-actions), then follow the link to the page where the user ends up
   const invited = await createUser('invite', {
     requiredActions: ['VERIFY_EMAIL', 'UPDATE_PASSWORD'],
     emailVerified: false,
@@ -467,51 +469,55 @@ async function run(browser, locale) {
   ]);
   const [invite] = await mailTo(invited.username);
   if (invite) {
-    scanEmail(tag('email: execute-actions (เชิญ)'), invite);
+    scanEmail(tag('email: execute-actions (invitation)'), invite);
     const link = /https?:\/\/[^\s"'<>]+action-token[^\s"'<>]+/.exec(invite.Text ?? '')?.[0];
     if (link) {
       const invitePage = await context.newPage();
       await invitePage.goto(link.replace(/&amp;/g, '&'));
-      await scanPage(tag('invite: หน้าแรกหลังกดลิงก์'), invitePage);
+      await scanPage(tag('invite: first page after clicking the link'), invitePage);
       for (let step = 0; step < 4; step += 1) {
         const field = invitePage.locator('#password-new');
         if ((await field.count()) > 0) {
           await field.fill(PASSWORD);
           await invitePage.locator('#password-confirm').fill(PASSWORD);
-          await scanPage(tag('invite: ตั้งรหัสผ่าน'), invitePage);
+          await scanPage(tag('invite: set password'), invitePage);
           await invitePage.locator('input[type=submit], button[type=submit]').first().click();
         } else {
           const proceed = invitePage
             .locator(
-              'a:has-text("Proceed"), a:has-text("ดำเนินการ"), input[type=submit], button[type=submit]',
+              'a:has-text("Proceed"), a:has-text("ดำเนินการ"), input[type=submit], button[type=submit]', // allow-thai: matches the Thai button label of the localized Keycloak page
             )
             .first();
           if ((await proceed.count()) === 0) break;
           await proceed.click();
         }
         await invitePage.waitForLoadState('domcontentloaded');
-        await scanPage(tag(`invite: ขั้นที่ ${step + 1}`), invitePage);
+        await scanPage(tag(`invite: step ${step + 1}`), invitePage);
       }
-      infos.push(`[${locale}] invite ลงท้ายที่: ${new URL(invitePage.url()).pathname}`);
+      infos.push(`[${locale}] invite ends at: ${new URL(invitePage.url()).pathname}`);
       if (/\/account/.test(invitePage.url())) {
         findings.push({
-          where: tag('invite: หน้าที่ลงท้าย'),
+          where: tag('invite: final page'),
           kind: 'landing',
-          excerpt: `ถูกพาไป ${new URL(invitePage.url()).pathname} (Account Console ของ IdP)`,
+          excerpt: `was taken to ${new URL(invitePage.url()).pathname} (the IdP Account Console)`,
         });
       }
     } else {
       findings.push({
         where: tag('invite'),
         kind: 'setup',
-        excerpt: 'ไม่พบลิงก์ action-token ในอีเมลเชิญ',
+        excerpt: 'no action-token link found in the invitation email',
       });
     }
   } else {
-    findings.push({ where: tag('invite'), kind: 'setup', excerpt: 'ไม่ได้รับอีเมลเชิญ' });
+    findings.push({
+      where: tag('invite'),
+      kind: 'setup',
+      excerpt: 'the invitation email was not received',
+    });
   }
 
-  // 9) cookie ทุกตัวของ context นี้
+  // 9) every cookie of this context
   for (const cookie of await context.cookies())
     gate(tag(`cookie ${cookie.name}`), 'cookie-name', cookie.name);
   await context.close();
@@ -524,7 +530,7 @@ async function accountConsoleReachable(browser) {
     .goto(`${ISSUER}/account/`, { waitUntil: 'domcontentloaded' })
     .catch(() => undefined);
   const status = response?.status() ?? 0;
-  // ผ่าน = ผู้ใช้ไม่ได้อยู่บนหน้าของ identity provider (redirect ไป D-Contact หรือ 404) — ไม่ใช่แค่ "ไม่มีข้อความ"
+  // pass = the user is not on an identity provider page (redirected to D-Contact or 404) - not merely "no text"
   const finalUrl = new URL(page.url() || 'about:blank', ISSUER);
   const stillOnIdp = finalUrl.origin === new URL(ISSUER).origin;
   const text = stillOnIdp
@@ -535,11 +541,11 @@ async function accountConsoleReachable(browser) {
     findings.push({
       where: 'Account Console',
       kind: 'reachable',
-      excerpt: `${ISSUER}/account/ ตอบ ${status} — ผู้ใช้เข้าได้`,
+      excerpt: `${ISSUER}/account/ answered ${status} - the user can get in`,
     });
   } else {
     visited.push(
-      `Account Console: ${stillOnIdp ? `ไม่แสดงหน้า (status ${status})` : `redirect ไป ${finalUrl.origin}`}`,
+      `Account Console: ${stillOnIdp ? `page not shown (status ${status})` : `redirect to ${finalUrl.origin}`}`,
     );
   }
   await context.close();
@@ -561,12 +567,12 @@ adminToken = (
 ).access_token;
 
 /**
- * negative control: ตัวสแกนต้อง "เห็น" คำนี้เมื่อมีจริง — หน้า login ของ realm master (ไม่ผ่าน theme ของ D-Contact) ต้องถูกจับได้
- * ถ้าไม่ถูกจับ = ตัวสแกนใช้ไม่ได้ ผล PASS ข้างล่างจึงไม่มีความหมาย
+ * negative control: the scanner must "see" this word when it is really there - the login page of the master realm (which does not go through the D-Contact theme) must be caught
+ * if it is not caught = the scanner is unusable, so the PASS below would be meaningless
  */
 async function negativeControl(browser) {
   const page = await browser.newPage();
-  // หน้า login ของ realm master render ฝั่ง server (title "Sign in to Keycloak") — ไม่ใช่ SPA ที่ redirect ด้วย JavaScript
+  // the master realm login page is rendered server-side (title "Sign in to Keycloak") - not an SPA that redirects with JavaScript
   const master = new URL(`${KEYCLOAK}/realms/master/protocol/openid-connect/auth`);
   for (const [key, value] of Object.entries({
     client_id: 'security-admin-console',
@@ -577,17 +583,17 @@ async function negativeControl(browser) {
     master.searchParams.set(key, value);
   await page.goto(master.href, { waitUntil: 'domcontentloaded' });
   const before = findings.length;
-  await scanPage('control: realm master (ต้องเจอ)', page, { control: true });
+  await scanPage('control: realm master (must be found)', page, { control: true });
   const detected = findings.length > before;
-  findings.splice(before); // ไม่นับเป็น finding ของ D-Contact
+  findings.splice(before); // not counted as a D-Contact finding
   await page.close();
   if (!detected) {
     console.error(
-      'negative control ล้มเหลว: ตัวสแกนไม่เห็นคำว่า Keycloak ในหน้าของ realm master — ใช้ผลไม่ได้',
+      'negative control failed: the scanner does not see the word Keycloak on the master realm page - the result is unusable',
     );
     process.exit(2);
   }
-  console.log('negative control: ตัวสแกนจับคำว่า Keycloak ในหน้า realm master ได้');
+  console.log('negative control: the scanner catches the word Keycloak on the master realm page');
 }
 
 await new Promise((resolve, reject) => {
@@ -605,21 +611,25 @@ try {
   for (const id of createdUsers) await admin('DELETE', `/users/${id}`).catch(() => undefined);
 }
 
-console.log(`\nสแกน ${visited.length} หน้า/อีเมล`);
+console.log(`\nscanned ${visited.length} pages/emails`);
 for (const entry of visited) console.log(`  · ${entry}`);
 if (infoSet.size > 0) {
-  console.log('\nข้อมูล (ไม่ใช่ gate): resource ที่ IdP เสิร์ฟมีคำนี้ใน URL');
+  console.log('\ninformation (not a gate): resources served by the IdP have this word in the URL');
   for (const path of [...infoSet].sort()) console.log(`  · ${path}`);
 }
 if (untranslated.size > 0) {
-  console.log('\nข้อมูล (ไม่ใช่ gate): ข้อความภาษาอังกฤษล้วนในหน้าภาษาไทย (ยังไม่แปล)');
+  console.log(
+    '\ninformation (not a gate): purely English text on a Thai page (not yet translated)',
+  );
   for (const line of [...untranslated].sort()) console.log(`  · ${line}`);
 }
 for (const note of infos.filter((item) => typeof item === 'string')) console.log(`  ℹ ${note}`);
 if (findings.length === 0) {
-  console.log('\nPASS: ไม่พบคำว่า Keycloak ในหน้า อีเมล และชื่อ cookie ที่ตรวจ');
+  console.log(
+    '\nPASS: the word Keycloak was not found in the checked pages, emails and cookie names',
+  );
 } else {
-  console.log(`\nFAIL: พบ ${findings.length} จุด`);
+  console.log(`\nFAIL: found ${findings.length} spots`);
   for (const finding of findings)
     console.log(`  ✗ ${finding.where} [${finding.kind}] …${finding.excerpt}…`);
   process.exitCode = 1;

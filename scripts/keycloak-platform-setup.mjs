@@ -2,16 +2,16 @@ import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
 
 /**
- * A1.2 (#407): identity plane ของ Platform Admin บน realm `dcontact` เดิม (#387) — idempotent ผ่าน Admin API
- * จึงใช้ได้ทั้ง realm ใหม่และ realm ที่ import ไปแล้ว (`--import-realm` ไม่ import ซ้ำ)
+ * A1.2 (#407): the identity plane of the Platform Admin on the existing `dcontact` realm (#387) - idempotent through the Admin API
+ * so it works on both a new realm and an already imported one (`--import-realm` does not import again)
  *
- * - `dcontact-platform-api`: bearer-only resource ถือ client roles `platform_operator | platform_auditor`
- *   แยกจาก realm roles ของ tenant (`admin/agent/supervisor`) จึงไม่มีทางปนใน tenant token
- * - `platform-console`: public client + PKCE, ไม่มี direct grant/offline scope, ไม่มี tenant/organization
- *   mapper, `fullScopeAllowed=false` เห็นเฉพาะ platform roles, audience `dcontact-platform-api` และ AMR claim
- * - browser flow ของ Platform: Cookie ใช้คืน session เดิม; การ login ใหม่ต้องผ่านรหัสผ่าน + OTP
- * - ผู้ใช้ dev แบบ platform-only (ไม่เป็นสมาชิก Organization ไม่มี tenant attributes) พร้อม TOTP ที่รู้ secret
- *   สำหรับ real-boundary test เท่านั้น — ค่า dev เหมือนรหัสผ่านใน realm-dcontact.dev.json
+ * - `dcontact-platform-api`: a bearer-only resource that holds the client roles `platform_operator | platform_auditor`
+ *   separate from the tenant realm roles (`admin/agent/supervisor`), so they can never mix into a tenant token
+ * - `platform-console`: a public client + PKCE, with no direct grant/offline scope, no tenant/organization
+ *   mapper, `fullScopeAllowed=false` so it sees only the platform roles, the audience `dcontact-platform-api` and the AMR claim
+ * - the Platform browser flow: the Cookie restores an existing session; a new login must pass password + OTP
+ * - a platform-only dev user (not a member of any Organization, no tenant attributes) with a TOTP whose secret is known
+ *   for the real-boundary test only - the dev values are the same as the password in realm-dcontact.dev.json
  */
 export const PLATFORM_REALM = 'dcontact';
 export const PLATFORM_API_CLIENT = 'dcontact-platform-api';
@@ -26,7 +26,7 @@ if (
   (platformConsoleUrl.protocol !== 'https:' && platformConsoleRedirect !== 'http://localhost:5180')
 ) {
   throw new Error(
-    'PLATFORM_CONSOLE_REDIRECT ต้องเป็น HTTPS origin เท่านั้น (ยกเว้น localhost สำหรับ dev)',
+    'PLATFORM_CONSOLE_REDIRECT must be an HTTPS origin only (except localhost for dev)',
   );
 }
 export const PLATFORM_CONSOLE_REDIRECT = platformConsoleRedirect;
@@ -61,7 +61,7 @@ async function request(path, { method = 'GET', token, body, form } = {}) {
     body: body === undefined ? form : JSON.stringify(body),
   });
   if (!response.ok) {
-    throw new Error(`${method} ${path} ล้มเหลว (${response.status}): ${await response.text()}`);
+    throw new Error(`${method} ${path} failed (${response.status}): ${await response.text()}`);
   }
   const text = await response.text();
   return text ? JSON.parse(text) : undefined;
@@ -89,7 +89,7 @@ async function findClient(token, clientId) {
   return client;
 }
 
-/** สร้างหรืออัปเดต client ให้ตรง representation (idempotent) แล้วคืน internal id */
+/** Create or update a client to match the representation (idempotent) and return the internal id */
 async function ensureClient(token, representation) {
   const existing = await findClient(token, representation.clientId);
   if (existing) {
@@ -121,12 +121,12 @@ const AMR_REFERENCES = Object.freeze({
   'auth-otp-form': 'otp',
 });
 /**
- * เท่ากับ ssoSessionMaxLifespan ของ realm dev (10 ชม.) — realm UAT ต้องไม่ยาวกว่านี้
- * (`PLATFORM_AMR_MAX_AGE_SECONDS` ใน u1-uat-readiness.mjs, UAT-S08 #645) แก้ต้องแก้คู่กัน
+ * equals ssoSessionMaxLifespan of the dev realm (10 hours) - the UAT realm must not be longer
+ * (`PLATFORM_AMR_MAX_AGE_SECONDS` in u1-uat-readiness.mjs, UAT-S08 #645) - change both together
  */
 const AMR_MAX_AGE_SECONDS = '36000';
 
-/** Cookie คืน session เดิม; เมื่อไม่มี session ต้องผ่าน username/password และ OTP ทั้งคู่ */
+/** The Cookie restores an existing session; when there is no session both username/password and OTP must pass */
 async function ensureBrowserFlow(token) {
   const flows = await request(`${realmPath}/authentication/flows`, { token });
   let flow = flows.find((candidate) => candidate.alias === PLATFORM_BROWSER_FLOW);
@@ -136,7 +136,7 @@ async function ensureBrowserFlow(token) {
       token,
       body: {
         alias: PLATFORM_BROWSER_FLOW,
-        description: 'Platform Console: SSO cookie หรือ password + TOTP (A1.2 #407)',
+        description: 'Platform Console: SSO cookie หรือ password + TOTP (A1.2 #407)', // allow-thai: description is persisted in the Keycloak realm
         providerId: 'basic-flow',
         topLevel: true,
         builtIn: false,
@@ -161,7 +161,7 @@ async function ensureBrowserFlow(token) {
       token,
       body: {
         alias: PLATFORM_BROWSER_FORMS_FLOW,
-        description: 'Platform Console: password แล้ว TOTP บังคับทั้งคู่',
+        description: 'Platform Console: password แล้ว TOTP บังคับทั้งคู่', // allow-thai: description is persisted in the Keycloak realm
         provider: 'registration-page-form',
         type: 'basic-flow',
       },
@@ -203,8 +203,8 @@ async function ensureBrowserFlow(token) {
         body: { ...execution, requirement: 'REQUIRED' },
       });
     }
-    // AMR mapper ใส่ค่าได้เฉพาะ execution ที่มี reference value — API ตรวจ `amr` ว่ามี pwd+otp จริง
-    // maxAge ต้องครอบทั้ง SSO session: ค่า 0 ทำให้ `pwd` หลุดจาก amr เมื่อขั้นรหัสผ่านกับ OTP ห่างกันข้ามวินาที
+    // the AMR mapper can set a value only for an execution that has a reference value - the API checks that `amr` really has pwd+otp
+    // maxAge must cover the whole SSO session: a value of 0 makes `pwd` drop out of amr when the password step and the OTP step are more than a second apart
     const reference = AMR_REFERENCES[execution.providerId];
     if (!reference) continue;
     const amrConfig = {
@@ -270,7 +270,7 @@ async function ensureUser(token, user, roleRepresentation, apiClientUuid) {
       { token },
     );
   }
-  // platform-only identity: ห้ามเป็นสมาชิก Organization ใด (#387 account separation)
+  // a platform-only identity: must not be a member of any Organization (#387 account separation)
   const organizations = await request(
     `${realmPath}/organizations/members/${userId}/organizations`,
     {
@@ -279,7 +279,7 @@ async function ensureUser(token, user, roleRepresentation, apiClientUuid) {
   ).catch(() => []);
   if (organizations.length > 0) {
     throw new Error(
-      `${user.username} เป็นสมาชิก Organization — platform identity ต้องแยกจาก tenant`,
+      `${user.username} is a member of an Organization - a platform identity must be separate from tenants`,
     );
   }
   await request(`${realmPath}/users/${userId}/role-mappings/clients/${apiClientUuid}`, {
@@ -310,8 +310,8 @@ export async function setupKeycloakPlatform({ withDevUsers = true } = {}) {
       apiClientUuid,
       name,
       name === 'platform_operator'
-        ? 'provisioning/recovery mutation ของ control plane'
-        : 'อ่าน control-plane metadata/audit แบบ read-only',
+        ? 'provisioning/recovery mutation ของ control plane' // allow-thai: description is persisted in the Keycloak realm
+        : 'อ่าน control-plane metadata/audit แบบ read-only', // allow-thai: description is persisted in the Keycloak realm
     );
   }
 
@@ -329,10 +329,10 @@ export async function setupKeycloakPlatform({ withDevUsers = true } = {}) {
     fullScopeAllowed: false,
     redirectUris: [`${PLATFORM_CONSOLE_REDIRECT}/*`],
     webOrigins: [PLATFORM_CONSOLE_REDIRECT],
-    // #515: หน้า login ของ Platform Console ใช้ child theme ที่มีป้าย Internal · Platform Operations
+    // #515: the Platform Console login page uses a child theme that has the Internal · Platform Operations badge
     attributes: { 'pkce.code.challenge.method': 'S256', login_theme: 'dcontact-platform' },
     authenticationFlowBindingOverrides: { browser: flowId },
-    // ไม่มี profile/email/organization/offline_access — token มีแค่ identity + platform roles
+    // no profile/email/organization/offline_access - the token has only the identity + the platform roles
     defaultClientScopes: ['roles', 'acr', 'basic'],
     optionalClientScopes: [],
     protocolMappers: [
@@ -353,7 +353,7 @@ export async function setupKeycloakPlatform({ withDevUsers = true } = {}) {
       },
     ],
   });
-  // fullScopeAllowed=false: role ที่ใส่ token ได้มีแค่ platform roles ของ API client เท่านั้น
+  // fullScopeAllowed=false: the only roles that can go into the token are the platform roles of the API client
   await request(`${realmPath}/clients/${consoleUuid}/scope-mappings/clients/${apiClientUuid}`, {
     method: 'POST',
     token,

@@ -1,9 +1,9 @@
 /**
- * J2.3 — audit ของ manual recovery (replay/reconcile/cancel/skip-quarantine)
+ * J2.3 — audit of manual recovery (replay/reconcile/cancel/skip-quarantine)
  *
- * append-only เท่านั้นตาม #123: ห้ามแก้ canonical database row, offset หรือ owner
- * result โดยตรง — ที่นี่เป็นเพียง record ว่าใครทำอะไรกับ reference เดิม เมื่อไร
- * และเพราะอะไร ห้ามอ้างว่า owner effect ถูกย้อน
+ * append-only only, per #123: never modify a canonical database row, offset or owner
+ * result directly — this is only a record of who did what to which existing reference, when
+ * and why, and it must not claim that an owner effect was reverted
  */
 import { randomUUID } from 'node:crypto';
 import {
@@ -18,7 +18,7 @@ export interface RecordRecoveryInput {
   tenantId: string;
   operation: JrRecoveryOperation;
   targetKind: JrRecoveryTargetKind;
-  /** reuse ของเดิมเท่านั้น — eventId/outcomeId หรือ actionKey ไม่ใช่ raw PII */
+  /** reuse the existing only — an eventId/outcomeId or actionKey, not raw PII */
   targetRef: string;
   reasonCode: string;
   actorId: string;

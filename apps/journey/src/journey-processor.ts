@@ -54,11 +54,11 @@ export interface JourneyProcessingResult {
 
 export interface JourneyProcessorOptions {
   now?: () => Date;
-  /** Cus360 C3 (#793): เพดานเวลา retry ของ identity ที่ยังไม่ import นับจากที่ event เข้า inbox */
+  /** Cus360 C3 (#793): retry time ceiling for an identity not yet imported, counted from when the event enters the inbox */
   identityMappingRetryWindowMs?: number;
 }
 
-/** Kafka retry ได้ไม่เกินช่วงนี้ partition จึงค้างได้ไม่นานถ้า import ไม่ถูกรัน */
+/** Kafka may retry no longer than this window, so the partition can be stuck only briefly if the import is not run */
 export const DEFAULT_IDENTITY_MAPPING_RETRY_WINDOW_MS = 15 * 60 * 1000;
 
 interface ResolvedContact {
@@ -76,7 +76,7 @@ export class JourneyEventNotReadyError extends Error {
   readonly code = 'JOURNEY_EVENT_NOT_READY';
 
   constructor(readonly receiptId: string) {
-    super(`Journey event ยังไม่ถูก publish ใน active tenant: ${receiptId}`);
+    super(`Journey event is not yet published in the active tenant: ${receiptId}`);
     this.name = 'JourneyEventNotReadyError';
   }
 }
@@ -85,7 +85,7 @@ export class JourneyEnrollmentConflictError extends Error {
   readonly code = 'JOURNEY_ENROLLMENT_CONFLICT';
 
   constructor(readonly receiptId: string) {
-    super(`receipt ถูก enroll ด้วย Journey version อื่นแล้ว: ${receiptId}`);
+    super(`receipt was already enrolled with a different Journey version: ${receiptId}`);
     this.name = 'JourneyEnrollmentConflictError';
   }
 }
@@ -94,21 +94,23 @@ export class JourneyScopeContextStaleError extends Error {
   readonly code = 'SCOPE_CONTEXT_STALE';
 
   constructor(readonly receiptId: string) {
-    super(`Journey scope ยังไม่สดสำหรับ receipt: ${receiptId}`);
+    super(`Journey scope is not fresh for receipt: ${receiptId}`);
     this.name = 'JourneyScopeContextStaleError';
   }
 }
 
 /**
- * Cus360 C3 (#793): identity ของ event ยังไม่ถูก import เป็น contact point จึงยังตัดสินไม่ได้
- * ห้ามสร้าง enrollment หรือเรียก Governance; Kafka handler จะไม่ mark receipt ว่า PROCESSED จึง retry
- * จนพ้น `identityMappingRetryWindowMs` แล้วจึงบันทึก REVIEW ด้วย reason `IDENTITY_MAPPING_PENDING`
+ * Cus360 C3 (#793): the identity of the event has not been imported as a contact point, so it cannot be decided yet
+ * must not create an enrollment or call Governance; the Kafka handler does not mark the receipt PROCESSED so it retries
+ * until past `identityMappingRetryWindowMs`, then records REVIEW with the reason `IDENTITY_MAPPING_PENDING`
  */
 export class JourneyIdentityMappingPendingError extends Error {
   readonly code = 'IDENTITY_MAPPING_PENDING';
 
   constructor(readonly receiptId: string) {
-    super(`identity ของ receipt ยังรอ import เป็น contact point: ${receiptId}`);
+    super(
+      `identity of the receipt is still waiting to be imported as a contact point: ${receiptId}`,
+    );
     this.name = 'JourneyIdentityMappingPendingError';
   }
 }
@@ -147,7 +149,7 @@ export class JourneyProcessor {
       },
       transaction,
     );
-    // นับจากเวลาที่ inbox รับ ไม่ใช่ occurredAt ของ producer: event ย้อนหลังต้องได้ retry ครบช่วงเช่นกัน
+    // counted from when the inbox received it, not the producer's occurredAt: a backdated event must get the full retry window as well
     if (
       resolution.status === 'DEFERRED' &&
       this.now().getTime() - receivedAt.getTime() < this.identityMappingRetryWindowMs
@@ -177,8 +179,8 @@ export class JourneyProcessor {
         };
       }
       if (scope.decision === 'DEFER') {
-        // ห้ามสร้าง enrollment หรือเรียก Governance จาก scope ที่ stale; Kafka handler จะไม่
-        // mark receipt ว่า PROCESSED จึง retry โดย resolve IAM ใหม่ทั้งเส้นทาง.
+        // must not create an enrollment or call Governance from a stale scope; the Kafka handler does not
+        // mark the receipt PROCESSED so it retries, resolving IAM again along the whole path.
         throw new JourneyScopeContextStaleError(input.receiptId);
       }
     }
@@ -353,7 +355,7 @@ export class JourneyProcessor {
       if (authorization.decision === 'ALLOW') {
         if (!resolved || !authorization.reservationId) {
           throw new Error(
-            'Journey action ที่ authorize แล้วต้องมี contact และ reservation evidence',
+            'a Journey action that is authorized must have contact and reservation evidence',
           );
         }
         await transactionClient.jrAction.upsert({

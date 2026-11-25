@@ -22,9 +22,9 @@ export interface CreateJourneyEventConsumerOptions {
 }
 
 /**
- * ใช้ jr_kafka_consumer_inbox เป็น complete record ของ Journey consumer. Advisory
- * lock ทำให้ worker พร้อมกันมีผู้เรียก handler สำเร็จได้เพียงรายเดียว; complete
- * record มี unique (consumerGroup, tenantId, eventId) และ commit ร่วมกับ outcome.
+ * Uses jr_kafka_consumer_inbox as the complete record of the Journey consumer. An advisory
+ * lock lets only one of the concurrent workers call the handler successfully; the complete
+ * record has unique (consumerGroup, tenantId, eventId) and commits together with the outcome.
  */
 export function createDurableJourneyIdempotencyStore(
   database: PrismaClient,
@@ -53,7 +53,7 @@ export function createDurableJourneyIdempotencyStore(
           select: { id: true },
         });
         if (!inbox) {
-          throw new Error('ไม่พบ Journey inbox event สำหรับ Kafka idempotency boundary');
+          throw new Error('Journey inbox event not found for the Kafka idempotency boundary');
         }
 
         await work(transaction);
@@ -64,7 +64,7 @@ export function createDurableJourneyIdempotencyStore(
         });
         if (!processedInbox) {
           throw new Error(
-            'Journey Kafka handler ต้อง commit inbox state เป็น PROCESSED ก่อนสำเร็จ',
+            'Journey Kafka handler must commit the inbox state as PROCESSED before succeeding',
           );
         }
         await transaction.jrKafkaConsumerInbox.create({

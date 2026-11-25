@@ -10,7 +10,7 @@ function validDefinition(
   overrides: Partial<JourneyDefinitionContent> = {},
 ): JourneyDefinitionContent {
   return {
-    name: 'ทวงหนี้ค้างชำระ',
+    name: 'Overdue debt collection',
     ownerTeamId: 'team-1',
     purpose: 'MARKETING',
     senderIdentityId: 'sender-1',
@@ -48,12 +48,12 @@ function validDefinition(
   };
 }
 
-test('definition ที่ครบตามสัญญาไม่มี validation code', () => {
+test('a definition that meets the contract has no validation code', () => {
   const codes = validateJourneyDefinitionStructure(validDefinition(), evaluator);
   assert.deepEqual(codes, []);
 });
 
-test('trigger ที่ไม่รู้จัก kind หรือขาด field ถูกปฏิเสธ', () => {
+test('a trigger with an unknown kind or a missing field is rejected', () => {
   const codes = validateJourneyDefinitionStructure(
     validDefinition({ trigger: { kind: 'EVENT', eventType: '' } }),
     evaluator,
@@ -61,7 +61,7 @@ test('trigger ที่ไม่รู้จัก kind หรือขาด fi
   assert.deepEqual(codes, ['TRIGGER_INVALID']);
 });
 
-test('goal ที่ไม่ใช่ EVENT หรือขาด eventType ถูกปฏิเสธ', () => {
+test('a goal that is not EVENT or lacks eventType is rejected', () => {
   const codes = validateJourneyDefinitionStructure(
     validDefinition({ goal: { kind: 'EVENT', eventType: '   ' } }),
     evaluator,
@@ -69,7 +69,7 @@ test('goal ที่ไม่ใช่ EVENT หรือขาด eventType ถ
   assert.deepEqual(codes, ['GOAL_INVALID']);
 });
 
-test('purpose หรือ senderIdentityId ว่างเปล่าถูกปฏิเสธเป็น DELIVERY_DEFAULTS_INVALID', () => {
+test('an empty purpose or senderIdentityId is rejected as DELIVERY_DEFAULTS_INVALID', () => {
   assert.deepEqual(
     validateJourneyDefinitionStructure(validDefinition({ purpose: '' }), evaluator),
     ['DELIVERY_DEFAULTS_INVALID'],
@@ -80,12 +80,12 @@ test('purpose หรือ senderIdentityId ว่างเปล่าถูก
   );
 });
 
-test('exitRules ว่างเปล่าถูกปฏิเสธ', () => {
+test('empty exitRules are rejected', () => {
   const codes = validateJourneyDefinitionStructure(validDefinition({ exitRules: [] }), evaluator);
   assert.deepEqual(codes, ['EXIT_RULE_INVALID']);
 });
 
-test('maxDurationDays ที่ไม่เป็นบวกหรือเกินเพดานถูกปฏิเสธ', () => {
+test('a maxDurationDays that is not positive or exceeds the ceiling is rejected', () => {
   assert.deepEqual(
     validateJourneyDefinitionStructure(validDefinition({ maxDurationDays: 0 }), evaluator),
     ['MAX_DURATION_INVALID'],
@@ -96,16 +96,16 @@ test('maxDurationDays ที่ไม่เป็นบวกหรือเก�
   );
 });
 
-test('entryStepId ที่ไม่มีใน steps ถูกปฏิเสธเป็น GRAPH_ENTRY_MISSING', () => {
+test('an entryStepId that is not in steps is rejected as GRAPH_ENTRY_MISSING', () => {
   const definition = validDefinition();
   const codes = validateJourneyDefinitionStructure(
-    { ...definition, graph: { ...definition.graph, entryStepId: 'ไม่มีจริง' } },
+    { ...definition, graph: { ...definition.graph, entryStepId: 'does-not-exist' } },
     evaluator,
   );
   assert.deepEqual(codes, ['GRAPH_ENTRY_MISSING']);
 });
 
-test('step id ซ้ำถูกปฏิเสธเป็น GRAPH_STEP_ID_DUPLICATE', () => {
+test('a duplicate step id is rejected as GRAPH_STEP_ID_DUPLICATE', () => {
   const definition = validDefinition();
   const codes = validateJourneyDefinitionStructure(
     {
@@ -120,7 +120,7 @@ test('step id ซ้ำถูกปฏิเสธเป็น GRAPH_STEP_ID_DUP
   assert.deepEqual(codes, ['GRAPH_STEP_ID_DUPLICATE']);
 });
 
-test('step ที่อ้าง next ไปยัง id ที่ไม่มีถูกปฏิเสธเป็น GRAPH_STEP_REFERENCE_MISSING', () => {
+test('a step whose next references a non-existent id is rejected as GRAPH_STEP_REFERENCE_MISSING', () => {
   const codes = validateJourneyDefinitionStructure(
     validDefinition({
       graph: {
@@ -131,7 +131,7 @@ test('step ที่อ้าง next ไปยัง id ที่ไม่ม�
             type: 'SEND',
             channel: 'LINE',
             contentRef: 'tmpl-1',
-            next: 'ไม่มีจริง',
+            next: 'does-not-exist',
           },
         ],
       },
@@ -141,7 +141,7 @@ test('step ที่อ้าง next ไปยัง id ที่ไม่ม�
   assert.deepEqual(codes, ['GRAPH_STEP_REFERENCE_MISSING']);
 });
 
-test('step ที่ entry เข้าไม่ถึงถูกปฏิเสธเป็น GRAPH_STEP_UNREACHABLE', () => {
+test('a step the entry cannot reach is rejected as GRAPH_STEP_UNREACHABLE', () => {
   const codes = validateJourneyDefinitionStructure(
     validDefinition({
       graph: {
@@ -157,7 +157,7 @@ test('step ที่ entry เข้าไม่ถึงถูกปฏิเ�
   assert.deepEqual(codes, ['GRAPH_STEP_UNREACHABLE']);
 });
 
-test('graph ที่ไม่มี terminal ที่ entry ไปถึงได้ถูกปฏิเสธเป็น GRAPH_NO_TERMINAL_REACHABLE', () => {
+test('a graph with no terminal reachable from the entry is rejected as GRAPH_NO_TERMINAL_REACHABLE', () => {
   const codes = validateJourneyDefinitionStructure(
     validDefinition({
       graph: {
@@ -170,7 +170,7 @@ test('graph ที่ไม่มี terminal ที่ entry ไปถึงไ
   assert.deepEqual(codes, ['GRAPH_NO_TERMINAL_REACHABLE']);
 });
 
-test('SEND step ที่ขาด contentRef ถูกปฏิเสธเป็น GRAPH_STEP_SHAPE_INVALID', () => {
+test('a SEND step missing contentRef is rejected as GRAPH_STEP_SHAPE_INVALID', () => {
   const codes = validateJourneyDefinitionStructure(
     validDefinition({
       graph: {
@@ -186,7 +186,7 @@ test('SEND step ที่ขาด contentRef ถูกปฏิเสธเป�
   assert.deepEqual(codes, ['GRAPH_STEP_SHAPE_INVALID']);
 });
 
-test('BRANCH ที่ใช้ DC_EXPR version อื่นถูกปฏิเสธเป็น BRANCH_EXPRESSION_INVALID', () => {
+test('a BRANCH using a different DC_EXPR version is rejected as BRANCH_EXPRESSION_INVALID', () => {
   const codes = validateJourneyDefinitionStructure(
     validDefinition({
       graph: {
@@ -212,7 +212,7 @@ test('BRANCH ที่ใช้ DC_EXPR version อื่นถูกปฏิ�
   assert.deepEqual(codes, ['BRANCH_EXPRESSION_INVALID']);
 });
 
-test('BRANCH ที่อ้าง forbidden reference segment ถูกปฏิเสธเป็น BRANCH_EXPRESSION_INVALID', () => {
+test('a BRANCH that references a forbidden segment reference is rejected as BRANCH_EXPRESSION_INVALID', () => {
   const codes = validateJourneyDefinitionStructure(
     validDefinition({
       graph: {
@@ -238,7 +238,7 @@ test('BRANCH ที่อ้าง forbidden reference segment ถูกปฏ�
   assert.deepEqual(codes, ['BRANCH_EXPRESSION_INVALID']);
 });
 
-/** entry step ต้องเป็น action-intent step เมื่อ trigger เป็น INTERACTION_OUTCOME (#135) */
+/** the entry step must be an action-intent step when the trigger is INTERACTION_OUTCOME (#135) */
 function outcomeTriggerGraph(): JourneyGraph {
   return {
     entryStepId: 'admit',
@@ -257,7 +257,7 @@ function outcomeTriggerGraph(): JourneyGraph {
   };
 }
 
-test('trigger INTERACTION_OUTCOME ที่ outcomeType อยู่ใน allowlist ผ่านการตรวจ', () => {
+test('an INTERACTION_OUTCOME trigger whose outcomeType is in the allowlist passes validation', () => {
   const codes = validateJourneyDefinitionStructure(
     validDefinition({
       trigger: {
@@ -273,12 +273,12 @@ test('trigger INTERACTION_OUTCOME ที่ outcomeType อยู่ใน allow
   assert.deepEqual(codes, []);
 });
 
-test('trigger INTERACTION_OUTCOME ที่ outcomeType ไม่อยู่ใน allowlist ถูกปฏิเสธ', () => {
+test('an INTERACTION_OUTCOME trigger whose outcomeType is not in the allowlist is rejected', () => {
   const codes = validateJourneyDefinitionStructure(
     validDefinition({
       trigger: {
         kind: 'INTERACTION_OUTCOME',
-        // @ts-expect-error -- ทดสอบ type ที่ไม่อยู่ใน allowlist โดยตั้งใจ
+        // @ts-expect-error -- deliberately testing a type that is not in the allowlist
         outcomeType: 'INTERACTION_QUEUED',
         coalescingPolicy: 'PER_LOGICAL_OUTCOME',
       },
@@ -289,13 +289,13 @@ test('trigger INTERACTION_OUTCOME ที่ outcomeType ไม่อยู่ใ
   assert.deepEqual(codes, ['TRIGGER_INVALID']);
 });
 
-test('trigger INTERACTION_OUTCOME ที่ coalescingPolicy ไม่ใช่ PER_LOGICAL_OUTCOME ถูกปฏิเสธ', () => {
+test('an INTERACTION_OUTCOME trigger whose coalescingPolicy is not PER_LOGICAL_OUTCOME is rejected', () => {
   const codes = validateJourneyDefinitionStructure(
     validDefinition({
       trigger: {
         kind: 'INTERACTION_OUTCOME',
         outcomeType: 'INTERACTION_ABANDONED',
-        // @ts-expect-error -- V1 รองรับ PER_LOGICAL_OUTCOME เท่านั้น
+        // @ts-expect-error -- V1 supports only PER_LOGICAL_OUTCOME
         coalescingPolicy: 'PER_INTERACTION',
       },
       graph: outcomeTriggerGraph(),
@@ -305,7 +305,7 @@ test('trigger INTERACTION_OUTCOME ที่ coalescingPolicy ไม่ใช่ 
   assert.deepEqual(codes, ['TRIGGER_INVALID']);
 });
 
-test('trigger INTERACTION_OUTCOME ที่ outcomeCode เป็น free text ถูกปฏิเสธ', () => {
+test('an INTERACTION_OUTCOME trigger whose outcomeCode is free text is rejected', () => {
   const codes = validateJourneyDefinitionStructure(
     validDefinition({
       trigger: {
@@ -321,7 +321,7 @@ test('trigger INTERACTION_OUTCOME ที่ outcomeCode เป็น free text �
   assert.deepEqual(codes, ['TRIGGER_INVALID']);
 });
 
-test('trigger INTERACTION_OUTCOME ที่ entry step ไม่ใช่ action-intent step ถูกปฏิเสธเป็น ENTRY_STEP_ACTION_INTENT_REQUIRED', () => {
+test('an INTERACTION_OUTCOME trigger whose entry step is not an action-intent step is rejected as ENTRY_STEP_ACTION_INTENT_REQUIRED', () => {
   const codes = validateJourneyDefinitionStructure(
     validDefinition({
       trigger: {
@@ -335,7 +335,7 @@ test('trigger INTERACTION_OUTCOME ที่ entry step ไม่ใช่ action
   assert.deepEqual(codes, ['ENTRY_STEP_ACTION_INTENT_REQUIRED']);
 });
 
-test('ENSURE_CASE step ที่ครบ field ผ่านการตรวจและ reject path เข้าเงื่อนไข reachability', () => {
+test('an ENSURE_CASE step with all fields passes validation and the reject path meets the reachability condition', () => {
   const codes = validateJourneyDefinitionStructure(
     validDefinition({
       graph: {
@@ -360,7 +360,7 @@ test('ENSURE_CASE step ที่ครบ field ผ่านการตรว�
   assert.deepEqual(codes, []);
 });
 
-test('ADMIT_CAMPAIGN_TARGET ที่ขาด onReject ถูกปฏิเสธเป็น GRAPH_STEP_SHAPE_INVALID', () => {
+test('an ADMIT_CAMPAIGN_TARGET missing onReject is rejected as GRAPH_STEP_SHAPE_INVALID', () => {
   const codes = validateJourneyDefinitionStructure(
     validDefinition({
       graph: {
@@ -383,7 +383,7 @@ test('ADMIT_CAMPAIGN_TARGET ที่ขาด onReject ถูกปฏิเส
   assert.deepEqual(codes, ['GRAPH_STEP_SHAPE_INVALID']);
 });
 
-test('SCHEDULE_CALLBACK ที่ requestedInSeconds ติดลบถูกปฏิเสธเป็น GRAPH_STEP_SHAPE_INVALID', () => {
+test('a SCHEDULE_CALLBACK with a negative requestedInSeconds is rejected as GRAPH_STEP_SHAPE_INVALID', () => {
   const codes = validateJourneyDefinitionStructure(
     validDefinition({
       graph: {
@@ -408,7 +408,7 @@ test('SCHEDULE_CALLBACK ที่ requestedInSeconds ติดลบถูกป
   assert.deepEqual(codes, ['GRAPH_STEP_SHAPE_INVALID']);
 });
 
-test('action intent step ที่ target reference เป็น free text/PII ถูกปฏิเสธเป็น ACTION_INTENT_REFERENCE_INVALID', () => {
+test('an action intent step whose target reference is free text/PII is rejected as ACTION_INTENT_REFERENCE_INVALID', () => {
   const codes = validateJourneyDefinitionStructure(
     validDefinition({
       graph: {
@@ -432,7 +432,7 @@ test('action intent step ที่ target reference เป็น free text/PII �
   assert.deepEqual(codes, ['ACTION_INTENT_REFERENCE_INVALID']);
 });
 
-test('SCHEDULE_CALLBACK ที่ queueId เป็น opaque id ผ่าน แต่ agentId มีช่องว่างถูกปฏิเสธ', () => {
+test('a SCHEDULE_CALLBACK whose queueId is an opaque id passes but an agentId with whitespace is rejected', () => {
   const codes = validateJourneyDefinitionStructure(
     validDefinition({
       graph: {
@@ -458,7 +458,7 @@ test('SCHEDULE_CALLBACK ที่ queueId เป็น opaque id ผ่าน �
   assert.deepEqual(codes, ['ACTION_INTENT_REFERENCE_INVALID']);
 });
 
-test('หลาย field ผิดพร้อมกันคืน code ครบโดยไม่ซ้ำ', () => {
+test('several wrong fields at once return all codes without duplicates', () => {
   const codes = validateJourneyDefinitionStructure(
     validDefinition({
       trigger: { kind: 'EVENT', eventType: '' },
@@ -473,7 +473,7 @@ test('หลาย field ผิดพร้อมกันคืน code คร�
   );
 });
 
-test('trigger SEGMENT_ENTRY ที่ครบตามสัญญาผ่านการตรวจ', () => {
+test('a SEGMENT_ENTRY trigger that meets the contract passes validation', () => {
   const codes = validateJourneyDefinitionStructure(
     validDefinition({
       trigger: {
@@ -487,7 +487,7 @@ test('trigger SEGMENT_ENTRY ที่ครบตามสัญญาผ่า�
   assert.deepEqual(codes, []);
 });
 
-test('trigger SEGMENT_ENTRY ที่ coalescingPolicy ไม่ใช่ PER_SEGMENT_ENTRY ถูกปฏิเสธ', () => {
+test('a SEGMENT_ENTRY trigger whose coalescingPolicy is not PER_SEGMENT_ENTRY is rejected', () => {
   for (const coalescingPolicy of ['PER_LOGICAL_OUTCOME', 'PER_MEMBERSHIP_REVISION', '']) {
     const codes = validateJourneyDefinitionStructure(
       validDefinition({
@@ -499,22 +499,22 @@ test('trigger SEGMENT_ENTRY ที่ coalescingPolicy ไม่ใช่ PER_SE
       }),
       evaluator,
     );
-    assert.deepEqual(codes, ['TRIGGER_INVALID'], `policy ${coalescingPolicy} ต้องไม่ผ่าน`);
+    assert.deepEqual(codes, ['TRIGGER_INVALID'], `policy ${coalescingPolicy} must not pass`);
   }
 });
 
-test('trigger SEGMENT_ENTRY ที่ segmentId ไม่ใช่ opaque id ถูกปฏิเสธ', () => {
+test('a SEGMENT_ENTRY trigger whose segmentId is not an opaque id is rejected', () => {
   /**
-   * ค่าเหล่านี้คือรูปแบบที่ free text, ช่องว่าง, อีเมล และ path traversal จะเล็ดลอดเข้ามา
+   * These values are the shapes through which free text, whitespace, email and path traversal would slip in
    *
-   * หมายเหตุ: OPAQUE_ID_PATTERN อนุญาตตัวเลขกับขีดกลาง สตริงที่หน้าตาเหมือนเบอร์โทรจึงผ่าน
-   * รูปแบบนี้ได้ — การกัน PII ไม่ได้พึ่ง pattern ตัวนี้ แต่พึ่ง closed shape ของ trigger ที่
-   * ไม่ยอมให้แนบ field ใดนอกจาก segmentId เข้ามาตั้งแต่แรก
+   * Note: OPAQUE_ID_PATTERN allows digits and hyphens, so a string that looks like a phone number can pass
+   * this pattern — PII protection does not rely on this pattern but on the closed shape of the trigger, which
+   * does not allow any field other than segmentId to be attached in the first place
    */
   for (const segmentId of [
     '',
     '   ',
-    'ลูกค้า Gold',
+    'Gold customer',
     'a@b.com',
     '../other-tenant',
     'x'.repeat(129),
@@ -528,13 +528,13 @@ test('trigger SEGMENT_ENTRY ที่ segmentId ไม่ใช่ opaque id ถ
     assert.deepEqual(
       codes,
       ['TRIGGER_INVALID'],
-      `segmentId ${JSON.stringify(segmentId)} ต้องไม่ผ่าน`,
+      `segmentId ${JSON.stringify(segmentId)} must not pass`,
     );
   }
 });
 
-test('trigger SEGMENT_ENTRY ที่แนบนิยาม segment, member list หรือ attribute ดิบมาด้วยถูกปฏิเสธ', () => {
-  // Journey ไม่ใช่เจ้าของนิยาม segment — ของพวกนี้ห้าม persist ลง definition เด็ดขาด
+test('a SEGMENT_ENTRY trigger that attaches a segment definition, member list or raw attributes is rejected', () => {
+  // Journey does not own the segment definition — these must never be persisted into a definition
   const smuggled: Array<Record<string, unknown>> = [
     {
       expression: { language: 'DC_EXPR', version: 1, expression: { type: 'literal', value: true } },
@@ -559,12 +559,12 @@ test('trigger SEGMENT_ENTRY ที่แนบนิยาม segment, member li
     assert.deepEqual(
       codes,
       ['TRIGGER_INVALID'],
-      `field ${Object.keys(extra)[0]} ต้องไม่ถูกปล่อยผ่าน`,
+      `field ${Object.keys(extra)[0]} must not be let through`,
     );
   }
 });
 
-test('trigger INTERACTION_OUTCOME ที่แนบ field แปลกปลอมก็ถูกปฏิเสธเช่นกัน', () => {
+test('an INTERACTION_OUTCOME trigger that attaches a foreign field is also rejected', () => {
   const codes = validateJourneyDefinitionStructure(
     validDefinition({
       trigger: {
@@ -580,8 +580,8 @@ test('trigger INTERACTION_OUTCOME ที่แนบ field แปลกปลอ
   assert.deepEqual(codes, ['TRIGGER_INVALID']);
 });
 
-test('SEGMENT_ENTRY ไม่ต้องบังคับให้ entry step เป็น action intent เหมือน INTERACTION_OUTCOME', () => {
-  // ข้อบังคับนั้นผูกกับ receipt transition ของ J2.7 โดยเฉพาะ ไม่ใช่กติกาของ trigger ทุกชนิด
+test('SEGMENT_ENTRY does not require the entry step to be an action intent like INTERACTION_OUTCOME', () => {
+  // that requirement is bound specifically to the receipt transition of J2.7, not a rule for every trigger type
   const codes = validateJourneyDefinitionStructure(
     validDefinition({
       trigger: {

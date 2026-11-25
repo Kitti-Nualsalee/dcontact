@@ -1,11 +1,11 @@
 /**
- * J2.7 — Kafka V2 consumer ของ `dc.interaction.events`; ingest เฉพาะ
- * `interaction.outcome_recorded` allowlist (#120) เข้า durable receipt (J2.3)
+ * J2.7 — Kafka V2 consumer of `dc.interaction.events`; ingests only the
+ * `interaction.outcome_recorded` allowlist (#120) into a durable receipt (J2.3)
  *
- * เจตนาแยก ingest ออกจาก trigger matching (`journey-outcome-trigger-processor.ts`)
- * เหมือนที่ J2.3 ออกแบบไว้แต่แรก: consumer นี้ไม่ resolve identity/scope หรือสร้าง
- * enrollment ใด ๆ — แค่ persist receipt แบบ durable/idempotent แล้วให้ processor ที่
- * poll แยกต่างหากทำงานต่อ
+ * Ingest is deliberately separated from trigger matching (`journey-outcome-trigger-processor.ts`)
+ * as J2.3 originally designed: this consumer does not resolve identity/scope or create any
+ * enrollment — it only persists the receipt durably/idempotently and lets a separately
+ * polling processor continue the work
  */
 import type { PrismaClient } from '@d-contact/db';
 import {
@@ -24,10 +24,10 @@ import { KAFKA_TOPICS } from '@d-contact/shared';
 import { JourneyOutcomeReceiptRepository } from './journey-outcome-receipt-repository.js';
 
 /**
- * ไม่ต้องมี inbox table แยกเหมือน governance consumer เพราะ
- * `JourneyOutcomeReceiptRepository.ingest()` เป็น durable dedup boundary ของตัวเองอยู่แล้ว
- * ผ่าน unique (tenantId, source, eventId) — เรียกซ้ำได้ปลอดภัยเสมอไม่ว่า wrapper
- * จะรายงาน processed/duplicate อย่างไร
+ * No separate inbox table is needed like the governance consumer because
+ * `JourneyOutcomeReceiptRepository.ingest()` is already its own durable dedup boundary
+ * through unique (tenantId, source, eventId) — calling it again is always safe no matter how the wrapper
+ * reports processed/duplicate
  */
 export function createDurableJourneyOutcomeIdempotencyStore(): EventIdempotencyStore {
   return {
@@ -45,11 +45,11 @@ export interface CreateJourneyOutcomeConsumerOptions {
   groupId: string;
   brokers?: string[];
   dlq?: DlqPublisher;
-  /** transport source ที่ persist ใน receipt เพื่อกันชนกับ receipt source อื่น */
+  /** transport source persisted in the receipt to avoid colliding with another receipt source */
   source?: string;
 }
 
-/** รับเฉพาะ canonical interaction outcome facts; event type อื่นบน topic เดียวกันข้ามเงียบ */
+/** Accepts only canonical interaction outcome facts; other event types on the same topic are skipped silently */
 export function createJourneyOutcomeConsumer(
   options: CreateJourneyOutcomeConsumerOptions,
 ): Promise<DcConsumer> {

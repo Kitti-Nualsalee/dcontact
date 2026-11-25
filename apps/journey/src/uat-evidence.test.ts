@@ -1,5 +1,5 @@
 /**
- * U1.5 (#433): ตรวจชนิดไฟล์, negative scan และ digest ของ evidence bundle แบบ pure
+ * U1.5 (#433): pure checks of file kind, negative scan and the evidence bundle digest
  */
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -21,7 +21,7 @@ import {
 } from './uat-evidence.js';
 import { UatRunError, parseUatFixturePackManifest, type UatStepResultView } from './uat-run.js';
 
-/** token ปลอมรูป JWT — ไม่ใช่ credential จริง */
+/** a fake token shaped like a JWT — not a real credential */
 const FAKE_JWT = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1YXQtZmFrZSJ9.c2lnbmF0dXJlLWZha2U';
 
 function crc32(bytes: Uint8Array): number {
@@ -42,7 +42,7 @@ function chunk(type: string, data: Uint8Array): Buffer {
   return Buffer.concat([length, body, crc]);
 }
 
-/** PNG 1x1 จริง พร้อม chunk เสริม */
+/** a real 1x1 PNG with extra chunks */
 function png(extra: Buffer[] = []): Buffer {
   const header = Buffer.alloc(13);
   header.writeUInt32BE(1, 0);
@@ -64,7 +64,7 @@ function segment(marker: number, data: Buffer): Buffer {
   return Buffer.concat([Buffer.from([0xff, marker]), length, data]);
 }
 
-/** โครง JPEG (SOI, APP0, segment เสริม, SOS + entropy data ที่มี byte stuffing/RST, EOI) */
+/** a JPEG skeleton (SOI, APP0, extra segment, SOS + entropy data with byte stuffing/RST, EOI) */
 function jpeg(extra: Buffer[] = []): Buffer {
   return Buffer.concat([
     Buffer.from([0xff, 0xd8]),
@@ -88,11 +88,11 @@ function rejected(work: () => unknown, code: UatRunError['code'], safeParams?: o
   });
 }
 
-test('U1.5 รับเฉพาะภาพหน้าจอ PNG/JPEG ตาม magic bytes — trace/HAR/network log ถูกปฏิเสธ', () => {
+test('U1.5 accepts only PNG/JPEG screenshots by magic bytes — trace/HAR/network log are rejected', () => {
   assert.equal(assertUatScreenshot('image/png', png()), 'image/png');
   assert.equal(assertUatScreenshot('image/jpeg', jpeg()), 'image/jpeg');
 
-  // Playwright trace.zip (local file header ของ zip)
+  // Playwright trace.zip (zip local file header)
   const trace = Buffer.concat([Buffer.from('PK\u0003\u0004', 'latin1'), Buffer.alloc(40)]);
   assert.equal(sniffUatEvidence(trace), 'ZIP');
   rejected(() => assertUatScreenshot('image/png', trace), 'EVIDENCE_TYPE_REJECTED', {
@@ -108,12 +108,12 @@ test('U1.5 รับเฉพาะภาพหน้าจอ PNG/JPEG ตา�
   });
   rejected(() => assertUatScreenshot('image/png', Buffer.alloc(0)), 'EVIDENCE_TYPE_REJECTED');
 
-  // content type ที่ประกาศต้องตรงกับไฟล์จริง
+  // the declared content type must match the real file
   rejected(() => assertUatScreenshot('image/jpeg', png()), 'EVIDENCE_TYPE_REJECTED', {
     detected: 'PNG',
     reason: 'CONTENT_TYPE_MISMATCH',
   });
-  // polyglot: PNG ที่พ่วง trace.zip ต่อท้าย / ไฟล์ขาด
+  // polyglot: a PNG with a trace.zip appended / a truncated file
   rejected(
     () => assertUatScreenshot('image/png', Buffer.concat([png(), trace])),
     'EVIDENCE_TYPE_REJECTED',
@@ -140,7 +140,7 @@ test('U1.5 รับเฉพาะภาพหน้าจอ PNG/JPEG ตา�
   );
 });
 
-test('U1.5 negative scan ตรวจ token, header, secret, PII และ OIDC code/state', () => {
+test('U1.5 the negative scan checks token, header, secret, PII and OIDC code/state', () => {
   const cases: Array<[string, string]> = [
     [FAKE_JWT, 'JWT'],
     ['Bearer abcdefgh12345678', 'BEARER'],
@@ -150,32 +150,32 @@ test('U1.5 negative scan ตรวจ token, header, secret, PII และ OIDC 
     ['client_secret=s3cr3t-value', 'SECRET'],
     ['-----BEGIN RSA PRIVATE KEY-----', 'SECRET'],
     ['AKIAABCDEFGHIJKLMNOP', 'SECRET'],
-    ['ติดต่อ somchai@example.co.th', 'EMAIL'],
-    ['โทร 0812345678', 'PHONE'],
-    ['โทร +14155550123', 'PHONE'],
-    ['โทร 0812345678ครับ', 'PHONE'],
-    ['ติดต่อ 021234567 หรือ 0812345678.', 'PHONE'],
+    ['Contact somchai@example.co.th', 'EMAIL'],
+    ['Call 0812345678', 'PHONE'],
+    ['Call +14155550123', 'PHONE'],
+    ['โทร 0812345678ครับ', 'PHONE'], // allow-thai: phone number directly adjacent to Thai characters (scanner edge case)
+    ['ติดต่อ 021234567 หรือ 0812345678.', 'PHONE'], // allow-thai: phone numbers mixed into Thai text (scanner edge case)
     ['https://sso.test/cb?code=abc123&session_state=x', 'OIDC_CODE'],
     ['https://sso.test/cb?state=xyz', 'OIDC_STATE'],
   ];
   for (const [text, kind] of cases) {
     assert.ok(scanUatText(text).includes(kind as never), `${kind}: ${scanUatText(text)}`);
   }
-  // ข้อความของผู้ทดสอบ/opaque ref ปกติไม่ถูกจับ
+  // ordinary tester text/opaque refs are not caught
   for (const clean of [
-    'เห็น Journey list และป้าย SIMULATION_ONLY',
+    'Saw the Journey list and the SIMULATION_ONLY badge',
     'corr-2026-09-28:abc',
     'a1b2c3d4e5f6',
     'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
     'uat-evidence/4e342ec5-d35b-41ed-bd44-1cf47a41af4b',
-    // git SHA ที่ขึ้นต้นแบบเบอร์ไทยแล้วต่อด้วยตัวอักษร (U1.11 #512)
+    // a git SHA that starts like a Thai number and continues with letters (U1.11 #512)
     '0812345678ab4c1d2e3f4a5b6c7d8e9f0a1b2c3d',
     '0512345678abcdef0123456789abcdef01234567',
     '"buildSha":"061234567fabcdef0123456789abcdef01234567"',
   ]) {
     assert.deepEqual(scanUatText(clean), [], clean);
   }
-  // fixture pack ใช้ scanner เดียวกัน
+  // the fixture pack uses the same scanner
   assert.throws(
     () => parseUatFixturePackManifest({ schema: 'UatFixturePackV1', note: `?code=abc` }),
     (error: unknown) => error instanceof UatRunError && error.safeParams?.kind === 'OIDC_CODE',
@@ -185,8 +185,8 @@ test('U1.5 negative scan ตรวจ token, header, secret, PII และ OIDC 
 const result = (overrides: Partial<UatStepResultView> = {}): UatStepResultView => ({
   stepId: 'LOGIN',
   outcome: 'PASS',
-  expected: 'เห็น Journey list',
-  actual: 'เห็น Journey list',
+  expected: 'Saw the Journey list',
+  actual: 'Saw the Journey list',
   severity: null,
   correlationId: null,
   stateLabel: 'REAL_STATE',
@@ -195,11 +195,11 @@ const result = (overrides: Partial<UatStepResultView> = {}): UatStepResultView =
   ...overrides,
 });
 
-test('U1.5 fixture ที่มี token ปลอมทำให้ scan FAIL โดย finding ไม่มีข้อความที่ match', () => {
+test('U1.5 a fixture with a fake token makes the scan FAIL with a finding that holds no matched text', () => {
   assert.deepEqual(scanUatStepResults([result()]), []);
   const findings = scanUatStepResults([
     result(),
-    result({ stepId: 'SIMULATE', actual: `ได้ header Authorization: Bearer ${FAKE_JWT}` }),
+    result({ stepId: 'SIMULATE', actual: `Got header Authorization: Bearer ${FAKE_JWT}` }),
   ]);
   assert.deepEqual(
     findings.map((finding) => finding.kind),
@@ -217,7 +217,7 @@ test('U1.5 fixture ที่มี token ปลอมทำให้ scan FAIL �
   assert.doesNotMatch(JSON.stringify(findings), /eyJ|Bearer/);
 });
 
-test('U1.5 scan metadata ข้อความในภาพ (PNG tEXt/zTXt/iTXt, JPEG COM/APPn) และ integrity', () => {
+test('U1.5 scans image text metadata (PNG tEXt/zTXt/iTXt, JPEG COM/APPn) and integrity', () => {
   const evidence = (bytes: Buffer, contentType: 'image/png' | 'image/jpeg') => ({
     evidenceId: '8c7d7e1e-7f55-4a4c-9d7b-000000000001',
     stepId: 'LOGIN',
@@ -279,7 +279,7 @@ test('U1.5 scan metadata ข้อความในภาพ (PNG tEXt/zTXt/iTX
     ],
   );
 
-  // object หาย (retention) หรือถูกแก้ = finding S1 ไม่ใช่ผ่านเงียบ
+  // an object missing (retention) or edited = an S1 finding, not a silent pass
   assert.deepEqual(
     scanUatEvidenceBytes(evidence(clean, 'image/png'), null).map((f) => f.kind),
     ['EVIDENCE_UNAVAILABLE'],
@@ -290,7 +290,7 @@ test('U1.5 scan metadata ข้อความในภาพ (PNG tEXt/zTXt/iTX
   );
 });
 
-test('U1.5 digest ของ bundle คำนวณซ้ำได้จาก canonical JSON และจับการแก้เนื้อหาได้', () => {
+test('U1.5 the bundle digest can be recomputed from canonical JSON and catches content edits', () => {
   const content: Omit<UatEvidenceBundleV1, 'digest'> = {
     schema: 'UatEvidenceBundleV1',
     manifest: {
@@ -325,7 +325,7 @@ test('U1.5 digest ของ bundle คำนวณซ้ำได้จาก ca
   };
   const bundle = { ...content, digest: uatEvidenceBundleDigest(content) };
   assert.ok(verifyUatEvidenceBundleDigest(bundle));
-  // ลำดับ key ไม่มีผลต่อ digest (canonical JSON)
+  // key order has no effect on the digest (canonical JSON)
   const reordered = JSON.parse(JSON.stringify({ digest: bundle.digest, ...content }));
   assert.ok(verifyUatEvidenceBundleDigest(reordered));
   assert.equal(verifyUatEvidenceBundleDigest({ ...bundle, verdict: 'FAIL' }), false);

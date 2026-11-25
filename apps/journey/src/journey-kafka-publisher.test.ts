@@ -4,7 +4,7 @@ import type { DcProducer, KafkaEventEnvelope, KafkaEventEnvelopeV2 } from '@d-co
 import { KAFKA_TOPICS, type KafkaTopic } from '@d-contact/shared';
 import { createJourneyKafkaPublisher } from './journey-kafka-publisher.js';
 
-test('Journey producer ส่ง V2 ingress และไม่เผย contact reference ใน ordering key', async () => {
+test('the Journey producer sends a V2 ingress and does not expose the contact reference in the ordering key', async () => {
   let sent: { topic: KafkaTopic; event: KafkaEventEnvelope } | undefined;
   const producer: DcProducer = {
     async send(topic, event) {

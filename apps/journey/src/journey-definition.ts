@@ -4,8 +4,8 @@ import type { ExpressionDocument } from '@d-contact/cxa-contracts';
 export type JourneyDefinitionStatus = 'DRAFT' | 'PUBLISHED';
 
 /**
- * J2.2: allowlist ที่ยืนยันแล้วใน #120 — canonical business outcome เท่านั้น ไม่ใช่
- * interaction lifecycle/offer/queue event หรือ CG2 delivery/settlement outcome
+ * J2.2: the allowlist confirmed in #120 — canonical business outcomes only, not
+ * interaction lifecycle/offer/queue events or CG2 delivery/settlement outcomes
  */
 export const INTERACTION_OUTCOME_TYPES = [
   'INTERACTION_ABANDONED',
@@ -15,13 +15,13 @@ export const INTERACTION_OUTCOME_TYPES = [
 
 export type InteractionOutcomeType = (typeof INTERACTION_OUTCOME_TYPES)[number];
 
-/** V1 รองรับ coalescing policy เดียวตาม #120; ค่าอื่นต้องกลับไป Phase Spec ก่อน */
+/** V1 supports a single coalescing policy per #120; other values must go back to the Phase Spec first */
 export type JourneyOutcomeCoalescingPolicy = 'PER_LOGICAL_OUTCOME';
 
 /**
- * J3.4 (#215): SEGMENT_ENTRY coalesce ต่อ "การเข้า segment หนึ่งครั้ง" ไม่ใช่ต่อ membership
- * revision — การแก้ค่า (CORRECTED) ของการเข้าครั้งเดิมจึงไม่ใช่ trigger ใหม่ ค่าอื่นต้องกลับไป
- * Phase Spec ก่อนเช่นเดียวกับ PER_LOGICAL_OUTCOME
+ * J3.4 (#215): SEGMENT_ENTRY coalesces per "one segment entry", not per membership
+ * revision — correcting (CORRECTED) the values of an existing entry is therefore not a new trigger. Other values must go back to
+ * the Phase Spec first, just like PER_LOGICAL_OUTCOME
  */
 export type JourneySegmentCoalescingPolicy = 'PER_SEGMENT_ENTRY';
 
@@ -31,18 +31,18 @@ export type JourneyTrigger =
   | {
       kind: 'INTERACTION_OUTCOME';
       outcomeType: InteractionOutcomeType;
-      /** disposition/outcome code ย่อยภายใน outcomeType (เช่น CALLBACK_REQUESTED); optional เมื่อ type ไม่มี sub-code */
+      /** sub disposition/outcome code within outcomeType (e.g. CALLBACK_REQUESTED); optional when the type has no sub-code */
       outcomeCode?: string;
       coalescingPolicy: JourneyOutcomeCoalescingPolicy;
     }
   /**
-   * J3.4 (#215): trigger จาก canonical segment membership ของ Customer 360
+   * J3.4 (#215): a trigger from the canonical segment membership of Customer 360
    *
-   * เก็บได้แค่ segmentId แบบ opaque เท่านั้น — ห้าม raw attribute, segment expression,
-   * member list หรือ snapshot ที่ caller ส่งมา เพราะ Journey ไม่ใช่เจ้าของนิยาม segment และ
-   * การฝังนิยามไว้ที่นี่จะทำให้ published version ค้างอยู่กับนิยามเก่าที่ Customer 360 แก้ไปแล้ว
-   * (ดู stop condition ของ #215) การตัดสินว่า contact อยู่ใน segment จริงไหมเป็นของ
-   * Customer 360 ที่ runtime เท่านั้น
+   * Can only keep an opaque segmentId — no raw attributes, segment expression,
+   * member list or snapshot sent by the caller, because Journey does not own the segment definition and
+   * embedding the definition here would leave a published version stuck on an old definition that Customer 360 has since changed
+   * (see the stop condition of #215). Deciding whether a contact is really in a segment belongs to
+   * Customer 360 at runtime only
    */
   | {
       kind: 'SEGMENT_ENTRY';
@@ -85,51 +85,51 @@ export interface JourneyExitStep {
 }
 
 /**
- * J2.2 closed action intents — Journey ตัดสิน intent เท่านั้น owner (Cases/Dialer) เป็นผู้
- * เขียน state จริงตาม #121; ที่นี่เก็บเฉพาะ target reference รูปแบบ opaque internal ID
- * ห้าม raw contact data/free text และยังไม่สร้าง reservation หรือ dispatch command ใด ๆ
+ * J2.2 closed action intents — Journey decides the intent only; the owner (Cases/Dialer) is the one that
+ * writes the real state per #121; only the target reference in opaque internal ID form is kept here,
+ * no raw contact data/free text, and no reservation is created and no command is dispatched yet
  */
 export interface JourneyEnsureCaseStep {
   id: string;
   type: 'ENSURE_CASE';
-  /** case-type/policy reference ที่ Cases ใช้เลือก dedupe/reopen policy — internal ID เท่านั้น */
+  /** case-type/policy reference Cases uses to choose the dedupe/reopen policy — internal ID only */
   caseTypeId: string;
-  /** routing intent reference ที่อนุญาตส่งต่อ Cases — required ตาม J2OwnerCommandPayloadV1.intent (#131) */
+  /** routing intent reference allowed to be forwarded to Cases — required per J2OwnerCommandPayloadV1.intent (#131) */
   routingIntentRef: string;
-  /** target owner team ของ command นี้ (#122) — pin จาก published version เดียวกับ ownerTeamId */
+  /** target owner team of this command (#122) — pinned from the same published version as ownerTeamId */
   targetOwnerTeamId: string;
-  /** transition เมื่อได้ CREATED/LINKED/REOPENED */
+  /** transition when CREATED/LINKED/REOPENED is received */
   next: string;
-  /** transition เมื่อ Cases ตอบ REJECTED */
+  /** transition when Cases answers REJECTED */
   onReject: string;
 }
 
 export interface JourneyAdmitCampaignTargetStep {
   id: string;
   type: 'ADMIT_CAMPAIGN_TARGET';
-  /** Campaign ที่มีอยู่แล้วเท่านั้น — ห้ามสร้าง/แก้ Campaign จาก Journey ตาม #121 */
+  /** An existing Campaign only — Journey must not create/edit a Campaign, per #121 */
   campaignId: string;
-  /** target owner team ของ command นี้ (#122) — pin จาก published version เดียวกับ ownerTeamId */
+  /** target owner team of this command (#122) — pinned from the same published version as ownerTeamId */
   targetOwnerTeamId: string;
-  /** transition เมื่อได้ ADMITTED/ALREADY_ADMITTED */
+  /** transition when ADMITTED/ALREADY_ADMITTED is received */
   next: string;
-  /** transition เมื่อ Dialer ตอบ REJECTED */
+  /** transition when Dialer answers REJECTED */
   onReject: string;
 }
 
 export interface JourneyScheduleCallbackStep {
   id: string;
   type: 'SCHEDULE_CALLBACK';
-  /** เวลาที่ขอ callback แบบ relative จาก trigger — definition เป็น declarative ล่วงหน้า */
+  /** time of the callback request, relative to the trigger — the definition is declarative in advance */
   requestedInSeconds: number;
-  /** queue affinity reference — required ตาม J2OwnerCommandPayloadV1.intent (#131) */
+  /** queue affinity reference — required per J2OwnerCommandPayloadV1.intent (#131) */
   queueId: string;
   agentId?: string;
-  /** target owner team ของ command นี้ (#122) — pin จาก published version เดียวกับ ownerTeamId */
+  /** target owner team of this command (#122) — pinned from the same published version as ownerTeamId */
   targetOwnerTeamId: string;
-  /** transition เมื่อได้ SCHEDULED/ALREADY_SCHEDULED */
+  /** transition when SCHEDULED/ALREADY_SCHEDULED is received */
   next: string;
-  /** transition เมื่อ Dialer ตอบ REJECTED */
+  /** transition when Dialer answers REJECTED */
   onReject: string;
 }
 
@@ -147,9 +147,9 @@ export interface JourneyGraph {
 export interface JourneyDefinitionContent {
   name: string;
   ownerTeamId: string;
-  /** consent/policy purpose (เช่น MARKETING, SERVICE) ที่ SEND ทุก step ในเวอร์ชันนี้ใช้ร่วมกัน */
+  /** consent/policy purpose (e.g. MARKETING, SERVICE) shared by every SEND step in this version */
   purpose: string;
-  /** sender identity ที่ผูกกับ delivery binding ของ SEND ทุก step — C1 เป็น TEST_ADAPTER เท่านั้น */
+  /** sender identity bound to the delivery binding of every SEND step — C1 is TEST_ADAPTER only */
   senderIdentityId: string;
   trigger: JourneyTrigger;
   graph: JourneyGraph;
@@ -183,7 +183,7 @@ export interface PublishJourneyVersionInput {
   correlationId: string;
 }
 
-/** ระบุจุดเดียวที่ definition ไม่ผ่านโครงสร้าง/สัญญาที่บังคับก่อน publish ได้ */
+/** Identifies the single place where a definition fails the structure/contract enforced before publish */
 export type JourneyDefinitionValidationCode =
   | 'TRIGGER_INVALID'
   | 'GOAL_INVALID'
@@ -202,11 +202,11 @@ export type JourneyDefinitionValidationCode =
   | 'TARGET_TEAM_UNTRUSTED'
   | 'ENTRY_STEP_ACTION_INTENT_REQUIRED'
   /**
-   * J3.4 (#215): segment ที่อ้างไม่ใช่ segment ที่ publish อยู่ใน tenant นี้
+   * J3.4 (#215): the referenced segment is not a segment published in this tenant
    *
-   * ใช้ code เดียวครอบทั้ง "ไม่มีอยู่จริง", "เป็นของ tenant อื่น" และ "มีแต่ยังไม่ publish"
-   * โดยตั้งใจ — ถ้าแยก code ผู้เรียกจะเดาได้ว่า segmentId ที่ลองยิงมามีอยู่ใน tenant อื่นหรือไม่
-   * ซึ่งเป็นการรั่ว existence ข้าม tenant
+   * One code deliberately covers "does not exist", "belongs to another tenant" and "exists but not yet published"
+   * — with separate codes a caller could guess whether a segmentId they tried exists in another tenant,
+   * which would leak existence across tenants
    */
   | 'SEGMENT_REFERENCE_UNTRUSTED';
 
@@ -214,7 +214,7 @@ export class JourneyDefinitionValidationError extends Error {
   readonly code = 'DEFINITION_INVALID' as const;
 
   constructor(readonly reasonCodes: readonly JourneyDefinitionValidationCode[]) {
-    super(`Journey definition ไม่ผ่านการตรวจ: ${reasonCodes.join(', ')}`);
+    super(`Journey definition failed validation: ${reasonCodes.join(', ')}`);
     this.name = 'JourneyDefinitionValidationError';
   }
 }
@@ -226,7 +226,7 @@ export class JourneyVersionConflictError extends Error {
     readonly journeyId: string,
     readonly version: number,
   ) {
-    super(`Journey version มีอยู่แล้วด้วยเนื้อหาต่างกัน: ${journeyId}:${version}`);
+    super(`Journey version already exists with different content: ${journeyId}:${version}`);
     this.name = 'JourneyVersionConflictError';
   }
 }
@@ -239,7 +239,9 @@ export class JourneyVersionSequenceError extends Error {
     readonly version: number,
     readonly expected: number,
   ) {
-    super(`Journey version ต้องต่อเนื่อง: ${journeyId} ส่ง ${version} แต่คาดหวัง ${expected}`);
+    super(
+      `Journey version must be contiguous: ${journeyId} sent ${version} but expected ${expected}`,
+    );
     this.name = 'JourneyVersionSequenceError';
   }
 }
@@ -251,7 +253,7 @@ export class JourneyVersionNotFoundError extends Error {
     readonly journeyId: string,
     readonly version: number,
   ) {
-    super(`ไม่พบ Journey version: ${journeyId}:${version}`);
+    super(`Journey version not found: ${journeyId}:${version}`);
     this.name = 'JourneyVersionNotFoundError';
   }
 }

@@ -8,13 +8,16 @@ export const CXA_PHASE_ONE_READINESS_CHECKS = [
   {
     id: 'phase-two-regression',
     dependency: 'Inbound Voice Phase 2 regression baseline',
-    boundaries: ['INBOUND_VOICE_PHASE_2_PILOT_READY', 'Journey ไม่อยู่ใน inbound critical path'],
+    boundaries: [
+      'INBOUND_VOICE_PHASE_2_PILOT_READY',
+      'Journey is not in the inbound critical path',
+    ],
     command: [pnpm, 'voice:phase2:acceptance'],
-    remediation: 'แก้ Phase 2 regression blocker ก่อนประเมิน CX Automation',
+    remediation: 'Fix the Phase 2 regression blocker before assessing CX Automation',
   },
   {
     id: 'canonical-storage',
-    dependency: 'Contact Governance และ Journey canonical storage',
+    dependency: 'Contact Governance and Journey canonical storage',
     boundaries: [
       'existing database migration',
       'fresh database migration',
@@ -22,14 +25,14 @@ export const CXA_PHASE_ONE_READINESS_CHECKS = [
       'canonical CG/JR models',
     ],
     command: [process.execPath, 'scripts/cxa-schema-readiness.mjs'],
-    remediation: 'ตรวจ CG/JR migration, Prisma schema และ tenant RLS policy',
+    remediation: 'Check the CG/JR migration, Prisma schema and tenant RLS policy',
   },
   {
     id: 'tenant-isolation',
     dependency: 'Application-role tenant isolation semantics',
     boundaries: ['cross-tenant read denial', 'cross-tenant mutation denial', 'append-only audit'],
     command: [pnpm, '--filter', '@d-contact/db', 'test:integration'],
-    remediation: 'ตรวจ service role privileges และ RLS USING/WITH CHECK ของ CG/JR tables',
+    remediation: 'Check service role privileges and RLS USING/WITH CHECK of the CG/JR tables',
   },
   {
     id: 'service-identity',
@@ -41,11 +44,11 @@ export const CXA_PHASE_ONE_READINESS_CHECKS = [
       'two tenant service identities',
     ],
     command: [process.execPath, 'scripts/cxa-service-identity-readiness.mjs'],
-    remediation: 'รัน pnpm infra:identity:link แล้วตรวจ Keycloak service account claims',
+    remediation: 'Run pnpm infra:identity:link and then check the Keycloak service account claims',
   },
   {
     id: 'governance-contract',
-    dependency: 'Contact policy และ reservation state contract',
+    dependency: 'Contact policy and reservation state contract',
     boundaries: [
       'hard restriction',
       'revoked/expired consent',
@@ -53,7 +56,7 @@ export const CXA_PHASE_ONE_READINESS_CHECKS = [
       'idempotent lifecycle',
     ],
     command: [pnpm, '--filter', '@d-contact/contact-governance', 'test'],
-    remediation: 'ตรวจ policy precedence และ reservation state transition',
+    remediation: 'Check policy precedence and reservation state transitions',
   },
   {
     id: 'governance-database',
@@ -65,14 +68,14 @@ export const CXA_PHASE_ONE_READINESS_CHECKS = [
       'decision/reservation transaction',
     ],
     command: [pnpm, '--filter', '@d-contact/contact-governance', 'test:integration'],
-    remediation: 'ตรวจ PostgreSQL advisory lock, actionKey และ reservation transaction',
+    remediation: 'Check the PostgreSQL advisory lock, actionKey and reservation transaction',
   },
   {
     id: 'journey-contract',
     dependency: 'Journey deterministic identity contract',
     boundaries: ['stable actionKey', 'enrollmentId', 'journeyVersion', 'stepId'],
     command: [pnpm, '--filter', '@d-contact/journey', 'test'],
-    remediation: 'ตรวจ Journey action identity และ canonical event hashing',
+    remediation: 'Check Journey action identity and canonical event hashing',
   },
   {
     id: 'journey-event-action',
@@ -85,7 +88,7 @@ export const CXA_PHASE_ONE_READINESS_CHECKS = [
       'two tenant isolation',
     ],
     command: [pnpm, '--filter', '@d-contact/journey', 'test:integration'],
-    remediation: 'ตรวจ event inbox, Redpanda, identity resolution และ Journey processor',
+    remediation: 'Check the event inbox, Redpanda, identity resolution and the Journey processor',
   },
   {
     id: 'service-ingress',
@@ -97,14 +100,15 @@ export const CXA_PHASE_ONE_READINESS_CHECKS = [
       'HTTP 409 IDEMPOTENCY_CONFLICT',
     ],
     command: [pnpm, '--filter', '@d-contact/api', 'test:integration'],
-    remediation: 'ตรวจ Keycloak service identity, role journey-ingress และ POST /api/v1/events',
+    remediation:
+      'Check the Keycloak service identity, the journey-ingress role and POST /api/v1/events',
   },
   {
     id: 'compile-boundary',
     dependency: 'Repository type boundary',
     boundaries: ['TypeScript workspace graph', 'public package contracts'],
     command: [pnpm, 'typecheck'],
-    remediation: 'แก้ type error ของ package contracts ก่อนยอมรับ Phase 1',
+    remediation: 'Fix the type errors of the package contracts before accepting Phase 1',
   },
 ];
 

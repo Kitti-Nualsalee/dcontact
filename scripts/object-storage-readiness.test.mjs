@@ -29,7 +29,7 @@ function fakeS3(existing) {
   return { clients, s3: { S3Client, HeadBucketCommand } };
 }
 
-test('config ใช้ S3_* ก่อน MINIO_* และ default ตรงกับ dev compose', () => {
+test('config uses S3_* before MINIO_* and the defaults match the dev compose', () => {
   assert.deepEqual(objectStorageConfiguration({}), {
     endpoint: 'http://localhost:9000',
     region: 'us-east-1',
@@ -45,7 +45,7 @@ test('config ใช้ S3_* ก่อน MINIO_* และ default ตรงก�
   assert.equal(configuration.credentials.accessKeyId, 'legacy');
 });
 
-test('HeadBucket ทุก bucket ที่ต้องมีและรายงานตัวที่ขาดพร้อม status', async () => {
+test('HeadBucket on every required bucket and report the missing ones with a status', async () => {
   const { clients, s3 } = fakeS3(new Set(['recordings', 'governance-exports']));
   const missing = await missingBuckets({ environment: {}, s3 });
   assert.deepEqual(missing, ['uat-evidence (404)']);
@@ -53,7 +53,7 @@ test('HeadBucket ทุก bucket ที่ต้องมีและราย�
   assert.equal(clients[0].destroyed, true);
 });
 
-test('ทุก bucket พร้อม = ไม่มีรายการขาด', async () => {
+test('every bucket ready = no missing entries', async () => {
   const { s3 } = fakeS3(new Set(['recordings', 'governance-exports', 'uat-evidence']));
   assert.deepEqual(await missingBuckets({ environment: {}, s3 }), []);
 });

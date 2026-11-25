@@ -29,12 +29,12 @@ const context = (overrides = {}) => ({
 });
 const allPass = () => U1_CHECKS.map(({ id }) => ({ id, status: 'PASS' }));
 
-test('U1.7 marker ออกเมื่อทุก check PASS บน expected SHA ที่ tree สะอาดเท่านั้น', () => {
+test('U1.7 the marker is issued only when every check PASSES on the expected SHA with a clean tree', () => {
   const summary = u1Summary(context(), allPass());
   assert.deepEqual(summary.markers, [U1_MARKER]);
   assert.equal(summary.status, 'PASS');
   assert.equal(summary.entryCondition, 'READY_TO_OPEN_416');
-  // marker นี้ไม่ใช่การยืนยันว่า UAT ผ่าน
+  // this marker is not a confirmation that UAT passed
   assert.equal(summary.uatAccepted, false);
   assert.match(summary.evidenceScope, /#416/);
 
@@ -56,7 +56,7 @@ test('U1.7 marker ออกเมื่อทุก check PASS บน expected S
   assert.equal(notReady.entryCondition, 'NOT_READY');
 });
 
-test('U1.7 สถานะ check มาจาก test ที่ชื่อขึ้นต้นด้วย id — ไม่มี test = FAIL, skipped/failed = FAIL', () => {
+test('U1.7 the check status comes from tests whose name starts with the id - no test = FAIL, skipped/failed = FAIL', () => {
   const report = {
     suites: [
       {
@@ -64,7 +64,7 @@ test('U1.7 สถานะ check มาจาก test ที่ชื่อข�
         suites: [
           {
             specs: [
-              { title: 'U1-MAKER รอบที่ 1', tests: [{ results: [{ status: 'passed' }] }] },
+              { title: 'U1-MAKER round 1', tests: [{ results: [{ status: 'passed' }] }] },
               { title: 'U1-RERUN a', tests: [{ results: [{ status: 'passed' }] }] },
               { title: 'U1-RERUN b', tests: [{ results: [{ status: 'failed' }] }] },
               { title: 'U1-REVIEW x', tests: [{ results: [] }] },
@@ -83,16 +83,16 @@ test('U1.7 สถานะ check มาจาก test ที่ชื่อข�
     status: 'FAIL',
     detail: 'NO_TEST',
   });
-  // prefix ต้องตรงทั้งคำ: U1-NEG-* ไม่นับเป็นของ U1-N
+  // the prefix must match the whole word: U1-NEG-* does not count as U1-N
   assert.equal(playwrightCheckStatus('U1-MAK', tests).detail, 'NO_TEST');
   assert.deepEqual(flattenPlaywrightReport(null), []);
 });
 
-test('U1.7 negative scan ของ manifest จับ token/credential/อีเมล/OIDC code และค่าลับของรอบ', () => {
+test('U1.7 the negative scan of the manifest catches tokens/credentials/emails/OIDC codes and the secrets of the run', () => {
   const secret = 'U1gSecretPassword7a';
   const findings = scanU1Evidence(
     {
-      ok: { digest: 'f'.repeat(64), note: 'รอบที่ 1 ACTIVE' },
+      ok: { digest: 'f'.repeat(64), note: 'round 1 ACTIVE' },
       jwt: 'eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl',
       bearer: 'Authorization: Bearer abcdefghijkl',
       email: 'maker@example.com',
@@ -112,12 +112,12 @@ test('U1.7 negative scan ของ manifest จับ token/credential/อีเ
     'RUN_SECRET',
     'SENSITIVE_KEY',
   ]);
-  // finding บอกตำแหน่งเท่านั้น ไม่คืนค่าที่ match
+  // a finding says only the location, not the matched value
   assert.ok(findings.every((finding) => !JSON.stringify(finding).includes(secret)));
   assert.deepEqual(scanU1Evidence({ steps: U1_STEP_CATALOG }), []);
 });
 
-test('U1.7 ไฟล์หลักฐานต้องไม่มี trace/HAR/video', () => {
+test('U1.7 evidence files must have no trace/HAR/video', () => {
   assert.deepEqual(
     forbiddenEvidenceFiles([
       'artifacts/u1-acceptance/screenshots/run-1-PUBLISH.png',
@@ -125,13 +125,13 @@ test('U1.7 ไฟล์หลักฐานต้องไม่มี trace/HA
       'test-results/x/trace.zip',
       'network.har',
       'video.webm',
-      'test-results/u1-evidence-ไม่มี-trace-HAR-chromium/error-context.md',
+      'test-results/u1-evidence-without-trace-HAR-chromium/error-context.md',
     ]),
     ['test-results/x/trace.zip', 'network.har', 'video.webm'],
   );
 });
 
-test('U1.7 API ของ gate บูตด้วย profile uat จาก env ที่สร้างใหม่ ไม่สืบ LINE_/KAFKA_/SIP_ ของ runner', () => {
+test('U1.7 the gate API boots with the uat profile from a freshly built env and does not inherit the runner LINE_/KAFKA_/SIP_', () => {
   const config = u1Environment({
     DATABASE_URL: 'postgresql://dcontact:dcontact@localhost:5433/dcontact?schema=public',
   });
@@ -153,7 +153,7 @@ test('U1.7 API ของ gate บูตด้วย profile uat จาก env �
   assert.ok(Object.keys(environment).every((name) => !/^(LINE_|KAFKA_BROKERS$|SIP_)/.test(name)));
 });
 
-test('U1.7 realm ของ gate มาจาก template ของ UAT: PKCE/OTP เหมือนเดิม เปลี่ยนแค่ realm/origin/Organization', () => {
+test('U1.7 the gate realm comes from the UAT template: PKCE/OTP unchanged, only the realm/origin/Organization change', () => {
   const tenants = [
     { id: '11111111-1111-4111-8111-111111111111', slug: 'u1g-x-a', name: 'A' },
     { id: '22222222-2222-4222-8222-222222222222', slug: 'u1g-x-b', name: 'B' },
@@ -182,7 +182,7 @@ test('U1.7 realm ของ gate มาจาก template ของ UAT: PKCE/OTP
   assert.equal(JSON.stringify(realm).includes('${env.'), false);
 });
 
-test('U1.7 manifest บอกขอบเขตว่าไม่ใช่ UAT acceptance และไม่มี marker เมื่อไม่ผ่าน', () => {
+test('U1.7 the manifest states the scope: it is not a UAT acceptance and has no marker when it does not pass', () => {
   const checks = allPass();
   checks[0].status = 'FAIL';
   const summary = u1Summary(context(), checks);

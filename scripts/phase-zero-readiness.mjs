@@ -11,14 +11,14 @@ export const PHASE_ZERO_READINESS_CHECKS = [
     dependency: 'Docker Compose dev environment',
     boundaries: ['PostgreSQL', 'Redis', 'Object storage', 'Redpanda', 'FreeSWITCH', 'Keycloak'],
     command: [pnpm, 'infra:up'],
-    remediation: 'ตรวจ Docker daemon/port/volume แล้วรัน pnpm infra:up',
+    remediation: 'Check the Docker daemon/port/volume and then run pnpm infra:up',
   },
   {
     id: 'database-baseline',
     dependency: 'PostgreSQL baseline',
     boundaries: ['migration', 'RLS policy', 'seed', 'Keycloak identity link'],
     command: [pnpm, 'infra:bootstrap'],
-    remediation: 'ตรวจ PostgreSQL แล้วรัน pnpm infra:bootstrap',
+    remediation: 'Check PostgreSQL and then run pnpm infra:bootstrap',
   },
   {
     id: 'infrastructure-boundaries',
@@ -32,18 +32,19 @@ export const PHASE_ZERO_READINESS_CHECKS = [
     ],
     command: [process.execPath, 'scripts/dev-infra-readiness.mjs'],
     remediation:
-      'ใช้ dependency และข้อความ ✗ ใน detail เพื่อแก้ service แล้วรัน pnpm infra:ready ซ้ำ',
+      'Use the dependency and the ✗ messages in the detail to fix the service, then re-run pnpm infra:ready',
   },
   {
     id: 'tenant-isolation',
     dependency: 'PostgreSQL RLS boundary',
     boundaries: [
-      'dcontact_app ไม่มี tenant context',
-      'dcontact_app ใช้ demo tenant context',
+      'dcontact_app has no tenant context',
+      'dcontact_app uses the demo tenant context',
       'cross-tenant read/write rejection',
     ],
     command: [pnpm, '--filter', '@d-contact/db', 'test:integration'],
-    remediation: 'ตรวจ migration และ packages/db/prisma/rls.sql แล้วรัน pnpm infra:bootstrap',
+    remediation:
+      'Check the migrations and packages/db/prisma/rls.sql and then run pnpm infra:bootstrap',
   },
   {
     id: 'identity-contract',
@@ -55,14 +56,14 @@ export const PHASE_ZERO_READINESS_CHECKS = [
       'tampered-token rejection',
     ],
     command: [process.execPath, 'scripts/keycloak-dev-readiness.mjs', '--auto-fallback'],
-    remediation: 'ตรวจ Keycloak realm แล้วรัน pnpm infra:identity:link',
+    remediation: 'Check the Keycloak realm and then run pnpm infra:identity:link',
   },
   {
     id: 'gateway-boundary',
     dependency: 'API Gateway identity boundary',
     boundaries: ['401 invalid identity', '403 insufficient role', 'verified tenant derivation'],
     command: [pnpm, '--filter', '@d-contact/api', 'test'],
-    remediation: 'ตรวจ API Gateway OIDC guard และ workspace session adapters',
+    remediation: 'Check the API Gateway OIDC guard and the workspace session adapters',
   },
   {
     id: 'event-backbone',
@@ -73,11 +74,11 @@ export const PHASE_ZERO_READINESS_CHECKS = [
       'duplicate-event idempotency',
     ],
     command: [pnpm, '--filter', '@d-contact/kafka', 'test:integration'],
-    remediation: 'ตรวจ Redpanda topics และ @d-contact/kafka contract',
+    remediation: 'Check the Redpanda topics and the @d-contact/kafka contract',
   },
 ];
 
-/** ลบข้อมูลรับรองก่อนนำ child-process output มาแสดงใน diagnostic */
+/** Strip credentials before showing child-process output in a diagnostic */
 export function sanitizeDiagnostic(value) {
   return String(value ?? '')
     .replaceAll(/\u001B\[[0-?]*[ -/]*[@-~]/g, '')
@@ -95,56 +96,56 @@ export function sanitizeDiagnostic(value) {
 }
 
 /**
- * GitHub Actions run ID อยู่ใน path ของ evidence (`artifacts/<phase>/<runId>.json`) และบางค่าบังเอิญตรง
- * รูปแบบเบอร์โทรไทยของ PII guard (เช่น 36683968610 มี `66` + 8 หลัก) ทำให้ S1 crash ตอนเขียน manifest
- * แทนที่จะรายงาน suite ที่ล้ม — ใช้กับข้อความ `detail` เท่านั้น ไม่ใช้กับ JSON evidence ที่ต้อง parse ต่อ
+ * A GitHub Actions run ID is in the evidence path (`artifacts/<phase>/<runId>.json`) and some values happen to match
+ * the Thai phone number pattern of the PII guard (e.g. 36683968610 has `66` + 8 digits), which made S1 crash while writing the manifest
+ * instead of reporting the failed suite - used only for the `detail` text, not for JSON evidence that must be parsed further
  */
 export function redactRunId(text, runId = process.env.GITHUB_RUN_ID) {
   return runId && /^\d+$/.test(runId) ? String(text).replaceAll(runId, '[RUN_ID]') : String(text);
 }
 
 /**
- * หน้าต่างนี้ต้องกว้างพอจะครอบ "บล็อกความล้มเหลว" ของ test runner ไม่ใช่แค่บรรทัดสรุปท้ายสุด
- * ตอนตั้งไว้ 10 บรรทัด/1500 อักษร diagnostic ของ Playwright ที่ล้มเก็บได้เพียงบรรทัด
- * "N failed" กับรายชื่อ test ส่วนข้อความ assertion จริงถูกตัดทิ้งทั้งหมด ทำให้ผลของ gate
- * บอกได้แค่ว่าล้ม แต่บอกไม่ได้ว่าล้มเพราะอะไร ซึ่งใช้เป็นหลักฐานปิดเฟสไม่ได้
- * Nested readiness จะ serialize diagnostic ซ้ำหลายชั้น จึงต้องมี character window ที่กว้างพอ
- * ให้ยังเห็น assertion ต้นเหตุ โดยทุกข้อความผ่าน sanitize ก่อนเก็บเสมอ
+ * This window must be wide enough to cover the "failure block" of the test runner, not just the last summary line
+ * When it was set to 10 lines/1500 characters, the diagnostic of a failed Playwright run kept only the line
+ * "N failed" and the list of test names, while the real assertion message was cut off entirely, so the result of the gate
+ * could say only that it failed but not why, which cannot be used as evidence to close a phase
+ * Nested readiness serializes the diagnostic again at several levels, so the character window must be wide enough
+ * to still show the root-cause assertion, and every message always passes sanitize before being kept
  */
 const DIAGNOSTIC_DETAIL_LINES = 80;
 const DIAGNOSTIC_DETAIL_CHARACTERS = 32_000;
 
 /**
- * บรรทัดที่บอก "อะไรล้ม" ต้องรอดจากการตัดเสมอ ไม่ว่าจะอยู่ตำแหน่งไหนของ output
+ * A line that says "what failed" must always survive truncation, wherever it sits in the output
  *
- * head/tail window อย่างเดียวไม่พอ: TAP ของ suite ที่มีร้อยกว่า test จะดัน `not ok` ของ
- * test ที่ล้มไปอยู่กลาง output พอดี แล้วโดนตัดทิ้ง เหลือแต่ `# fail 1` ท้ายสุดซึ่งบอกว่า
- * มีตัวล้มแต่ไม่บอกว่าตัวไหน — เจอจริงสองรอบติดกันตอนไล่ J2 acceptance จนต้องเดา
+ * A head/tail window alone is not enough: the TAP of a suite with over a hundred tests pushes the `not ok` of the
+ * failed test into the middle of the output, where it gets cut, leaving only `# fail 1` at the end, which says
+ * something failed but not which test - hit twice in a row while chasing the J2 acceptance, forcing guesswork
  */
 /**
- * `# Error:` คือบรรทัดเดียวที่บอกว่า test file ล้มเพราะ async activity ที่รอดออกมาหลังเทสจบ
+ * `# Error:` is the only line saying a test file failed because of async activity that escaped after the test ended
  *
- * เมื่อ promise reject หลัง test body จบไปแล้ว node:test จะรายงานตัวเทสว่า ok ตามปกติ แล้วค่อย
- * ทำให้ "ไฟล์" ล้มด้วย failureType: 'testCodeFailure' กับ error: 'test failed' ซึ่งไม่บอกอะไรเลย
- * รายละเอียดจริงอยู่ในบรรทัด diagnostic ที่ขึ้นต้นด้วย `# Error: Test "<ชื่อเทส>" at <ไฟล์>:<บรรทัด>
- * generated asynchronous activity after the test ended...` พร้อมข้อความ error ต้นทาง
+ * When a promise rejects after the test body has ended, node:test reports the test itself as ok as usual, and then
+ * fails the "file" with failureType: 'testCodeFailure' and error: 'test failed', which says nothing
+ * The real details are in the diagnostic line that starts with `# Error: Test "<test name>" at <file>:<line>
+ * generated asynchronous activity after the test ended...` together with the original error message
  *
- * exitCode/signal คือบรรทัดเดียวที่แยก "เทสใน assert ไม่ผ่าน" ออกจาก "process ตายทั้งตัว"
+ * exitCode/signal is the only line that separates "a test failed an assert" from "the whole process died"
  *
- * node:test รายงาน test file ที่ process จบไม่สวยด้วย failureType: 'testCodeFailure' และ
- * error: 'test failed' เหมือนกันหมด รายละเอียดที่บอกสาเหตุจริงอยู่ที่ signal: (เช่น SIGSEGV
- * ของ Prisma engine ตอน memory พร่อง) หรือ exitCode: เท่านั้น ถ้าไม่เก็บสองบรรทัดนี้ไว้ตอน
- * truncate จะเหลือแต่ failure ที่ไม่มีสาเหตุ แล้วต้องเดาเอาเองว่า flaky เพราะอะไร
+ * node:test reports a test file whose process ended badly with the same failureType: 'testCodeFailure' and
+ * error: 'test failed' every time; the details that give the real cause are only in signal: (e.g. SIGSEGV
+ * of the Prisma engine when memory is low) or exitCode: - if these two lines are not kept when
+ * truncating, only a cause-less failure remains and one has to guess why it was flaky
  */
 const FAILURE_LINE_PATTERN =
   /^\s*(?:not ok\b|# fail\b|# Error\b|error:|failureType:|code: 'ERR_|exitCode:|signal:|AssertionError|\s*at .*\.(?:test|integration)\.ts)/;
 
 /**
- * บรรทัด `not ok`/`error:` บอกว่า "อะไรล้ม" แต่ "ล้มเพราะอะไร" อยู่ในบรรทัดถัดมา (ข้อความ assertion,
- * diff ของ actual/expected) ซึ่งไม่ match FAILURE_LINE_PATTERN เลยถูกตัดทิ้งหมด — เจอจริงตอนไล่
- * CG4-OB02 ใน J2 acceptance ที่เหลือแค่ `code: 'ERR_ASSERTION'` โดยไม่รู้ว่า assert ตัวไหน
+ * The `not ok`/`error:` lines say "what failed" but "why it failed" is in the next lines (the assertion message,
+ * the actual/expected diff), which do not match FAILURE_LINE_PATTERN at all and so get cut - hit for real while chasing
+ * CG4-OB02 in the J2 acceptance, where only `code: 'ERR_ASSERTION'` was left with no way to tell which assert
  *
- * จึงเก็บบล็อกต่อเนื่องหลังบรรทัด failure ไว้ด้วย จนกว่าจะเจอผลของเทสตัวถัดไป
+ * so keep the continuous block after a failure line too, until the result of the next test appears
  */
 const FAILURE_BLOCK_CONTEXT_LINES = 12;
 
@@ -158,7 +159,7 @@ function rescueFailureBlocks(lines) {
       continue;
     }
     if (remaining === 0) continue;
-    // ผลของเทสตัวถัดไปเริ่มแล้ว = จบบล็อกของความล้มเหลวนี้
+    // the result of the next test has started = the end of this failure block
     if (/^\s*(?:ok\b|# Subtest:)/.test(line)) {
       remaining = 0;
       continue;
@@ -182,12 +183,15 @@ function diagnosticDetail(result) {
     const head = lines.slice(0, headCount);
     const tail = lines.slice(-headCount);
     const tailStart = lines.length - headCount;
-    // เก็บบรรทัดที่บ่งบอกความล้มเหลวซึ่งอยู่นอก head/tail window ไว้ด้วย
+    // also keep the lines that indicate a failure that sit outside the head/tail window
     const rescued = rescueFailureBlocks(lines.slice(headCount, tailStart));
     detail = [
       ...head,
       ...(rescued.length > 0
-        ? ['... diagnostic output truncated (เก็บเฉพาะบรรทัดที่บ่งบอกความล้มเหลว) ...', ...rescued]
+        ? [
+            '... diagnostic output truncated (only the lines that indicate a failure were kept) ...',
+            ...rescued,
+          ]
         : []),
       '... diagnostic output truncated ...',
       ...tail,
@@ -214,15 +218,15 @@ function structuredEvidence(result, prefix) {
 }
 
 /**
- * node:test รายงานไฟล์ที่ process ตายกลางคันเป็น `not ok <file>` พร้อม `signal: 'SIGSEGV'` โดยไม่มี
- * assertion ใดแดงเลย — โค้ด TypeScript ล้วนไม่มีทางทำให้ process ตายแบบนั้น crash อยู่ใน native
- * layer (Prisma query engine / V8) docs/j3-handover.md บันทึกไว้ตั้งแต่ J3 ว่าไฟล์ที่ล้มเปลี่ยนไป
- * เรื่อย ๆ ไม่สัมพันธ์กับจำนวน PrismaClient และรีโปรในเครื่องไม่ได้เลยจาก 16 รอบ
+ * node:test reports a file whose process died midway as `not ok <file>` with `signal: 'SIGSEGV'` and no
+ * red assertion at all - pure TypeScript code cannot make a process die like that; the crash is in the native
+ * layer (Prisma query engine / V8). docs/j3-handover.md has recorded since J3 that the failing file keeps changing,
+ * unrelated to the number of PrismaClients, and it could not be reproduced locally in 16 rounds
  *
- * ผลคือ acceptance run ที่ยาว ~3 ชั่วโมงถูกบล็อกด้วยความล้มเหลวที่ไม่ได้บอกอะไรเกี่ยวกับ product
- * จึงรันคำสั่งนั้นซ้ำ "หนึ่งครั้ง" เฉพาะกรณีที่ทุกบล็อกที่ล้มตายด้วย signal เท่านั้น — ถ้ามี
- * assertion แดงปนมาแม้ตัวเดียวถือเป็นผลจริงและไม่รันซ้ำ และถ้ารอบสองยังตายซ้ำก็ถือว่าแดงจริง
- * diagnostic เก็บ `retriedAfterSignal` ไว้เสมอเพื่อให้ evidence บอกได้ว่ารอบนั้นมีการรันซ้ำ
+ * The result is that an acceptance run of about 3 hours is blocked by a failure that says nothing about the product,
+ * so re-run that command "once" only when every failed block died by a signal - if even one
+ * red assertion is mixed in it is a real result and is not re-run, and if the second round dies again it counts as truly red
+ * the diagnostic always keeps `retriedAfterSignal` so the evidence can say that the round was re-run
  */
 const CRASH_SIGNAL_PATTERN = /signal: '(SIG[A-Z0-9]+)'/;
 
@@ -245,7 +249,7 @@ function tapFailureBlocks(output) {
   return blocks;
 }
 
-/** คืนชื่อ signal เมื่อ "ทุก" บล็อกที่ล้มตายด้วย signal; undefined เมื่อมีความล้มเหลวจริงปนอยู่ */
+/** Return the signal name when "every" failed block died by a signal; undefined when a real failure is mixed in */
 function crashSignalOnlyFailure(result) {
   const blocks = tapFailureBlocks(`${result.stdout ?? ''}\n${result.stderr ?? ''}`);
   if (blocks.length === 0) return undefined;
@@ -279,7 +283,7 @@ export function executeReadinessCheck(check, runner = spawnSync) {
     retriedAfterSignal = crashSignalOnlyFailure(result);
     if (retriedAfterSignal) {
       process.stderr.write(
-        `# ${check.id}: process ตายด้วย ${retriedAfterSignal} โดยไม่มี assertion แดง — รันซ้ำหนึ่งครั้ง\n`,
+        `# ${check.id}: process died with ${retriedAfterSignal} with no red assertion - re-running once\n`,
       );
       result = runCheckCommand(check, runner);
     }
@@ -305,9 +309,9 @@ export function executeReadinessCheck(check, runner = spawnSync) {
   };
 }
 
-// checks หลายรายการมักอ้างคำสั่งเดิมซ้ำ (เช่น governance test:integration ถูกอ้างจาก
-// หลาย dimension) การรันซ้ำแต่ละครั้งกิน CI time โดยไม่เพิ่ม coverage เพราะผลลัพธ์
-// deterministic ต่อ SHA เดียวกัน — cache ผลตาม command เพื่อรันครั้งเดียวต่อ process
+// several checks often reference the same command (e.g. governance test:integration is referenced from
+// several dimensions); each re-run costs CI time without adding coverage because the result is
+// deterministic for the same SHA - cache the result by command so it runs once per process
 export function createMemoizedExecuteCheck(execute = executeReadinessCheck) {
   const cache = new Map();
   return (check) => {

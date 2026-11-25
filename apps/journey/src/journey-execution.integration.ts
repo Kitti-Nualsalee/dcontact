@@ -1,9 +1,9 @@
 import { teamWriterRace } from '@d-contact/db/testing/team-reference-races.js';
 /**
- * C1.5 acceptance: durable execution ของ J1 บน Postgres จริง
+ * C1.5 acceptance: durable execution of J1 on real Postgres
  *
- * ทุกเคสยืนยันสัญญาเดียวกัน — node หนึ่งตัวรันได้ครั้งเดียว, terminal แรกชนะ และ
- * restart/worker ซ้อนกันต้องไม่ทำให้ enrollment ข้ามหรือย้อน
+ * Every case verifies the same contract — one node runs only once, the first terminal wins, and
+ * a restart/overlapping workers must not make an enrollment skip or go backwards
  */
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -91,7 +91,7 @@ async function fixture(t: TestContext, expression: ExpressionDocument = OPT_IN) 
         sipDomain: `${suffix}-${index}.journey-exec.test`,
       },
     });
-    // publish ตรวจว่า ownerTeamId เป็นทีมจริงของ tenant นั้น ไม่ใช่ uuid ลอย ๆ
+    // publish checks that ownerTeamId is a real team of that tenant, not a floating uuid
     const teamId = randomUUID();
     ownerTeamIds.set(scope, teamId);
     await owner.team.create({
@@ -228,7 +228,7 @@ test('schedule occurrence dedupes per tenant and enrolls once', async (t) => {
   });
   assert.equal(replay.enrollmentId, first.enrollmentId);
 
-  // occurrence เดียวกันของอีก tenant เป็นคนละใบ ไม่ถูก dedupe ข้าม tenant
+  // the same occurrence in another tenant is a different one, not deduped across tenants
   const other = await context.execution.enrollFromSchedule(context.otherTenantId, {
     journeyId: context.journeyId,
     journeyVersion: 1,
@@ -399,7 +399,7 @@ test('two workers advancing the same enrollment run the node exactly once', asyn
   const advanced = results.filter(
     (result) => result.status === 'fulfilled' && result.value.kind === 'ADVANCED',
   );
-  assert.equal(advanced.length, 1, 'มีเพียง worker เดียวที่เดิน node ได้');
+  assert.equal(advanced.length, 1, 'only one worker may advance the node');
   const runs = await context.stepRuns(enrollment.enrollmentId);
   assert.equal(runs.filter((run) => run.stepId === 'branch-1').length, 1);
 });

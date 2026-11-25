@@ -97,14 +97,14 @@ export const S1_READINESS_CHECKS = [
 
 function git(arguments_) {
   const result = spawnSync('git', arguments_, { cwd: repositoryRoot, encoding: 'utf8' });
-  if (result.status !== 0 || result.error) throw new Error(`git ${arguments_.join(' ')} ล้มเหลว`);
+  if (result.status !== 0 || result.error) throw new Error(`git ${arguments_.join(' ')} failed`);
   return String(result.stdout).trim();
 }
 
 function repository() {
   const remote = git(['config', '--get', 'remote.origin.url']);
   const match = remote.match(/(?:github\.com[/:])([^/]+\/[^/.]+)(?:\.git)?$/);
-  if (!match) throw new TypeError('ไม่สามารถระบุ repository ของ S1 manifest');
+  if (!match) throw new TypeError('cannot determine the repository of the S1 manifest');
   return match[1];
 }
 
@@ -112,7 +112,7 @@ export function createS1Context(environment = process.env) {
   const commitSha = git(['rev-parse', 'HEAD']);
   const mainSha = git(['rev-parse', 'origin/main']);
   const expectedCommitSha = environment.S1_EXPECTED_COMMIT_SHA ?? mainSha;
-  // ADR-032: commit ต้องอยู่บน main แล้ว ไม่จำเป็นต้องเป็น HEAD ของ main ตอน run
+  // ADR-032: the commit must already be on main; it need not be main HEAD at run time
   const onMain = commitOnMain(commitSha);
   return {
     repository: repository(),
@@ -200,47 +200,49 @@ export function createS1Manifest(context, diagnostics, summary) {
 export function assertValidS1Manifest(manifest) {
   assertPiiSafeEvidence(manifest);
   if (manifest.schemaVersion !== 1 || manifest.phase !== 'S1')
-    throw new TypeError('S1 manifest schema ไม่ถูกต้อง');
+    throw new TypeError('the S1 manifest schema is invalid');
   if (
     Object.keys(manifest.flags ?? {}).length !== Object.keys(S1_FLAGS).length ||
     !Object.entries(S1_FLAGS).every(([key, value]) => manifest.flags?.[key] === value)
   )
-    throw new TypeError('S1 manifest flags ไม่ปลอดภัย');
+    throw new TypeError('the S1 manifest flags are unsafe');
   const checks = manifest.checks ?? [];
   if (
     !/^[0-9a-f]{40}$/i.test(manifest.commitSha) ||
     !/^[0-9a-f]{40}$/i.test(manifest.finalMainSha) ||
     !/^[0-9a-f]{40}$/i.test(manifest.expectedCommitSha)
   )
-    throw new TypeError('S1 manifest ต้องอ้าง commit SHA เต็มรูปแบบ');
+    throw new TypeError('the S1 manifest must reference a full commit SHA');
   if (
     checks.length !== S1_READINESS_CHECKS.length ||
     new Set(checks.map((item) => item.id)).size !== checks.length ||
     checks.some((item) => !S1_READINESS_CHECKS.some((registered) => registered.id === item.id))
   )
-    throw new TypeError('S1 manifest ต้องมี 20 checks ไม่ซ้ำกัน');
+    throw new TypeError('the S1 manifest must have 20 checks, all unique');
   const artifacts = manifest.artifacts ?? [];
   if (
     artifacts.length !== checks.length ||
     new Set(artifacts.map((item) => item.id)).size !== artifacts.length
   )
-    throw new TypeError('S1 manifest ต้องมี evidence artifact หนึ่งรายการต่อ check');
+    throw new TypeError('the S1 manifest must have one evidence artifact per check');
   for (const artifact of artifacts) {
     const check = checks.find((item) => `check:${item.id}` === artifact.id);
     if (!check || artifact.commitSha !== manifest.commitSha || artifact.sha256 !== sha256(check))
-      throw new TypeError('S1 evidence artifact ไม่ตรงกับ check/commit');
+      throw new TypeError('the S1 evidence artifact does not match the check/commit');
   }
   const markers = manifest.markers ?? [];
   if (
     markers.some((marker) => ![CG3_MARKER, LINE_MARKER].includes(marker)) ||
     new Set(markers).size !== markers.length
   )
-    throw new TypeError('S1 manifest มี marker ไม่ถูกต้อง');
+    throw new TypeError('the S1 manifest has an invalid marker');
   if (markers.length > 0) {
     if (manifest.commitOnMain !== true || manifest.commitSha !== manifest.expectedCommitSha)
-      throw new TypeError('S1 marker ต้องออกจาก commit ที่อยู่บน main แล้ว (ADR-032)');
+      throw new TypeError(
+        'the S1 marker must be issued from a commit that is already on main (ADR-032)',
+      );
     if (!checks.every((item) => item.status === 'PASS'))
-      throw new TypeError('S1 marker ต้องมี 20 checks PASS');
+      throw new TypeError('the S1 marker needs 20 checks to PASS');
   }
 }
 
@@ -279,8 +281,8 @@ function executeCompositeCheck(check, execute) {
 
 export function runS1Readiness(options = {}) {
   const context = options.context ?? createS1Context(options.environment ?? process.env);
-  // check หลายรายการอ้างคำสั่งเดียวกัน (เช่น governance test:integration ถูกอ้างจาก
-  // F01/F02/RT01/ID01/CC01) — memoize ตาม command กัน CI รันซ้ำโดยไม่เพิ่ม coverage
+  // several checks reference the same command (e.g. governance test:integration is referenced from
+  // F01/F02/RT01/ID01/CC01) - memoize by command so CI does not re-run it without adding coverage
   const execute = options.executeCheck ?? createMemoizedExecuteCheck();
   const startedAt = options.now?.() ?? new Date();
   const diagnostics = S1_READINESS_CHECKS.map((item) => executeCompositeCheck(item, execute));

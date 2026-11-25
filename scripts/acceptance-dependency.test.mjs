@@ -36,7 +36,7 @@ const acceptedManifest = (phase, commitSha = SHA) => ({
   markers: [ACCEPTANCE_PHASES[phase].marker],
 });
 
-/** เขียน manifest พร้อม provenance แบบเดียวกับที่ fetch script เขียน */
+/** Write a manifest with the same provenance the fetch script writes */
 function writeFetched(root, phase, file, manifest, { headSha = SHA, tamper = false } = {}) {
   const folder = resolve(root, ACCEPTANCE_PHASES[phase].directory);
   mkdirSync(folder, { recursive: true });
@@ -51,7 +51,7 @@ function writeFetched(root, phase, file, manifest, { headSha = SHA, tamper = fal
   writeFileSync(provenancePath, JSON.stringify(provenance));
 }
 
-test('suite ซ้อนที่ล้ม: detail ระบุ suite id และสาเหตุของชั้นใน ไม่ใช่แค่ exit status', () => {
+test('nested suite that fails: detail names the suite id and the inner cause, not just the exit status', () => {
   const nested = [
     'noise line',
     JSON.stringify({ type: 'readiness.suite', id: 'suite:18', status: 'PASS' }),
@@ -60,7 +60,7 @@ test('suite ซ้อนที่ล้ม: detail ระบุ suite id แล�
       id: 'suite:20',
       command: ['pnpm', 'cxa:cg4:acceptance'],
       status: 'FAIL',
-      detail: 'not ok 3 - CG4 exception scope ติดต่อ customer@example.test',
+      detail: 'not ok 3 - CG4 exception scope contacts customer@example.test',
     }),
     JSON.stringify({ type: 'readiness.check', id: 'J3-REG01', status: 'FAIL' }),
   ].join('\n');
@@ -80,17 +80,17 @@ test('suite ซ้อนที่ล้ม: detail ระบุ suite id แล�
   assert.match(j3, /last line/);
 });
 
-test('ไม่มีบรรทัดบอกความล้มเหลว: ใช้ท้าย output แทน exit status อย่างเดียว', () => {
+test('no line reporting the failure: use the tail of the output instead of the exit status alone', () => {
   const detail = cg4FailureDetail(
-    'step 1\nmarker ของ dependency ยังไม่ครบ',
+    'step 1\ndependency marker is incomplete',
     'process exited with status 1',
   );
   assert.match(detail, /process exited with status 1/);
-  assert.match(detail, /dependency ยังไม่ครบ/);
+  assert.match(detail, /dependency marker is incomplete/);
   assert.equal(cg4FailureDetail('', 'SIGTERM'), 'SIGTERM');
 });
 
-test('J2/J3/J5 registry ไม่ spawn acceptance ของ phase อื่นอีกแล้ว แต่ตรวจ marker แทน', () => {
+test('J2/J3/J5 registry no longer spawns the acceptance of other phases, but checks the marker instead', () => {
   const registries = {
     J2: CXA_J2_READINESS_CHECKS,
     J3: CXA_J3_READINESS_CHECKS,
@@ -101,7 +101,7 @@ test('J2/J3/J5 registry ไม่ spawn acceptance ของ phase อื่น�
     const commands = checks.flatMap(({ commands }) => commands);
     assert.ok(
       !commands.some((command) => command.some((part) => /:acceptance$/.test(String(part)))),
-      `${acceptance} ยังเรียก *:acceptance`,
+      `${acceptance} still calls *:acceptance`,
     );
     const script =
       {
@@ -111,17 +111,17 @@ test('J2/J3/J5 registry ไม่ spawn acceptance ของ phase อื่น�
     const reg = checks.find(({ id }) => id === `${acceptance}-REG01`);
     assert.ok(
       reg.commands.some((command) => command.some((part) => String(part).endsWith(script))),
-      `${acceptance}-REG01 ต้องตรวจ marker`,
+      `${acceptance}-REG01 must check the marker`,
     );
   }
 });
 
-test('marker นับได้เฉพาะไฟล์ที่มี provenance บน SHA เดียวกันและ digest ตรง', (t) => {
+test('a marker counts only for files with provenance on the same SHA and a matching digest', (t) => {
   const root = temporaryRoot(t);
-  // ไฟล์ค้างจาก local run ไม่มี provenance
+  // a leftover file from a local run has no provenance
   mkdirSync(resolve(root, 's1'), { recursive: true });
   writeFileSync(resolve(root, 's1', 'local.json'), JSON.stringify(acceptedManifest('s1')));
-  // manifest ที่ถูกแก้หลังดาวน์โหลด
+  // a manifest edited after download
   writeFetched(root, 'c1', '1.json', acceptedManifest('c1'), { tamper: true });
   let summary = acceptanceDependencySummary('J2', { commitSha: SHA, artifactsRoot: root });
   assert.equal(summary.status, 'FAIL');
@@ -130,7 +130,7 @@ test('marker นับได้เฉพาะไฟล์ที่มี proven
   assert.equal(summary.phases.c1.status, 'ABSENT');
   assert.match(missingDependencyMessage(summary), /acceptance=s1/);
 
-  // SHA อื่น / candidate ไม่นับ
+  // another SHA / candidate does not count
   writeFetched(root, 's1', '2.json', acceptedManifest('s1', OTHER_SHA), { headSha: OTHER_SHA });
   writeFetched(root, 's1', '3.json', { ...acceptedManifest('s1'), candidate: true });
   summary = acceptanceDependencySummary('J2', { commitSha: SHA, artifactsRoot: root });
@@ -143,7 +143,7 @@ test('marker นับได้เฉพาะไฟล์ที่มี proven
   assert.equal(summary.phases.s1.sourceRunId, 7);
 });
 
-test('J5 dependency ใช้ loader เดียวกันและ fail เมื่อ marker ไม่ครบ', (t) => {
+test('J5 dependency uses the same loader and fails when markers are incomplete', (t) => {
   const root = temporaryRoot(t);
   for (const phase of ACCEPTANCE_DEPENDENCIES.J5)
     writeFetched(root, phase, `${phase}.json`, acceptedManifest(phase));
@@ -153,7 +153,7 @@ test('J5 dependency ใช้ loader เดียวกันและ fail เ�
   assert.deepEqual(Object.keys(missing.phases), ['j1', 'j2', 'j3', 'cg3']);
 });
 
-test('fetch: เลือกเฉพาะ artifact บน main + SHA เดียวกัน แล้วเขียน provenance ที่ checker ยอมรับ', async (t) => {
+test('fetch: picks only artifacts on main + the same SHA, then writes provenance the checker accepts', async (t) => {
   const artifact = (id, overrides = {}) => ({
     id,
     name: `s1-evidence-${SHA}`,
@@ -186,12 +186,12 @@ test('fetch: เลือกเฉพาะ artifact บน main + SHA เดี
     downloadArtifact: async (item, destination) => {
       downloaded.push(item.id);
       const phase = item.name.startsWith('s1-') ? 's1' : 'c1';
-      // run ที่ล้ม (id 5) upload manifest ที่ไม่มี marker — ต้องยังหา marker จาก run อื่นเจอ
+      // a failed run (id 5) uploaded a manifest without a marker - a marker must still be found from another run
       const manifest = item.id === 5 ? { commitSha: SHA, markers: [] } : acceptedManifest(phase);
       writeFileSync(resolve(destination, `${item.workflow_run.id}.json`), JSON.stringify(manifest));
     },
   });
-  // ตามลำดับ phase ของ J2: c1 แล้ว s1 (ใหม่สุดก่อน)
+  // in J2 phase order: c1 then s1 (newest first)
   assert.deepEqual(downloaded, [9, 5, 1]);
   assert.equal(entries.length, 3);
   const summary = acceptanceDependencySummary('J2', { commitSha: SHA, artifactsRoot: root });
@@ -200,11 +200,11 @@ test('fetch: เลือกเฉพาะ artifact บน main + SHA เดี
 
   await assert.rejects(
     fetchDependencyEvidence({ acceptance: 'J9', commitSha: SHA, listArtifacts: async () => [] }),
-    /ไม่รู้จัก/,
+    /unknown acceptance/,
   );
 });
 
-test('#572: CG4-REG01 ใช้ S1 manifest จาก artifact ที่มี provenance และเลือกตัวที่มี CG3 marker', (t) => {
+test('#572: CG4-REG01 uses the S1 manifest from an artifact with provenance and picks the one with the CG3 marker', (t) => {
   const root = temporaryRoot(t);
   const finalEnv = { GITHUB_RUN_ID: '99', CXA_CG4_EXPECTED_COMMIT_SHA: SHA };
   const summary = () =>
@@ -215,7 +215,7 @@ test('#572: CG4-REG01 ใช้ S1 manifest จาก artifact ที่มี p
       artifactsRoot: root,
     });
 
-  // ยังไม่มี S1 บน SHA นี้ → final main ล้มพร้อมบอกให้สั่ง S1 ก่อน
+  // no S1 on this SHA yet -> final main fails and says to run S1 first
   assert.throws(summary, /acceptance=s1/);
 
   const s1 = (markers, status) => ({
@@ -229,7 +229,7 @@ test('#572: CG4-REG01 ใช้ S1 manifest จาก artifact ที่มี p
       },
     ],
   });
-  // run S1 ที่ล้มก็มี manifest — ต้องไม่ถูกเลือกแทน run ที่ผ่าน
+  // a failed S1 run also has a manifest - it must not be picked over the run that passed
   writeFetched(root, 's1', '1.json', s1([], 'FAIL'));
   assert.throws(summary, /CONTACT_GOVERNANCE_CG3_ACCEPTED/);
   writeFetched(root, 's1', '2.json', s1(['CONTACT_GOVERNANCE_CG3_ACCEPTED'], 'PASS'));
@@ -238,7 +238,7 @@ test('#572: CG4-REG01 ใช้ S1 manifest จาก artifact ที่มี p
   assert.ok(Object.values(result.s1Regression).every((status) => status === 'PASS'));
 });
 
-test('ADR-032: marker ออกได้เมื่อ commit อยู่บน main แล้ว แม้ main ขยับไปแล้ว แต่ไม่ออกถ้าไม่อยู่บน main', () => {
+test('ADR-032: a marker can be issued when the commit is already on main even if main has moved on, but not when it is not on main', () => {
   const calls = [];
   const git = (command, args) => {
     calls.push([command, ...args]);
@@ -250,7 +250,7 @@ test('ADR-032: marker ออกได้เมื่อ commit อยู่บ�
   assert.equal(commitOnMain('HEAD', git), false);
   assert.equal(calls.length, 2);
 
-  // main ขยับไปแล้ว (finalMainSha ≠ commit) แต่ commit อยู่บน main → ไม่ติด NOT_FINAL_MAIN_SHA
+  // main has moved on (finalMainSha != commit) but the commit is on main -> not blocked by NOT_FINAL_MAIN_SHA
   const context = {
     commitSha: SHA,
     finalMainSha: OTHER_SHA,
@@ -264,17 +264,17 @@ test('ADR-032: marker ออกได้เมื่อ commit อยู่บ�
   };
   assert.equal(contextOnMain(context), true);
   assert.ok(!j3MarkerBlockers(context, []).includes('NOT_FINAL_MAIN_SHA'));
-  // commit ที่ยังไม่ merge
+  // a commit not yet merged
   assert.ok(
     j3MarkerBlockers({ ...context, commitOnMain: false }, []).includes('NOT_FINAL_MAIN_SHA'),
   );
-  // expected SHA ของ run ต้องตรงเสมอ
+  // the run expected SHA must always match
   assert.ok(
     j3MarkerBlockers({ ...context, expectedCommitSha: OTHER_SHA }, []).includes(
       'NOT_FINAL_MAIN_SHA',
     ),
   );
-  // context เก่าที่ไม่มีผลตรวจ ใช้กติกาเดิม (HEAD)
+  // an old context with no check result uses the original rule (HEAD)
   assert.equal(contextOnMain({ commitSha: SHA, finalMainSha: SHA }), true);
   assert.equal(contextOnMain({ commitSha: SHA, finalMainSha: OTHER_SHA }), false);
 });

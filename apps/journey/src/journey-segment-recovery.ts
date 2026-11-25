@@ -1,15 +1,15 @@
 /**
- * J3.8 (#219) — audited recovery ของ segment membership stream
+ * J3.8 (#219) — audited recovery of the segment membership stream
  *
- * สามข้อที่บังคับทุก operation ในไฟล์นี้:
+ * Three rules enforced on every operation in this file:
  *
- * 1. **ไม่รับ payload ทดแทน** — operator ส่งได้แค่ `targetRef` + `reasonCode` + `evidenceRef`
- *    ที่เหลือใช้ของเดิมที่ commit ไว้ทั้งหมด การให้แก้เนื้อหาตอน recovery เท่ากับเปิดทางให้
- *    ปลอม membership fact ผ่านช่องทาง forensic
- * 2. **`expectedVersion` ต้องตรง** — กัน blind retry ที่ทับ state ซึ่งขยับไปแล้วระหว่างที่
- *    operator กำลังดูหน้าจออยู่
- * 3. **audit ก่อนเสมอ** — บันทึก actor/reason/target ลง `jr_recovery_audit` ในทรานแซกชันเดียว
- *    กับการเปลี่ยน state ไม่ใช่เขียนทีหลังแบบ best-effort
+ * 1. **No replacement payload is accepted** — the operator can send only `targetRef` + `reasonCode` + `evidenceRef`
+ *    and everything else uses what was already committed. Allowing edits to content during recovery would open a way to
+ *    forge a membership fact through the forensic channel
+ * 2. **`expectedVersion` must match** — prevents a blind retry that overwrites state which moved on while the
+ *    operator was looking at the screen
+ * 3. **audit first, always** — records actor/reason/target in `jr_recovery_audit` in the same transaction
+ *    as the state change, not written later on a best-effort basis
  */
 import { withTenantDatabaseTransaction, type PrismaClient } from '@d-contact/db';
 
@@ -17,7 +17,7 @@ export class SegmentRecoveryNotFoundError extends Error {
   readonly code = 'RESOURCE_NOT_FOUND' as const;
 
   constructor(readonly targetRef: string) {
-    super(`ไม่พบเป้าหมายของ recovery: ${targetRef}`);
+    super(`recovery target not found: ${targetRef}`);
     this.name = 'SegmentRecoveryNotFoundError';
   }
 }
@@ -30,7 +30,7 @@ export class SegmentRecoveryVersionConflictError extends Error {
     readonly expectedVersion: number,
     readonly actualVersion: number,
   ) {
-    super(`version ของ ${targetRef} ขยับไปแล้ว: ${expectedVersion} -> ${actualVersion}`);
+    super(`version of ${targetRef} has moved: ${expectedVersion} -> ${actualVersion}`);
     this.name = 'SegmentRecoveryVersionConflictError';
   }
 }
@@ -42,14 +42,14 @@ export class SegmentRecoveryNotAllowedError extends Error {
     readonly targetRef: string,
     readonly state: string,
   ) {
-    super(`สถานะ ${state} ของ ${targetRef} ทำ recovery แบบนี้ไม่ได้`);
+    super(`state ${state} of ${targetRef} does not allow this kind of recovery`);
     this.name = 'SegmentRecoveryNotAllowedError';
   }
 }
 
 export interface SegmentRecoveryInput {
   tenantId: string;
-  /** opaque reference เดิม — eventId ของ receipt หรือ id ของ cursor ไม่ใช่ค่าที่สร้างใหม่ */
+  /** the existing opaque reference — the receipt eventId or the cursor id, not a newly created value */
   targetRef: string;
   expectedVersion: number;
   reasonCode: string;
@@ -64,17 +64,17 @@ export interface SegmentRecoveryResult {
 }
 
 /**
- * REPLAY คืน receipt กลับเข้าคิวได้เฉพาะจากสถานะที่ค้างเพราะคนตัดสินใจ ไม่ใช่จากสถานะที่จบแล้ว
+ * REPLAY returns a receipt to the queue only from states stuck because a person decided, not from a finished state
  *
- * APPLIED แปลว่า effect เกิดไปแล้ว การ replay จะสร้าง effect ซ้ำ ส่วน IGNORED_SUPERSEDED
- * แปลว่ามีของใหม่กว่ากลืนไปแล้ว การปลุกกลับมาคือการย้อน head ซึ่งห้ามเด็ดขาด
+ * APPLIED means the effect already happened, so a replay would create the effect again, while IGNORED_SUPERSEDED
+ * means something newer swallowed it, and waking it up would be walking the head back, which is strictly forbidden
  */
 const REPLAYABLE_RECEIPT_STATES = new Set(['REVIEW', 'QUARANTINED']);
 
-/** ข้ามได้เฉพาะของที่ถูกกักไว้จริง ๆ — ข้ามของที่ยังไม่เคยลองคือการทิ้งงานเงียบ ๆ */
+/** only things that are really quarantined may be skipped — skipping something never attempted is silently dropping work */
 const SKIPPABLE_RECEIPT_STATES = new Set(['QUARANTINED', 'REVIEW']);
 
-/** cursor ที่จบแล้ว (NO_OP/CANCELLED) ปลุกกลับมาไม่ได้ — stop condition ห้าม revive cancelled work */
+/** a finished cursor (NO_OP/CANCELLED) cannot be revived — the stop condition forbids reviving cancelled work */
 const REVALIDATABLE_CURSOR_STATES = new Set([
   'PENDING',
   'REVALIDATING',
@@ -87,10 +87,10 @@ export class JourneySegmentRecovery {
   constructor(private readonly database: PrismaClient) {}
 
   /**
-   * คืน receipt ที่ค้างอยู่กลับเข้าคิวด้วย identity เดิมทุกอย่าง
+   * returns a stuck receipt to the queue with everything in its identity unchanged
    *
-   * ไม่แตะ eventId, membershipRevision, entryId หรือ payloadHash เลย — ที่เปลี่ยนคือ state
-   * กับเวลาที่พร้อมทำงานเท่านั้น owner จึง dedupe ได้ตามเดิมและไม่มีทางเกิด fact ใหม่
+   * does not touch eventId, membershipRevision, entryId or payloadHash at all — only the state
+   * and the time it is ready to run change, so the owner can dedupe as before and no new fact can arise
    */
   async replayReceipt(input: SegmentRecoveryInput): Promise<SegmentRecoveryResult> {
     return this.mutateReceipt(input, 'REPLAY', REPLAYABLE_RECEIPT_STATES, {
@@ -101,7 +101,7 @@ export class JourneySegmentRecovery {
     });
   }
 
-  /** ปิด receipt ที่เสียถาวรโดยยอมรับว่าจะไม่ถูกประมวลผล — ต้องมีเหตุผลติดไว้เสมอ */
+  /** closes a permanently broken receipt, accepting that it will not be processed — a reason must always be attached */
   async skipQuarantine(input: SegmentRecoveryInput): Promise<SegmentRecoveryResult> {
     return this.mutateReceipt(input, 'SKIP_QUARANTINE', SKIPPABLE_RECEIPT_STATES, {
       state: 'IGNORED_SUPERSEDED',
@@ -110,7 +110,7 @@ export class JourneySegmentRecovery {
     });
   }
 
-  /** สั่งงาน re-filter ให้ประเมินใหม่ทันทีแทนที่จะรอ backoff */
+  /** orders a re-filter job to re-evaluate immediately instead of waiting for backoff */
   async revalidateRefilter(input: SegmentRecoveryInput): Promise<SegmentRecoveryResult> {
     return withTenantDatabaseTransaction(this.database, input.tenantId, async (transaction) => {
       const cursor = await transaction.jrSegmentRefilterCursor.findFirst({
@@ -153,8 +153,8 @@ export class JourneySegmentRecovery {
   ): Promise<SegmentRecoveryResult> {
     return withTenantDatabaseTransaction(this.database, input.tenantId, async (transaction) => {
       /**
-       * ค้นด้วย eventId ไม่ใช่ row id — operator เห็น eventId จาก forensic view และจาก log
-       * ส่วน row id เป็นรายละเอียดภายในที่ไม่ควรต้องรู้เพื่อสั่ง recovery
+       * look up by eventId, not the row id — the operator sees the eventId from the forensic view and from logs
+       * while the row id is an internal detail that should not need to be known to order a recovery
        */
       const receipt = await transaction.jrSegmentReceipt.findFirst({
         where: { tenantId: input.tenantId, eventId: input.targetRef },

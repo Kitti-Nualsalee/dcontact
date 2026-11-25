@@ -5,27 +5,27 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 /**
- * U1.10 (#507): input สังเคราะห์สำหรับ workflow `uat-image-smoke` — ไม่ใช่ข้อมูลของ UAT จริง
+ * U1.10 (#507): synthetic input for the `uat-image-smoke` workflow - not data of the real UAT
  *
- * พิมพ์ JSON หนึ่งก้อนทาง stdout: `{ provision, accounts }`
- * - `provision` = `UatProvisionV1` (U1.8 #502) พร้อม fixture pack ที่ `startNewRun` ยอมรับ
- *   (โครงเดียวกับ `apps/api/src/uat-provision.integration.ts`: baseline จาก `j1-schedule.json`)
- * - `accounts` = input ของ `scripts/u1-uat-keycloak-users.mjs --users` ที่ `dcUserId` ตรงกับ `provision`
+ * prints a single JSON block to stdout: `{ provision, accounts }`
+ * - `provision` = `UatProvisionV1` (U1.8 #502) with a fixture pack that `startNewRun` accepts
+ *   (the same shape as `apps/api/src/uat-provision.integration.ts`: the baseline from `j1-schedule.json`)
+ * - `accounts` = the input of `scripts/u1-uat-keycloak-users.mjs --users` whose `dcUserId` matches `provision`
  *
- * ค่า tenant มาจาก env ชุดเดียวกับ `uat.env` (`UAT_TENANT_ID`/`UAT_TENANT_SLUG`/`UAT_TENANT_NAME`/
- * `UAT_ORGANIZATION_DOMAIN`) เพื่อไม่ให้ CLI ตอบ `TENANT_ENV_MISMATCH`; รหัสผ่านชั่วคราวของบัญชีมาจาก
- * `UAT_CI_MAKER_PASSWORD`/`UAT_CI_REVIEWER_PASSWORD` (workflow สุ่มและ mask ไว้แล้ว) — script ไม่พิมพ์ค่าเหล่านี้
- * ที่อื่นนอกจาก stdout ซึ่ง workflow redirect ลงไฟล์ mode 600
+ * the tenant values come from the same env as `uat.env` (`UAT_TENANT_ID`/`UAT_TENANT_SLUG`/`UAT_TENANT_NAME`/
+ * `UAT_ORGANIZATION_DOMAIN`) so the CLI does not answer `TENANT_ENV_MISMATCH`; the temporary account passwords come from
+ * `UAT_CI_MAKER_PASSWORD`/`UAT_CI_REVIEWER_PASSWORD` (the workflow randomizes and masks them) - the script prints these values
+ * nowhere except stdout, which the workflow redirects to a mode 600 file
  *
- * `--journey-from <dir>`: โฟลเดอร์ที่ resolve `@d-contact/journey` ได้ (ค่าเริ่มต้น `apps/api` ของ repo;
- * ใน ops image ใช้ `/app`) — ใช้ `importJourneyDefinition` ตัวเดียวกับที่ image ใช้จริง
+ * `--journey-from <dir>`: a folder where `@d-contact/journey` resolves (default is `apps/api` of the repo;
+ * in the ops image use `/app`) - uses the same `importJourneyDefinition` the image really uses
  *
- * TODO(#506): เมื่อ U1.9 มี template input ของ UAT ที่ commit ไว้ ให้ workflow ใช้ template นั้นแทน script นี้
+ * TODO(#506): when U1.9 has a committed UAT template input, have the workflow use that template instead of this script
  */
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const DEFAULT_FIXTURE = 'apps/journey/test/fixtures/j5/j1-schedule.json';
-/** PHONE ของ negative scan U1.5 (`0[1-9]` ตามด้วยตัวเลข 7–8 ตัว) — buildSha ต้องไม่ขึ้นต้นแบบนั้น */
+/** PHONE of the U1.5 negative scan (`0[1-9]` followed by 7-8 digits) - buildSha must not start like that */
 const PHONE_LIKE_PREFIX = /^0[1-9][0-9]{7,8}(?![0-9])/;
 
 function option(argv, name) {
@@ -46,7 +46,8 @@ async function loadJourney(from) {
 
 export function buildSha(sourceSha) {
   const sha = String(sourceSha ?? '').toLowerCase();
-  if (!/^[0-9a-f]{40}$/.test(sha)) throw new Error('SOURCE_SHA ต้องเป็น commit SHA เต็ม 40 ตัว');
+  if (!/^[0-9a-f]{40}$/.test(sha))
+    throw new Error('SOURCE_SHA must be a full 40-character commit SHA');
   return PHONE_LIKE_PREFIX.test(sha) ? sha.slice(1) : sha;
 }
 
@@ -85,7 +86,7 @@ export function buildCiFixture({ environment, baselineDocument, ids = {} }) {
       {
         stepId: 'LOGIN',
         title: 'Login',
-        expected: 'เห็น Journey list',
+        expected: 'เห็น Journey list', // allow-thai: fixture pack text that is part of the pack digest
         stateLabel: 'REAL_STATE',
       },
     ],
@@ -147,7 +148,7 @@ if (invokedUrl === import.meta.url) {
   main()
     .then((bundle) => process.stdout.write(`${JSON.stringify(bundle)}\n`))
     .catch((error) => {
-      // ไม่พิมพ์ environment — ข้อความมาจาก script นี้/parser เท่านั้น
+      // does not print the environment - the message comes only from this script/parser
       process.stderr.write(
         `${JSON.stringify({ type: 'u1.uat.ci-fixture', status: 'FAIL', error: String(error?.message ?? error) })}\n`,
       );

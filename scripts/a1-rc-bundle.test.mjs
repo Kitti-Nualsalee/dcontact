@@ -42,7 +42,7 @@ function manifest(profile, overrides = {}) {
 
 const texts = (...manifests) => manifests.map((m) => JSON.stringify(m));
 
-test('build ผ่านเมื่อ fast + real-boundary ของ SHA เดียวกันผ่านครบ และ verify ซ้ำได้', () => {
+test('build passes when fast + real-boundary for the same SHA both pass fully, and verify can re-run', () => {
   const result = buildBundle({
     manifestTexts: texts(manifest('fast'), manifest('real-boundary')),
     expectedSha: SHA,
@@ -52,7 +52,7 @@ test('build ผ่านเมื่อ fast + real-boundary ของ SHA เ�
   assert.deepEqual(verifyBundle(result.text, 'd'.repeat(40)).ok, false);
 });
 
-test('build ปฏิเสธ: SHA ไม่ตรง, dirty, profile ขาด, check SKIP/ขาด, gate FAIL, ไม่มี image digest, PII', () => {
+test('build rejects: SHA mismatch, dirty, missing profile, check SKIP/missing, gate FAIL, no image digest, PII', () => {
   const fast = manifest('fast');
   const boundary = manifest('real-boundary');
   const cases = [
@@ -115,11 +115,11 @@ test('build ปฏิเสธ: SHA ไม่ตรง, dirty, profile ขาด
   for (const [manifestTexts, reason] of cases) {
     const result = buildBundle({ manifestTexts, expectedSha: SHA });
     assert.equal(result.ok, false, reason);
-    assert.ok(result.reasons.includes(reason), `${reason} ไม่อยู่ใน ${result.reasons}`);
+    assert.ok(result.reasons.includes(reason), `${reason} is not in ${result.reasons}`);
   }
 });
 
-test('verify จับ manifest ที่ถูกแก้หลัง build (SHA-256 ไม่ตรง)', () => {
+test('verify catches a manifest edited after build (SHA-256 mismatch)', () => {
   const { text } = buildBundle({
     manifestTexts: texts(manifest('fast'), manifest('real-boundary')),
     expectedSha: SHA,
@@ -132,7 +132,7 @@ test('verify จับ manifest ที่ถูกแก้หลัง build (S
   assert.equal(verifyBundle('not json', SHA).reasons[0], 'BUNDLE_UNREADABLE');
 });
 
-test('UAT gate: ไม่มี release = FAIL, attestation ไม่ผ่าน = FAIL, ครบ = PASS', async () => {
+test('UAT gate: no release = FAIL, attestation fails = FAIL, complete = PASS', async () => {
   const { uatGate, RC_BUNDLE_FILE } = await import('./a1-rc-bundle.mjs');
   const { writeFileSync } = await import('node:fs');
   const { join } = await import('node:path');
@@ -163,7 +163,7 @@ test('UAT gate: ไม่มี release = FAIL, attestation ไม่ผ่า�
   assert.equal(uatGate({ expectedSha: SHA, repo: 'o/r', run: runner() }).ok, true);
 });
 
-test('run ID ที่คล้ายเบอร์โทรใช้ root metadata contract เดิม แต่ PII ใน manifest อื่นยังถูกปฏิเสธ', () => {
+test('a run ID that looks like a phone number uses the same root metadata contract, but PII in other manifests is still rejected', () => {
   const fast = manifest('fast', {
     run: { id: '40080776718-1', profile: 'fast', startedFrom: 'github' },
   });

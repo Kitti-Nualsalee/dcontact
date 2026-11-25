@@ -1,16 +1,16 @@
 /**
- * S1.5 — ขอบเขต CG3 realtime invalidation ที่ Journey เป็น owner
- * CG4.8 (#191) — ขยายให้รับ CG4 exception/policy/kill-switch events บน stream เดียวกัน
+ * S1.5 — the CG3 realtime invalidation boundary that Journey owns
+ * CG4.8 (#191) — extended to accept CG4 exception/policy/kill-switch events on the same stream
  *
- * Contact Governance ยังคงเป็นผู้เขียน policy/exception/reservation facts แต่เพียงผู้เดียว
- * Journey เก็บเฉพาะ action cursor ของตน apply event แบบ at-least-once และใส่ effect กับ
- * acknowledgement ใน owner-local outbox transaction เดียวกัน จึง replay restrictive event ได้
- * โดยไม่ resurrect action ที่ cancel หรือส่ง reconcile ไปแล้ว
+ * Contact Governance remains the sole writer of policy/exception/reservation facts.
+ * Journey keeps only its own action cursor, applies events at-least-once and puts the effect and
+ * acknowledgement in the same owner-local outbox transaction, so a restrictive event can be replayed
+ * without resurrecting an action that was cancelled or already sent for reconcile
  *
- * กติกา CG4 (#179 §4/§5, #124):
- * - tightening/neutral ขอ canonical re-authorization; kill switch hold ทันที
- * - relaxation (approve exception, clear kill switch, policy ผ่อนลง) ไม่ resume หรือ retry งานเดิม
- * - contract/version ที่ไม่รู้จัก quarantine และ hold scope ของ aggregate นั้นแบบ fail closed
+ * CG4 rules (#179 §4/§5, #124):
+ * - tightening/neutral requests canonical re-authorization; a kill switch holds immediately
+ * - relaxation (approving an exception, clearing a kill switch, loosening a policy) does not resume or retry existing work
+ * - an unknown contract/version quarantines and holds the aggregate's scope, failing closed
  */
 import { randomUUID } from 'node:crypto';
 import {
@@ -64,9 +64,9 @@ const POST_BARRIER_STATES = new Set<JrRealtimeActionState>([
   'ACCEPTED',
   'CANCEL_REQUESTED',
 ]);
-/** แถว inbox ที่ขยับ cursor ของ stream */
+/** An inbox row that moves the stream cursor */
 const CURSOR_STATES: JrGovernanceConsumerState[] = ['APPLIED', 'NO_OP'];
-/** Journey-owned direct SEND เป็น source เดียวที่ Journey ถือ reservation */
+/** A Journey-owned direct SEND is the only source for which Journey holds a reservation */
 const JOURNEY_SOURCE_TYPES = Object.freeze(['JOURNEY']);
 export const CANONICAL_RELOAD_REASON = 'CANONICAL_RELOAD' as const;
 
@@ -109,7 +109,7 @@ export interface JourneyRealtimeAction {
   providerRequestKey?: string;
 }
 
-/** narrow port ที่ Journey ใช้ขอ canonical current facts จาก Governance owner */
+/** A narrow port Journey uses to ask the Governance owner for canonical current facts */
 export interface JourneyCanonicalRevalidator {
   revalidate(input: {
     tenantId: string;
@@ -120,7 +120,7 @@ export interface JourneyCanonicalRevalidator {
       aggregateId: string;
       aggregateVersion: number;
       correlationId: string;
-      /** CG4.8: ให้ Governance ใช้ version authority ของ event family นั้น */
+      /** CG4.8: lets Governance use the version authority of that event family */
       contract?: 'CG3' | 'CG4';
       eventType?: string;
       scopeKey?: string;
@@ -128,7 +128,7 @@ export interface JourneyCanonicalRevalidator {
   }): Promise<JourneyRevalidationDecision>;
 }
 
-/** แปลงผล canonical read-only ของ Governance เป็น state vocabulary ของ Journey เท่านั้น. */
+/** Converts the canonical read-only result from Governance into Journey's state vocabulary only. */
 export function createJourneyCanonicalRevalidator(
   governance: ContactGovernanceRevalidationPort,
 ): JourneyCanonicalRevalidator {
@@ -169,8 +169,8 @@ export function createJourneyCanonicalRevalidator(
 }
 
 /**
- * side effect ของ Delivery/Governance อยู่นอกฐานข้อมูล Journey และต้อง idempotent ต่อ
- * action key; effect relay จะเรียกหลัง commit
+ * Delivery/Governance side effects live outside the Journey database and must be idempotent per
+ * action key; the effect relay calls them after commit
  */
 export interface JourneyRealtimeSettlementPort {
   releaseBeforeBarrier(input: {
@@ -191,8 +191,8 @@ export interface JourneyRealtimeSettlementPort {
 }
 
 /**
- * Adapter ที่ Journey ใช้ได้ผ่าน contract เท่านั้น. หากไม่มี immutable post-barrier
- * binding ครบ จะ throw/fail closed แทนการ release หรือ resend แบบเดาเอง.
+ * An adapter Journey may use only through the contract. If the full immutable post-barrier
+ * binding is missing it throws/fails closed instead of guessing a release or resend.
  */
 export function createJourneyRealtimeSettlementPort(
   governance: ContactGovernancePort,
@@ -212,7 +212,7 @@ export function createJourneyRealtimeSettlementPort(
     async requestReconcile(input) {
       if (!input.deliveryId || !input.providerRequestKey) {
         throw new Error(
-          'post-barrier Journey action ต้องมี deliveryId และ providerRequestKey ก่อน reconcile',
+          'a post-barrier Journey action must have deliveryId and providerRequestKey before reconcile',
         );
       }
       await delivery.requestReconcile({
@@ -227,7 +227,7 @@ export function createJourneyRealtimeSettlementPort(
   };
 }
 
-/** Journey เพียง publish command; Delivery owner เป็นผู้ reconcile provider/reservation เอง. */
+/** Journey only publishes the command; the Delivery owner reconciles the provider/reservation itself. */
 export function createJourneyKafkaReconcilePort(
   producer: DcProducer,
 ): JourneyDeliveryReconcilePort {
@@ -267,7 +267,7 @@ export type JourneyGovernanceApplyResult = {
   outcome: CgConsumerAckOutcome;
   affectedCount: number;
   state: 'APPLIED' | 'NO_OP' | 'GAP' | 'QUARANTINED' | 'DUPLICATE';
-  /** controlled reason เมื่อ quarantine ไม่มี payload หรือ PII */
+  /** controlled reason when quarantining, no payload or PII */
   reasonCode?: string;
 };
 
@@ -279,7 +279,7 @@ export class JourneyGovernanceVersionGapError extends Error {
     readonly receivedVersion: number,
   ) {
     super(
-      `CG3 version gap สำหรับ ${aggregateId}: ต้องเป็น ${expectedVersion} แต่ได้รับ ${receivedVersion}`,
+      `CG3 version gap for ${aggregateId}: expected ${expectedVersion} but received ${receivedVersion}`,
     );
   }
 }
@@ -290,7 +290,7 @@ export class JourneyGovernanceHashConflictError extends Error {
     readonly aggregateId: string,
     readonly aggregateVersion: number,
   ) {
-    super(`CG3 event hash conflict สำหรับ ${aggregateId} version ${aggregateVersion}`);
+    super(`CG3 event hash conflict for ${aggregateId} version ${aggregateVersion}`);
   }
 }
 
@@ -301,12 +301,12 @@ export class JourneyCanonicalReloadConflictError extends Error {
     readonly aggregateVersion: number,
   ) {
     super(
-      `canonical reload ขัดกับ digest ที่ apply แล้วที่ ${aggregateId} version ${aggregateVersion}`,
+      `canonical reload conflicts with the already-applied digest at ${aggregateId} version ${aggregateVersion}`,
     );
   }
 }
 
-/** คงไว้สำหรับ caller เดิม; การตีความ event จริงอยู่ที่ `classifyGovernanceEvent` */
+/** Kept for existing callers; the real event interpretation lives in `classifyGovernanceEvent` */
 export function parseJourneyCg3EventPayload(value: unknown): JourneyCg3EventPayloadV1 {
   const classification = classifyGovernanceEvent({
     type: 'preference.changed',
@@ -321,7 +321,7 @@ export function parseJourneyCg3EventPayload(value: unknown): JourneyCg3EventPayl
     payload: value,
   });
   if (!classification?.ok) {
-    throw new TypeError(classification?.detail ?? 'CG3 payload ไม่ถูกต้อง');
+    throw new TypeError(classification?.detail ?? 'CG3 payload is invalid');
   }
   const payload = value as Record<string, unknown>;
   return {
@@ -398,7 +398,7 @@ export class JourneyGovernanceInvalidationService {
     transaction: Prisma.TransactionClient,
   ): Promise<JourneyGovernanceApplyResult> {
     if (event.eventKind !== 'CANONICAL') {
-      throw new TypeError('Journey รับเฉพาะ Contact Governance canonical event');
+      throw new TypeError('Journey accepts only Contact Governance canonical events');
     }
     const classification = classifyGovernanceEvent({
       type: event.type,
@@ -408,7 +408,9 @@ export class JourneyGovernanceInvalidationService {
       payload: event.payload,
     });
     if (!classification) {
-      throw new TypeError(`Contact Governance aggregateType ไม่รองรับ: ${event.aggregateType}`);
+      throw new TypeError(
+        `Contact Governance aggregateType is not supported: ${event.aggregateType}`,
+      );
     }
     const aggregateType: CgAggregateType = classification.ok
       ? classification.event.aggregate
@@ -490,8 +492,8 @@ export class JourneyGovernanceInvalidationService {
     switch (position.kind) {
       case 'DUPLICATE':
       case 'SUPERSEDED':
-        // version นี้ apply แล้ว (หรือถูก canonical reload ข้ามไป) — บันทึก completion ของ eventId
-        // นี้โดยไม่ขยับ cursor และไม่ส่ง acknowledgement ซ้ำ
+        // this version is already applied (or skipped by a canonical reload) — record completion of this
+        // eventId without moving the cursor and without sending the acknowledgement again
         this.metrics.increment('journey_cg4_duplicate_total');
         await this.recordInbox(transaction, inbox?.id, event, aggregateType, payloadHash, {
           state: 'DUPLICATE',
@@ -538,8 +540,8 @@ export class JourneyGovernanceInvalidationService {
     }
 
     if (stream.effect === 'NO_OP') {
-      // relaxation และ activation ที่ยังไม่ถึงเวลาไม่แตะงานใดเลย: งานที่ HELD/DEFERRED/CANCELLED
-      // ต้องรอ owner ตัดสินใหม่ ไม่ถูก resume หรือ retry จาก event ที่ผ่อนลง
+      // relaxation and a not-yet-effective activation touch no work at all: work that is HELD/DEFERRED/CANCELLED
+      // must wait for the owner to decide again and is not resumed or retried by a loosening event
       if (stream.restrictiveness === 'RELAXATION') {
         this.metrics.increment('journey_cg4_relaxation_noop_total');
       }
@@ -652,11 +654,11 @@ export class JourneyGovernanceInvalidationService {
   }
 
   /**
-   * Canonical reload หลัง gap หรือ quarantine (#179 §4 "canonical reload/replay แล้วค่อย ack")
+   * Canonical reload after a gap or quarantine (#179 §4 "canonical reload/replay then ack")
    *
-   * ผู้เรียกอ่าน version/state digest ปัจจุบันจาก Contact Governance query API แล้วส่งเข้ามา
-   * Journey บันทึก cursor ใหม่, audit และ acknowledgement ของ reload เท่านั้น — งานที่ถูก HELD
-   * ระหว่างช่องว่างยังคง HELD เพราะ reload ไม่ใช่ approved result ของงานนั้น (#124 REVIEW)
+   * The caller reads the current version/state digest from the Contact Governance query API and passes it in.
+   * Journey records only the new cursor, audit and the acknowledgement of the reload — work that was HELD
+   * during the gap stays HELD because a reload is not the approved result of that work (#124 REVIEW)
    */
   async resumeFromCanonical(input: {
     tenantId: string;
@@ -669,10 +671,10 @@ export class JourneyGovernanceInvalidationService {
     evidenceRef?: string;
   }): Promise<{ cursorVersion: number; reloaded: boolean; heldActions: number }> {
     if (!Number.isInteger(input.canonicalVersion) || input.canonicalVersion < 1) {
-      throw new TypeError('canonicalVersion ต้องเป็น positive integer');
+      throw new TypeError('canonicalVersion must be a positive integer');
     }
     if (!/^[a-f0-9]{64}$/.test(input.canonicalStateDigest)) {
-      throw new TypeError('canonicalStateDigest ต้องเป็น SHA-256 lowercase');
+      throw new TypeError('canonicalStateDigest must be a lowercase SHA-256');
     }
     const aggregateTypeName =
       input.aggregateType === 'CONTACT'
@@ -735,8 +737,8 @@ export class JourneyGovernanceInvalidationService {
             aggregateType: input.aggregateType,
             aggregateId: input.aggregateId,
             aggregateVersion: input.canonicalVersion,
-            // reload รู้เพียง canonical state digest ไม่รู้ payload digest ของ event ที่หาย จึงเก็บ
-            // state digest และเทียบกับ stateDigest ของ event ที่ส่งซ้ำภายหลัง
+            // a reload knows only the canonical state digest, not the payload digest of the missing event, so keep
+            // the state digest and compare it with the stateDigest of the event redelivered later
             payloadHash: input.canonicalStateDigest,
             state: 'NO_OP',
             reasonCode: CANONICAL_RELOAD_REASON,
@@ -761,8 +763,8 @@ export class JourneyGovernanceInvalidationService {
             availableAt: now,
           },
         });
-        // audit อยู่ใน transaction เดียวกับ cursor/ack: reload ที่ไม่มีบันทึกว่าใครทำและเพราะอะไร
-        // ต้องเกิดขึ้นไม่ได้ (J2-RC02 audited replay/reconcile)
+        // audit is in the same transaction as the cursor/ack: a reload with no record of who did it and why
+        // must not be possible (J2-RC02 audited replay/reconcile)
         await transaction.jrRecoveryAudit.create({
           data: {
             id: randomUUID(),
@@ -805,9 +807,9 @@ export class JourneyGovernanceInvalidationService {
   }
 
   /**
-   * contract/version ที่ build นี้ตีความไม่ได้: ไม่มี scope ที่เชื่อถือได้ จึง hold งานทั้ง
-   * aggregate (contact เดียว หรือทั้ง tenant สำหรับ policy stream) และไม่ขยับ cursor ทำให้
-   * event ถัดไปเป็น gap จนกว่าจะ canonical reload
+   * a contract/version this build cannot interpret: there is no trustworthy scope, so hold the whole
+   * aggregate (a single contact, or the whole tenant for the policy stream) and do not move the cursor, making
+   * the next event a gap until a canonical reload
    */
   private async quarantineUnsupported(
     transaction: Prisma.TransactionClient,
@@ -911,7 +913,7 @@ export class JourneyGovernanceInvalidationService {
     return actions.length;
   }
 
-  /** เก็บ command ใน Journey outbox ก่อน ack; ห้ามเรียก Governance/Delivery ระหว่าง transaction นี้. */
+  /** Store the command in the Journey outbox before ack; do not call Governance/Delivery during this transaction. */
   private async stageEffect(
     transaction: Prisma.TransactionClient,
     event: KafkaEventEnvelopeV2<Record<string, unknown>>,
@@ -1039,8 +1041,8 @@ export class JourneyGovernanceInvalidationService {
 }
 
 /**
- * แถวที่มาจาก canonical reload เก็บ state digest ไว้แทน payload digest จึงต้องเทียบกับ
- * stateDigest ของ event ที่เข้ามา; แถวปกติเทียบ payload digest ตามเดิม
+ * A row that came from a canonical reload keeps the state digest instead of the payload digest, so it must be compared with
+ * the stateDigest of the incoming event; a normal row is compared by payload digest as before
  */
 function comparable(
   row: CursorRow,
@@ -1051,5 +1053,5 @@ function comparable(
   return row.payloadHash === stream.stateDigest ? payloadHash : row.payloadHash;
 }
 
-/** คงไว้ให้ test/tooling เดิมคำนวณ digest แบบเดียวกับ inbox */
+/** Kept so existing tests/tooling compute the digest the same way as the inbox */
 export const journeyGovernancePayloadDigest = governancePayloadDigest;

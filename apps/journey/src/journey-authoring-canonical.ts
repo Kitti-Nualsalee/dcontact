@@ -3,16 +3,16 @@ import type { JourneyDefinitionContent, JourneyGraphStep } from './journey-defin
 import { JOURNEY_OWNER_RESULT_CONTINUATION_CAPABILITY } from './journey-owner-continuation.js';
 
 /**
- * J5.2 (#340): canonical JSON, digest และ runtime capability registry ของ authoring
+ * J5.2 (#340): canonical JSON, digest and runtime capability registry for authoring
  * (Phase Spec #337 §4)
  *
- * - UTF-8 JSON, object key เรียง lexicographic, number ใช้ serialization ของ JSON (คงที่ต่อค่า)
- * - array ที่เป็นลำดับการประเมิน (AST ของ DC_EXPR) คงลำดับเดิม
- * - runtime steps เรียงตาม `step.id` และ exit rules (unordered) เรียงตาม canonical value
- * - digest ทุกตัวเป็น SHA-256 lowercase hex
+ * - UTF-8 JSON, object keys sorted lexicographically, numbers use JSON serialization (stable per value)
+ * - arrays that are an evaluation order (the DC_EXPR AST) keep their original order
+ * - runtime steps are sorted by `step.id` and exit rules (unordered) by canonical value
+ * - every digest is lowercase hex SHA-256
  *
- * content hash ของ published version เดิม (`inputHash`) ไม่ถูกคำนวณใหม่ — canonicalization นี้
- * ใช้กับ artifact และ publish ใหม่ของ J5 เท่านั้น
+ * The content hash of existing published versions (`inputHash`) is not recomputed — this canonicalization
+ * applies only to J5 artifacts and new publishes
  */
 
 export const JOURNEY_AUTHORING_COMPILER_VERSION = 'J5_COMPILER_V1';
@@ -24,7 +24,7 @@ export function canonicalJourneyJson(value: unknown): string {
 function canonicalize(value: unknown): unknown {
   if (value === null || typeof value !== 'object') {
     if (typeof value === 'number' && !Number.isFinite(value)) {
-      throw new TypeError('canonical JSON ไม่รองรับ number ที่ไม่ finite');
+      throw new TypeError('canonical JSON does not support a non-finite number');
     }
     return value;
   }
@@ -41,7 +41,7 @@ export function journeyAuthoringDigest(value: unknown): string {
   return createHash('sha256').update(canonicalJourneyJson(value), 'utf8').digest('hex');
 }
 
-/** runtime content ในรูป canonical — steps เรียงตาม id และ exit rules เรียงตาม canonical value */
+/** Runtime content in canonical form — steps sorted by id and exit rules sorted by canonical value */
 export function canonicalRuntimeDefinition(
   content: JourneyDefinitionContent,
 ): JourneyDefinitionContent {
@@ -62,7 +62,7 @@ export function journeyRuntimeHash(content: JourneyDefinitionContent): string {
   return journeyAuthoringDigest(canonicalRuntimeDefinition(content));
 }
 
-/** เทียบแบบ code unit ไม่ขึ้นกับ locale ของเครื่อง — ลำดับต้องเหมือนกันทุก environment */
+/** Compare by code unit, independent of the machine locale — the order must be the same in every environment */
 export function compareText(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }
@@ -73,13 +73,13 @@ export interface JourneyRuntimeCapability {
   readonly id: string;
   readonly version: number;
   readonly available: boolean;
-  /** หลักฐานที่เปิด capability — PR/marker ที่ผ่าน acceptance แล้วเท่านั้น */
+  /** Evidence that enables the capability — only a PR/marker that has passed acceptance */
   readonly evidence: string;
 }
 
 /**
- * restricted owner-action nodes เปิดได้เมื่อ J5.0 continuation ผ่าน J2 focused/full regression
- * แล้ว (PR #352: J2 acceptance 16/16 พร้อม `JOURNEY_J2_ACCEPTED`) — Phase Contract §7
+ * restricted owner-action nodes can be enabled once J5.0 continuation passes the J2 focused/full regression
+ * (PR #352: J2 acceptance 16/16 with `JOURNEY_J2_ACCEPTED`) — Phase Contract §7
  */
 export const JOURNEY_RUNTIME_CAPABILITIES: readonly JourneyRuntimeCapability[] = Object.freeze([
   Object.freeze({
@@ -99,7 +99,7 @@ export function capabilityAvailable(
   return capabilities.some((capability) => capability.id === id && capability.available);
 }
 
-/** digest ของ capability ที่ artifact ใช้ — capability เปลี่ยนหลัง compile ทำให้ artifact stale */
+/** Digest of the capabilities an artifact uses — a capability change after compile makes the artifact stale */
 export function journeyCapabilityDigest(capabilities: readonly JourneyRuntimeCapability[]): string {
   return journeyAuthoringDigest(
     [...capabilities]

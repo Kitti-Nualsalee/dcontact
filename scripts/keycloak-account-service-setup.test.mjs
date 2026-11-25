@@ -18,7 +18,7 @@ import {
   protectedUserIds,
 } from './keycloak-account-service-setup.mjs';
 
-test('ผู้ใช้ที่ไม่อยู่ใน Organization ใดถูกป้องกัน ส่วนสมาชิกของ tenant ไม่ถูกป้องกัน', () => {
+test('a user who is in no Organization is protected, while a tenant member is not', () => {
   assert.deepEqual(
     protectedUserIds(
       ['tenant-a', 'platform-operator', 'tenant-b', 'service-account-x', 'tenant-a'],
@@ -29,19 +29,19 @@ test('ผู้ใช้ที่ไม่อยู่ใน Organization ใด
   assert.deepEqual(protectedUserIds([], []), []);
 });
 
-test('#685: ผู้ถือ platform role ถูกป้องกันเสมอ แม้ถูกผูกเข้า Organization ของ tenant', () => {
+test('#685: a holder of a platform role is always protected, even if bound into a tenant Organization', () => {
   const protectedIds = protectedUserIds(
     ['tenant-a', 'platform-in-org', 'platform-only'],
     ['platform-in-org', 'tenant-a'],
     ['platform-in-org', 'platform-only'],
   );
   assert.deepEqual(protectedIds, ['platform-in-org', 'platform-only']);
-  // --verify ต้องเลือกผู้ใช้ tenant จริง ไม่ใช่บัญชี platform ที่อยู่ใน Organization
+  // --verify must pick a real tenant user, not a platform account that is in an Organization
   assert.equal(firstTenantUser(['platform-in-org', 'tenant-a'], protectedIds), 'tenant-a');
   assert.equal(firstTenantUser(['platform-in-org'], protectedIds), undefined);
 });
 
-test('#685: client/roles ของ platform ตรงกับ keycloak-platform-setup.mjs', async () => {
+test('#685: the platform client/roles match keycloak-platform-setup.mjs', async () => {
   const platform = await import('./keycloak-platform-setup.mjs');
   assert.equal(PLATFORM_API_CLIENT, platform.PLATFORM_API_CLIENT);
   assert.deepEqual([...PLATFORM_ROLES], [...platform.PLATFORM_ROLES]);
@@ -49,7 +49,7 @@ test('#685: client/roles ของ platform ตรงกับ keycloak-platform
   assert.equal(uat.PLATFORM_API_CLIENT, platform.PLATFORM_API_CLIENT);
 });
 
-test('client ไม่มี browser/direct grant และใช้ service account เท่านั้น', () => {
+test('the client has no browser/direct grant and uses the service account only', () => {
   const client = clientRepresentation('secret');
   assert.equal(client.serviceAccountsEnabled, true);
   assert.equal(client.publicClient, false);
@@ -58,7 +58,7 @@ test('client ไม่มี browser/direct grant และใช้ service acc
   assert.equal(client.implicitFlowEnabled, false);
 });
 
-test('สิทธิ์ที่ให้มีแค่ view/manage/reset-password และ deny ครอบทุก scope ของผู้ใช้ที่ถูกป้องกัน', () => {
+test('the permissions granted are only view/manage/reset-password, and the deny covers every scope of a protected user', () => {
   const [allow, deny] = permissionRepresentations({
     allowPolicyId: 'allow',
     denyPolicyId: 'deny',
@@ -78,7 +78,7 @@ test('สิทธิ์ที่ให้มีแค่ view/manage/reset-pass
   for (const scope of ALLOWED_USER_SCOPES) assert.ok(deny.scopes.includes(scope));
 });
 
-test('ไม่มีผู้ใช้ที่ต้องป้องกัน → ไม่สร้าง deny (deny ที่ไม่มี resources จะ deny ผู้ใช้ทุกคน)', () => {
+test('with no user to protect -> no deny is created (a deny with no resources would deny every user)', () => {
   const permissions = permissionRepresentations({
     allowPolicyId: 'allow',
     denyPolicyId: 'deny',
@@ -90,7 +90,7 @@ test('ไม่มีผู้ใช้ที่ต้องป้องกั�
   );
 });
 
-/** execution ของ `dcontact-browser` หลัง setup บน Keycloak 26.7.5 (ตัด field ที่ไม่ใช้) */
+/** the executions of `dcontact-browser` after setup on Keycloak 26.7.5 (unused fields trimmed) */
 const configuredFlow = [
   { displayName: 'Cookie', level: 0, requirement: 'ALTERNATIVE', providerId: 'auth-cookie' },
   {
@@ -166,7 +166,7 @@ const configuredFlow = [
   { displayName: 'OTP Form', level: 2, requirement: 'REQUIRED', providerId: 'auth-otp-form' },
 ];
 
-test('childrenOf คืนเฉพาะลูกโดยตรงของ subflow ตามลำดับ depth-first', () => {
+test('childrenOf returns only the direct children of the subflow in depth-first order', () => {
   assert.deepEqual(
     childrenOf(configuredFlow, -1).map((execution) => execution.displayName),
     ['Cookie', 'dcontact-browser Organization', 'dcontact-browser forms'],
@@ -177,18 +177,18 @@ test('childrenOf คืนเฉพาะลูกโดยตรงของ su
   );
 });
 
-test('หา subflow forms, 2FA เดิม และ Org 2FA ได้จากโครงของ flow ที่ copy มา', () => {
+test('finds the forms subflow, the original 2FA and the Org 2FA from the structure of the copied flow', () => {
   const { forms, twoFactor, orgMfa } = locateBrowserSubflows(configuredFlow);
   assert.equal(forms.displayName, 'dcontact-browser forms');
   assert.equal(twoFactor.displayName, 'dcontact-browser Browser - Conditional 2FA');
   assert.equal(orgMfa.displayName, ORG_MFA_FLOW);
-  // ก่อน setup เพิ่ม Org 2FA: ยังหา forms/2FA ได้
+  // before setup adds Org 2FA: the forms/2FA can still be found
   const copied = configuredFlow.filter((_, index) => index < 11);
   assert.equal(locateBrowserSubflows(copied).orgMfa, undefined);
   assert.equal(locateBrowserSubflows(copied).twoFactor.displayName, twoFactor.displayName);
 });
 
-test('ตรวจ flow: ต้องผูกกับ realm, Org 2FA ครบ และ 2FA เดิมมี condition แบบ negate', () => {
+test('flow check: must be bound to the realm, Org 2FA complete, and the original 2FA has a negate condition', () => {
   const realm = { browserFlow: TENANT_BROWSER_FLOW };
   assert.deepEqual(browserFlowFailures(realm, configuredFlow), []);
   assert.equal(browserFlowFailures({ browserFlow: 'browser' }, configuredFlow).length, 1);
@@ -197,18 +197,18 @@ test('ตรวจ flow: ต้องผูกกับ realm, Org 2FA ครบ
     index === 14 ? { ...execution, requirement: 'ALTERNATIVE' } : execution,
   );
   assert.deepEqual(browserFlowFailures(realm, optionalOtp), [
-    `${ORG_MFA_FLOW} ต้องมี auth-otp-form แบบ REQUIRED`,
+    `${ORG_MFA_FLOW} must have auth-otp-form as REQUIRED`,
   ]);
   const withoutNegate = configuredFlow.map((execution, index) =>
     index === 11 ? { ...execution, authenticationConfig: undefined } : execution,
   );
   assert.deepEqual(browserFlowFailures(realm, withoutNegate), [
-    'subflow 2FA เดิมต้องมี dc-org-mfa-required แบบ negate',
+    'the original 2FA subflow must have dc-org-mfa-required as negate',
   ]);
   assert.equal(browserFlowFailures(realm, configuredFlow.slice(0, 12)).length, 1);
 });
 
-test('--keep-realm-browser-flow (#645): ไม่ตรวจการผูกกับ realm แต่ยังตรวจโครง flow ครบ', () => {
+test('--keep-realm-browser-flow (#645): does not check binding to the realm but still checks the whole flow structure', () => {
   const uatRealm = { browserFlow: 'uat browser password otp' };
   assert.deepEqual(browserFlowFailures(uatRealm, configuredFlow, { bindRealm: false }), []);
   assert.equal(

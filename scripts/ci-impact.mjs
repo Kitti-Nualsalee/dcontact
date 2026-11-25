@@ -77,5 +77,5 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       suites.map((suite) => `${suite}=${result.affected[suite]}\n`).join(''),
     );
   }
-  process.stdout.write(`ผลตรวจ integration impact: ${JSON.stringify(result)}\n`);
+  process.stdout.write(`integration impact check result: ${JSON.stringify(result)}\n`);
 }

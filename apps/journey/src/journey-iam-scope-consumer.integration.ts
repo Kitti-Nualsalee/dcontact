@@ -112,7 +112,7 @@ async function waitFor(check: () => Promise<boolean>, timeoutMs = 20_000): Promi
     if (await check()) return;
     await new Promise((resolve) => setTimeout(resolve, 150));
   }
-  throw new Error('ไม่พบ IAM invalidation inbox ภายในเวลาที่กำหนด');
+  throw new Error('IAM invalidation inbox not found within the allotted time');
 }
 
 function scopeEvent(
@@ -142,7 +142,7 @@ function scopeEvent(
   };
 }
 
-test('GRANTED ไม่ revive งานเดิม ส่วน team/delegation revoke ถูกบันทึกแบบ fail closed', async (t) => {
+test('GRANTED does not revive existing work, while team/delegation revoke is recorded fail closed', async (t) => {
   const f = await fixture(t);
   const service = new JourneyIamScopeInvalidationService();
   const consumer = 'journey-iam-scope-contract-test';
@@ -167,17 +167,17 @@ test('GRANTED ไม่ revive งานเดิม ส่วน team/delegatio
       where: { tenantId: f.tenantId, consumer },
     }),
     3,
-    'relaxation และ restrictive event ทุกใบต้องมี audit/dedup record แม้ cursor เดิมมีอยู่แล้ว',
+    'every relaxation and restrictive event must have an audit/dedup record even if the cursor already exists',
   );
   assert.equal(
     await f.owner.jrEnrollment.count({ where: { tenantId: f.tenantId } }),
     0,
-    'GRANTED ห้ามสร้างหรือ revive enrollment จาก intent เก่า',
+    'GRANTED must not create or revive an enrollment from an old intent',
   );
 });
 
 test(
-  'consumer รับ IAM revoke จาก Redpanda แล้ว commit inbox/cursor แบบ durable',
+  'the consumer receives an IAM revoke from Redpanda and commits the inbox/cursor durably',
   { timeout: 60_000 },
   async (t) => {
     const f = await fixture(t);

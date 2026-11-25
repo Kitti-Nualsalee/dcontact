@@ -7,7 +7,7 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 const composeArguments = ['compose', '-f', 'infra/docker/docker-compose.dev.yml'];
 
-/** ตารางทั้งหมดที่ J3 เพิ่มเข้ามา ทั้งฝั่ง Customer 360 และฝั่ง Journey */
+/** All the tables J3 adds, on both the Customer 360 side and the Journey side */
 export const CANONICAL_J3_TABLES = [
   'c360_segment_definitions',
   'c360_segment_definition_heads',
@@ -32,12 +32,12 @@ export const CANONICAL_J3_TABLES = [
 ];
 
 /**
- * constraint ที่เป็น invariant ของ J3 ไม่ใช่แค่รูปแบบ — ถ้าหายไปแม้แต่ตัวเดียว migration
- * ถือว่าไม่ผ่าน
+ * constraints that are J3 invariants, not just shapes - if even one is missing the migration
+ * counts as failing
  *
- * ตรวจถึงระดับนี้เพราะ J2-MG01 เดิมนับแค่ตาราง/RLS/policy ซึ่งผ่านได้แม้ CHECK ที่กัน lease
- * ค้างหรือ head ถอยหลังจะหายไปทั้งชุด — และนั่นคือความผิดพลาดที่จะไม่มีใครเห็นจนกว่าจะมีข้อมูล
- * เสียหายจริงใน production
+ * checked to this level because the earlier J2-MG01 counted only tables/RLS/policies, which can pass even when the CHECKs that guard against a stuck lease
+ * or a regressing head are missing entirely - and that is the kind of mistake nobody would see until real data
+ * is corrupted in production
  */
 export const REQUIRED_J3_CONSTRAINTS = [
   'c360_segment_definitions_lifecycle_check',
@@ -59,7 +59,7 @@ export const REQUIRED_J3_CONSTRAINTS = [
   'jr_segment_rollout_state_version_check',
 ];
 
-/** unique index ที่เป็น identity boundary — สองชั้นของ receipt และ 1:1 ของ enrollment intent */
+/** unique indexes that are identity boundaries - the two layers of receipt and the 1:1 of the enrollment intent */
 export const REQUIRED_J3_UNIQUE_INDEXES = [
   'jr_segment_receipts_transport_key',
   'jr_segment_receipts_logical_key',
@@ -71,7 +71,7 @@ export const REQUIRED_J3_UNIQUE_INDEXES = [
   'jr_segment_shadow_mismatches_key',
 ];
 
-/** trigger ที่บังคับ append-only — ของที่แก้ย้อนหลังได้ก็ไม่ใช่หลักฐาน */
+/** triggers that enforce append-only - something that can be edited afterwards is not evidence */
 export const REQUIRED_J3_TRIGGERS = [
   'c360_membership_change_immutable',
   'c360_identity_lineage_immutable',
@@ -125,7 +125,7 @@ export function parseJ3SchemaEvidence(value) {
     .trim()
     .match(/^(\d+)\|(\d+)\|(\d+)\|(\d+)\|(\d+)\|(\d+)\|(\d+)$/);
   if (!match) {
-    throw new TypeError('schema evidence ต้องมีเจ็ดตัวเลขคั่นด้วย |');
+    throw new TypeError('schema evidence must have seven numbers separated by |');
   }
   const [, tables, rlsEnabled, tenantPolicies, checks, uniqueIndexes, triggers, compositeKeys] =
     match.map(Number);
@@ -145,8 +145,8 @@ export function parseJ3SchemaEvidence(value) {
       checks === REQUIRED_J3_CONSTRAINTS.length &&
       uniqueIndexes === REQUIRED_J3_UNIQUE_INDEXES.length &&
       triggers === REQUIRED_J3_TRIGGERS.length &&
-      // composite FK คือสิ่งที่กัน cross-tenant binding — ต้องมีอย่างน้อยหนึ่งตัวต่อ J3 table
-      // ที่อ้าง contact/receipt; ไม่ fix ตัวเลขไว้เพราะ schema ยังโตได้
+      // composite FKs are what guard against cross-tenant binding - at least one per J3 table
+      // that references a contact/receipt; the number is not fixed because the schema can still grow
       compositeKeys > 0
         ? 'PASS'
         : 'FAIL',
@@ -162,7 +162,7 @@ function execute(command, arguments_, options = {}) {
   });
   if (result.status !== 0 || result.error) {
     throw new Error(
-      `${command} ล้มเหลวด้วย status ${result.status ?? result.error?.code ?? 'unknown'}`,
+      `${command} failed with status ${result.status ?? result.error?.code ?? 'unknown'}`,
     );
   }
   return String(result.stdout ?? '').trim();
@@ -186,15 +186,15 @@ function inspectDatabase(databaseName) {
 }
 
 /**
- * J3-MG01: migration ครอบคลุม J3 ทั้งบน database ที่ upgrade มาและบน fresh migrate
+ * J3-MG01: the migration covers J3 on both a database that was upgraded and on a fresh migrate
  *
- * ต้องตรวจทั้งสองทางเพราะ migration ที่เขียนมือ (repo นี้ไม่ใช้ prisma migrate diff — diff
- * ดริฟต์ทั้ง schema) อาจผ่านบน DB ที่มีของเดิมอยู่แล้วแต่พังบน DB เปล่า หรือกลับกัน
+ * both ways must be checked because a hand-written migration (this repo does not use prisma migrate diff - the diff
+ * drifts the whole schema) may pass on a DB that already has the old objects but break on an empty DB, or vice versa
  */
 export function runCxaJ3SchemaReadiness() {
   const existingDatabase = process.env.CXA_ACCEPTANCE_DATABASE_NAME ?? 'dcontact';
   if (!/^[a-zA-Z0-9_]+$/.test(existingDatabase)) {
-    throw new TypeError('CXA_ACCEPTANCE_DATABASE_NAME มีชื่อฐานข้อมูลไม่ถูกต้อง');
+    throw new TypeError('CXA_ACCEPTANCE_DATABASE_NAME contains an invalid database name');
   }
   const freshDatabase = `dcontact_cxa_j3_verify_${randomBytes(6).toString('hex')}`;
 

@@ -111,7 +111,7 @@ function keycloak() {
   return { state, admin };
 }
 
-test('Admin boundary: apply เก็บ preimage ก่อน mutation, enable หลังจัดตำแหน่ง และทำซ้ำเป็น no-op', async () => {
+test('Admin boundary: apply keeps the preimage before the mutation, enables after positioning, and repeating is a no-op', async () => {
   const { state, admin } = keycloak();
   const plan = await planOrganizationSso(admin);
   const record = await applyOrganizationSso(admin, {
@@ -131,7 +131,7 @@ test('Admin boundary: apply เก็บ preimage ก่อน mutation, enable 
   assert.equal((await planOrganizationSso(admin)).digest, plan.digest);
 });
 
-test('Admin boundary: stale preimage และ drift ก่อน mutation ไม่เขียน config', async () => {
+test('Admin boundary: a stale preimage and drift before the mutation do not write config', async () => {
   const { state, admin } = keycloak();
   const plan = await planOrganizationSso(admin);
   await assert.rejects(
@@ -151,21 +151,21 @@ test('Admin boundary: stale preimage และ drift ก่อน mutation ไ�
 });
 
 for (const field of ['broker', 'orgBroker'])
-  test(`Admin boundary: ${field} ต้อง fail closed`, async () => {
+  test(`Admin boundary: ${field} must fail closed`, async () => {
     const { state, admin } = keycloak();
     state[field] = [{ alias: 'external' }];
     await assert.rejects(planOrganizationSso(admin), /BROKER_PRESENT/);
     assert.equal(state.writes.length, 0);
   });
 
-test('Admin boundary: OTP requirement ที่ถูกแก้ต้องไม่ถูก reconcile ทับ', async () => {
+test('Admin boundary: a modified OTP requirement must not be reconciled over', async () => {
   const { state, admin } = keycloak();
   state.otp = 'ALTERNATIVE';
   await assert.rejects(planOrganizationSso(admin), /MFA_FLOW_DRIFT/);
   assert.equal(state.writes.length, 0);
 });
 
-test('Admin boundary: drift ระหว่างจัดตำแหน่งหยุดก่อน enable Organization', async () => {
+test('Admin boundary: drift during positioning stops before enabling the Organization', async () => {
   const { state, admin } = keycloak();
   const plan = await planOrganizationSso(admin);
   state.onRaise = () => {
@@ -178,7 +178,7 @@ test('Admin boundary: drift ระหว่างจัดตำแหน่ง�
   assert.equal(state.org.requirement, 'DISABLED');
 });
 
-test('Admin boundary: rollback ปฏิเสธ config ที่ไม่ใช่ postimage ของงานนี้', async () => {
+test('Admin boundary: rollback rejects a config that is not the postimage of this job', async () => {
   const { state, admin } = keycloak();
   const plan = await planOrganizationSso(admin);
   const record = await applyOrganizationSso(admin, { expectedDigest: plan.digest });
@@ -188,7 +188,7 @@ test('Admin boundary: rollback ปฏิเสธ config ที่ไม่ใ�
   assert.equal(state.writes.length, writes);
 });
 
-test('Admin boundary: enable ล้มเหลว rollback ถอนเฉพาะ execution ที่ยัง disabled ได้', async () => {
+test('Admin boundary: when enable fails, rollback reverts only an execution that is still disabled', async () => {
   const { state, admin } = keycloak();
   const plan = await planOrganizationSso(admin);
   let record = { before: plan.before, beforeDigest: plan.digest };
@@ -207,7 +207,7 @@ test('Admin boundary: enable ล้มเหลว rollback ถอนเฉพ�
   assert.equal((await planOrganizationSso(admin)).digest, plan.digest);
 });
 
-test('Admin boundary: priority ไม่มีช่องสำหรับ execution ใหม่ต้องไม่สร้างอะไร', async () => {
+test('Admin boundary: a priority with no slot for a new execution must not create anything', async () => {
   const { state, admin } = keycloak();
   state.formsPriority = 11;
   await assert.rejects(planOrganizationSso(admin), /PRIORITY_GAP_REQUIRED/);

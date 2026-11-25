@@ -4,12 +4,12 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-// Manifest เป็น required case IDs ที่ review แล้ว ไม่ derive expectations จากไฟล์ test ตอนรัน
+// The manifest holds reviewed required case IDs; expectations are not derived from the test files at run time
 const manifest = JSON.parse(
   readFileSync(resolve(root, 'scripts/core-settings-writer-cases.json'), 'utf8'),
 );
 if (manifest.schemaVersion !== 1 || !Array.isArray(manifest.files) || !manifest.files.length)
-  throw new Error('Core writer manifest ไม่ถูกต้อง');
+  throw new Error('Core writer manifest is invalid');
 const files = new Set();
 for (const suite of manifest.files) {
   if (
@@ -19,22 +19,22 @@ for (const suite of manifest.files) {
     !Array.isArray(suite.requiredCases) ||
     !suite.requiredCases.length
   )
-    throw new Error('Core writer manifest entry ไม่ถูกต้อง');
+    throw new Error('Core writer manifest entry is invalid');
   const key = suite.package + ':' + suite.file;
-  if (files.has(key)) throw new Error('Core writer manifest file ซ้ำ: ' + key);
+  if (files.has(key)) throw new Error('Core writer manifest file is duplicated: ' + key);
   files.add(key);
   const cases = new Set(suite.requiredCases);
   if (cases.size !== suite.requiredCases.length)
-    throw new Error('Core writer manifest case ซ้ำ: ' + key);
+    throw new Error('Core writer manifest case is duplicated: ' + key);
   for (const name of cases) {
     if (typeof name !== 'string' || !name.length)
-      throw new Error('Core writer case ID ไม่ถูกต้อง: ' + key);
+      throw new Error('Core writer case ID is invalid: ' + key);
     const race = /^(.*) (writer-first|deactivate-first)$/.exec(name);
     if (
       race &&
       !cases.has(race[1] + ' ' + (race[2] === 'writer-first' ? 'deactivate-first' : 'writer-first'))
     )
-      throw new Error('Core writer case ขาดลำดับตรงข้าม: ' + name);
+      throw new Error('Core writer case is missing its counterpart in order: ' + name);
   }
 }
 let passed = 0;
@@ -75,19 +75,21 @@ for (const suite of manifest.files) {
     const entries = observed.get(name) ?? [];
     if (entries.length !== 1 || !entries[0].passed) {
       process.stderr.write(
-        `required case ขาด/ซ้ำ/skip/fail: ${suite.package}/${suite.file}: ${name}\n`,
+        `required case missing/duplicated/skipped/failed: ${suite.package}/${suite.file}: ${name}\n`,
       );
       process.exit(1);
     }
     passed++;
   }
-  // case ใหม่ที่เลือกมารันต้องเพิ่ม manifest ให้ reviewer เห็น coverage change ด้วย
+  // a newly selected case must be added to the manifest so the reviewer also sees the coverage change
   for (const [name, entries] of observed)
     if (entries.some((x) => x.passed) && !suite.requiredCases.includes(name)) {
-      process.stderr.write(`case ที่รันยังไม่มีใน required manifest: ${suite.file}: ${name}\n`);
+      process.stderr.write(
+        `case that ran is not in the required manifest: ${suite.file}: ${name}\n`,
+      );
       process.exit(1);
     }
 }
 process.stdout.write(
-  `\n# Core Settings writer coverage: PASS ${passed} required cases / ${files.size} files; ไม่ใช่ VM UAT signoff\n`,
+  `\n# Core Settings writer coverage: PASS ${passed} required cases / ${files.size} files; not a VM UAT signoff\n`,
 );

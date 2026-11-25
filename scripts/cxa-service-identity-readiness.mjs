@@ -25,7 +25,7 @@ function databaseTenantId(slug) {
     '-tAc',
     `SELECT id FROM tenants WHERE slug = '${safeSlug}';`,
   );
-  assert(tenantId, `ไม่พบ tenant ${slug} ใน Postgres`);
+  assert(tenantId, `tenant ${slug} not found in Postgres`);
   return tenantId;
 }
 
@@ -42,7 +42,7 @@ async function issueServiceToken(tokenEndpoint, identity) {
   });
   if (!response.ok) {
     throw new Error(
-      `ออก client_credentials token ของ ${identity.slug} ไม่สำเร็จ (${response.status})`,
+      `failed to issue a client_credentials token for ${identity.slug} (${response.status})`,
     );
   }
   return (await response.json()).access_token;
@@ -57,7 +57,7 @@ function verifyServiceToken(accessToken, jwks, identity, tenantId) {
   const header = decodeJson(encodedHeader);
   const claims = decodeJson(encodedPayload);
   const signingJwk = jwks.keys.find((key) => key.kid === header.kid);
-  assert(signingJwk, 'ไม่พบ signing key ของ service token ใน JWKS');
+  assert(signingJwk, 'service token signing key not found in JWKS');
   assert(
     verify(
       'RSA-SHA256',
@@ -65,42 +65,48 @@ function verifyServiceToken(accessToken, jwks, identity, tenantId) {
       createPublicKey({ key: signingJwk, format: 'jwk' }),
       Buffer.from(encodedSignature, 'base64url'),
     ),
-    'ตรวจลายเซ็น service token ไม่ผ่าน',
+    'service token signature verification failed',
   );
-  assert(claims.iss === issuer, 'service token issuer ไม่ตรง');
+  assert(claims.iss === issuer, 'service token issuer does not match');
   assert(
     claims.aud === audience || claims.aud?.includes(audience),
-    'service token audience ไม่ตรง',
+    'service token audience does not match',
   );
-  assert(claims.exp * 1_000 > Date.now(), 'service token หมดอายุ');
-  assert(claims.tenant_id === tenantId, `service tenant ของ ${identity.slug} ไม่ตรง`);
-  assert(claims.tenant_slug === identity.slug, `service tenant_slug ของ ${identity.slug} ไม่ตรง`);
+  assert(claims.exp * 1_000 > Date.now(), 'service token has expired');
+  assert(claims.tenant_id === tenantId, `service tenant of ${identity.slug} does not match`);
+  assert(
+    claims.tenant_slug === identity.slug,
+    `service tenant_slug of ${identity.slug} does not match`,
+  );
   assert(
     claims.organization?.[identity.slug]?.tenant_id?.[0] === tenantId,
-    `service Organization ของ ${identity.slug} ไม่ตรง`,
+    `service Organization of ${identity.slug} does not match`,
   );
-  assert(claims.azp === identity.eventClientId, `service client ของ ${identity.slug} ไม่ตรง`);
+  assert(
+    claims.azp === identity.eventClientId,
+    `service client of ${identity.slug} does not match`,
+  );
   assert(
     claims.preferred_username === `service-account-${identity.eventClientId}`,
-    `service account ของ ${identity.slug} ไม่ตรง`,
+    `service account of ${identity.slug} does not match`,
   );
   assert(
     claims.realm_access?.roles?.includes('journey-ingress'),
-    `service client ของ ${identity.slug} ไม่มี journey-ingress role`,
+    `service client of ${identity.slug} has no journey-ingress role`,
   );
   assert(
     claims.dc_user_id === undefined && claims.sid === undefined,
-    'service token มี user claims',
+    'service token has user claims',
   );
   return { tenantId, clientId: claims.azp };
 }
 
 export async function runCxaServiceIdentityReadiness() {
   const discoveryResponse = await fetch(`${issuer}/.well-known/openid-configuration`);
-  assert(discoveryResponse.ok, `OIDC discovery ตอบ ${discoveryResponse.status}`);
+  assert(discoveryResponse.ok, `OIDC discovery responded ${discoveryResponse.status}`);
   const discovery = await discoveryResponse.json();
   const jwksResponse = await fetch(discovery.jwks_uri);
-  assert(jwksResponse.ok, `JWKS ตอบ ${jwksResponse.status}`);
+  assert(jwksResponse.ok, `JWKS responded ${jwksResponse.status}`);
   const jwks = await jwksResponse.json();
   const evidence = [];
 
@@ -116,7 +122,10 @@ export async function runCxaServiceIdentityReadiness() {
     });
   }
 
-  assert(new Set(evidence.map(({ tenantId }) => tenantId)).size === 2, 'ต้องยืนยันสอง tenant');
+  assert(
+    new Set(evidence.map(({ tenantId }) => tenantId)).size === 2,
+    'both tenants must be verified',
+  );
   const summary = {
     type: 'identity.readiness',
     workflow: 'cx-automation-service-identity',

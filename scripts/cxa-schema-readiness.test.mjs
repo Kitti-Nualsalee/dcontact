@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { CANONICAL_CXA_TABLES, parseCanonicalSchemaEvidence } from './cxa-schema-readiness.mjs';
 
-test('schema readiness ล็อก canonical Contact Governance/Journey/Delivery รวม command receipts, facts และ durable execution', () => {
+test('schema readiness locks canonical Contact Governance/Journey/Delivery including command receipts, facts and durable execution', () => {
   assert.deepEqual(CANONICAL_CXA_TABLES, [
     'cg_attempts',
     'cg_consents',
@@ -21,7 +21,7 @@ test('schema readiness ล็อก canonical Contact Governance/Journey/Deliver
   ]);
 });
 
-test('schema evidence ผ่านเมื่อมี table, RLS และ tenant policy ครบทุกตารางเท่านั้น', () => {
+test('schema evidence passes only when every table has its table, RLS and tenant policy', () => {
   assert.deepEqual(parseCanonicalSchemaEvidence('14|14|14'), {
     tables: 14,
     rlsEnabled: 14,

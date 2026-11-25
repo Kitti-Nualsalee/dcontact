@@ -14,8 +14,8 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const FOCUSED_CHECK_ID = 'J3-REG01';
 
 /**
- * Candidate gate สำหรับรอบพัฒนา: รันเฉพาะ behavior ของ J3 ก่อน
- * full convergence และ marker ยังคงเป็นหน้าที่ของ cxa:j3:acceptance เท่านั้น
+ * Candidate gate for the development round: run only the J3 behavior first;
+ * full convergence and the marker remain the job of cxa:j3:acceptance alone
  */
 export const CXA_J3_FOCUSED_CHECKS = Object.freeze(
   CXA_J3_READINESS_CHECKS.filter((check) => check.id !== FOCUSED_CHECK_ID),
@@ -66,8 +66,8 @@ export function createCxaJ3FocusedEvidenceManifest(context, checks, suites) {
     repository: context.repository,
     commitSha: context.commitSha,
     ref: context.ref,
-    // Candidate evidence ใช้ run ID เพื่อย้อนกลับไปหน้า Actions ได้ โดยไม่ต้องคัดลอก URL
-    // ที่อาจมีเลขบังเอิญตรงรูปแบบ PII เข้ามาใน evidence bundle.
+    // Candidate evidence uses the run ID so it can link back to the Actions page without copying the URL,
+    // which may contain digits that coincidentally match the PII pattern, into the evidence bundle.
     run: { id: context.runId, attempt: context.attempt },
     artifact: { name: context.artifact.name },
     suites: suites.map(({ id, command, checkIds, status, durationMs, tap }) => ({
@@ -105,7 +105,7 @@ export function assertValidCxaJ3FocusedEvidenceManifest(manifest) {
     Object.hasOwn(manifest.run ?? {}, 'url') ||
     Object.hasOwn(manifest.artifact ?? {}, 'url')
   )
-    throw new TypeError('J3 focused manifest มี scope หรือ marker policy ไม่ถูกต้อง');
+    throw new TypeError('J3 focused manifest has an invalid scope or marker policy');
 
   const registered = new Map(CXA_J3_FOCUSED_CHECKS.map((check) => [check.id, check]));
   const checks = manifest.checks ?? [];
@@ -114,15 +114,15 @@ export function assertValidCxaJ3FocusedEvidenceManifest(manifest) {
     new Set(checks.map((check) => check.id)).size !== checks.length ||
     checks.some((check) => !registered.has(check.id) || check.id === FOCUSED_CHECK_ID)
   )
-    throw new TypeError('J3 focused manifest ต้องมี 15 J3 checks และห้ามมี J3-REG01');
+    throw new TypeError('J3 focused manifest must have 15 J3 checks and no J3-REG01');
 
   const suites = new Map((manifest.suites ?? []).map((suite) => [suite.id, suite]));
   if (!suites.size || suites.size !== (manifest.suites ?? []).length)
-    throw new TypeError('J3 focused manifest ต้องมี suites id ไม่ซ้ำ');
+    throw new TypeError('J3 focused manifest must have suites with unique ids');
   for (const suite of suites.values()) {
     if (suite.tap && (!suite.tap.clean || !/^[0-9a-f]{64}$/.test(suite.tap.titlesSha256 ?? '')))
       throw new TypeError(
-        `J3 focused suite ${suite.id} มี TAP summary ที่ไม่ผ่านหรือ digest ไม่ถูกต้อง`,
+        `J3 focused suite ${suite.id} has a TAP summary that did not pass or an invalid digest`,
       );
   }
   for (const check of checks) {
@@ -131,7 +131,7 @@ export function assertValidCxaJ3FocusedEvidenceManifest(manifest) {
       check.dimension !== registeredCheck.dimension ||
       check.subchecks?.length !== registeredCheck.commands.length
     )
-      throw new TypeError(`J3 focused check ${check.id} ไม่ตรง registry`);
+      throw new TypeError(`J3 focused check ${check.id} does not match the registry`);
     const derived = check.subchecks.every((subcheck) => {
       const suite = suites.get(subcheck.suiteId);
       return suite && suite.status === subcheck.status && suite.checkIds.includes(check.id);
@@ -141,7 +141,9 @@ export function assertValidCxaJ3FocusedEvidenceManifest(manifest) {
         : 'FAIL'
       : null;
     if (derived === null || check.status !== derived)
-      throw new TypeError(`J3 focused check ${check.id} มี status ไม่ตรงกับ suite ที่อ้าง`);
+      throw new TypeError(
+        `J3 focused check ${check.id} has a status that does not match the referenced suite`,
+      );
   }
 }
 

@@ -16,11 +16,11 @@ async function eventually(check: () => Promise<boolean>, timeoutMs = 10_000): Pr
     if (await check()) return;
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
-  throw new Error('ไม่พบ Journey action จาก runtime consumer ภายในเวลาที่กำหนด');
+  throw new Error('Journey action from the runtime consumer not found within the allotted time');
 }
 
 test(
-  'runtime consumer รับ event จาก Redpanda และสร้าง durable action ผ่าน Contact Governance หนึ่งครั้ง',
+  'the runtime consumer receives an event from Redpanda and creates a durable action through Contact Governance exactly once',
   { timeout: 30_000 },
   async (t) => {
     const owner = new PrismaClient();

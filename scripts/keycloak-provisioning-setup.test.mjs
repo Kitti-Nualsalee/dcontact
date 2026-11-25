@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { smtpServerRepresentation } from './keycloak-provisioning-setup.mjs';
 
-test('dev: SMTP ของ Keycloak ชี้ mailpit ไม่มี auth และชื่อผู้ส่ง D-Contact', () => {
+test('dev: the Keycloak SMTP points at mailpit with no auth and the sender name D-Contact', () => {
   assert.deepEqual(smtpServerRepresentation({}), {
     host: 'mailpit',
     port: '1025',
@@ -14,7 +14,7 @@ test('dev: SMTP ของ Keycloak ชี้ mailpit ไม่มี auth แล
   });
 });
 
-test('AC3 (#596): ใช้ SMTP ชุดเดียวกับ API — ชื่อใน FROM ถูกแทนด้วย D-Contact, auth เมื่อมี user', () => {
+test('AC3 (#596): uses the same SMTP set as the API - the name in FROM is replaced by D-Contact, auth when there is a user', () => {
   assert.deepEqual(
     smtpServerRepresentation({
       KEYCLOAK_SMTP_HOST: 'osd-co-th.mail.protection.outlook.com',

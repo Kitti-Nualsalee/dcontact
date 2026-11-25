@@ -52,7 +52,7 @@ function baseInput(
   };
 }
 
-test('receipt แรกของ stream ได้ READY และ retry ด้วย eventId เดิมคืนผลเดิมแบบ DUPLICATE', async (t) => {
+test('the first receipt of a stream gets READY and a retry with the same eventId returns the same result as DUPLICATE', async (t) => {
   const f = await fixture(t);
   const repository = new JourneyOutcomeReceiptRepository(f.application);
   const input = baseInput(f.tenantId);
@@ -66,7 +66,7 @@ test('receipt แรกของ stream ได้ READY และ retry ด้�
   assert.equal(await f.owner.jrOutcomeReceipt.count({ where: { tenantId: f.tenantId } }), 1);
 });
 
-test('eventId เดิมแต่ payloadHash ต่างถูกปฏิเสธเป็น IDEMPOTENCY_CONFLICT', async (t) => {
+test('the same eventId with a different payloadHash is rejected as IDEMPOTENCY_CONFLICT', async (t) => {
   const f = await fixture(t);
   const repository = new JourneyOutcomeReceiptRepository(f.application);
   const input = baseInput(f.tenantId);
@@ -82,7 +82,7 @@ test('eventId เดิมแต่ payloadHash ต่างถูกปฏิ�
   );
 });
 
-test('outcomeVersion 2 มาก่อน version 1 apply ถูกจัดเป็น WAITING_FOR_GAP', async (t) => {
+test('outcomeVersion 2 arriving before version 1 is applied is classified as WAITING_FOR_GAP', async (t) => {
   const f = await fixture(t);
   const repository = new JourneyOutcomeReceiptRepository(f.application);
   const outcomeId = randomUUID();
@@ -91,12 +91,12 @@ test('outcomeVersion 2 มาก่อน version 1 apply ถูกจัดเ�
   assert.equal(result.outcome, 'WAITING_FOR_GAP');
 });
 
-test('version ที่ head เคย fast-forward ผ่านไปแล้วแต่ไม่เคยมี receipt ถูกจัดเป็น IGNORED_SUPERSEDED', async (t) => {
+test('a version the head already fast-forwarded past but never had a receipt is classified as IGNORED_SUPERSEDED', async (t) => {
   const f = await fixture(t);
   const repository = new JourneyOutcomeReceiptRepository(f.application);
   const outcomeId = randomUUID();
-  // จำลอง head ที่ fast-forward ผ่าน manual reconcile (ticket ถัดไป) โดยไม่เคยมี
-  // receipt ของ version 1 เกิดขึ้นจริงในระบบนี้เลย
+  // simulate a head fast-forwarded through a manual reconcile (a later ticket) without a
+  // receipt for version 1 ever really occurring in this system
   await f.owner.jrOutcomeHead.create({
     data: {
       tenantId: f.tenantId,
@@ -110,7 +110,7 @@ test('version ที่ head เคย fast-forward ผ่านไปแล้�
   assert.equal(stale.outcome, 'IGNORED_SUPERSEDED');
 });
 
-test('receipt WAITING_FOR_GAP ถูกเลื่อนเป็น READY อัตโนมัติเมื่อ gap ที่ขาดถูกเติมและ apply แล้ว', async (t) => {
+test('a WAITING_FOR_GAP receipt is automatically moved to READY once the missing gap is filled and applied', async (t) => {
   const f = await fixture(t);
   const repository = new JourneyOutcomeReceiptRepository(f.application);
   const outcomeId = randomUUID();
@@ -131,7 +131,7 @@ test('receipt WAITING_FOR_GAP ถูกเลื่อนเป็น READY อ�
   assert.equal(claimed?.id, v2.receipt.id);
 });
 
-test('logical identity เดิมมาพร้อม hash ต่างกันจาก eventId คนละใบถูก QUARANTINED', async (t) => {
+test('the same logical identity with different hashes from different eventIds is QUARANTINED', async (t) => {
   const f = await fixture(t);
   const repository = new JourneyOutcomeReceiptRepository(f.application);
   const outcomeId = randomUUID();
@@ -153,7 +153,7 @@ test('logical identity เดิมมาพร้อม hash ต่างกั
   assert.equal(conflicting.receipt.reviewReasonCode, 'EVENT_HASH_CONFLICT');
 });
 
-test('claimNextReady เคลม lease แล้ว markApplied เลื่อน head ให้ version ถัดไปพร้อม READY', async (t) => {
+test('claimNextReady claims a lease and markApplied moves the head so the next version becomes READY', async (t) => {
   const f = await fixture(t);
   const repository = new JourneyOutcomeReceiptRepository(f.application);
   const outcomeId = randomUUID();
@@ -173,7 +173,7 @@ test('claimNextReady เคลม lease แล้ว markApplied เลื่อ
   assert.equal(v2.outcome, 'READY');
 });
 
-test('lease ที่หมดอายุกลับมา claim ได้อีกครั้งโดยไม่ apply ซ้ำ', async (t) => {
+test('an expired lease can be claimed again without applying twice', async (t) => {
   const f = await fixture(t);
   const repository = new JourneyOutcomeReceiptRepository(f.application);
   const v1 = await repository.ingest(baseInput(f.tenantId));
@@ -185,7 +185,7 @@ test('lease ที่หมดอายุกลับมา claim ได้อ�
   assert.equal(reclaimed?.leaseOwner, 'worker-2');
 });
 
-test('markRetryableFailure กลับไป READY พร้อม backoff และนับ attempts', async (t) => {
+test('markRetryableFailure returns to READY with backoff and counts attempts', async (t) => {
   const f = await fixture(t);
   const repository = new JourneyOutcomeReceiptRepository(f.application);
   const v1 = await repository.ingest(baseInput(f.tenantId));
@@ -203,7 +203,7 @@ test('markRetryableFailure กลับไป READY พร้อม backoff แ�
   assert.equal(await repository.claimNextReady(f.tenantId, 'worker-2'), undefined);
 });
 
-test('findStaleGaps คืนเฉพาะ WAITING_FOR_GAP ที่ค้างเกิน cutoff', async (t) => {
+test('findStaleGaps returns only WAITING_FOR_GAP receipts stuck past the cutoff', async (t) => {
   const f = await fixture(t);
   const repository = new JourneyOutcomeReceiptRepository(f.application);
   const outcomeId = randomUUID();
@@ -218,7 +218,7 @@ test('findStaleGaps คืนเฉพาะ WAITING_FOR_GAP ที่ค้า�
   assert.equal(stale[0]?.id, gap.receipt.id);
 });
 
-test('tenant คนละใบไม่เห็น receipt ของกันและกัน', async (t) => {
+test('different tenants do not see each other receipts', async (t) => {
   const a = await fixture(t);
   const b = await fixture(t);
   const repository = new JourneyOutcomeReceiptRepository(a.application);

@@ -9,8 +9,8 @@ const runningServices = [
   'freeswitch',
   'keycloak',
 ];
-// derive จาก KAFKA_TOPICS ของ packages/shared (source of truth เดียว) แทน list ที่เขียนซ้ำไว้ที่นี่ —
-// list เดิม drift จน topic ใหม่หายจาก env ที่ bootstrap แล้วโดยไม่มีใครรู้ และ consumer test ค้างจน timeout
+// derived from KAFKA_TOPICS in packages/shared (the single source of truth) instead of a duplicated list here -
+// the old list drifted until new topics were missing from the bootstrapped env without anyone knowing, and the consumer tests hung until timeout
 const kafkaTopicSource = readFileSync(
   new URL('../packages/shared/src/events.ts', import.meta.url),
   'utf8',
@@ -37,18 +37,18 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-check('Docker services ทำงานอยู่', () => {
+check('Docker services are running', () => {
   const active = new Set(
     compose('ps', '--services', '--status', 'running').split(/\s+/).filter(Boolean),
   );
   const missing = runningServices.filter((service) => !active.has(service));
-  assert(missing.length === 0, `ยังไม่พร้อม: ${missing.join(', ')}. รัน pnpm infra:up แล้วลองใหม่`);
+  assert(missing.length === 0, `not ready: ${missing.join(', ')}. Run pnpm infra:up and try again`);
 });
 
-check('PostgreSQL รับการเชื่อมต่อได้', () =>
+check('PostgreSQL accepts connections', () =>
   compose('exec', '-T', 'postgres', 'pg_isready', '-U', 'dcontact'),
 );
-check('PostgreSQL มี tenant baseline ของ Phase 0', () => {
+check('PostgreSQL has the Phase 0 tenant baseline', () => {
   const [demoTenantCount, rlsPolicyCount] = compose(
     'exec',
     '-T',
@@ -61,36 +61,39 @@ check('PostgreSQL มี tenant baseline ของ Phase 0', () => {
     '-tAc',
     "SELECT (SELECT count(*) FROM tenants WHERE slug = 'demo'), (SELECT count(*) FROM pg_policies WHERE policyname = 'tenant_isolation');",
   ).split('|');
-  assert(demoTenantCount === '1', 'ไม่พบ tenant baseline ชื่อ demo; รัน pnpm infra:bootstrap');
-  assert(Number(rlsPolicyCount) > 0, 'ไม่พบ RLS policy; รัน pnpm infra:bootstrap');
+  assert(demoTenantCount === '1', 'tenant baseline named demo not found; run pnpm infra:bootstrap');
+  assert(Number(rlsPolicyCount) > 0, 'no RLS policy found; run pnpm infra:bootstrap');
 });
-check('Redis พร้อมเป็น state store', () => {
+check('Redis is ready as a state store', () => {
   const reply = compose('exec', '-T', 'redis', 'redis-cli', 'ping');
   assert(reply === 'PONG', `expected PONG, got ${reply || '(empty)'}`);
 });
-// ADR-029: ตรวจผ่าน S3 API (HeadBucket) จึงไม่ขึ้นกับผู้ผลิต storage
+// ADR-029: checked through the S3 API (HeadBucket), so it does not depend on the storage vendor
 try {
   const missing = await missingBuckets();
-  assert(missing.length === 0, `bucket ที่ใช้ไม่ได้: ${missing.join(', ')}. รัน pnpm infra:up`);
-  console.log(`✓ Object storage มี bucket ${DEV_BUCKETS.join(', ')}`);
+  assert(
+    missing.length === 0,
+    `buckets that are unusable: ${missing.join(', ')}. Run pnpm infra:up`,
+  );
+  console.log(`✓ Object storage has buckets ${DEV_BUCKETS.join(', ')}`);
 } catch (error) {
-  console.error(`✗ Object storage มี bucket ${DEV_BUCKETS.join(', ')}: ${error.message}`);
+  console.error(`✗ Object storage has buckets ${DEV_BUCKETS.join(', ')}: ${error.message}`);
   process.exitCode = 1;
 }
-check('Redpanda cluster มีสุขภาพดี', () =>
+check('Redpanda cluster is healthy', () =>
   compose('exec', '-T', 'redpanda', 'rpk', 'cluster', 'health'),
 );
-check('Redpanda มี topic ตาม contract', () => {
+check('Redpanda has the topics per the contract', () => {
   const topics = new Set(
     compose('exec', '-T', 'redpanda', 'rpk', 'topic', 'list', '--brokers', 'redpanda:29092').split(
       /\s+/,
     ),
   );
   const missing = requiredTopics.filter((topic) => !topics.has(topic));
-  assert(missing.length === 0, `topics ที่หายไป: ${missing.join(', ')}`);
-  assert(!topics.has('dc.fs.events'), 'พบ topic ที่เลิกใช้แล้ว: dc.fs.events');
+  assert(missing.length === 0, `missing topics: ${missing.join(', ')}`);
+  assert(!topics.has('dc.fs.events'), 'found a retired topic: dc.fs.events');
 });
-check('FreeSWITCH พร้อมสำหรับ ESL, SIP และ WebSocket ใน dev', () => {
+check('FreeSWITCH is ready for ESL, SIP and WebSocket in dev', () => {
   compose('exec', '-T', 'freeswitch', 'fs_cli', '-x', 'status');
   const profile = compose(
     'exec',
@@ -100,13 +103,13 @@ check('FreeSWITCH พร้อมสำหรับ ESL, SIP และ WebSocket
     '-x',
     'sofia status profile internal',
   );
-  assert(profile.includes('BIND-URL'), 'FreeSWITCH internal SIP profile ไม่พร้อม');
-  assert(profile.includes('WS-BIND-URL'), 'FreeSWITCH WebSocket SIP profile ไม่พร้อม');
-  assert(profile.includes('Ext-RTP-IP'), 'FreeSWITCH RTP configuration ไม่พร้อม');
+  assert(profile.includes('BIND-URL'), 'FreeSWITCH internal SIP profile is not ready');
+  assert(profile.includes('WS-BIND-URL'), 'FreeSWITCH WebSocket SIP profile is not ready');
+  assert(profile.includes('Ext-RTP-IP'), 'FreeSWITCH RTP configuration is not ready');
 });
 
 if (process.exitCode) {
-  console.error('\nPhase 0 dev foundation ยังไม่พร้อม');
+  console.error('\nPhase 0 dev foundation is not ready');
 } else {
-  console.log('\nPhase 0 dev foundation พร้อมใช้งาน');
+  console.log('\nPhase 0 dev foundation is ready to use');
 }

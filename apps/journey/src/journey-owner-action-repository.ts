@@ -1,11 +1,11 @@
 /**
- * J2.3 — durable foundation ของ owner action lifecycle (Cases/Dialer)
+ * J2.3 — durable foundation of the owner action lifecycle (Cases/Dialer)
  *
- * Journey เก็บเฉพาะ action intent, command outbox และ result inbox ของตัวเอง —
- * ไม่เขียน canonical Case/Campaign/Callback state ตาม #121 stable business
- * `actionKey = enrollmentId:journeyVersion:stepId`; retry ต้องใช้ actionKey/
- * commandId/requestHash เดิมเสมอ (#123) ที่นี่ยังไม่มี owner implementation
- * หรือ relay transport จริง (ดู #131 ขอบเขต J2.3)
+ * Journey keeps only its own action intent, command outbox and result inbox —
+ * it does not write canonical Case/Campaign/Callback state per #121. Stable business
+ * `actionKey = enrollmentId:journeyVersion:stepId`; a retry must always use the same actionKey/
+ * commandId/requestHash (#123). There is no real owner implementation
+ * or relay transport here yet (see #131 J2.3 scope)
  */
 import { createHash, randomUUID } from 'node:crypto';
 import {
@@ -33,7 +33,7 @@ import {
   type OwnerContinuationCheckpoint,
 } from './journey-owner-continuation.js';
 
-/** state ที่ยังรับผลจาก owner ได้ต่อ ตาม lifecycle diagram ที่ยืนยันใน #123 */
+/** states that can still receive a result from the owner, per the lifecycle diagram confirmed in #123 */
 const OPEN_ACTION_STATES: JrOwnerActionState[] = [
   'PENDING',
   'DISPATCHED',
@@ -41,10 +41,10 @@ const OPEN_ACTION_STATES: JrOwnerActionState[] = [
   'CANCEL_REQUESTED',
 ];
 
-/** state ที่ยัง cancel ได้ — ACKNOWLEDGED ไม่อยู่ในนี้เพราะ owner สร้าง entity แล้ว */
+/** states that can still be cancelled — ACKNOWLEDGED is not here because the owner already created the entity */
 const CANCELLABLE_ACTION_STATES: JrOwnerActionState[] = ['PENDING', 'DISPATCHED', 'ACK_UNKNOWN'];
 
-/** command ที่ยกเลิก/แทนที่ positive effect เดิม — ผลของมันตัดสิน action ที่ CANCEL_REQUESTED */
+/** commands that cancel/replace an earlier positive effect — their result decides an action that is CANCEL_REQUESTED */
 const CANCEL_COMMAND_TYPES = new Set([
   'CANCEL_CAMPAIGN_TARGET',
   'CANCEL_CALLBACK',
@@ -53,9 +53,9 @@ const CANCEL_COMMAND_TYPES = new Set([
 ]);
 
 /**
- * J2.1 frozen contract: cancel/supersede ใช้ actionKey เดิม (`intent.originalActionKey ===
- * actionKey`) แต่ commandId ใหม่ — ไม่มีชนิด cancel ของ ENSURE_CASE เพราะ Case ที่ commit แล้ว
- * ต้องคงอยู่ (#123)
+ * J2.1 frozen contract: cancel/supersede use the same actionKey (`intent.originalActionKey ===
+ * actionKey`) but a new commandId — there is no cancel kind for ENSURE_CASE because a Case that is already committed
+ * must remain (#123)
  */
 const CANCEL_COMMAND_TYPE_BY_KIND: Partial<
   Record<
@@ -74,9 +74,9 @@ const CANCEL_COMMAND_TYPE_BY_KIND: Partial<
 };
 
 /**
- * commandId ของ cancel ต้องเป็น opaque reference (≤160 ตัว) ที่คงที่ต่อ (action, request key) —
- * รวม actionKey เสมอ ไม่งั้น request key เดียวกันของคนละ action (เช่น Idempotency-Key ที่ admin
- * ใช้ซ้ำ) จะได้ commandId เดียวกันแล้ว upsert ทับเงียบ ๆ จน action ที่สองไม่มี cancel command
+ * The commandId of a cancel must be an opaque reference (≤160 characters) that is stable per (action, request key) —
+ * always including actionKey, otherwise the same request key for different actions (e.g. an Idempotency-Key an admin
+ * reuses) would get the same commandId and silently upsert over it, leaving the second action with no cancel command
  */
 export function cancelCommandIdFor(
   tenantId: string,
@@ -103,7 +103,7 @@ export class OwnerActionHashConflictError extends Error {
   readonly code = 'IDEMPOTENCY_CONFLICT' as const;
 
   constructor(readonly actionKey: string) {
-    super(`Owner action actionKey มีอยู่แล้วด้วย requestHash ต่างกัน: ${actionKey}`);
+    super(`Owner action actionKey already exists with a different requestHash: ${actionKey}`);
     this.name = 'OwnerActionHashConflictError';
   }
 }
@@ -119,15 +119,15 @@ export interface EnsureOwnerActionInput {
   kind: JrOwnerActionKind;
   requestHash: string;
   correlationId: string;
-  /** command ที่จะ dispatch พร้อมกันในธุรกรรมเดียว — ห้ามเรียก owner ระหว่าง transaction นี้ */
+  /** the command to dispatch together in the same transaction — never call the owner during this transaction */
   commandId: string;
-  /** J2OwnerCommandPayloadV1 เต็มรูปแบบพร้อม relay จริง (J2.8); undefined สำหรับ caller เก่า */
+  /** the full J2OwnerCommandPayloadV1 ready for a real relay (J2.8); undefined for old callers */
   commandPayload?: unknown;
 }
 
 export interface EnsureOwnerActionResult {
   action: JrOwnerAction;
-  /** false เมื่อเป็น idempotent replay ของ actionKey เดิม — ไม่มี command ใหม่ถูกสร้าง */
+  /** false for an idempotent replay of the same actionKey — no new command is created */
   isNew: boolean;
 }
 
@@ -148,16 +148,16 @@ export interface RequestOwnerCancellationInput {
   tenantId: string;
   actionKey: string;
   /**
-   * idempotency key เชิงตรรกะของคำขอ cancel (เช่น Idempotency-Key ของ admin หรือ key ที่คำนวณจาก
-   * actionKey) — commandId จริงคำนวณจาก key นี้เสมอ คำขอซ้ำจึงได้ command ใบเดิม
+   * the logical idempotency key of the cancel request (e.g. the admin's Idempotency-Key or a key computed from
+   * actionKey) — the real commandId is always computed from this key, so a repeated request gets the same command
    */
   cancelRequestKey: string;
   correlationId: string;
-  /** stable code ที่ owner บันทึกคู่กับการยกเลิก */
+  /** stable code the owner records alongside the cancellation */
   reasonCode?: string;
-  /** มีค่า = SUPERSEDE_x แทน CANCEL_x */
+  /** when set = SUPERSEDE_x instead of CANCEL_x */
   supersedingOutcome?: J2OutcomeReferenceV1;
-  /** admin recovery (#136) ต้องส่งมาเสมอ; caller ภายในที่ไม่ได้แข่งกับใครเว้นได้ */
+  /** admin recovery (#136) must always send it; an internal caller that races with no one may omit it */
   expectedVersion?: number;
 }
 
@@ -165,7 +165,9 @@ export class OwnerActionCancellationUnavailableError extends Error {
   readonly code = 'CANCELLATION_UNAVAILABLE' as const;
 
   constructor(readonly actionKey: string) {
-    super(`owner action ${actionKey} ไม่มี command payload ต้นฉบับให้สร้าง cancel command`);
+    super(
+      `owner action ${actionKey} has no original command payload to build a cancel command from`,
+    );
     this.name = 'OwnerActionCancellationUnavailableError';
   }
 }
@@ -179,12 +181,12 @@ export class OwnerActionNotFoundError extends Error {
   readonly code = 'ACTION_NOT_FOUND' as const;
 
   constructor(readonly actionKey: string) {
-    super(`ไม่พบ owner action: ${actionKey}`);
+    super(`owner action not found: ${actionKey}`);
     this.name = 'OwnerActionNotFoundError';
   }
 }
 
-/** admin recovery ต้องอ้าง version ที่เห็นจริง — กัน replay ทับ state ที่ขยับไปแล้ว */
+/** admin recovery must reference the version it really saw — prevents a replay from overwriting state that has moved on */
 export class OwnerActionVersionConflictError extends Error {
   readonly code = 'VERSION_CONFLICT' as const;
 
@@ -193,12 +195,12 @@ export class OwnerActionVersionConflictError extends Error {
     readonly expectedVersion: number,
     readonly actualVersion: number,
   ) {
-    super(`owner action ${actionKey} อยู่ที่ version ${actualVersion} ไม่ใช่ ${expectedVersion}`);
+    super(`owner action ${actionKey} is at version ${actualVersion}, not ${expectedVersion}`);
     this.name = 'OwnerActionVersionConflictError';
   }
 }
 
-/** state ที่ยัง replay command ได้ — terminal แล้วห้ามส่งซ้ำเด็ดขาด */
+/** states in which a command can still be replayed — once terminal it must never be resent */
 const REPLAYABLE_ACTION_STATES: JrOwnerActionState[] = [
   'PENDING',
   'DISPATCHED',
@@ -210,7 +212,7 @@ function isUniqueViolation(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
 }
 
-/** JrOwnerResultKind เป็น subset ของ JrOwnerActionState เสมอ — แม็พตรงตัวโดยไม่ cast มั่ว */
+/** JrOwnerResultKind is always a subset of JrOwnerActionState — mapped one to one without a sloppy cast */
 const RESULT_KIND_TO_ACTION_STATE: Record<JrOwnerResultKind, JrOwnerActionState> = {
   ACKNOWLEDGED: 'ACKNOWLEDGED',
   REJECTED: 'REJECTED',
@@ -241,8 +243,8 @@ export class JourneyOwnerActionRepository {
   }
 
   /**
-   * สร้าง action + stage command แรกใน transaction เดียว — retry ด้วย actionKey/
-   * requestHash เดิมคืน action เดิมโดยไม่สร้าง command ซ้ำ (idempotent ต่อ #123)
+   * creates the action + stages the first command in one transaction — a retry with the same actionKey/
+   * requestHash returns the existing action without creating a duplicate command (idempotent per #123)
    */
   async ensureAction(
     input: EnsureOwnerActionInput,
@@ -252,7 +254,9 @@ export class JourneyOwnerActionRepository {
       (input.stepId === undefined) !== (input.stepSequence === undefined) ||
       (input.stepSequence !== undefined && input.stepSequence < 0)
     ) {
-      throw new TypeError('stepId และ stepSequence ต้องระบุคู่กัน และ stepSequence ต้องไม่ติดลบ');
+      throw new TypeError(
+        'stepId and stepSequence must be given together and stepSequence must not be negative',
+      );
     }
     const run = async (transaction: Prisma.TransactionClient) => {
       await transaction.$queryRaw(
@@ -323,7 +327,7 @@ export class JourneyOwnerActionRepository {
     );
   }
 
-  /** command ที่ dispatch แล้ว (relay transport จริงเป็น scope ticket ถัดไป) */
+  /** a command that has been dispatched (a real relay transport is the scope of a later ticket) */
   async markCommandDispatched(tenantId: string, commandId: string): Promise<JrOwnerCommandOutbox> {
     return withTenantDatabaseTransaction(this.database, tenantId, async (transaction) => {
       const command = await transaction.jrOwnerCommandOutbox.update({
@@ -368,9 +372,9 @@ export class JourneyOwnerActionRepository {
   }
 
   /**
-   * apply ผลจาก owner แบบ idempotent ต่อ `(tenantId, commandId)`; terminal ที่
-   * commit แล้ว (ACKNOWLEDGED/REJECTED/CANCELLED/TOO_LATE) ชนะเสมอ — ผลที่มาช้า
-   * ไม่ย้อน state และไม่สร้าง Case/Campaign/Callback effect ใหม่
+   * applies a result from the owner idempotently per `(tenantId, commandId)`; a terminal that
+   * has committed (ACKNOWLEDGED/REJECTED/CANCELLED/TOO_LATE) always wins — a late result
+   * does not revert the state and does not create a new Case/Campaign/Callback effect
    */
   async applyResult(input: ApplyOwnerResultInput): Promise<ApplyOwnerResultResult> {
     return withTenantDatabaseTransaction(this.database, input.tenantId, (transaction) =>
@@ -401,8 +405,8 @@ export class JourneyOwnerActionRepository {
       if (existingResult.resultHash !== input.resultHash) {
         return { outcome: 'CONFLICT' as const, action };
       }
-      // J5.0 legacy recovery: result อาจ commit ก่อนมี continuation ledger ได้ การ replay
-      // ด้วยผลเดิมจึงเติม cursor evidence ที่ขาดผ่าน transaction เดียวกัน โดยไม่เปลี่ยน action ซ้ำ
+      // J5.0 legacy recovery: a result may have committed before the continuation ledger existed, so replaying
+      // the original result fills in the missing cursor evidence through the same transaction, without changing the action again
       await continueOwnerResultInTransaction(
         transaction,
         {
@@ -448,8 +452,8 @@ export class JourneyOwnerActionRepository {
         })
       : action;
 
-    // savepoint กันไม่ให้ P2002 ของ insert นี้ทำ action update ด้านบนถูก rollback
-    // ไปด้วย — Postgres abort ทั้ง transaction จนกว่าจะ rollback ถ้าไม่มี savepoint
+    // a savepoint keeps the P2002 of this insert from rolling back the action update above
+    // with it — Postgres aborts the whole transaction until rollback if there is no savepoint
     await transaction.$executeRaw`SAVEPOINT apply_result_insert`;
     try {
       await transaction.jrOwnerResultInbox.create({
@@ -472,7 +476,7 @@ export class JourneyOwnerActionRepository {
     } catch (error) {
       if (!isUniqueViolation(error)) throw error;
       await transaction.$executeRaw`ROLLBACK TO SAVEPOINT apply_result_insert`;
-      // race: อีก worker แทรก result เดิมสำเร็จก่อนแล้ว — ถือเป็น duplicate ปลอดภัย
+      // race: another worker already inserted the same result first — treated as a safe duplicate
       return { outcome: 'DUPLICATE' as const, action: updated };
     }
 
@@ -498,9 +502,9 @@ export class JourneyOwnerActionRepository {
   }
 
   /**
-   * J5.0 recovery สำหรับ result ที่ commit ก่อน deployment แต่ยังไม่มี continuation ledger.
-   * เลือกเฉพาะ action ที่มี deterministic step binding; unbound legacy rowsถูกทิ้งไว้ให้
-   * operator quarantine แทนการเดา cursor.
+   * J5.0 recovery for a result committed before deployment that has no continuation ledger yet.
+   * Selects only actions with a deterministic step binding; unbound legacy rows are left for the
+   * operator to quarantine instead of guessing the cursor.
    */
   async reconcileCommittedContinuations(tenantId: string, limit = 50): Promise<number> {
     const candidates = await withTenantDatabaseTransaction(this.database, tenantId, (transaction) =>
@@ -558,13 +562,13 @@ export class JourneyOwnerActionRepository {
   }
 
   /**
-   * ผลที่ owner ตอบระหว่าง CANCEL_REQUESTED ต้องแยกว่ามาจาก command ไหน:
+   * A result the owner answers during CANCEL_REQUESTED must be told apart by which command it came from:
    *
-   * - ผลของ positive command เดิมที่ "สำเร็จ" มาถึงก่อนผลของ cancel ห้ามปิด action เป็น
-   *   ACKNOWLEDGED — ไม่งั้นผล CANCELLED ที่ตามมาจะถูกมองเป็น late result แล้ว Journey กับ owner
-   *   เห็นคนละ state; เก็บ aggregate ไว้แต่รอผลของ cancel ตัดสิน
-   * - cancel ที่ owner ปฏิเสธ (เช่นหา effect เดิมไม่เจอ) ไม่ได้แปลว่า action ถูก reject —
-   *   ส่งเข้า RECONCILING ให้คนตรวจแทนการเดา
+   * - a "successful" result of the original positive command arriving before the cancel result must not close the action as
+   *   ACKNOWLEDGED — otherwise the CANCELLED result that follows would be treated as a late result and Journey and the owner
+   *   would see different states; keep the aggregate but wait for the cancel result to decide
+   * - a cancel the owner rejects (e.g. cannot find the original effect) does not mean the action was rejected —
+   *   send it to RECONCILING for a person to check instead of guessing
    */
   private nextStateForResult(
     current: JrOwnerActionState,
@@ -579,17 +583,17 @@ export class JourneyOwnerActionRepository {
   }
 
   /**
-   * ขอ cancel/supersede — เฉพาะ state ที่ยัง reversible ตาม #123; state อื่นเป็น no-op idempotent
+   * Requests cancel/supersede — only for states that are still reversible per #123; other states are an idempotent no-op
    *
-   * - command ยังไม่เคยออกจาก Journey (outbox PENDING/FAILED และ action PENDING) → ยกเลิกในบ้าน
-   *   ทันที command เดิมไม่ถูก dispatch และไม่ต้องรบกวน owner (#123: terminal ก่อน owner รับ)
-   * - ออกไปแล้ว → stage CANCEL_x/SUPERSEDE_x ตาม contract: actionKey เดิม, commandId ใหม่ที่คำนวณ
-   *   จาก `cancelRequestKey`, requestHash ของ cancel command เอง (result binding ใช้ค่านี้)
-   * - ENSURE_CASE ที่ออกไปแล้วไม่มี cancel contract — Case ที่ owner อาจ commit แล้วต้องคงอยู่
-   *   จึงคืน action เดิมโดยไม่เปลี่ยนอะไร
+   * - the command never left Journey (outbox PENDING/FAILED and action PENDING) → cancel in-house
+   *   immediately, the original command is not dispatched and the owner need not be bothered (#123: terminal before the owner accepts)
+   * - already left → stage CANCEL_x/SUPERSEDE_x per the contract: the same actionKey, a new commandId computed
+   *   from `cancelRequestKey`, and the cancel command's own requestHash (the result binding uses this value)
+   * - an ENSURE_CASE that already left has no cancel contract — a Case the owner may have committed must remain,
+   *   so the existing action is returned without changing anything
    *
-   * ล็อกแถว outbox ของ action ด้วย FOR UPDATE — relay claim ด้วย SKIP LOCKED จึงหยิบ command
-   * เดิมไปส่งแข่งกับการยกเลิกในบ้านไม่ได้ ถ้า relay claim ไปก่อน (PROCESSING) ถือว่าออกไปแล้ว
+   * locks the action's outbox row with FOR UPDATE — the relay claims with SKIP LOCKED so it cannot pick up the original
+   * command to send in a race with the in-house cancellation; if the relay claimed first (PROCESSING) it counts as already left
    */
   async requestCancellation(
     input: RequestOwnerCancellationInput,
@@ -685,8 +689,8 @@ export class JourneyOwnerActionRepository {
         data: {
           state: 'CANCEL_REQUESTED',
           cancelRequestedAt: new Date(),
-          // ช่วง cancel เป็นการไล่ตามผลใบใหม่ (ของ cancel command) — เริ่มนับเพดานใหม่ ไม่กินโควต้า
-          // ที่ ACK_UNKNOWN ของ command ต้นเรื่องใช้ไปแล้ว
+          // the cancel phase chases a new result (of the cancel command) — start counting the ceiling afresh, not eating the quota
+          // already used by the ACK_UNKNOWN of the original command
           attempts: 0,
           version: { increment: 1 },
         },
@@ -715,11 +719,11 @@ export class JourneyOwnerActionRepository {
   }
 
   /**
-   * คืน command ของ action ให้กลับเข้าคิว relay อีกครั้ง สำหรับ admin recovery (#136)
+   * Returns the action's command to the relay queue again, for admin recovery (#136)
    *
-   * ไม่ใช่ blind retry: ต้องอ้าง `expectedVersion` ที่เห็นจริง, action ต้องยังไม่ terminal
-   * และ `commandId` เดิมถูก reuse เสมอ — owner จึง dedupe ได้ตาม at-least-once contract
-   * ของ J2.8 ไม่ใช่การสร้าง effect ใหม่
+   * Not a blind retry: it must reference the `expectedVersion` actually seen, the action must not be terminal yet
+   * and the original `commandId` is always reused — so the owner can dedupe under the J2.8 at-least-once contract,
+   * not a creation of a new effect
    */
   async replayCommands(input: {
     tenantId: string;
@@ -771,10 +775,10 @@ export class JourneyOwnerActionRepository {
   }
 
   /**
-   * action ที่ dispatch ออกไปแล้วแต่ owner ยังเงียบเกิน deadline และยังไม่หมดโควต้า retry
+   * an action that was dispatched but the owner is still silent past the deadline and the retry quota is not used up
    *
-   * `attempts` เป็นตัวคุม bounded retry: เกินเพดานแล้วจะไม่ถูกหยิบอีก ปล่อยให้คนตัดสินใจ
-   * ผ่าน admin recovery API แทนการวนเรียก owner ไปเรื่อย ๆ
+   * `attempts` controls bounded retry: past the ceiling it is not picked up again and is left for a person to decide
+   * through the admin recovery API instead of calling the owner forever
    */
   findStaleDispatched(
     tenantId: string,
@@ -797,9 +801,9 @@ export class JourneyOwnerActionRepository {
   }
 
   /**
-   * DISPATCHED/ACK_UNKNOWN -> ACK_UNKNOWN พร้อมนับ attempt เพิ่มหนึ่ง
+   * DISPATCHED/ACK_UNKNOWN -> ACK_UNKNOWN with the attempt count increased by one
    *
-   * ใช้ version guard เพื่อไม่ทับ action ที่เพิ่งได้ผลจริงระหว่างทาง — คืน null เมื่อแพ้ race
+   * uses a version guard so it does not overwrite an action that just got a real result meanwhile — returns null when it loses the race
    */
   async markAckUnknown(
     tenantId: string,
@@ -821,7 +825,7 @@ export class JourneyOwnerActionRepository {
     return this.getAction(tenantId, actionKey) as Promise<JrOwnerAction>;
   }
 
-  /** action ที่ขอ cancel/supersede ไปแล้วแต่ owner ยังไม่ยืนยันผลเกิน deadline และยังไม่หมดโควต้า */
+  /** an action that asked for cancel/supersede but the owner has not confirmed the result past the deadline and the quota is not used up */
   findStaleCancelRequested(
     tenantId: string,
     requestedBefore: Date,
@@ -843,8 +847,8 @@ export class JourneyOwnerActionRepository {
   }
 
   /**
-   * นับ attempt ของการไล่ตามผล cancel โดยคง state CANCEL_REQUESTED ไว้ (ต่างจาก markAckUnknown) —
-   * version guard กันทับ action ที่เพิ่งได้ผลของ cancel ระหว่างทาง คืน null เมื่อแพ้ race
+   * counts an attempt of chasing the cancel result while keeping the CANCEL_REQUESTED state (unlike markAckUnknown) —
+   * the version guard prevents overwriting an action that just got the cancel result meanwhile; returns null when it loses the race
    */
   async markCancelUnconfirmed(
     tenantId: string,

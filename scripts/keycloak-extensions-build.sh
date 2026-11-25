@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# A1.4b (#436): build Keycloak extension ใน Docker แล้ววาง jar ที่ infra/keycloak/providers
-# (mount เข้า /opt/keycloak/providers) — compile เทียบกับ jar ใน image ของ Keycloak เวอร์ชันเดียวกับ
-# runtime โดยตรง จึงไม่ต้องโหลด dependency จาก Maven Central และไม่ต้องมี JDK ในเครื่อง
+# A1.4b (#436): build the Keycloak extensions in Docker and place the jar in infra/keycloak/providers
+# (mounted into /opt/keycloak/providers) - compile directly against the jars in the Keycloak image of the same version as the
+# runtime, so no dependency is downloaded from Maven Central and no JDK is needed on the machine
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
-# extension → ชื่อ jar ใน providers/ (AC2 #595: dc-account คู่กับ invitation-guard)
+# extension -> jar name in providers/ (AC2 #595: dc-account pairs with invitation-guard)
 extensions=("invitation-guard:dcontact-invitation-guard.jar" "dc-account:dcontact-account.jar" "tenant-people:dcontact-tenant-people.jar")
-# #592: ต้องตรงกับ image ของ runtime (infra/docker/docker-compose.dev.yml, infra/keycloak/Dockerfile)
+# #592: must match the runtime image (infra/docker/docker-compose.dev.yml, infra/keycloak/Dockerfile)
 keycloak_image="docker.io/keycloak/keycloak:26.7.5@sha256:37dbaf6f0722c9ec246335f36e1ef8b2e6cb960f7c27e0d8c615121a3d475a85"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"; docker rm -f dcontact-kc-libs >/dev/null 2>&1 || true' EXIT
@@ -19,7 +19,7 @@ for entry in "${extensions[@]}"; do
   name="${entry%%:*}"
   jar="${entry#*:}"
   mkdir -p "$work/$name/classes"
-  # รันด้วย uid/gid ของ host — บน Linux ไฟล์ที่ container สร้างจะไม่เป็นของ root (ลบ temp ได้)
+  # run with the host uid/gid - on Linux files the container creates are then not owned by root (the temp can be deleted)
   docker run --rm \
     --user "$(id -u):$(id -g)" \
     -v "$root/infra/keycloak/extensions/$name/src/main":/src:ro \

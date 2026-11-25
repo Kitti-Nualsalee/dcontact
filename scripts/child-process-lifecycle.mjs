@@ -1,5 +1,5 @@
 /**
- * เริ่มเฝ้าดู child ทันทีหลัง spawn เพื่อไม่พลาด `close` ก่อน consumer พร้อมรอผล
+ * Start watching the child right after spawn so a `close` is not missed before the consumer is ready to await the result
  */
 export function observeChildExit(child, { timeoutMs, label = 'child process' } = {}) {
   return new Promise((resolveExit, rejectExit) => {
@@ -14,13 +14,13 @@ export function observeChildExit(child, { timeoutMs, label = 'child process' } =
       timeout = setTimeout(() => {
         child.removeListener('close', onClose);
         child.kill?.('SIGTERM');
-        rejectExit(new Error(`${label} ไม่สิ้นสุดภายใน ${timeoutMs}ms`));
+        rejectExit(new Error(`${label} did not exit within ${timeoutMs}ms`));
       }, timeoutMs);
     }
   });
 }
 
-/** ปลด pipe ของ child ที่หยุดแล้ว เพื่อไม่ให้ Node event loop ค้าง */
+/** Detach the pipes of a child that has stopped, so the Node event loop does not hang */
 export function stopChild(child) {
   child.stdout?.destroy();
   child.stderr?.destroy();

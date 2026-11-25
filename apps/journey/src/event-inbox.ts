@@ -41,22 +41,22 @@ export class EventIdempotencyConflictError extends Error {
     readonly source: string,
     readonly eventId: string,
   ) {
-    super(`eventId ถูกใช้กับ canonical payload อื่นแล้ว: ${source}/${eventId}`);
+    super(`eventId was already used with a different canonical payload: ${source}/${eventId}`);
     this.name = 'EventIdempotencyConflictError';
   }
 }
 
 /**
- * canonical JSON ที่ใช้ทำ hash ให้เสถียรข้ามลำดับคีย์
+ * Canonical JSON used for hashing, stable regardless of key order.
  *
- * export ออกมาให้ J3 ใช้ซ้ำ (#217) แทนที่จะเขียนสำเนาที่สี่ — การมีกติกา canonicalization
- * หลายชุดที่ต้องคอยให้ตรงกันคือที่มาของ hash ที่ไม่ตรงกันโดยไม่มีใครรู้
+ * Exported so J3 can reuse it (#217) instead of writing a fourth copy — having several canonicalization
+ * rule sets that must be kept in sync is how hashes end up mismatching with nobody noticing.
  */
 export function canonicalJson(value: unknown): string {
   if (value === null) return 'null';
   if (typeof value === 'string' || typeof value === 'boolean') return JSON.stringify(value);
   if (typeof value === 'number') {
-    if (!Number.isFinite(value)) throw new TypeError('event payload มีตัวเลขที่ไม่เป็น finite');
+    if (!Number.isFinite(value)) throw new TypeError('event payload contains a non-finite number');
     return JSON.stringify(value);
   }
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
@@ -68,7 +68,7 @@ export function canonicalJson(value: unknown): string {
       .map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`)
       .join(',')}}`;
   }
-  throw new TypeError(`event payload มี value type ที่ไม่รองรับ: ${typeof value}`);
+  throw new TypeError(`event payload contains an unsupported value type: ${typeof value}`);
 }
 
 function hashEvent(event: InboundBusinessEvent): string {
@@ -116,7 +116,7 @@ export class EventInboxService {
     const payloadHash = hashEvent(event);
     const occurredAt = new Date(event.occurredAt);
     if (Number.isNaN(occurredAt.getTime()))
-      throw new TypeError('event occurredAt ต้องเป็นรูปแบบ ISO-8601');
+      throw new TypeError('event occurredAt must be in ISO-8601 format');
 
     return withTenantDatabaseTransaction(this.database, tenantId, async (transaction) => {
       await transaction.$queryRaw(

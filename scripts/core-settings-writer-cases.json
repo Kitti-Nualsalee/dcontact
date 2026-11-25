@@ -177,7 +177,7 @@
       "file": "src/team-reference-writers.integration.ts",
       "pattern": "Core Team fence|Team writers",
       "requiredCases": [
-        "Team writers: actual Journey/Template draft writers สร้าง current ownership ที่ห้ามปิดทีม",
+        "Team writers: the actual Journey/Template draft writers create current ownership that forbids closing the team",
         "Core Team fence: actual Journey draft ownership writer-first",
         "Core Team fence: actual Journey draft ownership deactivate-first",
         "Core Team fence: actual Template draft ownership writer-first",
@@ -199,7 +199,7 @@
         "Core Team fence: actual Journey authoring rollForward deactivate-first",
         "Core Team fence: actual Journey authoring clone writer-first",
         "Core Team fence: actual Journey authoring clone deactivate-first",
-        "Core Team fence: raw ACTIVE Journey publication ต้องปฏิเสธ legacy inactive Team"
+        "Core Team fence: a raw ACTIVE Journey publication must reject a legacy inactive Team"
       ]
     },
     {
@@ -219,7 +219,7 @@
         "Core Team fence: actual Template instantiate deactivate-first",
         "Core Team fence: actual Template upgrade writer-first",
         "Core Team fence: actual Template upgrade deactivate-first",
-        "Core Team fence: raw ACTIVE Template publication ต้องปฏิเสธ legacy inactive Team"
+        "Core Team fence: a raw ACTIVE Template publication must reject a legacy inactive Team"
       ]
     },
     {

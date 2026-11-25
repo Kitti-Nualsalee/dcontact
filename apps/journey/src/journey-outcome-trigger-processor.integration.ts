@@ -191,7 +191,7 @@ async function ingestReceipt(
   });
 }
 
-test('outcome ที่ match trigger และผ่าน WORK scope ทั้งสองฝั่งสร้าง enrollment + owner action intent atomic กับ receipt APPLIED', async (t) => {
+test('an outcome that matches a trigger and passes WORK scope on both sides creates an enrollment + owner action intent atomically with the receipt APPLIED', async (t) => {
   const f = await fixture(t);
   const definitions = new JourneyDefinitionRepository(f.application, evaluator);
   const receipts = new JourneyOutcomeReceiptRepository(f.application);
@@ -224,7 +224,7 @@ test('outcome ที่ match trigger และผ่าน WORK scope ทั้
   const outbox = await f.owner.jrOwnerCommandOutbox.findFirstOrThrow({
     where: { tenantId: f.tenantId, actionKey: action!.actionKey },
   });
-  assert.ok(outbox.payload, 'command payload ต้องถูก stage พร้อม relay จริง');
+  assert.ok(outbox.payload, 'the command payload must be staged ready for a real relay');
 
   const receipt = await f.owner.jrOutcomeReceipt.findFirstOrThrow({
     where: { tenantId: f.tenantId },
@@ -232,7 +232,7 @@ test('outcome ที่ match trigger และผ่าน WORK scope ทั้
   assert.equal(receipt.state, 'APPLIED');
 });
 
-test('receipt ที่ไม่มี contactId เข้า REVIEW/IDENTITY_UNRESOLVED และไม่สร้าง enrollment', async (t) => {
+test('a receipt without a contactId goes to REVIEW/IDENTITY_UNRESOLVED and creates no enrollment', async (t) => {
   const f = await fixture(t);
   const definitions = new JourneyDefinitionRepository(f.application, evaluator);
   const receipts = new JourneyOutcomeReceiptRepository(f.application);
@@ -254,7 +254,7 @@ test('receipt ที่ไม่มี contactId เข้า REVIEW/IDENTITY_UN
   assert.equal(await f.owner.jrEnrollment.count({ where: { tenantId: f.tenantId } }), 0);
 });
 
-test('scope ที่ stale คืน DEFER ไม่มี side effect และ receipt กลับไป READY ให้ retry', async (t) => {
+test('a stale scope returns DEFER with no side effect and the receipt goes back to READY for retry', async (t) => {
   const f = await fixture(t);
   const definitions = new JourneyDefinitionRepository(f.application, evaluator);
   const receipts = new JourneyOutcomeReceiptRepository(f.application);
@@ -275,7 +275,7 @@ test('scope ที่ stale คืน DEFER ไม่มี side effect แล�
   assert.equal(await f.owner.jrEnrollment.count({ where: { tenantId: f.tenantId } }), 0);
 });
 
-test('scope denial สร้าง enrollment BLOCKED โดยไม่มี owner action และ receipt ยังถือว่า APPLIED', async (t) => {
+test('a scope denial creates a BLOCKED enrollment with no owner action and the receipt still counts as APPLIED', async (t) => {
   const f = await fixture(t);
   const definitions = new JourneyDefinitionRepository(f.application, evaluator);
   const receipts = new JourneyOutcomeReceiptRepository(f.application);
@@ -301,7 +301,7 @@ test('scope denial สร้าง enrollment BLOCKED โดยไม่มี o
   assert.equal(receipt.state, 'APPLIED');
 });
 
-test('outcome ที่ไม่มี published journey จับคู่ถูก apply เป็น no-op โดยไม่มี enrollment/action', async (t) => {
+test('an outcome with no matching published journey is applied as a no-op with no enrollment/action', async (t) => {
   const f = await fixture(t);
   const receipts = new JourneyOutcomeReceiptRepository(f.application);
   const definitions = new JourneyDefinitionRepository(f.application, evaluator);
@@ -321,14 +321,14 @@ test('outcome ที่ไม่มี published journey จับคู่ถ�
   assert.equal(await f.owner.jrEnrollment.count({ where: { tenantId: f.tenantId } }), 0);
 });
 
-test('retry บน enrollment ที่ค้างจาก crash ก่อนหน้าไม่สร้าง enrollment ซ้ำ (restart-safe)', async (t) => {
+test('a retry on an enrollment left over from an earlier crash does not create a duplicate enrollment (restart-safe)', async (t) => {
   const f = await fixture(t);
   const definitions = new JourneyDefinitionRepository(f.application, evaluator);
   const receipts = new JourneyOutcomeReceiptRepository(f.application);
   const matched = await publishOutcomeJourney(definitions, f);
   const ingested = await ingestReceipt(receipts, f);
 
-  // simulate ว่า worker คนก่อนหน้าตายหลัง ensureEnrollment commit แต่ก่อน settle transaction
+  // simulate that the previous worker died after ensureEnrollment committed but before the settle transaction
   await f.owner.jrEnrollment.create({
     data: {
       id: randomUUID(),
@@ -368,7 +368,7 @@ function processorWith(
   });
 }
 
-test('correction revision ที่ยัง match เหมือนเดิม re-evaluate enrollment เดิม ไม่สร้าง enrollment/action ใหม่', async (t) => {
+test('a correction revision that still matches re-evaluates the existing enrollment and creates no new enrollment/action', async (t) => {
   const f = await fixture(t);
   const definitions = new JourneyDefinitionRepository(f.application, evaluator);
   const receipts = new JourneyOutcomeReceiptRepository(f.application);
@@ -394,7 +394,7 @@ test('correction revision ที่ยัง match เหมือนเดิ�
   assert.equal(head.lastAppliedVersion, 2);
 });
 
-test('correction ที่ไม่ match trigger แล้วขอ cancel action ที่ยัง reversible ด้วย actionKey เดิม และหยุด enrollment', async (t) => {
+test('a correction that no longer matches the trigger requests cancelling the still-reversible action with the same actionKey and stops the enrollment', async (t) => {
   const f = await fixture(t);
   const definitions = new JourneyDefinitionRepository(f.application, evaluator);
   const receipts = new JourneyOutcomeReceiptRepository(f.application);
@@ -409,7 +409,7 @@ test('correction ที่ไม่ match trigger แล้วขอ cancel acti
   const [originalCommand] = await f.owner.jrOwnerCommandOutbox.findMany({
     where: { tenantId: f.tenantId },
   });
-  // relay ส่ง command ออกไปแล้ว — การยกเลิกต้องไปทาง owner
+  // the relay already sent the command out — cancellation must go through the owner
   await new JourneyOwnerActionRepository(f.application).markCommandDispatched(
     f.tenantId,
     originalCommand!.commandId,
@@ -424,7 +424,7 @@ test('correction ที่ไม่ match trigger แล้วขอ cancel acti
   assert.equal(await processor.executeNext(f.tenantId, 'worker-1'), 'CANCELLED');
 
   const actions = await f.owner.jrOwnerAction.findMany({ where: { tenantId: f.tenantId } });
-  assert.equal(actions.length, 1, 'ห้ามออก action key ใหม่เพื่อ cancel');
+  assert.equal(actions.length, 1, 'a new action key must not be issued to cancel');
   assert.equal(actions[0]!.actionKey, original!.actionKey);
   assert.equal(actions[0]!.state, 'CANCEL_REQUESTED');
   const cancelCommand = await f.owner.jrOwnerCommandOutbox.findUniqueOrThrow({
@@ -454,14 +454,14 @@ test('correction ที่ไม่ match trigger แล้วขอ cancel acti
   assert.equal(enrollment.runState, 'TERMINAL');
   assert.equal(enrollment.terminalReason, 'CANCELLED');
 
-  // correction revision ถัดไปที่กลับมา match อีกครั้งไม่ปลุก enrollment ที่จบแล้ว และไม่สร้างใบใหม่
+  // a later correction revision that matches again does not wake the ended enrollment and creates no new one
   await ingestReceipt(receipts, f, { outcomeId, interactionId, outcomeVersion: 3 });
   assert.equal(await processor.executeNext(f.tenantId, 'worker-1'), 'UNCHANGED');
   assert.equal(await f.owner.jrEnrollment.count({ where: { tenantId: f.tenantId } }), 1);
   assert.equal(await f.owner.jrOwnerAction.count({ where: { tenantId: f.tenantId } }), 1);
 });
 
-test('correction ก่อน command เดิมออกจาก Journey ยกเลิกในบ้าน ไม่มี command ใดถูก dispatch', async (t) => {
+test('a correction before the original command leaves Journey cancels in-house and no command is dispatched', async (t) => {
   const f = await fixture(t);
   const definitions = new JourneyDefinitionRepository(f.application, evaluator);
   const receipts = new JourneyOutcomeReceiptRepository(f.application);
@@ -491,7 +491,7 @@ test('correction ก่อน command เดิมออกจาก Journey ย
   );
 });
 
-test('revision แรกไม่ match แต่ correction match — enroll ครั้งเดียวผูกกับ revision ที่ match', async (t) => {
+test('the first revision does not match but a correction does — enroll once bound to the matching revision', async (t) => {
   const f = await fixture(t);
   const definitions = new JourneyDefinitionRepository(f.application, evaluator);
   const receipts = new JourneyOutcomeReceiptRepository(f.application);
@@ -516,7 +516,7 @@ test('revision แรกไม่ match แต่ correction match — enroll �
   assert.equal(enrollment.outcomeReceiptId, corrected.receipt.id);
 });
 
-test('outcome เดียว fan-out ได้หลาย published journey แบบ deterministic และ replay ไม่สร้างซ้ำ', async (t) => {
+test('a single outcome can fan out to several published journeys deterministically and a replay creates no duplicates', async (t) => {
   const f = await fixture(t);
   const definitions = new JourneyDefinitionRepository(f.application, evaluator);
   const receipts = new JourneyOutcomeReceiptRepository(f.application);
@@ -554,7 +554,7 @@ test('outcome เดียว fan-out ได้หลาย published journey �
   assert.ok(enrollments.every(({ outcomeReceiptId }) => outcomeReceiptId === ingested.receipt.id));
   assert.equal(await f.owner.jrOwnerAction.count({ where: { tenantId: f.tenantId } }), 2);
 
-  // at-least-once: receipt เดิมถูกประมวลผลซ้ำหลัง crash ต้องได้ผลเท่าเดิม
+  // at-least-once: the same receipt processed again after a crash must give the same result
   await f.owner.jrOutcomeReceipt.update({
     where: { id: ingested.receipt.id },
     data: { state: 'READY' },
@@ -564,7 +564,7 @@ test('outcome เดียว fan-out ได้หลาย published journey �
   assert.equal(await f.owner.jrOwnerAction.count({ where: { tenantId: f.tenantId } }), 2);
 });
 
-test('fan-out: scope stale ของ journey ใดใบหนึ่ง defer ทั้ง receipt โดยไม่มี side effect บางส่วน', async (t) => {
+test('fan-out: a stale scope in any one journey defers the whole receipt with no partial side effect', async (t) => {
   const f = await fixture(t);
   const definitions = new JourneyDefinitionRepository(f.application, evaluator);
   const receipts = new JourneyOutcomeReceiptRepository(f.application);
@@ -608,7 +608,7 @@ async function identityHead(
   });
 }
 
-test('contact ที่ถูก merge ใช้ survivor จาก Customer 360 สำหรับ enrollment/command และ receipt คง original lineage', async (t) => {
+test('a merged contact uses the Customer 360 survivor for the enrollment/command and the receipt keeps the original lineage', async (t) => {
   const f = await fixture(t);
   const definitions = new JourneyDefinitionRepository(f.application, evaluator);
   const receipts = new JourneyOutcomeReceiptRepository(f.application);
@@ -649,7 +649,7 @@ test('contact ที่ถูก merge ใช้ survivor จาก Customer 360
   assert.equal(resolution.status === 'RESOLVED' && resolution.originalContactId, f.contactId);
 });
 
-test('identity ที่ ambiguous หรือ merge chain ยังไม่นิ่งเข้า REVIEW/IDENTITY_UNRESOLVED ไม่มี enrollment', async (t) => {
+test('an ambiguous identity or a merge chain that is not yet settled goes to REVIEW/IDENTITY_UNRESOLVED with no enrollment', async (t) => {
   const f = await fixture(t);
   const definitions = new JourneyDefinitionRepository(f.application, evaluator);
   const receipts = new JourneyOutcomeReceiptRepository(f.application);
@@ -658,7 +658,7 @@ test('identity ที่ ambiguous หรือ merge chain ยังไม่�
   await f.owner.contact.create({ data: { id: survivorId, tenantId: f.tenantId } });
   await f.owner.contact.create({ data: { id: ambiguousId, tenantId: f.tenantId } });
   await identityHead(f, ambiguousId, 'AMBIGUOUS', ambiguousId);
-  // survivor ถูก mark ambiguous ต่อ — ห้ามเดา survivor ให้ contact ที่ merge เข้าไป
+  // the survivor was marked ambiguous in turn — never guess the survivor for a contact merged into it
   await identityHead(f, survivorId, 'AMBIGUOUS', survivorId);
   await identityHead(f, f.contactId, 'MERGED', survivorId);
   await publishOutcomeJourney(definitions, f);
@@ -684,7 +684,7 @@ test('identity ที่ ambiguous หรือ merge chain ยังไม่�
   );
 });
 
-test('contactId ของ tenant อื่นถูกปฏิเสธเป็น NOT_FOUND โดยไม่เปิดเผยว่ามีอยู่', async (t) => {
+test('a contactId from another tenant is rejected as NOT_FOUND without revealing that it exists', async (t) => {
   const f = await fixture(t);
   const foreign = await fixture(t);
   const definitions = new JourneyDefinitionRepository(f.application, evaluator);

@@ -2,17 +2,17 @@ import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
 
 /**
- * E1.13 (#487): Keycloak public client `dphone-embedded` สำหรับ dphone ที่ถูกฝังในระบบอื่น (E1.4 #460)
+ * E1.13 (#487): the Keycloak public client `dphone-embedded` for a dphone embedded in another system (E1.4 #460)
  *
- * - redirect เป็น exact `<dphone-origin>/dphone/auth/callback` (dphone origin = origin ของ API ที่ส่ง
- *   `/dphone/embed`), PKCE S256, ปิด implicit/direct grant/service account
- * - token contract เดียวกับ client ต้นแบบ (ค่าเริ่มต้น `agent-desktop`) — copy mapper และ client scope
- *   จาก client นั้นทุกครั้งที่รัน จึงไม่ drift; UAT ระบุ `dcontact-uat-console` อย่างชัดเจน
- * - access token 5 นาที, client session idle 30 นาที / สูงสุด 10 ชั่วโมง
- * - refresh token ใช้ได้ครั้งเดียว + ตรวจ reuse: Keycloak 26 ตั้งได้เฉพาะระดับ realm — เจ้าของงานเลือก
- *   เปิดทั้ง realm (#487, 2026-09-28) ใช้ `revokeRefreshToken=true`, `refreshTokenMaxReuse=0`
+ * - the redirect is exactly `<dphone-origin>/dphone/auth/callback` (the dphone origin = the origin of the API that serves
+ *   `/dphone/embed`), PKCE S256, with implicit/direct grant/service account disabled
+ * - the same token contract as the template client (default `agent-desktop`) - copies the mappers and client scopes
+ *   from that client on every run so they do not drift; UAT names `dcontact-uat-console` explicitly
+ * - access token 5 minutes, client session idle 30 minutes / max 10 hours
+ * - refresh token is single-use + reuse detection: Keycloak 26 can set this only at the realm level - the owner chose
+ *   to enable it for the whole realm (#487, 2026-09-28), using `revokeRefreshToken=true`, `refreshTokenMaxReuse=0`
  *
- * idempotent — รันซ้ำได้; `DPHONE_EMBED_ORIGIN` ตั้ง origin จริงของ production
+ * idempotent - can be re-run; `DPHONE_EMBED_ORIGIN` sets the real production origin
  */
 export const DPHONE_EMBEDDED_CLIENT = 'dphone-embedded';
 export const DPHONE_EMBEDDED_LIFESPANS = Object.freeze({
@@ -44,7 +44,7 @@ async function request(path, { method = 'GET', token, body, form } = {}) {
     headers,
     body: body === undefined ? form : JSON.stringify(body),
   });
-  if (!response.ok) throw new Error(`${method} ${path.split('?')[0]} ล้มเหลว (${response.status})`);
+  if (!response.ok) throw new Error(`${method} ${path.split('?')[0]} failed (${response.status})`);
   const text = await response.text();
   return text ? JSON.parse(text) : undefined;
 }
@@ -62,7 +62,7 @@ async function adminToken() {
   return body.access_token;
 }
 
-/** representation ของ client — แยกเป็นฟังก์ชันเพื่อทดสอบได้โดยไม่ต้องมี Keycloak */
+/** The client representation - a separate function so it can be tested without Keycloak */
 export function dphoneEmbeddedClient(template, origin = dphoneOrigin) {
   return {
     clientId: DPHONE_EMBEDDED_CLIENT,
@@ -95,7 +95,9 @@ export async function setupDphoneEmbedded() {
   const clients = await request(`${realmPath}/clients`, { token });
   const template = clients.find((client) => client.clientId === dphoneTemplateClientId);
   if (!template) {
-    throw new Error(`ไม่พบ client ${dphoneTemplateClientId} ที่ใช้เป็นต้นแบบ token contract`);
+    throw new Error(
+      `client ${dphoneTemplateClientId} used as the token contract template not found`,
+    );
   }
   const representation = dphoneEmbeddedClient(template);
 
@@ -106,7 +108,7 @@ export async function setupDphoneEmbedded() {
       token,
       body: { ...client, ...representation, protocolMappers: undefined },
     });
-    // mapper: ลบของเดิมแล้วสร้างใหม่จากต้นแบบ — กัน drift จาก template client
+    // mappers: delete the existing ones and recreate them from the template - guards against drift from the template client
     for (const mapper of client.protocolMappers ?? []) {
       await request(`${realmPath}/clients/${client.id}/protocol-mappers/models/${mapper.id}`, {
         method: 'DELETE',
@@ -125,7 +127,7 @@ export async function setupDphoneEmbedded() {
     [client] = await request(`${realmPath}/clients?clientId=${DPHONE_EMBEDDED_CLIENT}`, { token });
   }
 
-  // client scope ชุดเดียวกับ template client (default + optional)
+  // the same client scopes as the template client (default + optional)
   for (const kind of ['default-client-scopes', 'optional-client-scopes']) {
     const wanted = await request(`${realmPath}/clients/${template.id}/${kind}`, { token });
     const current = await request(`${realmPath}/clients/${client.id}/${kind}`, { token });
@@ -143,7 +145,7 @@ export async function setupDphoneEmbedded() {
     }
   }
 
-  // rotation + reuse detection ระดับ realm (decision #487)
+  // realm-level rotation + reuse detection (decision #487)
   const realmRepresentation = await request(realmPath, { token });
   await request(realmPath, {
     method: 'PUT',

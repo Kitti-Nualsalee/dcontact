@@ -85,7 +85,7 @@ function finalMainContext(overrides = {}) {
 
 const DIGESTS = Object.freeze({ registry: HEX('registry'), migrations: HEX('migrations') });
 
-/** suite double: ผ่านทุกตัว และคืน evidence ของ scan/schema เหมือนของจริง */
+/** suite double: passes every suite and returns scan/schema evidence like the real thing */
 function passingSuite(suite) {
   const text = suite.command.join(' ');
   const evidence = text.includes('cxa-s2-negative-scan')
@@ -162,7 +162,7 @@ const rb01Evidence = () => ({
   freshSendBlockedBeforeIo: true,
 });
 
-/** สร้าง bundle แบบเดียวกับ `buildLineProviderEvidenceBundle` ฝั่ง TypeScript */
+/** Build a bundle the same way as `buildLineProviderEvidenceBundle` on the TypeScript side */
 function bundle(evidence, overrides = {}) {
   const body = {
     schemaVersion: 1,
@@ -215,12 +215,12 @@ const run = (options) =>
 
 // ── Registry ────────────────────────────────────────────────────────────────
 
-test('S2-LINE-EV01: registry ตรง 19 check IDs ของ #360 §B และครบ 9 dimensions', () => {
+test('S2-LINE-EV01: the registry matches the 19 check IDs of #360 §B and covers all 9 dimensions', () => {
   assert.deepEqual(CXA_S2_READINESS_CHECKS.map(({ id }) => id).sort(), [...FROZEN_IDS].sort());
   for (const dimension of S2_DIMENSIONS) {
     assert.ok(
       CXA_S2_READINESS_CHECKS.some((item) => item.dimension === dimension),
-      `ไม่มี check ใน ${dimension}`,
+      `no check in ${dimension}`,
     );
   }
   const provider = CXA_S2_READINESS_CHECKS.filter((item) => item.kind === 'provider');
@@ -233,7 +233,7 @@ test('S2-LINE-EV01: registry ตรง 19 check IDs ของ #360 §B และ
   assert.ok(!s2Checks('focused').some(({ id }) => id === 'S2-LINE-REG01'));
 });
 
-test('S2-LINE-EV01: fault suite ทุกชุดชี้ไฟล์ที่มีอยู่ และ automated check มี fault suite', () => {
+test('S2-LINE-EV01: every fault suite points to an existing file and every automated check has a fault suite', () => {
   const ids = new Set(S2_FAULT_SUITES.map(({ id }) => id));
   assert.equal(ids.size, S2_FAULT_SUITES.length);
   for (const suite of S2_FAULT_SUITES) {
@@ -244,18 +244,18 @@ test('S2-LINE-EV01: fault suite ทุกชุดชี้ไฟล์ที่
   const used = new Set();
   for (const item of CXA_S2_READINESS_CHECKS) {
     for (const suite of item.faultSuites) {
-      assert.ok(ids.has(suite), `${item.id} อ้าง ${suite}`);
+      assert.ok(ids.has(suite), `${item.id} references ${suite}`);
       used.add(suite);
     }
     if (item.kind === 'automated' && !['S2-LINE-REG01', 'S2-LINE-EV01'].includes(item.id))
-      assert.ok(item.faultSuites.length > 0, `${item.id} ไม่มี fault suite`);
+      assert.ok(item.faultSuites.length > 0, `${item.id} has no fault suite`);
   }
   assert.deepEqual([...used].sort(), [...ids].sort());
   const digests = s2ContentDigests();
   for (const value of Object.values(digests)) assert.match(value, /^[0-9a-f]{64}$/);
 });
 
-test('S2-LINE-EV01: suite ที่หลาย check ใช้ร่วมกันรันครั้งเดียว', () => {
+test('S2-LINE-EV01: a suite shared by several checks runs once', () => {
   const plan = s2SuitePlan();
   const commands = plan.map(({ command }) => JSON.stringify(command));
   assert.equal(new Set(commands).size, commands.length);
@@ -265,7 +265,7 @@ test('S2-LINE-EV01: suite ที่หลาย check ใช้ร่วมก�
   assert.ok(delivery.checkIds.length > 5);
 });
 
-test('S2-LINE-OB02: denylist ของ script ตรงกับ LINE_FORBIDDEN_EVIDENCE_FIELDS ใน contract', () => {
+test('S2-LINE-OB02: the script denylist matches LINE_FORBIDDEN_EVIDENCE_FIELDS in the contract', () => {
   const source = readFileSync(
     resolve(repositoryRoot, 'packages/cxa-contracts/src/line-delivery.ts'),
     'utf8',
@@ -276,10 +276,10 @@ test('S2-LINE-OB02: denylist ของ script ตรงกับ LINE_FORBIDDEN_
   assert.deepEqual(fields, [...S2_FORBIDDEN_FIELD_NAMES]);
 });
 
-test('S2-LINE-EV01: digest แบบ stable JSON ตรงกับ vector ที่ฝั่ง TypeScript ใช้', () => {
-  // vector เดียวกันอยู่ใน apps/delivery/src/line-provider-evidence-bundle.test.ts
+test('S2-LINE-EV01: the stable JSON digest matches the vector used on the TypeScript side', () => {
+  // the same vector is in apps/delivery/src/line-provider-evidence-bundle.test.ts
   assert.equal(
-    sha256({ b: [{ z: 1, a: 'ไทย' }], a: null, c: true }),
+    sha256({ b: [{ z: 1, a: 'ไทย' }], a: null, c: true }), // allow-thai: Thai digest vector shared with the TypeScript test
     'ac573c0ba944f84e3dd2c61e91939ccd0359be7ca4853176df88ee658ffc1632',
   );
 });
@@ -290,7 +290,7 @@ const fakeRun =
   (stdout, status = 0) =>
   () => ({ status, stdout, stderr: '' });
 
-test('S2-LINE-EV01: skip/todo ใน TAP ทำให้ suite ล้ม ไม่มี waiver', () => {
+test('S2-LINE-EV01: skip/todo in TAP makes the suite fail, with no waiver', () => {
   const result = executeS2Suite(
     { command: ['node', '--test'] },
     fakeRun('# tests 2\n# pass 1\n# fail 0\n# cancelled 0\n# skipped 1\n# todo 0\n'),
@@ -298,7 +298,7 @@ test('S2-LINE-EV01: skip/todo ใน TAP ทำให้ suite ล้ม ไม�
   assert.equal(result.status, 'FAIL');
 });
 
-test('S2-LINE-OB02: runtime log ที่มี LINE ID/token ทำให้ suite ล้มโดยไม่พาค่าออกมา', () => {
+test('S2-LINE-OB02: a runtime log with a LINE ID/token makes the suite fail without carrying the value out', () => {
   const leakedId = `U${'0123456789abcdef'.repeat(2)}`;
   const result = executeS2Suite(
     { command: ['node', '--test'] },
@@ -316,7 +316,7 @@ test('S2-LINE-OB02: runtime log ที่มี LINE ID/token ทำให้ su
 
 // ── Candidate / marker ──────────────────────────────────────────────────────
 
-test('S2-LINE-EV01: focused run เป็น candidate เสมอแม้ทุก suite ผ่านบน final main', () => {
+test('S2-LINE-EV01: a focused run is always a candidate even when every suite passes on final main', () => {
   const { manifest, summary } = run({ scope: 'focused' });
   assert.deepEqual(summary.markers, []);
   assert.ok(summary.markerBlockers.includes('FOCUSED_CANDIDATE'));
@@ -326,7 +326,7 @@ test('S2-LINE-EV01: focused run เป็น candidate เสมอแม้ท�
   assert.equal(manifest.retentionDays, 90);
 });
 
-test('S2-LINE-EV01: ไม่มี provider bundle = PR01/PR02/RB01 FAIL และออก marker ไม่ได้', () => {
+test('S2-LINE-EV01: no provider bundle = PR01/PR02/RB01 FAIL and no marker can be issued', () => {
   const { manifest, summary, checks } = run({
     providerEvidence: ingestS2ProviderEvidence([], SHA),
   });
@@ -338,7 +338,7 @@ test('S2-LINE-EV01: ไม่มี provider bundle = PR01/PR02/RB01 FAIL แล
   assert.equal(manifest.flags.simulationOnly, true);
 });
 
-test('S2-LINE-PR01: มีแค่ PR01 PASS (ขอบเขต S2.6) = providerConformance จริงแต่ยัง candidate', () => {
+test('S2-LINE-PR01: only PR01 PASS (S2.6 scope) = real providerConformance but still a candidate', () => {
   const { manifest, summary } = run({ providerEvidence: providerVerified([pr01Evidence()]) });
   assert.deepEqual(summary.markers, []);
   assert.equal(manifest.flags.providerConformance, true);
@@ -347,7 +347,7 @@ test('S2-LINE-PR01: มีแค่ PR01 PASS (ขอบเขต S2.6) = provid
   assert.equal(manifest.flags.killLatchedAtArtifact, null);
 });
 
-test(`S2-LINE-EV01: ครบ 19/19 บน clean final main + immutable artifact ออก ${S2_MARKER} พร้อม fixed flags`, () => {
+test(`S2-LINE-EV01: all 19/19 on clean final main + an immutable artifact issues ${S2_MARKER} with the fixed flags`, () => {
   const { manifest, summary } = run({
     providerEvidence: providerVerified([pr01Evidence(), pr02Evidence(), rb01Evidence()]),
   });
@@ -358,7 +358,7 @@ test(`S2-LINE-EV01: ครบ 19/19 บน clean final main + immutable artifact
   assert.equal(manifest.checks.length, 19);
 });
 
-test('S2-LINE-EV01: PR run, dirty tree, SHA ไม่ใช่ final main และ artifact mutable ต่างเป็น blocker', () => {
+test('S2-LINE-EV01: a PR run, dirty tree, a SHA that is not final main, and a mutable artifact are each blockers', () => {
   const provider = providerVerified([pr01Evidence(), pr02Evidence(), rb01Evidence()]);
   const cases = [
     [{ pullRequest: 12 }, 'PULL_REQUEST_RUN'],
@@ -385,7 +385,7 @@ test('S2-LINE-EV01: PR run, dirty tree, SHA ไม่ใช่ final main แล
   }
 });
 
-test('S2-LINE-EV01: suite ที่ล้มหนึ่งตัวทำให้ทุก check ที่ใช้ร่วมล้มและไม่มี marker', () => {
+test('S2-LINE-EV01: one failed suite fails every check that shares it and no marker is issued', () => {
   const { checks, summary } = run({
     providerEvidence: providerVerified([pr01Evidence(), pr02Evidence(), rb01Evidence()]),
     executeSuite: (suite) =>
@@ -403,7 +403,7 @@ test('S2-LINE-EV01: suite ที่ล้มหนึ่งตัวทำให
     assert.equal(checks.find((item) => item.id === id).status, 'FAIL', id);
 });
 
-test('S2-LINE-EV01: manifest ที่ถูกแก้ status/flags/hash/marker ถูกปฏิเสธ', () => {
+test('S2-LINE-EV01: a manifest with an edited status/flags/hash/marker is rejected', () => {
   const { manifest } = run({
     providerEvidence: providerVerified([pr01Evidence(), pr02Evidence(), rb01Evidence()]),
   });
@@ -423,35 +423,35 @@ test('S2-LINE-EV01: manifest ที่ถูกแก้ status/flags/hash/marke
   assert.throws(tamper((copy) => (copy.markers = ['LINE_IN_MEMORY_SIMULATION_ACCEPTED'])));
 });
 
-test('S2-LINE-OB02: manifest ที่มี LINE user ID หรือ token ถูกปฏิเสธก่อน validation อื่น', () => {
+test('S2-LINE-OB02: a manifest with a LINE user ID or token is rejected before other validation', () => {
   const { manifest } = run({ scope: 'focused' });
   const withId = structuredClone(manifest);
   withId.checks[0].boundaries = [`U${'f'.repeat(32)}`];
-  assert.throws(() => assertValidCxaS2EvidenceManifest(withId), /LINE ID หรือ credential/);
+  assert.throws(() => assertValidCxaS2EvidenceManifest(withId), /LINE ID or credential/);
   const withField = structuredClone(manifest);
   withField.checks[0].replyToken = 'x';
-  assert.throws(() => assertValidCxaS2EvidenceManifest(withField), /field ต้องห้าม/);
+  assert.throws(() => assertValidCxaS2EvidenceManifest(withField), /forbidden field/);
 });
 
-test('S2-LINE-OB02: digest/UUID ที่ลงท้ายด้วยเลขล้วนไม่ถูกมองเป็นเบอร์โทร', () => {
+test('S2-LINE-OB02: a digest/UUID ending in pure digits is not treated as a phone number', () => {
   assert.doesNotThrow(() =>
     assertS2EvidenceSafe({
       digest: `${'f'.repeat(54)}0812345678`,
       id: 'local-00000000-0000-4000-8000-000812345678',
     }),
   );
-  assert.throws(() => assertS2EvidenceSafe({ note: 'โทร 0812345678' }));
+  assert.throws(() => assertS2EvidenceSafe({ note: 'call 0812345678' }));
 });
 
 // ── Provider bundle ─────────────────────────────────────────────────────────
 
-test('S2-LINE-PR01: bundle ที่ถูกต้องผ่าน และคืนแค่ status/digest ต่อ check', () => {
+test('S2-LINE-PR01: a valid bundle passes and returns only status/digest per check', () => {
   const result = verifyS2ProviderBundle(bundle([pr01Evidence()]), { expectedCommitSha: SHA });
   assert.deepEqual(Object.keys(result.checks), ['S2-LINE-PR01']);
   assert.equal(result.checks['S2-LINE-PR01'].status, 'PASS');
 });
 
-test('S2-LINE-OB02: bundle ที่ถูกแก้, คนละ commit หรือไม่ใช่ protected runner ถูกปฏิเสธ', () => {
+test('S2-LINE-OB02: a bundle that was edited, from a different commit, or not from a protected runner is rejected', () => {
   const valid = bundle([pr01Evidence()]);
   const tampered = structuredClone(valid);
   tampered.entries[0].evidence.quota.totalUsage = 0;
@@ -487,7 +487,7 @@ test('S2-LINE-OB02: bundle ที่ถูกแก้, คนละ commit ห�
   );
 });
 
-test('S2-LINE-OB02: bundle ที่มี token หรือ LINE user ID ถูกปฏิเสธ', () => {
+test('S2-LINE-OB02: a bundle with a token or LINE user ID is rejected', () => {
   const withToken = { ...pr01Evidence(), accessToken: 'x'.repeat(20) };
   assert.throws(() => verifyS2ProviderBundle(bundle([withToken]), { expectedCommitSha: SHA }));
   const withUser = pr01Evidence();
@@ -495,7 +495,7 @@ test('S2-LINE-OB02: bundle ที่มี token หรือ LINE user ID ถ�
   assert.throws(() => verifyS2ProviderBundle(bundle([withUser]), { expectedCommitSha: SHA }));
 });
 
-test('S2-LINE-PR01: status ต้อง derive จาก step ครบ และห้ามมี push', () => {
+test('S2-LINE-PR01: the status must be derived from the full set of steps and there must be no push', () => {
   const lying = { ...pr01Evidence('FAIL'), status: 'PASS' };
   assert.throws(
     () => verifyS2ProviderBundle(bundle([lying]), { expectedCommitSha: SHA }),
@@ -510,7 +510,7 @@ test('S2-LINE-PR01: status ต้อง derive จาก step ครบ แล�
   assert.equal(failed.checks['S2-LINE-PR01'].status, 'FAIL');
 });
 
-test('S2-LINE-PR02/RB01: PASS ต้องมี invariant ครบตาม #360 §D/§F', () => {
+test('S2-LINE-PR02/RB01: PASS needs every invariant per #360 §D/§F', () => {
   const duplicate = { ...pr02Evidence(), logicalDeliveries: 2 };
   assert.throws(() => verifyS2ProviderBundle(bundle([duplicate]), { expectedCommitSha: SHA }));
   const activeCredential = { ...rb01Evidence(), credentialRevoked: false };
@@ -526,7 +526,7 @@ test('S2-LINE-PR02/RB01: PASS ต้องมี invariant ครบตาม #3
   );
 });
 
-test('S2-LINE-EV01: check เดียวกันจากสอง bundle และ bundle เสียทำให้ provider check ทั้งหมด FAIL', () => {
+test('S2-LINE-EV01: the same check from two bundles, and a broken bundle, make all provider checks FAIL', () => {
   const read = [bundle([pr01Evidence()]), bundle([pr01Evidence()])];
   assert.throws(() =>
     verifyS2ProviderBundles(
@@ -545,14 +545,14 @@ test('S2-LINE-EV01: check เดียวกันจากสอง bundle แ�
 
 // ── Negative scan ───────────────────────────────────────────────────────────
 
-test('S2-LINE-OB02: source/test/workflow ของ repo ผ่าน negative scan', () => {
+test('S2-LINE-OB02: the repo source/test/workflow passes the negative scan', () => {
   const summary = cxaS2NegativeScan();
   assert.equal(summary.status, 'PASS', JSON.stringify(summary.violations));
   assert.ok(summary.layers.source > 0 && summary.layers.tests > 0 && summary.layers.workflows > 0);
   assert.equal(summary.layers.compositionRoots, 3);
 });
 
-test('S2-LINE-OB02: scan จับ SDK, env, marker, skip, secret ใน workflow/composition root และ artifact ที่รั่ว', () => {
+test('S2-LINE-OB02: the scan catches an SDK, env, marker, skip, or secret in a workflow/composition root, and a leaked artifact', () => {
   const files = {
     'src/a.ts':
       "import x from '@line/bot-sdk'; const v = process.env.X; const m = 'OUTBOUND_DELIVERY_LINE_PILOT_READY';",

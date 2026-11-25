@@ -10,7 +10,7 @@ import {
   decideContactPointRollback,
 } from './cus360-contact-point-rollback-guard.mjs';
 
-test('ตัดสินแบบ fail closed: มี contact point แล้วต้อง rollback ไป image ที่มี bridge เท่านั้น', () => {
+test('decides fail-closed: when a contact point exists, rollback is allowed only to an image that has the bridge', () => {
   assert.deepEqual(decideContactPointRollback({ points: 'NONE' }), { status: 'PASS' });
   assert.deepEqual(decideContactPointRollback({ points: 'NONE', bridge: 'UNBRIDGED' }), {
     status: 'PASS',
@@ -35,7 +35,7 @@ test('ตัดสินแบบ fail closed: มี contact point แล้ว
     assert.equal(decideContactPointRollback({ points }).status, 'FAIL');
 });
 
-test('ledger SQL อ่านอย่างเดียวและไม่มีค่าจาก input', () => {
+test('ledger SQL is read-only and has no value from input', () => {
   assert.match(CONTACT_POINT_LEDGER_SQL, /^BEGIN READ ONLY;/);
   assert.doesNotMatch(CONTACT_POINT_LEDGER_SQL, /\b(INSERT|UPDATE|DELETE|ALTER|DROP|CREATE)\b/i);
 });
@@ -46,12 +46,12 @@ function probe(modulePath, ...consumers) {
   });
 }
 
-test('bridge probe: image ที่ไม่มี bridge = UNBRIDGED; โหลดไม่ได้ = ไม่มีผลลัพธ์ที่ถือว่าผ่าน', (t) => {
+test('bridge probe: an image without the bridge = UNBRIDGED; a load failure = no result that counts as passing', (t) => {
   const root = mkdtempSync(join(tmpdir(), 'c360-guard-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const old = join(root, 'old-db');
   mkdirSync(old);
-  // @d-contact/db ของ release ก่อน S4: มี tenant helpers แต่ไม่มี bridge
+  // @d-contact/db of the release before S4: has tenant helpers but no bridge
   writeFileSync(
     join(old, 'index.js'),
     'exports.withTenantDatabaseTransaction = () => undefined; exports.lockTeamReferences = () => undefined;\n',
@@ -59,7 +59,7 @@ test('bridge probe: image ที่ไม่มี bridge = UNBRIDGED; โหล
   const unbridged = probe(old);
   assert.equal(unbridged.status, 0);
   assert.equal(unbridged.stdout, 'UNBRIDGED');
-  // db ใหม่แต่ consumer ใน image ไม่เรียก bridge = UNBRIDGED; consumer ที่ไม่มีไฟล์ถูกข้าม
+  // new db but the consumer in the image does not call the bridge = UNBRIDGED; a consumer with no file is skipped
   const fresh = join(root, 'new-db');
   mkdirSync(fresh);
   writeFileSync(
@@ -74,7 +74,7 @@ test('bridge probe: image ที่ไม่มี bridge = UNBRIDGED; โหล
     probe(fresh, `${consumer}=eligibleLegacyIdentityByKey`, `${join(root, 'absent.js')}=x`).stdout,
     'BRIDGED',
   );
-  // ไม่เจอ consumer สักไฟล์ (path ใน image เปลี่ยน) = UNBRIDGED ไม่ใช่ผ่านจาก export ของ db อย่างเดียว
+  // no consumer found at all (path in the image changed) = UNBRIDGED, not a pass from the db export alone
   assert.equal(
     probe(fresh, `${join(root, 'renamed.js')}=eligibleLegacyIdentityByKey`).stdout,
     'UNBRIDGED',
@@ -88,11 +88,10 @@ test('bridge probe: image ที่ไม่มี bridge = UNBRIDGED; โหล
 });
 
 test(
-  'bridge probe กับ @d-contact/db ของ release นี้ = BRIDGED',
+  'bridge probe against the @d-contact/db of this release = BRIDGED',
   {
     skip:
-      !process.env.CUS360_GUARD_DB_BUILT &&
-      'ต้อง build packages/db ก่อน (ตั้ง CUS360_GUARD_DB_BUILT=1)',
+      !process.env.CUS360_GUARD_DB_BUILT && 'build packages/db first (set CUS360_GUARD_DB_BUILT=1)',
   },
   () => {
     const result = probe(
@@ -105,11 +104,11 @@ test(
 );
 
 test(
-  'ledger SQL บน PostgreSQL จริง: NONE ก่อนมีแถว และ PRESENT หลังมี contact point',
+  'ledger SQL on real PostgreSQL: NONE before any row and PRESENT after a contact point',
   {
     skip:
       !process.env.CUS360_GUARD_PSQL_CONTAINER &&
-      'ตั้ง CUS360_GUARD_PSQL_CONTAINER และ CUS360_GUARD_DATABASES=<db ว่าง>,<db ที่มี point>',
+      'set CUS360_GUARD_PSQL_CONTAINER and CUS360_GUARD_DATABASES=<empty db>,<db with a point>',
   },
   () => {
     const [empty, populated] = (process.env.CUS360_GUARD_DATABASES ?? '').split(',');
@@ -139,7 +138,7 @@ test(
     };
     assert.equal(run(empty), 'NONE');
     assert.equal(run(populated), 'PRESENT');
-    // role ที่ติด tenant RLS เห็น 0 แถว: ต้องไม่ตอบ NONE (fail open)
+    // a role under tenant RLS sees 0 rows: it must not answer NONE (fail open)
     assert.equal(run(populated, 'dcontact_app'), 'ROLE_INSUFFICIENT');
   },
 );

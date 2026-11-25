@@ -27,7 +27,7 @@ export const CG5_CONTEXT_POINTERS = Object.freeze([
   '#272',
   '#273',
 ]);
-/** #273 §1: manifest ล็อกเวอร์ชันของสัญญาที่ acceptance รอบนี้ยืนอยู่ */
+/** #273 §1: the manifest pins the contract versions this acceptance round stands on */
 export const CG5_VERSIONS = Object.freeze({
   cg5Contract: 1,
   projectionSchema: 1,
@@ -38,7 +38,7 @@ export const CG5_VERSIONS = Object.freeze({
   manifestSchema: 1,
 });
 
-/** 9 มิติของ #273 §3 บวก UX — ทุกมิติต้องมีอย่างน้อยหนึ่ง check */
+/** The 9 dimensions of #273 §3 plus UX - every dimension needs at least one check */
 export const CG5_DIMENSIONS = Object.freeze([
   'functional',
   'tenant-isolation',
@@ -52,7 +52,7 @@ export const CG5_DIMENSIONS = Object.freeze([
   'ux',
 ]);
 
-/** หน่วยของ suite คือไฟล์เทสต์หนึ่งไฟล์ เพื่อให้ runner รันแต่ละไฟล์ครั้งเดียวแม้หลาย check ใช้ร่วมกัน */
+/** The unit of a suite is one test file, so the runner runs each file once even when several checks share it */
 const testFiles =
   (filter) =>
   (...files) =>
@@ -91,17 +91,17 @@ function check(id, dimension, dependency, boundaries, commands, extra = {}) {
     dependency,
     boundaries,
     commands,
-    remediation: `แก้ ${id} ตาม #273`,
+    remediation: `Fix ${id} per #273`,
     ...extra,
   };
 }
 
-/** ทุก integration suite รันบน Postgres/Redis จริง — in-memory fake ใช้เฉพาะ unit/contract */
+/** Every integration suite runs on real Postgres/Redis - in-memory fakes are used only for unit/contract */
 export const CXA_CG5_READINESS_CHECKS = Object.freeze([
   check(
     'CG5-F01',
     'functional',
-    'metric ทั้ง 8 คีย์ตรงกับ canonical',
+    'all 8 metric keys match canonical',
     ['8 metric keys with feed', 'event-fed metrics via inbox', 'decision volume from canonical'],
     [
       ...cg5Contracts,
@@ -115,7 +115,7 @@ export const CXA_CG5_READINESS_CHECKS = Object.freeze([
   check(
     'CG5-F02',
     'functional',
-    'ตารางผลกระทบราย policy version',
+    'impact table per policy version',
     ['impact bucket per policy version', 'query route scope-filtered'],
     [
       ...governance(
@@ -128,7 +128,7 @@ export const CXA_CG5_READINESS_CHECKS = Object.freeze([
   check(
     'CG5-F03',
     'functional',
-    'กฎค่าคงที่',
+    'constant rules',
     ['closed rule registry', 'fixed rules never suppressed'],
     [
       ...cg5Contracts,
@@ -138,14 +138,14 @@ export const CXA_CG5_READINESS_CHECKS = Object.freeze([
   check(
     'CG5-F04',
     'functional',
-    'กฎเทียบฐาน 4 สัปดาห์พร้อมพื้นปริมาณขั้นต่ำ',
+    'baseline comparison rule over 4 weeks with a minimum volume floor',
     ['4-week baseline', 'minimum volume floor', 'insufficient baseline suppressed'],
     governance('cg5-anomaly-evaluator.test.ts', 'cg5-anomaly-engine.integration.ts'),
   ),
   check(
     'CG5-F05',
     'functional',
-    'วงจร alert พร้อม hysteresis',
+    'alert cycle with hysteresis',
     ['OPEN/ACKED/RESOLVED closed transitions', 'hysteresis', 'no Governance state change'],
     [
       ...cg5Contracts,
@@ -155,14 +155,14 @@ export const CXA_CG5_READINESS_CHECKS = Object.freeze([
   check(
     'CG5-F06',
     'functional',
-    'export ครบ 4 ชุดพร้อม manifest และ hash ที่ตรวจได้',
+    'all 4 export sets with a verifiable manifest and hash',
     ['4 datasets from canonical', 'manifest SHA-256 matches file', 'tenant watermark'],
     governance('cg5-export-worker.integration.ts', 'cg5-prisma-export-reader.integration.ts'),
   ),
   check(
     'CG5-F07',
     'functional',
-    'external read API ตอบตามสัญญาและไม่มี route เขียน',
+    'external read API answers per the contract and has no write route',
     ['read-only external routes', 'ETag/304', 'OpenAPI breaking-change guard'],
     [
       ...api(
@@ -175,7 +175,7 @@ export const CXA_CG5_READINESS_CHECKS = Object.freeze([
   check(
     'CG5-TI01',
     'tenant-isolation',
-    'อ่าน metric/alert/export ข้าม tenant ไม่ได้และ fail closed',
+    'metric/alert/export cannot be read across tenants and fails closed',
     ['tenant from token only', 'RLS on every cg5 table', 'generic not-found'],
     [
       ...governance(
@@ -190,7 +190,7 @@ export const CXA_CG5_READINESS_CHECKS = Object.freeze([
   check(
     'CG5-TI02',
     'tenant-isolation',
-    'ไฟล์ export อยู่ใต้ prefix ของ tenant และดึงข้าม tenant ไม่ได้',
+    'export files live under the tenant prefix and cannot be fetched across tenants',
     ['storage key under tenant prefix', 'cross-tenant download not found'],
     [
       ...governance('cg5-export-worker.integration.ts', 'cg5-export-lifecycle.integration.ts'),
@@ -200,7 +200,7 @@ export const CXA_CG5_READINESS_CHECKS = Object.freeze([
   check(
     'CG5-AU01',
     'authorization',
-    'SUPERVISOR เห็นเฉพาะทีมตัวเองและไม่เห็นยอดรวม tenant',
+    'SUPERVISOR sees only their own team and not the tenant total',
     ['team scope filter before paging', 'no tenant-wide aggregate', 'scope-bound cache key'],
     [
       ...governance('cg5-query-service.integration.ts', 'cg5-query-cache.test.ts'),
@@ -211,14 +211,14 @@ export const CXA_CG5_READINESS_CHECKS = Object.freeze([
   check(
     'CG5-AU02',
     'authorization',
-    'export จำกัด ADMIN/COMPLIANCE',
+    'export limited to ADMIN/COMPLIANCE',
     ['export capability', 'Supervisor has no export route call'],
     [...cg5ExportApi, ...consoleUnit('cg5-console-api.test.ts'), consoleE2e],
   ),
   check(
     'CG5-AU03',
     'authorization',
-    'EVIDENCE ต้องมี capability, ยกระดับผ่าน field ไม่ได้ และถูกบันทึก audit',
+    'EVIDENCE needs a capability, cannot be escalated through a field, and is audited',
     ['evidence capability', 'no field escalation', 'evidence access audited'],
     [
       ...cg5ExportApi,
@@ -229,7 +229,7 @@ export const CXA_CG5_READINESS_CHECKS = Object.freeze([
   check(
     'CG5-AU04',
     'authorization',
-    'scope ของ external client บังคับได้ และ scope เขียนที่จองชื่อไว้ไม่มี route',
+    'external client scope is enforceable, and the reserved write scope has no route',
     ['governance:read enforced', 'governance:restrictions:write reserved only', '429 Retry-After'],
     [
       ...cg5Contracts,
@@ -243,14 +243,14 @@ export const CXA_CG5_READINESS_CHECKS = Object.freeze([
   check(
     'CG5-ID01',
     'idempotency',
-    'Idempotency-Key ซ้ำได้งานเดิม ไม่สร้างไฟล์ใหม่',
+    'a repeated Idempotency-Key returns the original job and creates no new file',
     ['same key same job', 'no duplicate object'],
     [...governance('cg5-export-job-repository.integration.ts'), ...cg5ExportApi],
   ),
   check(
     'CG5-ID02',
     'idempotency',
-    'reader รันซ้ำช่วงเดิมไม่ทำให้ bucket ซ้ำ',
+    'a reader re-running the same range does not duplicate the bucket',
     ['rerun same range idempotent', 'duplicate delivery counted once'],
     governance(
       'cg5-incremental-projection-reader.integration.ts',
@@ -260,14 +260,14 @@ export const CXA_CG5_READINESS_CHECKS = Object.freeze([
   check(
     'CG5-CC01',
     'concurrency',
-    'ack ที่ชน version ถูกปฏิเสธและไม่เขียนทับ',
+    'an ack that collides on version is rejected and does not overwrite',
     ['optimistic version', 'no event on stale version', 'UI does not resend ACK'],
     [...governance('cg5-alert-repository.integration.ts'), ...cg5Api, consoleE2e],
   ),
   check(
     'CG5-CC02',
     'concurrency',
-    'reader/consumer สองตัวพร้อมกันไม่นับซ้ำ',
+    'two concurrent readers/consumers do not double count',
     ['concurrent readers counted once', 'concurrent consumers counted once'],
     governance(
       'cg5-incremental-projection-reader.integration.ts',
@@ -277,21 +277,21 @@ export const CXA_CG5_READINESS_CHECKS = Object.freeze([
   check(
     'CG5-CC03',
     'concurrency',
-    'cache ไม่ตอบข้อมูลเก่ากว่า asOf ที่ประกาศ',
+    'cache does not answer data older than the declared asOf',
     ['entry carries asOf', 'TTL within refresh interval', 'no older-than-asOf answer'],
     governance('cg5-query-cache.test.ts', 'cg5-query-service.integration.ts'),
   ),
   check(
     'CG5-RC01',
     'recovery',
-    'Redis ล่มแล้วอ่าน projection ตรงได้',
+    'when Redis is down, the projection can be read directly',
     ['cache miss falls back to projection'],
     governance('cg5-query-cache.test.ts', 'cg5-query-service.integration.ts'),
   ),
   check(
     'CG5-RC02',
     'recovery',
-    'consumer gap หรือ scope pause ทำให้กฎเทียบฐานถูกระงับและหน้าจอบอกว่าข้อมูลไม่ครบ',
+    'a consumer gap or scope pause suspends the baseline comparison rule and the screen says the data is incomplete',
     ['gap/out-of-order pause scope', 'baseline rules suppressed', 'UI reports incomplete data'],
     [
       ...governance(
@@ -305,14 +305,14 @@ export const CXA_CG5_READINESS_CHECKS = Object.freeze([
   check(
     'CG5-RC03',
     'recovery',
-    'export job ที่ล้มกลางคันไม่ทิ้งไฟล์ค้างและล้มอย่างชัดเจน',
+    'an export job that fails midway leaves no stale file and fails clearly',
     ['partial objects removed', 'job marked FAILED', 'revoke before delete'],
     governance('cg5-export-worker.integration.ts', 'cg5-export-lifecycle.integration.ts'),
   ),
   check(
     'CG5-MG01',
     'migration',
-    'migration additive ล้วน ไม่แก้ canonical และ index สร้างแบบ concurrent',
+    'migration is purely additive, does not alter canonical, and indexes are created concurrently',
     ['additive only', 'canonical index CONCURRENTLY', 'RLS/grants on every cg5 table'],
     [
       [process.execPath, 'scripts/cxa-cg5-migration-readiness.mjs'],
@@ -324,7 +324,7 @@ export const CXA_CG5_READINESS_CHECKS = Object.freeze([
   check(
     'CG5-MG02',
     'migration',
-    'backfill/rebuild drill บน fixture ข้ามเดือนแบบย่อขนาด',
+    'backfill/rebuild drill on a scaled-down cross-month fixture',
     [
       'cross-month scaled fixture',
       'rebuild same range identical rows',
@@ -339,14 +339,14 @@ export const CXA_CG5_READINESS_CHECKS = Object.freeze([
   check(
     'CG5-MG03',
     'migration',
-    'งานลบตามอายุทำงานถูกชั้นและไม่แตะ canonical',
+    'the age-based deletion job works at the right layer and does not touch canonical',
     ['retention per granularity', 'canonical untouched'],
     governance('cg5-projection-maintenance.integration.ts'),
   ),
   check(
     'CG5-OB01',
     'observability',
-    'metric, alert และ export มี telemetry และ audit ครบทุกเหตุการณ์',
+    'metric, alert and export have complete telemetry and audit for every event',
     [
       'projection lag/throughput telemetry',
       'alert transition telemetry',
@@ -363,14 +363,14 @@ export const CXA_CG5_READINESS_CHECKS = Object.freeze([
   check(
     'CG5-OB02',
     'observability',
-    'ไม่มี PII ใน projection, alert, manifest, event และ log',
+    'no PII in projection, alert, manifest, event and log',
     ['contract PII guard', 'SUMMARY redaction', 'manifest negative scan'],
     [...cg5Contracts, ...governance('cg5-prisma-export-reader.integration.ts'), ...cg5ExportApi],
   ),
   check(
     'CG5-REG01',
     'regression',
-    'conformance ของ CG3/CG4 บน SHA เดียวกัน และบันทึกสถานะ marker ที่พบ',
+    'conformance of CG3/CG4 on the same SHA, and record the marker status found',
     ['CG3 targeted conformance', 'CG4 targeted conformance', 'phase marker status recorded'],
     [
       ...contracts('contact-governance.test.ts', 'contact-governance-cg4.test.ts'),
@@ -398,7 +398,7 @@ export const CXA_CG5_READINESS_CHECKS = Object.freeze([
   check(
     'CG5-REG02',
     'regression',
-    'สัญญาของ J2/J3 ไม่ถูกแตะ',
+    'J2/J3 contracts are not touched',
     ['J2/J3 contracts unchanged', 'Journey unit suite', 'owner profiles and fixed flags'],
     [
       ...contracts(
@@ -415,7 +415,7 @@ export const CXA_CG5_READINESS_CHECKS = Object.freeze([
   check(
     'CG5-UX01',
     'ux',
-    'แถบความสดแยกตามแหล่ง เตือนเมื่อเกิน SLO, สถานะข้อมูลยังไม่พร้อม และตัวกรอง alert ทำงานจริง',
+    'freshness bar per source, warns when over the SLO, a data-not-ready state, and the alert filter really works',
     ['freshness per source', 'SLO warning', 'not-ready state', 'alert filters', 'no console error'],
     [
       ...consoleUnit('cg5-console-api.test.ts'),
@@ -429,7 +429,7 @@ export const CXA_CG5_READINESS_CHECKS = Object.freeze([
 
 const suiteKey = (command) => JSON.stringify(command);
 
-/** รวมคำสั่งที่ซ้ำกันข้าม check ให้เหลือ suite เดียว ตามลำดับที่ปรากฏครั้งแรก (#295: รันครั้งเดียวต่อ run) */
+/** Merge commands repeated across checks into a single suite, in the order first seen (#295: run once per run) */
 export function cg5SuitePlan(checks = CXA_CG5_READINESS_CHECKS) {
   const suites = new Map();
   for (const item of checks) {
@@ -456,7 +456,7 @@ export function cg5SuitePlan(checks = CXA_CG5_READINESS_CHECKS) {
 
 function runGit(arguments_) {
   const result = spawnSync('git', arguments_, { cwd: repositoryRoot, encoding: 'utf8' });
-  if (result.status !== 0 || result.error) throw new Error(`git ${arguments_.join(' ')} ล้มเหลว`);
+  if (result.status !== 0 || result.error) throw new Error(`git ${arguments_.join(' ')} failed`);
   return String(result.stdout).trim();
 }
 
@@ -465,7 +465,7 @@ function repositoryName(environment) {
   const match = runGit(['config', '--get', 'remote.origin.url']).match(
     /(?:github\.com[/:])([^/]+\/[^/.]+)(?:\.git)?$/,
   );
-  if (!match) throw new TypeError('ไม่สามารถระบุ repository สำหรับ CG5 manifest');
+  if (!match) throw new TypeError('cannot determine the repository for the CG5 manifest');
   return match[1];
 }
 
@@ -522,7 +522,7 @@ export function cg5RegistryDigest(checks = CXA_CG5_READINESS_CHECKS) {
       id,
       dimension,
       boundaries,
-      // path ของ node ต่างกันระหว่างเครื่อง: digest ใช้เฉพาะส่วนที่เป็น contract ของคำสั่ง
+      // the node path differs between machines: the digest uses only the part that is the command contract
       commands: commands.map((command) =>
         command[0] === process.execPath ? ['node', ...command.slice(1)] : command,
       ),
@@ -540,8 +540,8 @@ function evidenceFor(checks, id, type) {
 }
 
 /**
- * #273 §2: marker ที่พบใน manifest จริงเป็น `ACCEPTED_SAME_SHA`; ถ้าไม่พบแต่ targeted conformance ของ
- * check ที่ครอบเฟสนั้นผ่านเป็น `CONTRACT_COMPATIBLE`; ไม่งั้น `ABSENT`
+ * #273 §2: a marker found in a real manifest is `ACCEPTED_SAME_SHA`; if not found but the targeted conformance of the
+ * checks covering that phase passed it is `CONTRACT_COMPATIBLE`; otherwise `ABSENT`
  */
 export function cg5PhaseMarkers(checks) {
   const found = evidenceFor(checks, 'CG5-REG01', 'dependency.readiness')?.phases ?? {};
@@ -684,7 +684,7 @@ export function createCxaCg5EvidenceManifest(context, checks, summary, suites, d
       gapSuppression: status('CG5-RC02'),
       exportFailureCleanup: status('CG5-RC03'),
     },
-    // สำเนาอิสระจาก evidence ใน check: manifest ห้าม alias object ที่ถูก hash ไว้ใน artifact
+    // an independent copy of the evidence in the check: the manifest must not alias an object that is hashed in an artifact
     ownerProfiles: structuredClone(
       evidenceFor(checks, 'CG5-REG02', 'owner-profile.readiness')?.profiles ?? null,
     ),
@@ -712,69 +712,73 @@ export function assertValidCxaCg5EvidenceManifest(manifest) {
     manifest.phase !== 'CG5' ||
     manifest.evidenceType !== 'development-acceptance'
   ) {
-    throw new TypeError('CG5 manifest มี schemaVersion/phase/evidenceType ไม่ถูกต้อง');
+    throw new TypeError('CG5 manifest has an invalid schemaVersion/phase/evidenceType');
   }
   for (const field of ['commitSha', 'finalMainSha', 'expectedCommitSha', 'baselineSha']) {
     if (!FULL_SHA.test(manifest[field] ?? ''))
-      throw new TypeError(`CG5 manifest ต้องมี ${field} แบบ SHA เต็ม`);
+      throw new TypeError(`CG5 manifest must have a full SHA for ${field}`);
   }
   if (manifest.baselineSha !== CG5_BASELINE_SHA)
-    throw new TypeError('CG5 manifest อ้าง baseline ไม่ถูกต้อง');
+    throw new TypeError('CG5 manifest references an invalid baseline');
   if (JSON.stringify(manifest.flags) !== JSON.stringify(CG5_FIXED_FLAGS)) {
-    throw new TypeError('CG5 manifest flags ไม่ตรง fixed flags');
+    throw new TypeError('CG5 manifest flags do not match the fixed flags');
   }
   const phases = manifest.phaseMarkers ?? {};
   if (
     CG5_DEPENDENCY_PHASES.some(({ phase }) => !PHASE_STATUSES.has(phases[phase]?.status)) ||
     Object.keys(phases).length !== CG5_DEPENDENCY_PHASES.length
   ) {
-    throw new TypeError('CG5 manifest ต้องบันทึกสถานะ marker ของ CG3/CG4/J2/J3 ครบ');
+    throw new TypeError('CG5 manifest must record the marker status of CG3/CG4/J2/J3 in full');
   }
 
   const checks = manifest.checks ?? [];
   const registered = new Map(CXA_CG5_READINESS_CHECKS.map((item) => [item.id, item]));
   if (new Set(checks.map((item) => item.id)).size !== checks.length) {
-    throw new TypeError('CG5 manifest มี check ซ้ำ');
+    throw new TypeError('CG5 manifest has a duplicate check');
   }
   const unknown = checks.find((item) => !registered.has(item.id));
-  if (unknown) throw new TypeError(`CG5 manifest มี check ที่ไม่รู้จัก: ${unknown.id}`);
+  if (unknown) throw new TypeError(`CG5 manifest has an unknown check: ${unknown.id}`);
   if (checks.length !== CXA_CG5_READINESS_CHECKS.length) {
-    throw new TypeError(`CG5 manifest ต้องมี check ครบทั้ง ${CXA_CG5_READINESS_CHECKS.length} ตัว`);
+    throw new TypeError(`CG5 manifest must have all ${CXA_CG5_READINESS_CHECKS.length} checks`);
   }
   if (checks.some((item) => registered.get(item.id).dimension !== item.dimension)) {
-    throw new TypeError('CG5 manifest มี dimension ของ check ไม่ตรง registry');
+    throw new TypeError('CG5 manifest has a check dimension that does not match the registry');
   }
   const dimensions = manifest.dimensions ?? [];
   if (
     dimensions.length !== CG5_DIMENSIONS.length ||
     CG5_DIMENSIONS.some((name) => !(dimensions.find((item) => item.name === name)?.checks > 0))
   ) {
-    throw new TypeError('CG5 manifest ต้องมีครบ 9 มิติบวก UX และไม่มีมิติว่าง');
+    throw new TypeError('CG5 manifest must have all 9 dimensions plus UX and no empty dimension');
   }
 
-  // suite ที่ใช้ร่วมกันต้องเป็นผลเดียวกันในทุก check ที่อ้าง — ห้ามแต่ง status ของ check แยกจาก suite
+  // a shared suite must have the same result in every check that references it - a check status must not be made up apart from its suite
   const suites = new Map((manifest.suites ?? []).map((suite) => [suite.id, suite]));
   if (suites.size === 0 || suites.size !== (manifest.suites ?? []).length) {
-    throw new TypeError('CG5 manifest ต้องมี suites ที่ id ไม่ซ้ำ');
+    throw new TypeError('CG5 manifest must have suites with unique ids');
   }
   const commands = (manifest.suites ?? []).map((suite) => suiteKey(suite.command));
   if (new Set(commands).size !== commands.length) {
-    throw new TypeError('CG5 manifest รัน suite เดียวกันซ้ำใน run เดียว');
+    throw new TypeError('CG5 manifest runs the same suite more than once in a single run');
   }
   for (const item of checks) {
     const subchecks = item.subchecks ?? [];
     if (subchecks.length !== registered.get(item.id).commands.length) {
-      throw new TypeError(`CG5 check ${item.id} ต้องอ้าง suite ครบตาม registry`);
+      throw new TypeError(`CG5 check ${item.id} must reference every suite per the registry`);
     }
     for (const subcheck of subchecks) {
       const suite = suites.get(subcheck.suiteId);
       if (!suite || suite.status !== subcheck.status || !suite.checkIds.includes(item.id)) {
-        throw new TypeError(`CG5 check ${item.id} อ้าง suite ที่ไม่ตรงกับผลของ suite`);
+        throw new TypeError(
+          `CG5 check ${item.id} references a suite that does not match the suite result`,
+        );
       }
     }
     const derived = subchecks.every((subcheck) => subcheck.status === 'PASS') ? 'PASS' : 'FAIL';
     if (item.status !== derived) {
-      throw new TypeError(`CG5 check ${item.id} มี status ไม่ตรงกับ suite ที่อ้าง`);
+      throw new TypeError(
+        `CG5 check ${item.id} has a status that does not match the referenced suite`,
+      );
     }
   }
 
@@ -783,48 +787,50 @@ export function assertValidCxaCg5EvidenceManifest(manifest) {
     artifacts.length !== checks.length ||
     new Set(artifacts.map(({ id }) => id)).size !== checks.length
   ) {
-    throw new TypeError('CG5 manifest ต้องมี evidence artifact หนึ่งรายการต่อ check');
+    throw new TypeError('CG5 manifest must have one evidence artifact per check');
   }
   for (const artifact of artifacts) {
     const item = checks.find(({ id }) => `check:${id}` === artifact.id);
-    if (!item) throw new TypeError('CG5 evidence artifact อ้าง check ที่ไม่มี');
+    if (!item) throw new TypeError('CG5 evidence artifact references a check that does not exist');
     if (artifact.commitSha !== manifest.commitSha)
-      throw new TypeError('CG5 evidence artifact อ้าง commit ไม่ตรงกับ manifest');
+      throw new TypeError(
+        'CG5 evidence artifact references a commit that does not match the manifest',
+      );
     if (artifact.sha256 !== sha256(item))
-      throw new TypeError('SHA-256 ของ CG5 evidence artifact ไม่ตรงกับ check');
+      throw new TypeError('SHA-256 of the CG5 evidence artifact does not match the check');
   }
 
   const markers = manifest.markers ?? [];
   if (markers.some((marker) => marker !== CG5_MARKER) || new Set(markers).size !== markers.length) {
-    throw new TypeError('CG5 manifest มี marker ไม่ถูกต้อง');
+    throw new TypeError('CG5 manifest has an invalid marker');
   }
   if (markers.length === 0) {
     if (manifest.candidate !== true) {
-      throw new TypeError('CG5 manifest ที่ไม่มี marker ต้องทำเครื่องหมาย candidate');
+      throw new TypeError('a CG5 manifest without a marker must be marked as a candidate');
     }
     return;
   }
 
   if (manifest.candidate !== false || (manifest.markerBlockers ?? []).length > 0) {
-    throw new TypeError('CG5 marker ออกพร้อม candidate/blocker ไม่ได้');
+    throw new TypeError('a CG5 marker cannot be issued together with a candidate/blocker');
   }
   if (
     checks.some((item) => item.status !== 'PASS') ||
     [...suites.values()].some((s) => s.status !== 'PASS')
   ) {
-    throw new TypeError(`${CG5_MARKER} ต้องมีทุก check PASS (ไม่มี skip/flaky/waiver)`);
+    throw new TypeError(`${CG5_MARKER} needs every check to PASS (no skip/flaky/waiver)`);
   }
   if (manifest.pullRequest?.number !== null && manifest.pullRequest?.number !== undefined) {
-    throw new TypeError('PR run ออก CG5 marker ไม่ได้ ได้แค่ candidate manifest');
+    throw new TypeError('a PR run cannot issue the CG5 marker, only a candidate manifest');
   }
   if (
     manifest.commitSha !== manifest.finalMainSha ||
     manifest.commitSha !== manifest.expectedCommitSha
   ) {
-    throw new TypeError('CG5 marker ต้องมาจาก HEAD == origin/main == expectedCommitSha');
+    throw new TypeError('the CG5 marker must come from HEAD == origin/main == expectedCommitSha');
   }
   if (manifest.refProof?.ref !== 'refs/heads/main' || manifest.refProof?.cleanTree !== true) {
-    throw new TypeError('CG5 marker ต้องมาจาก clean checkout ของ default branch');
+    throw new TypeError('the CG5 marker must come from a clean checkout of the default branch');
   }
   if (
     manifest.artifact?.immutable !== true ||
@@ -833,13 +839,15 @@ export function assertValidCxaCg5EvidenceManifest(manifest) {
     ) ||
     manifest.artifact?.name !== `cxa-cg5-evidence-${manifest.commitSha}`
   ) {
-    throw new TypeError('CG5 marker ต้องอ้าง immutable CI artifact ไม่ใช่ local/mutable reference');
+    throw new TypeError(
+      'the CG5 marker must reference an immutable CI artifact, not a local/mutable reference',
+    );
   }
   if (Object.values(phases).some(({ status }) => status === 'ABSENT')) {
-    throw new TypeError('CG5 marker ต้องพิสูจน์ conformance ของ CG3/CG4/J2/J3 บน SHA เดียวกัน');
+    throw new TypeError('the CG5 marker must prove conformance of CG3/CG4/J2/J3 on the same SHA');
   }
   if (JSON.stringify(manifest.ownerProfiles) !== JSON.stringify(CG5_OWNER_PROFILES)) {
-    throw new TypeError('CG5 marker ต้องมี owner profiles ตรง contract');
+    throw new TypeError('the CG5 marker must have owner profiles that match the contract');
   }
 }
 

@@ -19,14 +19,14 @@ import {
 } from './journey-authoring-canonical.js';
 
 /**
- * J5.2 (#340): server validation ของ authoring document (Phase Spec #337 §4)
+ * J5.2 (#340): server validation of the authoring document (Phase Spec #337 §4)
  *
- * ลำดับ pass คงที่: schema → registry/node fields → ports/cardinality → graph (cycle/placement)
- * → capability → limit. reachability, EXIT ที่เข้าถึงได้, expression และ reference shape เป็นของ
- * runtime validator เดิม (`validateJourneyDefinitionStructure`) ที่ compiler เรียกต่อ — ที่นี่ไม่ตรวจซ้ำ
+ * Fixed pass order: schema → registry/node fields → ports/cardinality → graph (cycle/placement)
+ * → capability → limit. Reachability, reachable EXIT, expressions and reference shape belong to the
+ * existing runtime validator (`validateJourneyDefinitionStructure`) that the compiler calls next — not rechecked here
  *
- * validator รับ `unknown` เพราะ document มาจาก client: ทุก field ต้องปิดชุด ไม่งั้น caller จะแนบของ
- * ที่ระบบไม่เคยอ่าน (PII, snapshot, DSL) ติดไปกับ draft ได้
+ * The validator takes `unknown` because the document comes from the client: every field must be a closed set, otherwise a caller could attach things
+ * the system never reads (PII, snapshots, DSL) to a draft
  */
 
 const OPAQUE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
@@ -54,7 +54,7 @@ const EDGE_FIELDS = new Set(['edgeId', 'source', 'target']);
 
 type FieldKind = 'string' | 'opaque' | 'positive' | 'nonNegative' | 'object';
 
-/** field ที่ config ของแต่ละ node มีได้ — required เว้นแต่ขึ้นต้นด้วย `?` */
+/** Fields that each node's config may have — required unless prefixed with `?` */
 const CONFIG_FIELDS: Readonly<Record<string, Readonly<Record<string, FieldKind>>>> = {
   EVENT_TRIGGER: { eventType: 'string' },
   SCHEDULE_TRIGGER: { cron: 'string', timezone: 'string' },
@@ -187,7 +187,7 @@ function closedKeys(
   }
 }
 
-/** คืน diagnostics ที่เรียงแล้ว; document ที่ schema พังคืนเฉพาะ diagnostic ของ schema */
+/** Returns sorted diagnostics; a document with a broken schema returns only the schema diagnostics */
 export function validateAuthoringDocument(
   document: unknown,
   options: ValidateAuthoringOptions,
@@ -260,7 +260,7 @@ export function validateAuthoringDocument(
       continue;
     }
     if (raw.type === 'UNSUPPORTED') {
-      // เก็บ source เดิมไว้แบบ read-only แต่ publish ไม่ได้ (#328 §10)
+      // keep the original source read-only but not publishable (#328 §10)
       closedKeys(raw, UNSUPPORTED_FIELDS, { nodeId }, diagnostics);
       diagnostics.add('NODE_TYPE_UNSUPPORTED', 'AUTHORING', { nodeId }, { readOnly: true });
       types.set(nodeId, 'UNSUPPORTED');
@@ -343,7 +343,7 @@ export function validateAuthoringDocument(
     successors.set(from, [...(successors.get(from) ?? []), to]);
     if (from === triggerId) entryTargets.push(to);
   }
-  // output port ทุกตัวต้องต่อ target เดียวพอดี เพราะ runtime field เป็น scalar
+  // every output port must connect to exactly one target because the runtime field is a scalar
   for (const [nodeId, type] of types) {
     if (type === 'UNSUPPORTED') continue;
     const outputs = JOURNEY_NODE_PORTS[type as keyof typeof JOURNEY_NODE_PORTS].outputs;
@@ -354,7 +354,7 @@ export function validateAuthoringDocument(
     }
   }
 
-  // ── graph: cycle และตำแหน่งของ restricted action ──
+  // ── graph: cycles and placement of restricted actions ──
   const visiting = new Set<string>();
   const done = new Set<string>();
   const cyclic = new Set<string>();
@@ -379,7 +379,7 @@ export function validateAuthoringDocument(
   for (const [nodeId, type] of types) {
     if (!RESTRICTED.has(type)) continue;
     restrictedUsed = true;
-    // วางได้เฉพาะ entry step หลัง INTERACTION_OUTCOME_TRIGGER — ห้าม mid-graph (#328 §4)
+    // can only be placed as the entry step after INTERACTION_OUTCOME_TRIGGER — never mid-graph (#328 §4)
     if (triggerType !== 'INTERACTION_OUTCOME_TRIGGER' || !entryTargets.includes(nodeId)) {
       diagnostics.add(
         'NODE_TYPE_UNSUPPORTED',

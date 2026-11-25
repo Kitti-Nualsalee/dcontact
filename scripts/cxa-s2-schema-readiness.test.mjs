@@ -23,7 +23,7 @@ const migrationSql = (name) =>
     'utf8',
   );
 const [enumMigration, persistenceMigration] = S2_MIGRATIONS.map(migrationSql);
-// registry ครอบทุกไฟล์ของเฟส ไม่ใช่เฉพาะไฟล์ persistence ของ S2.1
+// the registry covers every file of the phase, not only the persistence files of S2.1
 const allMigrationSql = S2_MIGRATIONS.map(migrationSql).join('\n');
 const rlsBootstrap = readFileSync(resolve(repositoryRoot, 'packages/db/prisma/rls.sql'), 'utf8');
 
@@ -39,18 +39,18 @@ const passing = [
   0,
 ];
 
-test('evidence ครบทุกตัวผ่าน และขาดตัวใดตัวหนึ่งไม่ผ่าน', () => {
+test('complete evidence passes, and missing any one piece fails', () => {
   assert.equal(parseS2SchemaEvidence(passing.join('|')).status, 'PASS');
   for (let index = 0; index < passing.length; index += 1) {
     const broken = [...passing];
-    // ตัวสุดท้ายคือสิทธิ์ต้องห้ามของ app — มีแม้แต่ตัวเดียวก็ต้องไม่ผ่าน
+    // the last one is the app forbidden privilege - even a single one must fail
     broken[index] = index === passing.length - 1 ? 1 : broken[index] - 1;
     assert.equal(parseS2SchemaEvidence(broken.join('|')).status, 'FAIL', `field ${index}`);
   }
-  assert.throws(() => parseS2SchemaEvidence('1|2|3'), /เก้าตัวเลข/);
+  assert.throws(() => parseS2SchemaEvidence('1|2|3'), /nine numbers/);
 });
 
-test('ทุกชื่อใน registry มีอยู่จริงใน migration — ป้องกัน registry กับ SQL เดินแยกกัน', () => {
+test('every name in the registry really exists in a migration - prevents the registry and the SQL from drifting apart', () => {
   for (const table of CANONICAL_S2_TABLES) {
     assert.match(persistenceMigration, new RegExp(`CREATE TABLE "${table}"`), table);
   }
@@ -70,20 +70,20 @@ test('ทุกชื่อใน registry มีอยู่จริงใน 
   assert.ok((compositeForeignKeys?.length ?? 0) >= MINIMUM_S2_COMPOSITE_FOREIGN_KEYS);
 });
 
-test('migration ของ S2 ทุกไฟล์เป็น expand-only และ enum value แยก transaction', () => {
+test('every S2 migration file is expand-only and enum values are in a separate transaction', () => {
   for (const name of S2_MIGRATIONS) {
     assert.deepEqual(findDestructiveStatements(migrationSql(name)), [], name);
   }
-  // ค่าใหม่ของ enum ห้ามถูกใช้ใน migration เดียวกับที่เพิ่ม
+  // a new enum value must not be used in the same migration that adds it
   assert.doesNotMatch(enumMigration, /CREATE TABLE|CHECK \(/);
-  // ทุกตารางใหม่มี tenant_id NOT NULL
+  // every new table has tenant_id NOT NULL
   for (const table of CANONICAL_S2_TABLES) {
     const body = persistenceMigration.split(`CREATE TABLE "${table}" (`)[1]?.split(');')[0] ?? '';
     assert.match(body, /"tenant_id" UUID NOT NULL/, table);
   }
 });
 
-test('destructive scanner จับคำสั่งทำลายและไม่นับ comment', () => {
+test('the destructive scanner catches destructive statements and does not count comments', () => {
   assert.deepEqual(findDestructiveStatements('-- DROP TABLE x;\nCREATE TABLE "y" ();'), []);
   for (const sql of [
     'DROP TABLE "dl_outbox_entries";',
@@ -99,13 +99,13 @@ test('destructive scanner จับคำสั่งทำลายและไ
   }
 });
 
-test('rls.sql bootstrap ครอบทุกตาราง S2.1 และถอนสิทธิ์ซ้ำหลัง blanket GRANT', () => {
+test('rls.sql bootstrap covers every S2.1 table and re-revokes after the blanket GRANT', () => {
   for (const table of CANONICAL_S2_TABLES) {
-    assert.ok(rlsBootstrap.includes(`'${table}'`), `${table} ต้องอยู่ใน array ของ RLS`);
+    assert.ok(rlsBootstrap.includes(`'${table}'`), `${table} must be in the RLS array`);
     const privileges = APPEND_ONLY_S2_TABLES.includes(table) ? 'UPDATE, DELETE' : 'DELETE';
     assert.ok(
       rlsBootstrap.includes(`REVOKE ${privileges} ON ${table} FROM dcontact_app;`),
-      `${table} ต้อง REVOKE ${privileges}`,
+      `${table} must REVOKE ${privileges}`,
     );
   }
 });

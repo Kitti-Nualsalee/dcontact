@@ -10,10 +10,10 @@ function assert(condition, message) {
 }
 
 /**
- * J2-OB01: Cases/Dialer ต้องเป็น canonical durable writer จริง (ไม่ใช่ fake/in-memory
- * ตาม #126 stop condition), Governance รับได้ทั้ง synthetic TEST_ADAPTER (ก่อน S1 merge)
- * และ CG3_INTEGRATED (บน target SHA จริง) โดยไม่เปลี่ยน C1 port, Delivery ยังเป็น
- * TEST_ADAPTER เท่านั้นเหมือน C1 — ทุก profile ต้องคง actualProviderTraffic=false
+ * J2-OB01: Cases/Dialer must be a real canonical durable writer (not a fake/in-memory
+ * per the #126 stop condition), Governance accepts either the synthetic TEST_ADAPTER (before the S1 merge)
+ * or CG3_INTEGRATED (on the real target SHA) without changing the C1 port, and Delivery stays
+ * TEST_ADAPTER only, like C1 - every profile must keep actualProviderTraffic=false
  */
 export function cxaJ2ProfileSummary(environment = process.env) {
   const casesOwnerProfile = environment.CXA_J2_CASES_OWNER_PROFILE ?? DURABLE_OWNER_PROFILE;
@@ -26,23 +26,26 @@ export function cxaJ2ProfileSummary(environment = process.env) {
 
   assert(
     casesOwnerProfile === DURABLE_OWNER_PROFILE,
-    `J2 acceptance ต้องการ Cases owner profile ${DURABLE_OWNER_PROFILE} เท่านั้น`,
+    `J2 acceptance needs the Cases owner profile ${DURABLE_OWNER_PROFILE} only`,
   );
   assert(
     dialerOwnerProfile === DURABLE_OWNER_PROFILE,
-    `J2 acceptance ต้องการ Dialer owner profile ${DURABLE_OWNER_PROFILE} เท่านั้น`,
+    `J2 acceptance needs the Dialer owner profile ${DURABLE_OWNER_PROFILE} only`,
   );
   assert(
     GOVERNANCE_PROFILES.has(governanceProfile),
-    'J2 acceptance รองรับ governance profile TEST_ADAPTER หรือ CG3_INTEGRATED เท่านั้น',
+    'J2 acceptance supports only the governance profile TEST_ADAPTER or CG3_INTEGRATED',
   );
   assert(
     deliveryProfile === DELIVERY_PROFILE,
-    `J2 acceptance ต้องการ delivery profile ${DELIVERY_PROFILE} เท่านั้น`,
+    `J2 acceptance needs the delivery profile ${DELIVERY_PROFILE} only`,
   );
-  assert(!providerTrafficEnabled, 'J2 acceptance ห้ามเปิด actual provider traffic');
-  assert(!providerConformanceEnabled, 'J2 development acceptance ห้ามอ้าง providerConformance');
-  assert(!releaseEnabled, 'J2 development acceptance ห้ามอ้าง releaseEnabled');
+  assert(!providerTrafficEnabled, 'J2 acceptance must not enable actual provider traffic');
+  assert(
+    !providerConformanceEnabled,
+    'J2 development acceptance must not claim providerConformance',
+  );
+  assert(!releaseEnabled, 'J2 development acceptance must not claim releaseEnabled');
 
   return {
     type: 'owner-profile.readiness',

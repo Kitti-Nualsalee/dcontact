@@ -1,14 +1,14 @@
 /**
- * J3.7 (#218) — ประเมิน membership ใหม่หลัง LEFT/CORRECTED/REFILTER_REQUIRED/IDENTITY_INVALIDATED
+ * J3.7 (#218) — re-evaluates membership after LEFT/CORRECTED/REFILTER_REQUIRED/IDENTITY_INVALIDATED
  *
- * งาน re-filter ถูกสร้างไว้ตอน apply receipt (J3.6) แล้วรอให้ที่นี่ตัดสิน — แยกกันเพราะตอน apply
- * เรายังไม่รู้ผลจริง การรีบตัดสินตอนนั้นคือการ re-filter ด้วยข้อมูลครึ่งเดียว
+ * the re-filter job is created when the receipt is applied (J3.6) and waits here to be decided — separate because at apply time
+ * we do not yet know the real result, and deciding in a hurry then would be re-filtering with half the data
  *
- * หลักสำคัญ: ตัดสินจาก canonical fact ปัจจุบันเท่านั้น ไม่ใช่จาก event ที่พามาถึง — event บอกแค่
- * ว่า "มีอะไรเปลี่ยน" ส่วน "ตอนนี้จริง ๆ เป็นอย่างไร" ต้องถาม Customer 360 ใหม่ทุกครั้ง
+ * Key principle: decide only from the current canonical fact, not from the event that brought us here — an event only says
+ * "something changed", while "what is actually true now" must be asked of Customer 360 anew every time
  *
- * สไลซ์นี้ครอบวงจรชีวิตของ cursor กับการตัดสินใจ ส่วนการยกเลิกงานฝั่ง owner (pre-barrier
- * cancel/release เทียบกับ post-barrier CANCEL_REQUESTED → RECONCILING) เป็นสไลซ์ถัดไป
+ * This slice covers the cursor lifecycle and the decision; cancelling work on the owner side (pre-barrier
+ * cancel/release versus post-barrier CANCEL_REQUESTED → RECONCILING) is the next slice
  */
 import { type Prisma, type PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
 import {
@@ -26,8 +26,8 @@ import { JourneyOwnerActionRepository } from './journey-owner-action-repository.
 import { JourneySegmentReceiptRepository } from './journey-segment-receipt-repository.js';
 
 /**
- * state ที่ยังยกเลิกงานฝั่ง owner ได้ — ตรงกับ `CANCELLABLE_ACTION_STATES` ของ J2
- * ACKNOWLEDGED ไม่อยู่ในนี้เพราะ owner สร้าง entity จริงไปแล้ว
+ * states in which owner-side work can still be cancelled — matches `CANCELLABLE_ACTION_STATES` of J2
+ * ACKNOWLEDGED is not here because the owner has already created the real entity
  */
 const CANCELLABLE_OWNER_ACTION_STATES = new Set(['PENDING', 'DISPATCHED', 'ACK_UNKNOWN']);
 
@@ -71,7 +71,7 @@ export class JourneySegmentRefilterProcessor {
     });
   }
 
-  /** ประมวลผลงาน re-filter ได้สูงสุดหนึ่งใบต่อครั้ง; caller กำหนด polling loop เอง */
+  /** processes at most one re-filter job per call; the caller sets the polling loop itself */
   async executeNext(tenantId: string, workerId: string): Promise<RefilterOutcome> {
     const cursor = await this.receipts.claimNextRefilter(tenantId, workerId, this.leaseSeconds);
     if (!cursor) return undefined;
@@ -79,10 +79,10 @@ export class JourneySegmentRefilterProcessor {
     const receipt = cursor.receipt;
 
     /**
-     * IAM invalidation เป็น canonical authorization fact ของ owner team โดยตรง ไม่ต้องถาม
-     * Customer 360 ซ้ำ: membership ที่ยัง ELIGIBLE ไม่ได้ทำให้สิทธิ์ทีมกลับมา และการรอ read
-     * นั้นจะเปิดช่องให้ action เดินต่อทั้งที่ revoke commit แล้ว. cursor นี้จึง cancel เฉพาะ
-     * intent ของ scopeTeamId แล้วจบ; งาน membership refilter ปกติยังใช้เส้นทางเดิมด้านล่าง.
+     * IAM invalidation is a canonical authorization fact of the owner team directly, so there is no need to ask
+     * Customer 360 again: a membership that is still ELIGIBLE does not bring the team's permission back, and waiting for that read
+     * would open a window for the action to continue even though the revoke has committed. This cursor therefore cancels only the
+     * intents of scopeTeamId and ends; normal membership refilter work still takes the existing path below.
      */
     if (cursor.scopeTeamId) {
       if (!receipt?.entryId) {
@@ -106,9 +106,9 @@ export class JourneySegmentRefilterProcessor {
     }
 
     /**
-     * merge/split/unmerge ทำให้ stream เดิมไม่ใช่ความจริงอีกต่อไป — ต้องรอ canonical fact ใบใหม่
-     * จาก Customer 360 ไม่ใช่เดาเองว่า enrollment ควรย้ายไปไหน การย้ายหรือโคลน enrollment ของ
-     * predecessor ไปหา survivor เป็นสิ่งที่ stop condition ของ #218 ห้ามตรง ๆ
+     * merge/split/unmerge make the old stream no longer the truth — must wait for a new canonical fact
+     * from Customer 360, not guess where the enrollment should move to. Moving or cloning the enrollment of the
+     * predecessor to the survivor is something the stop condition of #218 forbids outright
      */
     if (receipt?.changeKind === 'IDENTITY_INVALIDATED') {
       await this.receipts.holdRefilter(
@@ -122,8 +122,8 @@ export class JourneySegmentRefilterProcessor {
     }
 
     /**
-     * ไม่มี entryId = บอกได้แค่ว่า "ต้องประเมินใหม่" แต่ไม่รู้ว่าประเมิน entry ไหน
-     * (REFILTER_REQUIRED จาก identity lineage ฝั่ง target) ต้องรอ fact ที่ชี้ entry ชัดเจน
+     * no entryId = we can say only "must re-evaluate" but not which entry to evaluate
+     * (a REFILTER_REQUIRED from the identity lineage on the target side) must wait for a fact that points to the entry clearly
      */
     if (!receipt?.entryId) {
       await this.receipts.holdRefilter(
@@ -168,10 +168,10 @@ export class JourneySegmentRefilterProcessor {
     }
 
     /**
-     * ไม่ eligible แล้ว = ต้องยกเลิกงานที่ค้างอยู่ของ entry นี้
+     * no longer eligible = the pending work of this entry must be cancelled
      *
-     * ปิด cursor เป็น CANCELLED ทันทีที่นี่ไม่ได้ก่อนจะมีชั้นยกเลิกงานฝั่ง owner จริง — แต่การ
-     * ตัดสินว่า "ต้องยกเลิก" เป็นของรอบนี้ และเป็น fact ที่เสถียรแล้วเพราะถามจาก canonical
+     * the cursor cannot be closed as CANCELLED immediately here before the real owner-side cancellation layer exists — but deciding
+     * that "it must be cancelled" belongs to this round, and is a stable fact because it was asked of the canonical
      */
     if (resolution.status !== 'ELIGIBLE') {
       await this.cancelWork(tenantId, cursor, receipt.entryId, 'SEGMENT_ENTRY_NOT_ELIGIBLE');
@@ -179,8 +179,8 @@ export class JourneySegmentRefilterProcessor {
     }
 
     /**
-     * ยังอยู่ใน segment ด้วย entryId เดิม = correction ที่ไม่เปลี่ยนความเป็นสมาชิก
-     * ห้ามสร้าง entry ใหม่หรือ enrollment ใหม่จากเหตุนี้ — การเข้าใหม่ต้องมากับ ENTERED เท่านั้น
+     * still in the segment with the same entryId = a correction that does not change membership
+     * must not create a new entry or a new enrollment from this cause — a new entry must come with ENTERED only
      */
     if (resolution.entryId !== receipt.entryId) {
       await this.receipts.holdRefilter(
@@ -226,32 +226,32 @@ export class JourneySegmentRefilterProcessor {
     }
 
     /**
-     * scope ถูกเพิกถอนหลัง enroll ไปแล้ว = งานที่ค้างต้องถูกยกเลิก ไม่ใช่ปล่อยให้เดินต่อ
-     * และห้ามบันทึกเป็น Governance BLOCK เพราะนี่เป็นเรื่องสิทธิ์ของทีม ไม่ใช่นโยบายติดต่อลูกค้า
+     * scope revoked after enrollment = pending work must be cancelled, not left to continue
+     * and must not be recorded as a Governance BLOCK because this is a matter of team permission, not customer contact policy
      */
     if (scopes.every((scope) => scope.decision === 'DENY')) {
       await this.cancelWork(tenantId, cursor, receipt.entryId, 'TEAM_SEGMENT_NOT_ALLOWED');
       return 'CANCELLED';
     }
 
-    // ทุกอย่างยังเหมือนเดิม — correction ไม่ได้เปลี่ยนอะไรที่ Journey ต้องทำ
+    // everything stays the same — the correction did not change anything Journey has to do
     await this.receipts.settleRefilter(tenantId, cursor.id, 'NO_OP', 'MEMBERSHIP_UNCHANGED');
     return 'NO_OP';
   }
 
   /**
-   * ยกเลิกงานที่ค้างอยู่ของ entry นี้ แล้วค่อยปิด cursor
+   * cancels the pending work of this entry, then closes the cursor
    *
-   * แยกตาม barrier ที่ J2 นิยามไว้แล้วใน `CANCELLABLE_ACTION_STATES`:
+   * split by the barrier that J2 already defined in `CANCELLABLE_ACTION_STATES`:
    *
-   * - pre-barrier (PENDING/DISPATCHED/ACK_UNKNOWN) — owner ยังไม่ได้สร้าง entity จริง ยกเลิกได้
-   *   ผ่าน `requestCancellation` ซึ่งเข้าคิว cancel command ด้วย binding เดิมของ action
-   * - post-barrier (ACKNOWLEDGED) — owner สร้าง Case/target ไปแล้ว ของนั้นเป็น fact ของเขา
-   *   Journey ลบไม่ได้และไม่ควรพยายาม (stop condition ของ #218 ห้าม delete owner fact)
-   *   จึงปล่อยไว้แล้วบันทึกว่ามาไม่ทัน
+   * - pre-barrier (PENDING/DISPATCHED/ACK_UNKNOWN) — the owner has not created the real entity, so it can be cancelled
+   *   through `requestCancellation`, which queues a cancel command with the action's original binding
+   * - post-barrier (ACKNOWLEDGED) — the owner has already created the Case/target, which is their fact
+   *   that Journey cannot delete and should not try to (the stop condition of #218 forbids deleting an owner fact)
+   *   so it is left alone and recorded as too late
    *
-   * cancelRequestKey คำนวณจาก actionKey ไม่ใช่สุ่ม — restart หรือ replay จึง upsert ทับใบเดิม
-   * แทนที่จะสั่ง owner ยกเลิกซ้ำเป็นครั้งที่สอง
+   * cancelRequestKey is computed from actionKey, not random — a restart or replay therefore upserts over the existing one
+   * instead of ordering the owner to cancel a second time
    */
   private async cancelWork(
     tenantId: string,
@@ -321,8 +321,8 @@ export class JourneySegmentRefilterProcessor {
       }
 
       /**
-       * first-terminal-commit-wins: enrollment ที่จบไปแล้วด้วยเหตุอื่น (goal, exit rule, max age)
-       * ห้ามถูกเขียนทับเป็น CANCELLED — เหตุผลที่จบต้องบันทึกครั้งเดียวตามที่ schema กำหนด
+       * first-terminal-commit-wins: an enrollment that already ended for another reason (goal, exit rule, max age)
+       * must not be overwritten as CANCELLED — the reason it ended must be recorded once as the schema requires
        */
       if (enrollment.runState === 'TERMINAL' || enrollment.terminalReason !== null) continue;
       await withTenantDatabaseTransaction(this.database, tenantId, (transaction) =>

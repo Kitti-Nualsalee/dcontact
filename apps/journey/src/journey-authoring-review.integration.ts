@@ -34,7 +34,7 @@ function fixture(): JourneyDefinitionContent {
 }
 
 /**
- * persona ตาม #331 §3 ถูกแปลงเป็น grant ใน IAM store — role ใน token ไม่ถูกอ่านเลย
+ * the #331 §3 personas are converted into grants in the IAM store — the role in the token is never read
  * admin = tenant-wide + direct review authority + strong auth enrollment
  */
 async function setup(t: TestContext) {
@@ -174,7 +174,7 @@ async function setup(t: TestContext) {
     return { ...imported, settings: { ...imported.settings, maxDurationDays: days } };
   };
 
-  /** submit ด้วย digest จาก compile ของ server */
+  /** submit with the digest from the server's compile */
   const submit = async (subjectId: string, journeyId: string) => {
     const state = await repo.getJourneyAuthoringState(tenantId, actor(subjectId), journeyId);
     const compiled = await repo.compileJourneyDraft(tenantId, actor(subjectId), {
@@ -235,14 +235,14 @@ const rejects = (promise: Promise<unknown>, code: string) =>
     return true;
   });
 
-test('J5-AU01 persona matrix: สิทธิ์มาจาก IAM store, membership อย่างเดียวไม่พอ และที่มองไม่เห็นตอบ not-found', async (t) => {
+test('J5-AU01 persona matrix: permissions come from the IAM store, membership alone is not enough, and invisible things answer not-found', async (t) => {
   const f = await setup(t);
   const created = await f.repo.createJourneyDraft(f.as('author'), {
     ownerTeamId: f.teamId,
     document: f.document(),
   });
 
-  // supervisor อ่านได้แต่แก้ไม่ได้ → capability error; agent อ่านไม่ได้ → not-found เหมือนไม่มีอยู่จริง
+  // a supervisor can read but not edit → capability error; an agent cannot read → not-found as if it did not exist
   assert.equal(
     (await f.repo.getJourneyAuthoringState(f.tenantId, f.actor('supervisor'), created.journeyId))
       .head.journeyId,
@@ -268,21 +268,21 @@ test('J5-AU01 persona matrix: สิทธิ์มาจาก IAM store, membe
     }),
     'CAPABILITY_REQUIRED',
   );
-  // service principal ไม่มีสิทธิ์ authoring แม้มี grant
+  // a service principal has no authoring permission even with a grant
   await rejects(
     f.repo.getJourneyAuthoringState(f.tenantId, f.actor('robot'), created.journeyId),
     'JOURNEY_NOT_FOUND',
   );
-  // tenant อื่นมองไม่เห็นแม้รู้ ID
+  // other tenants cannot see it even if they know the ID
   await rejects(
     f.repo.getJourneyAuthoringState(f.otherTenantId, f.actor('admin'), created.journeyId),
     'JOURNEY_NOT_FOUND',
   );
-  // admin แบบ tenant-wide เห็นทุกทีม
+  // a tenant-wide admin sees every team
   assert.ok(await f.repo.getJourneyAuthoringState(f.tenantId, f.actor('admin'), created.journeyId));
 });
 
-test('J5-AU01 maker-checker: อนุมัติตัวเอง/service ไม่ได้, แก้หลัง submit ทำให้ approval เดิม stale, ถอนสิทธิ์ผู้อนุมัติแล้ว publish ไม่ผ่าน', async (t) => {
+test('J5-AU01 maker-checker: cannot self-approve/service, editing after submit makes the old approval stale, revoking the approver blocks publish', async (t) => {
   const f = await setup(t);
   const created = await f.repo.createJourneyDraft(f.as('author'), {
     ownerTeamId: f.teamId,
@@ -293,7 +293,7 @@ test('J5-AU01 maker-checker: อนุมัติตัวเอง/service ไ
   await rejects(f.decide('robot', created.journeyId, first.reviewId), 'JOURNEY_NOT_FOUND');
   await rejects(f.repo.publishJourneyDraft(f.as('author'), first), 'APPROVAL_REQUIRED');
 
-  // แก้ draft หลัง submit → candidate เดิม SUPERSEDED และอนุมัติไม่ได้อีก
+  // editing the draft after submit → the old candidate becomes SUPERSEDED and can no longer be approved
   await f.repo.updateJourneyDraft(f.as('author'), {
     journeyId: created.journeyId,
     expectedHeadVersion: 1,
@@ -310,7 +310,7 @@ test('J5-AU01 maker-checker: อนุมัติตัวเอง/service ไ
   const second = await f.submit('author', created.journeyId);
   assert.equal((await f.decide('reviewer', created.journeyId, second.reviewId)).state, 'APPROVED');
 
-  // ผู้อนุมัติถูกยกระดับ epoch (เช่นถูกถอนแล้วคืนสิทธิ์) หลังโหวต → approval stale ไม่เกิด version
+  // the approver's epoch is raised (e.g. revoked then re-granted) after voting → the approval is stale and no version is created
   await f.owner.iamAuthoringSubject.update({
     where: { tenantId_subjectId: { tenantId: f.tenantId, subjectId: 'reviewer' } },
     data: { authorizationEpoch: 2 },
@@ -321,14 +321,14 @@ test('J5-AU01 maker-checker: อนุมัติตัวเอง/service ไ
     0,
   );
 
-  // โหวตใหม่ภายใต้ epoch ปัจจุบันจึง publish ได้
+  // voting again under the current epoch so publish can proceed
   const third = await f.submit('author', created.journeyId);
   await f.decide('reviewer', created.journeyId, third.reviewId);
   const published = await f.repo.publishJourneyDraft(f.as('author'), third);
   assert.equal(published.outcome, 'PUBLISHED');
 });
 
-test('J5-CC01 reviewer สองคนอนุมัติพร้อมกัน candidate เปลี่ยนสถานะได้ครั้งเดียว', async (t) => {
+test('J5-CC01 two reviewers approve concurrently: the candidate changes state only once', async (t) => {
   const f = await setup(t);
   await f.grant('supervisor', 'journey.review');
   const created = await f.repo.createJourneyDraft(f.as('author'), {
@@ -347,7 +347,7 @@ test('J5-CC01 reviewer สองคนอนุมัติพร้อมกั
   );
 });
 
-test('J5-AU01 unilateral publish ต้อง direct grant + direct review authority + strong auth ที่สด และ audit แยก', async (t) => {
+test('J5-AU01 unilateral publish needs a direct grant + direct review authority + fresh strong auth, and a separate audit', async (t) => {
   const f = await setup(t);
   const created = await f.repo.createJourneyDraft(f.as('admin'), {
     ownerTeamId: f.teamId,
@@ -383,7 +383,7 @@ test('J5-AU01 unilateral publish ต้อง direct grant + direct review autho
     ),
     'STRONG_AUTH_REQUIRED',
   );
-  // author มี publish แต่ไม่มี direct review authority
+  // the author has publish but no direct review authority
   await rejects(
     f.repo.publishJourneyDraftUnilateral(
       f.as('author', {
@@ -408,7 +408,7 @@ test('J5-AU01 unilateral publish ต้อง direct grant + direct review autho
   );
 });
 
-test('J5-AU02 delegation: exact scope ≤8h, ไม่มอบต่อ, ใช้ approve/publish ไม่ได้ และเพิกถอนแล้วหมดสิทธิ์ทันที', async (t) => {
+test('J5-AU02 delegation: exact scope ≤8h, no re-delegation, cannot be used for approve/publish, and revoking removes access immediately', async (t) => {
   const f = await setup(t);
   const delegations = new IamJourneyAuthoringDelegations(f.application);
   const created = await f.repo.createJourneyDraft(f.as('author'), {
@@ -452,7 +452,7 @@ test('J5-AU02 delegation: exact scope ≤8h, ไม่มอบต่อ, ใช
       evidenceRef: 'TICKET-1',
     }),
   );
-  // supervisor ไม่มี direct edit จึงมอบ edit ให้ใครไม่ได้
+  // a supervisor has no direct edit so cannot delegate edit to anyone
   await invalid(
     delegations.delegate({
       tenantId: f.tenantId,
@@ -483,7 +483,7 @@ test('J5-AU02 delegation: exact scope ≤8h, ไม่มอบต่อ, ใช
     durationSeconds: 3_600,
     evidenceRef: 'TICKET-1',
   });
-  // no chaining: delegate ที่ได้ edit มาจาก delegation มอบต่อไม่ได้
+  // no chaining: a delegate whose edit came from a delegation cannot delegate it onward
   await invalid(
     delegations.delegate({
       tenantId: f.tenantId,
@@ -503,7 +503,7 @@ test('J5-AU02 delegation: exact scope ≤8h, ไม่มอบต่อ, ใช
     expectedDraftDigest: created.draftDigest,
     document: f.document(11),
   });
-  // delegated reader อ่าน audit ไม่ได้ (ต้อง direct) แต่ไม่ได้ถูกซ่อนว่ามี journey
+  // a delegated reader cannot read audit (needs direct) but is not hidden from the journey's existence
   await rejects(
     f.repo.listJourneyAudit(f.tenantId, f.actor('delegate'), { journeyId: created.journeyId }),
     'CAPABILITY_REQUIRED',
@@ -523,12 +523,12 @@ test('J5-AU02 delegation: exact scope ≤8h, ไม่มอบต่อ, ใช
       expectedDraftDigest: updated.draftDigest,
       document: f.document(12),
     }),
-    // delegation มีอยู่แต่ถูกเพิกถอนแล้ว — บอกสาเหตุตรงกว่า capability ทั่วไป
+    // the delegation exists but was revoked — states the cause more precisely than a generic capability
     'DELEGATION_INVALID',
   );
 });
 
-test('J5-CC02 ownership transfer ขึ้น revision ใหม่และ supersede review, team inactive แก้ไม่ได้แต่ยังโอนได้', async (t) => {
+test('J5-CC02 ownership transfer creates a new revision and supersedes review; an inactive team cannot edit but can still transfer', async (t) => {
   const f = await setup(t);
   const created = await f.repo.createJourneyDraft(f.as('author'), {
     ownerTeamId: f.teamId,
@@ -539,8 +539,8 @@ test('J5-CC02 ownership transfer ขึ้น revision ใหม่และ sup
     f.owner.team.update({ where: { id: f.teamId }, data: { isActive: false } }),
     /TEAM_REFERENCED/,
   );
-  // owner-only legacy fixture: ข้อมูลเดิมอาจมี inactive Team พร้อม ownership/grants
-  // การโอนออกต้องยังทำได้ แต่ guard ไม่ให้สร้างสถานะนี้จาก normal writer ใหม่
+  // owner-only legacy fixture: legacy data may have an inactive Team with ownership/grants
+  // transferring out must still work, but a guard prevents a normal new writer from creating this state
   await f.owner.$transaction(async (tx) => {
     await tx.$executeRawUnsafe("SET LOCAL session_replication_role='replica'");
     await tx.team.update({ where: { id: f.teamId }, data: { isActive: false } });
@@ -572,12 +572,12 @@ test('J5-CC02 ownership transfer ขึ้น revision ใหม่และ sup
     (await f.owner.jrReviewCandidate.findUniqueOrThrow({ where: { id: review.reviewId } })).state,
     'SUPERSEDED',
   );
-  // author มีสิทธิ์แค่ทีมเดิม: หลังโอนออก journey กลายเป็นมองไม่เห็นสำหรับเขา
+  // the author only has the original team: after the transfer out the journey becomes invisible to them
   await rejects(
     f.repo.getJourneyAuthoringState(f.tenantId, f.actor('author'), created.journeyId),
     'JOURNEY_NOT_FOUND',
   );
-  // โอนกลับไปทีม inactive ไม่ได้
+  // cannot transfer back to an inactive team
   await rejects(
     f.repo.transferJourneyOwnership(f.as('admin'), {
       journeyId: created.journeyId,
@@ -589,7 +589,7 @@ test('J5-CC02 ownership transfer ขึ้น revision ใหม่และ sup
   );
 });
 
-test('J5-OB01 audit อ่านได้เฉพาะ direct reader, การอ่านถูก audit และไม่มีข้อมูลดิบ', async (t) => {
+test('J5-OB01 audit is readable only by a direct reader, the read is audited, and there is no raw data', async (t) => {
   const f = await setup(t);
   const created = await f.repo.createJourneyDraft(f.as('author'), {
     ownerTeamId: f.teamId,
@@ -609,7 +609,7 @@ test('J5-OB01 audit อ่านได้เฉพาะ direct reader, กา�
     f.repo.listJourneyAudit(f.tenantId, f.actor('agent'), { journeyId: created.journeyId }),
     'JOURNEY_NOT_FOUND',
   );
-  // audit/outbox ไม่มี graph, settings หรือค่าจาก document
+  // audit/outbox have no graph, settings or values from the document
   const serialized = JSON.stringify([
     await f.owner.jrAuthoringAudit.findMany({ where: { resourceId: created.journeyId } }),
     await f.owner.jrAuthoringOutbox.findMany({ where: { resourceId: created.journeyId } }),

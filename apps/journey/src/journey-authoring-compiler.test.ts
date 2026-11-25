@@ -59,7 +59,7 @@ const codes = (diagnostics: readonly JourneyDiagnosticV1[]) =>
   diagnostics.map((diagnostic) => diagnostic.code);
 const clone = <T>(value: T): T => structuredClone(value) as T;
 
-test('J5-F01 golden round-trip: J1/J2/J3 import → compile ได้ runtime content และ hash เดิม', () => {
+test('J5-F01 golden round-trip: J1/J2/J3 import → compile yields the same runtime content and hash', () => {
   for (const name of ['j1-event', 'j1-schedule', 'j2-outcome', 'j3-segment']) {
     const content = fixture(name);
     const document = importJourneyDefinition(content);
@@ -68,12 +68,12 @@ test('J5-F01 golden round-trip: J1/J2/J3 import → compile ได้ runtime co
     assert.ok(artifact, name);
     assert.deepEqual(artifact.runtimeDefinition, canonicalRuntimeDefinition(content), name);
     assert.equal(artifact.runtimeHash, journeyRuntimeHash(content), name);
-    // import ซ้ำจาก runtime ที่ compile แล้วต้องได้ document เดิม (fixed point)
+    // re-importing the compiled runtime must give back the same document (fixed point)
     assert.deepEqual(importJourneyDefinition(artifact.runtimeDefinition), document, name);
   }
 });
 
-test('J5-F01 visual-only เปลี่ยนไม่กระทบ runtime/compile digest แต่ semantic change เปลี่ยน', () => {
+test('J5-F01 visual-only changes do not affect the runtime/compile digest but semantic changes do', () => {
   const content = fixture('j1-event');
   const document = importJourneyDefinition(content);
   const base = compile(document, content).artifact!;
@@ -103,7 +103,7 @@ test('J5-F01 visual-only เปลี่ยนไม่กระทบ runtime/c
   assert.notEqual(semanticArtifact.compileDigest, base.compileDigest);
 });
 
-test('J5-F01 compile เป็น deterministic และผูก tenant/journey/draft/capability ไว้ใน digest', () => {
+test('J5-F01 compile is deterministic and binds tenant/journey/draft/capability into the digest', () => {
   const content = fixture('j3-segment');
   const document = importJourneyDefinition(content);
   const first = compile(document, content).artifact!;
@@ -119,7 +119,7 @@ test('J5-F01 compile เป็น deterministic และผูก tenant/journe
   assert.equal(first.compilerVersion, 'J5_COMPILER_V1');
 });
 
-test('J5-F02 graph ที่ผิดกติกา fail closed ด้วย code ที่ตรงจุด', () => {
+test('J5-F02 a graph that breaks the rules fails closed with a precise code', () => {
   const content = fixture('j1-event');
   const document = importJourneyDefinition(content);
   const mutate = (change: (draft: any) => void) => {
@@ -172,13 +172,13 @@ test('J5-F02 graph ที่ผิดกติกา fail closed ด้วย co
       (d) => (d.edges.find((e: any) => e.edgeId === 'wait-1d.next').target.nodeId = 'trigger'),
     ).includes('PORT_INVALID'),
   );
-  // runtime validator เดิมยังเป็นด่านสุดท้าย และ reason เดิมติดไปใน legacyReasonCode
+  // the existing runtime validator is still the last gate and its reason is carried in legacyReasonCode
   const exitless = clone(document) as any;
   exitless.nodes.find((node: any) => node.nodeId === 'exit-paid').config.reason = ' ';
   assert.ok(codes(compile(exitless, content).diagnostics).includes('AUTHORING_SCHEMA_INVALID'));
 });
 
-test('J5-F02 limit และ node ที่ไม่รู้จักถูกเก็บแบบ read-only แต่ publish ไม่ได้', () => {
+test('J5-F02 limits and unknown nodes are kept read-only but cannot be published', () => {
   const content = fixture('j1-schedule');
   const document = importJourneyDefinition(content) as any;
   const many = clone(document);
@@ -187,7 +187,7 @@ test('J5-F02 limit และ node ที่ไม่รู้จักถูก�
   }
   assert.ok(codes(compile(many, content).diagnostics).includes('GRAPH_LIMIT_EXCEEDED'));
 
-  // definition เก่าที่มี step ชนิดอนาคต: import แล้วเก็บ source เดิมครบ ไม่ drop
+  // an old definition with a future step type: import keeps the whole original source without dropping anything
   const legacy = clone(content) as any;
   legacy.graph.steps.push({ id: 'future', type: 'SUBFLOW', ref: 'abc', next: 'done' });
   const imported = importJourneyDefinition(legacy) as any;
@@ -203,7 +203,7 @@ test('J5-F02 limit และ node ที่ไม่รู้จักถูก�
   assert.ok(codes(result.diagnostics).includes('NODE_TYPE_UNSUPPORTED'));
 });
 
-test('J5-F02 restricted owner action วางได้แค่ entry หลัง INTERACTION_OUTCOME และต้องมี capability', () => {
+test('J5-F02 a restricted owner action can only be placed as an entry after INTERACTION_OUTCOME and needs a capability', () => {
   const content = fixture('j2-outcome');
   const document = importJourneyDefinition(content);
   assert.ok(compile(document, content).artifact);
@@ -241,7 +241,7 @@ test('J5-F02 restricted owner action วางได้แค่ entry หลั
   );
 });
 
-test('J5-F02 preview แสดง capability ที่ไม่พร้อมและ simulation เดิน route accepted/rejected ตาม fixture', () => {
+test('J5-F02 preview shows capabilities that are not ready and simulation walks the accepted/rejected route per fixture', () => {
   const content = fixture('j2-outcome');
   const artifact = compile(importJourneyDefinition(content), content).artifact!;
   assert.deepEqual(previewJourneyPlan(artifact, capabilities).diagnostics, []);
@@ -285,7 +285,7 @@ test('J5-F02 preview แสดง capability ที่ไม่พร้อม�
   );
 });
 
-test('J5-ID02 simulation ใช้ manual clock แบบ deterministic และ BRANCH ที่ประเมินไม่ได้ไป false_or_error', () => {
+test('J5-ID02 simulation uses a deterministic manual clock and a BRANCH that cannot be evaluated goes to false_or_error', () => {
   const content = fixture('j1-event');
   const artifact = compile(importJourneyDefinition(content), content).artifact!;
   const scenario = (context: Record<string, string | number | boolean | null>) => ({
@@ -326,7 +326,7 @@ test('J5-ID02 simulation ใช้ manual clock แบบ deterministic แล�
   );
   assert.deepEqual(codes(missing.diagnostics), ['PREVIEW_FIXTURE_INVALID']);
 
-  // WAIT ที่เลย maxDurationDays ถูกปิดด้วย MAX_DURATION เหมือน runtime max-age
+  // a WAIT past maxDurationDays is closed with MAX_DURATION like the runtime max-age
   const shortLived = compile(
     importJourneyDefinition({ ...content, maxDurationDays: 1 }),
     content,
@@ -341,7 +341,7 @@ test('J5-ID02 simulation ใช้ manual clock แบบ deterministic แล�
   );
 });
 
-test('J5-RC02 side-effect port ใน simulation throw ทันที', () => {
+test('J5-RC02 a side-effect port in simulation throws immediately', () => {
   const port = blockedSimulationPort<{ publish(): Promise<void>; reserve(): void }>('kafka');
   assert.throws(
     () => port.reserve(),

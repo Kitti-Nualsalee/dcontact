@@ -1,8 +1,8 @@
 /**
- * J2.8 (#136) — พิสูจน์ ACK_UNKNOWN escalation และ bounded reconciliation deadlines
+ * J2.8 (#136) — proves ACK_UNKNOWN escalation and bounded reconciliation deadlines
  *
- * สิ่งที่ต้องจริง: ถาม owner ก่อนเสมอ (ไม่ retry มั่ว), retry มีเพดาน และเมื่อครบเพดาน
- * ต้องส่งต่อให้คนผ่าน audit ไม่ใช่วนต่อไปเรื่อย ๆ หรือเงียบหาย
+ * What must be true: always ask the owner first (no blind retry), retries have a ceiling, and at the ceiling
+ * it must hand over to a person through audit, not loop forever or go silent
  */
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -58,7 +58,7 @@ async function fixture(t: TestContext) {
 
   const repository = new JourneyOwnerActionRepository(application);
 
-  /** action ที่ dispatch ไปแล้วเมื่อ `agoMs` ที่ผ่านมา */
+  /** an action dispatched `agoMs` ago */
   async function dispatchedAgo(agoMs: number) {
     const actionKey = `ack-action-${randomUUID()}`;
     const commandId = randomUUID();
@@ -80,10 +80,10 @@ async function fixture(t: TestContext) {
     return { actionKey, commandId };
   }
 
-  /** port ที่ไม่เคยมีผลกลับมา = owner เงียบสนิท */
+  /** a port that never returns a result = a completely silent owner */
   const silentPort = {
     async persistCommand() {
-      throw new Error('ไม่ควรถูกเรียกใน escalation path');
+      throw new Error('should not be called in the escalation path');
     },
     async queryAction(): Promise<J2OwnerResultPayloadV1 | undefined> {
       return undefined;
@@ -105,7 +105,7 @@ function escalator(
   );
 }
 
-test('action ที่ยังไม่เกิน deadline ต้องไม่ถูกแตะ', async (t) => {
+test('an action not yet past the deadline must not be touched', async (t) => {
   const f = await fixture(t);
   const { actionKey } = await f.dispatchedAgo(0);
 
@@ -118,7 +118,7 @@ test('action ที่ยังไม่เกิน deadline ต้องไม
   assert.equal(untouched.attempts, 0);
 });
 
-test('เกิน deadline แล้ว owner ยังเงียบ -> ACK_UNKNOWN พร้อมนับ attempt', async (t) => {
+test('past the deadline with the owner still silent -> ACK_UNKNOWN with an attempt counted', async (t) => {
   const f = await fixture(t);
   const { actionKey } = await f.dispatchedAgo(5_000);
 
@@ -129,17 +129,17 @@ test('เกิน deadline แล้ว owner ยังเงียบ -> ACK_U
   });
   assert.equal(moved.state, 'ACK_UNKNOWN');
   assert.equal(moved.attempts, 1);
-  // ยังไม่ครบเพดาน จึงยังไม่บันทึก audit
+  // the ceiling is not reached yet, so no audit is recorded
   assert.equal(await f.owner.jrRecoveryAudit.count({ where: { tenantId: f.tenantId } }), 0);
 });
 
-test('ถาม owner แล้วมีผลจริง -> apply ทันทีโดยไม่ต้อง retry', async (t) => {
+test('the owner was asked and has a real result -> apply immediately without a retry', async (t) => {
   const f = await fixture(t);
   const { actionKey, commandId } = await f.dispatchedAgo(5_000);
 
   const answeringPort = {
     async persistCommand() {
-      throw new Error('ไม่ควรถูกเรียก');
+      throw new Error('should not be called');
     },
     async queryAction(): Promise<J2OwnerResultPayloadV1> {
       return {
@@ -168,7 +168,7 @@ test('ถาม owner แล้วมีผลจริง -> apply ทันท
   assert.equal(applied.state, 'ACKNOWLEDGED');
 });
 
-test('ครบเพดาน retry แล้วบันทึก audit แล้วหยุดไล่ตามเอง (bounded)', async (t) => {
+test('at the retry ceiling audit is recorded and it stops chasing on its own (bounded)', async (t) => {
   const f = await fixture(t);
   const { actionKey } = await f.dispatchedAgo(5_000);
   const runner = escalator(f, f.silentPort, { maxAttempts: 3 });
@@ -183,7 +183,7 @@ test('ครบเพดาน retry แล้วบันทึก audit แล
   assert.equal(audit.reasonCode, 'ACK_UNKNOWN_DEADLINE_EXCEEDED');
   assert.equal(audit.operation, 'RECONCILE');
 
-  // ครบเพดานแล้วต้องไม่ถูกหยิบอีก — ไม่วนเรียก owner ไปเรื่อย ๆ
+  // once the ceiling is reached it must not be picked up again — no looping calls to the owner
   assert.equal(await runner.escalateNext(f.tenantId), undefined);
   const final = await f.owner.jrOwnerAction.findFirstOrThrow({
     where: { tenantId: f.tenantId, actionKey },
@@ -192,7 +192,7 @@ test('ครบเพดาน retry แล้วบันทึก audit แล
   assert.equal(final.state, 'ACK_UNKNOWN');
 });
 
-test('action ที่ escalate แล้วยังรับผลที่มาช้าได้ (ACK_UNKNOWN เป็น open state)', async (t) => {
+test('an escalated action can still receive a late result (ACK_UNKNOWN is an open state)', async (t) => {
   const f = await fixture(t);
   const { actionKey, commandId } = await f.dispatchedAgo(5_000);
   const runner = escalator(f, f.silentPort, { maxAttempts: 1 });
@@ -212,7 +212,7 @@ test('action ที่ escalate แล้วยังรับผลที่ม
   assert.equal(applied.action.state, 'ACKNOWLEDGED');
 });
 
-test('tenant คนละใบไม่ escalate ของกันและกัน', async (t) => {
+test('different tenants do not escalate each other', async (t) => {
   const f = await fixture(t);
   const other = await fixture(t);
   await f.dispatchedAgo(5_000);
@@ -226,7 +226,7 @@ test('tenant คนละใบไม่ escalate ของกันและก
   assert.equal(untouched.state, 'DISPATCHED');
 });
 
-/** action ของ Dialer ที่ออกไปแล้วและขอ cancel ไว้เมื่อ `agoMs` ที่ผ่านมา — cancel command มี hash ของตัวเอง */
+/** a Dialer action that already left and asked for cancel `agoMs` ago — the cancel command has its own hash */
 async function cancelRequestedAgo(f: Awaited<ReturnType<typeof fixture>>, agoMs: number) {
   const enrollment = randomUUID();
   const actionKey = `${enrollment}:1:admit-campaign`;
@@ -261,7 +261,7 @@ async function cancelRequestedAgo(f: Awaited<ReturnType<typeof fixture>>, agoMs:
     commandPayload: command,
   });
   await f.repository.markCommandDispatched(f.tenantId, command.commandId);
-  // ช่วง ACK_UNKNOWN ของ command ต้นเรื่องกินโควต้าไปแล้ว — cancel ต้องเริ่มนับใหม่
+  // the ACK_UNKNOWN phase of the original command already used up the quota — cancel must start counting afresh
   await f.owner.jrOwnerAction.updateMany({
     where: { tenantId: f.tenantId, actionKey },
     data: { attempts: 2 },
@@ -282,7 +282,7 @@ async function cancelRequestedAgo(f: Awaited<ReturnType<typeof fixture>>, agoMs:
   return { actionKey, command, cancel };
 }
 
-test('CANCEL_REQUESTED ที่ owner ยังไม่ยืนยันถูกถามด้วย requestHash ของ cancel และมีเพดานของตัวเอง', async (t) => {
+test('a CANCEL_REQUESTED the owner has not confirmed is asked with the requestHash of the cancel and has its own ceiling', async (t) => {
   const f = await fixture(t);
   const { actionKey, cancel } = await cancelRequestedAgo(f, 5_000);
   const queries: string[] = [];
@@ -297,13 +297,21 @@ test('CANCEL_REQUESTED ที่ owner ยังไม่ยืนยันถ�
 
   assert.equal(await escalate.escalateNext(f.tenantId), 'WAITING');
   assert.equal(await escalate.escalateNext(f.tenantId), 'ESCALATED');
-  assert.equal(await escalate.escalateNext(f.tenantId), undefined, 'ครบเพดานแล้วต้องไม่ถูกหยิบอีก');
+  assert.equal(
+    await escalate.escalateNext(f.tenantId),
+    undefined,
+    'must not be picked up again at the ceiling',
+  );
 
   assert.deepEqual(queries, [cancel.requestHash, cancel.requestHash]);
   const action = await f.owner.jrOwnerAction.findFirstOrThrow({
     where: { tenantId: f.tenantId, actionKey },
   });
-  assert.equal(action.state, 'CANCEL_REQUESTED', 'ห้ามแปลง cancel ที่ยังไม่ยืนยันเป็น ACK_UNKNOWN');
+  assert.equal(
+    action.state,
+    'CANCEL_REQUESTED',
+    'an unconfirmed cancel must not be converted to ACK_UNKNOWN',
+  );
   assert.equal(action.attempts, 2);
   const audit = await f.owner.jrRecoveryAudit.findFirstOrThrow({
     where: { tenantId: f.tenantId, targetRef: actionKey },
@@ -311,7 +319,7 @@ test('CANCEL_REQUESTED ที่ owner ยังไม่ยืนยันถ�
   assert.equal(audit.reasonCode, 'CANCEL_UNCONFIRMED_DEADLINE_EXCEEDED');
 });
 
-test('owner ยืนยันผลของ cancel ตอนถูกถาม -> apply เป็น CANCELLED', async (t) => {
+test('the owner confirms the cancel result when asked -> apply as CANCELLED', async (t) => {
   const f = await fixture(t);
   const { actionKey, cancel } = await cancelRequestedAgo(f, 5_000);
   const answeringPort = {

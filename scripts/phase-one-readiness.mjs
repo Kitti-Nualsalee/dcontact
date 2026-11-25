@@ -10,35 +10,36 @@ export const PHASE_ONE_READINESS_CHECKS = [
     dependency: 'Phase 0 readiness',
     boundaries: ['infrastructure, RLS, identity and event backbone baseline'],
     command: [pnpm, 'infra:ready'],
-    remediation: 'แก้ readiness dependency ที่รายงานแล้วรัน pnpm voice:acceptance ซ้ำ',
+    remediation:
+      'Fix the readiness dependency that was reported and then re-run pnpm voice:acceptance',
   },
   {
     id: 'two-tenant-identity',
-    dependency: 'Keycloak Organizations สอง tenant',
+    dependency: 'Keycloak Organizations for two tenants',
     boundaries: ['Keycloak Organizations', 'distinct tenant claims', 'PostgreSQL user mapping'],
     command: [process.execPath, 'scripts/keycloak-dev-readiness.mjs', '--auto-fallback'],
-    remediation: 'รัน pnpm infra:bootstrap เพื่อ provision Organization และ identity ใหม่',
+    remediation: 'Run pnpm infra:bootstrap to provision a new Organization and identity',
   },
   {
     id: 'event-contract',
     dependency: 'Kafka contract',
     boundaries: ['event tenant header/payload', 'ordering', 'idempotency'],
     command: [pnpm, '--filter', '@d-contact/kafka', 'test'],
-    remediation: 'ตรวจ @d-contact/kafka และ shared event contracts',
+    remediation: 'Check @d-contact/kafka and the shared event contracts',
   },
   {
     id: 'routing-lifecycle',
     dependency: 'Inbound Voice Router integration',
     boundaries: ['routing policy', 'no-answer', 'wrap-up', 'direct queue', 'IVR'],
     command: [pnpm, '--filter', '@d-contact/router', 'test:integration'],
-    remediation: 'ตรวจ Router lifecycle, queue policy และ IVR integration tests',
+    remediation: 'Check the Router lifecycle, queue policy and the IVR integration tests',
   },
   {
     id: 'workspace-runtime',
     dependency: 'Agent Workspace runtime',
     boundaries: ['single working tab', 'offer acknowledgement', 'snapshot/sequence recovery'],
     command: [pnpm, '--filter', '@d-contact/workspace', 'test'],
-    remediation: 'ตรวจ Workspace leader election, session และ sequenced event recovery',
+    remediation: 'Check the Workspace leader election, session and sequenced event recovery',
   },
   {
     id: 'workspace-supervisor-api',
@@ -46,7 +47,7 @@ export const PHASE_ONE_READINESS_CHECKS = [
     boundaries: ['supervisor control', 'team scope', 'signed playback', 'human publish'],
     command: [pnpm, '--filter', '@d-contact/api', 'test:integration'],
     evidencePrefix: 'PHASE_ONE_EVIDENCE ',
-    remediation: 'ตรวจ API authorization, supervisor scope, recording และ QM endpoints',
+    remediation: 'Check API authorization, supervisor scope, recording and the QM endpoints',
   },
   {
     id: 'recording-contract',
@@ -57,7 +58,7 @@ export const PHASE_ONE_READINESS_CHECKS = [
       'signed playback source',
     ],
     command: [pnpm, '--filter', '@d-contact/telephony', 'test'],
-    remediation: 'ตรวจ FreeSWITCH recording command และ S3 archive adapter',
+    remediation: 'Check the FreeSWITCH recording command and the S3 archive adapter',
   },
   {
     id: 'recording-finalization',
@@ -69,14 +70,14 @@ export const PHASE_ONE_READINESS_CHECKS = [
       'archive idempotency',
     ],
     command: [pnpm, '--filter', '@d-contact/telephony', 'test:integration'],
-    remediation: 'ตรวจ shared recording volume และ recording lifecycle',
+    remediation: 'Check the shared recording volume and the recording lifecycle',
   },
   {
     id: 'qm-provider-contract',
     dependency: 'QM provider contract',
     boundaries: ['encrypted media URL', 'NO_TRAINING', 'provider response validation'],
     command: [pnpm, '--filter', '@d-contact/qm', 'test'],
-    remediation: 'ตรวจ TranscriptionProvider และ HTTPS/no-training contract',
+    remediation: 'Check TranscriptionProvider and the HTTPS/no-training contract',
   },
   {
     id: 'thai-qm-pipeline',
@@ -84,7 +85,7 @@ export const PHASE_ONE_READINESS_CHECKS = [
     boundaries: ['Thai baseline', 'FAILED/retry/audit', 'evidence-backed DRAFT'],
     command: [pnpm, '--filter', '@d-contact/qm', 'test:integration'],
     evidencePrefix: 'PHASE_ONE_EVIDENCE ',
-    remediation: 'ตรวจ QM workflow, bounded retry, audit และ Thai corpus fixture',
+    remediation: 'Check the QM workflow, bounded retry, audit and the Thai corpus fixture',
   },
   {
     id: 'two-tenant-e2e',
@@ -96,7 +97,7 @@ export const PHASE_ONE_READINESS_CHECKS = [
     ],
     command: [pnpm, '--filter', '@d-contact/phase-one-acceptance', 'test'],
     evidencePrefix: 'PHASE_ONE_EVIDENCE ',
-    remediation: 'ตรวจ Phase 1 two-tenant acceptance fixture และ RLS policies',
+    remediation: 'Check the Phase 1 two-tenant acceptance fixture and the RLS policies',
   },
   {
     id: 'direct-queue-e2e',
@@ -104,7 +105,7 @@ export const PHASE_ONE_READINESS_CHECKS = [
     boundaries: ['direct queue', 'softphone media', 'recording', 'wrap-up completed'],
     command: [pnpm, 'voice:demo'],
     evidencePrefix: 'PHASE_ONE_EVIDENCE ',
-    remediation: 'ตรวจ FreeSWITCH/SIPp, Router, Telephony และ shared recording volume',
+    remediation: 'Check FreeSWITCH/SIPp, the Router, Telephony and the shared recording volume',
   },
   {
     id: 'ivr-e2e',
@@ -112,7 +113,7 @@ export const PHASE_ONE_READINESS_CHECKS = [
     boundaries: ['IVR', 'DTMF fallback', 'softphone media', 'recording', 'wrap-up completed'],
     command: [pnpm, 'voice:ivr:demo'],
     evidencePrefix: 'PHASE_ONE_EVIDENCE ',
-    remediation: 'ตรวจ IVR destination, DTMF event และ FreeSWITCH media path',
+    remediation: 'Check the IVR destination, the DTMF event and the FreeSWITCH media path',
   },
 ];
 

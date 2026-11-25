@@ -43,13 +43,13 @@ import {
 } from './journey-template-upgrade.js';
 
 /**
- * J5.4 (#342): tenant template catalog, instantiate/fork และ explicit upgrade (คำตัดสิน #330)
+ * J5.4 (#342): tenant template catalog, instantiate/fork and explicit upgrade (decision #330)
  *
- * - built-in มาจาก `BuiltInTemplateCatalog` เท่านั้น ไม่มีแถวใน DB; tenant template อยู่ในตาราง RLS
- * - instantiate/fork สร้างของใหม่แบบ detached — ไม่มี live pointer กลับ template; source ที่
- *   อัปเดต/deprecate ภายหลังไม่เปลี่ยน draft, published version หรือ enrollment ที่สร้างไปแล้ว
- * - upgrade คือ proposal แบบ three-way ที่ apply ได้เป็น draft revision ใหม่เท่านั้น ไม่ publish เอง
- * - ของที่มองไม่เห็นตอบ TEMPLATE_NOT_FOUND แบบเดียวกับไม่มีอยู่จริง
+ * - built-ins come only from `BuiltInTemplateCatalog` and have no row in the DB; tenant templates live in an RLS table
+ * - instantiate/fork create something new, detached — no live pointer back to the template; a source that is later
+ *   updated/deprecated does not change a draft, published version or enrollment already created
+ * - upgrade is a three-way proposal that can be applied only as a new draft revision and never publishes itself
+ * - something invisible answers TEMPLATE_NOT_FOUND, the same as one that does not exist
  */
 
 type Tx = Prisma.TransactionClient;
@@ -193,7 +193,7 @@ export class JourneyTemplateRepository extends JourneyAuthoringRepository {
     );
   }
 
-  /** ทิ้ง draft กลับเป็นเนื้อหาของ version ที่ active — เกิดเป็น revision ใหม่ ไม่ลบประวัติ */
+  /** discards the draft back to the content of the active version — becomes a new revision, history is not deleted */
   async discardTemplateDraft(
     context: JourneyCommandContext,
     input: {
@@ -240,7 +240,7 @@ export class JourneyTemplateRepository extends JourneyAuthoringRepository {
     );
   }
 
-  /** template publish ต้องผ่าน maker-checker เหมือน Journey (#331 §10) — candidate pin content digest */
+  /** template publish must pass maker-checker like a Journey (#331 §10) — the candidate pins the content digest */
   async submitTemplateReview(
     context: JourneyCommandContext,
     input: {
@@ -312,7 +312,7 @@ export class JourneyTemplateRepository extends JourneyAuthoringRepository {
     input: {
       readonly templateId: string;
       readonly reviewId: string;
-      /** ค่าที่ reviewer เห็นอยู่ — ไม่ส่งมาถือว่า IN_REVIEW (สถานะเดียวที่ตัดสินได้) */
+      /** the value the reviewer is looking at — omitted counts as IN_REVIEW (the only state that can be decided) */
       readonly expectedReviewState?: JourneyReviewState;
       readonly decision: 'APPROVE' | 'REJECT' | 'REQUEST_CHANGES';
       readonly reasonCode: string;
@@ -537,7 +537,7 @@ export class JourneyTemplateRepository extends JourneyAuthoringRepository {
     );
   }
 
-  /** deprecate/archive/restore ไม่แตะ version ที่ publish แล้วหรือ Journey ที่สร้างไปแล้ว (#330 §12) */
+  /** deprecate/archive/restore do not touch a published version or an already created Journey (#330 §12) */
   async changeTemplateLifecycle(
     context: JourneyCommandContext,
     input: {
@@ -598,9 +598,9 @@ export class JourneyTemplateRepository extends JourneyAuthoringRepository {
   // ── Catalog ───────────────────────────────────────────────────────────────
 
   /**
-   * built-in + tenant template ที่ publish แล้วและผู้เรียกอ่านได้ตาม visibility — ARCHIVED ไม่อยู่ใน
-   * catalog ปกติ; ของที่อ่านไม่ได้ไม่ถูกนับหรือบอกใบ้ว่ามีอยู่ built-in อยู่หน้าแรกเสมอ ส่วน tenant
-   * template เป็น keyset ตาม templateId
+   * published built-ins + tenant templates the caller can read per visibility — ARCHIVED is not in the normal
+   * catalog; things that cannot be read are neither counted nor hinted at; built-ins are always on the first page while tenant
+   * templates are keyset by templateId
    */
   async listVisibleTemplates(
     tenantId: string,
@@ -655,8 +655,8 @@ export class JourneyTemplateRepository extends JourneyAuthoringRepository {
   }
 
   /**
-   * head + version (ค่าเริ่มต้นคือ active) ของ template ที่มองเห็นได้; draft แนบมาเฉพาะผู้มี
-   * template.edit เพราะ draft ยังไม่ผ่าน review
+   * head + version (default is active) of a visible template; the draft is attached only for those with
+   * template.edit because the draft has not passed review
    */
   async getTemplate(
     tenantId: string,
@@ -714,7 +714,7 @@ export class JourneyTemplateRepository extends JourneyAuthoringRepository {
     });
   }
 
-  /** built-in ระบุด้วย id ที่คงที่ใน catalog; id อื่นทั้งหมดถือเป็น tenant template */
+  /** a built-in is identified by a fixed id in the catalog; every other id is treated as a tenant template */
   templateOrigin(templateId: string): JourneyTemplateOrigin {
     return this.catalog.get(templateId) ? 'PLATFORM_BUILTIN' : 'TENANT';
   }
@@ -722,8 +722,8 @@ export class JourneyTemplateRepository extends JourneyAuthoringRepository {
   // ── Instantiate / fork ────────────────────────────────────────────────────
 
   /**
-   * สร้าง Journey ใหม่แบบ detached จาก version ที่ระบุแน่นอน (id + version + digest) พร้อม provenance;
-   * retry ด้วย key เดิมได้ Journey เดิม ไม่สร้างซ้ำ
+   * creates a new detached Journey from an exactly specified version (id + version + digest) with provenance;
+   * a retry with the same key gets the same Journey and creates no duplicate
    */
   async instantiateTemplate(
     context: JourneyCommandContext,
@@ -805,7 +805,7 @@ export class JourneyTemplateRepository extends JourneyAuthoringRepository {
     });
   }
 
-  /** fork สร้าง tenant template ใหม่จาก version ที่ระบุ — copy แบบ exact ไม่มี latest pointer */
+  /** fork creates a new tenant template from a specified version — an exact copy with no latest pointer */
   async forkTemplate(
     context: JourneyCommandContext,
     input: {
@@ -903,7 +903,7 @@ export class JourneyTemplateRepository extends JourneyAuthoringRepository {
     });
   }
 
-  /** apply สร้าง draft revision ใหม่ + provenance ใหม่เท่านั้น ไม่ publish/activate (#330 §10) */
+  /** apply creates only a new draft revision + new provenance and does not publish/activate (#330 §10) */
   async applyTemplateUpgrade(
     context: JourneyCommandContext,
     input: ApplyTemplateUpgradeRequestV1 & { readonly journeyId: string },
@@ -988,7 +988,7 @@ export class JourneyTemplateRepository extends JourneyAuthoringRepository {
     });
   }
 
-  /** แจ้งเตือนเชิงข้อมูลเท่านั้น (#330 §9) — คำนวณตอนอ่าน ไม่ auto-apply/publish และไม่แตะ enrollment */
+  /** informational notice only (#330 §9) — computed at read time, no auto-apply/publish and does not touch enrollments */
   async listTemplateNotices(
     tenantId: string,
     actor: JourneyAuthoringActor,
@@ -1047,7 +1047,7 @@ export class JourneyTemplateRepository extends JourneyAuthoringRepository {
     };
   }
 
-  /** package ที่ไม่น่าเชื่อถือ (schema/ชนิด parameter ต้องห้าม) บันทึกไม่ได้; ข้อบกพร่องอื่นแก้ต่อได้ */
+  /** an untrustworthy package (schema/forbidden parameter type) cannot be saved; other defects can be fixed later */
   private assertTemplateSavable(content: JourneyTemplateContentV1) {
     const diagnostics = validateTemplatePackage(content, this.capabilities);
     const blocking = diagnostics.filter(
@@ -1211,7 +1211,7 @@ export class JourneyTemplateRepository extends JourneyAuthoringRepository {
     );
   }
 
-  /** approver อิสระที่ยังมี direct template.review ณ ตอน publish และ epoch/scope ไม่เปลี่ยน */
+  /** an independent approver who still has direct template.review at publish time and whose epoch/scope has not changed */
   private async assertTemplateApproval(
     tx: Tx,
     tenantId: string,
@@ -1296,7 +1296,7 @@ export class JourneyTemplateRepository extends JourneyAuthoringRepository {
     };
   }
 
-  /** resolve version ที่ระบุแน่นอนและต้องมองเห็นได้; digest ไม่ตรง = คนละ package */
+  /** resolves an exactly specified version, which must be visible; a digest mismatch = a different package */
   private async resolveSource(
     tx: Tx,
     tenantId: string,
@@ -1398,7 +1398,7 @@ export class JourneyTemplateRepository extends JourneyAuthoringRepository {
     };
   }
 
-  /** reference ทุกตัวตรวจกับ tenant/scope ปัจจุบันตอน instantiate (#330 §5) */
+  /** every reference is checked against the current tenant/scope at instantiate (#330 §5) */
   private async verifyReferences(
     tx: Tx,
     tenantId: string,
@@ -1428,7 +1428,7 @@ export class JourneyTemplateRepository extends JourneyAuthoringRepository {
           case 'ROUTING_INTENT':
             return (await tx.csRoutingPolicy.count({ where: { tenantId, policyRef: id } })) > 0;
           default:
-            // CONTENT/SENDER_IDENTITY ยังไม่มี owner store ใน repo นี้ — ผ่านได้แค่ opaque shape ที่ binder ตรวจแล้ว
+            // CONTENT/SENDER_IDENTITY have no owner store in this repo yet — only an opaque shape the binder has checked can pass
             return true;
         }
       })();

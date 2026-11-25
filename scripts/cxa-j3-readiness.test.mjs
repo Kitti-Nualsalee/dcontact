@@ -91,7 +91,7 @@ function run(executeSuite = passingSuite) {
   });
 }
 
-test('J3 registry มี 16 checks ครบ 9 dimensions ตาม #208', () => {
+test('J3 registry has 16 checks across 9 dimensions per #208', () => {
   assert.deepEqual(
     CXA_J3_READINESS_CHECKS.map(({ id }) => id),
     [
@@ -119,7 +119,7 @@ test('J3 registry มี 16 checks ครบ 9 dimensions ตาม #208', () =>
   );
 });
 
-test('suite plan รวมคำสั่งซ้ำและรันแต่ละ suite ครั้งเดียว', () => {
+test('the suite plan merges repeated commands and runs each suite once', () => {
   const suites = j3SuitePlan();
   const references = CXA_J3_READINESS_CHECKS.reduce(
     (total, check) => total + check.commands.length,
@@ -137,7 +137,7 @@ test('suite plan รวมคำสั่งซ้ำและรันแต่
   assert.equal(result.manifest.suites.length, suites.length);
 });
 
-test('J3-F04 และ J3-CC02 ครอบ Kafka owner-result boundary จริง', () => {
+test('J3-F04 and J3-CC02 cover the real Kafka owner-result boundary', () => {
   const command = JSON.stringify([
     process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm',
     '--filter',
@@ -151,15 +151,15 @@ test('J3-F04 และ J3-CC02 ครอบ Kafka owner-result boundary จร�
 
   for (const checkId of ['J3-F04', 'J3-CC02']) {
     const check = CXA_J3_READINESS_CHECKS.find(({ id }) => id === checkId);
-    assert.ok(check, `${checkId} ต้องอยู่ใน registry`);
+    assert.ok(check, `${checkId} must be in the registry`);
     assert.ok(
       check.commands.some((candidate) => JSON.stringify(candidate) === command),
-      `${checkId} ต้องอ้าง suite owner-result ผ่าน Kafka`,
+      `${checkId} must reference the owner-result suite through Kafka`,
     );
   }
 });
 
-test('J3 authorization checks ครอบ IAM revoke ที่ inbound และ outbound boundary', () => {
+test('J3 authorization checks cover IAM revoke at the inbound and outbound boundaries', () => {
   const command = (file) =>
     JSON.stringify([
       process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm',
@@ -173,23 +173,23 @@ test('J3 authorization checks ครอบ IAM revoke ที่ inbound แล�
     ]);
   const au01 = CXA_J3_READINESS_CHECKS.find(({ id }) => id === 'J3-AU01');
   const au02 = CXA_J3_READINESS_CHECKS.find(({ id }) => id === 'J3-AU02');
-  assert.ok(au01 && au02, 'J3-AU01/AU02 ต้องอยู่ใน registry');
+  assert.ok(au01 && au02, 'J3-AU01/AU02 must be in the registry');
   assert.ok(
     au01.commands.some(
       (candidate) => JSON.stringify(candidate) === command('journey-send-executor.integration.ts'),
     ),
-    'AU01 ต้องพิสูจน์ CONTACT revoke ก่อน Governance/Delivery',
+    'AU01 must prove CONTACT revoke before Governance/Delivery',
   );
   assert.ok(
     au02.commands.some(
       (candidate) =>
         JSON.stringify(candidate) === command('journey-iam-scope-consumer.integration.ts'),
     ),
-    'AU02 ต้องพิสูจน์ IAM invalidation Kafka consumer',
+    'AU02 must prove IAM invalidation in the Kafka consumer',
   );
 });
 
-test('manifest เก็บ TAP count และ digest ของ title พร้อม marker เมื่อ final main ผ่านครบ', () => {
+test('manifest keeps the TAP count and the title digest, with the marker, when final main passes fully', () => {
   const result = run();
   assert.equal(result.summary.status, 'PASS');
   assert.deepEqual(result.summary.markers, [J3_MARKER]);
@@ -197,14 +197,14 @@ test('manifest เก็บ TAP count และ digest ของ title พร้
   assert.doesNotThrow(() => assertValidCxaJ3EvidenceManifest(result.manifest));
 });
 
-test('validator ปฏิเสธ check ที่ปลอม status ไม่ตรง suite ที่อ้าง', () => {
+test('validator rejects a check with a forged status that does not match the referenced suite', () => {
   const result = run();
   const invalid = structuredClone(result.manifest);
   invalid.checks[0].status = 'FAIL';
-  assert.throws(() => assertValidCxaJ3EvidenceManifest(invalid), /status ไม่ตรงกับ suite/);
+  assert.throws(() => assertValidCxaJ3EvidenceManifest(invalid), /status that does not match/);
 });
 
-test('TAP ที่ skip, todo, cancel หรือไม่มี test ไม่ผ่านแม้ process exit 0', () => {
+test('TAP with a skip, todo, cancel or no tests does not pass even when the process exits 0', () => {
   for (const output of [
     '# tests 0\n# pass 0\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0',
     '# tests 1\n# pass 1\n# fail 0\n# cancelled 0\n# skipped 1\n# todo 0',
@@ -216,7 +216,7 @@ test('TAP ที่ skip, todo, cancel หรือไม่มี test ไม�
   }
 });
 
-test('owner profile ปฏิเสธการอ้างว่า IAM integrated หรือเปิด provider traffic', () => {
+test('owner profile rejects claiming IAM is integrated or enabling provider traffic', () => {
   assert.throws(
     () => cxaJ3ProfileSummary({ CXA_J3_IAM_PROFILE: 'IAM_INTEGRATED' }),
     /iam profile TEST_ADAPTER/,
@@ -227,7 +227,7 @@ test('owner profile ปฏิเสธการอ้างว่า IAM integra
   );
 });
 
-test('J3-TI01 ส่ง DB integration เป็น executable และ argv ชุดเดียวถึง runner', () => {
+test('J3-TI01 passes the DB integration as an executable and a single argv set to the runner', () => {
   const suites = j3SuitePlan().filter((suite) => suite.checkIds.includes('J3-TI01'));
   const calls = [];
   for (const suite of suites) {

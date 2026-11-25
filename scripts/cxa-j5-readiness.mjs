@@ -22,11 +22,11 @@ export { assertPiiSafeEvidence, parseTapSummary, sha256, J5_FIXED_FLAGS, J5_OWNE
 /**
  * J5.7 (#345): Journey J5 development acceptance (#333, Phase Contract #334 §§14–16, Phase Spec #337)
  *
- * - `cxa:j5:focused` รัน 15 checks (ไม่รวม J5-REG01) เป็น candidate เสมอ: `markers=[]`
- * - `cxa:j5:acceptance` รันครบ 16 checks และเป็นคำสั่งเดียวที่ออก `JOURNEY_J5_ACCEPTED` ได้ เมื่อ
- *   clean final main SHA + immutable artifact + dependency markers J1/J2/J3/CG3 บน SHA เดียวกัน
- * - suite คือคำสั่งจริงของแต่ละ package และรันครั้งเดียวต่อ run แม้หลาย check ใช้ร่วมกัน
- * - status ของ check/dimension derive จาก suite เท่านั้น ไม่มี override/waiver
+ * - `cxa:j5:focused` runs 15 checks (excluding J5-REG01) and is always a candidate: `markers=[]`
+ * - `cxa:j5:acceptance` runs all 16 checks and is the only command that can issue `JOURNEY_J5_ACCEPTED`, when there is a
+ *   clean final main SHA + immutable artifact + the J1/J2/J3/CG3 dependency markers on the same SHA
+ * - a suite is the real command of each package and runs once per run even when several checks share it
+ * - the status of a check/dimension is derived from suites only, with no override/waiver
  */
 export const J5_MARKER = 'JOURNEY_J5_ACCEPTED';
 export const J5_WORKFLOW = Object.freeze({ name: 'cxa-j5-acceptance', version: 1 });
@@ -60,7 +60,7 @@ export const J5_DIMENSIONS = Object.freeze([
   'regression',
 ]);
 
-/** fixture registry ของ #333 §4 — ชี้ไปที่ไฟล์เทสต์ที่ใช้ fixture สังเคราะห์นั้นจริง */
+/** fixture registry of #333 §4 - points to the test files that really use that synthetic fixture */
 export const J5_FIXTURE_REGISTRY = Object.freeze([
   {
     id: 'J5FX-HAPPY-01',
@@ -119,8 +119,8 @@ const iamIntegration = filter('@d-contact/iam', 'test:integration');
 const dbIntegration = filter('@d-contact/db', 'test:integration');
 const consoleUnit = filter('@d-contact/console', 'test');
 const consoleBuild = filter('@d-contact/console', 'build');
-// `pnpm test:e2e -- …` ส่ง `--` ตรง ๆ ทำให้ Playwright มองธงที่ตามมาเป็นตัวกรองไฟล์ จึงเรียก exec โดยตรง
-// และเขียน trace ลง output dir ของ J5 เอง เพราะ e2e รอบอื่น (J3/CG4/CG5 acceptance) ล้าง test-results ทิ้ง
+// `pnpm test:e2e -- ...` passes `--` through, so Playwright treats the flags that follow as file filters; hence call exec directly
+// and write the trace to the J5 own output dir, because other e2e rounds (J3/CG4/CG5 acceptance) wipe test-results
 const consoleE2e = filter(
   '@d-contact/console',
   'exec',
@@ -143,10 +143,10 @@ const readinessTests = [
 ];
 
 function check(id, dimension, boundaries, commands) {
-  return { id, dimension, boundaries, commands, remediation: `แก้ ${id} ตาม #333/#337` };
+  return { id, dimension, boundaries, commands, remediation: `Fix ${id} per #333/#337` };
 }
 
-/** #333 §2: 16 checks / 9 dimensions — ลำดับของ command คือลำดับที่ suite ถูกรันครั้งแรก */
+/** #333 §2: 16 checks / 9 dimensions - the order of commands is the order suites are first run */
 export const CXA_J5_READINESS_CHECKS = Object.freeze([
   check(
     'J5-F01',
@@ -293,8 +293,8 @@ export const CXA_J5_READINESS_CHECKS = Object.freeze([
     'J5-REG01',
     'regression',
     ['build/typecheck/lint', 'J1/J2/J3/CG3 acceptance on same SHA', 'no disabled tests'],
-    // #559: ไม่รัน J3 acceptance ซ้ำ (ซึ่งรัน S1/J2/CG4 ซ้อนต่อจนเกิน 6 ชม.) — dependency ตรวจ marker
-    // จาก immutable CI artifact บน SHA เดียวกัน และ fail-closed เมื่อ marker ไม่ครบ
+    // #559: do not re-run the J3 acceptance (which nests S1/J2/CG4 and runs past 6 hours) - the dependency check verifies the marker
+    // from an immutable CI artifact on the same SHA, and fails closed when a marker is incomplete
     [[pnpm, 'build'], [pnpm, 'typecheck'], [pnpm, 'lint'], dependency],
   ),
 ]);
@@ -311,7 +311,7 @@ export function j5Checks(scope = 'full') {
 
 const suiteKey = (command) => JSON.stringify(command);
 
-/** รวมคำสั่งซ้ำข้าม check เหลือ suite เดียวตามลำดับที่ปรากฏครั้งแรก — ไม่รันซ้ำเพื่อเพิ่มจำนวน check */
+/** Merge repeated commands across checks into a single suite in the order first seen - not re-run to inflate the check count */
 export function j5SuitePlan(checks = CXA_J5_READINESS_CHECKS) {
   const suites = new Map();
   for (const item of checks) {
@@ -339,7 +339,7 @@ const EVIDENCE_PREFIXES = [
   'CXA_J5_BROWSER_EVIDENCE:',
 ];
 
-/** เก็บเฉพาะ evidence ที่ script ของ J5 ประกาศเอง; schema summary เก็บแค่ผล ไม่เก็บทั้งก้อน */
+/** Keep only evidence the J5 script declares itself; for the schema summary keep only the result, not the whole block */
 export function j5StructuredEvidence(output) {
   return String(output)
     .split('\n')
@@ -366,8 +366,8 @@ export function j5StructuredEvidence(output) {
 }
 
 /**
- * Playwright ไม่ใช่ TAP: ผ่านต้องมี `N passed` > 0 และไม่มี failed/flaky/skipped/did not run/interrupted
- * — flaky ที่ผ่านเพราะ retry ถือว่าไม่ผ่าน (#333 §1)
+ * Playwright is not TAP: a pass needs `N passed` > 0 and no failed/flaky/skipped/did not run/interrupted
+ * - a flaky test that passes because of a retry counts as not passing (#333 §1)
  */
 export function parsePlaywrightSummary(output) {
   const text = String(output);
@@ -448,7 +448,7 @@ export function executeJ5Suite(suite, runner = spawnSync) {
 
 function runGit(arguments_) {
   const result = spawnSync('git', arguments_, { cwd: repositoryRoot, encoding: 'utf8' });
-  if (result.status !== 0 || result.error) throw new Error(`git ${arguments_.join(' ')} ล้มเหลว`);
+  if (result.status !== 0 || result.error) throw new Error(`git ${arguments_.join(' ')} failed`);
   return String(result.stdout).trim();
 }
 
@@ -457,7 +457,7 @@ function repositoryName(environment) {
   const match = runGit(['config', '--get', 'remote.origin.url']).match(
     /(?:github\.com[/:])([^/]+\/[^/.]+)(?:\.git)?$/,
   );
-  if (!match) throw new TypeError('ไม่สามารถระบุ repository สำหรับ J5 manifest');
+  if (!match) throw new TypeError('cannot determine the repository for the J5 manifest');
   return match[1];
 }
 
@@ -585,7 +585,7 @@ export function j5MarkerBlockers(context, checks, scope = 'full') {
     blockers.push('CHECKS_NOT_ALL_PASS');
   if (context.pullRequest !== null) blockers.push('PULL_REQUEST_RUN');
   if (context.ref !== 'refs/heads/main') blockers.push('NOT_DEFAULT_BRANCH_REF');
-  // ADR-032: commit ต้องอยู่บน main แล้ว (ancestor ของ origin/main) ไม่ต้องเป็น HEAD
+  // ADR-032: the commit must already be on main (an ancestor of origin/main); it need not be HEAD
   if (!contextOnMain(context) || context.commitSha !== context.expectedCommitSha)
     blockers.push('NOT_FINAL_MAIN_SHA');
   if (!context.cleanTree) blockers.push('DIRTY_TREE');
@@ -743,44 +743,44 @@ export function createCxaJ5EvidenceManifest(context, checks, summary, suites, di
 const FULL_SHA = /^[0-9a-f]{40}$/i;
 
 export function assertValidCxaJ5EvidenceManifest(manifest) {
-  // PII/credential ก่อน validation อื่นทั้งหมด (#333 §7)
+  // PII/credential check before all other validation (#333 §7)
   assertPiiSafeEvidence(manifest);
   if (
     manifest.schemaVersion !== 1 ||
     manifest.phase !== 'J5' ||
     manifest.evidenceType !== 'development-acceptance'
   )
-    throw new TypeError('J5 manifest มี schemaVersion/phase/evidenceType ไม่ถูกต้อง');
+    throw new TypeError('J5 manifest has an invalid schemaVersion/phase/evidenceType');
   if (!['full', 'focused'].includes(manifest.scope))
-    throw new TypeError('J5 manifest ต้องระบุ scope full หรือ focused');
+    throw new TypeError('J5 manifest must specify a scope of full or focused');
   for (const field of ['commitSha', 'finalMainSha', 'expectedCommitSha']) {
     if (!FULL_SHA.test(manifest[field] ?? ''))
-      throw new TypeError(`J5 manifest ต้องมี ${field} แบบ SHA เต็ม`);
+      throw new TypeError(`J5 manifest must have a full SHA for ${field}`);
   }
   if (JSON.stringify(manifest.flags) !== JSON.stringify(J5_FIXED_FLAGS))
-    throw new TypeError('J5 manifest flags ไม่ตรง fixed flags');
+    throw new TypeError('J5 manifest flags do not match the fixed flags');
 
   const expected = j5Checks(manifest.scope);
   const registered = new Map(expected.map((item) => [item.id, item]));
   const checks = manifest.checks ?? [];
   if (new Set(checks.map((item) => item.id)).size !== checks.length)
-    throw new TypeError('J5 manifest มี check ซ้ำ');
+    throw new TypeError('J5 manifest has a duplicate check');
   const unknown = checks.find((item) => !registered.has(item.id));
-  if (unknown) throw new TypeError(`J5 manifest มี check ที่ไม่อยู่ใน scope: ${unknown.id}`);
+  if (unknown) throw new TypeError(`J5 manifest has a check outside the scope: ${unknown.id}`);
   if (checks.length !== expected.length)
     throw new TypeError(
-      `J5 manifest scope ${manifest.scope} ต้องมี check ครบ ${expected.length} ตัว`,
+      `J5 manifest scope ${manifest.scope} must have all ${expected.length} checks`,
     );
   if (checks.some((item) => registered.get(item.id).dimension !== item.dimension))
-    throw new TypeError('J5 manifest มี dimension ของ check ไม่ตรง registry');
+    throw new TypeError('J5 manifest has a check dimension that does not match the registry');
   const dimensions = manifest.dimensions ?? [];
   if (dimensions.length !== J5_DIMENSIONS.length)
-    throw new TypeError('J5 manifest ต้องมีครบ 9 dimensions');
+    throw new TypeError('J5 manifest must have all 9 dimensions');
   for (const name of J5_DIMENSIONS) {
     const dimension = dimensions.find((item) => item.name === name);
     const inScope = expected.filter((item) => item.dimension === name).length;
     if (!dimension || dimension.checks !== inScope)
-      throw new TypeError(`J5 manifest dimension ${name} ไม่ตรงกับ checks`);
+      throw new TypeError(`J5 manifest dimension ${name} does not match the checks`);
     const derived =
       inScope === 0
         ? 'NOT_RUN'
@@ -788,27 +788,31 @@ export function assertValidCxaJ5EvidenceManifest(manifest) {
           ? 'PASS'
           : 'FAIL';
     if (dimension.status !== derived)
-      throw new TypeError(`J5 manifest dimension ${name} ต้อง derive จาก checks เท่านั้น`);
+      throw new TypeError(`J5 manifest dimension ${name} must be derived from the checks only`);
   }
 
   const suites = new Map((manifest.suites ?? []).map((suite) => [suite.id, suite]));
   if (suites.size === 0 || suites.size !== (manifest.suites ?? []).length)
-    throw new TypeError('J5 manifest ต้องมี suites ที่ id ไม่ซ้ำ');
+    throw new TypeError('J5 manifest must have suites with unique ids');
   const commands = (manifest.suites ?? []).map((suite) => suiteKey(suite.command));
   if (new Set(commands).size !== commands.length)
-    throw new TypeError('J5 manifest รัน suite เดียวกันซ้ำใน run เดียว');
+    throw new TypeError('J5 manifest runs the same suite more than once in a single run');
   for (const item of checks) {
     const subchecks = item.subchecks ?? [];
     if (subchecks.length !== registered.get(item.id).commands.length)
-      throw new TypeError(`J5 check ${item.id} ต้องอ้าง suite ครบตาม registry`);
+      throw new TypeError(`J5 check ${item.id} must reference every suite per the registry`);
     for (const subcheck of subchecks) {
       const suite = suites.get(subcheck.suiteId);
       if (!suite || suite.status !== subcheck.status || !suite.checkIds.includes(item.id))
-        throw new TypeError(`J5 check ${item.id} อ้าง suite ที่ไม่ตรงกับผลของ suite`);
+        throw new TypeError(
+          `J5 check ${item.id} references a suite that does not match the suite result`,
+        );
     }
     const derived = subchecks.every((subcheck) => subcheck.status === 'PASS') ? 'PASS' : 'FAIL';
     if (item.status !== derived)
-      throw new TypeError(`J5 check ${item.id} มี status ไม่ตรงกับ suite ที่อ้าง`);
+      throw new TypeError(
+        `J5 check ${item.id} has a status that does not match the referenced suite`,
+      );
   }
 
   const artifacts = manifest.artifacts ?? [];
@@ -816,43 +820,47 @@ export function assertValidCxaJ5EvidenceManifest(manifest) {
     artifacts.length !== checks.length ||
     new Set(artifacts.map(({ id }) => id)).size !== checks.length
   )
-    throw new TypeError('J5 manifest ต้องมี evidence artifact หนึ่งรายการต่อ check');
+    throw new TypeError('J5 manifest must have one evidence artifact per check');
   for (const artifact of artifacts) {
     const item = checks.find(({ id }) => `check:${id}` === artifact.id);
-    if (!item) throw new TypeError('J5 evidence artifact อ้าง check ที่ไม่มี');
+    if (!item) throw new TypeError('J5 evidence artifact references a check that does not exist');
     if (artifact.commitSha !== manifest.commitSha)
-      throw new TypeError('J5 evidence artifact อ้าง commit ไม่ตรงกับ manifest');
+      throw new TypeError(
+        'J5 evidence artifact references a commit that does not match the manifest',
+      );
     if (artifact.sha256 !== sha256(item))
-      throw new TypeError('SHA-256 ของ J5 evidence artifact ไม่ตรงกับ check');
+      throw new TypeError('SHA-256 of the J5 evidence artifact does not match the check');
   }
 
   const markers = manifest.markers ?? [];
   if (markers.some((marker) => marker !== J5_MARKER) || new Set(markers).size !== markers.length)
-    throw new TypeError('J5 manifest มี marker ไม่ถูกต้อง');
+    throw new TypeError('J5 manifest has an invalid marker');
   if (markers.length === 0) {
     if (manifest.candidate !== true || manifest.entryCondition !== 'NOT_READY')
-      throw new TypeError('J5 manifest ที่ไม่มี marker ต้องเป็น candidate และ NOT_READY');
+      throw new TypeError('a J5 manifest without a marker must be a candidate and NOT_READY');
     return;
   }
 
   if (manifest.scope !== 'full')
-    throw new TypeError('focused run ออก J5 marker ไม่ได้ ได้แค่ candidate manifest');
+    throw new TypeError('a focused run cannot issue the J5 marker, only a candidate manifest');
   if (manifest.candidate !== false || (manifest.markerBlockers ?? []).length > 0)
-    throw new TypeError('J5 marker ออกพร้อม candidate/blocker ไม่ได้');
+    throw new TypeError('a J5 marker cannot be issued together with a candidate/blocker');
   if (
     checks.some((item) => item.status !== 'PASS') ||
     [...suites.values()].some((suite) => suite.status !== 'PASS')
   )
-    throw new TypeError(`${J5_MARKER} ต้องมีทุก check/suite PASS (ไม่มี skip/flaky/waiver)`);
+    throw new TypeError(`${J5_MARKER} needs every check/suite to PASS (no skip/flaky/waiver)`);
   if (manifest.pullRequest?.number !== null && manifest.pullRequest?.number !== undefined)
-    throw new TypeError('PR run ออก J5 marker ไม่ได้');
+    throw new TypeError('a PR run cannot issue the J5 marker');
   if (
     manifest.refProof?.commitOnMain !== true ||
     manifest.commitSha !== manifest.expectedCommitSha ||
     manifest.refProof?.ref !== 'refs/heads/main' ||
     manifest.refProof?.cleanTree !== true
   )
-    throw new TypeError('J5 marker ต้องมาจาก clean commit ที่อยู่บน main แล้ว (ADR-032)');
+    throw new TypeError(
+      'the J5 marker must come from a clean commit that is already on main (ADR-032)',
+    );
   if (
     manifest.artifact?.immutable !== true ||
     manifest.artifact?.name !== `cxa-j5-evidence-${manifest.commitSha}` ||
@@ -860,27 +868,29 @@ export function assertValidCxaJ5EvidenceManifest(manifest) {
       manifest.artifact?.url ?? '',
     )
   )
-    throw new TypeError('J5 marker ต้องอ้าง immutable CI artifact');
+    throw new TypeError('the J5 marker must reference an immutable CI artifact');
   if (
     J5_DEPENDENCY_PHASES.some(
       ({ phase }) => manifest.dependencies?.[phase]?.status !== 'ACCEPTED_SAME_SHA',
     )
   )
-    throw new TypeError('J5 marker ต้องมี J1/J2/J3/CG3 marker บน SHA เดียวกัน');
+    throw new TypeError('the J5 marker must have the J1/J2/J3/CG3 markers on the same SHA');
   if (
     JSON.stringify(manifest.ownerProfiles) !== JSON.stringify(J5_OWNER_PROFILES) ||
     JSON.stringify(manifest.environmentProfiles) !== JSON.stringify(J5_ENVIRONMENT_PROFILES)
   )
-    throw new TypeError('J5 marker ต้องมี owner/environment profiles ตรง contract');
+    throw new TypeError(
+      'the J5 marker must have owner/environment profiles that match the contract',
+    );
   if (manifest.browser?.axeWcag22 !== true || !(manifest.browser?.traces > 0))
-    throw new TypeError('J5 marker ต้องมี browser/accessibility evidence');
+    throw new TypeError('the J5 marker must have browser/accessibility evidence');
   if (manifest.negativeScan?.status !== 'PASS' || manifest.negativeScan?.bundleScanned !== true)
-    throw new TypeError('J5 marker ต้องผ่าน negative scans รวม built bundle');
+    throw new TypeError('the J5 marker must pass the negative scans including the built bundle');
   if (
     manifest.migration?.schema?.existing !== 'PASS' ||
     manifest.migration?.schema?.fresh !== 'PASS'
   )
-    throw new TypeError('J5 marker ต้องพิสูจน์ migration ทั้ง fresh และ existing');
+    throw new TypeError('the J5 marker must prove the migration both fresh and existing');
 }
 
 // ── Runner ──────────────────────────────────────────────────────────────────

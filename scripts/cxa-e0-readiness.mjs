@@ -24,7 +24,7 @@ export const CXA_E0_READINESS_CHECKS = [
   {
     id: 'functional',
     dimension: 'functional',
-    dependency: 'E0 contracts และ DC_EXPR V1',
+    dependency: 'E0 contracts and DC_EXPR V1',
     boundaries: [
       'resolved/ambiguous/not-found',
       'scope allow/deny',
@@ -36,23 +36,23 @@ export const CXA_E0_READINESS_CHECKS = [
       [pnpm, '--filter', '@d-contact/expression', 'test'],
       [pnpm, '--filter', '@d-contact/contact-governance', 'test'],
     ],
-    remediation: 'ตรวจ CXA contract fixture และ DC_EXPR V1 conformance',
+    remediation: 'Check the CXA contract fixture and DC_EXPR V1 conformance',
   },
   {
     id: 'tenant-isolation',
     dimension: 'tenant-isolation',
-    dependency: 'tenant RLS และ cross-tenant rejection',
+    dependency: 'tenant RLS and cross-tenant rejection',
     boundaries: ['two tenant fixture', 'cross-tenant ID swap', 'reservation/scope fail closed'],
     commands: [[pnpm, '--filter', '@d-contact/db', 'test:integration']],
-    remediation: 'ตรวจ RLS, tenant context และ cross-tenant mutation/read rejection',
+    remediation: 'Check RLS, tenant context and cross-tenant mutation/read rejection',
   },
   {
     id: 'authorization',
     dimension: 'authorization',
-    dependency: 'trusted Customer Context และ Team scope ก่อน Governance',
+    dependency: 'trusted Customer Context and Team scope before Governance',
     boundaries: ['caller-provided membership is not trusted', 'scope allow/deny', 'fail closed'],
     commands: [[pnpm, '--filter', '@d-contact/journey', 'test:integration']],
-    remediation: 'ตรวจ Journey scope gate และ composition adapter ก่อน Governance',
+    remediation: 'Check the Journey scope gate and the composition adapter before Governance',
   },
   {
     id: 'idempotency',
@@ -63,7 +63,7 @@ export const CXA_E0_READINESS_CHECKS = [
       [pnpm, '--filter', '@d-contact/contact-governance', 'test:integration'],
       [pnpm, '--filter', '@d-contact/kafka', 'test'],
     ],
-    remediation: 'ตรวจ Kafka idempotency contract และ stable action/delivery identity',
+    remediation: 'Check the Kafka idempotency contract and stable action/delivery identity',
   },
   {
     id: 'concurrency',
@@ -71,7 +71,7 @@ export const CXA_E0_READINESS_CHECKS = [
     dependency: 'single business effect under concurrent claims/events',
     boundaries: ['concurrent event', 'reservation/delivery claim', 'one durable effect'],
     commands: [[pnpm, '--filter', '@d-contact/cxa-contracts', 'test']],
-    remediation: 'ตรวจ concurrent claim/enqueue conformance และ conflict behavior',
+    remediation: 'Check concurrent claim/enqueue conformance and conflict behavior',
   },
   {
     id: 'recovery',
@@ -79,12 +79,12 @@ export const CXA_E0_READINESS_CHECKS = [
     dependency: 'crash/restart/reconcile boundary',
     boundaries: ['crash before/after commit', 'restart duplicate', 'provider timeout reconcile'],
     commands: [[pnpm, '--filter', '@d-contact/journey', 'test:integration']],
-    remediation: 'ตรวจ durable Journey consumer, rollback และ provider reconcile fixture',
+    remediation: 'Check the durable Journey consumer, rollback and the provider reconcile fixture',
   },
   {
     id: 'migration-compatibility',
     dimension: 'migration-compatibility',
-    dependency: 'schema migration และ Kafka V1/V2 rollback decoder',
+    dependency: 'schema migration and Kafka V1/V2 rollback decoder',
     boundaries: [
       'existing/fresh migration',
       'V1 legacy decode',
@@ -95,24 +95,25 @@ export const CXA_E0_READINESS_CHECKS = [
       [process.execPath, 'scripts/cxa-schema-readiness.mjs'],
       [pnpm, '--filter', '@d-contact/kafka', 'test'],
     ],
-    remediation: 'ตรวจ fresh migration และ V1/V2 compatibility/rollback decoder',
+    remediation: 'Check the fresh migration and the V1/V2 compatibility/rollback decoder',
   },
   {
     id: 'observability-pii-redaction',
     dimension: 'observability-pii-redaction',
-    dependency: 'trace metadata และ non-PII Journey ingress',
+    dependency: 'trace metadata and non-PII Journey ingress',
     boundaries: ['correlation/causation', 'reason code/version', 'no raw PII key/header/log'],
     commands: [
       [pnpm, '--filter', '@d-contact/journey', 'test'],
       [process.execPath, 'scripts/cxa-e0-profile-readiness.mjs'],
     ],
     evidencePrefix: 'CXA_E0_ADAPTER_PROFILE_EVIDENCE:',
-    remediation: 'ตรวจ Journey Kafka key/header/log และ adapter profile ที่ไม่มี provider traffic',
+    remediation:
+      'Check the Journey Kafka key/header/log and an adapter profile with no provider traffic',
   },
   {
     id: 'regression',
     dimension: 'regression',
-    dependency: 'CXA Foundation และ Inbound Voice critical regression',
+    dependency: 'CXA Foundation and Inbound Voice critical regression',
     boundaries: [
       'root build',
       'root typecheck',
@@ -126,7 +127,7 @@ export const CXA_E0_READINESS_CHECKS = [
       [pnpm, 'lint'],
       [pnpm, 'cxa:phase1:acceptance'],
     ],
-    remediation: 'แก้ build/typecheck/lint หรือ CXA/Inbound Voice regression ก่อนยอมรับ E0',
+    remediation: 'Fix build/typecheck/lint or the CXA/Inbound Voice regression before accepting E0',
   },
 ];
 
@@ -164,14 +165,14 @@ export function assertPiiSafeEvidence(value) {
     if (candidate && typeof candidate === 'object') {
       for (const [key, nested] of Object.entries(candidate)) {
         if (sensitiveKey.test(key))
-          throw new TypeError(`evidence มี field ต้องห้าม: ${path}.${key}`);
+          throw new TypeError(`evidence has a forbidden field: ${path}.${key}`);
         visit(nested, `${path}.${key}`, key);
       }
       return;
     }
     const isDigestOrCommit = /^(?:sha256|commitSha|baseSha)$/i.test(fieldName);
-    // GitHub Actions run ID เป็น metadata ของ evidence bundle ไม่ใช่ business identifier
-    // จึงอาจเหมือนรูปแบบเบอร์โทรไทยโดยบังเอิญได้
+    // The GitHub Actions run ID is evidence bundle metadata, not a business identifier,
+    // so it may coincidentally look like a Thai phone number
     const isGitHubActionsRunId = path === '$.run.id';
     if (
       !isDigestOrCommit &&
@@ -179,7 +180,7 @@ export function assertPiiSafeEvidence(value) {
       typeof candidate === 'string' &&
       sensitiveValue.some((pattern) => pattern.test(candidate))
     ) {
-      throw new TypeError(`evidence มี PII หรือ credential ที่ตำแหน่ง ${path}`);
+      throw new TypeError(`evidence has PII or a credential at ${path}`);
     }
   };
   visit(value);
@@ -188,7 +189,7 @@ export function assertPiiSafeEvidence(value) {
 function runGit(arguments_) {
   const result = spawnSync('git', arguments_, { cwd: repositoryRoot, encoding: 'utf8' });
   if (result.status !== 0 || result.error) {
-    throw new Error(`git ${arguments_.join(' ')} ล้มเหลว`);
+    throw new Error(`git ${arguments_.join(' ')} failed`);
   }
   return String(result.stdout).trim();
 }
@@ -197,7 +198,7 @@ function repositoryName(environment) {
   if (environment.GITHUB_REPOSITORY) return environment.GITHUB_REPOSITORY;
   const remote = runGit(['config', '--get', 'remote.origin.url']);
   const match = remote.match(/(?:github\.com[/:])([^/]+\/[^/.]+)(?:\.git)?$/);
-  if (!match) throw new TypeError('ไม่สามารถระบุ repository สำหรับ evidence manifest');
+  if (!match) throw new TypeError('cannot determine the repository for the evidence manifest');
   return match[1];
 }
 
@@ -205,7 +206,7 @@ export function createEvidenceContext(environment = process.env) {
   const commitSha = runGit(['rev-parse', 'HEAD']);
   const expectedCommitSha = environment.CXA_E0_EXPECTED_COMMIT_SHA;
   if (expectedCommitSha && expectedCommitSha !== commitSha) {
-    throw new TypeError('CXA_E0_EXPECTED_COMMIT_SHA ไม่ตรงกับ commit ที่กำลังรัน');
+    throw new TypeError('CXA_E0_EXPECTED_COMMIT_SHA does not match the running commit');
   }
   return {
     repository: repositoryName(environment),
@@ -303,24 +304,24 @@ export function createCxaE0EvidenceManifest(context, diagnostics, summary) {
 export function assertValidEvidenceManifest(manifest) {
   assertPiiSafeEvidence(manifest);
   if (manifest.phase !== 'E0' || manifest.schemaVersion !== 1) {
-    throw new TypeError('evidence manifest มี phase หรือ schemaVersion ไม่ถูกต้อง');
+    throw new TypeError('evidence manifest has an invalid phase or schemaVersion');
   }
   if (!/^[0-9a-f]{40}$/i.test(manifest.commitSha)) {
-    throw new TypeError('evidence manifest ต้องมี commit SHA เต็มรูปแบบ');
+    throw new TypeError('evidence manifest must have a full commit SHA');
   }
   if (manifest.marker !== undefined && manifest.marker !== E0_MARKER) {
-    throw new TypeError('evidence manifest มี marker ไม่ถูกต้อง');
+    throw new TypeError('evidence manifest has an invalid marker');
   }
   const checks = manifest.checks ?? [];
   const artifacts = manifest.artifacts ?? [];
   for (const artifact of artifacts) {
     if (artifact.commitSha !== manifest.commitSha) {
-      throw new TypeError('evidence artifact อ้าง commit ไม่ตรงกับ manifest');
+      throw new TypeError('evidence artifact references a commit that does not match the manifest');
     }
     const checkId = String(artifact.id).replace(/^check:/, '');
     const check = checks.find(({ id }) => id === checkId);
     if (!check || artifact.sha256 !== sha256(check)) {
-      throw new TypeError('SHA-256 ของ evidence artifact ไม่ตรงกับ check');
+      throw new TypeError('SHA-256 of the evidence artifact does not match the check');
     }
   }
   if (manifest.marker !== E0_MARKER) return;
@@ -334,13 +335,15 @@ export function assertValidEvidenceManifest(manifest) {
       checks.find((check) => check.dimension === dimension)?.status === 'PASS',
   );
   if (!mandatoryChecksPassed || checks.length !== E0_DIMENSIONS.length) {
-    throw new TypeError('marker ต้องมี mandatory E0 checks ทั้งเก้ามิติและทุกมิติ PASS');
+    throw new TypeError(
+      'marker must have the mandatory E0 checks in all nine dimensions, and every dimension PASS',
+    );
   }
   if (
     artifacts.length !== checks.length ||
     new Set(artifacts.map(({ id }) => id)).size !== checks.length
   ) {
-    throw new TypeError('marker ต้องมี evidence artifact หนึ่งรายการต่อ check');
+    throw new TypeError('marker must have one evidence artifact per check');
   }
   const adapterProfileEvidence = checks
     .find(({ id }) => id === 'observability-pii-redaction')
@@ -352,7 +355,9 @@ export function assertValidEvidenceManifest(manifest) {
         evidence.actualProviderTraffic === false,
     );
   if (!adapterProfileEvidence) {
-    throw new TypeError('marker ต้องมี evidence ว่า TEST_ADAPTER ปิด actual provider traffic');
+    throw new TypeError(
+      'marker must have evidence that TEST_ADAPTER disables actual provider traffic',
+    );
   }
 }
 

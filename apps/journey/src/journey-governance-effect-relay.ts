@@ -1,7 +1,7 @@
 /**
- * S1.5 relay สำหรับ side effect ที่เกิดจาก CG3 invalidation.
- * แยก call ข้าม owner ออกจาก consumer transaction: acknowledgement APPLIED จึงพิสูจน์
- * ได้ว่า action cursor และ command ที่ durable ถูก commit แล้ว แม้ relay ต้อง retry.
+ * S1.5 relay for side effects arising from CG3 invalidation.
+ * Splits the cross-owner call out of the consumer transaction: an APPLIED acknowledgement therefore proves
+ * that the action cursor and the durable command were committed, even if the relay must retry.
  */
 import { randomUUID } from 'node:crypto';
 import { Prisma, type PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
@@ -32,7 +32,7 @@ export class JourneyGovernanceEffectRelay {
     this.metrics = options.metrics ?? noOpJourneyGovernanceMetrics;
   }
 
-  /** ส่งได้สูงสุดหนึ่ง command; caller กำหนด polling/backoff เอง. */
+  /** Sends at most one command; the caller decides polling/backoff itself. */
   async executeNext(tenantId: string): Promise<'SUCCEEDED' | 'RETRY' | undefined> {
     const claimed = await withTenantDatabaseTransaction(
       this.database,
@@ -187,7 +187,7 @@ export class JourneyGovernanceEffectRelay {
     }
   }
 
-  /** ใช้กับ loop monitor เพื่อรายงาน command ที่รอ reconcile โดยไม่มี identifier หรือ PII. */
+  /** Used by the monitor loop to report commands waiting for reconcile without any identifier or PII. */
   async observeReconcileBacklog(tenantId: string): Promise<void> {
     const pending = await withTenantDatabaseTransaction(this.database, tenantId, (transaction) =>
       transaction.jrGovernanceEffectOutbox.count({

@@ -180,12 +180,12 @@ finish() {
 }
 
 # ──────────────────────────────────────────────────────────────────────────
-# STAGES: S2.7 (#368) LINE capped pilot — setup ที่ผู้ใช้ทำเองก่อน PR01/PR02/RB01
+# STAGES: S2.7 (#368) LINE capped pilot - setup the user does by hand before PR01/PR02/RB01
 # ──────────────────────────────────────────────────────────────────────────
 #
-# รันจาก root ของ repo:  bash scripts/s2-line-pilot-setup.sh
-# secret (token/channel secret/payload key) ไปลง macOS Keychain เท่านั้น — wizard ไม่เห็นค่า
-# .env ได้แค่ reference/โหมด; หยุดก่อน actual push ซึ่ง agent ต้องแสดง proposal ให้อนุมัติ
+# run from the repo root:  bash scripts/s2-line-pilot-setup.sh
+# secrets (token/channel secret/payload key) go only into the macOS Keychain - the wizard never sees the values
+# .env gets only references/modes; stop before the actual push, for which the agent must show a proposal for approval
 
 TOTAL_STAGES=8
 
@@ -194,68 +194,68 @@ SERVICE="d-contact.line.${CHANNEL_ID}"
 REPO="Kitti-Nualsalee/dcontact"
 CONSOLE="https://developers.line.biz/console/channel/${CHANNEL_ID}"
 
-# load_env ให้คำสั่ง pnpm เห็นค่าใน .env (DATABASE_URL และ reference ที่ wizard เขียน)
+# load_env makes the pnpm commands see the values in .env (DATABASE_URL and the references the wizard wrote)
 load_env() { set -a; # shellcheck disable=SC1090
   . "./$ENV_FILE"; set +a; }
 
-# keychain_has ACCOUNT: มี item แล้วหรือยัง (ไม่อ่านค่า)
+# keychain_has ACCOUNT: does the item exist yet (does not read the value)
 keychain_has() { security find-generic-password -s "$SERVICE" -a "$1" >/dev/null 2>&1; }
 
-# keychain_prompt ACCOUNT: ให้ `security` ถามค่าเอง (-w ท้ายสุดไม่ใส่ค่า) ค่าจึงไม่ผ่าน wizard/argv
+# keychain_prompt ACCOUNT: let `security` ask for the value itself (the final -w has no value) so the value does not pass through the wizard/argv
 keychain_prompt() {
-  say "วางค่าเมื่อ security ถาม (ไม่แสดงบนจอ) — ระบบจะถามสองครั้ง"
+  say "Paste the value when security asks (it is not shown on screen) - it will ask twice"
   security add-generic-password -U -s "$SERVICE" -a "$1" -w
 }
 
 pilot_setup() { load_env; pnpm --silent --filter @d-contact/delivery pilot:setup "$@"; }
 
-[[ "$(uname -s)" == "Darwin" ]] || { printf '%s\n' "wizard นี้ใช้ได้บน macOS เท่านั้น (Keychain)"; exit 1; }
-[[ -f package.json && -d apps/delivery ]] || { printf '%s\n' "รันจาก root ของ repo dcontact"; exit 1; }
+[[ "$(uname -s)" == "Darwin" ]] || { printf '%s\n' "this wizard works only on macOS (Keychain)"; exit 1; }
+[[ -f package.json && -d apps/delivery ]] || { printf '%s\n' "run from the root of the dcontact repo"; exit 1; }
 
 banner "S2 LINE pilot setup (#368)"
 
 # ── 1 ────────────────────────────────────────────────────────────────────
-stage "Keychain: token, channel secret และ payload key"
-say "ค่าลับทั้งสามเก็บใน Keychain service ${SERVICE} เท่านั้น"
+stage "Keychain: token, channel secret and payload key"
+say "All three secrets are kept only in the Keychain service ${SERVICE}"
 open_url "${CONSOLE}/messaging-api"
-step "Messaging API → Channel access token: ออก token ใหม่สำหรับ pilot ครั้งนี้"
-note "แนะนำ v2.1 (อายุ ≤30 วัน, ออกด้วย JWT ตาม https://developers.line.biz/en/docs/messaging-api/generate-json-web-token/)"
-note "ปุ่ม Issue ในหน้านี้ออก long-lived token — ใช้ได้เฉพาะเมื่อมี test-only exception และต้อง revoke หลัง S2"
-ask CXA_S2_CREDENTIAL_KIND "ชนิด token ที่ออก (V2_1 หรือ LONG_LIVED):"
+step "Messaging API -> Channel access token: issue a new token for this pilot"
+note "v2.1 is recommended (lifetime <= 30 days, issued with a JWT per https://developers.line.biz/en/docs/messaging-api/generate-json-web-token/)"
+note "the Issue button on this page issues a long-lived token - usable only with a test-only exception and must be revoked after S2"
+ask CXA_S2_CREDENTIAL_KIND "Kind of token issued (V2_1 or LONG_LIVED):"
 if [[ "$CXA_S2_CREDENTIAL_KIND" == "LONG_LIVED" ]]; then
-  ask CXA_S2_LONG_LIVED_EXCEPTION_REF "exception ref ที่อนุมัติ long-lived (เช่น issue/comment URL):"
+  ask CXA_S2_LONG_LIVED_EXCEPTION_REF "exception ref approving the long-lived token (e.g. an issue/comment URL):"
   write_env CXA_S2_LONG_LIVED_EXCEPTION_REF "$CXA_S2_LONG_LIVED_EXCEPTION_REF"
 elif [[ "$CXA_S2_CREDENTIAL_KIND" != "V2_1" ]]; then
-  warn "ต้องเป็น V2_1 หรือ LONG_LIVED"; exit 1
+  warn "must be V2_1 or LONG_LIVED"; exit 1
 fi
 write_env CXA_S2_CREDENTIAL_KIND "$CXA_S2_CREDENTIAL_KIND"
-if ! keychain_has channel-access-token || confirm "มี channel-access-token อยู่แล้ว — แทนด้วย token ใหม่?"; then
-  step "คัดลอก channel access token"
+if ! keychain_has channel-access-token || confirm "channel-access-token already exists - replace it with a new token?"; then
+  step "Copy the channel access token"
   keychain_prompt channel-access-token
 fi
 open_url "${CONSOLE}/basics"
-step "Basic settings → Channel secret → คัดลอก"
-if ! keychain_has channel-secret || confirm "มี channel-secret อยู่แล้ว — แทนด้วยค่าใหม่?"; then
+step "Basic settings -> Channel secret -> copy"
+if ! keychain_has channel-secret || confirm "channel-secret already exists - replace it with a new value?"; then
   keychain_prompt channel-secret
 fi
 if ! keychain_has webhook-payload-key; then
-  # printf เป็น builtin จึงไม่มี process ใดเห็นค่าใน argv; ค่าไม่ถูกพิมพ์ออกจอ
+  # printf is a builtin so no process sees the value in argv; the value is not printed on screen
   printf 'add-generic-password -U -s %s -a webhook-payload-key -w %s\n' "$SERVICE" "$(openssl rand -base64 32)" | security -i >/dev/null
-  say "สร้าง webhook-payload-key (32 bytes) แล้ว"
+  say "Created webhook-payload-key (32 bytes)"
 fi
 for account in channel-access-token channel-secret webhook-payload-key; do
-  keychain_has "$account" || { warn "ยังไม่มี $account ใน Keychain"; exit 1; }
+  keychain_has "$account" || { warn "$account is not in the Keychain yet"; exit 1; }
 done
-printf '  %s✓%s Keychain ครบสาม item\n' "$GREEN" "$RESET"
+printf '  %s✓%s All three Keychain items present\n' "$GREEN" "$RESET"
 pause
 
 # ── 2 ────────────────────────────────────────────────────────────────────
-stage "Tenant ของ pilot และ .env"
-say "สร้าง dedicated test tenant (idempotent) และเขียน reference ลง ${ENV_FILE}"
+stage "The pilot tenant and .env"
+say "Create a dedicated test tenant (idempotent) and write the references to ${ENV_FILE}"
 [[ -f "$ENV_FILE" ]] || cp .env.example "$ENV_FILE"
-ask CXA_S2_OPERATOR_REF "actor ref ของ Platform Operator (เช่น operator:<ชื่อ>):"
-ask CXA_S2_COMPLIANCE_REF "actor ref ของ Compliance (ต้องต่างจาก operator):"
-[[ "$CXA_S2_OPERATOR_REF" != "$CXA_S2_COMPLIANCE_REF" ]] || { warn "สอง ref ต้องต่างกัน (#358 §E)"; exit 1; }
+ask CXA_S2_OPERATOR_REF "actor ref of the Platform Operator (e.g. operator:<name>):"
+ask CXA_S2_COMPLIANCE_REF "actor ref of Compliance (must differ from the operator):"
+[[ "$CXA_S2_OPERATOR_REF" != "$CXA_S2_COMPLIANCE_REF" ]] || { warn "the two refs must differ (#358 §E)"; exit 1; }
 write_env CXA_S2_OPERATOR_REF "$CXA_S2_OPERATOR_REF"
 write_env CXA_S2_COMPLIANCE_REF "$CXA_S2_COMPLIANCE_REF"
 write_env CXA_S2_PILOT_SENDER "d-contact-line-oa-${CHANNEL_ID}"
@@ -270,77 +270,77 @@ write_env LINE_WEBHOOK_DESTINATION "$DESTINATION"
 pause
 
 # ── 3 ────────────────────────────────────────────────────────────────────
-stage "ngrok + API โหมด keychain + webhook URL"
-say "เปิด terminal ใหม่สองอัน (ค้างไว้ตลอด pilot):"
+stage "ngrok + API in keychain mode + the webhook URL"
+say "Open two new terminals (leave them open for the whole pilot):"
 step "terminal A:  set -a; . ./.env; set +a; pnpm --filter @d-contact/api dev"
 step "terminal B:  ngrok http 3000"
-warn "URL ของ ngrok ฟรีเปลี่ยนทุกครั้งที่เริ่มใหม่ — ถ้าเปลี่ยนต้องรัน wizard ขั้นนี้และขั้น gate ใหม่"
-pause "เมื่อ API ขึ้นและ ngrok แสดง Forwarding https://… แล้ว กด Enter"
-ask CXA_S2_NGROK_URL "วาง Forwarding URL ของ ngrok (https://…):"
+warn "A free ngrok URL changes every time it restarts - if it changes you must re-run this wizard step and the gate step"
+pause "When the API is up and ngrok shows Forwarding https://..., press Enter"
+ask CXA_S2_NGROK_URL "Paste the Forwarding URL of ngrok (https://...):"
 ENDPOINT="${CXA_S2_NGROK_URL%/}/webhook/line"
 write_env CXA_S2_WEBHOOK_ENDPOINT "$ENDPOINT"
 open_url "${CONSOLE}/messaging-api"
 step "Messaging API → Webhook settings → Webhook URL: ${ENDPOINT}"
-step "เปิด 'Use webhook' แล้วกด Verify — ต้องได้ Success"
-pause "เมื่อ Verify ผ่านแล้ว กด Enter"
+step "Turn on 'Use webhook' and click Verify - you must get Success"
+pause "When Verify passes, press Enter"
 DIGEST=$(pilot_setup endpoint-digest "$ENDPOINT")
 write_env CXA_S2_APPROVED_WEBHOOK_ENDPOINT_DIGEST "$DIGEST"
 pause
 
 # ── 4 ────────────────────────────────────────────────────────────────────
-stage "Gate ของ pilot: DISABLED → DRY_RUN → PROVIDER_CONFORMANCE"
-say "Compliance เลื่อน gate พร้อม config digest ที่ผูกกับ endpoint นี้ (ยังส่งข้อความไม่ได้)"
-confirm "เลื่อน gate ด้วย actor ${CXA_S2_COMPLIANCE_REF:-compliance}?" || { warn "ยกเลิก"; exit 1; }
+stage "Pilot gate: DISABLED -> DRY_RUN -> PROVIDER_CONFORMANCE"
+say "Compliance advances the gate with the config digest bound to this endpoint (messages still cannot be sent)"
+confirm "Advance the gate as actor ${CXA_S2_COMPLIANCE_REF:-compliance}?" || { warn "cancelled"; exit 1; }
 pilot_setup gate "$ENDPOINT"
 pause
 
 # ── 5 ────────────────────────────────────────────────────────────────────
-stage "Credential ref: verify client_id แล้ว activate"
-say "อ่าน token จาก Keychain ใน process, ตรวจ client_id = ${CHANNEL_ID} แล้วบันทึกแค่ fingerprint"
+stage "Credential ref: verify the client_id and then activate"
+say "Read the token from the Keychain in-process, check client_id = ${CHANNEL_ID}, and record only the fingerprint"
 CREDENTIAL_REF_ID=$(pilot_setup credential)
 write_env CXA_S2_CREDENTIAL_REF_ID "$CREDENTIAL_REF_ID"
 pause
 
 # ── 6 ────────────────────────────────────────────────────────────────────
-stage "GitHub variables ของ provider job"
-say "reference เท่านั้น (ไม่มี secret) — workflow อ่านผ่าน vars.*"
+stage "GitHub variables of the provider job"
+say "References only (no secret) - the workflow reads them through vars.*"
 set_var CXA_S2_PILOT_TENANT_ID "$TENANT_ID"
 set_var CXA_S2_CREDENTIAL_REF_ID "$CREDENTIAL_REF_ID"
 set_var CXA_S2_APPROVED_WEBHOOK_ENDPOINT_DIGEST "$DIGEST"
-note "ต้องมีสิทธิ์ admin/maintain ของ ${REPO}; ถ้าข้าม ให้เจ้าของ repo ตั้งค่าตามสรุปตอนท้าย"
+note "admin/maintain rights on ${REPO} are required; if skipped, have the repo owner set them per the summary at the end"
 pause
 
 # ── 7 ────────────────────────────────────────────────────────────────────
 stage "GitHub environment line-provider-pilot"
 open_url "https://github.com/${REPO}/settings/environments/new"
 step "Name: line-provider-pilot → Configure environment"
-step "ติ๊ก Required reviewers แล้วเพิ่มผู้อนุมัติ provider run → Save protection rules"
-note "ต้องใช้สิทธิ์ admin ของ repo"
-pause "เมื่อบันทึกแล้ว กด Enter"
+step "Tick Required reviewers and add the approvers of the provider run -> Save protection rules"
+note "repo admin rights are required"
+pause "When saved, press Enter"
 if gh api "repos/${REPO}/environments/line-provider-pilot" >/dev/null 2>&1; then
-  printf '  %s✓%s พบ environment line-provider-pilot\n' "$GREEN" "$RESET"
+  printf '  %s✓%s environment line-provider-pilot found\n' "$GREEN" "$RESET"
 else
   SKIPPED+=("GitHub environment line-provider-pilot + required reviewer (admin)")
-  warn "ยังไม่พบ environment — เพิ่มในรายการที่ต้องทำเอง"
+  warn "environment not found - add it to the list of things to do by hand"
 fi
 pause
 
 # ── 8 ────────────────────────────────────────────────────────────────────
-stage "Self-hosted runner label line-pilot บนเครื่องนี้"
+stage "Self-hosted runner label line-pilot on this machine"
 open_url "https://github.com/${REPO}/settings/actions/runners/new?arch=arm64&os=osx"
-step "ทำตามคำสั่ง Download ในหน้านั้นในโฟลเดอร์ ~/actions-runner"
-step "ตอน Configure เพิ่ม:  ./config.sh --url https://github.com/${REPO} --token <token> --labels line-pilot"
-step "สร้างไฟล์ ~/actions-runner/.env ใส่ DATABASE_URL เดียวกับ ${ENV_FILE} (runner อ่านเข้า job env)"
-step "เริ่ม runner:  cd ~/actions-runner && ./run.sh   (ค้างไว้ระหว่าง pilot)"
-note "ต้องใช้สิทธิ์ admin ของ repo"
-pause "เมื่อ runner ขึ้น Idle ในหน้า Runners แล้ว กด Enter"
+step "Follow the Download commands on that page in the folder ~/actions-runner"
+step "At Configure add:  ./config.sh --url https://github.com/${REPO} --token <token> --labels line-pilot"
+step "Create the file ~/actions-runner/.env with the same DATABASE_URL as ${ENV_FILE} (the runner reads it into the job env)"
+step "Start the runner:  cd ~/actions-runner && ./run.sh   (leave it running during the pilot)"
+note "repo admin rights are required"
+pause "When the runner shows Idle on the Runners page, press Enter"
 if gh api "repos/${REPO}/actions/runners" --jq '.runners[].labels[].name' 2>/dev/null | grep -qx line-pilot; then
-  printf '  %s✓%s พบ runner label line-pilot\n' "$GREEN" "$RESET"
+  printf '  %s✓%s runner label line-pilot found\n' "$GREEN" "$RESET"
 else
-  SKIPPED+=("self-hosted runner label line-pilot (admin) — ตรวจจาก API ไม่ได้หรือยังไม่ลง")
-  warn "ตรวจ runner ไม่ได้ — เพิ่มในรายการที่ต้องทำเอง"
+  SKIPPED+=("self-hosted runner label line-pilot (admin) - cannot be checked from the API, or not installed yet")
+  warn "cannot check the runner - add it to the list of things to do by hand"
 fi
 pause
 
 finish
-note "ขั้นต่อไป: บอก agent ให้รัน PR01 — actual push (PR02) ต้องอนุมัติ proposal ด้วย digest ก่อนเสมอ"
+note "Next: tell the agent to run PR01 - the actual push (PR02) must always be approved as a proposal with its digest first"
