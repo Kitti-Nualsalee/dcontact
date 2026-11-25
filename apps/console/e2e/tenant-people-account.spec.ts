@@ -314,7 +314,7 @@ test('คำสั่งค้างแต่ server ไม่พบคำสั
   expect(writes).toHaveLength(1);
 });
 
-test('บัญชีจาก seed ที่ People แก้ไม่ได้: ปุ่มแก้ชื่อกดไม่ได้พร้อมคำอธิบาย ก่อนกรอกอะไร', async ({
+test('บัญชีจาก seed ที่ People แก้ไม่ได้: ปุ่มแก้ชื่อและปิดบัญชีกดไม่ได้พร้อมคำอธิบาย ก่อนกรอกอะไร', async ({
   page,
 }) => {
   const writes = await mockPeople(page, { disabled: false, unmanaged: true, respond: 'success' });
@@ -323,6 +323,13 @@ test('บัญชีจาก seed ที่ People แก้ไม่ได้
   );
   await expect(page.getByRole('button', { name: 'แก้ชื่อที่แสดง…', exact: true })).toBeDisabled();
   await expect(page.getByText(/บริการยืนยันตัวตนยังไม่พร้อม/)).toHaveCount(0);
+  // ปิดบัญชีก็ทำผ่าน People ไม่ได้เช่นกัน
+  const disable = page.getByRole('region', { name: 'ปิดบัญชี', exact: true });
+  await expect(disable).toContainText(
+    'ปิดบัญชีที่นี่ไม่ได้ เพราะบัญชีนี้ไม่ได้สร้างหรือเปิดใช้งานผ่านหน้า People',
+  );
+  await expect(disable.getByRole('button', { name: 'ปิดบัญชี…', exact: true })).toBeDisabled();
+  await expect(disable).not.toContainText('ยังปิดไม่ได้');
   expect(writes).toHaveLength(0);
 });
 

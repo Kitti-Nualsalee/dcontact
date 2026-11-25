@@ -29,7 +29,8 @@
     "notEligible": "This account can't be disabled yet: it isn't active, is still provisioning, or has a pending request.",
     "dialogTitle": "Disable {{name}}?",
     "submitting": "Disabling…",
-    "closed": "This account is disabled. To restore access, use the “Re-enable account” card."
+    "closed": "This account is disabled. To restore access, use the “Re-enable account” card.",
+    "notManaged": "This account wasn't created or activated through People, so it can't be disabled here. Contact your system administrator."
   },
   "pages": {
     "navigation": "People pages",

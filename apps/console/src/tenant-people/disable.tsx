@@ -9,6 +9,7 @@ import {
   type PeopleDirectoryApi,
   type PeopleDirectoryUser,
 } from './directory-api.js';
+import { accountStatus } from './directory.js';
 
 interface PendingDisable {
   commandId: string;
@@ -245,7 +246,10 @@ export function PeopleDisable({
     }
   }
   if (!api.disableReady || !api.disable || !api.disableOperation) return null;
+  // บัญชีที่ไม่มี lifecycle ของ People (เช่นบัญชีจาก seed) ระบบยืนยันตัวตนไม่ยอมให้ปิดผ่าน People
+  const managed = accountStatus(user) !== 'UNKNOWN';
   const eligible =
+    managed &&
     user.isActive &&
     !['DISABLING', 'DISABLED', 'ATTENTION_REQUIRED', 'PROVISIONING'].includes(user.accountState);
   // บัญชีปิดแล้วและไม่มีคำสั่งค้าง: การ์ดนี้ย่อเหลือบรรทัดเดียว ให้การ์ด "เปิดบัญชีกลับ" เป็นจุดทำงานต่อ
@@ -265,7 +269,9 @@ export function PeopleDisable({
   return (
     <section className="tp-panel" aria-label={label('disable.title')} aria-busy={busy}>
       <h3>{label('disable.title')}</h3>
-      {ready && !eligible && !pending && !closed ? (
+      {!managed && !pending && !closed ? (
+        <p className="tp-muted">{label('disable.notManaged')}</p>
+      ) : ready && !eligible && !pending && !closed ? (
         <p className="tp-muted">{label('disable.notEligible')}</p>
       ) : null}
       {closed && !status ? <p className="tp-muted">{label('disable.closed')}</p> : null}
