@@ -34,15 +34,15 @@ const APPLICATION_DATABASE_URL =
   'postgresql://dcontact_app:dcontact_app@localhost:5433/dcontact?schema=public';
 
 /**
- * เวลาที่ caller ใช้ถาม resolveEntry ต้องอยู่ "หลัง" evaluatedAt ของ change เสมอ
+ * The time the caller uses to ask resolveEntry must always be "after" the change's evaluatedAt
  *
- * evaluatedAt มาจาก transaction_timestamp() ของ Postgres คือเวลาจริงตอนรันเทส การ hardcode
- * วันที่ใกล้ ๆ ไว้จึงเป็น time bomb: พอเลยวันนั้นไป at จะน้อยกว่า evaluatedAt แล้ว resolveEntry
- * คืน STALE ทุกครั้งโดยไม่เกี่ยวกับสิ่งที่เทสตั้งใจตรวจ (เจอจริงตอนวันที่ข้ามไป 15 ก.ย.)
+ * evaluatedAt comes from Postgres transaction_timestamp(), i.e. the real time the test runs, so hardcoding
+ * a nearby date is a time bomb: once that day passes, at is earlier than evaluatedAt and resolveEntry
+ * returns STALE every time regardless of what the test means to check (actually hit when the date rolled over to 15 Sep)
  */
 const AFTER_EVALUATION = '2099-01-01T00:00:00.000Z';
 
-function segmentDefinition(name = 'ลูกค้า Gold'): C360SegmentDefinitionContentV1 {
+function segmentDefinition(name = 'Gold customers'): C360SegmentDefinitionContentV1 {
   return {
     contractVersion: 1,
     name,
@@ -185,7 +185,7 @@ function commitInput(
   };
 }
 
-test('membership lifecycle คง entry เดิมระหว่าง correction และสร้าง entry ใหม่เมื่อ re-entry', async (t) => {
+test('membership lifecycle keeps the original entry during a correction and creates a new entry on re-entry', async (t) => {
   const f = await fixture(t);
   await snapshot(f, f.contactId, 1, 'GOLD');
   const enteredInput = commitInput(f);
@@ -278,7 +278,7 @@ test('membership lifecycle คง entry เดิมระหว่าง correc
   assert.doesNotMatch(wire, /raw-owner-only|ownerOnlyMarker|GOLD|SILVER/);
 });
 
-test('concurrent evaluator ยอมรับ canonical revision เดียวและ quarantine ผู้แพ้', async (t) => {
+test('concurrent evaluators accept a single canonical revision and quarantine the loser', async (t) => {
   const f = await fixture(t);
   await snapshot(f, f.contactId, 1, 'GOLD');
   await snapshot(f, f.contactId, 2, 'GOLD');
@@ -301,7 +301,7 @@ test('concurrent evaluator ยอมรับ canonical revision เดียว
   assert.equal(quarantine.errorCode, 'MEMBERSHIP_REVISION_CONFLICT');
 });
 
-test('command hash conflict ถูก quarantine แบบ idempotent และ tenant RLS ไม่รั่ว', async (t) => {
+test('a command hash conflict is quarantined idempotently and tenant RLS does not leak', async (t) => {
   const f = await fixture(t);
   await snapshot(f, f.contactId, 1, 'GOLD');
   await snapshot(f, f.contactId, 2, 'SILVER');
@@ -335,7 +335,7 @@ test('command hash conflict ถูก quarantine แบบ idempotent และ 
   );
 });
 
-test('merge/split/unmerge เก็บ lineage และไม่ย้าย predecessor entry ไป survivor', async (t) => {
+test('merge/split/unmerge keep the lineage and do not move the predecessor entry to the survivor', async (t) => {
   const f = await fixture(t);
   await snapshot(f, f.contactId, 1, 'GOLD');
   await snapshot(f, f.targetContactId, 1, 'GOLD');
@@ -431,7 +431,7 @@ test('merge/split/unmerge เก็บ lineage และไม่ย้าย pr
   );
 });
 
-test('evidence เปิดเฉพาะ metadata พร้อม audit และ outbox retry ใช้ eventId เดิม', async (t) => {
+test('evidence exposes only metadata with an audit, and an outbox retry reuses the same eventId', async (t) => {
   const f = await fixture(t);
   await snapshot(f, f.contactId, 1, 'GOLD');
   const entered = await f.memberships.commitEvaluation(commitInput(f));
@@ -479,7 +479,7 @@ test('evidence เปิดเฉพาะ metadata พร้อม audit แล
 });
 
 test(
-  'canonical membership commit ก่อน relay ส่ง customer.segment.changed ผ่าน Redpanda',
+  'canonical membership commits before the relay sends customer.segment.changed through Redpanda',
   { timeout: 30_000 },
   async (t) => {
     const f = await fixture(t);
@@ -518,7 +518,7 @@ test(
         observed,
         new Promise<never>((_, reject) => {
           timeout = setTimeout(
-            () => reject(new Error('ไม่พบ customer.segment.changed จาก Redpanda ภายในเวลา')),
+            () => reject(new Error('customer.segment.changed from Redpanda not found in time')),
             10_000,
           );
         }),
@@ -540,7 +540,7 @@ test(
 );
 
 test(
-  'readChanges แยก gap ที่ supersession อธิบายได้ ออกจาก gap ที่อธิบายไม่ได้',
+  'readChanges separates a gap that supersession can explain from a gap that it cannot',
   { timeout: 30_000 },
   async (t) => {
     const f = await fixture(t);
@@ -555,7 +555,7 @@ test(
       commitInput(f, { snapshotVersion: 3, expectedMembershipRevision: second.membershipRevision }),
     );
 
-    // ต่อเนื่องครบ -> CHANGES ตามปกติ
+    // fully contiguous -> CHANGES as usual
     const contiguous = await f.memberships.readChanges({
       tenantId: contractTenantId(f.tenantId),
       contactId: contractContactId(f.contactId),
@@ -565,15 +565,15 @@ test(
     });
     assert.equal(contiguous.status, 'CHANGES');
 
-    // เจาะรูตรงกลางโดยไม่มีใครประกาศว่ากลืนมันไป -> ต้องไม่ยอมตอบ SUPERSEDED
+    // punch a hole in the middle with nobody declaring it was swallowed -> must refuse to answer SUPERSEDED
     //
-    // ต้องใช้ owner client เพราะ rls.sql REVOKE UPDATE/DELETE บน change ledger ไว้แล้ว
-    // (ตัว ledger เป็น immutable by design) การจำลอง data loss จึงต้อง bypass ชั้นนั้น
-    // ledger เป็น immutable จริงทั้ง REVOKE และ trigger — ต้องปลด trigger ชั่วคราวเพื่อ
-    // จำลอง data loss ที่ระบบไม่ได้ตั้งใจให้เกิด (นั่นคือประเด็นของเทสนี้พอดี)
+    // must use the owner client because rls.sql REVOKEs UPDATE/DELETE on the change ledger
+    // (the ledger is immutable by design), so simulating data loss has to bypass that layer
+    // the ledger is truly immutable through both REVOKE and a trigger — the trigger must be disabled temporarily to
+    // simulate data loss the system is not meant to produce (which is exactly the point of this test)
     //
-    // ลงทะเบียนเปิดคืนไว้ก่อนปิดเสมอ: ถ้า assert ตัวไหนพังกลางคัน trigger ต้องไม่ค้าง
-    // สถานะ disabled ทิ้งไว้บน DB ที่เทสตัวอื่นใช้ร่วมกัน
+    // always register the re-enable before disabling: if any assert fails midway the trigger must not stay
+    // disabled, left behind on a DB that other tests share
     const guards: Array<[string, string]> = [
       ['c360_segment_membership_changes', 'c360_membership_change_immutable'],
       ['c360_membership_command_receipts', 'c360_membership_receipt_immutable'],
@@ -586,7 +586,7 @@ test(
     for (const [table, trigger] of guards) {
       await f.owner.$executeRawUnsafe(`ALTER TABLE ${table} DISABLE TRIGGER ${trigger}`);
     }
-    // outbox และ command receipt มี FK ชี้มาที่ change row จึงต้องเก็บกวาดก่อน
+    // the outbox and command receipt have FKs pointing at the change row, so they must be cleaned up first
     await f.owner.c360MembershipCommandReceipt.deleteMany({
       where: {
         tenantId: f.tenantId,
@@ -623,10 +623,10 @@ test(
         }),
       (error: unknown) =>
         error instanceof Error && (error as { code?: string }).code === 'MEMBERSHIP_CHANGE_GAP',
-      'gap ที่ไม่มี supersession อธิบาย ต้องไม่ถูกกลบเป็น SUPERSEDED',
+      'a gap with no supersession to explain it must not be disguised as SUPERSEDED',
     );
 
-    // พอมี change ใบหลังประกาศว่ากลืน revision ที่หายไป -> SUPERSEDED ได้อย่างมีหลักฐาน
+    // once a later change declares it swallowed the missing revision -> SUPERSEDED is justified by evidence
     await f.owner.c360SegmentMembershipChange.updateMany({
       where: {
         tenantId: f.tenantId,
@@ -648,10 +648,10 @@ test(
   },
 );
 
-test('SPLIT/UNMERGE ปฏิเสธคู่ contact ที่ไม่เคย merge กัน', async (t) => {
+test('SPLIT/UNMERGE rejects a pair of contacts that were never merged', async (t) => {
   const f = await fixture(t);
 
-  // สองใบนี้ไม่เคยถูก merge เข้าหากันเลย — ย้อนอะไรไม่ได้เพราะไม่มีอะไรให้ย้อน
+  // these two were never merged into each other — nothing can be reversed because there is nothing to reverse
   for (const operation of ['UNMERGE', 'SPLIT'] as const) {
     await assert.rejects(
       () =>
@@ -666,15 +666,15 @@ test('SPLIT/UNMERGE ปฏิเสธคู่ contact ที่ไม่เค
         }),
       (error: unknown) =>
         error instanceof Error && (error as { code?: string }).code === 'IDENTITY_LINEAGE_CONFLICT',
-      `${operation} ต้องไม่สร้าง lineage จาก contact ที่ไม่เคย merge กัน`,
+      `${operation} must not create a lineage from contacts that were never merged`,
     );
   }
 
-  // ledger ต้องสะอาด ไม่มีประวัติที่ไม่เคยเกิดขึ้นจริงถูกบันทึกไว้
+  // the ledger must be clean, with no history that never actually happened recorded
   assert.equal(await f.owner.c360IdentityLineage.count({ where: { tenantId: f.tenantId } }), 0);
 });
 
-test('UNMERGE ที่ย้อน merge จริงยังทำได้ตามปกติ', async (t) => {
+test('UNMERGE that reverses a real merge still works as usual', async (t) => {
   const f = await fixture(t);
   const merge = await f.memberships.recordIdentityTransition({
     tenantId: f.tenantId,
@@ -704,12 +704,12 @@ test('UNMERGE ที่ย้อน merge จริงยังทำได้�
   assert.equal(head.state, 'ACTIVE');
 });
 
-test('payload ที่เสียถาวรถูก quarantine ไม่ใช่ retry วนไปเรื่อย ๆ', async (t) => {
+test('a permanently broken payload is quarantined instead of being retried forever', async (t) => {
   const f = await fixture(t);
   await snapshot(f, f.contactId, 1, 'GOLD');
   await f.memberships.commitEvaluation(commitInput(f));
 
-  // ทำให้ payload ไม่ตรงกับ payload_hash ที่ commit ไว้ = corruption ที่ retry ไปก็ไม่หาย
+  // make the payload differ from the committed payload_hash = corruption that retrying never fixes
   await f.owner.$executeRawUnsafe(
     'ALTER TABLE c360_segment_membership_outbox DISABLE TRIGGER c360_membership_outbox_guard',
   );
@@ -731,7 +731,7 @@ test('payload ที่เสียถาวรถูก quarantine ไม่ใ
 
   const neverCalled = {
     async send() {
-      throw new Error('ต้องไม่ publish payload ที่ hash ไม่ตรง');
+      throw new Error('must not publish a payload whose hash does not match');
     },
     async disconnect() {},
   };
@@ -747,11 +747,11 @@ test('payload ที่เสียถาวรถูก quarantine ไม่ใ
   assert.notEqual(quarantined.quarantinedAt, null);
   assert.match(quarantined.lastError ?? '', /hash/);
 
-  // terminal จริง — รอบถัดไปต้องไม่หยิบขึ้นมา retry อีก
+  // truly terminal — the next round must not pick it up for retry again
   assert.equal(await relay.publishNext(f.tenantId), undefined);
 });
 
-test('relay ไม่ส่ง revision ถัดไปก่อน revision ก่อนหน้าของ stream เดียวกัน', async (t) => {
+test('relay does not send the next revision before the previous revision of the same stream', async (t) => {
   const f = await fixture(t);
   await snapshot(f, f.contactId, 1, 'GOLD');
   const first = await f.memberships.commitEvaluation(commitInput(f));
@@ -760,7 +760,7 @@ test('relay ไม่ส่ง revision ถัดไปก่อน revision ก
     commitInput(f, { snapshotVersion: 2, expectedMembershipRevision: first.membershipRevision }),
   );
 
-  // ดันให้ revision แรกยังไม่พร้อมส่ง (จำลอง worker ที่ค้างหรือ backoff อยู่)
+  // push the first revision to not-ready-to-send (simulating a stuck worker or one in backoff)
   await f.owner.c360SegmentMembershipOutbox.updateMany({
     where: { tenantId: f.tenantId, membershipRevision: first.membershipRevision },
     data: { state: 'FAILED', availableAt: new Date(Date.now() + 60_000) },
@@ -775,15 +775,15 @@ test('relay ไม่ส่ง revision ถัดไปก่อน revision ก
   };
   const relay = new C360SegmentMembershipRelay(f.application, recorder as never);
 
-  // revision 2 พร้อมส่ง แต่ต้องไม่ถูกหยิบเพราะ revision 1 ยังค้างอยู่
+  // revision 2 is ready to send but must not be picked because revision 1 is still pending
   assert.equal(await relay.publishNext(f.tenantId), undefined);
   assert.deepEqual(
     sent,
     [],
-    `ต้องไม่ส่ง revision ${second.membershipRevision} ก่อน revision ${first.membershipRevision}`,
+    `must not send revision ${second.membershipRevision} before revision ${first.membershipRevision}`,
   );
 
-  // พอ revision 1 พร้อม ลำดับก็เดินตามปกติ
+  // once revision 1 is ready, the order proceeds as usual
   await f.owner.c360SegmentMembershipOutbox.updateMany({
     where: { tenantId: f.tenantId, membershipRevision: first.membershipRevision },
     data: { availableAt: new Date(Date.now() - 1_000) },
@@ -793,7 +793,7 @@ test('relay ไม่ส่ง revision ถัดไปก่อน revision ก
   assert.deepEqual(sent, [first.membershipRevision, second.membershipRevision]);
 });
 
-test('outbox insert ล้มเหลวทำให้ evaluation/change/head rollback ทั้ง transaction', async (t) => {
+test('an outbox insert failure rolls back the whole evaluation/change/head transaction', async (t) => {
   const f = await fixture(t);
   await snapshot(f, f.contactId, 1, 'GOLD');
   await snapshot(f, f.thirdContactId, 1, 'GOLD');
@@ -843,7 +843,7 @@ test('outbox insert ล้มเหลวทำให้ evaluation/change/head 
   );
 });
 
-test('merge chain ย้าย canonical ของ contact ที่ถูก merge ไว้ก่อนหน้าและ re-evaluate ให้ครบ', async (t) => {
+test('a merge chain moves the canonical of previously merged contacts and re-evaluates them all', async (t) => {
   const f = await fixture(t);
   await snapshot(f, f.contactId, 1, 'GOLD');
   await f.memberships.commitEvaluation(commitInput(f));
@@ -859,7 +859,7 @@ test('merge chain ย้าย canonical ของ contact ที่ถูก me
     correlationId: `correlation:${randomUUID()}`,
   });
 
-  // B -> C : A ถูก merge ไว้ใต้ B อยู่แล้ว canonical ของ A จึงต้องตามไป C ด้วย
+  // B -> C : A is already merged under B, so A's canonical must follow to C as well
   const second = await f.memberships.recordIdentityTransition({
     tenantId: f.tenantId,
     commandId: `command:merge:${randomUUID()}`,
@@ -879,21 +879,21 @@ test('merge chain ย้าย canonical ของ contact ที่ถูก me
   assert.equal(
     heads.get(f.contactId)?.canonicalContactId,
     f.thirdContactId,
-    'canonical ของ A ต้องชี้ไป C ไม่ใช่ B ที่ไม่ได้เป็น canonical แล้ว',
+    'canonical of A must point to C, not to B, which is no longer canonical',
   );
   assert.equal(heads.get(f.contactId)?.state, 'MERGED');
   assert.ok(
     (heads.get(f.contactId)?.lineageRevision ?? 0) > first.lineageRevision,
-    'A ต้องได้ lineage revision ใหม่เมื่อ canonical เปลี่ยน',
+    'A must get a new lineage revision when its canonical changes',
   );
 
-  // owner re-evaluation: membership ของ A ต้องถูกแจ้ง ไม่ใช่เงียบไว้กับ owner เดิม
+  // owner re-evaluation: A's membership must be notified, not left silently with the old owner
   assert.ok(
     second.invalidatedChanges.some((change) => change.contactId === f.contactId),
-    'merge รอบสองต้อง re-evaluate membership ของ A ที่ย้าย canonical ตามไปด้วย',
+    'the second merge must re-evaluate the membership of A, whose canonical moved along',
   );
 
-  // ย้อน B ออกจาก C : A เคยถูก merge เข้า B จึงต้องกลับไปอยู่ใต้ B ตามเดิม
+  // reverse B out of C : A was merged into B, so it must return under B as before
   await f.memberships.recordIdentityTransition({
     tenantId: f.tenantId,
     commandId: `command:unmerge:${randomUUID()}`,
@@ -909,12 +909,12 @@ test('merge chain ย้าย canonical ของ contact ที่ถูก me
   assert.equal(
     afterUnmerge.canonicalContactId,
     f.targetContactId,
-    'A ต้องกลับไปอยู่ใต้ B ที่เคย merge มันไว้ ไม่ใช่ค้างอยู่ที่ C',
+    'A must go back under B, which merged it before, and not stay at C',
   );
 });
 
 test(
-  'crash หลัง broker รับ event แต่ก่อน mark PUBLISHED: restart ส่ง envelope เดิมและ consumer ไม่ประมวลผลซ้ำ',
+  'crash after the broker accepts an event but before marking PUBLISHED: restart resends the same envelope and the consumer does not process it twice',
   { timeout: 30_000 },
   async (t) => {
     const f = await fixture(t);
@@ -960,16 +960,16 @@ test(
       assert.equal(first?.state, 'PUBLISHED');
 
       /**
-       * crash window อยู่ระหว่าง producer.send() ที่ broker ack แล้ว กับ update state เป็น
-       * PUBLISHED ในทรานแซกชันเดียวกัน ถ้า process ตายตรงนั้น ทรานแซกชัน rollback ทั้งก้อน
-       * broker จึงถือ event ไว้แล้วแต่ outbox ยังเป็น PENDING ด้วย attempts เดิม
+       * the crash window lies between a producer.send() that the broker acked and updating the state to
+       * PUBLISHED in the same transaction. If the process dies there, the whole transaction rolls back and
+       * the broker already holds the event while the outbox is still PENDING with the original attempts
        *
-       * relay ดัก error เองและ mark FAILED จึงจำลองด้วย producer ที่ throw ไม่ได้ (นั่นคือ
-       * graceful failure ไม่ใช่ crash) ตั้งสถานะที่ crash ทิ้งไว้ตรง ๆ แทนแล้วรัน restart
+       * the relay catches errors itself and marks FAILED, so it cannot be simulated with a producer that throws (that is
+       * a graceful failure, not a crash); instead set the state a crash leaves behind directly and then run a restart.
        *
-       * c360_membership_outbox_guard ห้ามทุก update บนแถวที่ PUBLISHED แล้ว และห้าม attempts
-       * ถอยหลัง ซึ่งถูกต้องสำหรับ transition จริง แต่ rollback ไม่ได้เดินผ่าน guard — มันย้อน
-       * แถวกลับเหมือนไม่เคยมีการเขียน จึงปิด guard เฉพาะคำสั่งจำลองนี้ (ลงทะเบียนเปิดคืนก่อนปิด)
+       * c360_membership_outbox_guard forbids every update on an already PUBLISHED row and forbids attempts
+       * going backwards, which is right for a real transition, but a rollback does not go through the guard — it reverts
+       * the row as if never written, so disable the guard only for this simulating statement (register the re-enable before disabling)
        */
       t.after(async () => {
         await f.owner.$executeRawUnsafe(
@@ -992,20 +992,23 @@ test(
       assert.equal(
         replayed?.eventId,
         first?.eventId,
-        'restart ต้องใช้ eventId เดิมที่ commit ไว้ ไม่ใช่ออกใบใหม่',
+        'restart must use the committed eventId, not issue a new one',
       );
       assert.equal(
         physicalDeliveries,
         2,
-        'broker ต้องได้รับ event สองครั้งจริงตามที่ crash ทิ้งไว้',
+        'the broker must really receive the event twice, as the crash left it',
       );
 
-      // รอให้ delivery ใบที่สองถึง broker แล้วให้ consumer มีเวลาตัดสินใจ dedupe
+      // wait for the second delivery to reach the broker, then give the consumer time to decide to dedupe
       let timeout: NodeJS.Timeout | undefined;
       await Promise.race([
         secondObserved,
         new Promise<never>((_, reject) => {
-          timeout = setTimeout(() => reject(new Error('delivery ใบที่สองไม่ถึง broker')), 10_000);
+          timeout = setTimeout(
+            () => reject(new Error('the second delivery did not reach the broker')),
+            10_000,
+          );
         }),
       ]);
       if (timeout) clearTimeout(timeout);
@@ -1014,19 +1017,19 @@ test(
       assert.equal(
         handled.length,
         1,
-        'consumer ต้อง dedupe ด้วย eventId เดิม ไม่ประมวลผล event ซ้ำหลัง restart',
+        'the consumer must dedupe by the original eventId and not process the event again after restart',
       );
 
-      // durable owner: การส่งซ้ำต้องไม่แตะ ledger เลย
+      // durable owner: a resend must not touch the ledger at all
       assert.equal(
         await f.owner.c360SegmentMembershipChange.count({ where: { tenantId: f.tenantId } }),
         1,
-        'restart ต้องไม่สร้าง membership revision ใหม่',
+        'restart must not create a new membership revision',
       );
       assert.equal(
         await f.owner.c360SegmentMembershipOutbox.count({ where: { tenantId: f.tenantId } }),
         1,
-        'restart ต้องไม่สร้าง outbox row ใหม่',
+        'restart must not create a new outbox row',
       );
       const head = await f.owner.c360SegmentMembershipHead.findFirstOrThrow({
         where: { tenantId: f.tenantId, contactId: f.contactId, segmentId: f.segmentId },
@@ -1040,7 +1043,7 @@ test(
   },
 );
 
-test('projection rebuild จาก change ledger ได้สถานะเดิมและไม่สร้าง revision/event ใหม่', async (t) => {
+test('a projection rebuild from the change ledger gives the original state and creates no new revision/event', async (t) => {
   const f = await fixture(t);
   await snapshot(f, f.contactId, 1, 'GOLD');
   await f.memberships.commitEvaluation(commitInput(f));
@@ -1067,7 +1070,7 @@ test('projection rebuild จาก change ledger ได้สถานะเด�
     where: { tenantId: f.tenantId },
   });
 
-  // rebuild แบบเดียวกับ consumer ที่ล้าง projection ทิ้งแล้วไล่ ledger ใหม่ตั้งแต่ revision 0
+  // rebuild the way a consumer does after wiping its projection and replaying the ledger from revision 0
   const read = await f.memberships.readChanges({
     tenantId: contractTenantId(f.tenantId),
     contactId: contractContactId(f.contactId),
@@ -1082,7 +1085,11 @@ test('projection rebuild จาก change ledger ได้สถานะเด�
   let entryId: string | null = null;
   let revision = 0;
   for (const change of read.changes) {
-    assert.equal(change.membershipRevision, revision + 1, 'ledger ต้องเรียงติดกันไม่มีรู');
+    assert.equal(
+      change.membershipRevision,
+      revision + 1,
+      'the ledger must be contiguous with no gaps',
+    );
     revision = change.membershipRevision;
     switch (change.changeKind) {
       case 'ENTERED':
@@ -1102,12 +1109,16 @@ test('projection rebuild จาก change ledger ได้สถานะเด�
     }
   }
 
-  assert.equal(revision, head.membershipRevision, 'rebuild ต้องไล่ถึง revision ปัจจุบันพอดี');
-  assert.equal(state, head.state, 'สถานะที่ fold จาก ledger ต้องตรงกับ head');
-  assert.equal(entryId, head.entryId, 'entryId ที่ fold จาก ledger ต้องตรงกับ head');
+  assert.equal(
+    revision,
+    head.membershipRevision,
+    'the rebuild must replay exactly up to the current revision',
+  );
+  assert.equal(state, head.state, 'the state folded from the ledger must match the head');
+  assert.equal(entryId, head.entryId, 'the entryId folded from the ledger must match the head');
   assert.equal(entryId, last.entryId);
 
-  // rebuild เป็น read path ล้วน ห้ามเขียนอะไรกลับเข้า ledger หรือ outbox
+  // rebuild is a pure read path; it must not write anything back into the ledger or outbox
   assert.equal(
     await f.owner.c360SegmentMembershipChange.count({ where: { tenantId: f.tenantId } }),
     changesBefore,

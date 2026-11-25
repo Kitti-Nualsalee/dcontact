@@ -87,7 +87,7 @@ export interface C360PublishedSegmentDefinition {
   headVersion: number;
 }
 
-/** Sanitized owner reference สำหรับ consumer validation; ไม่เปิด canonical definition JSON */
+/** Sanitized owner reference for consumer validation; does not expose the canonical definition JSON */
 export interface C360PublishedSegmentReference {
   tenantId: string;
   segmentId: string;
@@ -130,26 +130,26 @@ export interface C360SegmentRepositoryOptions {
 
 function nonEmpty(value: string, field: string): string {
   const normalized = value.trim();
-  if (!normalized) throw new TypeError(`${field} ต้องเป็น string ที่ไม่ว่าง`);
+  if (!normalized) throw new TypeError(`${field} must be a non-empty string`);
   return normalized;
 }
 
 function positiveInteger(value: number, field: string): number {
   if (!Number.isInteger(value) || value < 1) {
-    throw new TypeError(`${field} ต้องเป็นจำนวนเต็มตั้งแต่ 1`);
+    throw new TypeError(`${field} must be an integer >= 1`);
   }
   return value;
 }
 
 function nonNegativeInteger(value: number, field: string): number {
   if (!Number.isInteger(value) || value < 0) {
-    throw new TypeError(`${field} ต้องเป็นจำนวนเต็มไม่ติดลบ`);
+    throw new TypeError(`${field} must be a non-negative integer`);
   }
   return value;
 }
 
 function digest(value: string, field: string): string {
-  if (!/^[a-f0-9]{64}$/.test(value)) throw new TypeError(`${field} ต้องเป็น lowercase SHA-256`);
+  if (!/^[a-f0-9]{64}$/.test(value)) throw new TypeError(`${field} must be a lowercase SHA-256`);
   return value;
 }
 
@@ -205,8 +205,8 @@ function toEvaluation(row: StoredSegmentEvaluation): C360StoredSegmentEvaluation
 }
 
 /**
- * Durable owner repository ของ Customer 360. ทุก operation ใช้ tenant-scoped transaction,
- * advisory lock/CAS และอ่าน fact จาก owner-local tables เท่านั้น
+ * Durable owner repository for Customer 360. Every operation uses a tenant-scoped transaction,
+ * advisory lock/CAS and reads facts only from owner-local tables
  */
 export class C360SegmentRepository {
   private readonly id: () => string;
@@ -244,7 +244,7 @@ export class C360SegmentRepository {
         if (existing.contentDigest !== contentDigest) {
           throw new C360SegmentRepositoryError(
             'IDEMPOTENCY_CONFLICT',
-            'segment version เดิมมี content digest ต่างกัน',
+            'the existing segment version has a different content digest',
           );
         }
         return toDefinition(existing);
@@ -259,7 +259,7 @@ export class C360SegmentRepository {
       if (version !== expected) {
         throw new C360SegmentRepositoryError(
           'NON_SEQUENTIAL_VERSION',
-          `segment version ต้องเป็น ${expected}`,
+          `segment version must be ${expected}`,
         );
       }
 
@@ -347,12 +347,12 @@ export class C360SegmentRepository {
         where: { tenantId_segmentId_version: { tenantId, segmentId, version } },
       });
       if (!candidate) {
-        throw new C360SegmentRepositoryError('RESOURCE_NOT_FOUND', 'ไม่พบ segment version');
+        throw new C360SegmentRepositoryError('RESOURCE_NOT_FOUND', 'segment version not found');
       }
       if (candidate.contentDigest !== expectedContentDigest) {
         throw new C360SegmentRepositoryError(
           'IDEMPOTENCY_CONFLICT',
-          'expected content digest ไม่ตรงกับ immutable definition',
+          'expected content digest does not match the immutable definition',
         );
       }
       const head = await transaction.c360SegmentDefinitionHead.findUnique({
@@ -368,14 +368,14 @@ export class C360SegmentRepository {
       if (candidate.status !== 'DRAFT') {
         throw new C360SegmentRepositoryError(
           'INVALID_LIFECYCLE_TRANSITION',
-          'publish ได้เฉพาะ DRAFT หรือ retry ของ PUBLISHED head เดิม',
+          'publish is allowed only for DRAFT or a retry of the existing PUBLISHED head',
         );
       }
       const currentHeadVersion = head?.headVersion ?? 0;
       if (currentHeadVersion !== expectedHeadVersion) {
         throw new C360SegmentRepositoryError(
           'VERSION_CONFLICT',
-          `expected head ${expectedHeadVersion} แต่ current head เป็น ${currentHeadVersion}`,
+          `expected head ${expectedHeadVersion} but the current head is ${currentHeadVersion}`,
         );
       }
 
@@ -411,7 +411,7 @@ export class C360SegmentRepository {
           },
         });
         if (updated.count !== 1) {
-          throw new C360SegmentRepositoryError('VERSION_CONFLICT', 'segment head CAS ไม่สำเร็จ');
+          throw new C360SegmentRepositoryError('VERSION_CONFLICT', 'segment head CAS failed');
         }
       } else {
         await transaction.c360SegmentDefinitionHead.create({
@@ -449,7 +449,7 @@ export class C360SegmentRepository {
         if (existing.contentDigest !== contentDigest) {
           throw new C360SegmentRepositoryError(
             'IDEMPOTENCY_CONFLICT',
-            'snapshot version เดิมมี content digest ต่างกัน',
+            'the existing snapshot version has a different content digest',
           );
         }
         return toFactSnapshot(existing);
@@ -459,7 +459,7 @@ export class C360SegmentRepository {
         select: { id: true },
       });
       if (!contact) {
-        throw new C360SegmentRepositoryError('RESOURCE_NOT_FOUND', 'ไม่พบ contact ใน tenant');
+        throw new C360SegmentRepositoryError('RESOURCE_NOT_FOUND', 'contact not found in tenant');
       }
       const latest = await transaction.c360FactSnapshot.findFirst({
         where: { tenantId, contactId },
@@ -470,7 +470,7 @@ export class C360SegmentRepository {
       if (snapshotVersion !== expected) {
         throw new C360SegmentRepositoryError(
           'NON_SEQUENTIAL_VERSION',
-          `snapshot version ต้องเป็น ${expected}`,
+          `snapshot version must be ${expected}`,
         );
       }
       return toFactSnapshot(
@@ -538,7 +538,7 @@ export class C360SegmentRepository {
       if (!definition || !snapshot || definition.status === 'DRAFT') {
         throw new C360SegmentRepositoryError(
           'RESOURCE_NOT_FOUND',
-          'ไม่พบ published definition หรือ owner snapshot ของ binding นี้',
+          'published definition or owner snapshot of this binding not found',
         );
       }
 

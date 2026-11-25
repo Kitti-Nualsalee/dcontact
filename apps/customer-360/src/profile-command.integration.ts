@@ -17,9 +17,9 @@ import {
 } from './profile-command.js';
 
 /**
- * Cus360 C1 (#791) S2: command engine บน PostgreSQL จริงด้วย application role —
- * crash ก่อน/หลัง effect/commit, concurrent same/different payload, no-op/stale revision,
- * reconcile-vs-late POST และ tombstone ตาม E1 B
+ * Cus360 C1 (#791) S2: command engine on real PostgreSQL with the application role —
+ * crash before/after effect/commit, concurrent same/different payload, no-op/stale revision,
+ * reconcile-vs-late POST and tombstone per E1 B
  */
 const owner = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
 const app = new PrismaClient({
@@ -51,7 +51,7 @@ async function fixture() {
       passwordHash: '!test-only',
     },
   });
-  await owner.contact.create({ data: { id: contactId, tenantId, displayName: 'ลูกค้าทดสอบ' } });
+  await owner.contact.create({ data: { id: contactId, tenantId, displayName: 'Test customer' } });
   const actor: C360CommandActor = {
     tenantId,
     actorUserId: userId,
@@ -99,7 +99,7 @@ function companyCommand(
   } satisfies C360ProfileCommandInput;
 }
 
-/** effect ตัวอย่าง: แก้ company แบบ CAS กับ profileRevision ใต้ row lock ของ contact */
+/** sample effect: edit company with CAS against profileRevision under the contact row lock */
 function updateCompany(f: Fixture, company: string | null, onEffect?: () => void) {
   return async (
     tx: Prisma.TransactionClient,
@@ -170,7 +170,7 @@ function barrier() {
   };
 }
 
-test('S2: digest เป็น canonical และ actor key ไม่ผูกกับ session/token', () => {
+test('S2: digest is canonical and the actor key is not bound to session/token', () => {
   const base = {
     commandId: randomUUID(),
     action: 'PROFILE_UPDATE',
@@ -224,16 +224,16 @@ test('S2: digest เป็น canonical และ actor key ไม่ผูก�
   assert.match(c360ActorIdentityKey(identity), /^[0-9a-f]{64}$/);
 });
 
-test('S2: APPLIED เขียน effect+audit+receipt atomic, replay คืน receipt เดิมไม่มี effect ซ้ำ และ receipt ไม่มี PII', async () => {
+test('S2: APPLIED writes effect+audit+receipt atomically, replay returns the original receipt with no duplicate effect, and the receipt holds no PII', async () => {
   const f = await fixture();
-  const input = companyCommand(f, 'บริษัท ตัวอย่าง จำกัด');
+  const input = companyCommand(f, 'Example Company Ltd.');
   let effects = 0;
   const first = await executeC360ProfileCommand(
     app,
     f.actor,
     input,
     f.authorization,
-    updateCompany(f, 'บริษัท ตัวอย่าง จำกัด', () => (effects += 1)),
+    updateCompany(f, 'Example Company Ltd.', () => (effects += 1)),
   );
   assert.equal(first.state, 'TERMINAL');
   assert.equal(first.status, 200);
@@ -247,25 +247,25 @@ test('S2: APPLIED เขียน effect+audit+receipt atomic, replay คืน 
     f.actor,
     input,
     f.authorization,
-    updateCompany(f, 'บริษัท ตัวอย่าง จำกัด', () => (effects += 1)),
+    updateCompany(f, 'Example Company Ltd.', () => (effects += 1)),
   );
   assert.deepEqual(replay, first);
   assert.equal(effects, 1);
   const after = await state(f, input.commandId);
-  assert.equal(after.contact.company, 'บริษัท ตัวอย่าง จำกัด');
+  assert.equal(after.contact.company, 'Example Company Ltd.');
   assert.equal(after.contact.profileRevision, 1n);
   assert.equal(after.audits, 1);
   assert.equal(after.command?.isTombstone, false);
-  // receipt/command ไม่มี payload หรือค่า PII ที่แก้
+  // receipt/command holds no payload or edited PII value
   const stored = JSON.stringify({ command: after.command, receipt: after.receipt }, (_, value) =>
     typeof value === 'bigint' ? `${value}` : value,
   );
-  assert.equal(stored.includes('บริษัท'), false);
-  assert.equal(stored.includes('ลูกค้าทดสอบ'), false);
-  assert.ok(f.authorizeCalls() >= 4, 'authorize ต้องถูกเรียกในทุก transaction');
+  assert.equal(stored.includes('Example Company'), false);
+  assert.equal(stored.includes('Test customer'), false);
+  assert.ok(f.authorizeCalls() >= 4, 'authorize must be called in every transaction');
 });
 
-test('S2: command เดิม payload ต่างได้ COMMAND_PAYLOAD_MISMATCH และไม่มี effect', async () => {
+test('S2: the same command with a different payload gets COMMAND_PAYLOAD_MISMATCH and has no effect', async () => {
   const f = await fixture();
   const commandId = randomUUID();
   await executeC360ProfileCommand(
@@ -293,7 +293,7 @@ test('S2: command เดิม payload ต่างได้ COMMAND_PAYLOAD_MIS
   assert.equal(after.audits, 1);
 });
 
-test('S2: NO_OP หลัง revision ตรงมี receipt แต่ไม่เพิ่ม revision/audit; stale revision ได้ REJECTED และ rollback effect', async () => {
+test('S2: NO_OP after a matching revision has a receipt but adds no revision/audit; a stale revision gets REJECTED and rolls back the effect', async () => {
   const f = await fixture();
   await owner.contact.update({
     where: { id: f.contactId },
@@ -319,7 +319,7 @@ test('S2: NO_OP หลัง revision ตรงมี receipt แต่ไม่
     stale,
     f.authorization,
     async (tx, command) => {
-      // เขียนก่อนแล้วจึงปฏิเสธ เพื่อพิสูจน์ว่า savepoint คืนค่า effect ที่ทำไปแล้ว
+      // write first and then reject, to prove the savepoint reverts the effect already made
       await tx.contact.update({ where: { id: f.contactId }, data: { company: 'leaked' } });
       return updateCompany(f, 'B')(tx, command);
     },
@@ -333,7 +333,7 @@ test('S2: NO_OP หลัง revision ตรงมี receipt แต่ไม่
   assert.equal(after.audits, 0);
 });
 
-test('S2: crash ก่อน commit → PENDING, reconcile ปิดเป็น NOT_APPLIED และ late POST ไม่ execute', async () => {
+test('S2: crash before commit → PENDING, reconcile closes it as NOT_APPLIED and a late POST does not execute', async () => {
   const f = await fixture();
   const input = companyCommand(f, 'A');
   await assert.rejects(
@@ -346,7 +346,7 @@ test('S2: crash ก่อน commit → PENDING, reconcile ปิดเป็น
   );
   let after = await state(f, input.commandId);
   assert.equal(after.contact.company, null);
-  assert.ok(after.command, 'admission ต้องคงอยู่');
+  assert.ok(after.command, 'admission must persist');
   assert.equal(after.receipt, null);
   assert.deepEqual(await lookupC360ProfileCommand(app, f.actor, input.commandId, f.authorization), {
     status: 202,
@@ -377,7 +377,7 @@ test('S2: crash ก่อน commit → PENDING, reconcile ปิดเป็น
   assert.equal(after.command?.isTombstone, false);
 });
 
-test('S2: crash หลัง commit ก่อนตอบ → receipt APPLIED อยู่แล้ว retry/reconcile ไม่ทำซ้ำ', async () => {
+test('S2: crash after commit before responding → the receipt is already APPLIED and retry/reconcile do not repeat it', async () => {
   const f = await fixture();
   const input = companyCommand(f, 'A');
   await assert.rejects(
@@ -410,7 +410,7 @@ test('S2: crash หลัง commit ก่อนตอบ → receipt APPLIED �
   assert.equal((await state(f, input.commandId)).audits, 1);
 });
 
-test('S2: reconcile ก่อน POST สร้าง tombstone และ late POST ได้ NOT_APPLIED เดิม; ไม่พบคือ UNKNOWN', async () => {
+test('S2: reconcile before POST creates a tombstone and a late POST gets the original NOT_APPLIED; not found is UNKNOWN', async () => {
   const f = await fixture();
   const commandId = randomUUID();
   assert.deepEqual(await lookupC360ProfileCommand(app, f.actor, commandId, f.authorization), {
@@ -425,7 +425,7 @@ test('S2: reconcile ก่อน POST สร้าง tombstone และ late P
   const tomb = await reconcileC360ProfileCommand(app, f.actor, commandId, {}, f.authorization);
   assert.equal(tomb.status, 409);
   assert.equal(tomb.state === 'TERMINAL' && tomb.receipt.code, 'COMMAND_NOT_APPLIED');
-  // payload ใด ๆ ก็ execute ไม่ได้อีก (tombstone ไม่มี digest จึงไม่เป็น mismatch)
+  // no payload can execute any more (a tombstone has no digest so it is not a mismatch)
   let effects = 0;
   const late = await executeC360ProfileCommand(
     app,
@@ -441,7 +441,7 @@ test('S2: reconcile ก่อน POST สร้าง tombstone และ late P
   assert.equal(after.contact.company, null);
 });
 
-test('S2: reconcile ระหว่าง execute ถือ lock ได้ 202 PENDING และหลัง commit อ่านผล APPLIED โดยไม่ทับ', async () => {
+test('S2: reconcile while execute holds the lock gets 202 PENDING and after commit reads the APPLIED result without overwriting', async () => {
   const f = await fixture();
   const input = companyCommand(f, 'A');
   const gate = barrier();
@@ -473,7 +473,7 @@ test('S2: reconcile ระหว่าง execute ถือ lock ได้ 202 P
   );
 });
 
-test('S2: concurrent POST เดิม → effect ครั้งเดียว อีกฝ่ายได้ receipt เดิมหรือ RESOURCE_BUSY retryable', async () => {
+test('S2: concurrent identical POST → one effect; the other side gets the original receipt or a retryable RESOURCE_BUSY', async () => {
   const f = await fixture();
   const input = companyCommand(f, 'A');
   let effects = 0;
@@ -504,7 +504,7 @@ test('S2: concurrent POST เดิม → effect ครั้งเดียว
   assert.equal((await state(f, input.commandId)).audits, 1);
 });
 
-test('S2: concurrent command ต่าง ID บน revision เดียวกัน → APPLIED หนึ่ง อีกฝ่าย REJECTED หรือ busy โดยไม่มี effect ซ้ำ', async () => {
+test('S2: concurrent commands with different IDs on the same revision → one APPLIED, the other REJECTED or busy, with no duplicate effect', async () => {
   const f = await fixture();
   const first = companyCommand(f, 'A');
   const second = companyCommand(f, 'B');
@@ -520,7 +520,7 @@ test('S2: concurrent command ต่าง ID บน revision เดียวก�
     },
   );
   await gate.arrived;
-  // ฝ่ายแรกถือ row lock ของ contact: NOWAIT ทำให้ฝ่ายที่สองได้ busy หลัง retry ไม่รอค้าง
+  // the first side holds the contact row lock: NOWAIT makes the second side get busy after retries instead of waiting forever
   await assert.rejects(
     executeC360ProfileCommand(app, f.actor, second, f.authorization, updateCompany(f, 'B')),
     (error) =>
@@ -530,7 +530,7 @@ test('S2: concurrent command ต่าง ID บน revision เดียวก�
   );
   gate.release();
   await running;
-  // ID เดิมของฝ่ายที่สองยังค้าง PENDING; retry ด้วย ID เดิมหลังฝ่ายแรก commit ต้องได้ revision conflict
+  // the second side's original ID is still PENDING; retrying with that ID after the first side commits must get a revision conflict
   assert.equal(
     (await lookupC360ProfileCommand(app, f.actor, second.commandId, f.authorization)).state,
     'PENDING',
@@ -548,7 +548,7 @@ test('S2: concurrent command ต่าง ID บน revision เดียวก�
   assert.equal(after.contact.profileRevision, 1n);
 });
 
-test('S2: transaction ตั้ง lock_timeout/statement_timeout ตาม E1 G และหมดสิทธิ์ก่อน commit ไม่มี receipt', async () => {
+test('S2: the transaction sets lock_timeout/statement_timeout per E1 G and losing permission before commit leaves no receipt', async () => {
   const f = await fixture();
   const seen: string[] = [];
   await executeC360ProfileCommand(
@@ -568,7 +568,7 @@ test('S2: transaction ตั้ง lock_timeout/statement_timeout ตาม E1 G
   const input = companyCommand(f, 'B', '1');
   await assert.rejects(
     executeC360ProfileCommand(app, f.actor, input, f.authorization, updateCompany(f, 'B'), {
-      // ผู้ใช้ถูก disable ระหว่าง effect: authorize ก่อน commit ต้องล้มทั้ง transaction
+      // the user is disabled during the effect: authorize before commit must fail the whole transaction
       afterEffect: async () => {
         await owner.user.update({ where: { id: f.userId }, data: { isActive: false } });
       },
@@ -584,7 +584,7 @@ test('S2: transaction ตั้ง lock_timeout/statement_timeout ตาม E1 G
   );
 });
 
-test('S2: receipt ซ่อน resource refs ที่ผู้อ่านปัจจุบันไม่มีสิทธิ์', async () => {
+test('S2: the receipt hides resource refs the current reader has no permission for', async () => {
   const f = await fixture();
   const input = companyCommand(f, 'A');
   await executeC360ProfileCommand(app, f.actor, input, f.authorization, updateCompany(f, 'A'));
@@ -596,7 +596,7 @@ test('S2: receipt ซ่อน resource refs ที่ผู้อ่านป�
   if (hidden.state !== 'TERMINAL') return;
   assert.deepEqual(hidden.receipt.resourceRefs, []);
   assert.equal(hidden.receipt.resourceId, null);
-  // tenant อื่นมองไม่เห็น command นี้ผ่าน RLS
+  // another tenant cannot see this command through RLS
   const outsiders = await withTenantDatabaseTransaction(app, randomUUID(), (tx) =>
     tx.c360ProfileCommand.count({ where: { commandId: input.commandId } }),
   );

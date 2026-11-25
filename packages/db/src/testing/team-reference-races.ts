@@ -1,4 +1,4 @@
-/** Test-only fault injection บน PostgreSQL จริง; production entry point ไม่ export โมดูลนี้ */
+/** Test-only fault injection on real PostgreSQL; the production entry point does not export this module */
 import assert from 'node:assert/strict';
 import { randomInt, randomUUID } from 'node:crypto';
 import type { PrismaClient, Prisma } from '@prisma/client';
@@ -83,13 +83,13 @@ export async function teamWriterRace(input: TeamWriterRace): Promise<void> {
         const result = await input.write();
         rejected = (await input.blockedResult?.(result)) === true;
       } catch (error) {
-        assert.ok(busy(error), 'writer ต้อง rollback ด้วย busy outcome');
+        assert.ok(busy(error), 'the writer must roll back with a busy outcome');
         rejected = true;
       }
-      assert.ok(rejected, 'writer ต้อง fail-closed เมื่อ deactivate ถือ fence');
+      assert.ok(rejected, 'the writer must fail closed when deactivate holds the fence');
       assert.ok(
         performance.now() - start < 2000,
-        'writer ต้อง fail-fast เมื่อ deactivate ถือ fence',
+        'the writer must fail fast when deactivate holds the fence',
       );
     } finally {
       release.open();
@@ -110,7 +110,7 @@ export async function teamWriterRace(input: TeamWriterRace): Promise<void> {
   const trigger = `zz_team_test_pause_${suffix}`,
     fn = `dc_team_test_pause_${suffix}`;
   const barrier = randomInt(1_000_000, 1_000_000_000);
-  // ทุก literal ด้านล่างเป็น UUID/identifier ที่ตรวจแล้ว และ integer ที่สุ่มใน test; ไม่มี request SQL
+  // every literal below is a validated UUID/identifier or an integer randomized in the test; there is no request SQL
   await owner.$executeRawUnsafe(
     `CREATE FUNCTION public.${fn}() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $$ DECLARE previous_timeout text; BEGIN IF NEW.tenant_id='${tenantId}'::uuid THEN previous_timeout:=current_setting('lock_timeout'); PERFORM set_config('lock_timeout','5s',true); PERFORM pg_advisory_xact_lock(${barrier}::bigint); PERFORM set_config('lock_timeout',previous_timeout,true); END IF; RETURN NEW; END $$`,
   );
@@ -158,12 +158,15 @@ export async function teamWriterRace(input: TeamWriterRace): Promise<void> {
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
     if (failure) throw failure;
-    assert.ok(waiting, 'actual repository ต้องถึง material writer และถือ Team fence ก่อน barrier');
+    assert.ok(
+      waiting,
+      'the actual repository must reach the material writer and hold the Team fence before the barrier',
+    );
     const start = performance.now();
     await assert.rejects(withTenantDatabaseTransaction(owner, tenantId, deactivate), busy);
     assert.ok(
       performance.now() - start < 2000,
-      'deactivate ต้อง fail-fast เมื่อ actual writer ถือ fence',
+      'deactivate must fail fast when the actual writer holds the fence',
     );
   } catch (error) {
     assertionFailure = error;

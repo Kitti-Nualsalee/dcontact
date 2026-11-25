@@ -90,7 +90,7 @@ async function fixture(t: TestContext) {
 async function publishFirst(
   f: Awaited<ReturnType<typeof fixture>>,
   segmentId: string,
-  content: C360SegmentDefinitionContentV1 = definition('ลูกค้าทดสอบ'),
+  content: C360SegmentDefinitionContentV1 = definition('Test customer'),
 ) {
   const draft = await f.repository.createVersion({
     tenantId: f.tenantId,
@@ -108,7 +108,7 @@ async function publishFirst(
   });
 }
 
-test('definition/snapshot เดิมให้ evaluation record เดิมข้าม retry และ repository restart', async (t) => {
+test('the same definition/snapshot gives the same evaluation record across retries and repository restarts', async (t) => {
   const f = await fixture(t);
   const segmentId = 'segment:gold-overdue';
   const published = await publishFirst(f, segmentId);
@@ -122,7 +122,7 @@ test('definition/snapshot เดิมให้ evaluation record เดิม�
     evaluatorVersion: published.definition.evaluatorVersion,
     headVersion: published.headVersion,
   });
-  assert.doesNotMatch(JSON.stringify(reference), /"definition"|ลูกค้าทดสอบ|"expression"/);
+  assert.doesNotMatch(JSON.stringify(reference), /"definition"|Test customer|"expression"/);
   const snapshot = await f.repository.recordFactSnapshot({
     tenantId: f.tenantId,
     contactId: f.contactId,
@@ -159,7 +159,7 @@ test('definition/snapshot เดิมให้ evaluation record เดิม�
   assert.doesNotMatch(JSON.stringify(storedEvaluation), /synthetic-owner-only-label|GOLD|2500/);
 });
 
-test('version create/publish ใช้ idempotency, sequence และ CAS ให้ concurrent publish มี winner เดียว', async (t) => {
+test('version create/publish uses idempotency, sequence and CAS so a concurrent publish has a single winner', async (t) => {
   const f = await fixture(t);
   const segmentId = 'segment:cas';
   const first = await publishFirst(f, segmentId, definition('CAS v1', 1000));
@@ -211,7 +211,7 @@ test('version create/publish ใช้ idempotency, sequence และ CAS ใ�
   );
 });
 
-test('published definition, fact snapshot และ evaluation checkpoint แก้ย้อนหลังไม่ได้', async (t) => {
+test('a published definition, fact snapshot and evaluation checkpoint cannot be modified afterwards', async (t) => {
   const f = await fixture(t);
   const segmentId = 'segment:immutable';
   const published = await publishFirst(f, segmentId);
@@ -294,7 +294,7 @@ test('published definition, fact snapshot และ evaluation checkpoint แก
   );
 });
 
-test('tenant RLS และ foreign contact/segment reference fail closed เป็น NOT_FOUND', async (t) => {
+test('tenant RLS and a foreign contact/segment reference fail closed as NOT_FOUND', async (t) => {
   const f = await fixture(t);
   const segmentId = 'segment:tenant-bound';
   await publishFirst(f, segmentId);
@@ -316,7 +316,7 @@ test('tenant RLS และ foreign contact/segment reference fail closed เป�
   );
 });
 
-test('type mismatch persist เป็น ERROR checkpoint และไม่กลายเป็น positive match', async (t) => {
+test('a type mismatch persists as an ERROR checkpoint and never becomes a positive match', async (t) => {
   const f = await fixture(t);
   const segmentId = 'segment:type-mismatch';
   await publishFirst(f, segmentId, {

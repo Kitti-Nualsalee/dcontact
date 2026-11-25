@@ -8,8 +8,8 @@ import {
 } from './normalize.js';
 
 /**
- * E1 C: release manifest ของ parser runtime (Node เท่านั้น ไม่ import ฝั่ง browser)
- * ตรวจว่า package ที่โหลดจริงตรงกับรุ่นที่ pin และ metadata ของเบอร์โทรไม่ถูกเปลี่ยน
+ * E1 C: release manifest of the parser runtime (Node only; never imported on the browser side)
+ * checks that the package actually loaded matches the pinned version and the phone metadata is unchanged
  */
 export const C360_PINNED_PARSER_PACKAGES = {
   'libphonenumber-js': '1.13.15',
@@ -31,7 +31,7 @@ export interface C360ContactPointRuntimeManifest {
 const require = createRequire(import.meta.url);
 
 function installedVersion(name: string): string {
-  // package.json ของ dependency อยู่ข้าง entry ที่ resolve ได้ ไม่พึ่ง exports map ของ package
+  // the dependency's package.json sits next to the resolved entry and does not rely on the package's exports map
   let directory = require.resolve(name).replace(/\\/g, '/');
   for (;;) {
     directory = directory.slice(0, directory.lastIndexOf('/'));
@@ -42,9 +42,9 @@ function installedVersion(name: string): string {
       };
       if (manifest.name === name && manifest.version) return manifest.version;
     } catch {
-      // ยังไม่ถึง root ของ package
+      // have not reached the package root yet
     }
-    if (!directory.includes('/')) throw new Error(`ไม่พบ package.json ของ ${name}`);
+    if (!directory.includes('/')) throw new Error(`package.json not found for ${name}`);
   }
 }
 
@@ -64,14 +64,14 @@ export function c360ContactPointRuntimeManifest(): C360ContactPointRuntimeManife
   };
 }
 
-/** fail closed: runtime ที่ไม่ตรงกับรุ่น pin ห้ามสร้าง key ใหม่ */
+/** fail closed: a runtime that does not match the pinned version must not create new keys */
 export function assertC360ContactPointRuntime(): C360ContactPointRuntimeManifest {
   const manifest = c360ContactPointRuntimeManifest();
   for (const [name, version] of Object.entries(C360_PINNED_PARSER_PACKAGES)) {
     if (manifest.packages[name] !== version)
-      throw new Error(`${name} ต้องเป็น ${version} แต่ runtime เป็น ${manifest.packages[name]}`);
+      throw new Error(`${name} must be ${version} but runtime is ${manifest.packages[name]}`);
   }
   if (manifest.phoneMetadataSha256 !== C360_PHONE_METADATA_SHA256)
-    throw new Error('phone metadata ไม่ตรงกับ SHA256 ที่ pin ใน E1');
+    throw new Error('phone metadata does not match the SHA256 pinned in E1');
   return manifest;
 }

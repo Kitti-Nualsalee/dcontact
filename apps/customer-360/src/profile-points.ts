@@ -13,16 +13,16 @@ import {
 } from './profile-command.js';
 
 /**
- * Cus360 C3 (#793) S2: owner ของ contact point association ตาม R1 B.2–B.4 และ E1 A
+ * Cus360 C3 (#793) S2: owner of contact point associations per R1 B.2–B.4 and E1 A
  *
- * - association เป็นของ contact; หลาย contact ใช้ค่าเดียวกันได้ ไม่ merge/verify/ย้าย consent
- * - เปลี่ยนค่า = retire เดิม + add ใหม่ใน transaction เดียว; attribute เดิมแก้ไม่ได้ (DB trigger)
- * - ACTIVE ไม่เกิน 10 ต่อชนิดต่อ contact; legacy ที่เกินอยู่แล้วอ่าน/retire/replace ได้ แต่เพิ่มไม่ได้
- * - mutation จริงเพิ่ม `contacts.profile_revision` ครั้งเดียว; ค่าเดิมที่ ACTIVE อยู่แล้ว = NO_OP
+ * - an association belongs to a contact; several contacts may share one value; no merge/verify/consent move
+ * - changing a value = retire the old one + add a new one in one transaction; existing attributes cannot be edited (DB trigger)
+ * - at most 10 ACTIVE per type per contact; legacy already over the limit can be read/retired/replaced but not added to
+ * - a real mutation bumps `contacts.profile_revision` once; a value that is already ACTIVE = NO_OP
  *
- * ฟังก์ชันเหล่านี้ใช้ภายใน `perform` ของ `executeC360ProfileCommand` หลัง caller ถือ fences และตรวจ
- * `access.manage` แล้ว (`fenceC360ContactMutation`) จึงคืน `C360ProfileEffect` ให้ engine เขียน
- * audit/receipt ใน transaction เดียวกัน; business rule ไม่ผ่านโยน `C360ProfileCommandRejection`
+ * These functions are used inside the `perform` of `executeC360ProfileCommand` after the caller holds fences and has checked
+ * `access.manage` (`fenceC360ContactMutation`), so they return a `C360ProfileEffect` for the engine to write
+ * audit/receipt in the same transaction; a failed business rule throws `C360ProfileCommandRejection`
  */
 export const C360_CONTACT_POINT_QUOTA = 10;
 
@@ -31,10 +31,10 @@ export type C360ContactPointKind = 'PHONE' | 'EMAIL';
 export interface C360PointWriteContext {
   tenantId: string;
   contactId: string;
-  /** จาก command ที่ engine admit แล้ว: FK ของ created/retired command ชี้ไปที่ command นี้ */
+  /** From a command the engine has admitted: the FKs of the created/retired command point at this command */
   actorIdentityKey: string;
   commandId: string;
-  /** R1 F: expectedProfileRevision เป็น decimal string */
+  /** R1 F: expectedProfileRevision is a decimal string */
   expectedProfileRevision: string;
 }
 
@@ -65,7 +65,7 @@ function normalize(input: C360PointInput): C360NormalizedContactPoint {
   throw new C360ProfileCommandError('INVALID_REQUEST', 400);
 }
 
-/** E1 G: contact row เป็น profile fence ของ point writers (NOWAIT; busy = rollback แล้ว retry) */
+/** E1 G: the contact row is the profile fence for point writers (NOWAIT; busy = rollback then retry) */
 async function lockContact(
   tx: Prisma.TransactionClient,
   context: C360PointWriteContext,
@@ -87,7 +87,7 @@ async function lockContact(
   }
   const [row] = rows;
   if (!row) throw new C360ProfileCommandRejection('RESOURCE_NOT_FOUND', 404);
-  // owner ป้องกันซ้ำจาก authorization: แก้ได้เฉพาะ canonical ACTIVE (legacy ไม่มี head ยังแก้ไม่ได้)
+  // the owner guards again beyond authorization: editable only for canonical ACTIVE (legacy without a head still cannot be edited)
   if (row.identity !== 'ACTIVE') throw new C360ProfileCommandRejection('IDENTITY_NOT_ACTIVE', 409);
   if (row.profile_revision.toString() !== context.expectedProfileRevision)
     throw new C360ProfileCommandRejection('REVISION_CONFLICT', 409);
@@ -166,7 +166,7 @@ async function bumpProfileRevision(
   current: bigint,
 ): Promise<string> {
   const next = current + 1n;
-  // CAS ชั้นที่สองนอกจาก row lock: revision ต้องยังเป็นค่าที่อ่านไว้ ไม่เขียนค่าตายตัวทับผู้ชนะ
+  // a second CAS layer besides the row lock: the revision must still be the value read; never write a fixed value over the winner
   const updated = await tx.$executeRaw`
     UPDATE contacts SET profile_revision = ${next}
     WHERE tenant_id = ${context.tenantId}::uuid AND id = ${context.contactId}::uuid
@@ -183,7 +183,7 @@ async function lockedPoint(
   const point = await tx.c360ContactPoint.findFirst({
     where: { tenantId: context.tenantId, contactId: context.contactId, id: pointId },
   });
-  // point ของ contact อื่นตอบเหมือนไม่พบ ไม่เปิดเผยว่ามีอยู่
+  // a point of another contact is answered as not found and its existence is not revealed
   if (!point) throw new C360ProfileCommandRejection('POINT_NOT_FOUND', 404);
   return point;
 }
@@ -203,7 +203,7 @@ function applied(
       { type: 'CONTACT', id: context.contactId },
       ...refs.map((id) => ({ type: 'CONTACT_POINT', id })),
     ],
-    // audit ไม่คัดลอกค่า phone/email ก่อน–หลัง (E1 A) มีแค่ field และ revision
+    // the audit does not copy the phone/email before/after values (E1 A); only the field and revision
     audits: [
       {
         operation,
@@ -262,9 +262,9 @@ export async function retireC360ContactPoint(
 }
 
 /**
- * Replace = retire เดิม + add ใหม่ใน transaction เดียว ค่าใหม่ที่ ACTIVE อยู่แล้วบน contact เดียวกันไม่ insert ซ้ำ
- * แทน ACTIVE ด้วย ACTIVE จำนวนไม่เพิ่ม จึงไม่ติด quota (legacy ที่เกินเพดานแก้ค่าที่ผิดได้) แต่แทน
- * REVIEW_REQUIRED ด้วยค่าที่ใช้ได้คือการเพิ่ม ACTIVE ใหม่ จึงต้องผ่าน quota เหมือน add
+ * Replace = retire the old one + add a new one in one transaction; a new value already ACTIVE on the same contact is not inserted again
+ * replacing ACTIVE with ACTIVE does not increase the count, so quota does not apply (legacy over the cap can fix a wrong value), but replacing
+ * REVIEW_REQUIRED with a usable value adds a new ACTIVE, so it must pass the quota like add
  */
 export async function replaceC360ContactPoint(
   tx: Prisma.TransactionClient,

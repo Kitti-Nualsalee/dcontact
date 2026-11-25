@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import test from 'node:test';
 import { PrismaClient, withTenantDatabaseTransaction } from './index.js';
 
-test('Team guards: application User INSERT ไม่เพิ่ม reference เข้าทีมปิด แม้ไม่ผ่าน Core API', async (t) => {
+test('Team guards: application User INSERT does not add a reference to a closed team, even bypassing the Core API', async (t) => {
   const owner = new PrismaClient();
   const app = new PrismaClient({
     datasources: { db: { url: process.env.APPLICATION_DATABASE_URL } },
@@ -22,7 +22,7 @@ test('Team guards: application User INSERT ไม่เพิ่ม reference �
       sipDomain: `${tenantId}.test`,
     },
   });
-  await owner.team.create({ data: { id: teamId, tenantId, name: 'ทีมปิด', isActive: false } });
+  await owner.team.create({ data: { id: teamId, tenantId, name: 'Closed team', isActive: false } });
   await assert.rejects(
     withTenantDatabaseTransaction(app, tenantId, (tx) =>
       tx.user.create({
@@ -31,7 +31,7 @@ test('Team guards: application User INSERT ไม่เพิ่ม reference �
           teamId,
           keycloakId: randomUUID(),
           email: `${randomUUID()}@test.invalid`,
-          displayName: 'ผู้ทดสอบ',
+          displayName: 'Test user',
           passwordHash: '!test',
           role: 'AGENT',
         },
@@ -42,7 +42,7 @@ test('Team guards: application User INSERT ไม่เพิ่ม reference �
   assert.equal(await owner.user.count({ where: { tenantId } }), 0);
 });
 
-test('Team guards: final state กัน same-tx insert→deactivate และยอมรับเพิ่มแล้วถอนก่อนปิด', async (t) => {
+test('Team guards: final state blocks same-tx insert→deactivate and accepts add then remove before closing', async (t) => {
   const db = new PrismaClient();
   t.after(() => db.$disconnect());
   const tenantId = randomUUID();
@@ -55,7 +55,7 @@ test('Team guards: final state กัน same-tx insert→deactivate และ�
       sipDomain: `${tenantId}.test`,
     },
   });
-  await db.team.create({ data: { id: teamId, tenantId, name: 'ทีมใหม่' } });
+  await db.team.create({ data: { id: teamId, tenantId, name: 'New team' } });
   const input = {
     tenantId,
     teamId,
@@ -81,7 +81,7 @@ test('Team guards: final state กัน same-tx insert→deactivate และ�
   assert.equal((await db.team.findUniqueOrThrow({ where: { id: teamId } })).isActive, false);
 });
 
-test('Team guards: Queue ที่ inactive และ Skill ยังเป็น current reference; ย้ายออก/ถอนได้ก่อนปิด', async (t) => {
+test('Team guards: an inactive Queue and a Skill are still current references; moving out/removing is allowed before closing', async (t) => {
   const db = new PrismaClient();
   t.after(() => db.$disconnect());
   const tenantId = randomUUID();
@@ -114,7 +114,7 @@ test('Team guards: Queue ที่ inactive และ Skill ยังเป็�
   );
 });
 
-test('Team guards: future delegation ยังบล็อก แต่หมดอายุ/ถอนแล้วไม่บล็อก', async (t) => {
+test('Team guards: future delegation still blocks, but expired/revoked delegation does not block', async (t) => {
   const db = new PrismaClient();
   t.after(() => db.$disconnect());
   const tenantId = randomUUID(),
@@ -177,7 +177,7 @@ test('Team guards: future delegation ยังบล็อก แต่หมด
       await tx.iamAuthoringDelegationRevocation.delete({
         where: { tenantId_delegationId: { tenantId, delegationId: future.id } },
       });
-      // ลบ suppressor ต้องถือ affected Team lock ก่อน final-state check ด้วย
+      // deleting a suppressor must also hold the affected Team lock before the final-state check
       const [observer] = await db.$transaction(
         (other) =>
           other.$queryRaw<
@@ -187,7 +187,7 @@ test('Team guards: future delegation ยังบล็อก แต่หมด
       assert.equal(
         observer.locked,
         false,
-        'material writer ต้องถือ Team shared fence ก่อนลบ proof',
+        'the material writer must hold the Team shared fence before deleting the proof',
       );
     }),
     /TEAM_INACTIVE/,
@@ -199,7 +199,7 @@ test('Team guards: future delegation ยังบล็อก แต่หมด
   await close(otherTeam);
 });
 
-test('Team guards: Journey ใช้ pinned version; terminal/history ไม่บล็อก และ unresolved legacy บล็อกเฉพาะการปิด', async (t) => {
+test('Team guards: Journey uses the pinned version; terminal/history does not block and unresolved legacy blocks only closing', async (t) => {
   const db = new PrismaClient();
   t.after(() => db.$disconnect());
   const tenantId = randomUUID(),
@@ -253,19 +253,19 @@ test('Team guards: Journey ใช้ pinned version; terminal/history ไม่�
   const legacy = await withTenantDatabaseTransaction(db, tenantId, (tx) =>
     tx.jrEnrollment.create({ data: { tenantId, journeyVersion: 1, runState: 'TERMINAL' } }),
   );
-  // สถานะเดิมที่ resolve ไม่ได้ต้องปฏิเสธการเปิดใหม่เมื่อมี inactive team แล้ว
+  // an old state that cannot be resolved must reject reopening once there is an inactive team
   await assert.rejects(
     withTenantDatabaseTransaction(db, tenantId, (tx) =>
       tx.jrEnrollment.update({ where: { id: legacy.id }, data: { runState: 'RUNNING' } }),
     ),
     /TEAM_REFERENCE_UNRESOLVED/,
   );
-  await db.team.update({ where: { id: spare }, data: { name: 'ยังเปลี่ยนชื่อได้' } });
+  await db.team.update({ where: { id: spare }, data: { name: 'Can still rename' } });
   await close(teamId);
   await close(spare);
 });
 
-test('Team guards: CG และ outbound แยก terminal จริงจาก expiry/lease; reopening ต้องใช้ทีม active', async (t) => {
+test('Team guards: CG and outbound distinguish a true terminal from expiry/lease; reopening requires an active team', async (t) => {
   const db = new PrismaClient();
   t.after(() => db.$disconnect());
   const tenantId = randomUUID(),
@@ -360,7 +360,7 @@ function latch() {
   });
   return { promise, open };
 }
-test('Team guards: User writer-first/deactivate-first แข่งกันด้วย transaction จริงและ try-lock ไม่รอ', async (t) => {
+test('Team guards: User writer-first/deactivate-first race with real transactions and try-lock does not wait', async (t) => {
   const db = new PrismaClient();
   const app = new PrismaClient({
     datasources: { db: { url: process.env.APPLICATION_DATABASE_URL } },
@@ -425,7 +425,7 @@ test('Team guards: User writer-first/deactivate-first แข่งกันด�
   }
 });
 
-test('Team guards: owner intent legacy ไม่มี canonical binding ปิดทีมใดใน tenant ไม่ได้ แต่ rename/cleanup ยังทำได้', async (t) => {
+test('Team guards: legacy owner intent without a canonical binding blocks closing any team in the tenant, but rename/cleanup still work', async (t) => {
   const db = new PrismaClient();
   t.after(() => db.$disconnect());
   const tenantId = randomUUID(),
@@ -466,7 +466,10 @@ test('Team guards: owner intent legacy ไม่มี canonical binding ปิ�
       tx.team.update({ where: { id }, data: { isActive: false } }),
     );
   for (const id of [teamId, other]) await assert.rejects(close(id), /TEAM_REFERENCE_UNRESOLVED/);
-  await db.team.update({ where: { id: teamId }, data: { name: 'เปลี่ยนชื่อได้ระหว่างรอตรวจ' } });
+  await db.team.update({
+    where: { id: teamId },
+    data: { name: 'Can rename while awaiting check' },
+  });
   await db.jrOwnerAction.update({ where: { id: action.id }, data: { state: 'CANCELLED' } });
   await assert.rejects(close(other), /TEAM_REFERENCE_UNRESOLVED/);
   await db.jrOwnerCommandOutbox.update({ where: { id: command.id }, data: { state: 'CANCELLED' } });
@@ -474,7 +477,7 @@ test('Team guards: owner intent legacy ไม่มี canonical binding ปิ�
   await close(other);
 });
 
-test('Team guards: validated owner payload ระบุ source/target โดยไม่เดา head และ ACK ยังบล็อกจน continuation durable', async (t) => {
+test('Team guards: validated owner payload identifies source/target without guessing the head and ACK still blocks until the continuation is durable', async (t) => {
   const db = new PrismaClient();
   t.after(() => db.$disconnect());
   const tenantId = randomUUID(),
@@ -639,7 +642,7 @@ test('Team guards: validated owner payload ระบุ source/target โดย�
   );
 });
 
-test('Team guards: schedule CLAIMED ต้องมี durable enrollment จึงเลิกบล็อก pinned owner', async (t) => {
+test('Team guards: a schedule in CLAIMED needs a durable enrollment before it stops blocking the pinned owner', async (t) => {
   const db = new PrismaClient();
   t.after(() => db.$disconnect());
   const tenantId = randomUUID(),
@@ -726,7 +729,7 @@ test('Team guards: schedule CLAIMED ต้องมี durable enrollment จึ
   );
 });
 
-test('Team guards: scoped refilter/future work และ pending segment intent บล็อก; unscoped/terminal entry ไม่บล็อก', async (t) => {
+test('Team guards: scoped refilter/future work and pending segment intent block; unscoped/terminal entry does not block', async (t) => {
   const db = new PrismaClient();
   t.after(() => db.$disconnect());
   const tenantId = randomUUID(),
@@ -856,7 +859,7 @@ test('Team guards: scoped refilter/future work และ pending segment intent 
   );
 });
 
-test('Team guards: SEND ที่ยัง HELD บล็อกแม้ enrollment terminal และ reservation release แล้ว; terminal SEND เป็น history', async (t) => {
+test('Team guards: a SEND still HELD blocks even when the enrollment is terminal and the reservation is released; a terminal SEND is history', async (t) => {
   const db = new PrismaClient();
   t.after(() => db.$disconnect());
   const tenantId = randomUUID(),
@@ -956,7 +959,7 @@ test('Team guards: SEND ที่ยัง HELD บล็อกแม้ enrollm
   );
 });
 
-test('Team guards: resolve canonical owner receipt ก่อนถือว่า legacy unknown; version ที่ไม่รู้จักไม่ยืม proof ของ command เดิม', async (t) => {
+test('Team guards: resolve the canonical owner receipt before treating it as legacy unknown; an unknown version does not borrow the proof of the original command', async (t) => {
   const db = new PrismaClient();
   t.after(() => db.$disconnect());
   const tenantId = randomUUID(),
@@ -1067,7 +1070,7 @@ test('Team guards: resolve canonical owner receipt ก่อนถือว่�
   await close(target);
 });
 
-test('Team guards: legacy reference เดิมไม่อนุญาต reactivate User/Queue หรือยืด grant บนทีมปิด; cleanup ยังได้', async (t) => {
+test('Team guards: a legacy reference does not allow reactivating a User/Queue or extending a grant on a closed team; cleanup still works', async (t) => {
   const db = new PrismaClient();
   t.after(() => db.$disconnect());
   const tenantId = randomUUID(),
@@ -1080,11 +1083,11 @@ test('Team guards: legacy reference เดิมไม่อนุญาต reac
       sipDomain: `${tenantId}.test`,
     },
   });
-  // fault fixture เฉพาะ owner: จำลอง legacy inactive references ที่มีมาก่อน guard นี้
+  // owner-only fault fixture: simulates legacy inactive references that existed before this guard
   const legacy = await db.$transaction(async (tx) => {
     await tx.$executeRawUnsafe("SET LOCAL session_replication_role='replica'");
     await tx.team.create({
-      data: { id: teamId, tenantId, name: 'ทีมเก่าที่ปิด', isActive: false },
+      data: { id: teamId, tenantId, name: 'Old closed team', isActive: false },
     });
     const user = await tx.user.create({
       data: {
@@ -1141,7 +1144,7 @@ test('Team guards: legacy reference เดิมไม่อนุญาต reac
   await withTenantDatabaseTransaction(db, tenantId, async (tx) => {
     await tx.user.update({
       where: { id: legacy.user.id },
-      data: { displayName: 'Legacy แก้ข้อมูลทั่วไปได้' },
+      data: { displayName: 'Legacy can edit general data' },
     });
     await tx.iamAuthoringCapabilityGrant.update({
       where: { id: legacy.grant.id },
@@ -1150,7 +1153,7 @@ test('Team guards: legacy reference เดิมไม่อนุญาต reac
   });
 });
 
-test('Team guards: EXPLAIN ANALYZE closure บน 60,000 references อยู่ใน budget 2s และไม่รวม tenant อื่น', async (t) => {
+test('Team guards: EXPLAIN ANALYZE closure on 60,000 references stays within the 2s budget and excludes other tenants', async (t) => {
   const db = new PrismaClient(),
     app = new PrismaClient({ datasources: { db: { url: process.env.APPLICATION_DATABASE_URL } } });
   t.after(async () => {
@@ -1169,7 +1172,7 @@ test('Team guards: EXPLAIN ANALYZE closure บน 60,000 references อยู่
     },
   });
   for (const id of [teamId, otherTeam]) await db.team.create({ data: { id, tenantId, name: id } });
-  // synthetic scale fixture; bypass ใช้เฉพาะ owner ตอนเตรียมข้อมูล ไม่ใช่ query ที่พิสูจน์ budget
+  // synthetic scale fixture; bypass is used only by the owner while preparing data, not in the query that proves the budget
   await db.$transaction(
     async (tx) => {
       await tx.$executeRawUnsafe("SET LOCAL session_replication_role='replica'");
@@ -1205,7 +1208,7 @@ test('Team guards: EXPLAIN ANALYZE closure บน 60,000 references อยู่
     { kind: 'SKILL_REFERENCE', count: 10000n },
     { kind: 'USER_REFERENCE', count: 40000n },
   ]);
-  // budget ครอบ final-state constraint ทั้ง unit ไม่ใช่ EXPLAIN ผ่านแต่ deactivate commit ไม่ได้
+  // the budget covers the whole final-state constraint unit, not an EXPLAIN that passes while deactivate cannot commit
   await withTenantDatabaseTransaction(
     db,
     tenantId,
@@ -1217,7 +1220,7 @@ test('Team guards: EXPLAIN ANALYZE closure บน 60,000 references อยู่
   );
 });
 
-test('Team guards: app ไม่ยืม PROVISIONING lifecycle เพื่อข้าม Core effect receipt ของ provisioner', async (t) => {
+test('Team guards: app does not borrow the PROVISIONING lifecycle to bypass the provisioner Core effect receipt', async (t) => {
   const db = new PrismaClient(),
     app = new PrismaClient({ datasources: { db: { url: process.env.APPLICATION_DATABASE_URL } } });
   t.after(async () => {
@@ -1236,7 +1239,7 @@ test('Team guards: app ไม่ยืม PROVISIONING lifecycle เพื่อ
   });
   await assert.rejects(
     withTenantDatabaseTransaction(app, tenantId, (tx) =>
-      tx.team.create({ data: { tenantId, name: 'ห้ามรับรองจาก lifecycle อย่างเดียว' } }),
+      tx.team.create({ data: { tenantId, name: 'Must not be vouched for by lifecycle alone' } }),
     ),
     /CORE_ACTIVE_TENANT_CONTEXT_REQUIRED/,
   );

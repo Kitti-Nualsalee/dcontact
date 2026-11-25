@@ -6,8 +6,8 @@ import { createC360ImportDuplicateAuthority } from './import-duplicate-authority
 import { c360IdentityFenceKey } from './profile-fences.js';
 import { normalizeC360CreateProfile } from './profile-write.js';
 
-/** รันเฉพาะ disposable database; สร้างข้อมูล synthetic ไม่ใช้ shared DB */
-test('M2 duplicate warnings คืนเฉพาะสิทธิ์ปัจจุบัน, fail closed เมื่อ scope stale', async (t) => {
+/** Runs only on a disposable database; creates synthetic data and never uses the shared DB */
+test('M2 duplicate warnings return only current permissions and fail closed when scope is stale', async (t) => {
   assert.ok(process.env.DATABASE_URL && process.env.APPLICATION_DATABASE_URL);
   const url = new URL(process.env.DATABASE_URL);
   assert.ok(url.pathname !== '/dcontact' && url.port !== '5433');

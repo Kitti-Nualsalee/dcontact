@@ -40,19 +40,19 @@ import {
 } from './segment-membership-repository.js';
 
 /**
- * Cus360 C1 (#791) S5: operator commands ตาม E1 D
+ * Cus360 C1 (#791) S5: operator commands per E1 D
  *
- * - เป็น command เฉพาะงานของ trusted platform operator ไม่มี public self-grant endpoint
- * - ทุกคำสั่งต้องมี commandId, evidenceRef และ reasonCode (code ไม่ใช่ข้อความอิสระ จึงไม่พา PII เข้า audit)
- * - dry-run ใช้ตรรกะตรวจเดียวกับของจริงใน transaction ที่ไม่เขียนอะไร และคืน preview ที่ไม่มี PII
- * - ของจริงผ่าน S2 engine: admission/receipt/tombstone/idempotency และ effect+audit+receipt atomic
- * - ไม่เชื่อ role/email/token แทนหลักฐาน: grantee ต้องเป็น active ADMIN ปัจจุบัน และไม่ใช่ตัว operator เอง
+ * - these are commands for the trusted platform operator only; there is no public self-grant endpoint
+ * - every command needs a commandId, evidenceRef and reasonCode (a code, not free text, so no PII enters the audit)
+ * - dry-run uses the same checking logic as the real run in a transaction that writes nothing, and returns a preview without PII
+ * - the real run goes through the S2 engine: admission/receipt/tombstone/idempotency and an atomic effect+audit+receipt
+ * - never trust role/email/token in place of evidence: the grantee must be a currently active ADMIN and not the operator itself
  */
 
 export const C360_OPERATOR_CONTRACT_VERSION = 'c360-operator-v1';
 const TAG_SEED_MAX = 200;
 
-/** Operator ที่ gateway ตรวจ signature/role แล้ว; userId คือ dc_user_id ของ token (อาจไม่มี User row) */
+/** An operator whose signature/role the gateway has verified; userId is the token's dc_user_id (there may be no User row) */
 export interface C360TrustedOperator {
   tenantId: string;
   issuer: string;
@@ -70,7 +70,7 @@ export type C360OperatorCommand =
     }
   | { action: 'CUSTODIAN_REVOKE'; grantId: string }
   | {
-      /** creator/ผู้ถือเดิมใช้ไม่ได้: ให้ Admin ที่อนุมัติแล้วและถอน grant เดิมใน transaction เดียว */
+      /** the creator/original holder cannot be used: grants an approved Admin and revokes the old grant in one transaction */
       action: 'CUSTODIAN_RECOVER';
       contactId: string;
       granteeUserId: string;
@@ -81,7 +81,7 @@ export type C360OperatorCommand =
   | { action: 'CAPABILITY_REVOKE'; grantId: string }
   | { action: 'TAG_SEED'; names: string[] }
   | { action: 'IDENTITY_HEAD_INIT'; contactId: string }
-  /** C3 (#793) S3: import legacy ContactIdentity PHONE/EMAIL เป็น contact point ทีละ batch */
+  /** C3 (#793) S3: import legacy ContactIdentity PHONE/EMAIL as contact points, one batch at a time */
   | { action: 'LEGACY_POINT_IMPORT'; batchSize: number };
 
 export interface C360OperatorRequest {
@@ -96,7 +96,7 @@ export interface C360OperatorPreview {
   action: C360OperatorCommand['action'];
   outcome: 'WOULD_APPLY' | 'WOULD_NO_OP' | 'WOULD_REJECT';
   code: string | null;
-  /** ระบุ resource/ผู้รับสิทธิ์ด้วย ID/role/state เท่านั้น ไม่มีชื่อ email หรือ contact value */
+  /** identifies the resource/grantee by ID/role/state only; no name, email or contact value */
   subjects: Array<{ type: string; id: string; facts: Record<string, string | boolean | null> }>;
 }
 
@@ -121,7 +121,7 @@ function invalid(): never {
 }
 
 function evidenceRef(value: unknown): string {
-  // reference ทึบไปยังหลักฐานภายนอก (ticket/approval) ไม่ใช่ข้อความอิสระ
+  // an opaque reference to external evidence (ticket/approval), not free text
   if (typeof value !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:/#-]{2,199}$/.test(value)) invalid();
   return value;
 }
@@ -136,12 +136,12 @@ function permission(value: unknown): 'READ' | 'MANAGE' {
   return value;
 }
 
-/** Validate + normalize ก่อนคำนวณ digest; ค่าที่ไม่รู้จักถูกปฏิเสธ ไม่ถูกตัดทิ้งเงียบ ๆ */
+/** Validate + normalize before computing the digest; unknown values are rejected, not silently dropped */
 export function normalizeC360OperatorCommand(command: unknown): C360OperatorCommand {
   return normalizeOperatorCommand(command, false);
 }
 
-// ใช้ normalization เดิมเฉพาะคำนวณ digest สำหรับ replay receipt ที่ commit แล้ว
+// use the previous normalization only to compute the digest when replaying an already committed receipt
 function legacyTagNameForReceipt(value: unknown): string {
   if (typeof value !== 'string' || /\p{Cs}/u.test(value) || /[\r\n]/.test(value)) invalid();
   const name = value.trim().normalize('NFC');
@@ -198,7 +198,7 @@ function normalizeOperatorCommand(command: unknown, legacyReceipt: boolean): C36
       )
         invalid();
       try {
-        // เก็บชื่อแสดงตามที่ normalize แล้ว; ซ้ำกันใน request เดียวตัดสินที่ plan (TAG_NAME_DUPLICATE)
+        // keep the display name as normalized; duplicates within one request are decided at the plan (TAG_NAME_DUPLICATE)
         return {
           action: input.action,
           names: input.names.map((n) =>
@@ -236,7 +236,7 @@ function operatorActor(operator: C360TrustedOperator): C360CommandActor {
       tenantId: operator.tenantId,
       userId: operator.userId,
     }),
-    // operator ไม่ใช่ domain User ของ tenant; ตัวตนอยู่ใน actorIdentityKey
+    // the operator is not a domain User of the tenant; its identity is in actorIdentityKey
     actorUserId: null,
   };
 }
@@ -252,7 +252,7 @@ async function operatorCommandActor(
 ): Promise<C360CommandActor> {
   const legacy = operatorActor(operator);
   const commandId = c360Uuid(commandIdInput);
-  // คำสั่งที่ admit แล้วใน C1 ยัง recover ได้ด้วย key เดิม
+  // a command already admitted in C1 can still be recovered with the original key
   const stored = await withTenantDatabaseTransaction(db, legacy.tenantId, (tx) =>
     tx.c360ProfileCommand.findUnique({
       where: {
@@ -266,7 +266,7 @@ async function operatorCommandActor(
     }),
   );
   if (stored && isOperatorCommand(stored)) return legacy;
-  // แยก key ของคำสั่งและ tombstone ใหม่จาก namespace ของ domain User
+  // keep the keys of new commands and tombstones separate from the domain User namespace
   return {
     ...legacy,
     actorIdentityKey: createHash('sha256')
@@ -288,7 +288,7 @@ async function lockBusy<T>(work: () => Promise<T>): Promise<T> {
   }
 }
 
-/** grantee ต้องเป็น active ADMIN ปัจจุบันของ tenant และไม่ใช่ operator เอง (ล็อก User ก่อน identity ตาม G) */
+/** the grantee must be a currently active ADMIN of the tenant and not the operator itself (lock User before identity per G) */
 async function lockAdminGrantee(
   tx: Prisma.TransactionClient,
   operator: C360TrustedOperator,
@@ -313,7 +313,7 @@ async function lockAdminGrantee(
   };
 }
 
-/** contact ต้องอยู่ใน tenant และเป็น canonical (head ACTIVE) หรือ legacy ที่ยังไม่มี head */
+/** the contact must be in the tenant and either canonical (head ACTIVE) or legacy without a head yet */
 async function lockCanonicalContact(
   tx: Prisma.TransactionClient,
   tenantId: string,
@@ -326,7 +326,7 @@ async function lockCanonicalContact(
             WHERE ih.tenant_id = c.tenant_id AND ih.contact_id = c.id) AS identity
     FROM contacts c WHERE c.tenant_id = ${tenantId}::uuid AND c.id = ${contactId}::uuid`;
   if (!row) throw new C360ProfileCommandRejection('CONTACT_NOT_FOUND', 404);
-  // grant ไม่ตามไป canonical target หลัง merge และไม่ให้บน contact ที่ไม่ใช่ canonical
+  // a grant does not follow to the canonical target after a merge and is not given on a non-canonical contact
   if (row.identity !== null && row.identity !== 'ACTIVE')
     throw new C360ProfileCommandRejection('CONTACT_NOT_CANONICAL', 409);
   return {
@@ -560,7 +560,7 @@ async function plan(
         where: { tenantId, id: command.grantId },
       });
       if (!grant) throw new C360ProfileCommandRejection('GRANT_NOT_FOUND', 404);
-      // จัดลำดับการถอน capability กับการสร้างและ grant อื่นบน User แถวเดียวกัน
+      // order capability revocation against creation and other grants on the same User row
       await lockBusy(
         () => tx.$queryRaw`
         SELECT id FROM users WHERE tenant_id = ${tenantId}::uuid AND id = ${grant.granteeUserId}::uuid
@@ -607,7 +607,7 @@ async function plan(
       const keys = entries.map((entry) => entry.nameKey);
       if (new Set(keys).size !== keys.length)
         throw new C360ProfileCommandRejection('TAG_NAME_DUPLICATE', 422);
-      // fence ต่อ nameKey เรียงลำดับ: seed สองคำสั่งชื่อเดียวกันไม่ชนกันที่ unique แล้วกลายเป็น 500
+      // ordered fence per nameKey: seeding two commands with the same name does not collide on the unique constraint and turn into a 500
       for (const nameKey of [...keys].sort()) {
         const [row] = await tx.$queryRaw<{ locked: boolean }[]>`
           SELECT pg_try_advisory_xact_lock(hashtextextended(${`c360-tag:${tenantId}:${nameKey}`}, 0)) AS locked`;
@@ -710,7 +710,7 @@ async function plan(
       };
     }
     case 'LEGACY_POINT_IMPORT': {
-      // แต่ละ batch ตรวจแค่ว่ายังมีค้างไหม (จำนวนคงเหลือคำนวณครั้งเดียวหลัง import ใน batch)
+      // each batch only checks whether anything remains (the remaining count is computed once after the import in the batch)
       const [row] = await tx.$queryRaw<{ pending: boolean }[]>`
         SELECT EXISTS (
           SELECT 1 FROM contact_identities ci
@@ -765,7 +765,7 @@ function prepared(request: C360OperatorRequest, legacyReceipt = false) {
   };
 }
 
-/** Operator authority มาจาก gateway; ภายใน transaction ตรวจเพียงว่า tenant ยังอยู่และ ACTIVE */
+/** Operator authority comes from the gateway; inside the transaction only check that the tenant still exists and is ACTIVE */
 async function authorizeOperator(tx: Prisma.TransactionClient, operator: C360TrustedOperator) {
   const [tenant] = await lockBusy(
     () =>
@@ -829,8 +829,8 @@ export async function reconcileC360OperatorCommand(
   );
 }
 
-/** Dry-run: ตรวจทุกเงื่อนไขเหมือนของจริงแต่ไม่ admit command และไม่เขียนอะไร */
-/** E1 D inventory: counts และ digest เท่านั้น ไม่มีค่า phone/email ดิบ */
+/** Dry-run: checks every condition like the real run but does not admit the command and writes nothing */
+/** E1 D inventory: counts and digest only; no raw phone/email values */
 function inventorySubject(tenantId: string, inventory: C360LegacyInventory) {
   return {
     type: 'LEGACY_POINT_INVENTORY',
@@ -863,12 +863,12 @@ export async function previewC360OperatorCommand(
   c360Uuid(request.commandId);
   const actor = operatorActor(operator);
   if (input.command.action === 'LEGACY_POINT_IMPORT') {
-    // สแกนทั้ง tenant ใน snapshot เดียว (RepeatableRead) ไม่ใช้ timeout 2 วินาทีของ mutation
+    // scan the whole tenant in a single snapshot (RepeatableRead) without the 2-second mutation timeout
     return withTenantDatabaseTransaction(
       db,
       actor.tenantId,
       async (tx) => {
-        // dry-run อ่านอย่างเดียวจริงและไม่ถือ lock ของ tenant row ระหว่างสแกน (ไม่ขวาง writer อื่น)
+        // dry-run is truly read-only and holds no tenant row lock during the scan (does not block other writers)
         await tx.$executeRawUnsafe('SET TRANSACTION READ ONLY');
         await tx.$executeRawUnsafe("SET LOCAL statement_timeout = '50s'");
         const [tenant] = await tx.$queryRaw<{ id: string }[]>`
@@ -996,7 +996,7 @@ export async function executeC360OperatorCommand(
   );
 }
 
-/** Metadata เฉพาะ trusted operator; ไม่คืน issuer/subject/token หรือ customer payload */
+/** Metadata for the trusted operator only; does not return issuer/subject/token or a customer payload */
 export async function readC360ServicePrincipalMetadata(
   db: PrismaClient,
   operator: C360TrustedOperator,
@@ -1034,8 +1034,8 @@ export async function readC360ServicePrincipalMetadata(
 }
 
 /**
- * C3 (#793) S3/S4: รัน LEGACY_POINT_IMPORT ทีละ batch จน remaining = 0 (ลำดับ rollout: import ก่อนเปิด bridge)
- * แต่ละ batch เป็นคำสั่งของตัวเองที่มี receipt/audit; busy ให้ retry batch ด้วย commandId เดิม
+ * C3 (#793) S3/S4: runs LEGACY_POINT_IMPORT one batch at a time until remaining = 0 (rollout order: import before enabling the bridge)
+ * each batch is its own command with a receipt/audit; on busy, retry the batch with the same commandId
  */
 export async function importAllC360LegacyContactPoints(
   db: PrismaClient,
@@ -1061,19 +1061,20 @@ export async function importAllC360LegacyContactPoints(
           attempt >= 5
         )
           throw error;
-        // backoff แบบ exponential + jitter ไม่ยิงซ้ำทันทีขณะ fence/contact ถูกถืออยู่
+        // exponential backoff + jitter; do not retry immediately while the fence/contact is held
         await new Promise((resolve) =>
           setTimeout(resolve, 100 * 2 ** attempt + Math.random() * 100),
         );
       }
     }
     if (result.state !== 'TERMINAL')
-      throw new Error(`legacy import ${commandId} ยังไม่มีผลที่แน่นอน`);
+      throw new Error(`legacy import ${commandId} has no definitive outcome yet`);
     const receipt = result.receipt;
     if (receipt.outcome === 'NO_OP') return { batches, imported };
-    if (receipt.outcome !== 'APPLIED') throw new Error(`legacy import ถูกปฏิเสธ: ${receipt.code}`);
+    if (receipt.outcome !== 'APPLIED')
+      throw new Error(`legacy import was rejected: ${receipt.code}`);
     imported += Number(receipt.committedRevisions.imported ?? 0);
     if (receipt.committedRevisions.remaining === '0') return { batches: batches + 1, imported };
   }
-  throw new Error('legacy import ไม่จบภายในจำนวน batch ที่กำหนด');
+  throw new Error('legacy import did not finish within the allowed number of batches');
 }

@@ -20,11 +20,11 @@ import {
 } from './service-principal.js';
 
 /**
- * External customer API (#954): การอ่านและสร้าง Contact ของ service principal ตาม Phase Contract M3 v1 ข้อ 1–2
+ * External customer API (#954): reading and creating Contacts by a service principal per Phase Contract M3 v1 items 1–2
  *
- * - อ่านได้เฉพาะ Contact ที่มี service READ grant ที่ยังไม่ถูกถอน และ binding ยัง active; ไม่มี tenant-wide fallback
- *   role `service` หรือ token scope ไม่ให้สิทธิ์อ่านเอง และ grant ไม่ตามไป canonical target หลัง merge
- * - ผู้เรียกต้องส่ง principal ที่ `lockC360ServicePrincipal` คืนใน transaction เดียวกัน
+ * - can read only Contacts with a service READ grant that is not revoked and an active binding; no tenant-wide fallback
+ *   the `service` role or token scope does not grant read access by itself, and a grant does not follow to the canonical target after a merge
+ * - the caller must pass the principal returned by `lockC360ServicePrincipal` in the same transaction
  */
 function serviceReadableSql(principal: C360LockedServicePrincipal): Prisma.Sql {
   return Prisma.sql`(c.tenant_id = ${principal.tenant_id}::uuid
@@ -48,12 +48,12 @@ export function c360ServiceContactReader(principal: C360LockedServicePrincipal):
   return {
     tenantId: principal.tenant_id,
     cursorSubject: principal.id,
-    // epoch เปลี่ยนทุกครั้งที่ operator แก้ binding/grant: cursor เดิมใช้ต่อไม่ได้ ต้องค้นใหม่
+    // the epoch changes whenever an operator edits a binding/grant: the old cursor cannot be reused and the search must restart
     scopeDigest: createHash('sha256')
       .update(`c360-service-scope-v1|${principal.id}|${principal.authz_epoch.toString()}`)
       .digest('hex'),
     readable,
-    // service ไม่มีสิทธิ์ผ่าน segment ของทีม จึงไม่มีสถานะที่ยังตัดสินไม่ได้
+    // a service has no access through team segments, so there is no undecided state
     deferred: Prisma.sql`false`,
     access: async (tx, contactId): Promise<C360ContactAccess> => {
       const [row] = await tx.$queryRaw<{ readable: boolean; identity: string | null }[]>(Prisma.sql`
@@ -75,9 +75,9 @@ export function c360ServiceContactReader(principal: C360LockedServicePrincipal):
 }
 
 /**
- * สร้าง Contact แทน service ภายใน transaction ของ command: Contact + head + evidence + custody `INTEGRATION`
- * ของ custodian Admin ที่ operator กำหนด + service READ grant ของ Contact ใหม่ ทั้งหมด atomic
- * client เลือก custodian, tenant หรือ grant ผ่าน payload ไม่ได้
+ * Creates a Contact on behalf of a service inside the command transaction: Contact + head + evidence + `INTEGRATION` custody
+ * for the Admin custodian the operator designates + a service READ grant on the new Contact, all atomic
+ * the client cannot choose the custodian, tenant or grant through the payload
  */
 export async function createC360ServiceProfile(
   tx: Prisma.TransactionClient,
@@ -87,7 +87,7 @@ export async function createC360ServiceProfile(
   profile: C360CreateProfile,
 ): Promise<C360ProfileEffect> {
   try {
-    // ถือ User row guard ของ custodian (FOR SHARE NOWAIT) ก่อน effect
+    // hold the custodian's User row guard (FOR SHARE NOWAIT) before the effect
     if (!(await authorizeC360ServiceCapability(tx, principal))) throw new C360WriteDenied();
   } catch (error) {
     if (error instanceof C360WriteDenied) throw error;

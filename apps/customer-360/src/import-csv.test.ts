@@ -20,11 +20,12 @@ const rejects = (value: Uint8Array, code: string) =>
     },
   );
 
-test('CSV อ่าน BOM, quoted comma/newline, escaped quote และนับ record โดยไม่เปลี่ยนค่า', () => {
+test('CSV reads BOM, quoted comma/newline and escaped quote, and counts records without changing values', () => {
   assert.deepEqual(parseC360ImportCsv(bytes('\ufeffname,email\r\n"ก,ข","a""b"\r\n"line\n2",x\n')), {
+    // allow-thai: Thai CSV cell fixture
     headers: ['name', 'email'],
     rows: [
-      ['ก,ข', 'a"b'],
+      ['ก,ข', 'a"b'], // allow-thai: Thai CSV cell fixture
       ['line\n2', 'x'],
     ],
   });
@@ -34,7 +35,7 @@ test('CSV อ่าน BOM, quoted comma/newline, escaped quote และนั�
   });
 });
 
-test('CSV ปฏิเสธ UTF-8 ไม่ถูกต้อง, NUL, header ซ้ำ, แถวไม่ครบและ quote ผิด grammar', () => {
+test('CSV rejects invalid UTF-8, NUL, duplicate headers, short rows and malformed quote grammar', () => {
   for (const input of [
     new Uint8Array([0xc3, 0x28]),
     bytes('name\nsecret\0'),
@@ -49,7 +50,7 @@ test('CSV ปฏิเสธ UTF-8 ไม่ถูกต้อง, NUL, header �
     rejects(input, 'CSV_INVALID');
 });
 
-test('CSV จำกัด bytes, columns, rows และ UTF-16 code units ก่อน core validation', () => {
+test('CSV limits bytes, columns, rows and UTF-16 code units before core validation', () => {
   rejects(new Uint8Array(C360_IMPORT_MAX_BYTES + 1), 'IMPORT_LIMIT_EXCEEDED');
   rejects(bytes(Array.from({ length: 33 }, (_, i) => `h${i}`).join(',')), 'IMPORT_LIMIT_EXCEEDED');
   rejects(bytes(`${'x'.repeat(161)}\na`), 'IMPORT_LIMIT_EXCEEDED');
@@ -58,23 +59,23 @@ test('CSV จำกัด bytes, columns, rows และ UTF-16 code units ก�
   assert.equal(parseC360ImportCsv(bytes(`h\n${'😀'.repeat(1024)}`)).rows[0]![0]!.length, 2048);
 });
 
-test('quoted control และ formula คงเป็นข้อความเพื่อให้ core validator ตรวจอีกชั้น', () => {
+test('quoted control and formula stay as text so the core validator checks them again', () => {
   const parsed = parseC360ImportCsv(bytes('name\n"=SUM(1,2)"\n"a\nb"'));
   assert.deepEqual(parsed.rows, [['=SUM(1,2)'], ['a\nb']]);
 });
 
-test('mapping ต้องอ้าง header จริง ใช้ key allowlist และประเทศจาก metadata C4', () => {
-  const headers = ['ชื่อ', 'โทร', 'ประเทศ', 'วีไอพี'];
+test('mapping must reference real headers, use a key allowlist and take countries from C4 metadata', () => {
+  const headers = ['ชื่อ', 'โทร', 'ประเทศ', 'วีไอพี']; // allow-thai: Thai CSV header fixture
   const valid = {
     version: 1,
-    columns: { displayName: 'ชื่อ', phone: 'โทร', phoneCountry: 'ประเทศ', vip: 'วีไอพี' },
+    columns: { displayName: 'ชื่อ', phone: 'โทร', phoneCountry: 'ประเทศ', vip: 'วีไอพี' }, // allow-thai: Thai CSV header fixture
     defaultPhoneCountry: 'US',
   };
   assert.deepEqual(validateC360ImportMapping(valid, headers), valid);
   for (const invalid of [
     { ...valid, version: 2 },
     { ...valid, extra: 'secret' },
-    { ...valid, columns: { ...valid.columns, tags: 'ชื่อ' } },
+    { ...valid, columns: { ...valid.columns, tags: 'ชื่อ' } }, // allow-thai: Thai CSV header fixture
     { ...valid, columns: { displayName: 'missing' } },
     { ...valid, defaultPhoneCountry: 'ZZ' },
     { ...valid, defaultPhoneCountry: 'th' },
@@ -84,7 +85,7 @@ test('mapping ต้องอ้าง header จริง ใช้ key allowli
     });
 });
 
-test('แถวใช้ C4 normalizer และ explicit country จาก column ก่อน default โดยไม่สะท้อน cell เมื่อผิด', () => {
+test('rows use the C4 normalizer and an explicit country from the column before the default, without echoing the cell when invalid', () => {
   const headers = ['name', 'phone', 'country', 'vip', 'email'];
   const mapping = validateC360ImportMapping(
     {
@@ -102,12 +103,12 @@ test('แถวใช้ C4 normalizer และ explicit country จาก colu
   );
   const valid = normalizeC360ImportRow(
     headers,
-    ['  ชื่อ  ', '0812345678', 'TH', 'true', 'A@EXAMPLE.COM'],
+    ['  ชื่อ  ', '0812345678', 'TH', 'true', 'A@EXAMPLE.COM'], // allow-thai: Thai CSV cell fixture
     mapping,
   );
   assert.equal(valid.valid, true);
   if (valid.valid) {
-    assert.equal(valid.profile.displayName, 'ชื่อ');
+    assert.equal(valid.profile.displayName, 'ชื่อ'); // allow-thai: Thai CSV cell fixture
     assert.equal(valid.profile.vip, true);
     assert.equal(valid.profile.points[0]?.normalizedValue, '+66812345678');
     assert.equal(valid.profile.points[1]?.normalizedValue, 'A@example.com');

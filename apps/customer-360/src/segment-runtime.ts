@@ -10,8 +10,8 @@ import type {
 } from './segment-membership-repository.js';
 
 /**
- * #911: segment ระบบต่อ tenant ที่ Admin ให้ทีมได้สิทธิ์ผ่าน team-scopes เดิม
- * การมีอยู่ของ segment ไม่ให้สิทธิ์ใครเอง — ต้องมี team_segment_scope ที่ Admin ตั้งเท่านั้น
+ * #911: a per-tenant system segment that an Admin grants to teams through the existing team-scopes
+ * the existence of a segment grants nobody access by itself — only a team_segment_scope set by an Admin does
  */
 export interface C360SystemSegment {
   segmentId: string;
@@ -46,7 +46,7 @@ export const C360_SYSTEM_SEGMENTS: readonly C360SystemSegment[] = Object.freeze(
   },
 ] as C360SystemSegment[]);
 
-/** ผูก snapshot กับ profile revision ที่อ่านพร้อม facts; revision เปลี่ยน = ต้องประเมินใหม่ */
+/** Binds the snapshot to the profile revision read together with the facts; revision changed = must re-evaluate */
 export const C360_FACTS_MARKER_PREFIX = 'c360-facts:v1:';
 
 export function c360ContactFacts(contact: {
@@ -63,8 +63,8 @@ export function c360ContactFacts(contact: {
 }
 
 /**
- * commandId คงที่ต่อ (contact, segment, definition, snapshot, revision ที่คาด) — retry ได้ผลเดิม
- * receipt unique ต่อ tenant จึงต้องมี contactId ไม่งั้น contact อื่นชนกันเป็น IDEMPOTENCY_CONFLICT
+ * commandId is stable per (contact, segment, definition, snapshot, expected revision) — a retry gives the same result
+ * the receipt is unique per tenant, so it must include contactId, otherwise another contact collides as IDEMPOTENCY_CONFLICT
  */
 export function c360SystemEvaluationCommandId(input: {
   contactId: string;
@@ -98,9 +98,9 @@ type DirtyContact = {
 };
 
 /**
- * ประเมิน segment ระบบให้ contact ที่ facts ล่าสุดเก่ากว่าข้อมูลปัจจุบัน หรือยังไม่มีผลของ
- * segment/definition ปัจจุบัน ใช้ owner writer เดิม (recordFactSnapshot/commitEvaluation) ทั้งหมด
- * จึงได้ outbox → relay → IAM projection ตามเส้นทางเดียวกับ segment อื่น
+ * Evaluates the system segment for contacts whose latest facts are older than the current data or that have no result for the
+ * current segment/definition, using the existing owner writer (recordFactSnapshot/commitEvaluation) throughout
+ * so it gets outbox → relay → IAM projection along the same path as other segments
  */
 export class C360SegmentRuntime {
   constructor(
@@ -110,7 +110,7 @@ export class C360SegmentRuntime {
     private readonly systemSegments: readonly C360SystemSegment[] = C360_SYSTEM_SEGMENTS,
   ) {}
 
-  /** สร้างและ publish v1 ถ้ายังไม่มี; มีแล้วคืน version ที่ publish อยู่ (ไม่ทับ segment ที่ถูกแก้) */
+  /** creates and publishes v1 if missing; if it exists returns the published version (does not overwrite an edited segment) */
   async ensureSystemSegments(tenantId: string): Promise<C360PublishedSystemSegment[]> {
     const published: C360PublishedSystemSegment[] = [];
     for (const segment of this.systemSegments) {
@@ -135,7 +135,7 @@ export class C360SegmentRuntime {
           expectedHeadVersion: 0,
         });
       } catch (error) {
-        // instance อื่น publish ไปก่อน: ใช้ผลที่ publish อยู่
+        // another instance published first: use the published result
         if (!(error instanceof C360SegmentRepositoryError)) throw error;
       }
       const after = await this.segments.resolvePublished(tenantId, segment.segmentId);
@@ -211,7 +211,7 @@ export class C360SegmentRuntime {
           result.commits[commit.status] = (result.commits[commit.status] ?? 0) + 1;
         }
       } catch (error) {
-        // แข่งกับ instance อื่น (version/idempotency conflict): ข้ามแล้วรอรอบถัดไป
+        // raced with another instance (version/idempotency conflict): skip and wait for the next round
         if (!(error instanceof C360SegmentRepositoryError)) throw error;
         result.skipped += 1;
       }
@@ -220,9 +220,9 @@ export class C360SegmentRuntime {
   }
 
   /**
-   * contact ที่ต้องทำงาน: ยังไม่มี snapshot, snapshot ผูก revision เก่า, หรือยังไม่มีผลของ
-   * segment/definition ปัจจุบันบน snapshot ล่าสุด (และยังไม่เคยลองด้วย commandId เดียวกัน —
-   * กัน contact ที่ถูก quarantine วนซ้ำทุกรอบ) ไม่รวม identity ที่ไม่ ACTIVE
+   * contacts that need work: no snapshot yet, a snapshot bound to an old revision, or no result for the
+   * current segment/definition on the latest snapshot (and not yet tried with the same commandId —
+   * so a quarantined contact does not loop every round), excluding identities that are not ACTIVE
    */
   private pendingContacts(
     tenantId: string,
