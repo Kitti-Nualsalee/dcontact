@@ -55,8 +55,8 @@ function textLength(value: string) {
 }
 
 /**
- * #998 1B/2: สถานะคำสั่งแก้บัญชีหนึ่งชนิด — เก็บเฉพาะ command/operation IDs ใน sessionStorage (ไม่เก็บชื่อ/เหตุผล)
- * เพื่อกู้ผลหลัง reload หรือ response หาย; ผลไม่ชัดเจนไม่ส่งซ้ำเอง แต่ poll สถานะคำสั่งเดิม
+ * #998 1B/2: state of one kind of account-change command — only command/operation IDs are kept in sessionStorage (no name/reason)
+ * to recover the result after a reload or a lost response; an uncertain result is not resent automatically, the original command's status is polled instead
  */
 function useAccountChange(
   kind: PeopleAccountChangeKind,
@@ -73,7 +73,7 @@ function useAccountChange(
       ? { commandId: user.accountChange.commandId, operationId: user.accountChange.operationId }
       : undefined);
   const [pending, setPending] = useState(existing);
-  /** undefined = กำลังตรวจ capabilities ครั้งแรก (ยังไม่รู้ว่าพร้อมหรือไม่) */
+  /** undefined = first capabilities check in progress (not yet known whether it is ready) */
   const [ready, setReady] = useState<boolean>();
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<PeopleAccountChangeState | ''>('');
@@ -91,8 +91,8 @@ function useAccountChange(
     setPending(value);
   }
   /**
-   * 401 (session หมด) ส่งต่อให้หน้า People เสมอ; 403 ส่งต่อเฉพาะตอนอ่าน (capabilities/รายละเอียด)
-   * ส่วน 403 ของคำสั่งแก้ไขแสดงในการ์ด/Dialog และคงหน้ารายละเอียดไว้
+   * 401 (session expired) is always passed on to the People page; 403 is passed on only when reading (capabilities/detail)
+   * while a 403 on a change command is shown in the card/Dialog and the detail page stays
    */
   function failed(value: unknown, write = false) {
     if (!mounted.current) return;
@@ -116,7 +116,7 @@ function useAccountChange(
             : 'FAILED',
     );
   }
-  /** อ่านผลคำสั่งเดิม; คืน undefined เมื่อ server ไม่มีคำสั่ง/operation นี้ (ล้างคำสั่งค้างแล้ว) */
+  /** read the result of the original command; returns undefined when the server has no such command/operation (stale command cleared) */
   async function follow(reference: PendingChange): Promise<PendingChange | undefined> {
     try {
       if (!reference.operationId) {
@@ -161,7 +161,7 @@ function useAccountChange(
           }
         }
       }
-      // ไม่มีคำสั่งเดิมใน server: ไม่มีอะไรเปลี่ยน บอกผู้ใช้แล้วเปิดให้ส่งใหม่ได้
+      // the server has no original command: nothing changed, tell the user and allow sending again
       if (missing) {
         setStatus('');
         setError('NOT_RECORDED');
@@ -206,7 +206,7 @@ function useAccountChange(
       document.removeEventListener('visibilitychange', poll);
     };
   }, [api, storageKey, pending?.commandId, pending?.operationId]);
-  /** คืน true เมื่อรับคำสั่งแล้ว (ปิด Dialog ได้) หรือผลไม่ชัดเจน (ปิด Dialog แล้ว poll คำสั่งเดิม) */
+  /** returns true when the command was accepted (the Dialog may close) or the result is uncertain (close the Dialog and poll the original command) */
   async function submit(command: { reason: string; displayName?: string }): Promise<boolean> {
     if (inFlight.current || pending || !ready || !supported) return false;
     inFlight.current = true;
@@ -229,7 +229,7 @@ function useAccountChange(
     } catch (value) {
       if (!mounted.current) return true;
       let outcome = commandOutcome(value);
-      // 408/CONFIG_BUSY: ตรวจคำสั่งเดิมทันที ถ้า server ไม่มีคำสั่งนี้ก็ถือว่าปฏิเสธแน่นอน
+      // 408/CONFIG_BUSY: check the original command immediately; if the server has no such command it is definitely rejected
       if (outcome === 'AMBIGUOUS') {
         try {
           const accepted = await api.invitationCommand(reference.commandId, user.id);
@@ -254,7 +254,7 @@ function useAccountChange(
         setReady(false);
         setError('NOT_ACCEPTED');
       }
-      // ปฏิเสธแน่นอน: คง Dialog ให้แก้/ลองใหม่; ไม่รู้ผล: ปิด Dialog ให้แผงตามคำสั่งเดิมด้วย commandId ที่เก็บไว้
+      // definitely rejected: keep the Dialog to edit/retry; result unknown: close the Dialog so the panel follows the original command by the stored commandId
       return !rejected;
     } finally {
       inFlight.current = false;
@@ -264,7 +264,7 @@ function useAccountChange(
   return { supported, ready, busy, pending, status, error, setError, refresh, submit };
 }
 
-/** #998 1B: แก้ชื่อที่แสดงทั้งในระบบและ Keycloak (ชื่อบนหน้าลงชื่อเข้าใช้) */
+/** #998 1B: edit the display name both in the system and in Keycloak (the name on the sign-in page) */
 export function PeopleProfileEdit({
   api,
   user,
@@ -286,7 +286,7 @@ export function PeopleProfileEdit({
   const [reason, setReason] = useState('');
   if (!change.supported) return null;
   const status = accountStatus(user);
-  // บัญชีที่ไม่มี lifecycle ของ People (เช่นบัญชีจาก seed) ระบบยืนยันตัวตนไม่ยอมให้แก้ผ่าน People
+  // an account with no People lifecycle (e.g. an account from seed): the identity system does not allow editing it through People
   const managed = status !== 'UNKNOWN';
   const eligible = status === 'ACTIVE';
   const checking = change.ready === undefined;
@@ -302,7 +302,7 @@ export function PeopleProfileEdit({
     setReason('');
     change.setError(undefined);
   }
-  /** ปิดหลังส่งคำสั่ง: คงข้อความ error (เช่นผลไม่ชัดเจน) ให้แสดงนอก Dialog */
+  /** closed after sending the command: keep the error message (e.g. uncertain result) shown outside the Dialog */
   function dismiss() {
     setOpen(false);
     setReason('');
@@ -410,7 +410,7 @@ export function PeopleProfileEdit({
   );
 }
 
-/** #998 2: เปิดบัญชีที่ปิดแล้วกลับ ผู้ใช้ลงชื่อเข้าใช้ด้วยรหัสผ่านและ TOTP เดิม */
+/** #998 2: re-enable a disabled account; the user signs in with the original password and TOTP */
 export function PeopleEnable({
   api,
   user,
@@ -433,7 +433,7 @@ export function PeopleEnable({
   const [reason, setReason] = useState('');
   if (!change.supported) return null;
   const disabled = accountStatus(user) === 'DISABLED' && !user.isActive;
-  // แสดงแผงเฉพาะบัญชีที่ปิดแล้ว หรือมีคำสั่งเปิดกลับที่ต้องตามผล
+  // show the panel only for a disabled account, or one with an enable command whose result must be followed
   if (!disabled && !change.pending && !change.status) return null;
   const valid = textLength(reason) >= 1 && textLength(reason) <= 500;
   function close() {
@@ -441,7 +441,7 @@ export function PeopleEnable({
     setReason('');
     change.setError(undefined);
   }
-  /** ปิดหลังส่งคำสั่ง: คงข้อความ error (เช่นผลไม่ชัดเจน) ให้แสดงนอก Dialog */
+  /** closed after sending the command: keep the error message (e.g. uncertain result) shown outside the Dialog */
   function dismiss() {
     setOpen(false);
     setReason('');

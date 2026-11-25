@@ -7,7 +7,7 @@ import { formatScore, scaleValues, setAnswer } from './model.js';
 interface Props {
   definition: FormDefinition;
   answers: Answers;
-  /** ไม่ส่ง = อ่านอย่างเดียว */
+  /** omitted = read-only */
   onChange?: (answers: Answers) => void;
   errors?: Record<string, string>;
   sectionScores?: EvaluationScore['sections'];
@@ -15,8 +15,8 @@ interface Props {
 }
 
 /**
- * ฟอร์มประเมินหนึ่งใบ — ใช้ทั้งตอน Supervisor ให้คะแนนและตอนแสดงผลที่ publish แล้ว
- * ปุ่มเลือกคำตอบเป็น radio ของ browser เพราะ ui-react ยังไม่มี RadioGroup (ระบุใน PR)
+ * one evaluation form — used both when a Supervisor scores and when showing a published result
+ * the answer buttons are browser radios because ui-react has no RadioGroup yet (noted in the PR)
  */
 export function EvaluationForm({
   definition,

@@ -31,8 +31,8 @@ export function resolveConsoleContextId(location: URL): string {
 }
 
 /**
- * #684: ไม่มี explicit view หรือ Interaction context → Home เสมอ รวม deployment เก่าที่ตั้ง
- * VITE_CONSOLE_DEFAULT_VIEW=journeys; เก็บ argument เดิมเพื่อให้ callers ของ callback ใช้ต่อได้
+ * #684: with no explicit view or Interaction context → always Home, including old deployments that set
+ * VITE_CONSOLE_DEFAULT_VIEW=journeys; the old argument is kept so callers of the callback can keep using it
  */
 export function resolveConsoleView(location: URL, _legacyDefaultView?: string): string | null {
   const view = location.searchParams.get('view');
@@ -59,8 +59,8 @@ export function accessTokenRealmRoles(accessToken: string | undefined): string[]
 }
 
 /**
- * U1.7 (#435): หลัง Keycloak redirect กลับ ต้องลบ `code`/`state`/`session_state`/`iss` ออกจาก URL
- * (ไม่ให้ค้างใน history/screenshot หลักฐาน — #379) โดยคง `tenant`/`view`/`journey` เดิมไว้
+ * U1.7 (#435): after Keycloak redirects back, `code`/`state`/`session_state`/`iss` must be removed from the URL
+ * (so they do not linger in history/evidence screenshots — #379) while keeping the original `tenant`/`view`/`journey`
  */
 export function cleanConsoleCallbackUrl(location: URL): string {
   const next = new URL(location.href);
@@ -82,8 +82,8 @@ export function rememberConsoleReturnUrl(location: URL, storage: Storage): void 
 }
 
 /**
- * URL ปลายทางที่จำไว้ก่อนส่งไป login — ใช้ได้เฉพาะเมื่อ origin เดียวกับ callback, เป็น path ภายใน
- * และ `tenant` ตรงกับ callback (กันค่าที่ถูกแก้ใน storage พาออกนอกระบบ/ข้าม tenant)
+ * The destination URL remembered before sending to login — usable only when it has the same origin as the callback, is an internal path
+ * and its `tenant` matches the callback (prevents a value tampered with in storage from leaving the system / crossing tenants)
  */
 function savedReturnDestination(callback: URL, storage: Storage): URL | undefined {
   const saved = storage.getItem(CONSOLE_RETURN_URL_KEY);
@@ -108,7 +108,7 @@ export function consumeConsoleReturnUrl(callback: URL, storage: Storage): string
   return cleanConsoleCallbackUrl(destination ?? callback);
 }
 
-/** URL ที่ Keycloak redirect กลับมา: มี `state` และ `code` (สำเร็จ) หรือ `error` (ถูกปฏิเสธ) */
+/** URL Keycloak redirects back to: has `state` and `code` (success) or `error` (rejected) */
 export function isOidcCallback(location: URL): boolean {
   return (
     location.searchParams.has('state') &&
@@ -117,10 +117,10 @@ export function isOidcCallback(location: URL): boolean {
 }
 
 /**
- * #676: `redirect_uri` คือ `/?tenant=<alias>` จึงไม่บอกว่าจะเปิดหน้าไหน — ตอน render แรกบน callback
- * ต้องเลือก view/context จาก URL ปลายทางที่จำไว้ (อ่านโดยไม่ลบ ให้ `onSigninCallback` เป็นผู้ใช้/ลบ)
- * ไม่งั้นหน้าถูกเลือกไม่ได้ → ไม่ mount `AuthProvider` → ไม่มีใครแลก `code` เป็น token
- * URL ที่ไม่ใช่ callback ไม่ถูกแย่งด้วยค่าที่ค้างใน storage
+ * #676: `redirect_uri` is `/?tenant=<alias>`, so it does not say which page to open — on the first render at the callback
+ * the view/context must be chosen from the remembered destination URL (read without deleting; `onSigninCallback` uses/deletes it).
+ * Otherwise no page can be chosen → `AuthProvider` is not mounted → nobody exchanges the `code` for a token.
+ * A URL that is not a callback is not hijacked by a value left in storage
  */
 export function resolveConsoleLocation(location: URL, storage: Storage): URL {
   if (!isOidcCallback(location)) return location;
@@ -137,9 +137,9 @@ export function consumeConsoleReturnLocation(
 }
 
 /**
- * #677: ก่อน sign-out จำหน้าปัจจุบันและทำเครื่องหมายว่าออกจากระบบเอง — `post_logout_redirect_uri`
- * คือ `/?tenant=<alias>` (ไม่มี view/context) จึงต้องรู้จากเครื่องหมายนี้ว่าควรแสดงหน้า "ออกจากระบบแล้ว"
- * แทนหน้า error และเมื่อเข้าสู่ระบบอีกครั้ง callback จะพากลับหน้าเดิมด้วย URL ที่จำไว้ (#676)
+ * #677: before sign-out, remember the current page and mark that the user signed out themselves — `post_logout_redirect_uri`
+ * is `/?tenant=<alias>` (no view/context), so this mark is how we know to show the "signed out" page
+ * instead of the error page, and when the user signs in again the callback returns to the original page using the remembered URL (#676)
  */
 export function rememberConsoleSignOut(location: URL, storage: Storage): void {
   rememberConsoleReturnUrl(location, storage);
@@ -150,7 +150,7 @@ export function clearConsoleSignOut(storage: Storage): void {
   storage.removeItem(CONSOLE_SIGNED_OUT_KEY);
 }
 
-/** หน้าที่ Keycloak พากลับมาหลัง sign-out: มีเครื่องหมาย, ไม่ใช่ callback และไม่ได้ระบุหน้า (view/context) */
+/** page Keycloak returns to after sign-out: has the mark, is not a callback and names no page (view/context) */
 export function isConsoleSignedOutLanding(location: URL, storage: Storage): boolean {
   return (
     storage.getItem(CONSOLE_SIGNED_OUT_KEY) === '1' &&
@@ -160,7 +160,7 @@ export function isConsoleSignedOutLanding(location: URL, storage: Storage): bool
   );
 }
 
-/** กู้ SSO เฉพาะ boot ปกติ; callback และการออกจากระบบเองต้องจบตาม flow ของตน */
+/** restore SSO only on a normal boot; a callback and a self-initiated sign-out must finish by their own flow */
 export function shouldRestoreConsoleSession(location: URL, storage: Storage): boolean {
   return !isOidcCallback(location) && storage.getItem(CONSOLE_SIGNED_OUT_KEY) !== '1';
 }
@@ -181,8 +181,8 @@ export function createConsoleOidcSettings(input: ConsoleOidcSettingsInput): User
     silentRequestTimeoutInSeconds: 10,
     requestTimeoutInSeconds: 5,
     monitorSession: true,
-    // R1 (#593): cookie ของ realm เปลี่ยนชื่อเป็น DC_* — iframe ของ session management ต้องเป็นตัวที่อ่านชื่อใหม่
-    // (iframe เดิมของ IdP อ่านชื่อเดิมตายตัวและ override ด้วย theme ไม่ได้)
+    // R1 (#593): the realm cookie was renamed to DC_* — the session management iframe must be the one that reads the new name
+    // (the IdP's old iframe reads the old name hard-coded and cannot be overridden by a theme)
     metadataSeed: {
       check_session_iframe: `${input.issuer.replace(/\/+$/, '')}/dc-account/login-status-iframe.html`,
     },

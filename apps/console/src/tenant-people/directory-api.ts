@@ -10,7 +10,7 @@ export const PEOPLE_ACCOUNT_CHANGE_STATES = [
   'ACTION_REQUIRED',
 ] as const;
 export type PeopleAccountChangeState = (typeof PEOPLE_ACCOUNT_CHANGE_STATES)[number];
-/** #998 1B/2: คำสั่งแก้ชื่อ/เปิดบัญชีกลับล่าสุดของผู้ใช้ */
+/** #998 1B/2: the user's latest display-name edit / re-enable command */
 export interface PeopleAccountChange {
   operationId: string;
   commandId: string;
@@ -45,12 +45,12 @@ export interface InvitationCommand {
   reasonCode: string;
   reason: string;
 }
-/** ตัวกรองที่ server ใช้ — ค่าว่าง/undefined คือไม่กรอง */
+/** filters the server applies — empty/undefined means no filter */
 export interface PeopleDirectoryFilters {
   q?: string;
   role?: PeopleRole;
   teamId?: string;
-  /** สถานะเดียวกับ chip ใน Console (server คำนวณลำดับเดียวกับ `accountStatus()`) */
+  /** same status as the chip in Console (the server computes the same order as `accountStatus()`) */
   status?: string;
 }
 export const PEOPLE_DIRECTORY_STATUSES = [
@@ -80,9 +80,9 @@ export interface PeopleDirectoryApi {
   disableReady?(): Promise<boolean>;
   disable?(userId: string, command: InvitationCommand): Promise<{ operationId: string }>;
   disableOperation?(operationId: string, userId: string): Promise<string>;
-  /** #998 1A: ย้ายทีม — ตอบผลทันที (ไม่มี operation) และ replay ได้ด้วย commandId เดิม */
+  /** #998 1A: move team — answers the result immediately (no operation) and can be replayed with the same commandId */
   changeTeam?(userId: string, command: TeamChangeCommand): Promise<{ configRevision: number }>;
-  /** #998 1B/2: แก้ชื่อที่แสดง/เปิดบัญชีกลับ — รับคำสั่ง (202) แล้วตามผลที่ operations/:id */
+  /** #998 1B/2: edit display name / re-enable account — accepts the command (202) then follows the result at operations/:id */
   accountChangeReady?(): Promise<boolean>;
   changeAccount?(
     userId: string,
@@ -99,7 +99,7 @@ export interface AccountChangeCommand {
   commandId: string;
   expectedRevision: number;
   reason: string;
-  /** เฉพาะ UPDATE_PROFILE */
+  /** UPDATE_PROFILE only */
   displayName?: string;
 }
 export interface TeamChangeCommand {
@@ -110,10 +110,10 @@ export interface TeamChangeCommand {
 }
 
 /**
- * ผลของคำสั่งที่ส่งไป (หรือคำสั่งที่ตามผล) ตามสิ่งที่ server ตอบ
- * - `REJECTED`: ปฏิเสธแบบรู้ผลแน่นอน server ไม่ได้บันทึกคำสั่ง (4xx ทั่วไป หรือ 503 บริการยังไม่พร้อม)
- * - `AMBIGUOUS`: 4xx ที่อาจเกิดระหว่างคำสั่งเดียวกันกำลังทำงาน (408 timeout, 409 CONFIG_BUSY) ต้องตรวจคำสั่งเดิมก่อน
- * - `UNKNOWN`: เครือข่าย/5xx/response ผิดรูป ไม่รู้ว่ารับคำสั่งหรือยัง
+ * Result of a command that was sent (or a command being followed), per what the server answered
+ * - `REJECTED`: definitely rejected, the server did not record the command (an ordinary 4xx or a 503 service not ready)
+ * - `AMBIGUOUS`: a 4xx that can occur while the same command is running (408 timeout, 409 CONFIG_BUSY); the original command must be checked first
+ * - `UNKNOWN`: network/5xx/malformed response, not known whether the command was accepted
  */
 export function commandOutcome(value: unknown): 'REJECTED' | 'AMBIGUOUS' | 'UNKNOWN' {
   if (!(value instanceof CatalogApiError)) return 'UNKNOWN';
@@ -127,7 +127,7 @@ export function commandOutcome(value: unknown): 'REJECTED' | 'AMBIGUOUS' | 'UNKN
   return 'REJECTED';
 }
 
-/** server ตอบว่าไม่มีคำสั่ง/operation นี้: ไม่ได้บันทึกไว้ ล้างคำสั่งค้างแล้วให้ลองใหม่ได้ */
+/** the server answered that there is no such command/operation: it was not recorded; clear the stale command and allow retrying */
 export function commandMissing(value: unknown): boolean {
   return value instanceof CatalogApiError && value.status === 404;
 }
@@ -270,7 +270,7 @@ export function createPeopleDirectoryApi(options: {
           ? { status: filters.status }
           : {}),
       };
-      // มีตัวกรองใช้ POST search ให้คำค้น (ชื่อ/email) อยู่ใน body ไม่อยู่ใน URL
+      // with a filter use POST search so the query (name/email) is in the body, not in the URL
       const value = Object.keys(narrowed).length
         ? await request(
             'people/users/search',

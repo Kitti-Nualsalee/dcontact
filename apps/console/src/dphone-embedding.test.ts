@@ -4,7 +4,7 @@ import { EmbedOriginApiError } from './dphone-embedding/api.js';
 import { apiErrorKey, checkOriginInput, hostSnippet } from './dphone-embedding/model.js';
 import { createTeamScopeApi } from './team-scopes/api.js';
 
-test('ตรวจ origin ทันทีด้วยกติกาเดียวกับ API', () => {
+test('check the origin immediately with the same rules as the API', () => {
   assert.equal(checkOriginInput('  ', { dev: false }), null);
   assert.deepEqual(checkOriginInput('HTTPS://CRM.example.test:443', { dev: false }), {
     ok: true,
@@ -18,7 +18,7 @@ test('ตรวจ origin ทันทีด้วยกติกาเดีย
   assert.equal(checkOriginInput('http://localhost:4000', { dev: true })?.ok, true);
 });
 
-test('error ของ API → key ของข้อความ', () => {
+test('API error → message key', () => {
   assert.equal(
     apiErrorKey(new EmbedOriginApiError(400, 'VALIDATION_FAILED', 'origin', 'WILDCARD')),
     'dphoneEmbedding.rejections.WILDCARD',
@@ -34,7 +34,7 @@ test('error ของ API → key ของข้อความ', () => {
   assert.equal(apiErrorKey(new EmbedOriginApiError(500, 'X')), 'dphoneEmbedding.errors.UNKNOWN');
 });
 
-test('snippet ใช้ <dphone-launcher> จาก alias v1 ของ dphone origin พร้อม CSP ของ host', () => {
+test('the snippet uses <dphone-launcher> from the v1 alias of the dphone origin with the host CSP', () => {
   const snippet = hostSnippet({ embedBaseUrl: 'https://api.dcontact.test/', tenantAlias: 'demo' });
   assert.match(
     snippet,
@@ -45,14 +45,14 @@ test('snippet ใช้ <dphone-launcher> จาก alias v1 ของ dphone or
     snippet,
     /script-src https:\/\/api\.dcontact\.test; frame-src https:\/\/api\.dcontact\.test/,
   );
-  // alias แปลกไม่หลุดเป็น HTML
+  // an odd alias does not leak out as HTML
   assert.doesNotMatch(
     hostSnippet({ embedBaseUrl: 'https://api.dcontact.test', tenantAlias: '"><script>' }),
     /"><script>/,
   );
 });
 
-test('Console client ของ VIEW scope ส่งเฉพาะ team/segment/reason พร้อม bearer', async () => {
+test('Console client of the VIEW scope sends only team/segment/reason with a bearer', async () => {
   const calls: Array<{ url: string; init?: RequestInit }> = [];
   const api = createTeamScopeApi({
     baseUrl: 'https://api.dcontact.test/',

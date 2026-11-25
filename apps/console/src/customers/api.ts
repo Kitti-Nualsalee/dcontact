@@ -1,4 +1,4 @@
-/** Client ของ /api/v1/customer-360; ผลเขียนต้องอ่านข้อมูลกลับผ่าน profile ก่อนแสดงว่าสำเร็จ */
+/** Client of /api/v1/customer-360; a write result must be read back through the profile before showing success */
 
 export type SearchType = 'DIRECTORY' | 'NAME' | 'PHONE' | 'EMAIL';
 export type IdentityState = 'ACTIVE' | 'MERGED' | 'AMBIGUOUS' | 'LEGACY_MISSING_HEAD';
@@ -214,7 +214,7 @@ export function createCustomersApi(options: {
         if (typeof body.error?.retryable === 'boolean') retryable = body.error.retryable;
         if (Array.isArray(body.error?.fieldErrors)) fieldErrors = body.error.fieldErrors;
       } catch {
-        // ตอบไม่ใช่ JSON (เช่น proxy) — ใช้ค่าเริ่มต้นตาม status
+        // response is not JSON (e.g. a proxy) — use the default per status
       }
       const retryAfter = Number(response.headers.get('retry-after'));
       throw new CustomersApiError(
@@ -228,7 +228,7 @@ export function createCustomersApi(options: {
     return (await response.json()) as T;
   }
   const id = (contactId: string) => {
-    // ไม่ส่ง path ที่ไม่ใช่ UUID ไป server และตอบเหมือนไม่พบ
+    // do not send a non-UUID path to the server, and answer as if not found
     if (!customerUuid(contactId)) throw new CustomersApiError(404, 'RESOURCE_NOT_FOUND');
     return encodeURIComponent(contactId);
   };

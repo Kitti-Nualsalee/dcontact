@@ -65,7 +65,7 @@ export function createCustomerTagsApi(options: {
       try {
         body = (await response.json()) as typeof body;
       } catch {
-        /* ใช้ status เมื่อ proxy ไม่ส่ง JSON */
+        /* use the status when the proxy does not send JSON */
       }
       if (init.command && (body.state === 'TERMINAL' || body.state === 'UNKNOWN')) return body as T;
       const retryAfter = Number(response.headers.get('retry-after'));

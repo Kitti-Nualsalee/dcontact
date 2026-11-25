@@ -26,7 +26,7 @@ interface Props {
   api: CustomersApi;
   onOpen(contactId: string): void;
   onSignIn?: () => void;
-  /** กลับมาจากโปรไฟล์: ย้าย focus ไปหัวข้อเพื่อไม่ให้ผู้ใช้คีย์บอร์ดหลุดกลางหน้า */
+  /** coming back from a profile: move focus to the heading so keyboard users are not lost mid-page */
   focusHeading?: boolean;
 }
 
@@ -39,14 +39,14 @@ type View =
 const SEARCH_TYPES = ['NAME', 'PHONE', 'EMAIL'] as const;
 const DIRECTORY_SEARCH: Applied = { type: 'DIRECTORY', query: '' };
 
-/** รายการ + ค้นหาลูกค้า (Console A): ผลทั้งหมดมาจาก server ตามสิทธิ์; ไม่มี query ใน URL */
+/** list + customer search (Console A): all results come from the server per permission; no query in the URL */
 export function CustomerDirectory({ api, onOpen, onSignIn, focusHeading }: Props) {
   const { t: translate } = useTranslation('customers');
   const t = translate as (key: string, options?: Record<string, unknown>) => string;
   const [type, setType] = useState<(typeof SEARCH_TYPES)[number]>('NAME');
   const [query, setQuery] = useState('');
   const [fieldError, setFieldError] = useState<string>();
-  // applied = คำขอล่าสุด; shown = ชุดที่ผลบนจอเป็นของจริง (validation ล้มแล้วผลเดิมยังเป็นของ shown)
+  // applied = the latest request; shown = the set the on-screen results really belong to (after a validation failure the old results still belong to shown)
   const [applied, setApplied] = useState<Applied>(DIRECTORY_SEARCH);
   const [shown, setShown] = useState<Applied>(DIRECTORY_SEARCH);
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -63,7 +63,7 @@ export function CustomerDirectory({ api, onOpen, onSignIn, focusHeading }: Props
   const sequence = useRef(0);
   const searchPaused = useRef(false);
 
-  // ปิด PII ทั้งหมดเมื่อสิทธิ์/session เปลี่ยน (ไม่เก็บผลเก่าไว้ใน state)
+  // close all PII when permission/session changes (do not keep old results in state)
   const closeData = useCallback(() => {
     setItems([]);
     setCursor(null);
@@ -108,7 +108,7 @@ export function CustomerDirectory({ api, onOpen, onSignIn, focusHeading }: Props
         const kind = errorKind(failure);
         const key = fieldErrorKey(failure);
         if (key) {
-          // validation: คงผลเดิมไว้ และแจ้งใต้ช่อง ไม่เปลี่ยนเป็นหน้า error
+          // validation: keep the old results and report under the field, do not switch to an error page
           setFieldError(key);
           setView({ state: 'ready' });
           return;
@@ -191,14 +191,14 @@ export function CustomerDirectory({ api, onOpen, onSignIn, focusHeading }: Props
   const name = (item: CustomerListItem) => item.displayName?.trim() || t('list.noName');
   const queryLabel = t(`search.query.${type}`);
   const incomplete = page?.scope.state === 'INCOMPLETE';
-  // หัวข้อตามคำขอล่าสุดทันทีที่ส่งค้นหา (ระหว่างโหลดใช้ applied; หลังได้ผลใช้ shown ซึ่งตรงกับผลบนจอ)
+  // heading follows the latest request as soon as a search is sent (while loading use applied; once results arrive use shown, which matches the on-screen results)
   const searching = (view.state === 'loading' ? applied : shown).type !== 'DIRECTORY';
 
   useEffect(() => {
     if (focusHeading) headingRef.current?.focus();
   }, [focusHeading]);
-  // โหลดเพิ่มแล้ว focus ไปรายการแรกที่เพิ่ม เพื่อให้ผู้ใช้คีย์บอร์ดอ่านต่อได้ทันที
-  // แถวใหม่ของ Table (react-aria) render หลัง state เปลี่ยน — รอจนเจอ element จริงค่อย focus แล้วเคลียร์ id
+  // after load-more, focus the first added item so keyboard users can keep reading immediately
+  // new Table rows (react-aria) render after the state change — wait until the real element is found, then focus and clear the id
   useEffect(() => {
     if (!focusId) return;
     let frame = 0;
@@ -214,7 +214,7 @@ export function CustomerDirectory({ api, onOpen, onSignIn, focusHeading }: Props
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
   }, [focusId]);
-  // ลองใหม่/ข้อผิดพลาด: ย้าย focus ไปหัวข้อผลหรือข้อความ state ใหม่ ไม่ให้หลุดไป BODY
+  // retry/error: move focus to the results heading or the new state's text so it does not fall to BODY
   useEffect(() => {
     if (pendingResultsFocus.current && view.state === 'ready') {
       pendingResultsFocus.current = false;
@@ -235,7 +235,7 @@ export function CustomerDirectory({ api, onOpen, onSignIn, focusHeading }: Props
           selectedKey={type}
           onSelectionChange={(key) => {
             setType(key as (typeof SEARCH_TYPES)[number]);
-            // คำค้นของชนิดเดิมใช้กับชนิดใหม่ไม่ได้ (เช่น ชื่อ → เบอร์) จึงล้างพร้อมข้อผิดพลาดเดิม
+            // a query of the old type cannot be used with the new type (e.g. name → phone), so clear it together with the old error
             setQuery('');
             setFieldError(undefined);
           }}

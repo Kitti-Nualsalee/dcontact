@@ -33,7 +33,7 @@ const VIEWS = new Set([
   'account-policy',
 ]);
 
-/** รับเฉพาะหน้าภายใน tenant เดิม; callback/identity action ต้องใช้ flow เดิม */
+/** accepts only pages within the same tenant; a callback/identity action must use its original flow */
 export function isConsoleNavigation(current: URL, target: URL): boolean {
   try {
     return (
@@ -50,7 +50,7 @@ export function isConsoleNavigation(current: URL, target: URL): boolean {
   }
 }
 
-/** AuthProvider อยู่เหนือ route และไม่ถูก remount; history state เก็บเฉพาะลำดับ ไม่มี token */
+/** AuthProvider sits above the routes and is not remounted; history state holds only the order and no token */
 export function useConsoleRouter(
   onRoute: (url: URL) => void,
   confirmLeave: () => boolean,
@@ -82,7 +82,7 @@ export function useConsoleRouter(
       return next;
     };
     replace.call(history, indexed(history.state, index), '');
-    // หน้าย่อยมี pushState ของตนเอง จึงติดลำดับด้วยเพื่อย้อนกลับได้ตรง entry เมื่อผู้ใช้ยกเลิก
+    // a sub-page has its own pushState, so it also carries the order to go back to exactly that entry when the user cancels
     const pushEntry: History['pushState'] = (state, title, url) => {
       const next = index + 1;
       push.call(history, indexed(state, next), title, tenantUrl(url));
@@ -96,7 +96,7 @@ export function useConsoleRouter(
     history.pushState = pushEntry;
     history.replaceState = replaceEntry;
     const mayLeave = () => {
-      // ใช้คำเตือนร่าง/pending ที่หน้าปัจจุบันลงทะเบียนไว้ โดยไม่ unload document จริง
+      // use the draft/pending warning the current page registered, without really unloading the document
       const event = new Event('beforeunload', { cancelable: true });
       return window.dispatchEvent(event) || callbacks.current.confirmLeave();
     };
@@ -122,7 +122,7 @@ export function useConsoleRouter(
         return;
       }
       if (resolveConsoleView(accepted) === resolveConsoleView(target)) {
-        // หน้าย่อยใช้ popstate ของตนเองต่อไป ไม่ remount/reset state โดย root router
+        // a sub-page keeps using its own popstate; the root router does not remount/reset state
         index = nextIndex;
         accepted = target;
         return;

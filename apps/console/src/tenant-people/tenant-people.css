@@ -85,7 +85,7 @@
   font-weight: var(--dc-weight-semibold);
 }
 
-/* ตัวกรองและตาราง */
+/* filters and table */
 .tp-directory {
   display: flex;
   flex-direction: column;
@@ -201,7 +201,7 @@
   background: var(--dc-surface-sunken);
 }
 
-/* การ์ด ฟอร์ม และรายละเอียด */
+/* cards, forms and detail */
 .tp-card {
   display: flex;
   flex-direction: column;
@@ -335,7 +335,7 @@
   justify-content: space-between;
   gap: var(--dc-space-5);
 }
-/* #998 1B/2: การ์ดเปิดบัญชีกลับซ่อนเมื่อไม่มีเนื้อหา; ปุ่มแก้ชื่อเรียงกับข้อความสถานะของตัวเอง */
+/* #998 1B/2: the re-enable card is hidden when it has no content; the edit-name button sits with its own status text */
 .tp-card-optional:empty {
   display: none;
 }
@@ -348,7 +348,7 @@
 .tp-account-change > p {
   margin: 0;
 }
-/* #998 ui-review: หน้ารายละเอียดเป็นคอลัมน์เดียวบนจอแคบ (aside ตามหลัง main) ไม่ให้คอลัมน์ข้อมูลบีบจนอ่านไม่ได้ */
+/* #998 ui-review: the detail page is a single column on narrow screens (aside after main) so the data column is not squeezed unreadable */
 @media (max-width: 48rem) {
   .tp-detail-grid {
     grid-template-columns: minmax(0, 1fr);

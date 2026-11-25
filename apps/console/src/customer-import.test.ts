@@ -12,40 +12,42 @@ import {
 
 const bytes = (text: string) => new TextEncoder().encode(text);
 
-test('อ่าน header แบบ strict UTF-8: BOM, quote, CRLF และปฏิเสธไฟล์ที่ไม่ใช่ CSV', () => {
-  assert.deepEqual(readCsvHeaders(bytes('﻿name,"บริษัท, จำกัด",email\r\na,b,c')), [
+test('read the header as strict UTF-8: BOM, quote, CRLF, and reject a file that is not CSV', () => {
+  const thaiCsv = bytes('﻿name,"บริษัท, จำกัด",email\r\na,b,c'); // allow-thai: Thai header exercises UTF-8 decoding
+  assert.deepEqual(readCsvHeaders(thaiCsv), [
     'name',
-    'บริษัท, จำกัด',
+    'บริษัท, จำกัด', // allow-thai: Thai header exercises UTF-8 decoding
     'email',
   ]);
   assert.deepEqual(readCsvHeaders(bytes('"a""b",c')), ['a"b', 'c']);
   assert.equal(readCsvHeaders(new Uint8Array([0xff, 0xfe, 0x41])), null);
-  assert.equal(readCsvHeaders(bytes('a,a\n1,2')), null, 'header ซ้ำ');
-  assert.equal(readCsvHeaders(bytes('a,,c')), null, 'header ว่าง');
-  assert.equal(readCsvHeaders(bytes('"a')), null, 'quote ไม่ปิด');
+  assert.equal(readCsvHeaders(bytes('a,a\n1,2')), null, 'duplicate header');
+  assert.equal(readCsvHeaders(bytes('a,,c')), null, 'empty header');
+  assert.equal(readCsvHeaders(bytes('"a')), null, 'unclosed quote');
   assert.equal(readCsvHeaders(bytes('a"b,c')), null);
   assert.equal(readCsvHeaders(bytes('a\0b,c')), null);
 });
 
-test('ตรวจไฟล์ก่อนส่ง: ว่าง ใหญ่เกิน หรืออ่านไม่ได้', () => {
+test('check the file before sending: empty, too large, or unreadable', () => {
   assert.equal(checkImportFile(0, ['a']), 'EMPTY');
   assert.equal(checkImportFile(IMPORT_MAX_BYTES + 1, ['a']), 'TOO_LARGE');
   assert.equal(checkImportFile(IMPORT_MAX_BYTES, ['a']), 'OK');
   assert.equal(checkImportFile(10, null), 'NOT_CSV');
 });
 
-test('เดาการจับคู่จากชื่อหัวคอลัมน์ไทย/อังกฤษ โดยไม่ใช้คอลัมน์ซ้ำ', () => {
-  assert.deepEqual(suggestSelection(['ชื่อ', 'บริษัท', 'เบอร์โทร', 'E-mail', 'VIP', 'other']), {
-    displayName: 'ชื่อ',
-    company: 'บริษัท',
-    phone: 'เบอร์โทร',
+test('guess the mapping from Thai/English column headers without reusing a column', () => {
+  const thaiHeaders = ['ชื่อ', 'บริษัท', 'เบอร์โทร', 'E-mail', 'VIP', 'other']; // allow-thai: Thai header aliases under test
+  assert.deepEqual(suggestSelection(thaiHeaders), {
+    displayName: 'ชื่อ', // allow-thai: Thai header aliases under test
+    company: 'บริษัท', // allow-thai: Thai header aliases under test
+    phone: 'เบอร์โทร', // allow-thai: Thai header aliases under test
     email: 'E-mail',
     vip: 'VIP',
   });
   assert.deepEqual(suggestSelection(['x', 'y']), {});
 });
 
-test('สร้าง mapping เฉพาะเมื่อมีชื่อ และไม่เลือก header ซ้ำหรือที่ไม่มีในไฟล์', () => {
+test('build the mapping only when there is a name, and do not select a duplicate header or one missing from the file', () => {
   const headers = ['name', 'phone', 'mail'];
   assert.equal(buildMapping({}, headers, 'TH'), null);
   assert.equal(buildMapping({ displayName: 'nope' }, headers, 'TH'), null);
@@ -56,14 +58,14 @@ test('สร้าง mapping เฉพาะเมื่อมีชื่อ �
     columns: { displayName: 'name', phone: 'phone' },
     defaultPhoneCountry: 'TH',
   });
-  // ไม่ระบุประเทศ = ต้องเป็นเบอร์สากล ไม่ส่ง defaultPhoneCountry
+  // no country given = must be an international number, defaultPhoneCountry is not sent
   assert.deepEqual(buildMapping({ displayName: 'name' }, headers, ''), {
     version: 1,
     columns: { displayName: 'name' },
   });
 });
 
-test('กรองแถว preview และตัดสินว่าส่งต่อได้เมื่อมีแถวไม่ทราบผลหรือยังไม่เริ่ม', () => {
+test('filter preview rows and decide it can continue when rows with unknown or not-started results remain', () => {
   const rows = [
     { rowNo: 1, cells: ['a'], valid: true, fieldErrors: [], warnings: [] },
     {

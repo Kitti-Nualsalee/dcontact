@@ -22,7 +22,7 @@ test.afterEach(async ({ request }) => {
   await request.post('/__core_test/restore');
 });
 
-test('Activity OIDC: tenant อื่นเห็น UNKNOWN และ empty ที่ยังยืนยันหลักฐานไม่ได้', async ({
+test('Activity OIDC: another tenant sees UNKNOWN and an empty that evidence cannot yet confirm', async ({
   page,
   request,
 }) => {
@@ -31,7 +31,7 @@ test('Activity OIDC: tenant อื่นเห็น UNKNOWN และ empty ท
   await expect(page.getByText('ยังไม่พบกิจกรรมที่แสดงได้ในช่วงนี้')).toBeVisible();
 });
 
-test('Activity OIDC: กรองด้วยคีย์บอร์ดและแบ่งหน้าจาก owner events จริงโดยไม่แสดงข้อมูลดิบ', async ({
+test('Activity OIDC: filter by keyboard and paginate from real owner events without showing raw data', async ({
   page,
   request,
 }, info) => {
@@ -70,7 +70,10 @@ test('Activity OIDC: กรองด้วยคีย์บอร์ดแล�
   await expect(page.getByRole('heading', { name: 'Customer activity', level: 1 })).toBeVisible();
 });
 
-test('Activity OIDC: response ค้างก่อนถอนสิทธิ์ไม่คืนข้อมูลเก่า', async ({ page, request }) => {
+test('Activity OIDC: a response held before permission revoke does not return old data', async ({
+  page,
+  request,
+}) => {
   expect((await request.post('/__core_test/activity/seed')).ok()).toBe(true);
   await login(page, request);
   const grid = page.getByRole('grid', { name: 'กิจกรรมลูกค้า' });
@@ -99,7 +102,7 @@ test('Activity OIDC: response ค้างก่อนถอนสิทธิ�
     expect((await request.post('/__core_test/revoke')).ok()).toBe(true);
     const denied = page.getByRole('alert').filter({ hasText: 'โปรดติดต่อผู้ดูแล tenant' });
     const apply = page.getByRole('button', { name: 'ใช้ตัวกรอง' });
-    // เมื่อ OIDC renew เองระหว่าง revoke หน้าอาจปิดข้อมูลก่อนผู้ใช้กดใช้ตัวกรอง
+    // when OIDC renews by itself during revoke the page may close the data before the user presses a filter
     await apply.or(denied).first().waitFor();
     if (await apply.isVisible()) {
       await apply.click({ timeout: 2000 }).catch(async () => {
@@ -114,13 +117,16 @@ test('Activity OIDC: response ค้างก่อนถอนสิทธิ�
   await expect(grid).toHaveCount(0);
 });
 
-test('Activity OIDC: Supervisor เปิด deep link ไม่ได้', async ({ page, request }) => {
+test('Activity OIDC: a Supervisor cannot open the deep link', async ({ page, request }) => {
   await login(page, request, 'supervisor');
   await expect(page.getByRole('alert')).toContainText('โปรดติดต่อผู้ดูแล tenant');
   await expect(page.getByRole('grid', { name: 'กิจกรรมลูกค้า' })).toHaveCount(0);
 });
 
-test('Activity OIDC: กลับมาหน้าเดิมหลังถอนสิทธิ์ต้องอ่านสิทธิ์ใหม่', async ({ page, request }) => {
+test('Activity OIDC: returning to the same page after permission revoke must read the new permission', async ({
+  page,
+  request,
+}) => {
   expect((await request.post('/__core_test/activity/seed')).ok()).toBe(true);
   await login(page, request);
   const grid = page.getByRole('grid', { name: 'กิจกรรมลูกค้า' });

@@ -36,7 +36,7 @@ export type AccountStatus =
   | 'PENDING_ACTIVATION'
   | 'UNKNOWN';
 
-/** สถานะเดียวของบัญชี ไล่ตามลำดับความสำคัญ — ข้อแรกที่ตรงชนะ */
+/** the single account status, in priority order — the first match wins */
 export function accountStatus(user: PeopleDirectoryUser): AccountStatus {
   if (user.accountState === 'ATTENTION_REQUIRED') return 'ATTENTION_REQUIRED';
   if (user.provisioningState === 'REJECTED') return 'REJECTED';
@@ -127,9 +127,9 @@ export function PeopleDirectory({
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<'list' | 'more' | 'detail'>();
   const [filters, setFilters] = useState<Filters>(NO_FILTERS);
-  // คำค้นรอผู้ใช้หยุดพิมพ์ก่อนส่ง ตัวกรองอื่นส่งทันที
+  // the search query waits for the user to stop typing before sending; other filters send immediately
   const [search, setSearch] = useState('');
-  // รายการกับรายละเอียดแยก ref กัน เพื่อให้การเปิดรายละเอียดไม่ปลดล็อก "โหลดเพิ่ม" ของรายการที่ยังโหลดอยู่
+  // the list and the detail use separate refs so opening a detail does not unlock "Load more" of a list that is still loading
   const active = useRef(false),
     listInFlight = useRef(false),
     detailInFlight = useRef(false),
@@ -148,14 +148,14 @@ export function PeopleDirectory({
       callbacks.current.onFailure(error);
     }
   }
-  /** โหลดหน้าแรกใหม่ทุกครั้งที่ตัวกรองเปลี่ยน ผลของคำขอเก่าที่ตอบช้าถูกทิ้ง */
+  /** reload the first page every time a filter changes; the results of an old, slowly answering request are dropped */
   async function load(cursor?: string) {
     if (cursor && listInFlight.current) return;
     const current = ++generation.current;
     listInFlight.current = true;
     setListBusy(true);
     setError(undefined);
-    // cursor ของตัวกรองเดิมใช้กับตัวกรองใหม่ไม่ได้
+    // the cursor of the old filter cannot be used with the new filter
     if (!cursor) setNextCursor(null);
     try {
       const result = await api.list(cursor, serverFilters(filters, search));
@@ -217,7 +217,7 @@ export function PeopleDirectory({
     void load();
   }, [api, search, filters.role, filters.status, filters.team]);
 
-  // ป้ายจำนวนและผลว่างอ้างตัวกรองที่ส่งไปจริง (คำค้นหลัง debounce) ส่วนปุ่มล้างอ้างค่าที่ผู้ใช้ตั้ง
+  // the count badge and the empty result refer to the filter actually sent (the debounced query), while the clear button refers to the value the user set
   const filtering = Object.keys(serverFilters(filters, search)).length > 0;
   const dirty =
     filters.search.trim() !== '' ||
@@ -581,7 +581,7 @@ function PeopleDetail({
   );
 }
 
-/** การ์ดแยกจาก "ปิดบัญชี" แสดงเมื่อ PeopleEnable มีเนื้อหา (บัญชีปิดแล้วหรือมีคำสั่งเปิดกลับค้าง) */
+/** a card separate from "Disable account", shown when PeopleEnable has content (an account already disabled or a pending re-enable command) */
 function PeopleEnableCard(props: Parameters<typeof PeopleEnable>[0]) {
   return (
     <div className="tp-card tp-card-optional">

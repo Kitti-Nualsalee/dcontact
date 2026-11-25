@@ -1,7 +1,7 @@
 /**
- * #658: หน้า Governance ใน ConsoleShell — ถือตำแหน่งของหน้าเหนือ shell เพื่อให้เมนูย่อย
- * (ภาพรวม / Exceptions / Policies / Audit) ไฮไลต์ตรงกับเนื้อหาและเปลี่ยนหน้าแบบไม่โหลดใหม่
- * flag ปิด/API ล้ม = shell ส่งเนื้อหากลับโดยไม่ครอบ และหน้าใช้แท็บเดิมของตัวเอง
+ * #658: the Governance page in ConsoleShell — holds the page location above the shell so the submenu
+ * (Overview / Exceptions / Policies / Audit) highlights the page matching the content and switches pages without reloading
+ * flag off/API down = the shell returns the content without wrapping it and the page uses its own original tabs
  */
 import { ConsoleShell, type ConsoleShellProps } from './shell/console-shell.js';
 import { GovernanceConsole, useGovernanceLocation } from './governance-console.js';
@@ -42,7 +42,7 @@ export function GovernancePage({
       pageId={location.section}
       onPageSelect={(pageId) => {
         const section = PAGE_SECTIONS.find((candidate) => candidate === pageId);
-        // id ที่ไม่รู้จัก (server ใหม่กว่า Console) = ไม่ทำอะไร ลิงก์ href ยังพาไปหน้าได้
+        // an unknown id (server newer than Console) = do nothing; the link href still goes to the page
         if (section) go({ ...location, section });
       }}
     >

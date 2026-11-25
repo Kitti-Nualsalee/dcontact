@@ -22,7 +22,7 @@ interface Props {
   onSignIn?: () => void;
 }
 
-/** เปลี่ยนผู้ใช้แล้วทิ้ง state และ session เปิดฟังของคนก่อนทั้งหมด */
+/** on a user change, drop all of the previous user's state and open listening sessions */
 export function TeamRecordings(props: Props) {
   return <RecordingsSession key={props.identityKey} {...props} />;
 }
@@ -142,7 +142,7 @@ function RecordingsSession({ api, onSignIn }: Props) {
           title={title(selected)}
           onSignIn={onSignIn}
           onClose={() => {
-            // คืน focus ให้ปุ่มฟังของแถวที่เปิดไว้ ถ้าแถวไม่อยู่แล้วไปที่หัวข้อหน้า
+            // return focus to the listen button of the open row; if the row no longer exists go to the page heading
             const opener = document.getElementById(`${listenId}-${selected.recordingId}`);
             setSelected(undefined);
             (opener ?? heading.current)?.focus();
@@ -248,7 +248,7 @@ function Player({
 
   useEffect(() => {
     const created = new ChunkPlayer(api, item.recordingId, (next) =>
-      // ก่อนเปิด session ใช้ความยาวจากรายการ หลังเปิดใช้ความยาวจริงของไฟล์
+      // before a session is opened use the length from the list; after it opens use the real length of the file
       setState({ ...next, duration: next.duration ?? item.durationSec }),
     );
     player.current = created;
@@ -259,7 +259,7 @@ function Player({
     };
   }, [api, item.recordingId, item.durationSec]);
 
-  /** ใช้ตำแหน่งที่ผู้ใช้เลื่อนค้างไว้ก่อนทำอย่างอื่น เพื่อไม่ให้เล่นจากตำแหน่งเก่า */
+  /** use the position the user left scrubbed before doing anything else, so playback does not start from the old position */
   const commitScrub = (target = scrub) => {
     clearTimeout(scrubTimer.current);
     if (target === undefined) return;
@@ -303,7 +303,7 @@ function Player({
           max={Math.max(duration, 1)}
           step={1}
           value={Math.floor(position)}
-          // ก่อนเล่นครั้งแรกยังไม่มี session จึงยังเลื่อนไม่ได้
+          // before the first play there is no session yet, so seeking is not possible
           disabled={state.phase === 'idle' || duration === 0}
           aria-valuetext={t('player.clock', {
             position: formatClock(position),
@@ -313,7 +313,7 @@ function Player({
             const target = Number(event.target.value);
             setScrub(target);
             clearTimeout(scrubTimer.current);
-            // ลากแถบเวลาสร้าง change ถี่ จึงรอให้นิ่งก่อนขอเสียงช่วงใหม่
+            // dragging the time bar creates frequent changes, so wait until it settles before requesting a new audio range
             scrubTimer.current = setTimeout(() => commitScrub(target), 250);
           }}
         />

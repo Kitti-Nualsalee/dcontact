@@ -107,7 +107,7 @@ export function CaseDetailView({ api, caseId, viewerUserId, onBack, onSignIn }: 
   }, [ready]);
 
   const data = load.phase === 'ready' ? load.data : undefined;
-  // ปุ่มชุดเดิมถูกแทนที่หลังโหลดใหม่ จึงวางโฟกัสเอง ไม่ปล่อยหลุดไป body
+  // the original set of buttons is replaced after a reload, so place focus explicitly rather than letting it fall to body
   useEffect(() => {
     const target = focusAfter.current;
     if (!target || !data) return;
@@ -167,7 +167,7 @@ export function CaseDetailView({ api, caseId, viewerUserId, onBack, onSignIn }: 
     }
   }
 
-  /** ทุกการกดสร้าง commandId ครั้งเดียว; กดซ้ำหลัง "ไม่ทราบผล" ใช้ id เดิมเมื่อคำสั่งเหมือนเดิมทุกอย่าง */
+  /** every press creates a commandId once; pressing again after "unknown result" reuses the id when the command is exactly the same */
   async function run(
     kind: Kind,
     signature: string,

@@ -33,7 +33,7 @@ interface Props {
   api: CasesApi;
   filter: CaseFilterState;
   viewerUserId: string;
-  /** เคสที่เปิดล่าสุด — กลับจากรายละเอียดแล้ว focus ปุ่มของแถวนั้น */
+  /** the most recently opened case — after returning from detail, focus that row's button */
   focusCaseId?: string;
   onFilterChange: (filter: CaseFilterState) => void;
   onOpen: (caseId: string) => void;
@@ -91,7 +91,7 @@ export function CaseList({
   useEffect(() => {
     if (state.phase === 'ready' && focusCaseId)
       document.getElementById(openButtonId(focusCaseId))?.focus();
-    // เฉพาะตอนโหลดหน้าแรกเสร็จหลังกลับจากรายละเอียด
+    // only when the first page finishes loading after returning from detail
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.phase === 'ready']);
 
@@ -120,7 +120,7 @@ export function CaseList({
       <header className="cs-head">
         <div>
           <h1>{t('title')}</h1>
-          {/* จองความสูงไว้เสมอ ไม่ให้ตัวกรองกระโดดเมื่อรู้ชื่อทีม */}
+          {/* always reserve the height so the filter does not jump once the team name is known */}
           <p className="cs-muted cs-subtitle">
             {page ? t('subtitle', { team: page.teamName }) : null}
           </p>
@@ -351,7 +351,7 @@ function ListEmpty({
   );
 }
 
-/** ยังไม่มี skeleton ใน ui-react — 8 แถวสูงเท่าแถวจริง */
+/** ui-react has no skeleton yet — 8 rows as tall as real rows */
 function ListSkeleton({ label }: { label: string }) {
   return (
     <section className="cs-card cs-skeleton" role="status" aria-label={label}>

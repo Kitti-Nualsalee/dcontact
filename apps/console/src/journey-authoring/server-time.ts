@@ -1,8 +1,8 @@
 import type { Formatters } from '@d-contact/i18n';
 
 /**
- * เวลาจาก server สำหรับแสดงในตาราง — formatter กลางโยน RangeError เมื่อ parse ไม่ได้ (ตั้งใจให้โค้ดเห็นปัญหา)
- * แต่ข้อมูลแถวเดียวที่ผิดรูปต้องไม่ทำให้ทั้งหน้าพัง จึงแสดงค่าดิบแทน
+ * server time for display in tables — the central formatter throws RangeError when it cannot parse (deliberately so code sees the problem)
+ * but one malformed row must not break the whole page, so the raw value is shown instead
  */
 export function serverTime(formatters: Pick<Formatters, 'dateTime'>, iso: string): string {
   try {

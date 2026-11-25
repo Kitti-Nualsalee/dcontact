@@ -69,7 +69,7 @@
   gap: var(--dc-space-4);
 }
 
-/* แถบข้อความ: ไม่ใช้สีอย่างเดียว มีข้อความเสมอ */
+/* message bar: never color alone, always has text */
 .cs-bar {
   display: flex;
   flex-wrap: wrap;
@@ -108,7 +108,7 @@
   box-shadow: var(--dc-focus-ring);
 }
 
-/* รายการ */
+/* list */
 .cs-head {
   display: flex;
   align-items: flex-start;
@@ -267,7 +267,7 @@
   min-block-size: 8rem;
 }
 
-/* รายละเอียด */
+/* detail */
 .cs-detail {
   display: flex;
   flex-direction: column;
@@ -354,7 +354,7 @@
   overflow-wrap: anywhere;
 }
 
-/* ไทม์ไลน์ */
+/* timeline */
 .cs-timeline-head {
   display: flex;
   align-items: baseline;

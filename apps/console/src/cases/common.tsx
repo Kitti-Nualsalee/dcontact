@@ -20,8 +20,8 @@ export function CaseStatusChip({ status }: { status: CaseStatus }) {
 }
 
 /**
- * แทน `[[name]]` ในข้อความแปลด้วย node (ตัวหนา, chip) โดยไม่ต่อสตริง HTML
- * ลำดับคำเป็นของ catalog ของแต่ละภาษา
+ * replaces `[[name]]` in the translated text with a node (bold, chip) without concatenating HTML strings
+ * word order belongs to each language's catalog
  */
 export function renderTemplate(text: string, parts: Record<string, ReactNode>): ReactNode {
   return text.split(/(\[\[\w+\]\])/).map((piece, index) => {

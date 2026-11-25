@@ -1,10 +1,10 @@
 /**
- * J5.6 (#344): client ของ `/api/v1/journey-authoring` (Phase Spec #337 §5)
+ * J5.6 (#344): client of `/api/v1/journey-authoring` (Phase Spec #337 §5)
  *
- * - tenant/actor มาจาก bearer token เท่านั้น — ไม่มี field ใดระบุ tenant, role หรือ capability
- * - ทุก mutation ต้องได้ `Idempotency-Key` จาก caller ซึ่งถือ key เดียวตลอด intent: retry หลังผลไม่แน่ชัด
- *   ต้องใช้ key เดิม (publish ที่ไม่รู้ผล resolve ด้วย key เดิมเท่านั้น ห้าม mint ใหม่)
- * - error เป็น code ปิด + safeParams; ข้อความที่แสดงแปลจาก code ฝั่ง Console
+ * - tenant/actor come from the bearer token only — no field names a tenant, role or capability
+ * - every mutation needs an `Idempotency-Key` from the caller, who holds a single key for the whole intent: a retry after an uncertain result
+ *   must use the same key (an unknown-result publish resolves only with the same key, never mint a new one)
+ * - errors are a closed code + safeParams; the displayed message is translated from the code on the Console side
  */
 import type {
   AuthoringDocumentV1,
@@ -49,11 +49,11 @@ export interface JourneySummary {
   currentDraftRevision: number;
   activeVersion: number | null;
   updatedAt: string;
-  /** U1.3 (#431): review ที่ยังเปิดของ Journey จาก server */
+  /** U1.3 (#431): open reviews of the Journey from the server */
   reviewState?: 'IN_REVIEW' | 'APPROVED' | null;
 }
 
-/** U1.3 (#431): review ที่ผู้เรียกตัดสินได้ (server กรองสิทธิ์และตัดงานที่ตัวเองส่งออกแล้ว) */
+/** U1.3 (#431): reviews the caller can decide (the server filters by permission and removes work the caller submitted) */
 export interface PendingReview {
   reviewId: string;
   journeyId: string;
@@ -65,7 +65,7 @@ export interface PendingReview {
   submittedAt: string;
 }
 
-/** แถว audit ของ Journey — actor เป็น opaque subject id ไม่มีชื่อ/อีเมล */
+/** Journey audit row — the actor is an opaque subject id with no name/email */
 export interface JourneyAuditEntry {
   id: string;
   action: string;
@@ -104,10 +104,10 @@ export interface JourneySnapshot {
     draftDigest: string;
     compileDigest: string;
     submittedAt: string;
-    /** ผู้เรียกเป็นผู้ส่งตรวจ — ตัดสินเองไม่ได้ */
+    /** the caller is the one who submitted for review — cannot decide it themselves */
     makerIsCaller: boolean;
   } | null;
-  /** capability ที่ server คืน — ใช้แสดง affordance เท่านั้น server ตรวจซ้ำทุก mutation */
+  /** capabilities the server returns — used only to show affordances; the server re-checks every mutation */
   permissions: { edit: boolean; review: boolean; publish: boolean };
   templateNotices: JourneyTemplateNoticeV1[];
 }
@@ -330,7 +330,7 @@ export function createJourneyAuthoringApi(input: {
         body,
         key,
       });
-      // 202 = commit อาจเกิดหรือไม่เกิด: ไม่ถือว่าสำเร็จ และให้ resolve ด้วย key เดิม
+      // 202 = the commit may or may not have happened: not treated as success, and resolved with the same key
       if (status === 202) return { kind: 'UNKNOWN', originalIdempotencyKey: key };
       return { kind: 'PUBLISHED', result: payload as unknown as PublishJourneyResultV1 };
     },

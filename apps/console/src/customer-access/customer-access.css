@@ -1,4 +1,4 @@
-/* #915: หน้าสิทธิ์ทีมเห็นลูกค้า — ตารางไม่ตรึงสัดส่วนคอลัมน์แบบ .cu-table และ scroll แนวนอนอย่างตั้งใจบนจอแคบ */
+/* #915: team customer-access page — the table does not pin column proportions like .cu-table and deliberately scrolls horizontally on narrow screens */
 .ca-perms {
   margin-block: var(--dc-space-5);
   padding: var(--dc-space-5);

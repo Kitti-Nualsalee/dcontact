@@ -1,7 +1,7 @@
 /**
- * AC5 (#598): Console client ของ `/api/v1/me/account/*` (ทุก role) และ `/api/v1/tenant/account-policy` (admin)
+ * AC5 (#598): Console client of `/api/v1/me/account/*` (every role) and `/api/v1/tenant/account-policy` (admin)
  *
- * ผู้ใช้และ tenant มาจาก bearer token ที่ gateway ตรวจแล้ว — ไม่มี user id ใน path/body
+ * user and tenant come from the bearer token the gateway has verified — no user id in the path/body
  */
 
 export type EmailChangePolicy = 'VERIFY' | 'IMMEDIATE' | 'ADMIN_ONLY';

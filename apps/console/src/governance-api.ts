@@ -1,19 +1,19 @@
 /**
- * CG4.9 (#192): Console client ของ CG4 command/query API (#179 §2)
+ * CG4.9 (#192): Console client of the CG4 command/query API (#179 §2)
  *
- * Console เรียกเฉพาะ D-Contact API: tenant และ actor มาจาก bearer token ที่ gateway ตรวจแล้ว
- * จึงไม่มี field ใดใน body ที่ระบุ tenant, actor, role หรือ capability และไม่มี provider endpoint
- * ทุก command ต้องมี Idempotency-Key ที่ caller ถือไว้ตลอด intent เดียว — การส่งซ้ำหลังผลไม่แน่ชัด
- * ต้องใช้ key เดิม ไม่ใช่ key ใหม่ (#179 §2, #180 partial failure)
+ * Console calls only the D-Contact API: tenant and actor come from the bearer token the gateway has verified,
+ * so no field in the body names a tenant, actor, role or capability, and there is no provider endpoint.
+ * Every command needs an Idempotency-Key that the caller holds for a single intent — a resend after an uncertain result
+ * must use the same key, not a new one (#179 §2, #180 partial failure)
  */
 
 export type RiskTier = 'STANDARD' | 'HIGH' | 'EMERGENCY';
-/** ค่าที่ส่งใน request body (`POST …/approvals`) */
+/** value sent in the request body (`POST …/approvals`) */
 export type ApprovalDecision = 'APPROVE' | 'REJECT';
-/** ค่าที่ server บันทึกและส่งกลับใน `…/approvals` (enum `Cg4ApprovalDecision`) — คนละคำกับ request */
+/** value the server records and returns in `…/approvals` (enum `Cg4ApprovalDecision`) — a different term from the request */
 export type ApprovalOutcome = 'APPROVED' | 'REJECTED';
 
-/** reference ที่ server ปกปิดแล้ว: เทียบกันได้ด้วย digest แต่อ่านเนื้อหาไม่ได้ */
+/** reference the server has redacted: comparable by digest but its content cannot be read */
 export interface RedactedRef {
   redacted: true;
   digest: string;
@@ -174,7 +174,7 @@ export interface PolicyRollbackResult {
   lifecycleState: string;
 }
 
-/** รายละเอียดที่ server ส่งมากับ error เช่น expected/actual version ของ conflict */
+/** detail the server sends with an error, e.g. expected/actual version of a conflict */
 export interface GovernanceErrorDetails {
   expectedVersion?: number;
   actualVersion?: number;
@@ -240,7 +240,7 @@ export interface GovernanceApi {
     evidenceRef: string;
     idempotencyKey: string;
   }): Promise<PolicyRollbackResult>;
-  /** คืน `undefined` เมื่อ scope ยังไม่มี active head (404) */
+  /** returns `undefined` when the scope has no active head yet (404) */
   effectiveScope(scopeKey: string): Promise<EffectiveScope | undefined>;
   killSwitches(input?: { scopeKey?: string; state?: 'ACTIVE' | 'CLEARED' }): Promise<KillSwitch[]>;
 }
@@ -265,7 +265,7 @@ export function createGovernanceApi(input: {
     if (init.idempotencyKey) headers['idempotency-key'] = init.idempotencyKey;
     const response = await request(`${input.baseUrl.replace(/\/$/, '')}${BASE}${path}`, {
       method: init.method ?? 'GET',
-      // canonical state ต้องสดเสมอ: ETag ของ read endpoint ไม่เปลี่ยนเมื่อสถานะเปลี่ยน (#673) ห้ามให้ HTTP cache ตอบ 304 ด้วย body เก่า
+      // canonical state must always be fresh: the ETag of a read endpoint does not change when state changes (#673), so HTTP cache must not answer 304 with an old body
       cache: 'no-store',
       headers,
       ...(init.body !== undefined ? { body: JSON.stringify(init.body) } : {}),
@@ -297,7 +297,7 @@ export function createGovernanceApi(input: {
         idempotencyKey,
         body: {
           decision,
-          // ผูกกับ revision/digest/version ที่ผู้ตรวจเห็นจริง server จะปฏิเสธถ้ามีการเปลี่ยนระหว่างนั้น
+          // bound to the revision/digest/version the reviewer actually saw; the server rejects if anything changed in between
           expectedRevision: series.revision,
           expectedContentDigest: series.contentDigest,
           expectedVersion: series.aggregateVersion,

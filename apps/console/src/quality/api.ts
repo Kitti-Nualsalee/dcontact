@@ -1,4 +1,4 @@
-/** #971: client ของ `/api/v1/qm` สำหรับฟอร์มประเมิน การประเมินสายของทีม และคะแนนของฉัน */
+/** #971: client of `/api/v1/qm` for evaluation forms, team call evaluations and my scores */
 
 export type QuestionType = 'YES_NO' | 'SCALE' | 'TEXT';
 

@@ -44,7 +44,7 @@ const FILTERS: (EvaluationFilter | 'ALL')[] = ['ALL', 'NOT_EVALUATED', 'DRAFT', 
 
 const statusOf = (failure: unknown) => (failure instanceof QualityApiError ? failure.status : 500);
 
-/** เปลี่ยนผู้ใช้แล้วทิ้ง state ของคนก่อนทั้งหมด */
+/** on a user change, drop all of the previous user's state */
 export function TeamEvaluations(props: Props) {
   return <TeamEvaluationsSession key={props.identityKey} {...props} />;
 }
@@ -117,7 +117,7 @@ function TeamEvaluationsSession({ api, onSignIn }: Props) {
             setPageCursor(undefined);
             setReload((current) => current + 1);
           }
-          // คืน focus ให้ปุ่มของแถวเดิม ถ้าไม่อยู่แล้วไปที่หัวข้อหน้า
+          // return focus to the original row's button; if it no longer exists go to the page heading
           requestAnimationFrame(() =>
             (document.getElementById(`${openId}-${opener}`) ?? heading.current)?.focus(),
           );
@@ -314,7 +314,7 @@ function EvaluationEditor({
   const [focusHeading, setFocusHeading] = useState(false);
   const [reload, setReload] = useState(0);
 
-  // ย้าย focus ไปที่หัวข้อหลัง Dialog ปิดแล้วจริง (ปุ่มที่เปิด Dialog อาจหายไปหลัง publish)
+  // move focus to the heading after the Dialog has really closed (the button that opened the Dialog may disappear after publish)
   useEffect(() => {
     if (!focusHeading || dialog) return;
     let inner = 0;
@@ -360,7 +360,7 @@ function EvaluationEditor({
     };
   }, [api, interactionId, reload]);
 
-  /** เปลี่ยนฟอร์มล้างคำตอบที่ตอบไว้ จึงถามก่อนเมื่อมีคำตอบแล้ว */
+  /** changing the form clears answers already given, so ask first when answers exist */
   const requestForm = (versionId: string) => {
     if (Object.keys(answers).length > 0 && versionId !== formVersionId) {
       setPendingForm(versionId);
@@ -383,7 +383,7 @@ function EvaluationEditor({
       .finally(() => setBusy(undefined));
   };
 
-  /** บันทึกร่างแล้วคืนผลล่าสุด; ล้มแล้วแสดงเหตุโดยไม่ทิ้งคำตอบที่กรอกไว้ */
+  /** save the draft and return the latest result; on failure show the cause without dropping the entered answers */
   const save = async (): Promise<Evaluation | undefined> => {
     if (!formVersionId || !definition) return undefined;
     setErrors({});

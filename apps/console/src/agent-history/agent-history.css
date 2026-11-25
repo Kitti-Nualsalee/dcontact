@@ -14,7 +14,7 @@
   overflow-wrap: anywhere;
 }
 
-/* #964 สรุปงานของฉัน */
+/* #964 my work summary */
 .ah-summary {
   margin-block: var(--dc-space-6);
   padding: var(--dc-space-6);
@@ -46,7 +46,7 @@
   border: 1px solid var(--dc-border-default);
   border-radius: var(--dc-radius-md);
 }
-/* ไม่ใช้ overflow: hidden เพื่อไม่ตัด focus ring ด้านนอก — มนมุมที่ปุ่มปลายแทน */
+/* no overflow: hidden, so the outer focus ring is not clipped — round the corners on the end buttons instead */
 .ah-segmented button:first-child {
   border-start-start-radius: var(--dc-radius-md);
   border-end-start-radius: var(--dc-radius-md);
@@ -126,7 +126,7 @@ button.ah-metric-value[aria-pressed='true'] {
 .ah-metric-empty {
   color: var(--dc-text-secondary);
 }
-/* #964 จองที่ของแผงสรุประหว่างโหลดครั้งแรก ไม่ให้เนื้อหากระโดด */
+/* #964 reserve space for the summary panel during the first load so content does not jump */
 .ah-placeholder .ah-metric {
   min-block-size: 5.5rem;
   background: var(--dc-surface-sunken);
@@ -179,8 +179,8 @@ button.ah-metric-value:focus-visible {
   font-size: var(--dc-text-md);
 }
 
-/* forced-colors: ตัวเลือกที่กดค้างบอกด้วยพื้น brand ซึ่งโหมดนี้ลบทิ้ง จึงใช้ Highlight ของระบบแทน
-   (ปิด forced-color-adjust ไม่งั้นแผ่น Canvas หลังข้อความบังข้อความ) outline โฟกัสอยู่ด้านนอกบน Canvas จึงใช้สีเดิมได้ */
+/* forced-colors: a pressed option is indicated by a brand background, which this mode removes, so the system Highlight is used instead
+   (forced-color-adjust is not disabled, otherwise the Canvas plate behind the text hides it); the focus outline is outside on Canvas so the original color works */
 @media (forced-colors: active) {
   .ah-segmented button[aria-pressed='true'],
   .ah-breakdown button[aria-pressed='true'],

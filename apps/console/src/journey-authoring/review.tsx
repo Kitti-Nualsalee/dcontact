@@ -1,11 +1,11 @@
 /**
- * J5.6 (#344): compile → preview/simulation → ส่งตรวจ → ตัดสิน (maker-checker)
+ * J5.6 (#344): compile → preview/simulation → submit for review → decide (maker-checker)
  *
- * ปุ่มทุกปุ่มส่งคำสั่งไป server ซึ่งตรวจสิทธิ์และความสดของ digest เอง — Console ไม่ซ่อนแล้วถือว่า
- * authorized; ถ้า server ปฏิเสธจะแสดง code ที่ได้กลับมาตรง ๆ
+ * every button sends a command to the server, which checks permission and digest freshness itself — Console does not hide and then assume
+ * authorized; if the server rejects, the code it returned is shown as is
  *
- * U1.4 (#432): ใน UAT simulation ใช้ fixture ที่ server ตรึงไว้ของ run ปัจจุบันตรงตัว (อ่านอย่างเดียว)
- * แทน fixture ที่ browser สร้างเอง; ผลแสดงป้าย `SIMULATION_ONLY` และเวลาจำลอง (virtualAt) แยกจากเวลาจริง
+ * U1.4 (#432): in UAT simulation use the fixture the server pinned for the current run exactly (read-only)
+ * instead of a fixture the browser builds; results show the `SIMULATION_ONLY` badge and the simulated time (virtualAt) separate from real time
  */
 import { useEffect, useId, useRef, useState } from 'react';
 import type {
@@ -52,14 +52,14 @@ export function ReviewPanel({
   const decisionLabel = (decision: Decision) => t(`review.decision.${decision}`);
   const contextId = useId();
   const [busy, setBusy] = useState(false);
-  // เก็บ code แล้วแปลตอน render — สลับภาษาแล้วข้อความ error เปลี่ยนตาม
+  // keep the code and translate at render — switching language changes the error message accordingly
   const [error, setError] = useState<{ code?: string } | null>(null);
   const [preview, setPreview] = useState<PlanPreviewV1 | null>(null);
   const [simulation, setSimulation] = useState<SimulationResultV1 | null>(null);
   const [contextJson, setContextJson] = useState('{}');
   const [deciding, setDeciding] = useState<Decision | null>(null);
   const submitIntent = useRef<{ binding: string; key: string } | null>(null);
-  // UAT: `undefined` = กำลังโหลด, `null` = ยังไม่มี run จึงยังไม่มี fixture ให้ใช้
+  // UAT: `undefined` = loading, `null` = no run yet so there is no fixture to use
   const [uatFixture, setUatFixture] = useState<SimulationFixtureV1 | null | undefined>(undefined);
   const [uatFixtureError, setUatFixtureError] = useState<UatFailure | null>(null);
   const uatApi = uat?.api;
@@ -83,7 +83,7 @@ export function ReviewPanel({
   const pendingReview =
     review && review.draftRevision === head.currentDraftRevision ? review : null;
   const { permissions } = snapshot;
-  // ตัดสินได้เมื่อ server บอกว่าถือ journey.review และไม่ใช่ผู้ส่งตรวจ — ไม่ขึ้นกับสิทธิ์แก้ไข
+  // can decide when the server says the user holds journey.review and is not the submitter — independent of edit permission
   const inReview = pendingReview?.state === 'IN_REVIEW';
   const canDecide = inReview && permissions.review && !pendingReview.makerIsCaller;
   const decisionBlockedReason = !inReview
@@ -142,7 +142,7 @@ export function ReviewPanel({
     run(async () => {
       if (!artifact) return;
       if (uat) {
-        // UAT: ใช้ fixture ของ server ตรงตัว ไม่สร้าง startAt/seed/context เอง (#374 §4)
+        // UAT: use the server's fixture exactly, do not build startAt/seed/context yourself (#374 §4)
         if (!uatFixture) return;
         setSimulation(
           await api.simulate(head.journeyId, {

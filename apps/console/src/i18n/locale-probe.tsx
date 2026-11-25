@@ -2,8 +2,8 @@ import { useLocale, useTranslation } from '@d-contact/i18n/react';
 import { SUPPORTED_LOCALES } from '@d-contact/i18n';
 
 /**
- * D1.11 (#450): หน้าทดสอบของ e2e harness เท่านั้น (`?view=i18n` ใน mode `e2e`) — พิสูจน์ว่าสลับภาษา
- * ไม่ reload และ formatter ตามภาษา ปุ่มสลับภาษาจริงอยู่ในแถบบนของ shell (D1.13)
+ * D1.11 (#450): a test page for the e2e harness only (`?view=i18n` in mode `e2e`) — proves that switching language
+ * does not reload and the formatters follow the language; the real language switcher is in the shell top bar (D1.13)
  */
 const SAMPLE_INSTANT = '2026-09-12T09:40:00Z';
 

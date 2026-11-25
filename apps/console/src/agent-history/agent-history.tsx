@@ -31,7 +31,7 @@ type SummaryState =
   | { phase: 'ready'; summary: HistorySummary }
   | { phase: 'error'; status: number };
 
-/** ชื่อเขตเวลาที่อ่านง่าย เช่น "เวลาอินโดจีน" — ใช้ IANA id เมื่อ Intl ไม่มีชื่อ */
+/** readable time zone name such as "Indochina Time" — uses the IANA id when Intl has no name */
 function zoneName(locale: string, timeZone: string): string {
   try {
     return (
@@ -108,7 +108,7 @@ function HistorySession({ api, onSignIn }: Props) {
 
   useEffect(() => {
     if (!selected && summaryState.phase !== 'ready') {
-      // รายการรอช่วงเวลาจากสรุป เพื่อให้ตัวเลขกับรายการใช้ช่วงเดียวกัน
+      // the list waits for the period from the summary so the numbers and the list use the same period
       setLoading(summaryState.phase === 'loading');
       return;
     }
@@ -137,7 +137,7 @@ function HistorySession({ api, onSignIn }: Props) {
     return () => {
       active = false;
     };
-    // summaryState.phase เปลี่ยนตาม revision/period แล้ว — ไม่ใส่ object ทั้งก้อนเพื่อไม่โหลดซ้ำ
+    // summaryState.phase changes with the revision/period — do not include the whole object, to avoid reloading
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [api, selected, pageCursor, revision, windowFrom, windowTo, disposition, summaryState.phase]);
 

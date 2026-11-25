@@ -1,8 +1,8 @@
 import type { CSSProperties } from 'react';
 
 /**
- * Skeleton ขนาดเท่าของจริง (docs/ui-principles.md: Loading ต้องไม่ทำให้ layout กระโดด)
- * ข้อความสถานะอ่านออกเสียงได้ผ่าน `role=status`; แท่งสีเป็นของตกแต่ง (`aria-hidden`)
+ * Skeleton the same size as the real thing (docs/ui-principles.md: Loading must not make the layout jump)
+ * the status text is read aloud through `role=status`; the colored bars are decorative (`aria-hidden`)
  */
 export function Skeleton({
   label,

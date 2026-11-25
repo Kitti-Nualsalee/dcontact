@@ -79,8 +79,8 @@ function signInFromCurrentPage(auth: AuthContextProps) {
 }
 
 /**
- * #677: หน้าที่ Keycloak พากลับมาหลัง sign-out — บอกสถานะและให้เข้าสู่ระบบอีกครั้ง
- * ไม่จำ URL ใหม่ (หน้านี้ไม่มี view) ให้ callback พากลับหน้าที่จำไว้ก่อน sign-out
+ * #677: the page Keycloak returns to after sign-out — reports the state and lets the user sign in again.
+ * It does not remember a new URL (this page has no view); the callback returns to the page remembered before sign-out.
  */
 function SignedOutSurface() {
   useEffect(() => {
@@ -146,9 +146,9 @@ function SignInRequired({ surface, auth }: { surface: SignInSurface; auth: AuthC
 }
 
 /**
- * userStore อยู่ใน memory: กู้ SSO ตอน boot ผ่าน top-level prompt=none
- * Console มี X-Frame-Options: DENY จึงใช้ root callback ภายใน iframe ไม่ได้
- * callback (รวม login_required) ไม่เริ่มรอบใหม่; same-page reauth ไม่อยู่ใน bootstrap นี้
+ * userStore lives in memory: SSO is restored at boot through a top-level prompt=none.
+ * Console sends X-Frame-Options: DENY, so the root callback cannot be used inside an iframe.
+ * A callback (including login_required) does not start a new round; same-page reauth is not part of this bootstrap.
  */
 function ConsoleSessionBootstrap({ children }: { children: ReactNode }) {
   const auth = useAuth();
@@ -217,11 +217,11 @@ export function ConsoleAuthRoot() {
   const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '';
   let tenantAlias: string;
   let contextId: string | undefined;
-  // #676: บน callback ของ OIDC ใช้ URL ปลายทางที่จำไว้ เพราะ `redirect_uri` ไม่มี view/context
+  // #676: on an OIDC callback use the remembered destination URL, because `redirect_uri` has no view/context
   const url = resolveConsoleLocation(new URL(window.location.href), window.sessionStorage);
-  // #677: กลับมาหลัง sign-out (ไม่มี view/context) — มาก่อน default view เพื่อไม่ให้ไปหน้าที่ไม่ได้เลือก
+  // #677: returning after sign-out (no view/context) — comes before the default view so an unselected page is not opened
   const signedOut = isConsoleSignedOutLanding(url, window.sessionStorage);
-  // #684: ไม่มี view/context → Home; argument ของ deployment เก่าไม่เปลี่ยน default ใหม่
+  // #684: no view/context → Home; an argument from an older deployment does not change the new default
   const defaultView = import.meta.env.VITE_CONSOLE_DEFAULT_VIEW as string | undefined;
   const [view, setView] = useState(() => resolveConsoleView(url, defaultView));
   const [routeRevision, setRouteRevision] = useState(0);
@@ -234,13 +234,13 @@ export function ConsoleAuthRoot() {
   );
   const homeView = view === 'home';
   const historyView = view === 'agent-history';
-  // #956: เคสของทีม (รายการ + รายละเอียด `&case=<id>`)
+  // #956: team cases (list + detail `&case=<id>`)
   const casesView = view === 'team-cases';
-  // #967: เสียงบันทึกของทีมสำหรับ Supervisor
+  // #967: team call recordings for Supervisor
   const recordingsView = view === 'team-recordings';
-  // #986: ประวัติและสรุปงานของทีม (Supervisor ทีมตัวเอง, Admin ทุกทีม)
+  // #986: team work history and summary (Supervisor for own team, Admin for all teams)
   const teamHistoryView = view === 'team-history';
-  // #971: ประเมินคุณภาพ (Supervisor), คะแนนของฉัน (Agent), ฟอร์มประเมิน (Admin)
+  // #971: quality evaluation (Supervisor), my scores (Agent), evaluation forms (Admin)
   const qualityApp = QUALITY_APPS.find((app) => app === view);
   const preferenceView = view === 'preferences';
   const governanceView = view === 'governance';
@@ -249,16 +249,16 @@ export function ConsoleAuthRoot() {
   const routingView = view === 'voice-routing';
   const peopleView = view === 'tenant-people';
   const coreSettingsView = view === 'core-settings';
-  // Cus360 C2 (#792): Customers + โปรไฟล์ (อ่านอย่างเดียว)
+  // Cus360 C2 (#792): Customers + profile (read-only)
   const customersView = view === 'customers';
   const customerTagsView = view === 'customer-tags';
   const customerImportView = view === 'customer-import';
   const customerAccessView = view === 'customer-access';
   const customerActivityView = view === 'customer-activity';
   const customerOverviewView = view === 'customer-overview' || view === 'customer-rules';
-  // #566: read-only ของ LINE pilot — มีเฉพาะ UAT ที่ใส่ overlay `uat-line` (ไม่มี = หน้าแจ้งว่าไม่ได้เปิด)
+  // #566: read-only LINE pilot — UAT only, where the `uat-line` overlay is applied (without it, a page says it is not enabled)
   const lineInboundView = view === 'line-inbound';
-  // AC5 (#598): บัญชีของฉัน (ทุก role) และนโยบายบัญชี (admin)
+  // AC5 (#598): my account (every role) and account policy (admin)
   const accountView = view === 'account' || view === 'account-policy';
   const contactId = preferenceView ? (url.searchParams.get('contactId') ?? undefined) : undefined;
   try {
@@ -380,8 +380,8 @@ export function ConsoleAuthRoot() {
 }
 
 /**
- * D1.11 (#450): ภาษา/timezone ตามลำดับ ผู้ใช้ → tenant → browser → th — ก่อน login ใช้ภาษา browser
- * ผู้ใช้เปลี่ยนภาษาแล้วบันทึกลง Keycloak attribute `locale` ด้วย token ของตัวเอง
+ * D1.11 (#450): language/timezone in the order user → tenant → browser → th — before login the browser language is used.
+ * When the user changes language it is saved to the Keycloak attribute `locale` with the user's own token.
  */
 function ConsoleLocale({
   apiBaseUrl,
@@ -404,7 +404,7 @@ function ConsoleLocale({
   );
 }
 
-/** #588: เมนูผู้ใช้บนแถบบนของ shell — ข้อมูลจาก claims ของ token ใช้แสดงผลอย่างเดียว */
+/** #588: user menu on the shell top bar — data from the token claims, used for display only */
 function shellUserProps(auth: AuthContextProps, tenantAlias: string) {
   return {
     account: {
@@ -543,7 +543,7 @@ export function CasesSurface({
 export const QUALITY_APPS = ['team-evaluations', 'my-quality', 'qm-forms'] as const;
 export type QualityApp = (typeof QUALITY_APPS)[number];
 
-/** #971: หน้าประเมินคุณภาพสามหน้า ใช้ client และการตรวจ identity เดียวกัน; สิทธิ์จริงตรวจที่ API */
+/** #971: the three quality evaluation pages share one client and the same identity check; real permission is checked at the API */
 export function QualitySurface({
   app,
   apiBaseUrl,
@@ -789,8 +789,8 @@ function ConsoleSurface({
 }
 
 /**
- * CG4.9 (#192): viewer มาจาก role ใน token เพื่อซ่อนปุ่มที่รู้ว่าจะไม่ผ่านเท่านั้น — สิทธิ์จริงถูก
- * re-authorize ที่ API ทุก command และระดับการเห็น evidence มาจาก capability ฝั่ง server
+ * CG4.9 (#192): the viewer comes from the role in the token only to hide buttons known to be rejected — real permission is
+ * re-authorized at the API on every command, and the evidence visibility level comes from server-side capabilities
  */
 function GovernanceSurface({
   apiBaseUrl,
@@ -835,7 +835,7 @@ function GovernanceSurface({
 }
 
 /**
- * E1.11 (#485): Integrations › dphone embedding — ADMIN แก้ได้ (สิทธิ์จริงตัดสินที่ API ทุก request)
+ * E1.11 (#485): Integrations › dphone embedding — ADMIN can edit (real permission is decided at the API on every request)
  */
 function DphoneEmbeddingSurface({
   apiBaseUrl,
@@ -879,7 +879,7 @@ function DphoneEmbeddingSurface({
   );
 }
 
-/** #566: สิทธิ์ (role admin ของ tenant pilot) ตัดสินที่ `line-webhook` — Console แสดงผลตาม status เท่านั้น */
+/** #566: permission (tenant pilot admin role) is decided at `line-webhook` — Console renders by status only */
 function LineInboundSurface({
   apiBaseUrl,
   tenantAlias,
@@ -910,8 +910,8 @@ function LineInboundSurface({
 }
 
 /**
- * J5.6 (#344): Journey authoring — สิทธิ์ทั้งหมดตัดสินที่ API ด้วย capability ของ IAM ไม่อ่าน role ใน
- * token; session recovery ผูก tenant alias + session และถูกล้างเมื่อ logout
+ * J5.6 (#344): Journey authoring — all permissions are decided at the API by IAM capability, not by reading the role in
+ * the token; session recovery is bound to the tenant alias + session and cleared on logout
  */
 function JourneySurface({ apiBaseUrl, tenantAlias }: { apiBaseUrl: string; tenantAlias: string }) {
   const auth = useAuth();
@@ -930,7 +930,7 @@ function JourneySurface({ apiBaseUrl, tenantAlias }: { apiBaseUrl: string; tenan
   );
   if (auth.activeNavigator === 'signinRedirect' || auth.isLoading) return <SigningIn />;
   if (auth.error || !auth.isAuthenticated || !accessToken) {
-    // ออกจากระบบหรือ session หมด: การแก้ที่ค้างของ tenant นี้ต้องไม่ติดไปกับผู้ใช้คนถัดไป
+    // Signed out or session expired: this tenant's pending edits must not carry over to the next user
     clearRecovery(window.sessionStorage, tenantAlias);
     return <SignInRequired surface="journeys" auth={auth} />;
   }
@@ -963,8 +963,8 @@ function JourneySurface({ apiBaseUrl, tenantAlias }: { apiBaseUrl: string; tenan
 }
 
 /**
- * AC5 (#598): บัญชีของฉัน / นโยบายบัญชี — token ยืนยัน email ถูกย้ายออกจาก URL ใน main.tsx ก่อน render
- * (จึงไม่ติดไปกับ return URL ของ login) และหน้าอ่านจาก sessionStorage ครั้งเดียว
+ * AC5 (#598): my account / account policy — the email verification token is moved out of the URL in main.tsx before render
+ * (so it does not stick to the login return URL) and the page reads it from sessionStorage once
  */
 function AccountSurface({
   apiBaseUrl,
@@ -1220,7 +1220,7 @@ export function CustomerImportSurface({
   );
 }
 
-/** #915: สิทธิ์ทีมบน segment ระบบ — รายชื่อทีมมาจาก Core Settings, grant ผ่าน IAM team-segment-scopes */
+/** #915: team permissions on system segments — the team list comes from Core Settings, grants go through IAM team-segment-scopes */
 export function CustomerAccessSurface({
   apiBaseUrl,
   tenantAlias,

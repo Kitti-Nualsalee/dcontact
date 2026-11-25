@@ -2,8 +2,8 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 
 /**
- * Cus360 C2 (#792): Console A (รายการ → โปรไฟล์เต็มหน้า) บน Chromium จริง
- * ทุก request ผ่าน API/RLS/DB จริงของ sandbox (identity เป็น stub — ไม่ใช่ actual OIDC boundary)
+ * Cus360 C2 (#792): Console A (list → full-page profile) on a real Chromium
+ * every request goes through the sandbox's real API/RLS/DB (identity is a stub — not an actual OIDC boundary)
  */
 
 interface Config {
@@ -32,7 +32,7 @@ async function search(page: Page, type: string, query: string) {
   await page.getByRole('button', { name: 'ค้นหา', exact: true }).click();
 }
 
-test('รายการ: loading แยกจาก empty, อ่านอย่างเดียว ไม่มี write control, count ตาม predicate เดียวกับ list', async ({
+test('list: loading is separate from empty, read-only with no write control, count by the same predicate as the list', async ({
   page,
   request,
 }) => {
@@ -43,7 +43,7 @@ test('รายการ: loading แยกจาก empty, อ่านอย�
   await expect(table(page)).toBeVisible();
   await expect(page.getByText(/ลูกค้าที่เข้าถึงได้ 37 รายการ/)).toBeVisible();
   await expect(page.getByText('การสร้างลูกค้าต้องได้รับสิทธิ์จากผู้ดูแล')).toBeVisible();
-  // ไม่มี control ที่ดูเหมือนเขียนได้ (แม้เป็น disabled)
+  // no control that looks writable (even disabled)
   await expect(
     main(page).getByRole('button', {
       name: /^(สร้าง|แก้ไข|บันทึก|ลบ|เพิ่ม|Create|Edit|Save|Delete|Add)/,
@@ -52,13 +52,13 @@ test('รายการ: loading แยกจาก empty, อ่านอย�
   await expect(page.getByText('ซ่อนจากทุกคน')).toHaveCount(0);
   await expect(page.getByText('Foreign Tenant')).toHaveCount(0);
   await expect(page.getByText('Predecessor Paul')).toHaveCount(0);
-  // 20 แถวแรกแล้วโหลดเพิ่ม ไม่ซ้ำ
+  // the first 20 rows, then load more, with no duplicates
   expect(await table(page).getByRole('row').count()).toBe(21);
   await page.getByRole('button', { name: 'โหลดเพิ่ม' }).click();
   await expect(table(page).getByRole('row')).toHaveCount(38);
 });
 
-test('ค้นหา: NAME prefix, ตัวอักษรพิเศษ, PHONE/EMAIL เต็มค่า และ validation ใกล้ช่องโดยไม่สะท้อนค่า', async ({
+test('search: NAME prefix, special characters, PHONE/EMAIL full value, and validation near the field without echoing the value', async ({
   page,
 }) => {
   await list(page);
@@ -66,7 +66,7 @@ test('ค้นหา: NAME prefix, ตัวอักษรพิเศษ, PHO
   await search(page, 'ชื่อ (ขึ้นต้นด้วย)', 'สมชา');
   await expect(table(page).getByRole('row')).toHaveCount(2);
   await expect(table(page)).toContainText('สมชาย ใจดี');
-  // ไม่มี wildcard/substring
+  // no wildcard/substring
   await search(page, 'ชื่อ (ขึ้นต้นด้วย)', '%%');
   await expect(page.getByText('ไม่พบลูกค้าที่ตรงกับคำค้นหา')).toBeVisible();
   await search(page, 'ชื่อ (ขึ้นต้นด้วย)', 'ชาย');
@@ -74,7 +74,7 @@ test('ค้นหา: NAME prefix, ตัวอักษรพิเศษ, PHO
   await search(page, 'ชื่อ (ขึ้นต้นด้วย)', 'ส');
   await expect(page.getByText('พิมพ์ชื่ออย่างน้อย 2 ตัวอักษร')).toBeVisible();
 
-  // PHONE: ต้องเป็นรูปแบบสากล; เบอร์เดียวกันบนสอง contact ที่เข้าถึงได้ → สองรายการ ไม่รวมกัน
+  // PHONE: must be in international format; the same number on two accessible contacts → two entries, not merged
   await search(page, 'เบอร์โทรศัพท์ (เต็มค่า)', '0812345678');
   await expect(page.getByText(/ใส่เบอร์ในรูปแบบสากล/)).toBeVisible();
   await expect(page.getByText('0812345678', { exact: true })).toHaveCount(0);
@@ -87,14 +87,14 @@ test('ค้นหา: NAME prefix, ตัวอักษรพิเศษ, PHO
   await expect(table(page).getByRole('row')).toHaveCount(2);
   await search(page, 'อีเมล (เต็มค่า)', 'not-an-email');
   await expect(page.getByText(/อีเมลไม่ถูกต้อง/)).toBeVisible();
-  // ล้างการค้นหากลับไปรายการทั้งหมด และ URL ไม่เก็บคำค้น
+  // clear the search back to the whole list, and the URL does not keep the query
   await page.getByRole('button', { name: 'ล้างการค้นหา' }).click();
   await expect(table(page).getByRole('row')).toHaveCount(21);
   expect(page.url()).not.toContain('example');
   expect(page.url()).not.toContain('somchai');
 });
 
-test('คีย์บอร์ด: Enter ค้นหา, Tab เข้าตาราง + ลูกศรไปปุ่มเปิด, Enter เปิดโปรไฟล์, focus มองเห็น', async ({
+test('keyboard: Enter searches, Tab enters the table + arrows to the open button, Enter opens the profile, focus is visible', async ({
   page,
 }) => {
   await list(page);
@@ -105,7 +105,7 @@ test('คีย์บอร์ด: Enter ค้นหา, Tab เข้าตา
   await expect(table(page).getByRole('row')).toHaveCount(2);
   await page.getByRole('button', { name: 'ล้างการค้นหา' }).focus();
   await page.keyboard.press('Tab');
-  // ตารางเป็น grid: ลูกศรเลื่อนระหว่างเซลล์จนถึงปุ่มเปิด
+  // the table is a grid: arrows move between cells up to the open button
   const label = /เปิดโปรไฟล์ Somsri Rakdee/;
   for (let i = 0; i < 8; i += 1) {
     const focused = await page.evaluate(
@@ -116,7 +116,7 @@ test('คีย์บอร์ด: Enter ค้นหา, Tab เข้าตา
   }
   const open = page.getByRole('button', { name: label });
   await expect(open).toBeFocused();
-  // focus ring ของ token (box-shadow) ต้องมองเห็นเมื่อใช้คีย์บอร์ด
+  // the token's focus ring (box-shadow) must be visible when using the keyboard
   await expect(open).toHaveAttribute('data-focus-visible', 'true');
   const ring = await open.evaluate((el) => getComputedStyle(el).boxShadow);
   expect(ring).not.toBe('none');
@@ -125,7 +125,7 @@ test('คีย์บอร์ด: Enter ค้นหา, Tab เข้าตา
   expect(page.url()).toContain(`contact=${config.ids.somsri}`);
 });
 
-test('โปรไฟล์: core + timeline + governance แยก section; เปิด/กลับแบบ SPA และ back/forward', async ({
+test('profile: core + timeline + governance as separate sections; open/return as an SPA and back/forward', async ({
   page,
 }) => {
   await list(page);
@@ -141,13 +141,13 @@ test('โปรไฟล์: core + timeline + governance แยก section; เ
   await expect(page.getByText('somchai@example.com')).toBeVisible();
   await expect(page.getByText('รอตรวจสอบ ไม่ใช้ค้นหา')).toBeVisible();
   await expect(page.getByText('ลูกค้าสำคัญ')).toBeVisible();
-  // timeline: เฉพาะสายที่เป็นของผู้ใช้ + แจ้งว่าไม่ครบ; ไม่มีโน้ต/ช่องทางอื่น
+  // timeline: only calls belonging to the user + a notice that it is incomplete; no notes/other channels
   const timeline = page.getByRole('region', { name: 'ประวัติการติดต่อ' });
   await expect(timeline.getByRole('listitem')).toHaveCount(2);
   await expect(timeline.getByText(/พิสูจน์สิทธิ์ย้อนหลังให้คุณไม่ได้/)).toBeVisible();
   await expect(page.getByText('SECRET-NOTE')).toHaveCount(0);
   await expect(timeline.getByText(/webchat|line|email/i)).toHaveCount(0);
-  // governance: ยังไม่ระบุบริบท → context-required และไม่ใช่การอนุญาต
+  // governance: no context specified yet → context-required and not an allow
   const governance = page.getByRole('region', { name: 'สถานะ Contact Governance' });
   await expect(governance.getByText('สรุปนี้ไม่ใช่การอนุญาตให้ติดต่อ')).toBeVisible();
   await expect(governance.getByText('เลือกช่องทางและวัตถุประสงค์ก่อน')).toBeVisible();
@@ -166,7 +166,7 @@ test('โปรไฟล์: core + timeline + governance แยก section; เ
   expect(loads).toBe(0);
 });
 
-test('partial failure: Voice owner ล้ม = timeline ล้มเฉพาะ section และกู้ได้; ไม่ใช่ empty', async ({
+test('partial failure: Voice owner fails = only the timeline section fails and can recover; not empty', async ({
   page,
   request,
 }) => {
@@ -179,7 +179,7 @@ test('partial failure: Voice owner ล้ม = timeline ล้มเฉพาะ
   const timeline = page.getByRole('region', { name: 'ประวัติการติดต่อ' });
   await expect(timeline.getByRole('alert')).toContainText('อ่านประวัติการติดต่อไม่ได้ในขณะนี้');
   await expect(timeline.getByText('ยังไม่มีประวัติสายเสียง')).toHaveCount(0);
-  // core profile และ section อื่นยังใช้ได้
+  // the core profile and other sections are still usable
   await expect(page.getByRole('heading', { name: 'สมชาย ใจดี' })).toBeVisible();
   await expect(page.getByText('+6621234567')).toBeVisible();
   await expect(page.getByRole('region', { name: 'สถานะ Contact Governance' })).toBeVisible();
@@ -188,7 +188,7 @@ test('partial failure: Voice owner ล้ม = timeline ล้มเฉพาะ
   await expect(timeline.getByRole('listitem')).toHaveCount(2);
 });
 
-test('partial failure: Governance owner ล้ม = unavailable ไม่ตีความว่าอนุญาต และกู้ได้', async ({
+test('partial failure: Governance owner fails = unavailable, not interpreted as allowed, and can recover', async ({
   page,
   request,
 }) => {
@@ -209,7 +209,7 @@ test('partial failure: Governance owner ล้ม = unavailable ไม่ตี�
   await expect(governance.getByText('ไม่มีความต้องการของลูกค้าที่ตรงบริบทนี้')).toBeVisible();
 });
 
-test('error + recovery: core ล้มชั่วคราว → alert พร้อมลองอีกครั้ง; กู้แล้วเห็นโปรไฟล์', async ({
+test('error + recovery: core fails temporarily → alert with try again; once recovered the profile shows', async ({
   page,
   request,
 }) => {
@@ -222,7 +222,7 @@ test('error + recovery: core ล้มชั่วคราว → alert พร�
   await expect(page.getByRole('heading', { name: 'Somsri Rakdee' })).toBeVisible();
 });
 
-test('ไม่มีสิทธิ์/ไม่พบ: ข้อความเดียวกัน ไม่เปิดเผยการมีอยู่ และไม่แสดงข้อมูลของ contact ที่ซ่อน', async ({
+test('no permission/not found: the same message, does not reveal existence, and shows no data of a hidden contact', async ({
   page,
 }) => {
   await profile(page, 'hidden');
@@ -238,7 +238,10 @@ test('ไม่มีสิทธิ์/ไม่พบ: ข้อความ�
   await expect(page.getByRole('alert')).toContainText('ไม่พบลูกค้ารายนี้หรือคุณไม่มีสิทธิ์เปิด');
 });
 
-test('รายการปิดข้อมูลเมื่อ session หมดระหว่างสลับแท็บ', async ({ page, request }) => {
+test('the list closes its data when the session expires while switching tabs', async ({
+  page,
+  request,
+}) => {
   await list(page);
   await expect(table(page)).toBeVisible();
   await search(page, 'อีเมล (เต็มค่า)', 'somchai@example.com');
@@ -260,7 +263,7 @@ test('รายการปิดข้อมูลเมื่อ session ห�
   expect(searches).toBe(1);
 });
 
-test('session หมด: กลับมาที่แท็บแล้วปิด PII ทั้งหน้าทันที ไม่ค้างข้อมูลเสริม', async ({
+test('session expired: returning to the tab closes all PII on the page immediately, leaving no extra data', async ({
   page,
   request,
 }) => {
@@ -276,13 +279,13 @@ test('session หมด: กลับมาที่แท็บแล้วป�
     await expect(page.getByText(text)).toHaveCount(0);
   await expect(page.getByRole('region', { name: 'ประวัติการติดต่อ' })).toHaveCount(0);
   await expect(page.getByRole('region', { name: 'สถานะ Contact Governance' })).toHaveCount(0);
-  // รายการก็ปิดเช่นกัน
+  // the list closes as well
   await list(page);
   await expect(page.getByRole('alert')).toContainText('เซสชันหมดอายุ');
   await expect(table(page)).toHaveCount(0);
 });
 
-test('สิทธิ์เปลี่ยน (ถอน custodian): ตรวจใหม่เมื่อกลับมาแล้วปิดโปรไฟล์ทั้งหมด', async ({
+test('permission change (custodian revoked): recheck on return and close the whole profile', async ({
   page,
   request,
 }) => {
@@ -298,7 +301,7 @@ test('สิทธิ์เปลี่ยน (ถอน custodian): ตรว�
   await expect(page.getByRole('region', { name: 'ประวัติการติดต่อ' })).toHaveCount(0);
 });
 
-test('สิทธิ์ถูกถอนระหว่างเปิด: retry ของ timeline ปิด PII ของ core ทั้งหน้า (ไม่ใช่แค่ section)', async ({
+test('permission revoked while open: a timeline retry closes the core PII of the whole page (not just the section)', async ({
   page,
   request,
 }) => {
@@ -316,7 +319,7 @@ test('สิทธิ์ถูกถอนระหว่างเปิด: ret
   await expect(page.getByRole('region', { name: 'สถานะ Contact Governance' })).toHaveCount(0);
 });
 
-test('สิทธิ์ถูกถอนระหว่างเปิด: ดูสถานะ Governance และโหลดประวัติเพิ่มปิด PII ทั้งหน้า', async ({
+test('permission revoked while open: viewing Governance status and loading more history close the PII of the whole page', async ({
   page,
   request,
 }) => {
@@ -346,13 +349,13 @@ for (const [status, message] of [
   [503, 'สิทธิ์การเข้าถึงยังไม่พร้อม'],
 ] as const) {
   for (const section of ['timeline', 'governance-summary'] as const) {
-    test(`section ${section} ได้ ${status}: ปิด PII ทั้งหน้าและ focus ที่ข้อความ`, async ({
+    test(`section ${section} gets ${status}: close the PII of the whole page and focus on the text`, async ({
       page,
       request,
     }) => {
       await profile(page, 'somchai');
       await expect(page.getByRole('heading', { name: 'สมชาย ใจดี' })).toBeVisible();
-      // หลัง core โหลดแล้ว section นี้ตอบ error (ยกเว้นครั้งแรกของ section อื่น)
+      // after core has loaded this section answers an error (except the first time of other sections)
       await control(request, `fail/${status}/${section}`);
       await page.evaluate(() => {
         Object.defineProperty(document, 'visibilityState', {
@@ -372,7 +375,7 @@ for (const [status, message] of [
   }
 }
 
-test('response ของ core ที่ยิงค้างตอบ 200 มาหลังสิทธิ์ถูกถอน ต้องไม่เปิด PII กลับ', async ({
+test('a hanging core response that answers 200 after permission is revoked must not reopen PII', async ({
   page,
   request,
 }) => {
@@ -380,7 +383,7 @@ test('response ของ core ที่ยิงค้างตอบ 200 มา
   await expect(page.getByRole('heading', { name: 'Revoke Gov Two' })).toBeVisible();
   const governance = page.getByRole('region', { name: 'สถานะ Contact Governance' });
   await governance.getByRole('textbox').fill('SERVICE');
-  // ค้าง response 200 ของ core จนกว่าจะยืนยันว่าถอนสิทธิ์และปิดข้อมูลแล้ว
+  // hold the core 200 response until it is confirmed that permission was revoked and the data closed
   await control(request, 'slow/hold/profile');
   await page.evaluate(() => {
     Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
@@ -399,7 +402,7 @@ test('response ของ core ที่ยิงค้างตอบ 200 มา
   await expect(page.getByRole('alert')).toContainText('ไม่พบลูกค้ารายนี้หรือคุณไม่มีสิทธิ์เปิด');
   const aborted = await abortedCore;
   expect(aborted.failure()?.errorText).toContain('ERR_ABORTED');
-  // ปล่อย response หลัง browser ยืนยันว่า request ถูกยกเลิกแล้ว
+  // release the response after the browser confirms the request has been cancelled
   await control(request, 'slow-release');
   await expect
     .poll(async () => (await (await control(request, 'slow-state')).json()).sent)
@@ -409,7 +412,7 @@ test('response ของ core ที่ยิงค้างตอบ 200 มา
   await expect(page.getByRole('region', { name: 'ประวัติการติดต่อ' })).toHaveCount(0);
 });
 
-test('ตาราง: ชื่อ 80+ ตัวและบริษัทยาวตัดบรรทัดในเซลล์ ไม่ทับคอลัมน์ข้าง; Enter ที่แถวเปิดโปรไฟล์; โหลดเพิ่มแล้ว focus แถวแรกที่เพิ่ม', async ({
+test('table: names of 80+ characters and long companies wrap inside the cell without overlapping the neighbor column; Enter on a row opens the profile; after load more focus the first added row', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
@@ -433,13 +436,13 @@ test('ตาราง: ชื่อ 80+ ตัวและบริษัทย�
       })),
     };
   });
-  // คอลัมน์ชื่อต้องกว้างกว่าช่องทาง และไม่มีเนื้อหาล้นเกินขอบเซลล์
+  // the name column must be wider than the channel column, and no content overflows the cell edge
   expect(geometry.heads[0]).toBeGreaterThan(geometry.heads[3]!);
   for (const cell of geometry.cells) {
     expect(cell.scroll).toBeLessThanOrEqual(cell.client + 1);
     expect(cell.innerRight).toBeLessThanOrEqual(cell.right + 1);
   }
-  // คีย์บอร์ด: Tab เข้าตาราง ลูกศรลงไปที่แถว แล้ว Enter เปิดโปรไฟล์ได้โดยไม่ต้องเลื่อนเข้าเซลล์
+  // keyboard: Tab enters the table, down arrow to the row, then Enter opens the profile without moving into the cell
   await page.getByRole('button', { name: 'ล้างการค้นหา' }).focus();
   await page.keyboard.press('Tab');
   await page.keyboard.press('ArrowDown');
@@ -448,7 +451,7 @@ test('ตาราง: ชื่อ 80+ ตัวและบริษัทย�
   await page.getByRole('button', { name: 'กลับไปรายการลูกค้า' }).click();
   await expect(table(page)).toBeVisible();
   await page.getByRole('button', { name: 'โหลดเพิ่ม' }).click();
-  // จำนวนแถวรวมขึ้นกับลูกค้าที่ถูกถอนสิทธิ์โดย test ก่อนหน้า — ตรวจว่าครบทุกหน้าแล้วแทนตัวเลขตายตัว
+  // the total row count depends on customers whose permission was revoked by earlier tests — check that every page is covered instead of a fixed number
   await expect(page.getByRole('button', { name: 'โหลดเพิ่ม' })).toHaveCount(0);
   expect(await table(page).getByRole('row').count()).toBeGreaterThan(21);
   const focused = await page.evaluate(() => document.activeElement?.getAttribute('data-cu-open'));
@@ -456,7 +459,7 @@ test('ตาราง: ชื่อ 80+ ตัวและบริษัทย�
   expect(await page.evaluate(() => document.activeElement?.tagName)).toBe('BUTTON');
 });
 
-test('focus: governance แสดงสถานะ/เปลี่ยนบริบท → หัว section; INCOMPLETE ลองอีกครั้ง → หัวข้อรายการ', async ({
+test('focus: governance shows status/changes context → section heading; INCOMPLETE try again → list heading', async ({
   page,
   request,
 }) => {
@@ -478,7 +481,7 @@ test('focus: governance แสดงสถานะ/เปลี่ยนบร�
   await expect(page.getByRole('status').filter({ hasText: 'ไม่พบ' })).toHaveCount(0);
 });
 
-test('ผลค้นหาว่างประกาศด้วย role=status และหัวข้อเป็นผลการค้นหาทันทีที่ส่งค้นหา', async ({
+test('an empty search result is announced with role=status and the heading becomes the search result as soon as the search is sent', async ({
   page,
   request,
 }) => {
@@ -491,7 +494,7 @@ test('ผลค้นหาว่างประกาศด้วย role=statu
   await expect(page.getByRole('status')).toContainText('ไม่พบลูกค้าที่ตรงกับคำค้นหา');
 });
 
-test('focus: เปิดโปรไฟล์ → ชื่อลูกค้า, กลับ → หัวข้อค้นหา, retry section → หัว section', async ({
+test('focus: open profile → customer name, back → search heading, retry section → section heading', async ({
   page,
   request,
 }) => {
@@ -512,7 +515,7 @@ test('focus: เปิดโปรไฟล์ → ชื่อลูกค้�
   await expect(timeline.getByRole('heading', { name: 'ประวัติการติดต่อ' })).toBeFocused();
 });
 
-test('รายการ: INCOMPLETE มีปุ่มลองอีกครั้ง, validation ไม่ทิ้งผลเก่า, สลับชนิดค้นหาล้างคำค้น, หัวข้อเปลี่ยนเป็นผลการค้นหา', async ({
+test('list: INCOMPLETE has a try-again button, validation does not drop the old results, switching search type clears the query, the heading becomes the search result', async ({
   page,
   request,
 }) => {
@@ -531,17 +534,17 @@ test('รายการ: INCOMPLETE มีปุ่มลองอีกคร�
   await search(page, 'ชื่อ (ขึ้นต้นด้วย)', 'Somsri');
   await expect(page.getByRole('heading', { name: 'ผลการค้นหา' })).toBeVisible();
   await expect(table(page).getByRole('row')).toHaveCount(2);
-  // validation ล้ม: ผลเดิมของ Somsri ยังอยู่และไม่ถูกตีความเป็นผลของคำค้นใหม่
+  // validation fails: Somsri's original result stays and is not interpreted as the result of the new query
   await search(page, 'ชื่อ (ขึ้นต้นด้วย)', 'x');
   await expect(page.getByText('พิมพ์ชื่ออย่างน้อย 2 ตัวอักษร')).toBeVisible();
   await expect(table(page)).toContainText('Somsri Rakdee');
-  // สลับชนิดค้นหา → ล้างคำค้นเดิม
+  // switch search type → clear the original query
   await page.getByRole('button', { name: /ค้นหาด้วย/ }).click();
   await page.getByRole('option', { name: 'อีเมล (เต็มค่า)' }).click();
   await expect(page.getByRole('textbox')).toHaveValue('');
 });
 
-test('Supervisor: อ่านเฉพาะรายการใน IAM VIEW; projection lag = INCOMPLETE/สิทธิ์ยังไม่พร้อม ไม่ใช่ว่าง/ศูนย์', async ({
+test('Supervisor: reads only the list in IAM VIEW; projection lag = INCOMPLETE/permission not ready, not empty/zero', async ({
   page,
   request,
 }) => {
@@ -567,7 +570,7 @@ test('Supervisor: อ่านเฉพาะรายการใน IAM VIEW; 
   await expect(page.getByRole('heading', { name: 'ลูกค้า C1' })).toBeVisible();
 });
 
-test('Agent/Compliance: ไม่มี generic directory — แสดงไม่มีสิทธิ์ ไม่มีข้อมูลลูกค้า', async ({
+test('Agent/Compliance: no generic directory — shows no permission and no customer data', async ({
   page,
   request,
 }) => {
@@ -580,14 +583,14 @@ test('Agent/Compliance: ไม่มี generic directory — แสดงไม
   await expect(page.getByText('สมชาย ใจดี')).toHaveCount(0);
 });
 
-test('MERGED/AMBIGUOUS/legacy: อ่านอย่างเดียว ไม่ redirect อัตโนมัติ และเปิด canonical เมื่อกดเองเท่านั้น', async ({
+test('MERGED/AMBIGUOUS/legacy: read-only, no automatic redirect, and the canonical opens only when pressed by the user', async ({
   page,
 }) => {
   await profile(page, 'predecessor');
   await expect(page.getByRole('heading', { name: 'Predecessor Paul' })).toBeVisible();
   await expect(page.getByText(/ถูกรวมเข้ากับโปรไฟล์อื่นแล้ว/)).toBeVisible();
   expect(page.url()).toContain(`contact=${config.ids.predecessor}`);
-  // governance ของ predecessor ใช้ไม่ได้ (ไม่ canonical)
+  // the predecessor's governance is unusable (not canonical)
   await page.getByRole('textbox').fill('SERVICE');
   await page.getByRole('button', { name: 'ดูสถานะ' }).click();
   await expect(page.getByText(/ข้อมูลระบุตัวตนยังไม่ใช่โปรไฟล์หลัก/)).toBeVisible();
@@ -602,7 +605,9 @@ test('MERGED/AMBIGUOUS/legacy: อ่านอย่างเดียว ไม
   await expect(page.getByText(/ข้อมูลเดิมที่ยังไม่มีสถานะ identity/)).toBeVisible();
 });
 
-test('i18n: สลับ TH/EN ในหน้าเดิมโดยไม่ reload และข้อความครบทั้งสองภาษา', async ({ page }) => {
+test('i18n: switching TH/EN on the same page without reload, and the text is complete in both languages', async ({
+  page,
+}) => {
   await profile(page, 'somchai');
   await expect(page.getByRole('heading', { name: 'สมชาย ใจดี' })).toBeVisible();
   let loads = 0;
@@ -618,14 +623,14 @@ test('i18n: สลับ TH/EN ในหน้าเดิมโดยไม่ 
   expect(loads).toBe(0);
 });
 
-// หมายเหตุ: shared shell (rail + SubNav ใน @d-contact/ui-react) ไม่มี breakpoint ใต้ ~760px
-// ที่ 390px พื้นที่เนื้อหาเหลือราว 74px จึงไม่นับเป็นหลักฐานจอแคบของหน้านี้ — ตรวจตั้งแต่ tablet 768 ขึ้นไป
+// note: the shared shell (rail + SubNav in @d-contact/ui-react) has no breakpoint below ~760px
+// at 390px the content area is only about 74px, so it does not count as narrow-screen evidence for this page — checked from tablet 768 upward
 for (const [name, size] of [
   ['tablet 768', { width: 768, height: 1024 }],
   ['tablet 950', { width: 950, height: 900 }],
   ['laptop 1280', { width: 1280, height: 800 }],
 ] as const) {
-  test(`responsive ${name}: เนื้อหาไม่ล้นทั้งหน้าและพื้นที่เนื้อหา, ชื่อ/บริษัทยาวถูก wrap`, async ({
+  test(`responsive ${name}: content does not overflow the page or the content area, and long names/companies wrap`, async ({
     page,
   }) => {
     await page.setViewportSize(size);
@@ -679,7 +684,7 @@ for (const [name, size] of [
   });
 }
 
-test('accessibility: รายการและโปรไฟล์ไม่มี axe violation ระดับ serious/critical ในเนื้อหาหลัก', async ({
+test('accessibility: the list and profile have no serious/critical axe violations in the main content', async ({
   page,
 }) => {
   await list(page);
@@ -697,7 +702,10 @@ test('accessibility: รายการและโปรไฟล์ไม่�
   expect(serious(await new AxeBuilder({ page }).include('main').analyze())).toEqual([]);
 });
 
-test('C4: สร้างลูกค้าแล้วอ่านข้อมูลกลับก่อนแสดงโปรไฟล์', async ({ page, request }) => {
+test('C4: create a customer and read the data back before showing the profile', async ({
+  page,
+  request,
+}) => {
   await control(request, 'grant-create');
   await list(page);
   await page.getByRole('button', { name: 'สร้างลูกค้า' }).click();
@@ -715,7 +723,10 @@ test('C4: สร้างลูกค้าแล้วอ่านข้อม�
   expect(stored).not.toContain('213 373');
 });
 
-test('C4: แก้ข้อมูลที่เปลี่ยนพร้อมกันโดยเก็บร่างและแสดงข้อมูลล่าสุด', async ({ page, request }) => {
+test('C4: edit data that changed concurrently, keeping the draft and showing the latest data', async ({
+  page,
+  request,
+}) => {
   await profile(page, 'somchai');
   await page.getByRole('button', { name: 'แก้ไขลูกค้า' }).click();
   await page.getByLabel('ชื่อลูกค้า').fill('ร่างที่ต้องเก็บ');
@@ -739,7 +750,7 @@ test('C4: แก้ข้อมูลที่เปลี่ยนพร้อ�
   await expect(page.getByLabel('ชื่อลูกค้า')).toHaveValue('ร่างที่ต้องเก็บ');
 });
 
-test('C4: เพิ่ม แทนที่ และเลิกใช้ช่องทาง รวมทั้งถอดแท็กด้วย readback', async ({ page }) => {
+test('C4: add, replace and retire a channel, and remove a tag, with readback', async ({ page }) => {
   await profile(page, 'somchai');
   await page.getByRole('button', { name: 'แก้ไขลูกค้า' }).click();
   await page.getByLabel('ข้อมูลช่องทางติดต่อ').fill('+1 415 555 2671');
@@ -769,7 +780,7 @@ test('C4: เพิ่ม แทนที่ และเลิกใช้ช�
   await expect(page.getByText('ลูกค้าสำคัญ')).toHaveCount(0);
 });
 
-test('C4: response หลุดหลัง commit กู้ receipt หลัง reload โดยไม่สร้างซ้ำหรือเก็บ PII', async ({
+test('C4: a response lost after commit recovers the receipt after reload without duplicating or keeping PII', async ({
   page,
 }) => {
   await list(page);
@@ -798,7 +809,7 @@ test('C4: response หลุดหลัง commit กู้ receipt หลั�
   await expect(page.getByRole('button', { name: 'ตรวจสถานะการบันทึก' })).toHaveCount(0);
 });
 
-test('C4: session หมดซ่อนข้อมูล เก็บร่างใน memory และตรวจคำสั่งเดิมหลัง reauthorize', async ({
+test('C4: session expiry hides data, keeps the draft in memory, and checks the original command after reauthorize', async ({
   page,
   request,
 }) => {
@@ -818,7 +829,7 @@ test('C4: session หมดซ่อนข้อมูล เก็บร่า�
   await expect(page.getByRole('heading', { name: 'ร่างหลังเข้าสู่ระบบใหม่' })).toBeVisible();
 });
 
-test('C4: ฟอร์ม TH/EN ไม่ล้นที่ 768/1280/1440 และผ่าน axe ระดับ serious/critical', async ({
+test('C4: the TH/EN form does not overflow at 768/1280/1440 and passes axe at serious/critical level', async ({
   page,
   request,
 }) => {
@@ -851,7 +862,7 @@ test('C4: ฟอร์ม TH/EN ไม่ล้นที่ 768/1280/1440 แล
   }
 });
 
-test('C4: capability service ล่มแจ้งว่าตรวจสิทธิ์ไม่ได้ และลองใหม่ได้', async ({
+test('C4: a capability service outage says permission cannot be checked, and can retry', async ({
   page,
   request,
 }) => {
@@ -867,7 +878,7 @@ test('C4: capability service ล่มแจ้งว่าตรวจสิท
   await expect(page.getByRole('button', { name: 'สร้างลูกค้า' })).toBeVisible();
 });
 
-test('C4: tag selector ล่มแสดง unavailable และไม่ให้บันทึกรายการไม่ครบ', async ({
+test('C4: a tag selector outage shows unavailable and does not allow saving an incomplete list', async ({
   page,
   request,
 }) => {
@@ -881,7 +892,9 @@ test('C4: tag selector ล่มแสดง unavailable และไม่ใ�
   await expect(page.getByRole('button', { name: 'บันทึกแท็ก' })).toBeEnabled();
 });
 
-test('C4: บันทึกข้อมูลเดิมคืน NO_OP และอ่านข้อมูลปัจจุบันกลับ', async ({ page }) => {
+test('C4: saving unchanged data returns NO_OP and reads the current data back', async ({
+  page,
+}) => {
   await profile(page, 'somchai');
   await page.getByRole('button', { name: 'แก้ไขลูกค้า' }).click();
   const response = page.waitForResponse(
@@ -895,7 +908,7 @@ test('C4: บันทึกข้อมูลเดิมคืน NO_OP แล
   await expect(page.getByRole('button', { name: 'แก้ไขลูกค้า' })).toBeVisible();
 });
 
-test('C4: response ตรวจสิทธิ์เก่าที่มาช้าหลัง session หมดไม่เปิดร่างกลับ', async ({
+test('C4: an old permission-check response arriving late after session expiry does not reopen the draft', async ({
   page,
   request,
 }) => {
@@ -918,7 +931,7 @@ test('C4: response ตรวจสิทธิ์เก่าที่มาช�
   await expect(page.getByLabel('ชื่อลูกค้า')).toHaveCount(0);
 });
 
-test('C4: ตรวจ receipt แล้วสิทธิ์ถูกถอนต้องซ่อนร่างจนตรวจสิทธิ์ใหม่ผ่าน', async ({
+test('C4: after checking the receipt, revoked permission must hide the draft until the permission check passes again', async ({
   page,
   request,
 }) => {
@@ -949,7 +962,7 @@ test('C4: ตรวจ receipt แล้วสิทธิ์ถูกถอน�
   await expect(page.getByRole('heading', { name: 'ร่างตรวจสิทธิ์ receipt' })).toBeVisible();
 });
 
-test('C4: กู้ receipt ที่ conflict แล้วเก็บร่างและบังคับตรวจข้อมูลล่าสุดก่อนบันทึก', async ({
+test('C4: recover a conflicted receipt, keep the draft and force a check of the latest data before saving', async ({
   page,
   request,
 }) => {
@@ -989,7 +1002,7 @@ test('C4: กู้ receipt ที่ conflict แล้วเก็บร่า
   await expect(page.getByRole('button', { name: 'บันทึกลูกค้า' })).toBeEnabled();
 });
 
-test('C4: ไม่แสดงผลสำเร็จก่อน readback ตอบกลับ', async ({ page, request }) => {
+test('C4: does not show success before the readback answers', async ({ page, request }) => {
   await control(request, 'grant-create');
   await list(page);
   await page.getByRole('button', { name: 'สร้างลูกค้า' }).click();
@@ -1017,7 +1030,7 @@ test('C4: ไม่แสดงผลสำเร็จก่อน readback ต
   await expect(page.getByRole('heading', { name: 'รออ่านกลับ' })).toBeVisible();
 });
 
-test('C4: แสดง revision ที่ commit และข้อมูลปัจจุบันเมื่อมีการแก้ต่อก่อน readback', async ({
+test('C4: show the committed revision and the current data when there was a further edit before the readback', async ({
   page,
   request,
 }) => {

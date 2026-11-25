@@ -1,11 +1,11 @@
 /**
- * J5.6 (#344): model ฝั่ง Console ของ Journey authoring (Phase Spec #337 §8)
+ * J5.6 (#344): Console-side model of Journey authoring (Phase Spec #337 §8)
  *
- * - document ที่แก้อยู่ไม่ใช่ความจริงของระบบ: เป็น `server snapshot + command log` เสมอ canvas และ
- *   outline ส่ง command ชุดเดียวกันเข้า reducer เดียว จึงไม่มี hidden state ระหว่างสองมุมมอง
- * - ค่าคงที่ของ node/port เป็นกระจกของ `@d-contact/cxa-contracts` (index ของ contracts ดึง node:crypto
- *   เข้ามา bundle ใน browser ไม่ได้) — unit test ตรึงให้ตรงกับ contracts ทุกตัว
- * - ตรวจแบบ local เป็นแค่คำใบ้ให้ผู้ใช้; validate/compile/publish ตัดสินที่ server เท่านั้น
+ * - the document being edited is not the system's truth: it is always `server snapshot + command log`; the canvas and
+ *   outline send the same commands into one reducer, so there is no hidden state between the two views
+ * - node/port constants mirror `@d-contact/cxa-contracts` (the contracts index pulls in node:crypto,
+ *   which cannot be bundled for the browser) — a unit test pins them to match the contracts exactly
+ * - local checks are only hints for the user; validate/compile/publish are decided at the server only
  */
 import { appI18n } from '../i18n/index.js';
 import type {
@@ -38,7 +38,7 @@ export const STEP_NODE_TYPES = [
   ...RESTRICTED_NODE_TYPES,
 ] as const satisfies readonly StepNodeType[];
 
-/** output port ตามลำดับที่แสดง; ทุก port ต่อได้ target เดียว (runtime field เป็น scalar) */
+/** output ports in display order; every port can connect to a single target (runtime field is a scalar) */
 export const NODE_OUTPUT_PORTS: Readonly<Record<AnyNodeType, readonly JourneyPortId[]>> = {
   EVENT_TRIGGER: ['start'],
   SCHEDULE_TRIGGER: ['start'],
@@ -61,8 +61,8 @@ export const INTERACTION_OUTCOME_TYPES = [
 ];
 
 /**
- * D1.14 (#453): ข้อความของ model มาจาก catalog `journeys` — อ่านผ่าน getter ทุกครั้ง จึงได้ภาษาปัจจุบัน
- * เมื่อ component render ใหม่หลังสลับภาษา โดยผู้เรียกยังใช้ `NODE_LABELS[type]` แบบเดิม
+ * D1.14 (#453): model text comes from the `journeys` catalog — read through a getter every time, so the current language is used
+ * when a component re-renders after a language switch, while callers keep using `NODE_LABELS[type]` as before
  */
 export function journeyText(key: string, options?: Record<string, unknown>): string {
   return (appI18n.t as unknown as (key: string, options?: Record<string, unknown>) => string)(
@@ -125,7 +125,7 @@ export interface ConfigFieldSpec {
   readonly description?: string;
 }
 
-/** label/description มาจาก catalog (`field.<key>`, `field.<key>Hint`) ผ่าน getter — ภาษาเปลี่ยนตามผู้ใช้ */
+/** label/description come from the catalog (`field.<key>`, `field.<key>Hint`) through getters — language follows the user */
 const field = (
   key: string,
   kind: ConfigFieldKind,
@@ -150,7 +150,7 @@ const field = (
   return Object.freeze(spec);
 };
 
-/** field ของ config ตาม registry (#328) — ชื่อ key ตรงกับ validator ฝั่ง server */
+/** config fields per the registry (#328) — key names match the server-side validator */
 export const CONFIG_FIELDS: Readonly<Record<AnyNodeType, readonly ConfigFieldSpec[]>> = {
   EVENT_TRIGGER: [field('eventType', 'text')],
   SCHEDULE_TRIGGER: [field('cron', 'text'), field('timezone', 'text', { hint: true })],
@@ -212,8 +212,8 @@ export type SettingKey =
   'name' | 'purpose' | 'senderIdentityId' | 'maxDurationDays' | 'goalEventType';
 
 /**
- * ทุกการแก้เป็น command ที่ replay ได้แบบ deterministic — id ของ node/edge ถูกสร้างก่อนเข้า reducer
- * เพื่อให้ undo/redo และ session recovery ได้ผลเดิมทุกครั้ง
+ * Every edit is a command that replays deterministically — node/edge ids are generated before entering the reducer
+ * so undo/redo and session recovery always produce the same result
  */
 export type AuthoringCommand =
   | {
@@ -221,7 +221,7 @@ export type AuthoringCommand =
       readonly nodeId: string;
       readonly nodeType: StepNodeType;
       readonly edgeIds: readonly [string, string];
-      /** แทรกต่อจาก port นี้: ถ้า port เคยชี้ไปที่ไหน node ใหม่จะชี้ต่อไปที่นั่น */
+      /** insert after this port: if the port pointed somewhere, the new node then points there */
       readonly after?: { readonly nodeId: string; readonly portId: JourneyPortId };
     }
   | {
@@ -379,7 +379,7 @@ export function applyCommand(
     case 'DELETE_NODE': {
       if (command.nodeId === document.trigger.nodeId)
         throw new AuthoringCommandRejected('TRIGGER_REQUIRED');
-      // node ที่ไม่รู้จักต้องเก็บ source เดิมไว้ครบ (#328 §10) จึงลบจาก Console ไม่ได้
+      // an unknown node must keep its original source intact (#328 §10), so it cannot be deleted from Console
       requireEditable(document, command.nodeId);
       const { [command.nodeId]: _removed, ...layout } = document.layout.nodes;
       return {
@@ -481,8 +481,8 @@ export function replay(
 // ── Projection ──────────────────────────────────────────────────────────────
 
 /**
- * ลำดับเดียวที่ทั้ง canvas (focus ด้วยลูกศร) และ outline ใช้: เดินจาก trigger ตามลำดับ port แล้วต่อด้วย
- * node ที่ยังไม่ถูกเชื่อมตามลำดับใน document — จึงคงที่เมื่อ graph เดิม
+ * The single order used by both the canvas (arrow-key focus) and the outline: walk from the trigger in port order, then continue with
+ * nodes not yet connected in document order — so it is stable for the same graph
  */
 export function outlineOrder(document: AuthoringDocumentV1): string[] {
   const order: string[] = [document.trigger.nodeId];
@@ -517,7 +517,7 @@ export function nodeTitle(document: AuthoringDocumentV1, nodeId: string): string
   return label ? label : NODE_LABELS[node.type as AnyNodeType];
 }
 
-/** คำใบ้แบบ local เท่านั้น — ไม่ใช้ตัดสิน publish (server เป็นผู้ตัดสิน) */
+/** local hints only — not used to decide publish (the server decides) */
 export function openPorts(
   document: AuthoringDocumentV1,
 ): Array<{ nodeId: string; portId: JourneyPortId }> {
@@ -544,14 +544,14 @@ export function changedNodeIds(before: AuthoringDocumentV1, after: AuthoringDocu
 
 // ── Error presentation ──────────────────────────────────────────────────────
 
-/** ข้อความของ error code ปิดจาก server — code ที่ไม่รู้จักได้ข้อความกลาง (catalog `error.*`) */
+/** messages for the closed set of error codes from the server — an unknown code gets a generic message (catalog `error.*`) */
 export function errorMessage(code: string | undefined): string {
   return code && appI18n.exists(`journeys:error.${code}`)
     ? journeyText(`error.${code}`)
     : journeyText('error.fallback');
 }
 
-/** ฉบับร่างเริ่มต้นที่ server บันทึกได้: trigger แบบ event ต่อไปที่ EXIT — รายละเอียดที่เหลือแก้ต่อใน editor */
+/** initial draft the server can save: an event trigger leading to EXIT — the rest is edited in the editor */
 export function blankDocument(input: {
   name: string;
   eventType: string;

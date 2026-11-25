@@ -1,4 +1,4 @@
-/* #566/#567: LINE inbound (pilot) — token ของ D1 เท่านั้น */
+/* #566/#567: LINE inbound (pilot) — D1 tokens only */
 .line-inbound {
   display: grid;
   gap: var(--dc-space-4);

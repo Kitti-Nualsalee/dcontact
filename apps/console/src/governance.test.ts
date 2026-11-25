@@ -49,7 +49,7 @@ function series(overrides: Partial<ExceptionSeries> = {}): ExceptionSeries {
   };
 }
 
-test('อ่านทุก request แบบ no-store: canonical state ต้องไม่มาจาก HTTP cache (#672)', async () => {
+test('read every request as no-store: canonical state must not come from the HTTP cache (#672)', async () => {
   const inits: Array<RequestInit | undefined> = [];
   const api = createGovernanceApi({
     baseUrl: 'https://api.example/',
@@ -66,7 +66,7 @@ test('อ่านทุก request แบบ no-store: canonical state ต้�
   assert.equal(inits[0]?.cache, 'no-store');
 });
 
-test('response ของ approvals ใช้ enum ของ server (APPROVED/REJECTED) คนละคำกับ request (#672)', async () => {
+test('the approvals response uses the server enum (APPROVED/REJECTED), a different term from the request (#672)', async () => {
   const api = createGovernanceApi({
     baseUrl: 'https://api.example/',
     accessToken: () => 'token-in-memory',
@@ -86,7 +86,7 @@ test('response ของ approvals ใช้ enum ของ server (APPROVED/REJ
   );
 });
 
-test('command ผูก revision/digest/version ที่เห็นจริง ส่ง Idempotency-Key และไม่ส่ง tenant/actor', async () => {
+test('a command binds the revision/digest/version actually seen, sends an Idempotency-Key and does not send tenant/actor', async () => {
   const requests: Array<{ url: string; init?: RequestInit }> = [];
   const api = createGovernanceApi({
     baseUrl: 'https://api.example/',
@@ -128,11 +128,11 @@ test('command ผูก revision/digest/version ที่เห็นจริ�
     evidenceRef: 'TICKET-1',
   });
   for (const forbidden of ['tenantId', 'actorRef', 'capability', 'role', 'makerSubjectId']) {
-    assert.equal(forbidden in body, false, `${forbidden} ต้องไม่อยู่ใน body`);
+    assert.equal(forbidden in body, false, `${forbidden} must not be in the body`);
   }
 });
 
-test('error ของ server เก็บ code และ expected/actual version ไว้ และ effective scope 404 คืน undefined', async () => {
+test('a server error keeps the code and expected/actual version, and an effective-scope 404 returns undefined', async () => {
   const api = createGovernanceApi({
     baseUrl: 'https://api.example',
     accessToken: () => 'token',
@@ -156,7 +156,7 @@ test('error ของ server เก็บ code และ expected/actual version
   });
 });
 
-test('ไม่มี access token ไม่ส่ง request ใดเลย', async () => {
+test('without an access token no request is sent at all', async () => {
   let called = false;
   const api = createGovernanceApi({
     baseUrl: 'https://api.example',
@@ -170,12 +170,12 @@ test('ไม่มี access token ไม่ส่ง request ใดเลย', 
   assert.equal(called, false);
 });
 
-test('publish ที่ยังไม่มี approval digest ถูกปฏิเสธก่อนถึง server', async () => {
+test('a publish with no approval digest is rejected before reaching the server', async () => {
   const api = createGovernanceApi({
     baseUrl: 'https://api.example',
     accessToken: () => 'token',
     fetch: async () => {
-      throw new Error('ต้องไม่ถูกเรียก');
+      throw new Error('must not be called');
     },
   });
   await assert.rejects(
@@ -190,7 +190,7 @@ test('publish ที่ยังไม่มี approval digest ถูกปฏ�
   );
 });
 
-test('คิวเรียงรายการที่รอตัดสินก่อน แล้วความเสี่ยงสูงก่อน แล้วหมดอายุก่อน', () => {
+test('the queue puts items awaiting a decision first, then higher risk first, then earlier expiry first', () => {
   const ordered = sortExceptionQueue([
     series({ seriesId: 'approved', workflowState: 'APPROVED', riskTier: 'EMERGENCY' }),
     series({
@@ -211,7 +211,7 @@ test('คิวเรียงรายการที่รอตัดสิ�
   );
 });
 
-test('reference ที่ปกปิดแสดงเป็น digest เท่านั้น', () => {
+test('a redacted reference is shown only as a digest', () => {
   assert.equal(
     referenceLabel({ redacted: true, digest: '0123456789abcdef' }, tTh),
     'ปกปิด · digest …abcdef',
@@ -224,7 +224,7 @@ test('reference ที่ปกปิดแสดงเป็น digest เท�
   assert.equal(referenceLabel(undefined, tTh), '—');
 });
 
-test('recovery ของ stale/conflict ต้องโหลดใหม่ ส่วนผลไม่แน่ชัดส่งซ้ำได้ด้วย key เดิมเท่านั้น', () => {
+test('stale/conflict recovery must reload, while an uncertain result may be resent only with the same key', () => {
   assert.deepEqual(
     [recoveryFor(new GovernanceApiError(422, 'APPROVAL_STALE'), tTh)].map((state) => [
       state.kind,
@@ -256,7 +256,7 @@ test('recovery ของ stale/conflict ต้องโหลดใหม่ ส
   assert.equal(recoveryFor(new TypeError('Failed to fetch'), tTh).recovery, 'SAME_KEY');
 });
 
-test('ข้อความ recovery มาจาก catalog ตามภาษา และ logic (kind/recovery) ไม่ขึ้นกับภาษา', () => {
+test('recovery messages come from the catalog per language, and the logic (kind/recovery) does not depend on language', () => {
   const conflict = new GovernanceApiError(409, 'VERSION_CONFLICT', {
     expectedVersion: 4,
     actualVersion: 6,
@@ -279,8 +279,8 @@ test('ข้อความ recovery มาจาก catalog ตามภาษ�
   assert.equal(lifecycle.message, 'This step is not available: QUORUM_NOT_MET (1/2)');
 });
 
-test('catalog อังกฤษของ Governance ไม่มีอักษรไทยเหลืออยู่', () => {
-  const thai = /[฀-๿]/;
+test('the English Governance catalog has no Thai characters left', () => {
+  const thai = new RegExp(`[${String.fromCharCode(0x0e00)}-${String.fromCharCode(0x0e7f)}]`);
   const bad: string[] = [];
   const walk = (node: unknown, path: string) => {
     if (typeof node === 'string') {
@@ -293,7 +293,7 @@ test('catalog อังกฤษของ Governance ไม่มีอักษ
   assert.deepEqual(bad, []);
 });
 
-test('URL รับเฉพาะ opaque UUID และทิ้งค่าอื่น เช่น อีเมลหรือเบอร์โทร', () => {
+test('the URL accepts only an opaque UUID and drops other values such as an email or phone number', () => {
   const location = parseGovernanceLocation(
     new URL(
       `https://console.local/?view=governance&section=exceptions&contactId=someone@example.com&seriesId=${SERIES_ID}&policyId=0812345678`,

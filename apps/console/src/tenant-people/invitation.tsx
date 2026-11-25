@@ -124,7 +124,7 @@ export function PeopleInvitation({
       const rejected = error instanceof CatalogApiError && [400, 409, 429].includes(error.status);
       if (mounted.current && rejected) remember(undefined);
       failed(error);
-      // ผลไม่ชัดเจน: ปิด dialog ให้แผงแสดงคำสั่งค้างและปุ่มตรวจสถานะเดิม
+      // uncertain result: close the dialog so the panel shows the pending command and the button to check the original status
       if (mounted.current && !rejected) setDialog(undefined);
     } finally {
       inFlight.current = false;

@@ -1,9 +1,9 @@
 import { defineConfig, devices } from '@playwright/test';
 const devTrialBrowser = process.env.C360_DEV_TRIAL_BROWSER;
 if (devTrialBrowser && !['chrome', 'edge'].includes(devTrialBrowser))
-  throw new Error('C360_DEV_TRIAL_BROWSER ต้องเป็น chrome หรือ edge');
+  throw new Error('C360_DEV_TRIAL_BROWSER must be chrome or edge');
 
-/** M1 sandbox: browser และ API/RLS จริง พร้อม synthetic identity; ไม่ใช่ actual OIDC */
+/** M1 sandbox: real browser and API/RLS with a synthetic identity; not an actual OIDC */
 export default defineConfig({
   testDir: './e2e',
   testMatch: ['customer-360-m1.spec.ts'],
@@ -26,7 +26,7 @@ export default defineConfig({
     timeout: 120_000,
     reuseExistingServer: false,
   },
-  // รัน process ใหม่ต่อ browser/รอบ เพื่อให้ webServer สร้าง fixtures ใหม่ทุกครั้ง
+  // start a new process per browser/round so the webServer builds fresh fixtures every time
   projects: devTrialBrowser
     ? [
         {

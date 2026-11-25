@@ -1,9 +1,9 @@
 /**
- * J5.6 (#344): template catalog, instantiate และ explicit upgrade (#330)
+ * J5.6 (#344): template catalog, instantiate and explicit upgrade (#330)
  *
- * - instantiate อ้าง template ด้วย id + version + content digest ที่เห็นอยู่ ถ้า server มีฉบับอื่นจะชน
- * - ค่า parameter อยู่แค่ใน form นี้และ request เท่านั้น ไม่ถูกเก็บลง storage ใด ๆ ของ browser
- * - upgrade เป็น proposal ที่ผู้ใช้ต้องเลือกวิธีแก้ทุก conflict เอง แล้วได้ draft revision ใหม่ ไม่ publish
+ * - instantiate references a template by id + version + the content digest being viewed; if the server has another version it conflicts
+ * - parameter values live only in this form and the request, and are never stored in any browser storage
+ * - an upgrade is a proposal where the user must choose how to resolve every conflict, and gets a new draft revision — it does not publish
  */
 import { useEffect, useId, useState } from 'react';
 import type {
@@ -93,7 +93,7 @@ export function TemplateCatalog({
   const [team, setTeam] = useState('');
   const [name, setName] = useState('');
   const { t } = useTranslation('journeys');
-  // เก็บ code แล้วแปลตอน render — สลับภาษาแล้วข้อความ error เปลี่ยนตาม
+  // keep the code and translate at render — switching language changes the error message accordingly
   const [error, setError] = useState<{ code?: string } | null>(null);
   const [intentKey, setIntentKey] = useState<string | null>(null);
 
@@ -130,7 +130,7 @@ export function TemplateCatalog({
       const value = parameterValue(parameter, values[parameter.parameterKey] ?? '');
       if (value !== undefined) bindings[parameter.parameterKey] = value;
     }
-    // key เดียวต่อหนึ่ง intent: กดซ้ำหลังเน็ตหลุดไม่สร้าง Journey ซ้ำ
+    // one key per intent: pressing again after a network drop does not create a duplicate Journey
     const key = intentKey ?? `instantiate-${crypto.randomUUID()}`;
     setIntentKey(key);
     setError(null);
@@ -254,7 +254,7 @@ export function TemplateUpgrade({
   const [error, setError] = useState<{ code?: string } | null>(null);
   const [applied, setApplied] = useState<number | null>(null);
   const notices = snapshot.templateNotices;
-  // หลัง apply สำเร็จ notice หายไป แต่ยังต้องประกาศผลให้ผู้ใช้เห็น
+  // after a successful apply the notice disappears, but the result must still be announced to the user
   if (notices.length === 0 && applied === null) return null;
   const update = notices.find((notice) => notice.kind === 'UPDATE_AVAILABLE');
   const { head } = snapshot;

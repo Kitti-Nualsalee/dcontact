@@ -1,7 +1,7 @@
 /* ============================================================
-   J5.6 Journey authoring — D1.14 (#453): token ล้วน (`var(--dc-*)` จาก @d-contact/ui)
-   ไม่ import governance.css อีกแล้ว — class ของหน้านี้ขึ้นต้นด้วย `j5-` ทั้งหมด
-   stylelint ตรวจว่าไม่มี hex/radius/spacing นอก token (pnpm lint:css)
+   J5.6 Journey authoring — D1.14 (#453): tokens only (`var(--dc-*)` from @d-contact/ui)
+   no longer imports governance.css — every class on this page starts with `j5-`
+   stylelint checks there is no hex/radius/spacing outside tokens (pnpm lint:css)
    ============================================================ */
 
 .j5-root {
@@ -34,7 +34,7 @@
   outline: none;
 }
 
-/* ── chrome เดิมตอนปิด flag ui.shell.v2 (ไม่มี AppShell) ── */
+/* ── original chrome when flag ui.shell.v2 is off (no AppShell) ── */
 .j5-legacy {
   min-height: 100vh;
   background: var(--dc-surface-page);
@@ -83,7 +83,7 @@
   outline: none;
 }
 
-/* ── ส่วนร่วม ── */
+/* ── shared parts ── */
 .j5-panel {
   padding: var(--dc-space-7);
   border: 1px solid var(--dc-border-subtle);
@@ -229,7 +229,7 @@
   gap: var(--dc-space-4);
 }
 
-/* ตัวกรองรายการแบบปุ่มคู่ (aria-pressed) */
+/* paired-button list filter (aria-pressed) */
 .j5-segmented {
   display: inline-flex;
   margin-bottom: var(--dc-space-5);
@@ -258,9 +258,9 @@
   box-shadow: var(--dc-focus-ring-inset);
 }
 
-/* forced-colors: outline มาจาก tokens.css — วาดด้านในเพราะ .j5-segmented ตัด overflow
-   ปุ่มที่เลือกอยู่บอกด้วยพื้น brand ซึ่งโหมดนี้ลบทิ้ง จึงใช้ Highlight ของระบบแทน
-   (ปิด forced-color-adjust ไม่งั้นแผ่น Canvas หลังข้อความบังข้อความ) และ outline ด้านในเป็น HighlightText */
+/* forced-colors: the outline comes from tokens.css — drawn inside because .j5-segmented clips overflow.
+   The selected button is indicated by a brand background, which this mode removes, so the system Highlight is used instead
+   (forced-color-adjust is not disabled, otherwise the Canvas plate behind the text hides it) and the inner outline is HighlightText */
 @media (forced-colors: active) {
   .j5-segmented button:focus-visible {
     outline-offset: -4px;
@@ -278,7 +278,7 @@
   }
 }
 
-/* ── U1.4 (#432): แผง UAT run — แยกจากเนื้อหา J5 ด้วยขอบสี attention ── */
+/* ── U1.4 (#432): UAT run panel — separated from the J5 content by an attention-colored border ── */
 .j5-uat {
   margin-bottom: var(--dc-space-6);
   border-color: var(--dc-attention-border);
@@ -323,7 +323,7 @@
   font-weight: var(--dc-weight-medium);
 }
 
-/* ── ฟอร์ม ── */
+/* ── forms ── */
 .j5-root :where(select, input:not([type='radio'], [type='checkbox']), textarea) {
   min-height: var(--dc-control-md);
   padding: var(--dc-space-3) var(--dc-space-4);
@@ -391,7 +391,7 @@
   min-height: var(--dc-control-md);
 }
 
-/* ── layout ของ editor ── */
+/* ── editor layout ── */
 .j5-workspace {
   display: grid;
   grid-template-columns: minmax(260px, 1fr) minmax(360px, 2fr) minmax(260px, 1fr);
@@ -544,9 +544,9 @@
   box-shadow: var(--dc-focus-ring);
 }
 
-/* forced-colors: โหนดที่เลือกบอกด้วยพื้นสีอย่างเดียว ซึ่งโหมดนี้บังคับเป็น Canvas
-   ใช้ขอบ Highlight หนาขึ้นแทน (ลด padding เท่ากันจึงไม่ขยับเนื้อหา) ไม่ปิด forced-color-adjust
-   เพราะในโหนดมีข้อความหลายสี (ชนิด, จำนวนปัญหา) ที่ต้องให้ระบบจัดสีให้ */
+/* forced-colors: a selected node is indicated by a background color only, which this mode forces to Canvas,
+   so a thicker Highlight border is used instead (padding reduced by the same amount so content does not shift); forced-color-adjust is not disabled
+   because the node holds multi-colored text (type, problem count) that the system must color */
 @media (forced-colors: active) {
   .j5-node[aria-pressed='true'] {
     padding: calc(var(--dc-space-4) - var(--dc-space-1)) calc(var(--dc-space-5) - var(--dc-space-1));
@@ -624,7 +624,7 @@
   font-size: var(--dc-text-sm);
 }
 
-/* ── dialog ของหน้า (focus trap/Esc เดิมของ J5) ── */
+/* ── page dialog (the original J5 focus trap/Esc) ── */
 .j5-modal {
   position: fixed;
   inset: 0;
@@ -672,7 +672,7 @@
   margin-top: var(--dc-space-7);
 }
 
-/* ต่ำกว่า 960px: อ่านอย่างเดียวและเรียงเป็นคอลัมน์เดียว ไม่มี horizontal scroll ของหน้า */
+/* below 960px: read-only and in a single column, with no horizontal scroll on the page */
 @media (max-width: 959.98px) {
   .j5-workspace {
     grid-template-columns: 1fr;

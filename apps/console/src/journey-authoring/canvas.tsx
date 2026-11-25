@@ -1,10 +1,10 @@
 /**
- * J5.6 (#344): visual projection ของ graph — ทุกอย่างที่ทำบน canvas ทำได้ด้วย keyboard และทุกคำสั่ง
- * ส่งเข้า reducer ตัวเดียวกับ outline
+ * J5.6 (#344): visual projection of the graph — everything done on the canvas can be done by keyboard, and every command
+ * goes into the same reducer as the outline
  *
- * - roving tabindex: Tab เข้า canvas ได้หนึ่งจุด ลูกศรขึ้น/ลงย้าย focus ตามลำดับเดียวกับ outline
- * - Enter/Space เลือก node เพื่อแก้ใน properties; Shift+ลูกศรขยับตำแหน่ง (visual-only); Delete ลบ
- * - ลากด้วย pointer ได้แต่ไม่จำเป็น — ตำแหน่งเป็น layout ล้วน compiler ไม่อ่าน
+ * - roving tabindex: Tab enters the canvas at one point; up/down arrows move focus in the same order as the outline
+ * - Enter/Space selects a node to edit in properties; Shift+arrows move the position (visual-only); Delete removes
+ * - dragging with a pointer is possible but not required — position is pure layout, the compiler does not read it
  */
 import { useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import type { AuthoringDocumentV1 } from '@d-contact/cxa-contracts';

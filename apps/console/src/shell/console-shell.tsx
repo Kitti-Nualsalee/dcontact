@@ -1,11 +1,11 @@
 /**
- * D1.13 (#452): shell ใหม่ของ Console หลัง flag `ui.shell.v2` ระดับ tenant
+ * D1.13 (#452): the new Console shell behind the tenant-level flag `ui.shell.v2`
  *
- * - flag มาจาก Navigation API (`features.shellV2`) และตัดสินครั้งเดียวต่อการโหลดหน้า
- *   ปิด flag = หน้าเดิมทุกประการในการโหลดครั้งถัดไป โดยไม่ต้อง deploy
- * - token (`@d-contact/ui/tokens.css`) โหลดแบบ dynamic เฉพาะเมื่อเปิด shell เพราะมีกฎ global ของ
- *   html/body — หน้าเดิมตอนปิด flag จึงไม่เปลี่ยนแม้แต่ฟอนต์
- * - เนื้อหาของหน้า (Journeys/Governance) ถูกครอบโดยไม่แตะ layout ภายใน — การย้ายหน้าจริงคือ D1.14
+ * - the flag comes from the Navigation API (`features.shellV2`) and is decided once per page load;
+ *   turning the flag off restores the old pages exactly on the next load, with no deploy
+ * - tokens (`@d-contact/ui/tokens.css`) are loaded dynamically only when the shell is on, because they hold global rules for
+ *   html/body — so the old page with the flag off does not change, not even the font
+ * - page content (Journeys/Governance) is wrapped without touching its inner layout — moving pages for real is D1.14
  */
 import type { ReactNode } from 'react';
 import { useLocale, useTranslation } from '@d-contact/i18n/react';
@@ -54,7 +54,7 @@ export type ConsoleShellApp =
   | 'journeys'
   | 'contact-governance'
   | 'dphone-embedding'
-  // AC5 (#598): หน้าบัญชี — ไม่อยู่ใน app registry จึงไม่มี app ใดถูกเลือกใน rail
+  // AC5 (#598): account page — not in the app registry, so no app is selected in the rail
   | 'account'
   | 'account-policy';
 
@@ -62,19 +62,19 @@ export function hostOrigins(): Partial<Record<HostApp, string>> {
   const env = import.meta.env as Record<string, string | undefined>;
   return {
     console: env.VITE_CONSOLE_URL ?? window.location.origin,
-    // production ต้องตั้ง VITE_WORKSPACE_URL — ไม่ตั้ง = แอปฝั่งนั้นไม่แสดงใน shell (ไม่เดาเป็น localhost)
+    // production must set VITE_WORKSPACE_URL — if unset, that app is not shown in the shell (no guessing localhost)
     workspace:
       env.VITE_WORKSPACE_URL ?? (import.meta.env.DEV ? 'http://localhost:5173' : undefined),
   };
 }
 
 /**
- * #651/#758: เมนูย่อยแสดงกลุ่มของพื้นที่ตามลำดับที่ server ส่ง; หมุดอยู่เฉพาะ Home
- * ไอคอนของรายการ = id ของแอป (ShellIcon ใช้ไอคอน fallback เมื่อไม่รู้จัก)
+ * #651/#758: the submenu shows the area groups in the order the server sends; pins exist only on Home.
+ * The item icon = the app id (ShellIcon uses a fallback icon when the id is unknown)
  */
 export function areaSections(
   area: ShellArea,
-  /** #658: เลือกหน้าย่อยของแอปที่กำลังเปิดโดยไม่โหลดหน้าใหม่ */
+  /** #658: choose a sub-page of the open app without reloading the page */
   page?: { appId: string; onSelect: (pageId: string) => void },
 ) {
   const item = (app: {
@@ -84,7 +84,7 @@ export function areaSections(
     href: string;
     external: boolean;
   }) => ({
-    // หน้าย่อยใช้ id เฉพาะ (`<appId>:<pageId>`) ให้ไฮไลต์ทีละหน้า; ไอคอนยังเป็นของแอป
+    // sub-pages use a dedicated id (`<appId>:<pageId>`) so one page is highlighted at a time; the icon stays the app's
     id: app.pageId ? subNavItemId(app.id, app.pageId) : app.id,
     label: app.label,
     href: app.href,
@@ -101,7 +101,7 @@ export function areaSections(
   }));
 }
 
-/** id ของรายการหน้าย่อยในเมนูย่อย — ใช้เป็น `currentItemId` */
+/** id of a sub-page item in the submenu — used as `currentItemId` */
 export function subNavItemId(appId: string, pageId: string) {
   return `${appId}:${pageId}`;
 }
@@ -127,15 +127,15 @@ export interface ConsoleShellProps {
   accessToken: () => string | undefined;
   tenantAlias?: string;
   appId: ConsoleShellApp;
-  /** #588: เมนูผู้ใช้บนแถบบน (ชื่อ, organization, บทบาท และออกจากระบบ) */
+  /** #588: user menu on the top bar (name, organization, role and sign out) */
   account?: { user: ShellUser; onSignOut: () => Promise<void> };
   /**
-   * #658: หน้าย่อยที่เปิดอยู่ของแอป (เมื่อ server ส่ง `pages`) และตัวเปลี่ยนหน้าแบบไม่โหลดใหม่ —
-   * เนื้อหาหน้าเป็นเจ้าของสถานะหน้า shell แค่วาดเมนู
+   * #658: the open sub-page of the app (when the server sends `pages`) and the page switcher without reloading —
+   * the page content owns page state; the shell only draws the menu
    */
   pageId?: string;
   onPageSelect?: (pageId: string) => void;
-  /** Home ใช้ render function เพื่ออ่าน Navigation API request เดียวกับ shell รวม legacy fallback */
+  /** Home uses a render function to read the same Navigation API request as the shell, including the legacy fallback */
   children: ReactNode | ((navigation: ShellNavigationState) => ReactNode);
 }
 
@@ -184,13 +184,13 @@ export function ConsoleShell({
     if (tenantAlias) url.searchParams.set('tenant', tenantAlias);
     return `${url.pathname}${url.search}`;
   };
-  // #588: redirect ไปออกจากระบบไม่สำเร็จ (เช่น โหลด metadata ไม่ได้) ต้องแจ้งผู้ใช้ ไม่เงียบหาย
+  // #588: a failed sign-out redirect (e.g. metadata could not load) must be shown to the user, not silently swallowed
   const userMenu = ({
     user,
     onSignOut,
   }: NonNullable<ConsoleShellProps['account']>): UserMenuProps => ({
     user,
-    // AC5 (#598): หน้าบัญชีของ Console เปิดในแท็บเดิม
+    // AC5 (#598): the Console account page opens in the same tab
     accountLink: { href: withTenant('/?view=account') },
     onSignOut: () =>
       onSignOut().catch(() => {
@@ -218,7 +218,7 @@ export function ConsoleShell({
     return label ? [{ ...app, label }] : [];
   });
   const liveLinks = <TopBarLinks apps={liveApps} label={t('shell.liveSystems')} />;
-  // Home ยังเปิดได้เมื่อปิด shell; ไม่แสดง rail จนกว่าจะเปิด flag ตาม rollout เดิม
+  // Home can still open when the shell is off; the rail is not shown until the flag is on, per the original rollout
   if (nav.status === 'legacy')
     return (
       <div className="home-shell">
@@ -241,7 +241,7 @@ export function ConsoleShell({
         : homeText(`names.${app.id}`, { defaultValue: app.label }),
     icon: app.id === 'dphone-embedding' ? 'area-integrations' : app.id,
   });
-  // Home มีลิงก์ถาวรแล้ว; หมุดใช้เฉพาะแอปที่ server อนุญาตและคงลำดับของผู้ใช้
+  // Home now has a permanent link; pins are used only for apps the server allows and keep the user's order
   const homePins = nav.pinnedIds.flatMap((id) => {
     const app = homeApps.find((candidate) => candidate.id === id);
     return app ? [homeItem(app)] : [];
@@ -281,7 +281,7 @@ export function ConsoleShell({
   const isAdmin = account?.user.roles.includes('admin') ?? false;
   const accountPage = appId === 'account' || appId === 'account-policy';
   const area = accountPage ? undefined : nav.areas.find((a) => a.id === areaOf(nav.areas, appId));
-  // #658: เมนูย่อยมีหน้าย่อยของแอปนี้ → เนื้อหาไม่ต้องวาดแท็บเอง
+  // #658: the submenu has sub-pages for this app → the content does not need to draw its own tabs
   const hasPages =
     area?.sections.some((section) =>
       section.items.some((entry) => entry.id === appId && entry.pageId !== undefined),
@@ -310,7 +310,7 @@ export function ConsoleShell({
                 href: withTenant('/?view=account'),
                 icon: 'settings',
               },
-              // role ใช้แค่ซ่อนลิงก์ — API ตรวจ admin ทุก request
+              // the role only hides the link — the API checks admin on every request
               ...(isAdmin
                 ? [
                     {
@@ -326,7 +326,7 @@ export function ConsoleShell({
         ]}
       />
     ) : area ? (
-      // #651: เมนูย่อยคำนวณจากพื้นที่ที่ server ส่งมา — เพิ่มหน้าใหม่ไม่ต้องแก้ไฟล์นี้
+      // #651: the submenu is computed from the areas the server sends — adding a new page does not require editing this file
       <SubNav
         title={area.label}
         currentItemId={hasPages && pageId ? subNavItemId(appId, pageId) : appId}
@@ -336,7 +336,7 @@ export function ConsoleShell({
         )}
       />
     ) : (
-      // API รุ่นเก่าที่ยังไม่ส่ง `areas` (rollback ของ API ภายใต้ Console ใหม่): เมนูย่อยรายการเดียวของแอปนี้
+      // older API that does not send `areas` yet (API rollback under the new Console): a single submenu item for this app
       legacySubNav(nav.apps.find((app) => app.id === appId))
     );
 
@@ -410,7 +410,7 @@ export function ConsoleShell({
                                           t('navigation.apps.contactGovernance'),
                                           ...(pageLabel ? [pageLabel] : []),
                                         ]
-                                      : // หน้าอื่นตามเมนู: พื้นที่ / แอป (เช่น คุณภาพ / ประเมินคุณภาพสายของทีม)
+                                      : // other pages follow the menu: area / app (e.g. Quality / Team call evaluation)
                                         [
                                           ...(area ? [area.label] : []),
                                           nav.apps.find((app) => app.id === appId)?.label ?? '',

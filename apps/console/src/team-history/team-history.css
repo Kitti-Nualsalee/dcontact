@@ -1,4 +1,4 @@
-/* #986 ประวัติของทีม — ใช้ส่วนสรุปและรายการเดียวกับ agent-history.css เพิ่มเฉพาะตัวเลือกทีมและหมายเหตุ */
+/* #986 team history — uses the same summary and list sections as agent-history.css, adding only the team selector and notes */
 .th-note {
   color: var(--dc-text-secondary);
   font-size: var(--dc-text-sm);

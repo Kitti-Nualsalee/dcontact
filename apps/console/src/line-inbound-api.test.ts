@@ -14,7 +14,7 @@ function fakeFetch(respond: (url: string) => Response) {
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
-test('#566 availability: 404 = ไม่มี overlay, 403 = ไม่มีสิทธิ์, 204 = ใช้ได้; ใช้ /access ที่ไม่อ่านข้อความ', async () => {
+test('#566 availability: 404 = no overlay, 403 = no permission, 204 = available; uses /access which does not read messages', async () => {
   const cases: Array<[number, string]> = [
     [404, 'UNAVAILABLE'],
     [403, 'FORBIDDEN'],
@@ -44,7 +44,7 @@ test('#566 availability: 404 = ไม่มี overlay, 403 = ไม่มีส
   );
 });
 
-test('#566 list: ส่ง cursor ต่อหน้า และ error คง status ไว้ให้หน้าแสดงผลถูก', async () => {
+test('#566 list: sends a cursor per page, and an error keeps its status so the page shows it correctly', async () => {
   const page = { items: [], quarantined: 2, nextCursor: 'next' };
   const fake = fakeFetch(() => json(200, page));
   const api = createLineInboundApi({ baseUrl: '', accessToken: () => 't', fetch: fake.fetch });
@@ -58,7 +58,7 @@ test('#566 list: ส่ง cursor ต่อหน้า และ error คง s
   );
 });
 
-test('#567 trialStatus: 404 = ไม่ได้เปิด trial (null), 200 = สถานะ', async () => {
+test('#567 trialStatus: 404 = trial not enabled (null), 200 = status', async () => {
   const off = fakeFetch(() => json(404, {}));
   assert.equal(
     await createLineInboundApi({
@@ -89,7 +89,7 @@ test('#567 trialStatus: 404 = ไม่ได้เปิด trial (null), 200 =
   );
 });
 
-test('#567 reply: ส่ง text + idempotencyKey แบบ POST และแปลง code ทั้งรูปตรงและรูปที่ Nest ห่อ', async () => {
+test('#567 reply: sends text + idempotencyKey as POST and maps the code in both the direct form and the Nest-wrapped form', async () => {
   const sent = fakeFetch(() => json(200, { status: 'SENT', deliveryId: 'dlv_1' }));
   const api = createLineInboundApi({ baseUrl: '', accessToken: () => 't', fetch: sent.fetch });
   assert.deepEqual(await api.reply('id-1', 'hi', 'reply-key-1'), {
@@ -127,7 +127,7 @@ test('#567 reply: ส่ง text + idempotencyKey แบบ POST และแป
   );
 });
 
-test('#567 kill: POST และ error คง status', async () => {
+test('#567 kill: POST, and an error keeps its status', async () => {
   const ok = fakeFetch(() => json(200, { killed: true }));
   await createLineInboundApi({ baseUrl: '', accessToken: () => 't', fetch: ok.fetch }).kill();
   assert.equal(ok.calls[0]?.url, '/api/v1/line-pilot/kill');

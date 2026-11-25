@@ -1,6 +1,6 @@
 /**
- * J5.6 (#344): error summary จาก server — แต่ละรายการลิงก์กลับไปที่ node/field ที่เกี่ยวข้อง
- * และจำนวนปัญหาประกาศผ่าน live region (ไม่ใช้ toast เป็นตัวบอก blocker)
+ * J5.6 (#344): error summary from the server — each item links back to the related node/field
+ * and the problem count is announced through a live region (a toast is not used to report a blocker)
  */
 import type { AuthoringDocumentV1, JourneyDiagnosticV1 } from '@d-contact/cxa-contracts';
 import { useTranslation } from '@d-contact/i18n/react';
@@ -32,7 +32,7 @@ export function Diagnostics({
 }: {
   document: AuthoringDocumentV1;
   diagnostics: readonly JourneyDiagnosticV1[];
-  /** ยังไม่เคยตรวจกับ server — ไม่แสดงว่า "ไม่มีปัญหา" แบบเข้าใจผิด */
+  /** never checked with the server — does not misleadingly show "no problems" */
   checked: boolean;
   onFocusNode: (nodeId: string) => void;
 }) {

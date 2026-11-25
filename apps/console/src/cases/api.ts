@@ -1,6 +1,6 @@
 /**
- * #956 — client ของ API เคสของ Agent (`/api/v1/workspace/agent/cases`)
- * ใช้ token และ base URL ชุดเดียวกับ agent-history
+ * #956 — client of the Agent cases API (`/api/v1/workspace/agent/cases`)
+ * uses the same token and base URL as agent-history
  */
 export type CaseStatus = 'OPEN' | 'RESOLVED' | 'CLOSED';
 export type CaseActivityKind =
@@ -11,8 +11,8 @@ export interface CaseSummary {
   subject: string;
   contactId: string;
   /**
-   * ชื่อลูกค้าจาก Customer 360 ตามสิทธิ์ WORK ของผู้ดู
-   * `undefined` ไม่มีข้อมูลลูกค้า (ถูกซ่อน/merge/หมดสิทธิ์), `null` มีลูกค้าแต่ไม่ระบุชื่อ
+   * customer name from Customer 360 per the viewer's WORK permission
+   * `undefined` no customer data (hidden/merged/no permission), `null` a customer exists but has no name
    */
   contactDisplayName?: string | null;
   status: CaseStatus;
@@ -29,7 +29,7 @@ export interface CaseActivity {
   occurredAt: string;
   actorUserId: string | null;
   interactionId: string | null;
-  /** เฉพาะ LINKED: งานเป็นของผู้ดูเอง จึงแสดงลิงก์ "เปิดในประวัติงาน" ได้ */
+  /** LINKED only: the work belongs to the viewer, so an "open in work history" link can be shown */
   interactionMine: boolean;
   interactionChannel: string | null;
   interactionDirection: 'INBOUND' | 'OUTBOUND' | null;
@@ -41,7 +41,7 @@ export interface CaseActivity {
 
 export interface CaseDetail extends CaseSummary {
   teamId: string;
-  /** false เมื่อผู้รับผิดชอบย้ายทีมหรือถูกปิดบัญชี */
+  /** false when the owner moved teams or was deactivated */
   assigneeInTeam: boolean;
   reopenCount: number;
   createdByUserId: string;
@@ -51,7 +51,7 @@ export interface CaseDetail extends CaseSummary {
   activities: CaseActivity[];
 }
 
-/** ชื่อของผู้ใช้ที่ปรากฏในรายการหรือไทม์ไลน์ รวมคนที่ออกจากทีมไปแล้ว */
+/** name of a user who appears in the list or timeline, including people who have left the team */
 export type CasePeople = Record<string, string>;
 
 export interface CaseCustomer {
@@ -70,7 +70,7 @@ export interface CaseDetailResponse {
   case: CaseDetail;
   people: CasePeople;
   teamName: string;
-  /** null เมื่อโหลดลูกค้าไม่ได้หรือไม่มีสิทธิ์ ไทม์ไลน์และ action ยังใช้ได้ */
+  /** null when the customer could not load or there is no permission; the timeline and actions still work */
   customer: CaseCustomer | null;
 }
 
@@ -108,7 +108,7 @@ export class CaseApiError extends Error {
     super(`Case request failed (${status}${code ? ` ${code}` : ''})`);
   }
 
-  /** มีคนแก้เคสก่อน หรือเคสถูกปิดไปแล้ว ต้องโหลดใหม่ก่อนทำต่อ */
+  /** someone edited the case first, or the case is already closed; reload before continuing */
   get stale(): boolean {
     return this.code === 'VERSION_CONFLICT' || this.code === 'CASE_CLOSED';
   }
@@ -129,8 +129,8 @@ export interface CasesApi {
   detail(caseId: string): Promise<CaseDetailResponse>;
   teamAgents(): Promise<TeamAgent[]>;
   /**
-   * คำสั่งเขียนรับ commandId จากผู้เรียก เพื่อให้กดส่งซ้ำหลังเครือข่ายล้มใช้ id เดิม
-   * แล้ว server ตอบผลเดิมแทนการสร้างโน้ตหรือ activity ซ้ำ
+   * write commands take a commandId from the caller, so pressing send again after a network failure uses the same id
+   * and the server answers with the original result instead of creating a duplicate note or activity
    */
   addNote(command: CaseCommand, note: string): Promise<CaseRef>;
   assign(command: CaseCommand, assigneeUserId: string): Promise<CaseRef>;

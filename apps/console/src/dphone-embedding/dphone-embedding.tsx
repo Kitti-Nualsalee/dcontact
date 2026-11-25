@@ -1,10 +1,10 @@
 /**
- * E1.11 (#485): Integrations › dphone embedding (E1.5 #461 ข้อ 4)
+ * E1.11 (#485): Integrations › dphone embedding (E1.5 #461 item 4)
  *
- * - `ADMIN` เพิ่ม/เปลี่ยนชื่อ/ปิด/เปิด/ลบ origin; `SUPERVISOR` ดูได้อย่างเดียว
- * - ไม่มี entitlement `modules.api.cti` = หน้าล็อกพร้อมข้อความเรื่อง plan
- * - ตรวจรูปแบบ origin ทันทีที่กรอก (กติกาเดียวกับ API) และยืนยันก่อนปิด/ลบพร้อมจำนวน session ที่ฝังอยู่
- * - สิทธิ์จริงอยู่ที่ API ทุก request — role ที่นี่ใช้แค่ซ่อนปุ่ม
+ * - `ADMIN` adds/renames/disables/enables/deletes an origin; `SUPERVISOR` is view-only
+ * - no entitlement `modules.api.cti` = the page is locked with a message about the plan
+ * - the origin format is checked as soon as it is typed (same rules as the API), and closing/deleting is confirmed first with the number of embedded sessions
+ * - real permission is at the API on every request — the role here only hides buttons
  */
 import { useCallback, useEffect, useId, useState } from 'react';
 import { useTranslation } from '@d-contact/i18n/react';
@@ -45,7 +45,7 @@ export function DphoneEmbedding({
   tenantAlias: string;
   embedBaseUrl: string;
   dev: boolean;
-  /** E1.15: คู่มือ host (`docs/dphone-embed/`) */
+  /** E1.15: host guide (`docs/dphone-embed/`) */
   docsUrl?: string;
   teamScopes?: TeamScopeApi;
 }) {
@@ -63,13 +63,13 @@ export function DphoneEmbedding({
   const [confirmReason, setConfirmReason] = useState('');
   const [renaming, setRenaming] = useState<{ id: string; label: string } | null>(null);
   const [copied, setCopied] = useState(false);
-  // E1.14: เปลี่ยนระดับ screen-pop ต้องยืนยันพร้อมเหตุผล (audit ที่ API)
+  // E1.14: changing the screen-pop level must be confirmed with a reason (audited at the API)
   const [screenPop, setScreenPop] = useState<{
     origin: EmbedOrigin;
     level: ScreenPopLevel;
     reason: string;
   } | null>(null);
-  // หน้าใหม่ใช้ token ของ D1 ทั้งเมื่อเปิดและปิด shell (แบบเดียวกับ Journeys)
+  // the new page uses D1 tokens whether the shell is on or off (same as Journeys)
   const tokensReady = useShellTokens();
 
   const reload = useCallback(async () => {

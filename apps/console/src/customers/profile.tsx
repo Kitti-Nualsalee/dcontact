@@ -48,10 +48,10 @@ const isAbort = (failure: unknown) =>
   failure instanceof DOMException && failure.name === 'AbortError';
 
 /**
- * โปรไฟล์เต็มหน้า (Console A) — อ่านอย่างเดียว ไม่มี control เขียนใด ๆ
- * - core profile โหลดก่อน; timeline/governance เป็น section แยก (ล้มแยกกัน และไม่โหลดถ้า core ล้ม)
- * - core ล้มด้วย session/สิทธิ์/scope = ปิดข้อมูลลูกค้าทั้งหน้าทันที ไม่ค้างข้อมูลเสริมจากสิทธิ์เก่า
- * - กลับมาที่แท็บแล้วตรวจสิทธิ์ใหม่แบบเงียบ ๆ; ถ้าไม่ผ่านจะปิดข้อมูลทันที
+ * Full-page profile (Console A) — read-only, with no write control at all
+ * - core profile loads first; timeline/governance are separate sections (failing independently, and not loaded if core fails)
+ * - core failing on session/permission/scope = close the whole page's customer data immediately, leaving no extra data from old permissions
+ * - on returning to the tab, permission is re-checked silently; if it fails the data is closed immediately
  */
 export function CustomerProfileView({
   api,
@@ -79,8 +79,8 @@ export function CustomerProfileView({
 
   const format = useCallback((value: string) => serverTime(formatters, value), [formatters]);
 
-  // ปิดข้อมูลลูกค้าทั้งหน้า (core + section) เมื่อ section ได้ session/สิทธิ์/scope เปลี่ยน — เหมือนตอนโหลด core
-  // generation + AbortController กัน response ของ core ที่ยิงค้างก่อนสิทธิ์ถูกถอน (200 มาทีหลัง) เปิด PII กลับ
+  // close the whole page's customer data (core + sections) when a section gets a changed session/permission/scope — same as when loading core
+  // generation + AbortController guard against a core response fired before permission was revoked (a 200 arriving late) reopening PII
   const generation = useRef(0);
   const coreAbort = useRef<AbortController | null>(null);
   const closeAll = useCallback((kind: ErrorKind) => {
@@ -99,18 +99,18 @@ export function CustomerProfileView({
   const focusedCore = useRef(false);
   const pendingFocus = useRef<'timeline' | 'governance' | null>(null);
 
-  // เปิดโปรไฟล์แล้ว focus ชื่อลูกค้า (ผู้ใช้คีย์บอร์ด/screen reader ไม่หลุดอยู่ที่ปุ่มที่หายไป)
+  // after opening the profile, focus the customer name (keyboard/screen reader users are not left on a button that disappeared)
   useEffect(() => {
     if (core.state === 'ready' && !focusedCore.current) {
       focusedCore.current = true;
       nameRef.current?.focus();
     }
   }, [core.state]);
-  // ปิด PII (session/สิทธิ์/scope) แล้วย้าย focus ไปที่ข้อความของ state ใหม่ ไม่ปล่อยให้หลุดไป BODY
+  // after closing PII (session/permission/scope), move focus to the text of the new state instead of letting it fall to BODY
   useEffect(() => {
     if (core.state === 'error') alertRef.current?.focus();
   }, [core.state]);
-  // retry/โหลดเพิ่มของ section สำเร็จแล้วย้าย focus มาที่หัว section นั้น
+  // after a section retry/load-more succeeds, move focus to that section's heading
   useEffect(() => {
     if (pendingFocus.current === 'timeline' && timeline.state === 'ready') {
       pendingFocus.current = null;
@@ -144,14 +144,14 @@ export function CustomerProfileView({
       .catch((failure: unknown) => {
         if (isAbort(failure) || myGeneration !== generation.current) return;
         const kind = errorKind(failure);
-        // revalidate เงียบแล้วล้มชั่วคราว (network/5xx): คงที่แสดงอยู่ได้ แต่ถ้าสิทธิ์หาย/scope ไม่พร้อมต้องปิดทันที
+        // a silent revalidate failed temporarily (network/5xx): the displayed data may stay, but if permission is lost/scope not ready it must close immediately
         if (wasSilent && !closesCustomerData(kind) && coreRef.current.state === 'ready') return;
         closeAll(kind);
       });
     return () => controller.abort();
   }, [api, contactId, revision, closeAll]);
 
-  // กลับมาที่แท็บ → ตรวจสิทธิ์ใหม่ (ข้อมูลที่แสดงมาจากสิทธิ์ ณ ตอนก่อนหน้า)
+  // returning to the tab → re-check permission (the displayed data came from the permission at an earlier time)
   useEffect(() => {
     const onVisible = () => {
       if (document.visibilityState === 'visible' && coreRef.current.state === 'ready') {
@@ -165,7 +165,7 @@ export function CustomerProfileView({
 
   const readyStamp = core.state === 'ready' ? core.stamp : 0;
 
-  // timeline (section แยก)
+  // timeline (separate section)
   useEffect(() => {
     if (core.state !== 'ready' || !contactId) return;
     const controller = new AbortController();
@@ -193,7 +193,7 @@ export function CustomerProfileView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [api, contactId, readyStamp, sectionRevision, closeAll]);
 
-  // governance (section แยก)
+  // governance (separate section)
   useEffect(() => {
     if (core.state !== 'ready' || !contactId) return;
     const controller = new AbortController();

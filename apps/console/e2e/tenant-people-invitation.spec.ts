@@ -18,7 +18,9 @@ for (const scenario of [
   'supervisor',
   'intent',
 ]) {
-  test(`คำเชิญ ${scenario}: แยกสามสถานะและไม่ blind retry`, async ({ page }) => {
+  test(`invitation ${scenario}: three states are separated and no blind retry`, async ({
+    page,
+  }) => {
     const user = {
       id: userId,
       displayName: 'ผู้ใช้คำเชิญ',

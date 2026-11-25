@@ -14,8 +14,8 @@ import {
   unanswered,
 } from './quality/model.js';
 
-test('#971 เพิ่มหมวดและคำถามได้ id ที่ไม่ซ้ำแม้ลบแล้วเพิ่มใหม่', () => {
-  let form = addSection(emptyDefinition(), 'หมวด 1');
+test('#971 adding a category and a question gives a non-duplicate id even after delete then add again', () => {
+  let form = addSection(emptyDefinition(), 'Category 1');
   form = addQuestion(form, 0, 'YES_NO');
   form = addQuestion(form, 0, 'SCALE');
   assert.deepEqual(
@@ -31,15 +31,15 @@ test('#971 เพิ่มหมวดและคำถามได้ id ท�
     form.sections[0]!.questions.map((q) => q.id),
     ['q2', 'q1'],
   );
-  form = addSection(form, 'หมวด 2');
+  form = addSection(form, 'Category 2');
   assert.equal(form.sections[1]!.id, 's2');
 });
 
-test('#971 เปลี่ยนชนิดคำถามคงข้อความและคะแนน ตัด field ที่ไม่ใช้', () => {
+test('#971 changing the question type keeps the text and score and drops unused fields', () => {
   const scored = {
     id: 'q1',
     type: 'YES_NO' as const,
-    text: 'ทักทาย',
+    text: 'Greeting',
     points: 7,
     autoFail: true,
     allowNa: true,
@@ -47,15 +47,15 @@ test('#971 เปลี่ยนชนิดคำถามคงข้อคว
   assert.deepEqual(retype(scored, 'SCALE'), {
     id: 'q1',
     type: 'SCALE',
-    text: 'ทักทาย',
+    text: 'Greeting',
     points: 7,
     scale: [1, 5],
     allowNa: true,
   });
-  assert.deepEqual(retype(scored, 'TEXT'), { id: 'q1', type: 'TEXT', text: 'ทักทาย' });
+  assert.deepEqual(retype(scored, 'TEXT'), { id: 'q1', type: 'TEXT', text: 'Greeting' });
 });
 
-test('#971 คำตอบ: ข้อที่ยังไม่ตอบ ลบคำตอบ และไม่ส่งข้อความว่าง', () => {
+test('#971 answers: an unanswered item, a removed answer, and no empty text sent', () => {
   let form = addSection(emptyDefinition(), 'S');
   form = addQuestion(form, 0, 'YES_NO');
   form = addQuestion(form, 0, 'TEXT');
@@ -71,7 +71,7 @@ test('#971 คำตอบ: ข้อที่ยังไม่ตอบ ลบ
   );
 });
 
-test('#971 แสดงคะแนนตาม locale และช่วงของสเกล', () => {
+test('#971 show the score per locale and the range of the scale', () => {
   assert.equal(formatScore(83.333, 'th-TH'), '83.33');
   assert.equal(formatScore(null, 'th-TH'), '—');
   assert.deepEqual(scaleValues({ id: 'q', type: 'SCALE', text: '', scale: [0, 3] }), [0, 1, 2, 3]);

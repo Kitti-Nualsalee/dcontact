@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createCg5ConsoleApi } from './cg5-console-api.js';
 
-test('CG5 Console client เรียกเฉพาะ contract routes และไม่ส่ง tenant/actor', async () => {
+test('CG5 Console client calls only contract routes and does not send tenant/actor', async () => {
   const requests: Array<{ url: string; init?: RequestInit }> = [];
   const api = createCg5ConsoleApi({
     baseUrl: 'https://api.example/',

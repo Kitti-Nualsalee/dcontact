@@ -24,7 +24,7 @@ export interface ImportResult {
   rows: ImportRowResult[];
 }
 
-/** ไฟล์และผลอยู่ในหน่วยความจำของหน้าเท่านั้น; client นี้ไม่เก็บอะไรลง storage หรือ URL */
+/** the file and result live only in the page's memory; this client stores nothing in storage or the URL */
 export function createCustomerImportApi(options: {
   baseUrl: string;
   accessToken(): string | undefined;
@@ -61,7 +61,7 @@ export function createCustomerImportApi(options: {
       try {
         body = (await response.json()) as typeof body;
       } catch {
-        /* proxy อาจไม่ส่ง JSON */
+        /* the proxy may not send JSON */
       }
       const retryAfter = Number(response.headers.get('retry-after'));
       throw new CustomersApiError(

@@ -46,10 +46,10 @@ type Props = {
   shell: Omit<ConsoleShellProps, 'appId' | 'children'>;
 };
 
-/** รายชื่อทีมไม่เกิน 10 หน้า (500 ทีม) — เกินนั้นแถวที่ไม่รู้จักแสดงรหัสทีมแทน */
+/** the team list is at most 10 pages (500 teams) — beyond that unknown rows show the team id instead */
 const TEAM_PAGES = 10;
 
-/** #915: Admin ให้/ถอนสิทธิ์ WORK และ VIEW ของทีมบน segment ระบบของ #911 */
+/** #915: Admin grants/revokes WORK and VIEW of a team on the system segments of #911 */
 export function CustomerAccessPage(props: Props) {
   return (
     <ConsoleShell {...props.shell} appId="customer-access">
@@ -132,10 +132,10 @@ function AccessSession({ scopes, teams, signedIn = true, onSignIn, teamsHref }: 
     Object.hasOwn(SEGMENT_LABEL_KEYS, id)
       ? t(SEGMENT_LABEL_KEYS[id as keyof typeof SEGMENT_LABEL_KEYS])
       : id;
-  // รายชื่อทีมโหลดไม่สำเร็จ ≠ ทีมไม่มีอยู่ — อย่าติดป้าย "ไม่พบ" ให้ทุกแถว
+  // the team list failing to load ≠ the team does not exist — do not label every row "not found"
   const teamLabel = (row: AccessRow) =>
     row.teamName ?? t(teamsError ? 'teamUnresolved' : 'unknownTeam');
-  // ถอนสิทธิ์หนึ่งแบบไม่กระทบอีกแบบบน team+segment เดียวกัน — บอก Admin ให้ชัด
+  // revoking one kind does not affect the other kind on the same team+segment — tell the Admin clearly
   const keptPermission = revoking ? remainingPermission(rows, revoking) : undefined;
 
   async function grant() {
