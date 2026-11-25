@@ -43,5 +43,6 @@ Lead ทำงานเองเป็นค่าเริ่มต้น แ�
 
 โค้ดเป็นภาษาอังกฤษทั้งหมด (owner ตัดสิน 25 พฤศจิกายน 2569): comment ในโค้ด, ชื่อ test, ข้อความ error/log,
 script, config และ CI ข้อความที่ผู้ใช้เห็นอยู่ใน i18n catalog (`locales/`, `messages_*.properties`) เท่านั้น
-ยกเว้น migration ที่รันแล้ว และข้อมูล seed/CSV `pnpm lint:thai` ใน CI กันภาษาไทยใหม่ในโค้ด
+ยกเว้น migration ที่รันแล้ว, ข้อมูล seed/CSV และบรรทัดที่ลงท้ายด้วย comment `allow-thai: <เหตุผล>` (ข้อมูลทดสอบภาษาไทยโดยตั้งใจ)
+`pnpm lint:thai` ใน CI กันภาษาไทยใหม่ในโค้ด
 ภาษาไทยเดิมทยอยแปลตาม baseline ใน `scripts/no-thai-baseline.json` — แก้ไฟล์ที่มีภาษาไทยแล้วให้รัน `pnpm lint:thai --update`

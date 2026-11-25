@@ -30,6 +30,16 @@ test('counts lines that contain Thai characters', () => {
   assert.equal(countThaiLines('English only\n'), 0);
 });
 
+test('lines marked allow-thai are not counted', () => {
+  const thai = '\u0E2A\u0E21';
+  const text = [
+    `const name = '${thai}'; // allow-thai: Thai name fixture`,
+    `const other = '${thai}';`,
+    `-- ${thai} allow-thai (the marker must follow a comment token)`,
+  ].join('\n');
+  assert.equal(countThaiLines(text), 2);
+});
+
 test('fails files above the baseline and new files with Thai', () => {
   const increases = findIncreases({ 'a.ts': 3, 'b.ts': 2, 'c.ts': 1 }, { 'a.ts': 3, 'b.ts': 1 });
   assert.deepEqual(increases, [

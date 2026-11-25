@@ -8,6 +8,7 @@
  * - Markdown, `docs/` and `mockups/`
  * - Prisma migrations that were already applied (editing them breaks `prisma migrate dev`)
  * - seed and CSV data
+ * - single lines marked with an `allow-thai` comment (Thai test data on purpose)
  *
  * Existing Thai is tracked in `scripts/no-thai-baseline.json` (lines with Thai per file) while it is
  * being translated. A file fails when it has more Thai lines than its baseline; new files must have none.
@@ -43,9 +44,15 @@ export function isInScope(path) {
   return !BINARY.test(path) && !EXEMPT.some((pattern) => pattern.test(path));
 }
 
+/**
+ * A line that ends with an `allow-thai` comment is Thai on purpose, e.g. test data for Thai
+ * normalization, sorting or search. The comment says why: `// allow-thai: Thai name fixture`.
+ */
+const ALLOW = /(\/\/|#|--|\/\*)\s*allow-thai\b/;
+
 export function countThaiLines(text) {
   let count = 0;
-  for (const line of text.split('\n')) if (THAI.test(line)) count += 1;
+  for (const line of text.split('\n')) if (THAI.test(line) && !ALLOW.test(line)) count += 1;
   return count;
 }
 
