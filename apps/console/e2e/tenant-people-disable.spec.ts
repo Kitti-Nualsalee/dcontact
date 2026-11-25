@@ -13,6 +13,8 @@ for (const scenario of [
   'not-ready',
   'readiness-race',
   'poll',
+  'forbidden',
+  'not-recorded',
 ]) {
   test(`ปิดบัญชี ${scenario}: ยืนยันก่อนส่งและไม่ retry เมื่อผลไม่ชัดเจน`, async ({ page }) => {
     if (scenario === 'poll') await page.clock.install();
@@ -71,6 +73,10 @@ for (const scenario of [
         commandId = body.commandId;
         if (scenario === 'readiness-race' && posts === 1)
           return route.fulfill({ status: 503, json: { code: 'CAPABILITY_NOT_READY' } });
+        if (scenario === 'forbidden')
+          return route.fulfill({ status: 403, json: { code: 'FORBIDDEN' } });
+        // response หายก่อน server บันทึกคำสั่ง: ไม่รู้ผลจนกว่าจะตรวจคำสั่งเดิม
+        if (scenario === 'not-recorded') return route.abort('failed');
         if (scenario === 'last-admin' || scenario === 'busy')
           return route.fulfill({
             status: 409,
@@ -85,7 +91,8 @@ for (const scenario of [
           json: { operationId, userId, status: 'ACCEPTED', accountState: 'DISABLING' },
         });
       }
-      if (path === `commands/${commandId}`)
+      // CONFIG_BUSY/คำสั่งที่ไม่ได้บันทึก: server ไม่มีคำสั่งนี้
+      if (path === `commands/${commandId}` && !['busy', 'not-recorded'].includes(scenario))
         return route.fulfill({ json: { result: { operationId, userId } } });
       if (path === `operations/${operationId}`) {
         checks++;
@@ -134,6 +141,37 @@ for (const scenario of [
       await expect(panel.getByRole('alert')).toContainText('ยังไม่ได้รับคำสั่ง');
       await panel.getByRole('button', { name: 'ตรวจผลการปิดบัญชี', exact: true }).click();
       await confirmDisable();
+    }
+    if (scenario === 'forbidden') {
+      await expect(dialog.getByRole('alert')).toContainText('คุณไม่มีสิทธิ์ปิดบัญชีนี้');
+      // 403 ของคำสั่งไม่แทนทั้งหน้า People: การ์ดและรายละเอียดยังอยู่ ไม่ค้างคำสั่ง
+      await expect(panel).toBeVisible();
+      await expect(page.getByText(/ไม่มีสิทธิ์จัดการบัญชี/)).toHaveCount(0);
+      await dialog.getByRole('button', { name: 'ยกเลิก', exact: true }).click();
+      await expect(panel.getByRole('button', { name: 'ปิดบัญชี…', exact: true })).toBeEnabled();
+      await expect(refreshDisable).toHaveCount(0);
+      expect(
+        await page.evaluate(() =>
+          Object.keys(sessionStorage).filter((key) => key.startsWith('dc:tenant-disable:')),
+        ),
+      ).toEqual([]);
+      expect(posts).toBe(1);
+      return;
+    }
+    if (scenario === 'not-recorded') {
+      await expect(panel).toContainText('ห้ามส่งคำสั่งปิดซ้ำ');
+      await expect(panel.getByRole('button', { name: 'ปิดบัญชี…', exact: true })).toBeDisabled();
+      await refreshDisable.click();
+      await expect(panel.getByRole('alert')).toContainText('ไม่พบคำสั่งปิดบัญชีเดิมในระบบ');
+      await expect(panel).not.toContainText('ห้ามส่งคำสั่งปิดซ้ำ');
+      await expect(panel.getByRole('button', { name: 'ปิดบัญชี…', exact: true })).toBeEnabled();
+      expect(
+        await page.evaluate(() =>
+          Object.keys(sessionStorage).filter((key) => key.startsWith('dc:tenant-disable:')),
+        ),
+      ).toEqual([]);
+      expect(posts).toBe(1);
+      return;
     }
     if (scenario === 'last-admin' || scenario === 'busy') {
       await expect(dialog.getByRole('alert')).toContainText(
@@ -246,8 +284,13 @@ test('บัญชีปิดอยู่แล้ว: การ์ดปิด
   await expect(panel).not.toContainText('ยังปิดไม่ได้');
   await expect(panel.getByRole('button')).toHaveCount(0);
   await expect(panel.getByRole('status')).toHaveCount(0);
-  await expect(page.getByRole('region', { name: 'เปิดบัญชีกลับ' })).toBeVisible();
+  const enable = page.getByRole('region', { name: 'เปิดบัญชีกลับ' });
+  await expect(enable).toBeVisible();
   expect(checks).toBe(0);
+  // รอปุ่มเปิดบัญชีกลับเปลี่ยนจากกำลังตรวจความพร้อมเป็นกดได้และ transition สีจบก่อนสแกน contrast
+  await expect(enable.getByRole('button', { name: 'เปิดบัญชีกลับ…', exact: true })).toBeEnabled();
+  await page.evaluate(() => Promise.all(document.getAnimations().map((item) => item.finished)));
+  await page.waitForTimeout(300);
   const axe = await new AxeBuilder({ page }).analyze();
   expect(
     axe.violations.filter((issue) => ['serious', 'critical'].includes(issue.impact ?? '')),

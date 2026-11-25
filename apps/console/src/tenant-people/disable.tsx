@@ -3,7 +3,13 @@ import { useTranslation } from '@d-contact/i18n/react';
 import { Button, Dialog, TextField } from '@d-contact/ui-react';
 import { CatalogApiError } from '../voice-routing/api.js';
 import { peopleUuid } from './api.js';
-import type { PeopleDirectoryApi, PeopleDirectoryUser } from './directory-api.js';
+import {
+  commandMissing,
+  commandOutcome,
+  type PeopleDirectoryApi,
+  type PeopleDirectoryUser,
+} from './directory-api.js';
+import { accountStatus } from './directory.js';
 
 interface PendingDisable {
   commandId: string;
@@ -47,7 +53,8 @@ export function PeopleDisable({
       ? { commandId: user.disableCommandId, operationId: user.disableOperationId }
       : undefined);
   const [pending, setPending] = useState(existing);
-  const [ready, setReady] = useState(false),
+  // undefined = กำลังตรวจ capabilities ครั้งแรก
+  const [ready, setReady] = useState<boolean>(),
     [busy, setBusy] = useState(false),
     [confirm, setConfirm] = useState(false);
   const [reason, setReason] = useState(''),
@@ -67,8 +74,11 @@ export function PeopleDisable({
     else sessionStorage.removeItem(storageKey);
     setPending(value);
   }
-  function failed(value: unknown) {
+  /** 401 ส่งต่อให้หน้า People เสมอ; 403 ของคำสั่งปิดบัญชีแสดงใน Dialog/การ์ด ไม่แทนทั้งหน้า */
+  function failed(value: unknown, write = false) {
     if (!mounted.current) return;
+    setReady((current) => current ?? false);
+    const definite = write && commandOutcome(value) === 'REJECTED';
     setError(
       value instanceof CatalogApiError &&
         [
@@ -78,9 +88,16 @@ export function PeopleDisable({
           'PROTECTED_OR_FOREIGN_IDENTITY',
         ].includes(value.code)
         ? value.code
-        : 'FAILED',
+        : definite && value instanceof CatalogApiError && value.status === 403
+          ? 'FORBIDDEN'
+          : definite
+            ? 'NOT_SAVED'
+            : 'FAILED',
     );
-    if (value instanceof CatalogApiError && [401, 403].includes(value.status)) {
+    if (
+      value instanceof CatalogApiError &&
+      (value.status === 401 || (value.status === 403 && !write))
+    ) {
       setReady(false);
       setReason('');
       setConfirm(false);
@@ -92,18 +109,33 @@ export function PeopleDisable({
     inFlight.current = true;
     setBusy(true);
     setError('');
+    // server ไม่มีคำสั่ง/operation นี้: ไม่ได้บันทึกไว้ ล้างคำสั่งค้างแล้วเปิดให้ส่งใหม่ได้
+    const missing = (value: unknown) => {
+      if (!commandMissing(value)) throw value;
+      return undefined;
+    };
     try {
       if (reference && !reference.operationId) {
-        const accepted = await api.invitationCommand(reference.commandId, user.id);
-        reference = { ...reference, operationId: accepted.operationId };
+        const accepted = await api.invitationCommand(reference.commandId, user.id).catch(missing);
         if (!mounted.current) return;
+        reference = accepted ? { ...reference, operationId: accepted.operationId } : undefined;
         remember(reference);
+        if (!reference) {
+          setStatus('');
+          setError('NOT_RECORDED');
+        }
       }
       if (reference?.operationId) {
-        const result = await api.disableOperation!(reference.operationId, user.id);
+        const result = await api.disableOperation!(reference.operationId, user.id).catch(missing);
         if (!mounted.current) return;
-        setStatus(result);
-        if (['SUCCEEDED', 'REJECTED'].includes(result)) remember(undefined);
+        if (!result) {
+          remember(undefined);
+          setStatus('');
+          setError('NOT_RECORDED');
+        } else {
+          setStatus(result);
+          if (['SUCCEEDED', 'REJECTED'].includes(result)) remember(undefined);
+        }
       }
       const [detail, enabled] = await Promise.all([api.detail(user.id), api.disableReady!()]);
       if (mounted.current) {
@@ -128,7 +160,7 @@ export function PeopleDisable({
           .then((enabled) => {
             if (mounted.current) setReady(enabled);
           })
-          .catch(failed);
+          .catch((value: unknown) => failed(value));
     }
     return () => {
       mounted.current = false;
@@ -173,17 +205,34 @@ export function PeopleDisable({
       setStatus('WAITING_EXTERNAL');
       setReason('');
       setConfirm(false);
-      const detail = await api.detail(user.id);
-      if (mounted.current) callbacks.current.onUser(detail);
+      // คำสั่งรับแล้ว: อ่านรายละเอียดไม่สำเร็จไม่ทำให้ล้างคำสั่งค้าง
+      const detail = await api.detail(user.id).catch(() => undefined);
+      if (detail && mounted.current) callbacks.current.onUser(detail);
     } catch (value) {
+      if (!mounted.current) return;
+      let outcome = commandOutcome(value);
+      // 408/CONFIG_BUSY: ตรวจคำสั่งเดิมทันที ถ้า server ไม่มีคำสั่งนี้ก็ถือว่าปฏิเสธแน่นอน
+      if (outcome === 'AMBIGUOUS') {
+        try {
+          const accepted = await api.invitationCommand(reference.commandId, user.id);
+          if (!mounted.current) return;
+          remember({ ...reference, operationId: accepted.operationId });
+          setStatus('WAITING_EXTERNAL');
+          setReason('');
+          setConfirm(false);
+          return;
+        } catch (lookup) {
+          if (!mounted.current) return;
+          outcome = commandMissing(lookup) ? 'REJECTED' : 'UNKNOWN';
+        }
+      }
       const notAccepted =
         value instanceof CatalogApiError &&
         value.status === 503 &&
         ['CAPABILITY_NOT_READY', 'IDENTITY_UNAVAILABLE'].includes(value.code);
-      const rejected =
-        value instanceof CatalogApiError && ([400, 409, 429].includes(value.status) || notAccepted);
-      if (mounted.current && rejected) remember(undefined);
-      failed(value);
+      const rejected = outcome === 'REJECTED';
+      if (rejected) remember(undefined);
+      failed(value, true);
       // ผลไม่ชัดเจน: ปิด dialog ให้แผงแสดงคำสั่งค้างและปุ่มตรวจผลเดิม
       if (mounted.current && !rejected) setConfirm(false);
       if (mounted.current && notAccepted) {
@@ -197,7 +246,10 @@ export function PeopleDisable({
     }
   }
   if (!api.disableReady || !api.disable || !api.disableOperation) return null;
+  // บัญชีที่ไม่มี lifecycle ของ People (เช่นบัญชีจาก seed) ระบบยืนยันตัวตนไม่ยอมให้ปิดผ่าน People
+  const managed = accountStatus(user) !== 'UNKNOWN';
   const eligible =
+    managed &&
     user.isActive &&
     !['DISABLING', 'DISABLED', 'ATTENTION_REQUIRED', 'PROVISIONING'].includes(user.accountState);
   // บัญชีปิดแล้วและไม่มีคำสั่งค้าง: การ์ดนี้ย่อเหลือบรรทัดเดียว ให้การ์ด "เปิดบัญชีกลับ" เป็นจุดทำงานต่อ
@@ -217,7 +269,9 @@ export function PeopleDisable({
   return (
     <section className="tp-panel" aria-label={label('disable.title')} aria-busy={busy}>
       <h3>{label('disable.title')}</h3>
-      {ready && !eligible && !pending && !closed ? (
+      {!managed && !pending && !closed ? (
+        <p className="tp-muted">{label('disable.notManaged')}</p>
+      ) : ready && !eligible && !pending && !closed ? (
         <p className="tp-muted">{label('disable.notEligible')}</p>
       ) : null}
       {closed && !status ? <p className="tp-muted">{label('disable.closed')}</p> : null}

@@ -266,7 +266,8 @@
 .tp-panel > [role='status'] {
   font-size: var(--dc-text-sm);
 }
-.tp-panel > [role='alert'] {
+.tp-panel > [role='alert'],
+.tp-account-change > [role='alert'] {
   color: var(--dc-critical-fg-strong);
 }
 .tp-confirm {
