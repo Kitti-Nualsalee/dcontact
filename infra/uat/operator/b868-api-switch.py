@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""#868: สลับเฉพาะ image ของ Compose service `api` บน VM2 ระหว่าง candidate (current record) กับ target (previous record)
+"""#868: switch only the image of the Compose service `api` on VM2 between the candidate (current record) and the target (previous record)
 
-- `plan` อ่านอย่างเดียว: ตรวจ records, runtime, effective config และ target image ในเครื่อง
-- `rollback` candidate → target: ต้องได้ fence ผ่าน proxy, People DRAINED หลัง settle, identity CONSISTENT
-  (หรือ PEOPLE_NOT_CONFIGURED เมื่อ API ไม่มี binding และปิด invitations/disable ทั้งคู่),
-  ledger และ protected state สด แล้วเขียน `operator/uat-api-switch.pending` ก่อนแตะ container
-- `recover` target → candidate: อ่าน pending, กลับ config เดิมของ release, ตรวจ runtime ตรง current record,
-  smoke ผ่าน proxy, fence/drain/identity/ledger/protected แล้วเขียน receipt ก่อนถอน pending
+- `plan` is read-only: checks the records, runtime, effective config and the target image on the machine
+- `rollback` candidate → target: requires the fence through the proxy, People DRAINED after settling, identity CONSISTENT
+  (or PEOPLE_NOT_CONFIGURED when the API has no binding and both invitations/disable are off),
+  a fresh ledger and protected state, then writes `operator/uat-api-switch.pending` before touching any container
+- `recover` target → candidate: reads pending, restores the release's original config, checks the runtime matches the current record,
+  smoke through the proxy, fence/drain/identity/ledger/protected, then writes a receipt before removing pending
 
-ใช้ Compose project และไฟล์เดียวกับ uat-deploy.sh (`compose-argv`) และ override เฉพาะ `services.api.image`
-ถือ lock เดียวกับ deploy ตลอดคำสั่ง pending ทำให้ uat-deploy.sh ปฏิเสธ deploy/record จน recover
-ไม่ migrate, ไม่ restore DB, ไม่เขียน deployment record และไม่รับรอง rollback
+Uses the same Compose project and files as uat-deploy.sh (`compose-argv`) and overrides only `services.api.image`
+Holds the same lock as deploy for the whole command; pending makes uat-deploy.sh refuse deploy/record until recover
+Does not migrate, does not restore the DB, does not write a deployment record and does not certify rollback
 """
 import argparse
 import fcntl
@@ -104,7 +104,7 @@ def write_private(path, data, *, replace=False):
 
 
 def api_identity(record, release_api):
-    """target อาจเป็น reconciliation record แบบราย component หรือ deploy record ปกติ"""
+    """The target may be a per-component reconciliation record or a normal deploy record"""
     components = record.get('components')
     if isinstance(components, dict):
         api = components.get('api') or {}
@@ -150,7 +150,7 @@ def read_records(root):
 
 
 def effective_config(deps, records):
-    """override ต้องเปลี่ยนเฉพาะ services.api.image; hash เท่านั้นที่ออกจาก process เพราะ config มีค่า secret"""
+    """The override may change only services.api.image; only the hash leaves the process because the config contains secret values"""
     base = deps.config(None)
     switched = deps.config(records['target']['imageReference'])
     require(base['services']['api'].get('image') == records['candidate']['imageReference'],
@@ -203,7 +203,7 @@ def gates_clear(root, allow_switch=False):
 
 
 def smoke_through_proxy(deps):
-    """proxy ต้องส่ง runtime-profile ของ workspace และ fence ต้องยังปฏิเสธ People mutations"""
+    """The proxy must send the workspace runtime-profile and the fence must still reject People mutations"""
     for attempt in range(SMOKE_ATTEMPTS):
         result = deps.smoke()
         fence = deps.probe()
@@ -216,8 +216,8 @@ def smoke_through_proxy(deps):
 
 
 def require_identity(identity, drain, container_id):
-    """CONSISTENT ต้องผูกกับ API container ที่อ่าน; PEOPLE_NOT_CONFIGURED ยอมเฉพาะเมื่อไม่มีทางเกิดผลภายนอก
-    คือ binding ว่าง, ปิด invitations/disable และ drain ได้ DRAINED (ทุก operation อยู่ใน terminal state)"""
+    """CONSISTENT must be bound to the API container that was read; PEOPLE_NOT_CONFIGURED is accepted only when no external effect is possible,
+    namely an empty binding, invitations/disable off and drain reaching DRAINED (every operation in a terminal state)"""
     status = identity.get('status')
     if status == 'CONSISTENT':
         require(identity['runtime']['api']['containerId'] == container_id, 'SWITCH_IDENTITY_RUNTIME_CHANGED')
@@ -317,7 +317,7 @@ def recover(root, deps):
     container = deps.api()
     state = api_state(container, candidate)
     require(state != 'OTHER' or api_state(container, pending['target']) != 'OTHER', 'SWITCH_RECOVERY_API_CHANGED')
-    # container candidate เดิมที่ถูกสั่ง stop อาจยังตอบอยู่ระหว่าง Docker หยุด จึงต้องสร้างใหม่ทุกครั้งที่ ID ตรง stopping
+    # the old candidate container that was told to stop may still answer while Docker is stopping, so recreate whenever the ID matches stopping
     needs_switch = state != 'RUNNING' or container['Id'] == pending['stoppingApiId']
     previous_id = container['Id'] if container is not None else None
     if needs_switch:
@@ -352,7 +352,7 @@ def recover(root, deps):
     data = canonical(receipt)
     path = directory / (pending['transactionId'] + '.json')
     if os.path.lexists(path):
-        # recover รอบก่อนเขียน receipt แล้วแต่ตายก่อนถอน pending: ตรวจรอบนี้ผ่านครบแล้วจึงใช้ receipt เดิม
+        # a previous recover run wrote the receipt but died before removing pending: this run passed every check, so reuse the existing receipt
         data = read_private(path)
         existing = json.loads(data)
         require(existing.get('schema') == 'UatApiSwitchReceiptV1' and existing.get('phase') == 'RECOVERED'
@@ -380,8 +380,8 @@ def docker_environment():
 
 
 def pin_connect_host(base_url, connect_host, resolver=socket):
-    """เหมือน curl --resolve: ต่อ TCP ไปที่ connect_host เฉพาะ hostname ของ base_url ส่วน SNI/Host คงชื่อเดิม
-    VM2 resolve ชื่อสาธารณะของ UAT ไม่ได้ จึงต้องต่อผ่าน nginx บน VM1 แบบเดียวกับ uat-deploy.sh smoke"""
+    """Like curl --resolve: connect TCP to connect_host only for the hostname of base_url, while SNI/Host keep the original name
+    VM2 cannot resolve the public UAT name, so it connects through nginx on VM1 the same way as the uat-deploy.sh smoke"""
     require(re.fullmatch(r'(?:[0-9]{1,3}\.){3}[0-9]{1,3}', connect_host or ''), 'SWITCH_CONNECT_HOST_INVALID')
     host = urllib.parse.urlsplit(base_url).hostname
     original = resolver.getaddrinfo
@@ -393,7 +393,7 @@ def pin_connect_host(base_url, connect_host, resolver=socket):
 
 
 class LiveDeps:
-    """ผูกกับ VM2 จริง; ทุก mutation ส่ง lock fd ให้ Docker CLI ถือต่อแม้ Python ถูกขัดจังหวะ"""
+    """Bound to the real VM2; every mutation passes the lock fd to the Docker CLI to keep holding it even if Python is interrupted"""
 
     def __init__(self, root, base_url, lock):
         require(re.fullmatch(r'https://[A-Za-z0-9.-]+(:[0-9]{1,5})?', base_url or ''), 'SWITCH_BASE_URL_INVALID')
@@ -421,7 +421,7 @@ class LiveDeps:
 
     def config(self, target):
         if target:
-            # config อ่าน override ชั่วคราวในไฟล์แยกเพื่อไม่แตะไฟล์ที่ recovery ใช้
+            # config reads the temporary override from a separate file so the file recovery uses is untouched
             with tempfile.NamedTemporaryFile(dir=self.root / 'operator', prefix='.uat-api-switch-plan-',
                                              suffix='.json') as stream:
                 stream.write(canonical({'services': {'api': {'image': target}}}))
@@ -435,7 +435,7 @@ class LiveDeps:
         return json.loads(output.stdout)
 
     def up(self, target):
-        # recover ใช้ --force-recreate เพราะ container candidate ที่ถูก stop ค้างมี config เดียวกับ release
+        # recover uses --force-recreate because a stopped candidate container left behind has the same config as the release
         command = self.compose_files(target) + ['up', '-d', '--no-deps', '--no-build', '--pull', 'never',
                                                 '--force-recreate', 'api']
         process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
@@ -484,8 +484,8 @@ class LiveDeps:
         except RuntimeError as error:
             if str(error) != 'IDENTITY_EVIDENCE_UNAVAILABLE:NOT_CONFIGURED':
                 raise
-        # CLI ไม่มี People configuration: อ่านเฉพาะว่ามี binding/flag หรือไม่ ไม่เก็บค่าซึ่งอาจมี secret
-        # container ต้องเป็นตัวเดียวกับที่ CLI ถูก exec และตีความ env เข้มเท่ากับ API (ไม่มีค่า = ปิด, มีเฉพาะ 'false')
+        # the CLI has no People configuration: read only whether a binding/flag exists, never keep values that may contain secrets
+        # the container must be the same one the CLI was exec'd into, and env is interpreted as strictly as the API does (no value = off, only 'false' is accepted)
         container = self.api()
         require(before is not None and container is not None and container['Id'] == before['Id'],
                 'SWITCH_IDENTITY_RUNTIME_CHANGED')
@@ -542,11 +542,11 @@ def with_lock(root, action):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='สลับ image ของ API บน VM2 ระหว่าง candidate กับ target (#868)')
+    parser = argparse.ArgumentParser(description='Switch the API image on VM2 between candidate and target (#868)')
     parser.add_argument('action', choices=('plan', 'rollback', 'recover'))
-    parser.add_argument('--base-url', required=True, help='https://<uat-host> ผ่าน proxy')
+    parser.add_argument('--base-url', required=True, help='https://<uat-host> through the proxy')
     parser.add_argument('--settle', type=int, default=180)
-    parser.add_argument('--connect-host', help='IP ของ nginx ที่ต่อแทน DNS ของ base URL เช่น VM1')
+    parser.add_argument('--connect-host', help='IP of the nginx to connect to instead of the base URL DNS, e.g. VM1')
     args = parser.parse_args()
     if args.connect_host:
         try:

@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""#868: หลักฐาน admission fence และ drain ของงาน People ก่อนสลับ API รุ่นบน UAT.
+"""#868: evidence of the admission fence and the drain of People work before switching the API release on UAT.
 
-- `probe <base-url>`: ส่ง POST แบบไม่มี token ผ่าน proxy จริง; fence ทำงาน = proxy ตอบ 503 พร้อม
-  `X-DContact-Admission-Fence: people` ก่อนถึง API. คำขอไม่มีสิทธิ์จึงไม่สร้างงานแม้ fence ปิด
-- `drain`: บน VM2 อ่าน `tenant_people_*` ทุกตารางที่มี state/lease ผ่าน DB principal เดียวกับ
-  release-evidence-observe (read-only, BYPASSRLS) แล้วยืนยันว่าไม่มีงานค้าง lease ที่ยังถือ หรือผลที่ต้องให้คนตัดสิน
-  รวมงาน invitation ที่ยังไม่มี receipt และต้องได้ DRAINED ซ้ำหลังรอ settle (ค่าเริ่มต้น 180 วินาที)
+- `probe <base-url>`: sends a POST with no token through the real proxy; fence working = the proxy answers 503 with
+  `X-DContact-Admission-Fence: people` before reaching the API. An unauthorized request creates no work even when the fence is off
+- `drain`: on VM2 reads every `tenant_people_*` table that has state/lease through the same DB principal as
+  release-evidence-observe (read-only, BYPASSRLS) and confirms there is no pending work, no lease still held and no outcome awaiting a human decision,
+  including invitation work that has no receipt yet, and requires DRAINED again after waiting to settle (default 180 seconds)
 
-ไม่เปิดหรือปิด fence เอง และไม่รับรอง rollback; ผลที่ไม่ใช่ DRAINED หมายถึงห้ามสลับ API
+Does not turn the fence on or off by itself and does not certify rollback; a result other than DRAINED means do not switch the API
 """
 import hashlib
 import importlib.util
@@ -23,8 +23,8 @@ from pathlib import Path
 DIRECTORY = Path(__file__).resolve().parent
 FENCE_FILE = Path('/opt/dcontact-uat/admission-fence/people-mutations')
 PROBE_PATH = '/api/v1/tenant-voice/people/users'
-# คำขอเดียวที่ช้าที่สุดคือ disable: readiness 2 ชั้น (Keycloak 2 calls x 10s ต่อชั้น + transaction ~7s)
-# + transaction ก่อน probe ~7s + probe Keycloak <=30s + transaction ปิดท้าย ~7s ≈ 91s จึงบังคับ settle อย่างน้อย 120s
+# the slowest single request is disable: 2 layers of readiness (Keycloak 2 calls x 10s per layer + a ~7s transaction)
+# + a ~7s transaction before the probe + a Keycloak probe <=30s + a closing ~7s transaction ≈ 91s, so settle is enforced at no less than 120s
 SETTLE_MIN, SETTLE_DEFAULT = 120, 180
 TERMINAL = frozenset({'SUCCEEDED', 'REJECTED'})
 TABLE = re.compile(r'tenant_people_[a-z_]{1,48}')
@@ -36,7 +36,7 @@ TABLES_QUERY = r"""SELECT json_build_object('database',current_database(),'princ
         FROM information_schema.columns WHERE table_schema='public' AND table_name LIKE 'tenant\_people\_%'
         GROUP BY table_name) t WHERE has_state OR has_lease),'[]'::json));"""
 
-# งาน invitation ไม่มีคอลัมน์ state ให้ดู; ใช้เงื่อนไขเดียวกับ worker (tenant-people-runtime.ts) ว่ายังต้องทำหรือยังไม่ชัด
+# invitation work has no state column to look at; use the same condition as the worker (tenant-people-runtime.ts) for whether it is still pending or unclear
 NO_RECEIPT = ('NOT EXISTS(SELECT 1 FROM public.tenant_people_invitation_receipts r '
               'WHERE r.tenant_id=x.tenant_id AND r.provider_attempt_ref=x.provider_attempt_ref)')
 INVITATION_QUERY = (
@@ -76,7 +76,7 @@ def counts_query(tables):
 
 
 def observe_drain(read, fence_present):
-    """`read(sql) -> bytes|str` ต้องรันใน transaction read-only ของ DB principal ที่ review แล้ว"""
+    """`read(sql) -> bytes|str` must run in a read-only transaction of a reviewed DB principal"""
     scope = json.loads(read(TABLES_QUERY))
     if (scope.get('database'), scope.get('principal'), scope.get('readonly')) != (
             'dcontact_uat', 'dcontact_uat_owner', 'on'):
@@ -128,7 +128,7 @@ def observe_drain(read, fence_present):
 
 
 def observe_settled(read, fence_present, settle_seconds, sleep=time.sleep):
-    """คำขอที่ผ่าน proxy ก่อนเปิด fence อาจ commit ช้า จึงต้อง DRAINED สองครั้งห่างกันอย่างน้อย settle_seconds"""
+    """A request that passed the proxy before the fence opened may commit late, so DRAINED is required twice at least settle_seconds apart"""
     if type(settle_seconds) is not int or not SETTLE_MIN <= settle_seconds <= 3600:
         raise RuntimeError('SETTLE_SECONDS_INVALID')
     first = observe_drain(read, fence_present())
@@ -150,7 +150,7 @@ def probe(base_url, opener=urllib.request.urlopen):
     except urllib.error.HTTPError as error:
         status, headers, body = error.code, error.headers, error.read(4096)
     except (urllib.error.URLError, OSError):
-        # เชื่อมต่อไม่ได้ชั่วคราวไม่ใช่หลักฐานว่า fence ทำงาน ผู้เรียกจึงเห็น FENCE_INACTIVE และ retry ได้
+        # a temporary connection failure is not evidence that the fence works; the caller sees FENCE_INACTIVE and may retry
         status, headers, body = None, {}, b''
     marker = headers.get('X-DContact-Admission-Fence')
     try:

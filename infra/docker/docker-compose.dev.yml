@@ -14,7 +14,7 @@ services:
     # integration test, which is deterministic given real headroom.
     command: postgres -c max_connections=200
     ports:
-      # host 5433 เพื่อเลี่ยงชนกับ PostgreSQL local ที่มีอยู่แล้วบนเครื่อง dev
+      # host 5433 to avoid clashing with a local PostgreSQL already running on the dev machine
       - '5433:5432'
     volumes:
       - ./data/postgres:/var/lib/postgresql/data
@@ -46,9 +46,9 @@ services:
       timeout: 3s
       retries: 10
 
-  # ADR-029 (#533): object storage ของ dev/CI คือ RustFS (Apache 2.0) — แอปคุยผ่าน S3 API (`S3_*`) เท่านั้น
-  # UAT/on-prem/cloud ใช้ SeaweedFS; ตรึง release + digest ห้ามใช้ latest
-  # bucket สร้างโดย `scripts/object-storage-init.mjs` (S3 API ไม่ผูกกับ CLI ของผู้ผลิต) ซึ่ง `pnpm infra:up` เรียก
+  # ADR-029 (#533): dev/CI object storage is RustFS (Apache 2.0); the app talks to it only through the S3 API (`S3_*`)
+  # UAT/on-prem/cloud use SeaweedFS; pin the release + digest, never use latest
+  # buckets are created by `scripts/object-storage-init.mjs` (the S3 API is not tied to a vendor CLI), which `pnpm infra:up` calls
   # console: http://localhost:9001/rustfs/console/ (dcontact / dcontact-secret)
   object-storage:
     image: rustfs/rustfs:1.0.0@sha256:8cc9801755448b71a786705ce76692c77e14936cccd87cf2fc31842e58f4d1ff
@@ -61,7 +61,7 @@ services:
     ports:
       - '9000:9000'
       - '9001:9001'
-    # named volume: image รันด้วย user `rustfs` (non-root) — bind mount ที่ docker สร้างเป็น root บน Linux เขียนไม่ได้
+    # named volume: the image runs as user `rustfs` (non-root); a bind mount that docker creates as root on Linux is not writable
     volumes:
       - object-storage-data:/data
     healthcheck:
@@ -70,7 +70,7 @@ services:
       timeout: 3s
       retries: 20
 
-  # Kafka-compatible event backbone (dev) — production ใช้ Kafka/MSK/Redpanda ได้ (API เดียวกัน)
+  # Kafka-compatible event backbone (dev); production may use Kafka/MSK/Redpanda (same API)
   redpanda:
     image: redpandadata/redpanda:v24.2.7
     command:
@@ -79,7 +79,7 @@ services:
       - --memory 1G
       - --mode dev-container
       - --kafka-addr internal://0.0.0.0:29092,external://0.0.0.0:9092
-      # containers อื่นต่อผ่าน redpanda:29092, โปรเซสบน host ต่อ localhost:9092
+      # other containers connect through redpanda:29092, processes on the host through localhost:9092
       - --advertise-kafka-addr internal://redpanda:29092,external://localhost:9092
     ports:
       - '9092:9092'
@@ -91,7 +91,7 @@ services:
       timeout: 5s
       retries: 20
 
-  # สร้าง topics อัตโนมัติตอน start
+  # create topics automatically on start
   redpanda-init:
     image: redpandadata/redpanda:v24.2.7
     depends_on:
@@ -103,11 +103,11 @@ services:
       --brokers redpanda:29092 --topic-config retention.ms=604800000 || true;
       exit 0"
 
-  # Web UI สำหรับดู topics/messages ตอน dev
-  # เครื่องมือของ dev ล้วน ๆ — ไม่มีเทสหรือสคริปต์ไหนเรียกใช้ จึงอยู่ใน profile แยกเพื่อ
-  # ไม่ให้กิน memory ของ CI runner ระหว่าง acceptance (วัดได้ ~266 MiB) เปิดเองด้วย
+  # Web UI for browsing topics/messages during dev
+  # purely a dev tool; no test or script calls it, so it sits in its own profile to
+  # keep it from eating CI runner memory during acceptance (measured ~266 MiB); enable it explicitly with
   # `pnpm infra:console`
-  # A1.8b (#473): ดู trace ของ Platform provisioning ใน dev (`pnpm infra:tracing`) — รับ OTLP HTTP ที่ :4318
+  # A1.8b (#473): view Platform provisioning traces in dev (`pnpm infra:tracing`); receives OTLP HTTP on :4318
   jaeger:
     profiles: ['tools']
     image: jaegertracing/all-in-one:1.60
@@ -129,7 +129,7 @@ services:
       - '8085:8080'
 
   keycloak:
-    # #592: 26.7.5 (fine-grained admin permissions v2) — pin digest เดียวกับ infra/keycloak/Dockerfile
+    # #592: 26.7.5 (fine-grained admin permissions v2); pin the same digest as infra/keycloak/Dockerfile
     image: docker.io/keycloak/keycloak:26.7.5@sha256:37dbaf6f0722c9ec246335f36e1ef8b2e6cb960f7c27e0d8c615121a3d475a85
     command: start-dev --import-realm --features=organization
     depends_on:
@@ -146,9 +146,9 @@ services:
       - '8081:8080'
     volumes:
       - ../keycloak:/opt/keycloak/data/import:ro
-      # A1.4b (#436): invitation guard (build ด้วย `pnpm infra:keycloak:extensions`)
+      # A1.4b (#436): invitation guard (build with `pnpm infra:keycloak:extensions`)
       - ../keycloak/providers:/opt/keycloak/providers:ro
-      # #515: login theme ของ D-Contact (token/โลโก้คัดลอกด้วย `pnpm infra:keycloak:theme`)
+      # #515: D-Contact login theme (tokens/logo copied with `pnpm infra:keycloak:theme`)
       - ../keycloak/themes:/opt/keycloak/themes:ro
     healthcheck:
       test: ['CMD-SHELL', 'bash -c "exec 3<>/dev/tcp/127.0.0.1/8080"']
@@ -156,8 +156,8 @@ services:
       timeout: 5s
       retries: 18
 
-  # A1.4 (#409): email sink ของ dev/test — Keycloak ส่ง invitation (execute-actions) มาที่นี่
-  # ไม่มีการส่งออกภายนอก; UI/API ที่ http://localhost:8025 ใช้ตรวจ delivery ใน real-boundary test
+  # A1.4 (#409): dev/test email sink; Keycloak sends invitations (execute-actions) here
+  # nothing is sent externally; the UI/API at http://localhost:8025 is used to check delivery in real-boundary tests
   mailpit:
     image: axllent/mailpit:v1.20
     ports:
@@ -175,7 +175,7 @@ services:
       - '5060:5060/udp' # SIP UDP
       - '5060:5060/tcp' # SIP TCP
       - '5066:5066/tcp' # SIP over WebSocket (dev softphone)
-      - '8022:8021/tcp' # ESL — dev only, ห้าม expose ใน production; host port เปลี่ยนจาก 8021 เพราะบางเครื่อง dev มี launchd socket จองพอร์ตนี้ไว้อยู่แล้ว
+      - '8022:8021/tcp' # ESL: dev only, never expose in production; host port changed from 8021 because a launchd socket on some dev machines already holds that port
       - '16384-16420:16384-16420/udp' # RTP media
     volumes:
       - ../freeswitch/conf:/etc/freeswitch

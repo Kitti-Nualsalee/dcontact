@@ -1,19 +1,19 @@
-# #565 / ADR-031: overlay `uat-line` — เปิด LINE pilot บน UAT 3 VM แบบเลือกใส่ได้
+# #565 / ADR-031: the `uat-line` overlay; optionally enables the LINE pilot on the 3-VM UAT
 #
-# ซ้อนบน docker-compose.uat.yml + docker-compose.uat.3vm.yml เท่านั้น; `uat-deploy.sh` ใส่ไฟล์นี้เมื่อมีไฟล์ flag
-# `$UAT_ROOT/line-pilot.enabled` — ไม่มี flag = UAT fail-closed เดิมทุกประการ (profile `uat`, UAT-S09)
+# stacks only on docker-compose.uat.yml + docker-compose.uat.3vm.yml; `uat-deploy.sh` applies this file when the flag file
+# `$UAT_ROOT/line-pilot.enabled` exists; without the flag = UAT stays fail-closed exactly as before (profile `uat`, UAT-S09)
 #
-# - line-webhook: รับ `POST /webhook/line` + read-only `/api/v1/line-pilot/*` (#566, OIDC) ไม่ออก internet ไม่ได้ access token
-# - line-pilot:   runner ของ CLI pilot (`docker compose run --rm line-pilot <cli> <command>`) — profile `line-pilot`
-# - line-egress:  ทางออก internet เดียวของ stack สำหรับ LINE: TCP passthrough กรอง SNI `api.line.me`
-#                 อยู่บน network `linepilot` (มีแค่ runner) + `lineegress`; api และ service อื่นไม่เห็น
-# - secret เป็นไฟล์ `0400` ของ uid 10001 ใน `/opt/dcontact-uat/secrets/line/` (ใส่ด้วย operator/vm2-line-secrets.sh)
-#   ไม่มี secret ใน env
+# - line-webhook: receives `POST /webhook/line` + read-only `/api/v1/line-pilot/*` (#566, OIDC); no internet egress, no access token
+# - line-pilot:   the runner for the pilot CLI (`docker compose run --rm line-pilot <cli> <command>`); profile `line-pilot`
+# - line-egress:  the stack's only internet egress for LINE: TCP passthrough filtered on SNI `api.line.me`
+#                 sits on network `linepilot` (the runner only) + `lineegress`; api and other services cannot see it
+# - secrets are `0400` files owned by uid 10001 in `/opt/dcontact-uat/secrets/line/` (placed by operator/vm2-line-secrets.sh)
+#   no secrets in env
 services:
   proxy:
     volumes: !override
       - ./Caddyfile.3vm.line:/etc/caddy/Caddyfile:ro
-      # #868: ต้องคง admission fence ไว้เมื่อ override volumes ของ proxy
+      # #868: the admission fence must be kept when overriding the proxy volumes
       - /opt/dcontact-uat/admission-fence:/run/dcontact-admission-fence:ro
 
   line-webhook:
@@ -35,13 +35,13 @@ services:
       DATABASE_URL: postgresql://dcontact_app:${UAT_APP_DB_PASSWORD:?UAT_APP_DB_PASSWORD is required}@db-relay:5432/dcontact_uat?schema=public
       LINE_WEBHOOK_SECRET_SOURCE: file
       LINE_CREDENTIAL_DIR: /run/secrets
-      # pilot ใช้ tenant ของ UAT เอง (UUID ไม่ใช่ slug) — บัญชี admin ของ UAT ใช้หน้า inbound ได้ (#566)
+      # the pilot uses the UAT's own tenant (a UUID, not a slug); the UAT admin account can use the inbound page (#566)
       LINE_WEBHOOK_TENANT_ID: ${UAT_TENANT_ID:?UAT_TENANT_ID is required}
       LINE_WEBHOOK_CHANNEL_ACCOUNT_ID: ${UAT_LINE_CHANNEL_ACCOUNT_ID:?UAT_LINE_CHANNEL_ACCOUNT_ID is required}
-      # ว่างได้ตอนเปิดครั้งแรก (ยังไม่รู้ bot ID จนรัน `line-run ... bot-info`) — line-webhook บูตไม่ผ่านถ้าว่าง
+      # may be empty on first enablement (the bot ID is unknown until `line-run ... bot-info` runs); line-webhook fails to boot if it is empty
       LINE_WEBHOOK_DESTINATION: ${UAT_LINE_DESTINATION:-}
       LINE_WEBHOOK_PAYLOAD_KEY_REF: ${UAT_LINE_PAYLOAD_KEY_REF:?UAT_LINE_PAYLOAD_KEY_REF is required}
-      # #566: OIDC ของ read API (/api/v1/line-pilot/*) — ค่าเดียวกับ api
+      # #566: OIDC for the read API (/api/v1/line-pilot/*); same values as api
       KEYCLOAK_ISSUER: https://${UAT_HOST:?UAT_HOST is required}/auth/realms/dcontact
       KEYCLOAK_AUDIENCE: dcontact-api
       KEYCLOAK_JWKS_URI: http://keycloak:8080/auth/realms/dcontact/protocol/openid-connect/certs
@@ -77,7 +77,7 @@ services:
       line-egress:
         condition: service_started
     working_dir: /app/node_modules/@d-contact/delivery
-    # คำสั่งแรกคือชื่อ CLI: line-pilot-setup | line-provider-runner | line-pilot-cli
+    # the first argument is the CLI name: line-pilot-setup | line-provider-runner | line-pilot-cli
     entrypoint:
       [
         '/bin/sh',
@@ -97,7 +97,7 @@ services:
       CXA_S2_PILOT_TENANT_ID: ${UAT_TENANT_ID:?UAT_TENANT_ID is required}
       CXA_S2_PILOT_SENDER: ${UAT_LINE_SENDER_IDENTITY_ID:-}
       CXA_S2_CREDENTIAL_REF_ID: ${UAT_LINE_CREDENTIAL_REF_ID:-}
-      # reference ต่อคำสั่งจาก shell ของ operator (`NAME=... uat-deploy.sh line-run ...`) — actor/digest ไม่ใช่ secret
+      # per-command reference from the operator's shell (`NAME=... uat-deploy.sh line-run ...`); actor/digest are not secrets
       CXA_S2_OPERATOR_REF: ${CXA_S2_OPERATOR_REF:-}
       CXA_S2_COMPLIANCE_REF: ${CXA_S2_COMPLIANCE_REF:-}
       CXA_S2_CREDENTIAL_KIND: ${CXA_S2_CREDENTIAL_KIND:-}
@@ -114,7 +114,7 @@ services:
     tmpfs:
       - /tmp
     mem_limit: 512m
-    # api.line.me ของ runner = relay; certificate ยังตรวจกับ hostname จริงของ LINE
+    # the runner's api.line.me = the relay; the certificate is still verified against LINE's real hostname
     extra_hosts:
       - 'api.line.me:172.30.65.2'
     networks:
@@ -130,8 +130,8 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
-    # ฟัง :443 โดยไม่ต้องมี capability — runner ต่อ https://api.line.me ด้วย extra_hosts ที่ชี้ IP คงที่นี้
-    # ห้ามใช้ network alias `api.line.me`: DNS ของ Docker จะตอบ alias ให้ relay เองด้วย ทำให้ส่งวนกลับหาตัวเอง
+    # listens on :443 without needing a capability; the runner connects to https://api.line.me with extra_hosts pointing at this fixed IP
+    # never use a network alias `api.line.me`: Docker DNS would also answer the alias to the relay itself, sending traffic in a loop back to itself
     sysctls:
       net.ipv4.ip_unprivileged_port_start: '0'
     read_only: true
@@ -157,11 +157,11 @@ volumes:
   line-pilot-state: {}
 
 networks:
-  # runner กับ relay เท่านั้น — ไม่มีทางออก internet โดยตรง
+  # the runner and the relay only; no direct internet egress
   linepilot:
     internal: true
     ipam:
       config:
         - subnet: 172.30.65.0/29
-  # ขาออกของ relay ตัวเดียว
+  # the relay's outbound side only
   lineegress: {}

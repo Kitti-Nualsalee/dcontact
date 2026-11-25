@@ -1,5 +1,5 @@
-# ต้องตามหลัง tenant-keycloak-config; ตั้ง platform-console redirect เป็น origin ใหม่
-# #645: browser flow ของ realm เป็นของ tenant-keycloak-config (บังคับ OTP) — ห้ามผูก dcontact-browser ทับ
+# Must run after tenant-keycloak-config; sets the platform-console redirect to the new origin
+# #645: the realm browser flow belongs to tenant-keycloak-config (enforces OTP); never bind dcontact-browser over it
 apiVersion: batch/v1
 kind: Job
 metadata:

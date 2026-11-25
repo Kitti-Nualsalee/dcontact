@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# #537: ติดตั้ง nginx edge ของ UAT บน VM1 เท่านั้น (รันด้วย sudo)
-# ค่าเริ่มต้นเป็น read-only; ใช้ --apply หลังตรวจผล --check
+# #537: install the UAT nginx edge on VM1 only (run with sudo)
+# the default is read-only; use --apply after checking the --check result
 set -euo pipefail
 
 mode="${1:---check}"
 [[ "$mode" == --check || "$mode" == --apply ]] || { echo 'usage: sudo bash vm1-nginx-uat.sh [--check|--apply]' >&2; exit 64; }
-[[ "$(id -u)" -eq 0 ]] || { echo 'ต้องรันด้วย sudo บน VM1' >&2; exit 1; }
+[[ "$(id -u)" -eq 0 ]] || { echo 'must run with sudo on VM1' >&2; exit 1; }
 
 host=dcontact-uat.osd.co.th
 vm1=192.168.102.114
@@ -14,13 +14,13 @@ cert=/etc/nginx/ssl/star.osd.co.th_bundle.crt
 key=/etc/nginx/ssl/star.osd.co.th.key
 config=/etc/nginx/conf.d/dcontact-uat.osd.co.th.conf
 
-ip -4 -o addr show | grep -Fq "$vm1/" || { echo "เครื่องนี้ไม่มี IP $vm1" >&2; exit 1; }
-[[ -f "$cert" && -f "$key" ]] || { echo 'ไม่พบ cert/key ที่คาดไว้' >&2; exit 1; }
-openssl x509 -in "$cert" -noout -checkhost "$host" | grep -q 'does match' || { echo 'cert ไม่ครอบคลุม host' >&2; exit 1; }
-openssl x509 -in "$cert" -noout -checkend 2592000 >/dev/null || { echo 'cert จะหมดอายุภายใน 30 วัน' >&2; exit 1; }
+ip -4 -o addr show | grep -Fq "$vm1/" || { echo "this machine does not have IP $vm1" >&2; exit 1; }
+[[ -f "$cert" && -f "$key" ]] || { echo 'expected cert/key not found' >&2; exit 1; }
+openssl x509 -in "$cert" -noout -checkhost "$host" | grep -q 'does match' || { echo 'cert does not cover the host' >&2; exit 1; }
+openssl x509 -in "$cert" -noout -checkend 2592000 >/dev/null || { echo 'cert expires within 30 days' >&2; exit 1; }
 cert_pub="$(openssl x509 -in "$cert" -noout -pubkey | openssl pkey -pubin -outform DER | sha256sum | cut -d' ' -f1)"
 key_pub="$(openssl pkey -in "$key" -pubout -outform DER 2>/dev/null | sha256sum | cut -d' ' -f1)"
-[[ "$cert_pub" == "$key_pub" ]] || { echo 'cert กับ key ไม่ตรงกัน' >&2; exit 1; }
+[[ "$cert_pub" == "$key_pub" ]] || { echo 'cert and key do not match' >&2; exit 1; }
 nginx -t >/dev/null
 
 tmp="$(mktemp)"
@@ -60,7 +60,7 @@ server {
 NGINX
 
 if [[ -e "$config" ]] && ! cmp -s "$tmp" "$config"; then
-  echo "พบ $config ที่เนื้อหาไม่ตรง; หยุดเพื่อให้ตรวจด้วยมือ" >&2
+  echo "found $config with mismatched content; stopping so it can be checked by hand" >&2
   exit 1
 fi
 
@@ -72,7 +72,7 @@ for path in /etc/nginx /etc/nginx/conf.d /etc/nginx/sites-enabled /etc/nginx/ssl
 done
 
 if [[ "$mode" == --check ]]; then
-  echo 'CHECK ผ่าน; --apply จะเพิ่ม config, ตรวจ nginx -t, ปรับ permission และ reload nginx'
+  echo 'CHECK passed; --apply will add the config, run nginx -t, adjust permissions and reload nginx'
   exit 0
 fi
 
@@ -83,15 +83,15 @@ if [[ ! -e "$config" ]]; then
 fi
 if ! nginx -t; then
   if [[ "$created" -eq 1 ]]; then rm -f "$config"; fi
-  echo 'nginx -t ไม่ผ่าน; ถอน config UAT ที่เพิ่งเพิ่มแล้ว' >&2
+  echo 'nginx -t failed; removing the UAT config that was just added' >&2
   exit 1
 fi
 
-# key อยู่บน shared VM: 777 เปิดให้อ่าน/แก้ไขได้; directory ที่ 777 ยังให้แทนไฟล์ได้
+# the key is on a shared VM: 777 lets anyone read/modify it; a 777 directory still lets files be replaced
 chmod 0755 /etc/nginx /etc/nginx/conf.d /etc/nginx/sites-enabled /etc/nginx/ssl
 chmod 0644 "$cert"
 chmod 0600 "$key"
 chown root:root "$cert" "$key" "$config"
 nginx -t
 systemctl reload nginx
-printf 'APPLY ผ่าน: %s\n' "$config"
+printf 'APPLY passed: %s\n' "$config"

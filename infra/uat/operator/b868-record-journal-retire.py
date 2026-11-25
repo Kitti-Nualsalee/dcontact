@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""เก็บ journal ที่ commit ครบแล้วภายใต้ lock; ไม่ซ่อม pointer หรือรับรอง rollback."""
+"""Archive a fully committed journal under the lock; does not repair the pointer or certify rollback."""
 import argparse
 import fcntl
 import importlib.util
@@ -102,7 +102,7 @@ def retire(root, expected_desired_sha256, expected_intent_sha256):
             raise RuntimeError('RETIRE_PREVIOUS_NOT_COMMITTED')
         proof_files = forward_evidence(operator / 'uat-record-transaction', expected_intent_sha256,
                                        expected_desired_sha256)
-        # rename เก็บ intent/snapshots ทั้ง directory: ไม่ลบหลักฐาน ไม่แตะ deployment pointer
+        # rename archives the whole intent/snapshots directory: no evidence is deleted and the deployment pointer is untouched
         destination = Path(tempfile.mkdtemp(prefix='uat-record-completed-', dir=operator))
         pending = operator / 'uat-record-retirement.pending'
         pending_raw = json.dumps({'schema': 'UatRecordRetirementPendingV1',
@@ -111,7 +111,7 @@ def retire(root, expected_desired_sha256, expected_intent_sha256):
                                  'desiredSha256': expected_desired_sha256}).encode()
         parent = os.open(operator, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         try:
-            # gate นี้อยู่ต่อเมื่อ rename/fsync/readback ล้ม และทุก writer ต้องปฏิเสธ
+            # this gate stays when rename/fsync/readback fails, and every writer must refuse
             fd = os.open(pending, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
             with os.fdopen(fd, 'wb') as stream:
                 stream.write(pending_raw)
@@ -149,8 +149,8 @@ def retire(root, expected_desired_sha256, expected_intent_sha256):
                     raise RuntimeError('RETIRE_READBACK_MISMATCH')
             if any(JOURNAL.read_private(destination / name) != raw for name, raw in proof_files.items()):
                 raise RuntimeError('RETIRE_READBACK_MISMATCH')
-            # ทุก record/snapshot/marker และ directory ที่เกี่ยวข้อง durable แล้ว
-            # unlink เป็นจุดจบของ gate; crash หลังจุดนี้อาจทำให้ gate กลับมา แต่ข้อมูลครบ
+            # every record/snapshot/marker and the related directories are durable
+            # unlink is the end of the gate; a crash after this point may bring the gate back but the data is complete
             os.unlink(pending)
             cleanup_durable = True
             try:

@@ -1,5 +1,5 @@
-# สร้าง realm/client/Organization หลัง Keycloak พร้อม; ไม่สร้างบัญชีผู้ทดสอบใน Job นี้
-# AC6 (#599): ต่อด้วย dphone embedded client และ branding ตามลำดับเดียวกับ Compose `keycloak-config`
+# Creates the realm/client/Organization once Keycloak is ready; does not create test accounts in this Job
+# AC6 (#599): followed by the dphone embedded client and branding, in the same order as Compose `keycloak-config`
 apiVersion: batch/v1
 kind: Job
 metadata:

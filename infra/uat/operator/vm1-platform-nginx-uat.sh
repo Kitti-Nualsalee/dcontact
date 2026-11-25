@@ -1,22 +1,22 @@
 #!/usr/bin/env bash
-# A1.9 (#574): vhost แยกของ Platform Console บน VM1; ไม่แก้ dcontact-uat เดิม
-# รันบน VM1: sudo bash vm1-platform-nginx-uat.sh --check แล้ว --apply
+# A1.9 (#574): a separate vhost for the Platform Console on VM1; does not change the existing dcontact-uat
+# run on VM1: sudo bash vm1-platform-nginx-uat.sh --check then --apply
 set -euo pipefail
 mode="${1:---check}"
 [[ "$mode" == --check || "$mode" == --apply ]] || { echo 'usage: sudo bash vm1-platform-nginx-uat.sh [--check|--apply]' >&2; exit 64; }
-[[ "$(id -u)" == 0 && "${SUDO_USER:-}" == osdadmin ]] || { echo 'ต้องรันด้วย sudo จาก osdadmin บน VM1' >&2; exit 1; }
-ip -4 -o addr show | grep -F '192.168.102.114/' >/dev/null || { echo 'เครื่องนี้ไม่ใช่ VM1 ที่คาดไว้' >&2; exit 1; }
+[[ "$(id -u)" == 0 && "${SUDO_USER:-}" == osdadmin ]] || { echo 'must run with sudo from osdadmin on VM1' >&2; exit 1; }
+ip -4 -o addr show | grep -F '192.168.102.114/' >/dev/null || { echo 'this machine is not the expected VM1' >&2; exit 1; }
 
 host=platform-uat.osd.co.th
 cert=/etc/nginx/ssl/star.osd.co.th_bundle.crt
 key=/etc/nginx/ssl/star.osd.co.th.key
 config=/etc/nginx/conf.d/platform-uat.osd.co.th.conf
-[[ -f "$cert" && -f "$key" ]] || { echo 'ไม่พบ wildcard cert/key' >&2; exit 1; }
-openssl x509 -in "$cert" -noout -checkhost "$host" | grep -q 'does match' || { echo 'cert ไม่ครอบคลุม host' >&2; exit 1; }
-openssl x509 -in "$cert" -noout -checkend 2592000 >/dev/null || { echo 'cert จะหมดอายุภายใน 30 วัน' >&2; exit 1; }
+[[ -f "$cert" && -f "$key" ]] || { echo 'wildcard cert/key not found' >&2; exit 1; }
+openssl x509 -in "$cert" -noout -checkhost "$host" | grep -q 'does match' || { echo 'cert does not cover the host' >&2; exit 1; }
+openssl x509 -in "$cert" -noout -checkend 2592000 >/dev/null || { echo 'cert expires within 30 days' >&2; exit 1; }
 cert_pub="$(openssl x509 -in "$cert" -noout -pubkey | openssl pkey -pubin -outform DER | sha256sum | cut -d' ' -f1)"
 key_pub="$(openssl pkey -in "$key" -pubout -outform DER 2>/dev/null | sha256sum | cut -d' ' -f1)"
-[[ "$cert_pub" == "$key_pub" ]] || { echo 'cert/key ไม่ตรงกัน' >&2; exit 1; }
+[[ "$cert_pub" == "$key_pub" ]] || { echo 'cert/key do not match' >&2; exit 1; }
 nginx -t >/dev/null
 
 tmp="$(mktemp)"
@@ -56,16 +56,16 @@ server {
 NGINX
 
 if [[ -e "$config" ]] && ! cmp -s "$tmp" "$config"; then
-  echo "พบ $config ที่เนื้อหาไม่ตรง; หยุดเพื่อตรวจด้วยมือ" >&2
+  echo "found $config with mismatched content; stopping to check by hand" >&2
   exit 1
 fi
 printf 'cert: %s\n' "$(openssl x509 -in "$cert" -noout -enddate)"
 printf 'nginx config: %s; upstream 192.168.102.112:8081\n' "$config"
 if [[ "$mode" == --check ]]; then
-  echo 'CHECK ผ่าน; --apply จะเพิ่ม vhost แล้ว reload nginx'
+  echo 'CHECK passed; --apply will add the vhost then reload nginx'
   exit 0
 fi
 if [[ ! -e "$config" ]]; then install -o root -g root -m 0644 "$tmp" "$config"; fi
 nginx -t
 systemctl reload nginx
-printf 'APPLY ผ่าน: %s\n' "$config"
+printf 'APPLY passed: %s\n' "$config"

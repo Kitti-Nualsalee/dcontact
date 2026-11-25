@@ -1,5 +1,5 @@
 #!/bin/sh
-# #537: VM3 bootstrap เป็นผู้สร้าง role/database และตั้ง password; job นี้ตรวจ invariant ก่อน migrate
+# #537: the VM3 bootstrap creates the roles/database and sets passwords; this job checks the invariants before migrate
 set -eu
 : "${PGHOST:?PGHOST is required}"
 : "${PGDATABASE:?PGDATABASE is required}"

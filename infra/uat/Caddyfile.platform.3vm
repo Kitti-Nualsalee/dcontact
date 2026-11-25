@@ -1,4 +1,4 @@
-# A1.9 (#574): Platform origin แยกจาก tenant origin; รับจาก nginx VM1 เท่านั้น
+# A1.9 (#574): the Platform origin is separate from the tenant origin; accepts from nginx on VM1 only
 {
     admin off
     persist_config off
@@ -32,8 +32,8 @@
         handle /api/* {
             reverse_proxy platform-api:3010
         }
-        # Vite ใส่ hash ในชื่อไฟล์ใต้ /assets/ จึง cache ยาวได้; index.html และ SPA route ต้อง revalidate
-        # ทุกครั้ง ไม่งั้นหลัง update browser จะใช้ index.html เก่าที่ชี้ asset ที่ไม่มีแล้ว (หน้าขาว, #901)
+        # Vite puts a hash in file names under /assets/, so they can be cached long; index.html and SPA routes must revalidate
+        # every time, otherwise after an update the browser uses a stale index.html that points at assets that no longer exist (blank page, #901)
         handle /assets/* {
             root * /srv/platform-console
             @hashedAsset file

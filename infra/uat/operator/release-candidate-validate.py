@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ตรวจ observation สำหรับ candidate; ยังไม่อนุญาตเขียน deployment record."""
+"""Check observations for a candidate; does not yet permit writing a deployment record."""
 from datetime import datetime, timezone
 import argparse
 import hashlib
@@ -40,7 +40,7 @@ def parse_package(raw):
 
 
 def validate(observation, approved_sha256, now=None):
-    """ค่า approved_sha256 ต้องมาจากช่องทาง review ที่เชื่อถือได้ ไม่ใช่ observation เอง."""
+    """The approved_sha256 value must come from a trusted review channel, not from the observation itself."""
     if not valid('[0-9a-f]{64}', approved_sha256) or hashlib.sha256(canonical(observation)).hexdigest() != approved_sha256:
         raise RuntimeError('APPROVED_OBSERVATION_MISMATCH')
     result = validate_unreviewed(observation, now)
@@ -48,7 +48,7 @@ def validate(observation, approved_sha256, now=None):
 
 
 def validate_unreviewed(observation, now=None):
-    """ตรวจรูปแบบและความสอดคล้องเท่านั้น ไม่ยืนยันที่มาหรือการ review."""
+    """Checks format and consistency only; does not confirm provenance or review."""
     if (observation.get('schema'), observation.get('status')) != (
             'UatReleaseEvidenceObservationV1', 'OBSERVED_NOT_CERTIFIED') or observation.get('rollbackCertified') is not False:
         raise RuntimeError('OBSERVATION_NOT_ELIGIBLE')
@@ -128,7 +128,7 @@ def validate_unreviewed(observation, now=None):
 
 
 def validate_rehearsal(observation, approved_observation_sha256, proof, approved_proof_sha256, now=None):
-    """ตรวจหลักฐาน copy ที่ผ่าน review; ไม่อ้างว่าเป็น rollback บน VM."""
+    """Check the reviewed copy evidence; does not claim to be a rollback on the VM."""
     validate(observation, approved_observation_sha256, now)
     if not valid('[0-9a-f]{64}', approved_proof_sha256) or hashlib.sha256(canonical(proof)).hexdigest() != approved_proof_sha256:
         raise RuntimeError('APPROVED_REHEARSAL_MISMATCH')
@@ -138,7 +138,7 @@ def validate_rehearsal(observation, approved_observation_sha256, proof, approved
 
 
 def validate_rehearsal_unreviewed(observation, proof, now=None):
-    """ตรวจความสอดคล้องของ copy เท่านั้น ไม่อ้างว่า evidence ได้รับ review."""
+    """Checks copy consistency only; does not claim the evidence was reviewed."""
     validate_unreviewed(observation, now)
     if (proof.get('status'), proof.get('scope')) != (
             'COPY_OWNER_ACL_STANDARD_MIGRATIONS_GENERATED_WRITER_PASS', 'B714_VM2_APP_PERMISSION_COPY_ONLY'):
@@ -187,8 +187,8 @@ def migration_checksums(migrations):
 
 
 def api_restart_only(recorded, live):
-    """API container เดิม restart เอง (เช่น db-relay ถูกสร้างใหม่) ทำให้ startedAt ใหม่กว่า record เท่านั้น
-    container, image, config, source และ component อื่นทั้งหมดต้องตรง record เดิม"""
+    """The existing API container restarted by itself (e.g. db-relay was recreated), so only startedAt is newer than the record
+    container, image, config, source and every other component must match the existing record"""
     if not isinstance(recorded, dict) or set(recorded) != set(live) or recorded == live:
         return False
     if any(recorded[name] != live[name] for name in live if name != 'api'):
@@ -207,7 +207,7 @@ def api_restart_only(recorded, live):
 
 def validate_api_rollback_rehearsal(observation, approved_observation_sha256, rehearsal,
                                     approved_rehearsal_sha256, release_env, migration_guard, now=None):
-    """เทียบ rehearsal API-only กับ baseline ปัจจุบันก่อนเริ่ม maintenance บน UAT."""
+    """Compare the API-only rehearsal against the current baseline before starting maintenance on UAT."""
     validate(observation, approved_observation_sha256, now)
     if (not valid('[0-9a-f]{64}', approved_rehearsal_sha256)
             or hashlib.sha256(canonical(rehearsal)).hexdigest() != approved_rehearsal_sha256):
@@ -309,7 +309,7 @@ def read_api_rollback_input(path):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='ตรวจหลักฐาน API-only rollback rehearsal ก่อน maintenance')
+    parser = argparse.ArgumentParser(description='Verify the API-only rollback rehearsal evidence before maintenance')
     parser.add_argument('--observation', required=True, type=Path)
     parser.add_argument('--approved-observation-sha256', required=True)
     parser.add_argument('--api-rehearsal', required=True, type=Path)

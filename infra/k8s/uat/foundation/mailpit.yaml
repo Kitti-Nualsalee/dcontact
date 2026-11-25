@@ -1,4 +1,4 @@
-# อีเมลทดสอบอยู่ภายใน cluster เท่านั้น; ไม่มี Ingress
+# Test email stays inside the cluster only; there is no Ingress
 apiVersion: v1
 kind: Service
 metadata:

@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# #566 / ADR-031: server block ของ hostname สาธารณะสำหรับ LINE webhook บน VM1 เท่านั้น (รันด้วย sudo)
+# #566 / ADR-031: a server block for the public hostname for the LINE webhook on VM1 only (run with sudo)
 #
 #   sudo UAT_LINE_PUBLIC_HOST=<host> bash vm1-nginx-line-webhook.sh [--check|--apply|--remove]
 #
-# hostname สาธารณะ (DNS + NAT 443 จากทีม network) เปิดได้แค่ `POST /webhook/line` — path อื่น 404, method อื่น 403
-# server `dcontact-uat.osd.co.th` ของ LAN ไม่ถูกแตะ; ไฟล์ config แยกต่อ host และเพิ่มเท่านั้น (ADR-030)
-# `--remove` = kill ขารับที่ edge: ถอด config แล้ว reload (LINE ได้ connection error และ redeliver ภายหลัง)
+# the public hostname (DNS + NAT 443 from the network team) may open only `POST /webhook/line`; any other path 404, any other method 403
+# the LAN server `dcontact-uat.osd.co.th` is not touched; the config file is separate per host and additive only (ADR-030)
+# `--remove` = kill the receiving leg at the edge: remove the config then reload (LINE gets a connection error and redelivers later)
 set -euo pipefail
 
 mode="${1:---check}"
@@ -13,32 +13,32 @@ mode="${1:---check}"
   echo 'usage: sudo UAT_LINE_PUBLIC_HOST=<host> bash vm1-nginx-line-webhook.sh [--check|--apply|--remove]' >&2
   exit 64
 }
-[[ "$(id -u)" -eq 0 ]] || { echo 'ต้องรันด้วย sudo บน VM1' >&2; exit 1; }
+[[ "$(id -u)" -eq 0 ]] || { echo 'must run with sudo on VM1' >&2; exit 1; }
 
 host="${UAT_LINE_PUBLIC_HOST:?UAT_LINE_PUBLIC_HOST is required}"
-[[ "$host" =~ ^[a-z0-9-]+\.osd\.co\.th$ ]] || { echo 'host ต้องอยู่ใต้ wildcard *.osd.co.th' >&2; exit 1; }
-[[ "$host" != dcontact-uat.osd.co.th ]] || { echo 'ห้ามใช้ host ของ LAN เป็น host สาธารณะ' >&2; exit 1; }
+[[ "$host" =~ ^[a-z0-9-]+\.osd\.co\.th$ ]] || { echo 'host must be under the wildcard *.osd.co.th' >&2; exit 1; }
+[[ "$host" != dcontact-uat.osd.co.th ]] || { echo 'the LAN host must not be used as the public host' >&2; exit 1; }
 vm1=192.168.102.114
 vm2=192.168.102.112
 cert=/etc/nginx/ssl/star.osd.co.th_bundle.crt
 key=/etc/nginx/ssl/star.osd.co.th.key
 config="/etc/nginx/conf.d/${host}.conf"
 
-ip -4 -o addr show | grep -Fq "$vm1/" || { echo "เครื่องนี้ไม่มี IP $vm1" >&2; exit 1; }
+ip -4 -o addr show | grep -Fq "$vm1/" || { echo "this machine does not have IP $vm1" >&2; exit 1; }
 
 if [[ "$mode" == --remove ]]; then
-  [[ -e "$config" ]] || { echo "ไม่มี $config"; exit 0; }
-  grep -Fq '# D-Contact UAT LINE webhook' "$config" || { echo "$config ไม่ใช่ของ script นี้; หยุด" >&2; exit 1; }
+  [[ -e "$config" ]] || { echo "$config does not exist"; exit 0; }
+  grep -Fq '# D-Contact UAT LINE webhook' "$config" || { echo "$config does not belong to this script; stopping" >&2; exit 1; }
   rm -f "$config"
   nginx -t
   systemctl reload nginx
-  printf 'REMOVE ผ่าน: %s\n' "$config"
+  printf 'REMOVE passed: %s\n' "$config"
   exit 0
 fi
 
-[[ -f "$cert" && -f "$key" ]] || { echo 'ไม่พบ cert/key ที่คาดไว้' >&2; exit 1; }
-openssl x509 -in "$cert" -noout -checkhost "$host" | grep -q 'does match' || { echo 'cert ไม่ครอบคลุม host' >&2; exit 1; }
-openssl x509 -in "$cert" -noout -checkend 2592000 >/dev/null || { echo 'cert จะหมดอายุภายใน 30 วัน' >&2; exit 1; }
+[[ -f "$cert" && -f "$key" ]] || { echo 'expected cert/key not found' >&2; exit 1; }
+openssl x509 -in "$cert" -noout -checkhost "$host" | grep -q 'does match' || { echo 'cert does not cover the host' >&2; exit 1; }
+openssl x509 -in "$cert" -noout -checkend 2592000 >/dev/null || { echo 'cert expires within 30 days' >&2; exit 1; }
 nginx -t >/dev/null
 
 tmp="$(mktemp)"
@@ -82,16 +82,16 @@ server {
 NGINX
 
 if [[ -e "$config" ]] && ! cmp -s "$tmp" "$config"; then
-  echo "พบ $config ที่เนื้อหาไม่ตรง; หยุดเพื่อให้ตรวจด้วยมือ" >&2
+  echo "found $config with mismatched content; stopping so it can be checked by hand" >&2
   exit 1
 fi
 
 printf 'host: %s\n' "$host"
 printf 'nginx config: %s\n' "$config"
-printf 'upstream: %s:8080 (POST /webhook/line เท่านั้น)\n' "$vm2"
+printf 'upstream: %s:8080 (POST /webhook/line only)\n' "$vm2"
 
 if [[ "$mode" == --check ]]; then
-  echo 'CHECK ผ่าน; --apply จะเพิ่ม config, ตรวจ nginx -t และ reload nginx'
+  echo 'CHECK passed; --apply will add the config, run nginx -t and reload nginx'
   exit 0
 fi
 
@@ -102,8 +102,8 @@ if [[ ! -e "$config" ]]; then
 fi
 if ! nginx -t; then
   if [[ "$created" -eq 1 ]]; then rm -f "$config"; fi
-  echo 'nginx -t ไม่ผ่าน; ถอน config ที่เพิ่งเพิ่มแล้ว' >&2
+  echo 'nginx -t failed; removing the config that was just added' >&2
   exit 1
 fi
 systemctl reload nginx
-printf 'APPLY ผ่าน: %s\n' "$config"
+printf 'APPLY passed: %s\n' "$config"

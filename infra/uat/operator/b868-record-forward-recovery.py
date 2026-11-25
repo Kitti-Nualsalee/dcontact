@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""กู้การเขียน record ไปข้างหน้าจาก intent/evidence ที่อนุมัติ; ไม่เปลี่ยน runtime."""
+"""Recover a record write going forward from approved intent/evidence; does not change the runtime."""
 import argparse
 from datetime import datetime, timezone
 import fcntl
@@ -44,7 +44,7 @@ def load_verified_code(name, path, expected_sha256):
         raise RuntimeError('FORWARD_REVIEWED_HELPER_CHANGED')
     module = types.ModuleType(name)
     module.__file__ = str(path)
-    # execute bytes ที่ตรวจแล้ว ไม่เปิด path เดิมซ้ำหลังตรวจ hash
+    # execute the bytes that were verified; never reopen the original path after the hash check
     exec(compile(raw, str(path), 'exec'), module.__dict__)
     return module
 
@@ -89,7 +89,7 @@ def recover(root, approved_intent_sha256, evidence, approved_evidence_sha256, ac
     root = Path(root)
     if not isinstance(actor, str) or not re.fullmatch(r'operator:[A-Za-z0-9][A-Za-z0-9._@-]{0,127}', actor):
         raise RuntimeError('FORWARD_ACTOR_REQUIRED')
-    # hash ที่อนุมัติต้องมาจากการ review อิสระ ไม่อนุมาน approval จากไฟล์ evidence เอง
+    # the approved hash must come from an independent review; do not infer approval from the evidence file itself
     evidence = json.loads(CANDIDATE.canonical(evidence))
     def check_time():
         return now() if callable(now) else now or datetime.now(timezone.utc)
@@ -241,7 +241,7 @@ def main():
                                  args.approved_evidence_sha256, args.actor), separators=(',', ':')))
         return 0
     except Exception:
-        # อาจ commit ไปบางส่วนแล้ว: คง journal/gate และห้ามแสดง DB/helper stderr
+        # may have partially committed: keep the journal/gate and never show DB/helper stderr
         print(json.dumps({'status': 'FORWARD_RECOVERY_STOPPED_INSPECT_JOURNAL',
                           'mayHaveCommitted': True, 'rollbackCertified': False}))
         return 1

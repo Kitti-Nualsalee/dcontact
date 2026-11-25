@@ -50,7 +50,7 @@ class FakeIptables:
             rows.remove(('-A', target, *arguments[7:]))
         elif operation == '-F':
             if target not in media.CHAINS.values():
-                raise AssertionError('ห้าม flush unrelated/built-in chain')
+                raise AssertionError('must not flush an unrelated/built-in chain')
             rows[:] = [row for row in rows if row[:2] != ('-A', target)]
         elif operation == '-X':
             rows.remove(('-N', target))

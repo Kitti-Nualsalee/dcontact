@@ -1,4 +1,4 @@
-# A1.9 (#574): project แยก; ใช้ internal network ของ U1 เพื่อเข้าถึง Keycloak/DB relay เท่านั้น
+# A1.9 (#574): separate project; uses U1's internal network only to reach Keycloak/the DB relay
 name: dcontact-platform-uat
 
 x-hardening: &hardening
@@ -59,7 +59,7 @@ services:
       PLATFORM_SIP_BASE_DOMAIN: ${PLATFORM_SIP_BASE_DOMAIN:?required}
       KEYCLOAK_URL: http://keycloak:8080/auth
       KEYCLOAK_PROVISIONER_SECRET: ${KEYCLOAK_PROVISIONER_SECRET:?required}
-      # #901: binding ของ first admin ผูก issuer/client ของ tenant Console ใน deployment นี้
+      # #901: the first admin binding ties to the issuer/client of the tenant Console in this deployment
       PLATFORM_TENANT_CONSOLE_ISSUER: https://dcontact-uat.osd.co.th/auth/realms/dcontact
       PLATFORM_TENANT_CONSOLE_CLIENT_ID: dcontact-uat-console
       PLATFORM_TENANT_CONSOLE_ORIGIN: https://dcontact-uat.osd.co.th
@@ -82,8 +82,8 @@ services:
     command:
       - /bin/sh
       - -ec
-      # #592: account service (fine-grained admin permissions v2) ต้องรันหลัง provisioning setup
-      # #645: browser flow ของ realm UAT เป็นของ U1 `keycloak-config` (บังคับ OTP ทุกบัญชี) — ห้ามผูก dcontact-browser ทับ
+      # #592: the account service (fine-grained admin permissions v2) must run after provisioning setup
+      # #645: the UAT realm browser flow belongs to U1 `keycloak-config` (enforces OTP on every account); never bind dcontact-browser over it
       - node scripts/keycloak-platform-setup.mjs --no-dev-users && node scripts/keycloak-provisioning-setup.mjs && node scripts/keycloak-account-service-setup.mjs --keep-realm-browser-flow
     environment:
       KEYCLOAK_ADMIN_URL: http://keycloak:8080/auth
@@ -91,7 +91,7 @@ services:
       KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD: ${UAT_KEYCLOAK_ADMIN_PASSWORD:?required}
       KEYCLOAK_PROVISIONER_SECRET: ${KEYCLOAK_PROVISIONER_SECRET:?required}
       KEYCLOAK_ACCOUNT_SERVICE_SECRET: ${KEYCLOAK_ACCOUNT_SERVICE_SECRET:?required}
-      # AC3 (#596): SMTP ชุดเดียวกับ email บัญชีของ D-Contact (uat.env) — ไม่ตั้ง = mailpit ภายใน stack
+      # AC3 (#596): the same SMTP set as D-Contact account email (uat.env); unset = the in-stack mailpit
       KEYCLOAK_SMTP_HOST: ${SMTP_HOST:-mailpit}
       KEYCLOAK_SMTP_PORT: ${SMTP_PORT:-1025}
       KEYCLOAK_SMTP_SECURE: ${SMTP_SECURE:-false}
@@ -99,7 +99,7 @@ services:
       KEYCLOAK_SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       KEYCLOAK_SMTP_FROM: ${SMTP_FROM:-no-reply@dcontact-uat.osd.co.th}
       PLATFORM_CONSOLE_REDIRECT: https://platform-uat.osd.co.th
-      # #907: provisioner แก้ได้เฉพาะ client นี้ (fine-grained permission) เพื่อเพิ่ม redirect ราย tenant
+      # #907: the provisioner may edit only this client (fine-grained permission) to add per-tenant redirects
       PLATFORM_TENANT_CONSOLE_CLIENT_ID: dcontact-uat-console
     networks: [uat-internal]
     depends_on: [mailpit]
@@ -114,7 +114,7 @@ services:
     security_opt:
       - no-new-privileges:true
     cap_drop: [ALL]
-    # #592: operator ใหม่ไม่อยู่ใน Organization ใด — รัน account setup ซ้ำเพื่อเพิ่มเข้า deny ของ account service
+    # #592: the new operator is in no Organization; rerun account setup to add it to the account service deny list
     command:
       - /bin/sh
       - -ec

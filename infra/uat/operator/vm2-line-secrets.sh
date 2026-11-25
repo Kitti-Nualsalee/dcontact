@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# #565 / ADR-031: ใส่ secret ของ LINE pilot บน VM2 สำหรับ overlay `uat-line` — รันบน VM2 ด้วย sudo
+# #565 / ADR-031: place the LINE pilot secrets on VM2 for the `uat-line` overlay; run on VM2 with sudo
 #
-#   sudo infra/uat/operator/vm2-line-secrets.sh            ครั้งแรก: token + channel secret + สุ่ม payload key
-#   sudo infra/uat/operator/vm2-line-secrets.sh --rotate   หมุน token/channel secret (เช่น v4 → v5) แล้วรัน
+#   sudo infra/uat/operator/vm2-line-secrets.sh            first time: token + channel secret + a random payload key
+#   sudo infra/uat/operator/vm2-line-secrets.sh --rotate   rotate the token/channel secret (e.g. v4 → v5) and then run
 #                                                          `uat-deploy.sh line-reload <sha>`
 #
-# ค่ารับทาง stdin เท่านั้น (บน terminal ไม่ echo) จึงไม่อยู่ใน shell history หรือ argument ของ process
-# บรรทัดที่ 1 = channel access token, บรรทัดที่ 2 = channel secret
-# payload key สุ่มครั้งเดียวและไม่หมุน — key ใหม่ทำให้ payload ของ webhook ที่เก็บไว้ถอดรหัสไม่ได้
-# ไฟล์เป็น 0400 ของ uid 10001 (user ใน image ของ api/ops) — script ไม่พิมพ์ค่าใด ๆ
+# values are accepted over stdin only (not echoed on a terminal), so they never land in shell history or process arguments
+# line 1 = channel access token, line 2 = channel secret
+# the payload key is random once and never rotated: a new key would make stored webhook payloads undecryptable
+# files are 0400 owned by uid 10001 (the user in the api/ops image); the script prints no values
 set -euo pipefail
 umask 077
 
@@ -47,7 +47,7 @@ read_secret() {
 
 token="$(read_secret 'channel access token')"
 channel_secret="$(read_secret 'channel secret')"
-# token: ตัวอักษรของ JWT/long-lived token เท่านั้น; channel secret ของ LINE = hex 32 ตัว
+# token: only the characters of a JWT/long-lived token; the LINE channel secret = 32 hex characters
 [[ "$token" =~ ^[A-Za-z0-9._~+/=-]{20,4096}$ ]] || fail 'TOKEN_FORMAT'
 [[ "$channel_secret" =~ ^[0-9a-f]{32}$ ]] || fail 'CHANNEL_SECRET_FORMAT'
 
@@ -74,5 +74,5 @@ for name in "$ACCESS_FILE" "$CHANNEL_FILE" "$KEY_FILE"; do
 done
 echo "{\"type\":\"u1.uat.line-secrets\",\"status\":\"PASS\",\"rotated\":$rotate}"
 if [[ "$rotate" == true ]]; then
-  echo 'ขั้นต่อไป: uat-deploy.sh line-reload <sha ปัจจุบัน> แล้วลงทะเบียน credential ใหม่ด้วย line-pilot-setup credential' >&2
+  echo 'next: uat-deploy.sh line-reload <current sha>, then register the new credential with line-pilot-setup credential' >&2
 fi

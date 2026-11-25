@@ -1,4 +1,4 @@
-# มี public route เฉพาะสอง Console; TLS Secret เตรียมชื่อไว้และต้องสร้างจริงภายหลัง
+# Only the two Consoles have public routes; the TLS Secret names are reserved and the Secrets must be created later
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ตรวจ journal release record แบบอ่านอย่างเดียว; ไม่ตัดสินใจแก้หรือรับรอง runtime."""
+"""Inspect the release record journal read-only; does not decide to repair or certify the runtime."""
 import argparse
 import fcntl
 import hashlib

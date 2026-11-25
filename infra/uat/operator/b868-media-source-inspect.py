@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ตรวจ media source และ mount แบบอ่านอย่างเดียว โดยไม่รับรอง rollback."""
+"""Inspect the media source and mounts read-only without certifying rollback."""
 import fcntl
 import hashlib
 import json

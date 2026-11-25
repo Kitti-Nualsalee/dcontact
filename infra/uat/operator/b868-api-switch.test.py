@@ -18,7 +18,7 @@ CANDIDATE_ID = 'sha256:' + '2' * 64
 
 
 class FakeDeps:
-    """จำลอง Docker/Compose/DB/proxy ของ VM2 ให้ทดสอบลำดับ mutation และ fail-closed"""
+    """Simulate the Docker/Compose/DB/proxy of VM2 to test the mutation order and fail-closed behavior"""
 
     def __init__(self):
         self.counter = 0

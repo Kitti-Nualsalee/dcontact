@@ -1,4 +1,4 @@
-# สั่งแยกหลัง DB team ส่งมอบ role/database และก่อนเปิด API/worker
+# Run separately after the DB team hands over the role/database and before the API/worker are enabled
 apiVersion: batch/v1
 kind: Job
 metadata:

@@ -1,13 +1,13 @@
 #!/bin/sh
-# U1.6 (#434): role ของ Postgres ใน UAT — รันใน container postgres (compose service `db-roles`)
+# U1.6 (#434): Postgres roles in UAT; runs in the postgres container (compose service `db-roles`)
 #
-# - role/database ของ Keycloak (รหัสผ่านจาก UAT_KEYCLOAK_DB_PASSWORD)
-# - `dcontact_app` (role ของ API, NOBYPASSRLS จาก rls.sql) ตั้งรหัสผ่านจาก UAT_APP_DB_PASSWORD
-#   rls.sql สร้าง role ด้วยรหัสผ่านของ dev จึงต้องเขียนทับทุกครั้ง (ห้ามใช้ credential ร่วมกับ dev)
-# - `dcontact_platform`/`dcontact_provisioner` ไม่ถูกใช้ใน UAT first slice → NOLOGIN ไม่มีรหัสผ่าน
-# รันทั้งก่อนและหลัง migrate (idempotent)
+# - the Keycloak role/database (password from UAT_KEYCLOAK_DB_PASSWORD)
+# - `dcontact_app` (the API role, NOBYPASSRLS from rls.sql) gets its password from UAT_APP_DB_PASSWORD
+#   rls.sql creates the role with the dev password, so it must be overwritten every time (never share credentials with dev)
+# - `dcontact_platform`/`dcontact_provisioner` are not used in the UAT first slice → NOLOGIN with no password
+# runs both before and after migrate (idempotent)
 #
-# รหัสผ่านส่งผ่านตัวแปรของ psql ทาง stdin — ไม่ปรากฏใน command line หรือ log
+# passwords go through psql variables over stdin, so they never appear in a command line or log
 set -eu
 
 : "${UAT_KEYCLOAK_DB_PASSWORD:?UAT_KEYCLOAK_DB_PASSWORD is required}"
@@ -22,13 +22,13 @@ ALTER ROLE keycloak WITH LOGIN PASSWORD :'keycloak_password';
 SELECT 'CREATE DATABASE keycloak OWNER keycloak'
   WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'keycloak') \gexec
 
--- ก่อน migrate ครั้งแรก role ของ application ยังไม่มี — สร้างรอไว้แบบ NOLOGIN แล้ว rls.sql ให้สิทธิ์ภายหลัง
+-- before the first migrate the application role does not exist yet; create it as NOLOGIN in advance and rls.sql grants privileges later
 SELECT 'CREATE ROLE dcontact_app NOLOGIN NOBYPASSRLS'
   WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'dcontact_app') \gexec
 ALTER ROLE dcontact_app WITH LOGIN NOBYPASSRLS PASSWORD :'app_password';
 
--- migration/rls.sql สร้าง role ของ Platform ด้วยรหัสผ่านของ dev ถ้ายังไม่มี — สร้างรอไว้แบบ NOLOGIN ก่อน
--- จึงไม่มีช่วงที่ role เหล่านี้ login ด้วยรหัสผ่านของ dev ได้ (UAT first slice ไม่ใช้ Platform)
+-- migration/rls.sql creates the Platform roles with the dev password if they do not exist; create them as NOLOGIN first
+-- so there is never a window where these roles can log in with the dev password (the UAT first slice does not use Platform)
 SELECT format('CREATE ROLE %I NOLOGIN NOBYPASSRLS', name)
   FROM unnest(ARRAY['dcontact_platform', 'dcontact_provisioner']) AS name
   WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = name) \gexec

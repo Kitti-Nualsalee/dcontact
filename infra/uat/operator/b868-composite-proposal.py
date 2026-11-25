@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ประกอบข้อเสนอ record จากหลักฐานส่วนตัว; ไม่มีคำสั่งเขียน deployment pointer."""
+"""Assemble a record proposal from private evidence; has no command that writes a deployment pointer."""
 from datetime import datetime, timezone
 import hashlib
 import importlib.util
@@ -48,7 +48,7 @@ def reference(ref, root):
 
 
 def build(manifest_path, expected_sha256, root=ROOT, now=None):
-    """ผลลัพธ์เป็น proposal เท่านั้น; expected hash ไม่ใช่หลักฐานอนุมัติ."""
+    """The result is a proposal only; the expected hash is not approval evidence."""
     now = now or datetime.now(timezone.utc)
     raw = read_private(manifest_path, root)
     if not re.fullmatch('[0-9a-f]{64}', str(expected_sha256)) or sha(raw) != expected_sha256:
@@ -166,7 +166,7 @@ def build(manifest_path, expected_sha256, root=ROOT, now=None):
 
 
 def build_observed_record(manifest_path, expected_sha256, current_raw, previous_raw, root=ROOT, now=None):
-    """เติม observation ราย component โดยรักษา legacy layout และประวัติเดิม."""
+    """Fill in per-component observations while preserving the legacy layout and existing history."""
     now = now or datetime.now(timezone.utc)
     proposal = build(manifest_path, expected_sha256, root, now)
     if proposal['schema'] != 'UatCompositeReconciliationProposalV2':

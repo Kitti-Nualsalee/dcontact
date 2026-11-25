@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ตรวจความต่างระหว่าง deployment record และ runtime โดยไม่แก้ระบบ."""
+"""Check the differences between the deployment record and the runtime without changing the system."""
 import hashlib
 import json
 import os
@@ -75,8 +75,8 @@ def inspect(root=ROOT, execute=subprocess.run, allow_missing=False, fallback_cur
             if not re.fullmatch('sha256:[0-9a-f]{64}', str(container.get('Image', ''))):
                 raise RuntimeError('RUNTIME_IMAGE_ID_REQUIRED')
             config = {key: container[key] for key in ('Config', 'HostConfig', 'Mounts')}
-            # Docker ไม่รับประกันลำดับ Mounts เมื่อ inspect หลาย container (#868 proxy มี fence mount เพิ่ม)
-            # เรียงตาม Destination; container ที่มี mount ไม่เกินหนึ่งตัวได้ hash เท่าเดิม
+            # Docker does not guarantee the order of Mounts when inspecting several containers (#868 proxy has an extra fence mount)
+            # sort by Destination; a container with at most one mount gets the same hash as before
             config['Mounts'] = sorted(config['Mounts'] or [], key=lambda mount: (
                 str(mount.get('Destination')), str(mount.get('Source')))) if config['Mounts'] else config['Mounts']
             config_bytes = json.dumps(config, sort_keys=True, separators=(',', ':')).encode()

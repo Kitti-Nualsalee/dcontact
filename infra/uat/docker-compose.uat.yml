@@ -1,18 +1,18 @@
-# U1.6 (#434): UAT stack ของ UAT first slice บน VM เดียว (production-shaped) — ตาม #373/#374
+# U1.6 (#434): the UAT stack for the UAT first slice on a single VM (production-shaped), per #373/#374
 #
-# มีเฉพาะ: proxy (Console + TLS), api (profile `uat`), Keycloak (production mode), Postgres,
+# contains only: proxy (Console + TLS), api (profile `uat`), Keycloak (production mode), Postgres,
 # object storage (SeaweedFS, ADR-029/#540) + lifecycle
-# ไม่มี `apps/journey` worker, FreeSWITCH, Kafka/Redpanda หรือ Redis — การเพิ่ม service เหล่านี้คือ stop condition
+# no `apps/journey` worker, FreeSWITCH, Kafka/Redpanda or Redis; adding any of these services is a stop condition
 #
-# - ไม่มีค่า default ของ credential: ทุก secret มาจาก env file บน VM (`/opt/dcontact-uat/uat.env`)
-#   ด้วยรูป `${VAR:?...}` — ขาดตัวใด compose ไม่ยอม render
-# - image ของเราอ้างด้วย digest (`${API_IMAGE}` ฯลฯ = `ghcr.io/...@sha256:...`) ที่ workflow เขียนลง
-#   `release.env`; image ภายนอก pin digest ตรงนี้
-# - มีแค่ proxy ที่เปิดพอร์ตสู่ host (443 และ 80 สำหรับ redirect) — DB, object storage, Keycloak และ api ไม่เปิด
-# - service ใน profile `ops` เป็น one-shot ที่ `infra/uat/bin/uat-deploy.sh` สั่งตามลำดับ;
-#   `object-storage-init` เป็น one-shot นอก profile เพราะ api ต้องรอให้จบสำเร็จก่อนบูต (U1.5 #433)
+# - no default credential values: every secret comes from the env file on the VM (`/opt/dcontact-uat/uat.env`)
+#   in the form `${VAR:?...}`; if any is missing compose refuses to render
+# - our images are referenced by digest (`${API_IMAGE}` etc. = `ghcr.io/...@sha256:...`) which the workflow writes into
+#   `release.env`; external images pin their digest here
+# - only the proxy opens ports to the host (443, and 80 for the redirect); the DB, object storage, Keycloak and api do not
+# - services in the `ops` profile are one-shots that `infra/uat/bin/uat-deploy.sh` runs in order;
+#   `object-storage-init` is a one-shot outside any profile because api must wait for it to finish successfully before booting (U1.5 #433)
 #
-# ใช้งาน: docker compose --env-file uat.env --env-file release.env -f docker-compose.uat.yml ...
+# usage: docker compose --env-file uat.env --env-file release.env -f docker-compose.uat.yml ...
 name: dcontact-uat
 
 x-hardening: &hardening
@@ -59,10 +59,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      # U1.5 (#433): API บูตไม่ผ่านถ้า bucket หลักฐานไม่พร้อม — รอ object-storage-init (bucket private) ก่อน
+      # U1.5 (#433): the API fails to boot if the evidence bucket is not ready; wait for object-storage-init (private bucket) first
       object-storage-init:
         condition: service_completed_successfully
-    # U1.2 (#430): profile uat ปิด Kafka/LINE/egress เชิงโครงสร้าง; ห้ามใส่ LINE_*, KAFKA_BROKERS, SIP_*
+    # U1.2 (#430): the uat profile structurally disables Kafka/LINE/egress; never add LINE_*, KAFKA_BROKERS, SIP_*
     environment:
       NODE_ENV: production
       DCONTACT_API_PROFILE: uat
@@ -76,7 +76,7 @@ services:
       J5_PUBLISH_UI_ENABLED: 'true'
       J5_TEMPLATE_CATALOG_ENABLED: 'false'
       J5_TEMPLATE_UPGRADE_ENABLED: 'false'
-      # U1.5 (#433) + #540: evidence storage — user เฉพาะของ API (policy uat-evidence-api) ไม่ใช่ root ของ storage
+      # U1.5 (#433) + #540: evidence storage; the API's own user (policy uat-evidence-api), not the storage root
       S3_ENDPOINT: http://object-storage:8333
       S3_ACCESS_KEY: ${UAT_S3_API_ACCESS_KEY:?UAT_S3_API_ACCESS_KEY is required}
       S3_SECRET_KEY: ${UAT_S3_API_SECRET_KEY:?UAT_S3_API_SECRET_KEY is required}
@@ -87,13 +87,13 @@ services:
 
   keycloak:
     <<: *hardening
-    # Keycloak 26.7.5 (#592) + login/email theme ของ D-Contact (#515/#522) — build จาก infra/keycloak/Dockerfile
+    # Keycloak 26.7.5 (#592) + the D-Contact login/email theme (#515/#522); built from infra/keycloak/Dockerfile
     image: ${KEYCLOAK_IMAGE:?KEYCLOAK_IMAGE (digest) is required}
     depends_on:
       postgres:
         condition: service_healthy
-    # production mode (`start`) หลัง proxy: TLS จบที่ proxy, Keycloak ฟัง http ภายใน network เท่านั้น
-    # realm ไม่ import ตอนบูต — `u1-uat-keycloak-users.mjs --config` สร้าง/reconcile จาก template ที่ render แล้ว
+    # production mode (`start`) behind the proxy: TLS terminates at the proxy, Keycloak listens on plain http inside the network only
+    # the realm is not imported at boot; `u1-uat-keycloak-users.mjs --config` creates/reconciles it from the rendered template
     command:
       - start
       - --features=organization
@@ -110,8 +110,8 @@ services:
       KC_HEALTH_ENABLED: 'true'
       KC_BOOTSTRAP_ADMIN_USERNAME: ${UAT_KEYCLOAK_ADMIN_USERNAME:?UAT_KEYCLOAK_ADMIN_USERNAME is required}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${UAT_KEYCLOAK_ADMIN_PASSWORD:?UAT_KEYCLOAK_ADMIN_PASSWORD is required}
-    # #680: ตรวจ status line = 200 (ready ตอบ 503 เมื่อ DOWN) — ห้าม grep คำว่า UP ทั้ง body เพราะระหว่าง bootstrap
-    # check ย่อยอย่าง "Graceful Shutdown" เป็น UP ทั้งที่ภาพรวมยัง DOWN
+    # #680: check the status line = 200 (ready answers 503 when DOWN); never grep the word UP across the whole body because during bootstrap
+    # a sub-check such as "Graceful Shutdown" is UP even while the overall status is still DOWN
     healthcheck:
       test:
         - CMD
@@ -148,14 +148,14 @@ services:
     networks:
       - internal
 
-  # U1.5 (#433) + #540 (ADR-029): evidence ของ UAT บน SeaweedFS — bucket `uat-evidence` แบบ private
-  # `weed server -s3` (ไม่ใช้ `weed mini` ที่เปิด admin/worker gRPC แบบไม่มี mTLS — spike #539)
-  # s3.json (identity root + uat-evidence-api และ policy) สร้างใน tmpfs โดย entrypoint — secret ไม่ลง volume
-  # retention 90 วันเป็น lifecycle ที่ API ตั้งตอนบูต และ `object-storage-lifecycle` รัน pass; ไม่เปิดพอร์ตสู่ host
+  # U1.5 (#433) + #540 (ADR-029): UAT evidence on SeaweedFS; a private bucket `uat-evidence`
+  # `weed server -s3` (not `weed mini`, which opens admin/worker gRPC without mTLS; spike #539)
+  # s3.json (root identity + uat-evidence-api and its policy) is created in tmpfs by the entrypoint; secrets never land on a volume
+  # 90-day retention is a lifecycle the API sets at boot, and `object-storage-lifecycle` runs the pass; no port is opened to the host
   object-storage:
     <<: *hardening
     image: docker.io/chrislusf/seaweedfs:4.48@sha256:4e61d15fd35994cb1e43e1e553dff106794841fd9a99ade2fc8c8bfce4d7872d
-    # ข้าม entrypoint ของ image (ใช้ su-exec ซึ่งต้องมี capability) — รันเป็น user seaweed ตรง ๆ
+    # skip the image entrypoint (it uses su-exec, which needs a capability); run directly as user seaweed
     user: '1000:1000'
     entrypoint: ['/bin/sh', '/uat/object-storage-entrypoint.sh']
     environment:
@@ -177,8 +177,8 @@ services:
     networks:
       - internal
 
-  # #540: SeaweedFS 4.48 ไม่รัน lifecycle pass เอง (spike #539) — service นี้รันทุก 1 ชม.
-  # ลบ object ที่ถึงวันตาม rule ของ bucket (uat-evidence/ 90 วัน)
+  # #540: SeaweedFS 4.48 does not run the lifecycle pass itself (spike #539); this service runs it every 1 hour
+  # and deletes objects that have reached their date per the bucket rule (uat-evidence/ 90 days)
   object-storage-lifecycle:
     <<: *hardening
     image: docker.io/chrislusf/seaweedfs:4.48@sha256:4e61d15fd35994cb1e43e1e553dff106794841fd9a99ade2fc8c8bfce4d7872d
@@ -200,10 +200,10 @@ services:
     networks:
       - internal
 
-  # ── one-shot ของ operator ──────────────────────────────────────────────────────────
+  # ── operator one-shots ─────────────────────────────────────────────────────────────
 
-  # ทุก deploy (ไม่อยู่ใน profile ops เพราะ api รอให้จบก่อน): bucket private ผ่าน S3 API ด้วย root
-  # สิทธิ์ของ API มาจาก policy ใน s3.json ของ object-storage — ไม่มีการสร้าง user ผ่าน CLI ของผู้ผลิต
+  # every deploy (not in the ops profile because api waits for it to finish): private bucket via the S3 API with root
+  # the API's permissions come from the policy in object-storage's s3.json; no user is created through the vendor CLI
   object-storage-init:
     image: ${OPS_IMAGE:?OPS_IMAGE (digest) is required}
     restart: 'no'
@@ -218,7 +218,7 @@ services:
     networks:
       - internal
 
-  # สร้าง role/database ของ Keycloak และตั้งรหัสผ่าน role ของ application จาก secret (ไม่ใช้ค่าจาก rls.sql)
+  # creates the Keycloak role/database and sets the application role's password from a secret (does not use the value from rls.sql)
   db-roles:
     profiles: ['ops']
     image: docker.io/library/postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
@@ -238,7 +238,7 @@ services:
     networks:
       - internal
 
-  # additive migration เท่านั้น (`prisma migrate deploy`) แล้ว apply rls.sql — ไม่มี down migration
+  # additive migrations only (`prisma migrate deploy`) then apply rls.sql; there is no down migration
   migrate:
     profiles: ['ops']
     image: ${OPS_IMAGE:?OPS_IMAGE (digest) is required}
@@ -254,7 +254,7 @@ services:
     networks:
       - internal
 
-  # realm/client/Organization/OTP และบัญชี maker/reviewer ผ่าน admin REST ภายใน network
+  # realm/client/Organization/OTP and the maker/reviewer accounts through the admin REST inside the network
   keycloak-config:
     profiles: ['ops']
     image: ${OPS_IMAGE:?OPS_IMAGE (digest) is required}
@@ -274,7 +274,7 @@ services:
       UAT_CONSOLE_EXPECTED_REDIRECT_DIGEST: ${UAT_CONSOLE_EXPECTED_REDIRECT_DIGEST}
       UAT_TENANT_NAME: ${UAT_TENANT_NAME:?UAT_TENANT_NAME is required}
       UAT_ORGANIZATION_DOMAIN: ${UAT_ORGANIZATION_DOMAIN:?UAT_ORGANIZATION_DOMAIN is required}
-    # AC6 (#599): branding (displayName, account theme, baseUrl ของ account clients, attribute ภายในที่ผู้ใช้ไม่เห็น) ต่อท้ายสคริปต์ realm เดิม
+    # AC6 (#599): branding (displayName, account theme, baseUrl of the account clients, internal attributes users cannot see) appended to the existing realm script
     command:
       - /bin/sh
       - -ec
@@ -282,9 +282,9 @@ services:
     networks:
       - internal
 
-  # U1.8 (#502): tenant, owner team, users/subject/grant ของ maker-reviewer, rollout ของ Journey authoring และ
-  # fixture pack ของ UAT จากไฟล์ input `UatProvisionV1` ของ operator (ส่งทาง stdin ด้วย `uat-deploy.sh provision`)
-  # connection ของ owner เหมือน migrate — CLI ปฏิเสธเองถ้า current_user เป็น role ของ application (dcontact_app)
+  # U1.8 (#502): tenant, owner team, maker-reviewer users/subject/grant, Journey authoring rollout and
+  # the UAT fixture pack from the operator's `UatProvisionV1` input file (sent via stdin by `uat-deploy.sh provision`)
+  # same owner connection as migrate; the CLI refuses on its own if current_user is an application role (dcontact_app)
   uat-provision:
     profiles: ['ops']
     image: ${OPS_IMAGE:?OPS_IMAGE (digest) is required}
@@ -296,7 +296,7 @@ services:
       UAT_TENANT_ID: ${UAT_TENANT_ID:?UAT_TENANT_ID is required}
       UAT_TENANT_SLUG: ${UAT_TENANT_SLUG:?UAT_TENANT_SLUG is required}
     entrypoint: ['node', '/app/dist/uat-provision-main.js']
-    # ค่าเริ่มต้นปลอดภัย = --check (ไม่เขียน); `uat-deploy.sh provision` ส่ง argument จริงแทน
+    # the safe default = --check (no writes); `uat-deploy.sh provision` passes the real arguments instead
     command:
       - --check
       - --input
@@ -304,7 +304,7 @@ services:
     networks:
       - internal
 
-  # E1.16 (#490): operator เปิด/ปิด dphone embed ผ่าน domain CLI เดิม เพื่อเขียน flag + audit ใน transaction เดียว
+  # E1.16 (#490): the operator enables/disables the dphone embed through the existing domain CLI so the flag + audit are written in one transaction
   tenant-ui-flag:
     profiles: ['ops']
     image: ${OPS_IMAGE:?OPS_IMAGE (digest) is required}
@@ -329,6 +329,6 @@ volumes:
 
 networks:
   edge: {}
-  # service ภายในไม่มีทางออก internet (providerEgress BLOCKED เชิงเครือข่ายด้วย)
+  # internal services have no internet egress (providerEgress is also BLOCKED at the network level)
   internal:
     internal: true

@@ -1,4 +1,4 @@
-"""#901: authorization แบบเบาสำหรับ release ที่ migration เป็น additive ทับ deploy record ปกติ"""
+"""#901: lightweight authorization for a release whose migration is additive over the normal deploy record"""
 import hashlib
 import importlib.util
 import json
@@ -21,7 +21,7 @@ forward_tests = load('forward_tests', 'b868-forward-authorize.test.py')
 
 class AdditiveAuthorizeTests(unittest.TestCase):
     def setUp(self):
-        # ใช้ release directory, stub ของ docker และ lock ชุดเดียวกับ test ของ #868
+        # uses the same release directory, docker stub and lock as the #868 test
         self.base = forward_tests.ForwardAuthorizeTests('test_api_switch_pending_blocks_deploy_even_with_authorization')
         self.base.setUp()
         self.addCleanup(self.base.doCleanups)
@@ -35,7 +35,7 @@ class AdditiveAuthorizeTests(unittest.TestCase):
         (self.release / 'release.env').write_bytes(package)
         self.guard = {'type': 'u1.uat.readiness', 'mode': 'migration-guard', 'status': 'PASS',
                       'base': '1' * 40, 'head': self.sha,
-                      'checks': [{'id': 'UAT-M01 migration ใหม่เป็น additive', 'status': 'PASS',
+                      'checks': [{'id': 'UAT-M01 new migration is additive', 'status': 'PASS',
                                   'added': ['packages/db/prisma/migrations/20261113100000_x/migration.sql']}]}
         self.write_guard(self.guard)
 
@@ -64,7 +64,7 @@ class AdditiveAuthorizeTests(unittest.TestCase):
             allowed = self.deploy(action)
             self.assertEqual(allowed.returncode, 0, action + allowed.stderr)
 
-        # current เปลี่ยน (record ของ candidate ถูกเขียน) → ใช้ซ้ำไม่ได้
+        # current changes (the candidate's record was written) → cannot be reused
         (self.root / 'deployments' / 'current.json').write_bytes(self.current + b' ')
         self.assertIn('UAT_TARGET_COMPATIBILITY_EVIDENCE_REQUIRED', self.deploy().stderr)
 
@@ -82,7 +82,7 @@ class AdditiveAuthorizeTests(unittest.TestCase):
         path.write_text(json.dumps(original))
         path.chmod(0o600)
         self.assertEqual(self.deploy().returncode, 0)
-        # guard ใน release directory ถูกแก้หลังออก authorization
+        # the guard in the release directory was edited after the authorization was issued
         self.write_guard({**self.guard, 'status': 'FAIL'})
         self.assertIn('UAT_TARGET_COMPATIBILITY_EVIDENCE_REQUIRED', self.deploy().stderr)
 

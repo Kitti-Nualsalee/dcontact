@@ -165,7 +165,7 @@ test('update: recreates the Platform API/worker/Console from this release keepin
   writeFileSync(join(f.root, 'platform/platform.env'), env, { mode: 0o600 });
   const r = f.run('update');
   assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, /UPDATE ผ่าน/); // allow-thai: matches the Thai output of infra/uat/bin/uat-deploy.sh
+  assert.match(r.stdout, /UPDATE passed/);
   const compose = f.commands().filter((c) => c[0] === 'docker-compose');
   assert.ok(compose.every((c) => c.includes('dcontact-platform-uat')));
   assert.ok(
@@ -195,7 +195,7 @@ test('update: a release with incomplete files or a mismatched SHA must stop befo
   );
   const r = f.run('update');
   assert.notEqual(r.status, 0);
-  assert.match(r.stderr, /release SHA ไม่ตรง/); // allow-thai: matches the Thai output of infra/uat/bin/uat-deploy.sh
+  assert.match(r.stderr, /release SHA mismatch/);
   assert.ok(
     !existsSync(join(f.root, 'commands')) || !f.commands().some((c) => c[0] === 'docker-compose'),
   );

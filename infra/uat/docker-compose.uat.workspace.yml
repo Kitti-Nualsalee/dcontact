@@ -1,4 +1,4 @@
-# #684: opt-in บน E1; API และ static SPA จริงสำหรับสอง Workspace
+# #684: opt-in on E1; the real API and static SPA for the two Workspaces
 services:
   proxy:
     environment:

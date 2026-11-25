@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# #684: เพิ่ม vhost Workspace เท่านั้น ไม่แก้ Console หรือ permission ของ shared nginx
+# #684: add only the Workspace vhost; does not change the Console or the permissions of the shared nginx
 set -euo pipefail
 mode="${1:---check}"
 [[ "$mode" == --render || "$mode" == --check || "$mode" == --apply || "$mode" == --remove ]] || exit 64
@@ -41,17 +41,17 @@ server {
 }
 NGINX
 if [[ "$mode" == --render ]]; then cat "$candidate"; exit 0; fi
-[[ "$(id -u)" -eq 0 ]] || { echo 'ต้องรันด้วย sudo บน VM1' >&2; exit 1; }
+[[ "$(id -u)" -eq 0 ]] || { echo 'must run with sudo on VM1' >&2; exit 1; }
 ip -4 -o addr show | grep -Fq '192.168.102.114/' || exit 1
 config=/etc/nginx/conf.d/dcontact-workspace-uat.osd.co.th.conf
-[[ ! -L "$config" ]] || { echo 'พบ symlink; หยุด' >&2; exit 1; }
+[[ ! -L "$config" ]] || { echo 'found a symlink; stopping' >&2; exit 1; }
 if [[ -e "$config" ]] && ! cmp -s "$candidate" "$config"; then
-  echo 'พบ config ที่ต่างจากที่จัดการ; หยุดโดยไม่เขียนทับ' >&2; exit 1
+  echo 'found a config that differs from the managed one; stopping without overwriting' >&2; exit 1
 fi
 openssl x509 -in /etc/nginx/ssl/star.osd.co.th_bundle.crt -noout -checkhost dcontact-workspace-uat.osd.co.th | grep -q 'does match'
 openssl x509 -in /etc/nginx/ssl/star.osd.co.th_bundle.crt -noout -checkend 2592000 >/dev/null
 nginx -t
-if [[ "$mode" == --check ]]; then echo 'CHECK ผ่าน: vhost แยก ใช้ cert เดิม upstream VM2:8080'; exit 0; fi
+if [[ "$mode" == --check ]]; then echo 'CHECK passed: separate vhost, reuses the existing cert, upstream VM2:8080'; exit 0; fi
 created=false
 if [[ "$mode" == --apply ]]; then
   if [[ ! -e "$config" ]]; then
@@ -62,14 +62,14 @@ if [[ "$mode" == --apply ]]; then
     if [[ "$created" == true ]]; then rm -f "$config"; nginx -t && systemctl reload nginx; fi
     exit 1
   fi
-  echo 'APPLY ผ่าน: dcontact-workspace-uat.osd.co.th'
+  echo 'APPLY passed: dcontact-workspace-uat.osd.co.th'
 else
-  [[ -f "$config" ]] || { echo 'ไม่มี vhost; REMOVE ผ่าน'; exit 0; }
+  [[ -f "$config" ]] || { echo 'no vhost; REMOVE passed'; exit 0; }
   rm "$config"
   if ! nginx -t || ! systemctl reload nginx; then
     install -o root -g root -m 0644 "$candidate" "$config"
     nginx -t && systemctl reload nginx
     exit 1
   fi
-  echo 'REMOVE ผ่าน: ถอนเฉพาะ vhost Workspace'
+  echo 'REMOVE passed: removed only the Workspace vhost'
 fi

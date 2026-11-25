@@ -881,7 +881,7 @@ test('E1.16: the UAT image has the embed assets, the reference host and the dpho
   assert.match(e1Overlay, /\.\/Caddyfile\.3vm\.e1:\/etc\/caddy\/Caddyfile:ro/);
   assert.match(
     caddyE1,
-    /handle \/sip-ws \{\s+reverse_proxy https:\/\/freeswitch:7443 \{\s+# SIP response ต้องส่งทันที ไม่รวม buffer ระหว่าง WebSocket tunnel\s+flush_interval -1\s+transport http \{\s+tls_insecure_skip_verify/, // allow-thai: matches a Thai comment in infra/uat/Caddyfile.3vm.e1
+    /handle \/sip-ws \{\s+reverse_proxy https:\/\/freeswitch:7443 \{\s+# SIP responses must be sent immediately, with no buffering inside the WebSocket tunnel\s+flush_interval -1\s+transport http \{\s+tls_insecure_skip_verify/,
   );
   assert.doesNotMatch(caddyfile3vm, /\/sip-ws/);
   assert.match(apiDockerfile, /test -f \/out\/api\/dist\/e1-uat-main\.js/);
@@ -917,7 +917,7 @@ test('UAT-S22: the owner for migrate/backup can read FORCE RLS without elevating
   assert.match(bootstrap, /CREATE ROLE dcontact_uat_owner LOGIN INHERIT BYPASSRLS NOSUPERUSER/);
   assert.match(bootstrap, /CREATE ROLE dcontact_app LOGIN INHERIT NOBYPASSRLS NOSUPERUSER/);
   assert.match(repair, /ALTER ROLE dcontact_uat_owner BYPASSRLS;/);
-  assert.match(repair, /role dcontact_app ต้องเป็น LOGIN INHERIT NOBYPASSRLS/); // allow-thai: matches a Thai message in infra/uat/operator/vm3-uat-backup-role.sh
+  assert.match(repair, /role dcontact_app must be LOGIN INHERIT NOBYPASSRLS/);
   assert.doesNotMatch(repair, /(?:PASSWORD\s*=|UAT_[A-Z_]*PASSWORD)/);
 });
 
@@ -935,7 +935,7 @@ test('UAT-S23: VM1 forwards the SIP WebSocket through Caddy without buffering an
   assert.match(vm1Migration, /proxy_read_timeout 3600s/);
   assert.match(vm1Migration, /proxy_send_timeout 3600s/);
   assert.match(vm1Migration, /manual_sip_ws\.subn\('', source\)/);
-  assert.match(vm1Migration, /Caddy ใน release/); // allow-thai: matches Thai text in the VM1 migration operator script
+  assert.match(vm1Migration, /Caddy in the release/);
   assert.match(vm1Migration, /nginx -t/);
   assert.match(vm1Migration, /cp --preserve=mode,ownership/);
   assert.ok(

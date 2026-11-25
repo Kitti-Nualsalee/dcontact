@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""เขียน deploy record ต่อภายใต้ exclusive lock และ approval ของ caller
+"""Continue writing a deploy record under an exclusive lock and the caller's approval
 
-สำหรับเรียกภายในเท่านั้น: caller ต้องถือ b714-cutover.lock แบบ exclusive และ
-อนุมัติ runtime/ledger evidence ที่ยังสด โดยคง active journal เป็น mutation gate
+For internal calls only: the caller must hold b714-cutover.lock exclusively and
+approve fresh runtime/ledger evidence, keeping the active journal as the mutation gate
 """
 import importlib.util
 import json
@@ -26,7 +26,7 @@ def _sync_directory(path):
 
 
 def complete_locked(root, expected_intent_sha256):
-    """เขียนต่อเฉพาะ journal ที่ระบุด้วย intent hash ซึ่งผ่าน approval แล้ว"""
+    """Continue writing only the journal named by the intent hash that has already been approved"""
     root = Path(root)
     operator = root / 'operator'
     journal = operator / 'uat-record-transaction'
@@ -129,7 +129,7 @@ def complete_locked(root, expected_intent_sha256):
         check()
         if JOURNAL.read_private(archive_staging) != desired:
             raise RuntimeError('COMMIT_ARCHIVE_STAGING_CHANGED')
-        # path นี้เป็น staging ของ transaction ใน journal; retry เก็บ alias เดิมได้
+        # this path is the transaction's staging in the journal; a retry may keep the existing alias
         os.unlink(archive_staging)
         _sync_directory(journal)
     if os.stat(archive, follow_symlinks=False).st_nlink != 1:

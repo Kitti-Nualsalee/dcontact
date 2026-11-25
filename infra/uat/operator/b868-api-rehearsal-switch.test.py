@@ -71,7 +71,7 @@ class SwitchTests(unittest.TestCase):
         with self.assertRaisesRegex(runner.RehearsalError, 'COMPOSE_INTERRUPTED'):
             self.run_action('rollback')
         self.assertTrue(self.pending.exists())
-        # การกู้ครั้งแรกสลับกลับสำเร็จ แต่ Compose ส่งผลกลับไม่ครบ
+        # the first recovery switches back successfully but Compose returns an incomplete result
         with self.assertRaisesRegex(runner.RehearsalError, 'COMPOSE_INTERRUPTED'):
             self.run_action('recover')
         self.assertTrue(self.pending.exists())

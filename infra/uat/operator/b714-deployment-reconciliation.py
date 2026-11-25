@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""#714: ตรวจหลักฐานและ reconcile record เท่านั้น ไม่ deploy หรือแก้ฐานข้อมูล."""
+"""#714: only verifies evidence and reconciles the record; does not deploy or change the database."""
 import argparse
 from datetime import datetime, timezone
 import fcntl
@@ -340,7 +340,7 @@ def apply_record(manifest, root=ROOT):
 
 
 def _apply_record(manifest, root, prepare_candidate, inspect_candidate, *, preserve_previous=False, post_commit_check=None):
-    """ใช้ขั้นตอน commit เดียวกันหลังผ่านตัวตรวจหลักฐานของ candidate."""
+    """Use the same commit steps after the candidate evidence verifier passes."""
     deployments = root / 'deployments'
     operator = root / 'operator'
     pending = operator / 'b714-reconciliation.pending'
@@ -350,7 +350,7 @@ def _apply_record(manifest, root, prepare_candidate, inspect_candidate, *, prese
         require(not os.path.lexists(operator / 'uat-record-transaction'), 'RECORD_TRANSACTION_REQUIRES_MANUAL_REVIEW')
         require(not os.path.lexists(operator / 'uat-record-retirement.pending'), 'RECORD_RETIREMENT_REQUIRES_MANUAL_REVIEW')
         require(not os.path.lexists(operator / 'uat-rollback.pending'), 'ROLLBACK_PENDING_REQUIRES_MANUAL_REVIEW')
-        # #868: ระหว่างสลับ API runtime ไม่ตรง record ห้ามเขียน record ทับจน recover
+        # #868: while an API switch is in progress the runtime does not match the record; never overwrite the record until recovery
         require(not os.path.lexists(operator / 'uat-api-switch.pending'), 'API_SWITCH_PENDING_REQUIRES_RECOVER')
         require(not pending.exists(), 'PENDING_RECONCILIATION_REQUIRES_MANUAL_REVIEW')
         current, previous = deployments / 'current.json', deployments / 'previous.json'

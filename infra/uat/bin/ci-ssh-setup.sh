@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
-# U1.6 (#434): ตั้ง SSH ของ runner ไปยัง UAT VM จาก secrets ของ environment `uat-preview`
+# U1.6 (#434): set up the runner's SSH to the UAT VM from the `uat-preview` environment secrets
 #
-# รับค่าจาก env (workflow ส่ง `secrets.*` มาเฉพาะ step นี้) แล้วเขียนเป็นไฟล์ 0600 ใน $RUNNER_TEMP
-# ติดตั้ง wrapper `uat-ssh`, `uat-scp`, `uat-deploy` ลง PATH ของ step ถัดไป — ไม่ echo ค่า secret
-# StrictHostKeyChecking=yes: host key ต้องตรงกับ UAT_SSH_KNOWN_HOSTS ที่ verify ไว้ใน provisioning gate
+# takes values from env (the workflow passes `secrets.*` to this step only) and writes them as 0600 files in $RUNNER_TEMP
+# installs the `uat-ssh`, `uat-scp`, `uat-deploy` wrappers onto the PATH of later steps; never echoes secret values
+# StrictHostKeyChecking=yes: the host key must match the UAT_SSH_KNOWN_HOSTS verified at the provisioning gate
 set -euo pipefail
 umask 077
 
 for name in UAT_SSH_PRIVATE_KEY UAT_SSH_KNOWN_HOSTS UAT_SSH_HOST UAT_SSH_USER; do
   if [[ -z "${!name:-}" ]]; then
-    echo "missing secret: ${name} (provisioning gate ยังไม่ครบ)" >&2
+    echo "missing secret: ${name} (provisioning gate incomplete)" >&2
     exit 1
   fi
 done
 
-# ค่าที่ derive จาก secret ต้อง mask ด้วย (runner mask เฉพาะค่า secret ตรงตัว)
+# values derived from a secret must be masked too (the runner masks only exact secret values)
 echo "::add-mask::${UAT_SSH_USER}@${UAT_SSH_HOST}"
 
 dir="${RUNNER_TEMP:?}/uat-ssh"
@@ -42,8 +42,8 @@ cat >"$dir/bin/uat-scp" <<WRAPPER
 #!/usr/bin/env bash
 exec scp -q -F '${dir}/config' "\$@"
 WRAPPER
-# รัน infra/uat/bin/uat-deploy.sh ของ checkout นี้บน VM: คัดลอกเป็นไฟล์ชั่วคราวก่อนแล้วค่อยรัน
-# (ไม่รันจาก stdin ตรง ๆ เพราะ `docker compose exec/run` จะกลืน stdin ที่เหลือของ script)
+# runs this checkout's infra/uat/bin/uat-deploy.sh on the VM: copy it to a temporary file first, then run it
+# (not run straight from stdin because `docker compose exec/run` would swallow the rest of the script's stdin)
 cat >"$dir/bin/uat-deploy" <<WRAPPER
 #!/usr/bin/env bash
 set -euo pipefail
@@ -54,5 +54,5 @@ WRAPPER
 chmod 700 "$dir/bin/uat-ssh" "$dir/bin/uat-scp" "$dir/bin/uat-deploy"
 echo "$dir/bin" >>"${GITHUB_PATH:?}"
 
-# ยืนยันว่าเข้าถึงได้และ host key ตรง ก่อนทำอะไรต่อ
+# confirm it is reachable and the host key matches before doing anything else
 ssh -F "$dir/config" uat true
