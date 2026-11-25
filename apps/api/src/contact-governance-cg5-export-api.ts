@@ -88,7 +88,7 @@ function datasets(value: unknown): Cg5ExportDataset[] {
   if (new Set(value).size !== value.length) {
     throw new BadRequestException({
       code: 'VALIDATION_FAILED',
-      message: 'datasets must not repeat',
+      message: 'datasets must not contain duplicates',
     });
   }
   return value as Cg5ExportDataset[];

@@ -68,14 +68,21 @@ public class PeopleResource {
    * [dc-attempt:...] marker stays outside the template because boundary tests find the email by it.
    */
   private String[] invitationText(RealmModel realm,UserModel user,String attemptRef,String link) {
-    Properties messages;
-    try { messages=session.theme().getTheme(Theme.Type.EMAIL).getEnhancedMessages(realm,session.getContext().resolveLocale(user)); }
-    catch(IOException failure) { messages=new Properties(); }
-    String subject=messages.getProperty("dcPeopleInvitationSubject","D-Contact invitation");
-    String body=messages.getProperty("dcPeopleInvitationBody",
-      "Set your password, verify your email and set up an Authenticator with this link within 72 hours:\n\n{0}\n\nIf you did not request access, ignore this email.");
-    return new String[] { subject+" [dc-attempt:"+attemptRef+"]", MessageFormat.format(body,link) };
+    String subject=INVITATION_SUBJECT_FALLBACK,body=MessageFormat.format(INVITATION_BODY_FALLBACK,link);
+    try {
+      Properties messages=session.theme().getTheme(Theme.Type.EMAIL).getEnhancedMessages(realm,session.getContext().resolveLocale(user));
+      String localizedBody=MessageFormat.format(messages.getProperty("dcPeopleInvitationBody",INVITATION_BODY_FALLBACK),link);
+      subject=messages.getProperty("dcPeopleInvitationSubject",INVITATION_SUBJECT_FALLBACK);
+      body=localizedBody;
+    } catch(IOException|RuntimeException failure) {
+      // A missing theme or a broken realm override must never stop the invitation from being sent
+      System.getLogger(PeopleResource.class.getName()).log(System.Logger.Level.WARNING,"INVITATION_TEMPLATE_FALLBACK:"+failure.getClass().getSimpleName());
+    }
+    return new String[] { subject+" [dc-attempt:"+attemptRef+"]", body };
   }
+  private static final String INVITATION_SUBJECT_FALLBACK="D-Contact invitation";
+  private static final String INVITATION_BODY_FALLBACK=
+    "Set your password, verify your email and set up an Authenticator with this link within 72 hours:\n\n{0}\n\nIf you did not request access, ignore this email.";
 
   static String hash(String value) {
     try { return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8))); }
