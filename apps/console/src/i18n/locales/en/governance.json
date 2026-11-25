@@ -404,7 +404,7 @@
     "title": "Contact preferences",
     "subtitle": "Each change is saved as a new version; earlier history is never edited",
     "effective": "In effect: {{decision}}",
-    "checking": "Checking",
+    "checking": "Checking…",
     "allowMeaning": "ALLOW only passes the preference gate. It is not consent and does not override a hard restriction",
     "messages": {
       "loadFailed": "Could not load the canonical preference. Please try again",

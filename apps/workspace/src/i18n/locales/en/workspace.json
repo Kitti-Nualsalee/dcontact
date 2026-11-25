@@ -515,7 +515,7 @@
     },
     "signIn": {
       "title": "D-Contact Workspace",
-      "detail": "Sign in to organization {{tenant}}",
+      "detail": "Sign in to the {{tenant}} organization",
       "action": "Sign in"
     },
     "supervisorForbidden": {

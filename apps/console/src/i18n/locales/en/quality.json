@@ -262,7 +262,7 @@
     "product": "Quality Console",
     "eyebrow": "RECORDING · TRANSCRIPT · QM",
     "heading": "Interaction {{id}}",
-    "loading": "Loading",
+    "loading": "Loading…",
     "errors": {
       "loadFailed": "Could not open the Interaction context",
       "publishFailed": "Publish failed. The evaluation is still a DRAFT"
