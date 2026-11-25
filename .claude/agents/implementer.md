@@ -33,6 +33,7 @@ model: sonnet
 - งานที่มีหน้าจอ: ทำตาม mockup และรายการ state ใน spec และ `docs/ui-principles.md`
   ใช้ token และ component จาก `@d-contact/ui-react`
 - commit message และเนื้อหาที่คนอ่าน (PR body) เป็นภาษาไทย คง identifier ภาษาอังกฤษ
+- โค้ด, comment ในโค้ด, ชื่อ test และข้อความ error/log เป็นภาษาอังกฤษ ข้อความที่ผู้ใช้เห็นอยู่ใน `locales/` (`pnpm lint:thai`)
 
 ## Stop condition
 

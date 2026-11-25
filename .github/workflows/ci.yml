@@ -256,6 +256,9 @@ jobs:
       - name: Prettier check
         run: pnpm lint
 
+      - name: No new Thai text in source code
+        run: node --test scripts/check-no-thai.test.mjs && pnpm lint:thai
+
       - name: K8s UAT offline manifest checks
         run: node --test scripts/k8s-uat-render.test.mjs
 
