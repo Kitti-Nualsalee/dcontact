@@ -1,9 +1,9 @@
 name: a1-release-candidate
 
-# A1.8 (#413): release candidate ของ Platform provisioning ตาม #393 §6–7
-# รัน fast + real-boundary บน SHA ล่าสุดของ main แล้วเก็บ evidence bundle เป็น pre-release asset
-# `a1-rc-<sha>` (repo public เก็บ artifact ได้ไม่เกิน 90 วัน — asset ไม่หมดอายุ ≥ 180 วันตาม #393)
-# และ attest digest ด้วย Sigstore; UAT preview เปิดได้หลัง `pnpm a1:uat:gate` ของ SHA เดียวกันผ่าน
+# A1.8 (#413): release candidate of Platform provisioning per #393 §6–7
+# runs fast + real-boundary on the latest SHA of main, then stores the evidence bundle as a pre-release asset
+# `a1-rc-<sha>` (a public repo keeps artifacts for at most 90 days — assets do not expire, >= 180 days per #393)
+# and attests the digest with Sigstore; UAT preview can be opened after `pnpm a1:uat:gate` passes for the same SHA
 on:
   workflow_dispatch:
 
@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   a1-release-candidate:
-    # candidate ต้องอ้าง clean final-main SHA เดียว (#413)
+    # a candidate must reference a single clean final-main SHA (#413)
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -20,7 +20,7 @@ jobs:
       group: a1-release-candidate
       cancel-in-progress: false
     permissions:
-      contents: write # สร้าง pre-release + asset
+      contents: write # create the pre-release + asset
       id-token: write # Sigstore keyless
       attestations: write
     env:
@@ -43,11 +43,11 @@ jobs:
       - name: Install Playwright browser (Platform Console e2e)
         run: pnpm --filter @d-contact/platform-console exec playwright install --with-deps chromium
 
-      - name: Build dependencies of platform-api, api gateway และ console
+      - name: Build dependencies of platform-api, api gateway and console
         run: pnpm db:generate && pnpm --filter "@d-contact/platform-api^..." --filter "@d-contact/api^..." --filter "@d-contact/platform-console^..." build
 
-      # เฉพาะ service ที่ A1 ใช้ — ไม่ต้องใช้ MinIO/Redpanda/FreeSWITCH (#467)
-      - name: Start Postgres + Keycloak (พร้อม invitation guard และ login theme) + mailpit
+      # only the services A1 uses — no MinIO/Redpanda/FreeSWITCH needed (#467)
+      - name: Start Postgres + Keycloak (with invitation guard and login theme) + mailpit
         run: |
           pnpm infra:keycloak:extensions
           pnpm infra:keycloak:theme
@@ -56,7 +56,7 @@ jobs:
             exit 1
           }
 
-      - name: Bootstrap DB roles/RLS และ identity ของ A1
+      - name: Bootstrap DB roles/RLS and the A1 identity
         run: pnpm infra:bootstrap
 
       - name: A1 acceptance (fast + real-boundary)
@@ -90,7 +90,7 @@ jobs:
             echo "- UAT gate: \`pnpm a1:uat:gate --expect-sha ${GITHUB_SHA}\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: UAT gate ของ SHA นี้ต้องผ่าน
+      - name: The UAT gate for this SHA must pass
         env:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/a1-rc-bundle.mjs gate --expect-sha "$GITHUB_SHA" --repo "$GITHUB_REPOSITORY"

@@ -1,6 +1,6 @@
 #!/bin/sh
-# #923 Solo: ประกอบ config ของ FreeSWITCH = config dev (infra/freeswitch/conf) + override ของ Solo
-# แล้วแทนค่า IP และ secret จาก env ลง /etc/freeswitch ซึ่งเป็น tmpfs (secret ไม่ลงดิสก์)
+# #923 Solo: assemble the FreeSWITCH config = the dev config (infra/freeswitch/conf) + the Solo overrides
+# then substitute IPs and secrets from env into /etc/freeswitch, which is a tmpfs (secrets never reach disk)
 set -eu
 umask 077
 
@@ -10,7 +10,7 @@ require() { # require <name> <value> <pattern>
     exit 64
   fi
   if ! printf '%s' "$2" | grep -Eq "$3"; then
-    echo "$1 มีรูปแบบไม่ถูกต้อง" >&2
+    echo "$1 has an invalid format" >&2
     exit 64
   fi
 }
@@ -33,12 +33,12 @@ for file in $(find /etc/freeswitch -name '*.xml'); do
     "$file"
 done
 if grep -rqE '__(SOLO|TELEPHONY|FREESWITCH)_[A-Z_]*__' /etc/freeswitch; then
-  echo "ยังมี placeholder ที่ไม่ได้แทนค่าใน config" >&2
+  echo "config still contains placeholders that were not substituted" >&2
   exit 64
 fi
 unset FREESWITCH_ESL_PASSWORD FREESWITCH_DIRECTORY_PASSWORD
 
-# config ที่มี secret เขียนเสร็จแล้วด้วย umask 077 ส่วนไฟล์เสียงบันทึกที่ FreeSWITCH (root) สร้าง
-# ต้องให้ Telephony (uid 10001) อ่านผ่าน NFS ได้ — ผู้ใช้อื่นบน VM เข้าไม่ได้เพราะ directory บน host เป็น 0770
+# the config containing secrets is written with umask 077, while the recording files that FreeSWITCH (root) creates
+# must be readable by Telephony (uid 10001) over NFS — other users on the VM cannot get in because the directory on the host is 0770
 umask 022
 exec /docker-entrypoint.sh

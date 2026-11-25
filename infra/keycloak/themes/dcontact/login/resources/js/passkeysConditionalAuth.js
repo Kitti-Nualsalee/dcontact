@@ -1,4 +1,4 @@
-// R1 (#593): สำเนาของ theme base ของ Keycloak 26.7.5 — แก้เฉพาะชื่อ cookie เป็น DC_* (ห้ามแก้ส่วนอื่น)
+// R1 (#593): a copy of the Keycloak 26.7.5 base theme — only the cookie name changed to DC_* (do not change anything else)
 import { doAuthenticate, returnSuccess } from "./webauthnAuthenticate.js";
 
 const PASSKEY_MODAL_DISMISSED = 'kc_passkey_modal_dismissed';

@@ -1,11 +1,11 @@
 name: k8s-uat-images
 
-# K8s UAT ใหม่ใช้ฐานว่าง; image/release artifact ชุดนี้ไม่พึ่ง deployment record ของ UAT 3 VM
+# The new K8s UAT starts from an empty database; this image/release artifact set does not depend on the deployment record of the 3-VM UAT
 on:
   workflow_dispatch:
     inputs:
       fixture_pack_version:
-        description: 'Fixture pack version ที่ฝังใน Tenant Console'
+        description: 'Fixture pack version embedded in the Tenant Console'
         required: true
         default: 'uat-first-slice.v1'
         type: string

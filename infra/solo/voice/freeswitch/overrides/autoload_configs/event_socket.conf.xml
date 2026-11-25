@@ -1,6 +1,6 @@
 <configuration name="event_socket.conf" description="Socket Client">
   <settings>
-    <!-- #923 Solo: Telephony บน VM app ต่อเข้ามา ACL esl_allow รับเฉพาะ VM app และ loopback -->
+    <!-- #923 Solo: Telephony on the app VM connects in; the ACL esl_allow accepts only the app VM and loopback -->
     <param name="nat-map" value="false"/>
     <param name="listen-ip" value="0.0.0.0"/>
     <param name="listen-port" value="8021"/>

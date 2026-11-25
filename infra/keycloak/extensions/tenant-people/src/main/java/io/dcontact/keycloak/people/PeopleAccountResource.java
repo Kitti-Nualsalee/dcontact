@@ -22,9 +22,9 @@ import org.keycloak.storage.UserStoragePrivateUtil;
 import static io.dcontact.keycloak.people.PeopleResource.*;
 
 /**
- * #998: แก้ชื่อที่แสดง (UPDATE_PROFILE) และเปิดบัญชีที่ปิดแล้วกลับ (ENABLE_ACCOUNT) ตาม ADR-035
- * ใช้ tenant gate, operation fence และ immutable receipt เดียวกับ disable; mutation กับ receipt อยู่ใน transaction เดียวกัน
- * ไม่ตั้ง password/TOTP แทนผู้ใช้ ไม่เปลี่ยน role/Organization/email และไม่ adopt identity จาก lookup
+ * #998: edit the display name (UPDATE_PROFILE) and re-enable a disabled account (ENABLE_ACCOUNT) per ADR-035
+ * uses the same tenant gate, operation fence and immutable receipt as disable; the mutation and the receipt are in the same transaction
+ * does not set a password/TOTP for the user, does not change role/Organization/email and does not adopt an identity from lookup
  */
 @Produces(MediaType.APPLICATION_JSON)
 public class PeopleAccountResource {
@@ -39,7 +39,7 @@ public class PeopleAccountResource {
     this.session=session;this.authority=authority;this.identities=new PeopleDisableResource(session,authority);
   }
 
-  /** displayName มีเฉพาะ POST ของ UPDATE_PROFILE; nameDigest (SHA-256) ใช้ใน descriptor และ GET เพื่อไม่ให้ชื่ออยู่ใน URL */
+  /** displayName exists only in the POST of UPDATE_PROFILE; nameDigest (SHA-256) is used in the descriptor and GET so the name never appears in a URL */
   private record Command(String step,String tenantId,String userId,String identityId,String digest,long fence,String role,String displayName,String nameDigest) {}
 
   private static String step(String value) {
@@ -82,7 +82,7 @@ public class PeopleAccountResource {
       command.nameDigest(),binding.organization().getId()));
   }
 
-  /** ผู้ใช้ตั้ง password และ TOTP เองแล้ว ยืนยัน email และไม่มี required action ค้าง (เกณฑ์เดียวกับ activation probe) */
+  /** the user has set their own password and TOTP, verified email and has no pending required action (the same criteria as the activation probe) */
   private boolean credentialsReady(UserModel user) {
     if(!user.isEmailVerified()||user.getRequiredActionsStream().findAny().isPresent())return false;
     var credentials=user.credentialManager().getStoredCredentialsStream().toList();
@@ -95,7 +95,7 @@ public class PeopleAccountResource {
     return UserStoragePrivateUtil.userLocalStorage(session).getUserById(binding.realm(),identityId);
   }
 
-  /** เหตุผลที่ปฏิเสธก่อนแตะ identity หรือ null เมื่อพร้อม; อ่านจาก local JPA provider ไม่ใช่ cached UserModel */
+  /** reason for rejecting before touching the identity, or null when ready; read from the local JPA provider, not a cached UserModel */
   private String rejection(Binding binding,Command command) {
     UserModel user=local(binding,command.identityId());
     if(!identities.identityMatches(binding,command.tenantId(),command.userId(),user,command.role()))return "PROTECTED_OR_FOREIGN_IDENTITY";
@@ -114,7 +114,7 @@ public class PeopleAccountResource {
   private Response outcome(Binding binding,PeopleOperation operation,Command command,PeopleReceipt proof) {
     if(proof==null)return json(200,Map.of("outcome","UNKNOWN"));
     if("SUCCEEDED".equals(proof.outcome)) {
-      // receipt สำเร็จต้อง readback ว่าสถานะจริงยังตรง: drift หลัง receipt คืน UNKNOWN ไม่คืน marker เก่า
+      // a successful receipt must read back that the real state still matches: drift after the receipt returns UNKNOWN, not a stale marker
       UserModel user=local(binding,proof.identityId);
       boolean matches=identities.identityMatches(binding,operation.tenantId,operation.targetUserId,user,command.role());
       boolean current="UPDATE_PROFILE".equals(command.step())
@@ -159,7 +159,7 @@ public class PeopleAccountResource {
     String receiptId=receiptId(key,command.step());
     PeopleReceipt previous=manager.find(PeopleReceipt.class,receiptId);
     if(previous!=null)return outcome(binding,operation,command,previous);
-    // ล็อกแถว identity ก่อนตรวจ เพื่อไม่ให้การแก้ enabled/ชื่อจากทางอื่นแข่งผ่าน guard
+    // lock the identity row before checking so that an edit of enabled/name from another path does not race past the guard
     manager.createNativeQuery("SELECT ID FROM USER_ENTITY WHERE REALM_ID=:realm AND ID=:id FOR UPDATE")
       .setParameter("realm",binding.realm().getId()).setParameter("id",command.identityId()).getResultList();
     String reason=rejection(binding,command);

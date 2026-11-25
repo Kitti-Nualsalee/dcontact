@@ -1,18 +1,18 @@
 # syntax=docker/dockerfile:1.7
-# UAT: Keycloak image ของ D-Contact = Keycloak 26.7.5 (#592; digest เดียวกับที่ compose ของ UAT pin ไว้) + login/email theme
-# (#515/#522) — theme อยู่ใน image จึง deploy/rollback ด้วย digest ได้เหมือน image อื่นของ UAT ไม่ต้อง bind mount บน VM
+# UAT: the D-Contact Keycloak image = Keycloak 26.7.5 (#592; the same digest pinned by the UAT compose) + the login/email theme
+# (#515/#522) — the theme lives in the image, so deploy/rollback by digest works like the other UAT images, with no bind mount on the VM
 #
-# build context = root ของ repo:
+# build context = repo root:
 #   docker build -f infra/keycloak/Dockerfile --build-arg SOURCE_SHA=<sha> .
 ARG NODE_IMAGE=node:20-bookworm-slim@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0
 ARG KEYCLOAK_IMAGE=docker.io/keycloak/keycloak:26.7.5@sha256:37dbaf6f0722c9ec246335f36e1ef8b2e6cb960f7c27e0d8c615121a3d475a85
-# UBI 9 ของ Keycloak 26 ต้องมี CPU x86-64-v2 แต่ VM2 UAT เป็น KVM รุ่นเก่าที่มีเพียง SSE2.
-# ใช้ Temurin Java 21 แบบ baseline x86-64 เพื่อรัน invitation guard ของ A1 (`--release 21`)
-# โดยยังคัดลอก Keycloak distribution ที่ pin digest เดิมทั้งหมด.
+# The UBI 9 of Keycloak 26 needs a CPU with x86-64-v2, but VM2 of the UAT is an old KVM that only has SSE2.
+# Use Temurin Java 21 in its baseline x86-64 build to run the A1 invitation guard (`--release 21`)
+# while still copying the whole Keycloak distribution with the same pinned digest.
 ARG KEYCLOAK_EXTENSION_BUILDER_IMAGE=docker.io/library/eclipse-temurin:21-jdk-jammy@sha256:6adefddd4a20bceef702cedb0b03952fcd7691f9c7ccffe27014992abc0b46bd
 ARG KEYCLOAK_PLATFORM_RUNTIME_IMAGE=docker.io/library/eclipse-temurin:21-jre-jammy@sha256:e9aaf73145bbd1f9f6ec7f6867dd75a44f34b1a6c32a813504bf4129be2d09d7
 
-# token/โลโก้ของ packages/ui → resources ของ theme และ dc-tokens.ftl ของ email (ไฟล์ที่สร้างไม่อยู่ใน Git)
+# tokens/logo of packages/ui → the theme resources and the email dc-tokens.ftl (generated files are not in Git)
 FROM ${NODE_IMAGE} AS theme
 WORKDIR /src
 COPY scripts/keycloak-theme-build.mjs scripts/
@@ -23,8 +23,8 @@ RUN node scripts/keycloak-theme-build.mjs
 
 FROM ${KEYCLOAK_IMAGE} AS keycloak-distribution
 
-# A1.9 (#574): invitation guard ต้อง compile กับ Keycloak 26 และรันด้วย Java 21
-# AC2 (#595): extension `dc-account` (ตั้ง TOTP แทนผู้ใช้ + บังคับ 2FA ตาม Organization) build คู่กัน
+# A1.9 (#574): the invitation guard must compile against Keycloak 26 and run on Java 21
+# AC2 (#595): the extension `dc-account` (set TOTP on behalf of the user + enforce 2FA per Organization) is built alongside
 FROM ${KEYCLOAK_EXTENSION_BUILDER_IMAGE} AS platform-extension
 COPY --from=keycloak-distribution /opt/keycloak/lib/lib/main /kc-libs
 COPY infra/keycloak/extensions/invitation-guard/src/main /src/invitation-guard

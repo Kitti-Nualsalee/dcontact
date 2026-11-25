@@ -18,9 +18,9 @@
     <param name="ext-sip-ip" value="$${external_sip_ip}"/>
     <param name="ext-rtp-ip" value="$${external_rtp_ip}"/>
 
-    <!-- SIP over WebSocket สำหรับ browser softphone (SIP.js)
-         dev ใช้ ws:5066 (localhost = secure context ใน browser)
-         production ต้องเปิด wss-binding :7443 + tls cert -->
+    <!-- SIP over WebSocket for the browser softphone (SIP.js)
+         dev uses ws:5066 (localhost = a secure context in the browser)
+         production must enable the wss-binding :7443 + a tls cert -->
     <param name="ws-binding" value=":5066"/>
 
     <param name="inbound-codec-prefs" value="$${global_codec_prefs}"/>
@@ -38,8 +38,8 @@
     <param name="multiple-registrations" value="false"/>
     <param name="max-registrations-per-extension" value="1"/>
 
-    <!-- E1.10: เก็บ registration ใต้ SIP domain ของ tenant ที่ directory API ยืนยัน
-         ห้าม force เป็น dev domain เดียว ไม่อย่างนั้น tenant boundary หาย -->
+    <!-- E1.10: keep registrations under the SIP domain of the tenant that the directory API confirms
+         never force a single dev domain, otherwise the tenant boundary is lost -->
 
     <param name="apply-nat-acl" value="nat.auto"/>
     <param name="local-network-acl" value="dcontact_media_local"/>

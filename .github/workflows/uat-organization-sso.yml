@@ -35,21 +35,21 @@ jobs:
           node-version: 20
       - uses: pnpm/action-setup@v4
       - run: pnpm install --frozen-lockfile
-      - name: Operator guards และ regression ของ UAT config
+      - name: Operator guards and UAT config regression
         run: node --test scripts/u1-uat-organization-sso.test.mjs scripts/u1-uat-keycloak-users.test.mjs
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
-      - name: Keycloak image เดียวกับ deployed UAT ใน sandbox แยก
+      - name: The same Keycloak image as the deployed UAT in a separate sandbox
         run: |
           docker run -d --name uat-sso-sandbox -p 127.0.0.1:15441:8080 \
             -e KC_BOOTSTRAP_ADMIN_USERNAME=admin -e KC_BOOTSTRAP_ADMIN_PASSWORD=core733-local-only \
             -e KC_HTTP_RELATIVE_PATH=/auth -e KC_HOSTNAME=https://127.0.0.1:15442/auth \
             -e KC_HTTP_ENABLED=true -e KC_PROXY_HEADERS=xforwarded \
             ghcr.io/kitti-nualsalee/dcontact-uat-operator-keycloak@sha256:d61db55cf4ce68439f98238a44d3b6dce557898c9ec9a7719823580e066046d9 start-dev
-      - name: HTTPS sandbox ที่เชื่อถือ cert ของตน แล้วทดสอบ SSO/MFA/rollback
+      - name: HTTPS sandbox that trusts its own cert, then test SSO/MFA/rollback
         env:
           SOURCE_SHA: ${{ github.sha }}
           UAT_SSO_SANDBOX_CONFIRM: owned-disposable
@@ -68,6 +68,6 @@ jobs:
           name: uat-organization-sso-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/uat-sso/
           retention-days: 30
-      - name: ปิดเฉพาะ sandbox ของ job
+      - name: Shut down only the job's sandbox
         if: always()
         run: docker rm -f uat-sso-sandbox || true

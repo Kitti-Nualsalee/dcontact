@@ -1,5 +1,5 @@
-# ชุดทดสอบ voice edge บนเครื่อง dev: Kamailio + FreeSWITCH + ฐาน voice edge + SIPp เป็น trunk จำลองสองราย
-# ใช้ผ่าน infra/voice-edge/test/run.sh เท่านั้น ไม่ publish พอร์ตออก host
+# voice edge test set on a dev machine: Kamailio + FreeSWITCH + the voice edge database + SIPp as two simulated trunks
+# use only through infra/voice-edge/test/run.sh; no ports are published to the host
 name: dcontact-voice-edge-test
 
 x-sipp: &sipp
@@ -55,19 +55,19 @@ services:
       edge:
         ipv4_address: 172.30.50.30
 
-  # trunk ของ tenant t1
+  # trunk of tenant t1
   trunk-a:
     <<: *sipp
     networks:
       edge:
         ipv4_address: 172.30.50.40
-  # trunk ของ tenant t2
+  # trunk of tenant t2
   trunk-b:
     <<: *sipp
     networks:
       edge:
         ipv4_address: 172.30.50.41
-  # IP ที่ไม่อยู่ในตาราง trunk
+  # an IP that is not in the trunk table
   stranger:
     <<: *sipp
     networks:

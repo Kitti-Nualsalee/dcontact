@@ -2,7 +2,7 @@
   <settings>
     <param name="colorize-console" value="false"/>
     <param name="loglevel" value="info"/>
-    <!-- #923 Solo: 35 สายพร้อมกันใช้ราว 140 พอร์ต ช่วง 300 พอร์ตตามแบบ (docs/voice-network-deployment.md) -->
+    <!-- #923 Solo: 35 concurrent calls use about 140 ports; a range of 300 ports as designed (docs/voice-network-deployment.md) -->
     <param name="rtp-start-port" value="16384"/>
     <param name="rtp-end-port" value="16683"/>
   </settings>

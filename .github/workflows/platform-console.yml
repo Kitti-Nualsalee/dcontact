@@ -35,9 +35,9 @@ jobs:
           node-version: 20
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: สร้าง dependencies และ Platform Console
+      - name: Build dependencies and Platform Console
         run: pnpm --filter '@d-contact/platform-console...' build
-      - name: ตรวจ catalog, literals, token CSS, types และ model/locale contracts
+      - name: Check catalog, literals, token CSS, types and model/locale contracts
         run: |
           pnpm --filter @d-contact/platform-console i18n:check
           pnpm --filter @d-contact/platform-console i18n:literals
@@ -45,9 +45,9 @@ jobs:
           pnpm --filter @d-contact/platform-console typecheck
           pnpm --filter @d-contact/platform-console test
       - run: pnpm --filter @d-contact/platform-console exec playwright install --with-deps chromium
-      - name: ตรวจ browser regression, TH/EN, keyboard/axe และ platform boundary
+      - name: Check browser regression, TH/EN, keyboard/axe and the platform boundary
         run: pnpm --filter @d-contact/platform-console test:e2e
-      - name: สร้าง image ด้วย dependency graph ของ platform
+      - name: Build the image with the platform dependency graph
         run: >-
           docker build -f apps/platform-console/Dockerfile
           --build-arg VITE_KC_ISSUER=https://identity.example.test/realms/dcontact

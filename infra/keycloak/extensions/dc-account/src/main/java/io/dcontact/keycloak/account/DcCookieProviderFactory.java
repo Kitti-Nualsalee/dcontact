@@ -10,8 +10,8 @@ import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.KeycloakSessionFactory;
 
 /**
- * R1 (#593) / AC6 (#599): {@link DcCookieProvider} เป็น provider หลักของ SPI {@code cookie} (order สูงกว่า {@code default})
- * — realm ที่ใช้ตั้งด้วย {@code --spi-cookie--dc--realms=dcontact,...} (ค่าเริ่มต้น {@code dcontact})
+ * R1 (#593) / AC6 (#599): {@link DcCookieProvider} is the primary provider of the SPI {@code cookie} (order higher than {@code default})
+ * — the realms it applies to are set with {@code --spi-cookie--dc--realms=dcontact,...} (default {@code dcontact})
  */
 public class DcCookieProviderFactory implements CookieProviderFactory {
 

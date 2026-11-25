@@ -7,12 +7,12 @@ import org.keycloak.services.resource.AccountResourceProvider;
 import org.keycloak.services.resource.AccountResourceProviderFactory;
 
 /**
- * AC6 (#599): หน้า HTML ของ {@code /realms/dcontact/account/} (Account Console ของ identity provider) ถูกแทนด้วย
- * {@link DcAccountLanding} ที่พาผู้ใช้กลับ D-Contact — เลือกใช้ผ่าน theme property
- * {@code accountResourceProvider=dc-account-landing} ของ account theme {@code dcontact}
+ * AC6 (#599): the HTML page of {@code /realms/dcontact/account/} (the identity provider's Account Console) is replaced by
+ * {@link DcAccountLanding}, which sends users back to D-Contact — selected through the theme property
+ * {@code accountResourceProvider=dc-account-landing} of the account theme {@code dcontact}
  *
- * <p>เป็นจุดขยายที่ Keycloak เปิดไว้ให้ทาง theme; Account REST API ({@code Accept: application/json})
- * ไม่ผ่านจุดนี้ จึงไม่กระทบ {@code @d-contact/i18n} ที่ใช้เปลี่ยนภาษาผ่าน REST
+ * <p>This is an extension point that Keycloak exposes to themes; the Account REST API ({@code Accept: application/json})
+ * does not pass through it, so it does not affect {@code @d-contact/i18n}, which switches language over REST
  */
 public class DcAccountLandingProviderFactory implements AccountResourceProviderFactory {
 

@@ -1,12 +1,12 @@
 <include>
-  <!-- #562: context ของ trunk `pstn-sim` — สายลูกค้าเข้าได้เฉพาะ DID 2000 (direct queue) และ 2001 (IVR)
-       ซึ่ง park ให้ Router ตัดสินใจผ่าน Kafka เหมือน context default ห้าม bridge ไป extension ของ agent -->
+  <!-- #562: context of trunk `pstn-sim` — customer calls may reach only DID 2000 (direct queue) and 2001 (IVR)
+       which are parked for the Router to decide via Kafka like the default context; bridging to an agent extension is forbidden -->
   <context name="pstn">
-    <!-- ADR-038: สายที่ผ่าน Kamailio มี X-DContact-Domain = SIP domain ของ tenant ที่ Kamailio ระบุจาก trunk/เบอร์
-         Kamailio ลบ header นี้จากภายนอกก่อนใส่เอง และ profile นี้ต้องรับเฉพาะ IP ของ Kamailio ใน deployment จริง
-         ลบ header ออกจากตัวแปรก่อน park เพื่อไม่ให้ติดไปกับขา bridge ไปหา agent
-         #977: สายที่ Kamailio ระบุ tenant แล้วรับเบอร์ 2000–2009 เพื่อให้ tenant มีเบอร์ของคิว managed (เช่น 2002)
-         แยกจากคิว legacy ได้ Kamailio เป็นผู้คุมว่าเบอร์ไหนเข้ามาได้จากตาราง number ส่วนสายที่ไม่มี header ยังรับแค่ 2000/2001 -->
+    <!-- ADR-038: a call that passed Kamailio carries X-DContact-Domain = the SIP domain of the tenant that Kamailio identified from the trunk/number
+         Kamailio strips this header from outside before setting it itself, and this profile must accept only the Kamailio IP in a real deployment
+         remove the header from the variables before parking so it does not follow the bridge leg to the agent
+         #977: a call whose tenant Kamailio identified accepts numbers 2000–2009 so a tenant can have a managed queue number (e.g. 2002)
+         separate from the legacy queue. Kamailio controls which numbers may come in from the number table, while calls without the header still accept only 2000/2001 -->
     <extension name="dcontact-inbound-voice-edge">
       <condition field="${sip_h_X-DContact-Domain}" expression="^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$"/>
       <condition field="destination_number" expression="^200[0-9]$">

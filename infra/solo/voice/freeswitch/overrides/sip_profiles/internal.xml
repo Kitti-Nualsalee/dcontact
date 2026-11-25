@@ -12,18 +12,18 @@
     <param name="rfc2833-pt" value="101"/>
     <param name="dtmf-duration" value="2000"/>
 
-    <!-- #923 Solo: Kamailio ใช้ 5060 บน host เดียวกัน; Agent ใช้ WSS ไม่ใช้พอร์ตนี้ -->
+    <!-- #923 Solo: Kamailio uses 5060 on the same host; Agents use WSS and not this port -->
     <param name="sip-port" value="5070"/>
     <param name="sip-ip" value="$${local_ip_v4}"/>
     <param name="rtp-ip" value="$${local_ip_v4}"/>
     <param name="ext-sip-ip" value="$${external_sip_ip}"/>
     <param name="ext-rtp-ip" value="$${external_rtp_ip}"/>
 
-    <!-- SIP over WebSocket สำหรับ browser softphone (SIP.js)
-         dev ใช้ ws:5066 (localhost = secure context ใน browser)
-         production ต้องเปิด wss-binding :7443 + tls cert -->
+    <!-- SIP over WebSocket for the browser softphone (SIP.js)
+         dev uses ws:5066 (localhost = a secure context in the browser)
+         production must enable the wss-binding :7443 + a tls cert -->
     <param name="ws-binding" value="127.0.0.1:5066"/>
-    <!-- #923 Solo: nginx ส่ง /sip-ws ต่อมาที่ WSS เพื่อให้ Sofia ตอบ Via: SIP/2.0/WSS ตรงกับ browser -->
+    <!-- #923 Solo: nginx forwards /sip-ws to WSS so that Sofia answers Via: SIP/2.0/WSS matching the browser -->
     <param name="wss-binding" value="127.0.0.1:7443"/>
     <param name="tls-cert-dir" value="/etc/freeswitch/tls"/>
 
@@ -42,8 +42,8 @@
     <param name="multiple-registrations" value="false"/>
     <param name="max-registrations-per-extension" value="1"/>
 
-    <!-- E1.10: เก็บ registration ใต้ SIP domain ของ tenant ที่ directory API ยืนยัน
-         ห้าม force เป็น dev domain เดียว ไม่อย่างนั้น tenant boundary หาย -->
+    <!-- E1.10: keep registrations under the SIP domain of the tenant that the directory API confirms
+         never force a single dev domain, otherwise the tenant boundary is lost -->
 
     <param name="apply-nat-acl" value="nat.auto"/>
     <param name="local-network-acl" value="dcontact_media_local"/>

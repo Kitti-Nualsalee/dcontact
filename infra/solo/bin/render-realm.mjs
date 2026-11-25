@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// #923: realm ของ UAT Solo = realm dev (infra/keycloak/realm-dcontact.dev.json) ที่เปลี่ยน redirect/web origin
-// ของ client agent-desktop เป็นโดเมนของ Solo ทั้ง Console และ Workspace
+// #923: the UAT Solo realm = the dev realm (infra/keycloak/realm-dcontact.dev.json) with the redirect/web origin
+// of the agent-desktop client changed to the Solo domains for both Console and Workspace
 //
 //   node infra/solo/bin/render-realm.mjs <console host> <workspace host> > realm-dcontact.json
 import { readFileSync } from 'node:fs';
@@ -18,7 +18,7 @@ const realm = JSON.parse(
 );
 const origins = [`https://${consoleHost}`, `https://${workspaceHost}`];
 const desktop = realm.clients.find((client) => client.clientId === 'agent-desktop');
-if (!desktop) throw new Error('realm dev ไม่มี client agent-desktop');
+if (!desktop) throw new Error('the dev realm has no agent-desktop client');
 desktop.redirectUris = origins.map((origin) => `${origin}/*`);
 desktop.webOrigins = origins;
 desktop.attributes = {
@@ -26,8 +26,8 @@ desktop.attributes = {
   'post.logout.redirect.uris': origins.map((origin) => `${origin}/*`).join('##'),
 };
 
-// #977: Tenant People ส่งคำเชิญผ่าน SMTP ของ realm — Solo ใช้ Mailpit ใน network ของ stack (ไม่ส่งออกภายนอก)
-// มีผลเฉพาะตอน import realm ครั้งแรก realm ที่มีอยู่แล้วต้องตั้งผ่าน Admin API (ดู docs/solo-uat.md)
+// #977: Tenant People sends invitations through the realm SMTP — Solo uses Mailpit in the stack network (nothing leaves the stack)
+// only takes effect when the realm is first imported; an existing realm must be configured through the Admin API (see docs/solo-uat.md)
 realm.smtpServer = {
   host: 'mailpit',
   port: '1025',
@@ -39,6 +39,6 @@ realm.smtpServer = {
 };
 
 if (JSON.stringify(realm).includes('localhost')) {
-  throw new Error('realm ของ Solo ยังมี localhost เหลืออยู่');
+  throw new Error('the Solo realm still contains localhost');
 }
 process.stdout.write(`${JSON.stringify(realm, null, 2)}\n`);

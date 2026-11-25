@@ -4,26 +4,26 @@ on:
   workflow_dispatch:
     inputs:
       deployed_base_sha:
-        description: 'SHA ของ deployment record ปัจจุบันบน UAT สำหรับ migration guard'
+        description: 'SHA of the current deployment record on UAT for the migration guard'
         required: true
         type: string
       uat_host:
-        description: 'Hostname สาธารณะของ UAT (ไม่ใช่ secret)'
+        description: 'Public hostname of UAT (not a secret)'
         required: true
         default: 'dcontact-uat.osd.co.th'
         type: string
       full_workspace:
-        description: 'เปิด full Workspace overlay ใน release นี้ (ต้องมี E1 และ nginx vhost พร้อม)'
+        description: 'Enable the full Workspace overlay in this release (requires E1 and the nginx vhost to be ready)'
         required: true
         default: false
         type: boolean
       workspace_host:
-        description: 'Hostname ของ Workspace บน UAT (origin แยกจาก Console)'
+        description: 'Hostname of the Workspace on UAT (a separate origin from Console)'
         required: true
         default: 'dcontact-workspace-uat.osd.co.th'
         type: string
       fixture_pack_version:
-        description: 'Fixture pack version ที่ฝังใน Console (ไม่ใช่ secret)'
+        description: 'Fixture pack version embedded in Console (not a secret)'
         required: true
         default: 'uat-first-slice.v1'
         type: string

@@ -1,7 +1,7 @@
 <configuration name="xml_curl.conf" description="D-Contact active work-session SIP directory">
   <bindings>
     <binding name="dcontact-agent-directory">
-      <!-- Dev stack เท่านั้น; production สร้าง URL/credential ต่อ telephony node จาก secret store -->
+      <!-- Dev stack only; production builds the URL/credential per telephony node from a secret store -->
       <param name="gateway-url"
              value="http://host.docker.internal:3000/internal/v1/freeswitch/directory"
              bindings="directory"/>

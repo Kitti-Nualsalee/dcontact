@@ -1,5 +1,5 @@
 #!/bin/sh
-# ตรวจ env ที่ต้องมี แล้วประกอบ connection ของ sqlops ให้ kamailio.cfg (modparam ต่อ string เองไม่ได้)
+# check the required env vars, then assemble the sqlops connection for kamailio.cfg (a modparam cannot concatenate strings itself)
 set -eu
 : "${KAMAILIO_SIP_IP:?KAMAILIO_SIP_IP is required}"
 : "${KAMAILIO_DB_URL:?KAMAILIO_DB_URL is required}"

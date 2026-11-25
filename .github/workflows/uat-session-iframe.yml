@@ -23,7 +23,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - name: HTTP ผ่าน Caddy จริงทั้ง 4 tenant templates
+      - name: HTTP through the real Caddy for all 4 tenant templates
         shell: bash
         run: |
           set -euo pipefail

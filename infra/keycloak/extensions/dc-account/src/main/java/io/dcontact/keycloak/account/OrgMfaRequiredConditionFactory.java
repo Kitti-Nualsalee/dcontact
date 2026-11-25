@@ -8,7 +8,7 @@ import org.keycloak.models.AuthenticationExecutionModel;
 import org.keycloak.models.KeycloakSessionFactory;
 import org.keycloak.provider.ProviderConfigProperty;
 
-/** AC2 (#595): factory ของ {@link OrgMfaRequiredCondition} */
+/** AC2 (#595): factory of {@link OrgMfaRequiredCondition} */
 public class OrgMfaRequiredConditionFactory implements ConditionalAuthenticatorFactory {
 
   public static final String ID = "dc-org-mfa-required";

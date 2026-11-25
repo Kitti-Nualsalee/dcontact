@@ -1,5 +1,5 @@
--- role อ่านอย่างเดียวของ Kamailio ใช้กับ psql -v kamailio_password=... (ห้ามใส่รหัสใน repo)
--- รันด้วย superuser หรือ owner ของฐาน หลัง schema.sql
+-- read-only role for Kamailio, used with psql -v kamailio_password=... (never put the password in the repo)
+-- run as a superuser or the database owner, after schema.sql
 SELECT 'CREATE ROLE kamailio_ro LOGIN'
 WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'kamailio_ro') \gexec
 ALTER ROLE kamailio_ro WITH LOGIN PASSWORD :'kamailio_password' NOSUPERUSER NOCREATEDB NOCREATEROLE;
