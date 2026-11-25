@@ -455,11 +455,6 @@ export function PeopleEnable({
       ) : null}
       {change.pending ? <p>{label('enable.pending')}</p> : null}
       {disabled && !change.pending ? <p className="tp-muted">{label('enable.help')}</p> : null}
-      {disabled && !change.pending && change.ready === undefined ? (
-        <p role="status" className="tp-muted">
-          {label('accountChange.checking')}
-        </p>
-      ) : null}
       <Button
         variant="primary"
         isDisabled={change.busy || !!change.pending || !change.ready || !disabled}

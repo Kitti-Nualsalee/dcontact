@@ -269,11 +269,6 @@ export function PeopleDisable({
         <p className="tp-muted">{label('disable.notEligible')}</p>
       ) : null}
       {closed && !status ? <p className="tp-muted">{label('disable.closed')}</p> : null}
-      {ready === undefined && !pending && !closed ? (
-        <p role="status" className="tp-muted">
-          {label('accountChange.checking')}
-        </p>
-      ) : null}
       {displayedStatus && (!closed || status) ? (
         <p role="status" className={closed ? 'tp-muted' : undefined}>
           {label(`disable.states.${displayedStatus}`)}
