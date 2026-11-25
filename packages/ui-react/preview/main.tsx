@@ -95,7 +95,7 @@ function Preview() {
             aria-pressed={instance.language === 'th'}
             onPress={() => switchLanguage('th')}
           >
-            ไทย {/* allow-thai: language name shown in its own language */}
+            {t('shell.languageNames.th', { ns: 'ui' })}
           </Button>
           <Button
             size="sm"
@@ -103,7 +103,7 @@ function Preview() {
             aria-pressed={instance.language === 'en'}
             onPress={() => switchLanguage('en')}
           >
-            English
+            {t('shell.languageNames.en', { ns: 'ui' })}
           </Button>
         </div>
       </header>

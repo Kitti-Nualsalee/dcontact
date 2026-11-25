@@ -57,7 +57,7 @@ test('switching the language in the preview changes both the page text and the c
   page,
 }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: 'ไทย' }).focus(); // allow-thai: hardcoded in preview/main.tsx, see report
+  await page.getByRole('button', { name: th('shell.languageNames.th') }).focus();
   await page.getByRole('button', { name: 'English' }).click();
   await expect(page.getByRole('heading', { name: 'Buttons' })).toBeVisible();
   // the clear button is hidden while the field is empty (not in the a11y tree) — type first, then check the name from namespace `ui`
@@ -298,7 +298,7 @@ test('forced-colors: a pressed Button (aria-pressed) uses a Highlight background
   await page.emulateMedia({ forcedColors: 'active' });
   await page.goto('/');
   const group = page.getByRole('group', { name: pth('language') });
-  const thai = group.getByRole('button', { name: 'ไทย' }); // allow-thai: hardcoded in preview/main.tsx, see report
+  const thai = group.getByRole('button', { name: th('shell.languageNames.th') });
   const english = group.getByRole('button', { name: 'English' });
   await expect(thai).toHaveAttribute('aria-pressed', 'true');
   await expect(english).toHaveAttribute('aria-pressed', 'false');
