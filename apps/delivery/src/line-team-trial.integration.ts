@@ -345,7 +345,7 @@ test('#567 reply: bad text, a sender outside the trial allowlist and a failed co
     (
       await replies.reply({
         inboxEntryId: member,
-        text: 'a'.repeat(500),
+        text: 'ก'.repeat(500), // allow-thai: multi-byte text at the 500-character limit
         idempotencyKey: `max-${randomUUID()}`,
         actorRef: 'admin-user-1',
       })
