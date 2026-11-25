@@ -6,7 +6,7 @@ import org.keycloak.models.KeycloakSessionFactory;
 import org.keycloak.services.resource.RealmResourceProvider;
 import org.keycloak.services.resource.RealmResourceProviderFactory;
 
-/** AC2 (#595): ลงทะเบียน {@link DcAccountResource} ที่ {@code /realms/{realm}/dc-account} */
+/** AC2 (#595): registers {@link DcAccountResource} at {@code /realms/{realm}/dc-account} */
 public class DcAccountResourceProviderFactory implements RealmResourceProviderFactory {
 
   public static final String ID = "dc-account";

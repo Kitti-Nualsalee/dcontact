@@ -38,28 +38,28 @@ import org.keycloak.services.managers.AppAuthManager;
 import org.keycloak.services.managers.AuthenticationManager.AuthResult;
 
 /**
- * AC2 (#595): realm resource {@code /realms/{realm}/dc-account} ที่ API ของ D-Contact เรียกจากฝั่ง server
+ * AC2 (#595): realm resource {@code /realms/{realm}/dc-account} that the D-Contact API calls from the server side
  *
  * <ul>
  *   <li>{@code POST /users/{userId}/totp/verify-and-create} {@code { tenantId, secret, code, label }} —
- *       ตรวจ code ด้วย OTP policy ของ realm แล้วสร้าง OTP credential แทนผู้ใช้ (ผู้ใช้สแกน QR ในหน้า
- *       D-Contact ไม่ต้องเห็นหน้าของ identity provider)
- *   <li>{@code PUT /organizations/by-tenant/{tenantId}/mfa-required} {@code { required }} — sync การบังคับ
- *       2FA ของ tenant (เจ้าของค่าคือ API, AC1) ไปที่ attribute {@code dc_mfa_required} ของ Organization
+ *       validates the code with the realm's OTP policy, then creates the OTP credential on behalf of the user (the user scans the QR in the
+ *       D-Contact page without seeing the identity provider's page)
+ *   <li>{@code PUT /organizations/by-tenant/{tenantId}/mfa-required} {@code { required }} — syncs the tenant's 2FA
+ *       enforcement (the API, AC1, owns the value) to the {@code dc_mfa_required} attribute of the Organization
  * </ul>
  *
- * <p>ขอบเขตสิทธิ์ (ADR-033): รับเฉพาะ access token ของ service account {@code dcontact-account-service};
- * แตะได้เฉพาะผู้ใช้ที่เป็นสมาชิก Organization ของ tenant ที่ระบุ และแก้ได้เฉพาะ attribute ข้างบนของ
- * Organization — account service จึงไม่ต้องมีสิทธิ์จัดการ Organization ผ่าน Admin REST
+ * <p>Permission scope (ADR-033): accepts only the access token of the service account {@code dcontact-account-service};
+ * it may touch only users who are members of the named tenant's Organization, and may change only the attribute above of the
+ * Organization — so the account service does not need permission to manage Organizations through the Admin REST
  *
- * <p>ไม่ log secret, code หรือ label และ error ตอบเป็น {@code { code }} คงที่ ไม่สะท้อนค่าที่ส่งมา
+ * <p>It never logs a secret, code or label, and an error is answered as a fixed {@code { code }} that does not echo the submitted values
  */
 public class DcAccountResource {
 
   static final String ACCOUNT_SERVICE_CLIENT = "dcontact-account-service";
   static final int MAX_LABEL_LENGTH = 64;
 
-  /** secret ที่ API สร้าง (เก็บใน Keycloak ตามตัวอักษร, QR ใช้ Base32 ของ bytes) — ASCII ที่พิมพ์ได้ ไม่มีช่องว่าง */
+  /** secret created by the API (stored in Keycloak literally, the QR uses the Base32 of its bytes) — printable ASCII, no spaces */
   private static final Pattern SECRET = Pattern.compile("^[\\x21-\\x7E]{16,128}$");
 
   private static final Pattern DIGITS = Pattern.compile("^[0-9]+$");
@@ -101,7 +101,7 @@ public class DcAccountResource {
     if (user == null || user.getServiceAccountClientLink() != null) {
       return error(404, "USER_NOT_FOUND");
     }
-    // ผู้ใช้ต้องอยู่ใน Organization ของ tenant เดียวกับผู้เรียก — platform user/ผู้ใช้ tenant อื่นแตะไม่ได้
+    // the user must be in the Organization of the same tenant as the caller — a platform user/another tenant's user cannot be touched
     if (!TenantOrganizations.isMember(session, organization, user)) {
       return error(403, "USER_NOT_IN_ORGANIZATION");
     }
@@ -113,7 +113,7 @@ public class DcAccountResource {
     if (labelTaken) return error(409, "LABEL_IN_USE");
 
     OTPCredentialModel credential = OTPCredentialModel.createFromPolicy(realm, secret, label);
-    // code ผิด = ไม่สร้าง credential เลย (ตรวจก่อนเขียน ไม่ใช่สร้างแล้วลบ)
+    // a wrong code = no credential is created at all (validate before writing, not create then delete)
     if (!CredentialValidation.validOTP(code, credential, policy.getLookAheadWindow())) {
       return error(400, "INVALID_OTP_CODE");
     }
@@ -139,7 +139,7 @@ public class DcAccountResource {
     if (!TenantOrganizations.isTenantId(tenantId)) return error(400, "INVALID_TENANT");
     OrganizationModel organization = TenantOrganizations.byTenant(session, tenantId);
     if (organization == null) return error(404, "ORGANIZATION_NOT_FOUND");
-    // setAttributes แทนทั้งชุด — คัดลอกของเดิม (tenant_id, tenant_slug, ...) แล้วเปลี่ยนเฉพาะ key เดียว
+    // setAttributes replaces the whole set — copy the existing ones (tenant_id, tenant_slug, ...) and change only one key
     Map<String, List<String>> attributes = new HashMap<>(organization.getAttributes());
     attributes.put(
         TenantOrganizations.MFA_REQUIRED_ATTRIBUTE, List.of(String.valueOf((Boolean) required)));
@@ -148,11 +148,11 @@ public class DcAccountResource {
   }
 
   /**
-   * R1 (#593) prototype: iframe ของ OIDC session management (`check_session_iframe`) ที่อ่าน cookie ชื่อใหม่
+   * R1 (#593) prototype: the OIDC session management iframe (`check_session_iframe`) that reads the cookie with the new name
    *
-   * <p>iframe เดิมของ Keycloak render จาก classpath (override ด้วย theme ไม่ได้) และอ่าน {@code KEYCLOAK_SESSION}
-   * ตรง ๆ — ที่นี่ใช้ template ต้นฉบับของ Keycloak รุ่นที่รันอยู่ แทนเฉพาะชื่อ cookie (พฤติกรรมอื่นตาม upstream)
-   * ถ้าหาชื่อเดิมใน template ไม่เจอ (upstream เปลี่ยน) ตอบ 500 แทนการส่ง iframe ที่ทำงานผิดเงียบ ๆ
+   * <p>Keycloak's original iframe is rendered from the classpath (it cannot be overridden by a theme) and reads {@code KEYCLOAK_SESSION}
+   * directly — here we use the original Keycloak template of the running version, replacing only the cookie name (other behavior follows upstream)
+   * if the original name cannot be found in the template (upstream changed), answer 500 rather than send an iframe that silently misbehaves
    */
   @GET
   @Path("login-status-iframe.html")
@@ -161,7 +161,7 @@ public class DcAccountResource {
     return IframeUtil.returnIframe(version, session, this::renderLoginStatusIframe);
   }
 
-  /** origin ของ client ถูกตรวจด้วยโค้ดเดิมของ Keycloak (web origins ของ client) */
+  /** the client's origin is validated with Keycloak's existing code (the client's web origins) */
   @GET
   @Path("login-status-iframe.html/init")
   public Response loginStatusIframeInit(
@@ -202,7 +202,7 @@ public class DcAccountResource {
     }
   }
 
-  /** {@code null} = ผ่าน; ไม่มี/ไม่ถูกต้อง → 401, token ของ client อื่นหรือผู้ใช้ทั่วไป → 403 */
+  /** {@code null} = pass; missing/invalid → 401, another client's token or a regular user → 403 */
   private Response authorize() {
     AuthResult auth = new AppAuthManager.BearerTokenAuthenticator(session).authenticate();
     if (auth == null) return error(401, "UNAUTHORIZED");

@@ -1,6 +1,6 @@
 <#--
-  AC6 (#599): อีเมลยืนยันอีเมล (VERIFY_EMAIL ที่ส่งซ้ำ/ผู้ใช้กดส่งเอง) — layout เดียวกับอีเมลเชิญ
-  ไม่แสดงชื่อ realm/ผู้ใช้/อีเมล; ลิงก์และอายุลิงก์เท่ากับ template ของ base
+  AC6 (#599): email verification mail (VERIFY_EMAIL resent / sent by the user themself) — the same layout as the invitation mail
+  does not show the realm/user/email; the link and link lifetime are the same as the base template
 -->
 <#import "template.ftl" as layout>
 <@layout.emailLayout>

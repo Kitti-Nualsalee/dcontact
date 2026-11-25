@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- สายเข้าที่ Kamailio ต้องปฏิเสธด้วย 403 -->
+<!-- inbound call that Kamailio must reject with 403 -->
 <scenario name="uac-expect-403">
   <send>
     <![CDATA[

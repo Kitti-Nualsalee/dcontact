@@ -1,7 +1,7 @@
 <include>
   <context name="default">
 
-    <!-- Phase 1: สายเข้า DID 2000 (direct queue) หรือ 2001 (IVR) ถูก park ให้ Router ตัดสินใจผ่าน Kafka -->
+    <!-- Phase 1: inbound calls to DID 2000 (direct queue) or 2001 (IVR) are parked for the Router to decide via Kafka -->
     <extension name="dcontact-inbound-voice">
       <condition field="destination_number" expression="^200[01]$">
         <action application="set" data="domain_name=$${domain}"/>
@@ -9,7 +9,7 @@
       </condition>
     </extension>
 
-    <!-- 9196: echo test — ใช้ตรวจว่า media path ทำงาน (ได้ยินเสียงตัวเองสะท้อนกลับ) -->
+    <!-- 9196: echo test — checks that the media path works (you hear your own voice echoed back) -->
     <extension name="echo-test">
       <condition field="destination_number" expression="^9196$">
         <action application="answer"/>
@@ -17,7 +17,7 @@
       </condition>
     </extension>
 
-    <!-- Agent extension ห้าม dial หมายเลขภายนอกเอง; outbound ต้องเข้าทาง Delivery Gate + ESL เท่านั้น -->
+    <!-- An agent extension must not dial external numbers itself; outbound must go through the Delivery Gate + ESL only -->
     <extension name="deny-agent-direct-outbound">
       <condition field="caller_id_number" expression="^1[0-9]{3}$"/>
       <condition field="destination_number" expression="^(?!1[0-9]{3}$|200[01]$|9196$).+$">
@@ -25,8 +25,8 @@
       </condition>
     </extension>
 
-    <!-- โทรหากันระหว่าง extension 1000-1999 (spike Phase 0)
-         Phase 1: inbound จาก trunk จะ park แล้วให้ router ตัดสินใจผ่าน ESL แทน -->
+    <!-- Calls between extensions 1000-1999 (Phase 0 spike)
+         Phase 1: inbound from a trunk will be parked and the router decides via ESL instead -->
     <extension name="local-extensions">
       <condition field="destination_number" expression="^(1[0-9]{3})$">
         <action application="export" data="dialed_extension=$1"/>

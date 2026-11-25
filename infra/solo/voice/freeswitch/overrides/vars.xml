@@ -1,5 +1,5 @@
 <include>
-  <!-- #923 Solo: FreeSWITCH ใช้ host network ของ VM voice จึง advertise IP ของ VM ตรง ๆ -->
+  <!-- #923 Solo: FreeSWITCH uses the host network of the voice VM, so it advertises the VM IP directly -->
   <X-PRE-PROCESS cmd="set" data="domain=dcontact.local"/>
   <X-PRE-PROCESS cmd="set" data="global_codec_prefs=OPUS,G722,PCMU,PCMA"/>
   <X-PRE-PROCESS cmd="set" data="outbound_codec_prefs=OPUS,G722,PCMU,PCMA"/>

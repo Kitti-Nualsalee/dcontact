@@ -9,10 +9,10 @@ import org.keycloak.models.UserModel;
 import org.keycloak.organization.OrganizationProvider;
 
 /**
- * AC2 (#595): Organization ของ tenant หาได้จาก attribute {@code tenant_id} ที่ provisioning ตั้งไว้ (ADR-004)
+ * AC2 (#595): a tenant's Organization is found by the attribute {@code tenant_id} that provisioning sets (ADR-004)
  *
- * <p>การบังคับ 2FA ของ tenant เก็บใน attribute {@code dc_mfa_required} ของ Organization เดียวกัน — API ของ
- * D-Contact เป็นเจ้าของค่า (ตาราง {@code tenant_account_policies}) และ sync มาที่นี่ผ่าน {@link
+ * <p>The tenant's 2FA enforcement is stored in the attribute {@code dc_mfa_required} of the same Organization — the D-Contact API
+ * owns the value (table {@code tenant_account_policies}) and syncs it here through {@link
  * DcAccountResource}
  */
 final class TenantOrganizations {
@@ -29,7 +29,7 @@ final class TenantOrganizations {
     return value != null && UUID.matcher(value).matches();
   }
 
-  /** Organization เดียวของ tenant — ไม่พบหรือพบมากกว่าหนึ่ง (ข้อมูลผิด) = {@code null} */
+  /** the tenant's single Organization — not found or more than one found (bad data) = {@code null} */
   static OrganizationModel byTenant(KeycloakSession session, String tenantId) {
     OrganizationProvider organizations = session.getProvider(OrganizationProvider.class);
     if (organizations == null || !organizations.isEnabled() || !isTenantId(tenantId)) return null;
@@ -48,7 +48,7 @@ final class TenantOrganizations {
     return values != null && values.contains("true");
   }
 
-  /** ผู้ใช้เป็นสมาชิก Organization ที่เปิดอยู่และบังคับ 2FA อย่างน้อยหนึ่งแห่ง */
+  /** the user is a member of at least one enabled Organization that enforces 2FA */
   static boolean mfaRequiredFor(KeycloakSession session, UserModel user) {
     OrganizationProvider organizations = session.getProvider(OrganizationProvider.class);
     if (user == null || organizations == null || !organizations.isEnabled()) return false;

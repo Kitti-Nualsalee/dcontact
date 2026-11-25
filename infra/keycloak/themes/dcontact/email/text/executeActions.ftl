@@ -1,7 +1,7 @@
 <#ftl output_format="plainText">
 <#--
-  #522: ฉบับ plain text — ลิงก์อยู่บรรทัดของตัวเองเสมอ
-  (invitationLinks ใน keycloak-test-support.ts อ่านลิงก์ action-token จาก Text ของอีเมล)
+  #522: plain text version — the link is always on its own line
+  (invitationLinks in keycloak-test-support.ts reads the action-token link from the Text of the mail)
 -->
 ${msg("dcInviteTitle")}
 

@@ -1,6 +1,6 @@
-/* #515: login theme ของ D-Contact — แบบ B (แผงแบรนด์ซ้าย + ฟอร์มขวา)
-   ค่าสี ระยะ มุมโค้ง และตัวอักษรมาจาก tokens.css (สำเนาของ packages/ui/src/tokens.css) เท่านั้น
-   ห้ามใส่ค่าสีตรง — scripts/keycloak-theme.test.mjs ตรวจ */
+/* #515: D-Contact login theme — design B (brand panel on the left + form on the right)
+   colors, spacing, radii and fonts come only from tokens.css (a copy of packages/ui/src/tokens.css)
+   never put literal color values — scripts/keycloak-theme.test.mjs checks this */
 
 html.dc-html {
   height: 100%;
@@ -18,7 +18,7 @@ html.dc-html {
   min-height: 100vh;
 }
 
-/* ── แผงแบรนด์ด้านซ้าย ─────────────────────────────────────────── */
+/* ── Left brand panel ─────────────────────────────────────────── */
 .dc-brand {
   flex: 0 0 520px;
   box-sizing: border-box;
@@ -86,7 +86,7 @@ html.dc-html {
   letter-spacing: 0.02em;
 }
 
-/* ── ฝั่งฟอร์ม ────────────────────────────────────────────────── */
+/* ── Form side ────────────────────────────────────────────────── */
 .dc-main {
   flex-grow: 1;
   box-sizing: border-box;
@@ -96,7 +96,7 @@ html.dc-html {
 }
 
 .dc-locale {
-  order: -1; /* อยู่ท้าย DOM แต่แสดงบนสุด — ดูเหตุผลใน template.ftl */
+  order: -1; /* at the end of the DOM but shown on top — see the reason in template.ftl */
   align-self: flex-end;
   display: flex;
   align-items: center;
@@ -193,7 +193,7 @@ html.dc-html {
   white-space: nowrap;
 }
 
-/* ── ฟอร์ม (คลาสจาก theme.properties) ───────────────────────── */
+/* ── Form (classes from theme.properties) ───────────────────────── */
 .dc-panel a {
   color: var(--dc-text-brand);
 }
@@ -425,7 +425,7 @@ html.dc-html {
   color: var(--dc-text-secondary);
 }
 
-/* หน้าตั้งค่า TOTP (คำเชิญ first admin) และหน้าอื่นที่มาจาก base */
+/* TOTP setup page (first admin invitation) and other pages that come from the base */
 #kc-content ol,
 #kc-content ul {
   margin: 0;
@@ -486,7 +486,7 @@ html.dc-html {
   gap: var(--dc-space-4);
 }
 
-/* ── ไอคอน: เส้น SVG ผ่าน mask ใช้สีของข้อความ (ไม่มีค่าสีในไฟล์) ─ */
+/* ── Icons: SVG strokes through a mask using the text color (no color values in the file) ─ */
 .dc-icon {
   display: inline-block;
   flex-shrink: 0;
@@ -531,7 +531,7 @@ html.dc-html {
   --dc-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='7' y='2' width='10' height='20' rx='2'/%3E%3Cpath d='M11 18h2'/%3E%3C/svg%3E");
 }
 
-/* จอแคบ: ซ่อนแผงแบรนด์ เหลือฟอร์ม (#515) */
+/* narrow screens: hide the brand panel, leave the form (#515) */
 @media (max-width: 899px) {
   .dc-brand {
     display: none;

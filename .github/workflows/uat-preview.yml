@@ -1,28 +1,28 @@
 name: uat-preview
 
-# U1.6 (#434) + #537: deploy/rollback ของ UAT first slice (#373/#374) บน 3 VM
+# U1.6 (#434) + #537: deploy/rollback of the UAT first slice (#373/#374) on 3 VMs
 #
-# - สั่งด้วยมือเท่านั้น; job ผูก environment `uat-preview` ซึ่งตั้ง required reviewers ไว้ใน GitHub settings
-#   (ดู docs/u1-uat-deployment.md) — ไม่มีการอนุมัติ = ไม่แตะ VM
-# - deploy: build image → push GHCR (อ้างด้วย digest) → SSH → pg_dump → migrate แบบ additive
-#   (ปฏิเสธ migration ใหม่ที่มี DROP) → Keycloak config → deploy ด้วย digest → readiness smoke
-#   → deployment record (job summary + artifact + บน VM)
-# - rollback: redeploy digest ของ record ก่อนหน้า (Console/proxy + api) โดยไม่แตะฐานข้อมูล
-# - secret ใช้ผ่าน `secrets.*` เท่านั้นและไม่ echo; ค่าที่ derive จาก secret ถูก mask
+# - manual dispatch only; the job is bound to environment `uat-preview` which has required reviewers set in GitHub settings
+#   (see docs/u1-uat-deployment.md) — no approval = the VMs are not touched
+# - deploy: build images → push GHCR (referenced by digest) → SSH → pg_dump → additive migrate
+#   (reject new migrations containing DROP) → Keycloak config → deploy by digest → readiness smoke
+#   → deployment record (job summary + artifact + on the VM)
+# - rollback: redeploy the digests of the previous record (Console/proxy + api) without touching the database
+# - secrets are used only via `secrets.*` and never echoed; values derived from secrets are masked
 on:
   workflow_dispatch:
     inputs:
       action:
-        description: 'deploy = build + deploy SHA ของ main | rollback = redeploy digest ของ record ก่อนหน้า (ไม่แตะ DB)'
+        description: 'deploy = build + deploy the SHA of main | rollback = redeploy the digests of the previous record (does not touch the DB)'
         type: choice
         options: [deploy, rollback]
         default: deploy
       rollback_sha:
-        description: 'rollback เท่านั้น: SHA ที่เคย deploy สำเร็จบน UAT (ว่าง = record ก่อนหน้า)'
+        description: 'rollback only: a SHA that was successfully deployed on UAT before (empty = the previous record)'
         type: string
         default: ''
       initial_deploy:
-        description: 'deploy ครั้งแรกบน VM ที่ยังไม่มี deployment record (ฐานข้อมูลว่าง)'
+        description: 'first deploy on a VM that has no deployment record yet (empty database)'
         type: boolean
         default: false
 
@@ -38,7 +38,7 @@ env:
 
 defaults:
   run:
-    # bash แบบระบุชัด = `-eo pipefail` — `cmd | tee` ต้องล้มตาม cmd
+    # explicit bash = `-eo pipefail` — `cmd | tee` must fail together with cmd
     shell: bash
 
 jobs:
@@ -49,7 +49,7 @@ jobs:
     environment: uat-preview
     permissions:
       contents: read
-      packages: write # push image ไป GHCR
+      packages: write # push images to GHCR
     steps:
       - uses: actions/checkout@v4
         with:
@@ -64,10 +64,10 @@ jobs:
           UAT_HOST: ${{ vars.UAT_HOST }}
           UAT_FIXTURE_PACK_VERSION: ${{ vars.UAT_FIXTURE_PACK_VERSION }}
         run: |
-          # ค่าจริงของ host/domain/TLS/gateway อยู่นอก Git (#434) — ไม่ครบ = ห้ามเปิด UAT
+          # real host/domain/TLS/gateway values live outside Git (#434) — incomplete = UAT must not be opened
           for name in UAT_HOST UAT_FIXTURE_PACK_VERSION; do
             if [ -z "${!name}" ]; then
-              echo "environment variable ${name} ของ uat-preview ยังไม่ตั้ง (provisioning gate)" >&2
+              echo "environment variable ${name} of uat-preview is not set (provisioning gate)" >&2
               exit 1
             fi
           done
@@ -102,7 +102,7 @@ jobs:
           elif [ "$INITIAL_DEPLOY" = 'true' ]; then
             node scripts/u1-uat-readiness.mjs --migration-guard --initial | tee migration-guard.json
           else
-            echo 'ไม่พบ deployment record บน VM — ถ้าเป็น deploy ครั้งแรกให้ตั้ง initial_deploy=true' >&2
+            echo 'no deployment record found on the VM — for a first deploy set initial_deploy=true' >&2
             exit 1
           fi
 
@@ -164,7 +164,7 @@ jobs:
             VITE_UAT_PACK_VERSION=${{ vars.UAT_FIXTURE_PACK_VERSION }}
           tags: ${{ steps.names.outputs.console }}:${{ github.sha }}
 
-      - name: Build + push Keycloak image (login/email theme ของ D-Contact)
+      - name: Build + push Keycloak image (D-Contact login/email theme)
         id: keycloak
         uses: docker/build-push-action@v6
         with:
@@ -197,14 +197,14 @@ jobs:
           uat-scp infra/uat/bin/uat-deploy.sh infra/uat/bin/db-roles.sh infra/uat/bin/db-roles-3vm.sh infra/uat/bin/object-storage-entrypoint.sh "uat:$release/bin/"
           uat-deploy prepare "$GITHUB_SHA"
 
-      - name: Backup (pg_dump ก่อน migrate)
+      - name: Backup (pg_dump before migrate)
         run: uat-deploy backup "$GITHUB_SHA" | tee backup.json
 
       - name: Migrate (prisma migrate deploy — additive only)
         run: uat-deploy migrate "$GITHUB_SHA"
 
       - name: Keycloak realm config
-        # #682: keycloak-config พิมพ์หลายบรรทัด (realm → dphone → branding) — เก็บเฉพาะผลของ realm config
+        # #682: keycloak-config prints several lines (realm → dphone → branding) — keep only the realm config result
         run: uat-deploy keycloak "$GITHUB_SHA" | grep '"type":"u1.uat.keycloak"' | tail -n 1 | tee keycloak.json
 
       - name: Deploy Console/api by digest
@@ -267,7 +267,7 @@ jobs:
           ROLLBACK_SHA: ${{ inputs.rollback_sha }}
         run: |
           if [ -n "$ROLLBACK_SHA" ] && ! echo "$ROLLBACK_SHA" | grep -Eq '^[0-9a-f]{40}$'; then
-            echo 'rollback_sha ต้องเป็น commit SHA เต็ม 40 ตัว' >&2
+            echo 'rollback_sha must be a full 40-character commit SHA' >&2
             exit 1
           fi
           uat-deploy rollback-target $ROLLBACK_SHA > rollback-target.json

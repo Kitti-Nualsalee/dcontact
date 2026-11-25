@@ -1,6 +1,6 @@
 <#--
-  #515: login.ftl ของ base (Keycloak 26.0.0 ปรับตาม 26.7.5 ใน #592) ปรับตามแบบ B — id/name ของ field และปุ่มเหมือนเดิมทุกตัว
-  (#username, #password, #kc-login, credentialId) เพื่อให้ UAT และ boundary test ของ A1 ใช้ได้ต่อ
+  #515: login.ftl of the base (Keycloak 26.0.0, adapted to 26.7.5 in #592) adapted to design B — the id/name of every field and button unchanged
+  (#username, #password, #kc-login, credentialId) so that the UAT and the A1 boundary tests keep working
 -->
 <#import "template.ftl" as layout>
 <@layout.registrationLayout displayMessage=!messagesPerField.existsError('username','password') displayInfo=realm.password && realm.registrationAllowed && !registrationDisabled??; section>

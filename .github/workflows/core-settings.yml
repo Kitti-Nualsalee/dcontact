@@ -71,24 +71,24 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm db:generate && pnpm --filter '@d-contact/api^...' build
       - run: pnpm db:migrate && pnpm db:rls
-      - name: ตรวจ wire contracts และ runtime profile
+      - name: Check wire contracts and runtime profile
         run: |
           mkdir -p artifacts/core-settings
           node --test scripts/core-settings-evidence.test.mjs scripts/core-settings-release.test.mjs
           pnpm --filter @d-contact/api exec tsx --test src/tenant-core-contract.test.ts src/runtime-profile.test.ts src/e1-uat-api.test.ts | tee artifacts/core-settings/contract.tap
-      - name: ตรวจ HTTP → DB/RLS และ B1 shared-proof regression
+      - name: Check HTTP → DB/RLS and the B1 shared-proof regression
         run: pnpm --filter @d-contact/api exec tsx --test --test-concurrency=1 src/tenant-core-command.integration.ts src/tenant-core-organization.integration.ts src/tenant-voice-catalog.integration.ts src/tenant-locale-api.integration.ts | tee artifacts/core-settings/http.tap
-      - name: ตรวจ deferred invariants และ grants หลัง apply-rls ซ้ำ
+      - name: Check deferred invariants and grants after re-running apply-rls
         run: |
           pnpm db:rls
           pnpm --filter @d-contact/db exec tsx --test src/tenant-core-command.integration.ts src/tenant-core-organization.integration.ts | tee artifacts/core-settings/db.tap
-      - name: Regression ของ provisioning bootstrap/readiness บน role เดิมจริง
+      - name: Regression of provisioning bootstrap/readiness on the real existing role
         env:
           PLATFORM_DATABASE_URL: postgresql://dcontact_platform:dcontact_platform@127.0.0.1:5433/dcontact?schema=public
           PROVISIONER_DATABASE_URL: postgresql://dcontact_provisioner:dcontact_provisioner@127.0.0.1:5433/dcontact?schema=public
         run: pnpm --filter @d-contact/platform-control exec tsx --test src/tenant-bootstrap.integration.ts | tee artifacts/core-settings/provisioner.tap
       - run: pnpm --filter @d-contact/db typecheck && pnpm --filter @d-contact/api typecheck
-      - name: เก็บ SHA/config/run และ checksum ของผลทดสอบที่รันจริง
+      - name: Collect SHA/config/run and checksums of the tests that actually ran
         if: always()
         env:
           CORE_POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
@@ -118,7 +118,7 @@ jobs:
       DATABASE_URL: postgresql://dcontact:dcontact@127.0.0.1:5433/dcontact?schema=public
       APPLICATION_DATABASE_URL: postgresql://dcontact_app:dcontact_app@127.0.0.1:5433/dcontact?schema=public
       CORE_IDENTITY_SANDBOX_URL: http://127.0.0.1:15440
-      # Credential เฉพาะ disposable loopback sandbox ของ job นี้ ไม่ใช่ secret ของ UAT
+      # Credentials for this job's disposable loopback sandbox only, not a UAT secret
       CORE_IDENTITY_SANDBOX_ADMIN_PASSWORD: core-identity-ci-only
     steps:
       - uses: actions/checkout@v4
@@ -132,7 +132,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm db:generate && pnpm --filter '@d-contact/api^...' build
       - run: pnpm db:migrate && pnpm db:rls
-      - name: เริ่ม Keycloak ตาม digest ที่ pin ใน repo โดยแยกจากระบบจริง
+      - name: Start Keycloak at the digest pinned in the repo, isolated from the real system
         run: |
           docker run --detach --name core-settings-identity -p 127.0.0.1:15440:8080 \
             -e KC_BOOTSTRAP_ADMIN_USERNAME=admin \
@@ -143,13 +143,13 @@ jobs:
             if curl --fail --silent "$CORE_IDENTITY_SANDBOX_URL/realms/master/.well-known/openid-configuration" >/dev/null; then exit 0; fi
             sleep 2
           done
-          echo 'Keycloak sandbox ไม่พร้อม: identity boundary NOT_RUN' >&2
+          echo 'Keycloak sandbox not ready: identity boundary NOT_RUN' >&2
           exit 1
-      - name: ตรวจ OIDC/JWKS/native Organizations/proof จริง ไม่ใช้ verifier stub (รวม Customer 360 read, #792)
+      - name: Check real OIDC/JWKS/native Organizations/proof without a verifier stub (including Customer 360 read, #792)
         run: |
           mkdir -p artifacts/core-settings
           pnpm --filter @d-contact/api exec tsx --test --test-concurrency=1 src/tenant-core-identity.boundary.ts src/customer-360-read.boundary.ts src/customer-360-write.boundary.ts | tee artifacts/core-settings/identity.tap
-      - name: เก็บ SHA/config/run และ checksum ของผลทดสอบที่รันจริง
+      - name: Collect SHA/config/run and checksums of the tests that actually ran
         if: always()
         env:
           CORE_POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
@@ -161,7 +161,7 @@ jobs:
           path: artifacts/core-settings/
           if-no-files-found: error
           retention-days: 30
-      - name: ล้างเฉพาะ container sandbox ของ job นี้
+      - name: Clean up only this job's sandbox containers
         if: always()
         run: docker rm --force --volumes core-settings-identity || true
 
@@ -183,7 +183,7 @@ jobs:
       DATABASE_URL: postgresql://dcontact:dcontact@127.0.0.1:5433/dcontact?schema=public
       APPLICATION_DATABASE_URL: postgresql://dcontact_app:dcontact_app@127.0.0.1:5433/dcontact?schema=public
       CORE_IDENTITY_SANDBOX_URL: http://127.0.0.1:15440
-      # Credential เฉพาะ disposable loopback sandbox ของ job นี้ ไม่ใช่ secret ของ UAT
+      # Credentials for this job's disposable loopback sandbox only, not a UAT secret
       CORE_IDENTITY_SANDBOX_ADMIN_PASSWORD: core-identity-ci-only
     steps:
       - uses: actions/checkout@v4
@@ -197,7 +197,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm db:generate && pnpm --filter '@d-contact/api^...' --filter '@d-contact/console^...' build
       - run: pnpm db:migrate && pnpm db:rls
-      - name: เริ่ม Keycloak ตาม digest ที่ pin ใน repo โดยแยกจากระบบจริง
+      - name: Start Keycloak at the digest pinned in the repo, isolated from the real system
         run: |
           docker run --detach --name core-settings-identity -p 127.0.0.1:15440:8080 \
             -e KC_BOOTSTRAP_ADMIN_USERNAME=admin \
@@ -208,11 +208,11 @@ jobs:
             if curl --fail --silent "$CORE_IDENTITY_SANDBOX_URL/realms/master/.well-known/openid-configuration" >/dev/null; then exit 0; fi
             sleep 2
           done
-          echo 'Keycloak sandbox ไม่พร้อม: identity boundary NOT_RUN' >&2
+          echo 'Keycloak sandbox not ready: identity boundary NOT_RUN' >&2
           exit 1
-      - name: เตรียม browser ตาม Playwright ที่ pin ใน repo
+      - name: Prepare the browser matching the Playwright pinned in the repo
         run: pnpm --filter @d-contact/console exec playwright install --with-deps chromium
-      - name: ตรวจ model, typecheck, i18n และ CSS ของหน้าองค์กรและทีม
+      - name: Check model, typecheck, i18n and CSS of the organization and team pages
         run: |
           mkdir -p artifacts/core-settings
           pnpm --filter @d-contact/console exec tsx --test src/core-settings-model.test.ts | tee artifacts/core-settings/model.tap
@@ -222,9 +222,9 @@ jobs:
           pnpm --filter @d-contact/console i18n:literals
           pnpm --filter @d-contact/console lint:css
           pnpm --filter @d-contact/console build
-      - name: Browser → production AuthRoot → Keycloak/JWKS/proof → API/app-role DB จริง
+      - name: Browser → production AuthRoot → Keycloak/JWKS/proof → real API/app-role DB
         run: pnpm --filter @d-contact/console test:core-settings:browser
-      - name: เก็บ SHA/config/run และ checksum ของผลทดสอบที่รันจริง
+      - name: Collect SHA/config/run and checksums of the tests that actually ran
         if: always()
         env:
           CORE_POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
@@ -236,7 +236,7 @@ jobs:
           path: artifacts/core-settings/
           if-no-files-found: error
           retention-days: 30
-      - name: ล้างเฉพาะ container sandbox ของ job นี้
+      - name: Clean up only this job's sandbox containers
         if: always()
         run: docker rm --force --volumes core-settings-identity || true
 
@@ -258,7 +258,7 @@ jobs:
       DATABASE_URL: postgresql://dcontact:dcontact@127.0.0.1:5433/dcontact?schema=public
       APPLICATION_DATABASE_URL: postgresql://dcontact_app:dcontact_app@127.0.0.1:5433/dcontact?schema=public
       CORE_IDENTITY_SANDBOX_URL: http://127.0.0.1:15440
-      # Credential เฉพาะ disposable loopback sandbox ของ job นี้ ไม่ใช่ secret ของ UAT
+      # Credentials for this job's disposable loopback sandbox only, not a UAT secret
       CORE_IDENTITY_SANDBOX_ADMIN_PASSWORD: core-identity-ci-only
     steps:
       - uses: actions/checkout@v4
@@ -272,7 +272,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm db:generate && pnpm --filter '@d-contact/api^...' build
       - run: pnpm db:migrate && pnpm db:rls
-      - name: เริ่ม Keycloak ตาม digest ที่ pin ใน repo โดยแยกจากระบบจริง
+      - name: Start Keycloak at the digest pinned in the repo, isolated from the real system
         run: |
           docker run --detach --name core-settings-identity -p 127.0.0.1:15440:8080 \
             -e KC_BOOTSTRAP_ADMIN_USERNAME=admin \
@@ -283,15 +283,15 @@ jobs:
             if curl --fail --silent "$CORE_IDENTITY_SANDBOX_URL/realms/master/.well-known/openid-configuration" >/dev/null; then exit 0; fi
             sleep 2
           done
-          echo 'Keycloak sandbox ไม่พร้อม: identity boundary NOT_RUN' >&2
+          echo 'Keycloak sandbox not ready: identity boundary NOT_RUN' >&2
           exit 1
-      - name: Build API รุ่นก่อนจาก main ที่ foundation ผ่านแล้ว
+      - name: Build the previous API from main where the foundation already passed
         run: |
           mkdir -p "$RUNNER_TEMP/core-settings-old-api"
           git archive 53cc8be09c36e27074531b76bb2c973351f6f16c | tar -x -C "$RUNNER_TEMP/core-settings-old-api"
           docker build --file "$RUNNER_TEMP/core-settings-old-api/apps/api/Dockerfile" --target runtime --build-arg SOURCE_SHA=53cc8be09c36e27074531b76bb2c973351f6f16c --tag core-settings-old-api "$RUNNER_TEMP/core-settings-old-api"
           docker build --file "$RUNNER_TEMP/core-settings-old-api/apps/api/Dockerfile" --target ops --build-arg SOURCE_SHA=53cc8be09c36e27074531b76bb2c973351f6f16c --tag core-settings-old-ops "$RUNNER_TEMP/core-settings-old-api"
-      - name: Old API image entrypoint จริงกับ new schema/nullable provenance และ ledger หลัง rollback
+      - name: Real old API image entrypoint against the new schema/nullable provenance and the ledger after rollback
         env:
           CORE_COMPAT_OLD_API_IMAGE: core-settings-old-api
           CORE_COMPAT_OLD_OPS_IMAGE: core-settings-old-ops
@@ -301,7 +301,7 @@ jobs:
         run: |
           mkdir -p artifacts/core-settings
           pnpm --filter @d-contact/api exec tsx --test --test-concurrency=1 src/tenant-core-organization-old-api.boundary.ts src/tenant-core-organization-migration.boundary.ts | tee artifacts/core-settings/compatibility.tap
-      - name: เก็บ SHA/config/run และ checksum ของผลทดสอบที่รันจริง
+      - name: Collect SHA/config/run and checksums of the tests that actually ran
         if: always()
         env:
           CORE_POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
@@ -313,6 +313,6 @@ jobs:
           path: artifacts/core-settings/
           if-no-files-found: error
           retention-days: 30
-      - name: ล้างเฉพาะ container sandbox ของ job นี้
+      - name: Clean up only this job's sandbox containers
         if: always()
         run: docker rm --force --volumes core-settings-identity || true

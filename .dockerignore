@@ -1,4 +1,4 @@
-# U1.6 (#434): build context ของ image UAT — ห้ามพา secret, dependency ที่ติดตั้งแล้ว หรือหลักฐานเข้า image
+# U1.6 (#434): build context of the UAT images — must not carry secrets, installed dependencies or evidence into an image
 .git
 .github
 **/node_modules
@@ -17,7 +17,7 @@
 **/*.key
 **/*.p12
 
-# ผลทดสอบ/หลักฐาน/ข้อมูล runtime
+# test results/evidence/runtime data
 **/test-results
 **/test-results-real
 **/playwright-report
@@ -31,7 +31,7 @@ infra/keycloak/providers
 infra/keycloak/extensions/*/target
 .playwright-mcp
 
-# เอกสาร/ไฟล์ขนาดใหญ่ที่ image ไม่ใช้
+# documents/large files that the images do not use
 mockups
 /*.png
 /*.xlsx

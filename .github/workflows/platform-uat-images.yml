@@ -1,6 +1,6 @@
 name: platform-uat-images
 
-# A1.9 (#574): สร้าง image ของ Platform UAT หลัง RC gate บน SHA เดียวกัน; deploy จาก operator ใน LAN
+# A1.9 (#574): build the Platform UAT images after the RC gate on the same SHA; deployment is done by an operator in the LAN
 on:
   workflow_dispatch:
 
@@ -24,7 +24,7 @@ jobs:
           node-version: 20
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: A1 RC gate ของ source SHA ที่จะ build
+      - name: A1 RC gate of the source SHA to be built
         env:
           GH_TOKEN: ${{ github.token }}
         run: pnpm a1:uat:gate --expect-sha "$GITHUB_SHA"

@@ -10,11 +10,11 @@ import org.keycloak.models.ClientModel;
 import org.keycloak.models.KeycloakSession;
 
 /**
- * AC6 (#599): ลูกค้าจัดการบัญชีใน D-Contact เท่านั้น (#589) — เปิด {@code /realms/dcontact/account/} แล้วไป D-Contact Console
+ * AC6 (#599): customers manage their account in D-Contact only (#589) — opening {@code /realms/dcontact/account/} sends them to D-Contact Console
  *
- * <p>ปลายทางคือ {@code baseUrl} ของ client {@code account-console} ที่ {@code pnpm infra:identity:branding}
- * ตั้งจาก {@code CONSOLE_PUBLIC_URL} (ไม่ฝัง URL ใน extension) ถ้ายังไม่ตั้ง/ไม่ใช่ URL สัมบูรณ์ ตอบ 404 —
- * ไม่ redirect วนกลับมาที่ path เดิม และไม่แสดงหน้าของ identity provider
+ * <p>The destination is the {@code baseUrl} of the client {@code account-console}, which {@code pnpm infra:identity:branding}
+ * sets from {@code CONSOLE_PUBLIC_URL} (no URL is embedded in the extension). If it is not set or not an absolute URL, answer 404 —
+ * never redirect back to the same path and never show the identity provider's page
  */
 public class DcAccountLanding {
 

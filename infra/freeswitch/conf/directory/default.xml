@@ -1,5 +1,5 @@
 <include>
-  <!-- E1.10: fail closed เมื่อ mod_xml_curl/API ใช้ไม่ได้ — ห้ามมี static SIP user/password -->
+  <!-- E1.10: fail closed when mod_xml_curl/API is unavailable — there must be no static SIP user/password -->
   <domain name="$${domain}">
     <params>
       <param name="dial-string"

@@ -1,6 +1,6 @@
 <#--
-  AC6 (#599): อีเมลลืมรหัสผ่าน — layout เดียวกับอีเมลเชิญ
-  ไม่แสดงชื่อ realm/ผู้ใช้/อีเมล; ลิงก์และอายุลิงก์เท่ากับ template ของ base
+  AC6 (#599): forgot-password mail — the same layout as the invitation mail
+  does not show the realm/user/email; the link and link lifetime are the same as the base template
 -->
 <#import "template.ftl" as layout>
 <@layout.emailLayout>
