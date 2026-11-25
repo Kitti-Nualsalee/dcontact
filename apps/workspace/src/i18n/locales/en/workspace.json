@@ -56,7 +56,13 @@
   "governance": {
     "ready": "Contact checked",
     "required": "Contact must be checked before outbound",
-    "retry": "Reconnect status"
+    "retry": "Reconnect status",
+    "alerts": {
+      "relaxed": "Governance relaxed the rule, but outbound contact stays blocked until the new canonical policy is checked",
+      "blockNext": "Contact preferences changed: the next outbound contact is blocked until the new canonical policy is checked",
+      "confirmed": "Checked the latest canonical policy",
+      "stale": "Governance status may be incomplete: the next outbound contact is blocked; check the status again before continuing"
+    }
   },
   "grid": "Call readiness",
   "offer": {
@@ -492,5 +498,38 @@
       "CLOSED": "Closed"
     },
     "workHasCase": "This work already has a case. A work item belongs to one case. Follow it up in Team cases in Console."
+  },
+  "auth": {
+    "signingIn": {
+      "title": "Signing in",
+      "detail": "Checking your organization and session"
+    },
+    "signingOut": {
+      "title": "Signing out",
+      "detail": "Closing the Workspace session"
+    },
+    "signInFailed": {
+      "title": "Sign-in failed",
+      "detail": "New calls are not being offered. Please sign in again",
+      "action": "Try again"
+    },
+    "signIn": {
+      "title": "D-Contact Workspace",
+      "detail": "Sign in to organization {{tenant}}",
+      "action": "Sign in"
+    },
+    "supervisorForbidden": {
+      "title": "You cannot open Supervisor Workspace",
+      "detail": "This account has no supervisor or admin role in the current organization",
+      "action": "Back to Agent Workspace"
+    },
+    "tenantMissing": {
+      "title": "Organization not found",
+      "detail": "Open Workspace from the tenant hostname, or add ?tenant=<alias> for local development"
+    },
+    "idpMissing": {
+      "title": "Identity Provider is not configured",
+      "detail": "Set VITE_KC_ISSUER and VITE_KC_CLIENT_ID before opening Workspace"
+    }
   }
 }

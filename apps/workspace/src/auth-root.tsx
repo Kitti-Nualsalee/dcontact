@@ -166,17 +166,17 @@ export function AuthenticatedWorkspace({
   );
 
   if (!user && (auth.activeNavigator === 'signinRedirect' || auth.isLoading)) {
-    return <AuthStatus title="กำลังเข้าสู่ระบบ" detail="กำลังตรวจสอบ organization และ session" />;
+    return <AuthStatus title={t('auth.signingIn.title')} detail={t('auth.signingIn.detail')} />;
   }
   if (auth.activeNavigator === 'signoutRedirect') {
-    return <AuthStatus title="กำลังออกจากระบบ" detail="กำลังปิด Workspace session" />;
+    return <AuthStatus title={t('auth.signingOut.title')} detail={t('auth.signingOut.detail')} />;
   }
   if (!user && auth.error) {
     return (
       <AuthStatus
-        title="เข้าสู่ระบบไม่สำเร็จ"
-        detail="ระบบไม่เปิดรับสายใหม่ โปรดลองเข้าสู่ระบบอีกครั้ง"
-        actionLabel="ลองอีกครั้ง"
+        title={t('auth.signInFailed.title')}
+        detail={t('auth.signInFailed.detail')}
+        actionLabel={t('auth.signInFailed.action')}
         onAction={() =>
           void auth.signinRedirect({ state: workspaceReturnUrl(new URL(window.location.href)) })
         }
@@ -186,9 +186,9 @@ export function AuthenticatedWorkspace({
   if (!user) {
     return (
       <AuthStatus
-        title="D-Contact Workspace"
-        detail={`เข้าสู่ระบบสำหรับ organization ${tenantAlias}`}
-        actionLabel="เข้าสู่ระบบ"
+        title={t('auth.signIn.title')}
+        detail={t('auth.signIn.detail', { tenant: tenantAlias })}
+        actionLabel={t('auth.signIn.action')}
         onAction={() =>
           void auth.signinRedirect({ state: workspaceReturnUrl(new URL(window.location.href)) })
         }
@@ -204,9 +204,9 @@ export function AuthenticatedWorkspace({
   if (view === 'forbidden') {
     return (
       <AuthStatus
-        title="ไม่มีสิทธิ์เปิด Supervisor Workspace"
-        detail="บัญชีนี้ไม่มี role supervisor หรือ admin ใน organization ปัจจุบัน"
-        actionLabel="กลับ Agent Workspace"
+        title={t('auth.supervisorForbidden.title')}
+        detail={t('auth.supervisorForbidden.detail')}
+        actionLabel={t('auth.supervisorForbidden.action')}
         onAction={() => {
           const url = new URL(window.location.href);
           url.searchParams.delete('view');
@@ -328,12 +328,15 @@ interface AuthStatusProps {
   onAction?: () => void;
 }
 
+// Brand monogram, not translatable text
+const AUTH_MARK = 'D';
+
 function AuthStatus({ title, detail, actionLabel, onAction }: AuthStatusProps) {
   return (
     <main className="auth-page">
       <section className="auth-card" aria-live="polite">
         <div className="auth-mark" aria-hidden="true">
-          D
+          {AUTH_MARK}
         </div>
         <h1>{title}</h1>
         <p>{detail}</p>
@@ -348,6 +351,7 @@ function AuthStatus({ title, detail, actionLabel, onAction }: AuthStatusProps) {
 }
 
 export function WorkspaceAuthRoot() {
+  const { t } = useTranslation('workspace');
   const issuer = import.meta.env.VITE_KC_ISSUER as string | undefined;
   const clientId = import.meta.env.VITE_KC_CLIENT_ID as string | undefined;
   const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '';
@@ -356,19 +360,11 @@ export function WorkspaceAuthRoot() {
     tenantAlias = resolveTenantAlias(new URL(window.location.href));
   } catch {
     return (
-      <AuthStatus
-        title="ไม่พบ organization"
-        detail="เปิด Workspace ด้วย tenant hostname หรือระบุ ?tenant=<alias> สำหรับ local development"
-      />
+      <AuthStatus title={t('auth.tenantMissing.title')} detail={t('auth.tenantMissing.detail')} />
     );
   }
   if (!issuer || !clientId) {
-    return (
-      <AuthStatus
-        title="ยังไม่ได้ตั้งค่า Identity Provider"
-        detail="ต้องกำหนด VITE_KC_ISSUER และ VITE_KC_CLIENT_ID ก่อนเปิด Workspace"
-      />
-    );
+    return <AuthStatus title={t('auth.idpMissing.title')} detail={t('auth.idpMissing.detail')} />;
   }
 
   const settings = createOidcSettings({

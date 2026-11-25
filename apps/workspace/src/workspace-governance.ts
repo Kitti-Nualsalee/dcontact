@@ -3,8 +3,11 @@ export type WorkspaceGovernanceState = 'READY' | 'BLOCK_NEXT_OUTBOUND' | 'STALE'
 export interface WorkspaceGovernanceAlert {
   state: WorkspaceGovernanceState;
   aggregateVersion?: number;
-  message: string;
+  messageKey: WorkspaceGovernanceMessage;
 }
+
+/** Catalog key under `workspace:governance.alerts`. */
+export type WorkspaceGovernanceMessage = 'relaxed' | 'blockNext' | 'confirmed' | 'stale';
 
 const SUPPORTED_CONTRACT_VERSION = 1;
 const SHA256_HEX = /^[a-f0-9]{64}$/;
@@ -84,8 +87,7 @@ export class WorkspaceOutboundGate {
       return {
         state: this.state,
         aggregateVersion: version,
-        message:
-          'Governance ผ่อนเงื่อนไขแล้ว แต่ outbound ยังถูกบล็อกจนกว่าจะตรวจสอบ canonical policy ใหม่',
+        messageKey: 'relaxed',
       };
     }
     if (payload.action !== 'BLOCK_NEXT_OUTBOUND') return undefined;
@@ -95,8 +97,7 @@ export class WorkspaceOutboundGate {
     return {
       state: this.state,
       aggregateVersion: this.aggregateVersion,
-      message:
-        'การตั้งค่าการติดต่อเปลี่ยนแล้ว: บล็อก outbound ถัดไปจนกว่าจะตรวจสอบ canonical policy ใหม่',
+      messageKey: 'blockNext',
     };
   }
 
@@ -112,7 +113,7 @@ export class WorkspaceOutboundGate {
     return {
       state: this.state,
       aggregateVersion: version,
-      message: 'ตรวจสอบ canonical policy ล่าสุดแล้ว',
+      messageKey: 'confirmed',
     };
   }
 
@@ -125,7 +126,7 @@ export class WorkspaceOutboundGate {
     return {
       state: this.state,
       aggregateVersion: this.aggregateVersion,
-      message: 'สถานะ governance อาจไม่ครบ: บล็อก outbound ถัดไปและตรวจสอบสถานะใหม่ก่อนดำเนินการ',
+      messageKey: 'stale',
     };
   }
 }

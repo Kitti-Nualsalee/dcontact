@@ -56,7 +56,13 @@
   "governance": {
     "ready": "ตรวจสอบการติดต่อแล้ว",
     "required": "ต้องตรวจสอบการติดต่อก่อน outbound",
-    "retry": "ลองเชื่อมต่อสถานะใหม่"
+    "retry": "ลองเชื่อมต่อสถานะใหม่",
+    "alerts": {
+      "relaxed": "Governance ผ่อนเงื่อนไขแล้ว แต่ outbound ยังถูกบล็อกจนกว่าจะตรวจสอบ canonical policy ใหม่",
+      "blockNext": "การตั้งค่าการติดต่อเปลี่ยนแล้ว: บล็อก outbound ถัดไปจนกว่าจะตรวจสอบ canonical policy ใหม่",
+      "confirmed": "ตรวจสอบ canonical policy ล่าสุดแล้ว",
+      "stale": "สถานะ governance อาจไม่ครบ: บล็อก outbound ถัดไปและตรวจสอบสถานะใหม่ก่อนดำเนินการ"
+    }
   },
   "grid": "การเตรียมพร้อมรับสาย",
   "offer": {
@@ -492,5 +498,38 @@
       "CLOSED": "ปิดแล้ว"
     },
     "workHasCase": "งานนี้มีเคสแล้ว งานหนึ่งผูกได้กับเคสเดียว ดูและเพิ่มโน้ตได้ในเคสของทีมใน Console"
+  },
+  "auth": {
+    "signingIn": {
+      "title": "กำลังเข้าสู่ระบบ",
+      "detail": "กำลังตรวจสอบ organization และ session"
+    },
+    "signingOut": {
+      "title": "กำลังออกจากระบบ",
+      "detail": "กำลังปิด Workspace session"
+    },
+    "signInFailed": {
+      "title": "เข้าสู่ระบบไม่สำเร็จ",
+      "detail": "ระบบไม่เปิดรับสายใหม่ โปรดลองเข้าสู่ระบบอีกครั้ง",
+      "action": "ลองอีกครั้ง"
+    },
+    "signIn": {
+      "title": "D-Contact Workspace",
+      "detail": "เข้าสู่ระบบสำหรับ organization {{tenant}}",
+      "action": "เข้าสู่ระบบ"
+    },
+    "supervisorForbidden": {
+      "title": "ไม่มีสิทธิ์เปิด Supervisor Workspace",
+      "detail": "บัญชีนี้ไม่มี role supervisor หรือ admin ใน organization ปัจจุบัน",
+      "action": "กลับ Agent Workspace"
+    },
+    "tenantMissing": {
+      "title": "ไม่พบ organization",
+      "detail": "เปิด Workspace ด้วย tenant hostname หรือระบุ ?tenant=<alias> สำหรับ local development"
+    },
+    "idpMissing": {
+      "title": "ยังไม่ได้ตั้งค่า Identity Provider",
+      "detail": "ต้องกำหนด VITE_KC_ISSUER และ VITE_KC_CLIENT_ID ก่อนเปิด Workspace"
+    }
   }
 }

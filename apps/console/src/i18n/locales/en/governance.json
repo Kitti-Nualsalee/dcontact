@@ -395,5 +395,76 @@
       "fileRevoked": "File revoked",
       "expires": "Expires {{at}}"
     }
+  },
+  "preferenceCenter": {
+    "brand": "D-CONTACT",
+    "product": "Preference Center",
+    "version": "canonical v{{version}}",
+    "eyebrow": "CONTACT GOVERNANCE",
+    "title": "Contact preferences",
+    "subtitle": "Each change is saved as a new version; earlier history is never edited",
+    "effective": "In effect: {{decision}}",
+    "checking": "Checking",
+    "allowMeaning": "ALLOW only passes the preference gate. It is not consent and does not override a hard restriction",
+    "messages": {
+      "loadFailed": "Could not load the canonical preference. Please try again",
+      "agentCannotAllow": "Agents can only make rules stricter, so they cannot set ALLOW",
+      "timezoneUnknown": "Timezone unknown: choose or confirm a Timezone first so the system can fail closed correctly",
+      "saved": "Saved canonical version {{version}}. New outbound contact is held until consumers confirm the change",
+      "versionConflict": "The data was changed elsewhere. Load the latest canonical version before sending again",
+      "relaxationNotAuthorized": "Your current permissions do not allow relaxing this rule",
+      "saveFailed": "Could not save the preference. The previous data has not been replaced",
+      "callbackMissing": "Enter a callback time and Timezone before sending the request",
+      "callbackCreated": "Created a bounded callback request. Policy and timing are still checked when it is sent",
+      "callbackConflict": "The data has changed. Load the latest version before sending the request again",
+      "callbackFailed": "Could not create the callback request",
+      "reloadFailed": "Could not load the canonical version"
+    },
+    "form": {
+      "title": "Requested setting",
+      "channel": "Channel",
+      "purpose": "Purpose",
+      "decision": "Decision",
+      "agentNote": "Agents can choose BLOCK or DEFER; relaxing to ALLOW is rejected",
+      "allowNote": "ALLOW is not consent and always stays under hard restrictions, revocation and policy",
+      "timezone": "Timezone",
+      "windowStart": "Start time",
+      "windowEnd": "End time",
+      "timezoneNote": "If the Timezone is unknown, the system sends no outbound contact and shows this fix",
+      "evidence": "Evidence reference",
+      "saving": "Saving…",
+      "save": "Save new preference"
+    },
+    "callback": {
+      "title": "Request a callback",
+      "note": "A bounded request that never bypasses consent or a hard restriction",
+      "at": "Date and time",
+      "submit": "Send callback request"
+    },
+    "propagation": {
+      "title": "Propagation status",
+      "note": "After a new mutation, Workspace blocks the next outbound contact until the state is confirmed",
+      "reload": "Load latest version"
+    },
+    "history": {
+      "eyebrow": "READ-ONLY",
+      "title": "Change history",
+      "count": "{{count}} entries",
+      "revoked": "Preference revoked",
+      "scope": "{{channel}} / {{purpose}}",
+      "allChannels": "All channels",
+      "allPurposes": "All purposes",
+      "callback": "Callback requested {{channel}} / {{purpose}}",
+      "versionPrefix": "v{{version}} ·",
+      "actor": "By: {{actor}} · Result: {{outcome}}",
+      "collapse": "Show latest 3 entries",
+      "expand": "Show full history"
+    },
+    "actors": {
+      "agent": "Agent",
+      "admin": "Tenant admin",
+      "compliance": "Compliance",
+      "system": "System"
+    }
   }
 }

@@ -210,10 +210,10 @@ test('flag เปิด → สลับภาษาในแถบบนเป�
 });
 
 /**
- * #588: เมนูผู้ใช้ — ผู้ใช้จำลองของ harness คือ "ผู้ทดสอบ คอนโซล" (admin + offline_access)
- * และนับการออกใน `__signOuts`
+ * #588: user menu — the harness user is "Console Tester" (admin + offline_access)
+ * and sign-outs are counted in `__signOuts`
  */
-const userMenu = (page: Page) => page.getByRole('button', { name: 'เมนูผู้ใช้ ผู้ทดสอบ คอนโซล' });
+const userMenu = (page: Page) => page.getByRole('button', { name: 'เมนูผู้ใช้ Console Tester' });
 
 test('flag ปิด → ไม่มีเมนูผู้ใช้', async ({ page }) => {
   await mockNavigation(page, { status: 200, body: navigation(false) });
@@ -231,7 +231,7 @@ test('flag เปิด → เมนูผู้ใช้แสดงชื่�
   await userMenu(page).click();
   const menu = page.getByRole('menu');
   await expect(menu).toHaveAccessibleName(
-    /ผู้ทดสอบ คอนโซล.*console-e2e@demo\.example.*องค์กร demo.*ผู้ดูแลระบบ/,
+    /Console Tester.*console-e2e@demo\.example.*องค์กร demo.*ผู้ดูแลระบบ/,
   );
   await expect(page.getByText('offline_access')).toHaveCount(0);
   // AC5 (#598): "บัญชีของฉัน" ชี้หน้า Console ของ D-Contact เท่านั้น (แท็บเดิม) + ออกจากระบบ

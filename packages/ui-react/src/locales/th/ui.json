@@ -25,7 +25,11 @@
     "skipToContent": "ข้ามไปที่เนื้อหา",
     "opensInNewTab": "(เปิดในแท็บใหม่)",
     "breadcrumb": "ตำแหน่งปัจจุบัน",
-    "language": "ภาษา"
+    "language": "ภาษา",
+    "languageNames": {
+      "th": "ไทย",
+      "en": "English"
+    }
   },
   "launcher": {
     "title": "แอป D-Contact",

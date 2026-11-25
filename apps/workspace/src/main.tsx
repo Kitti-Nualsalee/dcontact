@@ -77,7 +77,7 @@ const e2eShellProps = {
   account: {
     user: shellUserFromClaims(
       {
-        name: 'ผู้ทดสอบ เวิร์กสเปซ',
+        name: 'Workspace Tester',
         email: 'workspace-e2e@demo.example',
         realm_access: { roles: ['agent'] },
       },

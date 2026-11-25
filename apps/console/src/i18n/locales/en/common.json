@@ -139,6 +139,49 @@
     "restoring": {
       "title": "Checking your sign-in session",
       "detail": "Restoring your session to open the selected page"
+    },
+    "signIn": "Sign in",
+    "signingIn": {
+      "title": "Signing in",
+      "detail": "Checking your organization and Console session"
+    },
+    "required": {
+      "qm": {
+        "title": "D-Contact Console",
+        "detail": "Sign in to open QM evidence"
+      },
+      "governance": {
+        "title": "Contact Governance",
+        "detail": "Sign in to open Exceptions, Policies and Audit"
+      },
+      "dphoneEmbedding": {
+        "title": "dphone embedding",
+        "detail": "Sign in to manage the origins that embed dphone"
+      },
+      "lineInbound": {
+        "title": "LINE inbound (pilot)",
+        "detail": "Sign in to view inbound messages"
+      },
+      "journeys": {
+        "title": "Journey authoring",
+        "detail": "Sign in to edit Journeys"
+      },
+      "account": {
+        "title": "D-Contact",
+        "detail": "Sign in to manage your account"
+      }
+    },
+    "notFound": {
+      "title": "Page not found",
+      "detail": "An Interaction context or contactId is required"
+    },
+    "contextMissing": {
+      "title": "Interaction context not found",
+      "detail": "Open Console from Workspace with an opaque context"
+    },
+    "idpMissing": {
+      "title": "Identity Provider is not configured",
+      "detail": "Set VITE_KC_ISSUER and VITE_KC_CLIENT_ID"
     }
   }
 }

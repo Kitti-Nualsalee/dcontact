@@ -1,0 +1,54 @@
+{
+  "brand": "D-Phone",
+  "subtitle": "Softphone for Agent Workspace",
+  "audio": "Audio setup",
+  "micNeeded": "Enable your microphone to receive calls",
+  "micPending": "Waiting for microphone permission",
+  "micReady": "Microphone ready",
+  "micFailed": "Microphone unavailable. Check permissions in Chrome and try again.",
+  "enableMic": "Enable microphone",
+  "retryMic": "Retry microphone setup",
+  "enableAudio": "Play call audio",
+  "audioBlocked": "Chrome paused the call audio. Select Play call audio to hear the caller.",
+  "workspace": "Return to Workspace",
+  "instructions": "Get started",
+  "firstStep": "Enable the microphone in this tab.",
+  "secondStep": "Connect D-Phone and go available in Workspace.",
+  "thirdStep": "Answer and end calls from Workspace.",
+  "keepOpen": "Keep this D-Phone tab open while taking calls.",
+  "connection": "Call status",
+  "languages": {
+    "th": "ไทย",
+    "en": "EN"
+  },
+  "status": {
+    "waiting": {
+      "label": "Waiting to connect",
+      "detail": "Connect D-Phone from Agent Workspace when the microphone is ready."
+    },
+    "connecting": {
+      "label": "Connecting",
+      "detail": "D-Phone is getting ready for incoming calls."
+    },
+    "ready": {
+      "label": "Phone ready",
+      "detail": "Go available in Workspace to receive calls."
+    },
+    "ringing": {
+      "label": "Incoming call",
+      "detail": "Open Workspace to answer."
+    },
+    "active": {
+      "label": "On a call",
+      "detail": "D-Phone carries the audio. End the call from Workspace."
+    },
+    "lost": {
+      "label": "Connection lost",
+      "detail": "Check Workspace and try connecting D-Phone again."
+    },
+    "duplicate": {
+      "label": "D-Phone is already open",
+      "detail": "Return to the existing D-Phone tab."
+    }
+  }
+}

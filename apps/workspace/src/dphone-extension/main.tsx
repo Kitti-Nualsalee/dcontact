@@ -79,7 +79,7 @@ function PhoneApp() {
     if (tab) await browser.windows.update(tab.windowId, { focused: true }).catch(() => undefined);
   };
 
-  const [label, detail] = text.status[status];
+  const { label, detail } = text.status[status];
   const micLabel = {
     needed: text.micNeeded,
     pending: text.micPending,
@@ -93,7 +93,7 @@ function PhoneApp() {
         <div className="dp-brand">
           <img src="./d-contact-icon-64.png" width="40" height="40" alt="" />
           <div>
-            <h1>D-Phone</h1>
+            <h1>{text.brand}</h1>
             <p>{text.subtitle}</p>
           </div>
         </div>
@@ -104,7 +104,7 @@ function PhoneApp() {
             aria-pressed={language === 'th'}
             onPress={() => setLanguage('th')}
           >
-            ไทย
+            {text.languages.th}
           </Button>
           <Button
             size="sm"
@@ -112,7 +112,7 @@ function PhoneApp() {
             aria-pressed={language === 'en'}
             onPress={() => setLanguage('en')}
           >
-            EN
+            {text.languages.en}
           </Button>
         </div>
       </header>
