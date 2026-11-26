@@ -9,7 +9,7 @@ test('validation/history change the rendered language while the data and message
   const i18n = createI18n({ resources, locale: 'th', defaultNamespace: DEFAULT_NAMESPACE });
   const errors = validateDraft({ ...EMPTY_DRAFT, displayName: 'x' });
   const snapshot = JSON.stringify(errors);
-  assert.equal(i18n.t(errors.displayName!), 'กรอกชื่อ 2–120 ตัวอักษร');
+  assert.equal(i18n.t(errors.displayName!), 'กรอกชื่อ 2–120 ตัวอักษร'); // allow-thai: asserts the Thai catalog rendering
   const item: ActionHistoryItem = {
     id: 'audit-id',
     requestId: 'request-id',
@@ -27,7 +27,7 @@ test('validation/history change the rendered language while the data and message
     occurredAt: '2026-10-22T03:05:00.000Z',
   };
   const original = JSON.stringify(item);
-  assert.match(describeHistory(item, i18n.t), /สร้าง First admin/);
+  assert.match(describeHistory(item, i18n.t), /สร้าง First admin/); // allow-thai: asserts the Thai catalog rendering
   await i18n.changeLanguage('en');
   assert.equal(i18n.t(errors.displayName!), 'Enter a name with 2–120 characters');
   const history = describeHistory(item, i18n.t);

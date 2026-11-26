@@ -21,12 +21,12 @@ jobs:
       - name: Create or update UAT defect labels
         run: |
           gh label create 'uat:defect' --force --color B60205 \
-            --description 'Defect ที่พบจาก UAT run (#379) — ต้องมี run ID, step ID และ severity'
+            --description 'Defect ที่พบจาก UAT run (#379) — ต้องมี run ID, step ID และ severity' # allow-thai: GitHub label description, human-facing like issues
           gh label create 'severity:s1' --force --color 7F0000 \
-            --description 'S1 Blocker: scenario หลักไปต่อไม่ได้ หรือผิด boundary ด้านความปลอดภัย/ความจริง'
+            --description 'S1 Blocker: scenario หลักไปต่อไม่ได้ หรือผิด boundary ด้านความปลอดภัย/ความจริง' # allow-thai: GitHub label description, human-facing like issues
           gh label create 'severity:s2' --force --color D93F0B \
-            --description 'S2 Major: ทำได้แต่ผลผิด หรือต้องใช้ทางอ้อม'
+            --description 'S2 Major: ทำได้แต่ผลผิด หรือต้องใช้ทางอ้อม' # allow-thai: GitHub label description, human-facing like issues
           gh label create 'severity:s3' --force --color FBCA04 \
-            --description 'S3 Minor: ประสบการณ์หรือ a11y บกพร่องในจุดที่ไม่ขวาง'
+            --description 'S3 Minor: ประสบการณ์หรือ a11y บกพร่องในจุดที่ไม่ขวาง' # allow-thai: GitHub label description, human-facing like issues
           gh label create 'severity:s4' --force --color C5DEF5 \
-            --description 'S4 Cosmetic: ความสวยงามล้วน ๆ'
+            --description 'S4 Cosmetic: ความสวยงามล้วน ๆ' # allow-thai: GitHub label description, human-facing like issues

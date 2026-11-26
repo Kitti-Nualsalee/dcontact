@@ -45,4 +45,4 @@ Lead ทำงานเองเป็นค่าเริ่มต้น แ�
 script, config และ CI ข้อความที่ผู้ใช้เห็นอยู่ใน i18n catalog (`locales/`, `messages_*.properties`) เท่านั้น
 ยกเว้น migration ที่รันแล้ว, ข้อมูล seed/CSV และบรรทัดที่ลงท้ายด้วย comment `allow-thai: <เหตุผล>` (ข้อมูลทดสอบภาษาไทยโดยตั้งใจ)
 `pnpm lint:thai` ใน CI กันภาษาไทยใหม่ในโค้ด
-ภาษาไทยเดิมทยอยแปลตาม baseline ใน `scripts/no-thai-baseline.json` — แก้ไฟล์ที่มีภาษาไทยแล้วให้รัน `pnpm lint:thai --update`
+ไฟล์ข้อมูลถาวรที่ใส่ comment ไม่ได้อยู่ใน `PERSISTED` ของ `scripts/check-no-thai.mjs` พร้อมเหตุผล (เอาออกเมื่อแปลแล้ว)

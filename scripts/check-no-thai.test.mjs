@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { countThaiLines, findIncreases, isInScope, lowerBaseline } from './check-no-thai.mjs';
+import { findThaiLines, isInScope, PERSISTED } from './check-no-thai.mjs';
 
 test('source files are in scope; catalogs, docs, applied migrations and data are not', () => {
   assert.equal(isInScope('apps/console/src/console-app.tsx'), true);
@@ -16,44 +16,35 @@ test('source files are in scope; catalogs, docs, applied migrations and data are
   assert.equal(isInScope('docs/adr/038-voice.md'), false);
   assert.equal(isInScope('apps/api/README.md'), false);
   assert.equal(isInScope('mockups/people.html'), false);
+  assert.equal(isInScope('.github/ISSUE_TEMPLATE/uat-defect.yml'), false);
   assert.equal(isInScope('packages/db/prisma/migrations/20261101_init/migration.sql'), false);
   assert.equal(isInScope('packages/db/prisma/seed.ts'), false);
+  assert.equal(isInScope('packages/dphone-embed/releases/1.0.1/dphone-launcher.js'), false);
   assert.equal(isInScope('examples/sales-demo/customers.csv'), false);
   assert.equal(isInScope('data-platform-framework.png'), false);
 });
 
-test('counts lines that contain Thai characters', () => {
-  assert.equal(
-    countThaiLines('const a = 1;\n// \u0E17\u0E14\u0E2A\u0E2D\u0E1A\nconst b = "\u0E01";\n'),
-    2,
-  );
-  assert.equal(countThaiLines('English only\n'), 0);
+test('persisted files are out of scope and each says why', () => {
+  for (const [path, reason] of Object.entries(PERSISTED)) {
+    assert.equal(isInScope(path), false, path);
+    assert.ok(reason.length > 0, path);
+  }
 });
 
-test('lines marked allow-thai are not counted', () => {
+test('reports the lines that contain Thai characters', () => {
+  assert.deepEqual(
+    findThaiLines('const a = 1;\n// \u0E17\u0E14\u0E2A\u0E2D\u0E1A\nconst b = "\u0E01";\n'),
+    [2, 3],
+  );
+  assert.deepEqual(findThaiLines('English only\n'), []);
+});
+
+test('lines marked allow-thai are not reported', () => {
   const thai = '\u0E2A\u0E21';
   const text = [
     `const name = '${thai}'; // allow-thai: Thai name fixture`,
     `const other = '${thai}';`,
     `-- ${thai} allow-thai (the marker must follow a comment token)`,
   ].join('\n');
-  assert.equal(countThaiLines(text), 2);
-});
-
-test('fails files above the baseline and new files with Thai', () => {
-  const increases = findIncreases({ 'a.ts': 3, 'b.ts': 2, 'c.ts': 1 }, { 'a.ts': 3, 'b.ts': 1 });
-  assert.deepEqual(increases, [
-    { path: 'b.ts', count: 2, allowed: 1 },
-    { path: 'c.ts', count: 1, allowed: 0 },
-  ]);
-});
-
-test('update only lowers the baseline and drops cleaned files', () => {
-  assert.deepEqual(
-    lowerBaseline({ 'a.ts': 1, 'b.ts': 9, 'new.ts': 4 }, { 'a.ts': 3, 'b.ts': 2, 'gone.ts': 5 }),
-    {
-      'a.ts': 1,
-      'b.ts': 2,
-    },
-  );
+  assert.deepEqual(findThaiLines(text), [2, 3]);
 });

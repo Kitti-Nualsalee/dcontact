@@ -39,9 +39,9 @@ const INBOX_STATE: Readonly<Record<Cg4InboxDecision['kind'], CgInboxState>> = Ob
 function detailOf(decision: Cg4InboxDecision): string | undefined {
   switch (decision.kind) {
     case 'GAP':
-      return `คาด version ${decision.expectedVersion} แต่ได้รับ ${decision.receivedVersion}`;
+      return `expected version ${decision.expectedVersion} but received ${decision.receivedVersion}`;
     case 'OUT_OF_ORDER':
-      return `apply ถึง version ${decision.appliedVersion} แล้ว แต่ได้รับ ${decision.receivedVersion}`;
+      return `already applied up to version ${decision.appliedVersion} but received ${decision.receivedVersion}`;
     case 'QUARANTINE':
       return decision.detail;
     case 'UNSUPPORTED':

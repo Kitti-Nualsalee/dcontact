@@ -66,7 +66,7 @@ export function classifyCg4InboundEvent(input: ClassifyCg4InboundEventInput): Cg
       ? { kind: 'DUPLICATE' }
       : {
           kind: 'QUARANTINE',
-          detail: `version ${incoming.aggregateVersion} มีสอง payload hash ที่ต่างกัน`,
+          detail: `version ${incoming.aggregateVersion} has two different payload hashes`,
         };
   }
   if (incoming.aggregateVersion === cursor.aggregateVersion + 1) return { kind: 'APPLY' };

@@ -214,7 +214,7 @@ test('the queue puts items awaiting a decision first, then higher risk first, th
 test('a redacted reference is shown only as a digest', () => {
   assert.equal(
     referenceLabel({ redacted: true, digest: '0123456789abcdef' }, tTh),
-    'ปกปิด · digest …abcdef',
+    'ปกปิด · digest …abcdef', // allow-thai: asserts the Thai catalog rendering
   );
   assert.equal(
     referenceLabel({ redacted: true, digest: '0123456789abcdef' }, tEn),
@@ -266,7 +266,7 @@ test('recovery messages come from the catalog per language, and the logic (kind/
   assert.deepEqual([th.kind, th.recovery], [en.kind, en.recovery]);
   assert.equal(
     th.message,
-    'ข้อมูลถูกเปลี่ยนจากที่อื่นแล้ว (คาด v4 แต่ปัจจุบันเป็น v6) ระบบไม่รวมการแก้ไขให้อัตโนมัติ: โหลด canonical version ก่อนตัดสินใหม่',
+    'ข้อมูลถูกเปลี่ยนจากที่อื่นแล้ว (คาด v4 แต่ปัจจุบันเป็น v6) ระบบไม่รวมการแก้ไขให้อัตโนมัติ: โหลด canonical version ก่อนตัดสินใหม่', // allow-thai: asserts the Thai catalog rendering
   );
   assert.equal(
     en.message,

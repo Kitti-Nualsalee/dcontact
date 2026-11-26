@@ -21,8 +21,8 @@ const rejects = (value: Uint8Array, code: string) =>
   );
 
 test('CSV reads BOM, quoted comma/newline and escaped quote, and counts records without changing values', () => {
-  assert.deepEqual(parseC360ImportCsv(bytes('\ufeffname,email\r\n"ก,ข","a""b"\r\n"line\n2",x\n')), {
-    // allow-thai: Thai CSV cell fixture
+  const csv = '\ufeffname,email\r\n"ก,ข","a""b"\r\n"line\n2",x\n'; // allow-thai: Thai CSV cell fixture
+  assert.deepEqual(parseC360ImportCsv(bytes(csv)), {
     headers: ['name', 'email'],
     rows: [
       ['ก,ข', 'a"b'], // allow-thai: Thai CSV cell fixture
