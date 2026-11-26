@@ -1,20 +1,20 @@
 /**
- * Owner: IAM — client ฝั่ง server ของ service account `dcontact-account-service` (AC2 #595, ADR-033)
+ * Owner: IAM — the server-side client of the `dcontact-account-service` service account (AC2 #595, ADR-033)
  *
- * - token แบบ client_credentials ของ realm เดียวกับ issuer, cache ไว้จนใกล้หมดอายุ; 401 = ขอ token ใหม่แล้วลองซ้ำครั้งเดียว
- * - เรียก extension `dc-account` (`{issuer}/dc-account/...`) — account service ไม่มีสิทธิ์จัดการ
- *   Organization ผ่าน Admin REST (เจ้าของงานเลือก 2026-10-06 แทนการให้สิทธิ์ manage Organizations)
- * - AC4 (#597): Admin REST ของผู้ใช้ (`{admin}/users/...`) ภายใต้ fine-grained permission ของ ADR-033
- *   (view/manage/reset-password บนผู้ใช้ของ tenant เท่านั้น)
- * - ทุกความล้มเหลว (เครือข่าย, timeout, status ที่ไม่คาด) = `AccountPolicyError('IDENTITY_UNAVAILABLE')`
- *   โดยไม่แนบ body/secret ของ Keycloak ไปกับ error
+ * - a client_credentials token of the same realm as the issuer, cached until close to expiry; 401 = request a new token and retry once
+ * - calls the `dc-account` extension (`{issuer}/dc-account/...`) — the account service has no permission to manage
+ *   Organizations through the Admin REST (the owner chose on 2026-10-06 instead of granting the manage Organizations permission)
+ * - AC4 (#597): the user Admin REST (`{admin}/users/...`) under the fine-grained permission of ADR-033
+ *   (view/manage/reset-password on the tenant's users only)
+ * - every failure (network, timeout, an unexpected status) = `AccountPolicyError('IDENTITY_UNAVAILABLE')`
+ *   without attaching the Keycloak body/secret to the error
  */
 import { AccountPolicyError, type OrganizationMfaPort } from './account-policy.js';
 
 export const ACCOUNT_SERVICE_CLIENT_ID = 'dcontact-account-service';
 
 export interface KeycloakAccountServiceOptions {
-  /** issuer ของ realm เช่น `http://localhost:8081/realms/dcontact` */
+  /** the realm issuer, e.g. `http://localhost:8081/realms/dcontact` */
   issuer: string;
   clientSecret: string;
   clientId?: string;
@@ -23,7 +23,7 @@ export interface KeycloakAccountServiceOptions {
   now?: () => number;
 }
 
-/** เผื่อเวลาก่อน token หมดอายุ — ไม่ส่ง token ที่จะหมดระหว่างทาง */
+/** a margin before the token expires — do not send a token that will expire in flight */
 const TOKEN_EXPIRY_MARGIN_MS = 30_000;
 
 export class KeycloakAccountServiceClient {
@@ -42,14 +42,14 @@ export class KeycloakAccountServiceClient {
     this.now = options.now ?? Date.now;
   }
 
-  /** เรียก `{issuer}/dc-account/{path}` — คืน status และ body (JSON หรือ undefined) */
+  /** calls `{issuer}/dc-account/{path}` — returns the status and body (JSON or undefined) */
   extension(method: 'POST' | 'PUT', path: string, body: unknown) {
     return this.call(method, `${this.issuer}/dc-account/${path}`, body);
   }
 
   /**
-   * เรียก Admin REST ของ realm (`{origin}[/auth]/admin/realms/{realm}/{path}`) ด้วย token ของ account service
-   * — สิทธิ์จำกัดด้วย fine-grained permission (ADR-033) ไม่ใช่ realm-management role
+   * calls the realm's Admin REST (`{origin}[/auth]/admin/realms/{realm}/{path}`) with the account service token
+   * — permission is limited by the fine-grained permission (ADR-033), not a realm-management role
    */
   admin(method: 'GET' | 'PUT' | 'DELETE', path: string, body?: unknown) {
     return this.call(method, `${this.adminBase()}/${path}`, body);
@@ -125,7 +125,7 @@ export class KeycloakAccountServiceClient {
   }
 }
 
-/** port ของ AC1: เขียน `dc_mfa_required` ของ Organization ของ tenant ผ่าน extension (idempotent) */
+/** the AC1 port: writes `dc_mfa_required` of the tenant's Organization through the extension (idempotent) */
 export class KeycloakOrganizationMfa implements OrganizationMfaPort {
   constructor(private readonly client: KeycloakAccountServiceClient) {}
 

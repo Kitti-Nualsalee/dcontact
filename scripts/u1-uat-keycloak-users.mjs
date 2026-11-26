@@ -4,14 +4,14 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 /**
- * U1.6 (#434): ตั้งค่า Keycloak realm ของ UAT และสร้างบัญชี maker/reviewer จาก secret input
+ * U1.6 (#434): sets up the UAT Keycloak realm and creates the maker/reviewer accounts from a secret input
  *
- * - `--config`: render `infra/keycloak/realm-dcontact.uat.json` ด้วย env (`${env.NAME}`) แล้วสร้าง realm
- *   ถ้ายังไม่มี หรือ reconcile ส่วนที่ UAT ต้องการ (client ของ Console, OTP, Organization, user profile)
- * - `--users <file>`: สร้าง/อัปเดตบัญชีจากไฟล์ JSON ที่ operator วางจาก secret store — ไม่ commit ลง Git
+ * - `--config`: render `infra/keycloak/realm-dcontact.uat.json` with env (`${env.NAME}`) and create the realm
+ *   if it does not exist yet, or reconcile what UAT needs (the Console client, OTP, Organization, user profile)
+ * - `--users <file>`: create/update accounts from a JSON file the operator drops from the secret store - never committed to Git
  *
- * เรียก admin REST ผ่าน network ภายในของ compose เท่านั้น (proxy ปิด `/auth/admin` และ realm master)
- * ไม่พิมพ์รหัสผ่าน token หรือค่าจากไฟล์บัญชีออก log; ขัด stop condition (#434) = หยุดทันที
+ * calls the admin REST only through the internal compose network (the proxy closes `/auth/admin` and the master realm)
+ * never prints passwords, tokens or values from the accounts file to a log; hitting a stop condition (#434) = stop immediately
  */
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -26,7 +26,7 @@ export const UAT_REALM_ENV = Object.freeze([
   'UAT_ORGANIZATION_DOMAIN',
 ]);
 const IDENTITY_ATTRIBUTES = Object.freeze(['tenant_id', 'tenant_slug', 'dc_user_id']);
-/** credential ที่รู้กันใน dev/seed — UAT ใช้ซ้ำไม่ได้ (stop condition: shared credentials) */
+/** credentials known in dev/seed - UAT must not reuse them (stop condition: shared credentials) */
 export const KNOWN_DEV_PASSWORDS = Object.freeze([
   'admin',
   'admin1234',
@@ -38,11 +38,11 @@ export const KNOWN_DEV_PASSWORDS = Object.freeze([
   'dcontact_provisioner',
   'ClueCon',
 ]);
-/** บัญชี seed ของ dev ใช้โดเมน `.local` (เช่น `admin@demo.local`) */
+/** dev seed accounts use the `.local` domain (e.g. `admin@demo.local`) */
 const DEV_ACCOUNT_DOMAIN = /\.local$/i;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** #685: client ของ Platform API (ค่าเดียวกับ keycloak-platform-setup.mjs — ops image ไม่มีไฟล์นั้น) */
+/** #685: the Platform API client (the same value as keycloak-platform-setup.mjs - the ops image does not have that file) */
 export const PLATFORM_API_CLIENT = 'dcontact-platform-api';
 
 export class UatKeycloakError extends Error {
@@ -53,7 +53,7 @@ export class UatKeycloakError extends Error {
   }
 }
 
-/** แทน `${env.NAME}` ด้วยค่าจาก env — ขาดตัวใด = fail closed; ห้ามมี placeholder เหลือ */
+/** Replace `${env.NAME}` with the value from env - any missing one = fail closed; no placeholder may remain */
 export function renderRealm(template, environment) {
   const missing = new Set();
   const rendered = JSON.parse(JSON.stringify(template), (_key, value) =>
@@ -128,7 +128,7 @@ export function renderRealm(template, environment) {
 
 const TENANT_ALIAS = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
 
-/** redirect ราย tenant ของ Console (`<origin>/?tenant=<slug>`) ที่ origin ตรง — ไม่รับ path/query/fragment อื่น */
+/** per-tenant redirect of the Console (`<origin>/?tenant=<slug>`) where the origin matches - no other path/query/fragment is accepted */
 function tenantConsoleRedirect(uri, origin) {
   let url;
   try {
@@ -150,8 +150,8 @@ function tenantConsoleRedirect(uri, origin) {
 }
 
 /**
- * #907: provisioning saga เพิ่ม redirect ราย tenant ให้ Console client เอง — config/redirect tool ต้องไม่ลบทิ้ง
- * คืน desired ชุดใหม่ที่รวม redirect ของ tenant ใน client ปัจจุบัน (เฉพาะรูปแบบ exact ของ origin เดียวกัน)
+ * #907: the provisioning saga adds per-tenant redirects to the Console client itself - the config/redirect tool must not remove them
+ * returns a new desired set that merges the tenant redirects in the current client (only the exact form of the same origin)
  */
 export function mergeTenantConsoleRedirects(desired, current) {
   const origin = new URL(desired.redirectUris[0]).origin;
@@ -166,12 +166,12 @@ export function mergeTenantConsoleRedirects(desired, current) {
   };
 }
 
-/** digest ของ realm config ที่ render แล้ว (ไม่มี secret) — บันทึกลง deployment record */
+/** digest of the rendered realm config (no secret) - recorded in the deployment record */
 export function realmConfigDigest(rendered) {
   return `sha256:${createHash('sha256').update(canonicalJson(rendered)).digest('hex')}`;
 }
 
-/** เปลี่ยนเฉพาะ redirect ของ Console โดยไม่ reconcile shared realm หรือ required actions */
+/** change only the Console redirects without reconciling the shared realm or required actions */
 export async function reconcileConsoleRedirects(
   admin,
   rendered,
@@ -196,7 +196,7 @@ export async function reconcileConsoleRedirects(
   ) {
     throw new UatKeycloakError('CONSOLE_CLIENT_UNEXPECTED');
   }
-  // Keycloak คืน redirectUris ไม่เรียงตามที่ส่งไป จึงเรียงก่อน hash ให้ digest ไม่ขึ้นกับลำดับ
+  // Keycloak returns redirectUris in an order different from what was sent, so sort before hashing so the digest does not depend on order
   const state = (client) => ({
     redirectUris: [...(client.redirectUris ?? [])].sort(),
     postLogoutRedirectUris: (client.attributes?.['post.logout.redirect.uris'] ?? '')
@@ -260,8 +260,8 @@ export function assertNotDevCredential(name, value) {
 }
 
 /**
- * ตรวจไฟล์บัญชี: ต้องมี maker และ reviewer อย่างน้อยหนึ่งคน, คนละบัญชี/คนละ dc_user_id (maker-checker),
- * ไม่ใช้บัญชีหรือรหัสผ่านของ dev และรหัสผ่านเริ่มต้นเป็น temporary เสมอ
+ * Validate the accounts file: needs at least one maker and one reviewer, different accounts/different dc_user_id (maker-checker),
+ * no dev account or password, and the initial password is always temporary
  */
 export function validateAccounts(input) {
   if (!input || typeof input !== 'object' || !Array.isArray(input.accounts)) {
@@ -295,14 +295,14 @@ export function validateAccounts(input) {
   });
   const roles = new Set(accounts.map((account) => account.role));
   if (!roles.has('maker') || !roles.has('reviewer')) {
-    throw new UatKeycloakError('ACCOUNTS_INVALID', 'ต้องมีทั้ง maker และ reviewer');
+    throw new UatKeycloakError('ACCOUNTS_INVALID', 'both maker and reviewer are required');
   }
   for (const key of ['username', 'email', 'dcUserId']) {
     const values = accounts.map((account) => account[key].toLowerCase());
     if (new Set(values).size !== values.length) {
       throw new UatKeycloakError(
         'ACCOUNTS_INVALID',
-        `${key} ซ้ำ — maker/reviewer ต้องเป็นคนละบัญชี`,
+        `${key} is duplicated - maker/reviewer must be different accounts`,
       );
     }
   }
@@ -323,7 +323,7 @@ export function createKeycloakAdmin({ baseUrl, username, password, fetchImpl = f
     });
     if (allow404 && response.status === 404) return undefined;
     if (!response.ok) {
-      // ไม่สะท้อน body กลับ — อาจมีค่าที่ส่งไป
+      // do not echo the body back - it may contain the values that were sent
       throw new UatKeycloakError('KEYCLOAK_ADMIN_FAILED', `${method} ${path} → ${response.status}`);
     }
     const text = await response.text();
@@ -355,7 +355,7 @@ const REALM_LEVEL_EXCLUDED = new Set([
   'requiredActions',
 ]);
 
-/** test-only: upsert ของ client เดียวโดยไม่ apply realm ทั้งก้อน */
+/** test-only: upsert a single client without applying the whole realm */
 export const upsertClientForTest = (...args) => upsertClient(...args);
 
 async function upsertClient(admin, realm, desired, scopes) {
@@ -416,7 +416,7 @@ export async function applyRealmConfig(admin, rendered) {
     const flows = await admin.call(`${base}/authentication/flows`);
     for (const flow of rendered.authenticationFlows.filter((candidate) => candidate.topLevel)) {
       if (!flows.some((candidate) => candidate.alias === flow.alias)) {
-        // flow สร้างได้ตอนสร้าง realm เท่านั้น — realm เดิมที่ไม่มี flow นี้ต้องให้ operator ตรวจ
+        // a flow can be created only when the realm is created - an existing realm without this flow must be checked by the operator
         throw new UatKeycloakError('UAT_BROWSER_FLOW_MISSING', flow.alias);
       }
     }
@@ -439,7 +439,7 @@ export async function applyRealmConfig(admin, rendered) {
   const scopes = await admin.call(`${base}/client-scopes`);
   for (const client of rendered.clients) await upsertClient(admin, realm, client, scopes);
 
-  // tenant_id/tenant_slug/dc_user_id ต้องอยู่ใน user profile ไม่เช่นนั้น Keycloak ทิ้ง attribute
+  // tenant_id/tenant_slug/dc_user_id must be in the user profile, otherwise Keycloak drops the attributes
   const profile = await admin.call(`${base}/users/profile`);
   await admin.call(`${base}/users/profile`, {
     method: 'PUT',
@@ -450,7 +450,7 @@ export async function applyRealmConfig(admin, rendered) {
         ...IDENTITY_ATTRIBUTES.map((name) => ({
           name,
           displayName: name,
-          // AC6 (#599): ผู้ใช้ไม่เห็น attribute ภายในในหน้าของ identity provider (claim ใน token มาจาก mapper)
+          // AC6 (#599): the user does not see internal attributes on the identity provider page (the claims in the token come from a mapper)
           permissions: { view: ['admin'], edit: ['admin'] },
           multivalued: false,
         })),
@@ -458,7 +458,7 @@ export async function applyRealmConfig(admin, rendered) {
     },
   });
 
-  // organization claim ต้องมี attribute tenant_id ให้ gateway เทียบกับ tenant_id ของผู้ใช้
+  // the organization claim needs the tenant_id attribute so the gateway can compare it with the user tenant_id
   const organizationScope = scopes.find(
     (scope) => scope.name === 'organization' && scope.protocol === 'openid-connect',
   );
@@ -495,10 +495,10 @@ export async function applyRealmConfig(admin, rendered) {
         organization.attributes?.tenant_id?.[0] &&
         organization.attributes.tenant_id[0] !== desired.attributes.tenant_id[0]
       ) {
-        // ห้ามผูก Organization เดิมกับ tenant อื่นเงียบ ๆ
+        // never silently bind an existing Organization to another tenant
         throw new UatKeycloakError('ORGANIZATION_TENANT_MISMATCH', desired.alias);
       }
-      // #645: Keycloak แทน attribute ทั้งชุด — รวมของเดิมไว้ ไม่ลบ `dc_mfa_required` ที่ API sync (ADR-033 ข้อ 6)
+      // #645: Keycloak replaces the whole attribute set - keep the existing ones, do not delete the `dc_mfa_required` the API syncs (ADR-033 item 6)
       await admin.call(`${base}/organizations/${organization.id}`, {
         method: 'PUT',
         body: {
@@ -530,7 +530,10 @@ export async function applyAccounts(admin, { realm, tenantId, tenantSlug, accoun
     let status = 'UPDATED';
     if (!user) {
       if (!account.temporaryPassword) {
-        throw new UatKeycloakError('ACCOUNTS_INVALID', 'บัญชีใหม่ต้องมี temporaryPassword');
+        throw new UatKeycloakError(
+          'ACCOUNTS_INVALID',
+          'a new account must have a temporaryPassword',
+        );
       }
       await admin.call(`${base}/users`, {
         method: 'POST',
@@ -542,7 +545,7 @@ export async function applyAccounts(admin, { realm, tenantId, tenantSlug, accoun
           enabled: true,
           emailVerified: true,
           attributes,
-          // ครั้งแรกต้องเปลี่ยนรหัสผ่านและผูก TOTP ก่อนใช้งาน
+          // the first time, the password must be changed and TOTP bound before use
           requiredActions: ['UPDATE_PASSWORD', 'CONFIGURE_TOTP'],
         },
       });
@@ -554,14 +557,14 @@ export async function applyAccounts(admin, { realm, tenantId, tenantSlug, accoun
       });
       status = 'CREATED';
     } else {
-      // #685 (#387): platform identity ห้ามเป็นสมาชิก tenant — ห้ามเติม tenant attribute/Organization ให้บัญชี platform
+      // #685 (#387): a platform identity must not be a tenant member - do not add the tenant attribute/Organization to a platform account
       const mappings = await admin.call(`${base}/users/${user.id}/role-mappings`);
       if (mappings?.clientMappings?.[PLATFORM_API_CLIENT]?.mappings?.length) {
         throw new UatKeycloakError('PLATFORM_IDENTITY_REFUSED', account.role);
       }
       const bound = user.attributes?.dc_user_id?.[0];
       if (bound && bound !== account.dcUserId) {
-        // ห้ามย้ายบัญชี Keycloak ไปผูก subject อื่นเงียบ ๆ
+        // never silently move a Keycloak account to bind to another subject
         throw new UatKeycloakError('ACCOUNT_SUBJECT_MISMATCH', account.role);
       }
       await admin.call(`${base}/users/${user.id}`, {

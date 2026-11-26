@@ -1,16 +1,16 @@
 /**
- * Owner: API bootstrap — composition root ของ service `line-webhook` บน UAT (#565 S2, ADR-031)
+ * Owner: API bootstrap — the composition root of the `line-webhook` service on UAT (#565 S2, ADR-031)
  *
- * mount แค่สามอย่าง และไม่ import Kafka, Journey, voice หรือ object storage:
- * - `POST /webhook/line` — public; authority คือ HMAC บน raw body (#359 §B)
- * - `GET /api/v1/runtime-profile` — public; ไม่มีข้อมูลลับ
- * - `GET /api/v1/line-pilot/inbound` (#566) — OIDC + role admin ของ tenant pilot; Caddy ส่งมาหลัง CIDR allowlist
+ * mounts only three things, and does not import Kafka, Journey, voice or object storage:
+ * - `POST /webhook/line` — public; the authority is an HMAC over the raw body (#359 §B)
+ * - `GET /api/v1/runtime-profile` — public; contains no secrets
+ * - `GET /api/v1/line-pilot/inbound` (#566) — OIDC + the pilot tenant's admin role; Caddy forwards it after the CIDR allowlist
  *
- * secret มาจากไฟล์ Compose `secrets` (`LINE_WEBHOOK_SECRET_SOURCE=file`) — profile `uat-line` ปฏิเสธโหมดอื่น
- * #567 (team trial) — เปิดด้วย env และค่าเริ่มต้นคือปิดทั้งคู่:
- * - `LINE_TEAM_TRIAL=on`: mount ตอบกลับ/สถานะ/kill (`line-pilot-trial-api.ts`) และใช้ access token + egress
- *   ผ่าน relay (overlay `docker-compose.uat.line-trial.yml`)
- * - `LINE_WEBHOOK_WORKER=on`: worker loop ต่อเนื่องของ inbox (lease เดียวกับ `pilot await-touch`)
+ * the secret comes from the Compose `secrets` file (`LINE_WEBHOOK_SECRET_SOURCE=file`) — the `uat-line` profile rejects other modes
+ * #567 (team trial) — enabled by env and both default to off:
+ * - `LINE_TEAM_TRIAL=on`: mounts reply/status/kill (`line-pilot-trial-api.ts`) and uses the access token + egress
+ *   through the relay (overlay `docker-compose.uat.line-trial.yml`)
+ * - `LINE_WEBHOOK_WORKER=on`: a continuous inbox worker loop (the same lease as `pilot await-touch`)
  */
 import 'reflect-metadata';
 import { Controller, Get, Inject, type DynamicModule } from '@nestjs/common';
@@ -71,7 +71,7 @@ export interface LineWebhookProfileStatus {
   routeGuard: RuntimeProfileRouteGuard;
 }
 
-/** healthcheck/readiness ของ service — คืนเฉพาะสถานะ ไม่มี tenant, channel หรือ config value */
+/** healthcheck/readiness of the service — returns only a status, with no tenant, channel or config value */
 @Controller('api/v1/runtime-profile')
 export class LineWebhookProfileController {
   constructor(
@@ -97,13 +97,13 @@ export class LineWebhookAppModule {}
 export function createLineWebhookModule(dependencies: {
   ingress: unknown;
   status: LineWebhookProfileStatus;
-  /** #566: read API ของ pilot */
+  /** #566: the pilot read API */
   inbound: unknown;
   tenantId: string;
   verifier: unknown;
   diagnostics: GatewayDiagnosticSink;
   lifecycle: TenantLifecycleGate;
-  /** #567: ไม่ระบุ = ไม่มี route ของ trial เลย (404) */
+  /** #567: omitted = no trial route at all (404) */
   trial?: unknown;
 }): DynamicModule {
   return {
@@ -123,7 +123,7 @@ export function createLineWebhookModule(dependencies: {
       { provide: OIDC_ACCESS_TOKEN_VERIFIER, useValue: dependencies.verifier },
       { provide: GATEWAY_DIAGNOSTICS, useValue: dependencies.diagnostics },
       { provide: TENANT_LIFECYCLE, useValue: dependencies.lifecycle },
-      // ทุก route ต้อง login ยกเว้นที่ประกาศ @GatewayPublic() (webhook + runtime profile)
+      // every route needs login except those declared @GatewayPublic() (webhook + runtime profile)
       { provide: APP_GUARD, useClass: OidcGlobalGuard },
     ],
   };
@@ -142,7 +142,7 @@ export async function bootstrapLineWebhook(
   const log = { write: (diagnostic: object) => console.log(JSON.stringify(diagnostic)) };
   const routeGuard = new RuntimeProfileRouteGuard(profile, log);
   const channelAccountId = required(environment, 'LINE_WEBHOOK_CHANNEL_ACCOUNT_ID');
-  // secret ไม่พร้อม = บูตไม่ผ่าน (ไม่ตกไปโหมด disabled ที่ตอบ 401 เงียบ ๆ)
+  // secret not ready = the boot fails (it does not fall into disabled mode that silently answers 401)
   const secrets = await resolveLineWebhookSecrets({
     mode: environment.LINE_WEBHOOK_SECRET_SOURCE,
     channelAccountId,
@@ -150,7 +150,7 @@ export async function bootstrapLineWebhook(
   });
   const prisma = new PrismaClient();
   const tenantId = required(environment, 'LINE_WEBHOOK_TENANT_ID');
-  // tenant ID ไม่ใช่ slug: RLS และ `tenant_id` ใน token เป็น UUID — slug ทำให้ ingress ล้มและ read API 403 ทุกครั้ง
+  // the tenant ID is not the slug: RLS and the `tenant_id` in the token are UUIDs — a slug makes ingress fail and the read API 403 every time
   if (!TENANT_ID.test(tenantId))
     throw new Error('LINE_WEBHOOK_TENANT_ID must be a tenant UUID, not a slug');
   const payloadKeyRef = required(environment, 'LINE_WEBHOOK_PAYLOAD_KEY_REF');
@@ -175,7 +175,7 @@ export async function bootstrapLineWebhook(
   const governance = trialEnabled || workerEnabled ? new ContactGovernanceService(prisma) : null;
   const trial = trialEnabled ? createTeamTrial() : undefined;
   function createTeamTrial(): LineTeamTrialReplies {
-    // secret ของ trial (token) + recipient จาก state ของ runner — ไฟล์เดียวกับที่ runner ใช้ (#565 S4)
+    // the trial secret (token) + the recipient from the runner state — the same file the runner uses (#565 S4)
     const source = new FileLineSecretSource({
       channelAccountId,
       stateDir: required(environment, 'LINE_PILOT_STATE_DIR'),
@@ -237,7 +237,7 @@ export async function bootstrapLineWebhook(
       })
     : undefined;
 
-  // rawBody: signature คำนวณบน bytes ที่ได้รับจริง (#359 §B)
+  // rawBody: the signature is computed over the bytes actually received (#359 §B)
   const app = await NestFactory.create(
     createLineWebhookModule({
       ingress,
@@ -271,7 +271,7 @@ export async function bootstrapLineWebhook(
   });
   if (worker) {
     worker.start();
-    // SIGTERM จาก docker: หยุดรับรอบใหม่ รอ batch ปัจจุบันจบ แล้วปิด HTTP
+    // SIGTERM from docker: stop accepting new rounds, wait for the current batch to finish, then close HTTP
     process.once('SIGTERM', () => {
       void worker.stop().then(() => app.close());
     });

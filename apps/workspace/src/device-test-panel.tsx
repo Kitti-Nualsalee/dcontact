@@ -1,8 +1,8 @@
 /**
- * ปุ่มทดสอบอุปกรณ์มุมซ้ายล่าง (#939, แบบ docs/agent-readiness-setup.md) — ไม่บังคับ ไม่ใช่ขั้นก่อนรับสาย
- * แผงลอยเหนือปุ่ม ไม่ใช่ modal: ปิดด้วยปุ่มปิด กดปุ่มเดิม หรือ Esc
- * อุปกรณ์ที่เลือกที่นี่เป็นตัวที่สายถัดไปใช้ (SipJsBrowserTransport อ่านจาก devicePreferences)
- * ผลทดสอบและชื่ออุปกรณ์อยู่ใน browser เท่านั้น
+ * Device-test button at the bottom left (#939, per docs/agent-readiness-setup.md) — optional, not a step before taking calls
+ * a panel floating above the button, not a modal: close it with the close button, the same button again, or Esc
+ * the devices chosen here are what the next call uses (SipJsBrowserTransport reads from devicePreferences)
+ * test results and device names stay in the browser only
  */
 import { useEffect, useId, useRef, useState, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -37,7 +37,7 @@ export function DeviceTestButton({ inCall }: { inCall: boolean }) {
   useSyncExternalStore(devicePreferences.subscribe, devicePreferences.version);
   const last = devicePreferences.lastTest();
 
-  // ไมค์กำลังใช้คุยกับลูกค้า — ปิดแผงเมื่อมีสายเข้ามาระหว่างเปิดอยู่
+  // the mic is in use talking to a customer — close the panel when a call arrives while it is open
   useEffect(() => {
     if (inCall) setOpen(false);
   }, [inCall]);
@@ -96,7 +96,7 @@ function DeviceTestPanel({ id, onClose }: { id: string; onClose: () => void }) {
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  // สรุปผลไว้ที่ปุ่ม: ผ่านทุกอย่างที่ทดสอบ = ผ่าน; มีอย่างใดล้ม = มีข้อควรตรวจ
+  // summary on the button: everything tested passes = pass; anything failing = something to check
   const micDone = mic.phase === 'pass' || mic.phase === 'error' || mic.phase === 'quiet';
   const speakerDone = speaker === 'pass' || speaker === 'fail';
   const micOk = mic.phase === 'pass';
@@ -220,7 +220,7 @@ function MicTest({ state, onState }: { state: MicState; onState: (state: MicStat
       recorder.stop();
       await stopped;
       setRecording('playing');
-      // เสียงที่อัดอยู่ในหน่วยความจำของหน้านี้เท่านั้น ปล่อยทันทีหลังเล่นจบ
+      // audio recorded lives only in this page's memory and is released right after playback ends
       const url = URL.createObjectURL(new Blob(chunks, { type: recorder.mimeType }));
       const player = new Audio(url);
       await routeToSpeaker(player, devicePreferences.devices().speakerId);
@@ -397,7 +397,7 @@ function StepBadge({ tone, label }: { tone: StepTone; label: string }) {
 }
 
 function Meter({ level, label }: { level: number; label: string }) {
-  // RMS ของเสียงพูดปกติราว 0.02–0.2 — ขยายให้แถบขยับพอเห็นได้
+  // RMS of normal speech is about 0.02–0.2 — amplify so the bar moves enough to be seen
   const lit = Math.min(METER_BARS, Math.round(Math.sqrt(Math.min(1, level * 4)) * METER_BARS));
   return (
     <div
@@ -428,7 +428,7 @@ function deviceOptions(
   return options;
 }
 
-/** เสียงทดสอบสองจังหวะแบบเสียงเรียกเข้า ส่งออกลำโพงที่เลือกผ่าน <audio> เพื่อใช้ setSinkId ได้ */
+/** a two-beat test sound like a ringtone, sent to the chosen speaker through <audio> so setSinkId can be used */
 async function playTestTone(speakerId: string | undefined): Promise<void> {
   const context = new AudioContext();
   try {

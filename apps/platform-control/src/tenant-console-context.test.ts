@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { tenantConsoleContext, tenantConsoleContextFromEnv } from './tenant-console-context.js';
 
-test('รับ issuer ของ realm และ client ของ tenant Console', () => {
+test('accepts the realm issuer and the tenant Console client', () => {
   assert.deepEqual(
     tenantConsoleContextFromEnv({
       PLATFORM_TENANT_CONSOLE_ISSUER: 'https://dcontact-uat.osd.co.th/auth/realms/dcontact',
@@ -25,7 +25,7 @@ test('รับ issuer ของ realm และ client ของ tenant Console
   );
 });
 
-test('ไม่ตั้งค่าหรือค่าผิดรูปแบบ = worker ไม่ start', () => {
+test('missing or malformed values = the worker does not start', () => {
   assert.throws(() => tenantConsoleContextFromEnv({}), /PLATFORM_TENANT_CONSOLE_ISSUER/);
   assert.throws(
     () => tenantConsoleContext('https://dcontact-uat.osd.co.th/auth', 'console', 'https://h'),
@@ -37,7 +37,7 @@ test('ไม่ตั้งค่าหรือค่าผิดรูปแ�
   );
 });
 
-test('ห้ามใช้ client ของ platform หรือ Keycloak เป็น tenant Console', () => {
+test('a platform or Keycloak client must not be used as the tenant Console', () => {
   for (const client of [
     'platform-console',
     'dcontact-platform-api',
@@ -51,7 +51,7 @@ test('ห้ามใช้ client ของ platform หรือ Keycloak เ�
   }
 });
 
-test('origin ต้องไม่มี path หรือ query', () => {
+test('origin must not have a path or query', () => {
   for (const origin of ['https://host/', 'https://host/console', 'https://host?x=1', 'host']) {
     assert.throws(
       () => tenantConsoleContext('https://host/realms/dcontact', 'console', origin),

@@ -1,6 +1,6 @@
 <#--
-  #522: อีเมล execute-actions (คำเชิญ first admin: ยืนยันอีเมล → ตั้งรหัสผ่าน → ลงทะเบียน TOTP)
-  ข้อมูลในอีเมลเท่ากับ template ของ base: ลิงก์, อายุลิงก์ และรายการ action — ไม่มีชื่อผู้ใช้หรืออีเมล
+  #522: execute-actions mail (first admin invitation: verify email → set password → register TOTP)
+  the content equals the base template: link, link lifetime and the action list — no username or email
 -->
 <#import "template.ftl" as layout>
 <#assign actions = []>

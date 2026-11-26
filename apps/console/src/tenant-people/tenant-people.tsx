@@ -240,7 +240,7 @@ function PeopleSession({ api, identityKey, onSignIn }: Props) {
       requestActive.current = false;
       if (active.current) setBusy(false);
     }
-    // คำสั่งที่ server รับแล้ว (หรือผลไม่ชัดเจน) กลับไปหน้ารายการที่มีแถบสถานะคำสั่ง
+    // a command the server has accepted (or with an uncertain result) goes back to the list page, which has a command status bar
     if (active.current && !keepForm) {
       if (admitted) {
         setName('');
@@ -281,7 +281,7 @@ function PeopleSession({ api, identityKey, onSignIn }: Props) {
     status.provisioningState === 'PROVISIONED' &&
     status.accountState === 'PENDING_ACTIVATION' &&
     status.activationState === 'PENDING';
-  // ขั้นของคำสั่งสร้างบัญชีที่แถบด้านบนแสดง: ยังไม่รู้ผล → กำลังทำ → ผลสุดท้าย
+  // the step of the create-account command shown by the top bar: result not yet known → in progress → final result
   const phase =
     status?.state === 'SUCCEEDED' &&
     status.accountState === 'ACTIVE' &&

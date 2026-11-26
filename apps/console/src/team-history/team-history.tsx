@@ -60,7 +60,7 @@ function zoneName(locale: string, timeZone: string): string {
   }
 }
 
-/** เขียนตัวกรองทีม/Agent ลง URL ปัจจุบันโดยคงพารามิเตอร์อื่น */
+/** write the team/Agent filters into the current URL while keeping other parameters */
 function scopeHref(href: string, teamId: string | undefined, agentId: string | undefined) {
   const url = new URL(href);
   if (teamId) url.searchParams.set('team', teamId);
@@ -70,7 +70,7 @@ function scopeHref(href: string, teamId: string | undefined, agentId: string | u
   return url.toString();
 }
 
-/** #986 ประวัติและสรุปงานของทีม — Supervisor เห็นทีมตัวเอง Admin เลือกทีมหรือดูทุกทีม */
+/** #986 team work history and summary — a Supervisor sees their own team; an Admin picks a team or views all teams */
 export function TeamHistory(props: Props) {
   return <TeamHistorySession key={props.identityKey} {...props} />;
 }
@@ -117,7 +117,7 @@ function TeamHistorySession({ api, onSignIn }: Props) {
   const agentName = (agent: AgentRef) => agent.displayName ?? t('unknownAgent');
 
   useEffect(() => {
-    // โหลดใหม่เมื่อกด "ลองอีกครั้ง" หลังโหลดรายชื่อทีมไม่สำเร็จเท่านั้น
+    // reload only on pressing "Try again" after the team list failed to load
     if (teams) return;
     let active = true;
     setTeamsError(undefined);
@@ -157,7 +157,7 @@ function TeamHistorySession({ api, onSignIn }: Props) {
 
   useEffect(() => {
     if (!selected && summaryState.phase !== 'ready') {
-      // รายการรอช่วงเวลาจากสรุป เพื่อให้ตัวเลขกับรายการใช้ช่วงเดียวกัน
+      // the list waits for the period from the summary so the numbers and the list use the same period
       setLoading(summaryState.phase === 'loading');
       return;
     }
@@ -186,7 +186,7 @@ function TeamHistorySession({ api, onSignIn }: Props) {
     return () => {
       active = false;
     };
-    // summaryState.phase เปลี่ยนตาม revision/period/team แล้ว — ไม่ใส่ object ทั้งก้อนเพื่อไม่โหลดซ้ำ
+    // summaryState.phase changes with the revision/period/team — do not include the whole object, to avoid reloading
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     api,
@@ -226,7 +226,7 @@ function TeamHistorySession({ api, onSignIn }: Props) {
     setPageCursor(undefined);
   }
   if (!ready) return null;
-  // รอรายชื่อทีมก่อนแสดงเนื้อหา: ข้อความตามบทบาทและตัวเลือกทีมอยู่เหนือสรุป ถ้าแสดงทีหลังหน้าจะกระโดด
+  // wait for the team list before showing content: the role-based text and team selector sit above the summary, and showing them later makes the page jump
   if (!teams)
     return (
       <main className="ah-root">
@@ -268,7 +268,7 @@ function TeamHistorySession({ api, onSignIn }: Props) {
     return fromText === lastText ? fromText : `${fromText} – ${lastText}`;
   })();
   const selectedAgent = shownSummary?.byAgent.find((row) => row.agent.id === agentId);
-  // จำนวนของตัวกรองที่เลือก: ผลบันทึกแยกตาม Agent ไม่มีในสรุป จึงแสดงเมื่อเลือกอย่างใดอย่างหนึ่ง
+  // counts for the selected filters: disposition counts per Agent are not in the summary, so they are shown when either one is selected
   const filterCount = shownSummary
     ? agentId
       ? disposition === undefined
@@ -457,7 +457,7 @@ function TeamHistorySession({ api, onSignIn }: Props) {
       ) : null}
       {!selected && shownSummary && !failure ? (
         <h2 className="ah-list-title">
-          {/* เลือกทั้ง Agent และผลบันทึก: สรุปไม่มีจำนวนของคู่นี้ จึงไม่แสดงจำนวนแทนการเดาจากหน้าที่โหลด */}
+          {/* both Agent and disposition selected: the summary has no count for this pair, so no count is shown rather than guessing from the loaded page */}
           {t(filterCount === undefined ? 'summary.listTitleNoCount' : 'summary.listTitle', {
             period: periodLabel(period),
             agent: selectedAgent ? agentName(selectedAgent.agent) : t('allAgents'),

@@ -1,10 +1,10 @@
 /**
- * Owner: IAM — ส่วนของ self-service บัญชีที่คุยกับระบบ identity (AC4 #597, #589, ADR-033)
+ * Owner: IAM — the part of account self-service that talks to the identity system (AC4 #597, #589, ADR-033)
  *
- * - `KeycloakAccountIdentity`: Admin REST ของผู้ใช้ + extension `dc-account` ผ่าน service account
- *   `dcontact-account-service` — error ของ Keycloak ถูกแปลงเป็นรหัสของ D-Contact ไม่ส่งข้อความดิบต่อ
- * - `AccountSecretBox`: เข้ารหัส TOTP secret ที่ยังไม่ยืนยันด้วย AES-256-GCM (key จาก env ของ API)
- * - TOTP secret: สุ่มแบบเดียวกับ Keycloak (ตัวอักษร/ตัวเลข 20 ตัว เก็บตามตัวอักษร) และ QR ใช้ Base32 ของ bytes
+ * - `KeycloakAccountIdentity`: the user Admin REST + the `dc-account` extension through the service account
+ *   `dcontact-account-service` — Keycloak errors are mapped to D-Contact codes and the raw message is not passed on
+ * - `AccountSecretBox`: encrypts the not-yet-confirmed TOTP secret with AES-256-GCM (the key from the API's env)
+ * - TOTP secret: random the same way as Keycloak (20 letters/digits, stored as characters) and the QR uses the Base32 of the bytes
  */
 import { createCipheriv, createDecipheriv, randomBytes, randomInt } from 'node:crypto';
 import { AccountPolicyError } from './account-policy.js';
@@ -51,7 +51,7 @@ export interface IdentityUser {
   firstName: string;
   lastName: string;
   email: string;
-  /** locale ที่ผู้ใช้เลือก (`th`/`en`) — ใช้เลือกภาษาของ email */
+  /** the locale the user chose (`th`/`en`) — used to choose the email language */
   locale: 'th' | 'en';
 }
 
@@ -82,7 +82,7 @@ export interface AccountIdentityPort {
 
 const unavailable = () => new AccountError('IDENTITY_UNAVAILABLE');
 
-/** error key ของ password policy ใน Keycloak → กฎที่หน้าเว็บแปลได้ (ไม่ส่งข้อความดิบ) */
+/** the password policy error key in Keycloak → a rule the web page can translate (no raw message passed on) */
 const PASSWORD_RULES: Record<string, PasswordRule> = {
   invalidPasswordMinLengthMessage: 'MIN_LENGTH',
   invalidPasswordMaxLengthMessage: 'MAX_LENGTH',
@@ -98,7 +98,7 @@ const PASSWORD_RULES: Record<string, PasswordRule> = {
   invalidPasswordBlacklistedMessage: 'BLACKLISTED',
 };
 
-/** `{ error, error_description }` ของ Keycloak → `rules[]`; ไม่ใช่ error ของ policy = `undefined` */
+/** Keycloak's `{ error, error_description }` → `rules[]`; not a policy error = `undefined` */
 export function passwordRulesOf(
   body: unknown,
 ): Array<{ rule: PasswordRule; value?: number }> | undefined {
@@ -147,7 +147,7 @@ export class KeycloakAccountIdentity implements AccountIdentityPort {
     identityId: string,
     patch: { firstName?: string; lastName?: string; email?: string; emailVerified?: boolean },
   ): Promise<void> {
-    // PUT แบบบางฟิลด์: Keycloak คง attribute อื่น (tenant_id, dc_user_id) ไว้
+    // a partial-field PUT: Keycloak keeps the other attributes (tenant_id, dc_user_id)
     const { status } = await this.admin('PUT', `users/${encodeURIComponent(identityId)}`, patch);
     if (status === 409) throw new AccountError('EMAIL_IN_USE');
     if (status !== 204) throw unavailable();
@@ -236,14 +236,14 @@ export class KeycloakAccountIdentity implements AccountIdentityPort {
 
 const SECRET_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
 
-/** secret ดิบแบบที่ Keycloak สร้างเอง (`HmacOTP.generateSecret(20)`) — Keycloak เก็บเป็นตัวอักษรตามนี้ */
+/** the raw secret the way Keycloak generates it itself (`HmacOTP.generateSecret(20)`) — Keycloak stores it as characters like this */
 export function generateTotpSecret(length = 20): string {
   return Array.from({ length }, () => SECRET_ALPHABET[randomInt(SECRET_ALPHABET.length)]).join('');
 }
 
 const BASE32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 
-/** RFC 4648 Base32 ไม่มี padding — รูปแบบที่แอป authenticator รับ */
+/** RFC 4648 Base32 with no padding — the format authenticator apps accept */
 export function base32(bytes: Uint8Array): string {
   let bits = 0;
   let value = 0;
@@ -261,8 +261,8 @@ export function base32(bytes: Uint8Array): string {
 }
 
 /**
- * ต้องตรงกับ OTP policy ของ realm (`totp`, HmacSHA1, 6 หลัก, 30 วินาที — ค่าเริ่มต้นของ Keycloak ทั้ง dev/UAT)
- * extension ตรวจ code ด้วย policy ของ realm เสมอ ถ้าค่าไม่ตรง ผู้ใช้จะยืนยันไม่ผ่าน (ไม่สร้าง credential ผิด)
+ * must match the realm's OTP policy (`totp`, HmacSHA1, 6 digits, 30 seconds — the Keycloak default for both dev/UAT)
+ * the extension checks the code with the realm's policy every time; if the values do not match the user cannot confirm (no wrong credential is created)
  */
 export function otpauthUri(secret: string, account: string): string {
   const label = `${encodeURIComponent('D-Contact')}:${encodeURIComponent(account)}`;
@@ -276,20 +276,20 @@ export function otpauthUri(secret: string, account: string): string {
   return `otpauth://totp/${label}?${params}`;
 }
 
-/** AES-256-GCM: `v1.<iv>.<tag>.<ciphertext>` (base64url) — key 32 bytes จาก `ACCOUNT_SECRET_KEY` (base64) */
+/** AES-256-GCM: `v1.<iv>.<tag>.<ciphertext>` (base64url) — a 32-byte key from `ACCOUNT_SECRET_KEY` (base64) */
 export class AccountSecretBox {
   private readonly key: Buffer;
 
   constructor(keyBase64: string) {
     this.key = Buffer.from(keyBase64, 'base64');
     if (this.key.length !== 32)
-      throw new TypeError('ACCOUNT_SECRET_KEY ต้องเป็น base64 ของ 32 bytes');
+      throw new TypeError('ACCOUNT_SECRET_KEY must be the base64 of 32 bytes');
   }
 
   seal(plaintext: string, context: string): string {
     const iv = randomBytes(12);
     const cipher = createCipheriv('aes-256-gcm', this.key, iv);
-    // ผูก ciphertext กับเจ้าของ (tenant/user/enrolment) — ย้ายไปแถวอื่นแล้วถอดไม่ได้
+    // bind the ciphertext to the owner (tenant/user/enrolment) — moved to another row it cannot be decrypted
     cipher.setAAD(Buffer.from(context, 'utf8'));
     const ciphertext = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
     return ['v1', iv, cipher.getAuthTag(), ciphertext]

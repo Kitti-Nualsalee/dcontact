@@ -1,10 +1,10 @@
 /**
- * A1 dev/UAT เท่านั้น: publish bootstrap template และ plan ให้ Platform Console เลือกได้ในเครื่อง
+ * A1 dev/UAT only: publish bootstrap templates and plans so the Platform Console can select them locally
  * (`pnpm a1:dev-catalog`)
  *
- * ค่า entitlement ด้านล่างเป็น **ค่าสำหรับทดสอบ** ไม่ใช่การตัดสินใจเชิงผลิตภัณฑ์ของ production —
- * production publish catalog ผ่าน `PlatformCatalog` ตาม decision ของ plan/pricing
- * idempotent: template version เดิมเนื้อหาเดิม = no-op; plan ออก version ใหม่เฉพาะเมื่อยังไม่มี ACTIVE
+ * The entitlement values below are **test values**, not a production product decision —
+ * production publishes the catalog through `PlatformCatalog` per the plan/pricing decision
+ * idempotent: same template version with the same content = no-op; a plan gets a new version only when none is ACTIVE
  */
 import { PrismaClient } from '@d-contact/db';
 import type { BootstrapManifestV1, PlatformPlanCode } from '@d-contact/shared';
@@ -17,14 +17,14 @@ const DEV_MANIFEST: BootstrapManifestV1 = {
     generalTeam: { name: 'General Team' },
     generalQueue: { name: 'General Queue' },
     businessHours: {
-      name: 'เวลาทำการ',
+      name: 'เวลาทำการ', // allow-thai: persisted default business hours name written to every tenant
       weekly: [1, 2, 3, 4, 5].map((day) => ({ day, open: '09:00', close: '18:00' })),
     },
   },
 };
 
-// D1.12 (#451): module key ที่ Navigation API ใช้คัดแอป (ADR-025 journey, ADR-027 contact governance)
-// เปิดทุก plan ของ dev เท่านั้น — การตัดสินว่าแพ็กเกจจริงไหนได้ module อะไรเป็นงาน L1 (ADR-009)
+// D1.12 (#451): module keys the Navigation API uses to filter apps (ADR-025 journey, ADR-027 contact governance)
+// enabled on every dev plan only — deciding which module a real package gets is L1 work (ADR-009)
 const DEV_MODULES = { module_journey: true, module_contact_governance: true };
 const DEV_PLANS: Record<PlatformPlanCode, Record<string, number | boolean>> = {
   starter: { agent_seats: 5, queues: 3, dev_only: true, ...DEV_MODULES },

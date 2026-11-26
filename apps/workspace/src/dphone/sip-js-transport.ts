@@ -27,8 +27,8 @@ export class SipJsBrowserTransport implements BrowserSipTransport {
   private session?: Invitation;
 
   /**
-   * `devices` = ไมค์/ลำโพงที่ Agent เลือกจากปุ่มทดสอบอุปกรณ์ (#939) อ่านทุกครั้งที่รับสาย
-   * ไม่ส่ง = ใช้อุปกรณ์เริ่มต้นของระบบ (embedded และ D-Phone extension)
+   * `devices` = mic/speaker the Agent chose from the device-test button (#939), read every time a call is taken
+   * not passed = use the system default device (embedded and the D-Phone extension)
    */
   constructor(
     private readonly remoteAudio: HTMLAudioElement,
@@ -151,8 +151,8 @@ export class SipJsBrowserTransport implements BrowserSipTransport {
   }
 
   /**
-   * `Session.invite()` resolve ทันทีที่ส่ง re-INVITE — รอ 2xx/ACK ก่อน ไม่อย่างนั้น dphone แสดงพักสาย/กลับเข้าสาย
-   * ก่อน media เปลี่ยนจริง และคำสั่งถัดไปถูก SIP.js ปฏิเสธเงียบ ๆ ("Reinvite in progress") (D1.16 #455)
+   * `Session.invite()` resolves as soon as the re-INVITE is sent — wait for 2xx/ACK first, otherwise dphone shows hold/resume
+   * before the media actually changes and the next command is silently rejected by SIP.js ("Reinvite in progress") (D1.16 #455)
    */
   private reinvite(modifiers: SessionDescriptionHandlerModifier[]): Promise<void> {
     const session = this.requiredSession();

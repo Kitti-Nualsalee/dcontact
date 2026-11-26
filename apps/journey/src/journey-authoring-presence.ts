@@ -4,11 +4,11 @@ import {
 } from '@d-contact/cxa-contracts';
 
 /**
- * J5.3 (#341): presence แบบ advisory soft lease (#331 §7, Phase Spec §6)
+ * J5.3 (#341): advisory soft-lease presence (#331 §7, Phase Spec §6)
  *
- * บอกได้แค่ว่า "ใครน่าจะกำลังเปิด resource นี้อยู่" — ไม่ให้สิทธิ์, ไม่ lock, ไม่กัน save/publish และ
- * ไม่ใช่ข้อมูล canonical: หายทั้งหมดเมื่อ process เริ่มใหม่ก็ถูกต้อง ความถูกต้องของการแก้ไขอยู่ที่ CAS
- * ของ draft เสมอ ห้ามนำ presence ไปตัดสิน authorization หรือ conflict
+ * Can only say "who is probably viewing this resource" — it grants no permission, takes no lock, does not block save/publish and
+ * is not canonical data: losing all of it when the process restarts is correct. Edit correctness lives in the CAS
+ * of the draft; never use presence to decide authorization or conflicts
  */
 export interface JourneyPresenceEntry {
   readonly subjectId: string;
@@ -22,7 +22,7 @@ export class JourneyPresenceRegistry {
 
   constructor(private readonly now: () => Date = () => new Date()) {}
 
-  /** ใช้ทั้ง join และ heartbeat — client ควรเรียกทุก JOURNEY_PRESENCE_HEARTBEAT_SECONDS */
+  /** Used for both join and heartbeat — the client should call it every JOURNEY_PRESENCE_HEARTBEAT_SECONDS */
   heartbeat(
     tenantId: string,
     resourceId: string,
@@ -38,7 +38,7 @@ export class JourneyPresenceRegistry {
     this.entries.get(`${tenantId}:${resourceId}`)?.delete(sessionId);
   }
 
-  /** เฉพาะ session ที่ heartbeat ภายใน TTL; tenant อื่นมองไม่เห็นเพราะ key ผูก tenant */
+  /** Only sessions with a heartbeat within the TTL; other tenants cannot see them because the key is bound to the tenant */
   list(tenantId: string, resourceId: string): JourneyPresenceEntry[] {
     const key = `${tenantId}:${resourceId}`;
     const sessions = this.entries.get(key);

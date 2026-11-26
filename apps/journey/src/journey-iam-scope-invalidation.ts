@@ -10,9 +10,9 @@ export type JourneyIamScopeInvalidationResult =
   { state: 'DUPLICATE' } | { state: 'RECORDED'; scheduledCursorCount: number };
 
 /**
- * รับ canonical IAM scope fact แล้วบันทึก durable inbox พร้อมคิว cancel ของ Journey ใน
- * owner-local transaction เดียวกัน. GRANTED ถูกเก็บเพื่อ dedup/audit เท่านั้น: สิทธิ์ใหม่
- * ห้าม revive enrollment หรือ action เก่าที่เคยถูก revoke ไปแล้ว.
+ * Takes a canonical IAM scope fact and records a durable inbox together with the Journey cancel queue in the
+ * same owner-local transaction. GRANTED is kept for dedup/audit only: a new permission
+ * must not revive an enrollment or an old action that was already revoked.
  */
 export class JourneyIamScopeInvalidationService {
   async apply(

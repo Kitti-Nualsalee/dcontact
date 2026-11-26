@@ -1,4 +1,4 @@
-# สร้าง platform-only operator ครั้งแรกหลัง platform-keycloak-config; password อยู่ใน Secret นอก Git
+# Creates the platform-only operator for the first time after platform-keycloak-config; the password lives in a Secret outside Git
 apiVersion: batch/v1
 kind: Job
 metadata:

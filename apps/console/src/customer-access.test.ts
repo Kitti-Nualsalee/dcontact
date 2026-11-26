@@ -11,12 +11,12 @@ import {
 } from './customer-access/model.js';
 
 const teams = [
-  { id: 't-b', name: 'ทีมบริการ', isActive: true },
-  { id: 't-a', name: 'ทีมขาย', isActive: true },
-  { id: 't-off', name: 'ทีมเดิม', isActive: false },
+  { id: 't-b', name: 'Service Team', isActive: true },
+  { id: 't-a', name: 'Sales Team', isActive: true },
+  { id: 't-off', name: 'Old Team', isActive: false },
 ];
 
-test('#915: แถวสิทธิ์ใช้ชื่อทีม เรียงตามชื่อแล้ว WORK ก่อน VIEW; ทีมที่ไม่รู้จักอยู่ท้าย', () => {
+test('#915: grant rows use the team name, sorted by name then WORK before VIEW; unknown teams last', () => {
   const rows = accessRows(
     [
       { grantId: 'g1', teamId: 't-b', segmentId: 'system:vip', permission: 'VIEW', updatedAt: '' },
@@ -29,16 +29,16 @@ test('#915: แถวสิทธิ์ใช้ชื่อทีม เรี�
   assert.deepEqual(
     rows.map((row) => [row.grantId, row.teamName, row.permission]),
     [
-      ['g4', 'ทีมขาย', 'VIEW'],
-      ['g3', 'ทีมบริการ', 'WORK'],
-      ['g1', 'ทีมบริการ', 'VIEW'],
+      ['g4', 'Sales Team', 'VIEW'],
+      ['g3', 'Service Team', 'WORK'],
+      ['g1', 'Service Team', 'VIEW'],
       ['g2', null, 'WORK'],
     ],
   );
   assert.equal(rows[3]!.teamActive, false);
 });
 
-test('#915: ให้สิทธิ์ได้เฉพาะทีมที่ใช้งาน และกันการให้ซ้ำก่อนส่ง', () => {
+test('#915: can grant only to active teams, and a duplicate grant is prevented before sending', () => {
   assert.deepEqual(
     grantableTeams(teams).map((team) => team.id),
     ['t-a', 't-b'],
@@ -65,17 +65,17 @@ test('#915: ให้สิทธิ์ได้เฉพาะทีมที�
   );
 });
 
-test('#915: เหตุผลการถอนสิทธิ์ 3–120 ตัวอักษรหลังตัดช่องว่าง', () => {
+test('#915: revoke reason is 3–120 characters after trimming whitespace', () => {
   assert.equal(validRevokeReason('  ab '), false);
-  assert.equal(validRevokeReason('ย้ายทีม'), true);
+  assert.equal(validRevokeReason('Moved team'), true);
   assert.equal(validRevokeReason('x'.repeat(121)), false);
 });
 
-test('#915: label ของ segment ระบบไม่มี `:` ซึ่ง i18next ใช้แยก namespace', () => {
+test('#915: the label of a system segment has no `:`, which i18next uses to separate namespaces', () => {
   for (const id of SYSTEM_SEGMENTS) assert.doesNotMatch(SEGMENT_LABEL_KEYS[id], /:/);
 });
 
-test('#915: ถอนสิทธิ์หนึ่งแบบแล้วบอกสิทธิ์อีกแบบที่ยังอยู่บน team+segment เดียวกัน', () => {
+test('#915: after revoking one kind, report the other kind that remains on the same team+segment', () => {
   const rows = accessRows(
     [
       { grantId: 'w', teamId: 't-a', segmentId: 'system:vip', permission: 'WORK', updatedAt: '' },

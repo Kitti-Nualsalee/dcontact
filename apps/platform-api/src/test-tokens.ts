@@ -1,4 +1,4 @@
-/** ออก token ทดสอบด้วย key ในเครื่อง — shape เดียวกับที่ Keycloak ออกให้ platform-console จริง (ตรวจแล้วใน boundary test) */
+/** Issues test tokens with a local key — same shape as what Keycloak really issues to platform-console (checked in the boundary test) */
 import { randomUUID } from 'node:crypto';
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT, type JWK } from 'jose';
 import { JosePlatformAccessTokenVerifier } from './platform-verifier.js';
@@ -26,7 +26,7 @@ export async function createTestSigner(): Promise<TestSigner & { forger: TestSig
   const verifier = new JosePlatformAccessTokenVerifier({
     issuer: TEST_ISSUER,
     keys: createLocalJWKSet({ keys: [trusted.jwk] }),
-    // token ทดสอบมี exp อิง TEST_NOW; ให้ jose ไม่ตัดสินเวลาเอง แต่ให้ identity mapping ใช้นาฬิกาที่ inject
+    // test tokens have an exp based on TEST_NOW; jose does not judge time itself, so identity mapping uses the injected clock
     clockToleranceSeconds: 10 * 365 * 24 * 3600,
   });
   const signWith =
@@ -41,7 +41,7 @@ export async function createTestSigner(): Promise<TestSigner & { forger: TestSig
 
 const exp = Math.floor(TEST_NOW.getTime() / 1000) + 300;
 
-/** claims จริงของ platform-console หลัง login password+OTP (#407 live capture) */
+/** real platform-console claims after a password+OTP login (#407 live capture) */
 export function platformClaims(role: string, overrides: Record<string, unknown> = {}) {
   return {
     exp,
@@ -61,7 +61,7 @@ export function platformClaims(role: string, overrides: Record<string, unknown> 
   };
 }
 
-/** claims ของ tenant workspace token (console client) — ต้องใช้กับ Platform API ไม่ได้ */
+/** claims of a tenant workspace token (console client) — must not work with the Platform API */
 export function tenantClaims(overrides: Record<string, unknown> = {}) {
   return {
     exp,

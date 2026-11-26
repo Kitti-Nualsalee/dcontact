@@ -1,6 +1,6 @@
 /**
- * U1.8 (#502) acceptance — CLI provision tenant/บัญชี/rollout/fixture pack ของ UAT บน Postgres จริง
- * (owner connection เขียน, app connection + RLS + J5 จริงพิสูจน์ว่า `เริ่มรอบใหม่` ใช้งานได้หลัง provision)
+ * U1.8 (#502) acceptance — the CLI that provisions a UAT tenant/accounts/rollout/fixture pack on real Postgres
+ * (the owner connection writes; the app connection + RLS + the real J5 prove that `start a new round` works after provisioning)
  */
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -48,12 +48,12 @@ async function harness(t: TestContext) {
     maker: randomUUID(),
     reviewer: randomUUID(),
   };
-  /** ค่าที่ต้องไม่โผล่ใน output เลย */
+  /** values that must never appear in the output */
   const pii = {
     makerEmail: `maker-${short}@uat-tester.example`,
     reviewerEmail: `reviewer-${short}@uat-tester.example`,
-    makerName: `ผู้ทดสอบ Maker ${short}`,
-    reviewerName: `ผู้ทดสอบ Reviewer ${short}`,
+    makerName: `Tester Maker ${short}`,
+    reviewerName: `Tester Reviewer ${short}`,
     tenantName: `UAT Tenant ${short}`,
     teamName: `Journey Owners ${short}`,
   };
@@ -77,7 +77,12 @@ async function harness(t: TestContext) {
       context: {},
     },
     steps: [
-      { stepId: 'LOGIN', title: 'Login', expected: 'เห็น Journey list', stateLabel: 'REAL_STATE' },
+      {
+        stepId: 'LOGIN',
+        title: 'Login',
+        expected: 'Sees the Journey list',
+        stateLabel: 'REAL_STATE',
+      },
     ],
     ...overrides,
   });
@@ -125,7 +130,7 @@ async function harness(t: TestContext) {
     };
   };
 
-  /** แถวทั้งหมดที่ CLI แตะได้ของ tenant/บัญชีนี้ — ใช้พิสูจน์ว่า "ไม่มีอะไรเปลี่ยน" */
+  /** every row the CLI can touch for this tenant/account — used to prove that "nothing changed" */
   const snapshot = async () => {
     const tenantId = ids.tenantId;
     const subjects = [ids.maker, ids.reviewer];
@@ -154,13 +159,13 @@ async function harness(t: TestContext) {
     );
   };
 
-  /** output ทุกบรรทัดของ test นี้ไม่มีอีเมล ชื่อ หรือ credential */
+  /** no output line of this test contains an email, name or credential */
   const assertNoSensitiveOutput = () => {
     const all = output.join('\n');
-    for (const value of Object.values(pii)) assert.ok(!all.includes(value), 'output มี PII');
+    for (const value of Object.values(pii)) assert.ok(!all.includes(value), 'output contains PII');
     assert.doesNotMatch(all, /@/);
     for (const url of [OWNER_DATABASE_URL, APPLICATION_DATABASE_URL]) {
-      assert.ok(!all.includes(url), 'output มี DATABASE_URL');
+      assert.ok(!all.includes(url), 'output contains DATABASE_URL');
       const password = /:\/\/[^:]+:([^@]+)@/.exec(url)?.[1];
       if (password) assert.ok(!all.includes(`:${password}@`));
     }
@@ -183,7 +188,7 @@ const PARTS = [
   'fixturePack',
 ];
 
-test('U1.8 provision ครั้งแรก = CREATED ทุกส่วน, maker เริ่มรอบใหม่ผ่าน app connection ได้, รันซ้ำ = UNCHANGED', async (t) => {
+test('U1.8 first provision = CREATED for every part, the maker can start a new round via the app connection, a rerun = UNCHANGED', async (t) => {
   const f = await harness(t);
   const first = await f.cli(f.input());
   assert.equal(first.code, 0, JSON.stringify(first.last));
@@ -195,7 +200,7 @@ test('U1.8 provision ครั้งแรก = CREATED ทุกส่วน, m
   const pack = first.parts.find((line) => line.part === 'fixturePack')!;
   assert.match(pack.digest!, /^[0-9a-f]{64}$/);
 
-  // ค่าที่เขียนจริง: users ไม่มี password hash ของจริง, subject STANDARD, grant ตรงตาม preflight
+  // what is actually written: users have no real password hash, the subject is STANDARD, the grant matches the preflight
   const maker = await f.owner.user.findUniqueOrThrow({ where: { id: f.ids.maker } });
   assert.equal(maker.passwordHash, '!keycloak-managed');
   assert.equal(maker.teamId, f.ids.teamId);
@@ -220,7 +225,7 @@ test('U1.8 provision ครั้งแรก = CREATED ทุกส่วน, m
   const tenant = await f.owner.tenant.findUniqueOrThrow({ where: { id: f.ids.tenantId } });
   assert.equal(tenant.lifecycleStatus, 'ACTIVE');
 
-  // `เริ่มรอบใหม่` ของ maker ผ่าน app role (RLS) + J5 จริง (สิทธิ์/rollout/audit) — ไม่มี stub
+  // the maker's `start a new round` via the app role (RLS) + the real J5 (permission/rollout/audit) — no stub
   const authoring = new JourneyTemplateRepository(f.application, {
     authorization: new IamJourneyAuthoringAuthorizer(),
     evaluator: new DcExprEvaluator(),
@@ -240,7 +245,7 @@ test('U1.8 provision ครั้งแรก = CREATED ทุกส่วน, m
   assert.equal(run.fixturePack.digest, pack.digest);
   assert.ok(run.journeyId);
 
-  // รันซ้ำด้วย input เดิม = UNCHANGED ทุกส่วน และไม่แตะ run/Journey ที่เริ่มไปแล้ว
+  // a rerun with the same input = UNCHANGED for every part, and does not touch a run/Journey already started
   const before = await f.snapshot();
   const again = await f.cli(f.input());
   assert.equal(again.code, 0, JSON.stringify(again.last));
@@ -258,7 +263,7 @@ test('U1.8 provision ครั้งแรก = CREATED ทุกส่วน, m
   f.assertNoSensitiveOutput();
 });
 
-test('U1.8 --check ไม่เขียนอะไรเลย ทั้งก่อนและหลัง provision และรับ manifest แบบ path ได้', async (t) => {
+test('U1.8 --check writes nothing at all, both before and after provisioning, and accepts a path-style manifest', async (t) => {
   const f = await harness(t);
   const empty = await f.snapshot();
   const checked = await f.cli(f.input(), { check: true });
@@ -267,12 +272,12 @@ test('U1.8 --check ไม่เขียนอะไรเลย ทั้งก
     checked.parts.map((line) => [line.part, line.status]),
     PARTS.map((part) => [part, 'WOULD_CREATE']),
   );
-  // ข้อ 1–4 ยังไม่มี → preflight ของ pack รอรอบ apply (manifest/digest ยังถูกตรวจ)
+  // items 1–4 do not exist yet → the pack preflight waits for the apply round (the manifest/digest is still checked)
   assert.equal(checked.parts.at(-1)!.preflight, 'SKIPPED');
   assert.equal(checked.last.mode, 'check');
   assert.equal(await f.snapshot(), empty);
 
-  // manifest แบบ path (อ้างจากโฟลเดอร์ของไฟล์ input)
+  // a path-style manifest (referenced from the input file's folder)
   const directory = mkdtempSync(join(tmpdir(), 'u1-8-pack-'));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   writeFileSync(join(directory, 'pack.json'), JSON.stringify(f.manifest()));
@@ -281,7 +286,7 @@ test('U1.8 --check ไม่เขียนอะไรเลย ทั้งก
   const applied = await f.cli(byPath);
   assert.equal(applied.code, 0, JSON.stringify(applied.last));
 
-  // หลัง provision: --check = UNCHANGED + preflight เต็มของ U1.1 ผ่าน โดยไม่เขียน
+  // after provisioning: --check = UNCHANGED + the full U1.1 preflight passes, without writing
   const provisioned = await f.snapshot();
   const recheck = await f.cli(f.input(), { check: true });
   assert.equal(recheck.code, 0, JSON.stringify(recheck.last));
@@ -290,7 +295,7 @@ test('U1.8 --check ไม่เขียนอะไรเลย ทั้งก
     PARTS.map(() => 'UNCHANGED'),
   );
   assert.equal(recheck.parts.at(-1)!.preflight, 'PASS');
-  // pack version ใหม่ที่ยังไม่มี: WOULD_CREATE พร้อม preflight เต็ม — ยังไม่เขียน
+  // a new pack version that does not exist yet: WOULD_CREATE with the full preflight — still nothing written
   const next = await f.cli(f.input({ fixturePack: f.manifest({ packVersion: 'pack-2' }) }), {
     check: true,
   });
@@ -299,7 +304,7 @@ test('U1.8 --check ไม่เขียนอะไรเลย ทั้งก
     [next.parts.at(-1)!.status, next.parts.at(-1)!.preflight],
     ['WOULD_CREATE', 'PASS'],
   );
-  // --check ที่เจอ conflict ก็ fail closed เหมือน apply
+  // a --check that finds a conflict fails closed just like apply
   const conflict = await f.cli(f.input({ fixturePack: f.manifest({ buildSha: 'ffffffffffff' }) }), {
     check: true,
   });
@@ -308,7 +313,7 @@ test('U1.8 --check ไม่เขียนอะไรเลย ทั้งก
   f.assertNoSensitiveOutput();
 });
 
-test('U1.8 input ที่ต่างจากแถวเดิมถูกปฏิเสธ (fail closed) โดยไม่มีแถวใดเปลี่ยน', async (t) => {
+test('U1.8 an input that differs from existing rows is rejected (fail closed) with no row changed', async (t) => {
   const f = await harness(t);
   assert.equal((await f.cli(f.input())).code, 0);
   const provisioned = await f.snapshot();
@@ -316,7 +321,7 @@ test('U1.8 input ที่ต่างจากแถวเดิมถูกป
   const rejects = async (value: unknown, code: string, params: Line = {}) => {
     const result = await f.cli(value);
     assert.equal(result.code, 1);
-    assert.deepEqual(result.parts, [], 'ไม่มี part ใดถูกรายงานว่าเขียน');
+    assert.deepEqual(result.parts, [], 'no part is reported as written');
     assert.equal(result.last.status, 'FAIL');
     assert.equal(result.last.code, code, JSON.stringify(result.last));
     for (const [key, value] of Object.entries(params)) assert.equal(result.last[key], value);
@@ -340,17 +345,17 @@ test('U1.8 input ที่ต่างจากแถวเดิมถูกป
   await rejects(
     {
       ...base,
-      maker: { ...(base.maker as object), displayName: 'ผู้ทดสอบ Maker renamed' },
+      maker: { ...(base.maker as object), displayName: 'Tester Maker renamed' },
     },
     'USER_CONFLICT',
     { part: 'user:maker' },
   );
-  // pack version เดิม เนื้อหาต่าง = พฤติกรรมเดิมของ U1.1
+  // the same pack version with different content = the original U1.1 behavior
   await rejects(
     { ...base, fixturePack: f.manifest({ buildSha: 'ffffffffffff' }) },
     'FIXTURE_PACK_DIGEST_MISMATCH',
   );
-  // ส่วนต้นที่ "จะสร้าง" ต้องไม่ถูกเขียนเมื่อส่วนหลัง conflict: tenant ใหม่ + owner team ของ tenant อื่น
+  // the first parts that "would create" must not be written when a later part conflicts: a new tenant + the owner team of another tenant
   const otherTenant = randomUUID();
   const orphan = await f.cli({
     ...base,
@@ -360,7 +365,7 @@ test('U1.8 input ที่ต่างจากแถวเดิมถูกป
   assert.deepEqual([orphan.code, orphan.last.code], [1, 'OWNER_TEAM_CONFLICT']);
   assert.equal(await f.owner.tenant.count({ where: { id: otherTenant } }), 0);
 
-  // grant ที่ถูกแก้ด้วยมือ (maker ได้ review ด้วย = ผิด maker-checker) → ไม่เขียนทับ ไม่ลบ
+  // a grant edited by hand (the maker also got review = a maker-checker violation) → not overwritten, not deleted
   await f.owner.iamAuthoringCapabilityGrant.create({
     data: {
       tenantId: f.ids.tenantId,
@@ -381,7 +386,7 @@ test('U1.8 input ที่ต่างจากแถวเดิมถูกป
   f.assertNoSensitiveOutput();
 });
 
-test('U1.8 ปฏิเสธ app role, maker = reviewer, token ใน free text, dev seed และ key ที่ไม่รู้จัก ก่อนเขียน', async (t) => {
+test('U1.8 rejects an app role, maker = reviewer, a token in free text, the dev seed and unknown keys, before writing', async (t) => {
   const f = await harness(t);
   const empty = await f.snapshot();
   const rejects = async (
@@ -400,7 +405,7 @@ test('U1.8 ปฏิเสธ app role, maker = reviewer, token ใน free text
   const maker = base.maker as Record<string, string>;
   const reviewer = base.reviewer as Record<string, string>;
 
-  // connection ของ application (NOBYPASSRLS) — ทั้ง apply และ check
+  // the application connection (NOBYPASSRLS) — both apply and check
   await rejects(base, 'APPLICATION_ROLE_REFUSED', {}, { url: APPLICATION_DATABASE_URL });
   await rejects(
     base,
@@ -409,7 +414,7 @@ test('U1.8 ปฏิเสธ app role, maker = reviewer, token ใน free text
     { url: APPLICATION_DATABASE_URL, check: true },
   );
 
-  // maker-checker: dcUserId หรืออีเมลซ้ำ (ไม่สนตัวพิมพ์)
+  // maker-checker: a duplicate dcUserId or email (case-insensitive)
   await rejects(
     {
       ...base,
@@ -425,7 +430,7 @@ test('U1.8 ปฏิเสธ app role, maker = reviewer, token ใน free text
     { field: 'email' },
   );
 
-  // token ปลอมใน free text → negative scan ของ U1.5 ปฏิเสธก่อนแตะฐานข้อมูล (ประกอบจากชิ้นเพื่อไม่ให้ไฟล์นี้มี token)
+  // a fake token in free text → the U1.5 negative scan rejects it before touching the database (assembled from pieces so this file contains no token)
   const fakeJwt = [
     'eyJ' + 'hbGciOiJub25lIn0',
     'eyJ' + 'zdWIiOiJ1YXQtdGVzdCJ9',
@@ -440,7 +445,7 @@ test('U1.8 ปฏิเสธ app role, maker = reviewer, token ใน free text
     { ...base, maker: { ...maker, displayName: `Bearer ${fakeJwt}` } },
     'INPUT_SENSITIVE_CONTENT',
   );
-  // อีเมลนอก field อีเมล (เช่นใน displayName หรือ manifest) = ปฏิเสธ
+  // an email outside the email field (e.g. in displayName or the manifest) = rejected
   await rejects(
     { ...base, reviewer: { ...reviewer, displayName: 'someone@uat-tester.example' } },
     'INPUT_SENSITIVE_CONTENT',
@@ -451,7 +456,7 @@ test('U1.8 ปฏิเสธ app role, maker = reviewer, token ใน free text
     'INPUT_SENSITIVE_CONTENT',
     { kind: 'SECRET' },
   );
-  // ป้องกัน JWT ที่ถูกเติมผ่าน --check ด้วย (scan มาก่อน connection)
+  // also guards against a JWT filled in via --check (the scan comes before the connection)
   await rejects(
     { ...base, ownerTeam: { id: f.ids.teamId, name: fakeJwt } },
     'INPUT_SENSITIVE_CONTENT',
@@ -459,7 +464,7 @@ test('U1.8 ปฏิเสธ app role, maker = reviewer, token ใน free text
     { check: true },
   );
 
-  // dev seed: slug/ชื่อ tenant และบัญชี `.local`
+  // dev seed: slug/tenant name and the `.local` accounts
   const tenant = base.tenant as Record<string, string>;
   await rejects({ ...base, tenant: { ...tenant, slug: 'demo' } }, 'DEV_SEED_REFUSED', {
     field: 'tenant.slug',
@@ -471,7 +476,7 @@ test('U1.8 ปฏิเสธ app role, maker = reviewer, token ใน free text
     field: 'maker.email',
   });
 
-  // strict schema: key ที่ไม่รู้จัก / ขาด / ค่าผิด / manifest ผูกคนละ tenant
+  // strict schema: unknown/missing keys / wrong values / a manifest bound to a different tenant
   await rejects({ ...base, extra: true }, 'INPUT_INVALID', { field: 'extra' });
   await rejects({ ...base, maker: { ...maker, password: 'x' } }, 'INPUT_INVALID', {
     field: 'maker.password',
@@ -490,7 +495,7 @@ test('U1.8 ปฏิเสธ app role, maker = reviewer, token ใน free text
   await rejects({ ...base, fixturePackPath: 'pack.json' }, 'INPUT_INVALID', {
     field: 'fixturePack',
   });
-  // ค่าของ uat.env ต้องตรงกับ input
+  // the uat.env values must match the input
   await rejects(
     base,
     'TENANT_ENV_MISMATCH',

@@ -14,10 +14,10 @@ export class ManagedVoiceReconciliationRequiredError extends Error {
   }
 }
 
-/** originate ต้องการ tenant ที่ ACTIVE; bind ตรวจช่องสายของสายที่มีอยู่แล้ว (รวมคำสั่งเก็บกวาด) */
+/** originate needs an ACTIVE tenant; bind checks the channel of an existing call (including cleanup commands) */
 export type ManagedVoiceSipDomainPurpose = 'originate' | 'bind';
 
-/** หา SIP domain ของ tenant ต่อคำสั่ง (#979) ใช้เมื่อ process เดียวรับหลาย tenant */
+/** Looks up the SIP domain of the tenant per command (#979); used when a single process serves several tenants */
 export type ManagedVoiceSipDomainResolver = (
   tenantId: string,
   purpose: ManagedVoiceSipDomainPurpose,
@@ -73,7 +73,7 @@ export class FreeSwitchManagedVoiceAdapter implements ManagedVoiceDirectPort {
     if (!uuid.test(tenantId) || !uuid.test(callUuid))
       throw new Error('MANAGED_VOICE_INVALID_CALLER');
     if (!(await this.exists(callUuid))) return;
-    // หลาย tenant: ช่องสายต้องมาจาก SIP domain ของ tenant ที่จะผูก ไม่อย่างนั้นอาจผูกสายข้าม tenant
+    // Multi-tenant: the channel must come from the SIP domain of the tenant being bound, otherwise a call could be bound across tenants
     if (
       typeof this.sipDomain !== 'string' &&
       (await this.variable(callUuid, 'domain_name')) !==
@@ -269,8 +269,8 @@ export class FreeSwitchManagedVoiceAdapter implements ManagedVoiceDirectPort {
         dcontact_bleg_uuid: command.blegUuid,
       }))
         await this.accepted(`api uuid_setvar ${command.callUuid} ${name} ${value}`);
-      // #979: ลูกค้ารอแบบ pre-answer จน Agent รับ; ถ้า dialplan ไม่ได้ answer ไว้ (เช่น context pstn)
-      // uuid_bridge กับขาที่ยังไม่ answer ทำให้ FreeSWITCH ตัดลูกค้าด้วย DESTINATION_OUT_OF_ORDER
+      // #979: the customer waits pre-answer until the Agent answers; if the dialplan did not answer (e.g. the pstn context)
+      // uuid_bridge with an unanswered leg makes FreeSWITCH drop the customer with DESTINATION_OUT_OF_ORDER
       await this.accepted(`api uuid_answer ${command.callUuid}`);
       await this.accepted(`api uuid_bridge ${command.callUuid} ${command.blegUuid}`);
       return {

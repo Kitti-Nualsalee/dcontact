@@ -15,7 +15,7 @@ import {
   createPlatformOidcSettings,
 } from './auth.js';
 
-test('ภาษา: ค่าในแท็บชนะ browser; browser ที่ไม่รองรับไหลไป th', () => {
+test('language: the tab value wins over the browser; an unsupported browser falls through to th', () => {
   const storage = new InMemoryWebStorage();
   const resolve = (browser: string[]) => resolvePlatformLocale({ storage: () => storage, browser });
   assert.equal(resolve(['en-US', 'th-TH']), 'en');
@@ -32,7 +32,7 @@ test('ภาษา: ค่าในแท็บชนะ browser; browser ที
   }
 });
 
-test('storage อ่าน/เขียนไม่ได้ยัง resolve ภาษาและไม่โยน error ให้ UI', () => {
+test('unreadable/unwritable storage still resolves the language and throws no error to the UI', () => {
   const denied = () => {
     throw new DOMException('Denied', 'SecurityError');
   };
@@ -48,7 +48,7 @@ test('storage อ่าน/เขียนไม่ได้ยัง resolve �
   assert.doesNotThrow(() => savePlatformLocale('th', () => failedStorage));
 });
 
-test('ภาษาในแท็บคงอยู่ข้าม OIDC state และ restore marker โดยไม่แตะข้อมูลอื่น', async () => {
+test('the tab language survives the OIDC state and restore marker without touching other data', async () => {
   const storage = new InMemoryWebStorage();
   savePlatformLocale('en', () => storage);
   const settings = createPlatformOidcSettings({
@@ -74,7 +74,7 @@ test('ภาษาในแท็บคงอยู่ข้าม OIDC state �
   assert.equal(storage.getItem(PLATFORM_LOCALE_KEY), 'en');
 });
 
-test('catalog ของ platform และ ui สลับพร้อมกัน; เวลา operator แยกจาก tenant เสมอ', async () => {
+test('the platform and ui catalogs switch together; operator time is always separate from the tenant', async () => {
   const i18n = createI18n({ resources, locale: 'th', defaultNamespace: DEFAULT_NAMESPACE });
   assert.equal(i18n.t('auth.signIn'), 'เข้าสู่ระบบ');
   assert.equal(i18n.t('dialog.close', { ns: 'ui' }), 'ปิด');

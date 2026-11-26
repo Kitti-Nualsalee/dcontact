@@ -1,52 +1,52 @@
 /* ============================================================
-   D-Contact design tokens — แหล่งความจริงเดียวของสี ตัวอักษร ระยะ และเงา
+   D-Contact design tokens — the single source of truth for color, type, spacing and shadow
 
-   ที่มา: สกัดจาก mockups/assets/app.css ที่ผู้ใช้ยืนยันเป็น visual contract
-   (ADR-026 ข้อ 6 · สเปก #50) — งานนี้คือ "ทำให้เป็นระบบ" ไม่ใช่ออกแบบใหม่
-   ค่าสีทุกตัวมาจาก mockup เดิม ยกเว้นที่ระบุไว้ว่าแก้เพราะคอนทราสต์ตก WCAG AA
+   Origin: extracted from mockups/assets/app.css, which the user confirmed as the visual contract
+   (ADR-026 item 6 · spec #50) — this work is "making it systematic", not a redesign
+   Every color comes from the original mockup, except where noted as changed because contrast failed WCAG AA
 
-   กติกาการใช้
-   1. โค้ดแอปอ้าง token เท่านั้น ห้ามเขียน hex ตรง ๆ และห้ามใช้คลาสสีของ Tailwind
-      (`bg-teal-700`, `text-slate-400`) เพราะจะกลายเป็นแหล่งความจริงที่สอง
-   2. สีในระบบนี้ทำงานสองแบบที่ห้ามปนกัน — ดูหัวข้อ SEVERITY กับ IDENTITY ข้างล่าง
-   3. ถ้าต้องการสีที่ยังไม่มี ให้เพิ่ม token ใหม่พร้อมชื่อบทบาท ไม่ใช่หยิบค่าใกล้เคียงมาใช้
+   Usage rules
+   1. App code references tokens only; never write a hex directly and never use Tailwind color classes
+   (`bg-teal-700`, `text-slate-400`) because they would become a second source of truth
+   2. Color works in two modes in this system that must not be mixed — see the SEVERITY and IDENTITY sections below
+   3. If you need a color that does not exist, add a new token with a role name instead of grabbing a nearby value
    ============================================================ */
 
 :root,
 [data-theme='light'] {
   /* ============================================================
-     THEME — สีทุกตัวอยู่ในบล็อกนี้ เพื่อให้ธีมอื่น (เช่นโหมดมืด) override ได้ด้วย
-     บล็อก `[data-theme='dark'] { ... }` ที่ประกาศชื่อเดิมซ้ำ โดยไม่แตะโค้ดแอป
-     D1 มีธีมเดียว (light) — ยังไม่มีค่าชุดที่สอง (D1.1: โหมดมืดอยู่นอกขอบเขต)
+     THEME — every color lives in this block so other themes (e.g. dark mode) can override it with a
+     `[data-theme='dark'] { ... }` block that redeclares the same names, without touching app code
+     D1 has a single theme (light) — no second value set yet (D1.1: dark mode is out of scope)
      ============================================================ */
 
-  /* ---------- SURFACE — พื้นหลังไล่ตามความลึก ---------- */
-  --dc-surface-page: #f8fafc; /* พื้นหลังหน้าจอ */
-  --dc-surface-raised: #ffffff; /* การ์ด ตาราง แผง */
-  --dc-surface-sunken: #f1f5f9; /* ร่องในการ์ด แถบ progress ที่ยังว่าง */
-  --dc-surface-hover: #f8fafc; /* แถวหรือปุ่มตอน hover */
-  --dc-surface-selected: #f0fdfa; /* แถวที่เลือกอยู่ (โทนแบรนด์) */
+  /* ---------- SURFACE — backgrounds ordered by depth ---------- */
+  --dc-surface-page: #f8fafc; /* page background */
+  --dc-surface-raised: #ffffff; /* cards, tables, panels */
+  --dc-surface-sunken: #f1f5f9; /* wells inside cards, the empty progress bar track */
+  --dc-surface-hover: #f8fafc; /* row or button on hover */
+  --dc-surface-selected: #f0fdfa; /* selected row (brand tone) */
   --dc-surface-inverse: #0f172a; /* wallboard, monitor bar */
-  --dc-surface-brand: #0f766e; /* rail ด้านซ้าย */
+  --dc-surface-brand: #0f766e; /* left rail */
 
   /* ---------- BORDER ---------- */
-  --dc-border-subtle: #e2e8f0; /* เส้นคั่นในตาราง ขอบการ์ด */
-  --dc-border-default: #cbd5e1; /* ขอบ input ปุ่มรอง */
-  --dc-border-strong: #94a3b8; /* ขอบตอน hover ของ control */
+  --dc-border-subtle: #e2e8f0; /* dividers in tables, card borders */
+  --dc-border-default: #cbd5e1; /* input borders, secondary buttons */
+  --dc-border-strong: #94a3b8; /* control border on hover */
   --dc-border-brand: #0f766e;
 
   /* ---------- TEXT ----------
-     --dc-text-disabled คือค่าเดียวที่ห้ามใช้กับข้อความที่มีความหมาย
-     (#94a3b8 บนขาว = 2.6:1 ตก AA) เดิม mockup ใช้มัน 310 จุดกับเวลาและข้อความรอง
-     ข้อความรองที่อ่านจริงต้องใช้ --dc-text-muted (#64748b = 4.8:1) ขึ้นไป */
+     --dc-text-disabled is the only value that must not be used for meaningful text
+     (#94a3b8 on white = 2.6:1, fails AA). The old mockup used it in 310 places for times and secondary text.
+     Secondary text that is actually read must use --dc-text-muted (#64748b = 4.8:1) or darker */
   --dc-text-primary: #1e293b;
   --dc-text-secondary: #475569;
-  --dc-text-muted: #64748b; /* ระดับต่ำสุดที่ยังใช้กับข้อความได้ — เฉพาะบน
-                                        --dc-surface-raised และ --dc-surface-page
-                                        บนพื้นร่องได้ 4.34:1 จึงต้องใช้ text-secondary แทน */
-  --dc-text-disabled: #94a3b8; /* เฉพาะ control ที่กดไม่ได้ และไอคอนตกแต่ง */
+  --dc-text-muted: #64748b; /* lowest level still usable for text — only on
+                                        --dc-surface-raised and --dc-surface-page;
+                                        on a sunken surface it gives 4.34:1, so use text-secondary instead */
+  --dc-text-disabled: #94a3b8; /* only for controls that cannot be pressed, and decorative icons */
   --dc-text-brand: #0f766e;
-  --dc-text-brand-strong: #134e4a; /* ชื่อแบรนด์ ไอคอนในเมนูย่อย */
+  --dc-text-brand-strong: #134e4a; /* brand name, icons in the sub-menu */
   --dc-text-on-brand: #ffffff;
   --dc-text-on-inverse: #e2e8f0;
   --dc-text-on-inverse-muted: #94a3b8;
@@ -56,19 +56,19 @@
   --dc-brand-100: #ccfbf1;
   --dc-brand-200: #99f6e4;
   --dc-brand-600: #0d9488;
-  --dc-brand-700: #0f766e; /* สีหลักของระบบ */
+  --dc-brand-700: #0f766e; /* the system's primary color */
   --dc-brand-800: #115e59;
   --dc-brand-900: #134e4a;
 
   /* ============================================================
-     SEVERITY — สีที่บอก "ระดับความรุนแรง"
-     หนึ่งบทบาทต้องมีตระกูลสีเดียว ห้ามมีสองตระกูลทำงานเดียวกัน
-     การยุบที่ทำในชั้นนี้: rose-* ถูกยุบเข้า red-* (เดิม badge, chat dot และ
-     สถานะโต้แย้งใช้ rose ขณะที่ SLA breach ใช้ red ทั้งที่หมายถึงเรื่องเดียวกัน)
+     SEVERITY — colors that convey "level of severity"
+     One role must have one color family; two families must not do the same job
+     Merges done at this layer: rose-* was merged into red-* (previously the badge, chat dot and
+     dispute status used rose while SLA breach used red, although they mean the same thing)
      ============================================================ */
   --dc-success-bg: #dcfce7;
-  --dc-success-fg: #15803d; /* ใช้กับตัวอักษรบน --dc-success-bg */
-  --dc-success-solid: #16a34a; /* แถบ ไอคอน จุด — ไม่ใช่ตัวอักษรเล็ก */
+  --dc-success-fg: #15803d; /* for text on --dc-success-bg */
+  --dc-success-solid: #16a34a; /* bars, icons, dots — not small text */
 
   --dc-attention-bg: #fef3c7;
   --dc-attention-bg-subtle: #fffbeb;
@@ -90,18 +90,18 @@
   --dc-info-solid: #6366f1;
 
   --dc-neutral-bg: #f1f5f9;
-  --dc-neutral-fg: #475569; /* เดิม #64748b = 4.34:1 ตก AA บนพื้นของตัวเอง */
+  --dc-neutral-fg: #475569; /* was #64748b = 4.34:1, failing AA on its own background */
   --dc-neutral-solid: #94a3b8;
 
-  --dc-accent-bg: #ede9fe; /* หมวดหมู่ ป้าย AI — purple-* ถูกยุบเข้า violet-* */
+  --dc-accent-bg: #ede9fe; /* categories, AI badge — purple-* was merged into violet-* */
   --dc-accent-fg: #6d28d9;
   --dc-accent-solid: #8b5cf6;
 
   /* ============================================================
-     IDENTITY — สีที่บอก "นี่คือใคร/อะไร" ไม่ใช่ระดับความรุนแรง
-     ห้ามยุบให้เหลือน้อยลง: เขียวของ LINE กับเขียวของ WhatsApp ที่ดูซ้ำกัน
-     คือคนละช่องทาง ถ้ายุบแล้วป้ายช่องทางจะแยกกันไม่ออก
-     และห้ามหยิบค่าจากกลุ่ม SEVERITY มาใช้ ไม่งั้นป้ายช่องทางสีแดงจะอ่านเป็นการเตือน
+     IDENTITY — colors that say "who/what this is", not a level of severity
+     Must not be merged into fewer: LINE green and WhatsApp green look alike
+     but are different channels; if merged, channel badges could no longer be told apart
+     and values from the SEVERITY group must not be borrowed, or a red channel badge would read as a warning
      ============================================================ */
   --dc-channel-voice-bg: #e0e7ff;
   --dc-channel-voice-fg: #4338ca;
@@ -116,7 +116,7 @@
   --dc-channel-email-bg: #fef3c7;
   --dc-channel-email-fg: #b45309;
 
-  /* ตัวตนของแอปใน navigation — ไม่สื่อระดับความรุนแรง (#684) */
+  /* app identity in navigation — conveys no level of severity (#684) */
   --dc-app-supervisor-bg: #eef2ff;
   --dc-app-supervisor-fg: #4338ca;
   --dc-app-integrations-bg: #eef2ff;
@@ -124,13 +124,13 @@
   --dc-app-governance-bg: #fffbeb;
   --dc-app-governance-fg: #92400e;
 
-  /* คู่สนทนา — ใช้ใน transcript, waveform, bubble */
+  /* conversation parties — used in transcript, waveform, bubble */
   --dc-party-agent: #0f766e;
   --dc-party-contact: #4f46e5;
-  --dc-party-contact-soft: #6366f1; /* แท่ง waveform ฝั่งลูกค้า */
+  --dc-party-contact-soft: #6366f1; /* customer-side waveform bars */
   --dc-party-system: #94a3b8;
 
-  /* กิจกรรมในตารางกะและ timeline (WFM) — identity ล้วน */
+  /* activity in the shift table and timeline (WFM) — pure identity */
   --dc-shift-day-bg: #e0e7ff;
   --dc-shift-day-fg: #3730a3;
   --dc-shift-mid-bg: #ccfbf1;
@@ -140,7 +140,7 @@
   --dc-shift-night-bg: #ede9fe;
   --dc-shift-night-fg: #6d28d9;
   --dc-shift-off-bg: #f1f5f9;
-  --dc-shift-off-fg: #475569; /* เดิม #64748b ตก AA */
+  --dc-shift-off-fg: #475569; /* was #64748b, failed AA */
   --dc-shift-leave-bg: #fee2e2;
   --dc-shift-leave-fg: #b91c1c;
   --dc-shift-train-bg: #ede9fe;
@@ -154,7 +154,7 @@
   --dc-activity-off: #e2e8f0;
   --dc-activity-out-of-adherence: #dc2626;
 
-  /* ---------- สถานะเอเจนต์ ---------- */
+  /* ---------- agent status ---------- */
   --dc-agent-available-bg: #dcfce7;
   --dc-agent-available-fg: #15803d;
   --dc-agent-busy-bg: #fee2e2;
@@ -164,55 +164,55 @@
   --dc-agent-break-bg: #e2e8f0;
   --dc-agent-break-fg: #475569;
   --dc-agent-offline-bg: #f1f5f9;
-  --dc-agent-offline-fg: #475569; /* เดิม #64748b ตก AA */
-  /* cooldown ที่ระบบสั่ง ต้องแยกจาก break ที่เอเจนต์กดเอง (ADR/#49) */
+  --dc-agent-offline-fg: #475569; /* was #64748b, failed AA */
+  /* cooldown ordered by the system must be kept separate from a break the agent presses themselves (ADR/#49) */
   --dc-agent-cooldown-bg: #fef3c7;
   --dc-agent-cooldown-fg: #92400e;
 
-  /* เงาและ focus ring มีสีอยู่ในค่า จึงอยู่ในบล็อกธีมด้วย — ธีมอื่นต้อง override ชุดนี้ด้วย */
+  /* shadows and focus ring contain color in their values, so they are in the theme block too — other themes must override this set as well */
   /* ---------- ELEVATION ---------- */
   --dc-shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04);
-  --dc-shadow-panel: -12px 0 32px -18px rgba(15, 23, 42, 0.4); /* แผงที่เลื่อนเข้ามาจากขอบ */
+  --dc-shadow-panel: -12px 0 32px -18px rgba(15, 23, 42, 0.4); /* panel sliding in from the edge */
   --dc-shadow-floating: 0 10px 30px rgba(15, 23, 42, 0.3); /* monitor bar */
-  --dc-ring-warning: 0 0 0 3px rgba(254, 226, 226, 0.5); /* การ์ดเอเจนต์ที่ต้องดู */
+  --dc-ring-warning: 0 0 0 3px rgba(254, 226, 226, 0.5); /* agent card that needs attention */
 
   /* ---------- FOCUS ----------
-     mockup เดิมมี focus style อยู่ 2 บรรทัดในทั้งไฟล์ (เฉพาะตัวลากแบ่งคอลัมน์)
-     ทุก control ที่กดได้ต้องใช้ token นี้ — เอเจนต์ทำงานด้วยคีย์บอร์ดตลอดกะ */
+     The old mockup had only 2 focus-style lines in the whole file (just the column resizer)
+     Every pressable control must use this token — agents work with the keyboard all shift */
   --dc-focus-ring: 0 0 0 2px #ffffff, 0 0 0 4px #0f766e;
   --dc-focus-ring-inverse: 0 0 0 2px #0f172a, 0 0 0 4px #99f6e4;
-  /* ring ด้านในสำหรับ control ใน container ที่ตัด overflow (ปุ่มคู่, แถว/เซลล์ตาราง)
-     ต้องเป็น token แยก — `inset var(--dc-focus-ring)` ใส่ inset ให้แค่ชั้นแรก (ขาว)
-     ชั้นสีจึงยังอยู่ด้านนอกและถูกตัดจนมองไม่เห็น
-     ลำดับกลับด้านจาก ring ด้านนอก: สีอยู่ที่ขอบ ขาวอยู่ด้านใน จึงเห็นเส้นขาวบนปุ่มพื้นสี brand ด้วย */
+  /* inner ring for controls inside an overflow-clipped container (button pairs, table rows/cells)
+     must be a separate token — `inset var(--dc-focus-ring)` insets only the first layer (white)
+     so the color layer stays outside and is clipped out of sight
+     The order is reversed from the outer ring: color at the edge, white inside, so a white line also shows on brand-colored buttons */
   --dc-focus-ring-inset: inset 0 0 0 2px #0f766e, inset 0 0 0 4px #ffffff;
 }
 
 :root {
   /* ============================================================
      TYPOGRAPHY
-     root กลับไป 16px (ค่าปกติของเบราว์เซอร์) ขนาดตัวอักษรถูกนิยามเป็นค่าสัมบูรณ์
-     จึงออกมาใกล้เคียงของเดิมที่อนุมัติไว้ตอน root 18px แต่ระยะห่างของ Tailwind
-     ไม่พองขึ้น 12.5% อีก — เดิมตาราง 6 คอลัมน์ต้องการ 1323px บนจอ 1440px
-     scale หลัก 7 ขั้น (เดิมมี 17 ขนาดกระจัดกระจายตั้งแต่ 9px ถึง 44px)
+     root goes back to 16px (the browser default); font sizes are defined as absolute values
+     so they come out close to the previously approved size at root 18px, but Tailwind spacing
+     no longer inflates by 12.5% — previously a 6-column table needed 1323px on a 1440px screen
+     main scale of 7 steps (previously 17 sizes scattered from 9px to 44px)
      ============================================================ */
   --dc-font-sans: 'Inter', 'Noto Sans Thai', system-ui, -apple-system, sans-serif;
   --dc-font-numeric:
-    'Inter', system-ui, sans-serif; /* ใช้คู่กับ font-variant-numeric: tabular-nums */
+    'Inter', system-ui, sans-serif; /* use together with font-variant-numeric: tabular-nums */
 
-  --dc-text-2xs: 0.6875rem; /* 11px — ตัวเลขบน badge, จุดแจ้งเตือน */
+  --dc-text-2xs: 0.6875rem; /* 11px — numbers on badges, notification dots */
   --dc-text-xs: 0.75rem; /* 12px — meta, legend, timestamp */
-  --dc-text-sm: 0.8125rem; /* 13px — label ของฟอร์ม, ข้อความรอง */
-  --dc-text-base: 0.875rem; /* 14px — ตัวหลักในตาราง การ์ด แชท */
-  --dc-text-md: 1rem; /* 16px — เมนู, ข้อความยาว */
-  --dc-text-lg: 1.125rem; /* 18px — หัวข้อของแผง */
-  --dc-text-xl: 1.25rem; /* 20px — หัวข้อหน้า, ชื่อแบรนด์ */
-  --dc-text-metric: 1.625rem; /* 26px — ตัวเลขบนการ์ด */
-  --dc-text-wallboard: 2.75rem; /* 44px — ตัวเลขบนจอใหญ่ ระยะไกล */
+  --dc-text-sm: 0.8125rem; /* 13px — form labels, secondary text */
+  --dc-text-base: 0.875rem; /* 14px — main text in tables, cards, chat */
+  --dc-text-md: 1rem; /* 16px — menus, long text */
+  --dc-text-lg: 1.125rem; /* 18px — panel headings */
+  --dc-text-xl: 1.25rem; /* 20px — page headings, brand name */
+  --dc-text-metric: 1.625rem; /* 26px — numbers on cards */
+  --dc-text-wallboard: 2.75rem; /* 44px — numbers on a big far-away display */
 
-  --dc-leading-tight: 1.15; /* ตัวเลขและหัวข้อ */
+  --dc-leading-tight: 1.15; /* numbers and headings */
   --dc-leading-snug: 1.35;
-  --dc-leading-normal: 1.5; /* ข้อความไทยต้องการมากกว่าอังกฤษเล็กน้อย */
+  --dc-leading-normal: 1.5; /* Thai text needs slightly more than English */
 
   --dc-weight-regular: 400;
   --dc-weight-medium: 500;
@@ -220,18 +220,18 @@
   --dc-weight-bold: 700;
 
   /* ---------- RADIUS ----------
-     D1.4 (#424): ลดลงครึ่งหนึ่งจากค่าที่สกัดจาก mockup (4/6/8/10/14) ให้หน้าตาแน่นขึ้น
-     ชื่อ token คงเดิมทุกตัว แอปที่อ้างชื่ออยู่จึงได้ค่าใหม่โดยไม่ต้องแก้โค้ด */
-  --dc-radius-xs: 2px; /* จุด แถบเล็ก */
-  --dc-radius-sm: 3px; /* chip, ป้ายสถานะ */
-  --dc-radius-md: 4px; /* ปุ่ม input */
-  --dc-radius-lg: 5px; /* การ์ดย่อย แถวที่เลือกได้ */
-  --dc-radius-xl: 7px; /* การ์ดหลัก แผง */
-  --dc-radius-pill: 999px; /* avatar จุดสถานะ ตัวนับ เท่านั้น */
+     D1.4 (#424): halved from the values extracted from the mockup (4/6/8/10/14) for a denser look
+     Every token name is unchanged, so apps that reference the names get the new values without code changes */
+  --dc-radius-xs: 2px; /* dots, small bars */
+  --dc-radius-sm: 3px; /* chips, status badges */
+  --dc-radius-md: 4px; /* buttons, inputs */
+  --dc-radius-lg: 5px; /* sub-cards, selectable rows */
+  --dc-radius-xl: 7px; /* main cards, panels */
+  --dc-radius-pill: 999px; /* avatars, status dots, counters only */
 
   /* ---------- SPACING ----------
-     scale เดียวฐาน 4px (D1.4) — component ห้ามใช้ระยะห่างนอก scale นี้
-     ค่าจาก prototype ที่ไม่ตรงขั้นให้ปัดเข้าขั้นที่ใกล้สุด (11→12, 14→16, 22→20) */
+     one scale on a 4px base (D1.4) — components must not use spacing outside this scale
+     values from the prototype that fall between steps are rounded to the nearest step (11→12, 14→16, 22→20) */
   --dc-space-1: 2px;
   --dc-space-2: 4px;
   --dc-space-3: 6px;
@@ -250,21 +250,21 @@
 }
 
 /* ============================================================
-   DENSITY — ความสูงมาตรฐานของ control และแถว (D1.4 = 80% ของระยะแบบ B)
-   ตั้งชื่อตามบทบาท (`--dc-control-md` ไม่ใช่ `--dc-32`) เพื่อให้ density อื่น override ได้
-   ด้วยบล็อก `[data-density='touch'] { ... }` ในอนาคต — D1 ใช้ค่าชุดเดียวทั้งสองแอป
-   ค่าทั้งหมดต่ำกว่า target จอสัมผัส 44px โดยตั้งใจ (desktop, mouse/keyboard)
+   DENSITY — standard heights for controls and rows (D1.4 = 80% of the spacing of option B)
+   named by role (`--dc-control-md`, not `--dc-32`) so another density can override them
+   with a `[data-density='touch'] { ... }` block in the future — D1 uses a single value set for both apps
+   All values are deliberately below the 44px touch target (desktop, mouse/keyboard)
    ============================================================ */
 :root,
 [data-density='default'] {
-  --dc-control-md: 32px; /* ปุ่มหลัก input */
-  --dc-control-sm: 26px; /* ปุ่มเล็ก tab filter ในตาราง */
-  --dc-row-subnav: 36px; /* แถวในแผงเมนูย่อยของ Console */
-  --dc-row-table: 36px; /* แถวตาราง ≈ padding 12 + ตัวอักษร 13px */
-  --dc-bar-top: 44px; /* แถบบนของ app shell */
+  --dc-control-md: 32px; /* main button, input */
+  --dc-control-sm: 26px; /* small button, filter tab in a table */
+  --dc-row-subnav: 36px; /* row in the Console sub-menu panel */
+  --dc-row-table: 36px; /* table row ≈ padding 12 + 13px text */
+  --dc-bar-top: 44px; /* top bar of the app shell */
 }
 
-/* ผู้ใช้ที่ตั้งค่าลดการเคลื่อนไหว — ระบบนี้มีจุดกะพริบถาวรอยู่จริง (จุดแดงตอนอัดเสียง) */
+/* users who set reduced motion — this system really has a permanent blinking dot (the red dot while recording) */
 @media (prefers-reduced-motion: reduce) {
   :root {
     --dc-duration-fast: 0ms;
@@ -272,7 +272,7 @@
   }
 }
 
-/* ฐานของทั้งสองแอป — ตั้ง root กลับเป็น 16px ตามเหตุผลในหัวข้อ TYPOGRAPHY */
+/* base of both apps — set root back to 16px for the reasons under TYPOGRAPHY */
 html {
   font-size: 16px;
 }
@@ -285,7 +285,7 @@ body {
   background: var(--dc-surface-page);
 }
 
-/* ตัวเลขที่ต้องอ่านเทียบกันเป็นคอลัมน์ (เวลารอ, SLA, ตัวนับ) ต้องกว้างเท่ากันทุกหลัก */
+/* numbers read against each other in a column (wait time, SLA, counters) must have equal width in every digit */
 .dc-tabular {
   font-variant-numeric: tabular-nums;
 }
@@ -295,20 +295,20 @@ body {
   box-shadow: var(--dc-focus-ring);
 }
 
-/* ---------- FOCUS ใน forced-colors (Windows High Contrast) ----------
-   โหมดนี้เบราว์เซอร์ลบ box-shadow ทิ้ง ring จาก --dc-focus-ring จึงหายไปทั้งหมด
-   และ component ส่วนใหญ่เขียน outline: none ไว้คู่กับ ring จึงต้องคืน outline ที่นี่จุดเดียว
-   - ใช้ selector เดียวกับที่ component ใช้แสดง ring (:focus-visible และ data-focus-visible ของ react-aria)
-   - !important เพราะกฎ outline: none ของ component มี specificity สูงกว่า และใช้เฉพาะในโหมดนี้
-   - เส้น 2px ห่าง 2px วางทับตำแหน่งวงนอกของ ring (2px ขาว + 2px สี) พอดี
-     จึงถูก overflow ของ container ตัดเท่ากับ ring ในโหมดปกติ ไม่มากกว่า
-   - ring แบบ inset ให้ component ตั้ง outline-offset: -4px เองใน media query เดียวกัน
-     (ตัวอย่าง .j5-segmented, Table, TopBar ปุ่มภาษา)
-   - ยกเว้น <main>: เป็นเป้าของ skip link (tabindex -1) ไม่ใช่ control ทุกแอปตั้ง outline: none ไว้
-     ถ้าไม่ยกเว้นจะได้กรอบรอบเนื้อหาทั้งหน้าหลังกด skip link
-   - ปุ่มกดค้าง (aria-pressed) ที่บอกสถานะด้วยพื้น brand อย่างเดียวต้องจัดการเองใน component:
-     forced-color-adjust: none + Highlight/HighlightText (ถ้าไม่ปิด adjust เบราว์เซอร์วาดแผ่น Canvas
-     หลังข้อความจนข้อความ HighlightText หายไป) ตัวอย่าง .j5-segmented, TopBar ปุ่มภาษา, .ah-segmented */
+/* ---------- FOCUS in forced-colors (Windows High Contrast) ----------
+   In this mode the browser removes box-shadow, so the ring from --dc-focus-ring disappears entirely
+   and most components write outline: none alongside the ring, so the outline is restored here in one place
+   - uses the same selectors components use to show the ring (:focus-visible and react-aria's data-focus-visible)
+   - !important because the component's outline: none rule has higher specificity, and it applies only in this mode
+   - a 2px line with 2px offset sits exactly over the outer ring position (2px white + 2px color)
+     so it is clipped by the container's overflow the same as the ring in normal mode, no more
+   - an inset ring: the component sets outline-offset: -4px itself in the same media query
+     (examples: .j5-segmented, Table, TopBar language button)
+   - except <main>: it is the skip link target (tabindex -1), not a control, and every app sets outline: none on it
+     without the exception a frame would appear around the whole page content after using the skip link
+   - a toggle button (aria-pressed) that shows state only with a brand background must be handled in the component itself:
+     forced-color-adjust: none + Highlight/HighlightText (if adjust is not turned off, the browser paints a Canvas plate
+     behind the text so the HighlightText text disappears) examples: .j5-segmented, TopBar language button, .ah-segmented */
 @media (forced-colors: active) {
   :focus-visible:not(main),
   [data-focus-visible] {

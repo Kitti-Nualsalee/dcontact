@@ -1,11 +1,11 @@
 /**
- * A1.4 (#409) real boundary: Keycloak 26 + mailpit + Postgres จริง — ไม่อยู่ใน fast gate
+ * A1.4 (#409) real boundary: Keycloak 26 + mailpit + real Postgres — not in the fast gate
  *
- * ครอบ acceptance ของ #409: create, verified adoption, duplicate/replay, conflict, timeout,
- * lost response, invitation 72 ชั่วโมง, resend cap แบบ race-safe และ first-admin ที่ทำ execute
- * actions ครบแล้ว login ผ่าน tenant boundary ได้ (และ platform boundary ไม่รับ)
+ * Covers the acceptance of #409: create, verified adoption, duplicate/replay, conflict, timeout,
+ * lost response, 72-hour invitation, a race-safe resend cap, and a first-admin who has completed every execute
+ * action being able to log in through the tenant boundary (and the platform boundary not accepting it)
  *
- * ต้องมี: `pnpm infra:up` และ `pnpm infra:identity:link && pnpm infra:identity:platform`
+ * Requires: `pnpm infra:up` and `pnpm infra:identity:link && pnpm infra:identity:platform`
  */
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -49,7 +49,7 @@ import { TenantBootstrapPort, TenantReadinessPort } from './tenant-bootstrap.js'
 
 type Fault = (url: string, method: string) => 'lose-response' | 'hang' | undefined;
 
-/** fetch ที่ส่งคำขอจริงแล้วทำเหมือน response หาย หรือค้างจน timeout — จำลอง fault ที่ Keycloak ทำไปแล้ว */
+/** a fetch that sends the real request then behaves as if the response was lost or hangs until timeout — simulates a fault after Keycloak already acted */
 function faultyFetch(fault: Fault): typeof fetch {
   return async (input, init) => {
     const url = String(input);
@@ -69,7 +69,7 @@ function faultyFetch(fault: Fault): typeof fetch {
   };
 }
 
-/** fault ครั้งเดียวต่อ (method, path ที่ match) */
+/** a one-time fault per (method, matching path) */
 function once(method: string, pattern: RegExp, kind: 'lose-response' | 'hang'): Fault {
   let fired = false;
   return (url, requestMethod) => {
@@ -91,7 +91,7 @@ async function setup(
   });
   const keycloak = provisionerClient(options.fault ? faultyFetch(options.fault) : undefined);
   const organizations = new KeycloakOrganizationPort(keycloak);
-  // #907: Console client จริงของ boundary พร้อม fine-grained permission แบบเดียวกับ UAT
+  // #907: the boundary's real Console client with the same fine-grained permission as UAT
   const tenantConsole = await ensureBoundaryConsole();
   const firstAdmin = new FirstAdminPort(
     keycloak,
@@ -104,7 +104,7 @@ async function setup(
   });
   const fakes = createFakeProvisioningPorts();
   const bootstrap = new TenantBootstrapPort(f.platform, f.provisioner);
-  // ทุก step เป็นตัวจริงยกเว้นไม่มี — readiness ตรวจ identity ใน Keycloak ซ้ำก่อน ACTIVE
+  // every step is real except none — readiness re-checks the identity in Keycloak before ACTIVE
   const ports = {
     ...fakes.ports,
     KEYCLOAK_ORGANIZATION: organizations,
@@ -140,7 +140,7 @@ async function setup(
     tenants.push(result.tenantId);
     return { ...result, input };
   };
-  /** เดิน saga จนนิ่ง (retry ที่ backoff 1ms จะถูกหยิบทันทีรอบถัดไป) */
+  /** walks the saga until it settles (a retry at 1ms backoff is picked up immediately next round) */
   const drain = async () => {
     for (let round = 0; round < 20; round += 1) {
       const results = await worker.drain();
@@ -196,7 +196,7 @@ async function usersOf(tenantId: string) {
   return body;
 }
 
-test('create: Organization + first-admin + invitation 72 ชั่วโมง แล้ว tenant ACTIVE', async (t) => {
+test('create: Organization + first-admin + 72-hour invitation, then the tenant is ACTIVE', async (t) => {
   const s = await setup(t);
   const accepted = await s.accept();
   await s.drain();
@@ -217,13 +217,13 @@ test('create: Organization + first-admin + invitation 72 ชั่วโมง �
     'VERIFY_EMAIL',
   ]);
   assert.deepEqual(user!.attributes.dc_user_id, [firstAdminUserId(accepted.requestId)]);
-  // D-Contact ไม่สร้าง credential ใด ๆ ให้ first-admin
+  // D-Contact creates no credential of any kind for the first-admin
   const { body: credentials } = await keycloakAdmin<unknown[]>(
     'GET',
     `/users/${user!.id}/credentials`,
   );
   assert.deepEqual(credentials, []);
-  // #901: binding ของ first admin ผูก Keycloak subject และ Organization จริง พร้อมกับ ACTIVE
+  // #901: the first admin's binding ties to the real Keycloak subject and Organization together with ACTIVE
   const [binding, ...extraBindings] = await s.f.owner.tenantVoiceIdentityBinding.findMany({
     where: { tenantId: accepted.tenantId },
   });
@@ -236,7 +236,7 @@ test('create: Organization + first-admin + invitation 72 ชั่วโมง �
     [binding!.issuer, binding!.clientId, binding!.tenantSlug],
     [s.tenantConsole.issuer, s.tenantConsole.clientId, accepted.input.slug],
   );
-  // #907: redirect แบบ exact ของ tenant ถูกเพิ่มทั้ง login และ post-logout โดยคงของเดิม
+  // #907: the tenant's exact redirect is added for both login and post-logout, keeping the existing ones
   const redirect = `${s.tenantConsole.origin}/?tenant=${accepted.input.slug}`;
   const registered = await consoleRedirects();
   assert.ok(registered.redirectUris.includes(redirect));
@@ -261,7 +261,7 @@ test('create: Organization + first-admin + invitation 72 ชั่วโมง �
   assert.equal(claims.typ, 'execute-actions');
   assert.equal(claims.exp - claims.iat, 72 * 3600);
 
-  // evidence ไม่มี raw email
+  // the evidence has no raw email
   const evidence = JSON.stringify([
     final.steps,
     final.invitations,
@@ -273,13 +273,13 @@ test('create: Organization + first-admin + invitation 72 ชั่วโมง �
   assert.equal(evidence.includes(accepted.input.firstAdmin.email), false);
 });
 
-test('replay/duplicate: execute ซ้ำระหว่าง PROVISIONING ไม่สร้างซ้ำ แล้ว saga adopt ทั้งหมด', async (t) => {
+test('replay/duplicate: a repeated execute during PROVISIONING does not create duplicates, then the saga adopts everything', async (t) => {
   const s = await setup(t);
   const accepted = await s.accept();
   const request = await s.state(accepted.requestId);
   const { provisioningStepContext } = await import('./provisioning-saga.js');
   const signal = new AbortController().signal;
-  // จำลอง worker หลายตัว/crash ที่ execute ขั้นเดียวกันซ้ำก่อนมีใครบันทึก receipt
+  // simulates several workers/a crash executing the same step again before anyone records a receipt
   for (let round = 0; round < 2; round += 1) {
     await s.organizations.execute(
       provisioningStepContext(request, 'KEYCLOAK_ORGANIZATION', 1),
@@ -311,11 +311,11 @@ test('replay/duplicate: execute ซ้ำระหว่าง PROVISIONING ไ�
     'KEYCLOAK_ORGANIZATION',
     'PLAN_BOOTSTRAP',
   ]);
-  // หลัง ACTIVE แล้ว provisioner แตะแถว users ของ tenant นี้ไม่ได้อีก (#388 decision)
+  // after ACTIVE the provisioner can no longer touch this tenant's users row (#388 decision)
   assert.equal(await s.f.provisioner.user.count({ where: { tenantId: accepted.tenantId } }), 0);
 });
 
-test('lost response ของการสร้าง Organization และ user: attempt ถัดไป adopt ไม่สร้างซ้ำ', async (t) => {
+test('lost response when creating the Organization and user: the next attempt adopts without creating again', async (t) => {
   const lost = [
     once('POST', /\/organizations$/, 'lose-response'),
     once('POST', /\/users$/, 'lose-response'),
@@ -329,8 +329,8 @@ test('lost response ของการสร้าง Organization และ use
   assert.equal(final.status, 'SUCCEEDED');
   assert.equal((await organizationsOf(accepted.tenantId)).length, 1);
   assert.equal((await usersOf(accepted.tenantId)).length, 1);
-  // Organization: find ของ attempt ถัดไปพบ org ที่ correlation ตรง = verified adoption
-  // user: พบ identity ของเราที่ยังไม่ครบ (ไม่มี role/membership) จึง execute เติมส่วนที่ขาดโดยไม่สร้างใหม่
+  // Organization: the next attempt's find finds an org with a matching correlation = verified adoption
+  // user: finds our own identity that is incomplete (no role/membership), so execute fills in what is missing without creating a new one
   const adopted = await s.f.owner.pfActionHistory.findMany({
     where: { requestId: accepted.requestId, reasonCode: 'VERIFIED_ADOPTION' },
   });
@@ -340,7 +340,7 @@ test('lost response ของการสร้าง Organization และ use
   );
 });
 
-test('timeout ระหว่างสร้าง user: abort เป็น ambiguous แล้วรอบหน้า adopt', async (t) => {
+test('timeout while creating the user: aborted as ambiguous, then the next round adopts', async (t) => {
   const s = await setup(t, { fault: once('POST', /\/users$/, 'hang') });
   const accepted = await s.accept();
   await s.drain();
@@ -356,9 +356,9 @@ test('timeout ระหว่างสร้าง user: abort เป็น ambi
   );
 });
 
-test('conflict: org ชื่อเดียวกันของคนอื่นไม่ถูกยึด และ email ของ identity อื่นได้ code คงที่ไม่เผย tenant', async (t) => {
+test('conflict: a same-named org of another party is not adopted, and an email of another identity gets a stable code that does not reveal the tenant', async (t) => {
   const s = await setup(t);
-  // org ต่างเจ้าของที่ใช้ชื่อ (slug) เดียวกัน
+  // an org of a different owner that uses the same name (slug)
   const slugTaken = await s.accept();
   const foreignTenant = randomUUID();
   await keycloakAdmin('POST', '/organizations', {
@@ -370,7 +370,7 @@ test('conflict: org ชื่อเดียวกันของคนอื่
   });
   t.after(() => cleanupKeycloak([foreignTenant]));
 
-  // email ที่เป็นของ tenant user เดิมใน dev realm
+  // an email that belongs to an existing tenant user in the dev realm
   const emailTaken = await s.accept({
     firstAdmin: { email: 'admin@demo.local', displayName: 'Taken' },
   });
@@ -380,7 +380,7 @@ test('conflict: org ชื่อเดียวกันของคนอื่
   assert.equal(orgConflict.status, 'ACTION_REQUIRED');
   assert.equal(orgConflict.failureCode, 'KEYCLOAK_ORGANIZATION_CONFLICT');
   const [foreign] = await organizationsOf(foreignTenant);
-  assert.ok(foreign, 'org ของคนอื่นต้องยังอยู่');
+  assert.ok(foreign, 'the other party org must still exist');
   assert.equal(foreign.attributes[PROVISIONING_REQUEST_ATTRIBUTE], undefined);
 
   const emailConflict = await s.state(emailTaken.requestId);
@@ -390,20 +390,20 @@ test('conflict: org ชื่อเดียวกันของคนอื่
     await s.f.owner.pfActionHistory.findMany({ where: { requestId: emailTaken.requestId } }),
   );
   assert.equal(history.includes('demo'), false);
-  // identity เดิมไม่ถูกแตะ
+  // the existing identity is not touched
   const { body: existing } = await keycloakAdmin<{ attributes: Record<string, string[]> }[]>(
     'GET',
     `/users?${new URLSearchParams({ username: 'admin@demo.local', exact: 'true', briefRepresentation: 'false' })}`,
   );
   assert.equal(existing[0]!.attributes[PROVISIONING_REQUEST_ATTRIBUTE], undefined);
-  // หยุดตั้งแต่ find (MISMATCH) จึงไม่มีแถว users ถูกสร้าง
+  // stops at find (MISMATCH) so no users row is created
   assert.equal(
     await s.f.owner.user.count({ where: { id: firstAdminUserId(emailTaken.requestId) } }),
     0,
   );
 });
 
-test('invitation lost response: reconcile ด้วยหลักฐานใน email sink ไม่ส่งซ้ำ; ไม่มีหลักฐาน = ACTION_REQUIRED', async (t) => {
+test('invitation lost response: reconcile with evidence in the email sink without resending; no evidence = ACTION_REQUIRED', async (t) => {
   const withProbe = await setup(t, {
     fault: once('PUT', /execute-actions-email$/, 'lose-response'),
   });
@@ -424,11 +424,11 @@ test('invitation lost response: reconcile ด้วยหลักฐานใ�
   assert.equal(ambiguousState.status, 'ACTION_REQUIRED');
   assert.equal(ambiguousState.failureCode, 'INVITATION_DELIVERY_AMBIGUOUS');
   assert.equal(ambiguousState.invitations[0]!.state, 'AMBIGUOUS');
-  // ห้าม blind resend: ฉบับเดียวที่ถึงจริงคือฉบับที่ response หาย
+  // no blind resend: the only message that really arrived is the one whose response was lost
   assert.equal((await messagesTo(ambiguous.input.firstAdmin.email)).length, 1);
 });
 
-test('resend: operator action ที่ audit ทุกผล และ cap 3 ครั้ง/ชั่วโมงแบบ race-safe', async (t) => {
+test('resend: an operator action that audits every outcome, with a race-safe cap of 3 per hour', async (t) => {
   const s = await setup(t);
   const accepted = await s.accept();
   await s.drain();
@@ -436,11 +436,11 @@ test('resend: operator action ที่ audit ทุกผล และ cap 3 �
     s.outbox.resend({
       requestId: accepted.requestId,
       reasonCode: 'RECIPIENT_REQUESTED',
-      comment: 'ผู้รับแจ้งว่าไม่ได้รับอีเมล',
+      comment: 'the recipient said the email was not received',
       actor: OPERATOR,
       correlationId: `corr-resend-${randomUUID()}`,
     });
-  // ยิงพร้อมกันหลายรอบจนครบ cap — ไม่มีรอบไหนเกิน 3
+  // fire several rounds at once until the cap is reached — no round exceeds 3
   const outcomes: string[] = [];
   for (
     let wave = 0;
@@ -482,18 +482,21 @@ test('resend: operator action ที่ audit ทุกผล และ cap 3 �
   );
 });
 
-test('first-admin ทำ execute actions ครบแล้ว login ผ่าน tenant boundary ได้ และ platform boundary ไม่รับ', async (t) => {
+test('a first-admin who completes the execute actions can log in through the tenant boundary, and the platform boundary does not accept it', async (t) => {
   const s = await setup(t);
   const accepted = await s.accept();
   await s.drain();
   const [link] = await invitationLinks(accepted.input.firstAdmin.email);
   const password = `Boundary-${randomUUID().slice(0, 8)}!`;
   const completed = await completeInvitation(link!, password);
-  assert.ok(completed.totpSecret, `ต้องผ่านหน้า TOTP (${completed.pages.join(' → ')})`);
+  assert.ok(
+    completed.totpSecret,
+    `must get through the TOTP page (${completed.pages.join(' → ')})`,
+  );
   assert.equal((await s.outbox.status(accepted.requestId)).activation, 'ACTIVATED');
 
-  // A1.8 (#413): timeline แยก actor First admin จาก user events จริงของ Keycloak
-  // setup ของ realm ต้องเปิด event ชุดเดียวกับที่ reconciler อ่าน
+  // A1.8 (#413): the timeline separates the First admin actor from real Keycloak user events
+  // the realm setup must enable the same events the reconciler reads
   const setupScript = (await import(
     new URL('../../../scripts/keycloak-provisioning-setup.mjs', import.meta.url).href
   )) as { FIRST_ADMIN_EVENT_TYPES: readonly string[] };
@@ -525,23 +528,23 @@ test('first-admin ทำ execute actions ครบแล้ว login ผ่า�
     password,
     totpSecret: completed.totpSecret!,
   });
-  assert.equal(login.status, 200, `tenant login ล้มเหลว: ${login.error}`);
+  assert.equal(login.status, 200, `tenant login failed: ${login.error}`);
   const claims = JSON.parse(Buffer.from(login.accessToken!.split('.')[1]!, 'base64url').toString());
   const identity = toVerifiedWorkspaceIdentity(claims);
   assert.deepEqual(
     [identity.tenantId, identity.userId, identity.roles.includes('admin')],
     [accepted.tenantId, firstAdminUserId(accepted.requestId), true],
   );
-  // token ของ tenant ไม่ใช่ platform token: คนละ client/audience และมี tenant context (A1.2 ปฏิเสธ)
+  // a tenant token is not a platform token: a different client/audience and it has tenant context (A1.2 rejects it)
   assert.notEqual(claims.azp, 'platform-console');
   assert.equal([claims.aud].flat().includes('dcontact-platform-api'), false);
 
-  // activate แล้ว resend ไม่ได้
+  // cannot resend after activation
   await assert.rejects(
     s.outbox.resend({
       requestId: accepted.requestId,
       reasonCode: 'RECIPIENT_REQUESTED',
-      comment: 'ลองส่งซ้ำหลัง activate',
+      comment: 'try resending after activation',
       actor: OPERATOR,
       correlationId: 'corr-after-activation',
     }),
@@ -550,7 +553,7 @@ test('first-admin ทำ execute actions ครบแล้ว login ผ่า�
   );
 });
 
-test('A1.5b (#441): อีเมลชนกับ identity เดิม → แก้อีเมล → Retry → ACTIVE กับ Keycloak จริง', async (t) => {
+test('A1.5b (#441): email clashes with an existing identity → edit the email → Retry → ACTIVE with a real Keycloak', async (t) => {
   const s = await setup(t);
   const { ProvisioningRequestEditor } = await import('./provisioning-request-editor.js');
   const { ProvisioningRecoveryService } = await import('./provisioning-recovery.js');
@@ -570,7 +573,7 @@ test('A1.5b (#441): อีเมลชนกับ identity เดิม → แ
     expectedRevision: stuck.revision,
     changes: { firstAdminEmail: fixedEmail },
     reasonCode: 'CUSTOMER_CORRECTION',
-    comment: 'ลูกค้าให้อีเมลใหม่',
+    comment: 'the customer gave a new email',
     actor: OPERATOR,
     correlationId: 'corr-email-fix',
   });
@@ -593,19 +596,19 @@ test('A1.5b (#441): อีเมลชนกับ identity เดิม → แ
     expectedRevision: preview.revision,
     previewDigest: preview.previewDigest,
     reasonCode: 'OPERATOR_VERIFIED',
-    comment: 'แก้อีเมลแล้ว',
+    comment: 'email corrected',
     actor: OPERATOR,
     correlationId: 'corr-email-retry',
   });
   await s.drain();
   const final = await s.state(accepted.requestId);
   assert.deepEqual([final.status, final.tenant.lifecycleStatus], ['SUCCEEDED', 'ACTIVE']);
-  // คำเชิญไปที่อีเมลใหม่ ไม่ใช่ของ identity เดิม
+  // the invitation goes to the new email, not to the existing identity
   assert.equal((await messagesTo(fixedEmail)).length, 1);
   assert.equal((await usersOf(accepted.tenantId)).length, 1);
 });
 
-test('#907: provisioner แก้ได้เฉพาะ tenant Console client ที่ได้ permission ไม่ใช่ client อื่น', async (t) => {
+test('#907: the provisioner can edit only the tenant Console client that has the permission, not other clients', async (t) => {
   const s = await setup(t);
   const { body: own } = await s.keycloak.admin<{ id: string }[]>(
     'GET',

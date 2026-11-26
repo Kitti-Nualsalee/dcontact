@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 /**
- * D1.11 (#450): ตรวจว่า message catalog มี key ครบทั้ง `th` และ `en` — CI ล้มเมื่อขาดภาษาใดภาษาหนึ่ง
+ * D1.11 (#450): checks that message catalogs have every key in both `th` and `en` — CI fails when either language is missing
  *
  *   dc-i18n-check <locales-dir> [<locales-dir> ...]
  *
- * โครงที่คาด: `<locales-dir>/th/<namespace>.json` และ `<locales-dir>/en/<namespace>.json`
+ * Expected layout: `<locales-dir>/th/<namespace>.json` and `<locales-dir>/en/<namespace>.json`
  *
- * typed keys (`CustomTypeOptions`) จับได้แค่ key ที่โค้ดเรียกแต่ไม่มีใน catalog ต้นแบบ แต่จับไม่ได้ว่า
- * catalog อีกภาษาขาด key — ตัวนี้ปิดช่องนั้น
+ * typed keys (`CustomTypeOptions`) only catch keys that the code calls but the base catalog lacks; they cannot tell that
+ * the other language's catalog is missing a key — this check closes that gap.
  *
- * plural: ไทยมีรูปเดียว (`_other`) ส่วนอังกฤษมี `_one`/`_other` จึงเทียบ key หลังตัด suffix ของ plural
+ * plural: Thai has one form (`_other`) while English has `_one`/`_other`, so keys are compared after stripping the plural suffix
  */
 import { readFileSync, readdirSync, existsSync, realpathSync } from 'node:fs';
 import { join, basename, resolve } from 'node:path';
@@ -38,32 +38,32 @@ function namespaces(dir) {
     : [];
 }
 
-/** คืนรายการปัญหา — ว่างแปลว่าผ่าน */
+/** Returns the list of problems — empty means pass */
 export function checkCatalogs(localesDir) {
   const problems = [];
   const byLocale = new Map(LOCALES.map((locale) => [locale, namespaces(join(localesDir, locale))]));
   const allNamespaces = [...new Set([...byLocale.values()].flat())].sort();
-  if (allNamespaces.length === 0) problems.push(`${localesDir}: ไม่พบ catalog`);
+  if (allNamespaces.length === 0) problems.push(`${localesDir}: no catalog found`);
 
   for (const namespace of allNamespaces) {
     const keys = new Map();
     for (const locale of LOCALES) {
       const file = join(localesDir, locale, `${namespace}.json`);
       if (!existsSync(file)) {
-        problems.push(`${locale}/${namespace}.json: ไม่มีไฟล์ (มีในภาษาอื่น)`);
+        problems.push(`${locale}/${namespace}.json: file is missing (present in another language)`);
         continue;
       }
       let parsed;
       try {
         parsed = JSON.parse(readFileSync(file, 'utf8'));
       } catch (error) {
-        problems.push(`${locale}/${namespace}.json: JSON ไม่ถูกต้อง (${error.message})`);
+        problems.push(`${locale}/${namespace}.json: invalid JSON (${error.message})`);
         continue;
       }
       const flat = flatten(parsed, '', new Map());
       for (const [key, value] of flat) {
         if (typeof value !== 'string' || value.trim() === '') {
-          problems.push(`${locale}/${namespace}.json: "${key}" ต้องเป็นข้อความที่ไม่ว่าง`);
+          problems.push(`${locale}/${namespace}.json: "${key}" must be a non-empty message`);
         }
       }
       keys.set(locale, flat);
@@ -73,7 +73,9 @@ export function checkCatalogs(localesDir) {
         if (locale === other) continue;
         for (const key of keys.get(locale).keys()) {
           if (!keys.get(other).has(key)) {
-            problems.push(`${other}/${namespace}.json: ขาด key "${key}" (มีใน ${locale})`);
+            problems.push(
+              `${other}/${namespace}.json: missing key "${key}" (present in ${locale})`,
+            );
           }
         }
       }
@@ -82,18 +84,18 @@ export function checkCatalogs(localesDir) {
   return problems;
 }
 
-// เรียกผ่าน bin ของ pnpm → argv[1] เป็น symlink ใน node_modules/.bin จึงต้องเทียบ realpath
+// Invoked through a pnpm bin → argv[1] is a symlink in node_modules/.bin, so compare realpaths
 if (process.argv[1] && realpathSync(resolve(process.argv[1])) === fileURLToPath(import.meta.url)) {
   const dirs = process.argv.slice(2);
   if (dirs.length === 0) {
-    console.error('ใช้: dc-i18n-check <locales-dir> [<locales-dir> ...]');
+    console.error('usage: dc-i18n-check <locales-dir> [<locales-dir> ...]');
     process.exit(2);
   }
   const problems = dirs.flatMap((dir) => checkCatalogs(dir).map((p) => `${dir}/${p}`));
   if (problems.length > 0) {
-    console.error(`catalog ไม่ครบ ${problems.length} จุด:`);
+    console.error(`catalog incomplete in ${problems.length} place(s):`);
     for (const problem of problems) console.error(`  - ${problem}`);
     process.exit(1);
   }
-  console.log(`catalog ครบทั้ง ${LOCALES.join('/')} (${dirs.join(', ')})`);
+  console.log(`catalog complete for ${LOCALES.join('/')} (${dirs.join(', ')})`);
 }

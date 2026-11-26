@@ -1,4 +1,4 @@
-/** E0 test double เท่านั้น: ไม่มี persistence จริง, provider I/O หรือ credential */
+/** E0 test double only: no real persistence, provider I/O or credential */
 import type {
   ClaimReservationForDeliveryInput,
   ContactGovernancePort,

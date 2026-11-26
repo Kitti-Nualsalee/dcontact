@@ -33,18 +33,18 @@ const passing = [
   0,
 ];
 
-test('evidence ครบทุกตัวผ่าน และขาดตัวใดตัวหนึ่งไม่ผ่าน', () => {
+test('complete evidence passes, and missing any one piece fails', () => {
   assert.equal(parseJ5SchemaEvidence(passing.join('|')).status, 'PASS');
   for (let index = 0; index < passing.length; index += 1) {
     const broken = [...passing];
-    // ตัวสุดท้ายคือสิทธิ์ DELETE ของ app — มีแม้แต่ตัวเดียวก็ต้องไม่ผ่าน
+    // the last one is the app DELETE privilege - even a single one must fail
     broken[index] = index === passing.length - 1 ? 1 : broken[index] - 1;
     assert.equal(parseJ5SchemaEvidence(broken.join('|')).status, 'FAIL', `field ${index}`);
   }
-  assert.throws(() => parseJ5SchemaEvidence('1|2|3'), /แปดตัวเลข/);
+  assert.throws(() => parseJ5SchemaEvidence('1|2|3'), /eight numbers/);
 });
 
-test('ทุกชื่อใน registry มีอยู่จริงใน migration — ป้องกัน registry กับ SQL เดินแยกกัน', () => {
+test('every name in the registry really exists in a migration - prevents the registry and the SQL from drifting apart', () => {
   for (const table of CANONICAL_J5_TABLES) {
     assert.match(migration, new RegExp(`CREATE TABLE "${table}"`), table);
   }
@@ -57,20 +57,20 @@ test('ทุกชื่อใน registry มีอยู่จริงใน 
   }
 });
 
-test('migration เป็น expand ล้วน: ไม่แก้หรือเขียนทับ jr_journey_definitions และไม่มีคำสั่งทำลาย', () => {
+test('the migration is purely expand: it does not alter or overwrite jr_journey_definitions and has no destructive statement', () => {
   assert.doesNotMatch(migration, /ALTER TABLE "jr_journey_definitions"/);
   assert.doesNotMatch(migration, /\b(UPDATE|DELETE FROM|INSERT INTO)\s+"?jr_journey_definitions/i);
   assert.doesNotMatch(migration, /\bDROP\s+(TABLE|COLUMN|TYPE|INDEX)\b/i);
-  // built-in ห้ามมี tenant แบบ nullable: ทุกตารางมี tenant_id NOT NULL
+  // a built-in must not have a nullable tenant: every table has tenant_id NOT NULL
   for (const table of CANONICAL_J5_TABLES) {
     const body = migration.split(`CREATE TABLE "${table}" (`)[1]?.split(');')[0] ?? '';
     assert.match(body, /"tenant_id" UUID NOT NULL/, table);
   }
 });
 
-test('rls.sql bootstrap ครอบทุกตารางของ J5.1', () => {
+test('rls.sql bootstrap covers every J5.1 table', () => {
   for (const table of CANONICAL_J5_TABLES) {
-    assert.ok(rlsBootstrap.includes(`'${table}'`), `${table} ต้องอยู่ใน array ของ RLS`);
+    assert.ok(rlsBootstrap.includes(`'${table}'`), `${table} must be in the RLS array`);
     assert.match(
       rlsBootstrap,
       new RegExp(`REVOKE [A-Z, ]*DELETE ON ${table} FROM dcontact_app`),

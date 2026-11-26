@@ -20,7 +20,7 @@ interface Props {
   onDirtyChange(dirty: boolean): void;
 }
 
-/** ช่องทางและแท็กใช้ command แยก เพื่อคง revision และผลลัพธ์ที่ตรวจสอบได้ของแต่ละ owner */
+/** channels and tags use separate commands to keep the revision and verifiable result of each owner */
 export function CustomerRelatedEditors({
   api,
   profile,

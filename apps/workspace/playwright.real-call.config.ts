@@ -1,8 +1,8 @@
 import { defineConfig, devices } from '@playwright/test';
 
 /**
- * D1.16 (#455): Playwright บนสายจริงใน dev stack — รันผ่าน `pnpm d1:real-call` เท่านั้น
- * (harness เตรียม DB แยก, API, Router, Telephony และ Workspace ที่ localhost:5173 ให้ก่อน) ไม่อยู่ใน CI ปกติ
+ * D1.16 (#455): Playwright on a real call in the dev stack — run only via `pnpm d1:real-call`
+ * (the harness prepares a separate DB, the API, Router, Telephony and Workspace at localhost:5173 first); not in regular CI
  */
 export default defineConfig({
   testDir: './e2e-real',

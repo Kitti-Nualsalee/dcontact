@@ -1,21 +1,21 @@
 /**
- * Owner: Delivery/Channels — ตัวอ่าน secret จาก macOS Keychain ของ protected runner (S2.6 #366)
+ * Owner: Delivery/Channels — secret reader from the macOS Keychain of the protected runner (S2.6 #366)
  *
  * Authority: #358 §G, #360 §C
  *
- * ใช้ได้เฉพาะบนเครื่องของ protected runner เท่านั้น: CI ทั่วไปไม่มี Keychain และห้ามมี secret ใน
- * env/argument/log/artifact ค่าที่อ่านได้ส่งต่อให้ `LineCredentialBoundary` ทันที ซึ่งตรวจ fingerprint
- * แล้วห่อเป็น `LineSecretHandle` แบบใช้ครั้งเดียว
+ * Usable only on the protected runner machine: general CI has no Keychain and must have no secret in
+ * env/argument/log/artifact. The value read is forwarded immediately to `LineCredentialBoundary`, which checks the fingerprint
+ * then wraps it in a single-use `LineSecretHandle`
  *
- * `security` ส่งค่าออกทาง stdout ของ child process เท่านั้น — ไม่ใช้ shell และไม่ส่ง stdout/stderr
- * ต่อไปใน error เพราะข้อความของ Keychain อาจมีชื่อ item หรือค่าบางส่วน
+ * `security` outputs the value only on the child process's stdout — no shell is used and stdout/stderr are not passed
+ * on in errors because a Keychain message may contain the item name or part of the value
  */
 import { execFile } from 'node:child_process';
 import type { LineKeychainReference, LineSecretSource } from './line-credential-boundary.js';
 
 export const MACOS_SECURITY_BINARY = '/usr/bin/security';
 
-/** service เดียวของทุก item ของ channel หนึ่ง (token/secret/payload key/recipient) */
+/** The single service of every item of a channel (token/secret/payload key/recipient) */
 export function lineKeychainServiceName(channelAccountId: string): string {
   return `d-contact.line.${channelAccountId}`;
 }
@@ -35,14 +35,14 @@ const defaultExec: LineKeychainExec = (file, arguments_) =>
     );
   });
 
-/** ชื่อ service/account เป็น reference ไม่ใช่ secret แต่ก็จำกัดรูปแบบไว้กัน argument injection */
+/** Service/account names are references, not secrets, but their format is restricted to prevent argument injection */
 const REFERENCE_PART = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
 export class LineKeychainReadError extends Error {
   readonly code = 'CREDENTIAL_UNAVAILABLE';
 
   constructor() {
-    super('อ่าน credential จาก Keychain ไม่ได้');
+    super('cannot read the credential from the Keychain');
     this.name = 'LineKeychainReadError';
   }
 }
@@ -74,7 +74,7 @@ export class KeychainLineSecretSource implements LineSecretSource {
     } catch {
       throw new LineKeychainReadError();
     }
-    // `-w` พิมพ์ค่าตามด้วย newline หนึ่งตัว — ตัดเฉพาะตัวนั้น ค่า secret จริงไม่มี whitespace ปลาย
+    // `-w` prints the value followed by one newline — trim only that; a real secret value has no trailing whitespace
     const secret = stdout.replace(/\r?\n$/, '');
     if (!secret) throw new LineKeychainReadError();
     return secret;
@@ -95,12 +95,12 @@ const defaultStdinExec: LineKeychainStdinExec = (file, arguments_, stdin) =>
     child.stdin?.end(stdin);
   });
 
-/** ค่า Keychain ห้ามมี quote/backslash/newline เพราะ `security -i` แยกคำสั่งตามบรรทัด */
+/** A Keychain value must not contain quote/backslash/newline because `security -i` splits commands by line */
 const WRITABLE_VALUE = /^[A-Za-z0-9._~+/=-]{1,4096}$/;
 
 /**
- * S2.6b (#403): เขียน item ลง Keychain โดยส่งคำสั่งผ่าน stdin ของ `security -i` — ค่าไม่ปรากฏใน
- * argv ของ process จึงไม่เห็นผ่าน `ps` และ error ไม่พาค่าออกมา (`-U` = update ถ้ามีอยู่แล้ว)
+ * S2.6b (#403): write an item into the Keychain by sending the command through the stdin of `security -i` — the value does not appear in
+ * the process argv so it is invisible through `ps` and the error does not carry the value (`-U` = update if it already exists)
  */
 export class KeychainLineSecretWriter {
   constructor(

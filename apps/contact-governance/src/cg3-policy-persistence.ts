@@ -14,15 +14,15 @@ import {
 } from './cg3-persistence.js';
 
 /**
- * Publish transition สำหรับ synthetic policy fixture (#104 "ไม่มี general policy-draft
- * endpoint"). DRAFT row ถูกสร้างผ่าน fixture โดยตรง ไม่มี HTTP create-draft ใน S1.3
+ * Publish transition for a synthetic policy fixture (#104 "no general policy-draft
+ * endpoint"). A DRAFT row is created directly through a fixture; there is no HTTP create-draft in S1.3
  */
 
 export class Cg3InvalidLifecycleTransitionError extends Error {
   readonly code = 'INVALID_LIFECYCLE_TRANSITION';
 
   constructor(readonly status: CgPolicyStatus) {
-    super(`policy อยู่ในสถานะ ${status} เผยแพร่ไม่ได้`);
+    super(`a policy in status ${status} cannot be published`);
     this.name = 'Cg3InvalidLifecycleTransitionError';
   }
 }
@@ -31,7 +31,7 @@ export class Cg3SourceAuthorityConflictError extends Error {
   readonly code = 'SOURCE_AUTHORITY_CONFLICT';
 
   constructor() {
-    super('checker ต้องต่างจาก maker');
+    super('checker must differ from maker');
     this.name = 'Cg3SourceAuthorityConflictError';
   }
 }
@@ -40,7 +40,7 @@ export class Cg3PolicyApprovalRequiredError extends Error {
   readonly code = 'POLICY_APPROVAL_REQUIRED';
 
   constructor() {
-    super('publish ต้องมี approvalRef');
+    super('publish requires an approvalRef');
     this.name = 'Cg3PolicyApprovalRequiredError';
   }
 }
@@ -83,7 +83,7 @@ export interface PublishPolicyResult {
 
 function nonEmpty(value: string, field: string): string {
   const normalized = value.trim();
-  if (!normalized) throw new TypeError(`${field} ต้องเป็น string ที่ไม่ว่าง`);
+  if (!normalized) throw new TypeError(`${field} must be a non-empty string`);
   return normalized;
 }
 
@@ -154,11 +154,11 @@ export class Cg3PolicyRepository {
     nonEmpty(input.actorRef, 'actorRef');
     nonEmpty(input.correlationId, 'correlationId');
     if (!Number.isInteger(input.expectedVersion) || input.expectedVersion <= 0) {
-      throw new RangeError('expectedVersion ต้องเป็น integer มากกว่า 0');
+      throw new RangeError('expectedVersion must be an integer > 0');
     }
     const publishedAt = input.publishedAt ? new Date(input.publishedAt) : this.now();
     if (Number.isNaN(publishedAt.getTime())) {
-      throw new TypeError('publishedAt ต้องเป็น ISO-8601 timestamp');
+      throw new TypeError('publishedAt must be an ISO-8601 timestamp');
     }
 
     const requestHash = stableDigest({

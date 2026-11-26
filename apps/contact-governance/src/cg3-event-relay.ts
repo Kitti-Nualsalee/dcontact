@@ -9,11 +9,11 @@ import { KAFKA_TOPICS } from '@d-contact/shared';
 import type { Cg3Cache } from './cg3-cache.js';
 
 /**
- * Relay สำหรับ cg_event_outbox -> dc.contact-governance.events (#104 "Kafka, cache,
- * realtime และ submission race"). ตรรกะเดียวกับ apps/journey/src/event-inbox.ts:
- * FOR UPDATE SKIP LOCKED ภายใน tenant transaction เดียว — publish สำเร็จแล้ว
- * commit ไม่ทัน (crash) จะ retry เป็น at-least-once; consumer ฝั่งรับต้องมี
- * idempotency boundary ของตัวเอง (ดู cg3-acknowledgement-consumer.ts)
+ * Relay for cg_event_outbox -> dc.contact-governance.events (#104 "Kafka, cache,
+ * realtime and submission race"). The same logic as apps/journey/src/event-inbox.ts:
+ * FOR UPDATE SKIP LOCKED inside a single tenant transaction: if the publish succeeds but
+ * the commit does not land in time (crash) it retries as at-least-once; the receiving consumer must have
+ * its own idempotency boundary (see cg3-acknowledgement-consumer.ts)
  */
 
 export interface EventPublishAttempt {
@@ -24,9 +24,9 @@ export interface EventPublishAttempt {
 
 export interface Cg3EventRelayOptions {
   now?: () => Date;
-  /** exponential backoff ต่อ attempt ก่อน retry (ms); default 2^attempts*1s สูงสุด 5 นาที */
+  /** exponential backoff per attempt before retry (ms); default 2^attempts*1s up to 5 minutes */
   backoffMs?: (attempts: number) => number;
-  /** invalidate mutable head cache หลัง publish สำเร็จ (#104 "invalidate เมื่อ event ใหม่มาถึง") */
+  /** invalidate the mutable head cache after a successful publish (#104 "invalidate when a new event arrives") */
   cache?: Cg3Cache;
 }
 
@@ -56,7 +56,7 @@ export class Cg3EventRelay {
     this.cache = options.cache;
   }
 
-  /** เผยแพร่ outbox row เดียวที่พร้อม (PENDING/FAILED และถึงเวลา retry แล้ว); undefined ถ้าไม่มี */
+  /** publish a single ready outbox row (PENDING/FAILED and past its retry time); undefined if there is none */
   async publishNext(tenantId: string): Promise<EventPublishAttempt | undefined> {
     const now = this.now();
     return withTenantDatabaseTransaction(this.database, tenantId, async (transaction) => {

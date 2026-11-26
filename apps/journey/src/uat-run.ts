@@ -1,15 +1,15 @@
 /**
- * Owner: Journey authoring API + UAT control — UAT fixture pack และ run record (U1.1 #429)
+ * Owner: Journey authoring API + UAT control — the UAT fixture pack and run record (U1.1 #429)
  *
  * Authority: Phase Contract #374, fixture/reset #376, evidence #379, boundary #378
  *
- * - server เป็นเจ้าของ run ทั้งหมด: browser ส่งได้แค่ opaque id/ค่าที่ผู้ทดสอบกรอก ไม่เป็น authority ของ
- *   tenant, สิทธิ์ หรือผล
- * - `เริ่มรอบใหม่` ปิด run เดิมเป็น `COMPLETED`/`ABANDONED` แล้วสร้าง run + Journey draft ใหม่ผ่าน J5 เดิม
- *   (สิทธิ์/rollout/audit ของ J5 ครบ) โดยไม่ลบอะไรของรอบก่อน และ resume ได้ด้วย key เดิมหลัง crash
- * - Journey ของ run ที่ปิดแล้วถูก `UatJourneyWriteGuard` ปิดทุก mutation — candidate เดิม review/publish
- *   ต่อไม่ได้ โดย J5 semantics อื่นไม่เปลี่ยน
- * - สิทธิ์ UAT-only มาจาก fixture pack ที่ operator provision: maker ของ pack เท่านั้นที่เริ่มรอบใหม่ได้
+ * - the server owns the whole run: the browser can send only opaque ids/values the tester entered, never an authority for
+ *   the tenant, permissions or results
+ * - "Start new round" closes the existing run as `COMPLETED`/`ABANDONED` then creates a new run + Journey draft through the existing J5
+ *   (with the full permissions/rollout/audit of J5) without deleting anything from the previous round, and can resume with the same key after a crash
+ * - the Journey of a closed run has every mutation shut by `UatJourneyWriteGuard` — an existing candidate can no longer be reviewed/published
+ *   while the other J5 semantics do not change
+ * - UAT-only permissions come from the fixture pack the operator provisions: only the pack's maker can start a new round
  */
 import { randomUUID } from 'node:crypto';
 import type { SimulationFixtureV1 } from '@d-contact/cxa-contracts';
@@ -40,7 +40,7 @@ export const UAT_RUN_HTTP_STATUS = Object.freeze({
   FIXTURE_PACK_DIGEST_MISMATCH: 409,
   FIXTURE_MANIFEST_INVALID: 422,
   FIXTURE_PREFLIGHT_FAILED: 422,
-  // U1.5 (#433): หลักฐานภาพหน้าจอ
+  // U1.5 (#433): screenshot evidence
   EVIDENCE_NOT_FOUND: 404,
   EVIDENCE_TOO_LARGE: 413,
   EVIDENCE_TYPE_REJECTED: 415,
@@ -74,7 +74,7 @@ export interface UatScenarioStepV1 {
   readonly stateLabel: UatStateLabelV1;
 }
 
-/** manifest สังเคราะห์ล้วน — opaque refs เท่านั้น ไม่มี secret/PII (#376) */
+/** a purely synthetic manifest — opaque refs only, no secret/PII (#376) */
 export interface UatFixturePackManifestV1 {
   readonly schema: 'UatFixturePackV1';
   readonly environment: string;
@@ -86,7 +86,7 @@ export interface UatFixturePackManifestV1 {
   readonly reviewerSubjectId: string;
   readonly senderRef: string;
   readonly contentRef: string;
-  /** AuthoringDocumentV1 เริ่มต้นของแต่ละ run — J5 validate ตอนสร้าง draft */
+  /** the starting AuthoringDocumentV1 of each run — J5 validates it when creating the draft */
   readonly baselineDocument: Readonly<Record<string, unknown>>;
   readonly simulationFixture: SimulationFixtureV1;
   readonly steps: readonly UatScenarioStepV1[];
@@ -95,7 +95,7 @@ export interface UatFixturePackManifestV1 {
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const OPAQUE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const STEP_ID = /^[A-Z][A-Z0-9_-]{1,63}$/;
-/** รูปแบบ stepId ของ step catalog — ใช้ร่วมกับ evidence (U1.5 #433) */
+/** the stepId format of the step catalog — shared with evidence (U1.5 #433) */
 export const UAT_STEP_ID_PATTERN = STEP_ID;
 
 function invalid(field: string): never {
@@ -149,7 +149,7 @@ function parseSimulationFixture(value: unknown): SimulationFixtureV1 {
 export function parseUatFixturePackManifest(value: unknown): UatFixturePackManifestV1 {
   const manifest = record(value, 'manifest');
   if (manifest.schema !== 'UatFixturePackV1') invalid('schema');
-  // ข้อมูลจริง/secret ที่ต้องไม่อยู่ใน fixture — พบ = manifest ใช้ไม่ได้ (scanner เดียวกับ negative scan ของ U1.5)
+  // real data/secrets that must not be in a fixture — finding one = the manifest is unusable (the same scanner as the negative scan of U1.5)
   const [kind] = scanUatText(JSON.stringify(manifest));
   if (kind) throw new UatRunError('FIXTURE_MANIFEST_INVALID', { kind });
   if (!Array.isArray(manifest.steps) || manifest.steps.length < 1 || manifest.steps.length > 60) {
@@ -169,7 +169,7 @@ export function parseUatFixturePackManifest(value: unknown): UatFixturePackManif
   if (new Set(steps.map((step) => step.stepId)).size !== steps.length) invalid('steps.stepId');
   const makerSubjectId = text(manifest.makerSubjectId, 'makerSubjectId', OPAQUE);
   const reviewerSubjectId = text(manifest.reviewerSubjectId, 'reviewerSubjectId', OPAQUE);
-  // maker-checker ต้องเป็นคนละบัญชี (#372)
+  // maker-checker must be two different accounts (#372)
   if (makerSubjectId === reviewerSubjectId) invalid('reviewerSubjectId');
   return {
     schema: 'UatFixturePackV1',
@@ -194,7 +194,7 @@ export function uatFixturePackDigest(manifest: UatFixturePackManifestV1): string
 
 // ── Provisioning (UAT operator) ────────────────────────────────────────────
 
-/** grant แบบ TEAM ของ owner team ที่ preflight ต้องการ — CLI provision (U1.8 #502) ใช้ชุดเดียวกัน */
+/** the TEAM grant of the owner team that the preflight needs — the CLI provision (U1.8 #502) uses the same set */
 export const UAT_MAKER_CAPABILITIES = ['journey.read', 'journey.edit', 'journey.publish'] as const;
 export const UAT_REVIEWER_CAPABILITIES = ['journey.read', 'journey.review'] as const;
 const MAKER_CAPABILITIES = UAT_MAKER_CAPABILITIES;
@@ -210,14 +210,14 @@ export interface UatFixtureCheckResult {
   status: 'WOULD_CREATE' | 'UNCHANGED';
   fixturePackId: string | null;
   digest: string;
-  /** `SKIPPED` = ผู้เรียกขอข้าม preflight เพราะข้อ 1–4 ยังไม่ถูกสร้าง (ดู `check`) */
+  /** `SKIPPED` = the caller asked to skip the preflight because items 1–4 have not been created yet (see `check`) */
   preflight: 'PASS' | 'SKIPPED';
 }
 
 /**
- * provision fixture pack ด้วย connection ของ UAT operator (ไม่ใช่ app role — app role เขียน pack ไม่ได้)
- * idempotent ต่อ environment + tenant + pack version; digest ต่าง = fail closed; preflight ไม่ผ่าน = ไม่เขียน
- * ไม่แตะ run/Journey ที่ผู้ทดสอบทำไว้
+ * provisions the fixture pack with the UAT operator's connection (not the app role — the app role cannot write a pack)
+ * idempotent per environment + tenant + pack version; a different digest = fail closed; a failed preflight = nothing is written
+ * does not touch runs/Journeys the testers have made
  */
 export class UatFixtureProvisioner {
   constructor(
@@ -249,9 +249,9 @@ export class UatFixtureProvisioner {
   }
 
   /**
-   * U1.8 (#502): `--check` ของ CLI — parse, digest และ preflight เดียวกับ `provision` ใน transaction
-   * แบบ READ ONLY จึงเขียนอะไรไม่ได้เลย; `preflight: false` ใช้เมื่อข้อ 1–4 (tenant/team/grant/rollout)
-   * ยังไม่มีและจะถูกสร้างในรอบ apply — ยังตรวจ manifest และ digest ของ pack เดิมตามปกติ
+   * U1.8 (#502): the CLI `--check` — the same parse, digest and preflight as `provision` in a transaction
+   * that is READ ONLY so it can write nothing at all; `preflight: false` is used when items 1–4 (tenant/team/grant/rollout)
+   * do not exist yet and will be created in the apply round — it still checks the manifest and the digest of the existing pack as usual
    */
   async check(
     value: unknown,
@@ -273,7 +273,7 @@ export class UatFixtureProvisioner {
     });
   }
 
-  /** pack เดิมของ environment + tenant + pack version; digest ต่าง = fail closed */
+  /** the existing pack of environment + tenant + pack version; a different digest = fail closed */
   private async existing(tx: Tx, manifest: UatFixturePackManifestV1, digest: string) {
     const existing = await tx.uatFixturePack.findUnique({
       where: {
@@ -367,7 +367,7 @@ export interface UatRunView {
 export interface StartUatRunInput {
   readonly environment: string;
   readonly packVersion: string;
-  /** revision ของ run ที่ ACTIVE อยู่ หรือ 0 เมื่อยังไม่มี */
+  /** the revision of the run that is ACTIVE, or 0 when there is none */
   readonly expectedRevision: number;
 }
 
@@ -380,7 +380,7 @@ export interface RecordUatStepResultInput {
   readonly correlationId?: string;
 }
 
-/** ส่วนของ J5 ที่ run ใช้สร้าง Journey draft — ผ่านสิทธิ์/rollout/audit ของ J5 ตามปกติ */
+/** the part of J5 a run uses to create a Journey draft — through the normal J5 permissions/rollout/audit */
 export interface UatJourneyAuthoringPort {
   createJourneyDraft(
     context: JourneyCommandContext,
@@ -399,7 +399,7 @@ function isParticipant(manifest: UatFixturePackManifestV1, actor: JourneyAuthori
   return [manifest.makerSubjectId, manifest.reviewerSubjectId].includes(actor.subjectId);
 }
 
-/** unique ของ run ACTIVE/sequence ชนกัน = มีอีกคำสั่งเปิด run ไปก่อน */
+/** a collision of the unique for an ACTIVE run/sequence = another command opened a run first */
 function uniqueViolation(error: unknown): boolean {
   return !!error && typeof error === 'object' && (error as { code?: unknown }).code === 'P2002';
 }
@@ -465,7 +465,7 @@ export class UatRunRepository {
     });
   }
 
-  /** fixture ที่ server ตรึงไว้ของ run ปัจจุบัน — Console ใช้แทนการสร้าง startAt/seed เอง */
+  /** the fixture the server pins for the current run — the Console uses it instead of creating startAt/seed itself */
   async simulationFixture(
     tenantId: string,
     actor: JourneyAuthoringActor,
@@ -515,7 +515,7 @@ export class UatRunRepository {
           runId: run.id,
           stepId: step.stepId,
           outcome: input.outcome,
-          // expected มาจาก step catalog ที่ตรึงใน pack ไม่ใช่จาก browser
+          // expected comes from the step catalog pinned in the pack, not from the browser
           expected: step.expected,
           actual: input.actual,
           severity: input.severity ?? null,
@@ -542,16 +542,16 @@ export class UatRunRepository {
   }
 
   /**
-   * `เริ่มรอบใหม่` — ปิด run เดิมแล้วเปิด run + Journey draft ใหม่ แบ่งเป็น 3 ช่วงที่ resume ได้:
-   * 1. transaction: ตรวจ key/revision/งานค้าง → ปิด run เดิม → สร้าง run ใหม่ + receipt ที่ยังไม่จบ
-   * 2. สร้าง Journey draft ผ่าน J5 ด้วย key ที่ derive จาก run (J5 replay ได้ Journey เดิม)
-   * 3. transaction: ผูก Journey กับ run แล้วปิด receipt
-   * crash ระหว่างทาง → เรียกซ้ำด้วย key เดิมทำต่อจากช่วงที่ค้าง ไม่สร้าง run ซ้ำ
+   * "Start new round" — closes the existing run then opens a new run + Journey draft, split into 3 resumable phases:
+   * 1. transaction: check key/revision/pending work → close the existing run → create the new run + an unfinished receipt
+   * 2. create the Journey draft through J5 with a key derived from the run (J5 replays to the same Journey)
+   * 3. transaction: bind the Journey to the run then close the receipt
+   * a crash midway → calling again with the same key continues from the phase left off and does not create a duplicate run
    */
   async startNewRun(context: JourneyCommandContext, input: StartUatRunInput): Promise<UatRunView> {
     const requestHash = journeyAuthoringDigest({
       command: 'StartUatRun',
-      // key เดียวกันจากผู้ใช้อื่นต้องไม่ replay/resume คำสั่งของ maker
+      // the same key from another user must not replay/resume the maker's command
       actor: context.actor.subjectId,
       input,
     });
@@ -589,7 +589,7 @@ export class UatRunRepository {
 
   // ── Internals ──
 
-  /** ช่วงที่ 1 ของ `เริ่มรอบใหม่` — ทั้งหมดใน transaction เดียว */
+  /** phase 1 of "Start new round" — all within a single transaction */
   private async openRun(
     context: JourneyCommandContext,
     input: StartUatRunInput,
@@ -622,7 +622,7 @@ export class UatRunRepository {
           },
         });
         if (!pack) throw new UatRunError('FIXTURE_PACK_NOT_FOUND');
-        // UAT-only capability: maker ของ pack เท่านั้น (#376)
+        // UAT-only capability: only the pack's maker (#376)
         if (manifestOf(pack).makerSubjectId !== context.actor.subjectId) {
           throw new UatRunError('UAT_CAPABILITY_REQUIRED');
         }
@@ -669,7 +669,7 @@ export class UatRunRepository {
     }
   }
 
-  /** run เดิมที่มีงานค้างปิดไม่ได้ — ต้อง resolve ผ่าน Journey Console ก่อน (#376) */
+  /** an existing run with pending work cannot be closed — must be resolved through the Journey Console first (#376) */
   private async close(tx: Tx, context: JourneyCommandContext, run: RunRow, now: Date) {
     if (!run.journeyId) {
       throw new UatRunError('UAT_RUN_MUTATION_IN_FLIGHT', { nextSafeAction: 'RETRY_START' });
@@ -721,7 +721,7 @@ export class UatRunRepository {
     });
   }
 
-  /** ไม่ใช่ผู้ทดสอบของ pack = ตอบเหมือนไม่มี run (ไม่เผย existence) */
+  /** not a tester of the pack = answer as if there is no run (does not reveal existence) */
   private assertParticipant(manifest: UatFixturePackManifestV1, actor: JourneyAuthoringActor) {
     if (!isParticipant(manifest, actor)) throw new UatRunError('UAT_RUN_NOT_FOUND');
   }
@@ -815,8 +815,8 @@ export class UatRunRepository {
 }
 
 /**
- * J5 write guard ของ UAT: Journey ที่ผูกกับ run ที่ปิดแล้ว (COMPLETED/ABANDONED) แก้/ส่งตรวจ/อนุมัติ/publish
- * ต่อไม่ได้ (#376: candidate ของ run ที่ abandoned ต้องไม่ถูก review/publish ต่อ)
+ * J5 write guard of UAT: a Journey bound to a closed run (COMPLETED/ABANDONED) cannot be edited/submitted for review/approved/published
+ * any further (#376: a candidate of an abandoned run must not be reviewed/published further)
  */
 export class UatJourneyWriteGuard implements JourneyAuthoringWriteGuard {
   async assertJourneyWritable(tx: Tx, tenantId: string, journeyId: string): Promise<void> {

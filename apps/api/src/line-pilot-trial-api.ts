@@ -1,11 +1,11 @@
 /**
- * #567 (T1/T5): API ของ LINE team trial ใน service `line-webhook` — mount เฉพาะเมื่อ `LINE_TEAM_TRIAL=on`
+ * #567 (T1/T5): the API of the LINE team trial in the `line-webhook` service — mounted only when `LINE_TEAM_TRIAL=on`
  *
- * - `GET  /api/v1/line-pilot/trial`                สถานะ trial (เหลือกี่วัน/ใช้ไปเท่าไร/ถูก kill หรือไม่)
- * - `POST /api/v1/line-pilot/inbound/:id/reply`     ตอบกลับข้อความขาเข้าหนึ่งรายการ `{ text, idempotencyKey }`
- * - `POST /api/v1/line-pilot/kill`                  kill ทันที — ไม่มี endpoint ยก kill (CLI + approval เท่านั้น)
+ * - `GET  /api/v1/line-pilot/trial`                the trial status (days left/how much used/whether killed)
+ * - `POST /api/v1/line-pilot/inbound/:id/reply`     reply to one inbound message `{ text, idempotencyKey }`
+ * - `POST /api/v1/line-pilot/kill`                  kill at once — there is no endpoint to lift a kill (CLI + approval only)
  *
- * ทุก route: OIDC + role `admin` + tenant ใน token = tenant ของ pilot; ตอบเฉพาะ machine code ไม่มี text/LINE ID
+ * every route: OIDC + the `admin` role + the tenant in the token = the pilot's tenant; answers only a machine code, no text/LINE ID
  */
 import {
   Body,
@@ -33,7 +33,7 @@ export const LINE_TEAM_TRIAL = Symbol('LINE_TEAM_TRIAL');
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
-/** HTTP status ของแต่ละ code — หน้าจอแปลข้อความจาก code ไม่ใช่จาก status */
+/** the HTTP status of each code — the screen translates text from the code, not from the status */
 const FAILURE_STATUS: Readonly<Record<LineTeamTrialReplyCode, number>> = Object.freeze({
   TEXT_INVALID: 400,
   IDEMPOTENCY_CONFLICT: 409,

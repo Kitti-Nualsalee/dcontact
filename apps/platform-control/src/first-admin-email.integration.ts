@@ -1,8 +1,8 @@
 /**
- * A1.5b (#441) บน Postgres จริง: แก้อีเมล first admin ก่อน identity step สำเร็จ
+ * A1.5b (#441) on real Postgres: edit the first admin email before the identity step succeeds
  *
- * ครอบ acceptance: แก้ได้ก่อน FIRST_ADMIN เริ่ม/เมื่อชน, ล็อกหลังเริ่มจริงหรือสำเร็จ, อีเมลที่ชน
- * reservation อื่นได้ code คงที่, reservation เดิม TOMBSTONED และไม่มี raw email ใน audit/evidence
+ * Covers acceptance: editable before FIRST_ADMIN starts/when it conflicts, locked once it has really started or succeeded, an email that clashes with
+ * another reservation gets a stable code, the old reservation is TOMBSTONED and there is no raw email in audit/evidence
  */
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -22,7 +22,7 @@ async function setup(t: TestContext) {
   t.after(() => f.dispose());
   const tenants: string[] = [];
   const fakes = createFakeProvisioningPorts();
-  // identity ภายนอกที่มีอยู่แล้วของคนอื่น: find บอก MISMATCH ก่อนสร้างอะไร (แบบ FirstAdminPort จริง)
+  // an existing external identity of someone else: find reports MISMATCH before creating anything (like the real FirstAdminPort)
   const firstAdmin: ProvisioningStepPort = {
     find: async (context) =>
       context.request.firstAdminEmail === TAKEN
@@ -69,7 +69,7 @@ async function setup(t: TestContext) {
       expectedRevision: (await request(requestId)).revision,
       changes: { firstAdminEmail: email },
       reasonCode: 'CUSTOMER_CORRECTION',
-      comment: 'ลูกค้าแจ้งอีเมลผู้ดูแลใหม่',
+      comment: 'customer reported a new admin email',
       actor: OPERATOR,
       correlationId: 'corr-email',
       ...overrides,
@@ -87,7 +87,7 @@ async function rejectsWith(work: Promise<unknown>, code: PlatformProvisioningErr
 
 const hash = (email: string) => platformIdentityHash('first-admin-email', email);
 
-test('ก่อน FIRST_ADMIN เริ่ม: reserve อีเมลใหม่, tombstone อันเดิม, revision + audit ไม่มี raw email', async (t) => {
+test('before FIRST_ADMIN starts: reserve the new email, tombstone the old one, revision + audit have no raw email', async (t) => {
   const s = await setup(t);
   const accepted = await s.accept();
   const next = `new-admin-${randomUUID().slice(0, 8)}@example.test`;
@@ -96,7 +96,7 @@ test('ก่อน FIRST_ADMIN เริ่ม: reserve อีเมลใหม
 
   const after = await s.request(accepted.requestId);
   assert.deepEqual([after.firstAdminEmail, after.firstAdminEmailHash], [next, hash(next)]);
-  // payload เดิมของ idempotency ไม่เปลี่ยน
+  // the original idempotency payload does not change
   assert.notEqual(after.payloadDigest, result.payloadDigest);
   const reservations = await s.f.owner.pfIdentityReservation.findMany({
     where: { requestId: accepted.requestId, kind: 'FIRST_ADMIN_EMAIL' },
@@ -122,7 +122,7 @@ test('ก่อน FIRST_ADMIN เริ่ม: reserve อีเมลใหม
   assert.equal(evidence.includes(next), false);
   assert.equal(evidence.includes(accepted.input.firstAdmin.email), false);
 
-  // อีเมลเดิมยังถูกกันไว้ 30 วัน: คำขอใหม่ใช้ไม่ได้
+  // the old email is still held for 30 days: a new request cannot use it
   await rejectsWith(
     s.accept({ firstAdmin: { email: accepted.input.firstAdmin.email, displayName: 'X' } }),
     'FIRST_ADMIN_EMAIL_CONFLICT',
@@ -131,7 +131,7 @@ test('ก่อน FIRST_ADMIN เริ่ม: reserve อีเมลใหม
   assert.equal((await s.request(accepted.requestId)).status, 'SUCCEEDED');
 });
 
-test('อีเมลที่ request อื่นถือไว้ = FIRST_ADMIN_EMAIL_CONFLICT (audit) และไม่มีอะไรเปลี่ยน', async (t) => {
+test('an email held by another request = FIRST_ADMIN_EMAIL_CONFLICT (audit) and nothing changes', async (t) => {
   const s = await setup(t);
   const owner = await s.accept();
   const accepted = await s.accept();
@@ -157,7 +157,7 @@ test('อีเมลที่ request อื่นถือไว้ = FIRST_AD
   assert.equal(rejected.errorCode, 'FIRST_ADMIN_EMAIL_CONFLICT');
 });
 
-test('ชนกับ identity ภายนอก: ACTION_REQUIRED → แก้อีเมล → Retry ผ่าน preview แล้วจบ', async (t) => {
+test('clash with an external identity: ACTION_REQUIRED → edit the email → Retry through preview then finish', async (t) => {
   const s = await setup(t);
   const accepted = await s.accept({ firstAdmin: { email: TAKEN, displayName: 'Taken' } });
   await s.saga.drain();
@@ -176,7 +176,7 @@ test('ชนกับ identity ภายนอก: ACTION_REQUIRED → แก้
     expectedRevision: preview.revision,
     previewDigest: preview.previewDigest,
     reasonCode: 'OPERATOR_VERIFIED',
-    comment: 'แก้อีเมลแล้ว',
+    comment: 'email corrected',
     actor: OPERATOR,
     correlationId: 'corr-retry',
   });
@@ -184,11 +184,11 @@ test('ชนกับ identity ภายนอก: ACTION_REQUIRED → แก้
   assert.equal((await s.request(accepted.requestId)).status, 'SUCCEEDED');
 });
 
-test('ล็อก: หลัง FIRST_ADMIN เริ่มจริงหรือสำเร็จ, แก้ร่วมกับ field อื่น, อีเมลเดิม และ guard ของ DB', async (t) => {
+test('lock: after FIRST_ADMIN has really started or succeeded, editing with other fields, the old email and the DB guard', async (t) => {
   const s = await setup(t);
   const done = await s.accept();
   await s.saga.drain();
-  // request ที่จบแล้ว = state ไม่อนุญาต; ตรวจล็อกของ step ด้วย request ที่ FIRST_ADMIN สำเร็จแต่ยังไม่จบ
+  // a finished request = state not allowed; check the step lock with a request whose FIRST_ADMIN succeeded but is not finished yet
   await rejectsWith(s.change(done.requestId, 'late@example.test'), 'INVALID_STATE_TRANSITION');
 
   const accepted = await s.accept();
@@ -199,7 +199,7 @@ test('ล็อก: หลัง FIRST_ADMIN เริ่มจริงหร�
       expectedRevision: request.revision,
       changes: { firstAdminEmail: 'x@example.test', displayName: 'Other' },
       reasonCode: 'CUSTOMER_CORRECTION',
-      comment: 'แก้หลายช่อง',
+      comment: 'edit several fields',
       actor: OPERATOR,
       correlationId: 'corr-multi',
     }),
@@ -210,7 +210,7 @@ test('ล็อก: หลัง FIRST_ADMIN เริ่มจริงหร�
     'VALIDATION_FAILED',
   );
 
-  // FIRST_ADMIN เคยเริ่มแล้ว (attempt > 0) และหยุดด้วยเหตุผลอื่น = อาจมี identity ภายนอกแล้ว → ล็อก
+  // FIRST_ADMIN has started before (attempt > 0) and stopped for another reason = an external identity may already exist → lock
   await s.f.owner.pfProvisioningStep.update({
     where: { requestId_stepKey: { requestId: accepted.requestId, stepKey: 'FIRST_ADMIN' } },
     data: {
@@ -222,7 +222,7 @@ test('ล็อก: หลัง FIRST_ADMIN เริ่มจริงหร�
   });
   await rejectsWith(s.change(accepted.requestId, 'another@example.test'), 'FIELD_LOCKED');
 
-  // guard ใน DB บังคับซ้ำแม้เรียกตรงด้วย role ของ platform
+  // the guard in the DB enforces it again even when called directly with the platform role
   await assert.rejects(
     s.f.platform.pfProvisioningRequest.update({
       where: { id: accepted.requestId },

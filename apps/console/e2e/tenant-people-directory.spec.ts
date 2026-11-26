@@ -4,7 +4,7 @@ import { homeNavigation } from './support/home-navigation.js';
 test.use({ locale: 'th-TH' });
 
 for (const unresolved of [false, true])
-  test(`Admin list/detail ไม่สร้างซ้ำและไม่ทับ pending unknown: ${unresolved}`, async ({
+  test(`Admin list/detail does not create duplicates and does not overwrite a pending unknown: ${unresolved}`, async ({
     page,
   }) => {
     const userId = '10000000-0000-4000-8000-000000000101';

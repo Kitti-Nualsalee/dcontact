@@ -1,9 +1,9 @@
 /**
- * S2.6b (#403): production wiring ของ LINE pilot บน Postgres/RLS จริงกับ provider double
+ * S2.6b (#403): production wiring of the LINE pilot on real Postgres/RLS with a provider double
  *
- * ร้อย path ที่ S2.7 ต้องใช้ครบในเทสต์เดียว: enqueue ผ่าน Governance → submit ด้วย recipient จาก
- * Keychain resolver → quoted reply ผ่าน signed ingress → worker + production Touch port → Touch 1
- * ไม่มี network ไป LINE (#403 acceptance) และ Keychain เป็น source/writer สังเคราะห์
+ * Threads every path S2.7 needs into a single test: enqueue through Governance → submit with a recipient from the
+ * Keychain resolver → quoted reply through signed ingress → worker + production Touch port → Touch 1.
+ * No network to LINE (#403 acceptance) and the Keychain is a synthetic source/writer
  */
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -98,7 +98,7 @@ class RecordingTransport implements LineProviderTransport {
   }
 }
 
-/** Keychain สังเคราะห์: map ของ `service|account` → ค่า */
+/** Synthetic Keychain: a map of `service|account` → value */
 class MapSecretSource implements LineSecretSource {
   constructor(private readonly values: Map<string, string>) {}
   async read(reference: LineKeychainReference): Promise<string> {
@@ -123,7 +123,7 @@ async function setup(t: TestContext) {
   const transport = new RecordingTransport();
   const keychain = new Map<string, string>();
 
-  /** gate/allowlist/run ของ pilot ที่ recipient fingerprint = ผู้ใช้ LINE ที่จะตอบ */
+  /** gate/allowlist/run of the pilot where the recipient fingerprint = the LINE user who will reply */
   const approvedRun = async (tenantId: string, userId = USER_ID) => {
     const recipientProtectedRef = `kc-recipient-${randomUUID()}`;
     const run = await fixture.seedApprovedRun(tenantId, `pilot-${randomUUID().slice(0, 8)}`, {
@@ -135,7 +135,7 @@ async function setup(t: TestContext) {
     let gate = await fixture.control.findGate(fixture.scope(tenantId));
     for (const state of ['DRY_RUN', 'PROVIDER_CONFORMANCE', 'CAPPED_PILOT'] as const) {
       const advanced = await control.advanceState(COMPLIANCE, gate!, state, CONFIG_DIGEST, now);
-      assert.equal(advanced.status, 'APPLIED', `advance ไป ${state}`);
+      assert.equal(advanced.status, 'APPLIED', `advance to ${state}`);
       gate = advanced.status === 'APPLIED' ? advanced.value : gate;
     }
     assert.equal((await control.setTechnicalSwitch(OPERATOR, gate!, true, now)).status, 'APPLIED');
@@ -214,7 +214,7 @@ async function setup(t: TestContext) {
     };
   };
 
-  /** pilot หนึ่งใบที่ provider accept แล้ว — จุดเริ่มของ replay probe และ rollback drill */
+  /** one pilot message the provider already accepted — the starting point of the replay probe and rollback drill */
   const acceptedDelivery = async (tenantId: string) => {
     const run = await approvedRun(tenantId);
     keychain.set(
@@ -275,7 +275,7 @@ async function setup(t: TestContext) {
   };
 }
 
-test('S2-LINE-F04 production wiring: enqueue → accepted push → quoted reply → Touch 1 ผ่าน Governance', async (t) => {
+test('S2-LINE-F04 production wiring: enqueue → accepted push → quoted reply → Touch 1 through Governance', async (t) => {
   const f = await setup(t);
   const tenantId = f.fixture.tenantA;
   const run = await f.approvedRun(tenantId);
@@ -290,7 +290,7 @@ test('S2-LINE-F04 production wiring: enqueue → accepted push → quoted reply 
   const command = f.enqueueCommand(reservation);
   const queued = await f.enqueue.enqueue(command);
   assert.ok(queued.status === 'QUEUED', JSON.stringify(queued));
-  // replay actionKey เดิมคืน delivery/key เดิม ไม่ mint ใหม่ (#357)
+  // replaying the same actionKey returns the same delivery/key, never minting a new one (#357)
   assert.deepEqual(await f.enqueue.enqueue(command), { ...queued, status: 'REPLAYED' });
   assert.deepEqual(await f.enqueue.enqueue({ ...command, purpose: 'MARKETING' }), {
     status: 'ERROR',
@@ -316,7 +316,7 @@ test('S2-LINE-F04 production wiring: enqueue → accepted push → quoted reply 
     f.messageEvent(USER_ID, {
       id: '600000000001',
       type: 'text',
-      text: 'รับทราบ',
+      text: 'Acknowledged',
       quotedMessageId: SENT_MESSAGE_ID,
     }),
   ]);
@@ -331,7 +331,7 @@ test('S2-LINE-F04 production wiring: enqueue → accepted push → quoted reply 
   });
   assert.deepEqual([settled.terminalOutcome, settled.refundedAt], ['PROVIDER_ACCEPTED', null]);
 
-  // port ไม่ผูกข้าม tenant หรือข้าม channel แม้ message ID จะตรง
+  // the port does not bind across tenants or across channels even when the message ID matches
   assert.equal(
     await f.touchPort.findAcceptedAttemptByMessage({
       tenantId: f.fixture.tenantB,
@@ -350,11 +350,11 @@ test('S2-LINE-F04 production wiring: enqueue → accepted push → quoted reply 
   );
 });
 
-test('S2-LINE-TI01 recipient ใน Keychain ที่ไม่ตรง fingerprint ของ allowlist ถูกปฏิเสธก่อน barrier', async (t) => {
+test('S2-LINE-TI01 a recipient in the Keychain whose fingerprint does not match the allowlist is rejected before the barrier', async (t) => {
   const f = await setup(t);
   const tenantId = f.fixture.tenantA;
   const run = await f.approvedRun(tenantId);
-  // Keychain item ถูกเปลี่ยนเป็นคนอื่น — ต้องไม่ส่งถึงใครเลย
+  // the Keychain item was swapped to someone else — must send to no one at all
   f.keychain.set(
     keychainKey(
       lineRecipientKeychainReference(PILOT_CHANNEL_ACCOUNT_ID, run.recipientProtectedRef),
@@ -380,10 +380,10 @@ test('S2-LINE-TI01 recipient ใน Keychain ที่ไม่ตรง fingerp
   const entry = await f.fixture.owner.dlOutboxEntry.findFirstOrThrow({
     where: { tenantId, deliveryId: queued.deliveryId },
   });
-  assert.equal(entry.state, 'QUEUED', 'ยังไม่ข้าม barrier');
+  assert.equal(entry.state, 'QUEUED', 'has not crossed the barrier');
 });
 
-test('S2-LINE-OB02 capture recipient จาก signed webhook เขียน Keychain ผ่าน stdin และคืนแค่ ref/fingerprint', async (t) => {
+test('S2-LINE-OB02 capture recipient from a signed webhook writes the Keychain through stdin and returns only ref/fingerprint', async (t) => {
   const f = await setup(t);
   const tenantId = f.fixture.tenantA;
   const since = new Date(Date.now() - 1_000);
@@ -411,11 +411,11 @@ test('S2-LINE-OB02 capture recipient จาก signed webhook เขียน Ke
   );
   assert.ok(!JSON.stringify(captured).includes(USER_ID));
   assert.equal(writes.length, 1);
-  assert.deepEqual(writes[0]!.arguments_, ['-i'], 'ค่าไม่อยู่ใน argv');
+  assert.deepEqual(writes[0]!.arguments_, ['-i'], 'the value is not in argv');
   assert.ok(writes[0]!.stdin.includes(`recipient.${captured.recipientProtectedRef}`));
   assert.ok(writes[0]!.stdin.includes(USER_ID));
 
-  // tenant อื่นไม่มี webhook → ไม่มีอะไรให้ capture
+  // another tenant has no webhook → nothing to capture
   assert.equal(
     await captureLineRecipientFromWebhook({
       database: f.fixture.application,
@@ -429,7 +429,7 @@ test('S2-LINE-OB02 capture recipient จาก signed webhook เขียน Ke
   );
 });
 
-test('S2-LINE-AU01 access token resolver ผ่าน credential boundary: fingerprint/version ต้องตรง', async (t) => {
+test('S2-LINE-AU01 access token resolver through the credential boundary: fingerprint/version must match', async (t) => {
   const f = await setup(t);
   const tenantId = f.fixture.tenantA;
   const token = 'synthetic-keychain-access-token-value';
@@ -491,7 +491,7 @@ test('S2-LINE-AU01 access token resolver ผ่าน credential boundary: finge
   );
 });
 
-test('S2-LINE-PR02 replay probe: exact request เดิมได้ 409 + accepted/message ID เดิม และไม่เพิ่ม Attempt', async (t) => {
+test('S2-LINE-PR02 replay probe: the exact original request gets 409 + the original accepted/message ID and adds no Attempt', async (t) => {
   const f = await setup(t);
   const tenantId = f.fixture.tenantA;
   const { command, queued } = await f.acceptedDelivery(tenantId);
@@ -511,7 +511,7 @@ test('S2-LINE-PR02 replay probe: exact request เดิมได้ 409 + accep
     [probe.pushStatus, probe.replayStatus, probe.acceptedRequestIdMatches, probe.messageIdsMatch],
     [200, 409, true, true],
   );
-  // ยิงซ้ำด้วย request เดิมทุก byte: key และผู้รับเดิม
+  // fire again with the request byte for byte the same: same key and recipient
   assert.equal(f.transport.requests.length, 2);
   assert.equal(f.transport.requests[1]!.retryKey, queued.providerRequestKey);
   assert.deepEqual(f.transport.requests[1]!.messages, f.transport.requests[0]!.messages);
@@ -530,7 +530,7 @@ test('S2-LINE-PR02 replay probe: exact request เดิมได้ 409 + accep
   );
 });
 
-test('S2-LINE-PR02 replay probe: 200 ซ้ำหรือ accepted ID ไม่ตรงคือ FAIL (ผู้รับอาจเห็นซ้ำ)', async (t) => {
+test('S2-LINE-PR02 replay probe: a repeated 200 or a mismatched accepted ID is FAIL (the recipient may see duplicates)', async (t) => {
   const f = await setup(t);
   const { command } = await f.acceptedDelivery(f.fixture.tenantA);
   f.transport.scripted.push({
@@ -556,7 +556,7 @@ test('S2-LINE-PR02 replay probe: 200 ซ้ำหรือ accepted ID ไม่
   );
 });
 
-test('S2-LINE-RB01 rollback drill: switch off + kill + revoke แล้วส่งใหม่ถูกปฏิเสธก่อน I/O', async (t) => {
+test('S2-LINE-RB01 rollback drill: switch off + kill + revoke then a new send is rejected before I/O', async (t) => {
   const f = await setup(t);
   const tenantId = f.fixture.tenantA;
   const { run, command } = await f.acceptedDelivery(tenantId);
@@ -589,7 +589,7 @@ test('S2-LINE-RB01 rollback drill: switch off + kill + revoke แล้วส่
   assert.equal(gate.killReason, 'PILOT_ROLLBACK');
 });
 
-test('S2-LINE-RB01 revoke ที่ provider ล้ม = FAIL แต่ scope ยังปิดและ metadata ยัง revoke', async (t) => {
+test('S2-LINE-RB01 a failed revoke at the provider = FAIL but the scope stays closed and the metadata stays revoked', async (t) => {
   const f = await setup(t);
   const tenantId = f.fixture.tenantA;
   const { run, command } = await f.acceptedDelivery(tenantId);

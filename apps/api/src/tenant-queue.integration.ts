@@ -349,7 +349,7 @@ test('admin configures tenant-scoped IVR routes with a default voice queue', asy
       destination: '2300',
       defaultQueueId: queue.id,
       configuration: {
-        prompt: 'เลือกบริการ',
+        prompt: 'Choose a service',
         inputTimeoutSec: 5,
         voiceRoutes: { sales: otherQueue.id },
         dtmfRoutes: { '1': queue.id },
@@ -363,7 +363,7 @@ test('admin configures tenant-scoped IVR routes with a default voice queue', asy
     destination: '2300',
     defaultQueueId: queue.id,
     configuration: {
-      prompt: 'เลือกบริการ',
+      prompt: 'Choose a service',
       inputTimeoutSec: 5,
       voiceRoutes: { sales: queue.id },
       dtmfRoutes: { '1': queue.id },
@@ -375,7 +375,7 @@ test('admin configures tenant-scoped IVR routes with a default voice queue', asy
     entryMode: 'IVR',
     queueId: queue.id,
     ivrConfig: {
-      prompt: 'เลือกบริการ',
+      prompt: 'Choose a service',
       inputTimeoutSec: 5,
       voiceRoutes: { sales: queue.id },
       dtmfRoutes: { '1': queue.id },

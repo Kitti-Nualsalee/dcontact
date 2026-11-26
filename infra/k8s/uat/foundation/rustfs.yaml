@@ -1,4 +1,4 @@
-# RustFS แบบ standalone สำหรับข้อมูลสังเคราะห์ปริมาณน้อย; bucket/API IAM ตั้งผ่าน Job/operator
+# Standalone RustFS for a small volume of synthetic data; the bucket and API IAM are set up through a Job/operator
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:

@@ -1,15 +1,15 @@
 /**
  * J2.9 follow-up — compatibility profile conformance.
  *
- * `DialerOriginateBarrier` ผูกกับ `ContactGovernancePort` ซึ่งเป็น interface เท่านั้น
- * แต่เดิมพิสูจน์ได้แค่เชิงโครงสร้าง (compile ผ่าน) ยังไม่เคยมี test ยืนยันว่า *พฤติกรรม*
- * ของ barrier เหมือนกันจริงเมื่อสลับ implementation
+ * `DialerOriginateBarrier` is bound to `ContactGovernancePort`, which is only an interface.
+ * It used to be proven only structurally (it compiles); no test ever confirmed that the *behavior*
+ * of the barrier is really the same when the implementation is swapped.
  *
- * ไฟล์นี้รัน scenario ชุดเดียวกันผ่านสอง profile ที่ #137 ระบุไว้:
- *   - `TEST_ADAPTER`    -> `ContactGovernanceFake` (ใช้ตอน S1 ยังไม่ merge)
- *   - `CG3_INTEGRATED`  -> `ContactGovernanceService` ตัวจริงบน Postgres
- * แล้ว assert ว่าได้ `OriginateOutcome` และ terminal state ตรงกันทุกช่อง ไม่ใช่แค่
- * ตรวจทีละ profile แยกกัน — ถ้า implementation ไหน drift ออกจากสัญญา test นี้จะจับได้
+ * This file runs the same scenarios through the two profiles named in #137:
+ *   - `TEST_ADAPTER`    -> `ContactGovernanceFake` (used while S1 was not merged yet)
+ *   - `CG3_INTEGRATED`  -> the real `ContactGovernanceService` on Postgres
+ * and asserts that `OriginateOutcome` and the terminal state match in every field, not merely
+ * checking each profile separately — if any implementation drifts from the contract this test catches it
  */
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -123,8 +123,8 @@ interface SeedRequest {
 }
 
 /**
- * profile หนึ่งตัวคือ "วิธีได้มาซึ่ง ContactGovernancePort" บวก "วิธีทำให้ ALLOW"
- * — `CG3_INTEGRATED` ใช้ consent จริงใน DB จึงไม่ต้อง seed อะไรเพิ่ม
+ * A profile is "how to obtain a ContactGovernancePort" plus "how to make it ALLOW"
+ * — `CG3_INTEGRATED` uses real consent in the DB, so nothing more needs seeding
  */
 interface GovernanceProfile {
   readonly name: 'TEST_ADAPTER' | 'CG3_INTEGRATED';
@@ -207,7 +207,7 @@ function scheduledCallback(f: Fixture) {
   });
 }
 
-/** ผลลัพธ์ที่ต้องตรงกันข้าม profile — outcome ที่ barrier คืน บวก state สุดท้ายในตาราง owner */
+/** The result that must match across profiles — the outcome the barrier returns plus the final state in the owner tables */
 interface ScenarioResult {
   outcome: OriginateOutcome;
   terminalState: string;
@@ -217,8 +217,8 @@ interface ScenarioResult {
 type Scenario = {
   name: string;
   /**
-   * ผลที่ถูกต้องจริง ๆ — ต้องมีคู่กับการเทียบข้าม profile เสมอ ไม่งั้น test จะผ่าน
-   * แม้ทั้งสอง implementation พังเหมือนกัน (เช่นคืน GATE_CLOSED หมดทุก scenario)
+   * The truly correct result — must always accompany the cross-profile comparison, otherwise the test would pass
+   * even when both implementations break the same way (e.g. returning GATE_CLOSED for every scenario)
    */
   expected: ScenarioResult;
   run(f: Fixture, profile: GovernanceProfile): Promise<ScenarioResult>;
@@ -226,7 +226,7 @@ type Scenario = {
 
 const SCENARIOS: Scenario[] = [
   {
-    name: 'campaign target ที่ผ่าน scope+governance originate สำเร็จ',
+    name: 'a campaign target that passes scope+governance originates successfully',
     expected: { outcome: 'ORIGINATED', terminalState: 'CONSUMED', leaseCleared: true },
     async run(f, profile) {
       const target = await admittedTarget(f);
@@ -253,7 +253,7 @@ const SCENARIOS: Scenario[] = [
     },
   },
   {
-    name: 'TEST_ADAPTER ตอบ REJECTED แล้ว target กลับไป DEFERRED',
+    name: 'TEST_ADAPTER answers REJECTED and the target returns to DEFERRED',
     expected: { outcome: 'REJECTED', terminalState: 'DEFERRED', leaseCleared: true },
     async run(f, profile) {
       const target = await admittedTarget(f);
@@ -282,7 +282,7 @@ const SCENARIOS: Scenario[] = [
     },
   },
   {
-    name: 'callback ที่ถึงเวลาแล้ว originate สำเร็จ',
+    name: 'a due callback originates successfully',
     expected: { outcome: 'ORIGINATED', terminalState: 'CONSUMED', leaseCleared: true },
     async run(f, profile) {
       const callback = await scheduledCallback(f);
@@ -309,7 +309,7 @@ const SCENARIOS: Scenario[] = [
     },
   },
   {
-    name: 'scope ที่ deny หยุดก่อนถึง governance',
+    name: 'a denied scope stops before reaching governance',
     expected: { outcome: 'SCOPE_DENIED', terminalState: 'DEFERRED', leaseCleared: true },
     async run(f, profile) {
       const target = await admittedTarget(f);
@@ -330,7 +330,7 @@ const SCENARIOS: Scenario[] = [
     },
   },
   {
-    name: 'gate ปิดอยู่ ปฏิเสธก่อนแตะอะไรเลย',
+    name: 'the gate is closed, rejecting before touching anything',
     expected: { outcome: 'GATE_CLOSED', terminalState: 'ADMITTED', leaseCleared: true },
     async run(f, profile) {
       const target = await admittedTarget(f);
@@ -353,25 +353,29 @@ const SCENARIOS: Scenario[] = [
 ];
 
 for (const scenario of SCENARIOS) {
-  test(`conformance: ${scenario.name} — TEST_ADAPTER และ CG3_INTEGRATED ให้ผลเหมือนกัน`, async (t) => {
+  test(`conformance: ${scenario.name} — TEST_ADAPTER and CG3_INTEGRATED give the same result`, async (t) => {
     const results = new Map<GovernanceProfile['name'], ScenarioResult>();
     for (const profile of PROFILES) {
-      // tenant แยกต่อ profile เพื่อไม่ให้ reservation ของรอบแรกไปชนกับรอบสอง
+      // A separate tenant per profile so the reservation of the first round does not collide with the second
       const f = await fixture(t);
       const result = await scenario.run(f, profile);
-      // ตรวจค่าจริงก่อน แล้วค่อยเทียบข้าม profile — กัน false pass ตอนพังเหมือนกันทั้งคู่
-      assert.deepEqual(result, scenario.expected, `profile ${profile.name} ให้ผลไม่ตรงที่ควรเป็น`);
+      // Check the real value first, then compare across profiles — avoids a false pass when both break the same way
+      assert.deepEqual(
+        result,
+        scenario.expected,
+        `profile ${profile.name} gave an unexpected result`,
+      );
       results.set(profile.name, result);
     }
 
     assert.deepEqual(
       results.get('TEST_ADAPTER'),
       results.get('CG3_INTEGRATED'),
-      `พฤติกรรม barrier ต่างกันระหว่าง profile: ${JSON.stringify([...results])}`,
+      `barrier behavior differs between profiles: ${JSON.stringify([...results])}`,
     );
   });
 }
 
-test('ทุก profile ที่ประกาศไว้ถูกทดสอบจริง — กันการเพิ่ม profile แล้วลืมเขียน conformance', () => {
+test('every declared profile is really tested — guards against adding a profile and forgetting to write conformance', () => {
   assert.deepEqual(PROFILES.map((p) => p.name).sort(), ['CG3_INTEGRATED', 'TEST_ADAPTER']);
 });

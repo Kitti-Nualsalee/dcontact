@@ -31,9 +31,9 @@ model Tenant {
   defaultMaxWaitSec         Int?                    @map("default_max_wait_sec")
   defaultMaxWaitAction      QueueMaxWaitAction      @default(VOICEMAIL) @map("default_max_wait_action")
   createdAt                 DateTime                @default(now()) @map("created_at")
-  /// A1.1 (#406): tenant ที่สร้างผ่าน provisioning เริ่มที่ PROVISIONING; tenant เดิมทั้งหมดเป็น ACTIVE
+  /// A1.1 (#406): a tenant created through provisioning starts at PROVISIONING; all existing tenants are ACTIVE
   lifecycleStatus           TenantLifecycleStatus   @default(ACTIVE) @map("lifecycle_status")
-  /// โดเมนขององค์กรลูกค้า (IDNA lowercase) — tenant เดิมเป็น NULL; uniqueness/tombstone คุมโดย reservation
+  /// domain of the customer organization (IDNA lowercase) — NULL for existing tenants; uniqueness/tombstone is controlled by reservation
   primaryDomain             String?                 @unique @map("primary_domain")
 
   pfProvisioningRequests       PfProvisioningRequest[]
@@ -148,7 +148,7 @@ model Tenant {
 
   embedOrigins           TenantEmbedOrigin[]
   embedOriginAuditEvents TenantEmbedOriginAuditEvent[]
-  // AC1 (#594): นโยบายบัญชีและ self-service บัญชี (#589)
+  // AC1 (#594): account policy and account self-service (#589)
   accountPolicy            TenantAccountPolicy?
   accountPolicyAuditEvents TenantAccountPolicyAuditEvent[]
   accountEmailChanges      AccountEmailChange[]
@@ -179,7 +179,7 @@ model User {
   displayName  String   @map("display_name")
   configRevision Int @default(1) @map("config_revision")
   role         UserRole @default(AGENT)
-  // SIP extension สำหรับ softphone (agent เท่านั้น)
+  // SIP extension for the softphone (agents only)
   extension    String?
   teamId       String?  @map("team_id") @db.Uuid
   isActive     Boolean  @default(true) @map("is_active")
@@ -264,7 +264,7 @@ model Queue {
   configRevision                Int                      @default(1) @map("config_revision")
   voiceConfigVersion            Int?                     @map("voice_config_version")
   voiceWrapupPolicy             String                   @default("LEGACY") @map("voice_wrapup_policy")
-  // universal queue: รองรับหลาย channel ใน queue เดียว
+  // universal queue: supports several channels in one queue
   channels                      ChannelType[]
   slaThresholdSec               Int                      @default(20) @map("sla_threshold_sec")
   maxWaitSec                    Int?                     @map("max_wait_sec")
@@ -417,14 +417,14 @@ enum AgentStateType {
   BREAK
 }
 
-// append-only log ของทุกการเปลี่ยน state — ใช้ทำ reporting (occupancy, adherence)
+// append-only log of every state change — used for reporting (occupancy, adherence)
 model AgentStateLog {
   id          BigInt         @id @default(autoincrement())
   tenantId    String         @map("tenant_id") @db.Uuid
   userId      String         @map("user_id") @db.Uuid
   state       AgentStateType
   reason      String?
-  /// #937 เหตุผล Not Ready ของ tenant (tenant_not_ready_reasons.code) — มีเฉพาะ state BREAK ที่ Agent/หลังจบงานเลือก
+  /// #937 tenant Not Ready reason (tenant_not_ready_reasons.code) — only for state BREAK, chosen by the Agent / after wrap-up
   reasonCode  String?        @map("reason_code")
   actorUserId String?        @map("actor_user_id") @db.Uuid
   startedAt   DateTime       @default(now()) @map("started_at")
@@ -436,7 +436,7 @@ model AgentStateLog {
   @@map("agent_state_logs")
 }
 
-/// #937 สถานะที่ Agent ขอไว้ใช้ตอนปิดงานหลังสาย (ไม่มีแถว = Ready) ใช้ครั้งเดียวแล้วลบ
+/// #937 the status an Agent requested to use when closing work after a call (no row = Ready), used once and then deleted
 model AgentAfterWorkState {
   tenantId   String         @map("tenant_id") @db.Uuid
   userId     String         @map("user_id") @db.Uuid
@@ -509,13 +509,13 @@ model Contact {
   @@map("contacts")
 }
 
-// รวม identity หลาย channel เป็น contact เดียว (เบอร์โทร + LINE ID + email = คนเดียวกัน)
+// merges identities across channels into one contact (phone + LINE ID + email = the same person)
 model ContactIdentity {
   id        String       @id @default(uuid()) @db.Uuid
   tenantId  String       @map("tenant_id") @db.Uuid
   contactId String       @map("contact_id") @db.Uuid
   type      IdentityType
-  value     String // เบอร์โทร / LINE user id / email ฯลฯ
+  value     String // phone / LINE user id / email etc.
 
   contact        Contact             @relation(fields: [contactId], references: [id])
   cgRestrictions CgRestriction[]
@@ -566,8 +566,8 @@ enum C360SegmentMembershipOutboxState {
   PENDING
   PUBLISHED
   FAILED
-  /// J3.3 remediation: payload เสียถาวร (validate/hash/envelope ไม่ผ่าน) retry ไปก็ไม่ช่วย
-  /// — terminal state ที่ต้องให้คนเข้ามาดู ไม่ใช่วนอยู่ในคิวเงียบ ๆ
+  /// J3.3 remediation: a permanently broken payload (validate/hash/envelope fails) will not be fixed by retrying
+  /// — a terminal state that needs a human to look at it, not something that circulates silently in the queue
   QUARANTINED
 }
 
@@ -590,7 +590,7 @@ enum C360IdentityOperation {
   UNMERGE
 }
 
-/// J3.2: immutable version ของ segment definition; เป็นนิยาม DC_EXPR ไม่ใช่ member list
+/// J3.2: immutable version of a segment definition; a DC_EXPR definition, not a member list
 model C360SegmentDefinition {
   id               String                      @id @default(uuid()) @db.Uuid
   tenantId         String                      @map("tenant_id") @db.Uuid
@@ -618,7 +618,7 @@ model C360SegmentDefinition {
   @@map("c360_segment_definitions")
 }
 
-/// CAS head แยกต่อ logical segment stream; headVersion เป็น authority ของ concurrent publish
+/// CAS head per logical segment stream; headVersion is the authority for concurrent publish
 model C360SegmentDefinitionHead {
   tenantId       String   @map("tenant_id") @db.Uuid
   segmentId      String   @map("segment_id")
@@ -634,7 +634,7 @@ model C360SegmentDefinitionHead {
   @@map("c360_segment_definition_heads")
 }
 
-/// Owner-local typed attribute/computed snapshot; external CRM ต้อง sync ก่อนสร้างแถวนี้
+/// Owner-local typed attribute/computed snapshot; the external CRM must sync before this row is created
 model C360FactSnapshot {
   id              String   @id @default(uuid()) @db.Uuid
   tenantId        String   @map("tenant_id") @db.Uuid
@@ -659,7 +659,7 @@ model C360FactSnapshot {
   @@map("c360_fact_snapshots")
 }
 
-/// Durable evaluation checkpoint; ไม่มี raw attribute/PII มีเพียง binding, outcome และ digest
+/// Durable evaluation checkpoint; no raw attribute/PII, only binding, outcome and digest
 model C360SegmentEvaluation {
   id                       String                       @id @default(uuid()) @db.Uuid
   tenantId                 String                       @map("tenant_id") @db.Uuid
@@ -688,7 +688,7 @@ model C360SegmentEvaluation {
   @@map("c360_segment_evaluations")
 }
 
-/// Materialized canonical membership ต่อ tenant/contact/segment; แก้ได้ผ่าน CAS owner transaction เท่านั้น
+/// Materialized canonical membership per tenant/contact/segment; changeable only through a CAS owner transaction
 model C360SegmentMembershipHead {
   tenantId                 String                     @map("tenant_id") @db.Uuid
   contactId                String                     @map("contact_id") @db.Uuid
@@ -717,7 +717,7 @@ model C360SegmentMembershipHead {
   @@map("c360_segment_membership_heads")
 }
 
-/// Immutable canonical membership change; ทุก revision ที่ emit ต้องมี outbox row เดียวกัน
+/// Immutable canonical membership change; every emitted revision must have exactly one outbox row
 model C360SegmentMembershipChange {
   id                       String                          @id @default(uuid()) @db.Uuid
   tenantId                 String                          @map("tenant_id") @db.Uuid
@@ -752,7 +752,7 @@ model C360SegmentMembershipChange {
   @@map("c360_segment_membership_changes")
 }
 
-/// Transactional outbox สำหรับ customer.segment.changed; payload เป็น closed PII-safe J3 contract
+/// Transactional outbox for customer.segment.changed; the payload is a closed PII-safe J3 contract
 model C360SegmentMembershipOutbox {
   id                 String                           @id @default(uuid()) @db.Uuid
   tenantId           String                           @map("tenant_id") @db.Uuid
@@ -785,7 +785,7 @@ model C360SegmentMembershipOutbox {
   @@map("c360_segment_membership_outbox")
 }
 
-/// Opaque handle ไปยัง owner-local evaluation facts; ไม่มี raw attribute ใน record นี้
+/// Opaque handle to owner-local evaluation facts; this record holds no raw attribute
 model C360SegmentEvidence {
   id             String   @id @default(uuid()) @db.Uuid
   tenantId       String   @map("tenant_id") @db.Uuid
@@ -806,7 +806,7 @@ model C360SegmentEvidence {
   @@map("c360_segment_evidence")
 }
 
-/// Append-only audit เมื่อ owner-side tooling resolve evidence; Journey ไม่มี API อ่าน raw facts
+/// Append-only audit when owner-side tooling resolves evidence; Journey has no API to read raw facts
 model C360EvidenceAccessAudit {
   id            String   @id @default(uuid()) @db.Uuid
   tenantId      String   @map("tenant_id") @db.Uuid
@@ -825,7 +825,7 @@ model C360EvidenceAccessAudit {
   @@map("c360_evidence_access_audit")
 }
 
-/// Idempotent owner command receipt; เก็บเฉพาะ sanitized outcome binding
+/// Idempotent owner command receipt; keeps only the sanitized outcome binding
 model C360MembershipCommandReceipt {
   id                 String                      @id @default(uuid()) @db.Uuid
   tenantId           String                      @map("tenant_id") @db.Uuid
@@ -849,7 +849,7 @@ model C360MembershipCommandReceipt {
   @@map("c360_membership_command_receipts")
 }
 
-/// Append-only conflict evidence; ไม่มี raw fact หรือ replacement payload
+/// Append-only conflict evidence; no raw fact or replacement payload
 model C360MembershipQuarantine {
   id                String   @id @default(uuid()) @db.Uuid
   tenantId          String   @map("tenant_id") @db.Uuid
@@ -871,7 +871,7 @@ model C360MembershipQuarantine {
   @@map("c360_membership_quarantine")
 }
 
-/// Current canonical identity map แยกจาก Contact CRUD; lineageRevision เดินด้วย CAS
+/// Current canonical identity map separate from Contact CRUD; lineageRevision advances with CAS
 model C360IdentityHead {
   tenantId           String            @map("tenant_id") @db.Uuid
   contactId          String            @map("contact_id") @db.Uuid
@@ -890,7 +890,7 @@ model C360IdentityHead {
   @@map("c360_identity_heads")
 }
 
-/// Immutable merge/split/unmerge lineage; raw identity valuesไม่อยู่ใน ledger
+/// Immutable merge/split/unmerge lineage; raw identity values are not in the ledger
 model C360IdentityLineage {
   id              String                @id @default(uuid()) @db.Uuid
   tenantId        String                @map("tenant_id") @db.Uuid
@@ -915,11 +915,11 @@ model C360IdentityLineage {
   @@map("c360_identity_lineage")
 }
 
-// ─────────────────────────── Cus360 C1 (#791): โปรไฟล์ลูกค้า ───────────────────────────
-// Composite tenant FK, append-only grants และ immutable/retire triggers อยู่ใน migration
-// 20261102100000_cus360_profile_foundation; model ด้านล่างเป็น typed columns เท่านั้นจึงไม่ประกาศ relation
+// ─────────────────────────── Cus360 C1 (#791): customer profile ───────────────────────────
+// Composite tenant FKs, append-only grants and immutable/retire triggers live in the migration
+// 20261102100000_cus360_profile_foundation; the models below are typed columns only, so no relation is declared
 
-/// E1 B: admission ของคำสั่งโปรไฟล์ — ไม่เก็บ raw payload/PII/credential; tombstone ปิด key ที่ไม่เคยถูก admit
+/// E1 B: admission of a profile command — keeps no raw payload/PII/credential; a tombstone closes a key that was never admitted
 model C360ProfileCommand {
   tenantId                     String   @map("tenant_id") @db.Uuid
   actorIdentityKey             String   @map("actor_identity_key")
@@ -938,7 +938,7 @@ model C360ProfileCommand {
   @@map("c360_profile_commands")
 }
 
-/// ผลสุดท้ายของคำสั่ง (APPLIED/NO_OP/REJECTED); append-only และไม่มี profile/PII snapshot
+/// Final result of a command (APPLIED/NO_OP/REJECTED); append-only with no profile/PII snapshot
 model C360ProfileCommandReceipt {
   tenantId           String   @map("tenant_id") @db.Uuid
   actorIdentityKey   String   @map("actor_identity_key")
@@ -975,7 +975,7 @@ model C360ProfileAudit {
   @@map("c360_profile_audits")
 }
 
-/// ความสัมพันธ์ contact ↔ phone/email (R1 B.2) แยกจาก ContactIdentity; แก้ค่า = retire + insert
+/// contact ↔ phone/email relation (R1 B.2) separate from ContactIdentity; changing a value = retire + insert
 model C360ContactPoint {
   id                      String    @id @db.Uuid
   tenantId                String    @map("tenant_id") @db.Uuid
@@ -1003,7 +1003,7 @@ model C360ContactPoint {
   @@map("c360_contact_points")
 }
 
-/// สิทธิ์ดูแลลูกค้ารายการ (R1 C) — append-only; ถอนด้วย C360ContactCustodianRevocation
+/// A per-contact custodian permission (R1 C) — append-only; revoked with C360ContactCustodianRevocation
 model C360ContactCustodianGrant {
   integrationPrincipalId String? @map("integration_principal_id") @db.Uuid
   id               String   @id @db.Uuid
@@ -1041,7 +1041,7 @@ model C360ContactCustodianRevocation {
   @@map("c360_contact_custodian_revocations")
 }
 
-/// ประวัติการผูกลูกค้ากับงาน; Interaction.contactId ยังเป็น current link
+/// History of linking a customer to work; Interaction.contactId remains the current link
 model C360InteractionCustomerChange {
   id                 String   @id @db.Uuid
   tenantId           String   @map("tenant_id") @db.Uuid
@@ -1056,7 +1056,7 @@ model C360InteractionCustomerChange {
   leaseId            String   @map("lease_id") @db.Uuid
   actorIdentityKey   String   @map("actor_identity_key")
   commandId          String   @map("command_id") @db.Uuid
-  /// เหตุผล raw ของ relink/detach — restricted ไม่ส่งเข้า Activity projection
+  /// raw reason for relink/detach — restricted, not sent into the Activity projection
   reason             String?
   createdAt          DateTime @default(dbgenerated("clock_timestamp()")) @map("created_at") @db.Timestamptz(6)
 
@@ -1069,7 +1069,7 @@ model C360Tag {
   id               String    @id @db.Uuid
   tenantId         String    @map("tenant_id") @db.Uuid
   name             String
-  /// NFC(fullDefaultCaseFold(NFC(trim(name)))) เทียบแบบ binary (COLLATE "C")
+  /// NFC(fullDefaultCaseFold(NFC(trim(name)))) compared in binary (COLLATE "C")
   nameKey          String    @map("name_key")
   /// ACTIVE | RETIRED
   state            String    @default("ACTIVE")
@@ -1098,7 +1098,7 @@ model C360ContactTag {
   @@map("c360_contact_tags")
 }
 
-/// R1 C: "Cus360 create capability" ระดับผู้ใช้ — operator ให้พร้อมหลักฐาน ไม่มี self-grant; append-only
+/// R1 C: user-level "Cus360 create capability" — granted by an operator with evidence, no self-grant; append-only
 model C360ActorCapabilityGrant {
   id               String   @id @db.Uuid
   tenantId         String   @map("tenant_id") @db.Uuid
@@ -1131,7 +1131,7 @@ model C360ActorCapabilityRevocation {
   @@map("c360_actor_capability_revocations")
 }
 
-/// E1 H: durable auth state ต่อ work lease; server-only และไม่เก็บ access/refresh token
+/// E1 H: durable auth state per work lease; server-only and keeps no access/refresh token
 model C360WorkMutationAuth {
   tenantId                 String    @map("tenant_id") @db.Uuid
   userId                   String    @map("user_id") @db.Uuid
@@ -1186,11 +1186,11 @@ enum CgFactOutcome {
   PROVIDER_REJECTED
   DELIVERED
   DELIVERY_FAILED
-  /// S2 (#361): provider รับ request แล้ว (LINE 2xx/409) — ไม่ใช่ DELIVERED และไม่ใช่ Touch
+  /// S2 (#361): the provider accepted the request (LINE 2xx/409) — not DELIVERED and not a Touch
   PROVIDER_ACCEPTED
 }
 
-/// S2 (#361 §D): Touch ของ LINE เกิดได้จาก explicit response สองแบบนี้เท่านั้น
+/// S2 (#361 §D): a LINE Touch can occur only from these two explicit responses
 enum CgTouchEvidenceKind {
   USER_QUOTED_RESPONSE
   SIGNED_POSTBACK
@@ -1270,12 +1270,12 @@ enum CgEventOutboxState {
   PUBLISHING
   PUBLISHED
   FAILED
-  // CG4.6 (#189): payload ที่ contract/schema/registry version ไม่รองรับ หรือหลุด
-  // restricted field ห้าม publish และห้าม retry — กันไว้รอ forward-fix แทน
+  // CG4.6 (#189): a payload whose contract/schema/registry version is unsupported, or that leaked a
+  // restricted field, must not be published or retried — park it to await a forward fix instead
   QUARANTINED
 }
 
-// CG4.6 (#189): inbox/scope-pause vocabulary ตาม #179 §4
+// CG4.6 (#189): inbox/scope-pause vocabulary per #179 §4
 enum CgInboxState {
   APPLIED
   DUPLICATE
@@ -1309,8 +1309,8 @@ enum CgConsumerAckOutcome {
   QUARANTINED
 }
 
-// CG4 canonical policy และ exception records แยกจาก cg_policies ของ CG3
-// เพื่อให้ migration เป็น expand-only และค่อยสลับ writer ใน ticket ถัดไป.
+// CG4 canonical policy and exception records, separate from cg_policies of CG3
+// so the migration is expand-only and the writer is switched in a later ticket.
 enum Cg4PolicyStatus {
   DRAFT
   IN_REVIEW
@@ -1328,7 +1328,7 @@ enum Cg4ApprovalDecision {
   REJECTED
 }
 
-// CG4.5 (#188): semantic diff class ของ policy version; ตัดสิน required quorum ตาม #173 §2
+// CG4.5 (#188): semantic diff class of a policy version; decides the required quorum per #173 §2
 enum Cg4PolicyDiffClass {
   TIGHTENING
   NEUTRAL
@@ -1382,11 +1382,11 @@ enum Cg4KillSwitchState {
 enum Cg4CapabilitySource {
   DIRECT
   DELEGATED
-  // CG4.10 (#193): approval เดิมของ CG3 ที่ย้ายมาเป็นหลักฐาน baseline ใช้ได้เฉพาะ LEGACY_CG3 version
+  // CG4.10 (#193): an original CG3 approval carried over as baseline evidence, usable only for a LEGACY_CG3 version
   LEGACY_MIGRATED
 }
 
-/// CG4.10 (#193): ที่มาของ policy version — CG4 writer หรือ backfill จาก cg_policies ของ CG3
+/// CG4.10 (#193): origin of a policy version — the CG4 writer or a backfill from cg_policies of CG3
 enum Cg4PolicyOrigin {
   CG4
   LEGACY_CG3
@@ -1412,14 +1412,14 @@ enum JrEnrollmentState {
   AUTHORIZED
 }
 
-/// C1.5: สถานะการเดินของ enrollment แยกจาก `JrEnrollmentState` ซึ่งบันทึกผล authorize
+/// C1.5: progress state of an enrollment, separate from `JrEnrollmentState`, which records the authorize result
 enum JrRunState {
   RUNNING
   WAITING
   TERMINAL
 }
 
-/// เหตุผลเดียวที่ enrollment จบ — บันทึกครั้งแรกครั้งเดียว ห้ามเขียนทับ
+/// The single reason an enrollment ended — recorded once, first time only, never overwritten
 enum JrTerminalReason {
   GRAPH_EXIT
   GOAL_REACHED
@@ -1438,8 +1438,8 @@ enum JrScheduleOccurrenceState {
   ENROLLED
 }
 
-/// S1.5: Journey เป็นเจ้าของ lifecycle ของ action หลังรับ CG3 mutation. ค่านี้บอก
-/// ขอบเขตที่ยกเลิกได้ ไม่ใช่สถานะของ reservation หรือ provider delivery.
+/// S1.5: Journey owns the lifecycle of an action after receiving a CG3 mutation. This value tells
+/// the boundary that can be cancelled; it is not the state of a reservation or provider delivery.
 enum JrRealtimeActionState {
   QUEUED
   RESERVED
@@ -1454,14 +1454,14 @@ enum JrRealtimeActionState {
   SETTLED
 }
 
-/// ผล durable ของ CG3 event ใน Journey consumer. GAP/QUARANTINED ต้อง fail closed
-/// และไม่อนุญาตให้ action กลับไป dispatch จนกว่าจะ replay/reconcile สำเร็จ.
+/// Durable result of a CG3 event in the Journey consumer. GAP/QUARANTINED must fail closed
+/// and must not let an action go back to dispatch until replay/reconcile succeeds.
 enum JrGovernanceConsumerState {
   APPLIED
   NO_OP
   GAP
   QUARANTINED
-  // CG4.8 (#191): version+digest ซ้ำกับที่ apply แล้วแต่ eventId ต่าง; ไม่ขยับ cursor
+  // CG4.8 (#191): version+digest repeats one already applied but with a different eventId; the cursor does not move
   DUPLICATE
 }
 
@@ -1471,7 +1471,7 @@ enum JrGovernanceAcknowledgementState {
   FAILED
 }
 
-/// งานภายนอกของ Journey ที่ต้องเกิดหลัง owner-local inbox/action commit เท่านั้น
+/// External work of Journey that must happen only after the owner-local inbox/action commit
 enum JrGovernanceEffectState {
   PENDING
   PROCESSING
@@ -1490,8 +1490,8 @@ enum JrActionLifecycleState {
   ACCEPTED
 }
 
-/// S1.7: Dialer เก็บ raw outbound attempt ของตนเองและใช้ state นี้สำหรับ
-/// CG3 invalidation เท่านั้น ไม่ใช่ source of truth ของ reservation หรือ policy.
+/// S1.7: Dialer keeps its own raw outbound attempt and uses this state for
+/// CG3 invalidation only; it is not the source of truth for a reservation or policy.
 enum ObAttemptRealtimeState {
   QUEUED
   RESERVED
@@ -1512,7 +1512,7 @@ enum ObGovernanceConsumerState {
   NO_OP
   GAP
   QUARANTINED
-  // CG4.8 (#191): version+digest ซ้ำกับที่ apply แล้วแต่ eventId ต่าง; ไม่ขยับ cursor
+  // CG4.8 (#191): version+digest repeats one already applied but with a different eventId; the cursor does not move
   DUPLICATE
 }
 
@@ -1619,7 +1619,7 @@ model CgReservation {
   settledAt                     DateTime?                   @map("settled_at")
   authorizationAggregateVersion Int?                        @map("authorization_aggregate_version")
   authorizationPolicyVersion    Int?                        @map("authorization_policy_version")
-  /// S1.5: context ที่ immutable เพื่อ canonical re-evaluation แบบ fail-closed
+  /// S1.5: immutable context for fail-closed canonical re-evaluation
   authorizationContactKind      String?                     @map("authorization_contact_kind")
   authorizationContextVersion   Int                         @default(0) @map("authorization_context_version")
   authorizationDecisionId       String?                     @map("authorization_decision_id") @db.Uuid
@@ -1648,7 +1648,7 @@ model CgReservation {
   @@map("cg_reservations")
 }
 
-/// ผลลัพธ์ durable ของ command เพื่อให้ duplicate คืน snapshot เดิมหลัง restart
+/// Durable result of a command so a duplicate returns the original snapshot after a restart
 model CgReservationCommandReceipt {
   id             String                        @id @default(uuid()) @db.Uuid
   tenantId       String                        @map("tenant_id") @db.Uuid
@@ -1667,7 +1667,7 @@ model CgReservationCommandReceipt {
   @@map("cg_reservation_command_receipts")
 }
 
-/// Fact ของ Contact Governance แบบ immutable: หนึ่ง canonical attempt ต่อ outcomeRef ใน tenant
+/// Immutable Contact Governance fact: one canonical attempt per outcomeRef in a tenant
 model CgAttempt {
   id            String        @id @default(uuid()) @db.Uuid
   tenantId      String        @map("tenant_id") @db.Uuid
@@ -1700,7 +1700,7 @@ model CgAttempt {
   @@map("cg_attempts")
 }
 
-/// Successful Touch แบบ immutable ที่ตัดสินจาก policy ของ Contact Governance
+/// Immutable successful Touch decided from a Contact Governance policy
 model CgTouch {
   id                  String               @id @default(uuid()) @db.Uuid
   tenantId            String               @map("tenant_id") @db.Uuid
@@ -1717,11 +1717,11 @@ model CgTouch {
   occurredAt          DateTime             @map("occurred_at")
   correlationId       String               @map("correlation_id")
   causationId         String?              @map("causation_id")
-  /// S2: หลักฐาน response ของ Touch แบบ correlated — มีทั้งคู่หรือไม่มีทั้งคู่ (CHECK ใน migration)
-  /// unique `(tenant_id, response_evidence_ref)` เป็น partial index ที่ Prisma ประกาศไม่ได้
-  /// S2.2: `cg_touches_provider_accepted_evidence_check` บังคับว่า Touch บน Attempt ที่ accepted
-  /// ต้องมี evidence เสมอ และ trigger `cg_touches_evidence_guard` บังคับว่า outcome ต้องตรงกับ
-  /// Attempt ที่ผูกอยู่ — ทั้งสองอยู่ใน migration เพราะ Prisma ประกาศ CHECK/trigger ไม่ได้
+  /// S2: correlated Touch response evidence — both present or both absent (CHECK in the migration)
+  /// unique `(tenant_id, response_evidence_ref)` is a partial index that Prisma cannot declare
+  /// S2.2: `cg_touches_provider_accepted_evidence_check` enforces that a Touch on an accepted Attempt
+  /// must always have evidence, and trigger `cg_touches_evidence_guard` enforces that the outcome must match
+  /// the linked Attempt — both live in the migration because Prisma cannot declare CHECK/trigger
   evidenceKind        CgTouchEvidenceKind? @map("evidence_kind")
   responseEvidenceRef String?              @map("response_evidence_ref")
   createdAt           DateTime             @default(now()) @map("created_at")
@@ -2031,19 +2031,19 @@ model CgConsumerAcknowledgement {
 }
 
 // ─────────────────────────── CG4.7 authorization store ───────────────────────────
-// CG4.3 ประกาศ `Cg4AuthorizationPort` ไว้ให้ IAM เป็นเจ้าของ แต่ repo นี้ยังไม่มี IAM
-// service จริง สองตารางนี้คือ canonical store ที่ port อ่านในระหว่างนั้น — แยกจาก
-// `users.role` โดยตั้งใจ เพราะ #173 ห้ามใช้ role string แทน domain capability.
-// เมื่อ IAM service พร้อม ให้เปลี่ยน adapter ที่อ่านตารางนี้ ไม่ต้องแก้ repository ใด ๆ
+// CG4.3 declares `Cg4AuthorizationPort` for IAM to own, but this repo has no real IAM
+// service yet; these two tables are the canonical store the port reads in the meantime — separate from
+// `users.role` on purpose, because #173 forbids using a role string in place of a domain capability.
+// When the IAM service is ready, change the adapter that reads these tables; no repository needs to change
 model Cg4AuthorizationSubject {
   id                        String                    @id @default(uuid()) @db.Uuid
   tenantId                  String                    @map("tenant_id") @db.Uuid
-  /// stable human subject id; ตรงกับ workspace user id ที่ gateway verify มาแล้ว
+  /// stable human subject id; matches the workspace user id the gateway has verified
   subjectId                 String                    @map("subject_id")
   authenticationStrength    Cg4AuthenticationStrength @default(STANDARD) @map("authentication_strength")
   directComplianceAuthority Boolean                   @default(false) @map("direct_compliance_authority")
   emergencyAuthority        Boolean                   @default(false) @map("emergency_authority")
-  /// group/shared/service principal เป็น delegate หรือ checker ไม่ได้ (#173 §3)
+  /// a group/shared/service principal cannot be a delegate or checker (#173 §3)
   isServicePrincipal        Boolean                   @default(false) @map("is_service_principal")
   authorizationEpoch        Int                       @default(1) @map("authorization_epoch")
   scopeVersion              Int                       @default(1) @map("scope_version")
@@ -2075,10 +2075,10 @@ model Cg4CapabilityGrant {
   @@map("cg_capability_grant")
 }
 
-// ─────────────────────────── CG4.6 events, inbox และ recovery ───────────────────────────
-// Projection ฝั่งรับของ canonical event (#179 §4). ไม่ใช่ truth: cursor ของ consumer
-// group คือแถว APPLIED ที่ version สูงสุด และทุก decision ที่ไม่ใช่ APPLY/DUPLICATE
-// จะเปิด CgScopePause ค้างไว้จนกว่าจะ reload canonical state.
+// ─────────────────────────── CG4.6 events, inbox and recovery ───────────────────────────
+// Receiving-side projection of a canonical event (#179 §4). Not the truth: the consumer group's cursor
+// is the APPLIED row with the highest version, and every decision that is not APPLY/DUPLICATE
+// leaves a CgScopePause open until the canonical state is reloaded.
 model CgConsumerInbox {
   id               String          @id @default(uuid()) @db.Uuid
   tenantId         String          @map("tenant_id") @db.Uuid
@@ -2103,14 +2103,14 @@ model CgConsumerInbox {
   @@map("cg_consumer_inbox")
 }
 
-// Scope ที่ถูกกักไว้เพราะ stream ไม่ต่อเนื่องหรือขัดแย้งกัน readerต้อง fail closed
-// สำหรับ scope นี้จนกว่าจะ reload canonical แล้ว clear (#176 §5, #179 §4).
+// A scope held because the stream is discontinuous or conflicting; a reader must fail closed
+// for this scope until it reloads canonical and clears (#176 §5, #179 §4).
 model CgScopePause {
   id               String             @id @default(uuid()) @db.Uuid
   tenantId         String             @map("tenant_id") @db.Uuid
   consumerGroup    String             @map("consumer_group")
   scopeKind        CgScopePauseKind   @map("scope_kind")
-  /// contactId หรือ policy scopeKey แล้วแต่ scopeKind
+  /// contactId or policy scopeKey depending on scopeKind
   scopeRef         String             @map("scope_ref")
   state            CgScopePauseState  @default(ACTIVE)
   reason           CgScopePauseReason
@@ -2132,8 +2132,8 @@ model CgScopePause {
 }
 
 // ─────────────────────────── CG4 canonical foundation ───────────────────────────
-// ตารางกลุ่มนี้เป็น additive foundation ตาม #185. FK tenant-bound และ lifecycle
-// orchestration จริงจะเริ่มใน CG4.3+; CG4.2 ไม่ย้าย writer จาก CG3.
+// This group of tables is an additive foundation per #185. Tenant-bound FKs and real lifecycle
+// orchestration start in CG4.3+; CG4.2 does not move the writer away from CG3.
 
 model Cg4Policy {
   id              String          @id @default(uuid()) @db.Uuid
@@ -2154,10 +2154,10 @@ model Cg4Policy {
   supersedesId    String?         @map("supersedes_id") @db.Uuid
   createdAt       DateTime        @default(now()) @map("created_at")
 
-  // CG4.5 (#188). draftRevision เป็น CAS token ของ draft ที่ยังแก้ได้; หลัง submit
-  // content ถูก freeze และการแก้ต่อต้องสร้าง version ใหม่ (#176 §1). กลุ่ม
-  // diffClass/testArtifactDigest/approvalDigest/baseHead* คือ binding ที่ approval
-  // ผูกไว้ ใช้ตรวจ staleness ตอน publish โดยไม่ต้องเชื่อ payload จาก caller.
+  // CG4.5 (#188). draftRevision is the CAS token of a draft that is still editable; after submit
+  // the content is frozen and further edits must create a new version (#176 §1). The group
+  // diffClass/testArtifactDigest/approvalDigest/baseHead* is the binding an approval
+  // attaches to, used to check staleness at publish without trusting a payload from the caller.
   schemaVersion      Int                 @default(1) @map("schema_version")
   evaluatorVersion   String              @default("CG4_EVALUATOR_V1") @map("evaluator_version")
   draftRevision      Int                 @default(1) @map("draft_revision")
@@ -2167,10 +2167,10 @@ model Cg4Policy {
   baseHeadVersion    Int?                @map("base_head_version")
   baseHeadDigest     String?             @map("base_head_digest") @db.Char(64)
   activateAt         DateTime?           @map("activate_at")
-  /// rollback สร้าง version ใหม่จาก content ของ version เป้าหมายเสมอ ห้าม pointer flip (#176 §6)
+  /// rollback always creates a new version from the content of the target version; no pointer flip (#176 §6)
   rollbackOfId       String?             @map("rollback_of_id") @db.Uuid
-  /// CG4.10 (#193): เปลี่ยนไม่ได้หลังสร้าง (trigger cg4_policy_origin_immutable); LEGACY_CG3 ต้องมี
-  /// legacySourceRowId ชี้ cg_policies ต้นทาง และ map ได้ครั้งเดียวต่อ row (partial unique index)
+  /// CG4.10 (#193): cannot change after creation (trigger cg4_policy_origin_immutable); LEGACY_CG3 must have
+  /// legacySourceRowId pointing at the source cg_policies row, and can be mapped only once per row (partial unique index)
   origin             Cg4PolicyOrigin     @default(CG4)
   legacySourceRowId  String?             @map("legacy_source_row_id") @db.Uuid
 
@@ -2190,8 +2190,8 @@ model Cg4PolicyScopeHead {
   headPolicyRevisionId String   @map("head_policy_revision_id") @db.Uuid
   updatedAt            DateTime @updatedAt @map("updated_at")
 
-  // CG4.5 (#188): headVersion เป็น monotonic aggregate version สำหรับ CAS ตอน publish
-  // (#176 §3) ส่วน nextActivationAt คือ `validUntil` bound ของ mutable head cache (#176 §5)
+  // CG4.5 (#188): headVersion is a monotonic aggregate version for CAS at publish
+  // (#176 §3) and nextActivationAt is the `validUntil` bound of the mutable head cache (#176 §5)
   headVersion      Int       @default(0) @map("head_version")
   headDigest       String    @map("head_digest") @db.Char(64)
   latestMutationId String?   @map("latest_mutation_id") @db.Uuid
@@ -2213,8 +2213,8 @@ model Cg4PolicyTestArtifact {
   result         Json
   createdAt      DateTime @default(now()) @map("created_at")
 
-  // CG4.5 (#188): artifact ผูกกับ content/fixture/head ที่ใช้รันจริง ไม่ใช่แค่ผลลัพธ์
-  // อย่างเดียว — approval ที่ผูก artifact นี้จึงตรวจ staleness ได้ตอน publish (#176 §2)
+  // CG4.5 (#188): an artifact is bound to the content/fixture/head actually run, not just the result
+  // — so an approval bound to this artifact can be checked for staleness at publish (#176 §2)
   contentDigest         String               @map("content_digest") @db.Char(64)
   platformFixtureDigest String               @map("platform_fixture_digest") @db.Char(64)
   tenantFixtureDigest   String               @map("tenant_fixture_digest") @db.Char(64)
@@ -2226,7 +2226,7 @@ model Cg4PolicyTestArtifact {
   failed                Int
 
   @@unique([tenantId, id])
-  // draft ยังแก้ได้ก่อน submit จึงมี artifact ได้หลายใบต่อ version — แยกกันด้วย content digest
+  // a draft is still editable before submit, so a version can have several artifacts — told apart by content digest
   @@unique([tenantId, policyId, policyVersion, suiteVersion, contentDigest])
   @@index([tenantId, policyId, policyVersion, artifactDigest])
   @@map("cg_policy_test_artifact")
@@ -2335,9 +2335,9 @@ model Cg4ExceptionHead {
   @@map("cg_exception_head")
 }
 
-// CG4 มี concurrency head เป็นของตัวเอง แยกจาก CgContactStateHead (CG3-owned):
-// การใช้ head ร่วมกันจะทำให้ optimistic-concurrency version และ digest chain
-// ของ CG3 preference กับ CG4 exception ชนกันข้ามระบบสำหรับ contact เดียวกัน.
+// CG4 has its own concurrency head, separate from CgContactStateHead (CG3-owned):
+// sharing a head would make the optimistic-concurrency version and digest chain
+// of CG3 preference and CG4 exception collide across systems for the same contact.
 model Cg4ContactExceptionHead {
   tenantId         String   @map("tenant_id") @db.Uuid
   contactId        String   @map("contact_id") @db.Uuid
@@ -2416,8 +2416,8 @@ model Cg4ScopeKillSwitch {
   @@map("cg_scope_kill_switch")
 }
 
-// Ledger ว่างใน CG4.2: เก็บ deterministic source→target mapping เมื่อ ticket
-// backfill ถัดไปได้รับ authority โดยไม่สร้าง historic event ปลอมใน migration นี้.
+// An empty ledger in CG4.2: keeps a deterministic source→target mapping when a later backfill
+// ticket gets authority, without creating fake historic events in this migration.
 model Cg4BackfillLedger {
   id           String   @id @default(uuid()) @db.Uuid
   tenantId     String   @map("tenant_id") @db.Uuid
@@ -2433,7 +2433,7 @@ model Cg4BackfillLedger {
   @@map("cg4_backfill_ledger")
 }
 
-/// CG4.10 (#193): development rollout ของ #178 ทุก stage ไม่มี provider traffic
+/// CG4.10 (#193): development rollout of #178; no stage has provider traffic
 enum Cg4RolloutStage {
   DISABLED
   SHADOW_EVALUATION
@@ -2441,8 +2441,8 @@ enum Cg4RolloutStage {
   INTERNAL_ENABLED
 }
 
-/// CG4.10 (#193): ไม่มีแถว = DISABLED. switchedAt ตั้งครั้งเดียวเมื่อเข้า SCOPED_SYNTHETIC และหลังจากนั้น
-/// trigger cg4_rollout_state_guard ห้ามกลับไป DISABLED/SHADOW_EVALUATION (#179 §6 ห้ามย้อน writer)
+/// CG4.10 (#193): no row = DISABLED. switchedAt is set once on entering SCOPED_SYNTHETIC and afterwards
+/// trigger cg4_rollout_state_guard forbids going back to DISABLED/SHADOW_EVALUATION (#179 §6 forbids moving the writer back)
 model Cg4RolloutState {
   id                 String          @id @default(uuid()) @db.Uuid
   tenantId           String          @map("tenant_id") @db.Uuid
@@ -2461,7 +2461,7 @@ model Cg4RolloutState {
   @@map("cg4_rollout_state")
 }
 
-/// CG4.10 (#193): ประวัติ transition/freeze แบบ append-only
+/// CG4.10 (#193): append-only history of transitions/freezes
 model Cg4RolloutTransition {
   id                 String          @id @default(uuid()) @db.Uuid
   tenantId           String          @map("tenant_id") @db.Uuid
@@ -2484,7 +2484,7 @@ model Cg4RolloutTransition {
   @@map("cg4_rollout_transition")
 }
 
-/// CG4.10 (#193): shadow evaluation ที่ผลของ CG3 loader กับ head-based evaluator ต่างกัน เก็บเฉพาะ digest
+/// CG4.10 (#193): shadow evaluation where the CG3 loader result and the head-based evaluator differ; keeps only the digest
 model Cg4ShadowMismatch {
   id                 String   @id @default(uuid()) @db.Uuid
   tenantId           String   @map("tenant_id") @db.Uuid
@@ -2544,26 +2544,26 @@ model JrKafkaConsumerInbox {
   @@map("jr_kafka_consumer_inbox")
 }
 
-/// C1.5 ขยาย enrollment ให้เป็น durable execution cursor: `event_inbox_id` ถูกผ่อนเป็น
-/// nullable เพราะ Schedule trigger ไม่มี event ตั้งต้น และ `(current_step_id, step_sequence)`
-/// เป็นตำแหน่งเดียวที่บอกว่า enrollment เดินไปถึงไหน — worker ทุกตัวต้อง CAS ที่ step_sequence
+/// C1.5 extends the enrollment into a durable execution cursor: `event_inbox_id` is relaxed to
+/// nullable because a Schedule trigger has no originating event, and `(current_step_id, step_sequence)`
+/// is the only position that says how far the enrollment has progressed — every worker must CAS on step_sequence
 model JrEnrollment {
   id               String            @id @default(uuid()) @db.Uuid
   tenantId         String            @map("tenant_id") @db.Uuid
   eventInboxId     String?           @map("event_inbox_id") @db.Uuid
   occurrenceId     String?           @map("occurrence_id") @db.Uuid
-  /// J2.7: enrollment ที่เกิดจาก INTERACTION_OUTCOME trigger — nullable เหมือน
-  /// eventInboxId/occurrenceId เพราะ trigger source ของ enrollment มีได้แบบเดียวเท่านั้น
+  /// J2.7: an enrollment created by an INTERACTION_OUTCOME trigger — nullable like
+  /// eventInboxId/occurrenceId because an enrollment can have only one trigger source
   ///
-  /// ชี้ receipt revision แรกของ logical outcome ที่ทำให้ journey นี้ match — correction
-  /// revision ถัดไปของ outcome เดิม re-evaluate enrollment ใบนี้ ไม่สร้างใบใหม่ (#123) และ
-  /// receipt หนึ่งใบ fan-out ได้หลาย published journey จึง unique ระดับ (receipt, journey)
+  /// points at the first receipt revision of the logical outcome that made this journey match — a correction
+  /// revision after the original outcome re-evaluates this enrollment and does not create a new one (#123), and
+  /// one receipt can fan out to several published journeys, so it is unique at the (receipt, journey) level
   outcomeReceiptId String?           @map("outcome_receipt_id") @db.Uuid
-  /// J3.7 (#218): enrollment ที่เกิดจาก SEGMENT_ENTRY trigger
+  /// J3.7 (#218): an enrollment created by a SEGMENT_ENTRY trigger
   ///
-  /// ผูกกับ "intent" ไม่ใช่ receipt เหมือน outcomeReceiptId เพราะ segment หนึ่ง revision
-  /// fan-out ไปได้หลาย journey พร้อมกัน ส่วน intent เป็นหนึ่งใบต่อ (journey, version, entry)
-  /// อยู่แล้ว ความสัมพันธ์จึงเป็น 1:1 จริง และ unique ด้านล่างบังคับได้ตรงไปตรงมา
+  /// bound to an "intent", not a receipt like outcomeReceiptId, because one segment revision
+  /// fans out to several journeys at once, while an intent is already one per (journey, version, entry),
+  /// so the relationship is truly 1:1 and the unique constraint below can enforce it directly
   segmentIntentId  String?           @map("segment_intent_id") @db.Uuid
   journeyId        String?           @map("journey_id") @db.Uuid
   journeyVersion   Int               @map("journey_version")
@@ -2606,8 +2606,8 @@ model JrEnrollment {
   @@map("jr_enrollments")
 }
 
-/// หนึ่งแถวต่อหนึ่ง occurrence ของ Schedule trigger — unique key กัน cron ที่ยิงซ้ำ
-/// (ตัว scheduler เอง, worker หลายตัว หรือ restart) ไม่ให้ enroll ซ้ำใน tenant เดียวกัน
+/// One row per occurrence of a Schedule trigger — the unique key stops a cron that fires twice
+/// (the scheduler itself, several workers or a restart) from enrolling twice in the same tenant
 model JrScheduleOccurrence {
   id             String                    @id @default(uuid()) @db.Uuid
   tenantId       String                    @map("tenant_id") @db.Uuid
@@ -2627,8 +2627,8 @@ model JrScheduleOccurrence {
   @@map("jr_schedule_occurrences")
 }
 
-/// Ledger ของทุก node ที่ enrollment เดินผ่าน `(enrollment_id, step_sequence)` เป็น unique
-/// จึงเป็นตัวกันไม่ให้ worker สองตัวรัน node เดียวกันซ้ำ แม้จะ claim งานพร้อมกัน
+/// Ledger of every node an enrollment walks through; `(enrollment_id, step_sequence)` is unique
+/// so it prevents two workers from running the same node twice even when they claim the work at the same time
 model JrStepRun {
   id            String         @id @default(uuid()) @db.Uuid
   tenantId      String         @map("tenant_id") @db.Uuid
@@ -2686,8 +2686,8 @@ model JrAction {
   @@map("jr_actions")
 }
 
-/// owner-local inbox ของ CG3 consumer: completion record อยู่ transaction เดียวกับ
-/// Journey side effect และ acknowledgement outbox ก่อน Kafka offset ถูก commit.
+/// owner-local inbox of the CG3 consumer: the completion record is in the same transaction as the
+/// Journey side effect and the acknowledgement outbox, before the Kafka offset is committed.
 model JrGovernanceConsumerInbox {
   id               String                    @id @default(uuid()) @db.Uuid
   consumer         String
@@ -2700,20 +2700,20 @@ model JrGovernanceConsumerInbox {
   state            JrGovernanceConsumerState
   affectedCount    Int                       @default(0) @map("affected_count")
   appliedAt        DateTime                  @default(now()) @map("applied_at")
-  /// CG4.8 (#191): controlled reason ของ quarantine/unsupported contract; ไม่มี payload หรือ PII
+  /// CG4.8 (#191): controlled reason for quarantine/unsupported contract; no payload or PII
   reasonCode       String?                   @map("reason_code")
 
   tenant Tenant @relation(fields: [tenantId], references: [id])
 
   @@unique([consumer, tenantId, eventId])
-  // cursor unique ต่อ version เฉพาะ state APPLIED|NO_OP เป็น partial unique index ใน migration
-  // 20260914060000_add_cg4_downstream_invalidation (Prisma แสดง partial index ไม่ได้)
+  // cursor unique per version only for state APPLIED|NO_OP is a partial unique index in the migration
+  // 20260914060000_add_cg4_downstream_invalidation (Prisma cannot show a partial index)
   @@index([tenantId, aggregateType, aggregateId, aggregateVersion])
   @@map("jr_governance_consumer_inbox")
 }
 
-/// Journey publish acknowledgement หลัง durable apply สำเร็จแล้วเท่านั้น. Relay retry
-/// ได้โดยไม่ต้อง apply event ซ้ำ และ payload มี opaque id/digest เท่านั้น.
+/// Journey publish acknowledgement, only after the durable apply has succeeded. The relay can retry
+/// without applying the event again and the payload holds only opaque ids/digests.
 model JrGovernanceAcknowledgementOutbox {
   id                 String                           @id @default(uuid()) @db.Uuid
   tenantId           String                           @map("tenant_id") @db.Uuid
@@ -2740,8 +2740,8 @@ model JrGovernanceAcknowledgementOutbox {
   @@map("jr_governance_acknowledgement_outbox")
 }
 
-/// Transactional outbox สำหรับ release/reconcile จาก CG3 invalidation. การมีแถวนี้
-/// คือเงื่อนไขก่อน acknowledgement APPLIED; relay เรียก owner ภายนอกหลัง commit เท่านั้น.
+/// Transactional outbox for release/reconcile from CG3 invalidation. The existence of this row
+/// is the precondition before the APPLIED acknowledgement; the relay calls the external owner only after commit.
 model JrGovernanceEffectOutbox {
   id                 String                  @id @default(uuid()) @db.Uuid
   tenantId           String                  @map("tenant_id") @db.Uuid
@@ -2767,7 +2767,7 @@ model JrGovernanceEffectOutbox {
   @@map("jr_governance_effect_outbox")
 }
 
-/// Delivery ส่ง lifecycle แบบ immutable เข้า Journey owner; hash ป้องกัน eventId เดิมแต่ binding เปลี่ยน.
+/// Delivery sends an immutable lifecycle into the Journey owner; the hash prevents the same eventId with a changed binding.
 model JrActionLifecycleInbox {
   id                 String                 @id @default(uuid()) @db.Uuid
   tenantId           String                 @map("tenant_id") @db.Uuid
@@ -2789,8 +2789,8 @@ model JrActionLifecycleInbox {
   @@map("jr_action_lifecycle_inbox")
 }
 
-/// S1.7: raw Dialer call record. Governance fieldsเป็น projection เพื่อหยุด
-/// originate/future action เท่านั้น; `cg_*` ยังคงเป็น canonical reservation/policy owner.
+/// S1.7: raw Dialer call record. Governance fields are a projection only, to stop
+/// originate/future actions; `cg_*` remains the canonical reservation/policy owner.
 model ObAttempt {
   id                      String                 @id @default(uuid()) @db.Uuid
   tenantId                String                 @map("tenant_id") @db.Uuid
@@ -2820,8 +2820,8 @@ model ObAttempt {
   @@map("ob_attempts")
 }
 
-/// completion record ของ Dialer CG3 consumer อยู่ transaction เดียวกับ raw attempt,
-/// effect outbox และ acknowledgement outbox ก่อน Kafka offset.
+/// completion record of the Dialer CG3 consumer, in the same transaction as the raw attempt,
+/// effect outbox and acknowledgement outbox, before the Kafka offset.
 model ObGovernanceConsumerInbox {
   id               String                    @id @default(uuid()) @db.Uuid
   consumer         String
@@ -2834,14 +2834,14 @@ model ObGovernanceConsumerInbox {
   state            ObGovernanceConsumerState
   affectedCount    Int                       @default(0) @map("affected_count")
   appliedAt        DateTime                  @default(now()) @map("applied_at")
-  /// CG4.8 (#191): controlled reason ของ quarantine/unsupported contract; ไม่มี payload หรือ PII
+  /// CG4.8 (#191): controlled reason for quarantine/unsupported contract; no payload or PII
   reasonCode       String?                   @map("reason_code")
 
   tenant Tenant @relation(fields: [tenantId], references: [id])
 
   @@unique([consumer, tenantId, eventId])
-  // cursor unique ต่อ version เฉพาะ state APPLIED|NO_OP เป็น partial unique index ใน migration
-  // 20260914060000_add_cg4_downstream_invalidation (Prisma แสดง partial index ไม่ได้)
+  // cursor unique per version only for state APPLIED|NO_OP is a partial unique index in the migration
+  // 20260914060000_add_cg4_downstream_invalidation (Prisma cannot show a partial index)
   @@index([tenantId, aggregateType, aggregateId, aggregateVersion])
   @@map("ob_governance_consumer_inbox")
 }
@@ -2898,9 +2898,9 @@ model ObGovernanceEffectOutbox {
 }
 
 // ──────────────────────── J2.5: Dialer ADMIT_CAMPAIGN_TARGET owner ────────────────────────
-// Dialer เป็น canonical writer เต็มรูปแบบของ ob_campaign_* — Journey สร้าง/start/pause/edit
-// Campaign ไม่ได้และไม่ originate/send ที่นี่ (ดู #133 ขอบเขต J2.5); admission เฉพาะ
-// existing campaign เท่านั้น
+// Dialer is the full canonical writer of ob_campaign_* — Journey cannot create/start/pause/edit
+// a Campaign and does not originate/send here (see #133 scope J2.5); admission applies only to an
+// existing campaign
 
 enum ObCampaignStatus {
   ACTIVE
@@ -2910,9 +2910,9 @@ enum ObCampaignStatus {
   COMPLETED
 }
 
-/// ADMITTED = originate ได้ตามปกติเมื่อ campaign active; DEFERRED = admission สำเร็จแต่
-/// campaign ยัง scheduled/paused — ทั้งคู่รายงานผลเป็น J2OwnerResultStatus 'ADMITTED'
-/// เพราะ Journey สนใจแค่ว่า admit สำเร็จหรือไม่ ไม่ใช่ pacing/schedule ภายใน
+/// ADMITTED = originate normally when the campaign is active; DEFERRED = admission succeeded but the
+/// campaign is still scheduled/paused — both report the result as J2OwnerResultStatus 'ADMITTED'
+/// because Journey only cares whether admission succeeded, not the internal pacing/schedule
 enum ObCampaignTargetState {
   ADMITTED
   DEFERRED
@@ -2922,23 +2922,23 @@ enum ObCampaignTargetState {
   ACTIVE
   /// J2.9: simulated call settled (terminal, no further origination for this target)
   CONSUMED
-  /// J2.9 follow-up: originate lease หมดขณะค้างใน ORIGINATING (เช่น process ตายกลางคัน)
-  /// — ต้องให้ CG3 primitive/คนตัดสิน ห้าม originate ซ้ำและห้าม release reservation เอง
+  /// J2.9 follow-up: the originate lease expired while stuck in ORIGINATING (e.g. the process died midway)
+  /// — needs the CG3 primitive/a human to decide; never originate again and never release the reservation itself
   RECONCILING
-  /// J2.8: CANCEL_CAMPAIGN_TARGET ก่อนถึง originate barrier (terminal)
+  /// J2.8: CANCEL_CAMPAIGN_TARGET before reaching the originate barrier (terminal)
   CANCELLED
-  /// J2.8: SUPERSEDE_CAMPAIGN_TARGET ก่อนถึง originate barrier (terminal)
+  /// J2.8: SUPERSEDE_CAMPAIGN_TARGET before reaching the originate barrier (terminal)
   SUPERSEDED
 }
 
-/// J2.9 (#137): rollout ของ Dialer originate barrier — เดินหน้าทีละขั้นเท่านั้นและทุก state ไม่มี provider I/O
+/// J2.9 (#137): rollout of the Dialer originate barrier — moves forward one step at a time and no state has provider I/O
 enum ObOriginateRolloutState {
   DISABLED
-  /// ตรวจ current scope แล้วหยุด ไม่แตะ Governance/owner state
+  /// checks the current scope and stops, without touching Governance/owner state
   SHADOW_RECEIPT
-  /// ตรวจเงื่อนไขฝั่ง owner ครบ (campaign/callback/scope) แล้วหยุดก่อนจอง Governance reservation
+  /// checks all owner-side conditions (campaign/callback/scope) and stops before reserving a Governance reservation
   OWNER_CONFORMANCE
-  /// จอง reservation + TEST_ADAPTER originate เฉพาะ scope ใน ob_originate_rollout_scopes
+  /// reserves a reservation + TEST_ADAPTER originate only for scopes in ob_originate_rollout_scopes
   SCOPED_INTERNAL_ENABLED
 }
 
@@ -2947,7 +2947,7 @@ enum ObOriginateRolloutScopeKind {
   CALLBACK_QUEUE
 }
 
-/// J2.9 (#137): gate ต่อ tenant ที่ทุก Dialer instance อ่านร่วมกัน — kill ชนะทุก state และยกเลิกไม่ได้
+/// J2.9 (#137): per-tenant gate that every Dialer instance reads together — kill wins over every state and cannot be undone
 model ObOriginateRollout {
   id           String                   @id @default(uuid()) @db.Uuid
   tenantId     String                   @map("tenant_id") @db.Uuid
@@ -2967,7 +2967,7 @@ model ObOriginateRollout {
   @@map("ob_originate_rollout_state")
 }
 
-/// J2.9 (#137): allowlist ของ SCOPED_INTERNAL_ENABLED — นอก list ไม่ originate แม้ gate เปิดถึงขั้นสุดท้าย
+/// J2.9 (#137): allowlist of SCOPED_INTERNAL_ENABLED — outside the list nothing originates even when the gate is open to the last stage
 model ObOriginateRolloutScope {
   id         String                      @id @default(uuid()) @db.Uuid
   tenantId   String                      @map("tenant_id") @db.Uuid
@@ -2982,7 +2982,7 @@ model ObOriginateRolloutScope {
   @@map("ob_originate_rollout_scopes")
 }
 
-/// J2.9 (#137): audit ของ gate แบบ append-only
+/// J2.9 (#137): append-only audit of the gate
 model ObOriginateRolloutAudit {
   id         String   @id @default(uuid()) @db.Uuid
   tenantId   String   @map("tenant_id") @db.Uuid
@@ -2998,7 +2998,7 @@ model ObOriginateRolloutAudit {
   @@map("ob_originate_rollout_audit")
 }
 
-/// fixture ของ campaign ที่ "มีอยู่แล้ว" — ไม่มี Campaign CRUD/UI ใน J2.5 (out of scope)
+/// fixture of a campaign that "already exists" — no Campaign CRUD/UI in J2.5 (out of scope)
 model ObCampaign {
   id        String           @id @default(uuid()) @db.Uuid
   tenantId  String           @map("tenant_id") @db.Uuid
@@ -3012,8 +3012,8 @@ model ObCampaign {
   @@map("ob_campaigns")
 }
 
-/// versioned policy ต่อ campaign — ตัดสิน duplicate contact ข้าม campaign เท่านั้น;
-/// duplicate ภายใน campaign เดียวกันบังคับด้วย unique constraint ของ ob_campaign_targets เสมอ
+/// versioned policy per campaign — decides only duplicate contacts across campaigns;
+/// a duplicate within one campaign is always enforced by the unique constraint of ob_campaign_targets
 model ObCampaignAdmissionPolicy {
   id                          String   @id @default(uuid()) @db.Uuid
   tenantId                    String   @map("tenant_id") @db.Uuid
@@ -3028,8 +3028,8 @@ model ObCampaignAdmissionPolicy {
   @@map("ob_campaign_admission_policies")
 }
 
-/// canonical target record หนึ่งแถวต่อ (campaign, contact) — recordId/version ที่ J2
-/// ownerAggregate อ้างถึง; ไม่มี Governance reservation, Attempt หรือ provider I/O ที่นี่
+/// one canonical target record per (campaign, contact) — the recordId/version that the J2
+/// ownerAggregate refers to; no Governance reservation, Attempt or provider I/O here
 model ObCampaignTarget {
   id                        String                @id @default(uuid()) @db.Uuid
   tenantId                  String                @map("tenant_id") @db.Uuid
@@ -3040,8 +3040,8 @@ model ObCampaignTarget {
   sourceOwnerTeamId         String                @map("source_owner_team_id") @db.Uuid
   targetOwnerTeamId         String                @map("target_owner_team_id") @db.Uuid
   admissionPolicyVersion    Int                   @map("admission_policy_version")
-  /// J2.9 follow-up: ตั้งตอนเข้า ORIGINATING และล้างตอนออก — sweeper ใช้ตัวนี้แยก
-  /// "กำลัง originate อยู่จริง" ออกจาก "ค้างเพราะ process ตาย"
+  /// J2.9 follow-up: set on entering ORIGINATING and cleared on leaving — the sweeper uses it to tell
+  /// "really originating right now" from "stuck because the process died"
   originateLeaseExpiresAt   DateTime?             @map("originate_lease_expires_at")
   cancelledAt               DateTime?             @map("cancelled_at")
   cancelReasonCode          String?               @map("cancel_reason_code")
@@ -3061,9 +3061,9 @@ model ObCampaignTarget {
   @@map("ob_campaign_targets")
 }
 
-/// durable command+result เดียวกันต่อ actionKey — pull model เหมือน cs_command_inbox
-/// ของ J2.4; commandType เก็บไว้เผื่อ SCHEDULE_CALLBACK, CANCEL_x และ SUPERSEDE_x ของ
-/// ticket ถัดไป แม้ J2.5 จะ populate เฉพาะ ADMIT_CAMPAIGN_TARGET เท่านั้น
+/// one durable command+result per actionKey — a pull model like cs_command_inbox
+/// of J2.4; commandType is kept for SCHEDULE_CALLBACK, CANCEL_x and SUPERSEDE_x of
+/// a later ticket, even though J2.5 populates only ADMIT_CAMPAIGN_TARGET
 model ObDialerCommandInbox {
   id               String   @id @default(uuid()) @db.Uuid
   tenantId         String   @map("tenant_id") @db.Uuid
@@ -3085,20 +3085,20 @@ model ObDialerCommandInbox {
 
   tenant Tenant @relation(fields: [tenantId], references: [id])
 
-  /// J2.8: cancel/supersede ใช้ actionKey เดิมของ positive effect แต่ commandId ใหม่ (J2.1
-  /// contract) — receipt หนึ่งใบต่อ command จึง unique ที่ commandId ไม่ใช่ actionKey
+  /// J2.8: cancel/supersede reuse the actionKey of the positive effect but with a new commandId (J2.1
+  /// contract) — one receipt per command, so it is unique on commandId, not actionKey
   @@unique([tenantId, commandId], map: "ob_dialer_command_inbox_tenant_command_key")
   @@index([tenantId, actionKey, commandType], map: "ob_dialer_command_inbox_tenant_action_idx")
   @@map("ob_dialer_command_inbox")
 }
 
 // ─────────────────── J2.6: Dialer SCHEDULE_CALLBACK/CANCEL/SUPERSEDE owner ───────────────────
-// reuse ob_dialer_command_inbox เดิมของ J2.5 (commandType เก็บไว้เผื่อไว้แล้ว) — ที่นี่เพิ่ม
-// เฉพาะ canonical ob_callbacks; ไม่มี actual originate/telephony command ใน J2.6 (out of scope)
+// reuses the existing ob_dialer_command_inbox of J2.5 (commandType was kept in reserve) — only
+// the canonical ob_callbacks is added here; no actual originate/telephony command in J2.6 (out of scope)
 
-/// SCHEDULED เท่านั้นที่ reversible; ORIGINATING/ACTIVE/CONSUMED เป็น fixture-only state
-/// ที่จำลอง progress จากกลไก originate จริงซึ่งยังไม่ถูกสร้างใน J2.6 — ใช้ทดสอบขอบเขต
-/// irreversible (ตอบ TOO_LATE) เท่านั้น
+/// Only SCHEDULED is reversible; ORIGINATING/ACTIVE/CONSUMED are fixture-only states
+/// that simulate progress from the real originate mechanism, which is not built in J2.6 — used only to test the
+/// irreversible boundary (answers TOO_LATE)
 enum ObCallbackState {
   SCHEDULED
   ORIGINATING
@@ -3106,12 +3106,12 @@ enum ObCallbackState {
   CONSUMED
   CANCELLED
   SUPERSEDED
-  /// J2.9 follow-up: ความหมายเดียวกับ ObCampaignTargetState.RECONCILING
+  /// J2.9 follow-up: same meaning as ObCampaignTargetState.RECONCILING
   RECONCILING
 }
 
-/// canonical Callback record หนึ่งแถวต่อ SCHEDULE_CALLBACK ที่สำเร็จ — ไม่มี Governance
-/// reservation หรือ telephony command ที่นี่; originate จริงเป็น ticket ถัดไป
+/// one canonical Callback record per successful SCHEDULE_CALLBACK — no Governance
+/// reservation or telephony command here; the real originate is a later ticket
 model ObCallback {
   id                        String          @id @default(uuid()) @db.Uuid
   tenantId                  String          @map("tenant_id") @db.Uuid
@@ -3130,7 +3130,7 @@ model ObCallback {
   supersedingOutcomeType    String?         @map("superseding_outcome_type")
   supersedingOutcomeId      String?         @map("superseding_outcome_id") @db.Uuid
   supersedingOutcomeVersion Int?            @map("superseding_outcome_version")
-  /// J2.9 follow-up: ความหมายเดียวกับ ObCampaignTarget.originateLeaseExpiresAt
+  /// J2.9 follow-up: same meaning as ObCampaignTarget.originateLeaseExpiresAt
   originateLeaseExpiresAt   DateTime?       @map("originate_lease_expires_at")
   createdAt                 DateTime        @default(now()) @map("created_at")
   updatedAt                 DateTime        @updatedAt @map("updated_at")
@@ -3144,13 +3144,13 @@ model ObCallback {
 }
 
 // ─────────────────────── J2.3: outcome/action durable foundation ───────────────────────
-// Journey เป็นเจ้าของ receipt/action/command/result เหล่านี้เท่านั้น — ไม่ใช่ canonical
-// Case/Campaign/Callback state ของ owner ตาม #121; ที่นี่ยังไม่มี trigger matching, owner
-// implementation หรือ relay transport จริง (J2.3 คือ schema/primitive เท่านั้น)
+// Journey owns these receipts/actions/commands/results only — they are not the canonical
+// Case/Campaign/Callback state of the owner per #121; there is no trigger matching, owner
+// implementation or real relay transport here yet (J2.3 is schema/primitive only)
 
-/// ผลดำเนินการของ receipt แต่ละใบ — ตรงกับ diagram ที่ยืนยันใน #123
-/// (RETRYABLE_FAILURE เป็น transient ระหว่าง retry เท่านั้น ไม่ persist เป็น state แยก
-/// แถวที่ retry ได้จะถูกส่งกลับไป READY พร้อม backoff บน `availableAt`)
+/// Processing result of each receipt — matches the diagram confirmed in #123
+/// (RETRYABLE_FAILURE is transient during retry only and is not persisted as a separate state;
+/// a retryable row is sent back to READY with a backoff on `availableAt`)
 enum JrOutcomeReceiptState {
   RECEIVED
   WAITING_FOR_GAP
@@ -3168,7 +3168,7 @@ enum JrOwnerActionKind {
   SCHEDULE_CALLBACK
 }
 
-/// ตรงกับ business action lifecycle ที่ยืนยันใน #123 ทุก state
+/// Matches every state of the business action lifecycle confirmed in #123
 enum JrOwnerActionState {
   PENDING
   DISPATCHED
@@ -3177,7 +3177,7 @@ enum JrOwnerActionState {
   ACK_UNKNOWN
   CANCEL_REQUESTED
   CANCELLED
-  /// J2.8: ผลจริงของ SUPERSEDE_CALLBACK/SUPERSEDE_CAMPAIGN_TARGET
+  /// J2.8: the real result of SUPERSEDE_CALLBACK/SUPERSEDE_CAMPAIGN_TARGET
   SUPERSEDED
   TOO_LATE
   RECONCILING
@@ -3185,16 +3185,16 @@ enum JrOwnerActionState {
 
 enum JrOwnerCommandState {
   PENDING
-  /// J2.8: เคลมไว้ระหว่างเรียก owner port — กัน worker คนละตัว claim ซ้ำ
+  /// J2.8: claimed while calling the owner port — prevents different workers from claiming twice
   PROCESSING
   SENT
   FAILED
-  /// J2.8: action ถูกยกเลิกก่อน command ออกจาก Journey — ห้าม dispatch ตลอดไป
+  /// J2.8: the action was cancelled before the command left Journey — must never be dispatched
   CANCELLED
 }
 
-/// ผลที่ owner ตอบกลับมาได้ — แยกจาก JrOwnerActionState เพราะ PENDING/DISPATCHED/
-/// CANCEL_REQUESTED ไม่ใช่ "ผล" ที่ owner ส่งกลับ
+/// Results the owner can send back — separate from JrOwnerActionState because PENDING/DISPATCHED/
+/// CANCEL_REQUESTED are not a "result" the owner sends back
 enum JrOwnerResultKind {
   ACKNOWLEDGED
   REJECTED
@@ -3211,7 +3211,7 @@ enum JrOwnerResultOutcome {
   CONFLICT
 }
 
-/// J5.0 — ผลของ owner ที่มีผลต่อ cursor ของ Journey เท่านั้น
+/// J5.0 — an owner result that affects only the Journey cursor
 enum JrOwnerContinuationOutcome {
   ADVANCED
   TERMINAL_IGNORED
@@ -3222,22 +3222,22 @@ enum JrRecoveryOperation {
   RECONCILE
   CANCEL
   SKIP_QUARANTINE
-  /// J3.5 (#216): สั่งประเมิน membership ใหม่ผ่าน re-filter cursor ไม่ใช่แก้ receipt/head ตรง
+  /// J3.5 (#216): orders membership to be re-evaluated through the re-filter cursor, not by editing the receipt/head directly
   REVALIDATE
 }
 
 enum JrRecoveryTargetKind {
   RECEIPT
   ACTION
-  /// J3.5 (#216): เพิ่มแบบ additive — ค่าเดิมสองตัวยังหมายถึง J2 receipt/action เหมือนเดิม
+  /// J3.5 (#216): added additively — the two original values still mean J2 receipt/action as before
   SEGMENT_RECEIPT
   SEGMENT_REFILTER
 }
 
-/// J2.3 — durable receipt ของ canonical interaction outcome revision หนึ่งใบ transport
-/// identity `(source, eventId)` แยกจาก logical stream identity
-/// `(outcomeType, outcomeId, outcomeVersion)` ตามที่ยืนยันใน #123; ไม่มี raw contact
-/// data — เก็บเฉพาะ internal ID, hash และ metadata
+/// J2.3 — durable receipt of one canonical interaction outcome revision; transport
+/// identity `(source, eventId)` is separate from the logical stream identity
+/// `(outcomeType, outcomeId, outcomeVersion)` as confirmed in #123; no raw contact
+/// data — only internal IDs, hashes and metadata
 model JrOutcomeReceipt {
   id               String                @id @default(uuid()) @db.Uuid
   tenantId         String                @map("tenant_id") @db.Uuid
@@ -3247,10 +3247,10 @@ model JrOutcomeReceipt {
   outcomeId        String                @map("outcome_id") @db.Uuid
   outcomeVersion   Int                   @map("outcome_version")
   payloadHash      String                @map("payload_hash") @db.Char(64)
-  /// J2.7: `InteractionOutcomePayloadV1` ที่ผ่าน `assertInteractionOutcomeEnvelope` แล้ว —
-  /// internal ID/code เท่านั้น ไม่มี raw PII; จำเป็นสำหรับ trigger matching และสร้าง owner
-  /// command ในเฟส apply ที่แยกจาก ingest (`JourneyOutcomeReceiptRepository.ingest` ที่ตัวเอง
-  /// ยังเป็นแค่ hash-based dedup/ordering ledger ตาม J2.3)
+  /// J2.7: the `InteractionOutcomePayloadV1` that has passed `assertInteractionOutcomeEnvelope` —
+  /// internal IDs/codes only, no raw PII; needed for trigger matching and for creating the owner
+  /// command in the apply phase, separate from ingest (`JourneyOutcomeReceiptRepository.ingest`, which itself
+  /// is still only a hash-based dedup/ordering ledger per J2.3)
   payload          Json
   state            JrOutcomeReceiptState @default(RECEIVED)
   attempts         Int                   @default(0)
@@ -3273,8 +3273,8 @@ model JrOutcomeReceipt {
   @@map("jr_outcome_receipts")
 }
 
-/// head ของ logical outcome stream หนึ่งเส้น — เทียบเท่า `CgContactStateHead` ของ CG3
-/// แต่ scope เป็น `(outcomeType, outcomeId)` ของ J2 เอง ไม่ใช่ contact aggregate
+/// head of one logical outcome stream — equivalent to `CgContactStateHead` of CG3
+/// but scoped to J2's own `(outcomeType, outcomeId)`, not a contact aggregate
 model JrOutcomeHead {
   tenantId             String   @map("tenant_id") @db.Uuid
   outcomeType          String   @map("outcome_type")
@@ -3289,16 +3289,16 @@ model JrOutcomeHead {
   @@map("jr_outcome_heads")
 }
 
-/// J2.3 — Journey-owned record ของ owner action intent หนึ่งชิ้น ผูกกับ stable
-/// `actionKey = enrollmentId:journeyVersion:stepId` ตาม #123; เก็บเฉพาะ owner
-/// aggregate reference/version เป็น audit snapshot ไม่ใช่ canonical owner state
+/// J2.3 — a Journey-owned record of one owner action intent, tied to the stable
+/// `actionKey = enrollmentId:journeyVersion:stepId` per #123; keeps only the owner
+/// aggregate reference/version as an audit snapshot, not canonical owner state
 model JrOwnerAction {
   id                    String             @id @default(uuid()) @db.Uuid
   tenantId              String             @map("tenant_id") @db.Uuid
   actionKey             String             @map("action_key")
   enrollmentId          String             @map("enrollment_id") @db.Uuid
-  /// J5.0: ตำแหน่ง cursor ที่สร้าง action นี้ ค่า null หมายถึง legacy action ที่ยัง
-  /// พิสูจน์ binding แบบ deterministic ไม่ได้และจึงห้าม advance enrollment
+  /// J5.0: the cursor position that created this action. A null value means a legacy action that
+  /// cannot prove its binding deterministically and therefore must not advance the enrollment
   stepId                String?            @map("step_id")
   stepSequence          Int?               @map("step_sequence")
   outcomeReceiptId      String?            @map("outcome_receipt_id") @db.Uuid
@@ -3307,9 +3307,9 @@ model JrOwnerAction {
   state                 JrOwnerActionState @default(PENDING)
   ownerAggregateRef     String?            @map("owner_aggregate_ref")
   ownerAggregateVersion Int?               @map("owner_aggregate_version")
-  /// J2.8 follow-up: optimistic-concurrency token ของ action เอง — ขยับทุกครั้งที่ state
-  /// เปลี่ยน เพื่อให้ admin recovery API บังคับ expectedVersion ได้ (attempts ใช้แทนไม่ได้
-  /// เพราะนับเฉพาะ dispatch และไม่ขยับตอน cancel)
+  /// J2.8 follow-up: optimistic-concurrency token of the action itself — advances every time the state
+  /// changes so the admin recovery API can enforce expectedVersion (attempts cannot be used instead
+  /// because it counts only dispatches and does not advance on cancel)
   version               Int                @default(1)
   attempts              Int                @default(0)
   dispatchedAt          DateTime?          @map("dispatched_at")
@@ -3329,8 +3329,8 @@ model JrOwnerAction {
   @@map("jr_owner_actions")
 }
 
-/// transactional outbox ของ command ที่จะ relay ไปยัง owner — J2.3 มีแค่ตาราง/primitive
-/// การ relay transport จริงเป็น scope ของ ticket ถัดไป
+/// transactional outbox of commands to relay to the owner — J2.3 has only the table/primitive;
+/// the real relay transport is in the scope of a later ticket
 model JrOwnerCommandOutbox {
   id            String              @id @default(uuid()) @db.Uuid
   tenantId      String              @map("tenant_id") @db.Uuid
@@ -3339,8 +3339,8 @@ model JrOwnerCommandOutbox {
   actionKey     String              @map("action_key")
   kind          JrOwnerActionKind
   requestHash   String              @map("request_hash") @db.Char(64)
-  /// J2.8: full J2OwnerCommandPayloadV1 envelope พร้อม relay — null สำหรับ command เก่า
-  /// ก่อน J2.8 ที่ยัง reconstruct payload ไม่ได้จาก fragment เดิม
+  /// J2.8: the full J2OwnerCommandPayloadV1 envelope ready for relay — null for commands from before
+  /// J2.8 whose payload cannot be reconstructed from the old fragments
   payload       Json?
   correlationId String              @map("correlation_id")
   state         JrOwnerCommandState @default(PENDING)
@@ -3357,8 +3357,8 @@ model JrOwnerCommandOutbox {
   @@map("jr_owner_command_outbox")
 }
 
-/// inbox ของผลที่ owner ส่งกลับมาต่อ command หนึ่งใบ — idempotent apply ต่อ
-/// `(tenantId, commandId)`; ผลที่มาซ้ำ/ขัดกันไม่ทำให้ action ขยับสถานะซ้ำ
+/// inbox of results the owner sends back per command — an idempotent apply per
+/// `(tenantId, commandId)`; a repeated/conflicting result does not move the action's state again
 model JrOwnerResultInbox {
   id                    String               @id @default(uuid()) @db.Uuid
   tenantId              String               @map("tenant_id") @db.Uuid
@@ -3380,10 +3380,10 @@ model JrOwnerResultInbox {
   @@map("jr_owner_result_inbox")
 }
 
-/// J5.0 — ledger หนึ่งแถวต่อ owner action ที่ตัดสิน cursor แล้ว
+/// J5.0 — one ledger row per owner action that has decided the cursor
 ///
-/// แถวนี้, step run และ enrollment CAS ถูก commit ใน transaction เดียวกับ owner result;
-/// unique action/command ทำให้ push, pull reconcile และ retry เดิน cursor ได้อย่างมากหนึ่งครั้ง
+/// this row, the step run and the enrollment CAS are committed in the same transaction as the owner result;
+/// the unique action/command lets push, pull reconcile and retry advance the cursor at most once
 model JrOwnerContinuation {
   id               String                     @id @default(uuid()) @db.Uuid
   tenantId         String                     @map("tenant_id") @db.Uuid
@@ -3412,14 +3412,14 @@ model JrOwnerContinuation {
   @@map("jr_owner_continuations")
 }
 
-/// audit ของ manual recovery (replay/reconcile/cancel/skip-quarantine) แบบ append-only
-/// เท่านั้น — ตาราง reuse identity เดิม ห้ามแก้ canonical row/offset/receipt โดยตรง
+/// append-only audit of manual recovery (replay/reconcile/cancel/skip-quarantine)
+/// only — the table reuses the original identity; never edit a canonical row/offset/receipt directly
 model JrRecoveryAudit {
   id          String               @id @default(uuid()) @db.Uuid
   tenantId    String               @map("tenant_id") @db.Uuid
   operation   JrRecoveryOperation
   targetKind  JrRecoveryTargetKind @map("target_kind")
-  /// opaque reference เดิมที่ reuse ได้ (eventId/outcomeId หรือ actionKey) ไม่ใช่ raw PII
+  /// the original opaque reference that can be reused (eventId/outcomeId or actionKey), not raw PII
   targetRef   String               @map("target_ref")
   reasonCode  String               @map("reason_code")
   actorId     String               @map("actor_id") @db.Uuid
@@ -3433,8 +3433,8 @@ model JrRecoveryAudit {
 }
 
 // ───────────────────── J3.5: Journey segment receipt/head/intent/re-filter ─────────────────────
-// J3 เป็นเจ้าของตารางชุดนี้เองทั้งหมด แยกขาดจาก jr_event_inbox ของ J1 และ jr_outcome_* ของ J2
-// (stop condition #216 ห้าม repurpose ตารางเดิม) และไม่มี shared write ไปยัง c360_* ใด ๆ
+// J3 owns this whole set of tables itself, completely separate from jr_event_inbox of J1 and jr_outcome_* of J2
+// (stop condition #216 forbids repurposing the existing tables) and has no shared write to any c360_*
 
 enum JrSegmentReceiptState {
   RECEIVED
@@ -3447,8 +3447,8 @@ enum JrSegmentReceiptState {
   QUARANTINED
 }
 
-/// วงจรของงาน re-filter หนึ่งใบ — HELD คือถูกกันไว้เพราะมี owner action ค้างอยู่
-/// ส่วน DEFERRED คือ scope/context ยังไม่พร้อมและต้องเริ่มประเมินใหม่ ไม่ใช่รอแล้วผ่านเอง
+/// lifecycle of one re-filter job — HELD means it is set aside because an owner action is pending,
+/// and DEFERRED means the scope/context is not ready and evaluation must restart, not wait and pass by itself
 enum JrSegmentRefilterState {
   PENDING
   REVALIDATING
@@ -3466,15 +3466,15 @@ enum JrSegmentOutboxState {
   FAILED
 }
 
-/// durable receipt ของ membership change หนึ่ง revision
+/// durable receipt of one revision of a membership change
 ///
-/// transport identity `(source, eventId)` แยกจาก logical identity
-/// `(contactId, segmentId, membershipRevision)` — ส่งซ้ำจาก broker ชนที่ transport ส่วน
-/// revision เดิมที่มาคนละ event ชนที่ logical ทั้งสองกรณีต้องไม่สร้างแถวที่สอง
+/// transport identity `(source, eventId)` is separate from the logical identity
+/// `(contactId, segmentId, membershipRevision)` — a broker redelivery collides on transport while
+/// the same revision arriving as a different event collides on logical; both cases must not create a second row
 ///
-/// ไม่เก็บ payload เป็น Json แต่แตกเป็น field ที่รู้จักทั้งหมด เพราะ acceptance ของ #216
-/// บังคับว่า raw attribute/identity/PII ห้ามอยู่ใน J3 rows — การเก็บ blob ทำให้พิสูจน์ไม่ได้ว่า
-/// วันหนึ่งจะไม่มีใครยัด attribute ดิบเข้ามา ส่วนค่าที่ต้องใช้จริงมีแค่ reference กับ digest
+/// the payload is not stored as Json but broken into fully known fields, because the acceptance of #216
+/// requires that raw attributes/identity/PII must not be in J3 rows — storing a blob makes it impossible to prove that
+/// nobody will one day stuff a raw attribute in; the only values really needed are a reference and a digest
 model JrSegmentReceipt {
   id                       String                @id @default(uuid()) @db.Uuid
   tenantId                 String                @map("tenant_id") @db.Uuid
@@ -3484,12 +3484,12 @@ model JrSegmentReceipt {
   segmentId                String                @map("segment_id")
   membershipRevision       Int                   @map("membership_revision")
   changeKind               String                @map("change_kind")
-  /// entry ของการเข้า segment ครั้งนั้น — null เมื่อ change ไม่ได้สร้าง entry (LEFT/invalidation)
+  /// entry of that segment entry — null when the change did not create an entry (LEFT/invalidation)
   entryId                  String?               @map("entry_id")
   supersedesRevision       Int?                  @map("supersedes_revision")
   segmentDefinitionVersion Int                   @map("segment_definition_version")
   payloadHash              String                @map("payload_hash") @db.Char(64)
-  /// reference ไปยัง evidence ของ Customer 360 ไม่ใช่ตัว evidence เอง
+  /// a reference to Customer 360 evidence, not the evidence itself
   evidenceRef              String?               @map("evidence_ref")
   state                    JrSegmentReceiptState @default(RECEIVED)
   attempts                 Int                   @default(0)
@@ -3502,11 +3502,11 @@ model JrSegmentReceipt {
   causationId              String?               @map("causation_id")
   receivedAt               DateTime              @default(now()) @map("received_at")
   appliedAt                DateTime?             @map("applied_at")
-  /// J3.8 (#219): optimistic-concurrency token — ขยับทุกครั้งที่ state เปลี่ยน
+  /// J3.8 (#219): optimistic-concurrency token — advances every time the state changes
   ///
-  /// แยกจาก `attempts` โดยตั้งใจ: attempts ขยับเฉพาะตอน retry ไม่ขยับตอน state เปลี่ยนด้วย
-  /// เหตุอื่น ใช้เป็น token แล้ว operator จะเห็นค่าเดิมทั้งที่ของเปลี่ยนไปแล้ว ซึ่งคือ blind
-  /// retry ที่ acceptance สั่งให้ปฏิเสธพอดี
+  /// deliberately separate from `attempts`: attempts advances only on retry and not when the state changes for
+  /// other reasons; using it as the token would make an operator see the old value although things changed, which is exactly the blind
+  /// retry the acceptance says must be rejected
   version                  Int                   @default(1)
 
   tenant    Tenant                      @relation(fields: [tenantId], references: [id])
@@ -3523,10 +3523,10 @@ model JrSegmentReceipt {
   @@map("jr_segment_receipts")
 }
 
-/// head ของ membership stream หนึ่งเส้นในมุมของ J3
+/// head of one membership stream from J3's point of view
 ///
-/// `lastAppliedRevision` ขยับขึ้นอย่างเดียว (บังคับด้วย CHECK + CAS) ส่วน terminal* คือ
-/// first-terminal protection: เมื่อ entry หนึ่งจบไปแล้ว revision ที่มาทีหลังห้ามชุบชีวิตมันกลับ
+/// `lastAppliedRevision` only moves forward (enforced by CHECK + CAS) and terminal* is
+/// first-terminal protection: once an entry has ended, a later revision must not resurrect it
 model JrSegmentHead {
   tenantId             String   @map("tenant_id") @db.Uuid
   contactId            String   @map("contact_id") @db.Uuid
@@ -3546,11 +3546,11 @@ model JrSegmentHead {
   @@map("jr_segment_heads")
 }
 
-/// enrollment intent หนึ่งใบที่เกิดจากการเข้า segment
+/// one enrollment intent created by entering a segment
 ///
-/// เก็บ "เหตุผล" ได้แค่ reference/version/digest เท่านั้นและเป็น immutable (บังคับด้วย trigger)
-/// — ถ้าเก็บค่า attribute หรือ JSON นิยาม segment ไว้ เหตุผลจะกลายเป็นสำเนาที่เพี้ยนจาก
-/// Customer 360 ทันทีที่นิยามถูกแก้ และ Journey จะกลายเป็นเจ้าของข้อมูลที่ตัวเองไม่ได้เป็นเจ้าของ
+/// keeps a "reason" only as a reference/version/digest and is immutable (enforced by a trigger)
+/// — if attribute values or the segment definition JSON were stored, the reason would become a copy that drifts from
+/// Customer 360 as soon as the definition is edited, and Journey would own data it does not own
 model JrSegmentEnrollmentIntent {
   id                       String   @id @default(uuid()) @db.Uuid
   tenantId                 String   @map("tenant_id") @db.Uuid
@@ -3579,7 +3579,7 @@ model JrSegmentEnrollmentIntent {
   @@map("jr_segment_enrollment_intents")
 }
 
-/// งาน re-filter ที่เกิดจาก membership change ที่ไม่ได้พา enrollment ใหม่เข้ามา
+/// a re-filter job caused by a membership change that did not bring in a new enrollment
 model JrSegmentRefilterCursor {
   id                 String                 @id @default(uuid()) @db.Uuid
   tenantId           String                 @map("tenant_id") @db.Uuid
@@ -3598,15 +3598,15 @@ model JrSegmentRefilterCursor {
   scopeTeamId        String?                @map("scope_team_id") @db.Uuid
   createdAt          DateTime               @default(now()) @map("created_at")
   settledAt          DateTime?              @map("settled_at")
-  /// J3.8 (#219): optimistic-concurrency token เหมือน jr_segment_receipts.version
+  /// J3.8 (#219): optimistic-concurrency token like jr_segment_receipts.version
   version            Int                    @default(1)
 
   tenant  Tenant           @relation(fields: [tenantId], references: [id])
   contact Contact          @relation(fields: [tenantId, contactId], references: [tenantId, id])
   receipt JrSegmentReceipt @relation(fields: [tenantId, receiptId], references: [tenantId, id])
 
-  /// membership re-filter ปกติใช้ scopeTeamId = null; IAM revoke แยกหนึ่งงานต่อทีมเพื่อ
-  /// ห้าม revoke ทีมหนึ่งไป cancel Journey ของทีมอื่นใน entry เดียวกัน
+  /// a normal membership re-filter uses scopeTeamId = null; an IAM revoke is one job per team so that
+  /// revoking one team must not cancel the Journey of another team in the same entry
   @@unique([tenantId, contactId, segmentId, membershipRevision, scopeTeamId])
   @@index([tenantId, state, availableAt])
   @@index([tenantId, scopeTeamId])
@@ -3628,7 +3628,7 @@ model JrIamScopeInvalidationInbox {
   @@map("jr_iam_scope_invalidation_inbox")
 }
 
-/// local outbox ของ J3 — commit พร้อม receipt/head/intent ในทรานแซกชันเดียว
+/// local outbox of J3 — committed together with the receipt/head/intent in a single transaction
 model JrSegmentOutbox {
   id            String               @id @default(uuid()) @db.Uuid
   tenantId      String               @map("tenant_id") @db.Uuid
@@ -3655,30 +3655,30 @@ model JrSegmentOutbox {
   @@map("jr_segment_outbox")
 }
 
-// ───────────────────── J3.10: Segment rollout stage และ shadow evaluation ─────────────────────
+// ───────────────────── J3.10: Segment rollout stage and shadow evaluation ─────────────────────
 
-/// ลำดับการเปิดใช้ J3 ต่อ tenant — เดินหน้าอย่างเดียว ย้อนกลับข้าม switch point ไม่ได้
+/// order in which J3 is enabled per tenant — moves forward only; cannot go back across a switch point
 enum JrSegmentRolloutStage {
   DISABLED
-  /// baseline membership เดิมอยู่ ยังไม่รับ event
+  /// the baseline membership exists but no event is accepted yet
   OWNER_BACKFILL
-  /// รับ event แล้วเทียบ digest กับ Customer 360 แต่ยังไม่สร้าง effect ใด ๆ
+  /// accepts events and compares the digest with Customer 360 but still creates no effect
   SHADOW_MEMBERSHIP
-  /// เดิน receipt/re-filter จริงแต่ยังไม่สร้าง enrollment
+  /// runs the real receipt/re-filter but still creates no enrollment
   SHADOW_RECEIPT_REFILTER
-  /// เปิดเต็มรูปแบบ — enrollment เกิดได้จริง
+  /// fully enabled — enrollments can really be created
   SCOPED_INTERNAL_ENABLED
 }
 
-/// ไม่มีแถว = DISABLED. switchedAt ตั้งครั้งเดียวตอนเข้า SCOPED_INTERNAL_ENABLED และหลังจากนั้น
-/// trigger jr_segment_rollout_guard ห้ามย้อนกลับไป stage ก่อนหน้า
+/// no row = DISABLED. switchedAt is set once on entering SCOPED_INTERNAL_ENABLED and afterwards
+/// trigger jr_segment_rollout_guard forbids going back to an earlier stage
 model JrSegmentRolloutState {
   id              String                @id @default(uuid()) @db.Uuid
   tenantId        String                @map("tenant_id") @db.Uuid
   stage           JrSegmentRolloutStage @default(DISABLED)
   shadowStartedAt DateTime?             @map("shadow_started_at")
   switchedAt      DateTime?             @map("switched_at")
-  /// rollback = หยุด effect ใหม่ ไม่ใช่ย้อน stage หรือลบของที่เกิดไปแล้ว
+  /// rollback = stop new effects, not go back a stage or delete what already happened
   mutationFrozen  Boolean               @default(false) @map("mutation_frozen")
   version         Int                   @default(1)
   updatedByRef    String                @map("updated_by_ref")
@@ -3691,10 +3691,10 @@ model JrSegmentRolloutState {
   @@map("jr_segment_rollout_state")
 }
 
-/// ผลการเทียบระหว่างสิ่งที่ J3 คำนวณกับ canonical ของ Customer 360 ระหว่าง shadow
+/// result of comparing what J3 computes with the canonical of Customer 360 during shadow
 ///
-/// เก็บได้แค่ digest กับ revision — ไม่มีค่า attribute ไม่มีเหตุผลแบบ free text เพราะ mismatch
-/// report เป็นของที่คนจะเปิดดูตอน incident และไม่ควรกลายเป็นช่องรั่วของ PII
+/// keeps only digests and revisions — no attribute values and no free-text reasons, because a mismatch
+/// report is something people open during an incident and must not become a PII leak
 model JrSegmentShadowMismatch {
   id                 String   @id @default(uuid()) @db.Uuid
   tenantId           String   @map("tenant_id") @db.Uuid
@@ -3715,9 +3715,9 @@ model JrSegmentShadowMismatch {
 }
 
 // ─────────────────────────────── J2.4: Cases ENSURE_CASE owner ───────────────────────────────
-// Cases เป็น canonical writer เต็มรูปแบบของ cs_* ทั้งหมด — Journey ไม่มี direct database
-// access และไม่เลือก caseId เอง (ตาม #121); ที่นี่เป็น minimal slice สำหรับ ENSURE_CASE
-// เท่านั้น ไม่ใช่ full task/SLA product (ดู #132 ขอบเขต J2.4)
+// Cases is the full canonical writer of all cs_* — Journey has no direct database
+// access and does not choose a caseId itself (per #121); this is a minimal slice for ENSURE_CASE
+// only, not the full task/SLA product (see #132 scope J2.4)
 
 enum CsCaseStatus {
   OPEN
@@ -3734,8 +3734,8 @@ enum CsActivityKind {
   STATUS_CHANGED
 }
 
-/// tenant-scoped fixture: caseTypePolicyRef (จาก J2 intent) แม็พไปยัง case type จริง
-/// และ reopen policy — ไม่ใช่ metadata-driven ประเภทเต็มรูปแบบตาม C2 ของ product spec
+/// tenant-scoped fixture: caseTypePolicyRef (from a J2 intent) maps to the real case type
+/// and reopen policy — not the fully metadata-driven type of C2 in the product spec
 model CsCaseTypePolicy {
   id            String   @id @default(uuid()) @db.Uuid
   tenantId      String   @map("tenant_id") @db.Uuid
@@ -3750,8 +3750,8 @@ model CsCaseTypePolicy {
   @@map("cs_case_type_policies")
 }
 
-/// tenant-scoped fixture: routingPolicyRef แม็พไปยัง queue — ไม่มี router assignment
-/// runtime จริงใน J2.4 (out of scope)
+/// tenant-scoped fixture: routingPolicyRef maps to a queue — no real router assignment
+/// at runtime in J2.4 (out of scope)
 model CsRoutingPolicy {
   id        String   @id @default(uuid()) @db.Uuid
   tenantId  String   @map("tenant_id") @db.Uuid
@@ -3765,8 +3765,8 @@ model CsRoutingPolicy {
   @@map("cs_routing_policies")
 }
 
-/// minimal canonical Case — version เพิ่มทุก mutation เพื่อใช้เป็น ownerAggregate.version
-/// ใน J2OwnerResultPayloadV1; ไม่มี type metadata/SLA/queue เต็มรูปแบบตาม C1-C3 product spec
+/// minimal canonical Case — version increases on every mutation to serve as ownerAggregate.version
+/// in J2OwnerResultPayloadV1; no full type metadata/SLA/queue per the C1-C3 product spec
 model CsCase {
   id          String       @id @default(uuid()) @db.Uuid
   tenantId    String       @map("tenant_id") @db.Uuid
@@ -3781,8 +3781,8 @@ model CsCase {
   createdAt   DateTime     @default(now()) @map("created_at")
   updatedAt   DateTime     @updatedAt @map("updated_at")
 
-  /// #956 เคสที่ Agent เปิดจากงาน: มีหัวข้อ ทีมที่เห็นเคส ผู้รับผิดชอบ และงานต้นทาง
-  /// เคสจาก J2 ENSURE_CASE ไม่มีค่าเหล่านี้ FK ไป teams/users ประกาศใน migration
+  /// #956 a case an Agent opens from work: has a subject, the team that sees the case, an owner and the source work. A
+  /// case from J2 ENSURE_CASE has none of these values. FKs to teams/users are declared in the migration
   subject             String? @map("subject")
   teamId              String? @map("team_id") @db.Uuid
   assigneeUserId      String? @map("assignee_user_id") @db.Uuid
@@ -3797,7 +3797,7 @@ model CsCase {
   @@map("cs_cases")
 }
 
-/// closed-case correction: ห้าม reopen เงียบ ๆ — เปิดเคสใหม่แล้วเชื่อม RELATED กับเคสเดิม
+/// closed-case correction: never reopen silently — open a new case and link it RELATED to the original case
 model CsCaseLink {
   id            String   @id @default(uuid()) @db.Uuid
   tenantId      String   @map("tenant_id") @db.Uuid
@@ -3812,8 +3812,8 @@ model CsCaseLink {
   @@map("cs_case_links")
 }
 
-/// ไทม์ไลน์เดียวของเคส แถวจาก J2 ENSURE_CASE มี opaque outcome reference เท่านั้น
-/// แถวที่ Agent ทำ (#956) มีผู้กระทำ และโน้ตเป็น free text ที่ Agent เขียนเอง
+/// the single timeline of a case; a row from J2 ENSURE_CASE holds only an opaque outcome reference
+/// a row made by an Agent (#956) has an actor, and the note is free text the Agent wrote
 model CsCaseActivity {
   id             String         @id @default(uuid()) @db.Uuid
   tenantId       String         @map("tenant_id") @db.Uuid
@@ -3837,8 +3837,8 @@ model CsCaseActivity {
   @@map("cs_case_activities")
 }
 
-/// durable command+result เดียวกันต่อ actionKey — J2OwnerPort เป็น pull model
-/// (queryAction อ่านจากที่นี่) จึงไม่ต้องมี outbox/relay แยกสำหรับผล ENSURE_CASE
+/// one durable command+result per actionKey — J2OwnerPort is a pull model
+/// (queryAction reads from here), so no separate outbox/relay is needed for the ENSURE_CASE result
 model CsCommandInbox {
   id               String   @id @default(uuid()) @db.Uuid
   tenantId         String   @map("tenant_id") @db.Uuid
@@ -3869,9 +3869,9 @@ enum JrJourneyDefinitionStatus {
   PUBLISHED
 }
 
-/// C1.4: หนึ่งแถวต่อหนึ่ง version ของ Journey definition แบบ immutable — เนื้อหา
-/// (trigger/graph/goal/exitRules/maxDurationDays) ไม่ถูกแก้หลังสร้าง; publish เป็นเพียง
-/// state transition DRAFT -> PUBLISHED ที่ idempotent ต่อ (tenantId, journeyId, version)
+/// C1.4: one row per immutable version of a Journey definition — the content
+/// (trigger/graph/goal/exitRules/maxDurationDays) is not edited after creation; publish is only a
+/// DRAFT -> PUBLISHED state transition, idempotent per (tenantId, journeyId, version)
 model JrJourneyDefinition {
   id               String                    @id @default(uuid()) @db.Uuid
   tenantId         String                    @map("tenant_id") @db.Uuid
@@ -3879,10 +3879,10 @@ model JrJourneyDefinition {
   version          Int
   name             String
   ownerTeamId      String                    @map("owner_team_id") @db.Uuid
-  /// consent/policy purpose (เช่น MARKETING, SERVICE) ที่ SEND ทุกโหนดในเวอร์ชันนี้ใช้เรียก
-  /// authorizeAndReserve — C1.6 อ่านค่านี้แทนการให้แต่ละ SEND step ประกาศเอง
+  /// consent/policy purpose (e.g. MARKETING, SERVICE) that every SEND node in this version uses to call
+  /// authorizeAndReserve — C1.6 reads this value instead of letting each SEND step declare it itself
   purpose          String
-  /// sender identity ที่ผูกกับ delivery binding — C1 เป็น TEST_ADAPTER เท่านั้น
+  /// sender identity bound to the delivery binding — C1 is TEST_ADAPTER only
   senderIdentityId String                    @map("sender_identity_id")
   status           JrJourneyDefinitionStatus @default(DRAFT)
   trigger          Json
@@ -3913,18 +3913,18 @@ enum DlDeliveryState {
   SETTLED
 }
 
-/// C1 เปิดเฉพาะ TEST_ADAPTER; S2 (#365) เพิ่ม LINE_MESSAGING_API สำหรับ capped pilot
-/// worker แต่ละตัว claim เฉพาะ adapter ของตัวเอง (mixed-version guard ใน OutboxRepository)
+/// C1 enables only TEST_ADAPTER; S2 (#365) adds LINE_MESSAGING_API for the capped pilot
+/// each worker claims only its own adapter (mixed-version guard in OutboxRepository)
 enum DlDeliveryAdapter {
   TEST_ADAPTER
   LINE_MESSAGING_API
   FREESWITCH_ORIGINATE
 }
 
-/// C1.3: durable outbox ของ Channels/Dialer — หนึ่งแถวต่อหนึ่ง delivery ที่ claim สำเร็จแล้ว
-/// row ถูก persist ก่อนตอบ QUEUED เสมอ และ `(tenant_id, action_key)` เป็น idempotency identity
-/// เดียวของ adapter: input เดิมเล่นซ้ำ delivery เดิม, input ต่างเป็น conflict
-/// เก็บได้เฉพาะ opaque id/ref — ห้าม message body, phone, email หรือ external contact reference
+/// C1.3: durable outbox of Channels/Dialer — one row per delivery that has been claimed successfully
+/// the row is always persisted before answering QUEUED and `(tenant_id, action_key)` is the single idempotency identity
+/// of the adapter: the same input replays the same delivery, a different input is a conflict
+/// only opaque ids/refs may be stored — no message body, phone, email or external contact reference
 model DlOutboxEntry {
   id                 String            @id @default(uuid()) @db.Uuid
   tenantId           String            @map("tenant_id") @db.Uuid
@@ -3939,11 +3939,11 @@ model DlOutboxEntry {
   purpose            String
   source             String
   senderIdentityId   String            @map("sender_identity_id")
-  /// reference ที่ channel owner resolve เป็นเนื้อหา — ไม่ใช่เนื้อหาเอง
+  /// a reference that the channel owner resolves into content — not the content itself
   contentRef         String            @map("content_ref")
   inputHash          String            @map("input_hash")
   state              DlDeliveryState   @default(QUEUED)
-  /// lease ที่ claim คืนมา ใช้เป็น expected version ของ beginProviderSubmission
+  /// the lease returned by the claim, used as the expected version of beginProviderSubmission
   leaseVersion       Int               @map("lease_version")
   leaseExpiresAt     DateTime          @map("lease_expires_at")
   submittedAt        DateTime?         @map("submitted_at")
@@ -3968,8 +3968,8 @@ model DlOutboxEntry {
   @@map("dl_outbox_entries")
 }
 
-/// E1.18 (#520): state ที่ Delivery owner ใช้ก่อน/หลังสั่ง server originate;
-/// settlement ของ reservation ยังคงเป็น authority ของ Contact Governance เสมอ.
+/// E1.18 (#520): state the Delivery owner uses before/after ordering a server originate;
+/// settlement of a reservation always remains the authority of Contact Governance.
 enum DlVoiceOriginateState {
   QUEUED
   CANCEL_REQUESTED
@@ -3977,7 +3977,7 @@ enum DlVoiceOriginateState {
   SETTLED
 }
 
-/// ส่วนขยายเฉพาะ voice ของ generic delivery outbox — ไม่มีเบอร์, credential หรือ ESL payload.
+/// voice-specific extension of the generic delivery outbox — no phone number, credential or ESL payload.
 model DlVoiceOriginate {
   id                 String                @id @default(uuid()) @db.Uuid
   tenantId           String                @map("tenant_id") @db.Uuid
@@ -4079,8 +4079,8 @@ model DlVoiceAuditEvent {
 }
 
 // ── S2 LINE provider pilot (#365) ────────────────────────────────────────────
-// FK/CHECK/trigger/partial unique อยู่ใน migration 20260922160100_add_s2_line_persistence
-// (แบบเดียวกับ J5.1: ไม่ประกาศ relation field ที่นี่) — ไม่มีคอลัมน์ใดเก็บ token/secret/raw
+// FK/CHECK/trigger/partial unique live in the migration 20260922160100_add_s2_line_persistence
+// (like J5.1: no relation field is declared here) — no column stores a token/secret/raw
 // LINE user ID/message body
 
 enum DlLineProviderOutcomeCode {
@@ -4210,8 +4210,8 @@ enum DlLineActorKind {
   SYSTEM
 }
 
-/// append-only receipt ของ HTTP attempt หนึ่งครั้ง (#357 §4) — ผูก providerRequestKey เดิมผ่าน
-/// composite FK (tenant, delivery, key, adapter) จึงเก็บ key ใหม่ไม่ได้
+/// append-only receipt of one HTTP attempt (#357 §4) — bound to the original providerRequestKey through
+/// the composite FK (tenant, delivery, key, adapter) so a new key cannot be stored
 model DlProviderSubmissionAttempt {
   id                    String                     @id @default(uuid()) @db.Uuid
   tenantId              String                     @map("tenant_id") @db.Uuid
@@ -4236,7 +4236,7 @@ model DlProviderSubmissionAttempt {
   @@map("dl_provider_submission_attempts")
 }
 
-/// business state + technical switch + kill latch ต่อ exact scope (#358 §A/§F)
+/// business state + technical switch + kill latch per exact scope (#358 §A/§F)
 model DlLineScopeGate {
   id                String             @id @default(uuid()) @db.Uuid
   tenantId          String             @map("tenant_id") @db.Uuid
@@ -4263,7 +4263,7 @@ model DlLineScopeGate {
   @@map("dl_line_scope_gates")
 }
 
-/// reference + metadata ของ credential ใน macOS Keychain — ไม่มี secret value (#358 §G)
+/// reference + metadata of a credential in the macOS Keychain — no secret value (#358 §G)
 model DlLineCredentialRef {
   id                    String                 @id @default(uuid()) @db.Uuid
   tenantId              String                 @map("tenant_id") @db.Uuid
@@ -4291,7 +4291,7 @@ model DlLineCredentialRef {
   @@map("dl_line_credential_refs")
 }
 
-/// exact allowlist tuple รวม recipient fingerprint + content (#358 §B); แก้ได้แค่ revoke ครั้งเดียว
+/// exact allowlist tuple including recipient fingerprint + content (#358 §B); can be changed only by a single revoke
 model DlLineAllowlistEntry {
   id                    String    @id @default(uuid()) @db.Uuid
   tenantId              String    @map("tenant_id") @db.Uuid
@@ -4343,13 +4343,13 @@ model DlLineRunAuthorization {
   consumedDeliveryId    String?                     @map("consumed_delivery_id")
   adapter               DlDeliveryAdapter           @default(LINE_MESSAGING_API)
   closedAt              DateTime?                   @map("closed_at")
-  /// #567: cap ของ profile `S2_LINE_TEAM_TRIAL_V1` (S2 = NULL)
+  /// #567: cap of profile `S2_LINE_TEAM_TRIAL_V1` (S2 = NULL)
   capRecipientPer24h    Int?                        @map("cap_recipient_per_24h")
   capPer24h             Int?                        @map("cap_per_24h")
   capLifetime           Int?                        @map("cap_lifetime")
-  /// ชุดของ trial ที่เสนอ/อนุมัติพร้อมกัน (หนึ่งแถวต่อผู้รับ)
+  /// the set of trials proposed/approved together (one row per recipient)
   trialRef              String?                     @map("trial_ref")
-  /// contact/identity ของผู้รับใน Contact Governance — trial ต้องมี
+  /// contact/identity of the recipient in Contact Governance — a trial must have one
   contactId             String?                     @map("contact_id") @db.Uuid
   identityId            String?                     @map("identity_id") @db.Uuid
   createdAt             DateTime                    @default(now()) @map("created_at")
@@ -4361,8 +4361,8 @@ model DlLineRunAuthorization {
   @@map("dl_line_run_authorizations")
 }
 
-/// #567: การตอบกลับหนึ่งครั้งของ LINE team trial — text เข้ารหัสด้วย payload key ของ webhook
-/// เพื่อให้ retry หลัง barrier เป็น request เดิม; append-only
+/// #567: one reply of the LINE team trial — the text is encrypted with the webhook payload key
+/// so a retry after the barrier is the same request; append-only
 model DlLineTrialSend {
   id                 String   @id @default(uuid()) @db.Uuid
   tenantId           String   @map("tenant_id") @db.Uuid
@@ -4385,7 +4385,7 @@ model DlLineTrialSend {
   @@map("dl_line_trial_sends")
 }
 
-/// หนึ่งแถวต่อหนึ่งหน่วย cap ที่จอง — นับภายใต้ row lock ของ gate (#358 §C)
+/// one row per reserved cap unit — counted under the row lock of the gate (#358 §C)
 model DlLineCapLedgerEntry {
   id                   String                    @id @default(uuid()) @db.Uuid
   tenantId             String                    @map("tenant_id") @db.Uuid
@@ -4409,8 +4409,8 @@ model DlLineCapLedgerEntry {
   @@map("dl_line_cap_ledger")
 }
 
-/// durable inbox หนึ่งแถวต่อ webhook event หลัง signature ผ่าน (#359 §C) — payload จริงอยู่ใน
-/// encrypted operational store ที่อ้างด้วย protectedPayloadRef
+/// one durable inbox row per webhook event after the signature passes (#359 §C) — the real payload is in the
+/// encrypted operational store referenced by protectedPayloadRef
 model DlLineWebhookInboxEntry {
   id                  String                  @id @default(uuid()) @db.Uuid
   tenantId            String                  @map("tenant_id") @db.Uuid
@@ -4438,7 +4438,7 @@ model DlLineWebhookInboxEntry {
   @@map("dl_line_webhook_inbox")
 }
 
-/// การผูก response กับ accepted Attempt (#361 §D/§F) — ไม่มี raw body/user ID
+/// binding of a response to an accepted Attempt (#361 §D/§F) — no raw body/user ID
 model DlLineTouchCorrelation {
   id                  String                      @id @default(uuid()) @db.Uuid
   tenantId            String                      @map("tenant_id") @db.Uuid
@@ -4464,7 +4464,7 @@ model DlLineTouchCorrelation {
   @@map("dl_line_touch_correlations")
 }
 
-/// projection dedupe ชั้นที่ 2 ของ inbound message (#359 §E, ADR-024) — ไม่มี body/userId
+/// 2nd-layer projection dedupe of an inbound message (#359 §E, ADR-024) — no body/userId
 model DlLineInboundMessage {
   id                String   @id @default(uuid()) @db.Uuid
   tenantId          String   @map("tenant_id") @db.Uuid
@@ -4484,7 +4484,7 @@ model DlLineInboundMessage {
   @@map("dl_line_inbound_messages")
 }
 
-/// ciphertext ของ webhook payload สำหรับ manual replay (#359 §C/§D) — ไม่มี plaintext ใด ๆ
+/// ciphertext of the webhook payload for manual replay (#359 §C/§D) — no plaintext at all
 model DlLineWebhookPayload {
   id                  String   @id @default(uuid()) @db.Uuid
   tenantId            String   @map("tenant_id") @db.Uuid
@@ -4503,7 +4503,7 @@ model DlLineWebhookPayload {
   @@map("dl_line_webhook_payloads")
 }
 
-/// durable outbox ของ Delivery/Channels สำหรับ PII-safe events (#362 §5) — payload ถูก CHECK กัน PII
+/// durable outbox of Delivery/Channels for PII-safe events (#362 §5) — the payload is guarded against PII by a CHECK
 model DlLineEventOutboxEntry {
   id             String                 @id @default(uuid()) @db.Uuid
   tenantId       String                 @map("tenant_id") @db.Uuid
@@ -4535,7 +4535,7 @@ enum DlLineEventOutboxState {
   FAILED
 }
 
-/// append-only audit ของ gate/kill/allowlist/run/cap/credential/provider/webhook — machine code เท่านั้น
+/// append-only audit of gate/kill/allowlist/run/cap/credential/provider/webhook — machine codes only
 model DlLineAuditEvent {
   id             String              @id @default(uuid()) @db.Uuid
   tenantId       String              @map("tenant_id") @db.Uuid
@@ -4555,7 +4555,7 @@ model DlLineAuditEvent {
   @@map("dl_line_audit_events")
 }
 
-// ─────────────────────────── Interactions (record กลางทุก channel) ───────────────────────────
+// ─────────────────────────── Interactions (the central record for every channel) ───────────────────────────
 
 enum Direction {
   INBOUND
@@ -4586,12 +4586,12 @@ model Interaction {
   agentId                   String?              @map("agent_id") @db.Uuid
   contactId                 String?              @map("contact_id") @db.Uuid
   customerLinkRevision      BigInt               @default(0) @map("customer_link_revision")
-  // thread ที่งานนี้เกิดขึ้น — null สำหรับ voice (ADR-023)
+  // the thread this work arose in — null for voice (ADR-023)
   conversationId            String?              @map("conversation_id") @db.Uuid
-  // งานนี้เกิดจากลูกค้าพิมพ์กลับภายใน reopen window ของงานใบไหน (ADR-023 ข้อ 4)
-  // งานเดิมไม่ถูกแก้เลย — AHT/SLA/billing ย้อนหลังจึงไม่เปลี่ยน
+  // which work item the customer replied to within the reopen window (ADR-023 item 4)
+  // the original work is not edited at all — so historical AHT/SLA/billing does not change
   reopenedFromInteractionId String?              @map("reopened_from_interaction_id") @db.Uuid
-  // id ฝั่งระบบภายนอก เช่น FreeSWITCH call UUID
+  // id on the external system, e.g. the FreeSWITCH call UUID
   externalId                String?              @map("external_id")
   wrapUpCode                String?              @map("wrap_up_code")
   voiceWrapupPolicy         String               @default("LEGACY") @map("voice_wrapup_policy")
@@ -4634,7 +4634,7 @@ model Interaction {
   @@map("interactions")
 }
 
-// append-only event log — source of truth สำหรับ historical reporting
+// append-only event log — the source of truth for historical reporting
 model InteractionWrapupResult {
   interactionId String      @id @map("interaction_id") @db.Uuid
   tenantId      String      @map("tenant_id") @db.Uuid
@@ -4667,31 +4667,31 @@ model InteractionEvent {
 
 // ─────────────────────────── Conversations (chat/social/email threads) ───────────────────────────
 
-// สถานะของ "ห้อง" ไม่ใช่ของงาน — ดู ADR-023
+// status of the "room", not of the work — see ADR-023
 enum ConversationState {
-  OPEN // มีงานที่ยังทำอยู่
-  IDLE // ไม่มีงานค้าง แต่ลูกค้าพิมพ์กลับมาได้ตลอด
-  RESOLVED // ปิดเรื่องล่าสุดแล้ว (พิมพ์กลับมาได้ → เข้ากติกา reopen window)
-  BLOCKED // บล็อกโดยผู้ดูแล — ข้อความเข้าไม่สร้างงาน (สิทธิ์หัวหน้าขึ้นไป + audit)
+  OPEN // there is work still in progress
+  IDLE // no pending work, but the customer can message back at any time
+  RESOLVED // the latest matter is closed (a message back falls under the reopen window rule)
+  BLOCKED // blocked by an administrator — an incoming message creates no work (supervisor permission and above + audit)
 }
 
-/// thread ถาวรกับลูกค้าหนึ่งคนบนหนึ่งช่องทาง — มีหลาย Interaction อ้างถึงได้ (ADR-023)
-/// voice ไม่มี conversation (Interaction.conversationId = null)
+/// a permanent thread with one customer on one channel — many Interactions can refer to it (ADR-023)
+/// voice has no conversation (Interaction.conversationId = null)
 model Conversation {
   id               String            @id @default(uuid()) @db.Uuid
   tenantId         String            @map("tenant_id") @db.Uuid
   channel          ChannelType
   contactId        String?           @map("contact_id") @db.Uuid
-  // บัญชีช่องทางที่รับ webhook นี้ (LINE OA id / FB Page id / WA phone-number-id / widget id / mailbox id)
-  // ต้อง NOT NULL เพราะ Postgres ไม่บังคับ unique ให้แถวที่คอลัมน์เป็น NULL — id ฝั่ง provider scope ต่อ account
+  // the channel account that receives this webhook (LINE OA id / FB Page id / WA phone-number-id / widget id / mailbox id)
+  // must be NOT NULL because Postgres does not enforce unique on rows whose column is NULL — provider-side ids are scoped per account
   channelAccountId String            @map("channel_account_id")
-  // thread id ฝั่ง platform เช่น LINE conversation, email Message-ID chain
+  // platform-side thread id, e.g. LINE conversation, email Message-ID chain
   externalThreadId String            @map("external_thread_id")
   state            ConversationState @default(OPEN)
 
   lastCustomerMessageAt DateTime? @map("last_customer_message_at")
   lastAgentMessageAt    DateTime? @map("last_agent_message_at")
-  // ปิดงานล่าสุดเมื่อไหร่ — ใช้ตัดสิน reopen window (ADR-023 ข้อ 4)
+  // when the work was last closed — used to decide the reopen window (ADR-023 item 4)
   lastResolvedAt        DateTime? @map("last_resolved_at")
   blockedReason         String?   @map("blocked_reason")
   createdAt             DateTime  @default(now()) @map("created_at")
@@ -4713,42 +4713,42 @@ enum SenderType {
   SYSTEM
 }
 
-/// สถานะการส่ง — แยกจากเนื้อหาข้อความ (ADR-024)
+/// delivery status — separate from the message content (ADR-024)
 enum MessageDeliveryStatus {
-  RECEIVED // ขาเข้า: รับจาก provider แล้ว
-  QUEUED // ขาออก: รอ worker หยิบไปส่ง (แถวนี้คือ outbox)
+  RECEIVED // inbound: received from the provider
+  QUEUED // outbound: waiting for a worker to pick it up and send (this row is the outbox)
   SENDING
-  SENT // provider รับไปแล้ว
-  DELIVERED // ถึงเครื่องลูกค้า (provider แจ้งกลับ)
+  SENT // accepted by the provider
+  DELIVERED // reached the customer's device (the provider reported back)
   READ
-  FAILED // ครบจำนวนครั้งแล้วยังไม่สำเร็จ
+  FAILED // retries exhausted without success
 }
 
 model Message {
   id               String     @id @default(uuid()) @db.Uuid
   tenantId         String     @map("tenant_id") @db.Uuid
   conversationId   String     @map("conversation_id") @db.Uuid
-  // บัญชีช่องทางที่รับ/ส่งข้อความนี้ — denormalize มาไว้ที่นี่เพราะ dedupe ต้องทำ
-  // "ก่อน" resolve thread คีย์จึงต้องประกอบจากสิ่งที่รู้ตอน webhook เข้าเท่านั้น (ADR-024 ข้อ 2)
+  // the channel account that received/sent this message — denormalized here because dedupe must run
+  // "before" resolving the thread, so the key must be built only from what is known when the webhook arrives (ADR-024 item 2)
   channelAccountId String     @map("channel_account_id")
-  // งานชิ้นไหนเป็นเจ้าของข้อความนี้ — null = เข้ามาตอนยังไม่มีงาน (บอตคุยอยู่) · ADR-023 ข้อ 3
+  // which work item owns this message — null = arrived while there was no work (a bot is chatting) · ADR-023 item 3
   interactionId    String?    @map("interaction_id") @db.Uuid
   senderType       SenderType @map("sender_type")
   direction        Direction
   contentType      String     @default("text/plain") @map("content_type")
   body             String
 
-  // ── idempotency สองทาง (ADR-024) ──
-  // ขาเข้า: id จาก "ระบบผู้รับ" เท่านั้น ห้ามเป็นค่าที่ผู้ส่งกำหนด (ADR-024 ข้อ 2)
-  // LINE message.id · Messenger mid · WhatsApp wamid · อีเมล = UIDVALIDITY:UID ของ mailbox
+  // ── two-way idempotency (ADR-024) ──
+  // inbound: an id from the "receiving system" only, never a value set by the sender (ADR-024 item 2)
+  // LINE message.id · Messenger mid · WhatsApp wamid · email = UIDVALIDITY:UID of the mailbox
   providerMessageId String? @map("provider_message_id")
-  // ขาออก: token จากผู้สั่งส่ง — กัน Kafka at-least-once ทำให้ลูกค้าได้ข้อความซ้ำ
+  // outbound: a token from whoever ordered the send — prevents Kafka at-least-once from giving the customer a duplicate message
   clientToken       String? @map("client_token")
 
   status        MessageDeliveryStatus @default(RECEIVED)
   attempts      Int                   @default(0)
   nextAttemptAt DateTime?             @map("next_attempt_at")
-  // claim ของ outbox worker — SELECT … FOR UPDATE SKIP LOCKED + lease (ADR-024 ข้อ 3)
+  // claim by the outbox worker — SELECT … FOR UPDATE SKIP LOCKED + lease (ADR-024 item 3)
   lockedAt      DateTime?             @map("locked_at")
   lockedBy      String?               @map("locked_by")
   failureCode   String?               @map("failure_code")
@@ -4767,18 +4767,18 @@ model Message {
   @@unique([tenantId, clientToken])
   @@index([tenantId, conversationId, createdAt])
   @@index([tenantId, interactionId])
-  // outbox scan: หยิบงานที่ถึงเวลาส่ง/ลองใหม่
+  // outbox scan: pick up work that is due to send/retry
   @@index([status, nextAttemptAt])
   @@map("messages")
 }
 
-/// ไฟล์แนบฝั่งลูกค้า — URL ของ provider หมดอายุ จึงต้องดึงมาเก็บทันทีที่ webhook เข้า (ADR-024)
+/// customer-side attachment — the provider's URL expires, so it must be fetched and stored as soon as the webhook arrives (ADR-024)
 enum MediaScanStatus {
-  PENDING_FETCH // ยังไม่ได้ดึงจาก provider
-  PENDING_SCAN // ดึงมาแล้ว รอสแกน — ดาวน์โหลดไม่ได้
+  PENDING_FETCH // not yet fetched from the provider
+  PENDING_SCAN // fetched, awaiting scan — cannot be downloaded
   CLEAN
-  INFECTED // กักไว้ ไม่ลบ (เป็นหลักฐาน) แต่ห้ามเปิด
-  FETCH_FAILED // ดึงไม่ทันก่อน URL หมดอายุ
+  INFECTED // quarantined, not deleted (it is evidence) but must not be opened
+  FETCH_FAILED // could not fetch before the URL expired
 }
 
 model MessageAttachment {
@@ -4788,9 +4788,9 @@ model MessageAttachment {
   fileName    String          @map("file_name")
   mime        String
   bytes       Int
-  // URL ต้นทางจาก provider — เก็บไว้เพื่อสืบสวนเท่านั้น ใช้เปิดไม่ได้เพราะหมดอายุ
+  // source URL from the provider — kept for investigation only, cannot be opened because it has expired
   providerUrl String?         @map("provider_url")
-  // media/{tenantId}/{yyyy}/{id} — null ถ้ายังดึงไม่สำเร็จ
+  // media/{tenantId}/{yyyy}/{id} — null if not fetched successfully yet
   storageKey  String?         @map("storage_key")
   thumbKey    String?         @map("thumb_key")
   scanStatus  MediaScanStatus @default(PENDING_FETCH) @map("scan_status")
@@ -4820,7 +4820,7 @@ enum RecordingAuditAction {
   RETENTION_DELETED
   LEGAL_HOLD_PLACED
   LEGAL_HOLD_RELEASED
-  // Telephony หยุดลอง archive เพราะไฟล์ต้นทางไม่มีวันมี (เช่น วางสายก่อน FreeSWITCH สร้างไฟล์)
+  // Telephony stopped trying to archive because the source file will never exist (e.g. hung up before FreeSWITCH created the file)
   ARCHIVE_ABANDONED
 }
 
@@ -4828,9 +4828,9 @@ model Recording {
   id             String                 @id @default(uuid()) @db.Uuid
   tenantId       String                 @map("tenant_id") @db.Uuid
   interactionId  String                 @map("interaction_id") @db.Uuid
-  // key ใน object storage (MinIO/S3)
+  // key in object storage (MinIO/S3)
   storageKey     String                 @map("storage_key")
-  // path บน telephony node สำหรับคำสั่ง pause/resume; ไม่เปิดให้ browser ใช้
+  // path on the telephony node for pause/resume commands; not exposed to the browser
   telephonyPath  String                 @map("telephony_path")
   channelLayout  RecordingChannelLayout @default(STEREO) @map("channel_layout")
   pauseIntervals Json                   @default("[]") @map("pause_intervals")
@@ -4884,8 +4884,8 @@ model RecordingLegalHold {
   @@map("recording_legal_holds")
 }
 
-/// #967 หลักฐานว่า Agent และทีมไหนรับสายจริง Router เขียนใน transaction ที่รับสาย (append-only)
-/// FK ไป interactions/users ประกาศใน migration; teamId ไม่มี FK เพราะเป็นค่า ณ เวลารับสาย
+/// #967 evidence of which Agent and team actually took the call. The Router writes it in the transaction that takes the call (append-only)
+/// FKs to interactions/users are declared in the migration; teamId has no FK because it is the value at the time the call was taken
 model VoiceInteractionHandlingAttribution {
   id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId      String   @map("tenant_id") @db.Uuid
@@ -4901,7 +4901,7 @@ model VoiceInteractionHandlingAttribution {
   @@map("voice_interaction_handling_attributions")
 }
 
-/// #967 session เปิดฟังของ Supervisor ผูกกับผู้ขอ FK ประกาศใน migration
+/// #967 a Supervisor's listening session, bound to the requester. FKs are declared in the migration
 model RecordingPlaybackSession {
   id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId    String    @map("tenant_id") @db.Uuid
@@ -4962,7 +4962,7 @@ enum QmEvaluationStatus {
   PUBLISHED
 }
 
-/// #971: เวอร์ชันของฟอร์มประเมิน — publish แล้วแก้ไม่ได้ (trigger ใน migration)
+/// #971: version of an evaluation form — cannot be edited once published (trigger in the migration)
 enum QmFormVersionStatus {
   DRAFT
   PUBLISHED
@@ -5049,12 +5049,12 @@ model QmEvaluation {
   evaluatorId   String?            @map("evaluator_id") @db.Uuid
   source        QmEvaluationSource @default(AUTO_DRAFT)
   status        QmEvaluationStatus @default(DRAFT)
-  /// AUTO_DRAFT เท่านั้น; ผลประเมินโดยคนไม่มี provider/model
+  /// AUTO_DRAFT only; a human evaluation has no provider/model
   providerId    String?            @map("provider_id")
   modelId       String?            @map("model_id")
   promptVersion String?            @map("prompt_version")
   answers       Json
-  /// #971: ฟอร์มที่ใช้และ snapshot ของฟอร์ม (บังคับเมื่อ source = HUMAN)
+  /// #971: the form used and a snapshot of the form (required when source = HUMAN)
   formVersionId String?            @map("form_version_id") @db.Uuid
   formSnapshot  Json?              @map("form_snapshot")
   rawScore      Decimal?           @map("raw_score") @db.Decimal(5, 2)
@@ -5075,7 +5075,7 @@ model QmEvaluation {
   @@map("qm_evaluations")
 }
 
-/// #971: ฟอร์มประเมินคุณภาพของ tenant (ชื่อไม่ซ้ำ ไม่สนตัวพิมพ์ — unique index ใน migration)
+/// #971: a tenant's quality evaluation form (name unique, case-insensitive — unique index in the migration)
 model QmForm {
   id              String   @id @default(uuid()) @db.Uuid
   tenantId        String   @map("tenant_id") @db.Uuid
@@ -5091,7 +5091,7 @@ model QmForm {
   @@map("qm_forms")
 }
 
-/// #971: เวอร์ชันของฟอร์ม — ร่างได้หนึ่ง ใช้อยู่ได้หนึ่งต่อฟอร์ม (partial unique ใน migration)
+/// #971: version of a form — one draft and one in use per form (partial unique in the migration)
 model QmFormVersion {
   id                String              @id @default(uuid()) @db.Uuid
   tenantId          String              @map("tenant_id") @db.Uuid
@@ -5115,7 +5115,7 @@ model QmFormVersion {
   @@map("qm_form_versions")
 }
 
-/// opaque context สำหรับเปิด Console ข้ามแอป: URL ไม่มี Interaction ID หรือ token
+/// opaque context for opening the Console across apps: the URL has no Interaction ID or token
 model QmConsoleContext {
   id              String   @id @default(uuid()) @db.Uuid
   tenantId        String   @map("tenant_id") @db.Uuid
@@ -5132,7 +5132,7 @@ model QmConsoleContext {
   @@map("qm_console_contexts")
 }
 
-/// receipt durable สำหรับ retry ของ remote mutation: commandId เดิมห้ามทำ side effect ซ้ำ
+/// durable receipt for retrying a remote mutation: the same commandId must not repeat a side effect
 model CommandReceipt {
   id            String   @id @default(uuid()) @db.Uuid
   tenantId      String   @map("tenant_id") @db.Uuid
@@ -5292,7 +5292,7 @@ model IamScopeConsumerInbox {
   @@map("iam_scope_consumer_inbox")
 }
 
-// CG5.2 (#286): read models แบบ additive และ config ราย tenant
+// CG5.2 (#286): additive read models and per-tenant config
 
 enum Cg5Granularity {
   FIVE_MIN
@@ -5449,7 +5449,7 @@ model Cg5TenantConfig {
   @@map("cg5_tenant_config")
 }
 
-// แยก audit ของ config เพื่อไม่เปลี่ยน canonical cg_audit_logs
+// separate config audit so the canonical cg_audit_logs does not change
 model Cg5TenantConfigAudit {
   id               String   @id @default(uuid()) @db.Uuid
   tenantId         String   @map("tenant_id") @db.Uuid
@@ -5468,9 +5468,9 @@ model Cg5TenantConfigAudit {
   @@map("cg5_tenant_config_audit")
 }
 
-// ── J5.1 (#339): Journey authoring, templates และ IAM authoring store ────────
-// composite FK, partial unique, CHECK และ trigger อยู่ใน migration 20260922090000
-// (model ไม่ประกาศ relation เพื่อไม่แตะ Tenant/Team เดิม — แบบเดียวกับตาราง CG5)
+// ── J5.1 (#339): Journey authoring, templates and IAM authoring store ────────
+// composite FK, partial unique, CHECK and trigger live in the migration 20260922090000
+// (the models declare no relation so as not to touch the existing Tenant/Team — same as the CG5 tables)
 
 enum JrJourneyLifecycle {
   DRAFT_ONLY
@@ -5548,7 +5548,7 @@ model JrJourneyHead {
   name                 String
   ownerTeamId          String             @map("owner_team_id") @db.Uuid
   lifecycle            JrJourneyLifecycle @default(DRAFT_ONLY)
-  /// CAS ของ head — trigger บังคับ +1 ทุกครั้งที่แก้
+  /// CAS of the head — a trigger enforces +1 on every edit
   version              Int                @default(1)
   currentDraftId       String             @map("current_draft_id") @db.Uuid
   currentDraftRevision Int                @map("current_draft_revision")
@@ -5565,7 +5565,7 @@ model JrJourneyHead {
   @@map("jr_journey_heads")
 }
 
-/// append-only revision: draft ใหม่คือแถวใหม่เสมอ
+/// append-only revision: a new draft is always a new row
 model JrJourneyDraft {
   id                   String   @id @default(uuid()) @db.Uuid
   tenantId             String   @map("tenant_id") @db.Uuid
@@ -5596,7 +5596,7 @@ model JrAuthoringCommandReceipt {
   requestHash    String                  @map("request_hash") @db.Char(64)
   state          JrAuthoringReceiptState @default(PENDING)
   httpStatus     Int?                    @map("http_status")
-  /// metadata-safe response เท่านั้น — ไม่มี document/graph/parameter value
+  /// metadata-safe response only — no document/graph/parameter value
   response       Json?
   errorCode      String?                 @map("error_code")
   correlationId  String                  @map("correlation_id")
@@ -5625,7 +5625,7 @@ model JrReviewCandidate {
   makerSubjectId          String                  @map("maker_subject_id")
   makerAuthorizationEpoch Int                     @map("maker_authorization_epoch")
   makerScopeVersion       Int                     @map("maker_scope_version")
-  /// มี IN_REVIEW ได้ใบเดียวต่อ resource (partial unique ใน migration)
+  /// only one IN_REVIEW per resource (partial unique in the migration)
   state                   JrReviewState           @default(IN_REVIEW)
   createdAt               DateTime                @default(now()) @map("created_at")
   updatedAt               DateTime                @updatedAt @map("updated_at")
@@ -5685,7 +5685,7 @@ model JrAuthoringOutbox {
   resourceId       String                  @map("resource_id") @db.Uuid
   aggregateVersion Int                     @map("aggregate_version")
   eventType        String                  @map("event_type")
-  /// metadata เท่านั้น: kind/id/version/digest/reason/correlation
+  /// metadata only: kind/id/version/digest/reason/correlation
   payload          Json
   payloadHash      String                  @map("payload_hash") @db.Char(64)
   state            JrAuthoringOutboxState  @default(PENDING)
@@ -5747,7 +5747,7 @@ model JrTemplateDraft {
   @@map("jr_template_drafts")
 }
 
-/// immutable และมีได้เฉพาะ origin TENANT — built-in resolve จาก release asset ไม่มีแถวใน DB
+/// immutable and only origin TENANT is allowed — a built-in is resolved from a release asset and has no row in the DB
 model JrTemplateVersion {
   id                String               @id @default(uuid()) @db.Uuid
   tenantId          String               @map("tenant_id") @db.Uuid
@@ -5815,7 +5815,7 @@ model JrTemplateUpgradeApplication {
   @@map("jr_template_upgrade_applications")
 }
 
-/// ไม่มีแถว = ปิดทุก feature; stage เดินหน้าอย่างเดียว rollback คือ freeze/ปิด flag
+/// no row = every feature off; the stage only moves forward, rollback = freeze/turn the flag off
 model JrAuthoringRolloutState {
   id                     String                  @id @default(uuid()) @db.Uuid
   tenantId               String                  @map("tenant_id") @db.Uuid
@@ -5835,7 +5835,7 @@ model JrAuthoringRolloutState {
   @@map("jr_authoring_rollout_state")
 }
 
-/// application role อ่านได้อย่างเดียว — authorization state จัดการนอก app role
+/// the application role is read-only — authorization state is managed outside the app role
 model IamAuthoringSubject {
   id                     String   @id @default(uuid()) @db.Uuid
   tenantId               String   @map("tenant_id") @db.Uuid
@@ -5869,7 +5869,7 @@ model IamAuthoringCapabilityGrant {
   @@map("iam_authoring_capability_grants")
 }
 
-/// append-only, human-to-human, ไม่เกิน 8 ชั่วโมง และมอบได้แค่ read/edit
+/// append-only, human-to-human, at most 8 hours, and can grant only read/edit
 model IamAuthoringDelegation {
   id                 String   @id @default(uuid()) @db.Uuid
   tenantId           String   @map("tenant_id") @db.Uuid
@@ -5913,8 +5913,8 @@ model IamAuthoringScopeVersion {
 }
 
 // ─────────────────────────── A1 Platform control plane (#406) ───────────────────────────
-// platform-scoped metadata เท่านั้น: เข้าถึงผ่าน role `dcontact_platform` ซึ่งไม่มีสิทธิ์บน tenant business
-// tables และ `dcontact_app` ไม่มีสิทธิ์บนตาราง `pf_*` — ไม่ใช้ tenant RLS เพราะไม่ใช่ข้อมูลของ tenant
+// platform-scoped metadata only: accessed through role `dcontact_platform`, which has no privileges on tenant business
+// tables, and `dcontact_app` has no privileges on `pf_*` tables — tenant RLS is not used because this is not tenant data
 
 enum TenantLifecycleStatus {
   PROVISIONING
@@ -5994,7 +5994,7 @@ enum PfActorKind {
   FIRST_ADMIN
 }
 
-/// immutable versioned bootstrap manifest (#392) — เปลี่ยนได้แค่ status ACTIVE → DEPRECATED → REVOKED
+/// immutable versioned bootstrap manifest (#392) — can change only status ACTIVE → DEPRECATED → REVOKED
 model PfBootstrapTemplate {
   version       String                    @id
   contentDigest String                    @map("content_digest") @db.Char(64)
@@ -6009,7 +6009,7 @@ model PfBootstrapTemplate {
   @@map("pf_bootstrap_templates")
 }
 
-/// durable intent ของคำขอสร้าง tenant (#389/#390) — identity/pin fields immutable หลัง accept
+/// durable intent of a tenant creation request (#389/#390) — identity/pin fields are immutable after accept
 model PfProvisioningRequest {
   id                       String               @id @db.Uuid
   tenantId                 String               @unique @map("tenant_id") @db.Uuid
@@ -6028,7 +6028,7 @@ model PfProvisioningRequest {
   planSnapshotDigest       String               @map("plan_snapshot_digest") @db.Char(64)
   bootstrapTemplateVersion String               @map("bootstrap_template_version")
   bootstrapTemplateDigest  String               @map("bootstrap_template_digest") @db.Char(64)
-  /// operational PII ที่ A1.4 ต้องใช้ส่ง invitation — ห้ามออก log/audit/evidence (ใช้ hash แทน)
+  /// operational PII that A1.4 needs to send an invitation — must not go to logs/audit/evidence (use a hash instead)
   firstAdminEmail          String               @map("first_admin_email")
   firstAdminEmailHash      String               @map("first_admin_email_hash") @db.Char(64)
   firstAdminDisplayName    String               @map("first_admin_display_name")
@@ -6040,7 +6040,7 @@ model PfProvisioningRequest {
   terminalAt               DateTime?            @map("terminal_at")
   createdAt                DateTime             @default(now()) @map("created_at")
   updatedAt                DateTime             @updatedAt @map("updated_at")
-  /// A1.8b (#473): W3C traceparent ตอนรับคำขอ — worker ต่อ span เป็น trace เดียวกัน
+  /// A1.8b (#473): W3C traceparent when the request was received — the worker continues the span as one trace
   traceParent              String?              @map("trace_parent")
 
   tenant           Tenant                      @relation(fields: [tenantId], references: [id])
@@ -6061,7 +6061,7 @@ model PfProvisioningRequest {
   @@map("pf_provisioning_requests")
 }
 
-/// head ของ step ledger ต่อ (request, stepKey) — SUCCEEDED แล้วแก้ไม่ได้ (#390)
+/// head of the step ledger per (request, stepKey) — cannot be edited once SUCCEEDED (#390)
 model PfProvisioningStep {
   requestId      String      @map("request_id") @db.Uuid
   tenantId       String      @map("tenant_id") @db.Uuid
@@ -6076,9 +6076,9 @@ model PfProvisioningStep {
   outputDigest   String?     @map("output_digest") @db.Char(64)
   externalRef    String?     @map("external_ref")
   errorCode      String?     @map("error_code")
-  /// A1.3: backoff + jitter หลัง transient failure; worker ไม่ claim ก่อนเวลานี้
+  /// A1.3: backoff + jitter after a transient failure; a worker does not claim before this time
   nextAttemptAt  DateTime?   @map("next_attempt_at")
-  /// A1.3: จุดเริ่มงบ attempt ปัจจุบัน (operator Retry เปิดงบใหม่โดยไม่ reset attempt)
+  /// A1.3: start of the current attempt budget (an operator Retry opens a new budget without resetting attempts)
   attemptFloor   Int         @default(0) @map("attempt_floor")
   startedAt      DateTime?   @map("started_at")
   finishedAt     DateTime?   @map("finished_at")
@@ -6092,7 +6092,7 @@ model PfProvisioningStep {
   @@map("pf_provisioning_steps")
 }
 
-/// append-only receipt ต่อ attempt ของ step — replay ของ SUCCEEDED คืนแถวเดิม
+/// append-only receipt per attempt of a step — a replay of SUCCEEDED returns the original row
 model PfProvisioningStepReceipt {
   id              String      @id @db.Uuid
   requestId       String      @map("request_id") @db.Uuid
@@ -6112,7 +6112,7 @@ model PfProvisioningStepReceipt {
   @@map("pf_provisioning_step_receipts")
 }
 
-/// A1.5 (#410) plan catalog — entitlement snapshot immutable ต่อ (code, version); request pin ด้วย digest
+/// A1.5 (#410) plan catalog — entitlement snapshot immutable per (code, version); a request pins it by digest
 model PfPlanVersion {
   planCode       String                    @map("plan_code")
   version        Int
@@ -6129,7 +6129,7 @@ model PfPlanVersion {
   @@map("pf_plan_versions")
 }
 
-/// A1.5 (#410) append-only: การแก้ field ที่ไม่ใช่ identity หลัง submit พร้อม digest ใหม่ของ payload
+/// A1.5 (#410) append-only: editing a non-identity field after submit, with a new digest of the payload
 model PfRequestPayloadRevision {
   id              String      @id @db.Uuid
   requestId       String      @map("request_id") @db.Uuid
@@ -6148,7 +6148,7 @@ model PfRequestPayloadRevision {
   @@map("pf_request_payload_revisions")
 }
 
-/// A1.5b (#441) append-only: การเปลี่ยนอีเมล first admin (hash เท่านั้น) ก่อน identity step สำเร็จ
+/// A1.5b (#441) append-only: changing the first admin email (hash only) before the identity step succeeds
 model PfFirstAdminEmailRevision {
   id                String      @id @db.Uuid
   requestId         String      @map("request_id") @db.Uuid
@@ -6180,8 +6180,8 @@ enum PfOperatorCommandState {
   REJECTED
 }
 
-/// A1.6 (#411) durable command ของ operator — API บันทึกแล้วตอบ 202, worker claim ด้วย lease/CAS แล้วทำจริง
-/// (single active EXECUTE ต่อ request บังคับด้วย partial unique index ใน migration)
+/// A1.6 (#411) durable operator command — the API records it and answers 202, a worker claims it with lease/CAS and really does it
+/// (a single active EXECUTE per request is enforced by a partial unique index in the migration)
 model PfOperatorCommand {
   id                 String                 @id @db.Uuid
   requestId          String                 @map("request_id") @db.Uuid
@@ -6209,7 +6209,7 @@ model PfOperatorCommand {
   startedAt          DateTime?              @map("started_at")
   finishedAt         DateTime?              @map("finished_at")
   updatedAt          DateTime               @updatedAt @map("updated_at")
-  /// A1.8b (#473): W3C traceparent ของ request ที่ส่งคำสั่ง
+  /// A1.8b (#473): W3C traceparent of the request that sent the command
   traceParent        String?                @map("trace_parent")
 
   request PfProvisioningRequest @relation(fields: [tenantId, requestId], references: [tenantId, id], map: "pf_operator_commands_request_fkey")
@@ -6226,8 +6226,8 @@ enum PfInvitationState {
   AMBIGUOUS
 }
 
-/// A1.4 (#409) invitation outbox ของ first Tenant Admin — หนึ่งแถวต่อ generation, intent ก่อนส่งเสมอ
-/// ไม่มี raw email/action token; resend cap และ generation ต่อเนื่องบังคับด้วย trigger
+/// A1.4 (#409) invitation outbox of the first Tenant Admin — one row per generation, intent always before sending
+/// no raw email/action token; the resend cap and consecutive generations are enforced by a trigger
 model PfInvitation {
   id              String            @id @db.Uuid
   requestId       String            @map("request_id") @db.Uuid
@@ -6255,7 +6255,7 @@ model PfInvitation {
   @@map("pf_invitations")
 }
 
-/// append-only idempotency record ของ mutation ทุกชนิด (create + recovery actions)
+/// append-only idempotency record of every kind of mutation (create + recovery actions)
 model PfCommandReceipt {
   id                 String   @id @db.Uuid
   idempotencyKeyHash String   @unique @map("idempotency_key_hash") @db.Char(64)
@@ -6271,7 +6271,7 @@ model PfCommandReceipt {
   @@map("pf_command_receipts")
 }
 
-/// head ของ slug/domain/email reservation ต่อค่า canonical หนึ่งค่า (#389) — email เก็บเป็น hash
+/// head of a slug/domain/email reservation per canonical value (#389) — the email is stored as a hash
 model PfIdentityReservation {
   kind            PfReservationKind
   valueKey        String             @map("value_key")
@@ -6290,7 +6290,7 @@ model PfIdentityReservation {
   @@map("pf_identity_reservations")
 }
 
-/// append-only Action history (#393 §5) — ไม่มี raw email/payload/secret; UI เป็น projection ของตารางนี้
+/// append-only Action history (#393 §5) — no raw email/payload/secret; the UI is a projection of this table
 model PfActionHistory {
   id                 String       @id @db.Uuid
   tenantId           String       @map("tenant_id") @db.Uuid
@@ -6321,8 +6321,8 @@ model PfActionHistory {
   @@map("pf_action_history")
 }
 
-// ── U1.1 (#429): UAT fixture pack และ run record ───────────────────────────────
-// Authority: Phase Contract #374, fixture/reset #376, evidence #379 — มีเฉพาะ UAT stack
+// ── U1.1 (#429): UAT fixture pack and run record ───────────────────────────────
+// Authority: Phase Contract #374, fixture/reset #376, evidence #379 — present only on the UAT stack
 
 enum UatRunLifecycle {
   ACTIVE
@@ -6348,7 +6348,7 @@ enum UatStateLabel {
   SIMULATION_ONLY
 }
 
-/// fixture pack แบบ versioned — แถวแก้/ลบไม่ได้ (trigger); pack version เดิม digest ต่าง = fail closed
+/// versioned fixture pack — rows cannot be edited/deleted (trigger); the same pack version with a different digest = fail closed
 model UatFixturePack {
   id          String   @id @db.Uuid
   tenantId    String   @map("tenant_id") @db.Uuid
@@ -6356,7 +6356,7 @@ model UatFixturePack {
   packVersion String   @map("pack_version")
   digest      String   @db.Char(64)
   buildSha    String   @map("build_sha")
-  /// manifest สังเคราะห์ล้วน: opaque refs, baseline document, SimulationFixtureV1 — ไม่มี secret/PII
+  /// purely synthetic manifest: opaque refs, baseline document, SimulationFixtureV1 — no secret/PII
   manifest    Json
   createdAt   DateTime @default(now()) @map("created_at")
 
@@ -6365,13 +6365,13 @@ model UatFixturePack {
   @@map("uat_fixture_packs")
 }
 
-/// UAT run หนึ่งรอบ — ACTIVE ได้หนึ่งแถวต่อ tenant; ปิดแล้วแก้ไม่ได้ (trigger)
+/// one UAT run — one ACTIVE row per tenant; cannot be edited once closed (trigger)
 model UatRun {
   id            String          @id @db.Uuid
   tenantId      String          @map("tenant_id") @db.Uuid
   fixturePackId String          @map("fixture_pack_id") @db.Uuid
   sequence      Int
-  /// Journey draft ของรอบนี้ — null ระหว่าง `เริ่มรอบใหม่` ที่ยังไม่จบ (resume ด้วย key เดิม)
+  /// Journey draft of this run — null during an unfinished `start a new run` (resume with the same key)
   journeyId     String?         @map("journey_id") @db.Uuid
   lifecycle     UatRunLifecycle @default(ACTIVE)
   revision      Int             @default(1)
@@ -6386,7 +6386,7 @@ model UatRun {
   @@map("uat_runs")
 }
 
-/// ผลต่อ step แบบ append-only (#379) — บันทึกได้เฉพาะ run ที่ ACTIVE
+/// append-only per-step result (#379) — can be recorded only for an ACTIVE run
 model UatRunStepResult {
   id            String         @id @db.Uuid
   tenantId      String         @map("tenant_id") @db.Uuid
@@ -6406,14 +6406,14 @@ model UatRunStepResult {
   @@map("uat_run_step_results")
 }
 
-/// idempotency ของคำสั่ง UAT run — response metadata-safe เท่านั้น
+/// idempotency of UAT run commands — metadata-safe response only
 model UatCommandReceipt {
   id             String    @id @db.Uuid
   tenantId       String    @map("tenant_id") @db.Uuid
   idempotencyKey String    @map("idempotency_key")
   commandName    String    @map("command_name")
   requestHash    String    @map("request_hash") @db.Char(64)
-  /// run ที่คำสั่งนี้สร้าง — ใช้ resume `เริ่มรอบใหม่` ที่ค้างหลัง crash
+  /// the run this command created — used to resume a `start a new run` left pending after a crash
   runId          String?   @map("run_id") @db.Uuid
   response       Json?
   createdAt      DateTime  @default(now()) @map("created_at")
@@ -6429,14 +6429,14 @@ enum UatScanStatus {
   FAILED
 }
 
-/// U1.5 (#433): metadata ของภาพหน้าจอหลักฐาน — byte อยู่ใน object storage ส่วนตัวของ UAT stack
-/// (key = uat-evidence/<tenant>/<run>/<id>, retention 90 วัน) append-only และเพิ่มได้เฉพาะ run ที่ ACTIVE
+/// U1.5 (#433): metadata of the screenshot evidence — the bytes are in the private object storage of the UAT stack
+/// (key = uat-evidence/<tenant>/<run>/<id>, retention 90 days) append-only and can be added only to an ACTIVE run
 model UatRunEvidence {
   id            String   @id @db.Uuid
   tenantId      String   @map("tenant_id") @db.Uuid
   runId         String   @map("run_id") @db.Uuid
   stepId        String   @map("step_id")
-  /// image/png หรือ image/jpeg เท่านั้น (ตรวจ magic bytes แล้ว)
+  /// image/png or image/jpeg only (magic bytes checked)
   contentType   String   @map("content_type")
   sizeBytes     Int      @map("size_bytes")
   sha256        String   @db.Char(64)
@@ -6449,8 +6449,8 @@ model UatRunEvidence {
   @@map("uat_run_evidence")
 }
 
-/// U1.5 (#433): ผล negative scan ของ run แบบ append-only — หนึ่งแถวต่อ input digest;
-/// findings มีแค่ชนิด + ตำแหน่ง ไม่มีข้อความที่ match
+/// U1.5 (#433): negative scan result of a run, append-only — one row per input digest;
+/// findings hold only the kind + position, not the matched text
 model UatRunScan {
   id             String        @id @db.Uuid
   tenantId       String        @map("tenant_id") @db.Uuid
@@ -6475,7 +6475,7 @@ enum BusinessHoursStatus {
   ACTIVE
 }
 
-/// ค่าตั้งต้นของ tenant จาก provisioning — locale/timezone และ bootstrap manifest ที่ใช้ seed
+/// tenant defaults from provisioning — locale/timezone and the bootstrap manifest used for seeding
 model TenantSettings {
   initializationSource String @default("PROVISIONING") @map("initialization_source")
   initializedByUserId String? @map("initialized_by_user_id") @db.Uuid
@@ -6497,7 +6497,7 @@ model TenantSettings {
   @@map("tenant_settings")
 }
 
-/// plan ที่ pin ตอนรับคำขอ พร้อม entitlement snapshot — enforcement ผ่าน guard กลาง (ADR-009)
+/// the plan pinned when the request was received, with an entitlement snapshot — enforced through the central guard (ADR-009)
 model TenantPlanBinding {
   tenantId              String   @id @map("tenant_id") @db.Uuid
   planCode              String   @map("plan_code")
@@ -6512,8 +6512,8 @@ model TenantPlanBinding {
   @@map("tenant_plan_bindings")
 }
 
-/// D1.12 (#451): หมุดแอปเริ่มต้นของ tenant (tenant ADMIN กำหนด) — ผู้ใช้ใหม่เห็นชุดนี้
-/// `appIds` คือ id ใน app registry ของ API ตามลำดับบน rail (≤15); `revision` ใช้กับ expectedRevision
+/// D1.12 (#451): default app pins of a tenant (set by the tenant ADMIN) — new users see this set
+/// `appIds` are ids in the API app registry in the order on the rail (≤15); `revision` is used with expectedRevision
 model NavigationTenantDefaultPins {
   tenantId        String   @id @map("tenant_id") @db.Uuid
   appIds          String[] @map("app_ids")
@@ -6526,7 +6526,7 @@ model NavigationTenantDefaultPins {
   @@map("navigation_tenant_default_pins")
 }
 
-/// D1.12 (#451): หมุดที่ผู้ใช้ปรับทับชุดของ tenant — ไม่มีแถว = ใช้ชุดของ tenant
+/// D1.12 (#451): pins a user has overridden on top of the tenant set — no row = use the tenant set
 model NavigationUserPins {
   tenantId  String   @map("tenant_id") @db.Uuid
   userId    String   @map("user_id") @db.Uuid
@@ -6540,7 +6540,7 @@ model NavigationUserPins {
   @@map("navigation_user_pins")
 }
 
-/// D1.12 (#451): audit ของการเปลี่ยนหมุดเริ่มต้นของ tenant — append-only สำหรับ role ของแอป
+/// D1.12 (#451): audit of changes to the tenant's default pins — append-only for the app role
 model NavigationAuditEvent {
   id            String   @id @default(uuid()) @db.Uuid
   tenantId      String   @map("tenant_id") @db.Uuid
@@ -6556,8 +6556,8 @@ model NavigationAuditEvent {
   @@map("navigation_audit_events")
 }
 
-/// D1.13 (#452): UI flag ระดับ tenant (`ui.shell.v2`) — ไม่มีแถว = ปิด
-/// platform operator เท่านั้นที่เปลี่ยนได้ (ผู้ใช้ตัดสิน 2026-09-25) — role ของแอปอ่านได้อย่างเดียว
+/// D1.13 (#452): tenant-level UI flag (`ui.shell.v2`) — no row = off
+/// only the platform operator can change it (user decision 2026-09-25) — the app role is read-only
 model TenantUiFlag {
   tenantId       String   @map("tenant_id") @db.Uuid
   flagKey        String   @map("flag_key")
@@ -6572,7 +6572,7 @@ model TenantUiFlag {
   @@map("tenant_ui_flags")
 }
 
-/// D1.13 (#452): ประวัติการเปิด/ปิด UI flag — append-only
+/// D1.13 (#452): history of turning the UI flag on/off — append-only
 model TenantUiFlagAuditEvent {
   id        String   @id @default(uuid()) @db.Uuid
   tenantId  String   @map("tenant_id") @db.Uuid
@@ -6588,7 +6588,7 @@ model TenantUiFlagAuditEvent {
   @@map("tenant_ui_flag_audit_events")
 }
 
-/// เวลาทำการของ tenant — baseline เป็น DRAFT จนกว่า Tenant Admin จะ review/activate
+/// business hours of a tenant — the baseline is DRAFT until the Tenant Admin reviews/activates it
 model BusinessHours {
   id        String              @id @db.Uuid
   tenantId  String              @map("tenant_id") @db.Uuid
@@ -6606,15 +6606,15 @@ model BusinessHours {
   @@map("business_hours")
 }
 
-/// E1.9 (#483): work-session lease — จุดรับงานเดียวต่อ agent ต่อ tenant ครอบทุก surface
-/// lease ที่ยังไม่ปล่อยมีได้อันเดียว (partial unique index ใน migration); ไม่หมดอายุระหว่างมีงาน
+/// E1.9 (#483): work-session lease — a single work intake point per agent per tenant across every surface
+/// only one unreleased lease can exist (partial unique index in the migration); does not expire while there is work
 model AgentWorkSessionLease {
   id            String    @id @db.Uuid
   tenantId      String    @map("tenant_id") @db.Uuid
   userId        String    @map("user_id") @db.Uuid
   /// workspace | dphone | embedded
   surface       String
-  /// เฉพาะ embedded: https origin ของระบบที่ฝัง dphone
+  /// embedded only: the https origin of the system that embeds dphone
   hostOrigin    String?   @map("host_origin")
   acquiredAt    DateTime  @map("acquired_at")
   heartbeatAt   DateTime  @map("heartbeat_at")
@@ -6630,7 +6630,7 @@ model AgentWorkSessionLease {
   @@map("agent_work_session_leases")
 }
 
-/// E1.10 (#484): SIP credential แบบคืน plaintext ครั้งเดียว เก็บเฉพาะ Digest A1 และผูก work-session lease
+/// E1.10 (#484): SIP credential returned in plaintext once, storing only Digest A1 and bound to the work-session lease
 model AgentSipCredential {
   workSessionLeaseId String    @id @map("work_session_lease_id") @db.Uuid
   tenantId           String    @map("tenant_id") @db.Uuid
@@ -6650,7 +6650,7 @@ model AgentSipCredential {
   @@map("agent_sip_credentials")
 }
 
-/// E1.9 (#483): audit ของ work-session lease — append-only สำหรับ role ของแอป
+/// E1.9 (#483): audit of the work-session lease — append-only for the app role
 model AgentWorkSessionEvent {
   id                       String   @id @db.Uuid
   tenantId                 String   @map("tenant_id") @db.Uuid
@@ -6672,11 +6672,11 @@ model AgentWorkSessionEvent {
   @@map("agent_work_session_events")
 }
 
-/// E1.11 (#485): origin ที่ tenant อนุญาตให้ฝัง dphone — สูงสุด 10 ต่อ tenant (trigger), unique ต่อ tenant
+/// E1.11 (#485): origins a tenant allows to embed dphone — at most 10 per tenant (trigger), unique per tenant
 model TenantEmbedOrigin {
   id             String   @id @db.Uuid
   tenantId       String   @map("tenant_id") @db.Uuid
-  /// normalize แล้ว: scheme://host[:port] ตัวพิมพ์เล็ก
+  /// normalized: lowercase scheme://host[:port]
   origin         String
   label          String
   enabled        Boolean  @default(true)
@@ -6684,7 +6684,7 @@ model TenantEmbedOrigin {
   createdAt      DateTime @map("created_at")
   updatedAt      DateTime @map("updated_at")
   revision       Int      @default(1)
-  /// E1.14 (#488): ระดับข้อมูล screen-pop ของ origin นี้ — off | ids | contact (ค่าเริ่มต้นปิด)
+  /// E1.14 (#488): screen-pop data level of this origin — off | ids | contact (off by default)
   screenPopLevel String   @default("off") @map("screen_pop_level")
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
@@ -6693,7 +6693,7 @@ model TenantEmbedOrigin {
   @@map("tenant_embed_origins")
 }
 
-/// E1.14 (#488): audit ของ click-to-call จาก host ทุกครั้ง — ไม่มีเบอร์ปลายทาง; append-only สำหรับ role ของแอป
+/// E1.14 (#488): audit of every click-to-call from a host — no destination number; append-only for the app role
 model DphoneClickToCallAuditEvent {
   id            String   @id @db.Uuid
   tenantId      String   @map("tenant_id") @db.Uuid
@@ -6704,7 +6704,7 @@ model DphoneClickToCallAuditEvent {
   actionKey     String   @map("action_key")
   contactId     String?  @map("contact_id") @db.Uuid
   decisionId    String?  @map("decision_id")
-  /// ALLOW | BLOCK | DEFER | REVIEW (null = ไม่ถึง Contact Governance เช่น rate limit)
+  /// ALLOW | BLOCK | DEFER | REVIEW (null = did not reach Contact Governance, e.g. rate limit)
   decision      String?
   reasonCode    String   @map("reason_code")
   /// blocked | unavailable | rate_limited | dialing
@@ -6718,7 +6718,7 @@ model DphoneClickToCallAuditEvent {
   @@map("dphone_click_to_call_audit_events")
 }
 
-/// E1.11 (#485): audit ค่าก่อน/หลังของ embed origin — append-only สำหรับ role ของแอป
+/// E1.11 (#485): audit of before/after values of an embed origin — append-only for the app role
 model TenantEmbedOriginAuditEvent {
   id            String   @id @db.Uuid
   tenantId      String   @map("tenant_id") @db.Uuid
@@ -6738,7 +6738,7 @@ model TenantEmbedOriginAuditEvent {
   @@map("tenant_embed_origin_audit_events")
 }
 
-/// AC1 (#594): นโยบายบัญชีของ tenant — ไม่มีแถว = VERIFY + ไม่บังคับ 2FA (API ตอบค่าเริ่มต้นเอง)
+/// AC1 (#594): account policy of a tenant — no row = VERIFY + 2FA not enforced (the API answers the default itself)
 model TenantAccountPolicy {
   tenantId          String   @id @map("tenant_id") @db.Uuid
   /// VERIFY | IMMEDIATE | ADMIN_ONLY
@@ -6753,7 +6753,7 @@ model TenantAccountPolicy {
   @@map("tenant_account_policies")
 }
 
-/// AC1 (#594): audit ค่าก่อน/หลังของนโยบายบัญชี — append-only สำหรับ role ของแอป
+/// AC1 (#594): audit of before/after values of the account policy — append-only for the app role
 model TenantAccountPolicyAuditEvent {
   id            String   @id @db.Uuid
   tenantId      String   @map("tenant_id") @db.Uuid
@@ -6770,7 +6770,7 @@ model TenantAccountPolicyAuditEvent {
   @@map("tenant_account_policy_audit_events")
 }
 
-/// AC1 (#594): คำขอเปลี่ยน email — เก็บเฉพาะ SHA-256 ของ token; รอยืนยันได้ครั้งละหนึ่งคำขอต่อผู้ใช้
+/// AC1 (#594): email change request — stores only the SHA-256 of the token; only one request per user can await confirmation at a time
 model AccountEmailChange {
   id          String    @id @db.Uuid
   tenantId    String    @map("tenant_id") @db.Uuid
@@ -6789,7 +6789,7 @@ model AccountEmailChange {
   @@map("account_email_changes")
 }
 
-/// AC1 (#594): การลงทะเบียน TOTP ที่ยังไม่ยืนยัน — secret เข้ารหัสที่ API อายุสั้น นับครั้งที่ลอง (≤ 5)
+/// AC1 (#594): an unconfirmed TOTP enrollment — the secret is encrypted at the API, short-lived, counts attempts (≤ 5)
 model AccountTotpEnrolment {
   id               String   @id @db.Uuid
   tenantId         String   @map("tenant_id") @db.Uuid
@@ -6806,11 +6806,11 @@ model AccountTotpEnrolment {
   @@map("account_totp_enrolments")
 }
 
-/// AC1 (#594): audit ของการกระทำกับบัญชีตัวเอง — ห้ามมีรหัสผ่าน/secret/token/email; append-only
+/// AC1 (#594): audit of actions on one's own account — must hold no password/secret/token/email; append-only
 model AccountAuditEvent {
   id            String   @id @db.Uuid
   tenantId      String   @map("tenant_id") @db.Uuid
-  /// เก็บไว้แม้ผู้ใช้ถูกลบ จึงไม่มี foreign key ไปที่ users
+  /// kept even if the user is deleted, so there is no foreign key to users
   userId        String   @map("user_id") @db.Uuid
   /// password.changed | email.change.requested | email.change.confirmed | email.change.cancelled |
   /// profile.updated | mfa.enrolled | mfa.removed
@@ -6825,11 +6825,11 @@ model AccountAuditEvent {
   @@map("account_audit_events")
 }
 
-/// AC3 (#596): outbox ของ email บัญชีที่ D-Contact ส่งเอง — ผู้รับและตัวแปรถูกล้างเมื่อจบ (SENT/DEAD)
+/// AC3 (#596): outbox of account emails that D-Contact sends itself — recipients and variables are cleared when finished (SENT/DEAD)
 model AccountEmailOutbox {
   id             String    @id @db.Uuid
   tenantId       String    @map("tenant_id") @db.Uuid
-  /// ไม่มี foreign key — notice ถึง email เดิมยังส่งได้แม้ผู้ใช้ถูกลบ
+  /// no foreign key — a notice to the old email can still be sent even if the user was deleted
   userId         String?   @map("user_id") @db.Uuid
   /// verify-new-email | email-changed-notice | password-changed-notice
   template       String
@@ -6854,7 +6854,7 @@ model AccountEmailOutbox {
   @@map("account_email_outbox")
 }
 
-/// B1: descriptor และผลเป็น append-only; DB บังคับ receipt ก่อน commit
+/// B1: the descriptor and result are append-only; the DB enforces a receipt before commit
 model VoiceConfigCommand {
   tenantId         String                     @map("tenant_id") @db.Uuid
   commandId        String                     @map("command_id") @db.Uuid
@@ -7015,7 +7015,7 @@ model TenantVoicePolicyAudit {
   @@map("tenant_voice_policy_audit")
 }
 
-/// B1: operator-verified bootstrap/enrollment authority; application อ่านอย่างเดียว
+/// B1: operator-verified bootstrap/enrollment authority; the application is read-only
 model TenantVoiceIdentityBinding {
   tenantId                  String   @map("tenant_id") @db.Uuid
   userId                    String   @map("user_id") @db.Uuid
@@ -7041,7 +7041,7 @@ model TenantVoiceIdentityBinding {
   @@map("tenant_voice_identity_bindings")
 }
 
-/// binding snapshot ทุก revision เป็น append-only และไม่มี secret
+/// binding snapshot of every revision is append-only and holds no secret
 model TenantVoiceIdentityBindingAudit {
   tenantId  String   @map("tenant_id") @db.Uuid
   userId    String   @map("user_id") @db.Uuid
@@ -7055,7 +7055,7 @@ model TenantVoiceIdentityBindingAudit {
   @@map("tenant_voice_identity_binding_audit")
 }
 
-/// Core Settings: admission ไม่มี payload; terminal effects/audit/receipt commit พร้อมกัน
+/// Core Settings: admission has no payload; terminal effects/audit/receipt commit together
 model TenantCoreCommand {
   initializedSettings TenantSettings[]
   tenantId         String                    @map("tenant_id") @db.Uuid
@@ -7129,7 +7129,7 @@ model TenantCoreProfileRevision {
   @@map("tenant_core_profile_revisions")
 }
 
-/// M3-A: operator-bound machine principal; credential อยู่กับ Keycloak/Integration
+/// M3-A: operator-bound machine principal; the credential lives with Keycloak/Integration
 model IntServicePrincipal {
   serviceActorIdentityKey String   @map("service_actor_identity_key")
   id                      String   @id @db.Uuid
@@ -7209,7 +7209,7 @@ model IntServiceContactRevocation {
   @@map("int_service_contact_revocations")
 }
 
-/// M3-A: exact owner-purpose ledger ก่อนให้ INTEGRATION custody; ไม่มี PII snapshot
+/// M3-A: exact owner-purpose ledger before granting INTEGRATION custody; no PII snapshot
 model IntServiceCommandEvidence {
   tenantId         String   @map("tenant_id") @db.Uuid
   actorIdentityKey String   @map("actor_identity_key")

@@ -95,7 +95,7 @@ const rehash = (manifest) => {
   return manifest;
 };
 
-test('CG5 registry มีทุก check ตามตาราง #273 ครบ 9 มิติบวก UX', () => {
+test('CG5 registry has every check in the #273 table across 9 dimensions plus UX', () => {
   assert.deepEqual(
     CXA_CG5_READINESS_CHECKS.map(({ id }) => id),
     [
@@ -122,13 +122,13 @@ test('CG5 registry มีทุก check ตามตาราง #273 ครบ
       assert.equal(
         command.filter((part) => /\.(test|integration|spec)\.(ts|mjs)$/.test(part)).length,
         1,
-        `${item.id}: หนึ่ง suite ต้องเป็นหนึ่งไฟล์`,
+        `${item.id}: one suite must be one file`,
       );
     }
   }
 });
 
-test('suite ที่หลาย check ใช้ร่วมกันถูกรันครั้งเดียวต่อ run', () => {
+test('a suite shared by several checks runs once per run', () => {
   const executed = [];
   const result = run({
     executeSuite: (suite) => {
@@ -142,7 +142,7 @@ test('suite ที่หลาย check ใช้ร่วมกันถูก�
   assert.deepEqual(e2e.checkIds, ['CG5-AU01', 'CG5-AU02', 'CG5-CC01', 'CG5-RC02', 'CG5-UX01']);
 });
 
-test('run บน final main ที่ทุก check ผ่านออก marker พร้อม fixed flags และสถานะเฟสอื่น', () => {
+test('a run on final main where every check passes issues the marker with fixed flags and the status of other phases', () => {
   const { summary, manifest } = run();
   assert.deepEqual(summary.markers, [CG5_MARKER]);
   assert.equal(manifest.candidate, false);
@@ -165,7 +165,7 @@ test('run บน final main ที่ทุก check ผ่านออก marke
   assert.doesNotThrow(() => assertValidCxaCg5EvidenceManifest(manifest));
 });
 
-test('run ที่ไม่ใช่ final main ได้ candidate manifest และไม่ออก marker', () => {
+test('a run that is not final main gets a candidate manifest and issues no marker', () => {
   for (const [context, blocker] of [
     [{ ...finalMainContext, pullRequest: 12, ref: 'refs/pull/12/merge' }, 'PULL_REQUEST_RUN'],
     [{ ...finalMainContext, finalMainSha: 'c'.repeat(40) }, 'NOT_FINAL_MAIN_SHA'],
@@ -187,7 +187,7 @@ test('run ที่ไม่ใช่ final main ได้ candidate manifest �
   }
 });
 
-test('check ที่ล้มหนึ่งตัวกัน marker และทำให้มิติของมันล้ม', () => {
+test('one failed check blocks the marker and fails its dimension', () => {
   const { summary, manifest } = run({
     executeSuite: (suite) =>
       isScript(suite, 'src/cg5-observability.test.ts')
@@ -200,7 +200,7 @@ test('check ที่ล้มหนึ่งตัวกัน marker และ
   assert.equal(manifest.dimensions.find(({ name }) => name === 'observability').status, 'FAIL');
 });
 
-test('conformance ของเฟสอื่นที่ล้มทำให้สถานะเป็น ABSENT และกัน marker', () => {
+test('a failed conformance of another phase makes the status ABSENT and blocks the marker', () => {
   const { summary, manifest } = run({
     executeSuite: (suite) =>
       isScript(suite, 'src/cg3-authorize-and-reserve.integration.ts')
@@ -212,7 +212,7 @@ test('conformance ของเฟสอื่นที่ล้มทำให�
   assert.ok(summary.markerBlockers.includes('PHASE_CONFORMANCE_NOT_PROVEN'));
 });
 
-test('marker ของเฟสอื่นนับเฉพาะ manifest บน SHA เดียวกันที่มี marker จริง', () => {
+test('a marker of another phase counts only from a manifest on the same SHA that really has the marker', () => {
   const summary = cxaCg5DependencySummary({
     commitSha: SHA,
     manifests: {
@@ -228,7 +228,7 @@ test('marker ของเฟสอื่นนับเฉพาะ manifest บ
   assert.equal(summary.phases.j3.status, 'ABSENT');
 });
 
-test('validator ปฏิเสธ manifest ที่แต่ง status, marker ปลอม หรือ flag ถูกเปลี่ยน', () => {
+test('validator rejects a manifest with a made-up status, a fake marker, or a changed flag', () => {
   const { manifest } = run();
 
   const forged = rehash(structuredClone(manifest));
@@ -255,17 +255,17 @@ test('validator ปฏิเสธ manifest ที่แต่ง status, marker
 
   const duplicate = structuredClone(manifest);
   duplicate.suites[1].command = duplicate.suites[0].command;
-  assert.throws(() => assertValidCxaCg5EvidenceManifest(duplicate), /ซ้ำ/);
+  assert.throws(() => assertValidCxaCg5EvidenceManifest(duplicate), /more than once/);
 });
 
-test('manifest ถูกตรวจว่าไม่มี PII', () => {
+test('manifest is checked to have no PII', () => {
   const { manifest } = run();
   const leaked = structuredClone(manifest);
   leaked.checks[0].subchecks[0].detail = 'customer somchai@example.com 0812345678';
   assert.throws(() => assertValidCxaCg5EvidenceManifest(rehash(leaked)));
 });
 
-test('profile ปฏิเสธการเปิด external API, release หรือ provider traffic', () => {
+test('profile rejects enabling the external API, release or provider traffic', () => {
   assert.throws(
     () => cxaCg5ProfileSummary({ CXA_CG5_EXTERNAL_API_ENABLED: 'true' }),
     /external API/,
@@ -275,7 +275,7 @@ test('profile ปฏิเสธการเปิด external API, release ห�
   assert.throws(() => cxaCg5ProfileSummary({ CXA_CG5_CONSOLE_PROFILE: 'DIRECT_DB' }), /console/);
 });
 
-test('MG01: migration จริงของ CG5 additive และ scanner จับ migration ที่ทำลาย canonical', () => {
+test('MG01: the real CG5 migration is additive and the scanner catches a migration that destroys canonical', () => {
   const summary = cxaCg5MigrationSummary(readCg5Migrations());
   assert.equal(summary.canonicalConcurrentIndexes, 1);
   const reasons = (sql) =>
@@ -301,7 +301,7 @@ test('MG01: migration จริงของ CG5 additive และ scanner จ�
   ]);
 });
 
-test('ทุกไฟล์เทสต์ที่ registry อ้างมีอยู่จริง', () => {
+test('every test file the registry references really exists', () => {
   const packageRoots = {
     '@d-contact/contact-governance': 'apps/contact-governance',
     '@d-contact/api': 'apps/api',

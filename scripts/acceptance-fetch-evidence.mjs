@@ -22,11 +22,11 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const MAX_ARTIFACTS_PER_PHASE = 10;
 
 /**
- * #559: ดาวน์โหลด evidence manifest ของ phase ที่ REG ต้องใช้ จาก CI artifact ของ run ใดก็ได้บน SHA เดียวกัน
- * แล้วบันทึก provenance (run, artifact, digest ของไฟล์) ให้ `acceptance-dependency-markers.mjs` ตรวจ
+ * #559: download the evidence manifest of the phases a REG needs, from a CI artifact of any run on the same SHA,
+ * then record provenance (run, artifact, file digest) for `acceptance-dependency-markers.mjs` to check
  *
- * เลือกเฉพาะ artifact ที่ยังไม่หมดอายุ ชื่อ `<artifact>-<sha>` มาจาก run บน main และ head SHA ตรง —
- * ดาวน์โหลดทุกตัวที่เข้าเงื่อนไข (ใหม่สุดก่อน) เพราะ run ที่ล้มก็ upload manifest ที่ไม่มี marker ไว้เหมือนกัน
+ * Only artifacts that have not expired are selected, named `<artifact>-<sha>`, from a run on main whose head SHA matches -
+ * download every one that qualifies (newest first) because a failed run also uploads a manifest without a marker
  */
 export function selectArtifacts(artifacts, name, commitSha) {
   return (artifacts ?? [])
@@ -50,15 +50,16 @@ export async function fetchDependencyEvidence({
   log = (line) => process.stdout.write(`${line}\n`),
 }) {
   const phases = ACCEPTANCE_DEPENDENCIES[acceptance];
-  if (!phases) throw new TypeError(`ไม่รู้จัก acceptance ${acceptance}`);
-  if (!/^[0-9a-f]{40}$/.test(commitSha ?? '')) throw new TypeError('ต้องระบุ commit SHA เต็ม');
+  if (!phases) throw new TypeError(`unknown acceptance ${acceptance}`);
+  if (!/^[0-9a-f]{40}$/.test(commitSha ?? ''))
+    throw new TypeError('the full commit SHA is required');
   const entries = [];
   for (const phase of phases) {
     const { artifact, directory } = ACCEPTANCE_PHASES[phase];
     const name = `${artifact}-${commitSha}`;
     const selected = selectArtifacts(await listArtifacts(name), name, commitSha);
     if (selected.length === 0) {
-      log(`[dependency] ${phase}: ไม่พบ artifact ${name} บน main`);
+      log(`[dependency] ${phase}: artifact ${name} not found on main`);
       continue;
     }
     const folder = resolve(artifactsRoot, directory);
@@ -85,7 +86,7 @@ export async function fetchDependencyEvidence({
         rmSync(staging, { recursive: true, force: true });
       }
     }
-    log(`[dependency] ${phase}: ดาวน์โหลด ${selected.length} artifact`);
+    log(`[dependency] ${phase}: downloading ${selected.length} artifact(s)`);
   }
   const provenancePath = resolve(artifactsRoot, PROVENANCE_PATH);
   mkdirSync(dirname(provenancePath), { recursive: true });
@@ -106,13 +107,13 @@ function githubApi(repository, token) {
         `${base}/actions/artifacts?name=${encodeURIComponent(name)}&per_page=100`,
         { headers },
       );
-      if (!response.ok) throw new Error(`list artifacts ${name} ล้มเหลว: HTTP ${response.status}`);
+      if (!response.ok) throw new Error(`list artifacts ${name} failed: HTTP ${response.status}`);
       return (await response.json()).artifacts ?? [];
     },
     async downloadArtifact(artifact, destination) {
       const response = await fetch(`${base}/actions/artifacts/${artifact.id}/zip`, { headers });
       if (!response.ok)
-        throw new Error(`download artifact ${artifact.id} ล้มเหลว: HTTP ${response.status}`);
+        throw new Error(`download artifact ${artifact.id} failed: HTTP ${response.status}`);
       const zip = resolve(destination, 'artifact.zip');
       writeFileSync(zip, Buffer.from(await response.arrayBuffer()));
       const result = spawnSync('unzip', ['-o', '-q', '-j', zip, '*.json', '-d', destination], {
@@ -120,7 +121,7 @@ function githubApi(repository, token) {
       });
       rmSync(zip, { force: true });
       if (result.status !== 0 || result.error)
-        throw new Error(`unzip artifact ${artifact.id} ล้มเหลว: ${result.stderr ?? result.error}`);
+        throw new Error(`unzip artifact ${artifact.id} failed: ${result.stderr ?? result.error}`);
     },
   };
 }
@@ -130,7 +131,7 @@ if (invokedUrl === import.meta.url) {
   const { GITHUB_REPOSITORY: repository, GITHUB_SHA: commitSha } = process.env;
   const token = process.env.GH_TOKEN ?? process.env.GITHUB_TOKEN;
   try {
-    if (!repository || !token) throw new Error('ต้องมี GITHUB_REPOSITORY และ GH_TOKEN');
+    if (!repository || !token) throw new Error('GITHUB_REPOSITORY and GH_TOKEN are required');
     await fetchDependencyEvidence({
       acceptance: process.argv[2],
       commitSha,

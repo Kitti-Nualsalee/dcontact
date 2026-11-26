@@ -22,14 +22,14 @@ const pr01: LineProviderCheckEvidence = {
   type: 'line.provider-conformance',
 };
 
-test('S2-LINE-EV01: stable digest ตรงกับ vector ของ scripts/cxa-s2-readiness.test.mjs', () => {
+test('S2-LINE-EV01: the stable digest matches the vector of scripts/cxa-s2-readiness.test.mjs', () => {
   assert.equal(
-    stableSha256({ b: [{ z: 1, a: 'ไทย' }], a: null, c: true }),
+    stableSha256({ b: [{ z: 1, a: 'ไทย' }], a: null, c: true }), // allow-thai: stable digest vector shared with scripts/cxa-s2-readiness.test.mjs
     'ac573c0ba944f84e3dd2c61e91939ccd0359be7ca4853176df88ee658ffc1632',
   );
 });
 
-test('S2-LINE-EV01: bundle มี hash รายชิ้น + digest ทั้งก้อน และ profile ของ protected runner', () => {
+test('S2-LINE-EV01: the bundle has per-item hashes + a whole digest and the profile of the protected runner', () => {
   const bundle = buildLineProviderEvidenceBundle({
     commitSha: SHA,
     generatedAt: new Date('2026-09-23T00:00:00.000Z'),
@@ -44,7 +44,7 @@ test('S2-LINE-EV01: bundle มี hash รายชิ้น + digest ทั้�
   assert.deepEqual(bundle.secretScan, { status: 'PASS', exactValuesChecked: 1 });
 });
 
-test('S2-LINE-OB02: secret จริงหรือ field ต้องห้ามทำให้สร้าง bundle ไม่ได้', () => {
+test('S2-LINE-OB02: a real secret or a forbidden field makes the bundle impossible to build', () => {
   const build = (evidence: LineProviderCheckEvidence) => () =>
     buildLineProviderEvidenceBundle({
       commitSha: SHA,
@@ -61,7 +61,7 @@ test('S2-LINE-OB02: secret จริงหรือ field ต้องห้า�
   assert.throws(build({ ...pr01, replyToken: 'x' }), LineProviderBundleError);
 });
 
-test('S2-LINE-EV01: commit ไม่เต็ม, check ซ้ำหรือไม่อยู่ในชุด provider ถูกปฏิเสธ', () => {
+test('S2-LINE-EV01: a non-full commit, a duplicate check or one outside the provider set is rejected', () => {
   const base = { generatedAt: new Date(), runner, secrets: [SECRET] };
   assert.throws(() =>
     buildLineProviderEvidenceBundle({ ...base, commitSha: 'abc', evidence: [pr01] }),

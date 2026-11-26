@@ -1,13 +1,13 @@
 /**
- * A1.8 (#413) — isolation matrix ของ #393 ส่วนฐานข้อมูล (fast gate)
+ * A1.8 (#413) — the database part of the #393 isolation matrix (fast gate)
  *
- * - Tenant Admin A (role `dcontact_app` + `app.tenant_id = A`) สลับไปอ่าน/แก้แถวของ tenant B ใน
- *   ตาราง baseline ของ A1 ไม่ได้: SELECT = 0 แถว, UPDATE/DELETE = 0 แถว, INSERT ถูก RLS ปฏิเสธ
- * - Platform Operator (role `dcontact_platform`) อ่าน business data ของ tenant ไม่ได้เลย
- *   (สิทธิ์ถูกตัดที่ระดับ GRANT ไม่ใช่แค่ RLS)
+ * - Tenant Admin A (role `dcontact_app` + `app.tenant_id = A`) cannot switch to reading/editing tenant B's rows in
+ *   the A1 baseline tables: SELECT = 0 rows, UPDATE/DELETE = 0 rows, INSERT is rejected by RLS
+ * - Platform Operator (role `dcontact_platform`) cannot read tenant business data at all
+ *   (the permission is cut at the GRANT level, not just RLS)
  *
- * ส่วน API/token (auditor mutation, tenant/mixed token, generic 404) อยู่ใน platform-api
- * integration; tenant ที่ยัง PROVISIONING เข้า tenant apps ไม่ได้อยู่ใน gateway-auth/workspace-session
+ * The API/token part (auditor mutation, tenant/mixed token, generic 404) is in the platform-api
+ * integration; a tenant still PROVISIONING cannot enter the tenant apps — see gateway-auth/workspace-session
  */
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -65,7 +65,7 @@ async function seedTenant(f: Awaited<ReturnType<typeof createPlatformFixture>>, 
     data: {
       id: randomUUID(),
       tenantId: tenant.id,
-      name: 'เวลาทำการ',
+      name: 'Business hours',
       timezone: 'Asia/Bangkok',
       weekly: [{ day: 1, open: '09:00', close: '18:00' }],
     },
@@ -73,7 +73,7 @@ async function seedTenant(f: Awaited<ReturnType<typeof createPlatformFixture>>, 
   return { tenantId: tenant.id, teamId: team.id };
 }
 
-/** Tenant Admin ของ tenant หนึ่ง: role ของ tenant app + tenant context จาก token ที่ verify แล้ว */
+/** The Tenant Admin of one tenant: the tenant app role + the tenant context from a verified token */
 function asTenant<T>(application: PrismaClient, tenantId: string, work: (tx: any) => Promise<T>) {
   return application.$transaction(async (transaction) => {
     await transaction.$executeRawUnsafe(`SELECT set_config('app.tenant_id', $1, true)`, tenantId);
@@ -99,7 +99,7 @@ async function setup(t: TestContext) {
   return { f, a, b };
 }
 
-test('Tenant Admin A สลับไป tenant B: SELECT ได้ 0 แถวในทุกตาราง baseline ของ A1', async (t) => {
+test('Tenant Admin A switching to tenant B: SELECT returns 0 rows in every A1 baseline table', async (t) => {
   const { f, a, b } = await setup(t);
   for (const table of BASELINE_TABLES) {
     const [own, foreign] = await asTenant(f.application, a.tenantId, async (tx) => [
@@ -112,15 +112,15 @@ test('Tenant Admin A สลับไป tenant B: SELECT ได้ 0 แถว�
         b.tenantId,
       ),
     ]);
-    assert.ok((own as { n: number }[])[0]!.n >= 1, `${table}: A ต้องเห็นแถวของตัวเอง`);
-    assert.equal((foreign as { n: number }[])[0]!.n, 0, `${table}: A เห็นแถวของ B`);
+    assert.ok((own as { n: number }[])[0]!.n >= 1, `${table}: A must see its own rows`);
+    assert.equal((foreign as { n: number }[])[0]!.n, 0, `${table}: A sees B's rows`);
   }
 });
 
-test('Tenant Admin A แก้/ลบแถวของ B ไม่ได้ทั้ง RLS และ table grants และ INSERT ข้าม tenant ถูกปฏิเสธ', async (t) => {
+test('Tenant Admin A cannot edit/delete B rows through RLS or table grants, and a cross-tenant INSERT is rejected', async (t) => {
   const { f, a, b } = await setup(t);
-  // #753: ใช้คอลัมน์ที่ tenant writer แก้ได้จริง เพื่อให้ UPDATE พิสูจน์ RLS;
-  // tenant_id ของ teams ถูกถอดสิทธิ์แล้วโดย Core Settings (#727)
+  // #753: use a column the tenant writer can actually edit so the UPDATE proves RLS;
+  // the tenant_id of teams has had its privilege revoked by Core Settings (#727)
   const updateColumns = {
     users: 'display_name',
     teams: 'name',
@@ -137,20 +137,20 @@ test('Tenant Admin A แก้/ลบแถวของ B ไม่ได้ท�
         b.tenantId,
       ),
     );
-    assert.equal(updated, 0, `${table}: A แก้แถวของ B ได้`);
+    assert.equal(updated, 0, `${table}: A could edit B's rows`);
     const removeForeign = () =>
       asTenant(f.application, a.tenantId, (tx) =>
         tx.$executeRawUnsafe(`DELETE FROM "${table}" WHERE "tenant_id" = $1::uuid`, b.tenantId),
       );
-    // #726/#727 ห้าม direct DELETE สองตารางนี้ทุก tenant ที่ระดับ GRANT
-    // ต้องยืนยันว่าถูกปฏิเสธตรงตาม contract ไม่คืนสิทธิ์เพื่อให้ test ผ่าน
+    // #726/#727 forbid direct DELETE on these two tables for every tenant at the GRANT level
+    // must confirm it is rejected exactly per the contract, not hand back the privilege to make the test pass
     if (table === 'teams' || table === 'tenant_settings') {
       await assert.rejects(removeForeign, new RegExp(`permission denied for table ${table}`));
     } else {
-      assert.equal(await removeForeign(), 0, `${table}: A ลบแถวของ B ได้`);
+      assert.equal(await removeForeign(), 0, `${table}: A could delete B's rows`);
     }
   }
-  // Core Settings ตรวจ tenant context ก่อน INSERT policy ของ teams (#727)
+  // Core Settings checks the tenant context before the INSERT policy of teams (#727)
   await assert.rejects(
     asTenant(f.application, a.tenantId, (tx) =>
       tx.team.create({ data: { tenantId: b.tenantId, name: 'Injected' } }),
@@ -171,22 +171,22 @@ test('Tenant Admin A แก้/ลบแถวของ B ไม่ได้ท�
     ),
     /row-level security/,
   );
-  // แถวของ B ยังอยู่ครบ
+  // B's rows are all still there
   assert.equal(await f.owner.team.count({ where: { tenantId: b.tenantId } }), 1);
   assert.equal(await f.owner.tenantSettings.count({ where: { tenantId: b.tenantId } }), 1);
 });
 
-test('ไม่มี tenant context = ไม่เห็นอะไรเลย (fail closed)', async (t) => {
+test('no tenant context = sees nothing at all (fail closed)', async (t) => {
   const { f } = await setup(t);
   for (const table of BASELINE_TABLES) {
     const rows = await f.application.$queryRawUnsafe<{ n: number }[]>(
       `SELECT count(*)::int AS n FROM "${table}"`,
     );
-    assert.equal(rows[0]!.n, 0, `${table}: ไม่มี app.tenant_id แต่เห็นแถว`);
+    assert.equal(rows[0]!.n, 0, `${table}: no app.tenant_id but rows are visible`);
   }
 });
 
-test('Platform Operator (dcontact_platform) อ่าน business data ของ tenant ไม่ได้ที่ระดับ GRANT', async (t) => {
+test('Platform Operator (dcontact_platform) cannot read tenant business data at the GRANT level', async (t) => {
   const { f } = await setup(t);
   for (const table of [
     ...BASELINE_TABLES,
@@ -200,7 +200,7 @@ test('Platform Operator (dcontact_platform) อ่าน business data ของ
     await assert.rejects(
       f.platform.$queryRawUnsafe(`SELECT 1 FROM "${table}" LIMIT 1`),
       /permission denied/,
-      `platform role อ่าน ${table} ได้`,
+      `platform role could read ${table}`,
     );
   }
 });

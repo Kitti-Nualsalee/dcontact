@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events';
 import test from 'node:test';
 import { observeChildExit, stopChild } from './child-process-lifecycle.mjs';
 
-test('บันทึกผลปิดของ SIPp child ที่จบก่อนขั้นตรวจ media', async () => {
+test('records the close result of a SIPp child that ends before the media check step', async () => {
   const child = new EventEmitter();
   const exit = observeChildExit(child);
 
@@ -12,7 +12,7 @@ test('บันทึกผลปิดของ SIPp child ที่จบก�
   assert.equal(await exit, 0);
 });
 
-test('ยุติการรอ SIPp child ที่ไม่ปิดภายในเวลาที่กำหนด', async () => {
+test('stops waiting for a SIPp child that does not close within the allotted time', async () => {
   const child = new EventEmitter();
   child.kill = (signal) => {
     child.killedWith = signal;
@@ -20,12 +20,12 @@ test('ยุติการรอ SIPp child ที่ไม่ปิดภา�
 
   await assert.rejects(
     observeChildExit(child, { timeoutMs: 5, label: 'SIPp caller' }),
-    /SIPp caller ไม่สิ้นสุดภายใน 5ms/,
+    /SIPp caller did not exit within 5ms/,
   );
   assert.equal(child.killedWith, 'SIGTERM');
 });
 
-test('cleanup ปิด child streams ก่อนหยุด process เพื่อไม่ให้ acceptance ค้าง', () => {
+test('cleanup closes child streams before stopping the process so acceptance does not hang', () => {
   const child = new EventEmitter();
   child.stdout = { destroy: () => (child.stdoutDestroyed = true) };
   child.stderr = { destroy: () => (child.stderrDestroyed = true) };

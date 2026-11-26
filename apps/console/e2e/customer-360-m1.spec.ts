@@ -6,7 +6,10 @@ test.beforeEach(async ({ request }) => {
   await request.get('/__c360_test/reset');
 });
 
-test('Admin สร้าง เปลี่ยนชื่อ และเลิกใช้แท็กผ่าน API/RLS จริง', async ({ page, request }) => {
+test('Admin creates, renames and retires a tag through the real API/RLS', async ({
+  page,
+  request,
+}) => {
   mkdirSync('../../output/playwright', { recursive: true });
   await page.setViewportSize({ width: 1440, height: 900 });
   const config = (await (await request.get('/__c360_test/config')).json()) as { tenant: string };
@@ -41,7 +44,10 @@ test('Admin สร้าง เปลี่ยนชื่อ และเลิ
   await expect(renamed.getByRole('button', { name: 'เปลี่ยนชื่อ' })).toHaveCount(0);
 });
 
-test('ถอนสิทธิ์ปิดข้อมูลที่เปิดอยู่ และจอแคบใช้งานด้วยคีย์บอร์ดได้', async ({ page, request }) => {
+test('revoking permission closes the open data, and a narrow screen works with the keyboard', async ({
+  page,
+  request,
+}) => {
   const config = (await (await request.get('/__c360_test/config')).json()) as { tenant: string };
   await page.setViewportSize({ width: 768, height: 900 });
   await page.goto(`/?view=customer-tags&tenant=${config.tenant}`);
@@ -58,7 +64,10 @@ test('ถอนสิทธิ์ปิดข้อมูลที่เปิ�
   await expect(page.getByRole('table')).toHaveCount(0);
 });
 
-test('revision conflict แสดงข้อมูลล่าสุดโดยเก็บร่างไว้ให้ตรวจ', async ({ page, request }) => {
+test('a revision conflict shows the latest data while keeping the draft for review', async ({
+  page,
+  request,
+}) => {
   const config = (await (await request.get('/__c360_test/config')).json()) as { tenant: string };
   const create = await request.post('/api/v1/customer-360/tags', {
     data: { commandId: randomUUID(), name: 'ก่อนเปลี่ยน M1' },
@@ -87,7 +96,10 @@ test('revision conflict แสดงข้อมูลล่าสุดโด�
   await expect(page.getByRole('row').filter({ hasText: 'ร่างของฉัน M1' })).toBeVisible();
 });
 
-test('ผลตอบกลับหายหลังกระทำสำเร็จ กู้ receipt แล้วไม่สร้างแท็กซ้ำ', async ({ page, request }) => {
+test('a response lost after a successful action recovers the receipt and does not create a duplicate tag', async ({
+  page,
+  request,
+}) => {
   const config = (await (await request.get('/__c360_test/config')).json()) as { tenant: string };
   let dropped = false;
   await page.route('**/api/v1/customer-360/tags', async (route) => {
@@ -108,7 +120,10 @@ test('ผลตอบกลับหายหลังกระทำสำเ�
   await expect(page.getByRole('row').filter({ hasText: 'กู้ผล M1' })).toHaveCount(1);
 });
 
-test('รายการเกินหนึ่งหน้าโหลดต่อได้โดยไม่แสดงชื่อซ้ำ', async ({ page, request }) => {
+test('a list of more than one page can load on without showing duplicate names', async ({
+  page,
+  request,
+}) => {
   const config = (await (await request.get('/__c360_test/config')).json()) as { tenant: string };
   await request.get('/__c360_test/actor/operator');
   const response = await request.post('/api/v1/customer-360/operator/commands', {
@@ -131,7 +146,10 @@ test('รายการเกินหนึ่งหน้าโหลดต�
   await expect(page.getByRole('row').filter({ hasText: 'หน้า M1 51' })).toHaveCount(1);
 });
 
-test('ผลรายการที่มาช้าหลังถอนสิทธิ์ไม่กลับมาแสดง', async ({ page, request }) => {
+test('a list result arriving late after permission revoke does not come back', async ({
+  page,
+  request,
+}) => {
   const config = (await (await request.get('/__c360_test/config')).json()) as { tenant: string };
   await page.goto(`/?view=customer-tags&tenant=${config.tenant}`);
   await expect(page.getByRole('row').filter({ hasText: 'ลูกค้าสำคัญ' })).toBeVisible();
@@ -152,7 +170,7 @@ test('ผลรายการที่มาช้าหลังถอนส�
     try {
       await route.fulfill({ response });
     } catch {
-      /* request เก่าอาจถูก abort เมื่อเปลี่ยน filter */
+      /* an old request may be aborted when the filter changes */
     }
   });
   await page.getByLabel('สถานะ').click();
@@ -167,7 +185,10 @@ test('ผลรายการที่มาช้าหลังถอนส�
   await expect(page.getByText('ลูกค้าสำคัญ')).toHaveCount(0);
 });
 
-test('กักร่างจนตรวจสิทธิ์ซ้ำและแสดงข้อผิดพลาดภายใน dialog', async ({ page, request }) => {
+test('holding the draft until permission is rechecked and showing the error inside the dialog', async ({
+  page,
+  request,
+}) => {
   const config = (await (await request.get('/__c360_test/config')).json()) as { tenant: string };
   await page.goto(`/?view=customer-tags&tenant=${config.tenant}`);
   await page.getByRole('button', { name: 'สร้างแท็ก' }).click();
@@ -202,7 +223,10 @@ test('กักร่างจนตรวจสิทธิ์ซ้ำแล�
 });
 
 for (const fault of ['network', 'rate'] as const)
-  test(`conflict ที่ readback ${fault} ยังตรวจผลเดิมและกู้ได้`, async ({ page, request }) => {
+  test(`a conflict whose readback is ${fault} still checks the original result and can recover`, async ({
+    page,
+    request,
+  }) => {
     const config = (await (await request.get('/__c360_test/config')).json()) as { tenant: string };
     const create = await request.post('/api/v1/customer-360/tags', {
       data: { commandId: randomUUID(), name: `ก่อน conflict readback ${fault}` },
@@ -245,7 +269,10 @@ for (const fault of ['network', 'rate'] as const)
     await expect(dialog.getByLabel('ชื่อแท็ก')).toHaveValue('ร่าง conflict readback');
   });
 
-test('แท็กถูก retire ระหว่างเสียสิทธิ์ ต้องไม่เปิดให้บันทึกร่างเดิม', async ({ page, request }) => {
+test('a tag retired while permission is lost must not allow saving the original draft', async ({
+  page,
+  request,
+}) => {
   const config = (await (await request.get('/__c360_test/config')).json()) as { tenant: string };
   const create = await request.post('/api/v1/customer-360/tags', {
     data: { commandId: randomUUID(), name: 'AAA แท็กก่อนเสียสิทธิ์' },

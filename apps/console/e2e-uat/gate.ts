@@ -3,8 +3,8 @@ import { readFileSync } from 'node:fs';
 import { expect, type Browser, type BrowserContext, type Page } from '@playwright/test';
 
 /**
- * U1.7 (#435): helper ของ acceptance gate — state มาจาก runner (`scripts/u1-acceptance.mjs`) ผ่านไฟล์
- * ชั่วคราวที่ runner ลบเองเมื่อจบ; รหัสผ่าน/TOTP secret/token อยู่ในหน่วยความจำเท่านั้น ไม่ถูกเขียนเป็นหลักฐาน
+ * U1.7 (#435): helpers of the acceptance gate — state comes from the runner (`scripts/u1-acceptance.mjs`) through a
+ * temporary file the runner deletes itself when done; the password/TOTP secret/token live in memory only and are never written as evidence
  */
 
 export type Persona = 'maker' | 'reviewer' | 'foreign';
@@ -45,11 +45,11 @@ export interface GateState {
 
 export function gateState(): GateState {
   const path = process.env.U1_GATE_STATE;
-  if (!path) throw new Error('U1_GATE_STATE is required (รันผ่าน `pnpm cxa:u1:acceptance`)');
+  if (!path) throw new Error('U1_GATE_STATE is required (run through `pnpm cxa:u1:acceptance`)');
   return JSON.parse(readFileSync(path, 'utf8')) as GateState;
 }
 
-/** RFC 6238 TOTP ด้วย secret ดิบแบบที่ Keycloak เก็บ (UTF-8 bytes) — เหมือน scripts/keycloak-platform-login.mjs */
+/** RFC 6238 TOTP with the raw secret as Keycloak stores it (UTF-8 bytes) — same as scripts/keycloak-platform-login.mjs */
 function totp(secret: string, at = Date.now()): string {
   const counter = Buffer.alloc(8);
   counter.writeBigUInt64BE(BigInt(Math.floor(at / 1000 / 30)));
@@ -58,7 +58,7 @@ function totp(secret: string, at = Date.now()): string {
   return String((digest.readUInt32BE(offset) & 0x7fffffff) % 1_000_000).padStart(6, '0');
 }
 
-/** Keycloak ไม่รับ OTP ซ้ำใน window เดิม — บัญชีเดียวกัน login ซ้ำต้องรอ window ถัดไป */
+/** Keycloak does not accept a repeated OTP within the same window — logging in again with the same account must wait for the next window */
 const usedWindow = new Map<string, number>();
 async function freshTotp(page: Page, secret: string): Promise<string> {
   let window = Math.floor(Date.now() / 30_000);
@@ -66,7 +66,7 @@ async function freshTotp(page: Page, secret: string): Promise<string> {
     await page.waitForTimeout((window + 1) * 30_000 - Date.now() + 500);
     window = Math.floor(Date.now() / 30_000);
   }
-  // เหลือเวลาใน window น้อยเกินไป = รอ window ใหม่ ไม่ให้รหัสหมดอายุระหว่างส่งฟอร์ม
+  // too little time left in the window = wait for a new window so the code does not expire while the form is submitted
   const remaining = (window + 1) * 30_000 - Date.now();
   if (remaining < 3_000) {
     await page.waitForTimeout(remaining + 500);
@@ -80,13 +80,13 @@ export interface Session {
   account: GateAccount;
   context: BrowserContext;
   page: Page;
-  /** bearer token ล่าสุดที่ Console ส่งไป API (อ่านจาก request ของ browser เอง) */
+  /** latest bearer token the Console sent to the API (read from the browser's own requests) */
   token(): string;
 }
 
 /**
- * login ผ่าน UI จริงของ Console: ปุ่มเข้าสู่ระบบ → ฟอร์มรหัสผ่านของ Keycloak → ฟอร์ม OTP → กลับมาที่
- * Console (Authorization Code + PKCE) — ไม่ใช้ direct grant และไม่ฉีด token
+ * log in through the real Console UI: sign-in button → Keycloak password form → OTP form → back to
+ * Console (Authorization Code + PKCE) — no direct grant and no injected token
  */
 export async function login(browser: Browser, account: GateAccount): Promise<Session> {
   const context = await browser.newContext();
@@ -105,15 +105,15 @@ export async function login(browser: Browser, account: GateAccount): Promise<Ses
   await page.locator('#otp').fill(await freshTotp(page, account.totpSecret));
   await page.locator('#kc-login').click();
   await expect(page.getByRole('heading', { level: 1, name: 'Journey authoring' })).toBeVisible();
-  // callback ต้องไม่ทิ้ง code/state ไว้ใน URL (screenshot/หลักฐานห้ามมี — #379)
+  // the callback must not leave code/state in the URL (screenshots/evidence must not contain them — #379)
   await expect.poll(() => page.url()).not.toMatch(/[?&](code|state|session_state)=/);
   await expect.poll(() => bearer).not.toBe('');
   return { account, context, page, token: () => bearer };
 }
 
 /**
- * reload หน้าแบบที่ผู้ทดสอบทำ: session ของ Console อยู่ในหน่วยความจำ จึงต้องกดเข้าสู่ระบบอีกครั้ง —
- * Keycloak มี SSO session อยู่แล้วจึงกลับมาทันทีโดยไม่ถามรหัสผ่าน/OTP ซ้ำ
+ * reload the page the way a tester does: the Console session lives in memory, so the sign-in button must be pressed again —
+ * Keycloak already has an SSO session, so it returns immediately without asking for the password/OTP again
  */
 export async function reloadSession(session: Session): Promise<void> {
   const { page, account } = session;
@@ -128,7 +128,7 @@ export interface ApiResult {
   body: Record<string, unknown> & { code?: string };
 }
 
-/** เรียก API จริงผ่าน origin ของ Console (same-origin proxy แบบ UAT) ด้วย token ของ session */
+/** call the real API through the Console origin (same-origin proxy like UAT) with the session's token */
 export async function api(
   state: GateState,
   session: Session | null,

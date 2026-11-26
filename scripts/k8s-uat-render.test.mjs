@@ -45,7 +45,7 @@ function releaseArgs(phase) {
 
 test.after(() => rmSync(root, { recursive: true, force: true }));
 
-test('bootstrap สร้างเฉพาะ namespace แยกจาก Applications ของ Argo CD', () => {
+test('bootstrap creates only the namespace, separate from the Argo CD Applications', () => {
   const result = spawnSync('kubectl', ['kustomize', 'infra/k8s/uat/bootstrap'], {
     cwd: new URL('..', import.meta.url),
     encoding: 'utf8',
@@ -56,7 +56,7 @@ test('bootstrap สร้างเฉพาะ namespace แยกจาก Appl
   assert.doesNotMatch(result.stdout, /kind: (?:Deployment|Service|Secret|Ingress)/);
 });
 
-test('สาม phase แยก one-shot Jobs และ public exposure ออกจาก foundation/application', () => {
+test('the three phases keep the one-shot Jobs and the public exposure apart from foundation/application', () => {
   releaseFiles();
   for (const phase of ['foundation', 'applications', 'exposure']) {
     const result = render(...releaseArgs(phase));
@@ -78,7 +78,7 @@ test('สาม phase แยก one-shot Jobs และ public exposure ออ�
   }
 });
 
-test('ทุก one-shot Job render ได้แต่ไม่รวมใน phase ปกติ', () => {
+test('every one-shot Job renders but is not included in the normal phases', () => {
   releaseFiles();
   for (const job of [
     'migrate',
@@ -97,7 +97,7 @@ test('ทุก one-shot Job render ได้แต่ไม่รวมใน p
   }
 });
 
-test('หยุดเมื่อ release ไม่ใช่ SHA เดียว, image ไม่ตรึง digest หรือ StorageClass ยังไม่ทราบ', () => {
+test('stops when the release is not a single SHA, an image does not pin a digest, or the StorageClass is still unknown', () => {
   releaseFiles({ platformSha: 'c'.repeat(40) });
   let result = render(...releaseArgs('applications'), '--check');
   assert.notEqual(result.status, 0);
@@ -131,8 +131,8 @@ const privilegedSecrets = new Map([
 ]);
 
 /**
- * คู่ Secret/key ที่ manifest อ้าง ทั้ง env (`secretKeyRef`) และ volume (`secret.items`).
- * อ่านเป็น block ตาม indentation เพราะ `kubectl kustomize` เรียง field ใหม่ (key ก่อน name)
+ * The Secret/key pairs the manifest references, both env (`secretKeyRef`) and volume (`secret.items`).
+ * Read as blocks by indentation because `kubectl kustomize` reorders fields (key before name)
  */
 function secretReferences(manifest) {
   const lines = manifest.split('\n');
@@ -156,7 +156,7 @@ function secretReferences(manifest) {
   return references;
 }
 
-test('credential ระดับ owner/root/admin อยู่ใน Secret แยกและ runtime applications ไม่อ้าง', () => {
+test('owner/root/admin-level credentials are in a separate Secret and the runtime applications do not reference them', () => {
   releaseFiles();
   const phases = [
     'foundation',
@@ -179,22 +179,29 @@ test('credential ระดับ owner/root/admin อยู่ใน Secret แ�
     const references = secretReferences(result.stdout);
     for (const { secret, key } of references) {
       if (privilegedSecrets.has(key)) {
-        assert.equal(secret, privilegedSecrets.get(key), `${phase}: ${key} ต้องมาจาก Secret แยก`);
+        assert.equal(
+          secret,
+          privilegedSecrets.get(key),
+          `${phase}: ${key} must come from a separate Secret`,
+        );
       } else {
-        assert.ok(!dedicated.has(secret), `${phase}: ${secret} มีเฉพาะ credential ระดับสูง`);
+        assert.ok(
+          !dedicated.has(secret),
+          `${phase}: ${secret} holds only high-privilege credentials`,
+        );
       }
     }
     if (phase === 'applications') {
       assert.ok(references.length > 0);
       assert.ok(
         references.every(({ secret }) => !dedicated.has(secret)),
-        'API/Console/worker ห้ามอ้าง Secret ของ owner/root/admin',
+        'the API/Console/worker must not reference the owner/root/admin Secret',
       );
     }
   }
 });
 
-test('Job ตั้งค่า Keycloak ตรงกับ Compose UAT (#645 browser flow, AC6 branding)', () => {
+test('the Keycloak setup Job matches the UAT Compose (#645 browser flow, AC6 branding)', () => {
   releaseFiles();
   for (const job of ['platform-keycloak-config', 'platform-operator']) {
     const result = render(...releaseArgs(`job:${job}`));
@@ -202,7 +209,7 @@ test('Job ตั้งค่า Keycloak ตรงกับ Compose UAT (#645 br
     assert.match(
       result.stdout,
       /keycloak-account-service-setup\.mjs --keep-realm-browser-flow/,
-      `${job} ต้องไม่ผูก browser flow ทับ flow OTP ของ realm`,
+      `${job} must not bind the browser flow over the OTP flow of the realm`,
     );
   }
   const tenant = render(...releaseArgs('job:tenant-keycloak-config'));

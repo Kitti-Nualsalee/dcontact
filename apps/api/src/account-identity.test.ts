@@ -11,7 +11,7 @@ import {
 
 const KEY = Buffer.alloc(32, 7).toString('base64');
 
-test('error ของ password policy ถูกแปลงเป็น rules[] ไม่ส่งข้อความดิบ', () => {
+test('a password policy error is mapped to rules[] without passing on the raw message', () => {
   assert.deepEqual(
     passwordRulesOf({
       error: 'invalidPasswordMinUpperCaseCharsMessage',
@@ -36,7 +36,7 @@ test('error ของ password policy ถูกแปลงเป็น rules[] 
   assert.equal(passwordRulesOf(undefined), undefined);
 });
 
-test('Base32 ตาม RFC 4648 (ไม่มี padding)', () => {
+test('Base32 per RFC 4648 (no padding)', () => {
   const vectors: Array<[string, string]> = [
     ['', ''],
     ['f', 'MY'],
@@ -49,7 +49,7 @@ test('Base32 ตาม RFC 4648 (ไม่มี padding)', () => {
   for (const [input, expected] of vectors) assert.equal(base32(Buffer.from(input)), expected);
 });
 
-test('TOTP secret และ otpauth URI ตรงกับ OTP policy ของ realm และไม่มีชื่อระบบ identity', () => {
+test('the TOTP secret and otpauth URI match the realm OTP policy and carry no identity system name', () => {
   const secret = generateTotpSecret();
   assert.match(secret, /^[A-Za-z0-9]{20}$/);
   assert.notEqual(secret, generateTotpSecret());
@@ -67,11 +67,11 @@ test('TOTP secret และ otpauth URI ตรงกับ OTP policy ของ 
   assert.doesNotMatch(uri.href, /keycloak/i);
 });
 
-test('secret box: ถอดได้เฉพาะ context เดิม, แก้ ciphertext แล้วถอดไม่ได้, key ต้อง 32 bytes', () => {
+test('secret box: decryptable only with the original context, a tampered ciphertext cannot be decrypted, the key must be 32 bytes', () => {
   const box = new AccountSecretBox(KEY);
   const sealed = box.seal('Abc123secret', 'totp:t:u:e1');
   assert.ok(!sealed.includes('Abc123secret'));
-  assert.notEqual(sealed, box.seal('Abc123secret', 'totp:t:u:e1'), 'iv สุ่มทุกครั้ง');
+  assert.notEqual(sealed, box.seal('Abc123secret', 'totp:t:u:e1'), 'the iv is random every time');
   assert.equal(box.open(sealed, 'totp:t:u:e1'), 'Abc123secret');
   const unavailable = (error: unknown) =>
     error instanceof AccountError && error.code === 'IDENTITY_UNAVAILABLE';

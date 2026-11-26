@@ -11,7 +11,7 @@ const OK = { ok: true, eventType: 'exception.changed', payload: {} } as unknown 
 const BAD: Cg4EnvelopeParse = {
   ok: false,
   reason: 'UNSUPPORTED_CONTRACT_VERSION',
-  detail: 'contractVersion 2 ไม่รองรับ',
+  detail: 'contractVersion 2 is not supported',
 };
 
 function classify(
@@ -25,7 +25,7 @@ function classify(
 const HASH_A = 'a'.repeat(64);
 const HASH_B = 'b'.repeat(64);
 
-test('version ถัดไปแบบต่อเนื่อง apply ได้', () => {
+test('the next contiguous version can be applied', () => {
   assert.deepEqual(
     classify(
       { aggregateVersion: 4, payloadHash: HASH_A },
@@ -35,7 +35,7 @@ test('version ถัดไปแบบต่อเนื่อง apply ได�
   );
 });
 
-test('event แรกของ aggregate ต้องเป็น version 1 ไม่งั้นถือว่ามี gap', () => {
+test('the first event of an aggregate must be version 1, otherwise it counts as a gap', () => {
   assert.deepEqual(classify(undefined, { aggregateVersion: 1, payloadHash: HASH_A }), {
     kind: 'APPLY',
   });
@@ -46,7 +46,7 @@ test('event แรกของ aggregate ต้องเป็น version 1 ไ�
   });
 });
 
-test('version เดิม hash เดิมเป็น duplicate; hash ต่างเป็น quarantine', () => {
+test('the same version with the same hash is a duplicate; a different hash is a quarantine', () => {
   const cursor = { aggregateVersion: 4, payloadHash: HASH_A };
   assert.deepEqual(classify(cursor, { aggregateVersion: 4, payloadHash: HASH_A }), {
     kind: 'DUPLICATE',
@@ -55,7 +55,7 @@ test('version เดิม hash เดิมเป็น duplicate; hash ต่�
   assert.equal(conflict.kind, 'QUARANTINE');
 });
 
-test('version ที่ข้ามเป็น gap และ version ที่ย้อนหลังเป็น out-of-order', () => {
+test('a skipped version is a gap and a version going backwards is out-of-order', () => {
   const cursor = { aggregateVersion: 4, payloadHash: HASH_A };
   assert.deepEqual(classify(cursor, { aggregateVersion: 6, payloadHash: HASH_B }), {
     kind: 'GAP',
@@ -69,7 +69,7 @@ test('version ที่ข้ามเป็น gap และ version ที่�
   });
 });
 
-test('payload ที่ parse ไม่ผ่านเป็น UNSUPPORTED โดยไม่สนใจ version', () => {
+test('a payload that fails to parse is UNSUPPORTED regardless of version', () => {
   const result = classify(
     { aggregateVersion: 4, payloadHash: HASH_A },
     { aggregateVersion: 5, payloadHash: HASH_B },
@@ -80,7 +80,7 @@ test('payload ที่ parse ไม่ผ่านเป็น UNSUPPORTED โ�
   assert.equal(result.reason, 'UNSUPPORTED_CONTRACT_VERSION');
 });
 
-test('ทุก decision ที่ไม่ใช่ APPLY/DUPLICATE ทำให้ scope ถูก pause พร้อม reason ที่ตรงกัน', () => {
+test('every decision other than APPLY/DUPLICATE makes the scope pause with a matching reason', () => {
   const cursor = { aggregateVersion: 4, payloadHash: HASH_A };
   const cases = [
     [classify(cursor, { aggregateVersion: 5, payloadHash: HASH_B }), false, undefined],

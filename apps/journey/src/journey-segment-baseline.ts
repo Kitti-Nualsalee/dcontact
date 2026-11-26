@@ -1,32 +1,32 @@
 /**
- * J3.10 (#221) — baseline membership ที่มีอยู่ก่อนเปิดใช้ J3 และ rebuild projection
+ * J3.10 (#221) — baseline of memberships that existed before J3 was turned on, and projection rebuild
  *
- * หัวใจของเรื่องนี้คือสิ่งที่ห้ามทำ: **contact ที่อยู่ใน segment อยู่แล้วก่อนเปิดระบบ ต้องไม่ถูก
- * enroll** เพราะการเข้า segment ของเขาเกิดไปแล้วในอดีต ไม่ใช่เหตุการณ์ที่เพิ่งเกิด การสร้าง
- * enrollment ให้ทุกคนตอนเปิดระบบเท่ากับยิงแคมเปญใส่ฐานลูกค้าทั้งหมดพร้อมกันโดยไม่มีใครสั่ง
+ * The heart of this is what must not be done: **a contact already in a segment before the system was turned on must not be
+ * enrolled**, because their entry into the segment already happened in the past and is not a new event. Creating
+ * an enrollment for everyone at turn-on would fire the campaign at the entire customer base at once with nobody ordering it
  *
- * baseline จึงเขียนแค่ head ให้ตรงกับ revision ปัจจุบันของ Customer 360 — ไม่มี receipt ที่
- * พา entry, ไม่มี intent, ไม่มี outbox หลังจากนั้น revision ถัดไปที่มาจริงจะถูกประมวลผลตามปกติ
- * และ OUT -> IN ของจริงเท่านั้นที่สร้าง entry ใหม่
+ * The baseline therefore writes only the head to match the current Customer 360 revision — no receipt that
+ * carries an entry, no intent, no outbox. After that the next revision that really arrives is processed as normal
+ * and only a real OUT -> IN creates a new entry
  *
- * ทำซ้ำได้เสมอ: ทุกครั้งที่รันได้ผลเท่าเดิม และ head ที่ขยับไปไกลกว่าแล้วจะไม่ถูกดึงถอยหลัง
+ * Always repeatable: every run gives the same result, and a head that has moved further ahead is never pulled backwards
  */
 import { Prisma, withTenantDatabaseTransaction, type PrismaClient } from '@d-contact/db';
 
 export interface SegmentBaselineResult {
-  /** stream ที่ถูกตั้ง baseline ในรอบนี้ */
+  /** streams that got a baseline in this round */
   baselined: number;
-  /** stream ที่มี head อยู่แล้วและไม่ต้องแตะ */
+  /** streams that already have a head and need no touching */
   skipped: number;
-  /** cursor สำหรับเรียกต่อ — undefined แปลว่าจบแล้ว */
+  /** cursor to call again with — undefined means finished */
   nextCursor?: { contactId: string; segmentId: string };
 }
 
 export interface SegmentBaselineInput {
   tenantId: string;
-  /** จำนวน stream ต่อรอบ — ให้ caller คุมขนาด transaction เอง */
+  /** number of streams per round — lets the caller control the transaction size itself */
   batchSize?: number;
-  /** ตำแหน่งที่ค้างไว้จากรอบก่อน */
+  /** the position left over from the previous round */
   cursor?: { contactId: string; segmentId: string };
 }
 
@@ -34,11 +34,11 @@ export class JourneySegmentBaseline {
   constructor(private readonly database: PrismaClient) {}
 
   /**
-   * ตั้ง baseline ทีละชุดแบบ resumable
+   * sets the baseline batch by batch, resumably
    *
-   * เรียงด้วย (contactId, segmentId) ซึ่งเป็น primary key ของ C360 head — ลำดับจึงเสถียร
-   * ข้ามรอบและข้ามการรีสตาร์ท ต่างจากการเรียงด้วยเวลาที่แถวใหม่จะแทรกกลางชุดที่ทำไปแล้ว
-   * แล้วทำให้ stream บางเส้นถูกข้ามไปเงียบ ๆ
+   * sorted by (contactId, segmentId), which is the primary key of the C360 head — so the order is stable
+   * across rounds and restarts, unlike sorting by time where new rows would be inserted in the middle of the batches already done
+   * and make some streams get skipped silently
    */
   async baselineNext(input: SegmentBaselineInput): Promise<SegmentBaselineResult> {
     const batchSize = input.batchSize ?? 100;
@@ -86,10 +86,10 @@ export class JourneySegmentBaseline {
         });
 
         /**
-         * head ที่มีอยู่แล้วไม่ถูกแตะเลย ไม่ว่าจะสูงหรือต่ำกว่า revision ปัจจุบัน
+         * an existing head is not touched at all, whether higher or lower than the current revision
          *
-         * สูงกว่า = ระบบเดินไปไกลแล้ว การดึงถอยจะทำให้ revision ที่ apply ไปแล้วถูกประมวลผลซ้ำ
-         * ต่ำกว่า = มี revision ค้างรออยู่จริง การกระโดดไปข้างหน้าจะกลืนมันหายโดยไม่มีใครรู้
+         * higher = the system has moved far ahead, pulling it back would make an already applied revision be processed again
+         * lower = a revision is really waiting, and jumping forward would swallow it with nobody knowing
          */
         if (existing) {
           skipped += 1;
@@ -103,10 +103,10 @@ export class JourneySegmentBaseline {
             segmentId: membership.segmentId,
             lastAppliedRevision: membership.membershipRevision,
             /**
-             * ไม่ตั้ง terminal แม้ membership ปัจจุบันจะเป็น OUT/INVALIDATED
+             * terminal is not set even if the current membership is OUT/INVALIDATED
              *
-             * terminal คือบันทึกว่า "entry นี้ถูกปิดโดยเหตุการณ์ที่ J3 เห็น" แต่ baseline ไม่ได้
-             * เห็นเหตุการณ์นั้น การเขียนลงไปคือการแต่งประวัติที่ไม่เคยผ่านระบบนี้
+             * terminal is the record that "this entry was closed by an event J3 saw" but the baseline did not
+             * see that event; writing it would be fabricating a history that never passed through this system
              */
           },
         });
@@ -124,7 +124,7 @@ export class JourneySegmentBaseline {
     });
   }
 
-  /** ไล่ baseline จนจบทั้ง tenant — รวมผลของทุกรอบเข้าด้วยกัน */
+  /** walks the baseline to the end across the whole tenant — combining the results of every round */
   async baselineTenant(
     tenantId: string,
     batchSize = 100,
@@ -148,13 +148,13 @@ export class JourneySegmentBaseline {
   }
 
   /**
-   * สร้าง head ใหม่จาก receipt ที่ apply แล้วเท่านั้น
+   * rebuilds the head from applied receipts only
    *
-   * ใช้ตอน projection เสียหายและต้องประกอบใหม่ — อ่านจาก receipt ledger ซึ่งเป็น fact ที่ผ่าน
-   * ระบบมาจริง ไม่ใช่จาก Customer 360 โดยตรง เพราะ head ของ J3 ต้องสะท้อนว่า "J3 ประมวลผล
-   * อะไรไปแล้ว" ไม่ใช่ "ตอนนี้ Customer 360 ว่าอย่างไร" สองอย่างนี้ต่างกันตอนมี revision ค้าง
+   * used when the projection is damaged and must be reassembled — reads from the receipt ledger, which is a fact that really passed
+   * through the system, not from Customer 360 directly, because the J3 head must reflect "what J3 has processed"
+   * not "what Customer 360 says now"; the two differ when a revision is pending
    *
-   * ไม่แตะ intent, enrollment หรือ outbox เลย — rebuild projection ไม่ใช่การ replay effect
+   * touches no intent, enrollment or outbox at all — rebuilding the projection is not a replay of effects
    */
   async rebuildHead(
     tenantId: string,

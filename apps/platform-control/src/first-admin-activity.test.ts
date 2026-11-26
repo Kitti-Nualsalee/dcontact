@@ -2,10 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { firstAdminActivityOf } from './first-admin-activity.js';
 
-test('แปลง Keycloak 26 event เป็นเหตุการณ์ timeline ตามที่เห็นจริงใน execute-actions flow', () => {
+test('maps Keycloak 26 events to timeline events as actually seen in the execute-actions flow', () => {
   const cases: Array<[Record<string, unknown>, string | null]> = [
     [{ type: 'VERIFY_EMAIL' }, 'FIRST_ADMIN_EMAIL_VERIFIED'],
-    // ยืนยันอีเมลผ่านลิงก์ execute-actions มาเป็น custom required action
+    // email verified through the execute-actions link arrives as a custom required action
     [
       { type: 'CUSTOM_REQUIRED_ACTION', details: { custom_required_action: 'VERIFY_EMAIL' } },
       'FIRST_ADMIN_EMAIL_VERIFIED',

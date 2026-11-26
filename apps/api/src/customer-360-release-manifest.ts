@@ -1,10 +1,10 @@
-/** สร้าง metadata สำหรับ release evidence; ผู้ deploy ต้องตรวจ digest ของ image จาก registry/deployment เอง */
+/** builds metadata for release evidence; the deployer must verify the image digest from the registry/deployment themselves */
 import { assertC360ContactPointRuntime } from '@d-contact/contact-points/runtime-manifest';
 import { C360_PARSER_INTEGRITY } from './customer-360-write-runtime.js';
 
 const imageDigest = process.env.C360_IMAGE_DIGEST;
 if (!imageDigest || !/^sha256:[0-9a-f]{64}$/.test(imageDigest))
-  throw new Error('C360_IMAGE_DIGEST ต้องเป็น digest ของ image ที่จะ deploy');
+  throw new Error('C360_IMAGE_DIGEST must be the digest of the image to be deployed');
 const runtime = assertC360ContactPointRuntime();
 process.stdout.write(
   `${JSON.stringify({

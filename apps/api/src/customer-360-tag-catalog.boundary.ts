@@ -1,4 +1,4 @@
-/** M1-A: Keycloak จริง → gateway/proof → catalog → PostgreSQL/RLS ใน sandbox แยก */
+/** M1-A: real Keycloak → gateway/proof → catalog → PostgreSQL/RLS in a separate sandbox */
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test from 'node:test';
@@ -7,9 +7,11 @@ import { Customer360TagCatalogController } from './customer-360-tag-catalog-api.
 import { coreIdentitySandbox } from './tenant-core-identity-sandbox.js';
 
 test(
-  'M1 actual OIDC ตรวจ catalog, replay และสิทธิ์ปัจจุบัน',
+  'M1 actual OIDC checks the catalog, replay and the current permission',
   {
-    skip: !process.env.CORE_IDENTITY_SANDBOX_URL ? 'NOT_RUN: ต้องมี Keycloak sandbox แยก' : false,
+    skip: !process.env.CORE_IDENTITY_SANDBOX_URL
+      ? 'NOT_RUN: a separate Keycloak sandbox is required'
+      : false,
     timeout: 180_000,
   },
   async (t) => {
@@ -19,7 +21,7 @@ test(
     );
     const admin = await tokenFor('admin');
     const commandId = randomUUID();
-    const body = { commandId, name: 'แท็กทดสอบ OIDC' };
+    const body = { commandId, name: 'OIDC test tag' };
     const created = await f.request('customer-360/tags', admin, body);
     assert.equal(created.status, 201);
     const id = (
@@ -44,7 +46,7 @@ test(
         (
           await f.request('customer-360/tags', token, {
             commandId: randomUUID(),
-            name: 'ห้ามสร้าง',
+            name: 'Do not create',
           })
         ).status,
         403,

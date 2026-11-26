@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""#868: ออก authorization ใช้ครั้งเดียวให้ uat-deploy.sh deploy candidate ทับ current แบบ reconciliation
+"""#868: issue a single-use authorization for uat-deploy.sh to deploy the candidate over current in the reconciliation style
 
-ตรวจหลักฐานด้วย `validate_api_rollback_rehearsal` เดียวกับ release-candidate-validate.py แล้วผูกกับ
-current/previous record bytes, release.env ของ candidate ที่ prepare แล้ว และอายุ window ภายใต้ lock เดียวกับ deploy
-เมื่อ record ของ candidate ถูกเขียน current hash เปลี่ยน authorization จึงใช้ซ้ำไม่ได้โดยโครงสร้าง
-ไม่เปลี่ยน runtime, DB หรือ deployment record และไม่รับรอง rollback
+Verifies evidence with the same `validate_api_rollback_rehearsal` as release-candidate-validate.py, then binds it to the
+current/previous record bytes, the candidate's prepared release.env, and the window's age under the same lock as deploy
+Once the candidate's record is written the current hash changes, so the authorization is structurally non-reusable
+Does not change the runtime, DB or deployment record and does not certify rollback
 """
 import argparse
 from datetime import datetime, timedelta, timezone
@@ -59,7 +59,7 @@ def read_private(path, limit=8388608):
 
 
 def read_release_env(path):
-    # release.env ใน release directory เป็นไฟล์ที่ deploy อ่านจริง (ไม่ใช่ secret จึงไม่บังคับ 0600)
+    # release.env in the release directory is the file deploy actually reads (not a secret, so 0600 is not enforced)
     descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     with os.fdopen(descriptor, 'rb') as stream:
         info = os.fstat(stream.fileno())
@@ -119,14 +119,14 @@ def authorize(root, observation, approved_observation_sha256, rehearsal, approve
 
         path = operator / AUTHORIZATION
         if os.path.lexists(path):
-            # authorization เดิมใช้ไม่ได้แล้วถ้า current เปลี่ยน; เก็บไว้เป็นประวัติแทนการลบ
+            # the old authorization is no longer usable once current changes; keep it as history instead of deleting
             existing = json.loads(read_private(path))
             try:
                 expires = datetime.fromisoformat(str(existing.get('expiresAt', ''))[:-1] + '+00:00')
             except ValueError:
                 expires = None
-            # ใช้งานได้อยู่ = current เดิม, candidate เดิม และยังไม่หมดอายุ; กรณีอื่นเก็บเป็นประวัติแล้วออกใหม่ได้
-            # เช่น window หมดหลัง migrate แต่ก่อน record ต้องออก authorization ใหม่จากหลักฐานสดได้
+            # still usable = same current, same candidate and not yet expired; otherwise archive it as history and issue a new one
+            # e.g. if the window expires after migrate but before the record, a new authorization must be issuable from fresh evidence
             if (existing.get('currentRecordSha256') == current_sha256 and existing.get('targetSha') == sha
                     and expires is not None and clock < expires):
                 raise RuntimeError('AUTHORIZE_ACTIVE_AUTHORIZATION_EXISTS')
@@ -166,7 +166,7 @@ def authorize(root, observation, approved_observation_sha256, rehearsal, approve
 
 
 def main():
-    parser = argparse.ArgumentParser(description='ออก authorization ให้ deploy candidate ทับ current แบบ reconciliation')
+    parser = argparse.ArgumentParser(description='Issue an authorization to deploy the candidate over current in the reconciliation style')
     parser.add_argument('--observation', required=True, type=Path)
     parser.add_argument('--approved-observation-sha256', required=True)
     parser.add_argument('--api-rehearsal', required=True, type=Path)

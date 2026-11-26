@@ -1,7 +1,7 @@
-"""#998 1B/2: boundary ของ UPDATE_PROFILE และ ENABLE_ACCOUNT กับ Keycloak 26.7.5 + PostgreSQL จริง
+"""#998 1B/2: boundary of UPDATE_PROFILE and ENABLE_ACCOUNT against Keycloak 26.7.5 + a real PostgreSQL
 
-ตรวจ receipt/fence/readback ใน transaction เดียวกับ tenant gate, การปฏิเสธที่ไม่แตะ identity,
-การ login ด้วย password/TOTP เดิมหลังเปิดกลับ, concurrent enable และ fault ที่ทำให้ receipt ล้มต้องไม่ค้าง mutation
+checks the receipt/fence/readback in the same transaction as the tenant gate, rejections that do not touch the identity,
+logging in with the original password/TOTP after re-enabling, a concurrent enable, and a fault that makes the receipt fail must leave no mutation behind
 """
 import concurrent.futures
 import hashlib
@@ -16,7 +16,7 @@ TOTP_SECRET = 'JBSWY3DPEHPK3PXP'
 
 
 def totp(secret=TOTP_SECRET, offset=0):
-    # Keycloak เก็บ secretData.value เป็น secret ดิบและคำนวณ HMAC จาก UTF-8 bytes (QR ใช้ Base32 ของ bytes นี้)
+    # Keycloak stores secretData.value as the raw secret and computes the HMAC from the UTF-8 bytes (the QR uses the Base32 of these bytes)
     key = secret.encode('utf-8')
     counter = struct.pack('>Q', int(time.time() // 30) + offset)
     digest = hmac.new(key, counter, hashlib.sha1).digest()
@@ -39,7 +39,7 @@ def check_account_boundary(call, expect, adminbase, admin, tenant, foreign, sql)
         email = uuid.uuid4().hex + '@example.test'
         body = {'tenantId': tenant['id'], 'targetUserId': user,
                 'payloadDigest': hashlib.sha256(uuid.uuid4().bytes).hexdigest(),
-                'fencingToken': '1', 'email': email, 'displayName': 'ชื่อเดิม P998', 'role': role}
+                'fencingToken': '1', 'email': email, 'displayName': 'ชื่อเดิม P998', 'role': role} # allow-thai: Thai display name fixture
         for step in ('CREATE_IDENTITY', 'TENANT_ROLE', 'ORG_MEMBERSHIP', 'VERIFY_MAPPING', 'VERIFY_PROVISIONED'):
             proof, _ = expect(resource + '/operations/' + operation + '/steps/' + step, token, body, status=200)
             if proof['outcome'] != 'SUCCEEDED':
@@ -47,7 +47,7 @@ def check_account_boundary(call, expect, adminbase, admin, tenant, foreign, sql)
         password = uuid.uuid4().hex
         if ready:
             path = adminbase + '/users/' + user
-            expect(path, admin, {'emailVerified': True, 'requiredActions': [], 'firstName': 'ชื่อเดิม P998',
+            expect(path, admin, {'emailVerified': True, 'requiredActions': [], 'firstName': 'ชื่อเดิม P998', # allow-thai: Thai display name fixture
                                 'lastName': 'P998'}, method='PUT', status=204)
             expect(path + '/reset-password', admin, {'type': 'password', 'value': password,
                                                    'temporary': False}, method='PUT', status=204)
@@ -75,7 +75,7 @@ def check_account_boundary(call, expect, adminbase, admin, tenant, foreign, sql)
     def read(step, operation, body):
         query = {key: body[key] for key in ('tenantId', 'targetUserId', 'identityId', 'payloadDigest', 'role')}
         if 'displayName' in body:
-            # ชื่อไม่อยู่ใน URL: ส่ง SHA-256 แทน
+    # the name is not in the URL: send the SHA-256 instead
             query['displayNameDigest'] = hashlib.sha256(body['displayName'].encode('utf-8')).hexdigest()
         return expect(resource + '/account/' + step + '/' + operation + '?' + urllib.parse.urlencode(query),
                       token, status=200)[0]
@@ -100,18 +100,18 @@ def check_account_boundary(call, expect, adminbase, admin, tenant, foreign, sql)
 
     # --- UPDATE_PROFILE ---
     agent = provision('AGENT')
-    profile = command('UPDATE_PROFILE', agent, 'AGENT', 'สมชาย ใจดี')
+    profile = command('UPDATE_PROFILE', agent, 'AGENT', 'สมชาย ใจดี') # allow-thai: Thai display name fixture
     check = resource + '/account/UPDATE_PROFILE/check'
     expect(check, None, profile, status=401)
     expect(check, foreign['token'], profile, status=403)
-    expect(check, token, {**profile, 'displayName': ' ชื่อมีช่องว่าง'}, status=400)
+    expect(check, token, {**profile, 'displayName': ' ชื่อมีช่องว่าง'}, status=400) # allow-thai: Thai display name fixture
     expect(check, token, {**profile, 'email': 'x@example.test'}, status=400)
     expect(resource + '/account/UNKNOWN_STEP/check', token, profile, status=404)
     ready = expect(check, token, profile, status=200)[0]
     if ready != {'version': 1, 'outcome': 'READY', 'reasonCode': 'READY', 'tenantId': tenant['id'],
                  'userId': agent['id'], 'identityId': agent['id'], 'payloadDigest': profile['payloadDigest']}:
         raise RuntimeError('P998_PROFILE_PREFLIGHT_MISMATCH')
-    if identity(agent)['firstName'] != 'ชื่อเดิม P998':
+    if identity(agent)['firstName'] != 'ชื่อเดิม P998': # allow-thai: Thai display name fixture
         raise RuntimeError('P998_PREFLIGHT_CHANGED_PROFILE')
     profile_operation = str(uuid.uuid4())
     profile_path = resource + '/account/UPDATE_PROFILE/' + profile_operation
@@ -121,40 +121,40 @@ def check_account_boundary(call, expect, adminbase, admin, tenant, foreign, sql)
     if proof['outcome'] != 'SUCCEEDED' or proof['reasonCode'] != 'PROFILE_UPDATED' or proof['identityId'] != agent['id']:
         raise RuntimeError('P998_PROFILE_FAILED')
     current = identity(agent)
-    if current['firstName'] != 'สมชาย ใจดี' or current['email'] != agent['email'] or not current['enabled']:
+    if current['firstName'] != 'สมชาย ใจดี' or current['email'] != agent['email'] or not current['enabled']: # allow-thai: Thai display name fixture
         raise RuntimeError('P998_PROFILE_READBACK_FAILED')
     if read('UPDATE_PROFILE', profile_operation, profile) != proof or expect(profile_path, token, profile, status=200)[0] != proof:
         raise RuntimeError('P998_PROFILE_REPLAY_CHANGED')
-    # descriptor เดิมแต่ชื่อ/identity ต่าง = correlation conflict; fence ย้อนหลังถูกปฏิเสธ
-    expect(profile_path, token, {**profile, 'displayName': 'ชื่ออื่น'}, status=409)
+    # the same descriptor but a different name/identity = a correlation conflict; a retroactive fence is rejected
+    expect(profile_path, token, {**profile, 'displayName': 'ชื่ออื่น'}, status=409) # allow-thai: Thai display name fixture
     profile_query = {k: profile[k] for k in ('tenantId', 'targetUserId', 'identityId', 'payloadDigest', 'role')}
     expect(profile_path + '?' + urllib.parse.urlencode({**profile_query,
-           'displayNameDigest': hashlib.sha256('ชื่ออื่น'.encode('utf-8')).hexdigest()}), token, status=409)
-    # ชื่อดิบใน query ไม่ถูกยอมรับ
+           'displayNameDigest': hashlib.sha256('ชื่ออื่น'.encode('utf-8')).hexdigest()}), token, status=409) # allow-thai: Thai display name fixture
+    # a raw name in the query is not accepted
     expect(profile_path + '?' + urllib.parse.urlencode({**profile_query, 'displayName': profile['displayName']}),
            token, status=400)
     expect(profile_path, token, {**profile, 'fencingToken': '2'}, status=200)
     expect(profile_path, token, profile, status=409)
-    # แก้ชื่อนอกระบบหลัง receipt: readback ต้องเป็น UNKNOWN ไม่คืน marker เก่า
-    expect(adminbase + '/users/' + agent['id'], admin, {'firstName': 'แก้มือ'}, method='PUT', status=204)
+    # editing the name outside the system after the receipt: the readback must be UNKNOWN and must not return the old marker
+    expect(adminbase + '/users/' + agent['id'], admin, {'firstName': 'แก้มือ'}, method='PUT', status=204) # allow-thai: Thai display name fixture
     if read('UPDATE_PROFILE', profile_operation, profile) != {'outcome': 'UNKNOWN'}:
         raise RuntimeError('P998_PROFILE_DRIFT_FALSE_SUCCESS')
-    expect(adminbase + '/users/' + agent['id'], admin, {'firstName': 'สมชาย ใจดี'}, method='PUT', status=204)
+    expect(adminbase + '/users/' + agent['id'], admin, {'firstName': 'สมชาย ใจดี'}, method='PUT', status=204) # allow-thai: Thai display name fixture
 
     disabled = provision('SUPERVISOR')
     set_enabled(disabled, False)
-    _, rejected = mutate('UPDATE_PROFILE', command('UPDATE_PROFILE', disabled, 'SUPERVISOR', 'ชื่อใหม่'))
+    _, rejected = mutate('UPDATE_PROFILE', command('UPDATE_PROFILE', disabled, 'SUPERVISOR', 'ชื่อใหม่')) # allow-thai: Thai display name fixture
     if rejected['outcome'] != 'REJECTED_NO_EFFECT' or rejected['reasonCode'] != 'IDENTITY_STATE_CONFLICT' \
-            or identity(disabled)['firstName'] != 'ชื่อเดิม P998':
+            or identity(disabled)['firstName'] != 'ชื่อเดิม P998': # allow-thai: Thai display name fixture
         raise RuntimeError('P998_DISABLED_PROFILE_CHANGED')
     protected = provision('AGENT')
     expect(adminbase + '/users/' + protected['id'], admin,
            {'attributes': {'dc_identity_class': ['PLATFORM_USER']}}, method='PUT', status=204)
-    _, guarded = mutate('UPDATE_PROFILE', command('UPDATE_PROFILE', protected, 'AGENT', 'ชื่อใหม่'))
+    _, guarded = mutate('UPDATE_PROFILE', command('UPDATE_PROFILE', protected, 'AGENT', 'ชื่อใหม่')) # allow-thai: Thai display name fixture
     if guarded['outcome'] != 'REJECTED_NO_EFFECT' or guarded['reasonCode'] != 'PROTECTED_OR_FOREIGN_IDENTITY':
         raise RuntimeError('P998_PROTECTED_PROFILE_CHANGED')
-    _, wrong_role = mutate('UPDATE_PROFILE', command('UPDATE_PROFILE', agent, 'ADMIN', 'ชื่อใหม่'))
-    if wrong_role['outcome'] != 'REJECTED_NO_EFFECT' or identity(agent)['firstName'] != 'สมชาย ใจดี':
+    _, wrong_role = mutate('UPDATE_PROFILE', command('UPDATE_PROFILE', agent, 'ADMIN', 'ชื่อใหม่')) # allow-thai: Thai display name fixture
+    if wrong_role['outcome'] != 'REJECTED_NO_EFFECT' or identity(agent)['firstName'] != 'สมชาย ใจดี': # allow-thai: Thai display name fixture
         raise RuntimeError('P998_ROLE_MISMATCH_PROFILE_CHANGED')
     print('P998_KEYCLOAK_UPDATE_PROFILE_BOUNDARY_PASS')
 
@@ -165,7 +165,7 @@ def check_account_boundary(call, expect, adminbase, admin, tenant, foreign, sql)
         raise RuntimeError('P998_ENABLE_ACTIVE_ACCEPTED')
     if login(returning, totp()) != 200:
         raise RuntimeError('P998_BASELINE_LOGIN_FAILED_' + str(failures[-1]))
-    # ปิดผ่าน disable endpoint เดิม แล้วเปิดกลับ
+    # disable through the existing disable endpoint, then re-enable
     disable_body = {'tenantId': tenant['id'], 'targetUserId': returning['id'], 'identityId': returning['id'],
                     'payloadDigest': hashlib.sha256(uuid.uuid4().bytes).hexdigest(), 'fencingToken': '1',
                     'role': 'AGENT', 'adminCandidates': ''}
@@ -179,7 +179,7 @@ def check_account_boundary(call, expect, adminbase, admin, tenant, foreign, sql)
     ready = expect(enable_check, token, enable, status=200)[0]
     if ready['outcome'] != 'READY' or identity(returning)['enabled']:
         raise RuntimeError('P998_ENABLE_PREFLIGHT_FAILED')
-    # fault: receipt ล้มต้อง rollback การ enable ด้วย
+    # fault: a failed receipt must roll back the enable too
     enable_operation = str(uuid.uuid4())
     enable_path = resource + '/account/ENABLE_ACCOUNT/' + enable_operation
     sql("CREATE FUNCTION dc_tp_p998_fault() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN "
@@ -202,14 +202,14 @@ def check_account_boundary(call, expect, adminbase, admin, tenant, foreign, sql)
         raise RuntimeError('P998_ENABLE_FAILED')
     if not identity(returning)['enabled'] or read('ENABLE_ACCOUNT', enable_operation, enable) != enabled:
         raise RuntimeError('P998_ENABLE_READBACK_FAILED')
-    # ใช้ password และ TOTP เดิม: ไม่มี required action ใหม่ และ password อย่างเดียวไม่พอ
-    # Keycloak ไม่ยอมให้ใช้ code ซ้ำในช่วงเวลาเดิม: ใช้ code ของช่วงถัดไป (อยู่ใน look-around window ปกติ)
+    # use the original password and TOTP: no new required action, and the password alone is not enough
+    # Keycloak does not allow a code to be reused within the same window: use the code of the next window (inside the normal look-around window)
     if login(returning) == 200 or login(returning, totp(offset=1)) != 200:
         raise RuntimeError('P998_ORIGINAL_CREDENTIALS_NOT_USABLE_' + str(failures[-2:]))
     role_query = {key: enable[key] for key in ('tenantId', 'targetUserId', 'identityId', 'payloadDigest')}
     if call(enable_path + '?' + urllib.parse.urlencode({**role_query, 'role': 'ADMIN'}), token)[0] != 409:
         raise RuntimeError('P998_ENABLE_ROLE_NOT_CORRELATED')
-    # ปิดด้วยมือหลัง receipt: readback ไม่คืน success เก่า
+    # disabled by hand after the receipt: the readback must not return the old success
     set_enabled(returning, False)
     if read('ENABLE_ACCOUNT', enable_operation, enable) != {'outcome': 'UNKNOWN'}:
         raise RuntimeError('P998_ENABLE_DRIFT_FALSE_SUCCESS')
@@ -226,7 +226,7 @@ def check_account_boundary(call, expect, adminbase, admin, tenant, foreign, sql)
             or identity(pending)['enabled']:
         raise RuntimeError('P998_ENABLED_WITHOUT_CREDENTIALS')
 
-    # concurrent enable ของ identity เดียวกัน: สำเร็จหนึ่ง ปฏิเสธหนึ่ง
+    # concurrent enable of the same identity: one succeeds, one is rejected
     racer = provision('SUPERVISOR')
     set_enabled(racer, False)
     attempts = [(resource + '/account/ENABLE_ACCOUNT/' + str(uuid.uuid4()), command('ENABLE_ACCOUNT', racer, 'SUPERVISOR'))

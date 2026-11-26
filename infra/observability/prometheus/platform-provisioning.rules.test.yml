@@ -2,7 +2,7 @@ rule_files:
   - platform-provisioning.rules.yml
 evaluation_interval: 1m
 tests:
-  - name: invariant และ mixed token เป็น critical ทันที
+  - name: invariant and mixed token are critical immediately
     interval: 1m
     input_series:
       - series: 'dcontact_platform_invariant_violations{invariant="premature_active",instance="w1"}'
@@ -20,17 +20,17 @@ tests:
         exp_alerts:
           - exp_labels: { severity: critical, invariant: premature_active }
             exp_annotations:
-              summary: 'invariant premature_active ถูกละเมิด (1 แถว)'
+              summary: 'invariant premature_active violated (1 rows)'
               runbook: docs/platform-provisioning-rollout.md#rollback
       - eval_time: 3m
         alertname: PlatformMixedTokenAccepted
         exp_alerts:
           - exp_labels: { severity: critical }
             exp_annotations:
-              summary: 'token ที่มี tenant context ผ่าน identity check ของ Platform API (tripwire ปฏิเสธไว้แล้ว)'
+              summary: 'A token with tenant context passed the Platform API identity check (the tripwire already rejected it)'
               runbook: docs/platform-provisioning-rollout.md#rollback
 
-  - name: อายุคิวตามเกณฑ์ 5 นาที / 30 นาที
+  - name: queue age thresholds of 5 minutes / 30 minutes
     interval: 1m
     input_series:
       - series: 'dcontact_platform_oldest_age_seconds{queue="pending_request"}'
@@ -50,13 +50,13 @@ tests:
         exp_alerts:
           - exp_labels: { severity: warning }
             exp_annotations:
-              summary: 'มีคำขอ PENDING ค้างเกิน 5 นาที — worker หยุดหรือ rollout ปิดอยู่?'
+              summary: 'A PENDING request has been stuck for more than 5 minutes; is the worker stopped or the rollout off?'
       - eval_time: 2m
         alertname: PlatformInvitationOutboxStale
         exp_alerts:
           - exp_labels: { severity: warning }
             exp_annotations:
-              summary: 'invitation outbox ค้าง (INTENT/AMBIGUOUS) เกิน 5 นาที'
+              summary: 'invitation outbox stuck (INTENT/AMBIGUOUS) for more than 5 minutes'
       - eval_time: 1m
         alertname: PlatformActionRequiredStale
         exp_alerts: []
@@ -65,12 +65,12 @@ tests:
         exp_alerts:
           - exp_labels: { severity: warning }
             exp_annotations:
-              summary: 'มีคำขอ ACTION_REQUIRED รอ operator เกิน 30 นาที'
+              summary: 'An ACTION_REQUIRED request has been waiting on an operator for more than 30 minutes'
       - eval_time: 2m
         alertname: PlatformOperatorCommandStale
         exp_alerts: []
 
-  - name: retry exhaustion, lease churn และ scrape ล้ม
+  - name: retry exhaustion, lease churn and scrape failure
     interval: 1m
     input_series:
       - series: 'dcontact_platform_worker_results_total{source="saga",kind="ACTION_REQUIRED",step="INVITATION",code="ATTEMPTS_EXHAUSTED"}'
@@ -85,7 +85,7 @@ tests:
         exp_alerts:
           - exp_labels: { severity: warning }
             exp_annotations:
-              summary: 'step ใช้ retry ครบแล้วส่งให้ operator'
+              summary: 'A step used up its retries and was handed to an operator'
       - eval_time: 3m
         alertname: PlatformLeaseChurn
         exp_alerts: []
@@ -94,7 +94,7 @@ tests:
         exp_alerts:
           - exp_labels: { severity: warning }
             exp_annotations:
-              summary: 'worker เสีย lease บ่อย (>3 ครั้งใน 15 นาที)'
+              summary: 'worker loses its lease often (>3 times in 15 minutes)'
       - eval_time: 5m
         alertname: PlatformHealthScrapeFailing
         exp_alerts: []
@@ -103,4 +103,4 @@ tests:
         exp_alerts:
           - exp_labels: { severity: warning }
             exp_annotations:
-              summary: 'อ่านสถานะ control plane จาก DB ไม่ได้ — invariant/backlog ไม่ถูกตรวจ'
+              summary: 'Cannot read control plane state from the DB; invariants/backlog are not being checked'

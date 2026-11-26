@@ -3,7 +3,7 @@ import test from 'node:test';
 import { E1SandboxVoiceRollout } from './e1-sandbox-voice-rollout.js';
 import type { VoiceRolloutAuthority } from './voice-rollout-control.js';
 
-test('E1 sandbox ไม่ authorize tenant/node อื่นหรือ CAPPED_PILOT แม้ authority เดิมอนุญาต', async () => {
+test('E1 sandbox does not authorize another tenant/node or CAPPED_PILOT even when the existing authority allows it', async () => {
   let evaluations = 0;
   let authorizations = 0;
   let state: 'SANDBOX' | 'CAPPED_PILOT' = 'SANDBOX';

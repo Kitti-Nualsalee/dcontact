@@ -1,10 +1,10 @@
 /**
- * S1.7 — Dialer consumer ของ CG3 realtime invalidation
- * CG4.8 (#191) — ขยายให้รับ CG4 exception/policy/kill-switch events บน stream เดียวกัน
+ * S1.7 — the Dialer consumer of CG3 realtime invalidation
+ * CG4.8 (#191) — extended to accept CG4 exception/policy/kill-switch events on the same stream
  *
- * Dialer เป็นเจ้าของ Campaign/Callback attempt และเป็นผู้ cancel/defer/park/hold ก่อน barrier
- * หรือขอ reconcile หลัง barrier (#124) โดยไม่สร้าง decision หรือ reservation เอง; relaxation
- * ไม่ resume หรือ retry attempt เดิม และสายที่กำลังคุยไม่ถูกตัดเพียงแต่ block outbound ถัดไป
+ * Dialer owns Campaign/Callback attempts and is the one that cancels/defers/parks/holds before the barrier
+ * or requests reconcile after the barrier (#124), without creating a decision or reservation itself; a relaxation
+ * does not resume or retry the earlier attempt, and a call in progress is not cut but only has its next outbound blocked
  */
 import { randomUUID } from 'node:crypto';
 import {
@@ -49,7 +49,7 @@ const POST_BARRIER_STATES = new Set<ObAttemptRealtimeState>([
   'CANCEL_REQUESTED',
 ]);
 const CURSOR_STATES: ObGovernanceConsumerState[] = ['APPLIED', 'NO_OP'];
-/** attempt ของ Dialer มาจาก campaign หรือ callback ที่ Dialer originate */
+/** A Dialer attempt comes from a campaign or a callback that Dialer originates */
 const DIALER_SOURCE_TYPES = Object.freeze(['DIALER', 'CAMPAIGN']);
 export const DIALER_CANONICAL_RELOAD_REASON = 'CANONICAL_RELOAD' as const;
 
@@ -89,7 +89,7 @@ export interface DialerRealtimeAttempt {
   providerRequestKey: string | null;
 }
 
-/** Dialer อ่าน canonical แบบแคบจาก Governance และไม่สร้าง decision หรือ reservation ซ้ำเอง. */
+/** Dialer reads canonical data narrowly from Governance and does not create a decision or reservation again itself. */
 export interface DialerCanonicalRevalidator {
   revalidate(input: {
     tenantId: string;
@@ -100,7 +100,7 @@ export interface DialerCanonicalRevalidator {
       aggregateId: string;
       aggregateVersion: number;
       correlationId: string;
-      /** CG4.8: ให้ Governance ใช้ version authority ของ event family นั้น */
+      /** CG4.8: let Governance use the version authority of that event family */
       contract?: 'CG3' | 'CG4';
       eventType?: string;
       scopeKey?: string;
@@ -146,7 +146,7 @@ export function createDialerCanonicalRevalidator(
   };
 }
 
-/** Effect relay เรียก port นี้หลัง durable owner-local commit เท่านั้น. */
+/** The effect relay calls this port only after a durable owner-local commit. */
 export interface DialerRealtimeSettlementPort {
   releaseBeforeBarrier(input: {
     tenantId: string;
@@ -199,7 +199,7 @@ export type DialerGovernanceApplyResult = {
   outcome: CgConsumerAckOutcome;
   affectedCount: number;
   state: 'APPLIED' | 'NO_OP' | 'GAP' | 'QUARANTINED' | 'DUPLICATE';
-  /** controlled reason เมื่อ quarantine ไม่มี payload หรือ PII */
+  /** Controlled reason when a quarantine has no payload or PII */
   reasonCode?: string;
 };
 
@@ -210,12 +210,12 @@ export class DialerCanonicalReloadConflictError extends Error {
     readonly aggregateVersion: number,
   ) {
     super(
-      `canonical reload ขัดกับ digest ที่ apply แล้วที่ ${aggregateId} version ${aggregateVersion}`,
+      `canonical reload conflicts with the digest already applied at ${aggregateId} version ${aggregateVersion}`,
     );
   }
 }
 
-/** คงไว้สำหรับ caller เดิม; การตีความ event จริงอยู่ที่ `classifyGovernanceEvent` */
+/** Kept for existing callers; the real event interpretation lives in `classifyGovernanceEvent` */
 export function parseDialerCg3EventPayload(value: unknown): DialerCg3EventPayloadV1 {
   const classification = classifyGovernanceEvent({
     type: 'preference.changed',
@@ -229,7 +229,7 @@ export function parseDialerCg3EventPayload(value: unknown): DialerCg3EventPayloa
         : 0,
     payload: value,
   });
-  if (!classification?.ok) throw new TypeError(classification?.detail ?? 'CG3 payload ไม่ถูกต้อง');
+  if (!classification?.ok) throw new TypeError(classification?.detail ?? 'CG3 payload is invalid');
   return toRevalidationPayload(classification.event);
 }
 
@@ -260,7 +260,7 @@ function targetState(decision: DialerRevalidationDecision): ObAttemptRealtimeSta
 
 type CursorRow = { aggregateVersion: number; payloadHash: string; reasonCode: string | null };
 
-/** แถวจาก canonical reload เก็บ state digest จึงเทียบกับ stateDigest ของ event ที่ส่งซ้ำ */
+/** A row from the canonical reload keeps the state digest, so it is compared with the stateDigest of a redelivered event */
 function comparable(
   row: CursorRow,
   stream: GovernanceDownstreamEvent,
@@ -298,7 +298,7 @@ export class DialerGovernanceInvalidationService {
     transaction: Prisma.TransactionClient,
   ): Promise<DialerGovernanceApplyResult> {
     if (event.eventKind !== 'CANONICAL') {
-      throw new TypeError('Dialer รับเฉพาะ Contact Governance canonical event');
+      throw new TypeError('Dialer accepts only Contact Governance canonical events');
     }
     const classification = classifyGovernanceEvent({
       type: event.type,
@@ -308,7 +308,9 @@ export class DialerGovernanceInvalidationService {
       payload: event.payload,
     });
     if (!classification) {
-      throw new TypeError(`Contact Governance aggregateType ไม่รองรับ: ${event.aggregateType}`);
+      throw new TypeError(
+        `Contact Governance aggregateType is not supported: ${event.aggregateType}`,
+      );
     }
     const aggregateType: CgAggregateType = classification.ok
       ? classification.event.aggregate
@@ -347,7 +349,7 @@ export class DialerGovernanceInvalidationService {
     );
 
     if (!classification.ok) {
-      // contract ที่ตีความไม่ได้ไม่มี scope ที่เชื่อถือได้: hold ทั้ง aggregate และไม่ขยับ cursor
+      // A contract that cannot be interpreted has no trustworthy scope: hold the whole aggregate and do not advance the cursor
       this.metrics.increment('dialer_cg4_unsupported_contract_total');
       const held = await this.holdMatchingAttempts(transaction, event, null, now);
       return this.complete(
@@ -445,7 +447,7 @@ export class DialerGovernanceInvalidationService {
     }
 
     if (stream.effect === 'NO_OP') {
-      // relaxation ไม่แตะ attempt ใดเลย: HELD/DEFERRED/CANCELLED และ nextOutboundBlocked คงเดิม
+      // A relaxation touches no attempt: HELD/DEFERRED/CANCELLED and nextOutboundBlocked stay as they were
       if (stream.restrictiveness === 'RELAXATION') {
         this.metrics.increment('dialer_cg4_relaxation_noop_total');
       }
@@ -584,8 +586,8 @@ export class DialerGovernanceInvalidationService {
   }
 
   /**
-   * Canonical reload หลัง gap หรือ quarantine: ขยับ cursor ไปยัง version ที่อ่านจาก Contact
-   * Governance แล้วส่ง acknowledgement ของ reload; attempt ที่ HELD ยังคง HELD (ไม่ auto-resume)
+   * Canonical reload after a gap or quarantine: advance the cursor to the version read from Contact
+   * Governance and send the reload acknowledgement; a HELD attempt stays HELD (no auto-resume)
    */
   async resumeFromCanonical(input: {
     tenantId: string;
@@ -595,10 +597,10 @@ export class DialerGovernanceInvalidationService {
     canonicalStateDigest: string;
   }): Promise<{ cursorVersion: number; reloaded: boolean; heldAttempts: number }> {
     if (!Number.isInteger(input.canonicalVersion) || input.canonicalVersion < 1) {
-      throw new TypeError('canonicalVersion ต้องเป็น positive integer');
+      throw new TypeError('canonicalVersion must be a positive integer');
     }
     if (!/^[a-f0-9]{64}$/.test(input.canonicalStateDigest)) {
-      throw new TypeError('canonicalStateDigest ต้องเป็น SHA-256 lowercase');
+      throw new TypeError('canonicalStateDigest must be a lowercase SHA-256');
     }
     const aggregateTypeName =
       input.aggregateType === 'CONTACT'
@@ -770,7 +772,7 @@ export class DialerGovernanceInvalidationService {
     kind: 'RELEASE_BEFORE_BARRIER' | 'REQUEST_RECONCILE',
     now: Date,
   ): Promise<void> {
-    if (!attempt.reservationId) throw new Error('effect ต้องมี reservation binding');
+    if (!attempt.reservationId) throw new Error('effect must have a reservation binding');
     await transaction.obGovernanceEffectOutbox.upsert({
       where: {
         tenantId_eventId_attemptId_kind: {

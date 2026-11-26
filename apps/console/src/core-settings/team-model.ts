@@ -8,7 +8,7 @@ import {
   type CoreCapabilities,
 } from './api.js';
 import type { CoreState } from './model.js';
-/** ร่างอยู่ใน memory; storage ของแต่ละ resource มีเพียง commandId เพื่อกู้ผลเดิม */
+/** the draft lives in memory; the storage of each resource holds only a commandId to recover the original result */
 export class CoreTeamModel {
   state: CoreState = 'LOADING';
   teams: Team[] = [];

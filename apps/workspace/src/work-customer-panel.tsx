@@ -9,8 +9,8 @@ import {
   type WorkCommand,
 } from './work-customer-api.js';
 
-/** #795: Cus360 มี state แยกจาก SIP/media และไม่เรียก Voice controls */
-/** #956 แท็บเคสใช้ id นี้ focus ช่องค้นหาลูกค้าเมื่อกด "ไปเลือกลูกค้า" */
+/** #795: Cus360 has its own state separate from SIP/media and does not call Voice controls */
+/** #956 the case tab uses this id to focus the customer search field when "go choose a customer" is pressed */
 export const WORK_CUSTOMER_QUERY_ID = 'work-customer-query';
 
 export interface LinkedCustomer {
@@ -37,8 +37,8 @@ export function WorkCustomerPanel({
   readOnly?: boolean;
   invalidationRevision?: number;
   /**
-   * #956 แจ้งลูกค้าที่ผูกกับงานปัจจุบันให้แท็บเคส: null = งานยังไม่ผูกลูกค้า,
-   * undefined = กำลังโหลดหรืออ่านไม่ได้ (ไม่ควรบอกให้ไปเลือกลูกค้า)
+   * #956 tells the case tab the customer linked to the current work: null = work not yet linked to a customer,
+   * undefined = loading or unreadable (must not tell the user to go choose a customer)
    */
   onCustomerChange?: (customer: LinkedCustomer | null | undefined) => void;
 }) {
@@ -156,7 +156,7 @@ export function WorkCustomerPanel({
       await load(epoch);
       return;
     }
-    // อัปเดตผลสำเร็จหลังอ่านปัจจุบันกลับแล้วเท่านั้น
+    // update the success result only after reading the current state back
     const latest = await api.read(workId, leaseId);
     if (epoch !== stamp.current) return;
     remember(undefined);

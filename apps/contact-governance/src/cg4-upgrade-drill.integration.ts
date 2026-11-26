@@ -10,11 +10,11 @@ import { PrismaClient } from '@d-contact/db';
 import { Cg4LegacyBackfill, CG4_BACKFILL_KILL_REASONS } from './cg4-legacy-backfill.js';
 
 /**
- * CG4.10 (#193) PR-A: `CG4-MG01` drill — fresh migration และ upgrade จาก CG3 baseline
- * `b634dc7` บน database แยกที่สร้างและลบในรอบ test
+ * CG4.10 (#193) PR-A: `CG4-MG01` drill: a fresh migration and an upgrade from the CG3 baseline
+ * `b634dc7` on a separate database that is created and dropped in each test run
  *
- * upgrade drill ใส่ข้อมูล CG3 จริงก่อน migrate จึงพิสูจน์ได้ว่า migration ของ CG4 ทั้งหมดรันบน
- * database ที่มีข้อมูลเดิม ไม่ใช่เฉพาะ database ว่าง แล้วจึง backfill ผ่าน application role
+ * the upgrade drill puts real CG3 data in before migrating, so it proves that all the CG4 migrations run on a
+ * database that already has data, not only an empty database, then backfills through the application role
  */
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -43,7 +43,7 @@ function prisma(args: string[], databaseUrl: string): string {
   assert.equal(
     result.status,
     0,
-    `prisma ${args.join(' ')} ล้มเหลว:\n${result.stdout}\n${result.stderr}`,
+    `prisma ${args.join(' ')} failed:\n${result.stdout}\n${result.stderr}`,
   );
   return result.stdout;
 }
@@ -82,7 +82,7 @@ const currentMigrationCount = () =>
   ).length;
 
 test(
-  'CG4-MG01: fresh database รับ migration ปัจจุบันทั้งหมดและ RLS ได้',
+  'CG4-MG01: a fresh database accepts every current migration and RLS',
   { timeout: 300_000 },
   async (t) => {
     const database = await scratchDatabase(t, 'fresh');
@@ -93,7 +93,7 @@ test(
 );
 
 test(
-  'CG4-MG01: upgrade จาก CG3 baseline b634dc7 ที่มีข้อมูลจริง แล้ว backfill โดยไม่แตะประวัติ CG3',
+  'CG4-MG01: an upgrade from the CG3 baseline b634dc7 with real data, then a backfill without touching the CG3 history',
   { timeout: 300_000 },
   async (t) => {
     const baseline = mkdtempSync(join(tmpdir(), 'cg410-baseline-'));
@@ -105,7 +105,7 @@ test(
     assert.equal(
       archive.status,
       0,
-      `ต้องมี commit ${CG3_BASELINE} ใน checkout (fetch-depth 0) เพื่อพิสูจน์ upgrade: ${archive.stderr}`,
+      `commit ${CG3_BASELINE} must be in the checkout (fetch-depth 0) to prove the upgrade: ${archive.stderr}`,
     );
     const extract = spawnSync('tar', ['-x', '-C', baseline], { input: archive.stdout });
     assert.equal(extract.status, 0, String(extract.stderr));
@@ -116,7 +116,7 @@ test(
     prisma(['migrate', 'deploy', '--schema', baselineSchema], database.ownerUrl);
     prisma(['db', 'execute', '--file', baselineRls, '--schema', baselineSchema], database.ownerUrl);
 
-    // ข้อมูล CG3 สังเคราะห์ใส่ด้วย SQL ตาม schema ของ baseline (client ปัจจุบันรู้จัก column ที่ยังไม่มี)
+    // synthetic CG3 data is inserted with SQL per the baseline schema (the current client knows columns that do not exist yet)
     const owner = database.client(OWNER_URL);
     const tenant = randomUUID();
     const clean = randomUUID();
@@ -153,7 +153,7 @@ test(
     await owner.$executeRawUnsafe(policy(draft, 'VOICE', 'SERVICE', 'DRAFT', null));
     const baselineMigrations = await appliedMigrations(owner);
 
-    // upgrade: migration ปัจจุบันทั้งหมดต้องรันทับข้อมูลเดิมได้โดยไม่ต้อง reset
+    // upgrade: every current migration must run over the existing data without a reset
     prisma(['migrate', 'deploy', '--schema', CURRENT_SCHEMA], database.ownerUrl);
     prisma(['db', 'execute', '--file', CURRENT_RLS, '--schema', CURRENT_SCHEMA], database.ownerUrl);
     assert.equal(await appliedMigrations(owner), currentMigrationCount());
@@ -191,7 +191,7 @@ test(
     assert.equal(rerun.drafts.length, 0);
     assert.equal(rerun.alreadyRecorded, 2);
 
-    // ไม่มี history drop หรือ direct edit ของ CG3
+    // no history drop or direct edit of CG3
     const cg3After = await owner.$queryRawUnsafe<Array<{ id: string; status: string }>>(
       `SELECT id, status::text AS status FROM cg_policies WHERE tenant_id = '${tenant}' ORDER BY id`,
     );

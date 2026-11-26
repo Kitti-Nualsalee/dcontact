@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# #537 / ADR-030: สร้าง role/database ของ UAT ครั้งแรกบน VM3 ผ่าน local peer auth
-# รันด้วย sudo บน VM3; ไม่ใช้ password ของระบบเดิม ไม่แสดง secret ใน stdout/stderr
+# #537 / ADR-030: first-time creation of the UAT roles/database on VM3 through local peer auth
+# run with sudo on VM3; does not use the old system's password and shows no secrets on stdout/stderr
 set -euo pipefail
 mode="${1:---check}"
 [[ "$mode" == --check || "$mode" == --apply ]] || { echo 'usage: sudo bash vm3-bootstrap-uat.sh [--check|--apply]' >&2; exit 64; }
-[[ "$(id -u)" -eq 0 ]] || { echo 'ต้องรันด้วย sudo บน VM3' >&2; exit 1; }
-ip -4 -o addr show | grep -Fq '192.168.102.113/' || { echo 'เครื่องนี้ไม่มี IP VM3 ที่คาดไว้' >&2; exit 1; }
-[[ "${SUDO_USER:-}" == osdadmin ]] || { echo 'คาดว่า sudo มาจาก osdadmin' >&2; exit 1; }
+[[ "$(id -u)" -eq 0 ]] || { echo 'must run with sudo on VM3' >&2; exit 1; }
+ip -4 -o addr show | grep -Fq '192.168.102.113/' || { echo 'this machine does not have the expected VM3 IP' >&2; exit 1; }
+[[ "${SUDO_USER:-}" == osdadmin ]] || { echo 'expected sudo to come from osdadmin' >&2; exit 1; }
 
 python3 - "$mode" <<'PY'
 import os, secrets, string, subprocess, sys
@@ -23,7 +23,7 @@ def query(sql):
         input=sql, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
     )
     if result.returncode:
-        raise SystemExit('ตรวจ PostgreSQL ไม่ผ่าน; ไม่มีการแสดง SQL หรือ secret')
+        raise SystemExit('PostgreSQL check failed; no SQL or secret is shown')
     return result.stdout.strip()
 
 def apply(sql, step):
@@ -32,22 +32,22 @@ def apply(sql, step):
         input=sql, text=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
     )
     if result.returncode:
-        raise SystemExit(f'{step} ล้ม; credential bundle คงอยู่สำหรับการตรวจ/กู้คืน')
+        raise SystemExit(f'{step} failed; the credential bundle is kept for checking/recovery')
 
 version = query('show server_version_num;')
 if not version.startswith('150'):
-    raise SystemExit(f'คาดว่า server เป็น PostgreSQL 15; พบ {version}')
+    raise SystemExit(f'expected the server to be PostgreSQL 15; found {version}')
 existing_roles = query("select rolname from pg_roles where rolname in ('dcontact_uat_owner','dcontact_app','dcontact_platform','dcontact_provisioner','keycloak') order by 1;").splitlines()
 existing_databases = query("select datname from pg_database where datname in ('dcontact_uat','keycloak_uat') order by 1;").splitlines()
-print(f'PostgreSQL {version}; role UAT ที่มีแล้ว: {len(existing_roles)}/5; database UAT ที่มีแล้ว: {len(existing_databases)}/2')
+print(f'PostgreSQL {version}; UAT roles that already exist: {len(existing_roles)}/5; UAT databases that already exist: {len(existing_databases)}/2')
 
 if mode == '--check':
     if existing_roles or existing_databases or bundle.exists():
-        raise SystemExit('พบทรัพยากร UAT เดิม; หยุดและตรวจด้วยมือก่อน bootstrap')
-    print('CHECK ผ่าน: --apply จะสร้าง role/database แยกของ UAT และ credential bundle mode 600')
+        raise SystemExit('found existing UAT resources; stopping to check by hand before bootstrap')
+    print('CHECK passed: --apply will create separate UAT roles/databases and a credential bundle with mode 600')
     sys.exit(0)
 if existing_roles or existing_databases or bundle.exists():
-    raise SystemExit('พบทรัพยากร UAT เดิม; ไม่สร้างทับหรือตั้งรหัสผ่านใหม่')
+    raise SystemExit('found existing UAT resources; not creating over them or resetting passwords')
 
 alphabet = string.ascii_letters + string.digits
 passwords = {name: ''.join(secrets.choice(alphabet) for _ in range(48)) for name in ('OWNER', 'APP', 'KEYCLOAK')}
@@ -65,7 +65,7 @@ except BaseException:
     bundle.unlink(missing_ok=True)
     raise
 
-# password เป็น alphanumeric 48 ตัวเท่านั้น จึงไม่มีอักขระที่เปลี่ยนความหมายของ SQL literal
+# the password is exactly 48 alphanumeric characters, so there is no character that changes the meaning of a SQL literal
 apply(f"""
 BEGIN;
 SET LOCAL password_encryption = 'scram-sha-256';
@@ -75,19 +75,19 @@ CREATE ROLE keycloak LOGIN INHERIT NOBYPASSRLS NOSUPERUSER NOCREATEDB NOCREATERO
 CREATE ROLE dcontact_platform NOLOGIN INHERIT NOBYPASSRLS NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION;
 CREATE ROLE dcontact_provisioner NOLOGIN INHERIT NOBYPASSRLS NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION;
 COMMIT;
-""", 'สร้าง role')
-apply('CREATE DATABASE dcontact_uat OWNER dcontact_uat_owner;\n', 'สร้าง dcontact_uat')
-apply('CREATE DATABASE keycloak_uat OWNER keycloak;\n', 'สร้าง keycloak_uat')
-apply('REVOKE ALL ON DATABASE dcontact_uat FROM PUBLIC;\nREVOKE ALL ON DATABASE keycloak_uat FROM PUBLIC;\nGRANT CONNECT ON DATABASE dcontact_uat TO dcontact_app;\n', 'จำกัดสิทธิ์ database')
+""", 'create roles')
+apply('CREATE DATABASE dcontact_uat OWNER dcontact_uat_owner;\n', 'create dcontact_uat')
+apply('CREATE DATABASE keycloak_uat OWNER keycloak;\n', 'create keycloak_uat')
+apply('REVOKE ALL ON DATABASE dcontact_uat FROM PUBLIC;\nREVOKE ALL ON DATABASE keycloak_uat FROM PUBLIC;\nGRANT CONNECT ON DATABASE dcontact_uat TO dcontact_app;\n', 'restrict database privileges')
 
 if query("select count(*) from pg_roles where rolname in ('dcontact_platform','dcontact_provisioner') and rolcanlogin") != '0':
-    raise SystemExit('role platform/provisioner ไม่ใช่ NOLOGIN; หยุดเพื่อตรวจด้วยมือ')
+    raise SystemExit('the platform/provisioner roles are not NOLOGIN; stopping to check by hand')
 if query("select rolcanlogin || ':' || rolinherit || ':' || rolsuper || ':' || rolbypassrls from pg_roles where rolname = 'dcontact_uat_owner'") != 'true:true:false:true':
-    raise SystemExit('role dcontact_uat_owner ต้องเป็น LOGIN INHERIT BYPASSRLS NOSUPERUSER สำหรับ migrate/backup')
+    raise SystemExit('role dcontact_uat_owner must be LOGIN INHERIT BYPASSRLS NOSUPERUSER for migrate/backup')
 if query("select rolcanlogin || ':' || rolinherit || ':' || rolsuper || ':' || rolbypassrls from pg_roles where rolname = 'dcontact_app'") != 'true:true:false:false':
-    raise SystemExit('role dcontact_app ต้องเป็น LOGIN INHERIT NOBYPASSRLS สำหรับ API')
+    raise SystemExit('role dcontact_app must be LOGIN INHERIT NOBYPASSRLS for the API')
 if query("select count(*) from pg_database where datname in ('dcontact_uat','keycloak_uat')") != '2':
-    raise SystemExit('database UAT ไม่ครบ; หยุดเพื่อตรวจด้วยมือ')
-print('APPLY ผ่าน: สร้าง 5 roles / 2 databases; owner ใช้ BYPASSRLS เฉพาะ migrate/backup และ API ใช้ NOBYPASSRLS')
-print(f'credential bundle: {bundle} (mode 600; ส่งต่อ VM2 ทาง SSH แล้วลบจาก VM3)')
+    raise SystemExit('the UAT databases are incomplete; stopping to check by hand')
+print('APPLY passed: created 5 roles / 2 databases; the owner uses BYPASSRLS for migrate/backup only and the API uses NOBYPASSRLS')
+print(f'credential bundle: {bundle} (mode 600; forward to VM2 over SSH then delete from VM3)')
 PY

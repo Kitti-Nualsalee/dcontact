@@ -1,4 +1,4 @@
-/** ไอคอนเส้นของแอปใน shell (ชุดเดียวกับ prototype D1.2) — id ที่ไม่รู้จักได้ไอคอนตาราง */
+/** line icons of the apps in the shell (same set as the D1.2 prototype) — an unknown id gets the grid icon */
 const PATHS: Record<string, string> = {
   'agent-workspace': 'M4 4h16v16h-16z M4 13h3l3 3h4l3 -3h3',
   'supervisor-workspace': 'M3 12h4l3 8l4 -16l3 8h4',
@@ -16,7 +16,7 @@ const PATHS: Record<string, string> = {
   search: 'M3 10a7 7 0 1 0 14 0a7 7 0 1 0 -14 0 M21 21l-6 -6',
   pin: 'M15 4.5l-4 4l-4 1.5l-1.5 1.5l7 7l1.5 -1.5l1.5 -4l4 -4z M9 15l-4.5 4.5',
   external: 'M12 6h-6a2 2 0 0 0 -2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-6 M11 13l9 -9 M15 4h5v5',
-  // #651: ไอคอนของพื้นที่งานบน rail (Tabler outline, MIT) — key = `area-<id>` ตาม NAVIGATION_AREAS
+  // #651: icons of the work areas on the rail (Tabler outline, MIT) — key = `area-<id>` per NAVIGATION_AREAS
   'area-home':
     'M5 4h4a1 1 0 0 1 1 1v6a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-6a1 1 0 0 1 1 -1 M5 16h4a1 1 0 0 1 1 1v2a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-2a1 1 0 0 1 1 -1 M15 12h4a1 1 0 0 1 1 1v6a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-6a1 1 0 0 1 1 -1 M15 4h4a1 1 0 0 1 1 1v2a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-2a1 1 0 0 1 1 -1',
   'area-workspace':
@@ -80,7 +80,7 @@ export function ShellIcon({
   );
 }
 
-/** ปุ่มตาราง 9 จุดของ launcher */
+/** 9-dot grid button of the launcher */
 export function WaffleIcon() {
   return (
     <svg

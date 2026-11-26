@@ -1,20 +1,20 @@
 /**
- * E1.14 (#488): postMessage API v1 ระหว่าง dphone ที่ถูกฝัง (iframe) กับ host (E1.6 #462, E1.7 #463)
+ * E1.14 (#488): postMessage API v1 between the embedded dphone (iframe) and the host (E1.6 #462, E1.7 #463)
  *
- * กติกาของ v1 (ห้ามเปลี่ยนภายใน major เดียวกัน):
- * - ทุกข้อความมี `v: 1` และ `type`; คำขอจาก host มี `requestId` ที่ dphone ส่งกลับในคำตอบ
- * - เพิ่มได้อย่างเดียว: เพิ่ม type/field ได้ ห้ามลบ ห้ามเปลี่ยนความหมาย ห้ามเปลี่ยน field ไม่บังคับให้บังคับ
- * - ฝั่งรับไม่สนใจ type/field ที่ไม่รู้จัก; `v` ที่ไม่รองรับได้ `dphone.error` code `unsupported_version`
- * - ไม่มี token, ไฟล์เสียง/URL ของไฟล์เสียง, transcript หรือโน้ตแบบข้อความอิสระในข้อความใดเลย
+ * Rules of v1 (must not change within the same major):
+ * - every message has `v: 1` and `type`; a request from the host has a `requestId` that dphone sends back in the reply
+ * - additive only: types/fields may be added, never removed, never change meaning, never turn an optional field into a required one
+ * - the receiving side ignores unknown types/fields; an unsupported `v` gets `dphone.error` with code `unsupported_version`
+ * - no token, audio file/audio file URL, transcript or free-text note in any message
  *
- * JSON Schema คู่กันอยู่ที่ `schema/v1.json` — contract test ตรวจว่าตรงกับ type ในไฟล์นี้
+ * The companion JSON Schema is at `schema/v1.json` — the contract test checks that it matches the types in this file
  */
 
 export const DPHONE_EMBED_PROTOCOL_VERSION = 1;
 
-/** ระดับข้อมูล screen-pop ที่ตั้งต่อ origin (ค่าเริ่มต้น `off`) */
+/** screen-pop data level set per origin (default `off`) */
 export type ScreenPopSetting = 'off' | 'ids' | 'contact' | 'custom';
-/** ระดับที่ส่งจริงหลัง server ลดระดับ (`interaction` = เหลือเฉพาะ interactionId) */
+/** level actually sent after the server lowers it (`interaction` = only interactionId remains) */
 export type ScreenPopLevel = 'interaction' | 'ids' | 'contact' | 'custom';
 
 export type CallDirection = 'INBOUND' | 'OUTBOUND';
@@ -40,31 +40,31 @@ export interface ScreenPopMessage {
   requestId: string;
   level: ScreenPopLevel;
   interactionId: string;
-  /** มีเมื่อ level ถูกลดลง เช่น `TEAM_SEGMENT_NOT_ALLOWED`, `CONTACT_RESTRICTED` */
+  /** present when the level was lowered, e.g. `TEAM_SEGMENT_NOT_ALLOWED`, `CONTACT_RESTRICTED` */
   reasonCode?: string;
   policyVersion: string;
   decisionId: string;
-  // ระดับ ids ขึ้นไป
+  // level ids and above
   contactId?: string;
   externalId?: string;
   direction?: CallDirection;
   queue?: { id: string; name: string };
   callState?: 'RINGING' | 'ACTIVE' | 'HELD' | 'ENDED';
-  // ระดับ contact ขึ้นไป
+  // level contact and above
   ani?: string;
   dnis?: string;
   displayName?: string;
-  // ระดับ custom
+  // level custom
   fields?: Record<string, string>;
 }
 
 export type CallResultStatus =
-  | 'prefilled' // กรอกเบอร์ใน dphone แล้ว รอ agent กดโทร
-  | 'dialing' // agent กดโทรและผ่าน Contact Governance แล้ว
-  | 'blocked' // BLOCK / DEFER / REVIEW — ไม่โทรออก
-  | 'cancelled' // agent ยกเลิก
+  | 'prefilled' // number entered in dphone, waiting for the agent to press call
+  | 'dialing' // the agent pressed call and Contact Governance passed
+  | 'blocked' // BLOCK / DEFER / REVIEW — no outbound call
+  | 'cancelled' // the agent cancelled
   | 'rate_limited'
-  | 'unavailable'; // dphone ไม่พร้อม (ยังไม่ login, มีสายอยู่, click-to-call ปิด ฯลฯ)
+  | 'unavailable'; // dphone is not ready (not logged in, a call is in progress, click-to-call is off, etc.)
 
 export interface CallResultMessage {
   v: 1;
@@ -72,9 +72,9 @@ export interface CallResultMessage {
   requestId: string;
   status: CallResultStatus;
   blocked: boolean;
-  /** ไม่มี PII — เช่น `CONSENT_MISSING`, `QUIET_HOURS`, `REVIEW_REQUIRED` */
+  /** no PII — e.g. `CONSENT_MISSING`, `QUIET_HOURS`, `REVIEW_REQUIRED` */
   reasonCode?: string;
-  /** DEFER: เวลาที่โทรได้ (ISO 8601) */
+  /** DEFER: time the call may be made (ISO 8601) */
   retryAt?: string;
   decisionId?: string;
 }
@@ -83,7 +83,7 @@ export interface ActivityMessage {
   v: 1;
   type: 'dphone.activity';
   requestId: string;
-  /** idempotency key — host ต้องไม่บันทึกซ้ำเมื่อได้ interactionId เดิม */
+  /** idempotency key — the host must not record again when it gets the same interactionId */
   interactionId: string;
   contactId?: string;
   direction: CallDirection;
@@ -129,13 +129,13 @@ export type HostToDphoneMessage = CallRequestMessage | ActivityAckMessage;
 
 export type ParsedHostMessage =
   | { kind: 'message'; message: HostToDphoneMessage }
-  /** ตอบ `dphone.error` (unsupported_version / invalid_message) */
+  /** answer with `dphone.error` (unsupported_version / invalid_message) */
   | { kind: 'error'; code: DphoneErrorCode; requestId?: string }
-  /** type ที่ไม่รู้จักหรือไม่ใช่ข้อความของ dphone — ไม่สนใจ ไม่ตอบ */
+  /** unknown type or not a dphone message — ignore, do not reply */
   | { kind: 'ignore' };
 
 const REQUEST_ID = /^[A-Za-z0-9._:-]{1,128}$/;
-/** เบอร์ที่ host กรอกให้ — ตัวเลข, `+` นำหน้า และตัวคั่นทั่วไป (dphone normalize ต่อเอง) */
+/** number the host fills in — digits, leading `+` and common separators (dphone normalizes further itself) */
 const DIAL_NUMBER = /^\+?[0-9][0-9 ()-]{1,30}$/;
 const ID = /^[A-Za-z0-9._:-]{1,128}$/;
 
@@ -143,8 +143,8 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
 /**
- * ตรวจข้อความจาก host (หลังผ่านการตรวจ origin/source แล้ว) — ไม่ throw
- * ข้อความที่ไม่มี `type` ขึ้นต้นด้วย `dphone.` ถือว่าไม่ใช่ของเรา (host อาจมี postMessage อื่น)
+ * validate a message from the host (after the origin/source check has passed) — does not throw
+ * a message without a `type` starting with `dphone.` is treated as not ours (the host may have other postMessage traffic)
  */
 export function parseHostMessage(data: unknown): ParsedHostMessage {
   if (!isRecord(data) || typeof data.type !== 'string' || !data.type.startsWith('dphone.')) {

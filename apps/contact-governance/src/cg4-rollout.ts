@@ -6,16 +6,16 @@ import { cg4PolicyScopeMatches, parseCg4PolicyScopeKey } from './cg4-policy-comp
 import type { Cg4PolicyRequestScope } from './cg4-policy-resolution.js';
 
 /**
- * CG4.10 (#193) PR-B: development rollout ของ Contact Governance ต่อ tenant (#178, #179 §6)
+ * CG4.10 (#193) PR-B: development rollout of Contact Governance per tenant (#178, #179 §6)
  *
- * - `DISABLED` — CG3 loader เป็น reader, CG4 writer เขียนแบบ dark
- * - `SHADOW_EVALUATION` — CG3 ยังตัดสิน แต่ประเมิน head ของ CG4 คู่กันและบันทึก digest ที่ต่างกัน;
- *   mismatch บน pilot scope fail closed
- * - `SCOPED_SYNTHETIC` — pilot scope อ่านจาก head ของ CG4 (switch), scope อื่นยัง shadow
- * - `INTERNAL_ENABLED` — ทุก scope อ่านจาก head ของ CG4
+ * - `DISABLED`: the CG3 loader is the reader, the CG4 writer writes dark
+ * - `SHADOW_EVALUATION`: CG3 still decides, but the CG4 head is evaluated side by side and differing digests are recorded;
+ *   a mismatch on the pilot scope fails closed
+ * - `SCOPED_SYNTHETIC`: the pilot scope reads from the CG4 head (switch), other scopes are still in shadow
+ * - `INTERNAL_ENABLED`: every scope reads from the CG4 head
  *
- * ก่อน switch ถอยกลับได้ทีละขั้น หลัง switch ห้ามกลับไป CG3 reader: ใช้ freeze, scoped kill,
- * canonical reconcile และ forward-fix แทน ทุก stage `actualProviderTraffic=false`
+ * Before the switch you can step back one stage at a time; after the switch you must not go back to the CG3 reader: use freeze, scoped kill,
+ * canonical reconcile and forward-fix instead. Every stage has `actualProviderTraffic=false`
  */
 
 export const CG4_ROLLOUT_STAGES = Object.freeze([
@@ -59,7 +59,7 @@ export interface Cg4RolloutSnapshot {
   shadowStartedAt: Date | null;
   switchedAt: Date | null;
   mutationFrozen: boolean;
-  /** 0 = ยังไม่มีแถว (DISABLED โดยปริยาย) */
+  /** 0 = no row yet (DISABLED by default) */
   version: number;
 }
 
@@ -98,11 +98,11 @@ export type Cg4PolicyReaderMode = 'CG3' | 'CG3_WITH_SHADOW' | 'CG4';
 
 export interface Cg4PolicyReaderSelection {
   mode: Cg4PolicyReaderMode;
-  /** request อยู่ใน pilot scope ที่ประกาศไว้ตอนเข้า shadow/switch */
+  /** the request is in the pilot scope declared when entering shadow/switch */
   pilot: boolean;
 }
 
-/** scope key ที่ parse ไม่ได้ถือว่าครอบทุก request เพื่อไม่ให้ scope ที่เสียหลุดจาก pilot/fail closed */
+/** a scope key that cannot be parsed is treated as covering every request, so a broken scope does not escape the pilot/fail closed */
 function scopeCovers(scopeKey: string, request: Cg4PolicyRequestScope): boolean {
   try {
     return cg4PolicyScopeMatches(scopeKey, request);
@@ -146,7 +146,7 @@ export function cg4PolicyRequestScope(input: {
 
 export interface Cg4RolloutTransitionRequest {
   toStage: Cg4RolloutStage;
-  /** pilot scopes; จำเป็นตอนเข้า SHADOW_EVALUATION และห้ามเปลี่ยนตอน switch */
+  /** pilot scopes; required when entering SHADOW_EVALUATION and must not change at switch */
   syntheticScopeKeys?: readonly string[];
 }
 
@@ -165,7 +165,7 @@ function normalizeScopeKeys(keys: readonly string[]): string[] {
     } catch {
       throw new Cg4RolloutError(
         'ROLLOUT_SCOPE_REQUIRED',
-        `pilot scope ${key} ไม่ใช่ policy scope key`,
+        `pilot scope ${key} is not a policy scope key`,
       );
     }
   }
@@ -181,14 +181,14 @@ export function planCg4RolloutTransition(
   if (to < 0 || Math.abs(to - from) !== 1) {
     throw new Cg4RolloutError(
       'ROLLOUT_INVALID_TRANSITION',
-      `เลื่อน rollout ได้ทีละขั้นเท่านั้น: ${current.stage} -> ${request.toStage}`,
+      `rollout can advance only one stage at a time: ${current.stage} -> ${request.toStage}`,
     );
   }
   if (to < from && current.switchedAt && to < SWITCHED_STAGE_INDEX) {
-    // #179 §6: หลังมี CG4 mutation ห้าม down-migrate หรือย้อน writer/reader
+    // #179 §6: after any CG4 mutation, never down-migrate or revert the writer/reader
     throw new Cg4RolloutError(
       'ROLLOUT_SWITCH_IRREVERSIBLE',
-      'switch ไป CG4 reader แล้วย้อนกลับไม่ได้ ใช้ freeze/kill/forward-fix แทน',
+      'after switching to the CG4 reader it cannot be reverted; use freeze/kill/forward-fix instead',
     );
   }
 
@@ -205,7 +205,7 @@ export function planCg4RolloutTransition(
     if (keys.length === 0) {
       throw new Cg4RolloutError(
         'ROLLOUT_SCOPE_REQUIRED',
-        'shadow ต้องประกาศ pilot scope อย่างน้อยหนึ่ง',
+        'shadow must declare at least one pilot scope',
       );
     }
     return {
@@ -216,7 +216,7 @@ export function planCg4RolloutTransition(
     };
   }
   if (request.toStage === 'SCOPED_SYNTHETIC' && to > from) {
-    // switch ได้เฉพาะ scope ที่ผ่าน shadow window มาแล้ว: เพิ่ม scope ใหม่ต้องกลับไป shadow ก่อน
+    // a switch is allowed only for scopes that have passed a shadow window: adding a new scope must go back to shadow first
     if (
       request.syntheticScopeKeys &&
       normalizeScopeKeys(request.syntheticScopeKeys).join('\n') !==
@@ -224,7 +224,7 @@ export function planCg4RolloutTransition(
     ) {
       throw new Cg4RolloutError(
         'ROLLOUT_INVALID_TRANSITION',
-        'switch ต้องใช้ pilot scope ชุดเดียวกับที่ผ่าน shadow window',
+        'a switch must use the same pilot scopes that passed the shadow window',
       );
     }
     return {
@@ -262,13 +262,13 @@ export interface Cg4RolloutFreezeInput extends RolloutCommandBase {
 export interface Cg4RolloutRepositoryOptions {
   id?: () => string;
   now?: () => Date;
-  /** fault injection ของ drill (`CG4-RC01`): เรียกก่อน commit ภายใน transaction เดียวกัน */
+  /** drill fault injection (`CG4-RC01`): called before commit inside the same transaction */
   beforeCommit?: (snapshot: Cg4RolloutSnapshot) => Promise<void> | void;
 }
 
 function nonEmpty(value: string, field: string): string {
   if (typeof value !== 'string' || value.trim().length === 0) {
-    throw new TypeError(`${field} ต้องเป็น string ที่ไม่ว่าง`);
+    throw new TypeError(`${field} must be a non-empty string`);
   }
   return value.trim();
 }
@@ -319,7 +319,7 @@ export class Cg4RolloutRepository {
         if (ledger === 0) {
           throw new Cg4RolloutError(
             'ROLLOUT_BACKFILL_REQUIRED',
-            'ต้อง backfill CG3 → CG4 ก่อนเริ่ม shadow evaluation',
+            'CG3 -> CG4 must be backfilled before starting shadow evaluation',
           );
         }
       }
@@ -346,7 +346,7 @@ export class Cg4RolloutRepository {
         if (current.mutationFrozen === input.frozen) {
           throw new Cg4RolloutError(
             'ROLLOUT_INVALID_TRANSITION',
-            input.frozen ? 'mutation ถูก freeze อยู่แล้ว' : 'mutation ไม่ได้ถูก freeze',
+            input.frozen ? 'mutation is already frozen' : 'mutation is not frozen',
           );
         }
         return { ...current, mutationFrozen: input.frozen };
@@ -355,8 +355,8 @@ export class Cg4RolloutRepository {
   }
 
   /**
-   * switch และ enable ต้องมีหลักฐานว่า shadow window สะอาดและ callback ทุกตัวที่อ้าง exception
-   * resolve เป็น canonical exception ได้ (#179 §6 ขั้น 5 seed compatibility)
+   * a switch and enable need evidence that the shadow window is clean and that every callback that references an exception
+   * resolves to a canonical exception (#179 §6 step 5 seed compatibility)
    */
   private async assertSwitchReady(
     transaction: Prisma.TransactionClient,
@@ -365,7 +365,7 @@ export class Cg4RolloutRepository {
     now: Date,
   ): Promise<void> {
     if (current.mutationFrozen) {
-      throw new Cg4RolloutError('ROLLOUT_FROZEN', 'เปิด reader ของ CG4 ระหว่าง freeze ไม่ได้');
+      throw new Cg4RolloutError('ROLLOUT_FROZEN', 'cannot enable the CG4 reader during a freeze');
     }
     const onlyPilot = plan.stage === 'SCOPED_SYNTHETIC';
     const mismatches = await transaction.cg4ShadowMismatch.count({
@@ -378,7 +378,7 @@ export class Cg4RolloutRepository {
     if (mismatches > 0) {
       throw new Cg4RolloutError(
         'ROLLOUT_SHADOW_MISMATCH_UNRESOLVED',
-        `shadow window มี mismatch ${mismatches} รายการ ต้อง reconcile แล้วเริ่ม shadow window ใหม่`,
+        `the shadow window has ${mismatches} mismatches; reconcile and start a new shadow window`,
       );
     }
 
@@ -418,7 +418,7 @@ export class Cg4RolloutRepository {
     if (orphans.length > 0) {
       throw new Cg4RolloutError(
         'ROLLOUT_CALLBACK_REF_NONCANONICAL',
-        `callback ${orphans.length} รายการอ้าง exception ที่ไม่มีใน canonical CG4`,
+        `${orphans.length} callbacks reference an exception that is not in canonical CG4`,
       );
     }
   }
@@ -443,7 +443,7 @@ export class Cg4RolloutRepository {
       if (current.version !== input.expectedVersion) {
         throw new Cg4RolloutError(
           'ROLLOUT_VERSION_CONFLICT',
-          `rollout อยู่ที่ version ${current.version} ไม่ใช่ ${input.expectedVersion}`,
+          `rollout is at version ${current.version} and not ${input.expectedVersion}`,
         );
       }
       const now = this.now();
@@ -470,7 +470,10 @@ export class Cg4RolloutRepository {
           data,
         });
         if (written.count !== 1) {
-          throw new Cg4RolloutError('ROLLOUT_VERSION_CONFLICT', 'rollout ถูกเปลี่ยนระหว่างคำสั่ง');
+          throw new Cg4RolloutError(
+            'ROLLOUT_VERSION_CONFLICT',
+            'rollout was changed during the command',
+          );
         }
       }
       await transaction.cg4RolloutTransition.create({
@@ -498,8 +501,8 @@ export class Cg4RolloutRepository {
 }
 
 /**
- * freeze หยุด mutation ที่ขยับ policy head ของ CG4 (publish/scheduled activation) ระหว่าง reconcile
- * kill switch ยังเปิดได้เพราะมีแต่ทำให้เข้มขึ้น (#176 §6)
+ * a freeze stops the mutations that move the CG4 policy head (publish/scheduled activation) during reconcile
+ * a kill switch can still be opened because it only tightens (#176 §6)
  */
 export async function assertCg4MutationNotFrozen(
   transaction: Prisma.TransactionClient,
@@ -512,7 +515,7 @@ export async function assertCg4MutationNotFrozen(
   if (rollout?.mutationFrozen) {
     throw new Cg4RolloutError(
       GOVERNANCE_MUTATION_FROZEN,
-      'Contact Governance mutation ถูก freeze ระหว่าง reconcile/forward-fix',
+      'Contact Governance mutation is frozen during reconcile/forward-fix',
     );
   }
 }

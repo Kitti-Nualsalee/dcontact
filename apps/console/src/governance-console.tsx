@@ -1,12 +1,12 @@
 /**
- * CG4.9 (#192): Hybrid Governance Console ตาม #180
+ * CG4.9 (#192): Hybrid Governance Console per #180
  *
- * - Exceptions = A approval workspace: คิวตาม risk/expiry → exception + binding → action rail
- * - Policies = B change studio: Draft → Tests → Approvals → Activation พร้อม head และ release packet
- * - Audit = C evidence-first timeline + safety case และใช้เป็น evidence drawer จาก A/B
+ * - Exceptions = A approval workspace: queue by risk/expiry → exception + binding → action rail
+ * - Policies = B change studio: Draft → Tests → Approvals → Activation with head and release packet
+ * - Audit = C evidence-first timeline + safety case, also used as the evidence drawer from A/B
  *
- * ทุกข้อมูลมาจาก D-Contact API เท่านั้น ไม่มี state ใดเป็น truth ฝั่ง Console: หลังทุก command
- * หรือ error จะโหลด canonical state ใหม่ และปุ่ม command ถูกปิดเมื่อ state ไม่แน่ชัด (fail closed)
+ * All data comes only from the D-Contact API; no state on the Console side is a source of truth: after every command
+ * or error the canonical state is reloaded, and command buttons are disabled when the state is uncertain (fail closed)
  */
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { useLocale, useTranslation } from '@d-contact/i18n/react';
@@ -53,19 +53,19 @@ const VIEWER_KEY: Readonly<Record<GovernanceViewer, string>> = {
   COMPLIANCE: 'viewer.compliance',
 };
 
-/** ตัวแปลของ namespace `governance` และภาษาปัจจุบัน (ใช้จัดรูปแบบวันที่) */
+/** Translator for the `governance` namespace and the current language (used to format dates) */
 function useGovernanceText(): { t: Translate; locale: string } {
   const { t } = useTranslation('governance');
   const { locale } = useLocale();
   return { t: t as unknown as Translate, locale };
 }
 
-/** prefix ของ opaque id ตามด้วย … (ส่วนที่ตัด) — digest ใช้ …suffix แยกกันใน digestLabel */
+/** prefix of an opaque id followed by … (the truncated part) — digests use …suffix separately in digestLabel */
 const shortId = (value: string) => `${value.slice(0, 8)}…`;
 
 /**
- * สถานะตำแหน่งของ Governance (URL เป็นความจริง) — ถือไว้เหนือ shell เพื่อให้เมนูย่อยของ shell
- * ไฮไลต์หน้าตรงกับเนื้อหาและเปลี่ยนหน้าได้โดยไม่โหลดใหม่ (#658)
+ * Governance location state (the URL is the truth) — held above the shell so the shell submenu
+ * highlights the page matching the content and can switch pages without reloading (#658)
  */
 export function useGovernanceLocation(initialLocation: GovernanceLocation) {
   const [location, setLocation] = useState(initialLocation);
@@ -73,7 +73,7 @@ export function useGovernanceLocation(initialLocation: GovernanceLocation) {
   const go = useCallback((next: GovernanceLocation) => {
     window.history.pushState({}, '', governanceHref(next));
     setLocation(next);
-    // ย้าย focus ไปเนื้อหาใหม่ให้ screen reader รู้ว่าหน้าเปลี่ยน
+    // move focus to the new content so screen readers know the page changed
     requestAnimationFrame(() => document.getElementById('gov-main')?.focus());
   }, []);
 
@@ -99,12 +99,12 @@ export function GovernanceConsole({
   location: GovernanceLocation;
   go: (location: GovernanceLocation) => void;
 }) {
-  // #654: อยู่ใน ConsoleShell แล้ว shell วาด skip link, แถบบนและ <main> ให้ — หน้านี้ไม่วาดซ้ำ (landmark ซ้อน)
+  // #654: inside ConsoleShell the shell draws the skip link, top bar and <main> — this page does not draw them again (nested landmarks)
   const inShell = useInShell();
-  // #658: เมนูย่อยของ shell มีหน้าย่อยครบแล้ว → ไม่วาดแท็บซ้ำ; ไม่มี (flag ปิด/API รุ่นเก่า) → แท็บเดิม
+  // #658: the shell submenu already has all sub-pages → do not draw tabs again; none (flag off / older API) → the original tabs
   const pagesInShell = useShellPageNav();
   const { t } = useGovernanceText();
-  // governance.css อ้าง token ทั้งสองสถานะของ flag (เหมือน Journeys) — token มาก่อนเนื้อหา ไม่ให้เห็นหน้าที่ยังไม่มีสี
+  // governance.css references the tokens for both flag states (like Journeys) — tokens come before content so the page is never seen without colors
   const tokensReady = useShellTokens();
   if (!tokensReady) return null;
 
@@ -209,7 +209,7 @@ function useCanonical<T>(load: () => Promise<T>, deps: readonly unknown[]) {
       setData(await loadRef.current());
       setFailure(undefined);
     } catch (error) {
-      // state ที่อ่านไม่ได้ต้องไม่ถูกแทนด้วย snapshot เก่า: ล้างข้อมูลแล้วแสดง recovery
+      // an unreadable state must not be replaced by an old snapshot: clear the data and show recovery
       setData(undefined);
       setFailure(recoveryFor(error, tRef.current));
     } finally {
@@ -226,8 +226,8 @@ function useCanonical<T>(load: () => Promise<T>, deps: readonly unknown[]) {
 }
 
 /**
- * Idempotency-Key ผูกกับ intent (รายการ + revision + การตัดสิน) ถ้าผลไม่แน่ชัดจะเก็บ key ไว้
- * เพื่อให้การส่งซ้ำเป็นคำสั่งเดิม ห้ามสร้าง key ใหม่เพื่อหลบผลเดิม
+ * Idempotency-Key is bound to the intent (item + revision + decision); if the result is uncertain the key is kept
+ * so that a resend is the same command — never mint a new key to dodge the earlier result
  */
 function useCommand(onSettled: () => Promise<void>) {
   const keys = useRef(new Map<string, string>());
@@ -321,7 +321,7 @@ interface DialogField {
   type?: 'text' | 'datetime-local';
 }
 
-/** dialog ยืนยันแบบ modal: focus เข้า field แรก, Tab วนในกล่อง, Esc ปิดและคืน focus */
+/** modal confirm dialog: focus enters the first field, Tab cycles within the box, Esc closes and returns focus */
 function ConfirmDialog({
   title,
   body,
@@ -351,8 +351,8 @@ function ConfirmDialog({
     returnFocus.current = document.activeElement;
     boxRef.current?.querySelector<HTMLElement>('input, button')?.focus();
     return () => {
-      // ปุ่มที่เปิด dialog ถูก disable ระหว่างรอ server ยืนยัน จึงคืน focus เมื่อกลับมาใช้ได้
-      // ไม่งั้น focus หลุดไปที่ body และผู้ใช้ keyboard ต้องเริ่มไล่ใหม่จากต้นหน้า
+      // the button that opened the dialog is disabled while waiting for the server to confirm, so return focus once it is usable again
+      // otherwise focus falls to body and keyboard users must start over from the top of the page
       const target = returnFocus.current as HTMLButtonElement | null;
       let attempts = 0;
       const restore = () => {
@@ -632,7 +632,7 @@ function ExceptionWorkspace({
 
   const series = detail.data?.series;
   const approvals = detail.data?.approvals ?? [];
-  // state ที่ยังโหลดไม่ได้หรือผลคำสั่งไม่แน่ชัดต้องปิด action ทั้งหมด
+  // state that could not load, or a command with an uncertain result, must disable all actions
   const blocked = command.pending || !!detail.failure || !!command.recovery || detail.loading;
   const intentFor = (action: string) =>
     `exception:${series?.seriesId}:${series?.revision}:${action}`;
@@ -1104,7 +1104,7 @@ function PolicyStudio({
   const version = data?.version;
   const artifact = data?.tests.at(-1);
   const head = data?.head;
-  // version ที่ทดสอบกับ head อื่นต้องทดสอบใหม่ก่อนตัดสิน: ห้ามให้ server เป็นด่านเดียวที่เห็นว่าไม่ตรง
+  // a version tested against another head must be retested before deciding: the server must not be the only gate that sees the mismatch
   const headMismatch =
     !!version &&
     !!artifact &&

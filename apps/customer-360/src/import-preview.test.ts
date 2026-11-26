@@ -7,7 +7,7 @@ const source = Buffer.from('name,email\nAlice,alice@example.com\n,invalid\nBob,b
 const sourceDigest = createHash('sha256').update(source).digest('hex');
 const mapping = { version: 1, columns: { displayName: 'name', email: 'email' } };
 
-test('preview ใช้ core rules นับ invalid และเตือนเฉพาะผลที่ authority อนุญาต', async () => {
+test('preview uses core rules, counts invalid rows and warns only about results the authority allows', async () => {
   let calls = 0;
   const result = await prepareC360ImportPreview({
     source,
@@ -31,7 +31,7 @@ test('preview ใช้ core rules นับ invalid และเตือนเ
   assert.match(result.planHash, /^[0-9a-f]{64}$/);
 });
 
-test('plan ผูก source, mapping, rules แต่ไม่ผูก warnings; scope ล้มไม่อ้างว่าไม่มีข้อมูลซ้ำ', async () => {
+test('plan binds source, mapping and rules but not warnings; a failed scope never claims there are no duplicates', async () => {
   const base = { source, sourceDigest, mapping };
   const noDuplicates = await prepareC360ImportPreview({
     ...base,
@@ -105,7 +105,7 @@ test('plan ผูก source, mapping, rules แต่ไม่ผูก warnings
   );
 });
 
-test('preview ตรึง mapping ก่อนรอ duplicate authority ไม่ให้ client เปลี่ยนแผนกลางทาง', async () => {
+test('preview pins the mapping before awaiting the duplicate authority so the client cannot change the plan midway', async () => {
   const csv = Buffer.from('name,alternate\nAlice,Wrong\nBob,Wrong');
   const mutable = { version: 1, columns: { displayName: 'name' } };
   const seen: string[] = [];
@@ -125,7 +125,7 @@ test('preview ตรึง mapping ก่อนรอ duplicate authority ไม
   assert.deepEqual(result.counts, { valid: 2, invalid: 0, warning: 0 });
 });
 
-test('preview ที่ไม่มีแถว valid ยังตรวจ duplicate authority และ fail closed เมื่อ scope ไม่พร้อม', async () => {
+test('preview with no valid rows still checks the duplicate authority and fails closed when scope is unavailable', async () => {
   const invalidSource = Buffer.from('name\n""');
   const calls: number[] = [];
   const input = {

@@ -11,11 +11,11 @@ interface Fixture {
   chunks: { startFrame: number; frameCount: number; url: string; authorization?: string }[];
   opened: number;
   closed: number;
-  /** สิทธิ์ถูกถอน: chunk ถัดไปตอบ 404 */
+  /** permission revoked: the next chunk answers 404 */
   revoked: boolean;
 }
 
-/** WAV mono 16 bit ของเสียง 440 Hz ตามช่วง frame ที่ขอ */
+/** WAV mono 16 bit of a 440 Hz tone for the requested frame range */
 function wav(startFrame: number, frameCount: number): Buffer {
   const header = Buffer.alloc(44);
   header.write('RIFF', 0, 'latin1');
@@ -112,7 +112,7 @@ const newFixture = (): Fixture => ({ chunks: [], opened: 0, closed: 0, revoked: 
 const requestedSeconds = (fixture: Fixture) =>
   Math.max(0, ...fixture.chunks.map((chunk) => chunk.startFrame + chunk.frameCount)) / RATE;
 
-test('Supervisor เปิดรายการ ฟังเสียงทีละช่วง หยุด และเลื่อนตำแหน่ง', async ({ page }) => {
+test('a Supervisor opens the list, listens range by range, pauses, and seeks', async ({ page }) => {
   const fixture = newFixture();
   await mockRecordings(page, fixture);
   await page.goto('/?view=team-recordings&tenant=demo');
@@ -121,27 +121,27 @@ test('Supervisor เปิดรายการ ฟังเสียงที�
   const grid = page.getByRole('grid', { name: 'รายการเสียงบันทึกของทีม' });
   await expect(grid).toContainText('สมหญิง ใจดี');
   await expect(grid).toContainText('กำลังจัดเก็บ');
-  // เสียงที่ยังจัดเก็บไม่เสร็จไม่มีปุ่มฟัง และไม่มีลิงก์ดาวน์โหลดในหน้า
+  // audio not yet stored has no listen button and no download link on the page
   await expect(grid.getByRole('button', { name: /^ฟัง/ })).toHaveCount(1);
   await expect(page.getByRole('link', { name: /ดาวน์โหลด|download/i })).toHaveCount(0);
 
   await grid.getByRole('button', { name: /^ฟังสาย .*สมหญิง ใจดี/ }).click();
   const player = page.getByRole('region', { name: /สมหญิง ใจดี/ });
   await expect(player.getByRole('heading', { level: 2 })).toBeFocused();
-  // ยังไม่ขอเสียงจนกว่าจะกดเล่น
+  // no audio is requested until play is pressed
   expect(fixture.opened).toBe(0);
   await player.getByRole('button', { name: 'เล่น', exact: true }).click();
   await expect(player.getByRole('status')).toHaveText('กำลังเล่น');
   await expect(player.getByRole('button', { name: 'หยุดชั่วคราว' })).toBeVisible();
 
-  // เล่นไปราว 1 วินาที: ขอเสียงล่วงหน้าไม่เกิน 4 วินาที ไม่ใช่ทั้งไฟล์ 12 วินาที
+  // after playing about 1 second: audio is requested ahead by no more than 4 seconds, not the whole 12-second file
   await expect
     .poll(() => page.getByRole('slider', { name: 'ตำแหน่งในเสียงบันทึก' }).inputValue())
     .not.toBe('0');
   expect(requestedSeconds(fixture)).toBeLessThanOrEqual(4);
   for (const chunk of fixture.chunks) {
     expect(chunk.frameCount).toBeLessThanOrEqual(RATE * 2);
-    // token อยู่ใน header เท่านั้น ไม่อยู่ใน URL ของเสียง
+    // the token is in the header only, not in the audio URL
     expect(new URL(chunk.url).search).toBe('');
     expect(chunk.authorization).toMatch(/^Bearer /);
   }
@@ -152,7 +152,7 @@ test('Supervisor เปิดรายการ ฟังเสียงที�
   await page.waitForTimeout(700);
   expect(fixture.chunks.length).toBe(requestedAtPause);
 
-  // เลื่อนไปวินาทีที่ 8 แล้วเล่นต่อ: ขอช่วงใหม่จากตำแหน่งนั้น
+  // seek to second 8 then keep playing: a new range is requested from that position
   await page.getByRole('slider', { name: 'ตำแหน่งในเสียงบันทึก' }).fill('8');
   await player.getByRole('button', { name: 'เล่น', exact: true }).click();
   await expect(player.getByRole('status')).toHaveText('กำลังเล่น');
@@ -162,12 +162,14 @@ test('Supervisor เปิดรายการ ฟังเสียงที�
 
   await player.getByRole('button', { name: 'ปิดตัวเล่น' }).click();
   await expect(player).toHaveCount(0);
-  // ปิดแล้ว focus กลับไปที่ปุ่มฟังของแถวเดิม
+  // after closing, focus returns to the listen button of the original row
   await expect(grid.getByRole('button', { name: /^ฟังสาย .*สมหญิง ใจดี/ })).toBeFocused();
   await expect.poll(() => fixture.closed).toBe(1);
 });
 
-test('สิทธิ์ถูกถอนระหว่างฟัง: เสียงหยุดและแจ้งเหตุ ไม่ขอช่วงถัดไปต่อ', async ({ page }) => {
+test('permission revoked while listening: the audio stops and states the reason, and does not request the next range', async ({
+  page,
+}) => {
   const fixture = newFixture();
   await mockRecordings(page, fixture);
   await page.goto('/?view=team-recordings&tenant=demo');
@@ -181,7 +183,7 @@ test('สิทธิ์ถูกถอนระหว่างฟัง: เส
     'ไม่พบเสียงบันทึกนี้ หรือคุณไม่มีสิทธิ์ฟังแล้ว',
     { timeout: 10_000 },
   );
-  // หยุดภายในเสียงที่กันไว้ล่วงหน้า (ไม่เกิน 4 วินาทีจากที่ขอไว้ก่อนถอนสิทธิ์)
+  // stops within the audio buffered ahead (no more than 4 seconds from what was requested before revocation)
   expect(requestedSeconds(fixture)).toBeLessThanOrEqual(4);
   await expect(player.getByRole('button', { name: 'เล่น', exact: true })).toBeVisible();
   const position = Number(

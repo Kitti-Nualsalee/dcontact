@@ -1,9 +1,9 @@
 /**
- * Real-boundary test ของ A1.2 (#407): ยิง Keycloak จริง (`pnpm infra:up`) — ไม่อยู่ใน fast gate
+ * Real-boundary test of A1.2 (#407): hits a real Keycloak (`pnpm infra:up`) — not in the fast gate
  *
- * พิสูจน์ว่า identity plane ที่ `scripts/keycloak-platform-setup.mjs` สร้าง ออก token ที่ boundary
- * ของ Platform API ยอมรับ/ปฏิเสธตรงกับ token matrix ของ unit test และ tenant plane กับ platform plane
- * ไม่ข้ามกันทั้งสองทิศ
+ * Proves that the identity plane built by `scripts/keycloak-platform-setup.mjs` issues tokens that the
+ * Platform API boundary accepts/rejects exactly as the unit test token matrix does, and that the tenant plane and
+ * the platform plane do not cross in either direction
  */
 import 'reflect-metadata';
 import assert from 'node:assert/strict';
@@ -19,7 +19,7 @@ const keycloakBaseUrl = process.env.KEYCLOAK_ADMIN_URL ?? 'http://localhost:8081
 const issuer = `${keycloakBaseUrl}/realms/dcontact`;
 const jwksUri = `${issuer}/protocol/openid-connect/certs`;
 
-// helper เป็น ESM .mjs ที่ใช้ร่วมกับ CLI; package นี้เป็น CJS จึง import แบบ dynamic
+// the helper is an ESM .mjs shared with the CLI; this package is CJS so it is imported dynamically
 const setupModule = import('../../../scripts/keycloak-platform-setup.mjs');
 const loginModule = import('../../../scripts/keycloak-platform-login.mjs');
 type DevUser = Awaited<typeof setupModule>['PLATFORM_DEV_USERS'][number];
@@ -43,7 +43,7 @@ async function client(token: string, clientId: string) {
     { headers: { authorization: `Bearer ${token}` } },
   );
   const [representation] = (await response.json()) as Record<string, unknown>[];
-  assert.ok(representation, `ไม่พบ client ${clientId}`);
+  assert.ok(representation, `client ${clientId} not found`);
   return representation;
 }
 
@@ -67,7 +67,7 @@ describe('Keycloak platform identity plane (real boundary)', { concurrency: fals
 
   before(async () => {
     const setup = await setupModule;
-    // รันสองรอบ: setup ต้อง idempotent บน realm ที่ตั้งไว้แล้ว
+    // run twice: setup must be idempotent on a realm that is already set up
     await setup.setupKeycloakPlatform();
     const result = await setup.setupKeycloakPlatform();
     assert.equal(result.users.length, 2);
@@ -75,7 +75,7 @@ describe('Keycloak platform identity plane (real boundary)', { concurrency: fals
     login = (await loginModule).platformConsoleLogin;
   });
 
-  test('client config: platform-console เป็น public+PKCE ไม่มี direct grant/full scope และผูก MFA flow', async () => {
+  test('client config: platform-console is public+PKCE with no direct grant/full scope and is bound to the MFA flow', async () => {
     const token = await adminToken();
     const consoleClient = await client(token, 'platform-console');
     assert.equal(consoleClient.publicClient, true);
@@ -98,7 +98,7 @@ describe('Keycloak platform identity plane (real boundary)', { concurrency: fals
     assert.equal(apiClient.bearerOnly, true);
   });
 
-  test('browser flow ใช้ cookie คืน session; login ใหม่ยังบังคับ password และ OTP', async () => {
+  test('browser flow reuses the cookie session; a new login still requires password and OTP', async () => {
     const token = await adminToken();
     const setup = await setupModule;
     const executions = async (alias: string) => {
@@ -128,9 +128,9 @@ describe('Keycloak platform identity plane (real boundary)', { concurrency: fals
     }
   });
 
-  test('operator: password + OTP → token ผ่าน boundary และได้ read + mutate', async () => {
+  test('operator: password + OTP → token passes the boundary and gets read + mutate', async () => {
     const operator = users.find((user) => user.role === 'platform_operator')!;
-    // หน่วง OTP ข้ามวินาที: amr ต้องยังมี pwd (regression ของ reference maxAge=0)
+    // delay the OTP across a second: amr must still have pwd (regression of reference maxAge=0)
     const result = await login({ ...operator, otpDelayMs: 2_100, verifySsoRestoration: true });
     assert.equal(result.status, 'TOKEN');
     tokens.operator = (result as { accessToken: string }).accessToken;
@@ -144,7 +144,7 @@ describe('Keycloak platform identity plane (real boundary)', { concurrency: fals
     assert.deepEqual(restored.capabilities, identity.capabilities);
   });
 
-  test('auditor: password + OTP → token ผ่าน boundary แต่ read-only', async () => {
+  test('auditor: password + OTP → token passes the boundary but is read-only', async () => {
     const auditor = users.find((user) => user.role === 'platform_auditor')!;
     const result = await login(auditor);
     assert.equal(result.status, 'TOKEN');
@@ -154,7 +154,7 @@ describe('Keycloak platform identity plane (real boundary)', { concurrency: fals
     assert.deepEqual(identity.capabilities, ['CONTROL_PLANE_READ']);
   });
 
-  test('token จริงไม่มี tenant claim, realm role หรือ PII', () => {
+  test('a real token has no tenant claim, realm role or PII', () => {
     for (const token of [tokens.operator, tokens.auditor]) {
       const claims = claimsOf(token);
       for (const forbidden of [
@@ -167,20 +167,20 @@ describe('Keycloak platform identity plane (real boundary)', { concurrency: fals
         'preferred_username',
         'name',
       ]) {
-        assert.equal(claims[forbidden], undefined, `token มี ${forbidden}`);
+        assert.equal(claims[forbidden], undefined, `token has ${forbidden}`);
       }
       assert.equal(claims.aud, 'dcontact-platform-api');
     }
   });
 
-  test('platform token ใช้กับ tenant API ไม่ได้ (audience + identity mapping)', async () => {
+  test('a platform token cannot be used with the tenant API (audience + identity mapping)', async () => {
     for (const token of [tokens.operator, tokens.auditor]) {
       await assert.rejects(tenantVerifier.verifyAccessToken(token));
       assert.throws(() => toVerifiedWorkspaceIdentity(claimsOf(token) as never));
     }
   });
 
-  test('ไม่มี OTP หยุดที่หน้า OTP; direct grant ถูกปิด', async () => {
+  test('without OTP it stops at the OTP page; direct grant is disabled', async () => {
     const operator = users.find((user) => user.role === 'platform_operator')!;
     assert.deepEqual(await login({ ...operator, skipOtp: true }), {
       status: 'STOPPED',
@@ -199,7 +199,7 @@ describe('Keycloak platform identity plane (real boundary)', { concurrency: fals
     assert.equal(((await direct.json()) as { error: string }).error, 'unauthorized_client');
   });
 
-  test('tenant user login ผ่าน platform-console ไม่ได้ token และ tenant token ใช้กับ Platform API ไม่ได้', async () => {
+  test('a tenant user logging in through platform-console gets no token, and a tenant token cannot be used with the Platform API', async () => {
     const tenantLogin = await login({ username: 'admin@demo.local', password: 'admin1234' });
     assert.equal(tenantLogin.status, 'STOPPED');
 
@@ -213,7 +213,7 @@ describe('Keycloak platform identity plane (real boundary)', { concurrency: fals
         scope: 'openid organization',
       }),
     });
-    assert.equal(tenantToken.ok, true, 'ต้องได้ tenant token ของ dev realm ก่อน');
+    assert.equal(tenantToken.ok, true, 'a tenant token from the dev realm is required first');
     const { access_token: accessToken } = (await tenantToken.json()) as { access_token: string };
     await assert.rejects(verifier.verifyAccessToken(accessToken));
     assert.throws(() => toVerifiedPlatformIdentity(claimsOf(accessToken)));

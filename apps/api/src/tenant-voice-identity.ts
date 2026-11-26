@@ -1,4 +1,4 @@
-/** Voice adapter คง public imports และกฎ verified claims เดิม */
+/** the Voice adapter keeps the public imports and the original verified-claims rules */
 export {
   tenantConfigurationCaller as voiceCatalogCaller,
   type TenantConfigurationCaller as VoiceCaller,

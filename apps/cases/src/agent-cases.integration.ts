@@ -1,6 +1,6 @@
 /**
- * #956 — ต้องรันบนฐานแยก (เช่น dcontact_956) โดยตั้ง DATABASE_URL เป็น owner role และ
- * APPLICATION_DATABASE_URL เป็น dcontact_app ที่ไม่ bypass RLS ห้ามรันบนฐาน dcontact ร่วม
+ * #956 — must run on a separate database (e.g. dcontact_956) with DATABASE_URL set to the owner role and
+ * APPLICATION_DATABASE_URL set to dcontact_app, which does not bypass RLS. Never run on the shared dcontact database.
  */
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -77,7 +77,7 @@ async function seedTenant(owner: PrismaClient, label: string): Promise<TenantFix
     ],
   });
   await owner.contact.create({
-    data: { id: fixture.contactId, tenantId, displayName: 'ลูกค้า #956' },
+    data: { id: fixture.contactId, tenantId, displayName: 'Customer #956' },
   });
   const work = (
     id: string,
@@ -126,7 +126,7 @@ async function setup(t: TestContext) {
     await owner.$disconnect();
     await application.$disconnect();
   });
-  /** งาน WRAPUP ใหม่ของ Agent A ที่ผูกลูกค้าแล้ว — งานหนึ่งเปิดเคสได้ใบเดียว */
+  /** A new WRAPUP work item of Agent A that is already linked to a customer — one work item can open only one case */
   const newWork = async () => {
     const id = randomUUID();
     await owner.interaction.create({
@@ -147,7 +147,7 @@ async function setup(t: TestContext) {
 
 async function rejects(work: Promise<unknown>, code: string): Promise<void> {
   await assert.rejects(work, (error: unknown) => {
-    assert.ok(error instanceof AgentCaseError, `ควรได้ AgentCaseError แต่ได้ ${String(error)}`);
+    assert.ok(error instanceof AgentCaseError, `expected AgentCaseError but got ${String(error)}`);
     assert.equal(error.code, code);
     return true;
   });
@@ -157,13 +157,13 @@ function openBody(f: TenantFixture, overrides: Record<string, unknown> = {}) {
   return {
     commandId: randomUUID(),
     interactionId: f.linkedWorkId,
-    subject: 'ลูกค้าขอคืนสินค้า รอฝ่ายคลังยืนยัน',
-    note: 'ลูกค้าแจ้งสินค้าชำรุด ส่งรูปทางไลน์แล้ว',
+    subject: 'Customer requests a product return, waiting for the warehouse to confirm',
+    note: 'Customer reported a damaged product and sent photos via LINE',
     ...overrides,
   };
 }
 
-test('เปิดเคสจากงานที่ผูกลูกค้า: ได้เคส OPEN ของทีม และไทม์ไลน์ เปิด → ผูกงาน → โน้ต', async (t) => {
+test('opening a case from a work item linked to a customer: gives an OPEN team case and a timeline open → link work → note', async (t) => {
   const { cases, a } = await setup(t);
   const agent = { tenantId: a.tenantId, userId: a.agentId };
 
@@ -181,11 +181,14 @@ test('เปิดเคสจากงานที่ผูกลูกค้�
     ['CREATED', 'LINKED', 'NOTE'],
   );
   assert.equal(detail.activities[1]?.interactionId, a.linkedWorkId);
-  assert.equal(detail.activities[2]?.body, 'ลูกค้าแจ้งสินค้าชำรุด ส่งรูปทางไลน์แล้ว');
+  assert.equal(
+    detail.activities[2]?.body,
+    'Customer reported a damaged product and sent photos via LINE',
+  );
   assert.equal(detail.linkedWorkCount, 1);
 });
 
-test('ส่งคำสั่งเปิดเคสเดิมซ้ำได้ผลเดิม ไม่เกิดเคสที่สอง ส่วน commandId เดิมกับข้อมูลต่างถูกปฏิเสธ', async (t) => {
+test('resending the same open-case command returns the same result with no second case, while the same commandId with different data is rejected', async (t) => {
   const { owner, cases, a } = await setup(t);
   const agent = { tenantId: a.tenantId, userId: a.agentId };
   const body = openBody(a);
@@ -195,7 +198,10 @@ test('ส่งคำสั่งเปิดเคสเดิมซ้ำไ�
   assert.deepEqual(again, first);
   assert.equal(await owner.csCase.count({ where: { tenantId: a.tenantId } }), 1);
 
-  await rejects(cases.open(agent, { ...body, subject: 'หัวข้ออื่น' }), 'COMMAND_PAYLOAD_MISMATCH');
+  await rejects(
+    cases.open(agent, { ...body, subject: 'Another subject' }),
+    'COMMAND_PAYLOAD_MISMATCH',
+  );
   await rejects(
     cases.addNote(agent, first.caseId, {
       commandId: body.commandId,
@@ -206,7 +212,7 @@ test('ส่งคำสั่งเปิดเคสเดิมซ้ำไ�
   );
 });
 
-test('งานที่ยังไม่ผูกลูกค้า งานที่บันทึกผลจบแล้ว หรืองานของคนอื่น เปิดเคสไม่ได้', async (t) => {
+test('a work item without a customer, an already wrapped-up work item, or another agent work item cannot open a case', async (t) => {
   const { owner, cases, a } = await setup(t);
   const agent = { tenantId: a.tenantId, userId: a.agentId };
 
@@ -226,7 +232,7 @@ test('งานที่ยังไม่ผูกลูกค้า งาน�
   assert.equal(await owner.csCase.count({ where: { tenantId: a.tenantId } }), 0);
 });
 
-test('มอบหมายได้เฉพาะ Agent ที่ active ในทีมเดียวกัน', async (t) => {
+test('assignment is allowed only to an active Agent in the same team', async (t) => {
   const { cases, a, b } = await setup(t);
   const agent = { tenantId: a.tenantId, userId: a.agentId };
 
@@ -263,7 +269,7 @@ test('มอบหมายได้เฉพาะ Agent ที่ active ใ�
   assert.deepEqual(team.map((member) => member.userId).sort(), [a.agentId, a.teammateId].sort());
 });
 
-test('ผู้รับผิดชอบที่ย้ายทีมแล้ว: เคสยังอยู่กับทีมเดิม และรายละเอียดบอกให้มอบหมายใหม่', async (t) => {
+test('assignee who moved team: the case stays with the original team and the detail says to reassign', async (t) => {
   const { owner, cases, a } = await setup(t);
   const agent = { tenantId: a.tenantId, userId: a.agentId };
   const opened = await cases.open(agent, openBody(a, { assigneeUserId: a.teammateId }));
@@ -274,14 +280,14 @@ test('ผู้รับผิดชอบที่ย้ายทีมแล�
   assert.equal(detail.teamId, a.teamId);
   assert.equal(detail.assigneeUserId, a.teammateId);
   assert.equal(detail.assigneeInTeam, false);
-  // ผู้ที่ย้ายออกไปมองไม่เห็นเคสของทีมเดิมแล้ว
+  // The agent who moved out can no longer see the original team's case
   await rejects(
     cases.detail({ tenantId: a.tenantId, userId: a.teammateId }, opened.caseId),
     'CASE_NOT_FOUND',
   );
 });
 
-test('งานที่ผูกในไทม์ไลน์บอกว่าเป็นงานของผู้ดูหรือไม่', async (t) => {
+test('a work item linked in the timeline says whether it belongs to the viewer', async (t) => {
   const { cases, a } = await setup(t);
   const agent = { tenantId: a.tenantId, userId: a.agentId };
   const opened = await cases.open(agent, openBody(a));
@@ -304,7 +310,7 @@ test('งานที่ผูกในไทม์ไลน์บอกว่�
   );
 });
 
-test('version ไม่ตรงได้ conflict และไม่มีอะไรถูกเขียน', async (t) => {
+test('a version mismatch gives a conflict and nothing is written', async (t) => {
   const { cases, a } = await setup(t);
   const agent = { tenantId: a.tenantId, userId: a.agentId };
   const teammate = { tenantId: a.tenantId, userId: a.teammateId };
@@ -313,13 +319,13 @@ test('version ไม่ตรงได้ conflict และไม่มีอ�
   await cases.addNote(teammate, opened.caseId, {
     commandId: randomUUID(),
     expectedVersion: 1,
-    note: 'โทรตามคลังแล้ว รอคำตอบพรุ่งนี้',
+    note: 'Called the warehouse, waiting for an answer tomorrow',
   });
   await rejects(
     cases.addNote(agent, opened.caseId, {
       commandId: randomUUID(),
       expectedVersion: 1,
-      note: 'ซ้อน',
+      note: 'Overlapping',
     }),
     'VERSION_CONFLICT',
   );
@@ -333,7 +339,7 @@ test('version ไม่ตรงได้ conflict และไม่มีอ�
   );
 });
 
-test('สถานะ OPEN → RESOLVED → OPEN → RESOLVED → CLOSED แล้วแก้ต่อไม่ได้', async (t) => {
+test('status OPEN → RESOLVED → OPEN → RESOLVED → CLOSED, after which it cannot be edited', async (t) => {
   const { cases, a } = await setup(t);
   const agent = { tenantId: a.tenantId, userId: a.agentId };
   const opened = await cases.open(agent, openBody(a));
@@ -355,7 +361,7 @@ test('สถานะ OPEN → RESOLVED → OPEN → RESOLVED → CLOSED แล�
   assert.equal(detail.resolvedAt, null);
 
   await rejects(status(3, 'OPEN'), 'INVALID_TRANSITION');
-  // ปิดจาก OPEN ตรงไม่ได้ ต้องผ่าน RESOLVED ก่อน
+  // Closing directly from OPEN is not allowed; it must go through RESOLVED first
   await rejects(status(3, 'CLOSED'), 'INVALID_TRANSITION');
   await status(3, 'RESOLVED');
   await status(4, 'CLOSED');
@@ -375,13 +381,13 @@ test('สถานะ OPEN → RESOLVED → OPEN → RESOLVED → CLOSED แล�
     cases.addNote(agent, opened.caseId, {
       commandId: randomUUID(),
       expectedVersion: 5,
-      note: 'หลังปิด',
+      note: 'After closing',
     }),
     'CASE_CLOSED',
   );
 });
 
-test('ทีมอื่นและ tenant อื่นมองไม่เห็นและแก้เคสไม่ได้', async (t) => {
+test('another team and another tenant cannot see or edit the case', async (t) => {
   const { cases, a, b } = await setup(t);
   const agent = { tenantId: a.tenantId, userId: a.agentId };
   const opened = await cases.open(agent, openBody(a));
@@ -398,16 +404,16 @@ test('ทีมอื่นและ tenant อื่นมองไม่เห
     'CASE_NOT_FOUND',
   );
 
-  // Agent ของ tenant B ที่รู้ caseId ก็ยังหาไม่เจอ (RLS และเงื่อนไขทีม)
+  // An Agent of tenant B who knows the caseId still cannot find it (RLS and team condition)
   const otherTenant = { tenantId: b.tenantId, userId: b.agentId };
   assert.deepEqual((await cases.list(otherTenant)).items, []);
   await rejects(cases.detail(otherTenant, opened.caseId), 'CASE_NOT_FOUND');
 
-  // ผู้ที่อ้าง tenant A แต่ไม่มีบัญชี Agent ใน tenant A ถูกปฏิเสธก่อนอ่านเคส
+  // A caller claiming tenant A without an Agent account in tenant A is rejected before reading the case
   await rejects(cases.list({ tenantId: a.tenantId, userId: b.agentId }), 'AGENT_REQUIRED');
 });
 
-test('RLS: application role มองไม่เห็นแถว cs_cases ของ tenant อื่นแม้ query ตรง', async (t) => {
+test('RLS: the application role cannot see cs_cases rows of another tenant even with a direct query', async (t) => {
   const { cases, a, b } = await setup(t);
   const opened = await cases.open({ tenantId: a.tenantId, userId: a.agentId }, openBody(a));
   const application = new PrismaClient({ datasources: { db: { url: APPLICATION_DATABASE_URL } } });
@@ -424,14 +430,14 @@ test('RLS: application role มองไม่เห็นแถว cs_cases ข
   assert.deepEqual(visible, []);
 });
 
-test('รายการของทีมกรองตามสถานะและของฉัน เรียงตามอัปเดตล่าสุด', async (t) => {
+test('the team list filters by status and mine, ordered by latest update', async (t) => {
   const { cases, a, newWork } = await setup(t);
   const agent = { tenantId: a.tenantId, userId: a.agentId };
-  const first = await cases.open(agent, openBody(a, { subject: 'เคสแรก' }));
+  const first = await cases.open(agent, openBody(a, { subject: 'First case' }));
   const second = await cases.open(
     agent,
     openBody(a, {
-      subject: 'เคสสอง',
+      subject: 'Second case',
       assigneeUserId: a.teammateId,
       interactionId: await newWork(),
     }),
@@ -445,7 +451,7 @@ test('รายการของทีมกรองตามสถานะ�
   const all = (await cases.list(agent)).items;
   assert.deepEqual(
     all.map((item) => item.subject),
-    ['เคสแรก', 'เคสสอง'],
+    ['First case', 'Second case'],
   );
   assert.equal(all[0]?.linkedWorkCount, 1);
   const ids = async (filter: Parameters<typeof cases.list>[1]) =>
@@ -462,7 +468,7 @@ test('รายการของทีมกรองตามสถานะ�
   assert.deepEqual(await ids({ status: 'CLOSED' }), [first.caseId]);
 });
 
-test('แบ่งหน้าด้วย cursor ได้ครบทุกเคสโดยไม่ซ้ำ', async (t) => {
+test('cursor pagination returns every case without duplicates', async (t) => {
   const { cases, a, newWork } = await setup(t);
   const agent = { tenantId: a.tenantId, userId: a.agentId };
   const opened = [];
@@ -471,7 +477,7 @@ test('แบ่งหน้าด้วย cursor ได้ครบทุกเ
       (
         await cases.open(
           agent,
-          openBody(a, { subject: `เคส ${index}`, interactionId: await newWork() }),
+          openBody(a, { subject: `Case ${index}`, interactionId: await newWork() }),
         )
       ).caseId,
     );
@@ -489,23 +495,23 @@ test('แบ่งหน้าด้วย cursor ได้ครบทุกเ
   assert.deepEqual([...seen].sort(), [...opened].sort());
 });
 
-test('งานหนึ่งเปิดเคสได้ใบเดียวตาม ADR-016 แต่ส่งคำสั่งเดิมซ้ำยังได้ผลเดิม', async (t) => {
+test('one work item can open only one case per ADR-016, but resending the same command still returns the same result', async (t) => {
   const { owner, cases, a } = await setup(t);
   const agent = { tenantId: a.tenantId, userId: a.agentId };
   const body = openBody(a);
   const first = await cases.open(agent, body);
   assert.deepEqual(await cases.open(agent, body), first);
-  await rejects(cases.open(agent, openBody(a, { subject: 'อีกเรื่อง' })), 'WORK_HAS_CASE');
+  await rejects(cases.open(agent, openBody(a, { subject: 'Another matter' })), 'WORK_HAS_CASE');
   assert.equal(await owner.csCase.count({ where: { tenantId: a.tenantId } }), 1);
 });
 
-test('สองคำสั่งพร้อมกันบน version เดียวกัน: สำเร็จหนึ่ง อีกคำสั่งได้ VERSION_CONFLICT', async (t) => {
+test('two concurrent commands on the same version: one succeeds, the other gets VERSION_CONFLICT', async (t) => {
   const { cases, a } = await setup(t);
   const agent = { tenantId: a.tenantId, userId: a.agentId };
   const teammate = { tenantId: a.tenantId, userId: a.teammateId };
   const opened = await cases.open(agent, openBody(a));
   const results = await Promise.allSettled([
-    cases.addNote(agent, opened.caseId, { commandId: randomUUID(), expectedVersion: 1, note: 'ก' }),
+    cases.addNote(agent, opened.caseId, { commandId: randomUUID(), expectedVersion: 1, note: 'A' }),
     cases.changeStatus(teammate, opened.caseId, {
       commandId: randomUUID(),
       expectedVersion: 1,

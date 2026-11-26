@@ -1,6 +1,6 @@
 /**
- * #937 Agent ตั้ง Not Ready (BREAK + เหตุผล) และ Offline เอง, สถานะหลังจบงาน และข้อมูลสถานะใน snapshot
- * แบบ: docs/agent-readiness-setup.md หัวข้อ "โมเดลสถานะ" — เหตุผลมาจากรายการของ tenant (#936)
+ * #937 the Agent sets Not Ready (BREAK + reason) and Offline themselves, the after-work state, and the state info in the snapshot
+ * per docs/agent-readiness-setup.md section "state model" — reasons come from the tenant's list (#936)
  */
 import type { Prisma } from '@d-contact/db';
 
@@ -13,12 +13,12 @@ export interface AgentNotReadyReason {
   labelEn: string;
 }
 
-/** body ของ POST availability: { state, reasonCode? } — reasonCode ต้องมีเฉพาะ BREAK */
+/** the body of POST availability: { state, reasonCode? } — reasonCode is allowed only for BREAK */
 export function parseAgentSelfState(
   body: unknown,
 ): { state: AgentSelfState; reasonCode?: string } | undefined {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return undefined;
-  // field อื่น (เช่น tenantId/userId ที่ client แอบส่ง) ไม่มีผล — ตัวตนมาจาก token เท่านั้น
+  // other fields (e.g. a tenantId/userId the client sneaks in) have no effect — identity comes only from the token
   const { state, reasonCode } = body as Record<string, unknown>;
   if (state === 'AVAILABLE' || state === 'OFFLINE')
     return reasonCode === undefined ? { state } : undefined;
@@ -31,7 +31,7 @@ export function parseAgentSelfState(
   return undefined;
 }
 
-/** body ของ PUT after-work: { state: 'AVAILABLE' } หรือ { state: 'BREAK', reasonCode } */
+/** the body of PUT after-work: { state: 'AVAILABLE' } or { state: 'BREAK', reasonCode } */
 export function parseAfterWork(
   body: unknown,
 ): { state: 'AVAILABLE' } | { state: 'BREAK'; reasonCode: string } | undefined {
@@ -42,7 +42,7 @@ export function parseAfterWork(
     : { state: 'AVAILABLE' };
 }
 
-/** เหตุผลที่ Agent เลือกได้ตอนนี้ (เปิดอยู่) ตามลำดับที่ Admin ตั้ง */
+/** the reasons the Agent can choose now (enabled), in the order the Admin set */
 export async function activeNotReadyReasons(
   tx: Prisma.TransactionClient,
   tenantId: string,
@@ -65,8 +65,8 @@ export async function isActiveNotReadyReason(
 }
 
 /**
- * ปิดงานหลังสายแล้ว — ใช้สถานะหลังจบงานที่ Agent ขอไว้ (ครั้งเดียว) ไม่มีที่ขอไว้ = Ready
- * เหตุผลที่ขอไว้ถูกปิดภายหลังยังใช้ตามที่ขอ (Agent ที่อยู่ในเหตุผลที่ปิดแล้วคงสถานะเดิม)
+ * after closing work after a call — uses the after-work state the Agent requested (once); none requested = Ready
+ * a requested reason closed later is still used as requested (an Agent in a now-closed reason keeps the original state)
  */
 export async function recordPostWrapupState(
   tx: Prisma.TransactionClient,

@@ -26,13 +26,13 @@ const e2eHttpApi = createAgentWorkspaceApi({
 });
 const e2eSearch = new URL(window.location.href).searchParams;
 const e2eApi: AgentWorkspaceApi = {
-  // E1.12: WS ของ routing เฉพาะ spec ที่ mock WS เอง (`?live=1`) — spec อื่นไม่มี WS เหมือนเดิม
+  // E1.12: routing WS only for specs that mock the WS themselves (`?live=1`) — other specs have no WS, as before
   ...(e2eSearch.get('live') === '1'
     ? { subscribeLive: (handlers, options) => e2eHttpApi.subscribeLive!(handlers, options) }
     : {}),
   snapshot: () => e2eHttpApi.snapshot(),
   becomeAvailable: (workSessionLeaseId) => e2eHttpApi.becomeAvailable(workSessionLeaseId),
-  // #938 หน้าเลือกสถานะ — spec ที่ไม่ส่ง agentStatusV1 ใน snapshot ไม่ใช้ส่วนนี้
+  // #938 status picker page — specs that do not send agentStatusV1 in the snapshot do not use this part
   setAgentState: (workSessionLeaseId, state) =>
     e2eHttpApi.setAgentState!(workSessionLeaseId, state),
   notReadyReasons: () => e2eHttpApi.notReadyReasons!(),
@@ -58,14 +58,14 @@ const e2eSupervisorApi = createSupervisorWorkspaceApi({
   accessToken: () => 'e2e-access-token',
 });
 const e2eView = e2eSearch.get('view');
-// E1.12: work-session lease ผ่าน API จริงของ origin — spec ที่ไม่ mock ได้ 404 = flag ปิด (พฤติกรรมเดิม)
+// E1.12: work-session lease through the origin's real API — a spec that does not mock it gets 404 = flag off (old behavior)
 const e2eWorkSession = createWorkSessionApi({
   baseUrl: window.location.origin,
   accessToken: () => 'e2e-access-token',
 });
 
 const e2eTenantAlias = e2eSearch.get('tenant') ?? undefined;
-// #588: ผู้ใช้จำลองของเมนูผู้ใช้ — การออกจากระบบนับใน `window.__signOuts` ให้ spec ตรวจ
+// #588: simulated user of the user menu — sign-outs are counted in `window.__signOuts` for specs to check
 const e2eSignOut = async () => {
   const w = window as unknown as { __signOuts?: number };
   w.__signOuts = (w.__signOuts ?? 0) + 1;
@@ -87,13 +87,13 @@ const e2eShellProps = {
   },
 } as const;
 
-// ต้องเป็นค่าคงที่ — WorkspaceApp สร้าง dphone ใหม่เมื่อ factory เปลี่ยน (re-render ต้องไม่ตัดสาย)
+// must be a constant — WorkspaceApp creates a new dphone when the factory changes (a re-render must not cut the call)
 const e2eCreateDphone: DphoneFactory = (remoteAudio, callbacks) => {
   remoteAudio.addEventListener('e2e:sip-terminated', () => callbacks.onSessionTerminated?.());
   return createDeterministicDphone(callbacks);
 };
 
-/** #588: สถานะงานในมือส่งจาก WorkspaceApp ขึ้นไปที่ shell แบบเดียวกับ auth-root */
+/** #588: in-hand work state is passed from WorkspaceApp up to the shell the same way as auth-root */
 function E2eAgentWorkspace() {
   const [workInHand, setWorkInHand] = useState(false);
   return (
@@ -113,8 +113,8 @@ function E2eAgentWorkspace() {
   );
 }
 
-// D1.15 (#454): `/dphone` คือหน้าต่าง dphone ที่แยกออกจาก Workspace — ไม่มี session/token ของตัวเอง
-// คุยกับ working tab ผ่าน BroadcastChannel จึงไม่ต้องผ่าน AuthProvider
+// D1.15 (#454): `/dphone` is the dphone window detached from Workspace — it has no session/token of its own
+// it talks to the working tab over BroadcastChannel, so it needs no AuthProvider
 const application =
   window.location.pathname === '/dphone' ? (
     <SessionLocaleProvider i18n={appI18n}>

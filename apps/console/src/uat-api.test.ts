@@ -17,7 +17,7 @@ function fakeFetch(respond: (url: string, init: RequestInit) => Response) {
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
-test('U1.4 runtime profile: 404 หรือไม่ใช่ JSON = ไม่ใช่ UAT, route public ไม่ส่ง token', async () => {
+test('U1.4 runtime profile: 404 or non-JSON = not UAT, the public route sends no token', async () => {
   const notUat = fakeFetch(() => json(404, { message: 'Not Found' }));
   assert.equal(
     await createUatApi({
@@ -43,7 +43,7 @@ test('U1.4 runtime profile: 404 หรือไม่ใช่ JSON = ไม่�
   assert.equal(new Headers(uat.calls[0]!.init.headers).get('authorization'), null);
 });
 
-test('U1.4 UAT run: ไม่มี run = null, mutation ส่ง Idempotency-Key และ error คืน code/safeParams', async () => {
+test('U1.4 UAT run: no run = null, a mutation sends an Idempotency-Key, and an error returns code/safeParams', async () => {
   const { calls, fetch } = fakeFetch((url, init) => {
     if (url.endsWith('/current')) return json(404, { code: 'UAT_RUN_NOT_FOUND' });
     if (init.method === 'POST' && url.endsWith('/start'))
@@ -72,7 +72,7 @@ test('U1.4 UAT run: ไม่มี run = null, mutation ส่ง Idempotency-K
     packVersion: 'p1',
     expectedRevision: 2,
   });
-  // session หมด: 401 ไม่ถูกกลืนเป็น "ไม่มี run"
+  // session expired: a 401 is not swallowed into "no run"
   await assert.rejects(
     api.recordStepResult('run-1', { stepId: 'S01', outcome: 'PASS', actual: 'ok' }, 'k'),
     (error: unknown) => error instanceof JourneyAuthoringApiError && error.status === 401,
@@ -80,7 +80,7 @@ test('U1.4 UAT run: ไม่มี run = null, mutation ส่ง Idempotency-K
   assert.equal(calls.at(-1)!.url, '/api/v1/uat-runs/run-1/step-results');
 });
 
-test('U1.5 หลักฐาน: อัปโหลด raw PNG พร้อม bearer/key/step header, 415 คืน code และ bundle ไม่มี token ใน URL', async () => {
+test('U1.5 evidence: upload a raw PNG with bearer/key/step headers, a 415 returns a code, and the bundle has no token in the URL', async () => {
   const { calls, fetch } = fakeFetch((url, init) => {
     if (init.method === 'POST' && url.endsWith('/evidence')) {
       const type = new Headers(init.headers).get('content-type');

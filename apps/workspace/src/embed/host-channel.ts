@@ -1,10 +1,10 @@
 /**
- * E1.14 (#488): ช่องทาง postMessage v1 ระหว่าง dphone ที่ถูกฝังกับ host (E1.5 #461 ข้อ 5, E1.7 #463 ข้อ 2)
+ * E1.14 (#488): postMessage v1 channel between the embedded dphone and the host (E1.5 #461 item 5, E1.7 #463 item 2)
  *
- * - ขาเข้า: รับเฉพาะ `lock.accepts()` (origin ที่ล็อก + `source === window.parent` + ยังไม่ถูกเพิกถอน)
- *   แล้ว parse ตาม schema v1 — type ที่ไม่รู้จักไม่สนใจ, `v` ไม่รองรับตอบ `unsupported_version`
- * - ขาออก: `targetOrigin` = origin ที่ล็อกไว้แบบ exact เสมอ (ไม่มี `*`) และหยุดส่งเมื่อ origin ถูกเพิกถอน
- * - `dphone.call` จาก host ถูกจำกัดอัตรา; channel ไม่โทรออกเอง — ส่งให้ `onCall` ไปกรอกเบอร์ใน dphone
+ * - inbound: accept only `lock.accepts()` (locked origin + `source === window.parent` + not yet revoked)
+ *   then parse per schema v1 — unknown types are ignored, an unsupported `v` is answered with `unsupported_version`
+ * - outbound: `targetOrigin` = the locked origin exactly, always (never `*`), and stops sending once the origin is revoked
+ * - `dphone.call` from the host is rate limited; the channel does not dial itself — it passes to `onCall` to fill in the number in dphone
  */
 import {
   DPHONE_EMBED_PROTOCOL_VERSION,
@@ -26,7 +26,7 @@ export interface HostChannelOptions {
   now(): number;
   onCall(request: CallRequestMessage): void;
   onActivityAck(interactionId: string): void;
-  /** จำนวน `dphone.call` สูงสุดต่อหน้าต่างเวลา (ค่าเริ่มต้น 5 ครั้ง / 10 วินาที) */
+  /** max `dphone.call` per time window (default 5 times / 10 seconds) */
   callRate?: { limit: number; windowMs: number };
 }
 
@@ -35,7 +35,7 @@ export class HostChannel {
 
   constructor(private readonly options: HostChannelOptions) {}
 
-  /** ส่งไป host ที่ล็อกไว้ — คืน false เมื่อ origin ถูกเพิกถอนแล้ว (ไม่ส่ง) */
+  /** send to the locked host — returns false when the origin has been revoked (not sent) */
   send(message: DphoneToHostMessage): boolean {
     if (this.options.lock.revoked) return false;
     this.options.host.postMessage(message, this.options.lock.origin);
@@ -46,7 +46,7 @@ export class HostChannel {
     return this.send({ v: 1, type: 'dphone.ready', capabilities, screenPopLevel });
   }
 
-  /** handler ของ `message` event บน window ของ iframe — คืน true เมื่อข้อความถูกรับ */
+  /** handler of the `message` event on the iframe's window — returns true when the message was accepted */
   handle(event: { origin: string; source: unknown; data: unknown }): boolean {
     if (!this.options.lock.accepts(event)) return false;
     const parsed = parseHostMessage(event.data);

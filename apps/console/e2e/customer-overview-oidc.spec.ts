@@ -25,7 +25,7 @@ test.beforeEach(async ({ request }) => {
 test.afterEach(async ({ request }) => {
   await request.post('/__core_test/restore');
 });
-test('OIDC: empty จริง, partial failure retry แยก section และ asOf', async ({
+test('OIDC: a real empty, partial failure retries per section, and asOf', async ({
   page,
   request,
 }, info) => {
@@ -61,7 +61,7 @@ test('OIDC: empty จริง, partial failure retry แยก section แล�
     });
   }
 });
-test('OIDC: rules version/constraints จาก writer registry ไม่มี editor และภาษาอังกฤษไม่ล้น', async ({
+test('OIDC: rules version/constraints from the writer registry have no editor, and English does not overflow', async ({
   page,
   request,
 }) => {
@@ -81,7 +81,7 @@ test('OIDC: rules version/constraints จาก writer registry ไม่มี 
   await page.setViewportSize({ width: 768, height: 900 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
-test('OIDC: revoke ปิดทุก section, response เก่าไม่คืนข้อมูล และ retry คืนสิทธิ์', async ({
+test('OIDC: revoke closes every section, an old response returns no data, and retry restores permission', async ({
   page,
   request,
 }) => {
@@ -112,7 +112,7 @@ test('OIDC: revoke ปิดทุก section, response เก่าไม่ค
   await page.unrouteAll({ behavior: 'wait' });
   await expect(page.getByText('ยังไม่มีลูกค้าที่คุณเข้าถึงได้')).toHaveCount(0);
 });
-test('OIDC: Supervisor ไม่ได้สิทธิ์ Overview จาก directory permission', async ({
+test('OIDC: a Supervisor does not get Overview permission from the directory permission', async ({
   page,
   request,
 }) => {
@@ -126,7 +126,7 @@ test('OIDC: Supervisor ไม่ได้สิทธิ์ Overview จาก d
 });
 
 for (const kind of ['role', 'proof'] as const) {
-  test(`context: OIDC ${kind} เปลี่ยนระหว่าง session ปิดทุก section จาก current server authorization`, async ({
+  test(`context: an OIDC ${kind} change during the session closes every section from the current server authorization`, async ({
     page,
     request,
   }) => {
@@ -145,7 +145,7 @@ for (const kind of ['role', 'proof'] as const) {
   });
 }
 
-test('context: OIDC scope projection stale เป็น unavailable ไม่ใช่ zero และกู้จาก owner จริง', async ({
+test('context: OIDC scope projection stale is unavailable, not zero, and recovers from the real owner', async ({
   page,
   request,
 }) => {
@@ -163,7 +163,7 @@ test('context: OIDC scope projection stale เป็น unavailable ไม่ใ
 });
 
 for (const alias of ['admin-two', 'foreign'] as const) {
-  test(`context: OIDC เปลี่ยนเป็น ${alias} ระหว่าง response ค้าง ไม่คืน count ของ actor/tenant เดิม`, async ({
+  test(`context: OIDC changing to ${alias} while a response is held does not return the count of the original actor/tenant`, async ({
     page,
     request,
   }) => {
@@ -187,7 +187,7 @@ for (const alias of ['admin-two', 'foreign'] as const) {
       expect((await response.json()).count).toBe('1');
       arrived();
       await held;
-      // การเปลี่ยน document อาจ abort request เก่าก่อน fulfil ซึ่งเป็นผลที่ถูกต้อง
+      // changing the document may abort the old request before it is fulfilled, which is the correct outcome
       await route.fulfill({ response }).catch(() => undefined);
     });
     await customers.getByRole('button', { name: 'อ่านข้อมูลใหม่' }).click();

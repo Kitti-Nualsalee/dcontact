@@ -261,7 +261,7 @@ export async function bootstrapE1UatApi(
   });
   socketRef.current = socketAdapter;
   attachWorkspaceSessionWebSocket(app.getHttpServer(), socketAdapter);
-  // เดิม `void leases.sweep()` — P2028 ตอน VM ช้าหลุดเป็น unhandled rejection แล้ว API ตาย (#901)
+  // originally `void leases.sweep()` — a P2028 when the VM was slow escaped as an unhandled rejection and the API died (#901)
   startBackgroundLoop({
     name: 'work_session.sweep',
     intervalMs: 15_000,

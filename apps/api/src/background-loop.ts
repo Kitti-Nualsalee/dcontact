@@ -1,33 +1,33 @@
 /**
- * Owner: API runtime — งานเบื้องหลังแบบเป็นรอบ (เช่น sweep ของ work session lease)
+ * Owner: API runtime — periodic background work (e.g. the work session lease sweep)
  *
- * ทำไมมีไฟล์นี้: `setInterval(() => void work())` ทำให้ rejection หลุดเป็น unhandled rejection แล้ว process
- * ของ API ตาย (เห็นบน UAT 13 พ.ย. 2569 ระหว่าง #901 — `sweep` เจอ Prisma P2028 ตอน VM ช้า)
+ * why this file exists: `setInterval(() => void work())` lets a rejection escape as an unhandled rejection and the API
+ * process dies (seen on UAT on 13 Nov 2026 during #901 — `sweep` hit Prisma P2028 when the VM was slow)
  *
- * - error ต่อรอบถูกจับและ log แบบ structured (มีแค่ชื่อ loop, ชื่อ error และ code — ไม่มี message
- *   ที่อาจมี query/ข้อมูล) แล้วรอรอบถัดไป
- * - ใช้ setTimeout ต่อกันแทน setInterval เพื่อไม่ให้รอบซ้อนกันตอนที่รอบหนึ่งช้ากว่า interval
+ * - the per-round error is caught and logged in a structured way (only the loop name, error name and code — no message
+ *   that may contain a query/data) then waits for the next round
+ * - chains setTimeout instead of setInterval so rounds do not overlap when one round is slower than the interval
  */
 
 export interface BackgroundLoopOptions {
-  /** ชื่อ loop ที่ไปอยู่ใน log เช่น `work_session.sweep` */
+  /** the loop name that goes into the log, e.g. `work_session.sweep` */
   name: string;
   intervalMs: number;
   work: () => Promise<unknown>;
   log?: (event: Record<string, unknown>) => void;
-  /** ค่าเริ่ม true — timer ไม่รั้ง process ไว้ตอนปิด (test ปิดได้เพื่อรอรอบถัดไป) */
+  /** the default is true — the timer does not hold the process open at shutdown (a test can turn it off to wait for the next round) */
   unref?: boolean;
 }
 
 export interface BackgroundLoop {
-  /** รันหนึ่งรอบโดยไม่ throw — คืน false ถ้ารอบนั้นล้มเหลว */
+  /** runs one round without throwing — returns false if that round failed */
   runOnce(): Promise<boolean>;
   stop(): void;
 }
 
 const defaultLog = (event: Record<string, unknown>) => console.error(JSON.stringify(event));
 
-/** สรุป error ให้เหลือเฉพาะ field ที่ไม่ใช่ secret/PII */
+/** reduces an error to only fields that are not secret/PII */
 export function describeBackgroundError(error: unknown): { error: string; code: string | null } {
   const code = (error as { code?: unknown } | null | undefined)?.code;
   return {
@@ -49,7 +49,7 @@ export function startBackgroundLoop(options: BackgroundLoopOptions): BackgroundL
       try {
         log({ event: `${options.name}_failed`, ...describeBackgroundError(error) });
       } catch {
-        // logger ล้มเองต้องไม่ทำให้ loop ตาย
+        // a logger that fails itself must not kill the loop
       }
       return false;
     }

@@ -74,7 +74,7 @@ class Switch implements ManagedVoiceEslTransport {
   }
 }
 
-test('offer replay ใช้ stable B-leg และ exact variables โดยไม่ originate ซ้ำ', async () => {
+test('an offer replay uses the stable B-leg and exact variables without originating again', async () => {
   const transport = new Switch();
   const adapter = new FreeSwitchManagedVoiceAdapter(transport, 'fs-test', 'test.local');
   assert.deepEqual(await adapter.execute(command), { confirmed: true });
@@ -85,14 +85,14 @@ test('offer replay ใช้ stable B-leg และ exact variables โดยไ
   assert.deepEqual(await adapter.execute({ ...command, type: 'call.bridge' }), { confirmed: true });
   assert.deepEqual(await adapter.execute({ ...command, type: 'call.bridge' }), { confirmed: true });
   assert.equal(transport.commands.filter((value) => value.startsWith('api uuid_bridge')).length, 1);
-  // ลูกค้าถูก answer ก่อน bridge ทุกครั้ง (dialplan dev park โดยไม่ answer)
+  // The customer is answered before every bridge (the dev dialplan parks without answering)
   const answer = transport.commands.indexOf(`api uuid_answer ${command.callUuid}`);
   assert.ok(answer >= 0);
   assert.ok(answer < transport.commands.findIndex((value) => value.startsWith('api uuid_bridge')));
   assert.equal(transport.channels.get(command.callUuid)?.answer_state, 'answered');
 });
 
-test('cancel ตรวจ teardown จริงและไม่ฆ่า caller; restart adapter reconcile จาก switch', async () => {
+test('cancel verifies the real teardown and does not kill the caller; an adapter restart reconciles from the switch', async () => {
   const transport = new Switch();
   await new FreeSwitchManagedVoiceAdapter(transport, 'fs-test', 'test.local').execute(command);
   const restarted = new FreeSwitchManagedVoiceAdapter(transport, 'fs-test', 'test.local');
@@ -111,7 +111,7 @@ test('cancel ตรวจ teardown จริงและไม่ฆ่า calle
   assert.equal(transport.channels.size, 0);
 });
 
-test('scope mismatch และ injection ถูกปฏิเสธก่อน destructive dispatch', async () => {
+test('scope mismatch and injection are rejected before a destructive dispatch', async () => {
   const transport = new Switch();
   const adapter = new FreeSwitchManagedVoiceAdapter(transport, 'fs-test', 'test.local');
   await assert.rejects(
@@ -130,7 +130,7 @@ test('scope mismatch และ injection ถูกปฏิเสธก่อน
   );
 });
 
-test('ambiguous originate ไม่ส่งซ้ำหลัง restart; absence ยังไม่ใช่ quiescence จน real job จบ', async () => {
+test('an ambiguous originate is not resent after restart; absence is not quiescence until the real job finishes', async () => {
   const transport = new Switch();
   transport.deferOriginate = true;
   const adapter = new FreeSwitchManagedVoiceAdapter(transport, 'fs-test', 'test.local');
@@ -148,7 +148,7 @@ test('ambiguous originate ไม่ส่งซ้ำหลัง restart; absen
   assert.equal(transport.commands.filter((value) => value.startsWith('bgapi originate')).length, 1);
 });
 
-test('response lost และ concurrent replay reconcile B-leg เดิม และ payload mismatch ไม่ถูกยอมรับ', async () => {
+test('a lost response and a concurrent replay reconcile the same B-leg, and a payload mismatch is not accepted', async () => {
   const transport = new Switch();
   transport.loseReply = true;
   const adapter = new FreeSwitchManagedVoiceAdapter(transport, 'fs-test', 'test.local');
@@ -163,7 +163,7 @@ test('response lost และ concurrent replay reconcile B-leg เดิม แ
   );
 });
 
-test('late B-leg หลัง cancel absence ถูก teardown ก่อนยืนยัน cleanup', async () => {
+test('a late B-leg after a cancel absence is torn down before cleanup is confirmed', async () => {
   const transport = new Switch();
   transport.deferOriginate = true;
   const adapter = new FreeSwitchManagedVoiceAdapter(transport, 'fs-test', 'test.local');
@@ -182,7 +182,7 @@ test('late B-leg หลัง cancel absence ถูก teardown ก่อนย�
   assert.equal(transport.channels.has(command.blegUuid), false);
 });
 
-test('readiness รับ actual FreeSWITCH UP และปฏิเสธ error response', async () => {
+test('readiness accepts an actual FreeSWITCH UP and rejects an error response', async () => {
   assert.equal(
     await new FreeSwitchManagedVoiceAdapter(
       { request: async () => 'UP 0 years, 0 days\n1 session(s) since startup' },
@@ -201,7 +201,7 @@ test('readiness รับ actual FreeSWITCH UP และปฏิเสธ error
   );
 });
 
-test('BACKGROUND_JOB ที่มาถึงก่อน Job-UUID mapping ยังใช้ reconcile absence ได้', async () => {
+test('a BACKGROUND_JOB that arrives before the Job-UUID mapping can still be used to reconcile absence', async () => {
   const transport = new Switch();
   transport.deferOriginate = true;
   const esl: ManagedVoiceEslTransport = {
@@ -219,7 +219,7 @@ test('BACKGROUND_JOB ที่มาถึงก่อน Job-UUID mapping ย�
   });
 });
 
-test('restart หลัง completion หายระหว่าง listener down: deadline ผ่านแล้วยังคง UNKNOWN/ACTION_REQUIRED', async () => {
+test('restart after a completion was lost while the listener was down: once the deadline passes it stays UNKNOWN/ACTION_REQUIRED', async () => {
   const transport = new Switch();
   const adapter = new FreeSwitchManagedVoiceAdapter(transport, 'fs-test', 'test.local');
   await adapter.execute(command);
@@ -237,7 +237,7 @@ test('restart หลัง completion หายระหว่าง listener do
   assert.equal(transport.channels.has(command.callUuid), true);
 });
 
-test('ACTIVE readback หลัง listener restart ตรวจ absence จริงโดยไม่ teardown แม้ offer deadline ผ่านแล้ว', async () => {
+test('an ACTIVE readback after a listener restart checks real absence without teardown even when the offer deadline has passed', async () => {
   const transport = new Switch();
   await new FreeSwitchManagedVoiceAdapter(transport, 'fs-test', 'test.local').execute(command);
   const restarted = new FreeSwitchManagedVoiceAdapter(transport, 'fs-test', 'test.local');
@@ -258,7 +258,7 @@ test('ACTIVE readback หลัง listener restart ตรวจ absence จร�
   );
 });
 
-test('ACTIVE readback ปฏิเสธ unknown probe และ foreign scope แทนการรายงาน absence', async () => {
+test('an ACTIVE readback rejects an unknown probe and a foreign scope instead of reporting absence', async () => {
   const unavailable = new FreeSwitchManagedVoiceAdapter(
     { request: async () => '-ERR unavailable' },
     'fs-test',
@@ -279,7 +279,7 @@ test('ACTIVE readback ปฏิเสธ unknown probe และ foreign scope �
   );
 });
 
-test('#979 หลาย tenant: originate ใช้ SIP domain ของ tenant ในคำสั่ง ไม่ใช่ค่าเดียวของ process', async () => {
+test('#979 multi-tenant: originate uses the SIP domain of the tenant in the command, not a single process-wide value', async () => {
   const otherTenant = 'a0000000-0000-4000-8000-0000000000aa';
   const domains: Record<string, string> = {
     [command.tenantId]: 'alpha.tenants.test',
@@ -316,7 +316,7 @@ test('#979 หลาย tenant: originate ใช้ SIP domain ของ tenant 
   assert.match(second, /user\/1101@beta\.tenants\.test &park\(\)$/);
 });
 
-test('#979 tenant ที่ไม่มี SIP domain (ไม่ ACTIVE) ถูกปฏิเสธก่อนตั้ง marker หรือ originate', async () => {
+test('#979 a tenant without a SIP domain (not ACTIVE) is rejected before setting a marker or originating', async () => {
   const transport = new Switch();
   const adapter = new FreeSwitchManagedVoiceAdapter(transport, 'fs-test', async () => undefined);
   await assert.rejects(adapter.execute(command), /MANAGED_VOICE_TENANT_SIP_DOMAIN_UNAVAILABLE/);
@@ -334,7 +334,7 @@ test('#979 tenant ที่ไม่มี SIP domain (ไม่ ACTIVE) ถู�
   await assert.rejects(injected.execute(command), /MANAGED_VOICE_TENANT_SIP_DOMAIN_UNAVAILABLE/);
 });
 
-test('#979 bindCaller หลาย tenant ผูกเฉพาะช่องสายที่ domain_name ตรง SIP domain ของ tenant', async () => {
+test('#979 multi-tenant bindCaller binds only channels whose domain_name matches the SIP domain of the tenant', async () => {
   const resolver = async (tenantId: string) =>
     tenantId === command.tenantId ? 'alpha.tenants.test' : undefined;
   const transport = new Switch();
@@ -351,7 +351,7 @@ test('#979 bindCaller หลาย tenant ผูกเฉพาะช่อง�
   assert.equal(transport.channels.get(command.callUuid)?.dcontact_tenant_id, command.tenantId);
   assert.equal(transport.channels.get(command.callUuid)?.dcontact_node_id, 'fs-test');
 
-  // ค่าเดียวแบบเดิม (e1-sandbox) ไม่ตรวจ domain_name เพื่อคงพฤติกรรมเดิม
+  // The old single-value mode (e1-sandbox) does not check domain_name, to keep the original behavior
   const legacy = new Switch();
   legacy.channels.set(command.callUuid, { domain_name: 'other.test' });
   await new FreeSwitchManagedVoiceAdapter(legacy, 'fs-test', 'test.local').bindCaller(
@@ -361,7 +361,7 @@ test('#979 bindCaller หลาย tenant ผูกเฉพาะช่อง�
   assert.equal(legacy.channels.get(command.callUuid)?.dcontact_tenant_id, command.tenantId);
 });
 
-test('#979 tenant ที่ถูกพักระหว่างสาย: คำสั่งเก็บกวาดยังผูกและวางสายได้ แต่ originate ใหม่ไม่ได้', async () => {
+test('#979 a tenant suspended during a call: cleanup commands can still bind and hang up, but a new originate is not allowed', async () => {
   const resolver = async (_tenantId: string, purpose: 'originate' | 'bind') =>
     purpose === 'bind' ? 'alpha.tenants.test' : undefined;
   const transport = new Switch();

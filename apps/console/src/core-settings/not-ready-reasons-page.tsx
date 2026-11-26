@@ -1,7 +1,7 @@
 /**
- * #936 หน้าตั้งค่าเหตุผล Not Ready ใน Core Settings (docs/agent-readiness-setup.md, คำตัดสิน owner ข้อ 4)
- * แก้ทั้งรายการแล้วบันทึกครั้งเดียว (PUT not-ready-reasons) — ลำดับในตาราง = ลำดับที่ Agent เห็น
- * เหตุผลที่เคยใช้แล้วลบไม่ได้ ปิดได้เท่านั้น และต้องเปิดอย่างน้อยหนึ่งเหตุผล
+ * #936 Not Ready reasons settings page in Core Settings (docs/agent-readiness-setup.md, owner decision item 4)
+ * edit the whole list and save once (PUT not-ready-reasons) — the order in the table = the order Agents see
+ * a reason that has been used cannot be deleted, only disabled, and at least one reason must stay enabled
  */
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from '@d-contact/i18n/react';
@@ -19,7 +19,7 @@ import type { CoreSettingsProps } from './core-settings-page.js';
 import { CorePageLinks } from './page-links.js';
 
 interface Row extends NotReadyReasonDraft {
-  /** key ของแถวใน React — เหตุผลใหม่ยังไม่มี code */
+  /** React row key — a new reason has no code yet */
   key: string;
   inUse: boolean;
 }
@@ -73,7 +73,7 @@ export function CoreNotReadyReasonsPage({
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [blocked, setBlocked] = useState<string[]>([]);
   const [failedOn, setFailedOn] = useState<'load' | 'save'>('load');
-  // ส่งซ้ำด้วย commandId เดิมเมื่อร่างไม่เปลี่ยน (เช่น เน็ตหลุดหลังกดบันทึก) — server ตอบผลเดิมไม่บันทึกซ้ำ
+  // resend with the same commandId when the draft is unchanged (e.g. network dropped after pressing save) — the server answers with the original result without saving again
   const attempt = useRef<{ commandId: string; body: string } | undefined>(undefined);
   const statusRef = useRef<HTMLDivElement>(null);
   const nextKey = useRef(0);
@@ -102,7 +102,7 @@ export function CoreNotReadyReasonsPage({
   };
   useEffect(() => {
     void load();
-    // โหลดใหม่เมื่อ sign-in เปลี่ยนเท่านั้น
+    // reload only when the sign-in changes
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signedIn]);
   useEffect(

@@ -1,31 +1,31 @@
 #!/usr/bin/env bash
-# ซ้อม deploy UAT บนเครื่องตัวเอง (macOS + Docker Desktop หรือ Linux + Docker Engine) — ดู docs/u1-uat-local.md
+# Rehearse a UAT deploy on your own machine (macOS + Docker Desktop or Linux + Docker Engine); see docs/u1-uat-local.md
 #
-# ใช้ขั้นเดียวกับ VM จริง: build image → registry ในเครื่อง (อ้างด้วย digest) → `uat-deploy.sh`
+# uses the same steps as the real VM: build images → a local registry (referenced by digest) → `uat-deploy.sh`
 # prepare/migrate/keycloak/deploy/smoke → render fixture pack `uat-first-slice.v1` (U1.9) → provision (U1.8)
-# → สร้างบัญชี maker/reviewer (U1.6) แล้วเปิด stack ค้างไว้ให้เดิน Console ใน browser ได้
+# → create the maker/reviewer accounts (U1.6) and leave the stack up so you can walk through the Console in a browser
 #
-# ไม่ใช่หลักฐานของ UAT จริง: secret สุ่มเฉพาะเครื่อง, cert ของ CA ในเครื่อง, ไม่มี gateway/GHCR
-# ไม่แตะ environment `uat-preview` และไม่ส่งอะไรออกนอกเครื่อง
+# not evidence for the real UAT: secrets are random per machine, the cert is from a local CA, no gateway/GHCR
+# does not touch the `uat-preview` environment and sends nothing off the machine
 #
-#   bash infra/uat/bin/uat-local.sh up       build + deploy + provision (รันซ้ำได้ — ข้ามส่วนที่ทำแล้ว)
-#   bash infra/uat/bin/uat-local.sh status   สถานะ container
+#   bash infra/uat/bin/uat-local.sh up       build + deploy + provision (safe to rerun; skips what is already done)
+#   bash infra/uat/bin/uat-local.sh status   container status
 #   bash infra/uat/bin/uat-local.sh logs [service...]
-#   bash infra/uat/bin/uat-local.sh down     ลบ stack, volume, registry และโฟลเดอร์ทั้งหมด
+#   bash infra/uat/bin/uat-local.sh down     remove the stack, volumes, registry and all folders
 #
-# รองรับ bash 3.2 ของ macOS (ไม่ใช้ associative array)
+# supports macOS bash 3.2 (no associative arrays)
 set -euo pipefail
 umask 077
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 export UAT_ROOT="${UAT_ROOT:-$HOME/.dcontact-uat-local}"
 UAT_HOST="${UAT_LOCAL_HOST:-uat.dcontact.test}"
-REGISTRY_PORT="${UAT_LOCAL_REGISTRY_PORT:-5055}" # 5000 ชนกับ AirPlay Receiver ของ macOS
+REGISTRY_PORT="${UAT_LOCAL_REGISTRY_PORT:-5055}" # 5000 clashes with macOS AirPlay Receiver
 REGISTRY="localhost:${REGISTRY_PORT}"
 REGISTRY_CONTAINER=dcontact-uat-local-registry
 PACK_VERSION=local-1
-# Caddy เห็น source ของ browser/smoke เป็น gateway ของ Docker (Docker Desktop: 192.168.65.0/24,
-# bridge: 172.16.0.0/12) — ไม่เปิด 192.168.0.0/16 ทั้งช่วงเพราะมักทับ LAN บ้าน/ออฟฟิศ
+# Caddy sees the browser/smoke source as the Docker gateway (Docker Desktop: 192.168.65.0/24,
+# bridge: 172.16.0.0/12); the whole 192.168.0.0/16 range is not opened because it often overlaps a home/office LAN
 ALLOWED_CIDRS="${UAT_LOCAL_ALLOWED_CIDRS:-127.0.0.1/32 172.16.0.0/12 192.168.65.0/24}"
 
 log() { printf '\n==> %s\n' "$*" >&2; }
@@ -35,7 +35,7 @@ die() {
 }
 
 need() {
-  command -v "$1" >/dev/null 2>&1 || die "ต้องมี $1 ($2)"
+  command -v "$1" >/dev/null 2>&1 || die "$1 is required ($2)"
 }
 
 sha="$(git -C "$REPO" rev-parse HEAD)"
@@ -60,14 +60,14 @@ secret() { openssl rand -hex "$1"; }
 uuid() { node -e 'process.stdout.write(require("crypto").randomUUID())'; }
 
 preflight() {
-  need docker 'Docker Desktop หรือ Docker Engine'
-  need node 'Node 20 — ใช้ render fixture pack'
-  need openssl 'สร้าง secret/cert'
-  need curl 'อ่าน digest จาก registry'
-  docker info >/dev/null 2>&1 || die 'Docker daemon ไม่ทำงาน — เปิด Docker Desktop ก่อน'
-  docker compose version >/dev/null 2>&1 || die 'ต้องมี docker compose plugin'
+  need docker 'Docker Desktop or Docker Engine'
+  need node 'Node 20, used to render the fixture pack'
+  need openssl 'creates secrets/certs'
+  need curl 'reads digests from the registry'
+  docker info >/dev/null 2>&1 || die 'Docker daemon is not running; start Docker Desktop first'
+  docker compose version >/dev/null 2>&1 || die 'the docker compose plugin is required'
   if [[ -n "$(git -C "$REPO" status --porcelain)" ]]; then
-    printf 'uat-local: เตือน — working tree มีการแก้ที่ยังไม่ commit; image จะ build จากไฟล์ปัจจุบันแต่ติดป้าย %s\n' "$sha" >&2
+    printf 'uat-local: warning: the working tree has uncommitted changes; the image is built from the current files but tagged %s\n' "$sha" >&2
   fi
 }
 
@@ -87,7 +87,7 @@ start_registry() {
     curl -fsS "http://$REGISTRY/v2/" >/dev/null 2>&1 && return 0
     sleep 1
   done
-  die "registry ในเครื่องไม่พร้อมที่ $REGISTRY"
+  die "the local registry is not ready at $REGISTRY"
 }
 
 registry_digest() {
@@ -121,7 +121,7 @@ build_images() {
       esac
       docker push --quiet "$ref" >/dev/null
       digest="$(registry_digest "$name")"
-      [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || die "ไม่ได้ digest ของ $name จาก registry ในเครื่อง"
+      [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || die "could not get the digest of $name from the local registry"
     fi
     upper="$(echo "$name" | tr '[:lower:]' '[:upper:]')"
     echo "${upper}_IMAGE=$REGISTRY/dcontact-uat-$name@$digest" >>"$release/release.env.partial"
@@ -133,11 +133,11 @@ tls_files() {
   local tls="$UAT_ROOT/tls"
   [[ -f "$tls/uat.crt" && -f "$tls/uat.key" && -f "$tls/ca.crt" ]] && return 0
   if command -v mkcert >/dev/null 2>&1; then
-    # browser เชื่อ cert ทันทีถ้าเคย `mkcert -install`
+    # the browser trusts the cert immediately if you have run `mkcert -install`
     mkcert -cert-file "$tls/uat.crt" -key-file "$tls/uat.key" "$UAT_HOST" >/dev/null 2>&1
     cp "$(mkcert -CAROOT)/rootCA.pem" "$tls/ca.crt"
   else
-    # CA ชั่วคราวของเครื่องนี้ (RSA + config file — ใช้ได้ทั้ง LibreSSL ของ macOS และ OpenSSL)
+    # a temporary CA for this machine (RSA + a config file; works with both macOS LibreSSL and OpenSSL)
     printf '[req]\ndistinguished_name=dn\n[dn]\n[ca]\nbasicConstraints=critical,CA:TRUE\nkeyUsage=critical,keyCertSign,cRLSign\n' >"$tls/ca.cnf"
     openssl req -x509 -newkey rsa:2048 -nodes -days 30 -subj '/CN=dcontact UAT local CA' \
       -config "$tls/ca.cnf" -extensions ca -keyout "$tls/ca.key" -out "$tls/ca.crt" 2>/dev/null
@@ -150,8 +150,8 @@ tls_files() {
     rm -f "$tls/ca.key" "$tls/ca.srl" "$tls/ca.cnf" "$tls/uat.csr" "$tls/uat.ext"
   fi
   chmod 644 "$tls/ca.crt" "$tls/uat.crt"
-  # Caddy ใน image รันเป็น uid 10001 — บน VM จริงใช้ chown 10001 + 400 (runbook ข้อ 4.4);
-  # key นี้ใช้แค่ในเครื่องและอยู่ในโฟลเดอร์ 700 จึงเปิดอ่านได้แทนการใช้ sudo chown
+  # Caddy in the image runs as uid 10001; on the real VM use chown 10001 + 400 (runbook section 4.4);
+  # this key is used only on this machine and sits in a 700 folder, so it is made world-readable instead of using sudo chown
   chmod 644 "$tls/uat.key"
 }
 
@@ -185,7 +185,7 @@ write_env() {
 hosts_entry() {
   awk -v host="$UAT_HOST" '$1 == "127.0.0.1" { for (i = 2; i <= NF; i++) if ($i == host) found = 1 }
     END { exit found ? 0 : 1 }' /etc/hosts && return 0
-  log "เพิ่ม '127.0.0.1 $UAT_HOST' ใน /etc/hosts (ขอรหัสผ่าน sudo)"
+  log "adding '127.0.0.1 $UAT_HOST' to /etc/hosts (asks for the sudo password)"
   echo "127.0.0.1 $UAT_HOST" | sudo tee -a /etc/hosts >/dev/null
 }
 
@@ -199,7 +199,7 @@ wait_api() {
   done
   uatc ps -a || true
   uatc logs --no-color --tail 60 proxy api || true
-  die 'API ไม่ตอบผ่าน proxy — ถ้า proxy ตอบ 403 ให้ดู IP ใน log ของ proxy แล้วตั้ง UAT_LOCAL_ALLOWED_CIDRS (ต้อง down ก่อน)'
+  die 'API does not answer through the proxy; if the proxy answers 403, look at the IP in the proxy log and set UAT_LOCAL_ALLOWED_CIDRS (needs a down first)'
 }
 
 smoke() {
@@ -213,8 +213,8 @@ smoke() {
     NODE_EXTRA_CA_CERTS="$UAT_ROOT/tls/ca.crt" deploy smoke "$sha" >"$out"
   fi
   set -e
-  # UAT-L07 (พอร์ตภายในต้องปิดบน host) บนเครื่อง dev มักล้มเพราะ service อื่นในเครื่อง เช่น dev stack ของ repo นี้
-  # (5433/3000/8080/9000) ไม่ใช่ของ UAT stack — เครื่องนี้จึงเตือนแทนการหยุด; ข้ออื่นต้อง PASS ตาม CI
+  # UAT-L07 (internal ports must be closed on the host) often fails on a dev machine because other services on it, such as this repo's dev stack
+  # (5433/3000/8080/9000), are not part of the UAT stack; so here it warns instead of stopping; every other check must PASS as in CI
   node --input-type=module - "$REPO/scripts/u1-uat-ci-assert.mjs" "$out" <<'NODE'
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -224,7 +224,7 @@ let report;
 try {
   report = JSON.parse(readFileSync(reportPath, 'utf8'));
 } catch {
-  console.error('smoke: อ่านผลไม่ได้ —', readFileSync(reportPath, 'utf8').slice(-2000));
+  console.error('smoke: cannot read the result:', readFileSync(reportPath, 'utf8').slice(-2000));
   process.exit(1);
 }
 const failures = assertSmoke(report);
@@ -236,10 +236,10 @@ const statusOnlyFromL07 = failures.includes('status:FAIL') && report.checks
 for (const check of report.checks ?? []) console.error(`  ${check.status.padEnd(7)} ${check.id}`);
 if (l07.length > 0) {
   const detail = report.checks.find((check) => String(check.id).startsWith('UAT-L07'));
-  console.error('smoke: เตือน — UAT-L07 พบพอร์ตเปิดบนเครื่อง (ตรวจว่าไม่ใช่ของ dcontact-uat):', JSON.stringify(detail?.failures ?? detail));
+  console.error('smoke: warning: UAT-L07 found open ports on this machine (check they do not belong to dcontact-uat):', JSON.stringify(detail?.failures ?? detail));
 }
 if (blocking.length > 0 || (failures.includes('status:FAIL') && !statusOnlyFromL07)) {
-  console.error('smoke: ไม่ผ่าน —', blocking.join(', ') || 'status:FAIL');
+  console.error('smoke: failed:', blocking.join(', ') || 'status:FAIL');
   process.exit(1);
 }
 NODE
@@ -247,16 +247,16 @@ NODE
 
 provision() {
   [[ -f "$UAT_ROOT/credentials.txt" ]] && {
-    log 'provision/บัญชีทำไปแล้ว — ข้าม (ดู credentials.txt)'
+    log 'provision/accounts already done; skipping (see credentials.txt)'
     return 0
   }
   local filled="$UAT_ROOT/uat-provision.filled.json" input="$UAT_ROOT/uat-provision.json"
   local maker_password reviewer_password
-  # ต้องผ่าน passwordPolicy ของ realm UAT: ยาว 12+ มีตัวพิมพ์ใหญ่/เล็ก/ตัวเลข
+  # must pass the UAT realm passwordPolicy: 12+ characters with upper/lower case and digits
   maker_password="Uat7$(secret 12)"
   reviewer_password="Uat7$(secret 12)"
 
-  # กรอก placeholder ของ infra/uat/uat-provision.example.json ด้วยค่าสังเคราะห์ของเครื่องนี้ (ขั้นเดียวกับ runbook §5.2)
+  # fill in the placeholders of infra/uat/uat-provision.example.json with synthetic values for this machine (the same step as runbook section 5.2)
   UAT_TENANT_ID="$(env_value UAT_TENANT_ID)" UAT_TENANT_SLUG="$(env_value UAT_TENANT_SLUG)" \
     UAT_TENANT_NAME="$(env_value UAT_TENANT_NAME)" OWNER_TEAM_ID="$(uuid)" \
     MAKER_ID="$(uuid)" REVIEWER_ID="$(uuid)" UAT_HOST="$UAT_HOST" PACK_VERSION="$PACK_VERSION" \
@@ -306,12 +306,12 @@ NODE
   node "$REPO/scripts/u1-uat-fixture-render.mjs" --input "$filled" --build-sha "$sha" --output "$input"
   rm -f "$filled"
 
-  log 'provision --check แล้ว apply'
+  log 'provision --check then apply'
   deploy provision "$sha" "$input" --check
   deploy provision "$sha" "$input"
   rm -f "$input"
 
-  log 'สร้างบัญชี maker/reviewer ใน Keycloak'
+  log 'creating the maker/reviewer accounts in Keycloak'
   uatc --profile ops run --rm -T keycloak-config \
     node scripts/u1-uat-keycloak-users.mjs --users /dev/stdin <"$UAT_ROOT/accounts.json"
   rm -f "$UAT_ROOT/accounts.json"
@@ -320,7 +320,7 @@ NODE
     echo "URL:      https://$UAT_HOST/?tenant=$(env_value UAT_TENANT_SLUG)"
     echo "maker:    maker@$UAT_HOST / $maker_password"
     echo "reviewer: reviewer@$UAT_HOST / $reviewer_password"
-    echo 'รหัสผ่านเป็นแบบชั่วคราว: login ครั้งแรกต้องตั้งรหัสใหม่และผูก authenticator app (TOTP)'
+    echo 'The passwords are temporary: on first login you must set a new password and bind an authenticator app (TOTP)'
   ) >"$UAT_ROOT/credentials.txt"
   chmod 600 "$UAT_ROOT/credentials.txt"
 }
@@ -329,7 +329,7 @@ up() {
   preflight
   cd "$REPO"
   layout
-  log "registry ในเครื่อง ($REGISTRY)"
+  log "local registry ($REGISTRY)"
   start_registry
   build_images
   tls_files
@@ -344,10 +344,10 @@ up() {
   log 'smoke (u1-uat-readiness.mjs --live)'
   smoke
   provision
-  log 'พร้อมใช้งาน'
+  log 'ready'
   cat "$UAT_ROOT/credentials.txt"
   if ! command -v mkcert >/dev/null 2>&1; then
-    printf '\nbrowser จะเตือนเรื่อง cert — ให้เชื่อ CA ของเครื่องนี้ (macOS):\n  sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain %s\n' \
+    printf '\nthe browser will warn about the cert; trust this machine'"'"'s CA (macOS):\n  sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain %s\n' \
       "$UAT_ROOT/tls/ca.crt"
   fi
 }
@@ -358,7 +358,7 @@ down() {
   fi
   docker rm -f "$REGISTRY_CONTAINER" >/dev/null 2>&1 || true
   rm -rf "$UAT_ROOT"
-  printf 'ลบ stack และ %s แล้ว — ถ้าไม่ใช้อีก ลบบรรทัด %s ออกจาก /etc/hosts เอง\n' "$UAT_ROOT" "$UAT_HOST"
+  printf 'removed the stack and %s; if you no longer use it, remove the line %s from /etc/hosts yourself\n' "$UAT_ROOT" "$UAT_HOST"
 }
 
 case "${1:-}" in

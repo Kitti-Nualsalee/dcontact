@@ -1,9 +1,9 @@
 /**
- * A1.6 (#411) บน Postgres จริง: durable operator command + read model ของ Platform API
+ * A1.6 (#411) on real Postgres: durable operator command + read model of the Platform API
  *
- * ครอบ: preview/execute ผ่าน worker (actor จริงใน audit), idempotency replay, target swap,
- * stale revision, stale preview, concurrent recovery, resend cap 429, retry เมื่อ dependency ล้ม,
- * search pagination ที่เสถียร, email search ด้วย hash, masked email และ action history cursor
+ * Covers: preview/execute through the worker (real actor in audit), idempotency replay, target swap,
+ * stale revision, stale preview, concurrent recovery, resend cap 429, retry when a dependency fails,
+ * stable search pagination, email search by hash, masked email and the action history cursor
  */
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -63,7 +63,7 @@ async function setup(t: TestContext) {
     tenants.push(result.tenantId);
     return { ...result, input };
   };
-  /** request ที่รอ operator: step แรกล้มถาวรก่อนสร้าง resource (find = NOT_FOUND → Retry ได้) */
+  /** a request waiting for an operator: the first step fails permanently before creating a resource (find = NOT_FOUND → Retry allowed) */
   const actionRequired = async () => {
     const accepted = await accept();
     fakes.systems.KEYCLOAK_ORGANIZATION.fail('permanent');
@@ -113,13 +113,13 @@ const submission = (requestId: string, overrides: Record<string, unknown> = {}) 
   action: 'RETRY_STEP' as const,
   idempotencyKey: `key-${randomUUID()}`,
   reasonCode: 'OPERATOR_VERIFIED',
-  comment: 'ตรวจแล้วว่า resource ไม่มีอยู่จริง',
+  comment: 'verified that the resource does not actually exist',
   actor: OPERATOR,
   correlationId: 'corr-action',
   ...overrides,
 });
 
-test('preview → execute ผ่าน worker: recovery สำเร็จและ audit ผูก operator ที่สั่ง', async (t) => {
+test('preview → execute through the worker: recovery succeeds and the audit is tied to the operator who issued it', async (t) => {
   const s = await setup(t);
   const accepted = await s.actionRequired();
   const preview = await s.preview(accepted.requestId);
@@ -133,7 +133,7 @@ test('preview → execute ผ่าน worker: recovery สำเร็จแล
     }),
   );
   assert.deepEqual([queued.state, queued.replayed], ['QUEUED', false]);
-  // ยังไม่มีอะไรเปลี่ยนจนกว่า worker จะทำ (202 = รับไว้แล้ว)
+  // nothing changes until the worker acts (202 = accepted)
   assert.equal((await s.request(accepted.requestId)).status, 'ACTION_REQUIRED');
   await s.commandWorker().drain();
   const done = await s.intake.command(accepted.requestId, queued.commandId);
@@ -149,7 +149,7 @@ test('preview → execute ผ่าน worker: recovery สำเร็จแล
   );
 });
 
-test('idempotency: key เดิม replay command เดิม; payload อื่นหรือ request อื่น (target swap) = 409', async (t) => {
+test('idempotency: the same key replays the same command; another payload or another request (target swap) = 409', async (t) => {
   const s = await setup(t);
   const first = await s.actionRequired();
   const second = await s.actionRequired();
@@ -163,7 +163,7 @@ test('idempotency: key เดิม replay command เดิม; payload อื�
   const replayed = await s.intake.submit(command);
   assert.deepEqual([replayed.commandId, replayed.replayed], [queued.commandId, true]);
   await rejectsWith(
-    s.intake.submit({ ...command, comment: 'ข้อความอื่น' }),
+    s.intake.submit({ ...command, comment: 'a different comment' }),
     'IDEMPOTENCY_KEY_REUSED',
   );
   await rejectsWith(
@@ -181,7 +181,7 @@ test('idempotency: key เดิม replay command เดิม; payload อื�
   );
 });
 
-test('stale revision ถูกปฏิเสธทันที; preview ที่เก่าตอน worker ทำ = REJECTED PREVIEW_STALE', async (t) => {
+test('a stale revision is rejected immediately; a preview that is stale when the worker acts = REJECTED PREVIEW_STALE', async (t) => {
   const s = await setup(t);
   const accepted = await s.actionRequired();
   const preview = await s.preview(accepted.requestId);
@@ -195,7 +195,7 @@ test('stale revision ถูกปฏิเสธทันที; preview ที�
     ),
     'REVISION_CONFLICT',
   );
-  // digest ของ action อื่น = ไม่ตรงกับสถานะปัจจุบันของ RETRY_STEP
+  // the digest of another action = does not match the current state of RETRY_STEP
   const other = await s.preview(accepted.requestId, 'MARK_FAILED_FINAL');
   const queued = await s.intake.submit(
     submission(accepted.requestId, {
@@ -212,7 +212,7 @@ test('stale revision ถูกปฏิเสธทันที; preview ที�
   assert.ok(rejected.some((row) => row.errorCode === 'REVISION_CONFLICT'));
 });
 
-test('concurrent recovery: execute ที่ยังไม่จบได้ครั้งละหนึ่ง — อีกคำสั่งได้ COMMAND_IN_PROGRESS', async (t) => {
+test('concurrent recovery: an unfinished execute is allowed one at a time — another command gets COMMAND_IN_PROGRESS', async (t) => {
   const s = await setup(t);
   const accepted = await s.actionRequired();
   const preview = await s.preview(accepted.requestId);
@@ -235,7 +235,7 @@ test('concurrent recovery: execute ที่ยังไม่จบได้ค
     );
   }
   await s.commandWorker().drain();
-  // จบแล้วสั่งใหม่ได้ แต่สถานะไม่ใช่ ACTION_REQUIRED แล้ว = 409 แบบ deterministic
+  // once finished a new one can be issued, but the state is no longer ACTION_REQUIRED = a deterministic 409
   await rejectsWith(
     s.intake.submit(
       submission(accepted.requestId, {
@@ -247,7 +247,7 @@ test('concurrent recovery: execute ที่ยังไม่จบได้ค
   );
 });
 
-test('resend cap: ครบ 3 ครั้งในชั่วโมง = INVITATION_RESEND_LIMITED พร้อม Retry-After', async (t) => {
+test('resend cap: 3 within an hour = INVITATION_RESEND_LIMITED with Retry-After', async (t) => {
   const s = await setup(t);
   const accepted = await s.accept();
   const created = new Date(Date.now() - 20 * 60_000);
@@ -274,7 +274,7 @@ test('resend cap: ครบ 3 ครั้งในชั่วโมง = INVIT
       },
     });
   }
-  // resend ที่รอ worker นับรวมด้วย: 2 ที่ส่งแล้ว + 1 ที่คิวไว้ = ครบ
+  // a resend waiting for the worker counts too: 2 sent + 1 queued = full
   await s.intake.submit(
     submission(accepted.requestId, {
       action: 'RESEND_INVITATION',
@@ -295,7 +295,7 @@ test('resend cap: ครบ 3 ครั้งในชั่วโมง = INVIT
       return true;
     },
   );
-  // worker ที่ไม่มี Keycloak ปฏิเสธ resend อย่างชัดเจน ไม่ค้าง
+  // a worker without Keycloak clearly rejects the resend, it does not hang
   await s.commandWorker().drain();
   const [pending] = await s.f.owner.pfOperatorCommand.findMany({
     where: { requestId: accepted.requestId, action: 'RESEND_INVITATION' },
@@ -303,7 +303,7 @@ test('resend cap: ครบ 3 ครั้งในชั่วโมง = INVIT
   assert.deepEqual([pending!.state, pending!.errorCode], ['REJECTED', 'RESEND_UNAVAILABLE']);
 });
 
-test('dependency ล้มระหว่างทำ: worker คืน lease แล้วลองใหม่ ≤ 5 ครั้งก่อน REJECTED', async (t) => {
+test('dependency fails midway: the worker returns the lease and retries up to 5 times before REJECTED', async (t) => {
   const s = await setup(t);
   const accepted = await s.actionRequired();
   let calls = 0;
@@ -328,7 +328,7 @@ test('dependency ล้มระหว่างทำ: worker คืน lease �
   );
 });
 
-test('read model: search pagination เสถียร, email ค้นด้วย hash, masked email และ history cursor', async (t) => {
+test('read model: stable search pagination, email searched by hash, masked email and history cursor', async (t) => {
   const s = await setup(t);
   const marker = `pg-${randomUUID().slice(0, 6)}`;
   const created = [];
@@ -345,7 +345,7 @@ test('read model: search pagination เสถียร, email ค้นด้ว
       ...(cursor ? { cursor } : {}),
     });
     seen.push(...page.items.map((item) => item.tenantId));
-    // tenant ใหม่ระหว่างเปิดหน้า ต้องไม่ทำให้หน้าเดิมซ้ำหรือหาย
+    // a new tenant while the page is open must not cause the existing page to duplicate or lose rows
     if (!inserted) {
       await s.accept({ displayName: `${marker} Late` });
       inserted = true;
@@ -356,7 +356,7 @@ test('read model: search pagination เสถียร, email ค้นด้ว
   for (const accepted of created) assert.ok(seen.includes(accepted.tenantId));
 
   const target = created[2]!;
-  // local part ถือตัวพิมพ์ตาม A1.1 — domain ตัวพิมพ์ใหญ่ต้องหาเจอเพราะ normalize แล้ว hash ตรงกัน
+  // the local part is case-sensitive per A1.1 — an upper-case domain must be found because it is normalized and the hash matches
   const [local, domain] = target.input.firstAdmin.email.split('@');
   const byEmail = await s.queries.searchTenants({ query: `${local}@${domain!.toUpperCase()}` });
   assert.deepEqual(

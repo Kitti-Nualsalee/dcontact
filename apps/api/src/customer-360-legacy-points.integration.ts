@@ -5,8 +5,8 @@ import { Customer360OperatorController } from './customer-360-operator-api.js';
 import { setup, type Fixture } from './customer-360-test-fixtures.js';
 
 /**
- * Cus360 C3 (#793) S3: inventory และ import legacy ContactIdentity → contact point ตาม E1 D
- * ผ่าน operator HTTP จริงบน PostgreSQL/RLS; fixture เป็นข้อมูลสังเคราะห์ของ tenant ที่สร้างใหม่เท่านั้น
+ * Cus360 C3 (#793) S3: inventory and import of legacy ContactIdentity → contact point per E1 D
+ * through the real operator HTTP on PostgreSQL/RLS; the fixture is synthetic data of a newly created tenant only
  */
 type Body = Record<string, unknown>;
 
@@ -51,18 +51,18 @@ async function legacyFixture(f: Fixture) {
   const c = await contact(f);
   const d = await contact(f);
   const many = await contact(f);
-  // A: ค่าเดียวกันสองรูปแบบบน contact เดียว → ACTIVE หนึ่ง + แถวที่ถูกแทนที่ (ชี้ไป ACTIVE เดียวกัน)
+  // A: the same value in two formats on one contact → one ACTIVE + a superseded row (pointing to the same ACTIVE)
   await identity(f, a, 'PHONE', '+66812345678');
   await identity(f, a, 'PHONE', '+66 81 234 5678');
-  // B: เบอร์ไม่มีประเทศ (ห้ามเดา) และ email ที่ใช้ได้
+  // B: a number without a country (do not guess) and a usable email
   await identity(f, b, 'PHONE', '0812345678');
   await identity(f, b, 'EMAIL', 'User@EXAMPLE.com');
-  // C: ค่าเดียวกับ A คนละ contact (shared, ไม่ merge)
+  // C: the same value as A on a different contact (shared, no merge)
   await identity(f, c, 'PHONE', '+668 1234 5678');
-  // D: extension ไม่ถูกตัดทิ้ง
+  // D: an extension is not dropped
   await identity(f, d, 'PHONE', '+1 213 373 4253 x12');
   await identity(f, d, 'LINE', 'U-legacy-line');
-  // many: เกิน quota 10 → import ครบไม่ตัดทิ้ง
+  // many: over the quota of 10 → imported in full without dropping
   for (let n = 0; n < 11; n += 1)
     await identity(f, many, 'PHONE', `+1 213 373 44${String(n).padStart(2, '0')}`);
   await f.owner.c360IdentityHead.create({
@@ -74,7 +74,7 @@ async function legacyFixture(f: Fixture) {
       stateDigest: 'a'.repeat(64),
     },
   });
-  // tenant อื่นต้องไม่ถูกแตะ
+  // another tenant must not be touched
   const foreign = await contact(f, f.otherTenantId);
   await identity(f, foreign, 'PHONE', '+66812345678', f.otherTenantId);
   return { a, b, c, d, many };
@@ -84,7 +84,7 @@ const facts = (response: { body: unknown }) =>
   (response.body as unknown as { subjects: Array<{ facts: Record<string, string> }> }).subjects[0]!
     .facts;
 
-test('S3: dry-run inventory นับครบโดยไม่มี raw PII และไม่เขียนอะไร', async () => {
+test('S3: the dry-run inventory counts everything without raw PII and writes nothing', async () => {
   const f = await setup([Customer360OperatorController]);
   try {
     await legacyFixture(f);
@@ -114,7 +114,7 @@ test('S3: dry-run inventory นับครบโดยไม่มี raw PII �
         phoneIdentities: '16',
         emailIdentities: '1',
         imported: '0',
-        // A หนึ่ง, B email, C, many 11
+        // A one, B email, C, many 11
         pendingActive: '14',
         pendingReviewRequired: '2',
         pendingSuperseded: '1',
@@ -131,7 +131,7 @@ test('S3: dry-run inventory นับครบโดยไม่มี raw PII �
     assert.match(inventory.sharedKeyDigest!, /^[0-9a-f]{64}$/);
     const text = JSON.stringify(preview.body);
     for (const raw of ['812345678', 'EXAMPLE', '213 373', 'U-legacy'])
-      assert.ok(!text.includes(raw), `inventory ต้องไม่มีค่าดิบ ${raw}`);
+      assert.ok(!text.includes(raw), `the inventory must not contain the raw value ${raw}`);
     assert.equal(await f.owner.c360ContactPoint.count({ where: { tenantId: f.tenantId } }), 0);
     assert.equal(await f.owner.c360ProfileCommand.count({ where: { tenantId: f.tenantId } }), 0);
   } finally {
@@ -139,7 +139,7 @@ test('S3: dry-run inventory นับครบโดยไม่มี raw PII �
   }
 });
 
-test('S3: import ทีละ batch จนครบ, รันซ้ำได้, provenance จริง และไม่แตะ ContactIdentity หรือ tenant อื่น', async () => {
+test('S3: import batch by batch until complete, rerunnable, real provenance, and does not touch ContactIdentity or another tenant', async () => {
   const f = await setup([Customer360OperatorController]);
   try {
     const ids = await legacyFixture(f);
@@ -154,7 +154,7 @@ test('S3: import ทีละ batch จนครบ, รันซ้ำได้
     let remaining = Infinity;
     const receipts = [];
     for (let round = 0; remaining > 0; round += 1) {
-      assert.ok(round < 10, 'import ต้องจบใน batch ที่จำกัด');
+      assert.ok(round < 10, 'the import must finish within a bounded number of batches');
       const response = await operate(f, { action: 'LEGACY_POINT_IMPORT', batchSize: 5 });
       const command = (
         response.body as unknown as {
@@ -166,7 +166,7 @@ test('S3: import ทีละ batch จนครบ, รันซ้ำได้
       remaining = Number(command.committedRevisions.remaining);
     }
     assert.equal(receipts.length, 4);
-    // ครบแล้ว: คำสั่งใหม่เป็น NO_OP และ replay commandId เดิมคืน receipt เดิม
+    // complete: a new command is NO_OP and a replay of the original commandId returns the original receipt
     const done = await operate(f, { action: 'LEGACY_POINT_IMPORT', batchSize: 5 });
     assert.equal((done.body as { command: { outcome: string } }).command.outcome, 'NO_OP');
 
@@ -176,7 +176,7 @@ test('S3: import ทีละ batch จนครบ, รันซ้ำได้
     const byIdentity = new Map(identitiesBefore.map((row) => [row.id, row]));
     for (const row of rows) {
       const source = byIdentity.get(row.sourceIdentityId!)!;
-      // provenance: contact และค่าดิบตรงกับ identity ต้นทาง ไม่ย้ายเจ้าของ
+      // provenance: the contact and raw value match the source identity, with no change of owner
       assert.equal(row.contactId, source.contactId);
       assert.equal(row.rawValue, source.value);
       assert.equal(row.state === 'REVIEW_REQUIRED', row.normalizedValue === null);
@@ -191,7 +191,7 @@ test('S3: import ทีละ batch จนครบ, รันซ้ำได้
       ['+66812345678', 'ACTIVE'],
       ['+66812345678', 'RETIRED'],
     ]);
-    // แถวที่ถูกแทนที่ตั้งแต่ import: retire โดย command เดียวกับที่สร้าง ไม่ใช่ retire ภายหลัง
+    // a row superseded since the import: retired by the same command that created it, not a later retire
     const superseded = rows.find((row) => row.contactId === ids.a && row.state === 'RETIRED')!;
     assert.equal(superseded.retiredCommandId, superseded.createdCommandId);
     assert.deepEqual(state(ids.b), [
@@ -205,19 +205,22 @@ test('S3: import ทีละ batch จนครบ, รันซ้ำได้
       11,
     );
 
-    // ContactIdentity เดิมไม่เปลี่ยน และ tenant อื่นไม่มี point
+    // the original ContactIdentity is unchanged and another tenant has no point
     assert.deepEqual(
       await f.owner.contactIdentity.findMany({ orderBy: { id: 'asc' } }),
       identitiesBefore,
     );
     assert.equal(await f.owner.c360ContactPoint.count({ where: { tenantId: f.otherTenantId } }), 0);
-    // contact ที่ได้ point เพิ่ม revision เพื่อให้คำสั่งแก้ที่ถือ revision เก่าไม่ทับข้อมูลที่ import
+    // a contact that got a point increases its revision so a edit command holding an old revision does not overwrite imported data
     for (const contactId of [ids.a, ids.b, ids.c, ids.d, ids.many]) {
       const after = (await f.owner.contact.findUniqueOrThrow({ where: { id: contactId } }))
         .profileRevision;
-      assert.ok(after > revisionsBefore.get(contactId)!, `revision ของ ${contactId} ต้องเพิ่ม`);
+      assert.ok(
+        after > revisionsBefore.get(contactId)!,
+        `the revision of ${contactId} must increase`,
+      );
     }
-    // audit มีแค่จำนวน ไม่มีค่าดิบ
+    // the audit has only counts, no raw values
     const audits = await f.owner.c360ProfileAudit.findMany({ where: { tenantId: f.tenantId } });
     assert.equal(audits.length, 4);
     assert.ok(
@@ -226,7 +229,7 @@ test('S3: import ทีละ batch จนครบ, รันซ้ำได้
       ),
     );
 
-    // legacy writer เดิมเพิ่ม identity ใหม่หลัง import: รันใหม่ได้เฉพาะแถวที่ยังไม่ import
+    // the original legacy writer adds a new identity after the import: a rerun covers only rows not yet imported
     await identity(f, ids.c, 'EMAIL', 'late@example.com');
     const late = await operate(f, { action: 'LEGACY_POINT_IMPORT', batchSize: 5 });
     assert.equal(
@@ -240,7 +243,7 @@ test('S3: import ทีละ batch จนครบ, รันซ้ำได้
   }
 });
 
-test('S3: import สองคำสั่งพร้อมกันไม่สร้างแถวซ้ำ (unique source identity + contact lock)', async () => {
+test('S3: two concurrent import commands do not create duplicate rows (unique source identity + contact lock)', async () => {
   const f = await setup([Customer360OperatorController]);
   try {
     await legacyFixture(f);
@@ -248,7 +251,7 @@ test('S3: import สองคำสั่งพร้อมกันไม่ส
       operate(f, { action: 'LEGACY_POINT_IMPORT', batchSize: 200 }),
       operate(f, { action: 'LEGACY_POINT_IMPORT', batchSize: 200 }),
     ]);
-    // 201 APPLIED, 200 NO_OP หลังอีกคน commit หรือ 503 RESOURCE_BUSY (retryable) เมื่อล็อก contact ไม่ได้
+    // 201 APPLIED, 200 NO_OP after the other commits, or 503 RESOURCE_BUSY (retryable) when the contact cannot be locked
     for (const response of results)
       assert.ok([200, 201, 503].includes(response.status), `status ${response.status}`);
     assert.equal(await f.owner.c360ContactPoint.count({ where: { tenantId: f.tenantId } }), 17);

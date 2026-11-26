@@ -22,7 +22,7 @@ import type {
   TenantPeopleAccountPort,
 } from './tenant-people-account-keycloak.js';
 
-/** #998 1B/2: snapshot ของ dc_people_account_snapshot (positive proof รวมบัญชีที่ปิดสำเร็จแล้ว) */
+/** #998 1B/2: the snapshot of dc_people_account_snapshot (a positive proof including accounts that were successfully disabled) */
 export interface AccountSnapshot {
   id: string;
   keycloak_id: string;
@@ -63,7 +63,7 @@ function text(value: unknown, field: string, maximum: number) {
   return normalized;
 }
 
-/** body ของ PATCH .../profile (มี displayName) และ POST .../enable (ไม่มี) — ไม่รับ role/team/email/extension */
+/** the body of PATCH .../profile (has displayName) and POST .../enable (does not) — accepts no role/team/email/extension */
 export function normalizeAccountChangeCommand(
   kind: PeopleAccountStep,
   raw: unknown,
@@ -99,7 +99,7 @@ const domainCodes: readonly [string, number][] = [
   ['VALIDATION_FAILED', 400],
 ];
 
-/** code จาก definer ที่ mapDatabaseError กลางไม่รู้จัก แยกก่อนตกเป็น CONFIG_BUSY/IDENTITY_CONFLICT */
+/** a code from the definer that the central mapDatabaseError does not know, separated out before falling into CONFIG_BUSY/IDENTITY_CONFLICT */
 function mapAccountChangeError(error: unknown): never {
   if (!(error instanceof HttpException)) {
     const message = error instanceof Error ? error.message : '';
@@ -194,7 +194,7 @@ async function acceptCommand(
     displayName: command.displayName,
     reconcileOnly: false,
   };
-  // ตรวจ identity สดก่อนรับคำสั่ง: ปฏิเสธที่รู้ผลแน่นอน (ไม่มี password/TOTP, identity ไม่ตรง) ไม่สร้างคำสั่งค้าง
+  // check the live identity before accepting the command: reject on a certain outcome (no password/TOTP, identity mismatch) and create no pending command
   const proof = await provider.probe(attempt).catch(() => ({ outcome: 'UNKNOWN' as const }));
   if (proof.outcome === 'UNKNOWN') voiceFail('IDENTITY_UNAVAILABLE', 503);
   if (proof.outcome === 'REJECTED') voiceFail(proof.reasonCode, 409);
@@ -271,7 +271,7 @@ export async function acceptPeopleAccountChange(
       mapAccountChangeError,
     );
   } catch (error) {
-    // บันทึกการปฏิเสธแยก transaction หลัง rollback โดยไม่เก็บชื่อหรือเหตุผลที่กรอก
+    // record the rejection in a separate transaction after the rollback, without keeping the name or reason that was entered
     if (error instanceof HttpException && [409, 429, 503].includes(error.getStatus())) {
       const response = error.getResponse();
       const code =
@@ -290,8 +290,8 @@ export async function acceptPeopleAccountChange(
 }
 
 /**
- * worker: claim แบบ fenced lease → Keycloak → record ใน transaction เดียว
- * attempted แล้วอ่าน receipt อย่างเดียว (GET) ไม่ส่ง mutation ซ้ำ; ผลไม่ชัดเจนคงสถานะเดิมเป็น ACTION_REQUIRED
+ * worker: claim with a fenced lease → Keycloak → record in a single transaction
+ * once attempted it only reads the receipt (GET) and never resends the mutation; an unclear outcome keeps the original state as ACTION_REQUIRED
  */
 export async function runPeopleAccountChange(
   database: PrismaClient,

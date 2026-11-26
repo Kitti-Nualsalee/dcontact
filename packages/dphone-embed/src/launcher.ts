@@ -1,5 +1,5 @@
 /**
- * E1.15 (#489): `<dphone-launcher tenant="...">` — Web Component สำหรับ host (E1.7 #463 ข้อ 3)
+ * E1.15 (#489): `<dphone-launcher tenant="...">` — Web Component for the host (E1.7 #463 item 3)
  *
  * ```html
  * <script type="module" src="https://<dphone-origin>/embed/v1/dphone-launcher.js"></script>
@@ -12,16 +12,16 @@
  * </script>
  * ```
  *
- * - dphone origin มาจาก URL ของไฟล์นี้เอง (`import.meta.url`) หรือ attribute `origin` — ไม่ใช้ `*`
- * - iframe `/dphone/embed?tenant=` พร้อม `allow="microphone; autoplay"` และ sandbox ที่มี `allow-popups`
- * - event: `ready`, `screenpop`, `activity` (ack อัตโนมัติเมื่อ `waitUntil` ทุกตัวสำเร็จ), `callresult`, `dphoneerror`
+ * - the dphone origin comes from this file's own URL (`import.meta.url`) or the `origin` attribute — never `*`
+ * - iframe `/dphone/embed?tenant=` with `allow="microphone; autoplay"` and a sandbox that includes `allow-popups`
+ * - events: `ready`, `screenpop`, `activity` (auto ack once every `waitUntil` succeeds), `callresult`, `dphoneerror`
  */
 import { LauncherCore, type CallOptions, type LauncherEvents } from './launcher-core.js';
 import type { CallResultMessage } from './protocol.js';
 
 export const DPHONE_LAUNCHER_TAG = 'dphone-launcher';
 
-/** event ของ launcher — `waitUntil()` ใช้ได้กับ `activity` เพื่อเลื่อน ack จนกว่างานของ host จะเสร็จ */
+/** launcher event — `waitUntil()` works on `activity` to defer the ack until the host's work finishes */
 export class DphoneLauncherEvent<T> extends Event {
   readonly pending: Promise<unknown>[] = [];
 
@@ -42,7 +42,7 @@ const EVENT_NAMES: Record<keyof LauncherEvents, string> = {
   screenpop: 'screenpop',
   activity: 'activity',
   callresult: 'callresult',
-  // `error` ของ DOM มีความหมายเดิมอยู่แล้ว (โหลดล้ม) จึงแยกชื่อ
+  // the DOM's `error` already has its meaning (load failure), so the name is separated
   error: 'dphoneerror',
 };
 
@@ -92,7 +92,7 @@ export class DphoneLauncherElement extends HTMLElement {
     if (this.isConnected) this.render();
   }
 
-  /** กรอกเบอร์ใน dphone ให้ agent กดโทรเอง — resolve ด้วยผลที่ไม่มี PII */
+  /** fill in a number in dphone for the agent to press call themselves — resolves with a result without PII */
   call(number: string, options: CallOptions = {}): Promise<CallResultMessage> {
     if (!this.core) return Promise.reject(new Error('dphone-launcher is not connected'));
     return this.core.call(number, options);

@@ -23,11 +23,11 @@ import {
 } from './cg4-rollout.js';
 
 /**
- * CG4.10 (#193) PR-B: `CG4-MG02` ส่วน shadow → seed compatibility → switch → enforce และ
- * forward-fix drill บน Postgres จริงผ่าน application role (RLS + grant + trigger)
+ * CG4.10 (#193) PR-B: `CG4-MG02` covering shadow -> seed compatibility -> switch -> enforce and the
+ * forward-fix drill on a real Postgres through the application role (RLS + grant + trigger)
  *
- * เวลาเริ่ม 12:00 Asia/Bangkok: CG3 (quiet hours 21:00–08:00) อนุญาต แต่ policy version 2 ของ CG4
- * เพิ่ม quiet window 11:00–14:00 ทำให้ผลของสอง reader ต่างกันโดยตั้งใจ
+ * Start time is 12:00 Asia/Bangkok: CG3 (quiet hours 21:00-08:00) allows, but policy version 2 of CG4
+ * adds a quiet window 11:00-14:00 so the results of the two readers deliberately differ
  */
 
 const T0 = new Date('2026-09-15T05:00:00.000Z');
@@ -207,7 +207,7 @@ async function fixture(t: TestContext) {
     idempotencyKey: randomUUID(),
   });
 
-  /** draft → test → submit → approve → publish บน series ของ legacy policy ที่ backfill ไว้ */
+  /** draft -> test -> submit -> approve -> publish on the series of the backfilled legacy policy */
   const publishVersion = async (options: {
     window: { startLocal: string; endLocal: string };
     activateAt?: Date;
@@ -355,7 +355,7 @@ async function rejectsWith(promise: Promise<unknown>, code: string) {
   });
 }
 
-test('CG4-MG02 DISABLED: CG3 ยังเป็น reader แม้ CG4 writer publish policy ที่เข้มกว่าแบบ dark', async (t) => {
+test('CG4-MG02 DISABLED: CG3 is still the reader even when the CG4 writer publishes a stricter policy dark', async (t) => {
   const f = await fixture(t);
   await f.backfill();
   await (
@@ -369,7 +369,7 @@ test('CG4-MG02 DISABLED: CG3 ยังเป็น reader แม้ CG4 writer p
   assert.equal(await f.owner.cg4ShadowMismatch.count({ where: { tenantId: f.tenant } }), 0);
 });
 
-test('CG4-MG02 shadow → switch: mismatch PII-safe, pilot fail closed, window ใหม่ก่อน switch แล้วอ่าน head ของ CG4', async (t) => {
+test('CG4-MG02 shadow -> switch: PII-safe mismatch, pilot fails closed, a new window before the switch, then reads the CG4 head', async (t) => {
   const f = await fixture(t);
   await rejectsWith(f.move('SHADOW_EVALUATION', [LINE_MARKETING]), 'ROLLOUT_BACKFILL_REQUIRED');
   await f.backfill();
@@ -377,7 +377,7 @@ test('CG4-MG02 shadow → switch: mismatch PII-safe, pilot fail closed, window �
     await f.publishVersion({ window: { startLocal: '11:00', endLocal: '14:00' } })
   )();
 
-  // shadow นอก pilot: CG3 ยังตัดสิน แต่หลักฐาน mismatch ถูกบันทึก
+  // shadow outside the pilot: CG3 still decides, but mismatch evidence is recorded
   await f.move('SHADOW_EVALUATION', [VOICE_SERVICE]);
   const outside = await f.authorize();
   assert.equal(outside.decision, 'ALLOW');
@@ -387,12 +387,12 @@ test('CG4-MG02 shadow → switch: mismatch PII-safe, pilot fail closed, window �
   assert.equal(mismatch.cg4Outcome, 'RESOLVED');
   assert.equal(mismatch.decisionId, outside.decisionId);
   assert.notEqual(mismatch.cg3Digest, mismatch.cg4Digest);
-  // PII-safe: ไม่มี contact/identity/sourceId ใดอยู่ในแถวหลักฐาน
+  // PII-safe: no contact/identity/sourceId is in the evidence row
   const serialized = JSON.stringify(mismatch);
   assert.equal(serialized.includes(f.contact), false);
   assert.equal(serialized.includes('journey-cg410b'), false);
 
-  // pre-mutation disable path: ถอยกลับ DISABLED แล้วเริ่ม shadow บน pilot scope จริง
+  // pre-mutation disable path: step back to DISABLED, then start shadow on the real pilot scope
   await f.move('DISABLED');
   f.advance(60_000);
   await f.move('SHADOW_EVALUATION', [LINE_MARKETING]);
@@ -402,7 +402,7 @@ test('CG4-MG02 shadow → switch: mismatch PII-safe, pilot fail closed, window �
   assert.equal(pilot.reservationId, undefined);
   assert.equal(pilot.trace.at(-1)?.gate, 'MIGRATION_SHADOW');
 
-  // mismatch ห้ามถูก ignore: switch ไม่ได้จนกว่าจะเริ่ม shadow window ที่สะอาด
+  // a mismatch must not be ignored: cannot switch until a clean shadow window is started
   await rejectsWith(f.move('SCOPED_SYNTHETIC'), 'ROLLOUT_SHADOW_MISMATCH_UNRESOLVED');
   await f.move('DISABLED');
   f.advance(60_000);
@@ -437,7 +437,7 @@ test('CG4-MG02 shadow → switch: mismatch PII-safe, pilot fail closed, window �
   );
 });
 
-test('CG4-MG02 seed compatibility: callback ที่อ้าง exception ที่ไม่ใช่ canonical บล็อก switch', async (t) => {
+test('CG4-MG02 seed compatibility: a callback that references a non-canonical exception blocks the switch', async (t) => {
   const f = await fixture(t);
   await f.backfill();
   await f.move('SHADOW_EVALUATION', [LINE_MARKETING]);
@@ -465,7 +465,7 @@ test('CG4-MG02 seed compatibility: callback ที่อ้าง exception ท�
   assert.equal((await f.rollout.current(f.tenant)).stage, 'SHADOW_EVALUATION');
 });
 
-test('CG4-MG02 enforce: หลัง switch ย้อน reader ไม่ได้ทั้งที่ application และ DB, และ CG3 writer ปิด', async (t) => {
+test('CG4-MG02 enforce: after the switch the reader cannot be reverted, both at the application and the DB, and the CG3 writer is closed', async (t) => {
   const f = await fixture(t);
   await f.backfill();
   await f.move('SHADOW_EVALUATION', [LINE_MARKETING]);
@@ -501,7 +501,7 @@ test('CG4-MG02 enforce: หลัง switch ย้อน reader ไม่ได�
   assert.equal(back.switchedAt?.getTime(), enabled.switchedAt?.getTime());
 });
 
-test('CG4-RC01 migration switch boundary: fault ก่อน commit ไม่ทิ้ง state หรือประวัติครึ่งทาง', async (t) => {
+test('CG4-RC01 migration switch boundary: a fault before commit leaves no half-way state or history', async (t) => {
   const f = await fixture(t);
   await f.backfill();
   const faulty = new Cg4RolloutRepository(f.application, {
@@ -525,7 +525,7 @@ test('CG4-RC01 migration switch boundary: fault ก่อน commit ไม่ท
   assert.equal((await f.rollout.current(f.tenant)).version, 0);
   assert.equal(await f.owner.cg4RolloutTransition.count({ where: { tenantId: f.tenant } }), 0);
 
-  // retry หลัง restart ด้วย expected version เดิมสำเร็จครั้งเดียว และ version เก่าชน CAS
+  // a retry after restart with the original expected version succeeds exactly once, and the old version hits the CAS
   const retried = await f.move('SHADOW_EVALUATION', [LINE_MARKETING]);
   assert.equal(retried.version, 1);
   await rejectsWith(
@@ -541,13 +541,13 @@ test('CG4-RC01 migration switch boundary: fault ก่อน commit ไม่ท
   );
 });
 
-test('CG4-MG02 forward-fix drill: reader เสียหลัง CG4 mutation → freeze/kill/reconcile/forward-fix โดยไม่ down-migrate', async (t) => {
+test('CG4-MG02 forward-fix drill: the reader breaks after a CG4 mutation -> freeze/kill/reconcile/forward-fix without a down-migrate', async (t) => {
   const f = await fixture(t);
   await f.backfill();
   await f.move('SHADOW_EVALUATION', [LINE_MARKETING]);
   await f.move('SCOPED_SYNTHETIC');
 
-  // CG4 mutation หลัง switch: scheduled tightening ที่ activate ในอีก 1 ชั่วโมง
+  // a CG4 mutation after the switch: a scheduled tightening that activates in 1 hour
   const scheduled = await (
     await f.publishVersion({
       window: { startLocal: '11:00', endLocal: '14:00' },
@@ -556,7 +556,7 @@ test('CG4-MG02 forward-fix drill: reader เสียหลัง CG4 mutation �
   )();
   assert.equal(scheduled.lifecycleState, 'SCHEDULED');
 
-  // activation worker ล้ม: schedule ถึงเวลาแต่ไม่ activate → reader ต้อง fail closed ไม่ใช่อ่าน v1 ต่อ
+  // the activation worker fails: the schedule is due but not activated -> the reader must fail closed, not keep reading v1
   f.advance(2 * 3_600_000); // 14:00 Asia/Bangkok
   const broken = await f.authorize();
   assert.equal(broken.decision, 'REVIEW');
@@ -564,10 +564,10 @@ test('CG4-MG02 forward-fix drill: reader เสียหลัง CG4 mutation �
   assert.equal(broken.reservationId, undefined);
   assert.equal(broken.trace.at(-1)?.gate, 'POLICY_HEAD');
 
-  // ห้ามย้อนกลับไปอ่าน CG3
+  // must not go back to reading CG3
   await rejectsWith(f.move('SHADOW_EVALUATION', [LINE_MARKETING]), 'ROLLOUT_SWITCH_IRREVERSIBLE');
 
-  // freeze mutation ระหว่าง reconcile: publish ถูกหยุด แต่ kill switch (เข้มขึ้นเท่านั้น) ยังเปิดได้
+  // freeze mutations during reconcile: a publish is stopped, but a kill switch (tightening only) can still be opened
   const frozen = await f.rollout.setFrozen({
     tenantId: f.tenant,
     expectedVersion: (await f.rollout.current(f.tenant)).version,
@@ -595,7 +595,7 @@ test('CG4-MG02 forward-fix drill: reader เสียหลัง CG4 mutation �
   assert.equal(held.decision, 'REVIEW');
   assert.equal(held.trace.at(-1)?.gate, 'KILL_SWITCH');
 
-  // canonical reconcile + forward-fix: unfreeze แล้ว publish version ใหม่ทันที (ไม่ใช่ pointer flip)
+  // canonical reconcile + forward-fix: unfreeze, then publish a new version immediately (not a pointer flip)
   await f.rollout.setFrozen({
     tenantId: f.tenant,
     expectedVersion: frozen.version,
@@ -625,7 +625,7 @@ test('CG4-MG02 forward-fix drill: reader เสียหลัง CG4 mutation �
   assert.equal(recovered.reasonCode, 'QUIET_HOURS');
   assert.equal(recovered.cg4?.policy.policyVersion, 3);
 
-  // ไม่มี history drop: legacy v1, scheduled v2 และ forward-fix v3 ยังอยู่ครบ; CG3 row ไม่ถูกแก้
+  // no history drop: legacy v1, scheduled v2 and forward-fix v3 are all still there; the CG3 rows are not edited
   const versions = await f.owner.cg4Policy.findMany({
     where: { tenantId: f.tenant },
     orderBy: { version: 'asc' },

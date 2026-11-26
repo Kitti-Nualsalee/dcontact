@@ -21,7 +21,7 @@ export interface BrowserSipTransport {
   sendDtmf(value: string): Promise<void>;
   hangup(): Promise<void>;
   setMuted(muted: boolean): void;
-  /** SIP dialog ของสายปัจจุบัน — ใช้เป็นหลักฐานว่าย่อ/ขยาย/แยกหน้าต่าง/สลับภาษาไม่สร้าง session ใหม่ */
+  /** SIP dialog of the current call — used as evidence that collapse/expand/detach/language switch creates no new session */
   sessionId?(): string | undefined;
 }
 
@@ -113,8 +113,8 @@ export class BrowserDphone {
 
   async accept(): Promise<DphoneState> {
     if (this.state.phase !== 'RINGING') throw new Error('accept requires RINGING dphone');
-    // SIP.js resolve accept() หลัง session Established แล้ว — `connected()` จึงถูกเรียกระหว่างรอ
-    // ต้องเป็น CONNECTING ก่อน await ไม่อย่างนั้นสายจริงค้างที่ CONNECTING (D1.16 #455)
+    // SIP.js resolves accept() after the session is Established — so `connected()` is called while waiting
+    // it must be CONNECTING before the await, otherwise a real call gets stuck at CONNECTING (D1.16 #455)
     const ringing = this.state;
     this.state = { ...ringing, phase: 'CONNECTING' };
     try {
@@ -199,7 +199,7 @@ export class BrowserDphone {
           : { phase: 'READY', telephonyNodeId: this.lease.telephonyNodeId };
         return this.state;
       } catch {
-        // ลองใหม่ตามเพดานที่กำหนด; active Interaction identity เดิมต้องไม่ถูกสร้างซ้ำ
+        // retry up to the configured ceiling; the existing active Interaction identity must not be created again
       }
     }
     this.state = {

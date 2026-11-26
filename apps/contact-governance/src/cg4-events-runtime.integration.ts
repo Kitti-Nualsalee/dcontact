@@ -81,7 +81,7 @@ async function fixture(t: TestContext) {
     await owner.cg4ExceptionHead.deleteMany({ where: { tenantId: tenant } });
     await owner.cg4Exception.deleteMany({ where: { tenantId: tenant } });
     await owner.cg4ContactExceptionHead.deleteMany({ where: { tenantId: tenant } });
-    // CG4.8 (#191): exception event ขยับ contact stream version ใน cg_contact_state_heads ด้วย
+    // CG4.8 (#191): an exception event also advances the contact stream version in cg_contact_state_heads
     await owner.cgContactStateHead.deleteMany({ where: { tenantId: tenant } });
     await owner.cg4Policy.deleteMany({ where: { tenantId: tenant } });
     await owner.cgEventOutbox.deleteMany({ where: { tenantId: tenant } });
@@ -191,7 +191,7 @@ function relay(f: Fixture, options: Record<string, unknown> = {}) {
   });
 }
 
-test('relay เผยแพร่ canonical event ด้วย eventId เดิม แล้ว mark PUBLISHED', async (t) => {
+test('the relay publishes a canonical event with the original eventId, then marks PUBLISHED', async (t) => {
   const f = await fixture(t);
   const row = await outboxRow(f);
   const result = await relay(f).publishNext(f.tenant);
@@ -207,7 +207,7 @@ test('relay เผยแพร่ canonical event ด้วย eventId เดิ
   assert.equal(await relay(f).publishNext(f.tenant), undefined);
 });
 
-test('publish สำเร็จแล้ว invalidate mutable head แต่ไม่แตะ immutable snapshot', async (t) => {
+test('after a successful publish it invalidates the mutable head but does not touch the immutable snapshot', async (t) => {
   const f = await fixture(t);
   const headKey = f.cache.policyHeadKey(f.tenant, f.policyId);
   const snapshotKey = f.cache.policySnapshotKey(f.tenant, f.policyId, 1, DIGEST);
@@ -220,7 +220,7 @@ test('publish สำเร็จแล้ว invalidate mutable head แต่�
   assert.equal(f.redis.store.has(snapshotKey), true);
 });
 
-test('exception event invalidate ทั้ง contact head และ exception series head', async (t) => {
+test('an exception event invalidates both the contact head and the exception series head', async (t) => {
   const f = await fixture(t);
   const seriesId = randomUUID();
   const contactHeadKey = `cg:contact:${f.tenant}:${f.contact}:head`;
@@ -239,7 +239,7 @@ test('exception event invalidate ทั้ง contact head และ exception s
   assert.equal(f.redis.store.has(seriesHeadKey), false);
 });
 
-test('payload ที่หลุด restricted field ถูก quarantine ไม่ publish และไม่ retry', async (t) => {
+test('a payload that leaks a restricted field is quarantined, not published and not retried', async (t) => {
   const f = await fixture(t);
   const quarantined: string[] = [];
   const row = await outboxRow(f, {
@@ -257,11 +257,11 @@ test('payload ที่หลุด restricted field ถูก quarantine ไม
     (await f.owner.cgEventOutbox.findFirstOrThrow({ where: { id: row.id } })).state,
     'QUARANTINED',
   );
-  // ไม่ถูกหยิบมาอีกในรอบถัดไป
+  // not picked up again in the next round
   assert.equal(await relay(f).publishNext(f.tenant), undefined);
 });
 
-test('contract version ที่ใหม่กว่ายัง publish ได้ — consumer เป็นคนตัดสิน DLQ', async (t) => {
+test('a newer contract version can still be published: the consumer decides on the DLQ', async (t) => {
   const f = await fixture(t);
   await outboxRow(f, { payload: canonicalPayload({ contractVersion: 99 }) });
   const result = await relay(f).publishNext(f.tenant);
@@ -269,7 +269,7 @@ test('contract version ที่ใหม่กว่ายัง publish ได
   assert.equal(f.producer.sent.length, 1);
 });
 
-test('broker ล้มเหลวทำให้ retry ตาม backoff และไม่ invalidate cache', async (t) => {
+test('a broker failure makes it retry per backoff and does not invalidate the cache', async (t) => {
   const f = await fixture(t);
   const headKey = f.cache.policyHeadKey(f.tenant, f.policyId);
   await f.cache.setHead(headKey, { version: 1, digest: DIGEST });
@@ -278,12 +278,12 @@ test('broker ล้มเหลวทำให้ retry ตาม backoff แล
 
   const failed = await relay(f).publishNext(f.tenant);
   assert.equal(failed?.state, 'FAILED');
-  assert.equal(f.redis.store.has(headKey), true, 'publish ไม่สำเร็จต้องไม่ล้าง head');
+  assert.equal(f.redis.store.has(headKey), true, 'a failed publish must not clear the head');
 
   const after = await f.owner.cgEventOutbox.findFirstOrThrow({ where: { id: row.id } });
   assert.equal(after.attempts, 1);
   assert.equal(after.availableAt.toISOString(), '2026-01-05T12:00:02.000Z');
-  // ยังไม่ถึงเวลา retry
+  // not yet time to retry
   assert.equal(await relay(f).publishNext(f.tenant), undefined);
 
   const later = new Relay(f, new Date('2026-01-05T12:00:03.000Z'));
@@ -298,7 +298,7 @@ class Relay extends Cg4EventRelay {
   }
 }
 
-test('lease ที่หมดอายุระหว่าง PUBLISHING ถูกกู้กลับมาเป็น PENDING', async (t) => {
+test('a lease that expires during PUBLISHING is recovered back to PENDING', async (t) => {
   const f = await fixture(t);
   const row = await outboxRow(f);
   await f.owner.cgEventOutbox.update({
@@ -310,7 +310,11 @@ test('lease ที่หมดอายุระหว่าง PUBLISHING ถ�
     },
   });
 
-  assert.equal(await relay(f).publishNext(f.tenant), undefined, 'PUBLISHING ไม่ถูกหยิบตรง ๆ');
+  assert.equal(
+    await relay(f).publishNext(f.tenant),
+    undefined,
+    'PUBLISHING is not picked up directly',
+  );
   assert.equal(await relay(f).recoverExpiredLeases(f.tenant), 1);
 
   const recovered = await f.owner.cgEventOutbox.findFirstOrThrow({ where: { id: row.id } });
@@ -319,7 +323,7 @@ test('lease ที่หมดอายุระหว่าง PUBLISHING ถ�
   assert.equal((await relay(f).publishNext(f.tenant))?.state, 'PUBLISHED');
 });
 
-test('lease ที่ยังไม่หมดอายุไม่ถูกกู้', async (t) => {
+test('a lease that has not expired is not recovered', async (t) => {
   const f = await fixture(t);
   const row = await outboxRow(f);
   await f.owner.cgEventOutbox.update({
@@ -374,7 +378,7 @@ function stubLifecycle(behaviour: () => Promise<{ headVersion: number }>) {
   return { activateDue: () => behaviour() } as unknown as Cg4PolicyLifecycleRepository;
 }
 
-test('activation worker หยิบเฉพาะ job ที่ถึงเวลา แล้วเรียก activateDue หนึ่งครั้ง', async (t) => {
+test('the activation worker picks up only jobs that are due, then calls activateDue once', async (t) => {
   const f = await fixture(t);
   await activationJob(f, '2026-01-05T18:00:00.000Z');
   let calls = 0;
@@ -387,7 +391,7 @@ test('activation worker หยิบเฉพาะ job ที่ถึงเว
     { now: () => NOW, leaseOwner: 'worker-1' },
   );
 
-  assert.equal(await worker.runNext(f.tenant), undefined, 'ยังไม่ถึงเวลา');
+  assert.equal(await worker.runNext(f.tenant), undefined, 'not yet time');
   assert.equal(calls, 0);
 
   await activationJob(f, '2026-01-05T11:00:00.000Z', 2);
@@ -396,7 +400,7 @@ test('activation worker หยิบเฉพาะ job ที่ถึงเว
   assert.equal(calls, 1);
 });
 
-test('activateDue ที่ล้มเหลวทำให้ job ถอยไป PENDING พร้อม backoff และนับ attempts', async (t) => {
+test('a failing activateDue sends the job back to PENDING with backoff and counts attempts', async (t) => {
   const f = await fixture(t);
   const job = await activationJob(f, '2026-01-05T11:00:00.000Z');
   const worker = new Cg4ActivationWorker(
@@ -416,10 +420,10 @@ test('activateDue ที่ล้มเหลวทำให้ job ถอยไ
   assert.equal(afterFirst.attempts, 1);
   assert.equal(afterFirst.lastError, 'head conflict');
   assert.equal(afterFirst.leaseOwner, null);
-  assert.ok(afterFirst.scheduledFor > NOW, 'backoff ต้องเลื่อนเวลาออกไป');
+  assert.ok(afterFirst.scheduledFor > NOW, 'the backoff must push the time out');
 });
 
-test('job ที่ retry จนครบถูก park เป็น FAILED ให้ scope fail closed แทนที่จะเงียบ', async (t) => {
+test('a job that retries until exhausted is parked as FAILED so the scope fails closed instead of staying silent', async (t) => {
   const f = await fixture(t);
   const job = await activationJob(f, '2026-01-05T11:00:00.000Z');
   const worker = new Cg4ActivationWorker(
@@ -433,10 +437,10 @@ test('job ที่ retry จนครบถูก park เป็น FAILED ใ�
   assert.equal(result?.outcome, 'FAILED');
   const parked = await f.owner.cg4PolicyActivationJob.findFirstOrThrow({ where: { id: job.id } });
   assert.equal(parked.state, 'FAILED');
-  assert.equal(await worker.dueBacklog(f.tenant), 0, 'job ที่ park แล้วไม่นับเป็น backlog');
+  assert.equal(await worker.dueBacklog(f.tenant), 0, 'a parked job does not count as backlog');
 });
 
-test('dueBacklog นับเฉพาะ job ที่ถึงเวลาแล้วแต่ยังไม่จบ', async (t) => {
+test('dueBacklog counts only jobs that are due but not yet finished', async (t) => {
   const f = await fixture(t);
   await activationJob(f, '2026-01-05T11:00:00.000Z', 1);
   await activationJob(f, '2026-01-05T18:00:00.000Z', 2);
@@ -493,7 +497,7 @@ async function approvedException(f: Fixture, expiresAt: string) {
   return exceptionId;
 }
 
-test('expiry sweeper ออก event ให้ series ที่หมดอายุแล้วเท่านั้น และเดิน contact aggregate version', async (t) => {
+test('the expiry sweeper emits an event only for a series that has expired, and advances the contact aggregate version', async (t) => {
   const f = await fixture(t);
   const expired = await approvedException(f, '2026-01-05T11:00:00.000Z');
   await approvedException(f, '2026-01-05T18:00:00.000Z');
@@ -507,7 +511,7 @@ test('expiry sweeper ออก event ให้ series ที่หมดอา�
   const event = await f.owner.cgEventOutbox.findFirstOrThrow({
     where: { tenantId: f.tenant, eventType: 'exception.changed' },
   });
-  // CG4.8 (#191): envelope ใช้ version ของ contact stream ร่วมกับ CG3 (ไม่มี CG3 write ก่อนหน้า = 1)
+  // CG4.8 (#191): the envelope uses the contact stream version shared with CG3 (no earlier CG3 write = 1)
   assert.equal(event.aggregateVersion, 1);
   const payload = event.payload as Record<string, unknown>;
   assert.equal(payload.transitionKind, 'EXCEPTION_EXPIRED');
@@ -521,7 +525,7 @@ test('expiry sweeper ออก event ให้ series ที่หมดอา�
   assert.equal(head.aggregateVersion, 1);
 });
 
-test('sweep ซ้ำไม่ออก event ซ้ำ และ head ไม่ขยับเพิ่ม', async (t) => {
+test('a repeated sweep emits no duplicate event, and the head does not advance further', async (t) => {
   const f = await fixture(t);
   await approvedException(f, '2026-01-05T11:00:00.000Z');
   const sweeper = new Cg4ExpirySweeper(f.application, { now: () => NOW });
@@ -540,7 +544,7 @@ test('sweep ซ้ำไม่ออก event ซ้ำ และ head ไม่
   assert.equal(head.aggregateVersion, 1);
 });
 
-test('head ที่ยังไม่ APPROVED ไม่ถูก sweep แม้เลยเวลาหมดอายุ', async (t) => {
+test('a head that is not yet APPROVED is not swept even past its expiry time', async (t) => {
   const f = await fixture(t);
   const exceptionId = await approvedException(f, '2026-01-05T11:00:00.000Z');
   await f.owner.cg4ExceptionHead.updateMany({
@@ -551,7 +555,7 @@ test('head ที่ยังไม่ APPROVED ไม่ถูก sweep แม�
   assert.deepEqual(await sweeper.sweep(f.tenant), []);
 });
 
-test('event ที่ sweeper ออกผ่าน relay ได้โดยไม่ถูก quarantine', async (t) => {
+test('an event emitted by the sweeper passes through the relay without being quarantined', async (t) => {
   const f = await fixture(t);
   await approvedException(f, '2026-01-05T11:00:00.000Z');
   await new Cg4ExpirySweeper(f.application, { now: () => NOW }).sweep(f.tenant);

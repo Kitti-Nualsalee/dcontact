@@ -217,7 +217,7 @@ function required(name: string): string {
   return value;
 }
 
-// U1.2 (#430): composition root นี้เปิด Kafka/LINE/telephony — ห้ามบูตด้วย UAT profile (ใช้ `uat-main.ts`)
+// U1.2 (#430): this composition root enables Kafka/LINE/telephony — it must not boot with the UAT profile (use `uat-main.ts`)
 assertEntrypointProfile('default');
 
 const prisma = new PrismaClient();
@@ -235,8 +235,8 @@ const verifier = withLocalAccountAdmission(
     jwksUri: required('KEYCLOAK_JWKS_URI'),
   }),
 );
-// AC1/AC2 (#594/#595): บังคับ 2FA sync ไป Organization ผ่าน extension `dc-account` — ไม่มี secret ของ
-// account service = ไม่มี port และการเปิดบังคับ 2FA ตอบ 409 MFA_ENFORCEMENT_UNAVAILABLE (ไม่บันทึกค่าที่บังคับไม่ได้)
+// AC1/AC2 (#594/#595): 2FA enforcement syncs to the Organization through the `dc-account` extension — without the account
+// service secret there is no port and enabling 2FA enforcement answers 409 MFA_ENFORCEMENT_UNAVAILABLE (a value that cannot be enforced is not saved)
 const accountServiceSecret = process.env.KEYCLOAK_ACCOUNT_SERVICE_SECRET;
 const accountServiceClient = accountServiceSecret
   ? new KeycloakAccountServiceClient({
@@ -247,8 +247,8 @@ const accountServiceClient = accountServiceSecret
 const accountPolicies = new AccountPolicyService(prisma, {
   ...(accountServiceClient ? { mfa: new KeycloakOrganizationMfa(accountServiceClient) } : {}),
 });
-// AC4 (#597): self-service บัญชี — ต้องมีทั้ง account service และ key เข้ารหัส TOTP secret
-// (`ACCOUNT_SECRET_KEY` = base64 ของ 32 bytes); ไม่ครบ = ทุก endpoint ตอบ 503 IDENTITY_UNAVAILABLE
+// AC4 (#597): account self-service — needs both the account service and the key that encrypts the TOTP secret
+// (`ACCOUNT_SECRET_KEY` = base64 of 32 bytes); incomplete = every endpoint answers 503 IDENTITY_UNAVAILABLE
 const accountSecretKey = process.env.ACCOUNT_SECRET_KEY;
 const accountSelfService =
   accountServiceClient && accountSecretKey
@@ -258,14 +258,14 @@ const accountSelfService =
         new AccountSecretBox(accountSecretKey),
       )
     : null;
-// AC3 (#596): email บัญชีของ D-Contact ผ่าน outbox — ไม่ตั้ง SMTP_HOST = ไม่เปิดตัวส่ง (งานค้างใน outbox)
+// AC3 (#596): D-Contact account email through the outbox — without SMTP_HOST the sender is not enabled (work stays in the outbox)
 const smtpConfig = smtpConfigFromEnvironment(process.env);
 if (smtpConfig) {
   const consoleUrl = required('CONSOLE_PUBLIC_URL');
-  consoleAccountUrl(consoleUrl); // https เท่านั้น (ยกเว้น localhost) — ผิดแล้วหยุดตั้งแต่บูต
+  consoleAccountUrl(consoleUrl); // https only (except localhost) — if wrong, stop at boot
   new AccountEmailDispatcher(prisma, new SmtpEmailSender(smtpConfig), { consoleUrl }).start();
 }
-// A1.8a (#447): tenant ที่ยังไม่ ACTIVE (เช่นยัง provisioning) เข้า tenant API/workspace ไม่ได้
+// A1.8a (#447): a tenant that is not yet ACTIVE (e.g. still provisioning) cannot enter the tenant API/workspace
 const tenantLifecycle = new CachedTenantLifecycleGate((tenantId) =>
   prisma.tenant
     .findUnique({ where: { id: tenantId }, select: { lifecycleStatus: true } })
@@ -280,9 +280,9 @@ const supervisorLiveEvents = new SupervisorLiveEventStream();
 const recordingCommandPublisher = new KafkaTelephonyCommandPublisher();
 const agentSipCredentials = configuredAgentSipCredentialService(prisma);
 const recordingStorage = new S3RecordingStorage();
-// #967: ปิดเป็นค่าเริ่มต้น เปิดแล้ว route presign เดิมของ recording ตอบ 403
+// #967: off by default; when on, the existing recording presign route answers 403
 const recordingSupervisorPlayback = resolveRecordingSupervisorPlayback(process.env);
-// #971: ปิดเป็นค่าเริ่มต้น เปิดแล้วมีฟอร์ม/ผลประเมินโดยคนและเมนูของ Admin, Supervisor, Agent
+// #971: off by default; when on, human evaluation forms/results and the Admin, Supervisor, Agent menus exist
 const qmHumanEvaluation = resolveQmHumanEvaluation(process.env);
 console.log(
   JSON.stringify({
@@ -300,10 +300,10 @@ const governanceExportStorage = new S3GovernanceExportStorage();
 const qmJobPublisher = new KafkaQmJobPublisher();
 const journeyEventInbox = new EventInboxService(prisma);
 /**
- * S2.5 (#369): singleton webhook binding ของ pilot — ค่าทั้งหมดมาจาก deployment config
- * ไม่ใช่จาก body ของ request; ไม่มี binding = route ปฏิเสธทุก request ด้วย signature ที่ตรวจไม่ผ่าน
+ * S2.5 (#369): the singleton webhook binding of the pilot — every value comes from the deployment config
+ * not from the request body; no binding = the route rejects every request with a signature that fails verification
  */
-// S2.6b (#403): secret ไม่มาจาก env อีกต่อไป — env เลือกได้แค่โหมด (#362 §9) และอ่าน Keychain ตอนบูต
+// S2.6b (#403): the secret no longer comes from env — env can choose only the mode (#362 §9) and the Keychain is read at boot
 async function createLineWebhookIngress(): Promise<LineWebhookIngress> {
   const secrets = await resolveLineWebhookSecrets({
     mode: process.env.LINE_WEBHOOK_SECRET_SOURCE,
@@ -318,7 +318,7 @@ async function createLineWebhookIngress(): Promise<LineWebhookIngress> {
     payloadKey: secrets.payloadKey,
   });
 }
-// J5.5: feature flag มาจาก env kill switch (default ปิด) AND rollout row ของ tenant ภายใน repository
+// J5.5: the feature flag comes from the env kill switch (default off) AND the tenant's rollout row inside the repository
 const journeyAuthoring = new JourneyTemplateRepository(prisma, {
   authorization: new IamJourneyAuthoringAuthorizer(),
   evaluator: new DcExprEvaluator(),
@@ -334,9 +334,9 @@ async function tenantScope<T>(tenantId: string, work: () => Promise<T> | T): Pro
     return work();
   });
 }
-// E1.9 (#483): work-session lease — #583: บังคับทุก tenant (ไม่มี flag แล้ว)
+// E1.9 (#483): work-session lease — #583: enforced for every tenant (no flag any more)
 const leaseSignals: { forward?: WorkspaceSessionWebSocketAdapter } = {};
-// E1.11 (#485): allowlist ของ dphone embedding — localhost ได้เฉพาะ dev (ไม่ใช่ production)
+// E1.11 (#485): allowlist for dphone embedding — localhost only in dev (not production)
 const embedOrigins = new EmbedOriginService(prisma, {
   allowLocalhost: process.env.NODE_ENV !== 'production',
   reservedOrigins: (process.env.DCONTACT_RESERVED_ORIGINS ?? '')
@@ -375,7 +375,7 @@ const workSessionLeases = new WorkSessionLeases(prisma, {
     },
   },
 });
-// E1.17 (#519): IAM VIEW scope เป็น authority ของ screen-pop; deny/stale/revoked ยังคง fail closed
+// E1.17 (#519): the IAM VIEW scope is the authority for screen-pop; deny/stale/revoked still fail closed
 const screenPop = new ScreenPopService(prisma, {
   hostOriginOfLease: (actor, leaseId) => workSessionLeases.embeddedHostOrigin(actor, leaseId),
   screenPopLevel: (tenantId, origin) => embedOrigins.screenPopLevel(tenantId, origin),
@@ -386,7 +386,7 @@ const voiceRollout = new VoiceRolloutControlPlane(prisma);
 const voiceOutcomeHandler = new VoiceTelephonyOutcomeHandler(
   new VoiceOriginateOutcomeProcessor(prisma, contactGovernance),
 );
-// E1.18 (#520): ตอบ dialing หลัง claim + durable transaction และผ่าน rollout authority เท่านั้น
+// E1.18 (#520): answer dialing only after the claim + durable transaction and only through the rollout authority
 const clickToCall = new ClickToCallService(prisma, {
   hostOriginOfLease: (actor, leaseId) => workSessionLeases.embeddedHostOrigin(actor, leaseId),
   governance: contactGovernance,
@@ -400,8 +400,8 @@ const clickToCall = new ClickToCallService(prisma, {
     },
   ),
 });
-// Cus360 online authorization ใช้ confidential client แยก; ไม่ตั้ง = ปิดเฉพาะ Cus360 work writes
-// #916: บอกสถานะใน log ตอนเริ่ม ไม่ให้แผงลูกค้าหายเงียบ ๆ (ตั้งไม่ครบ = throw)
+// Cus360 online authorization uses a separate confidential client; unset = disables only Cus360 work writes
+// #916: report the status in the log at start so the customer panel does not vanish silently (incompletely set = throw)
 const c360WorkConfig = resolveC360WorkConfig(process.env);
 const c360WorkAuth = c360WorkConfig.configured
   ? new C360WorkAuthService(
@@ -417,7 +417,7 @@ const c360WorkAuth = c360WorkConfig.configured
 const c360WriteRuntime = createC360WriteRuntime();
 const c360WorkStatus = c360WorkReadiness(c360WorkConfig, c360WriteRuntime.ready);
 (c360WorkStatus.status === 'ENABLED' ? console.log : console.warn)(JSON.stringify(c360WorkStatus));
-// #954: External customer API ปิดเป็นค่าเริ่มต้น; create ต้องมี introspection client จึงทำงาน
+// #954: the External customer API is off by default; create needs an introspection client to work
 const c360ServiceApi = resolveC360ServiceApiEnabled(process.env)
   ? new Customer360ServiceApi(
       prisma,
@@ -443,8 +443,8 @@ const socketAdapter = new WorkspaceSessionWebSocketAdapter(
   c360WorkAuth,
 );
 leaseSignals.forward = socketAdapter;
-// ปล่อย lease ที่หลุดตอนว่างเกิน TTL (presence → OFFLINE); ทุก instance รันได้เพราะ lock แถวก่อนปิด
-// รอบที่ล้ม (เช่น P2028 ตอน DB ช้า) ถูก log แล้วรอรอบถัดไป — ไม่ทำให้ process ตาย
+// release leases dropped while idle beyond the TTL (presence → OFFLINE); every instance can run it because the row is locked before closing
+// a failed round (e.g. P2028 when the DB is slow) is logged and waits for the next round — it does not kill the process
 startBackgroundLoop({
   name: 'work_session.sweep',
   intervalMs: 15_000,
@@ -588,17 +588,17 @@ class WorkspaceSessionController {
     { provide: TEAM_SEGMENT_SCOPE_DATABASE, useValue: prisma },
     { provide: WORK_SESSION_LEASES, useValue: workSessionLeases },
     { provide: EMBED_ORIGIN_SERVICE, useValue: embedOrigins },
-    // AC1 (#594): นโยบายบัญชีของ tenant — port บังคับ 2FA มาใน AC2 (#595); ก่อนนั้นเปิด 2FA ได้ 409
+    // AC1 (#594): the tenant account policy — the 2FA enforcement port arrives in AC2 (#595); before that enabling 2FA gives 409
     { provide: ACCOUNT_POLICY_SERVICE, useValue: accountPolicies },
     { provide: ACCOUNT_SELF_SERVICE, useValue: accountSelfService },
-    // E1.15 (#489): `<dphone-launcher>` แบบ versioned/alias บน dphone origin
+    // E1.15 (#489): a versioned/alias `<dphone-launcher>` on the dphone origin
     { provide: DPHONE_LAUNCHER_OPTIONS, useValue: { releasesDir: defaultLauncherReleasesDir() } },
     { provide: SCREEN_POP_SERVICE, useValue: screenPop },
     { provide: CLICK_TO_CALL_SERVICE, useValue: clickToCall },
     {
       provide: DPHONE_EMBED_SHELL_OPTIONS,
       useValue: {
-        // Vite entry แยกของ embed ใน apps/workspace (dev = vite dev server)
+        // a separate Vite entry for embed in apps/workspace (dev = the vite dev server)
         scriptUrl:
           process.env.DPHONE_EMBED_SCRIPT_URL ??
           (process.env.NODE_ENV === 'production'
@@ -629,7 +629,7 @@ class WorkspaceSessionController {
 class AppModule {}
 
 async function bootstrap(): Promise<void> {
-  // rawBody: LINE signature คำนวณบน bytes ที่ได้รับจริง reserialize แล้ว verify ไม่ผ่าน (#359 §B)
+  // rawBody: the LINE signature is computed over the bytes actually received; re-serializing then verifying fails (#359 §B)
   const app = await NestFactory.create(AppModule, { rawBody: true });
   app.enableCors({
     origin: process.env.WORKSPACE_ORIGIN ?? 'http://localhost:5173',
@@ -662,7 +662,7 @@ async function bootstrap(): Promise<void> {
       await voiceOutcomeHandler.handle(event);
     },
   });
-  // #911: segment ระบบ → IAM projection; เริ่มแบบไม่บล็อก API และล้มเองได้โดย API ยังทำงาน
+  // #911: system segments → IAM projection; starts without blocking the API and can fail on its own while the API keeps working
   startC360SegmentWorker({ database: prisma });
   await app.listen(Number(process.env.PORT ?? 3000));
 }

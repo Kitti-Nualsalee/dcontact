@@ -1,15 +1,15 @@
 /**
- * AC5 (#598): ส่วนที่ไม่ผูก React ของหน้า "บัญชีของฉัน" — แยกไว้ให้ unit test ได้
+ * AC5 (#598): the part of the "My account" page not tied to React — kept separate so it can be unit tested
  */
 import { AccountApiError } from './api.js';
 
-/** sessionStorage key ที่ถือ token ยืนยัน email ระหว่างรอ login/ยืนยัน (ลบทันทีที่ใช้) */
+/** sessionStorage key holding the email verification token while waiting for login/verification (deleted as soon as used) */
 export const VERIFY_TOKEN_KEY = 'dc.account.verifyToken';
 
 /**
- * ลิงก์ยืนยัน `/?view=account&verify=<token>`: ย้าย token ออกจาก URL ทันที (ก่อน login redirect และก่อน render)
- * ไปไว้ใน sessionStorage ชั่วคราว แล้ว `replaceState` เป็น URL ที่ไม่มี token — token จึงไม่ค้างใน URL, history
- * หรือ return URL ของ login
+ * Verification link `/?view=account&verify=<token>`: move the token out of the URL immediately (before the login redirect and before render)
+ * into sessionStorage temporarily, then `replaceState` to a URL without the token — so the token does not linger in the URL, history
+ * or the login return URL
  */
 export function stashVerifyToken(
   location: URL,
@@ -25,13 +25,13 @@ export function stashVerifyToken(
     try {
       storage.setItem(VERIFY_TOKEN_KEY, token);
     } catch {
-      // storage ใช้ไม่ได้ (private mode) — ผู้ใช้ต้องเปิดลิงก์ใหม่หลัง login; token ก็ยังไม่ค้างใน URL
+      // storage unusable (private mode) — the user must reopen the link after login; the token still does not linger in the URL
     }
   }
   return clean;
 }
 
-/** อ่านแล้วลบทันที — ใช้ได้ครั้งเดียว */
+/** read then delete immediately — usable once */
 export function takeVerifyToken(storage: Pick<Storage, 'getItem' | 'removeItem'>): string | null {
   try {
     const token = storage.getItem(VERIFY_TOKEN_KEY);
@@ -42,7 +42,7 @@ export function takeVerifyToken(storage: Pick<Storage, 'getItem' | 'removeItem'>
   }
 }
 
-/** error ของ API → key ใน namespace `account` (ไม่แสดง code ดิบหรือชื่อระบบ identity) */
+/** API error → key in the `account` namespace (do not show the raw code or the identity system's name) */
 export function accountErrorKey(error: unknown): string {
   if (!(error instanceof AccountApiError)) return 'errors.generic';
   switch (error.code) {
@@ -80,7 +80,7 @@ export function accountErrorKey(error: unknown): string {
   }
 }
 
-/** กฎรหัสผ่านที่รู้จัก → key ของข้อความ (กฎใหม่ที่ยังไม่รู้จัก = ข้อความทั่วไป) */
+/** known password rules → message key (a new rule not yet known = a generic message) */
 export const PASSWORD_RULE_KEYS: Record<string, string> = {
   MIN_LENGTH: 'password.rules.minLength',
   MAX_LENGTH: 'password.rules.maxLength',
@@ -100,7 +100,7 @@ export const passwordRuleKey = (rule: string) => PASSWORD_RULE_KEYS[rule] ?? 'pa
 export const REASON_MIN = 3;
 export const REASON_MAX = 500;
 
-/** เปิดหน้าบัญชีของ Console สำหรับ tenant นี้ (แท็บเดิมใน Console, แท็บใหม่จาก Workspace) */
+/** open the Console account page for this tenant (same tab within Console, new tab from Workspace) */
 export function accountHref(consoleOrigin: string, tenantAlias: string | undefined): string {
   const url = new URL('/', consoleOrigin);
   if (tenantAlias) url.searchParams.set('tenant', tenantAlias);

@@ -40,8 +40,8 @@ function sensitivePaths(
 }
 
 /**
- * Pure evaluator ของ Customer 360: รับเฉพาะ definition กับ typed snapshot ที่ถูก sync
- * เข้ามาแล้วและคืนเฉพาะ digest/result ไม่มี raw attribute หรือ trace หลุดออกจาก owner boundary
+ * Pure evaluator for Customer 360: takes only a definition and a typed snapshot that has been synced
+ * in, and returns only a digest/result; no raw attribute or trace leaves the owner boundary
  */
 export class C360SegmentEvaluator {
   constructor(private readonly expressionEvaluator: ExpressionEvaluator) {}

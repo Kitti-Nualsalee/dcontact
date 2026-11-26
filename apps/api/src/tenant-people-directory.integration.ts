@@ -37,11 +37,11 @@ async function readPage(response: Response) {
   return { items, nextCursor: value.nextCursor };
 }
 
-test('People directory HTTP/RLS: pagination/detail และ positive tenant authority', async (suite) => {
-  assert.ok(process.env.DATABASE_URL, 'ต้องตั้ง DATABASE_URL ของ isolated fixture DB');
+test('People directory HTTP/RLS: pagination/detail and positive tenant authority', async (suite) => {
+  assert.ok(process.env.DATABASE_URL, 'DATABASE_URL of the isolated fixture DB must be set');
   assert.ok(
     process.env.APPLICATION_DATABASE_URL,
-    'ต้องตั้ง APPLICATION_DATABASE_URL ที่บังคับ RLS',
+    'APPLICATION_DATABASE_URL that enforces RLS must be set',
   );
   const owner = new PrismaClient();
   const application = new PrismaClient({
@@ -66,7 +66,7 @@ test('People directory HTTP/RLS: pagination/detail และ positive tenant aut
         data: { id, name: 'Directory fixture', slug: `directory-${id}`, sipDomain: `${id}.test` },
       });
     }
-    await owner.team.create({ data: { id: teamId, tenantId, name: 'ทีมสังเคราะห์' } });
+    await owner.team.create({ data: { id: teamId, tenantId, name: 'Synthetic team' } });
     for (const id of [adminId, secondAdminId, protectedId, foreignId]) {
       await owner.user.create({
         data: {
@@ -88,7 +88,7 @@ test('People directory HTTP/RLS: pagination/detail และ positive tenant aut
         VALUES(${scope}::uuid,${id}::uuid,${issuer},${id},'dcontact-console',${`directory-${scope}`},${scope}::uuid,'TENANT_USER','BOOTSTRAP_MANIFEST','directory-fixture',${'a'.repeat(64)},'fixture-operator',now(),1,true)`;
     }
     await owner.$executeRaw`INSERT INTO tenant_voice_provisioning_policies(tenant_id,revision,source_kind,accounts_limit,agents_limit,voice_queues_limit,skills_limit,approved_by_operator_subject,approved_at,approval_ref,reason,extension_pool)
-      VALUES(${tenantId}::uuid,1,'UAT_EXPLICIT',100,100,1,1,'fixture-operator',now(),'directory-fixture','ทดสอบ directory','[]'::jsonb)`;
+      VALUES(${tenantId}::uuid,1,'UAT_EXPLICIT',100,100,1,1,'fixture-operator',now(),'directory-fixture','Directory test','[]'::jsonb)`;
     const commandId = randomUUID();
     const target = await acceptPeopleCreate(
       application,
@@ -100,7 +100,7 @@ test('People directory HTTP/RLS: pagination/detail และ positive tenant aut
       },
       {
         commandId,
-        displayName: 'บัญชีใหม่',
+        displayName: 'New account',
         email: 'New.User@example.test',
         role: 'SUPERVISOR',
         teamId,
@@ -168,7 +168,7 @@ test('People directory HTTP/RLS: pagination/detail และ positive tenant aut
       fetch(base + path, { headers: { authorization: `Bearer ${token}` } });
 
     await suite.test(
-      'list/detail คืนเฉพาะ bootstrap proof หรือ B2 lifecycle และค้น operation หลัง session ใหม่',
+      'list/detail return only a bootstrap proof or B2 lifecycle and find the operation after a new session',
       async () => {
         const response = await request();
         assert.equal(response.status, 200);
@@ -186,7 +186,7 @@ test('People directory HTTP/RLS: pagination/detail และ positive tenant aut
         assert.equal(user.username, 'New.User@example.test');
         assert.equal(user.role, 'SUPERVISOR');
         assert.equal(user.teamId, teamId);
-        assert.deepEqual(user.team, { id: teamId, name: 'ทีมสังเคราะห์' });
+        assert.deepEqual(user.team, { id: teamId, name: 'Synthetic team' });
         assert.equal(user.accountState, 'PROVISIONING');
         assert.equal(user.provisioningState, 'PENDING');
         assert.equal(user.activationState, 'PENDING');
@@ -221,7 +221,7 @@ test('People directory HTTP/RLS: pagination/detail และ positive tenant aut
     );
 
     await suite.test(
-      'ปฏิเสธ role/protected caller และซ่อน target ที่ไม่มี positive proof หรือคนละ tenant',
+      'rejects a role/protected caller and hides a target without positive proof or in another tenant',
       async () => {
         assert.equal((await request('', 'invalid')).status, 401);
         for (const token of ['agent', 'supervisor', 'protected']) {
@@ -252,7 +252,7 @@ test('People directory HTTP/RLS: pagination/detail และ positive tenant aut
 
     const expected = new Set([adminId, secondAdminId, target.userId]);
     await suite.test(
-      'cursor keyset รองรับ createdAt เท่ากันและผูก tenant/actor/filter/scopeStamp',
+      'the keyset cursor supports an equal createdAt and binds tenant/actor/filter/scopeStamp',
       async () => {
         for (let index = 0; index < 21; index++) {
           const accepted = await acceptPeopleCreate(
@@ -265,7 +265,7 @@ test('People directory HTTP/RLS: pagination/detail และ positive tenant aut
             },
             {
               commandId: randomUUID(),
-              displayName: 'บัญชีสำหรับ pagination',
+              displayName: 'Account for pagination',
               email: `page-${index}@example.test`,
               role: 'ADMIN',
               teamId,
@@ -307,25 +307,28 @@ test('People directory HTTP/RLS: pagination/detail และ positive tenant aut
       },
     );
 
-    await suite.test('default20/max100 และเดินหน้าครบโดยไม่ซ้ำบัญชี', async () => {
-      const defaultPage = await readPage(await request());
-      assert.equal(defaultPage.items.length, 20);
-      assert.equal(typeof defaultPage.nextCursor, 'string');
-      const remainder = await readPage(await request('?cursor=' + defaultPage.nextCursor));
-      assert.equal(remainder.items.length, 4);
-      assert.equal(remainder.nextCursor, null);
-      const observed = [...defaultPage.items, ...remainder.items].map(
-        (item: { id: string }) => item.id,
-      );
-      assert.equal(new Set(observed).size, 24);
-      assert.deepEqual(new Set(observed), expected);
-      const maximum = await readPage(await request('?limit=100'));
-      assert.equal(maximum.items.length, 24);
-      assert.equal(maximum.nextCursor, null);
-    });
+    await suite.test(
+      'default20/max100 and walking forward completes without repeating an account',
+      async () => {
+        const defaultPage = await readPage(await request());
+        assert.equal(defaultPage.items.length, 20);
+        assert.equal(typeof defaultPage.nextCursor, 'string');
+        const remainder = await readPage(await request('?cursor=' + defaultPage.nextCursor));
+        assert.equal(remainder.items.length, 4);
+        assert.equal(remainder.nextCursor, null);
+        const observed = [...defaultPage.items, ...remainder.items].map(
+          (item: { id: string }) => item.id,
+        );
+        assert.equal(new Set(observed).size, 24);
+        assert.deepEqual(new Set(observed), expected);
+        const maximum = await readPage(await request('?limit=100'));
+        assert.equal(maximum.items.length, 24);
+        assert.equal(maximum.nextCursor, null);
+      },
+    );
 
     await suite.test(
-      'POST search ค้นชื่อ/email/extension แบบไม่สนตัวพิมพ์ ผูก cursor กับคำค้น และไม่รับคำค้นใน URL',
+      'POST search finds by name/email/extension case-insensitively, binds the cursor to the query and does not accept the query in the URL',
       async () => {
         const search = (body: unknown, token = 'admin') =>
           fetch(`${base}/search`, {
@@ -333,8 +336,8 @@ test('People directory HTTP/RLS: pagination/detail และ positive tenant aut
             headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
             body: JSON.stringify(body),
           });
-        await owner.$executeRaw`UPDATE users SET display_name='สมหญิง ค้นเจอ', extension='1042' WHERE tenant_id=${tenantId}::uuid AND id=${target.userId}::uuid`;
-        const byName = await search({ q: '  ค้นเจอ ' });
+        await owner.$executeRaw`UPDATE users SET display_name='Somying Findable', extension='1042' WHERE tenant_id=${tenantId}::uuid AND id=${target.userId}::uuid`;
+        const byName = await search({ q: '  Findable ' });
         assert.equal(byName.headers.get('cache-control'), 'no-store');
         assert.deepEqual(
           (await readPage(byName)).items.map((item) => item.id),
@@ -354,10 +357,10 @@ test('People directory HTTP/RLS: pagination/detail และ positive tenant aut
           items: [],
           nextCursor: null,
         });
-        // wildcard ของ LIKE ถูกตีความเป็นตัวอักษรธรรมดา
+        // the LIKE wildcard is interpreted as an ordinary character
         assert.deepEqual(await readPage(await search({ q: '%' })), { items: [], nextCursor: null });
         assert.deepEqual(await readPage(await search({ q: '_' })), { items: [], nextCursor: null });
-        // คำค้นว่างเท่ากับไม่กรอง และ cursor ผูกกับคำค้น
+        // an empty query equals no filter, and the cursor binds to the query
         const page = await readPage(await search({ q: ' ', limit: 20 }));
         assert.equal(page.items.length, 20);
         assert.equal(typeof page.nextCursor, 'string');
@@ -368,22 +371,22 @@ test('People directory HTTP/RLS: pagination/detail และ positive tenant aut
           await search({ q: 'page-', limit: 20, cursor: pageQuery.nextCursor }),
         );
         assert.equal(nextQuery.items.length, 1);
-        // fixture ตั้ง state ขอบโดยตรง ข้าม trigger ของ lifecycle เฉพาะใน transaction นี้
+        // the fixture sets edge states directly, skipping the lifecycle trigger only inside this transaction
         const lifecycleState = (state: string) =>
           owner.$transaction([
             owner.$executeRawUnsafe(`SET LOCAL session_replication_role = replica`),
             owner.$executeRaw`UPDATE tenant_user_lifecycles SET account_state=${state} WHERE tenant_id=${tenantId}::uuid AND user_id=${target.userId}::uuid`,
           ]);
-        // status กรองด้วยสถานะเดียวกับ chip ของ Console ไม่ใช่ accountState ดิบ
+        // status filters by the same status as the Console chip, not the raw accountState
         await lifecycleState('PENDING_ACTIVATION');
         assert.deepEqual(
-          (await readPage(await search({ q: 'ค้นเจอ', status: 'PROVISIONING' }))).items.map(
+          (await readPage(await search({ q: 'Findable', status: 'PROVISIONING' }))).items.map(
             (item) => item.id,
           ),
           [target.userId],
         );
         assert.deepEqual(
-          await readPage(await search({ q: 'ค้นเจอ', status: 'PENDING_ACTIVATION' })),
+          await readPage(await search({ q: 'Findable', status: 'PENDING_ACTIVATION' })),
           {
             items: [],
             nextCursor: null,
@@ -394,7 +397,7 @@ test('People directory HTTP/RLS: pagination/detail และ positive tenant aut
           .map((item) => item.id)
           .sort();
         assert.deepEqual(bootstrapIds, [adminId, secondAdminId].sort());
-        // cursor ผูกกับ teamId/status ด้วย
+        // the cursor also binds teamId/status
         const teamPage = await readPage(
           await search({ teamId, status: 'PROVISIONING', limit: 20 }),
         );
@@ -425,28 +428,31 @@ test('People directory HTTP/RLS: pagination/detail และ positive tenant aut
           assert.equal(response.status, 400);
           assert.equal(JSON.stringify(await readObject(response)).includes('xxxxxxxx'), false);
         }
-        assert.equal((await request('?q=ค้นเจอ')).status, 400);
+        assert.equal((await request('?q=Findable')).status, 400);
         for (const token of ['agent', 'supervisor', 'protected'])
-          assert.equal((await search({ q: 'ค้นเจอ' }, token)).status, 403);
-        assert.deepEqual(await readPage(await search({ q: 'ค้นเจอ' }, 'foreign')), {
+          assert.equal((await search({ q: 'Findable' }, token)).status, 403);
+        assert.deepEqual(await readPage(await search({ q: 'Findable' }, 'foreign')), {
           items: [],
           nextCursor: null,
         });
       },
     );
 
-    await suite.test('revoke positive proof มีผลต่อ caller และ target ทุก request', async () => {
-      await owner.$executeRaw`UPDATE tenant_voice_identity_bindings SET revision=revision+1,is_active=false WHERE tenant_id=${tenantId}::uuid AND user_id=${secondAdminId}::uuid`;
-      assert.equal((await request(`/${secondAdminId}`)).status, 404);
-      assert.equal((await request('', 'second-admin')).status, 403);
-      const directory = await readPage(await request('?limit=100'));
-      assert.equal(
-        directory.items.some((item) => item.id === secondAdminId),
-        false,
-      );
-    });
     await suite.test(
-      'known legacy Agent ไม่มี B2 lifecycle แสดง UNKNOWN/read-only โดยไม่ adopt identity',
+      'revoking positive proof takes effect for caller and target on every request',
+      async () => {
+        await owner.$executeRaw`UPDATE tenant_voice_identity_bindings SET revision=revision+1,is_active=false WHERE tenant_id=${tenantId}::uuid AND user_id=${secondAdminId}::uuid`;
+        assert.equal((await request(`/${secondAdminId}`)).status, 404);
+        assert.equal((await request('', 'second-admin')).status, 403);
+        const directory = await readPage(await request('?limit=100'));
+        assert.equal(
+          directory.items.some((item) => item.id === secondAdminId),
+          false,
+        );
+      },
+    );
+    await suite.test(
+      'a known legacy Agent without a B2 lifecycle shows UNKNOWN/read-only without adopting the identity',
       async () => {
         const legacyId = randomUUID();
         await owner.user.create({

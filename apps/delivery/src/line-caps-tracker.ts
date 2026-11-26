@@ -1,9 +1,9 @@
 /**
- * Owner: Delivery/Channels — atomic simulated caps ของ LINE profile (S1.6, decision #102 §6)
+ * Owner: Delivery/Channels — atomic simulated caps of the LINE profile (S1.6, decision #102 §6)
  *
- * fixture cap เป็น test contract ไม่ใช่ LINE quota/SLA จริง บังคับต่อ scope tuple เดียว
- * (tenant + LINE + senderIdentityId) เท่านั้น — guard tenant/sender อื่นมี counter ของ
- * ตัวเองแยกกันเสมอเพราะ key ผูกกับ scope ไม่ใช่ process ทั้งตัว
+ * The fixture cap is a test contract, not the real LINE quota/SLA. Enforced per a single scope tuple
+ * (tenant + LINE + senderIdentityId) only — a guard for another tenant/sender always has its
+ * own separate counter because the key is bound to the scope, not to the whole process.
  */
 import { LINE_SIMULATION_CAPS, scopeKey, type LineScopeTuple } from './line-simulation-fixture.js';
 
@@ -15,7 +15,7 @@ export type LineCapExceededCode =
 
 export class LineCapExceededError extends Error {
   constructor(readonly code: LineCapExceededCode) {
-    super(`เกิน simulated cap ของ LINE profile: ${code}`);
+    super(`simulated cap of the LINE profile exceeded: ${code}`);
     this.name = 'LineCapExceededError';
   }
 }
@@ -50,7 +50,7 @@ export class LineCapsTracker {
     return timestamps.filter((ts) => ts > cutoff);
   }
 
-  /** ต้องเรียกก่อน cross submission barrier เท่านั้น; ไม่ mutate เมื่อ cap เกิน */
+  /** Must be called before crossing the submission barrier only; does not mutate when the cap is exceeded */
   reserveSubmission(scope: LineScopeTuple, contactId: string, nowMs: number): void {
     const state = this.stateFor(scope);
     const windowSubmissions = this.prune(state.submissionTimestampsMs, nowMs);
@@ -75,7 +75,7 @@ export class LineCapsTracker {
     state.concurrentSubmissions += 1;
   }
 
-  /** เรียกเมื่อ delivery ถึง terminal outcome (settled/cancelled/released) เพื่อคืนสิทธิ concurrent */
+  /** Called when a delivery reaches a terminal outcome (settled/cancelled/released) to return the concurrent allowance */
   releaseSubmission(scope: LineScopeTuple): void {
     const state = this.stateFor(scope);
     state.concurrentSubmissions = Math.max(0, state.concurrentSubmissions - 1);
@@ -97,7 +97,7 @@ export class LineCapsTracker {
     this.stateFor(scope).unknownReconcilingStartedAtMs.delete(deliveryId);
   }
 
-  /** deliveryId ที่ค้าง unknown เกิน threshold ตาม virtual clock ปัจจุบัน — caller สั่ง kill */
+  /** deliveryIds stuck unknown beyond the threshold per the current virtual clock — the caller orders a kill */
   findTimedOutUnknownReconciling(scope: LineScopeTuple, nowMs: number): string[] {
     const state = this.stateFor(scope);
     const timeout = LINE_SIMULATION_CAPS.unknownReconcilingTimeoutMs;

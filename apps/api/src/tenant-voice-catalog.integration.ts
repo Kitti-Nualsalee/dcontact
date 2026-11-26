@@ -52,7 +52,7 @@ const db = new PrismaClient({
   },
 });
 
-test('B1 authenticated HTTP → PostgreSQL/RLS: create/readback, command, quota, scope และ row-lock race', async (t) => {
+test('B1 authenticated HTTP → PostgreSQL/RLS: create/readback, command, quota, scope and a row-lock race', async (t) => {
   const tenantId = randomUUID(),
     otherTenant = randomUUID(),
     teamId = randomUUID(),
@@ -194,7 +194,7 @@ test('B1 authenticated HTTP → PostgreSQL/RLS: create/readback, command, quota,
       name: `Resource ${randomUUID()}`,
       ...extra,
     });
-  await t.test('fail closed readiness, role จริง และ domain active', async () => {
+  await t.test('fail closed readiness, the real role and an active domain', async () => {
     const response = await create();
     assert.equal(response.status, 503);
     assert.equal((await response.json()).code, 'RESOURCE_POLICY_NOT_READY');
@@ -219,7 +219,7 @@ test('B1 authenticated HTTP → PostgreSQL/RLS: create/readback, command, quota,
     );
   });
   await t.test(
-    'positive bootstrap binding: revoked/identity drift fail closed พร้อม audit/revision',
+    'positive bootstrap binding: revoked/identity drift fail closed with audit/revision',
     async () => {
       const admin = actors.get('admin')!;
       await owner.$executeRaw`UPDATE tenant_voice_identity_bindings SET revision=2,is_active=false WHERE tenant_id=${tenantId}::uuid AND user_id=${admin.id}::uuid`;
@@ -294,24 +294,23 @@ test('B1 authenticated HTTP → PostgreSQL/RLS: create/readback, command, quota,
   await owner.$executeRaw`INSERT INTO tenant_voice_provisioning_policies(tenant_id,revision,source_kind,accounts_limit,agents_limit,voice_queues_limit,skills_limit,approved_by_operator_subject,approved_at,approval_ref,reason) VALUES(${tenantId}::uuid,1,'UAT_EXPLICIT',20,10,10,10,'test-operator',now(),'B1-TEST','isolated sandbox')`;
   let createdId = '';
   await t.test(
-    'normalized create/readback + replay มี receipt/audit เดียว ไม่เปิด route',
+    'normalized create/readback + a replay has one receipt/audit and opens no route',
     async () => {
-      const body = { commandId: randomUUID(), teamId, name: '  Voice   ไทย 😀  ' };
+      const body = { commandId: randomUUID(), teamId, name: '  Voice   ไทย 😀  ' }; // allow-thai: Thai + emoji name normalization
       const response = await request('tenant-voice/queues', 'admin', body);
       const item = await response.json();
       assert.equal(response.status, 201, JSON.stringify(item));
       createdId = item.id;
-      assert.equal(item.name, 'Voice ไทย 😀');
+      assert.equal(item.name, 'Voice ไทย 😀'); // allow-thai: Thai + emoji name normalization
       assert.equal(item.isActive, false);
       assert.equal(item.voiceConfigVersion, 1);
       assert.equal(item.voiceWrapupPolicy, 'VOICE_NOTE_V1');
       assert.equal(item.configRevision, 1);
       assert.equal(item.policy.terminalAction, 'HANGUP');
       assert.deepEqual(await (await request(`tenant-voice/queues/${item.id}`)).json(), item);
+      const replayBody = { ...body, name: 'Voice ไทย 😀' }; // allow-thai: Thai + emoji name normalization
       assert.deepEqual(
-        await (
-          await request('tenant-voice/queues', 'admin', { ...body, name: 'Voice ไทย 😀' })
-        ).json(),
+        await (await request('tenant-voice/queues', 'admin', replayBody)).json(),
         item,
       );
       assert.equal(
@@ -331,11 +330,11 @@ test('B1 authenticated HTTP → PostgreSQL/RLS: create/readback, command, quota,
     },
   );
   await t.test(
-    'skills/code uniqueness, validation ไม่มี committed partial descriptor',
+    'skills/code uniqueness, validation has no committed partial descriptor',
     async () => {
-      const response = await create('skills', { name: 'ทักษะภาษา', code: 'LANG_TH' });
+      const response = await create('skills', { name: 'Language skill', code: 'LANG_TH' });
       assert.equal(response.status, 201, await response.text());
-      assert.equal((await create('skills', { name: 'ชื่อใหม่', code: 'LANG_TH' })).status, 409);
+      assert.equal((await create('skills', { name: 'New name', code: 'LANG_TH' })).status, 409);
       for (const extra of [
         { name: '\u0001bad' },
         { name: '😀'.repeat(121) },
@@ -349,7 +348,7 @@ test('B1 authenticated HTTP → PostgreSQL/RLS: create/readback, command, quota,
     },
   );
   await t.test(
-    'Supervisor เห็นเฉพาะ team, foreign detail 404 และ legacy namespace กันทางข้าม',
+    'a Supervisor sees only the team, a foreign detail is 404 and the legacy namespace blocks cross-over',
     async () => {
       const r = await create('queues', { teamId: otherTeam });
       const outside = await r.json();
@@ -395,69 +394,75 @@ test('B1 authenticated HTTP → PostgreSQL/RLS: create/readback, command, quota,
       );
     },
   );
-  await t.test('cursor keyset ผูก live scope/filter; old code=null skill ยังอ่านได้', async () => {
-    await owner.skill.create({ data: { tenantId, name: `legacy ${randomUUID()}` } });
-    const first = await (await request('tenant-voice/queues?limit=1', 'supervisor')).json();
-    // เพิ่มอีกหนึ่งรายการใน team เพื่อให้มีหน้าถัดไป
-    await create();
-    const page = await (await request('tenant-voice/queues?limit=1', 'supervisor')).json();
-    assert.ok(page.nextCursor);
-    const next = await (
-      await request(`tenant-voice/queues?limit=1&cursor=${page.nextCursor}`, 'supervisor')
-    ).json();
-    assert.notEqual(next.items[0].id, page.items[0].id);
-    assert.equal(
-      (await request(`tenant-voice/skills?cursor=${page.nextCursor}`, 'supervisor')).status,
-      400,
-    );
-    await owner.user.update({
-      where: { id: actors.get('supervisor')!.id },
-      data: { teamId: otherTeam },
-    });
-    assert.equal(
-      (await request(`tenant-voice/queues?cursor=${page.nextCursor}`, 'supervisor')).status,
-      400,
-    );
-    const skills = await (await request('tenant-voice/skills')).json();
-    assert.ok(
-      skills.items.some(
-        (x: { legacy: boolean; code: string | null }) => x.legacy && x.code === null,
-      ),
-    );
-    assert.equal((await request('tenant-voice/queues?limit=101')).status, 400);
-    assert.equal((await request('tenant-voice/queues?cursor=%%')).status, 400);
-    assert.ok(first.items.length);
-  });
-  await t.test('NOWAIT หลัง fence ไม่ขวาง A1 User-first หรือ implicit FK lock', async () => {
-    let held!: () => void, release!: () => void;
-    const locked = new Promise<void>((r) => (held = r)),
-      gate = new Promise<void>((r) => (release = r));
-    const blocker = owner.$transaction(
-      async (tx) => {
-        await tx.$queryRaw`SELECT id FROM users WHERE id=${actors.get('admin')!.id}::uuid FOR NO KEY UPDATE`;
-        held();
-        await gate;
-      },
-      { timeout: 10000 },
-    );
-    await locked;
-    const start = Date.now();
-    try {
-      const r = await create();
-      const b = await r.json();
-      assert.equal(r.status, 409, JSON.stringify(b));
-      assert.equal(b.code, 'CONFIG_BUSY');
-      assert.ok(Date.now() - start < 1800);
-      await assert.rejects(
-        () =>
-          owner.$executeRaw`UPDATE tenant_voice_identity_bindings SET revision=revision+1 WHERE tenant_id=${tenantId}::uuid AND user_id=${actors.get('admin')!.id}::uuid`,
+  await t.test(
+    'the keyset cursor binds the live scope/filter; an old code=null skill can still be read',
+    async () => {
+      await owner.skill.create({ data: { tenantId, name: `legacy ${randomUUID()}` } });
+      const first = await (await request('tenant-voice/queues?limit=1', 'supervisor')).json();
+      // add one more item in the team so there is a next page
+      await create();
+      const page = await (await request('tenant-voice/queues?limit=1', 'supervisor')).json();
+      assert.ok(page.nextCursor);
+      const next = await (
+        await request(`tenant-voice/queues?limit=1&cursor=${page.nextCursor}`, 'supervisor')
+      ).json();
+      assert.notEqual(next.items[0].id, page.items[0].id);
+      assert.equal(
+        (await request(`tenant-voice/skills?cursor=${page.nextCursor}`, 'supervisor')).status,
+        400,
       );
-    } finally {
-      release();
-      await blocker;
-    }
-    assert.equal((await create()).status, 201);
-  });
+      await owner.user.update({
+        where: { id: actors.get('supervisor')!.id },
+        data: { teamId: otherTeam },
+      });
+      assert.equal(
+        (await request(`tenant-voice/queues?cursor=${page.nextCursor}`, 'supervisor')).status,
+        400,
+      );
+      const skills = await (await request('tenant-voice/skills')).json();
+      assert.ok(
+        skills.items.some(
+          (x: { legacy: boolean; code: string | null }) => x.legacy && x.code === null,
+        ),
+      );
+      assert.equal((await request('tenant-voice/queues?limit=101')).status, 400);
+      assert.equal((await request('tenant-voice/queues?cursor=%%')).status, 400);
+      assert.ok(first.items.length);
+    },
+  );
+  await t.test(
+    'NOWAIT after the fence does not block A1 User-first or an implicit FK lock',
+    async () => {
+      let held!: () => void, release!: () => void;
+      const locked = new Promise<void>((r) => (held = r)),
+        gate = new Promise<void>((r) => (release = r));
+      const blocker = owner.$transaction(
+        async (tx) => {
+          await tx.$queryRaw`SELECT id FROM users WHERE id=${actors.get('admin')!.id}::uuid FOR NO KEY UPDATE`;
+          held();
+          await gate;
+        },
+        { timeout: 10000 },
+      );
+      await locked;
+      const start = Date.now();
+      try {
+        const r = await create();
+        const b = await r.json();
+        assert.equal(r.status, 409, JSON.stringify(b));
+        assert.equal(b.code, 'CONFIG_BUSY');
+        assert.ok(Date.now() - start < 1800);
+        await assert.rejects(
+          () =>
+            owner.$executeRaw`UPDATE tenant_voice_identity_bindings SET revision=revision+1 WHERE tenant_id=${tenantId}::uuid AND user_id=${actors.get('admin')!.id}::uuid`,
+        );
+      } finally {
+        release();
+        await blocker;
+      }
+      assert.equal((await create()).status, 201);
+    },
+  );
   await t.test(
     'runtime shared fence blocks config; quota race counts inactive and legacy',
     async () => {
@@ -502,7 +507,7 @@ test('B1 authenticated HTTP → PostgreSQL/RLS: create/readback, command, quota,
       );
     },
   );
-  await t.test('policy pin/approval revision และ caps เป็น operator authority', async () => {
+  await t.test('policy pin/approval revision and caps are operator authority', async () => {
     await owner.tenantPlanBinding.create({
       data: {
         tenantId,
@@ -557,7 +562,7 @@ test('B1 authenticated HTTP → PostgreSQL/RLS: create/readback, command, quota,
       }),
     );
     const missingReceipt = randomUUID();
-    // Prisma 5 อาจ resolve COMMIT ที่ deferred constraint ปฏิเสธ: ตรวจ committed state โดยตรง
+    // Prisma 5 may resolve a COMMIT that a deferred constraint rejected: check the committed state directly
     await withTenantDatabaseTransaction(
       db,
       tenantId,

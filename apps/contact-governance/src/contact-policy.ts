@@ -41,7 +41,7 @@ export function evaluateContactPolicy(facts: ContactPolicyFacts): ContactPolicyR
     };
   }
 
-  // แยกจาก NOT_FOUND เพื่อให้ query หา event ที่ต้อง re-drive หลัง import contact point ได้
+  // separate from NOT_FOUND so a query can find events to re-drive after importing a contact point
   if (facts.identityResolution === 'IDENTITY_MAPPING_PENDING') {
     return {
       decision: 'REVIEW',

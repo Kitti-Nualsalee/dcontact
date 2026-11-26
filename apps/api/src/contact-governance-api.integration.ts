@@ -158,7 +158,7 @@ function post(url: string, token: string, body: unknown, idempotencyKey = random
   });
 }
 
-test('external read ใช้ service scope, ETag และ evidence audit ที่ผูก clientId จาก token', async (t) => {
+test('external read uses the service scope, ETag and an evidence audit bound to the clientId from the token', async (t) => {
   const { tenantId, contactId, clientId, base } = await fixture(t);
   const now = new Date().toISOString();
   const created = await post(`${base}/preferences`, 'admin-token', {
@@ -203,7 +203,7 @@ test('external read ใช้ service scope, ETag และ evidence audit ท�
   assert.equal(audit?.aggregateId, contactId);
 });
 
-test('agent ถูกจำกัดให้ทำได้แค่ restrictive preference; admin relax ได้', async (t) => {
+test('an agent is limited to restrictive preferences only; an admin can relax', async (t) => {
   const { contactId, base } = await fixture(t);
   const now = new Date().toISOString();
 
@@ -250,7 +250,7 @@ test('agent ถูกจำกัดให้ทำได้แค่ restrictiv
   assert.equal(adminAllow.status, 201);
 });
 
-test('duplicate idempotency-key เดิม+hash เดิมคืน response เดิม; hash ต่าง 409; version stale 409', async (t) => {
+test('a duplicate idempotency-key with the same hash returns the same response; a different hash is 409; a stale version is 409', async (t) => {
   const { contactId, base } = await fixture(t);
   const now = new Date().toISOString();
   const idempotencyKey = randomUUID();
@@ -291,7 +291,7 @@ test('duplicate idempotency-key เดิม+hash เดิมคืน response
   assert.equal(((await staleVersion.json()) as { code: string }).code, 'VERSION_CONFLICT');
 });
 
-test('CRM service principal สร้าง preference ผ่าน route เดียวกับ agent/admin (dual-mode guard)', async (t) => {
+test('a CRM service principal creates a preference through the same route as agent/admin (dual-mode guard)', async (t) => {
   const { contactId, base } = await fixture(t);
   const now = new Date().toISOString();
 
@@ -309,8 +309,8 @@ test('CRM service principal สร้าง preference ผ่าน route เด
   });
   assert.equal(response.status, 201);
 
-  // agent (workspace) token ไม่มีสิทธิ CRM sourceKind และ service token ไม่มีสิทธิ์ agent role —
-  // แต่ทั้งคู่ยิง route เดียวกันได้เพราะ guard รองรับ dual-mode
+  // an agent (workspace) token has no permission for the CRM sourceKind and a service token has no agent role permission —
+  // but both can hit the same route because the guard supports dual-mode
   const wrongService = await fetch(`${base}/preferences`, {
     method: 'POST',
     headers: { authorization: 'Bearer wrong-role-token' },
@@ -318,7 +318,7 @@ test('CRM service principal สร้าง preference ผ่าน route เด
   assert.equal(wrongService.status, 401);
 });
 
-test('revoke preference ที่ active สำเร็จ; revoke ตัวที่ถูก supersede แล้วคืน 404 ทั่วไป', async (t) => {
+test('revoking an active preference succeeds; revoking one already superseded returns a generic 404', async (t) => {
   const { contactId, base } = await fixture(t);
   const now = new Date().toISOString();
 
@@ -356,7 +356,7 @@ test('revoke preference ที่ active สำเร็จ; revoke ตัวท
   assert.equal(((await revokeAgain.json()) as { code: string }).code, 'RESOURCE_NOT_FOUND');
 });
 
-test('callback-requests สร้างได้ และคืน one-use token ครั้งเดียว', async (t) => {
+test('callback-requests can be created and return a one-use token exactly once', async (t) => {
   const { contactId, base } = await fixture(t);
   const now = new Date();
 
@@ -379,7 +379,7 @@ test('callback-requests สร้างได้ และคืน one-use toke
   assert.equal(body.callbackRequest.mutationKind, 'REQUEST');
 });
 
-test('legacy policy publish alias เข้าทาง CG4: approvalRef อย่างเดียว publish ไม่ได้', async (t) => {
+test('the legacy policy publish alias goes through CG4: an approvalRef alone cannot publish', async (t) => {
   const { tenantId, base } = await fixture(t);
   const policyRowId = randomUUID();
   const policyId = randomUUID();
@@ -412,8 +412,8 @@ test('legacy policy publish alias เข้าทาง CG4: approvalRef อย�
     'POLICY_APPROVAL_REQUIRED',
   );
 
-  // CG4.10 (#193): approvalRef ที่เป็นแค่ string ไม่ใช่ authority (#179 §2) — row ที่ยังไม่ backfill
-  // เข้า CG4 ไม่มี test/quorum/head ให้ตรวจ จึง fail closed และ CG3 row ไม่ถูกแตะ
+  // CG4.10 (#193): an approvalRef that is just a string is not authority (#179 §2) — a row not yet backfilled
+  // into CG4 has no test/quorum/head to check, so it fails closed and the CG3 row is not touched
   const bypass = await post(`${base}/policies/${policyRowId}/publish`, 'compliance-token', {
     expectedVersion: 1,
     approvalRef: 'approval-001',
@@ -431,7 +431,7 @@ test('legacy policy publish alias เข้าทาง CG4: approvalRef อย�
   assert.equal(row.approvalRef, null);
 });
 
-test('effective-policy และ decision query คืน generic 404 ข้าม tenant พร้อม ETag', async (t) => {
+test('effective-policy and decision queries return a generic cross-tenant 404 with an ETag', async (t) => {
   const { tenantId, contactId, base } = await fixture(t);
   await owner.cgPolicy.create({
     data: {
@@ -462,7 +462,7 @@ test('effective-policy และ decision query คืน generic 404 ข้า�
     `${base}/contacts/${randomUUID()}/effective-policy?channel=LINE&purpose=MARKETING`,
     { headers: { authorization: 'Bearer admin-token' } },
   );
-  assert.equal(crossTenantContact.status, 200); // effective-policy ไม่ผูก contact จริง แค่ scope
+  assert.equal(crossTenantContact.status, 200); // effective-policy is not bound to a real contact, only the scope
 
   const missingDecision = await fetch(`${base}/decisions/${randomUUID()}`, {
     headers: { authorization: 'Bearer admin-token' },
@@ -471,7 +471,7 @@ test('effective-policy และ decision query คืน generic 404 ข้า�
   assert.equal(((await missingDecision.json()) as { code: string }).code, 'RESOURCE_NOT_FOUND');
 });
 
-test('effective-preference คืน canonical decision/version โดยไม่ให้ Console สรุปจาก history เอง', async (t) => {
+test('effective-preference returns the canonical decision/version without the Console summarizing from history itself', async (t) => {
   const { contactId, base } = await fixture(t);
   const now = new Date().toISOString();
   const created = await post(`${base}/preferences`, 'admin-token', {
@@ -498,7 +498,7 @@ test('effective-preference คืน canonical decision/version โดยไม�
   });
 });
 
-test('contact history รวม callback แบบ append-only เพื่อให้ UI ส่ง expectedVersion ของ callback series ถูกต้อง', async (t) => {
+test('contact history includes callbacks append-only so the UI sends the right expectedVersion of the callback series', async (t) => {
   const { contactId, base } = await fixture(t);
   const now = new Date().toISOString();
   const callback = await post(`${base}/callback-requests`, 'admin-token', {
@@ -534,7 +534,7 @@ test('contact history รวม callback แบบ append-only เพื่อ�
   );
 });
 
-test('body ที่ส่ง tenantId มาเองถูกปฏิเสธ; token ที่ไม่มี role ที่ถูกต้องได้ 403', async (t) => {
+test('a body that sends its own tenantId is rejected; a token without the right role gets 403', async (t) => {
   const { contactId, base } = await fixture(t);
   const now = new Date().toISOString();
 
@@ -562,6 +562,6 @@ test('body ที่ส่ง tenantId มาเองถูกปฏิเส�
     evidenceRef: 'evidence-po',
     expectedVersion: 0,
   }).catch(() => undefined);
-  // token ไม่รู้จักเลย (ไม่ได้ตั้งไว้ใน fake verifier) -> ปฏิเสธที่ authentication เสมอ
+  // a token that is entirely unknown (not set in the fake verifier) -> always rejected at authentication
   assert.equal(platformOperatorForbidden?.status, 401);
 });

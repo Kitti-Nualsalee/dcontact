@@ -15,7 +15,7 @@ for (const kind of ['queues', 'skills', 'people'] as const)
         data: { id: teamId, tenantId: f.tenantId, name: 'Writer fixture' },
       });
       await f.owner
-        .$executeRaw`INSERT INTO tenant_voice_provisioning_policies(tenant_id,revision,source_kind,accounts_limit,agents_limit,voice_queues_limit,skills_limit,approved_by_operator_subject,approved_at,approval_ref,reason,extension_pool) VALUES(${f.tenantId}::uuid,1,'UAT_EXPLICIT',50,20,10,10,'fixture-operator',now(),'isolated-writers','ทดสอบ transaction races','[]'::jsonb)`;
+        .$executeRaw`INSERT INTO tenant_voice_provisioning_policies(tenant_id,revision,source_kind,accounts_limit,agents_limit,voice_queues_limit,skills_limit,approved_by_operator_subject,approved_at,approval_ref,reason,extension_pool) VALUES(${f.tenantId}::uuid,1,'UAT_EXPLICIT',50,20,10,10,'fixture-operator',now(),'isolated-writers','Transaction races test','[]'::jsonb)`;
       const admin = f.actors.get('admin')!;
       const actor: VoiceActor = {
         tenantId: f.tenantId,

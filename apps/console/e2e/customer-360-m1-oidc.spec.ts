@@ -17,7 +17,10 @@ async function login(page: Page, request: APIRequestContext, alias: string) {
   return config;
 }
 
-test('OIDC จริง: deep link, สร้างแท็ก, reload session และถอนสิทธิ์', async ({ page, request }) => {
+test('real OIDC: deep link, create a tag, reload the session and revoke permission', async ({
+  page,
+  request,
+}) => {
   await request.post('/__core_test/restore');
   await login(page, request, 'admin');
   await expect(page.getByRole('heading', { name: 'จัดการแท็ก' })).toBeVisible();
@@ -35,14 +38,17 @@ test('OIDC จริง: deep link, สร้างแท็ก, reload session 
   await request.post('/__core_test/restore');
 });
 
-test('OIDC จริง: Supervisor เปิด deep link ไม่เห็น catalog', async ({ page, request }) => {
+test('real OIDC: a Supervisor opening the deep link sees no catalog', async ({ page, request }) => {
   await request.post('/__core_test/restore');
   await login(page, request, 'supervisor');
   await expect(page.getByRole('alert')).toContainText('ไม่สามารถเข้าถึงแท็ก');
   await expect(page.getByRole('table')).toHaveCount(0);
 });
 
-test('OIDC จริง: reload กู้ผลที่คำตอบหายโดยไม่สร้างแท็กซ้ำ', async ({ page, request }) => {
+test('real OIDC: reload recovers a result whose answer was lost without creating a duplicate tag', async ({
+  page,
+  request,
+}) => {
   await request.post('/__core_test/restore');
   await login(page, request, 'admin');
   let dropped = false;

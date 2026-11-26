@@ -5,7 +5,7 @@ export interface C360WriteRuntime {
   readonly ready: boolean;
 }
 
-/** ค่า integrity จาก pnpm-lock.yaml; เปลี่ยนเฉพาะพร้อม parser upgrade และ collision review */
+/** the integrity value from pnpm-lock.yaml; changed only together with a parser upgrade and a collision review */
 export const C360_PARSER_INTEGRITY: Readonly<Record<string, string>> = Object.freeze({
   'libphonenumber-js@1.13.15':
     'sha512-AHdhEQeDFEJ4GKDAQ9AwxChy+v2kUILUB3TGQRpkXMkWePjXTU/WQEzWVQoIx/Gz8fE73Wr5SEuZCy2vk8jrMQ==',
@@ -20,9 +20,9 @@ export const C360_PARSER_INTEGRITY: Readonly<Record<string, string>> = Object.fr
 });
 
 /**
- * ตรวจ parser ที่โหลดจริงตอนเริ่ม API; production ต้องมี release manifest ที่ตรง image digest,
- * Node/ICU/Unicode, normalization versions, metadata hash และ lockfile integrity ด้วย
- * ค่า digest ต้องมาจาก deployment metadata ที่ผู้ดูแล release ตรวจสอบ ไม่ใช่ attestation ของตัว image เอง
+ * checks the parser actually loaded at API start; production needs a release manifest that matches the image digest,
+ * Node/ICU/Unicode, normalization versions, the metadata hash and the lockfile integrity too
+ * the digest value must come from deployment metadata that the release maintainer verifies, not an attestation by the image itself
  */
 export function createC360WriteRuntime(env: NodeJS.ProcessEnv = process.env): C360WriteRuntime {
   try {

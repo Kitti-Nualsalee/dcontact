@@ -7,7 +7,7 @@ const root = resolve(import.meta.dirname, '..');
 const read = (path) => readFileSync(resolve(root, path), 'utf8');
 const param = (xml, name) => xml.match(new RegExp(`<param name="${name}" value="([^"]*)"`))?.[1];
 
-test('#667: synthetic inbound รอ Router โดยไม่ bridge แข่งกับ local dialplan', () => {
+test('#667: a synthetic inbound waits for the Router without bridging in a race with the local dialplan', () => {
   const dialplan = read('infra/uat/e1-freeswitch/conf/dialplan/default.xml');
   const extensions = [...dialplan.matchAll(/<extension name="([^"]+)">([\s\S]*?)<\/extension>/g)];
   const inbound = extensions[0];
@@ -49,7 +49,7 @@ test('#667: synthetic inbound รอ Router โดยไม่ bridge แข่�
   assert.match(extensions[2][2], /application="hangup" data="CALL_REJECTED"/);
 });
 
-test('#657: UAT WSS proxy ไม่ทำให้ FreeSWITCH advertise media เป็น Docker IP', () => {
+test('#657: the UAT WSS proxy does not make FreeSWITCH advertise media as a Docker IP', () => {
   const profile = read('infra/uat/e1-freeswitch/conf/sip_profiles/internal.xml');
   assert.equal(param(profile, 'local-network-acl'), 'none');
   assert.equal(param(profile, 'ext-rtp-ip'), '$${external_rtp_ip}');
@@ -59,7 +59,7 @@ test('#657: UAT WSS proxy ไม่ทำให้ FreeSWITCH advertise media �
   assert.match(read('infra/uat/docker-compose.uat.yml'), /internal:\s*\n\s*internal: true/);
 });
 
-test('#562: trunk จำลอง pstn-sim รับสายเฉพาะ ACL บน 5080 และไม่รับ register', () => {
+test('#562: the simulated pstn-sim trunk accepts calls only from the ACL on 5080 and accepts no register', () => {
   const profile = read('infra/freeswitch/conf/sip_profiles/pstn-sim.xml');
   assert.equal(param(profile, 'sip-port'), '5080');
   assert.equal(param(profile, 'context'), 'pstn');
@@ -71,12 +71,12 @@ test('#562: trunk จำลอง pstn-sim รับสายเฉพาะ ACL
 
   const acl = read('infra/freeswitch/conf/autoload_configs/acl.conf.xml');
   const list = acl.match(/<list name="dcontact_pstn_sim" default="deny">([\s\S]*?)<\/list>/)?.[1];
-  assert.ok(list, 'ต้องมี ACL dcontact_pstn_sim แบบ default deny');
+  assert.ok(list, 'the ACL dcontact_pstn_sim with default deny must exist');
   assert.match(list, /type="deny" cidr="172\.17\.0\.1\/32"/);
   assert.doesNotMatch(list, /0\.0\.0\.0\/0|default="allow"/);
 });
 
-test('#562/#977: context pstn park สายจาก Kamailio ได้ 2000–2009 สายไม่มี header ได้แค่ 2000/2001 ไม่มี bridge', () => {
+test('#562/#977: the pstn context parks calls from Kamailio on 2000-2009, calls without a header only on 2000/2001, with no bridge', () => {
   const dialplan = read('infra/freeswitch/conf/dialplan/pstn.xml');
   const context = dialplan.match(/<context name="pstn">([\s\S]*?)<\/context>/)?.[1];
   assert.ok(context);
@@ -90,28 +90,28 @@ test('#562/#977: context pstn park สายจาก Kamailio ได้ 2000–
   assert.deepEqual(applications, ['set', 'unset', 'park', 'set', 'park']);
 });
 
-test('#923: สายจาก Kamailio ใช้ domain ของ tenant จาก X-DContact-Domain และลบ header ก่อน park', () => {
+test('#923: a call from Kamailio uses the tenant domain from X-DContact-Domain and removes the header before parking', () => {
   const dialplan = read('infra/freeswitch/conf/dialplan/pstn.xml');
   const edge = dialplan.match(
     /<extension name="dcontact-inbound-voice-edge">([\s\S]*?)<\/extension>/,
   )?.[1];
-  assert.ok(edge, 'ต้องมี extension ของสายที่ผ่าน Kamailio');
+  assert.ok(edge, 'an extension for calls through Kamailio must exist');
   assert.match(edge, /<condition field="\$\{sip_h_X-DContact-Domain\}"/);
   assert.match(edge, /data="domain_name=\$\{sip_h_X-DContact-Domain\}"/);
   assert.match(edge, /application="unset" data="sip_h_X-DContact-Domain"/);
   assert.ok(
     dialplan.indexOf('dcontact-inbound-voice-edge') < dialplan.indexOf('"dcontact-inbound-voice"'),
-    'extension ของ Kamailio ต้องมาก่อน extension เดิมที่ใช้ domain ปริยาย',
+    'the Kamailio extension must come before the existing extension that uses the default domain',
   );
 });
 
-test('#562: พอร์ต trunk จำลองไม่ publish ออก host', () => {
+test('#562: the simulated trunk port is not published to the host', () => {
   const compose = read('infra/docker/docker-compose.dev.yml');
   const freeswitch = compose.slice(compose.indexOf('  freeswitch:'));
   assert.doesNotMatch(freeswitch.slice(0, freeswitch.indexOf('volumes:')), /5080/);
 });
 
-test('E1.10/#562: ไม่มี static SIP user หรือรหัสผ่าน dev ใน FreeSWITCH config และ SIPp fixture', () => {
+test('E1.10/#562: there is no static SIP user or dev password in the FreeSWITCH config and the SIPp fixtures', () => {
   assert.doesNotMatch(read('infra/freeswitch/conf/directory/default.xml'), /<user\b/);
   const files = [
     ...readdirSync(resolve(root, 'infra/freeswitch/conf'), { recursive: true })

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""เทียบ runtime กับ desired record ใน journal แบบอ่านอย่างเดียว ไม่อนุญาต recovery."""
+"""Compare the runtime to the desired record in the journal read-only; does not permit recovery."""
 from datetime import datetime, timezone
 import argparse
 import fcntl
@@ -47,7 +47,7 @@ def assess(root=ROOT, probe=None, execute=subprocess.run, evidence=None, now=Non
 
 
 def _assess_locked(root, probe=None, execute=subprocess.run, evidence=None, now=None):
-    """ใช้ภายในขณะ caller ถือ lock เดียวกันตลอด shared/exclusive transaction."""
+    """Used internally while the caller holds the same lock throughout the shared/exclusive transaction."""
     root = Path(root)
     before = JOURNAL.inspect_locked(root)
     journal = root / 'operator/uat-record-transaction'

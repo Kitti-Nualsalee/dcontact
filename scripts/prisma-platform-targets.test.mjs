@@ -5,7 +5,7 @@ import test from 'node:test';
 
 const schemaPath = resolve('packages/db/prisma/schema.prisma');
 
-test('Prisma Client รองรับ macOS ทั้ง Intel และ Apple Silicon', async () => {
+test('Prisma Client supports macOS on both Intel and Apple Silicon', async () => {
   const schema = await readFile(schemaPath, 'utf8');
   const binaryTargets = schema.match(/binaryTargets\s*=\s*\[([^\]]+)\]/s)?.[1] ?? '';
 

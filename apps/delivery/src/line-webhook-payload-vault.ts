@@ -1,12 +1,12 @@
 /**
- * Owner: Delivery/Channels — อ่าน operational payload ที่ ingress เข้ารหัสไว้ (S2.5 #369, #359 §C/§D)
+ * Owner: Delivery/Channels — read the operational payload that ingress encrypted (S2.5 #369, #359 §C/§D)
  *
- * worker และ manual replay ใช้ทางนี้ทางเดียว: decrypt ใน memory แล้วสกัดเฉพาะ field ที่ใช้ตัดสิน
- * (provider message ID, quoted message ID, one-to-one, fingerprint ของผู้ส่ง) — userId, body,
- * replyToken และ quoteToken ไม่ออกจากฟังก์ชันนี้ และไม่ถูกส่งต่อให้ layer ใด
+ * the worker and manual replay use this route only: decrypt in memory then extract only the fields used to decide
+ * (provider message ID, quoted message ID, one-to-one, sender fingerprint) — the userId, body,
+ * replyToken and quoteToken never leave this function and are never forwarded to any layer
  *
- * #566: `readPilotView` เป็นทางเดียวที่ข้อความ text ออกจาก vault — สำหรับหน้า read-only ของ pilot
- * ที่ role admin ของ tenant pilot อ่านได้และถูก audit; userId/replyToken/quoteToken ยังไม่ออก
+ * #566: `readPilotView` is the only way message text leaves the vault — for the read-only pilot page
+ * that an admin role of the pilot tenant can read and which is audited; the userId/replyToken/quoteToken still do not leave
  */
 import { createDecipheriv } from 'node:crypto';
 import {
@@ -18,7 +18,7 @@ import type { LineInboundProjection, LineWebhookPayloadReader } from './line-web
 import { lineSourceFingerprint } from './line-webhook-worker.js';
 
 export interface LinePayloadKeyring {
-  /** คืน key ตาม keyRef ที่ ingress บันทึกไว้ — rotate ได้โดยไม่ต้องอ่าน payload เดิมใหม่ */
+  /** return the key by the keyRef ingress recorded — can be rotated without re-reading the old payload */
   key(keyRef: string): Buffer | undefined;
 }
 
@@ -67,7 +67,7 @@ export class EncryptedLineWebhookPayloadVault implements LineWebhookPayloadReade
     };
   }
 
-  /** #566: มุมมองของหน้า pilot — text เฉพาะ `message/text` (ตัดที่ 5,000 ตัวอักษร), ผู้ส่งเป็น fingerprint */
+  /** #566: the view for the pilot page — text only from `message/text` (cut at 5,000 characters), the sender is a fingerprint */
   async readPilotView(
     tenantId: string,
     entry: DlLineWebhookInboxEntry,
@@ -90,8 +90,8 @@ export class EncryptedLineWebhookPayloadVault implements LineWebhookPayloadReade
   }
 
   /**
-   * S2.6b (#403): ทางเดียวที่ userId ของผู้ส่งออกจาก vault — ใช้บันทึก recipient ของ pilot ลง
-   * Keychain เท่านั้น ค่าอยู่ได้แค่ใน callback และเฉพาะ event แบบ one-to-one
+   * S2.6b (#403): the only way a sender's userId leaves the vault — used to record the pilot recipient into the
+   * Keychain only. The value may live only in the callback and only for a one-to-one event
    */
   async withOneToOneSourceUserId<T>(
     tenantId: string,
@@ -125,7 +125,7 @@ export class EncryptedLineWebhookPayloadVault implements LineWebhookPayloadReade
         'utf8',
       );
     } catch {
-      // auth tag ไม่ผ่าน = ciphertext ถูกแก้ ห้ามเดาเนื้อหา
+      // an auth tag that fails = the ciphertext was edited, must not guess the content
       return undefined;
     }
     return asObject(JSON.parse(plaintext) as unknown);

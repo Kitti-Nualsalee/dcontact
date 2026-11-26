@@ -36,7 +36,7 @@ import {
   type SharedRateLimitInput,
 } from './shared-rate-limiter.js';
 
-/** เวลาสูงสุดจากเริ่ม introspection ถึง commit ของ create (Phase Contract M3 v1 ข้อ 2) */
+/** the maximum time from the start of introspection to the commit of create (Phase Contract M3 v1 item 2) */
 export const C360_SERVICE_PROOF_DEADLINE_MS = 5_000;
 
 const denied = () => new Customer360HttpError(403, 'CUSTOMER_ACCESS_DENIED');
@@ -44,13 +44,13 @@ const identityUnavailable = () =>
   new Customer360HttpError(503, 'SERVICE_IDENTITY_UNAVAILABLE', true);
 
 /**
- * External customer API (#954): create/search/read/receipt ของ service principal
+ * External customer API (#954): create/search/read/receipt of the service principal
  *
- * - Gateway ตรวจ JWT, role `service` และ scope แล้ว แต่สิทธิ์จริงมาจาก binding, capability และ READ grant ใน DB
- *   ซึ่งตรวจใหม่ทุก request ภายใต้ row guard ของ principal (serialize กับ operator revoke/rebind)
- * - Create ตรวจ token แบบ online introspection นอก DB lock แล้วตรวจ binding/capability/custodian ซ้ำใต้ lock
- *   ไม่มี cache ผล active; ไม่มี introspector = create ปิด (503) ไม่ fail open
- * - ไม่ log body, token หรือค่า PII
+ * - the Gateway checks the JWT, the `service` role and the scope, but the real permission comes from the binding, capability and READ grant in the DB
+ *   which is rechecked on every request under the principal's row guard (serialized with operator revoke/rebind)
+ * - Create checks the token by online introspection outside the DB lock, then rechecks binding/capability/custodian under the lock
+ *   there is no cache of the active result; no introspector = create is closed (503), never fail open
+ * - never logs the body, token or PII values
  */
 export class Customer360ServiceApi implements Customer360ServicePort {
   constructor(
@@ -78,7 +78,7 @@ export class Customer360ServiceApi implements Customer360ServicePort {
     }
   }
 
-  /** Binding ที่ active ของ token นี้ พร้อม shared row guard ใน transaction; ไม่มี/ถูกปิด = 403 */
+  /** the active Binding of this token with a shared row guard in the transaction; none/closed = 403 */
   private async principal(tx: Prisma.TransactionClient, req: AuthenticatedGatewayRequest) {
     try {
       return await currentC360ServicePrincipal(tx, req);
@@ -93,7 +93,7 @@ export class Customer360ServiceApi implements Customer360ServicePort {
     try {
       limited = await this.limiter.consume({
         tenantId: identity.tenantId,
-        // bucket ต่อ service client; หมุน credential ไม่ได้ bucket ใหม่
+        // a bucket per service client; rotating the credential does not get a new bucket
         actorId: `service:${identity.issuer}|${identity.subject}|${identity.clientId}`,
         policy,
       });
@@ -104,7 +104,7 @@ export class Customer360ServiceApi implements Customer360ServicePort {
       throw new Customer360HttpError(429, 'RATE_LIMITED', true, limited.retryAfterSeconds);
   }
 
-  /** ยืนยันกับ IdP ว่า token นี้ยัง active ขณะนี้ แล้วคืนเวลาที่ effect ต้อง commit ให้ทัน */
+  /** confirms with the IdP that this token is still active right now, then returns the time by which the effect must commit */
   private async onlineProof(
     req: AuthenticatedGatewayRequest,
     identity: C360ServiceIdentity,
@@ -137,7 +137,7 @@ export class Customer360ServiceApi implements Customer360ServicePort {
     );
   }
 
-  /** Binding ที่ active ของ identity นี้แบบไม่ถือ lock; ใช้ก่อนได้ command lock เท่านั้น */
+  /** the active Binding of this identity without holding a lock; used only before getting the command lock */
   private async activeBinding(tx: Prisma.TransactionClient, identity: C360ServiceIdentity) {
     const [row] = await tx.$queryRaw<{ id: string; authz_epoch: bigint }[]>`
       SELECT id, authz_epoch FROM int_service_principals
@@ -148,9 +148,9 @@ export class Customer360ServiceApi implements Customer360ServicePort {
   }
 
   /**
-   * Command ของ service อยู่ใน actor namespace SERVICE ของ binding นี้เท่านั้น
-   * ลำดับ lock ตาม Phase Contract M3 v1 ข้อ 4: `authorize` ไม่ถือ lock แล้ว engine ถือ command lock
-   * จากนั้น `fence` จึงถือ row guard ของ principal (serialize กับ operator revoke/rebind)
+   * a service Command lives only in the actor namespace SERVICE of this binding
+   * lock order per Phase Contract M3 v1 item 4: `authorize` holds no lock, then the engine holds the command lock
+   * then `fence` holds the principal's row guard (serialized with operator revoke/rebind)
    */
   private async commandContext(req: AuthenticatedGatewayRequest, identity: C360ServiceIdentity) {
     const binding = await withTenantDatabaseTransaction(this.db, identity.tenantId, (tx) =>
@@ -176,7 +176,7 @@ export class Customer360ServiceApi implements Customer360ServicePort {
     return {
       actor: c360ServiceActor(identity, binding.id),
       authorization,
-      /** epoch ที่เห็นก่อน online proof; create ต้องไม่ผ่านถ้า operator เปลี่ยน binding หลังจากนี้ */
+      /** the epoch seen before the online proof; create must not pass if the operator changes the binding after this */
       authzEpoch: binding.authz_epoch,
       principal: () => current,
     };
@@ -192,7 +192,7 @@ export class Customer360ServiceApi implements Customer360ServicePort {
     await this.throttle(identity, C360_WRITE_POLICY);
     const context = await this.commandContext(req, identity);
     const deadline = await this.onlineProof(req, identity);
-    // หมดเวลาของ proof = ยังไม่ commit effect; client ส่ง commandId เดิมซ้ำได้อย่างปลอดภัย
+    // the proof timed out = the effect is not committed yet; the client can safely resend the same commandId
     const withinDeadline = () => {
       if (this.now() >= deadline) throw identityUnavailable();
     };
@@ -205,12 +205,12 @@ export class Customer360ServiceApi implements Customer360ServicePort {
       fence: async (tx) => {
         await context.authorization.fence!(tx);
         const principal = context.principal()!;
-        // operator แก้ binding/grant/custodian หลัง proof: ไม่ทำ effect ให้ client ส่งซ้ำเพื่อตรวจสิทธิ์ใหม่
+        // the operator changed the binding/grant/custodian after the proof: no effect, the client resends to recheck permission
         if (principal.authz_epoch !== context.authzEpoch)
           throw new Customer360HttpError(409, 'SERVICE_AUTHORIZATION_CHANGED', true);
         if (!(await authorizeC360ServiceCapability(tx, principal))) throw denied();
       },
-      // ตรวจหลัง audit/receipt/constraints โดยไม่เรียก network
+      // checked after audit/receipt/constraints without calling the network
       beforeCommit: async () => withinDeadline(),
     };
     const result = await executeC360ProfileCommand(
@@ -247,7 +247,7 @@ export class Customer360ServiceApi implements Customer360ServicePort {
         { isolationLevel: 'RepeatableRead' },
       );
     } catch (error) {
-      // operator แก้ principal หลัง snapshot ของ RepeatableRead แต่ก่อนถือ row guard: ให้ client ลองใหม่
+      // the operator edited the principal after the RepeatableRead snapshot but before taking the row guard: let the client retry
       const e = error as { code?: string; meta?: { code?: string } };
       if (e?.code === '40001' || e?.meta?.code === '40001' || e?.code === 'P2034')
         throw new Customer360HttpError(503, 'RESOURCE_BUSY', true);
@@ -255,7 +255,7 @@ export class Customer360ServiceApi implements Customer360ServicePort {
     }
   }
 
-  /** เฉพาะ core fields ของ Contact; ไม่ compose tags, Voice, governance หรือประวัติให้ machine */
+  /** only the core fields of a Contact; does not compose tags, Voice, governance or history for a machine */
   async profile(req: AuthenticatedGatewayRequest, contactId: string) {
     const identity = this.identity(req);
     let id: string;
@@ -297,7 +297,7 @@ export class Customer360ServiceApi implements Customer360ServicePort {
     const identity = this.identity(req);
     await this.throttle(identity, C360_RECEIPT_POLICY);
     const context = await this.commandContext(req, identity);
-    // reconcile เปลี่ยนสถานะของ command จึงต้องยืนยัน token แบบ online เหมือน create
+    // reconcile changes the command status, so the token must be confirmed online just like create
     await this.onlineProof(req, identity);
     send(
       response,

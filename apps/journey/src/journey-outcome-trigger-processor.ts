@@ -1,12 +1,12 @@
 /**
- * J2.7 — apply phase ของ interaction outcome receipt: resolve trusted current
- * contact identity/team scope, match published `INTERACTION_OUTCOME` trigger แล้ว
- * สร้าง enrollment + owner action intent atomic กับ receipt transition (#120,#122)
+ * J2.7 — the apply phase of the interaction outcome receipt: resolves trusted current
+ * contact identity/team scope, matches the published `INTERACTION_OUTCOME` trigger, then
+ * creates an enrollment + owner action intent atomically with the receipt transition (#120,#122)
  *
- * แยกจาก Kafka consumer (`journey-outcome-consumer.ts`) ที่ทำแค่ ingest ตามแบบ J2.3/
- * J2.8 เดิม: claim หนึ่งใบ, resolve ภายนอก transaction (read-only, ไม่ต้องถือ DB lock
- * ระหว่างรอ Customer 360/IAM ตอบ), แล้วเปิด transaction เดียวเฉพาะตอนต้อง persist
- * เพื่อให้ enrollment/action/receipt-transition เป็น atomic unit เดียว
+ * Separate from the Kafka consumer (`journey-outcome-consumer.ts`), which only ingests per the J2.3/
+ * J2.8 design: claim one, resolve outside the transaction (read-only, no need to hold a DB lock
+ * while waiting for Customer 360/IAM to answer), then open a single transaction only when something must be persisted
+ * so the enrollment/action/receipt-transition is one atomic unit
  */
 import { randomUUID } from 'node:crypto';
 import { Prisma, type PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
@@ -36,7 +36,7 @@ import { createJourneyActionKey } from './action-key.js';
 import { JourneyOwnerActionRepository } from './journey-owner-action-repository.js';
 import { JourneyOutcomeReceiptRepository } from './journey-outcome-receipt-repository.js';
 
-/** เนื้อหาขั้นต่ำที่ `journey-outcome-consumer.ts` ต้อง persist ไว้ตอน ingest — ดู #120 */
+/** The minimum content `journey-outcome-consumer.ts` must persist at ingest — see #120 */
 export interface InteractionOutcomeReceiptPayload {
   interactionId: string;
   contactId?: string;
@@ -45,11 +45,11 @@ export interface InteractionOutcomeReceiptPayload {
 }
 
 /**
- * ผลรวมของ receipt หนึ่งใบ (อาจ fan-out หลาย journey) — เลือกผลที่มี side effect มากสุด:
+ * The combined result of one receipt (may fan out to several journeys) — picks the result with the most side effects:
  * ENROLLED > CANCELLED > BLOCKED > UNCHANGED > NO_MATCH
  *
- * - `CANCELLED` — correction ทำให้ enrollment เดิมไม่ match trigger ของ version ที่ pin ไว้แล้ว
- * - `UNCHANGED` — correction ของ outcome ที่ enroll ไปแล้วและยัง match เหมือนเดิม: ไม่มี effect ใหม่
+ * - `CANCELLED` — a correction made the existing enrollment no longer match the trigger of its pinned version
+ * - `UNCHANGED` — a correction of an outcome already enrolled that still matches as before: no new effect
  */
 export type TriggerProcessingOutcome =
   | 'ENROLLED'
@@ -187,11 +187,11 @@ export class JourneyOutcomeTriggerProcessor {
   }
 
   /**
-   * ประมวลผล receipt ที่ READY ได้สูงสุดหนึ่งใบต่อครั้ง; caller กำหนด polling loop เอง
+   * Processes at most one READY receipt per call; the caller sets the polling loop itself
    *
-   * อ่านทุกอย่างนอก transaction ก่อน (identity, definitions, enrollment เดิมของ logical
-   * outcome, scope) แล้ว persist ทั้งหมดใน transaction เดียวกับ `markApplied` — crash
-   * ตรงไหนก็ไม่มี enrollment/action ครึ่ง ๆ กลาง ๆ และ retry receipt ใบเดิมได้ผลเท่าเดิม
+   * Reads everything outside the transaction first (identity, definitions, the existing enrollment of the logical
+   * outcome, scope), then persists all of it in the same transaction as `markApplied` — a crash
+   * anywhere leaves no half-done enrollment/action, and retrying the same receipt gives the same result
    */
   async executeNext(tenantId: string, workerId: string): Promise<TriggerProcessingOutcome> {
     const claimed = await this.receipts.claimNextReady(tenantId, workerId, this.leaseSeconds);
@@ -225,10 +225,10 @@ export class JourneyOutcomeTriggerProcessor {
     ]);
 
     /**
-     * correction เป็น revision ของ logical outcome เดิม (#123): journey ที่มี enrollment อยู่แล้ว
-     * ถูก re-evaluate กับ trigger ของ version ที่ enrollment pin ไว้ — ไม่ใช่ version ล่าสุด
-     * และไม่สร้าง enrollment ใบใหม่ ส่วน enrollment PENDING คือของที่ worker ก่อนหน้า
-     * (ก่อนมี atomic path นี้) ค้างไว้ ยังไม่เคยตัดสิน จึงตัดสินต่อด้วย version ที่ pin ไว้
+     * a correction is a revision of the existing logical outcome (#123): a journey that already has an enrollment
+     * is re-evaluated against the trigger of the version the enrollment pinned — not the latest version —
+     * and no new enrollment is created. A PENDING enrollment is one a previous worker
+     * (before this atomic path existed) left behind and never decided, so it is decided with the pinned version
      */
     const existingByJourney = new Map(
       existing.flatMap((enrollment) =>
@@ -307,7 +307,7 @@ export class JourneyOutcomeTriggerProcessor {
     return OUTCOME_PRIORITY.find((outcome) => outcomes.has(outcome)) ?? 'NO_MATCH';
   }
 
-  /** enrollment ทุกใบของ logical outcome `(outcomeType, outcomeId)` ไม่ว่าเกิดจาก revision ไหน */
+  /** every enrollment of the logical outcome `(outcomeType, outcomeId)` regardless of which revision created it */
   private streamEnrollments(
     tenantId: string,
     outcomeType: string,
@@ -329,7 +329,7 @@ export class JourneyOutcomeTriggerProcessor {
     );
   }
 
-  /** source (Journey owner ที่ pin ไว้) และ target team ต้องมี current WORK scope ทั้งคู่ (#122) */
+  /** the source (the pinned Journey owner) and the target team must both have a current WORK scope (#122) */
   private async authorizeWork(
     tenantId: string,
     snapshot: JourneyVersionSnapshot,
@@ -359,8 +359,8 @@ export class JourneyOutcomeTriggerProcessor {
   }
 
   /**
-   * สร้าง (หรือตัดสิน PENDING ที่ค้าง) enrollment ของ journey หนึ่งใบ — scope denial เป็น
-   * enrollment BLOCKED ของ Journey เอง ไม่ใช่ Governance BLOCK และไม่มี owner action
+   * Creates (or decides a stuck PENDING) enrollment of one journey — a scope denial is a
+   * BLOCKED enrollment of Journey itself, not a Governance BLOCK, and has no owner action
    */
   private async applyDecision(
     transaction: Prisma.TransactionClient,
@@ -398,7 +398,7 @@ export class JourneyOutcomeTriggerProcessor {
         where: { tenantId, id: enrollmentId, state: 'PENDING' },
         data: decided,
       });
-      // worker อื่นตัดสินไปแล้วระหว่างที่เราอ่านนอก transaction
+      // another worker already decided while we read outside the transaction
       if (updated.count === 0) return 'UNCHANGED';
     } else {
       const raced = await transaction.jrEnrollment.findFirst({
@@ -437,7 +437,7 @@ export class JourneyOutcomeTriggerProcessor {
     });
     if (cursor.currentStepId !== entryStep.id) {
       throw new TypeError(
-        `owner action entry step ${entryStep.id} ไม่ตรงกับ enrollment cursor ${cursor.currentStepId ?? 'null'}`,
+        `owner action entry step ${entryStep.id} does not match the enrollment cursor ${cursor.currentStepId ?? 'null'}`,
       );
     }
 
@@ -475,12 +475,12 @@ export class JourneyOutcomeTriggerProcessor {
   }
 
   /**
-   * correction ทำให้ enrollment เดิมไม่ match แล้ว: ขอ cancel action ที่ยัง reversible
-   * (pre-barrier) ด้วย actionKey เดิม และหยุด enrollment — action ที่ owner รับไปแล้ว
-   * (เช่น Case ที่ commit แล้ว) คงอยู่เป็น fact ของ owner; Journey ไม่ลบหรือชดเชยเอง (#123)
+   * a correction made the existing enrollment no longer match: request cancelling the still-reversible action
+   * (pre-barrier) with the same actionKey and stop the enrollment — an action the owner already accepted
+   * (e.g. a committed Case) stays as an owner fact; Journey does not delete or compensate on its own (#123)
    *
-   * cancelRequestKey คำนวณจาก actionKey จึง replay ได้โดยไม่สั่ง owner ยกเลิกซ้ำ; enrollment ที่
-   * terminal ไปแล้วด้วยเหตุอื่นไม่ถูกเขียนทับ (first terminal commit wins)
+   * cancelRequestKey is computed from actionKey so it can replay without telling the owner to cancel twice; an enrollment that is
+   * already terminal for another reason is not overwritten (first terminal commit wins)
    */
   private async withdrawEnrollment(
     transaction: Prisma.TransactionClient,

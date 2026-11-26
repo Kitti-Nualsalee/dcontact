@@ -1,43 +1,43 @@
 /**
  * Owner: Delivery/Channels — LINE Messaging API transport (S2.4 #370, #357 §1/§3)
  *
- * ขอบเขตของ S2: เรียกได้เฉพาะ `POST /v2/bot/message/push` แบบ one-to-one หนึ่งผู้รับต่อหนึ่ง
- * logical delivery — ไม่มี multicast/narrowcast/broadcast และไม่มี free text
+ * S2 scope: may call only `POST /v2/bot/message/push` one-to-one, one recipient per
+ * logical delivery — no multicast/narrowcast/broadcast and no free text
  *
- * transport ชั้นนี้ "ไม่ตัดสินใจ" อะไรเลย: ไม่ retry เอง ไม่แปลผลเป็น business outcome และไม่
- * mint key ใหม่ หน้าที่มีแค่ยิง exact request ที่ผู้เรียกเตรียมไว้แล้วคืนสิ่งที่ provider ตอบ
- * การตีความอยู่ที่ `classifyLineResponse` เพื่อให้ mapping ตรวจได้ด้วย unit test โดยไม่ต้องมี network
+ * This transport layer "decides" nothing: it never retries itself, never translates results into a business outcome and never
+ * mints a new key. Its only job is to fire the exact request the caller prepared and return what the provider answered.
+ * Interpretation lives in `classifyLineResponse` so the mapping can be checked by unit test without a network
  *
- * ค่าที่ห้ามหลุด: access token, raw recipient (`to`) และเนื้อหาข้อความ ไม่ถูก log หรือใส่ใน error
+ * Values that must not leak: the access token, the raw recipient (`to`) and message content are never logged or put in an error
  */
 import type { LineProviderOutcomeCode, LineRejectionScope } from '@d-contact/cxa-contracts';
 
 export const LINE_PUSH_PATH = '/v2/bot/message/push';
 export const LINE_API_BASE_URL = 'https://api.line.me';
-/** LINE ตอบภายในไม่กี่วินาที; เกินกว่านี้ถือว่าไม่รู้ผลและต้อง reconcile ด้วย key เดิม */
+/** LINE answers within a few seconds; beyond that the outcome is unknown and must be reconciled with the original key */
 export const LINE_REQUEST_TIMEOUT_MS = 10_000;
 
 export interface LinePushRequest {
-  /** opaque recipient ที่ resolve จาก protected binding แล้ว — ห้าม log */
+  /** the opaque recipient already resolved from the protected binding — must not be logged */
   to: string;
   messages: ReadonlyArray<Record<string, unknown>>;
-  /** ค่าเดิมของ delivery นี้เสมอ (#357 §2) — ห้าม mint ใหม่ตอน retry */
+  /** always the original value of this delivery (#357 §2) — must not be minted anew on retry */
   retryKey: string;
   accessToken: string;
 }
 
 export interface LinePushResponse {
   httpStatus: number;
-  /** `x-line-request-id` ของ request นี้ */
+  /** the `x-line-request-id` of this request */
   requestId?: string;
-  /** `x-line-accepted-request-id` ที่มากับ 409 เมื่อ request ก่อนหน้าถูก accept ไปแล้ว */
+  /** the `x-line-accepted-request-id` that comes with a 409 when the earlier request was already accepted */
   acceptedRequestId?: string;
   sentMessageIds?: readonly string[];
-  /** error code ของ provider แบบ machine-readable เท่านั้น ไม่ใช่ข้อความอิสระ */
+  /** the provider's machine-readable error code only, not free-form text */
   errorCode?: string;
 }
 
-/** ผลที่ transport คืนได้: มี response จริง หรือไม่รู้ผลเลย (timeout/socket/ผิด contract) */
+/** The results the transport can return: a real response, or an entirely unknown outcome (timeout/socket/contract violation) */
 export type LineTransportResult =
   | { kind: 'RESPONSE'; response: LinePushResponse }
   | { kind: 'NO_RESPONSE'; reason: 'TIMEOUT' | 'NETWORK' | 'INVALID_RESPONSE' };
@@ -49,20 +49,20 @@ export interface LineQuotaView {
 
 export interface LineTokenVerification {
   valid: boolean;
-  /** `client_id` ที่ LINE ผูกกับ token — ต้องเท่ากับ Channel ID ของ scope (#360 §D ข้อ 1) */
+  /** the `client_id` LINE binds to the token — must equal the Channel ID of the scope (#360 §D item 1) */
   clientId?: string;
   expiresInSeconds?: number;
 }
 
-/** webhook ที่ตั้งไว้ฝั่ง LINE — endpoint เป็น URL ของเราเอง ไม่ใช่ข้อมูลลูกค้า */
+/** the webhook configured on the LINE side — the endpoint is our own URL, not customer data */
 export interface LineWebhookEndpointView {
   endpoint: string | null;
   active: boolean;
 }
 
 /**
- * revoke token ของ RB01 (#360 §D ข้อ 10) — v2.1 ต้องยืนยันด้วย channel ID + secret ส่วน long-lived
- * revoke ด้วยตัว token เอง ค่าทั้งหมดอยู่ในหน่วยความจำของ protected runner เท่านั้น
+ * revoke the token for RB01 (#360 §D item 10) — v2.1 must confirm with channel ID + secret while long-lived
+ * revokes with the token itself. All values are only in the memory of the protected runner
  */
 export type LineTokenRevocation =
   | {
@@ -73,23 +73,23 @@ export type LineTokenRevocation =
     }
   | { credentialKind: 'CHANNEL_ACCESS_TOKEN_LONG_LIVED'; accessToken: string };
 
-/** ผลของ `POST /v2/bot/channel/webhook/test`: LINE ยิง signed empty webhook มาที่ endpoint จริง */
+/** Result of `POST /v2/bot/channel/webhook/test`: LINE fires a signed empty webhook at the real endpoint */
 export interface LineWebhookTestResult {
   success: boolean;
-  /** status ที่ endpoint ของเราตอบ LINE กลับไป */
+  /** the status our endpoint answered LINE with */
   statusCode: number | null;
   reason?: string;
 }
 
 /**
- * owner-local port (#362 §4) — implementation จริงคุยกับ LINE ส่วนเทสต์ใช้ double ที่ deterministic
- * ทั้งสองต้องเคารพข้อเดียวกัน: หนึ่งการเรียกคือหนึ่ง HTTP request ไม่มี retry ซ่อนอยู่ข้างใน
+ * owner-local port (#362 §4) — the real implementation talks to LINE while tests use a deterministic double
+ * both must respect the same rule: one call is one HTTP request, with no hidden retry inside
  */
 export interface LineProviderTransport {
   verifyToken(accessToken: string): Promise<LineTokenVerification>;
   getQuota(accessToken: string): Promise<LineQuotaView>;
   getConsumption(accessToken: string): Promise<{ totalUsage: number }>;
-  /** validate ไม่มีผู้รับ — LINE ตรวจเฉพาะรูปของ messages จึงไม่รับ `to` ตั้งแต่ต้น */
+  /** validate has no recipient — LINE checks only the shape of messages so it never accepts `to` from the start */
   validatePush(
     request: Pick<LinePushRequest, 'messages' | 'accessToken'>,
   ): Promise<{ valid: boolean; errorCode?: string }>;
@@ -104,9 +104,9 @@ export interface LineProviderTransport {
 export interface LineClassification {
   outcomeCode: LineProviderOutcomeCode;
   rejectionScope?: LineRejectionScope;
-  /** true เมื่อ provider ยืนยันว่ารับ request ไว้แล้ว (2xx หรือ 409 replay) */
+  /** true when the provider confirmed it accepted the request (2xx or a 409 replay) */
   accepted: boolean;
-  /** true เมื่อผลยังไม่ทราบและต้อง reconcile ด้วย request เดิม */
+  /** true when the outcome is not yet known and must be reconciled with the original request */
   reconcile: boolean;
 }
 
@@ -117,13 +117,13 @@ const ACCEPTED_2XX: LineClassification = {
 };
 
 /**
- * ตาราง #357 §3 ทั้งตารางอยู่ในฟังก์ชันเดียวเพื่อให้ mapping ตรวจซ้ำได้จากที่เดียว
+ * The whole #357 §3 table lives in a single function so the mapping can be re-checked from one place
  *
- * หลักที่ห้ามเพี้ยน:
- * - `2xx` และ `409 + accepted request id` = provider accepted (ไม่ใช่ delivered) และห้าม retry
- * - `4xx` อื่นเป็น terminal — LINE ระบุว่าไม่ควร retry; `401/403` เป็นสัญญาณ account-level
- * - `5xx`, timeout, network และ response ที่ผิด contract = ไม่รู้ผล ต้อง reconcile ด้วย key เดิม
- * - `409` ที่ไม่มี accepted request id ถือว่า response ผิด contract ไม่ใช่ acceptance
+ * Principles that must not drift:
+ * - `2xx` and `409 + accepted request id` = provider accepted (not delivered) and must not be retried
+ * - other `4xx` are terminal — LINE says do not retry; `401/403` are account-level signals
+ * - `5xx`, timeout, network and a response that violates the contract = outcome unknown, must reconcile with the original key
+ * - a `409` without an accepted request id counts as a contract-violating response, not acceptance
  */
 export function classifyLineResponse(result: LineTransportResult): LineClassification {
   if (result.kind === 'NO_RESPONSE') {
@@ -137,7 +137,7 @@ export function classifyLineResponse(result: LineTransportResult): LineClassific
 
   const { httpStatus, acceptedRequestId, sentMessageIds, errorCode } = result.response;
   if (httpStatus >= 200 && httpStatus < 300) {
-    // 2xx ที่ไม่มี sentMessages ถือว่าผิด contract — ห้ามเดาว่า accepted
+    // a 2xx without sentMessages counts as a contract violation — never guess it was accepted
     return sentMessageIds && sentMessageIds.length > 0
       ? ACCEPTED_2XX
       : { outcomeCode: 'LINE_RESPONSE_INVALID', accepted: false, reconcile: true };
@@ -165,7 +165,7 @@ export function classifyLineResponse(result: LineTransportResult): LineClassific
     };
   }
   if (httpStatus >= 400 && httpStatus < 500) {
-    // 400/404 ผูกกับ recipient/payload ของ delivery ใบนี้ จึงนับเป็น Attempt (#361 §B)
+    // 400/404 are bound to this delivery's recipient/payload so they count as an Attempt (#361 §B)
     return {
       outcomeCode: 'LINE_REQUEST_REJECTED',
       rejectionScope: 'RECIPIENT',
@@ -185,8 +185,8 @@ function header(headers: Headers, name: string): string | undefined {
 }
 
 /**
- * implementation จริง — ไม่ถูกใช้ใน automated test ตาม stop condition ของ #370
- * (`ordinary tests/PR` ห้ามมี provider traffic) แต่ต้องมีอยู่เพื่อให้ pilot รันได้จริง
+ * the real implementation — not used in automated tests per the stop condition of #370
+ * (`ordinary tests/PR` must have no provider traffic) but must exist so the pilot can really run
  */
 export class HttpLineProviderTransport implements LineProviderTransport {
   constructor(
@@ -228,7 +228,7 @@ export class HttpLineProviderTransport implements LineProviderTransport {
         },
       };
     } catch (error) {
-      // ไม่รู้ผล = อาจถูก accept ไปแล้ว ห้ามสรุปว่าไม่ได้ส่ง (#357 §3)
+      // unknown outcome = it may already have been accepted, never conclude it was not sent (#357 §3)
       const aborted = error instanceof Error && error.name === 'AbortError';
       return { kind: 'NO_RESPONSE', reason: aborted ? 'TIMEOUT' : 'NETWORK' };
     } finally {
@@ -271,7 +271,7 @@ export class HttpLineProviderTransport implements LineProviderTransport {
     return { totalUsage: typeof payload?.totalUsage === 'number' ? payload.totalUsage : 0 };
   }
 
-  /** dry-run ของ LINE: ตรวจรูป payload โดยไม่ส่งจริง ใช้ตอน PROVIDER_CONFORMANCE (#358) */
+  /** LINE dry-run: checks the payload shape without really sending, used at PROVIDER_CONFORMANCE (#358) */
   async validatePush(
     request: Pick<LinePushRequest, 'messages' | 'accessToken'>,
   ): Promise<{ valid: boolean; errorCode?: string }> {
@@ -298,7 +298,7 @@ export class HttpLineProviderTransport implements LineProviderTransport {
     };
   }
 
-  /** ไม่ส่ง `endpoint` ใน body = LINE ทดสอบ endpoint ที่ตั้งไว้แล้ว ไม่ใช่ URL ที่ผู้เรียกเลือกเอง */
+  /** not sending `endpoint` in the body = LINE tests the endpoint already configured, not a URL the caller chose */
   async testWebhookEndpoint(accessToken: string): Promise<LineWebhookTestResult> {
     const response = await this.fetchImpl(`${this.baseUrl}/v2/bot/channel/webhook/test`, {
       method: 'POST',
@@ -319,7 +319,7 @@ export class HttpLineProviderTransport implements LineProviderTransport {
     };
   }
 
-  /** bot user ID = `destination` ของ webhook ที่ ingress ต้อง bind (#359 §B) — ไม่ใช่ข้อมูลลูกค้า */
+  /** bot user ID = the webhook `destination` that ingress must bind (#359 §B) — not customer data */
   async getBotInfo(accessToken: string): Promise<{ userId: string | null }> {
     const payload = await this.get<{ userId?: unknown }>(accessToken, '/v2/bot/info');
     return { userId: typeof payload?.userId === 'string' ? payload.userId : null };

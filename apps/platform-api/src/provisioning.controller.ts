@@ -1,12 +1,12 @@
 /**
- * Owner: Platform API — endpoints ของ A1.6 (#411) ตาม #388 checkpoint 1
+ * Owner: Platform API — endpoints of A1.6 (#411) per #388 checkpoint 1
  *
- * - อ่าน = `CONTROL_PLANE_READ` (operator + auditor); เขียน = `PROVISIONING_MUTATE` (operator เท่านั้น)
- * - create/action ตอบ 202 พร้อม representation ปัจจุบัน; POST mutation บังคับ `Idempotency-Key`;
- *   PATCH/action รับ `expectedRevision`
- * - target tenant/request resolve จาก path + record ใน DB เสมอ — body ไม่มีช่องให้ส่ง tenant
- * - dependency ภายนอก (Keycloak/อีเมล) ไม่ถูกเรียกจากที่นี่: ผลหลังรับคำขอสะท้อนใน request state
- *   และ command (decision ใน #388)
+ * - read = `CONTROL_PLANE_READ` (operator + auditor); write = `PROVISIONING_MUTATE` (operator only)
+ * - create/action answer 202 with the current representation; POST mutations require `Idempotency-Key`;
+ *   PATCH/action take `expectedRevision`
+ * - the target tenant/request is always resolved from the path + the record in the DB — the body has no field to send a tenant
+ * - external dependencies (Keycloak/email) are not called from here: the outcome after the request is accepted shows up in the request state
+ *   and commands (decision in #388)
  */
 import {
   Body,
@@ -106,7 +106,7 @@ export class ProvisioningRequestsController {
       bootstrapTemplateVersion: text(body.bootstrapTemplateVersion),
       firstAdmin: { email: text(firstAdmin.email), displayName: text(firstAdmin.displayName) },
     };
-    // pin plan version ที่ ACTIVE ล่าสุด ณ ตอนรับคำขอ (#392) — replay ใช้ของเดิมจาก receipt
+    // pin the latest ACTIVE plan version at the time the request is accepted (#392) — a replay uses the original from the receipt
     const plan = await this.services.catalog.activePlan(input.planCode);
     const accepted = await this.services.repository.accept({
       idempotencyKey: key,
@@ -153,7 +153,7 @@ export class ProvisioningRequestsController {
     return this.services.queries.requestView(requestId);
   }
 
-  /** preview แบบ async: worker ถาม Keycloak แล้วใส่ `previewDigest` ในผลของ command */
+  /** async preview: the worker asks Keycloak then puts `previewDigest` in the command result */
   @Post(':requestId/actions/:action/previews')
   @HttpCode(202)
   @RequirePlatformCapability('PROVISIONING_MUTATE')
@@ -209,7 +209,7 @@ export class ProvisioningRequestsController {
   ) {
     const action = OPERATOR_ACTION_PATHS[actionPath];
     if (!action) throw new PlatformProvisioningError('NOT_FOUND');
-    // error envelope ใส่ requestId ได้ (filter ตัดออกเองเมื่อเป็น 404 เพื่อไม่เผย existence)
+    // the error envelope may carry requestId (the filter strips it itself on a 404 so existence is not revealed)
     request.platformRequestId = requestId;
     const key = requireIdempotencyKey(idempotencyKey);
     const body = objectBody(rawBody ?? {});
@@ -238,7 +238,7 @@ export class ProvisioningRequestsController {
 export class CatalogController {
   constructor(@Inject(PLATFORM_SERVICES) private readonly services: PlatformServices) {}
 
-  /** A1.7: ตัวเลือก plan/template ของ Guided onboarding — ไม่มี tenant data */
+  /** A1.7: plan/template options for Guided onboarding — no tenant data */
   @Get()
   @RequirePlatformCapability('CONTROL_PLANE_READ')
   async catalog() {

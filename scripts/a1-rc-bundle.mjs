@@ -1,19 +1,19 @@
 #!/usr/bin/env node
 /**
- * A1.8 (#413): release candidate evidence bundle ของ A1 ตาม #393 §6–7
+ * A1.8 (#413): release candidate evidence bundle for A1 per #393 §6-7
  *
- * - `build`: รวม `acceptance-manifest.json` ของ fast + real-boundary จาก commit เดียวกันเป็นไฟล์เดียว
- *   (manifest เก็บเป็น byte เดิมพร้อม SHA-256) — ปฏิเสธเมื่อ non-waivable gate ไม่ PASS, มี check ขาด/SKIP,
- *   SHA ไม่ตรง, tree dirty, config digest ต่างกัน, ไม่มี image digest หรือพบ PII/secret
- * - `verify`: ตรวจ bundle เดิมซ้ำทั้งหมด (ใช้เป็น gate ก่อนเปิด UAT preview) — ลายเซ็นตรวจแยกด้วย
- *   `gh attestation verify` เพราะ bundle ถูก attest ใน workflow ด้วย Sigstore
+ * - `build`: merges the `acceptance-manifest.json` of fast + real-boundary from the same commit into one file
+ *   (each manifest is kept as its original bytes with a SHA-256) - rejects when a non-waivable gate is not PASS, a check is missing/SKIP,
+ *   the SHA differs, the tree is dirty, config digests differ, there is no image digest, or PII/secret is found
+ * - `verify`: re-checks an existing bundle in full (used as the gate before opening the UAT preview) - the signature is checked separately with
+ *   `gh attestation verify` because the bundle is attested in the workflow with Sigstore
  *
  * CLI:
  *   node scripts/a1-rc-bundle.mjs build --manifest <file> [--manifest <file>] --expect-sha <sha> --out <file>
  *   node scripts/a1-rc-bundle.mjs verify --bundle <file> --expect-sha <sha>
  *   node scripts/a1-rc-bundle.mjs gate --expect-sha <sha> [--repo owner/name]
- *     = UAT preview gate: ดาวน์โหลด asset จาก pre-release `a1-rc-<sha>`, verify ซ้ำ และ
- *       `gh attestation verify` — ต้อง PASS ก่อนเปิด UAT preview ของ build จาก SHA เดียวกัน
+ *     = UAT preview gate: download the asset from pre-release `a1-rc-<sha>`, re-verify, and
+ *       `gh attestation verify` - must PASS before opening the UAT preview of a build from the same SHA
  */
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -35,7 +35,7 @@ const IMAGE_DIGEST = /@sha256:[a-f0-9]{64}$/;
 
 const sha256 = (text) => createHash('sha256').update(text).digest('hex');
 
-/** ตรวจ manifest ชุดหนึ่งตาม #393 §7 — คืนเหตุผลที่ไม่ผ่าน (ว่าง = ผ่าน) */
+/** Check one set of manifests per #393 §7 - returns the failure reasons (empty = pass) */
 export function evaluateManifests(manifests, expectedSha) {
   const reasons = [];
   if (!/^[a-f0-9]{40}$/.test(expectedSha ?? '')) reasons.push('EXPECTED_SHA_INVALID');
@@ -72,7 +72,7 @@ export function evaluateManifests(manifests, expectedSha) {
       continue;
     }
     const counters = result.counters ?? {};
-    // SKIP/todo/flaky ไม่นับเป็นผ่าน (#393 §7: ห้ามมี SKIP)
+    // SKIP/todo/flaky do not count as a pass (#393 §7: no SKIP allowed)
     if (
       result.status !== 'PASS' ||
       (counters.skipped ?? 0) > 0 ||
@@ -83,7 +83,7 @@ export function evaluateManifests(manifests, expectedSha) {
     }
   }
   for (const [gate, statuses] of Object.entries(gates)) {
-    // ต้องมีหลักฐาน PASS อย่างน้อยหนึ่ง profile และไม่มี profile ใด FAIL/UNCOVERED
+    // need PASS evidence in at least one profile and no profile with FAIL/UNCOVERED
     if (
       !statuses.includes('PASS') ||
       statuses.some((s) => s !== 'PASS' && s !== 'NOT_IN_PROFILE')
@@ -96,8 +96,8 @@ export function evaluateManifests(manifests, expectedSha) {
     reasons.push('IMAGE_DIGESTS_MISSING');
   }
   try {
-    // แต่ละ manifest ใช้ root contract เดิม (เช่น trusted metadata $.run.id)
-    // ห้ามขยาย exemption ของ shared PII scanner ให้ครอบ business identifiers
+    // each manifest uses the same root contract (e.g. trusted metadata $.run.id)
+    // do not widen the shared PII scanner exemption to cover business identifiers
     for (const manifest of manifests) assertPiiSafeEvidence(manifest);
   } catch {
     reasons.push('PII_OR_SECRET_IN_EVIDENCE');
@@ -159,13 +159,13 @@ export function verifyBundle(text, expectedSha) {
 export const rcReleaseTag = (sha) => `a1-rc-${sha}`;
 export const RC_BUNDLE_FILE = 'a1-rc-bundle.json';
 
-/** gate ก่อนเปิด UAT preview: bundle ต้องมีจริง, ตรวจซ้ำผ่าน และ attestation ของ repo นี้ยืนยัน digest */
+/** Gate before opening the UAT preview: the bundle must exist, re-verify, and this repo's attestation must confirm the digest */
 export function uatGate({ expectedSha, repo: requestedRepo, run = execFileSync }) {
   const directory = mkdtempSync(join(tmpdir(), 'a1-rc-'));
   try {
     const gh = (...args) =>
       run('gh', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-    // attestation ต้องผูกกับ repo นี้เสมอ — ไม่ยอมรับ attestation ของ repo อื่นใน owner เดียวกัน
+    // the attestation must always be bound to this repo - never accept an attestation from another repo under the same owner
     const repo =
       requestedRepo ??
       process.env.GITHUB_REPOSITORY ??
@@ -251,7 +251,7 @@ export function main(argv = process.argv.slice(2)) {
     );
     return result.ok ? 0 : 1;
   }
-  console.error('ใช้: a1-rc-bundle.mjs build|verify|gate ...');
+  console.error('usage: a1-rc-bundle.mjs build|verify|gate ...');
   return 2;
 }
 

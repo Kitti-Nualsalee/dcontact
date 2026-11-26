@@ -5,20 +5,22 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { checkLiterals } from './check-literals.mjs';
 
+const THAI_SAMPLE = 'บันทึกแล้ว'; // allow-thai: Thai text is what the checker must detect
+
 function file(name, content) {
   const path = join(mkdtempSync(join(tmpdir(), 'dc-literals-')), name);
   writeFileSync(path, content);
   return path;
 }
 
-test('จับ JSX text, attribute ที่ผู้ใช้เห็น และอักษรไทยใน string', () => {
+test('flags JSX text, user-visible attributes and Thai characters in strings', () => {
   const problems = checkLiterals(
     file(
       'page.tsx',
       `export const Page = () => (
   <section aria-label="Queue list" data-kind="panel">
     <h1>Journeys</h1>
-    <p>{'บันทึกแล้ว'}</p>
+    <p>{'${THAI_SAMPLE}'}</p>
     <span> · </span>
   </section>
 );`,
@@ -30,16 +32,16 @@ test('จับ JSX text, attribute ที่ผู้ใช้เห็น แ�
   assert.match(problems[2], /Thai literal/);
 });
 
-test('ไม่นับ t(), เครื่องหมายคั่น, attribute ที่ไม่ใช่ข้อความ, comment และบรรทัด i18n-ignore', () => {
+test('ignores t(), separators, non-text attributes, comments and i18n-ignore lines', () => {
   const problems = checkLiterals(
     file(
       'ok.tsx',
-      `// คำอธิบายภาษาไทยใน comment
+      `// ${THAI_SAMPLE}
 export const Ok = ({ t }: { t: (k: string) => string }) => (
   <div className="j5-panel" role="group" aria-label={t('list.filterLabel')}>
     {t('list.title')} · →
     <code>{'SYSTEM'}</code>
-    <p>{'ข้อมูลจาก server'}</p> {/* i18n-ignore */}
+    <p>{'${THAI_SAMPLE}'}</p> {/* i18n-ignore */}
   </div>
 );`,
     ),
@@ -47,7 +49,7 @@ export const Ok = ({ t }: { t: (k: string) => string }) => (
   assert.deepEqual(problems, []);
 });
 
-test('ไฟล์ .ts ไม่ถูกอ่านเป็น JSX (generic ไม่ใช่ข้อความ)', () => {
+test('.ts files are not parsed as JSX (a generic is not text)', () => {
   const problems = checkLiterals(
     file(
       'api.ts',

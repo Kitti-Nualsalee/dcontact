@@ -53,7 +53,7 @@ export interface C360CreateProfile {
   points: C360NormalizedContactPoint[];
 }
 
-/** ตรวจและ normalize เฉพาะฟิลด์ที่ส่งมา โดยไม่สะท้อนค่าที่กรอกใน error */
+/** Validates and normalizes only the fields sent, without echoing the entered values in errors */
 export function normalizeC360CreateProfile(input: Record<string, unknown>): C360CreateProfile {
   if (
     Object.keys(input).some(
@@ -170,7 +170,7 @@ export function normalizeC360ProfilePatch(input: Record<string, unknown>): C360P
   return patch;
 }
 
-/** ตรวจสิทธิ์ resource อีกครั้งภายใต้ fence เดียวกับ operator grant/revoke และ C360 owner */
+/** Re-checks resource permission under the same fence as operator grant/revoke and the C360 owner */
 export async function updateC360Profile(
   tx: Prisma.TransactionClient,
   actor: C360VerifiedActor,
@@ -246,7 +246,7 @@ export async function updateC360Profile(
   };
 }
 
-/** เรียกภายใน transaction ของ command หลังตรวจสิทธิ์และถือ command fence */
+/** Called inside the command transaction after permission is checked and the command fence is held */
 export async function createC360Profile(
   tx: Prisma.TransactionClient,
   actor: C360VerifiedActor,
@@ -284,8 +284,8 @@ export async function createC360Profile(
 }
 
 /**
- * Owner writer ของ Contact ใหม่ที่ human และ service ใช้ร่วมกัน: Contact, identity head, custody และ points
- * ผู้เรียกต้องตรวจสิทธิ์สร้างและถือ guard ของผู้สร้างใน transaction นี้ก่อน; `custody` บันทึกผู้ดูแลตามที่มา
+ * Owner writer for a new Contact shared by humans and services: Contact, identity head, custody and points
+ * The caller must first check create permission and hold the creator's guard in this transaction; `custody` records the custodian by origin
  */
 export async function insertC360CreatedContact(
   tx: Prisma.TransactionClient,
@@ -349,7 +349,7 @@ export async function insertC360CreatedContact(
   };
 }
 
-/** เพิ่ม/ถอดแท็กที่มีอยู่ภายใต้ identity, custodian, profile และ tag row fences */
+/** Adds/removes existing tags under the identity, custodian, profile and tag row fences */
 export async function updateC360ProfileTags(
   tx: Prisma.TransactionClient,
   actor: C360VerifiedActor,

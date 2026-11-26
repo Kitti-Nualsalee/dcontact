@@ -89,7 +89,7 @@ function identifier<TKind extends IdentifierKind>(
   kind: TKind,
 ): BrandedIdentifier<TKind> {
   if (value.trim().length === 0) {
-    throw new TypeError(`${kind} ต้องเป็น string ที่ไม่ว่าง`);
+    throw new TypeError(`${kind} must be a non-empty string`);
   }
   return value as BrandedIdentifier<TKind>;
 }
@@ -99,7 +99,7 @@ function positiveInteger<TKind extends PositiveIntegerKind>(
   kind: TKind,
 ): BrandedPositiveInteger<TKind> {
   if (!Number.isInteger(value) || value < 1) {
-    throw new TypeError(`${kind} ต้องเป็นจำนวนเต็มตั้งแต่ 1`);
+    throw new TypeError(`${kind} must be an integer >= 1`);
   }
   return value as BrandedPositiveInteger<TKind>;
 }

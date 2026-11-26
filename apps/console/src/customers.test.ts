@@ -12,7 +12,7 @@ import {
 
 const ID = '7f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b';
 
-test('errorKind: DENY กับไม่พบเป็น notFound เหมือนกัน และ SCOPE_UNAVAILABLE ไม่ใช่ notFound/empty', () => {
+test('errorKind: DENY and not-found are both notFound, and SCOPE_UNAVAILABLE is not notFound/empty', () => {
   assert.equal(errorKind(new CustomersApiError(404, 'RESOURCE_NOT_FOUND')), 'notFound');
   assert.equal(errorKind(new CustomersApiError(503, 'SCOPE_UNAVAILABLE', true)), 'scope');
   assert.equal(errorKind(new CustomersApiError(503, 'RESOURCE_BUSY', true)), 'failed');
@@ -26,14 +26,14 @@ test('errorKind: DENY กับไม่พบเป็น notFound เหมื
   assert.equal(errorKind(new Error('x')), 'failed');
 });
 
-test('closesCustomerData: session/สิทธิ์/scope เปลี่ยนต้องปิดข้อมูลลูกค้า; network ชั่วคราวไม่ปิดเอง', () => {
+test('closesCustomerData: a session/permission/scope change must close customer data; a transient network error does not close it by itself', () => {
   for (const kind of ['session', 'forbidden', 'notFound', 'scope'] as const)
     assert.equal(closesCustomerData(kind), true, kind);
   for (const kind of ['failed', 'rateLimited', 'cursor', 'validation'] as const)
     assert.equal(closesCustomerData(kind), false, kind);
 });
 
-test('fieldErrorKey: ใช้เฉพาะ code ที่รู้จัก ที่เหลือเป็นข้อความทั่วไปโดยไม่สะท้อนค่าที่กรอก', () => {
+test('fieldErrorKey: only known codes are used, the rest is a generic message that does not echo the entered value', () => {
   const field = (code: string) =>
     new CustomersApiError(400, 'VALIDATION_FAILED', false, undefined, [{ field: 'query', code }]);
   assert.equal(
@@ -45,7 +45,7 @@ test('fieldErrorKey: ใช้เฉพาะ code ที่รู้จัก �
   assert.equal(fieldErrorKey(new CustomersApiError(404, 'RESOURCE_NOT_FOUND')), undefined);
 });
 
-test('route: query ค้นหาไม่อยู่ใน URL; contact ต้องเป็น UUID มิฉะนั้นเหมือนไม่พบ', () => {
+test('route: the search query is not in the URL; contact must be a UUID, otherwise it looks like not found', () => {
   assert.deepEqual(parseCustomersRoute(new URL('https://c.test/?view=customers')), {});
   assert.deepEqual(
     parseCustomersRoute(new URL(`https://c.test/?view=customers&contact=${ID.toUpperCase()}`)),
@@ -58,14 +58,14 @@ test('route: query ค้นหาไม่อยู่ใน URL; contact ต�
   assert.equal(customersHref(undefined, ID), `/?view=customers&contact=${ID}`);
 });
 
-test('validPurpose: 1–64 ตัวอักษรและไม่มี control', () => {
+test('validPurpose: 1–64 characters and no control characters', () => {
   assert.equal(validPurpose('SERVICE'), true);
   assert.equal(validPurpose('  '), false);
   assert.equal(validPurpose('x'.repeat(65)), false);
   assert.equal(validPurpose('a\nb'), false);
 });
 
-test('api: ไม่ยิง read/write ถ้าไม่มี token หรือ id ไม่ใช่ UUID และ query อยู่ใน body ไม่ใช่ URL', async () => {
+test('api: no read/write is sent without a token or when the id is not a UUID, and the query is in the body, not the URL', async () => {
   const calls: { url: string; init: RequestInit }[] = [];
   const original = globalThis.fetch;
   globalThis.fetch = (async (url: string, init: RequestInit) => {
@@ -99,12 +99,12 @@ test('api: ไม่ยิง read/write ถ้าไม่มี token หร�
     );
     assert.equal(calls.length, 0);
 
-    await api.search({ type: 'NAME', query: 'สมชาย' });
+    await api.search({ type: 'NAME', query: 'Somchai' });
     const [call] = calls;
     assert.equal(call!.url, 'https://api.test/api/v1/customer-360/contacts/search');
     assert.equal(call!.url.includes('%E0'), false);
     assert.equal(call!.init.method, 'POST');
-    assert.deepEqual(JSON.parse(call!.init.body as string), { type: 'NAME', query: 'สมชาย' });
+    assert.deepEqual(JSON.parse(call!.init.body as string), { type: 'NAME', query: 'Somchai' });
     assert.equal(call!.init.cache, 'no-store');
     await api.search({ type: 'DIRECTORY', query: 'ignored' });
     assert.deepEqual(JSON.parse(calls[1]!.init.body as string), { type: 'DIRECTORY' });
@@ -126,7 +126,7 @@ test('api: ไม่ยิง read/write ถ้าไม่มี token หร�
   }
 });
 
-test('api: แปลง error body/Retry-After โดยไม่ throw ถ้า body ไม่ใช่ JSON', async () => {
+test('api: converts the error body/Retry-After without throwing when the body is not JSON', async () => {
   const original = globalThis.fetch;
   try {
     globalThis.fetch = (async () =>

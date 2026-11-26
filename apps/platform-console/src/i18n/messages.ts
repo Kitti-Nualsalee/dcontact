@@ -4,5 +4,5 @@ type Keys<T> = {
   [K in keyof T & string]: T[K] extends string ? K : `${K}.${Keys<T[K]>}`;
 }[keyof T & string];
 
-/** model เก็บเพียง key; ข้อความจริงแปลใหม่ตอน render เสมอ */
+/** the model keeps only keys; the real text is always translated again at render time */
 export type MessageKey = Keys<typeof common>;

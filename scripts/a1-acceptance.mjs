@@ -6,14 +6,14 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { assertPiiSafeEvidence } from './cxa-c1-readiness.mjs';
 
 /**
- * A1.8 (#413): acceptance ของ Platform Admin Tenant Provisioning ตาม #393
+ * A1.8 (#413): acceptance for Platform Admin Tenant Provisioning per #393
  *
- * - profile `fast` (PR gate 2–4 นาที): unit/contract/state machine, replay/recovery matrix ด้วย fake
- *   adapters, adversarial isolation matrix บน Postgres จริง, token fixtures ที่ลงนามในเครื่อง, Console
- * - profile `real-boundary` (8–12 นาที): Postgres + Keycloak (พร้อม invitation guard) + email sink จริง
- * - check ที่ skip/todo/ไม่มีผล/อ่านผลไม่ได้ = FAIL (#413: fail เมื่อมี skip/waiver/unknown result)
- * - `acceptance-manifest.json` ผูก commit SHA + config digest (+ image digest ของ real-boundary);
- *   log เต็มเก็บเฉพาะ check ที่ล้ม และผ่าน redaction + PII scan ก่อนเขียน (#393 checkpoint 2)
+ * - profile `fast` (PR gate, 2-4 minutes): unit/contract/state machine, replay/recovery matrix with fake
+ *   adapters, adversarial isolation matrix on real Postgres, locally signed token fixtures, Console
+ * - profile `real-boundary` (8-12 minutes): real Postgres + Keycloak (with invitation guard) + email sink
+ * - a check that is skipped/todo/has no result/has an unreadable result = FAIL (#413: fail on skip/waiver/unknown result)
+ * - `acceptance-manifest.json` binds the commit SHA + config digest (+ image digest for real-boundary);
+ *   full logs are kept only for failed checks and pass redaction + PII scan before being written (#393 checkpoint 2)
  */
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
@@ -24,7 +24,7 @@ export const A1_WORKFLOW = Object.freeze({
 });
 export const A1_MANIFEST_SCHEMA = 1;
 
-/** ข้อบังคับที่ห้าม waive (#393/#413) — ทุกข้อต้องมี check อย่างน้อยหนึ่งตัวใน profile ที่รัน */
+/** Mandatory gates that must not be waived (#393/#413) - every gate needs at least one check in the profile that runs */
 export const NON_WAIVABLE_GATES = Object.freeze([
   'isolation',
   'idempotency',
@@ -37,8 +37,8 @@ export const NON_WAIVABLE_GATES = Object.freeze([
 const tsx = (filter, script) => [pnpm, '--filter', filter, script];
 
 /**
- * check แต่ละตัว = หนึ่งคำสั่ง + ข้อใน #393 ที่มันพิสูจน์ (`proves`) + gate ที่ห้าม waive (`gates`)
- * `parser` บอกวิธีอ่านผล: `tap` (node:test) หรือ `playwright`
+ * each check = one command + the #393 items it proves (`proves`) + the non-waivable gates (`gates`)
+ * `parser` says how to read the result: `tap` (node:test) or `playwright`
  */
 export const A1_CHECKS = Object.freeze([
   {
@@ -47,7 +47,11 @@ export const A1_CHECKS = Object.freeze([
     dimension: 'contract',
     command: tsx('@d-contact/platform-control', 'test'),
     parser: 'tap',
-    proves: ['input canonicalization', 'error envelope ของ Keycloak client', 'deterministic ids'],
+    proves: [
+      'input canonicalization',
+      'error envelope of the Keycloak client',
+      'deterministic ids',
+    ],
     gates: ['no-secret-leakage'],
   },
   {
@@ -56,7 +60,11 @@ export const A1_CHECKS = Object.freeze([
     dimension: 'migration',
     command: ['node', '--test', 'scripts/a1-schema-readiness.test.mjs'],
     parser: 'tap',
-    proves: ['expand-only', 'append-only ledger ไม่มีสิทธิ์ UPDATE/DELETE', 'role/policy registry'],
+    proves: [
+      'expand-only',
+      'append-only ledger has no UPDATE/DELETE privilege',
+      'role/policy registry',
+    ],
     gates: ['complete-audit'],
   },
   {
@@ -68,9 +76,9 @@ export const A1_CHECKS = Object.freeze([
     proves: [
       'idempotency replay/IDEMPOTENCY_KEY_REUSED/concurrent slug',
       'lost response, lease expiry, parallel workers, attempt/deadline exhaustion',
-      'readiness/isolation failure ห้าม ACTIVE; ACTIVE atomic',
-      'Safe compensate เฉพาะ resource ที่พิสูจน์ ownership; FAILED_FINAL เก็บ ledger/tombstone',
-      'Tenant A↔B RLS บนตาราง baseline; platform role อ่าน business data ไม่ได้',
+      'readiness/isolation failure must never reach ACTIVE; ACTIVE is atomic',
+      'Safe compensation only for resources with proven ownership; FAILED_FINAL keeps ledger/tombstone',
+      'Tenant A<->B RLS on baseline tables; platform role cannot read business data',
       'append-only audit + COMMAND_REPLAYED',
     ],
     gates: [
@@ -97,10 +105,10 @@ export const A1_CHECKS = Object.freeze([
     command: tsx('@d-contact/platform-api', 'test:integration'),
     parser: 'tap',
     proves: [
-      'auditor mutation ถูกปฏิเสธ; tenant/mixed token 401 ทุก endpoint',
-      'generic 404 สำหรับ foreign/missing resource',
+      'auditor mutation is rejected; tenant/mixed token gets 401 on every endpoint',
+      'generic 404 for foreign/missing resource',
       'duplicate idempotency, stale revision, target swap, concurrent recovery',
-      'dependency failure หลังรับคำขอไม่คืน 503 หลอก',
+      'dependency failure after the request is accepted never returns a false 503',
     ],
     gates: ['isolation', 'idempotency', 'no-secret-leakage'],
   },
@@ -111,8 +119,8 @@ export const A1_CHECKS = Object.freeze([
     command: tsx('@d-contact/workspace-session', 'test'),
     parser: 'tap',
     proves: [
-      'tenant PROVISIONING เข้า workspace session ไม่ได้',
-      'platform token ใช้กับ tenant boundary ไม่ได้',
+      'tenant PROVISIONING cannot enter a workspace session',
+      'platform token cannot be used at the tenant boundary',
     ],
     gates: ['isolation', 'no-premature-active'],
   },
@@ -130,7 +138,7 @@ export const A1_CHECKS = Object.freeze([
       'src/gateway-auth.test.ts',
     ],
     parser: 'tap',
-    proves: ['tenant PROVISIONING เข้า tenant API ไม่ได้ (workspace + service identity)'],
+    proves: ['tenant PROVISIONING cannot enter the tenant API (workspace + service identity)'],
     gates: ['isolation', 'no-premature-active'],
   },
   {
@@ -139,7 +147,7 @@ export const A1_CHECKS = Object.freeze([
     dimension: 'ux',
     command: tsx('@d-contact/platform-console', 'test'),
     parser: 'tap',
-    proves: ['route ไม่มี PII; OIDC callback ไม่ทิ้ง code/state'],
+    proves: ['route has no PII; OIDC callback does not leak code/state'],
     gates: ['no-secret-leakage'],
   },
   {
@@ -159,7 +167,7 @@ export const A1_CHECKS = Object.freeze([
     dimension: 'authorization',
     command: ['bash', 'scripts/keycloak-extensions-build.sh'],
     parser: 'exit',
-    proves: ['invitation guard compile เทียบ Keycloak runtime ที่ pin ไว้'],
+    proves: ['invitation guard compiles against the pinned Keycloak runtime'],
     gates: [],
   },
   {
@@ -168,7 +176,9 @@ export const A1_CHECKS = Object.freeze([
     dimension: 'authorization',
     command: tsx('@d-contact/platform-api', 'test:boundary'),
     parser: 'tap',
-    proves: ['platform-console client/audience/role mapping และ password+TOTP กับ Keycloak จริง'],
+    proves: [
+      'platform-console client/audience/role mapping and password+TOTP against real Keycloak',
+    ],
     gates: ['isolation'],
   },
   {
@@ -178,9 +188,9 @@ export const A1_CHECKS = Object.freeze([
     command: tsx('@d-contact/platform-control', 'test:boundary'),
     parser: 'tap',
     proves: [
-      'happy path ถึง ACTIVE, replay ไม่มี Postgres/Keycloak/outbox duplicate',
-      'ambiguous Keycloak outcome → reconcile/adopt/resume; ambiguous invitation ห้าม blind resend',
-      'invitation รุ่นเก่าใช้ไม่ได้ (#436); first admin login ผ่าน tenant boundary',
+      'happy path reaches ACTIVE, replay creates no Postgres/Keycloak/outbox duplicate',
+      'ambiguous Keycloak outcome -> reconcile/adopt/resume; ambiguous invitation must not blind resend',
+      'old-generation invitation is unusable (#436); first admin login passes the tenant boundary',
     ],
     gates: ['idempotency', 'no-duplicate-resource', 'no-premature-active', 'isolation'],
   },
@@ -188,7 +198,7 @@ export const A1_CHECKS = Object.freeze([
 
 // ── Result parsing ──────────────────────────────────────────────────────────
 
-/** node:test (TAP): ต้องมี pass > 0 และ fail/skipped/todo/cancelled เป็นศูนย์ทุกบล็อกสรุป */
+/** node:test (TAP): needs pass > 0 and zero fail/skipped/todo/cancelled in every summary block */
 export function parseTap(output) {
   const counters = { pass: 0, fail: 0, skipped: 0, todo: 0, cancelled: 0 };
   let summaries = 0;
@@ -209,7 +219,7 @@ export function parseTap(output) {
   return { status, counters };
 }
 
-/** Playwright line/list reporter: "N passed" และห้ามมี failed/flaky/skipped */
+/** Playwright line/list reporter: "N passed" and no failed/flaky/skipped allowed */
 export function parsePlaywright(output) {
   const text = String(output);
   const count = (label) => Number(text.match(new RegExp(`(\\d+) ${label}`))?.[1] ?? 0);
@@ -237,7 +247,7 @@ export function judge(check, exitCode, output) {
       : check.parser === 'playwright'
         ? parsePlaywright(output)
         : { status: exitCode === 0 ? 'PASS' : 'FAIL', counters: {} };
-  // exit code ที่ไม่ใช่ศูนย์ชนะเสมอ แม้ summary จะดูผ่าน
+  // a non-zero exit code always wins, even when the summary looks like a pass
   const status = exitCode !== 0 && parsed.status === 'PASS' ? 'FAIL' : parsed.status;
   return { status, counters: parsed.counters };
 }
@@ -246,7 +256,7 @@ export function judge(check, exitCode, output) {
 
 const sha256Hex = (value) => createHash('sha256').update(value).digest('hex');
 
-/** log ของ check ที่ล้ม: ตัด token/email/connection string/URL ที่มี query ก่อนเก็บ (#393 checkpoint 2) */
+/** log of a failed check: strip tokens/emails/connection strings/URLs with a query before keeping it (#393 checkpoint 2) */
 export function redactLog(text) {
   return String(text)
     .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, '[redacted-jwt]')
@@ -263,7 +273,7 @@ function listFiles(path) {
   );
 }
 
-/** digest ของ config ที่ acceptance ยืนอยู่ — migration, RLS, Keycloak setup และ extension source */
+/** digest of the config the acceptance run stands on - migration, RLS, Keycloak setup and extension source */
 export function configDigest() {
   const inputs = [
     'packages/db/prisma/migrations',
@@ -283,7 +293,7 @@ function git(...args) {
   return result.status === 0 ? result.stdout.trim() : null;
 }
 
-/** ผูก digest กับ container ที่ Compose รันจริง; image ที่ pull ด้วย digest อาจไม่มี bare-tag alias */
+/** Bind the digest to the container Compose actually runs; an image pulled by digest may have no bare-tag alias */
 export function collectA1ImageDigests(execute = spawnSync) {
   const digests = {};
   const docker = (arguments_) => {
@@ -303,7 +313,7 @@ export function collectA1ImageDigests(execute = spawnSync) {
     const digest = image
       ? docker(['image', 'inspect', '--format', '{{index .RepoDigests 0}}', image])
       : null;
-    // ไม่เดา digest จาก config และไม่ถือว่า inspect ที่ขาด/ว่างเป็นหลักฐานผ่าน
+    // never guess a digest from config, and never treat a missing/empty inspect as passing evidence
     digests[service] = digest || null;
   }
   return digests;
@@ -321,7 +331,7 @@ export function runA1Acceptance({
     (check) =>
       (profile === 'all' || check.profile === profile) && (!only || only.includes(check.id)),
   );
-  if (selected.length === 0) throw new TypeError(`ไม่มี check ใน profile ${profile}`);
+  if (selected.length === 0) throw new TypeError(`no check in profile ${profile}`);
   const outputDirectory = resolve(repositoryRoot, 'artifacts/a1', runId);
   mkdirSync(outputDirectory, { recursive: true });
 
@@ -347,11 +357,11 @@ export function runA1Acceptance({
       gates: check.gates,
     };
     if (verdict.status !== 'PASS') {
-      // log เต็มเฉพาะ check ที่ล้ม (เก็บ 30 วันใน CI) — ผ่าน redaction ก่อน
+      // full log only for failed checks (kept 30 days in CI) - redacted first
       const path = join(outputDirectory, `${check.id}.log`);
       const body = redactLog(output);
       writeFileSync(path, body);
-      // ชื่อไฟล์เท่านั้น: directory คือ artifacts/a1/<run.id>/ (path เต็มมี run id ที่ scanner อาจเข้าใจผิด)
+      // file name only: the directory is artifacts/a1/<run.id>/ (the full path contains a run id the scanner could misread)
       artifacts.push({ checkId: check.id, file: `${check.id}.log`, sha256: sha256Hex(body) });
     }
     results.push(entry);
@@ -389,7 +399,7 @@ export function runA1Acceptance({
     },
     source: {
       commitSha: git('rev-parse', 'HEAD'),
-      // ไฟล์ใหม่ที่ยังไม่ commit ก็ทำให้ SHA ไม่ครอบโค้ดที่ทดสอบ — ยกเว้นผลของ acceptance เอง
+      // a new uncommitted file also makes the SHA not cover the tested code - except the acceptance output itself
       dirty: (git('status', '--porcelain') ?? '')
         .split('\n')
         .some((line) => line.trim() && !line.slice(3).startsWith('artifacts/')),
@@ -406,7 +416,7 @@ export function runA1Acceptance({
     artifacts,
     contextPointers: ['#385', '#388', '#393', '#413'],
   };
-  // manifest ต้องไม่มี PII/secret ก่อนเขียน (fail เมื่อพบ)
+  // the manifest must contain no PII/secret before it is written (fail when found)
   assertPiiSafeEvidence(manifest);
   const manifestPath = join(outputDirectory, 'acceptance-manifest.json');
   const body = `${JSON.stringify(manifest, null, 2)}\n`;

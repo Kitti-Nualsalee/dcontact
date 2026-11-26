@@ -1,11 +1,11 @@
 /**
- * Owner: Delivery/Channels — รายการข้อความขาเข้าของ LINE pilot สำหรับหน้า read-only บน UAT (#566 R2/R3)
+ * Owner: Delivery/Channels — list of inbound LINE pilot messages for the read-only page on UAT (#566 R2/R3)
  *
- * - อ่าน `dl_line_webhook_inbox` + payload ที่ ingress เข้ารหัสไว้โดยตรง (ไม่รอ worker) ของ binding เดียว
- * - item ไม่มี LINE userId/groupId/roomId ดิบ, replyToken, webhookEventId หรือ payload ทั้งก้อน — ผู้ส่งเป็น
- *   fingerprint ย่อ และ text มาจาก `readPilotView` ของ vault เท่านั้น
- * - ทุกการอ่านที่สำเร็จ append audit `LINE_PILOT_INBOUND_VIEWED` (category WEBHOOK): actor + digest ของ id
- *   ที่คืนไป — ไม่มีเนื้อหา
+ * - reads `dl_line_webhook_inbox` + the payload that ingress encrypted directly (without waiting for a worker) of a single binding
+ * - an item has no raw LINE userId/groupId/roomId, replyToken, webhookEventId or the whole payload — the sender is a
+ *   short fingerprint and the text comes only from the vault's `readPilotView`
+ * - every successful read appends audit `LINE_PILOT_INBOUND_VIEWED` (category WEBHOOK): actor + digest of the ids
+ *   returned — no content
  */
 import { createHash, randomUUID } from 'node:crypto';
 import { withTenantDatabaseTransaction, type PrismaClient } from '@d-contact/db';
@@ -17,7 +17,7 @@ export const LINE_PILOT_INBOUND_VIEWED = 'LINE_PILOT_INBOUND_VIEWED';
 const FINGERPRINT_LENGTH = 12;
 
 export interface LinePilotInboundItem {
-  /** id ภายในของแถว inbox (uuid ของเรา ไม่ใช่ ID ของ LINE) */
+  /** internal id of the inbox row (our uuid, not a LINE ID) */
   id: string;
   receivedAt: string;
   eventType: string;
@@ -54,7 +54,7 @@ export function decodeLinePilotCursor(value: string): Cursor {
   const [time, id] = Buffer.from(value, 'base64url').toString('utf8').split('|');
   const receivedAt = new Date(time ?? '');
   if (!id || !UUID.test(id) || Number.isNaN(receivedAt.getTime())) {
-    throw new LinePilotInboundCursorError('cursor ใช้ไม่ได้');
+    throw new LinePilotInboundCursorError('cursor is unusable');
   }
   return { receivedAt, id };
 }

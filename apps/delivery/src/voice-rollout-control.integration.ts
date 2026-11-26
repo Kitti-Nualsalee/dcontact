@@ -4,7 +4,7 @@ import { createDeliveryFixture, RESERVED_AT } from './delivery-fixture.js';
 import { VoiceOriginateEnqueuer } from './voice-originate-enqueue.js';
 import { VoiceRolloutControlPlane } from './voice-rollout-control.js';
 
-test('voice rollout: progression + allowlist + race-safe cap + kill เป็น durable authority', async (t) => {
+test('voice rollout: progression + allowlist + race-safe cap + kill are a durable authority', async (t) => {
   const context = await createDeliveryFixture();
   t.after(() => context.dispose());
   const at = new Date(RESERVED_AT);
@@ -93,7 +93,7 @@ test('voice rollout: progression + allowlist + race-safe cap + kill เป็น
   );
 });
 
-test('voice rollout DRY_RUN บันทึก evidence แต่ไม่อนุญาตให้ claim/provider traffic', async (t) => {
+test('voice rollout DRY_RUN records evidence but does not permit claim/provider traffic', async (t) => {
   const context = await createDeliveryFixture();
   t.after(() => context.dispose());
   const at = new Date(RESERVED_AT);

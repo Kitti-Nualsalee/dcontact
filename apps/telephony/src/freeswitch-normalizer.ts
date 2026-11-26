@@ -26,7 +26,7 @@ export interface FreeSwitchEvent {
 
 export interface FreeSwitchNormalizationDependencies {
   resolveTenantId(sipDomain: string): string | undefined;
-  /** DTMF/DETECTED_SPEECH ไม่มี channel variables จึงอ้างอิง tenant ของสายเดิม */
+  /** DTMF/DETECTED_SPEECH have no channel variables, so they reference the tenant of the existing call */
   resolveTenantIdForCall?(callUuid: string): string | undefined;
   telephonyNodeId: string;
   eventId(): string;
@@ -61,9 +61,9 @@ const eventTypes: Record<string, TelephonyCallEventType> = {
 };
 
 /**
- * #562: สายจาก trunk (profile `pstn-sim` หรือ carrier) ไม่ได้ยืนยันตัวกับ directory จึงยังไม่มี
- * `variable_domain_name` ตอน CHANNEL_CREATE — dialplan เป็นคน set ก่อน park ให้ Router
- * ใช้ CHANNEL_PARK แทน CHANNEL_CREATE เฉพาะสายที่ยังไม่เคยออก call.created เพื่อไม่ให้ซ้ำ
+ * #562: a call from a trunk (the `pstn-sim` profile or a carrier) is not authenticated with the directory, so it has no
+ * `variable_domain_name` at CHANNEL_CREATE — the dialplan sets it before parking for the Router.
+ * Use CHANNEL_PARK instead of CHANNEL_CREATE only for calls that have not yet emitted call.created, to avoid duplicates
  */
 export function parkedCallAsCreated(
   event: FreeSwitchEvent,

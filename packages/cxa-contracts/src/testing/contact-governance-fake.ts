@@ -1,4 +1,4 @@
-/** E0 test fake เท่านั้น: ไม่มี persistence, provider I/O หรือ canonical Attempt/Touch */
+/** E0 test fake only: no persistence, provider I/O or canonical Attempt/Touch */
 import {
   type AuthorizeAndReserveInput,
   type AuthorizationOutcome,
@@ -23,7 +23,7 @@ interface Fixture {
   claim?: ClaimReservationForDeliveryInput;
   providerRequestKey?: string;
   terminal: boolean;
-  /** Fixture policy ของ Governance; adapter เปลี่ยนค่าเองไม่ได้ */
+  /** Governance fixture policy; the adapter cannot change the values itself */
   refundOnFailure: boolean;
   senderIdentityId: string;
 }
@@ -46,7 +46,7 @@ export class ContactGovernanceFake implements ContactGovernancePort {
 
   constructor(private readonly now: () => number) {}
 
-  /** Seed เป็น policy decision ที่ test ยืนยันแล้ว ไม่ใช่ policy evaluator */
+  /** Seed is a policy decision the test has already confirmed, not a policy evaluator */
   seed(
     tenantId: TenantId,
     input: AuthorizeAndReserveInput,
@@ -55,7 +55,7 @@ export class ContactGovernanceFake implements ContactGovernancePort {
     senderIdentityId = 'sender-a',
   ): void {
     if (!outcome.reservationId || !outcome.reservationExpiresAt || outcome.decision !== 'ALLOW') {
-      throw new Error('fixture ต้องเป็น ALLOW พร้อม reservation และ expiry');
+      throw new Error('fixture must be ALLOW with a reservation and expiry');
     }
     this.fixtures.set(JSON.stringify([tenantId, outcome.reservationId]), {
       tenantId,
@@ -189,7 +189,7 @@ export class ContactGovernanceFake implements ContactGovernancePort {
     return this.once('begin', input, (f) => {
       this.bound(f, input.deliveryId);
       this.activeLease(f, input.expectedLeaseVersion);
-      // จำลอง atomic barrier ก่อน I/O เท่านั้น; production persistence เป็นงาน CG2
+      // simulates only the atomic barrier before I/O; production persistence is CG2 work
       f.providerRequestKey = input.providerRequestKey;
       f.view.status = 'UNKNOWN_RECONCILING';
     });
@@ -230,7 +230,7 @@ export class ContactGovernanceFake implements ContactGovernancePort {
   }
 
   async settleDelivery(input: SettleDeliveryInput): Promise<ReservationSettlementView> {
-    // outcomeRef กันการนำ callback เดิมไปผูกกับ action อื่นใน tenant เดียวกัน
+    // outcomeRef prevents reusing an old callback for another action in the same tenant
     const outcomeKey = JSON.stringify([input.tenantId, input.outcomeRef]);
     const previous = this.outcomes.get(outcomeKey);
     if (previous && previous !== canonical(input))

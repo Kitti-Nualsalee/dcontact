@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- สายเข้าที่ต้องถึง FreeSWITCH พร้อม header ปลอม X-DContact-Domain ที่ Kamailio ต้องลบ
-     FreeSWITCH park ไว้จน run.sh สั่ง uuid_answer แล้ว BYE กลับผ่าน Record-Route ของ Kamailio -->
+<!-- inbound call that must reach FreeSWITCH with a forged X-DContact-Domain header that Kamailio must strip
+     FreeSWITCH parks it until run.sh issues uuid_answer, then BYE comes back through the Record-Route of Kamailio -->
 <scenario name="uac-answered">
   <send>
     <![CDATA[

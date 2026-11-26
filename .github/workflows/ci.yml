@@ -7,8 +7,8 @@ on:
   workflow_dispatch:
     inputs:
       acceptance:
-        # push/PR รัน unit และ integration ที่เกี่ยวกับ diff; ชุด acceptance สั่งด้วยมือ
-        description: 'ชุดทดสอบ (unit | all | integration | object-storage | a1-fast | browser | s1 | chain | cg4 | cg5 | j2 | j5 | j5-focused | s2-pr01 | s2 | s2-focused | u1)'
+        # push/PR run the unit and integration tests related to the diff; the acceptance suites are dispatched manually
+        description: 'Test suite (unit | all | integration | object-storage | a1-fast | browser | s1 | chain | cg4 | cg5 | j2 | j5 | j5-focused | s2-pr01 | s2 | s2-focused | u1)'
         type: choice
         options: [
             unit,
@@ -18,7 +18,7 @@ on:
             a1-fast,
             browser,
             s1,
-            # ADR-032: S1 → J2/CG4 → J3 → J5 ใน dispatch เดียวบน SHA เดียวกัน
+            # ADR-032: S1 → J2/CG4 → J3 → J5 in a single dispatch on the same SHA
             chain,
             cg4,
             cg5,
@@ -49,9 +49,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - name: ตรวจ classifier และ fallback เมื่อฐาน diff ใช้ไม่ได้
+      - name: Check the classifier and its fallback when the diff base is unusable
         run: node --test scripts/ci-impact.test.mjs
-      - name: เลือก integration ตาม diff หรือคำสั่ง manual
+      - name: Select integration tests from the diff or the manual input
         id: impact
         run: node scripts/ci-impact.mjs
         env:
@@ -60,7 +60,7 @@ jobs:
 
   managed-routing-sip:
     needs: integration-impact
-    # classifier ล้ม/ไม่มี output ให้รันไว้ก่อน; manual เลือก integration หรือ all
+    # If the classifier fails or has no output, run it anyway; manual dispatch selects integration or all
     if: always() && !cancelled() && needs.integration-impact.outputs.managed != 'false'
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -73,14 +73,14 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter "@d-contact/router..." build
-      - name: เตรียม images ของ dev SIP sandbox ที่ตรึง digest
+      - name: Prepare the digest-pinned images of the dev SIP sandbox
         run: |
           docker pull postgres@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
           docker pull safarov/freeswitch@sha256:f156e01a96d48944078ed7f0e24304be63ea15f6466cf607a0aeb6cb47761da7
           docker pull ctaloi/sipp@sha256:c459f2340443ddcc159227efc798217dbdaad0dbe88b76b78b1a876aa271986a
-      - name: พิสูจน์ offer20s/budget60s/restart กับ caller และ B-leg จริง
+      - name: Prove offer20s/budget60s/restart against a real caller and B-leg
         run: pnpm voice:managed-routing:acceptance
-      - name: เก็บหลักฐาน SIP และ runtime
+      - name: Collect SIP and runtime evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -91,7 +91,7 @@ jobs:
 
   core-settings-writer-races:
     needs: integration-impact
-    # classifier ล้ม/ไม่มี output ให้รันไว้ก่อน; manual เลือก integration หรือ all
+    # If the classifier fails or has no output, run it anyway; manual dispatch selects integration or all
     if: always() && !cancelled() && needs.integration-impact.outputs.core != 'false'
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -123,14 +123,14 @@ jobs:
       - run: pnpm db:generate
       - run: pnpm --filter "@d-contact/api^..." --filter "@d-contact/journey^..." --filter "@d-contact/dialer^..." build
       - run: pnpm db:migrate && pnpm db:rls && pnpm db:rls
-      - name: ตรวจ discovery ว่าจับ required case ที่หายหรือ skip ได้
+      - name: Check that discovery catches required cases that are missing or skipped
         run: node --test scripts/core-settings-writer-tests.test.mjs
-      - name: ตรวจ Team HTTP, final constraints และ actual writer races ทั้งสองลำดับ
+      - name: Check Team HTTP, final constraints and actual writer races in both orders
         run: pnpm test:core-settings:writers
 
   tenant-people-boundary:
     needs: integration-impact
-    # classifier ล้ม/ไม่มี output ให้รันไว้ก่อน; manual เลือก integration หรือ all
+    # If the classifier fails or has no output, run it anyway; manual dispatch selects integration or all
     if: always() && !cancelled() && needs.integration-impact.outputs.people != 'false'
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -144,14 +144,14 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm db:generate
       - run: pnpm --filter "@d-contact/api^..." build
-      - name: Install browser สำหรับ real invitation onboarding
+      - name: Install browser for real invitation onboarding
         run: pnpm --filter @d-contact/console exec playwright install --with-deps chromium
-      - name: ตรวจ B2 HTTP/RLS และ B3 intent/SMTP บน Keycloak จริงใน sandbox แยก
+      - name: Check B2 HTTP/RLS and B3 intent/SMTP on a real Keycloak in a separate sandbox
         run: pnpm voice:tenant-people:intent-boundary && pnpm voice:tenant-people:boundary
 
   e1-voice-gateway:
     needs: integration-impact
-    # classifier ล้ม/ไม่มี output ให้รันไว้ก่อน; manual เลือก integration หรือ all
+    # If the classifier fails or has no output, run it anyway; manual dispatch selects integration or all
     if: always() && !cancelled() && needs.integration-impact.outputs.voice != 'false'
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -182,48 +182,48 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm db:generate
       - run: pnpm --filter "@d-contact/api^..." --filter "@d-contact/telephony^..." build
-      - name: ตรวจ local RTP relay isolation และ shutdown โดยไม่ส่ง media จริง
+      - name: Check local RTP relay isolation and shutdown without sending real media
         run: pnpm --filter @d-contact/telephony exec tsx --test src/local-rtp-relay.test.ts src/local-rtp-relay-main.test.ts
       - run: pnpm db:migrate && pnpm db:rls
-      - name: ตรวจ gateway กับ submission/rollout/settlement ภายใต้ RLS จริง
+      - name: Check gateway with submission/rollout/settlement under real RLS
         run: >-
           pnpm --filter @d-contact/delivery exec tsx --test --test-concurrency=1
           src/e1-voice-command-authority.integration.ts
           src/voice-originate-dispatcher.integration.ts
           src/voice-originate-outcome.integration.ts
           src/voice-rollout-control.integration.ts
-      - name: ตรวจ SIP flush และ credential serialization ภายใต้ RLS จริง
+      - name: Check SIP flush and credential serialization under real RLS
         run: |
           pnpm --filter @d-contact/telephony exec tsx --test src/e1-registration-flush.integration.ts
           pnpm --filter @d-contact/api exec tsx --test src/agent-sip-credentials.integration.ts
           pnpm --filter @d-contact/api exec tsx --test src/agent-availability.integration.ts
-      - name: ตรวจ B6 local account deny และ lease เดิมหลัง disable ภายใต้ RLS จริง
+      - name: Check B6 local account deny and the existing lease after disable under real RLS
         run: |
           pnpm --filter @d-contact/api exec tsx --test src/local-account-verifier.integration.ts
           pnpm --filter @d-contact/api exec tsx --test src/tenant-people-disable.integration.ts
           pnpm --filter @d-contact/api exec tsx --test src/work-session.integration.ts
-      - name: ตรวจ Voice wrap-up V1 และ legacy guards ภายใต้ RLS จริง
+      - name: Check Voice wrap-up V1 and legacy guards under real RLS
         run: |
           pnpm --filter @d-contact/api exec tsx --test src/agent-workspace.integration.ts
           pnpm --filter @d-contact/router exec tsx --test src/inbound-voice-router.integration.ts
 
-      - name: ตรวจ B1 catalog, command, quota และสิทธิ์ข้าม tenant/team ผ่าน HTTP กับ RLS จริง
+      - name: Check B1 catalog, command, quota and cross-tenant/team permissions over HTTP with real RLS
         run: pnpm --filter @d-contact/api exec tsx --test src/tenant-voice-catalog.integration.ts
-      - name: ตรวจ B2 reservation, fenced worker, mapping และ pending activation ผ่าน HTTP กับ RLS จริง
+      - name: Check B2 reservation, fenced worker, mapping and pending activation over HTTP with real RLS
         run: pnpm --filter @d-contact/api exec tsx --test src/tenant-people-operations.integration.ts
-      - name: ตรวจ authority ของบัญชี B2 ใหม่และ disable compensation ภายใต้ RLS จริง
+      - name: Check authority of the new B2 account and disable compensation under real RLS
         run: pnpm --filter @d-contact/api exec tsx --test src/tenant-provisioned-authority.integration.ts
-      - name: ตรวจ People directory, pagination และ positive identity authority ผ่าน HTTP กับ RLS จริง
+      - name: Check People directory, pagination and positive identity authority over HTTP with real RLS
         run: pnpm --filter @d-contact/api exec tsx --test src/tenant-people-directory.integration.ts
-      - name: ตรวจการย้ายทีมของบัญชี (#998) ด้วย revision/idle fence ภายใต้ RLS จริง
+      - name: Check account team transfer (#998) with revision/idle fence under real RLS
         run: pnpm --filter @d-contact/api exec tsx --test src/tenant-people-team-change.integration.ts
-      - name: ตรวจแก้ชื่อที่แสดงและเปิดบัญชีกลับ (#998) ด้วย fenced worker, receipt และโควตาภายใต้ RLS จริง
+      - name: Check display-name edit and account re-enable (#998) with fenced worker, receipt and quota under real RLS
         run: pnpm --filter @d-contact/api exec tsx --test src/tenant-people-account-change.integration.ts
-      - name: ตรวจ B4 skills, binding, scope และ idle guards ผ่าน HTTP กับ RLS จริง
+      - name: Check B4 skills, binding, scope and idle guards over HTTP with real RLS
         run: |
           pnpm --filter @d-contact/api exec tsx --test src/tenant-voice-configuration.integration.ts
           pnpm --filter @d-contact/router test:integration
-      - name: ตรวจ B4 migration ปฏิเสธ cross-tenant assignment และบังคับ level/RLS
+      - name: Check B4 migration rejects cross-tenant assignment and enforces level/RLS
         env:
           VOICE_SKILL_TEST_CONTAINER: ${{ job.services.postgres.id }}
           VOICE_SKILL_TEST_USER: dcontact
@@ -273,7 +273,7 @@ jobs:
         env:
           CG5_EXTERNAL_OPENAPI_BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before }}
 
-      # CG4.11 (#194): registry/validator/marker suppression รันได้โดยไม่ต้องมี infrastructure
+      # CG4.11 (#194): registry/validator/marker suppression run without any infrastructure
       - name: CG4 readiness validator tests
         run: pnpm test:cxa-cg4-readiness
 
@@ -283,68 +283,68 @@ jobs:
       - name: Acceptance dependency marker tests (#559)
         run: pnpm test:acceptance-dependency
 
-      # CG5.11 (#295): registry/validator/marker suppression และ MG01 migration scan ไม่ต้องใช้ infrastructure
+      # CG5.11 (#295): registry/validator/marker suppression and the MG01 migration scan need no infrastructure
       - name: CG5 readiness validator tests
         run: pnpm test:cxa-cg5-readiness
 
-      # J5.1 (#339): registry ของ schema ตรงกับ migration และ rls.sql โดยไม่ต้องใช้ infrastructure
+      # J5.1 (#339): the schema registry matches the migrations and rls.sql without infrastructure
       - name: J5 schema readiness validator tests
         run: pnpm test:cxa-j5-schema-readiness
 
-      # S2.1 (#365): registry ของ LINE persistence ตรงกับ migration/rls.sql และ migration เป็น expand-only
+      # S2.1 (#365): the LINE persistence registry matches the migrations/rls.sql and the migration is expand-only
       - name: S2 schema readiness validator tests
         run: pnpm test:cxa-s2-schema-readiness
 
-      # S2.6 (#366): 19-check registry, manifest/bundle validator, marker suppression และ negative scan
+      # S2.6 (#366): 19-check registry, manifest/bundle validator, marker suppression and negative scan
       - name: S2 readiness validator tests
         run: pnpm test:cxa-s2-readiness
 
-      # A1.1 (#406): registry ของ control-plane schema ตรง migration/rls.sql และ migration เป็น expand-only
+      # A1.1 (#406): the control-plane schema registry matches the migrations/rls.sql and the migration is expand-only
       - name: A1 schema readiness validator tests
         run: pnpm test:a1-schema-readiness
 
-      # U1.6 (#434): compose/Dockerfile/realm/workflow ของ UAT + migration guard + live smoke กับ stub
+      # U1.6 (#434): UAT compose/Dockerfile/realm/workflow + migration guard + live smoke against a stub
       - name: U1.6 UAT deployment readiness validator tests
         run: pnpm test:u1-uat-readiness
 
-      - name: ตรวจ B7 read-only readiness และ Workspace profile
+      - name: Check B7 read-only readiness and the Workspace profile
         run: pnpm test:voice-v1b:readiness && pnpm voice:v1b:readiness -- --static
 
-      # U1.7 (#435): marker ของ acceptance gate, negative scan ของ manifest และ realm/env ของ gate
+      # U1.7 (#435): acceptance gate markers, manifest negative scan, and gate realm/env
       - name: U1.7 acceptance gate validator tests
         run: pnpm test:u1-acceptance
 
-      # A1.2 (#407): token matrix + guard ผ่าน HTTP จริง (token ลงนามในเครื่อง ไม่ต้องใช้ Keycloak)
-      # real-boundary กับ Keycloak จริงรันด้วย `pnpm a1:auth:boundary` หลัง `pnpm infra:up`
+      # A1.2 (#407): token matrix + guard over real HTTP (tokens are signed locally, no Keycloak needed)
+      # the real-boundary run against a real Keycloak uses `pnpm a1:auth:boundary` after `pnpm infra:up`
       - name: A1.2 platform auth boundary tests
         run: pnpm --filter @d-contact/platform-api test
 
-      # ADR-029 (#532): config S3_* ชุดเดียว, fallback MINIO_*, fail closed และ readiness ผ่าน HeadBucket
+      # ADR-029 (#532): a single S3_* config set, MINIO_* fallback, fail closed and readiness via HeadBucket
       - name: Object storage config tests
         run: pnpm test:object-storage
 
-      # D1.11 (#450): formatter/locale/catalog check — CI ล้มเมื่อ key ขาด th หรือ en
-      # D1.14 (#453): ไม่มีข้อความ hardcode ในหน้า Journeys/shell และ CSS ใช้ token เท่านั้น
+      # D1.11 (#450): formatter/locale/catalog check — CI fails when a key is missing in th or en
+      # D1.14 (#453): no hardcoded text in the Journeys/shell pages and CSS uses tokens only
       - name: D1.11 i18n foundation tests + catalog check
         run: pnpm test:d1-i18n
 
-      # #515: login theme ของ Keycloak — ไม่มีค่าสีตรง, token มีอยู่จริง, selector ที่ UAT ใช้ยังอยู่
+      # #515: Keycloak login theme — no literal color values, tokens exist, selectors that UAT uses are still present
       - name: Keycloak login theme tests
         run: pnpm test:keycloak-theme
 
-      # #562: สายลูกค้าเข้าทาง trunk จำลอง pstn-sim และไม่มี static SIP credential (E1.10)
+      # #562: inbound customer calls arrive through the simulated pstn-sim trunk and there is no static SIP credential (E1.10)
       - name: FreeSWITCH config tests
         run: pnpm test:freeswitch-config
 
-      # E1.14 (#488): contract test ของ postMessage v1 (JSON Schema ↔ TypeScript types ↔ parser)
-      # + origin/source, rate limit, screen-pop ตามระดับ และคิว activity ฝั่ง iframe
+      # E1.14 (#488): postMessage v1 contract test (JSON Schema ↔ TypeScript types ↔ parser)
+      # + origin/source, rate limit, tiered screen-pop and the iframe-side activity queue
       - name: E1.14 dphone embed contract tests
         run: pnpm test:e1-embed-contract
 
   object-storage-contract:
-    # ADR-029: S3 contract ที่แอปใช้ — ชุดเดียวกันบนทุก backend ที่ตรึง digest (บูตจาก image ไม่มี cache)
-    #   rustfs    (#533) dev/CI จาก dev compose
-    #   seaweedfs (#540) UAT/on-prem ด้วย entrypoint ตัวเดียวกับ UAT (s3.json + policy ของ API) + least privilege
+    # ADR-029: the S3 contract the app uses — the same suite on every digest-pinned backend (booted from an image, no cache)
+    # rustfs    (#533) dev/CI from the dev compose
+    # seaweedfs (#540) UAT/on-prem with the same entrypoint as UAT (s3.json + API policy) + least privilege
     if: github.event_name == 'workflow_dispatch' && (inputs.acceptance == 'all' || inputs.acceptance == 'object-storage')
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -408,13 +408,13 @@ jobs:
             import { missingBuckets } from './scripts/object-storage-readiness.mjs';
             const missing = await missingBuckets();
             if (missing.length) { console.error('missing:', missing.join(', ')); process.exit(1); }
-            console.log('✓ HeadBucket ผ่านทุก dev bucket');
+            console.log('✓ HeadBucket passed for every dev bucket');
           "
 
       - name: S3 contract tests
         run: pnpm test:object-storage:contract
 
-      - name: UAT bootstrap + least privilege ของ API (policy ใน entrypoint ของ UAT)
+      - name: UAT bootstrap + API least privilege (policy in the UAT entrypoint)
         if: matrix.backend == 'seaweedfs'
         run: |
           node scripts/uat-object-storage.mjs init
@@ -426,9 +426,9 @@ jobs:
         run: docker logs object-storage 2>&1 | tail -n 100
 
   a1-platform-control-fast-gate:
-    # A1.1 (#406) / #393 gate แบบสั่งเอง: idempotency, reservation race, tombstone, CAS, completion
-    # invariant, append-only, isolation matrix, Platform API, tenant lifecycle gate และ Platform
-    # Console (Playwright/axe กับ API mock) — ไม่ต้องใช้ Keycloak จริง
+    # A1.1 (#406) / #393 manual gate: idempotency, reservation race, tombstone, CAS, completion
+    # invariant, append-only, isolation matrix, Platform API, tenant lifecycle gate and Platform
+    # Console (Playwright/axe against an API mock) — no real Keycloak needed
     if: github.event_name == 'workflow_dispatch' && (inputs.acceptance == 'all' || inputs.acceptance == 'a1-fast')
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -450,7 +450,7 @@ jobs:
       DATABASE_URL: postgresql://dcontact:dcontact@localhost:5433/dcontact?schema=public
       PLATFORM_DATABASE_URL: postgresql://dcontact_platform:dcontact_platform@localhost:5433/dcontact?schema=public
       APPLICATION_DATABASE_URL: postgresql://dcontact_app:dcontact_app@localhost:5433/dcontact?schema=public
-      # A1.4 (#409): role ของ tenant bootstrap (#388 decision) — RLS ยอมเฉพาะ tenant ที่ยัง PROVISIONING
+      # A1.4 (#409): tenant bootstrap role (#388 decision) — RLS only allows tenants still in PROVISIONING
       PROVISIONER_DATABASE_URL: postgresql://dcontact_provisioner:dcontact_provisioner@localhost:5433/dcontact?schema=public
     steps:
       - uses: actions/checkout@v4
@@ -470,7 +470,7 @@ jobs:
       - name: Install Playwright browser (Platform Console e2e)
         run: pnpm --filter @d-contact/platform-console exec playwright install --with-deps chromium
 
-      - name: Build dependencies of platform-api, api gateway และ console
+      - name: Build dependencies of platform-api, api gateway and console
         run: pnpm --filter "@d-contact/platform-api^..." --filter "@d-contact/api^..." --filter "@d-contact/platform-console^..." build
 
       - name: Migrate and bootstrap roles/RLS
@@ -479,12 +479,12 @@ jobs:
       - name: Platform Console typecheck
         run: pnpm --filter @d-contact/platform-console typecheck
 
-      # A1.8 (#413): alert rule ของ Platform provisioning ต้องผ่าน promtool unit test
+      # A1.8 (#413): the Platform provisioning alert rules must pass the promtool unit test
       - name: Platform provisioning alert rules
         run: pnpm a1:alerts:test
 
-      # A1.8 (#413): runner เดียวรันทุก fast check ของ #393 แล้วออก acceptance-manifest.json
-      # (non-waivable gate ที่ FAIL = job fail) — real-boundary รันด้วย `pnpm a1:acceptance:boundary`
+      # A1.8 (#413): a single runner runs every fast check of #393, then emits acceptance-manifest.json
+      # (non-waivable gate: FAIL = job fails) — the real-boundary run uses `pnpm a1:acceptance:boundary`
       - name: A1 acceptance runner self-test
         run: pnpm test:a1-acceptance
 
@@ -511,7 +511,7 @@ jobs:
           retention-days: 30
 
   d1-ui-react:
-    # D1.10 (#449): stylelint (token เท่านั้น) + axe 0 serious/critical TH/EN + keyboard ของทุก component
+    # D1.10 (#449): stylelint (tokens only) + axe 0 serious/critical TH/EN + keyboard for every component
     if: github.event_name == 'workflow_dispatch' && (inputs.acceptance == 'all' || inputs.acceptance == 'browser')
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -548,10 +548,10 @@ jobs:
           retention-days: 7
 
   d1-i18n-browser:
-    # D1.11 (#450): สลับภาษาไม่ reload (performance/marker ของหน้าเดิม) และ formatter บน Chromium จริง
-    # D1.13 (#452): flag ui.shell.v2 — shell/legacy, axe ของ shell, ไม่ remount WorkspaceApp
-    # D1.14 (#453): หน้า Journeys บน i18n/component/token — J5 flow เดิม + TH/EN + shell เปิด/ปิด
-    # D1.15 (#454): dphone 3 ขนาด/แยกหน้าต่าง/สลับภาษา — SIP session เดิมและไม่ reload (transport จำลอง)
+    # D1.11 (#450): switching language does not reload (performance/marker of the same page) and the formatter on real Chromium
+    # D1.13 (#452): flag ui.shell.v2 — shell/legacy, shell axe, WorkspaceApp is not remounted
+    # D1.14 (#453): Journeys page on i18n/component/token — existing J5 flow + TH/EN + shell on/off
+    # D1.15 (#454): dphone at 3 sizes / separate window / language switch — existing SIP session and no reload (simulated transport)
     if: github.event_name == 'workflow_dispatch' && (inputs.acceptance == 'all' || inputs.acceptance == 'browser')
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -590,13 +590,13 @@ jobs:
           retention-days: 7
 
   s1-convergence-acceptance:
-    # S1 ใช้เวลานานและ J3 final gate เรียกเองอยู่แล้ว: ไม่รันทุก main push
-    # เพื่อให้ development ใช้ focused gate ได้ก่อน แล้วเรียก S1 เมื่อเลือก manual เท่านั้น
+    # S1 takes a long time and the J3 final gate already calls it: do not run on every main push
+    # so development can use the focused gate first, and call S1 only when manual is selected
     if: github.event_name == 'workflow_dispatch' && (inputs.acceptance == 's1' || inputs.acceptance == 'chain')
     runs-on: ubuntu-latest
     concurrency:
       group: s1-convergence-acceptance-${{ github.ref }}
-      cancel-in-progress: false # ADR-032: S1 ที่สั่งทีหลังต้องไม่ตัด S1 ของ chain ที่รันอยู่
+      cancel-in-progress: false # ADR-032: an S1 dispatched later must not cancel the S1 of a chain that is already running
     env:
       DATABASE_URL: postgresql://dcontact:dcontact@localhost:5433/dcontact?schema=public
     steps:
@@ -655,7 +655,7 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
-      # #559: C1 manifest (J1_ACCEPTED) ที่ S1-REG-01 รันไว้ ให้ J2/J5 ตรวจ marker แทนการรัน C1 ซ้ำ
+      # #559: the C1 manifest (J1_ACCEPTED) that S1-REG-01 ran; J2/J5 check the marker instead of re-running C1
       - name: Upload immutable C1 evidence manifest
         if: always()
         uses: actions/upload-artifact@v4
@@ -670,10 +670,10 @@ jobs:
         run: pnpm infra:down
 
   cxa-j2-acceptance:
-    # #559: J2-REG01 ไม่รัน C1/S1 acceptance ซ้อนแล้ว แต่ตรวจ marker จาก artifact ของ run S1 บน SHA เดียวกัน
-    # จึงต้องสั่ง `acceptance=s1` ให้ผ่านก่อน (ดู docs/acceptance-dependencies.md)
+    # #559: J2-REG01 no longer runs C1/S1 acceptance nested, but checks the marker from the S1 run artifact on the same SHA
+    # so `acceptance=s1` must be dispatched and pass first (see docs/acceptance-dependencies.md)
     needs: s1-convergence-acceptance
-    # ADR-032: chain รอ S1 ของ run เดียวกันผ่านก่อน; โหมด j2/all ไม่รอ (S1 ถูก skip)
+    # ADR-032: the chain waits for the S1 of the same run to pass; j2/all modes do not wait (S1 is skipped)
     if: >-
       always() && github.event_name == 'workflow_dispatch' &&
       (inputs.acceptance == 'all' || inputs.acceptance == 'j2' ||
@@ -713,7 +713,7 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # phase-two-readiness เรียก workspace/console test:e2e ซึ่งใช้ Playwright
+      # phase-two-readiness calls the workspace/console test:e2e which uses Playwright
       - name: Install Playwright Chromium for browser acceptance
         run: pnpm --filter @d-contact/workspace exec playwright install --with-deps chromium
 
@@ -755,10 +755,10 @@ jobs:
         run: pnpm infra:down
 
   cxa-cg4-acceptance:
-    # CG4.11 (#194): สั่งเองบน main (`gh workflow run CI --ref main -f acceptance=cg4`)
-    # #572: CG4-REG01 ไม่รัน S1 ซ้อนแล้ว แต่ตรวจ S1 manifest (CG3 marker + S1-REG-01 PASS) จาก artifact
-    # ของ run S1 บน SHA เดียวกัน — ต้องสั่ง `acceptance=s1` ให้ผ่านก่อน (docs/acceptance-dependencies.md)
-    # marker ออกได้เฉพาะ HEAD == origin/main == expectedCommitSha บน clean checkout
+    # CG4.11 (#194): dispatch manually on main (`gh workflow run CI --ref main -f acceptance=cg4`)
+    # #572: CG4-REG01 no longer runs S1 nested, but checks the S1 manifest (CG3 marker + S1-REG-01 PASS) from the artifact
+    # of the S1 run on the same SHA — `acceptance=s1` must be dispatched and pass first (docs/acceptance-dependencies.md)
+    # the marker is issued only when HEAD == origin/main == expectedCommitSha on a clean checkout
     needs: s1-convergence-acceptance
     if: >-
       always() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' &&
@@ -839,9 +839,9 @@ jobs:
         run: pnpm infra:down
 
   cxa-cg5-acceptance:
-    # CG5.11 (#295): สั่งเองบน main (`gh workflow run CI --ref main -f acceptance=cg5`)
-    # ไม่บังคับ marker ของ CG3/CG4/J2/J3 บน SHA เดียวกัน แต่ CG5-REG01/REG02 รัน conformance แบบเจาะจงแทน (#273 §2)
-    # marker ออกได้เฉพาะ HEAD == origin/main == expectedCommitSha บน clean checkout
+    # CG5.11 (#295): dispatch manually on main (`gh workflow run CI --ref main -f acceptance=cg5`)
+    # does not require CG3/CG4/J2/J3 markers on the same SHA, but CG5-REG01/REG02 run a targeted conformance instead (#273 §2)
+    # the marker is issued only when HEAD == origin/main == expectedCommitSha on a clean checkout
     if: github.event_name == 'workflow_dispatch' && (inputs.acceptance == 'all' || inputs.acceptance == 'cg5') && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 120
@@ -904,8 +904,8 @@ jobs:
           retention-days: 90
 
   cxa-j3-acceptance:
-    # ADR-032: J3 ของ chain เรียก workflow cxa-j3-acceptance แบบ reusable จึงได้ SHA เดียวกับ run นี้
-    # (สั่ง J3 เดี่ยวยังใช้ `gh workflow run cxa-j3-acceptance --ref main` ได้เหมือนเดิม)
+    # ADR-032: the chain's J3 calls the cxa-j3-acceptance workflow as reusable, so it gets the same SHA as this run
+    # (dispatching J3 alone still works with `gh workflow run cxa-j3-acceptance --ref main` as before)
     needs: [cxa-j2-acceptance, cxa-cg4-acceptance]
     if: >-
       always() && github.event_name == 'workflow_dispatch' && inputs.acceptance == 'chain' &&
@@ -916,9 +916,9 @@ jobs:
     uses: ./.github/workflows/cxa-j3-acceptance.yml
 
   cxa-j5-acceptance:
-    # J5.7 (#345): full gate 16 checks — J5-REG01 ต้องเห็น J1/J2/J3/CG3 marker บน SHA เดียวกัน
-    # #559: ไม่รัน `cxa:j3:acceptance` ซ้อนแล้ว แต่ดึง manifest จาก artifact ของ run S1/J2/J3 บน SHA นี้
-    # สั่งเอง: `gh workflow run CI --ref main -f acceptance=j5` — marker ออกได้เฉพาะ clean final main SHA
+    # J5.7 (#345): full gate of 16 checks — J5-REG01 must see the J1/J2/J3/CG3 markers on the same SHA
+    # #559: no longer runs `cxa:j3:acceptance` nested, but fetches the manifest from the S1/J2/J3 run artifacts on this SHA
+    # dispatch manually: `gh workflow run CI --ref main -f acceptance=j5` — the marker is issued only for a clean final main SHA
     needs: cxa-j3-acceptance
     if: >-
       always() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' &&
@@ -997,7 +997,7 @@ jobs:
           retention-days: 90
 
   cxa-j5-focused:
-    # J5.7 (#345): candidate 15 checks (ไม่รวม J5-REG01) — ไม่ออก marker ไม่ว่าผลจะเป็นอย่างไร
+    # J5.7 (#345): candidate of 15 checks (excluding J5-REG01) — never issues a marker whatever the result
     if: github.event_name == 'workflow_dispatch' && inputs.acceptance == 'j5-focused'
     runs-on: ubuntu-latest
     timeout-minutes: 120
@@ -1064,11 +1064,11 @@ jobs:
           retention-days: 30
 
   cxa-u1-acceptance:
-    # U1.7 (#435): acceptance gate ของ UAT first slice บน backend จริง (ไม่มี API mock) ก่อนเปิด #416
-    # API entry `uat-main` (DCONTACT_API_PROFILE=uat) + Postgres/Keycloak/object storage ของ dev compose + Console ผ่าน Vite
-    # สั่งเอง: `gh workflow run CI --ref main -f acceptance=u1` — marker `U1_ACCEPTANCE_GATE_PASSED` ออกเฉพาะ
-    # ทุก check PASS บน U1_EXPECTED_COMMIT_SHA และแปลว่า "พร้อมเปิด #416" เท่านั้น ไม่ใช่ UAT ผ่าน
-    # หลักฐาน = manifest + screenshot เท่านั้น (ห้าม trace/HAR/video ตาม #379)
+    # U1.7 (#435): acceptance gate of the UAT first slice on a real backend (no API mock) before opening #416
+    # API entry `uat-main` (DCONTACT_API_PROFILE=uat) + Postgres/Keycloak/object storage from the dev compose + Console through Vite
+    # dispatch manually: `gh workflow run CI --ref main -f acceptance=u1` — marker `U1_ACCEPTANCE_GATE_PASSED` is issued only when
+    # every check PASSes on U1_EXPECTED_COMMIT_SHA and it means only "ready to open #416", not that UAT passed
+    # evidence = manifest + screenshots only (no trace/HAR/video per #379)
     if: github.event_name == 'workflow_dispatch' && inputs.acceptance == 'u1' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -1120,7 +1120,7 @@ jobs:
         run: pnpm cxa:u1:acceptance
         env:
           U1_EXPECTED_COMMIT_SHA: ${{ github.sha }}
-          # evidence store ของ API = object storage ของ dev compose (object-storage-init สร้าง bucket uat-evidence)
+          # evidence store of the API = object storage of the dev compose (object-storage-init creates the uat-evidence bucket)
           S3_ENDPOINT: http://localhost:9000
           S3_ACCESS_KEY: dcontact
           S3_SECRET_KEY: dcontact-secret
@@ -1138,12 +1138,12 @@ jobs:
           retention-days: 90
 
   cxa-s2-provider-conformance:
-    # S2.6 (#366): S2-LINE-PR01 บน protected runner (macOS ที่ถือ Keychain + local ngrok binding)
-    # token/secret ไม่เข้า GitHub Actions — job นี้รับแค่ reference จาก `vars` และส่งออกเฉพาะ
-    # sanitized bundle; environment `line-provider-pilot` ต้องมี required reviewer ก่อนเริ่ม
-    # PR01 ไม่มี push — PR02/RB01 (S2.7) ต้องมี one-shot approval ใหม่ทุกครั้ง
-    # หลัง RB01 revoke token แล้วให้รับ sanitized PR01/PR02/RB01 bundles ที่ protected runner
-    # สร้างไว้ก่อนหน้าใน SHA เดียวกัน; ห้ามรัน PR01 ซ้ำด้วย token ที่ถูก revoke
+    # S2.6 (#366): S2-LINE-PR01 on a protected runner (macOS holding the Keychain + local ngrok binding)
+    # tokens/secrets never enter GitHub Actions — this job only receives references from `vars` and emits only a
+    # sanitized bundle; the `line-provider-pilot` environment needs a required reviewer before starting
+    # PR01 has no push — PR02/RB01 (S2.7) need a fresh one-shot approval every time
+    # after RB01 revokes the token, accept the sanitized PR01/PR02/RB01 bundles that the protected runner
+    # created earlier on the same SHA; never re-run PR01 with a revoked token
     if: github.event_name == 'workflow_dispatch' && (inputs.acceptance == 's2-pr01' || inputs.acceptance == 's2') && github.ref == 'refs/heads/main'
     runs-on: [self-hosted, macOS, line-pilot]
     environment: line-provider-pilot
@@ -1207,9 +1207,9 @@ jobs:
           retention-days: 90
 
   cxa-s2-acceptance:
-    # S2.6 (#366): ingestion + 19 checks — ตรวจ bundle ซ้ำ (schema/hash/final-main/negative scan)
-    # แล้วรัน automated 16 checks บน SHA เดียวกัน; bundle หายหรือเสีย = candidate เท่านั้น
-    # `gh workflow run CI --ref main -f acceptance=s2` — marker ออกได้เฉพาะ clean final main SHA
+    # S2.6 (#366): ingestion + 19 checks — re-validate the bundle (schema/hash/final-main/negative scan)
+    # then run the 16 automated checks on the same SHA; a missing or corrupt bundle = candidate only
+    # `gh workflow run CI --ref main -f acceptance=s2` — the marker is issued only for a clean final main SHA
     needs: cxa-s2-provider-conformance
     if: always() && github.event_name == 'workflow_dispatch' && inputs.acceptance == 's2' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
@@ -1289,7 +1289,7 @@ jobs:
         run: pnpm infra:down
 
   cxa-s2-focused:
-    # S2.6 (#366): candidate 15 checks (ไม่รวม REG01 และ provider checks) — ไม่ออก marker ไม่ว่าผลจะเป็นอย่างไร
+    # S2.6 (#366): candidate of 15 checks (excluding REG01 and the provider checks) — never issues a marker whatever the result
     if: github.event_name == 'workflow_dispatch' && inputs.acceptance == 's2-focused'
     runs-on: ubuntu-latest
     timeout-minutes: 90

@@ -10,7 +10,7 @@
  * Deliberately synchronous per call (check-then-simulate, no enqueue-then-
  * later-pick-up gap): unlike C1 SEND's delivery worker, there is no async
  * window during which a queued outbound could go stale, so "restrictive
- * mutation ชนะ pending outbound" (#122/#124) holds by construction — every
+ * mutation wins over pending outbound" (#122/#124) holds by construction — every
  * scope/governance read is live at the moment of the call, never cached —
  * rather than needing a second CG3-canonical-event invalidation listener
  * like `dialer-governance.ts` (S1.7) built for the separate `ObAttempt`
@@ -48,14 +48,14 @@ export type OriginateOutcome =
   | 'REJECTED'
   | 'GATE_CLOSED'
   | 'SHADOW_OBSERVED'
-  /** OWNER_CONFORMANCE: เงื่อนไขฝั่ง owner ผ่านครบแล้วหยุดก่อนจอง Governance reservation */
+  /** OWNER_CONFORMANCE: all owner-side conditions passed, then stop before reserving a Governance reservation */
   | 'CONFORMANCE_OBSERVED'
-  /** SCOPED_INTERNAL_ENABLED แต่ campaign/queue ไม่อยู่ใน allowlist — ไม่แตะ state */
+  /** SCOPED_INTERNAL_ENABLED but the campaign/queue is not in the allowlist — state is not touched */
   | 'OUT_OF_SCOPE'
   | 'SCOPE_DENIED'
-  /** Governance ตอบไม่ได้ (throw) — fail closed โดยไม่เปลี่ยน state ให้ลองใหม่รอบหน้า */
+  /** Governance cannot answer (throws) — fail closed without changing state so the next round retries */
   | 'GOVERNANCE_UNAVAILABLE'
-  /** reservation ถูก invalidate ระหว่างจองกับ claim (restrictive mutation ชนะ) ก่อนมี provider I/O */
+  /** The reservation was invalidated between reserving and claiming (a restrictive mutation won) before any provider I/O */
   | 'RESERVATION_INVALIDATED'
   | 'GOVERNANCE_BLOCKED'
   | 'GOVERNANCE_DEFERRED'
@@ -69,15 +69,15 @@ const SIMULATION_OUTCOME = {
   INVALIDATED: 'RESERVATION_INVALIDATED',
 } as const satisfies Record<string, OriginateOutcome>;
 
-/** lease เดียวกันทั้งฝั่ง Governance claim และ row ที่ค้างใน ORIGINATING */
+/** The same lease applies to both the Governance claim and a row stuck in ORIGINATING */
 export const DEFAULT_ORIGINATE_LEASE_MS = 30_000;
 
 export interface DialerOriginateBarrierOptions {
   now?: () => Date;
   transport?: TelephonyTransport;
-  /** callback ที่ยังไม่ถึง `requestedFor` ภายใน tolerance นี้ยังไม่ eligible ให้ originate */
+  /** A callback not yet at `requestedFor` within this tolerance is not eligible to originate */
   callbackEarlyToleranceMs?: number;
-  /** เกินช่วงนี้แล้วยังค้าง ORIGINATING ถือว่า process ตายกลางคัน ให้ reconciler เก็บกวาด */
+  /** Stuck in ORIGINATING beyond this window means the process died midway; the reconciler cleans it up */
   originateLeaseMs?: number;
 }
 
@@ -97,7 +97,7 @@ export class DialerOriginateBarrier {
     this.now = options.now ?? (() => new Date());
     if (!options.transport) {
       throw new Error(
-        'DialerOriginateBarrier ต้องได้รับ transport ที่ตรวจ TEST_ADAPTER แล้วอย่างชัดเจน',
+        'DialerOriginateBarrier must be given a transport explicitly verified as TEST_ADAPTER',
       );
     }
     this.transport = options.transport;
@@ -288,7 +288,7 @@ export class DialerOriginateBarrier {
     return SIMULATION_OUTCOME[simulated];
   }
 
-  /** Governance ที่ throw คือตอบไม่ได้ — ไม่ถือเป็น ALLOW และไม่เปลี่ยน owner state (#124 fail closed) */
+  /** A Governance that throws cannot answer — it is not treated as ALLOW and does not change the owner state (#124 fail closed) */
   private async authorize(
     tenantId: string,
     input: Parameters<ContactGovernancePort['authorizeAndReserve']>[1],
@@ -320,8 +320,8 @@ export class DialerOriginateBarrier {
   }
 
   /**
-   * claim -> begin -> transport -> confirm/settle ทั้งชุดในเรียกเดียว (ดู header comment
-   * เรื่อง synchronous-by-design); คืน true เมื่อ TEST_ADAPTER ตอบ ACCEPTED
+   * claim -> begin -> transport -> confirm/settle as one whole call (see the header comment
+   * about synchronous-by-design); returns true when TEST_ADAPTER answers ACCEPTED
    */
   private async runTelephonySimulation(
     tenantId: string,
@@ -354,8 +354,8 @@ export class DialerOriginateBarrier {
         leaseExpiresAt,
       });
     } catch (error) {
-      // restriction/kill switch ที่มาถึงหลังจองทำให้ reservation ไม่อยู่ใน RESERVED แล้ว — ยังไม่มี provider
-      // I/O จึงถอยได้อย่างปลอดภัย error อื่น (DB/Governance ล่ม) ปล่อยให้ lease sweeper ตัดสินแทนการเดา
+      // A restriction/kill switch arriving after reserving leaves the reservation no longer in RESERVED — there is no provider
+      // I/O yet, so rolling back is safe. Other errors (DB/Governance down) are left to the lease sweeper to decide rather than guessing
       if (
         (error instanceof ReservationBindingError || error instanceof ReservationNotUsableError) &&
         (error.code === 'RESERVATION_NOT_RESERVED' || error.code === 'RESERVATION_EXPIRED')

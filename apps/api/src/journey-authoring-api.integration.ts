@@ -1,9 +1,9 @@
 /**
  * J5.5 (#343) — Journey authoring/template REST API
  *
- * ครอบ acceptance ของ #343 ผ่าน HTTP จริง (guard + IAM grant + RLS): route/DTO แบบ strict,
- * idempotency, generic not-found สองtenant, list ที่ไม่รั่ว, CAS stale, review/publish และ
- * publish recovery ที่ไม่มี optimistic success
+ * covers the #343 acceptance over real HTTP (guard + IAM grant + RLS): strict route/DTO,
+ * idempotency, generic two-tenant not-found, a list that does not leak, CAS stale, review/publish and
+ * publish recovery with no optimistic success
  */
 import 'reflect-metadata';
 import assert from 'node:assert/strict';
@@ -145,7 +145,7 @@ async function harness(
   const verifier = {
     verifyAccessToken: async (token: string): Promise<VerifiedOidcClaims> => {
       if (token in users) return claims(token as Persona);
-      throw new Error('token ไม่ถูกต้อง');
+      throw new Error('invalid token');
     },
   };
   const repository = new JourneyTemplateRepository(application, {
@@ -155,16 +155,16 @@ async function harness(
     checkpoint: options.checkpoint,
   });
 
-  // U1.2 (#430): ประกอบผ่าน composition root ของ UAT เพื่อพิสูจน์ว่า authoring/review/publish/simulate
-  // ทำงานครบใน profile ที่ปิด Kafka/LINE/egress (controller + guard ชุดเดียวกับที่ UAT deploy)
+  // U1.2 (#430): composed through the UAT composition root to prove that authoring/review/publish/simulate
+  // work in full in a profile with Kafka/LINE/egress off (the same controller + guard set the UAT deploy uses)
   const profile = resolveApiRuntimeProfile({ DCONTACT_API_PROFILE: 'uat' });
   const routeGuard = new RuntimeProfileRouteGuard(profile, { write: () => undefined });
   const app = await NestFactory.create(
     createUatApiModule({
       repository,
-      // UAT run API ครอบใน uat-run-api.integration.ts — ที่นี่พิสูจน์เฉพาะ J5 ผ่าน composition root ของ UAT
+      // the UAT run API is covered in uat-run-api.integration.ts — here we prove only J5 through the UAT composition root
       uatRuns: {},
-      // หลักฐานของ run (U1.5 #433) ครอบใน uat-evidence-api.integration.ts
+      // run evidence (U1.5 #433) is covered in uat-evidence-api.integration.ts
       uatEvidence: {},
       verifier,
       diagnostics: { write: () => undefined },
@@ -226,7 +226,7 @@ async function harness(
 
   const document = () => importJourneyDefinition({ ...fixture, ownerTeamId: teamId });
 
-  /** สร้าง → compile → author submit → reviewer approve; คืน binding ที่พร้อม publish */
+  /** create → compile → author submit → reviewer approve; returns a binding ready to publish */
   const approved = async () => {
     const created = await call('POST', 'journeys', 'author', {
       body: { ownerTeamId: teamId, document: document() },
@@ -269,18 +269,18 @@ async function harness(
   return { owner, tenantId, teamId, otherTeamId, users, call, document, approved };
 }
 
-/** error เป็น contract ปิด: code/safeParams/diagnostics เท่านั้น ไม่มี message ที่ localized หรือ stack */
+/** the error is a closed contract: code/safeParams/diagnostics only, with no localized message or stack */
 function assertClosedError(body: Record<string, unknown>, code: string) {
   assert.equal(body.code, code);
   for (const key of Object.keys(body)) {
     assert.ok(
       ['code', 'safeParams', 'diagnostics', 'diagnosticsTruncated', 'resolution'].includes(key),
-      `field ${key} ไม่ควรอยู่ใน error`,
+      `field ${key} should not be in the error`,
     );
   }
 }
 
-test('J5-AU01/ID01 strict DTO, Idempotency-Key และ receipt เดิมสำหรับ payload เดิม', async (t) => {
+test('J5-AU01/ID01 strict DTO, Idempotency-Key and the original receipt for the original payload', async (t) => {
   const f = await harness(t);
   const body = { ownerTeamId: f.teamId, document: f.document() };
 
@@ -317,13 +317,13 @@ test('J5-AU01/ID01 strict DTO, Idempotency-Key และ receipt เดิมส
   assertClosedError(conflict.body, 'IDEMPOTENCY_CONFLICT');
   assert.equal(await f.owner.jrJourneyHead.count({ where: { tenantId: f.tenantId } }), 1);
 
-  // outsider มี journey.edit แค่ทีมอื่น: สร้างใส่ทีมนี้ได้ 403 ไม่ใช่ข้อมูลรั่ว
+  // an outsider has journey.edit only in another team: creating in this team gets 403, not a data leak
   const denied = await f.call('POST', 'journeys', 'outsider', { body });
   assert.equal(denied.status, 403);
   assertClosedError(denied.body, 'CAPABILITY_REQUIRED');
 });
 
-test('J5-TI01 generic not-found สองtenant, list/pagination ไม่รั่ว และ CAS stale ตอบ 409', async (t) => {
+test('J5-TI01 generic two-tenant not-found, list/pagination do not leak and a stale CAS answers 409', async (t) => {
   const f = await harness(t);
   const ids: string[] = [];
   for (let index = 0; index < 3; index += 1) {
@@ -371,7 +371,7 @@ test('J5-TI01 generic not-found สองtenant, list/pagination ไม่รั
   assert.deepEqual((await f.call('GET', 'journeys', 'foreign')).body.items, []);
   assert.equal((await f.call('GET', 'journeys?lifecycle=NOPE', 'author')).status, 400);
 
-  // CAS: revision เก่าตอบ 409 พร้อม revision/digest ปัจจุบัน ไม่มี auto-merge
+  // CAS: an old revision answers 409 with the current revision/digest, no auto-merge
   const state = (await f.call('GET', `journeys/${ids[0]}`, 'author')).body;
   assert.deepEqual(state.templateNotices, []);
   const update = (digest: string) =>
@@ -389,7 +389,7 @@ test('J5-TI01 generic not-found สองtenant, list/pagination ไม่รั
   assertClosedError(stale.body, 'PUBLISHED_HEAD_CONFLICT');
 });
 
-test('J5-CC01/CC02 review decision ผ่าน reviewId, maker-checker, preview/simulation ผูก compile digest', async (t) => {
+test('J5-CC01/CC02 the review decision goes through reviewId, maker-checker, preview/simulation bound to the compile digest', async (t) => {
   const f = await harness(t);
   const { journeyId, publish, compileDigest } = await f.approved();
 
@@ -425,7 +425,7 @@ test('J5-CC01/CC02 review decision ผ่าน reviewId, maker-checker, preview
   });
   assert.deepEqual([validated.status, validated.body.stale], [200, false]);
 
-  // review id ที่ไม่มี/ของ template ตอบ not-found เหมือนกัน; reviewer ที่ไม่มีสิทธิ์ใน tenant อื่นก็เช่นกัน
+  // a review id that does not exist/belongs to a template answers not-found identically; a reviewer without permission in another tenant likewise
   const decision = {
     expectedReviewState: 'IN_REVIEW',
     decision: 'APPROVE',
@@ -455,14 +455,14 @@ test('J5-CC01/CC02 review decision ผ่าน reviewId, maker-checker, preview
   assert.equal(again.status, 409);
   assertClosedError(again.body, 'REVIEW_CANDIDATE_STALE');
 
-  // author ไม่มี journey.review — ตัดสิน review ของตัวเองไม่ได้
+  // the author has no journey.review — cannot decide their own review
   const self = await f.call('POST', `reviews/${publish.reviewId}/decisions`, 'author', {
     body: decision,
   });
   assert.equal(self.status, 403);
 });
 
-test('J5-RC01/ID02 publish atomic, retry key เดิมได้ receipt เดิม, resolution อ่านอย่างเดียว', async (t) => {
+test('J5-RC01/ID02 publish is atomic, retrying the same key gets the original receipt, and resolution is read-only', async (t) => {
   const f = await harness(t);
   const { journeyId, publish } = await f.approved();
   const key = `publish-${randomUUID()}`;
@@ -488,7 +488,7 @@ test('J5-RC01/ID02 publish atomic, retry key เดิมได้ receipt เ�
     body: { originalIdempotencyKey: key },
   });
   assert.deepEqual(resolved.body, published.body);
-  // คนที่มองไม่เห็น journey เอา key ไป resolve ไม่ได้
+  // someone who cannot see the journey cannot resolve it with the key
   const outsider = await f.call('POST', `journeys/${journeyId}/publish-resolution`, 'outsider', {
     key: null,
     body: { originalIdempotencyKey: key },
@@ -499,7 +499,7 @@ test('J5-RC01/ID02 publish atomic, retry key เดิมได้ receipt เ�
     1,
   );
 
-  // publish ซ้ำด้วย key ใหม่หลัง head ขยับแล้ว = conflict ไม่ใช่ version ใหม่
+  // publishing again with a new key after the head moved = a conflict, not a new version
   const republish = await f.call('POST', `journeys/${journeyId}/publish`, 'author', {
     body: publish,
   });
@@ -512,7 +512,7 @@ test('J5-RC01/ID02 publish atomic, retry key เดิมได้ receipt เ�
   assert.ok(!serialized.includes('document') && !serialized.includes('graph'));
 });
 
-test('J5-RC01 commit ไม่รู้ผลตอบ 202 PUBLISH_OUTCOME_UNKNOWN และ resolve ด้วย key เดิมได้ NOT_COMMITTED', async (t) => {
+test('J5-RC01 a commit with unknown outcome answers 202 PUBLISH_OUTCOME_UNKNOWN and resolves with the original key to NOT_COMMITTED', async (t) => {
   let crash = false;
   const f = await harness(t, {
     checkpoint: (name) => {
@@ -536,7 +536,7 @@ test('J5-RC01 commit ไม่รู้ผลตอบ 202 PUBLISH_OUTCOME_UNKNO
     body: { originalIdempotencyKey: key },
   });
   assert.equal(resolved.body.outcome, 'NOT_COMMITTED');
-  // ยังไม่ commit จึง retry key เดิมได้อย่างปลอดภัย
+  // not yet committed so retrying the original key is safe
   const retried = await f.call('POST', `journeys/${journeyId}/publish`, 'author', {
     key,
     body: publish,
@@ -544,7 +544,7 @@ test('J5-RC01 commit ไม่รู้ผลตอบ 202 PUBLISH_OUTCOME_UNKNO
   assert.deepEqual([retried.status, retried.body.outcome], [200, 'PUBLISHED']);
 });
 
-test('J5-OB01 template API: built-in catalog, instantiate แบบ idempotent และ binding ไม่สะท้อนใน error', async (t) => {
+test('J5-OB01 the template API: built-in catalog, idempotent instantiate, and the binding is not reflected in errors', async (t) => {
   const f = await harness(t);
   const catalog = await f.call('GET', 'templates?origin=PLATFORM_BUILTIN', 'author');
   assert.equal(catalog.status, 200);
@@ -583,9 +583,9 @@ test('J5-OB01 template API: built-in catalog, instantiate แบบ idempotent �
   assert.deepEqual(state.body.templateNotices, []);
 });
 
-test('U1.3 reviewer หา candidate ที่รอตรวจเอง, maker ไม่เห็นงานตัวเอง, tenant อื่นมองไม่เห็น และ audit ครบหลัง publish', async (t) => {
+test('U1.3 a reviewer finds candidates awaiting review themselves, a maker does not see their own work, another tenant sees nothing, and the audit is complete after publish', async (t) => {
   const f = await harness(t);
-  // author ถือ journey.review ด้วย เพื่อพิสูจน์ว่าไม่เห็นงานที่ตัวเองส่งตรวจเป็นงานที่อนุมัติได้
+  // the author also holds journey.review, to prove they do not see work they submitted for review as work they can approve
   await f.owner.iamAuthoringCapabilityGrant.create({
     data: {
       tenantId: f.tenantId,
@@ -634,14 +634,14 @@ test('U1.3 reviewer หา candidate ที่รอตรวจเอง, maker
     assert.deepEqual((await f.call('GET', 'reviews', persona)).body.items, [], persona);
   }
 
-  // list ช่วยหา: review state มาจาก server
+  // the list helps find: the review state comes from the server
   const listed = (await f.call('GET', 'journeys', 'reviewer')).body.items;
   assert.equal(
     listed.find((item: { journeyId: string }) => item.journeyId === journeyId).reviewState,
     'IN_REVIEW',
   );
 
-  // detail: exact candidate + affordance ตาม capability; maker รู้ว่าต้องใช้ reviewer คนอื่น
+  // detail: the exact candidate + affordances by capability; the maker knows another reviewer must be used
   const asReviewer = (await f.call('GET', `journeys/${journeyId}`, 'reviewer')).body;
   assert.deepEqual(asReviewer.permissions, { edit: false, review: true, publish: false });
   assert.equal(asReviewer.review.makerIsCaller, false);
@@ -667,7 +667,7 @@ test('U1.3 reviewer หา candidate ที่รอตรวจเอง, maker
 
   const audit = await f.call('GET', `journeys/${journeyId}/audit`, 'reviewer');
   assert.equal(audit.status, 200);
-  // timeline ครบตั้งแต่สร้างจน publish (ใหม่สุดก่อน)
+  // the timeline is complete from creation to publish (newest first)
   assert.deepEqual(
     audit.body.items.map((item: { action: string }) => item.action),
     ['JOURNEY_PUBLISHED', 'REVIEW_APPROVED', 'REVIEW_SUBMITTED', 'DRAFT_CREATED'],

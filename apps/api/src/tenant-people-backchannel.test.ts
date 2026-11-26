@@ -5,7 +5,7 @@ import { peopleKeycloakRequest } from './tenant-people-backchannel.js';
 const issuer = 'https://identity.example.test/auth/realms/dcontact';
 const backchannel = 'http://keycloak:8080/auth/realms/dcontact';
 
-test('backchannel ส่งเฉพาะ token และ People ของ realm เดิม โดยคง signal/body และห้าม redirect', async () => {
+test('the backchannel sends only the token and People of the same realm while keeping the signal/body and forbidding redirects', async () => {
   const calls: { url: string; options?: RequestInit }[] = [];
   const request: typeof fetch = async (input, options) => {
     calls.push({ url: String(input), options });
@@ -33,12 +33,12 @@ test('backchannel ส่งเฉพาะ token และ People ของ real
   assert.equal(calls[2]?.options?.method, 'POST');
 });
 
-test('ไม่มี opt-in ใช้ HTTPS transport เดิมโดยไม่เปลี่ยนปลายทางหรือตัวเลือก TLS', () => {
+test('without opt-in it uses the original HTTPS transport without changing the destination or TLS options', () => {
   const request: typeof fetch = async () => Response.json({});
   assert.equal(peopleKeycloakRequest(issuer, undefined, request), request);
 });
 
-test('backchannel ปฏิเสธ host/port/realm/protocol และ URL components ที่ไม่ได้อนุมัติ', () => {
+test('the backchannel rejects an unapproved host/port/realm/protocol and URL components', async () => {
   for (const target of [
     '',
     'http://127.0.0.1:8080/auth/realms/dcontact',
@@ -61,7 +61,7 @@ test('backchannel ปฏิเสธ host/port/realm/protocol และ URL comp
     assert.throws(() => peopleKeycloakRequest(publicIssuer, backchannel));
 });
 
-test('backchannel ปฏิเสธ foreign issuer/admin/account/path traversal ก่อนส่งข้อมูล', async () => {
+test('the backchannel rejects a foreign issuer/admin/account/path traversal before sending data', async () => {
   let sent = 0;
   const request: typeof fetch = async () => {
     sent += 1;

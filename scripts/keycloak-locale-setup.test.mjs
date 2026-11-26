@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { withZoneinfoAttribute, ZONEINFO_ATTRIBUTE } from './keycloak-locale-setup.mjs';
 
-test('เพิ่ม zoneinfo ต่อท้ายโดยคง attribute และ group เดิมไว้ครบ', () => {
+test('adds zoneinfo at the end while keeping every existing attribute and group', () => {
   const profile = {
     attributes: [{ name: 'username' }, { name: 'email' }],
     groups: [{ name: 'user-metadata' }],
@@ -12,16 +12,16 @@ test('เพิ่ม zoneinfo ต่อท้ายโดยคง attribute �
   assert.deepEqual(next.groups, profile.groups);
 });
 
-test('idempotent: มี zoneinfo อยู่แล้วคืน object เดิม (ไม่ PUT ซ้ำ)', () => {
+test('idempotent: when zoneinfo already exists, returns the original object (no repeated PUT)', () => {
   const profile = { attributes: [{ name: 'zoneinfo', permissions: { edit: ['admin', 'user'] } }] };
   assert.equal(withZoneinfoAttribute(profile), profile);
 });
 
-test('ผู้ใช้เห็น timezone ได้ แต่แก้ได้เฉพาะ admin', () => {
+test('the user can see the timezone but only an admin can edit it', () => {
   assert.deepEqual(ZONEINFO_ATTRIBUTE.permissions, { view: ['admin'], edit: ['admin'] });
 });
 
-test('ผู้ใช้ dev ในสคริปต์ตรงกับ realm JSON และทุกคนมี default-roles-dcontact (Account API ต้องใช้)', async () => {
+test('the dev users in the script match the realm JSON and everyone has default-roles-dcontact (the Account API needs it)', async () => {
   const { readFileSync } = await import('node:fs');
   const { LOCALE_DEV_USERS, REALM_DEFAULT_ROLE } = await import('./keycloak-locale-setup.mjs');
   const realm = JSON.parse(

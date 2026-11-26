@@ -97,7 +97,7 @@ async function bucketSummary(f: Awaited<ReturnType<typeof fixture>>) {
   }));
 }
 
-test('duplicate delivery เพิ่ม event metrics เพียงครั้งเดียว และไม่แตะ canonical state', async (t) => {
+test('a duplicate delivery adds event metrics only once and does not touch canonical state', async (t) => {
   const f = await fixture(t);
   const original = event(f);
   const applied = await f.consumer.consume(original);
@@ -159,7 +159,7 @@ test('duplicate delivery เพิ่ม event metrics เพียงครั�
   assert.equal(await f.owner.cgAuditLog.count({ where: { tenantId: f.tenantId } }), 0);
 });
 
-test('CG5-CC02 consumer สองตัวรับ event เดียวกันพร้อมกันนับครั้งเดียว', async (t) => {
+test('CG5-CC02 two consumers receiving the same event at the same time count it once', async (t) => {
   const f = await fixture(t);
   const second = new PrismaClient({
     datasources: {
@@ -178,14 +178,14 @@ test('CG5-CC02 consumer สองตัวรับ event เดียวกั�
     (result) => result.status === 'fulfilled' && result.value.decision.kind === 'APPLY',
   );
   assert.equal(applied.length, 1);
-  // ตัวที่แพ้ race ได้ DUPLICATE หรือ error ที่ retry ได้ — retry ต้องเป็น DUPLICATE ไม่ใช่ APPLY ซ้ำ
+  // the one that lost the race gets DUPLICATE or a retryable error: the retry must be DUPLICATE, not a repeated APPLY
   assert.equal((await consumers[1]!.consume(original)).decision.kind, 'DUPLICATE');
   const summary = await bucketSummary(f);
   assert.equal(summary.length, 6);
   assert.ok(summary.every((bucket) => bucket.value === '1' && bucket.sampleCount === 1n));
 });
 
-test('gap pause scope โดยไม่เพิ่ม projection bucket', async (t) => {
+test('a gap pauses the scope without adding a projection bucket', async (t) => {
   const f = await fixture(t);
   await f.consumer.consume(event(f));
   const before = await bucketSummary(f);
@@ -196,7 +196,7 @@ test('gap pause scope โดยไม่เพิ่ม projection bucket', asyn
   assert.deepEqual(await bucketSummary(f), before);
 });
 
-test('out-of-order pause scope โดยไม่เพิ่ม projection bucket', async (t) => {
+test('out-of-order pauses the scope without adding a projection bucket', async (t) => {
   const f = await fixture(t);
   const aggregateId = randomUUID();
   await f.consumer.consume(event(f, { aggregateId, aggregateVersion: 1 }));

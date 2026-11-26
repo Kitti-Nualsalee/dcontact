@@ -16,7 +16,7 @@
     <param name="rtp-ip" value="$${local_ip_v4}"/>
     <param name="ext-sip-ip" value="$${external_sip_ip}"/>
     <param name="ext-rtp-ip" value="$${external_rtp_ip}"/>
-    <!-- ยึด SIP registration/subscription กับ tenant domain สำหรับ XML directory -->
+    <!-- bind SIP registration/subscription to the tenant domain for the XML directory -->
     <param name="force-register-domain" value="$${domain}"/>
     <param name="force-subscription-domain" value="$${domain}"/>
     <param name="force-register-db-domain" value="$${domain}"/>

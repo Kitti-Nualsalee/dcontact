@@ -1,9 +1,9 @@
 /**
- * E1.9 (#483): REST ของ work-session lease — `POST|DELETE /api/v1/me/work-session`, `POST .../takeover`
- * E1.12 (#486): `GET /api/v1/me/work-session` → `{ enforced, holder }` — #583: `enforced` เป็น true เสมอ
- *   (คงไว้ให้ client รุ่นก่อน) ทุก tenant บังคับ lease
+ * E1.9 (#483): the REST of the work-session lease — `POST|DELETE /api/v1/me/work-session`, `POST .../takeover`
+ * E1.12 (#486): `GET /api/v1/me/work-session` → `{ enforced, holder }` — #583: `enforced` is always true
+ *   (kept for older clients) every tenant enforces the lease
  *
- * error envelope คงที่ `{ code, holder? }`: 400 VALIDATION_FAILED, 404 AGENT_NOT_FOUND,
+ * a fixed error envelope `{ code, holder? }`: 400 VALIDATION_FAILED, 404 AGENT_NOT_FOUND,
  * 409 WORK_SESSION_HELD (+holder) / WORK_SESSION_BUSY / WORK_SESSION_CHANGED
  */
 import {
@@ -61,7 +61,7 @@ async function mapped<T>(work: () => Promise<T>): Promise<T> {
 export class WorkSessionController {
   constructor(@Inject(WORK_SESSION_LEASES) private readonly leases: WorkSessionLeases) {}
 
-  /** ผู้ถือ lease ปัจจุบัน (surface, เวลาเริ่ม, มีงานไหม); `enforced` = true เสมอ (#583) */
+  /** the current lease holder (surface, start time, whether there is work); `enforced` is always true (#583) */
   @Get()
   @GatewayRoles('agent')
   status(@Req() request: AuthenticatedGatewayRequest) {
@@ -96,7 +96,7 @@ export class WorkSessionController {
     });
   }
 
-  /** ปล่อย lease ของ surface นี้ — ต้องแนบ `x-work-session-lease-id` กันแท็บเก่าปล่อย lease ของที่ใหม่ */
+  /** releases the lease of this surface — must attach `x-work-session-lease-id` so an old tab cannot release the new one's lease */
   @Delete()
   @HttpCode(204)
   @GatewayRoles('agent')

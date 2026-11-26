@@ -3,7 +3,7 @@
 **/test-results/
 infra/docker/data/
 pnpm-lock.yaml
-# E1.15: release ของ launcher เป็น immutable (ตรวจด้วย SRI) — ห้าม format ใหม่
+# E1.15: the launcher release is immutable (verified with SRI) — do not reformat
 packages/dphone-embed/releases/*/
 
 # Historical reference documents and static prototypes
@@ -14,7 +14,7 @@ mockups/
 # Existing source formatting debt; keep new files under Prettier enforcement
 apps/api/src/agent-offer-fanout.test.ts
 
-# R1 (#593): สำเนาของ JS ใน theme base ของ Keycloak ที่แก้เฉพาะชื่อ cookie — ไม่ format ใหม่ เพื่อให้ diff กับต้นฉบับ
-# ตอน upgrade เห็นเฉพาะส่วนที่ต่างจริง
+# R1 (#593): a copy of JS in the Keycloak base theme where only the cookie name was changed — not reformatted, so a diff against the original
+# at upgrade time shows only the real differences
 infra/keycloak/themes/dcontact/login/resources/js/authChecker.js
 infra/keycloak/themes/dcontact/login/resources/js/passkeysConditionalAuth.js

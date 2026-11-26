@@ -1,18 +1,18 @@
 /**
- * Stack สำหรับ Demo ให้ทีมขาย: API + Router + Telephony + Workspace (5173) + Console (5174) บน dev compose
+ * A stack for the Demo to the sales team: API + Router + Telephony + Workspace (5173) + Console (5174) on the dev compose
  *
- * - ใช้ DB แยก `dcontact_demo` (ไม่แตะ `dcontact`) ข้อมูลคงอยู่ระหว่างรอบซ้อม; `--reset` สร้างใหม่ทั้งฐาน
- * - ไม่แก้ user ใน Keycloak: tenant demo, admin และ agent ใช้ id ที่ Keycloak ออก claim ให้อยู่แล้ว
- *   (ต้องเคยรัน `pnpm infra:identity:link`) เพิ่มเฉพาะ redirect ของ Console ที่ client `agent-desktop`
- * - Admin สร้าง/นำเข้าลูกค้าได้เมื่อ platform operator ให้ `CONTACT_CREATE` (Cus360 E1 D) stack นี้สร้าง
- *   realm role `platform-operator` และผู้ใช้ `operator@demo.local` ใน Keycloak dev (รหัสผ่านสุ่มใหม่ทุกรอบ
- *   ไม่แสดงผล) แล้วให้สิทธิ์ผ่าน operator API จริง ไม่เขียนตาราง grant ตรง
- * - Owner อนุมัติ 19 พ.ย. 2569: seed ทีม `Customer Care` และ identity binding ของผู้ใช้ demo ลงฐานนี้โดยตรง
- *   (ดู `seedDemoAccess`) ผลจาก stack นี้จึงไม่ใช่หลักฐาน acceptance ของ identity/authorization
- * - ต้องรัน `pnpm infra:up` ก่อน และ port 3000/5173/5174 ต้องว่าง
+ * - uses a separate DB `dcontact_demo` (does not touch `dcontact`); data persists between rehearsals; `--reset` recreates the whole database
+ * - does not edit users in Keycloak: the demo tenant, admin and agent use the ids Keycloak already issues in its claims
+ *   (`pnpm infra:identity:link` must have been run before), adding only the Console redirect on the `agent-desktop` client
+ * - the Admin can create/import customers once the platform operator grants `CONTACT_CREATE` (Cus360 E1 D); this stack creates
+ *   the realm role `platform-operator` and the user `operator@demo.local` in the dev Keycloak (a password randomized every run,
+ *   never displayed) and then grants the permission through the real operator API, never writing the grant table directly
+ * - the Owner approved on 19 Nov 2026: seed the `Customer Care` team and the identity binding of the demo users directly into this database
+ *   (see `seedDemoAccess`), so the results of this stack are not acceptance evidence of identity/authorization
+ * - `pnpm infra:up` must be run first, and ports 3000/5173/5174 must be free
  *
- * รัน: node scripts/sales-demo-stack.mjs [--reset]   หยุดด้วย Ctrl-C
- * D-Phone: ตั้ง SALES_DEMO_DPHONE_EXTENSION_ID เพื่อใช้ Chrome extension แทน browser phone ในตัว
+ * run: node scripts/sales-demo-stack.mjs [--reset]   stop with Ctrl-C
+ * D-Phone: set SALES_DEMO_DPHONE_EXTENSION_ID to use the Chrome extension instead of the built-in browser phone
  */
 import { spawn, spawnSync } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -90,7 +90,7 @@ function run(command, args, options = {}) {
   });
   if (result.status !== 0) {
     throw new Error(
-      `${command} ${args.join(' ')} ล้มเหลว\n${result.stdout ?? ''}${result.stderr ?? ''}`,
+      `${command} ${args.join(' ')} failed\n${result.stdout ?? ''}${result.stderr ?? ''}`,
     );
   }
   return result.stdout ?? '';
@@ -140,7 +140,9 @@ const wait = (milliseconds) => new Promise((done) => setTimeout(done, millisecon
 async function waitForHttp(url, label, child) {
   for (let attempt = 0; attempt < 240; attempt += 1) {
     if (child.exitCode !== null) {
-      throw new Error(`${label} หยุดก่อนพร้อม (exit ${child.exitCode})\n${child.tail()}`);
+      throw new Error(
+        `${label} stopped before becoming ready (exit ${child.exitCode})\n${child.tail()}`,
+      );
     }
     try {
       await fetch(url);
@@ -149,7 +151,7 @@ async function waitForHttp(url, label, child) {
       await wait(500);
     }
   }
-  throw new Error(`${label} ไม่ตอบที่ ${url}\n${child.tail()}`);
+  throw new Error(`${label} did not respond at ${url}\n${child.tail()}`);
 }
 
 async function waitForConsumerGroup(groupId) {
@@ -162,7 +164,7 @@ async function waitForConsumerGroup(groupId) {
     if (result.status === 0 && /STATE\s+Stable/.test(result.stdout)) return;
     await wait(500);
   }
-  throw new Error(`consumer group ยังไม่พร้อม: ${groupId}`);
+  throw new Error(`consumer group is not ready: ${groupId}`);
 }
 
 function assertPortsFree() {
@@ -171,7 +173,9 @@ function assertPortsFree() {
       encoding: 'utf8',
     });
     if (result.stdout.trim()) {
-      throw new Error(`port ${port} ถูกใช้อยู่ — ปิด dev server เดิมก่อนเปิด stack ของ Demo`);
+      throw new Error(
+        `port ${port} is in use - close the existing dev server before starting the Demo stack`,
+      );
     }
   }
 }
@@ -187,7 +191,7 @@ async function keycloakAdmin() {
       password: environment.KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD ?? 'admin',
     }),
   }).then((response) => {
-    if (!response.ok) throw new Error(`Keycloak admin token ล้มเหลว (${response.status})`);
+    if (!response.ok) throw new Error(`Keycloak admin token failed (${response.status})`);
     return response.json();
   });
   return async (path, init = {}) => {
@@ -198,7 +202,7 @@ async function keycloakAdmin() {
         ...(init.body ? { 'content-type': 'application/json' } : {}),
       },
     });
-    if (!response.ok) throw new Error(`Keycloak ${path} ล้มเหลว (${response.status})`);
+    if (!response.ok) throw new Error(`Keycloak ${path} failed (${response.status})`);
     const text = await response.text();
     return text ? JSON.parse(text) : null;
   };
@@ -214,21 +218,21 @@ async function keycloakClaims(admin) {
     const userId = attributes.dc_user_id?.[0];
     if (!uuid.test(tenantId ?? '') || !uuid.test(userId ?? '') || !uuid.test(found[0]?.id ?? '')) {
       throw new Error(
-        `${user.username} ใน Keycloak ยังไม่มี tenant_id/dc_user_id — รัน pnpm infra:identity:link ก่อน`,
+        `${user.username} in Keycloak has no tenant_id/dc_user_id yet - run pnpm infra:identity:link first`,
       );
     }
     claims.push({ ...user, tenantId, userId, keycloakId: found[0].id });
   }
   if (new Set(claims.map((claim) => claim.tenantId)).size !== 1) {
-    throw new Error('ผู้ใช้ demo ใน Keycloak ไม่ได้อยู่ tenant เดียวกัน');
+    throw new Error('the demo users in Keycloak are not in the same tenant');
   }
   return claims;
 }
 
-/** Console dev อยู่ที่ 5174 แต่ realm dev อนุญาตเฉพาะ 5173 — เพิ่มแบบ additive และ idempotent */
+/** The dev Console is at 5174 but the dev realm allows only 5173 - add it additively and idempotently */
 async function allowConsoleRedirect(admin) {
   const [client] = await admin('/clients?clientId=agent-desktop');
-  if (!client) throw new Error('ไม่พบ client agent-desktop ใน realm dcontact');
+  if (!client) throw new Error('client agent-desktop not found in realm dcontact');
   const redirectUris = new Set(client.redirectUris ?? []);
   const webOrigins = new Set(client.webOrigins ?? []);
   if (redirectUris.has(`${consoleOrigin}/*`) && webOrigins.has(consoleOrigin)) return false;
@@ -277,14 +281,14 @@ function prepareDatabase(claims) {
        .join('\n')}`,
   );
   run('pnpm', ['db:seed']);
-  // โน้ตหลังจบสายใช้ได้เฉพาะคิวที่ตั้ง VOICE_NOTE_V1 (ค่าเริ่มต้นของ seed คือ LEGACY)
+  // the after-call note can be used only on a queue set to VOICE_NOTE_V1 (the seed default is LEGACY)
   psql(
     `UPDATE queues SET voice_wrapup_policy = 'VOICE_NOTE_V1' WHERE tenant_id = '${tenantId}';
      INSERT INTO agent_state_logs (tenant_id, user_id, state, reason)
      SELECT tenant_id, id, 'OFFLINE', 'sales-demo' FROM users
      WHERE tenant_id = '${tenantId}' AND role = 'AGENT';`,
   );
-  // shell รุ่น D1 เฉพาะ tenant demo ในฐานแยกนี้ — ไม่กระทบ tenant ของ #77
+  // the D1 shell only for the demo tenant in this separate database - does not affect the #77 tenant
   run('pnpm', [
     'd1:shell-flag',
     '--',
@@ -292,7 +296,7 @@ function prepareDatabase(claims) {
     'demo',
     '--on',
     '--reason',
-    'Sales demo (DB แยก dcontact_demo)',
+    'Sales demo (separate DB dcontact_demo)',
     '--actor',
     'sales-demo-stack',
     '--ack-voice-pilot',
@@ -301,10 +305,10 @@ function prepareDatabase(claims) {
 }
 
 /**
- * Agent ค้น/เชื่อม/แก้ลูกค้าระหว่างสายได้เมื่อ API มี confidential client สำหรับ introspection
- * (`KEYCLOAK_C360_CLIENT_ID/SECRET`) ค่ามาตรฐานของ dev มาจาก realm และ `.env.example` (#916, #918)
- * realm import ข้าม realm ที่มีอยู่แล้ว Keycloak dev เดิมจึงอาจยังไม่มี client/mapper — สร้างให้ตรง realm file
- * และตั้ง secret เป็นค่าเดียวกับ `.env.example` (ไม่หมุน) เพื่อให้ API ที่รันตาม `.env.example` ใช้ได้พร้อมกัน
+ * the Agent can search/link/edit customers during a call when the API has a confidential client for introspection
+ * (`KEYCLOAK_C360_CLIENT_ID/SECRET`); the standard dev values come from the realm and `.env.example` (#916, #918)
+ * the realm import skips a realm that already exists, so an older dev Keycloak may lack the client/mapper - create them to match the realm file
+ * and set the secret to the same value as `.env.example` (not rotated) so an API run per `.env.example` works at the same time
  */
 const C360_INTROSPECTION_CLIENT = 'dcontact-c360-introspection-dev';
 const C360_INTROSPECTION_SECRET = 'dcontact-c360-introspection-dev-secret';
@@ -334,7 +338,7 @@ async function c360IntrospectionClient(admin) {
     });
     [client] = await admin(`/clients?clientId=${encodeURIComponent(clientId)}`);
   } else {
-    // client เดิมจากสคริปต์รุ่นก่อนใช้ secret ที่หมุนไว้ — ตั้งกลับเป็นค่ามาตรฐานเท่านั้น ไม่แก้ค่าอื่น
+    // a client left from an earlier version of the script uses a rotated secret - set it back to the standard value only, change nothing else
     const current = await admin(`/clients/${client.id}/client-secret`);
     if (current?.value !== clientSecret) {
       await admin(`/clients/${client.id}`, {
@@ -343,8 +347,8 @@ async function c360IntrospectionClient(admin) {
       });
     }
   }
-  // Keycloak ตอบ introspection ว่า inactive ถ้า client ที่ถามไม่อยู่ใน aud ของ token —
-  // ชื่อ mapper ตรงกับ realm file ของ #918 จึงไม่สร้างซ้ำ
+  // Keycloak answers introspection as inactive if the client asking is not in the aud of the token -
+  // the mapper name matches the realm file of #918 so it is not created twice
   const [desktop] = await admin('/clients?clientId=agent-desktop');
   const mapperName = 'c360 introspection audience (development only)';
   const mappers = await admin(`/clients/${desktop.id}/protocol-mappers/models`);
@@ -370,14 +374,14 @@ async function c360IntrospectionClient(admin) {
 async function demoOrganizationId(admin) {
   const organizations = await admin('/organizations?max=200');
   const organization = organizations.find((item) => item.alias === 'demo');
-  if (!organization) throw new Error('ไม่พบ Organization demo ใน Keycloak');
+  if (!organization) throw new Error('Organization demo not found in Keycloak');
   return organization.id;
 }
 
 /**
- * Owner อนุมัติ 19 พ.ย. 2569 ให้ seed ลงฐาน Demo โดยตรง: tenant จาก `db:seed` ไม่มีทีมและ identity binding
- * ที่ flow จริง (Platform provisioning, Tenant People, Core Settings) สร้างให้ จึงเติมเฉพาะฐาน `dcontact_demo`
- * ไม่ใช่หลักฐาน acceptance ของ identity/authorization และห้ามใช้กับฐานอื่น — idempotent
+ * The Owner approved on 19 Nov 2026 seeding directly into the Demo database: the tenant from `db:seed` has no team or identity binding
+ * that the real flows (Platform provisioning, Tenant People, Core Settings) create, so fill in only the `dcontact_demo` database
+ * not acceptance evidence of identity/authorization, and never use it on another database - idempotent
  */
 function seedDemoAccess(claims, organizationId) {
   const tenantId = claims[0].tenantId;
@@ -407,9 +411,9 @@ function seedDemoAccess(claims, organizationId) {
 }
 
 /**
- * Agent ค้นลูกค้าในสายได้เมื่อทีมมี WORK บน segment (#911) แต่ API/Console ให้ได้เฉพาะ VIEW
- * จึงให้ WORK และ VIEW บน `system:all-customers` ผ่าน repository ของ IAM ตัวจริง (เพิ่ม version และ
- * invalidation ครบ) — ส่วนหนึ่งของ seed ที่ owner อนุมัติ, idempotent (ซ้ำได้ผล DUPLICATE)
+ * the Agent can search customers during a call when the team has WORK on a segment (#911), but the API/Console can grant only VIEW,
+ * so grant WORK and VIEW on `system:all-customers` through the real IAM repository (with the version bump and
+ * the invalidation complete) - part of the seed the owner approved, idempotent (a repeat gives the result DUPLICATE)
  */
 function seedDemoScope(claims) {
   const code = `
@@ -432,7 +436,7 @@ function seedDemoScope(claims) {
   run('node', ['node_modules/tsx/dist/cli.mjs', '--eval', code], { cwd: resolve('apps/api') });
 }
 
-/** Cus360 E1 D: ให้ CONTACT_CREATE แก่ Admin ผ่าน operator command จริง (dry-run ก่อน) — idempotent */
+/** Cus360 E1 D: grant CONTACT_CREATE to the Admin through the real operator command (dry-run first) - idempotent */
 async function grantCustomerCreate(admin, claims) {
   const adminClaim = claims.find((claim) => claim.role === 'ADMIN');
   const tenantId = adminClaim.tenantId;
@@ -470,7 +474,7 @@ async function grantCustomerCreate(admin, claims) {
     requiredActions: [],
   };
   let [user] = await admin(`/users?exact=true&username=${encodeURIComponent(operatorUsername)}`);
-  // gateway ต้องการ dc_user_id ใน token; operator ไม่มี User row ใน tenant (ต่างจาก grantee เสมอ)
+  // the gateway needs dc_user_id in the token; the operator has no User row in the tenant (always different from the grantee)
   const operatorUserId = user?.attributes?.dc_user_id?.[0] ?? randomUUID();
   representation.attributes.dc_user_id = [operatorUserId];
   if (!user) {
@@ -490,7 +494,7 @@ async function grantCustomerCreate(admin, claims) {
     method: 'POST',
     body: JSON.stringify([{ id: role.id, name: role.name }]),
   });
-  // gateway รับเฉพาะ token ของบัญชีที่ active ใน tenant (local account admission) — operator จึงต้องมี User row
+  // the gateway accepts only tokens of accounts that are active in the tenant (local account admission) - so the operator must have a User row
   psql(
     `INSERT INTO users (id, keycloak_id, tenant_id, email, password_hash, display_name, role)
      VALUES ('${operatorUserId}', '${user.id}', '${tenantId}', '${operatorUsername}', '-', 'Demo Operator', 'SUPERVISOR')
@@ -516,7 +520,7 @@ async function grantCustomerCreate(admin, claims) {
       scope: 'openid organization:demo',
     }),
   }).then((response) => response.json());
-  if (!token.access_token) throw new Error(`ออก token ของ operator ไม่ได้ (${token.error})`);
+  if (!token.access_token) throw new Error(`cannot issue an operator token (${token.error})`);
 
   const request = {
     commandId: randomUUID(),
@@ -572,7 +576,7 @@ try {
   const claims = await keycloakClaims(admin);
   const added = await allowConsoleRedirect(admin);
   process.stdout.write(
-    `# Keycloak: redirect ของ Console ${added ? 'เพิ่มแล้ว' : 'มีอยู่แล้ว'} (${consoleOrigin})\n`,
+    `# Keycloak: Console redirect ${added ? 'added' : 'already present'} (${consoleOrigin})\n`,
   );
   const organizationId = await demoOrganizationId(admin);
   const introspection = await c360IntrospectionClient(admin);
@@ -583,7 +587,7 @@ try {
   seedDemoScope(claims);
   environment.LINE_WEBHOOK_TENANT_ID = claims[0].tenantId;
   process.stdout.write(
-    `# DB ${database} ${created ? 'สร้างใหม่' : 'ใช้ข้อมูลเดิม'} (tenant ${claims[0].tenantId})\n`,
+    `# DB ${database} ${created ? 'recreated' : 'kept existing data'} (tenant ${claims[0].tenantId})\n`,
   );
 
   const api = start('api', 'node', ['node_modules/tsx/dist/cli.mjs', 'src/main.ts'], {
@@ -603,7 +607,7 @@ try {
     '--strictPort',
   ];
   const workspace = start('workspace', 'pnpm', vite('@d-contact/workspace', 5173));
-  // API อนุญาต CORS เฉพาะ origin ของ Workspace — Console จึงเรียก /api ผ่าน proxy ของ Vite ตัวเอง
+  // the API allows CORS only for the Workspace origin - so the Console calls /api through the proxy of its own Vite
   const consoleApp = start(
     'console',
     'pnpm',
@@ -621,15 +625,15 @@ try {
     waitForConsumerGroup(routerGroupId),
     waitForConsumerGroup(`dcontact-telephony-command-${nodeId}-v1`),
   ]);
-  // ให้สิทธิ์ไม่สำเร็จไม่ควรล้ม stack ทั้งชุด: ส่วนรับสายยังซ้อมได้ แต่ Admin จะนำเข้า CSV ไม่ได้
+  // a failed grant should not take the whole stack down: the call-receiving part can still be rehearsed, but the Admin cannot import a CSV
   try {
     const capability = await grantCustomerCreate(await keycloakAdmin(), claims);
     process.stdout.write(
-      `# CONTACT_CREATE ของ Admin ${capability ? 'ให้ผ่าน operator API แล้ว' : 'มีอยู่แล้ว'}\n`,
+      `# CONTACT_CREATE for the Admin ${capability ? 'granted through the operator API' : 'already present'}\n`,
     );
   } catch (error) {
     process.stdout.write(
-      `# WARN: ให้ CONTACT_CREATE ไม่สำเร็จ — ${error instanceof Error ? error.message : String(error)}\n`,
+      `# WARN: granting CONTACT_CREATE failed - ${error instanceof Error ? error.message : String(error)}\n`,
     );
   }
   process.stdout.write(
@@ -637,8 +641,8 @@ try {
       'SALES_DEMO_STACK_READY',
       `Workspace  ${workspaceOrigin}/?tenant=demo   (agent1000@demo.local)`,
       `Console    ${consoleOrigin}/?tenant=demo   (admin@demo.local)`,
-      `โทรศัพท์    ${extensionId ? 'D-Phone Chrome extension' : 'browser phone ในตัว Workspace'}`,
-      'หยุดด้วย Ctrl-C',
+      `phone        ${extensionId ? 'D-Phone Chrome extension' : 'the built-in Workspace browser phone'}`,
+      'stop with Ctrl-C',
       '',
     ].join('\n'),
   );
@@ -648,9 +652,7 @@ try {
       child.once('exit', (code) =>
         cleaningUp
           ? done()
-          : fail(
-              new Error(`${child.label} หยุดทำงาน (exit ${code})\n${child.tail().slice(-4_000)}`),
-            ),
+          : fail(new Error(`${child.label} stopped (exit ${code})\n${child.tail().slice(-4_000)}`)),
       );
     }
   });

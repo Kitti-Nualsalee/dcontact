@@ -12,7 +12,7 @@ import { coreFixture } from './tenant-core-test-fixtures.js';
 import type { SharedRateLimiter } from './shared-rate-limiter.js';
 import type { C360WriteRuntime } from './customer-360-write-runtime.js';
 
-/** Cus360 C1 (#791): fixture ร่วมของ S3/S4 ใช้ owner writers จริง ไม่เขียน head ปลอม */
+/** Cus360 C1 (#791): the S3/S4 shared fixture uses the real owner writers and writes no fake head */
 export type Fixture = Awaited<ReturnType<typeof setup>>;
 
 export async function setup(
@@ -29,12 +29,12 @@ export async function setup(
     writeRuntime,
     extraProviders,
   );
-  // platform operator ใช้ realm role ใน org login ของ tenant แต่ไม่ใช่ domain User ของ tenant
-  // เพิ่มเฉพาะ fixture ของ Cus360: core identity sandbox สร้าง Keycloak user ให้ทุก actor ใน core fixture
+  // a platform operator uses the realm role in the tenant's org login but is not a domain User of the tenant
+  // added only for the Cus360 fixture: the core identity sandbox creates a Keycloak user for every actor in the core fixture
   f.actors.set('operator', { id: randomUUID(), role: 'PLATFORM-OPERATOR', tenantId: f.tenantId });
   const contactId = randomUUID();
   await f.owner.contact.create({
-    data: { id: contactId, tenantId: f.tenantId, displayName: 'ลูกค้า C1' },
+    data: { id: contactId, tenantId: f.tenantId, displayName: 'ลูกค้า C1' }, // allow-thai: shared fixture name also asserted by the Console e2e
   });
   const segmentId = `segment:c1-${f.tenantId.slice(0, 8)}`;
   const evaluator = new C360SegmentEvaluator(new DcExprEvaluator());
@@ -78,7 +78,7 @@ export async function setup(
   };
 }
 
-/** owner commit (C360) โดยไม่ส่งต่อให้ IAM — จำลอง projection lag ก่อน Kafka */
+/** the owner commit (C360) without forwarding it to IAM — simulates projection lag before Kafka */
 export async function ownerCommit(f: Fixture, tier: 'GOLD' | 'SILVER') {
   f.snapshotVersion += 1;
   await f.segments.recordFactSnapshot({
@@ -103,7 +103,7 @@ export async function ownerCommit(f: Fixture, tier: 'GOLD' | 'SILVER') {
   f.membershipRevision = result.membershipRevision;
 }
 
-/** IAM consumer รับ event ของ head ปัจจุบัน (เส้นทางเดียวกับ Kafka consumer จริง) */
+/** the IAM consumer receives the head event of the current version (the path is the same as the real Kafka consumer) */
 export async function deliverToIam(
   f: Fixture,
   changeKind?: SegmentMembershipChangePayloadV1['changeKind'],

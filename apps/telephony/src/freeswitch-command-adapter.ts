@@ -11,7 +11,7 @@ export interface FreeSwitchVoiceTargetResolver {
   }): Promise<{ extension: string } | null>;
 }
 
-/** แปลง command กลางให้เป็น ESL command โดยไม่ให้ Router ผูกกับ FreeSWITCH syntax */
+/** Translates the central command into an ESL command so the Router is not tied to FreeSWITCH syntax */
 export class FreeSwitchCommandAdapter {
   constructor(
     private readonly esl: FreeSwitchEslCommandClient,
@@ -141,8 +141,8 @@ export class FreeSwitchCommandAdapter {
       return;
     }
     if (command.type === 'recording.start') {
-      // uuid_record อ่าน RECORD_STEREO ของ channel ตอน start: STEREO = ผู้โทรซ้าย/สิ่งที่ผู้โทรได้ยินขวา
-      // PER_LEG ยังไม่มีไฟล์แยกขา จึงบันทึก mono ผสมสองฝั่ง และตั้ง false ชัด ๆ กันค่าจาก dialplan
+      // uuid_record reads RECORD_STEREO of the channel at start: STEREO = caller on the left / what the caller hears on the right
+      // PER_LEG has no per-leg files yet, so it records mono mixed from both sides and sets false explicitly to guard against a value from the dialplan
       const stereo = command.channelLayout === 'STEREO' ? 'true' : 'false';
       await this.esl.command(`api uuid_setvar ${command.callUuid} RECORD_STEREO ${stereo}`);
       await this.esl.command(`api uuid_record ${command.callUuid} start ${command.recordingPath}`);

@@ -1,8 +1,8 @@
 /**
- * S2.3 (#367): stop condition ของ credential — secret value ต้องไม่ออกจาก provider boundary
+ * S2.3 (#367): credential stop condition — a secret value must not leave the provider boundary
  *
- * เทสต์ชุดนี้ถือค่า "secret" สังเคราะห์ในหน่วยความจำของเทสต์เอง ไม่มีค่าจริง ไม่มี Keychain
- * และไม่มี network; ที่ตรวจคือ handle/บูรณาการของ metadata ปฏิเสธถูกทางและไม่รั่วค่าออก log
+ * This suite holds a synthetic "secret" value in the test's own memory, with no real value, no Keychain
+ * and no network; what it checks is that the handle/metadata integrity rejects correctly and no value leaks to logs
  */
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -61,7 +61,7 @@ async function rejectsWith(work: Promise<unknown>, code: string, secret = SYNTHE
   });
 }
 
-test('handle: ใช้ค่าได้ครั้งเดียวและ serialize ออกมาไม่มีค่า secret', async () => {
+test('handle: the value can be used once and the serialized form contains no secret value', async () => {
   const source = new RecordingSource(SYNTHETIC_SECRET);
   const boundary = new LineCredentialBoundary(source);
   const handle = await boundary.resolve(metadata(), 3, AT);
@@ -82,34 +82,34 @@ test('handle: ใช้ค่าได้ครั้งเดียวและ
   assert.equal(handle.consumed, false);
   assert.equal(await handle.use((secret) => secret.length), SYNTHETIC_SECRET.length);
   assert.equal(handle.consumed, true);
-  // ใช้ซ้ำไม่ได้: ค่าถูกทิ้งไปแล้วตั้งแต่ครั้งแรก
+  // Cannot be reused: the value was discarded from the first time
   await rejectsWith(
-    handle.use(() => 'ห้ามถึงตรงนี้'),
+    handle.use(() => 'must not reach here'),
     'CREDENTIAL_UNAVAILABLE',
   );
   assert.ok(!JSON.stringify(handle).includes(SYNTHETIC_SECRET));
 });
 
-test('handle: callback ที่ throw ก็ยังทิ้งค่า และ dispose ทิ้งได้โดยไม่ใช้', async () => {
+test('handle: a throwing callback still discards the value, and dispose discards without using it', async () => {
   const boundary = new LineCredentialBoundary(new RecordingSource(SYNTHETIC_SECRET));
   const handle = await boundary.resolve(metadata(), 3, AT);
   await assert.rejects(
     handle.use(() => {
-      throw new Error('provider ล้ม');
+      throw new Error('provider failed');
     }),
-    /provider ล้ม/,
+    /provider failed/,
   );
   assert.equal(handle.consumed, true);
 
   const second = await boundary.resolve(metadata(), 3, AT);
   second.dispose();
   await rejectsWith(
-    second.use(() => 'ห้ามถึงตรงนี้'),
+    second.use(() => 'must not reach here'),
     'CREDENTIAL_UNAVAILABLE',
   );
 });
 
-test('resolve: version/status/expiry ไม่ผ่าน = ไม่แตะ Keychain เลย', async () => {
+test('resolve: version/status/expiry failing = never touches the Keychain', async () => {
   const cases: Array<[Partial<LineCredentialMetadata>, number, string]> = [
     [{}, 4, 'CREDENTIAL_VERSION_MISMATCH'],
     [{ status: 'CANDIDATE' }, 3, 'CREDENTIAL_UNAVAILABLE'],
@@ -127,8 +127,8 @@ test('resolve: version/status/expiry ไม่ผ่าน = ไม่แตะ 
   }
 });
 
-test('resolve: Keychain ล้มหรือ fingerprint ไม่ตรง = fail closed และข้อความไม่พาค่าออกมา', async () => {
-  // error ของ Keychain อาจมีค่าอยู่ในข้อความ — boundary ต้องไม่ส่งต่อทั้งข้อความและ cause
+test('resolve: Keychain failing or fingerprint mismatch = fail closed and the message carries no value', async () => {
+  // A Keychain error may contain the value in its message — the boundary must forward neither the message nor the cause
   await rejectsWith(
     new LineCredentialBoundary(
       new RecordingSource(new Error(`security: ${SYNTHETIC_SECRET}`)),
@@ -139,9 +139,9 @@ test('resolve: Keychain ล้มหรือ fingerprint ไม่ตรง = f
     new LineCredentialBoundary(new RecordingSource('')).resolve(metadata(), 3, AT),
     'CREDENTIAL_UNAVAILABLE',
   );
-  // rotation ค้างครึ่งทาง: metadata เป็นของ version ใหม่แต่ Keychain ยังเป็นค่าเก่า
+  // Rotation stuck halfway: the metadata is of the new version but the Keychain still holds the old value
   await rejectsWith(
-    new LineCredentialBoundary(new RecordingSource('ค่าเก่าที่ยังไม่ได้หมุน')).resolve(
+    new LineCredentialBoundary(new RecordingSource('old value that has not been rotated')).resolve(
       metadata(),
       3,
       AT,
@@ -150,7 +150,7 @@ test('resolve: Keychain ล้มหรือ fingerprint ไม่ตรง = f
   );
 });
 
-test('fingerprint: sha256 hex 64 ตัว และค่าต่างให้ fingerprint ต่าง', () => {
+test('fingerprint: 64 sha256 hex characters, and different values give different fingerprints', () => {
   const fingerprint = lineSecretFingerprint(SYNTHETIC_SECRET);
   assert.match(fingerprint, /^[a-f0-9]{64}$/);
   assert.equal(fingerprint, lineSecretFingerprint(SYNTHETIC_SECRET));
@@ -158,7 +158,7 @@ test('fingerprint: sha256 hex 64 ตัว และค่าต่างให�
   assert.ok(!fingerprint.includes(SYNTHETIC_SECRET));
 });
 
-test('payload guard: field ต้องห้ามถูกปฏิเสธไม่ว่าซ้อนลึกแค่ไหน', () => {
+test('payload guard: a forbidden field is rejected no matter how deeply nested', () => {
   assert.doesNotThrow(() =>
     assertRedactedPayload({
       deliveryId: 'dlv_1',
@@ -184,7 +184,7 @@ const S2_3_SOURCES = [
   'line-control-repository.ts',
 ];
 
-test('negative scan: source ของ control plane ไม่มี SDK/network/credential token และไม่อ่าน env', () => {
+test('negative scan: control plane source has no SDK/network/credential token and does not read env', () => {
   const sources = S2_3_SOURCES.map((name) => readFileSync(resolve(sourceDirectory, name), 'utf8'));
   const scan = scanForForbiddenTokens(sources);
   assert.deepEqual(scan.forbiddenTokensFound, []);

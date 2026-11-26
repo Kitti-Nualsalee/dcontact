@@ -16,7 +16,7 @@ import {
 } from './gateway-auth.js';
 import { QmController, QM_DATABASE, QM_JOB_PUBLISHER } from './qm-api.js';
 
-// #990: job ที่ QM worker ปิดเป็น FAILED เพราะรอ archive ครบเพดาน ต้องเปิดใหม่ได้เมื่อ Telephony archive สำเร็จภายหลัง
+// #990: a job the QM worker closed as FAILED because it waited the maximum time for the archive must be reopenable when the Telephony archive succeeds later
 const owner = new PrismaClient();
 const application = new PrismaClient({
   datasources: {
@@ -45,7 +45,7 @@ function claims(
   };
 }
 
-test('manual request เปิด job ที่ FAILED เพราะ recording ไม่ archive ใหม่ได้เมื่อ archive แล้วเท่านั้น', async (t) => {
+test('a manual request reopens a job that is FAILED because the recording was not archived, only once it is archived', async (t) => {
   const tenantId = randomUUID();
   const teamId = randomUUID();
   const otherTeamId = randomUUID();
@@ -72,7 +72,7 @@ test('manual request เปิด job ที่ FAILED เพราะ recording
     byAdmin: fixture('RECORDING_NOT_ARCHIVED', archivedLater),
     publishFails: fixture('RECORDING_NOT_ARCHIVED', archivedLater),
     concurrent: fixture('RECORDING_NOT_ARCHIVED', archivedLater),
-    // FAILED เพราะไม่ archive แล้ว Telephony เลิกลอง (ARCHIVE_ABANDONED) ภายหลัง
+    // FAILED because it was not archived, then Telephony gave up (ARCHIVE_ABANDONED) later
     abandonedLater: fixture('RECORDING_NOT_ARCHIVED', {
       deletedAt: new Date(endedAt.getTime() + 7_200_000),
     }),
@@ -270,7 +270,7 @@ test('manual request เปิด job ที่ FAILED เพราะ recording
     owner.qmAuditEvent.count({ where: { tenantId, resourceId: jobId } });
   const before = await persisted(notArchived.jobId);
 
-  // ยังไม่ archive: ปฏิเสธด้วย 409 และ job ไม่เปลี่ยน
+  // not archived yet: rejected with 409 and the job is unchanged
   const tooEarly = await request(notArchived.interactionId);
   assert.equal(tooEarly.status, 409);
   assert.equal(((await tooEarly.json()) as { code?: string }).code, 'RECORDING_NOT_ARCHIVED');
@@ -281,12 +281,12 @@ test('manual request เปิด job ที่ FAILED เพราะ recording
     data: { archivedAt: new Date(endedAt.getTime() + 7_200_000) },
   });
 
-  // Supervisor ทีมอื่นเปิดใหม่ไม่ได้ (สิทธิ์เดียวกับ manual request เดิม)
+  // a Supervisor of another team cannot reopen (the same permission as the original manual request)
   assert.equal((await request(notArchived.interactionId, 'other-supervisor-token')).status, 403);
   assert.deepEqual(await persisted(notArchived.jobId), before);
   assert.equal(publishedJobs.length, 0);
 
-  // archive แล้ว: เปิด job เดิมใหม่ ล้างผลรอบที่ล้ม และ publish attempt แรก
+  // archived: reopens the original job, clears the failed round's result and publishes the first attempt
   const reopened = await request(notArchived.interactionId);
   assert.equal(reopened.status, 201);
   assert.deepEqual(await reopened.json(), {
@@ -335,22 +335,22 @@ test('manual request เปิด job ที่ FAILED เพราะ recording
     },
   ]);
 
-  // กดซ้ำระหว่างที่ job รอ worker: ไม่เปิดใหม่และไม่ publish ซ้ำ
+  // pressing again while the job waits for the worker: it does not reopen and does not publish again
   const repeated = await request(notArchived.interactionId);
   assert.equal(repeated.status, 201);
   assert.equal(((await repeated.json()) as { status: string }).status, 'PENDING');
   assert.equal(publishedJobs.length, 1);
   assert.equal(await auditCount(notArchived.jobId), 1);
 
-  // Admin เปิดใหม่ได้ทุกทีม
+  // an Admin can reopen for every team
   const adminReopened = await request(byAdmin.interactionId, 'admin-token');
   assert.equal(adminReopened.status, 201);
   assert.equal(((await adminReopened.json()) as { status: string }).status, 'PENDING');
   assert.equal(publishedJobs.length, 2);
   assert.equal(publishedJobs[1]!.job.jobId, byAdmin.jobId);
 
-  // publish ล้มหลังเปิดใหม่: client ได้ 500 แต่ job เปิดใหม่แล้วและ dispatchedAt ถูกคืนเป็น null
-  // QmRetryDispatcher จะหยิบไปทำต่อเมื่อค้างเกินเกณฑ์ (createdAt เก่า) และกดซ้ำก็ publish ได้
+  // publish fails after the reopen: the client gets 500 but the job is reopened and dispatchedAt is set back to null
+  // the QmRetryDispatcher will pick it up when it has been stuck past the threshold (old createdAt) and pressing again can also publish
   failNextPublish = true;
   assert.equal((await request(publishFails.interactionId)).status, 500);
   let failedPublishJob = await persisted(publishFails.jobId);
@@ -363,7 +363,7 @@ test('manual request เปิด job ที่ FAILED เพราะ recording
   assert.equal(publishedJobs.length, 3);
   assert.equal(await auditCount(publishFails.jobId), 1);
 
-  // กดพร้อมกัน: เปิดใหม่และ publish ครั้งเดียว
+  // pressing concurrently: reopens and publishes once
   const parallel = await Promise.all([
     request(concurrent.interactionId),
     request(concurrent.interactionId),
@@ -375,17 +375,17 @@ test('manual request เปิด job ที่ FAILED เพราะ recording
   assert.equal(publishedJobs.filter((input) => input.job.jobId === concurrent.jobId).length, 1);
   assert.equal(await auditCount(concurrent.jobId), 1);
 
-  // FAILED เพราะไม่ archive แล้ว recording ถูกลบภายหลัง: 404 และ job ไม่เปลี่ยน
+  // FAILED because it was not archived, then the recording was deleted later: 404 and the job is unchanged
   const abandonedBefore = await persisted(abandonedLater.jobId);
   assert.equal((await request(abandonedLater.interactionId)).status, 404);
   assert.deepEqual(await persisted(abandonedLater.jobId), abandonedBefore);
 
-  // recording ถูกลบ: ไม่มี recording ให้ถอดเสียง จึงได้ 404 และ job RECORDING_DELETED ไม่เปลี่ยน
+  // the recording was deleted: there is no recording to transcribe so it gets 404 and the RECORDING_DELETED job is unchanged
   const deletedBefore = await persisted(deleted.jobId);
   assert.equal((await request(deleted.interactionId)).status, 404);
   assert.deepEqual(await persisted(deleted.jobId), deletedBefore);
 
-  // provider ล้มครบ maxAttempts: พฤติกรรมเดิม คืน job FAILED โดยไม่เปิดใหม่
+  // the provider fails after maxAttempts: the original behavior, returns the FAILED job without reopening
   const providerBefore = await persisted(providerFailed.jobId);
   const providerResponse = await request(providerFailed.interactionId);
   assert.equal(providerResponse.status, 201);

@@ -8,7 +8,7 @@ import test from 'node:test';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const manifestPath = join(root, 'scripts/core-settings-writer-cases.json');
-// pnpm เป็น process boundary ภายนอก CLI: จำลอง TAP ที่สูญหาย/skip โดยไม่จำลอง DB guard
+// pnpm is a process boundary outside the CLI: simulate lost/skipped TAP without simulating the DB guard
 const fakePnpm = `#!/usr/bin/env node
 const fs=require('node:fs');
 const manifest=JSON.parse(fs.readFileSync(process.env.CORE_COVERAGE_FIXTURE,'utf8'));
@@ -50,5 +50,10 @@ for (const fault of ['none', 'missing', 'skip'])
     );
     assert.ifError(result.error);
     if (fault === 'none') assert.equal(result.status, 0, result.stderr);
-    else assert.notEqual(result.status, 0, 'ต้อง fail แม้ test อื่นยังผ่านและ process คืน exit0');
+    else
+      assert.notEqual(
+        result.status,
+        0,
+        'must fail even when other tests pass and the process returns exit 0',
+      );
   });

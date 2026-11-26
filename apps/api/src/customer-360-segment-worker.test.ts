@@ -12,19 +12,19 @@ const waitFor = async (check: () => boolean) => {
   assert.ok(check());
 };
 
-test('ปิดด้วย C360_SEGMENT_WORKER=off โดยไม่เปิด DB/Kafka', () => {
+test('turned off with C360_SEGMENT_WORKER=off without opening the DB/Kafka', () => {
   const logs: Record<string, unknown>[] = [];
   const worker = startC360SegmentWorker({
     database,
     env: { C360_SEGMENT_WORKER: 'off' },
     log: (entry) => logs.push(entry),
-    connectKafka: async () => assert.fail('ไม่ควรเชื่อม Kafka'),
+    connectKafka: async () => assert.fail('must not connect to Kafka'),
   });
   assert.equal(worker, undefined);
   assert.deepEqual(logs, [{ event: 'c360.segment_worker.disabled' }]);
 });
 
-test('evaluator ทำงานได้ก่อน Kafka พร้อม และ Kafka ล้มแล้วลองใหม่จนเชื่อมได้', async () => {
+test('the evaluator works before Kafka is ready, and when Kafka fails it retries until it connects', async () => {
   let attempts = 0;
   const evaluated: string[] = [];
   const logs: Record<string, unknown>[] = [];
@@ -59,13 +59,13 @@ test('evaluator ทำงานได้ก่อน Kafka พร้อม แ�
       (entry) => entry.event === 'c360.segment_worker.kafka_connect_failed',
     );
     assert.equal(failures.length, 2);
-    assert.ok(!JSON.stringify(logs).includes('secret-host'), 'log ไม่มีรายละเอียด connection');
+    assert.ok(!JSON.stringify(logs).includes('secret-host'), 'the log has no connection details');
   } finally {
     await worker.stop();
   }
 });
 
-test('รอบ evaluate ที่ล้มไม่ทำให้ worker หยุด และ stop ปิด Kafka', async () => {
+test('an evaluate round that fails does not stop the worker, and stop closes Kafka', async () => {
   let closed = false;
   let fail = true;
   const worker = startC360SegmentWorker({

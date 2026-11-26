@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# A1.9 (#574): เพิ่ม login member ของ role A1 บน VM3 โดยคง parent NOLOGIN ของ ADR-030
-# รันบน VM3: sudo bash vm3-platform-db-uat.sh --check แล้ว --apply
+# A1.9 (#574): add login members of the A1 roles on VM3 while keeping the NOLOGIN parents of ADR-030
+# run on VM3: sudo bash vm3-platform-db-uat.sh --check then --apply
 set -euo pipefail
 mode="${1:---check}"
 [[ "$mode" == --check || "$mode" == --apply ]] || { echo 'usage: sudo bash vm3-platform-db-uat.sh [--check|--apply]' >&2; exit 64; }
-[[ "$(id -u)" == 0 && "${SUDO_USER:-}" == osdadmin ]] || { echo 'ต้องรันด้วย sudo จาก osdadmin บน VM3' >&2; exit 1; }
-ip -4 -o addr show | grep -F '192.168.102.113/' >/dev/null || { echo 'เครื่องนี้ไม่ใช่ VM3 ที่คาดไว้' >&2; exit 1; }
+[[ "$(id -u)" == 0 && "${SUDO_USER:-}" == osdadmin ]] || { echo 'must run with sudo from osdadmin on VM3' >&2; exit 1; }
+ip -4 -o addr show | grep -F '192.168.102.113/' >/dev/null || { echo 'this machine is not the expected VM3' >&2; exit 1; }
 
 python3 - "$mode" <<'PY'
 import os, secrets, shutil, stat, string, subprocess, sys, tempfile
@@ -21,22 +21,22 @@ def sql(query, database='postgres'):
         input=query, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
     )
     if result.returncode:
-        raise SystemExit('PostgreSQL operation ล้ม; ไม่แสดง SQL หรือ secret')
+        raise SystemExit('PostgreSQL operation failed; no SQL or secret is shown')
     return result.stdout.strip()
 
 if not sql('show server_version_num;').startswith('150'):
-    raise SystemExit('ต้องเป็น PostgreSQL 15')
+    raise SystemExit('must be PostgreSQL 15')
 if sql("select count(*) from pg_roles where rolname in ('dcontact_platform','dcontact_provisioner') and not rolcanlogin and not rolbypassrls;") != '2':
-    raise SystemExit('parent role ของ A1 ไม่ตรง ADR-030')
+    raise SystemExit('the A1 parent roles do not match ADR-030')
 if sql("select count(*) from pg_database where datname='dcontact_uat';") != '1':
-    raise SystemExit('ไม่พบ dcontact_uat')
+    raise SystemExit('dcontact_uat not found')
 if sql('select count(*) from pg_hba_file_rules where error is not null;') != '0':
-    raise SystemExit('pg_hba.conf เดิมมี error')
+    raise SystemExit('the existing pg_hba.conf has errors')
 
 roles = ('dcontact_platform_login', 'dcontact_provisioner_login')
 existing = sql("select rolname from pg_roles where rolname in ('dcontact_platform_login','dcontact_provisioner_login') order by 1;").splitlines()
 if existing and existing != sorted(roles):
-    raise SystemExit('พบ login role เพียงบางส่วน; หยุดให้ตรวจด้วยมือ')
+    raise SystemExit('found only some of the login roles; stopping to check by hand')
 
 hba_path = Path(sql('show hba_file;'))
 text = hba_path.read_text()
@@ -50,18 +50,18 @@ block = '\n'.join((
     end,
 )) + '\n'
 if text.count(start) != 1:
-    raise SystemExit('ไม่พบ UAT pg_hba block ที่คาดไว้')
+    raise SystemExit('the expected UAT pg_hba block not found')
 if marker in text and (text.count(block) != 1 or text.index(block) > text.index(start)):
-    raise SystemExit('พบ platform pg_hba block ที่ต่างจาก expected')
+    raise SystemExit('found a platform pg_hba block that differs from expected')
 
 print(f'CHECK: login roles {len(existing)}/2; HBA {"present" if marker in text else "missing"}; credential bundle {"present" if bundle.exists() else "absent"}')
 if mode == '--check':
-    print('CHECK ผ่าน; --apply จะสร้าง login member และ HBA เฉพาะ VM2 โดยไม่เปลี่ยน parent role')
+    print('CHECK passed; --apply will create the login members and an HBA for VM2 only without changing the parent roles')
     sys.exit(0)
 
 if not existing:
     if bundle.exists():
-        raise SystemExit('พบ credential bundle เดิมแต่ไม่มี role; หยุดเพื่อตรวจ')
+        raise SystemExit('found an existing credential bundle but no roles; stopping to check')
     alphabet = string.ascii_letters + string.digits
     passwords = [''.join(secrets.choice(alphabet) for _ in range(48)) for _ in roles]
     fd = os.open(bundle, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -85,7 +85,7 @@ if marker not in text:
     before = hba_path.stat()
     backup = hba_path.with_name(hba_path.name + '.dcontact-platform-uat.' + datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ') + '.bak')
     if backup.exists():
-        raise SystemExit('ชื่อ backup pg_hba ซ้ำ')
+        raise SystemExit('duplicate pg_hba backup name')
     shutil.copy2(hba_path, backup)
     updated = text.replace(start, block + start, 1)
     fd, temporary = tempfile.mkstemp(prefix='.pg_hba.platform-uat.', dir=hba_path.parent)
@@ -98,9 +98,9 @@ if marker not in text:
         os.chmod(temporary, stat.S_IMODE(before.st_mode))
         os.replace(temporary, hba_path)
         if sql('select count(*) from pg_hba_file_rules where error is not null;') != '0':
-            raise RuntimeError('pg_hba_file_rules พบ error')
+            raise RuntimeError('pg_hba_file_rules found errors')
         if sql('select pg_reload_conf();') != 't':
-            raise RuntimeError('pg_reload_conf ล้ม')
+            raise RuntimeError('pg_reload_conf failed')
     except BaseException:
         shutil.copy2(backup, hba_path)
         sql('select pg_reload_conf();')
@@ -111,10 +111,10 @@ if marker not in text:
     print(f'BACKUP={backup}')
 
 if sql("select count(*) from pg_roles where rolname in ('dcontact_platform_login','dcontact_provisioner_login') and rolcanlogin and not rolbypassrls;") != '2':
-    raise SystemExit('login role invariant ล้ม')
+    raise SystemExit('login role invariant failed')
 if sql("select count(*) from pg_roles where rolname in ('dcontact_platform','dcontact_provisioner') and not rolcanlogin;") != '2':
-    raise SystemExit('parent NOLOGIN invariant ล้ม')
-print('APPLY ผ่าน: login member 2 roles; parent NOLOGIN คงเดิม; pg_hba reload แล้ว')
+    raise SystemExit('parent NOLOGIN invariant failed')
+print('APPLY passed: 2 login member roles; the parents stay NOLOGIN; pg_hba reloaded')
 if bundle.exists():
-    print(f'credential bundle: {bundle} (mode 600; ส่งไป VM2 ทาง SSH แล้วลบจาก VM3)')
+    print(f'credential bundle: {bundle} (mode 600; sent to VM2 over SSH then deleted from VM3)')
 PY

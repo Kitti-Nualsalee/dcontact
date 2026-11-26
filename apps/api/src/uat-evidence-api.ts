@@ -1,13 +1,13 @@
 /**
- * U1.5 (#433) — หลักฐานภาพหน้าจอ, negative scan และ evidence bundle ของ UAT run
+ * U1.5 (#433) — screenshot evidence, the negative scan and the evidence bundle of a UAT run
  *
  * Authority: Phase Contract #374, evidence/defect #379
  *
- * - สิทธิ์เหมือน route อื่นของ uat-runs: tenant/actor จาก verified token, ต้องเป็นผู้ทดสอบของ pack;
- *   run ของ tenant อื่นหรือไม่ใช่ผู้ทดสอบ = 404 `UAT_RUN_NOT_FOUND`
- * - อัปโหลดเป็น raw body `image/png`/`image/jpeg` (ไม่ใช่ multipart) พร้อม `Idempotency-Key` และ `x-uat-step-id`
- *   อ่าน stream เองพร้อมเพดานขนาด — body parser JSON ของแอปไม่แตะ content type ของภาพ
- * - byte ของภาพกลับไปทาง API เท่านั้น (`Cache-Control: private, no-store`, `nosniff`) ไม่มี URL ของ storage
+ * - permission like other uat-runs routes: tenant/actor from the verified token, must be a tester of the pack;
+ *   a run of another tenant or a non-tester = 404 `UAT_RUN_NOT_FOUND`
+ * - upload is a raw `image/png`/`image/jpeg` body (not multipart) with `Idempotency-Key` and `x-uat-step-id`
+ *   reads the stream itself with a size cap — the app's JSON body parser does not touch the image content type
+ * - image bytes go back only through the API (`Cache-Control: private, no-store`, `nosniff`), with no storage URL
  */
 import type { ServerResponse } from 'node:http';
 import {
@@ -45,7 +45,7 @@ function header(request: AuthenticatedGatewayRequest, name: string): string | un
   return Array.isArray(value) ? value[0] : value;
 }
 
-/** อ่าน raw body เองพร้อมเพดาน — เกินเพดานทิ้ง byte ที่เหลือแล้วตอบ 413 */
+/** reads the raw body itself with a cap — over the cap the remaining bytes are dropped and 413 is answered */
 async function readScreenshot(request: AuthenticatedGatewayRequest): Promise<Buffer> {
   const tooLarge = () => {
     request.resume();
@@ -75,7 +75,7 @@ export class UatEvidenceController {
     @Inject(UAT_EVIDENCE_REPOSITORY) private readonly repository: UatEvidenceRepository,
   ) {}
 
-  /** อัปโหลดภาพหน้าจอหนึ่งไฟล์ของ step ใน catalog ของ run */
+  /** uploads one screenshot for a step in the run's catalog */
   @Post(':runId/evidence')
   @HttpCode(200)
   upload(@Req() request: AuthenticatedGatewayRequest, @Param('runId') runId: string) {
@@ -85,7 +85,7 @@ export class UatEvidenceController {
     const context = commandContext(request);
     const contentType = (header(request, 'content-type') ?? '').split(';')[0]!.trim().toLowerCase();
     return handle(async () => {
-      // HAR/JSON/zip/text ไม่ถูกอ่านเลย — content type ต้องเป็นภาพ แล้ว domain ตรวจ magic bytes ซ้ำ
+      // HAR/JSON/zip/text is never read — the content type must be an image, then the domain rechecks the magic bytes
       if (!(UAT_EVIDENCE_CONTENT_TYPES as readonly string[]).includes(contentType)) {
         request.resume();
         throw new UatRunError('EVIDENCE_TYPE_REJECTED', { reason: 'CONTENT_TYPE' });
@@ -102,7 +102,7 @@ export class UatEvidenceController {
     return handle(() => this.repository.list(tenantId, actor, id));
   }
 
-  /** byte ของภาพผ่าน API เท่านั้น — ไม่มี redirect ไป storage */
+  /** image bytes only through the API — no redirect to storage */
   @Get(':runId/evidence/:evidenceId/content')
   async content(
     @Req() request: AuthenticatedGatewayRequest,
@@ -123,7 +123,7 @@ export class UatEvidenceController {
     });
   }
 
-  /** negative scan ของ run — idempotent ต่อเนื้อหา จึงไม่ต้องใช้ `Idempotency-Key` */
+  /** the negative scan of the run — idempotent per content, so no `Idempotency-Key` is needed */
   @Post(':runId/scan')
   @HttpCode(200)
   scan(@Req() request: AuthenticatedGatewayRequest, @Param('runId') runId: string) {
@@ -132,7 +132,7 @@ export class UatEvidenceController {
     return handle(() => this.repository.scan(tenantId, actor, id));
   }
 
-  /** evidence bundle (JSON) — scan ให้เป็นปัจจุบันก่อนเสมอ; ไม่มี byte ของภาพ */
+  /** the evidence bundle (JSON) — always bring the scan up to date first; no image bytes */
   @Get(':runId/bundle')
   bundle(
     @Req() request: AuthenticatedGatewayRequest,

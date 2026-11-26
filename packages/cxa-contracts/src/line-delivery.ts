@@ -1,12 +1,12 @@
 /**
- * Owner: Delivery/Channels — controlled vocabulary ของ S2 LINE provider pilot (#365)
+ * Owner: Delivery/Channels: controlled vocabulary of the S2 LINE provider pilot (#365)
  *
- * Authority: Phase Contract #362 §3/§5/§6/§9/§10 และ decisions #357/#358/#359/#361
+ * Authority: Phase Contract #362 §3/§5/§6/§9/§10 and decisions #357/#358/#359/#361
  *
- * ไฟล์นี้เป็นสัญญาข้าม domain ล้วน: ไม่มี provider SDK, network, credential value หรือ PII
- * control flow ต้องใช้ค่าใน union เหล่านี้เท่านั้น — free-form detail เป็น diagnostic ที่ redact แล้ว
- * ค่าทุกชุดต้องตรงกับ Postgres enum ใน migration `20260922160100_add_s2_line_persistence`
- * (`line-delivery.test.ts` ตรวจให้)
+ * This file is a purely cross-domain contract: no provider SDK, network, credential value or PII.
+ * Control flow must use only the values in these unions; free-form detail is redacted diagnostics.
+ * Every value set must match the Postgres enums in migration `20260922160100_add_s2_line_persistence`
+ * (checked by `line-delivery.test.ts`)
  */
 import type {
   ActionKey,
@@ -18,11 +18,11 @@ import type {
 } from './identifiers.js';
 import type { DeliveryRejectionScope, NormalizedDeliveryOutcome } from './contact-governance.js';
 
-/** identity ของ adapter ใน `dl_outbox_entries.adapter`; caller-facing DeliveryPort ไม่เห็นค่านี้ */
+/** adapter identity in `dl_outbox_entries.adapter`; the caller-facing DeliveryPort does not see this value */
 export const DELIVERY_ADAPTERS = ['TEST_ADAPTER', 'LINE_MESSAGING_API'] as const;
 export type DeliveryAdapter = (typeof DELIVERY_ADAPTERS)[number];
 
-/** profile เดียวของ S2 — caps ด้านล่างผูกกับชื่อนี้ ปรับสูงขึ้นต้องเป็น decision ใหม่ (#358 §C) */
+/** The single S2 profile: the caps below are tied to this name; raising them requires a new decision (#358 §C) */
 export const LINE_PILOT_PROFILE = 'S2_LINE_LOCAL_PILOT_V1';
 
 export const LINE_PILOT_CAPS = Object.freeze({
@@ -37,8 +37,8 @@ export const LINE_PILOT_CAPS = Object.freeze({
 });
 
 /**
- * #567: ช่วงทีมทดสอบส่ง-รับบน UAT (amendment #358 2026-10-01) — authorization ใบเดียวต่อผู้รับ ใช้ได้หลาย delivery
- * ค่าเหล่านี้คือ "เพดาน" ที่ DB บังคับซ้ำ (`dl_line_run_authorizations_caps_check`); cap จริงอยู่ใน authorization
+ * #567: UAT send/receive trial window (amendment #358 2026-10-01): one authorization per recipient, usable for many deliveries.
+ * These values are the "ceilings" that the DB enforces again (`dl_line_run_authorizations_caps_check`); the actual caps live in the authorization.
  */
 export const LINE_TEAM_TRIAL_PROFILE = 'S2_LINE_TEAM_TRIAL_V1';
 
@@ -49,17 +49,17 @@ export const LINE_TEAM_TRIAL_MAX_CAPS = Object.freeze({
   logicalDeliveriesLifetime: 3000,
   runAuthorizationTtlDays: 30,
   providerAttemptsPerLogicalDelivery: 4,
-  /** text ของการตอบกลับ (T2) */
+  /** reply text (T2) */
   textMaxLength: 500,
 });
 
-/** content class ของ allowlist ใน trial: text อิสระ ≤500 ตัวอักษร (digest ของ text จริงอยู่ใน trial send) */
+/** allowlisted content class in the trial: free text <=500 characters (the digest of the real text lives in the trial send) */
 export const LINE_TEAM_TRIAL_CONTENT_CLASS = 'content-class:text-500/v1';
 
 export const LINE_RUN_PROFILES = [LINE_PILOT_PROFILE, LINE_TEAM_TRIAL_PROFILE] as const;
 export type LineRunProfile = (typeof LINE_RUN_PROFILES)[number];
 
-/** retry ด้วย X-Line-Retry-Key เดิมต้องจบก่อน 24 ชม. นับจาก request แรก (#357 §3) */
+/** A retry with the same X-Line-Retry-Key must finish within 24 hours of the first request (#357 §3) */
 export const LINE_RETRY_WINDOW_HOURS = 24;
 
 // ── Outbound provider outcomes (#357 §5, #362 §10) ──────────────────────────
@@ -87,8 +87,8 @@ export const LINE_PROVIDER_OUTCOME_CLASSES = [
 export type LineProviderOutcomeClass = (typeof LINE_PROVIDER_OUTCOME_CLASSES)[number];
 
 /**
- * ทุก outcome map ไป class เดียว (#357 §5). `LINE_RESPONSE_INVALID` ยังเป็น unknown ที่ reconcile
- * ต่อด้วย key เดิม — quarantine เกิดเมื่อ window หมดเท่านั้น (`LINE_RETRY_WINDOW_EXPIRED`)
+ * Every outcome maps to a single class (#357 §5). `LINE_RESPONSE_INVALID` stays an unknown that is reconciled
+ * with the same key; quarantine happens only when the window expires (`LINE_RETRY_WINDOW_EXPIRED`)
  */
 export const LINE_PROVIDER_OUTCOME_CLASS: Readonly<
   Record<LineProviderOutcomeCode, LineProviderOutcomeClass>
@@ -106,10 +106,10 @@ export const LINE_PROVIDER_OUTCOME_CLASS: Readonly<
 });
 
 /**
- * rejection แยกสองแบบเพราะนับ Attempt ต่างกัน (#361 §B): recipient-specific = Attempt 1,
- * operational (auth/schema/quota/rate) = Attempt 0. auth/rate/quota เป็น operational เสมอ
+ * Rejections are split in two because they count Attempts differently (#361 §B): recipient-specific = Attempt 1,
+ * operational (auth/schema/quota/rate) = Attempt 0. auth/rate/quota are always operational
  */
-/** ชื่อเฉพาะของ LINE ต่อ vocabulary กลาง — derive ตรง ๆ เพื่อให้ทั้งสองฝั่งเดินแยกกันไม่ได้ */
+/** LINE-specific names per the shared vocabulary, derived directly so the two sides cannot drift apart */
 export type LineRejectionScope = DeliveryRejectionScope;
 export const LINE_REJECTION_SCOPES: readonly LineRejectionScope[] = Object.freeze([
   'RECIPIENT',
@@ -178,7 +178,7 @@ export const LINE_GATE_ERROR_CODES = [
   'LINE_GATE_INVALID_TRANSITION',
   'LINE_GATE_KILLED',
   'LINE_GATE_TECHNICAL_SWITCH_OFF',
-  // cap codes เดิมจาก S1 simulation (`line-caps-tracker.ts`) + ขอบเขตใหม่ของ #358 §C
+  // cap codes carried over from the S1 simulation (`line-caps-tracker.ts`) + new boundaries from #358 §C
   'SUBMISSION_WINDOW_CAP_EXCEEDED',
   'CONCURRENT_SUBMISSION_CAP_EXCEEDED',
   'CONTACT_WINDOW_CAP_EXCEEDED',
@@ -186,8 +186,8 @@ export const LINE_GATE_ERROR_CODES = [
   'RUN_DELIVERY_CAP_EXCEEDED',
   'LIFETIME_CAP_EXCEEDED',
   'PROVIDER_ATTEMPT_CAP_EXCEEDED',
-  // ledger กับสิ่งที่ผู้เรียกขอไม่ตรงกันจนนับ cap ต่อไม่ได้ (เช่น ปลุก delivery ที่ release แล้ว)
-  // — เป็น cap code ตาม #362 §10 และเป็น automatic kill trigger ตาม #358 §F
+  // ledger disagrees with what the caller asked for, so caps can no longer be counted (e.g. waking a delivery that was already released)
+  // - this is a cap code per #362 §10 and an automatic kill trigger per #358 §F
   'CAP_ACCOUNTING_INCONSISTENCY',
   // one-shot/credential/config mismatch
   'RUN_AUTHORIZATION_MISSING',
@@ -219,7 +219,7 @@ export type LineCapKind = (typeof LINE_CAP_KINDS)[number];
 export const LINE_CAP_RESERVATION_STATES = ['RESERVED', 'COMMITTED', 'RELEASED'] as const;
 export type LineCapReservationState = (typeof LINE_CAP_RESERVATION_STATES)[number];
 
-// ── Credential reference (#358 §G) — ไม่มี secret value ในสัญญานี้ ─────────────
+// ── Credential reference (#358 §G): no secret value in this contract ─────────────
 
 export const LINE_CREDENTIAL_KINDS = [
   'CHANNEL_ACCESS_TOKEN_V2_1',
@@ -231,12 +231,12 @@ export type LineCredentialKind = (typeof LINE_CREDENTIAL_KINDS)[number];
 export const LINE_CREDENTIAL_STATUSES = ['CANDIDATE', 'ACTIVE', 'RETIRED', 'REVOKED'] as const;
 export type LineCredentialStatus = (typeof LINE_CREDENTIAL_STATUSES)[number];
 
-/** token v2.1 อายุไม่เกิน 30 วันเป็นค่าแนะนำ; long-lived ต้องมี exception ref และ revoke หลัง S2 */
+/** A v2.1 token with a lifetime of at most 30 days is the recommended value; long-lived needs an exception ref and revocation after S2 */
 export const LINE_V2_1_TOKEN_MAX_DAYS = 30;
 
 // ── Attempt/Touch evidence (#361 §D/§E) ─────────────────────────────────────
 
-/** Touch ของ LINE เกิดได้จากสองรูปแบบนี้เท่านั้น — ไม่มี time-window inference */
+/** A LINE Touch can arise from only these two forms: no time-window inference */
 export const TOUCH_EVIDENCE_KINDS = ['USER_QUOTED_RESPONSE', 'SIGNED_POSTBACK'] as const;
 export type TouchEvidenceKind = (typeof TOUCH_EVIDENCE_KINDS)[number];
 
@@ -244,8 +244,8 @@ export const LINE_TOUCH_CORRELATION_STATES = ['PENDING', 'BOUND', 'QUARANTINED']
 export type LineTouchCorrelationState = (typeof LINE_TOUCH_CORRELATION_STATES)[number];
 
 /**
- * input ของ `ContactGovernancePort.recordCorrelatedTouch` ที่ S2.2 จะเพิ่ม — adapter ส่ง binding +
- * evidence ref เท่านั้น ห้ามมี raw LINE user ID, message body หรือ Boolean ที่อ้างตัวเป็น authority
+ * input of `ContactGovernancePort.recordCorrelatedTouch`, which S2.2 will add: the adapter sends only the binding +
+ * evidence ref; it must not contain a raw LINE user ID, message body or a Boolean that claims to be authority
  */
 export interface RecordCorrelatedTouchInput {
   tenantId: TenantId;
@@ -254,21 +254,21 @@ export interface RecordCorrelatedTouchInput {
   actionKey: ActionKey;
   deliveryId: DeliveryId;
   attemptId: string;
-  /** opaque ref ของ `(channelAccountId, webhookEventId)` — unique ต่อ tenant */
+  /** opaque ref of `(channelAccountId, webhookEventId)`, unique per tenant */
   responseEvidenceRef: OutcomeRef;
   evidenceKind: TouchEvidenceKind;
-  /** provider event timestamp ไม่ใช่เวลาที่รับ — ใช้ตัด window ให้ redelivery ช้ายังตัดสินถูก */
+  /** provider event timestamp, not the receive time: used to cut the window so a late redelivery is still judged correctly */
   occurredAt: string;
 }
 
-/** คำตัดสินของ Governance ต่อ outcome หนึ่งใบ (#362 §4); adapter ห้ามคำนวณเอง */
+/** Governance's decision for one outcome (#362 §4); the adapter must not compute it itself */
 export interface DeliverySettlementPolicyDecision {
   countsAsAttempt: boolean;
   countsAsSuccessfulTouch: boolean;
   refundOnFailure: boolean;
 }
 
-/** snapshot ของ Touch ที่ correlate แล้ว; duplicate คืนค่าชุดเดิมเสมอ */
+/** snapshot of the correlated Touch; a duplicate always returns the same values */
 export interface CorrelatedTouchView {
   touchId: string;
   attemptId: string;
@@ -280,27 +280,27 @@ export interface CorrelatedTouchView {
 }
 
 export const CORRELATED_TOUCH_ERROR_CODES = [
-  /** ยังไม่มี accepted Attempt ใน tenant นี้ — response มาก่อน acceptance commit (#361 §F) */
+  /** No accepted Attempt in this tenant yet: the response came before the acceptance commit (#361 §F) */
   'ATTEMPT_NOT_FOUND',
-  /** Attempt มีจริงแต่ไม่ใช่ `PROVIDER_ACCEPTED` — Touch เกาะ Attempt แบบอื่นไม่ได้ */
+  /** The Attempt exists but is not `PROVIDER_ACCEPTED`: a Touch cannot attach to any other kind of Attempt */
   'ATTEMPT_NOT_ACCEPTED',
-  /** reservation/delivery/actionKey ที่ส่งมาไม่ตรงกับ Attempt */
+  /** The reservation/delivery/actionKey sent does not match the Attempt */
   'TOUCH_BINDING_CONFLICT',
-  /** evidence ref เดิมถูกใช้กับ binding อื่น หรือ Attempt นี้มี Touch จาก evidence อื่นแล้ว */
+  /** The same evidence ref was used with another binding, or this Attempt already has a Touch from other evidence */
   'TOUCH_EVIDENCE_CONFLICT',
-  /** evidence kind นอก `TOUCH_EVIDENCE_KINDS` — ไม่มี time-window inference */
+  /** evidence kind outside `TOUCH_EVIDENCE_KINDS`: no time-window inference */
   'TOUCH_EVIDENCE_KIND_UNSUPPORTED',
 ] as const;
 export type CorrelatedTouchErrorCode = (typeof CORRELATED_TOUCH_ERROR_CODES)[number];
 
 export class CorrelatedTouchError extends Error {
   constructor(readonly code: CorrelatedTouchErrorCode) {
-    super(`ไม่สามารถบันทึก correlated Touch: ${code}`);
+    super(`Cannot record correlated Touch: ${code}`);
     this.name = 'CorrelatedTouchError';
   }
 }
 
-/** policy ที่ละเมิด #361/#362 §8 เช่น acceptance ที่อ้างว่าเป็น Touch หรือ refund นอก failure */
+/** A policy that violates #361/#362 §8, e.g. an acceptance claiming to be a Touch, or a refund outside failure */
 export class SettlementPolicyViolationError extends Error {
   readonly code = 'SETTLEMENT_POLICY_VIOLATION';
 
@@ -308,28 +308,28 @@ export class SettlementPolicyViolationError extends Error {
     readonly outcome: NormalizedDeliveryOutcome,
     readonly decision: DeliverySettlementPolicyDecision,
   ) {
-    super(`settlement policy ตัดสิน ${outcome} ผิดสัญญา`);
+    super(`settlement policy decided ${outcome} in violation of the contract`);
     this.name = 'SettlementPolicyViolationError';
   }
 }
 
 /**
- * Owner: Contact Governance (#362 §4) — operation แยกจาก `ContactGovernancePort` เพราะผู้เรียกคือ
- * webhook worker ของ Channels เท่านั้น ส่วน Journey/Dialer/Delivery adapter ไม่เคย correlate Touch
+ * Owner: Contact Governance (#362 §4): an operation separate from `ContactGovernancePort` because the caller is
+ * only the Channels webhook worker; Journey/Dialer/Delivery adapters never correlate a Touch
  *
- * สัญญา:
- * - idempotent ต่อ `(tenantId, responseEvidenceRef)`; duplicate คืน snapshot เดิม ไม่สร้างแถวซ้ำ
- * - append Touch ให้ accepted Attempt เดิมเท่านั้น และไม่เปลี่ยน reservation/Attempt ใด ๆ
- * - Attempt หนึ่งใบมี Touch ได้ครั้งเดียว; evidence คนละใบบน Attempt เดิม = `TOUCH_EVIDENCE_CONFLICT`
- * - response ที่ยังไม่มี Attempt คือ `ATTEMPT_NOT_FOUND` ให้ caller คง correlation เป็น PENDING
- * - ไม่มี time-window inference: `evidenceKind` นอก `TOUCH_EVIDENCE_KINDS` ถูกปฏิเสธ
+ * Contract:
+ * - idempotent per `(tenantId, responseEvidenceRef)`; a duplicate returns the original snapshot and creates no duplicate row
+ * - appends a Touch only to the original accepted Attempt and changes no reservation/Attempt
+ * - an Attempt can have a Touch only once; different evidence on the same Attempt = `TOUCH_EVIDENCE_CONFLICT`
+ * - a response with no Attempt yet is `ATTEMPT_NOT_FOUND`, so the caller keeps the correlation PENDING
+ * - no time-window inference: an `evidenceKind` outside `TOUCH_EVIDENCE_KINDS` is rejected
  */
 export interface ContactTouchCorrelationPort {
   recordCorrelatedTouch(input: RecordCorrelatedTouchInput): Promise<CorrelatedTouchView>;
   /**
-   * S2.6b (#403): binding ของ accepted Attempt ที่ Channels ต้องใช้ประกอบ `recordCorrelatedTouch`
-   * โดยไม่อ่าน `cg_*` เอง — คืนเฉพาะ Attempt `PROVIDER_ACCEPTED` ของ delivery นั้นใน tenant นั้น
-   * ไม่มี = `null` (response มาก่อน acceptance commit หรือ delivery ของ tenant อื่น)
+   * S2.6b (#403): binding of the accepted Attempt that Channels needs to assemble `recordCorrelatedTouch`
+   * without reading `cg_*` itself: returns only the `PROVIDER_ACCEPTED` Attempt of that delivery in that tenant
+   * none = `null` (the response came before the acceptance commit, or the delivery belongs to another tenant)
    */
   findAcceptedAttempt(input: {
     tenantId: TenantId;
@@ -337,7 +337,7 @@ export interface ContactTouchCorrelationPort {
   }): Promise<AcceptedAttemptView | null>;
 }
 
-/** snapshot ของ accepted Attempt — ไม่มี contact/identity/recipient */
+/** snapshot of the accepted Attempt: no contact/identity/recipient */
 export interface AcceptedAttemptView {
   attemptId: string;
   reservationId: ReservationId;
@@ -351,8 +351,8 @@ export function isTouchEvidenceKind(value: unknown): value is TouchEvidenceKind 
 }
 
 /**
- * fact ของ LINE หนึ่งใบ → canonical outcome ของ Governance (#357 §5, #362 §6)
- * unknown และ quarantined ยังไม่ terminal จึงคง `UNKNOWN_RECONCILING` — sweeper ห้าม release
+ * one LINE fact -> Governance canonical outcome (#357 §5, #362 §6)
+ * unknown and quarantined are not terminal, so they stay `UNKNOWN_RECONCILING`: the sweeper must not release
  */
 export function lineNormalizedOutcome(
   outcomeCode: LineProviderOutcomeCode,
@@ -368,8 +368,8 @@ export function lineNormalizedOutcome(
 }
 
 /**
- * matrix Attempt/Touch/refund ของ LINE (#361 §B, #362 §8) — pure function ที่ Governance ใช้ตัดสิน
- * acceptance คือ Attempt 1/Touch 0/refund 0 เสมอ: provider รับ request ไม่ใช่ delivery และไม่ใช่ read
+ * LINE Attempt/Touch/refund matrix (#361 §B, #362 §8): a pure function Governance uses to decide
+ * acceptance is always Attempt 1/Touch 0/refund 0: the provider accepting the request is not delivery and not a read
  */
 export function lineProviderSettlement(
   outcomeCode: LineProviderOutcomeCode,
@@ -403,7 +403,7 @@ export const LINE_LIFECYCLE_STATES = [
 ] as const;
 export type LineLifecycleState = (typeof LINE_LIFECYCLE_STATES)[number];
 
-/** ทุก event มี eventId คงที่ต่อ transition เดิม; consumer dedupe ด้วย eventId และรับ out-of-order */
+/** Every event has an eventId that is stable per transition; the consumer dedupes by eventId and accepts out-of-order */
 interface LineEventBase {
   eventId: string;
   tenantId: TenantId;
@@ -425,7 +425,7 @@ export interface LineInboundEventV1 extends LineEventBase {
   type: 'channel.line.inbound.v1';
   channelAccountId: string;
   webhookEventId: string;
-  /** ชนิดจาก provider — unknown type ต้องผ่านได้ (forward-compatible) จึงไม่ปิดชุด */
+  /** type from the provider: an unknown type must be allowed through (forward-compatible), so the set is not closed */
   eventType: string;
   providerTimestamp: string;
   payloadHash: string;
@@ -444,8 +444,8 @@ export type LineEventV1 =
   LineDeliveryLifecycleEventV1 | LineInboundEventV1 | ContactTouchCorrelatedEventV1;
 
 /**
- * ชื่อ field ที่ห้ามปรากฏใน event/key/header/evidence (#362 §5) — ใช้ใน negative scan และ test
- * ของ owner ทุกตัว ไม่ใช่รายการครบของ PII ทั้งหมด
+ * Field names that must not appear in an event/key/header/evidence (#362 §5): used in negative scans and tests
+ * of every owner, not a complete list of all PII
  */
 export const LINE_FORBIDDEN_EVIDENCE_FIELDS = Object.freeze([
   'userId',
@@ -465,7 +465,7 @@ export const LINE_FORBIDDEN_EVIDENCE_FIELDS = Object.freeze([
   'authorization',
 ]);
 
-/** LINE รับ `X-Line-Retry-Key` เป็น hexadecimal UUID ตัวพิมพ์เล็ก (#357 §2) */
+/** LINE takes `X-Line-Retry-Key` as a lowercase hexadecimal UUID (#357 §2) */
 const LINE_RETRY_KEY_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 export function isLineRetryKey(value: string): boolean {
@@ -479,14 +479,14 @@ export class LineOutcomeScopeError extends Error {
     readonly outcomeCode: LineProviderOutcomeCode,
     readonly rejectionScope: LineRejectionScope | undefined,
   ) {
-    super(`outcome ${outcomeCode} ใช้ rejection scope ${rejectionScope ?? 'ว่าง'} ไม่ได้`);
+    super(`outcome ${outcomeCode} cannot use rejection scope ${rejectionScope ?? 'empty'}`);
     this.name = 'LineOutcomeScopeError';
   }
 }
 
 /**
- * ตรวจว่า outcome + rejection scope เป็นคู่ที่ถูกต้อง: เฉพาะ TERMINAL_REJECTED ต้องมี scope
- * และ auth/rate/quota ต้องเป็น OPERATIONAL — ตรงกับ CHECK ของ `dl_provider_submission_attempts`
+ * Check that outcome + rejection scope are a valid pair: only TERMINAL_REJECTED needs a scope,
+ * and auth/rate/quota must be OPERATIONAL, matching the CHECK of `dl_provider_submission_attempts`
  */
 export function assertLineOutcomeScope(
   outcomeCode: LineProviderOutcomeCode,

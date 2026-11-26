@@ -1,15 +1,15 @@
 /**
- * J5.1 (#339): versioned template contract ของ Journey (คำตัดสิน #330, Phase Spec #337 §7)
+ * J5.1 (#339): versioned template contract of Journey (decision #330, Phase Spec #337 §7)
  *
- * template เป็น immutable authoring package ไม่ใช่ runtime pointer/subflow — ต้อง instantiate เป็น
- * Journey draft ของ tenant ก่อน validate/compile/publish และไม่มี live link กลับไปที่ source
+ * A template is an immutable authoring package, not a runtime pointer/subflow: it must be instantiated into a
+ * tenant's Journey draft before validate/compile/publish, and has no live link back to the source
  *
- * ข้อห้าม:
- * - owner class มีแค่ `PLATFORM_BUILTIN` และ `TENANT`; ไม่มี marketplace/cross-tenant sharing
- * - built-in ไม่มี tenant row แบบ nullable/sentinel — resolve จาก release asset ที่ digest อยู่ใน allowlist
- * - parameter เป็นชุดปิด ไม่มี SECRET/CREDENTIAL/arbitrary JSON/raw HTML/script
- * - bind target เป็น JSON pointer ไปยัง scalar slot ที่ registry อนุญาตเท่านั้น เปลี่ยน node/edge/operator ไม่ได้
- * - ค่า parameter ไม่เข้า audit/outbox/evidence เก็บได้เพียง digest
+ * Prohibitions:
+ * - there are only the owner classes `PLATFORM_BUILTIN` and `TENANT`; no marketplace/cross-tenant sharing
+ * - a built-in has no nullable/sentinel tenant row: it is resolved from a release asset whose digest is in the allowlist
+ * - parameters are a closed set: no SECRET/CREDENTIAL/arbitrary JSON/raw HTML/script
+ * - a bind target is a JSON pointer to a scalar slot that the registry allows only; it cannot change a node/edge/operator
+ * - parameter values do not enter audit/outbox/evidence; only the digest may be kept
  */
 import type {
   AuthoringDocumentV1,
@@ -25,7 +25,7 @@ export type JourneyTemplateOrigin = (typeof JOURNEY_TEMPLATE_ORIGINS)[number];
 export const JOURNEY_TEMPLATE_VISIBILITIES = Object.freeze(['TEAM', 'TENANT'] as const);
 export type JourneyTemplateVisibility = (typeof JOURNEY_TEMPLATE_VISIBILITIES)[number];
 
-/** DEPRECATED ห้าม instantiate/fork ใหม่; version เดิมยัง resolve provenance/diff ได้ */
+/** DEPRECATED must not be instantiated/forked anew; existing versions can still resolve provenance/diff */
 export const JOURNEY_TEMPLATE_LIFECYCLES = Object.freeze([
   'DRAFT_ONLY',
   'ACTIVE',
@@ -34,7 +34,7 @@ export const JOURNEY_TEMPLATE_LIFECYCLES = Object.freeze([
 ] as const);
 export type JourneyTemplateLifecycle = (typeof JOURNEY_TEMPLATE_LIFECYCLES)[number];
 
-/** Restore คืนจาก ARCHIVED เป็น DEPRECATED เท่านั้น ไม่กลับเป็น ACTIVE โดยตรง */
+/** Restore goes from ARCHIVED to DEPRECATED only, never straight back to ACTIVE */
 export const JOURNEY_TEMPLATE_LIFECYCLE_TRANSITIONS = Object.freeze({
   DRAFT_ONLY: ['ACTIVE'],
   ACTIVE: ['DEPRECATED'],
@@ -66,7 +66,7 @@ export const JOURNEY_TEMPLATE_PARAMETER_TYPES = Object.freeze([
 ] as const);
 export type JourneyTemplateParameterType = (typeof JOURNEY_TEMPLATE_PARAMETER_TYPES)[number];
 
-/** reference ที่ runtime contract มีอยู่จริงเท่านั้น — ตรวจ tenant/scope ใหม่ทุกครั้งที่ instantiate/publish */
+/** only references that exist in the runtime contract: tenant/scope is re-checked on every instantiate/publish */
 export const JOURNEY_TEMPLATE_RESOURCE_KINDS = Object.freeze([
   'OWNER_TEAM',
   'TARGET_TEAM',
@@ -82,16 +82,16 @@ export const JOURNEY_TEMPLATE_RESOURCE_KINDS = Object.freeze([
 export type JourneyTemplateResourceKind = (typeof JOURNEY_TEMPLATE_RESOURCE_KINDS)[number];
 
 /**
- * key สงวนของ bind target นอกเหนือจาก `templateNodeKey` ของ step: `@trigger` ชี้ config ของ trigger
- * (เช่น `/config/segmentId`) และ `@settings` ชี้ค่าระดับ Journey (เช่น `/config/senderIdentityId`)
- * เพราะ reference เฉพาะ tenant ทุกตัวต้องมาทาง parameter ห้ามฝังใน graph (#330 §4)
+ * reserved bind-target keys besides the step's `templateNodeKey`: `@trigger` points to the trigger config
+ * (e.g. `/config/segmentId`) and `@settings` points to Journey-level values (e.g. `/config/senderIdentityId`)
+ * because every tenant-specific reference must come through a parameter and must not be embedded in the graph (#330 §4)
  */
 export const JOURNEY_TEMPLATE_RESERVED_NODE_KEYS = Object.freeze([
   '@trigger',
   '@settings',
 ] as const);
 
-/** ชี้ไปยัง scalar field ของ node ที่มี `templateNodeKey` นี้ เช่น `/config/waitSeconds` */
+/** points to a scalar field of the node with this `templateNodeKey`, e.g. `/config/waitSeconds` */
 export interface JourneyTemplateBindTargetV1 {
   readonly templateNodeKey: string;
   readonly pointer: string;
@@ -106,8 +106,8 @@ interface TemplateParameterBase {
 }
 
 /**
- * default มีได้เฉพาะชนิดที่ไม่ใช่ resource reference — built-in ห้ามมี default ของ reference และ
- * tenant template ก็ห้ามเก็บ reference ที่ resolve แล้วเป็น default (#330 §5)
+ * a default is allowed only for kinds that are not resource references: a built-in must not have a reference default, and
+ * a tenant template must not keep a resolved reference as a default (#330 §5)
  */
 export type JourneyTemplateParameterV1 = TemplateParameterBase &
   (
@@ -131,9 +131,9 @@ export type JourneyTemplateParameterV1 = TemplateParameterBase &
 
 export type JourneyTemplateParameterValue = string | number | boolean;
 
-// ── Template content และ identity (#330 §3) ──────────────────────────────────
+// ── Template content and identity (#330 §3) ──────────────────────────────────
 
-/** identity ที่อ้างข้ามระบบ: `(origin, templateId, version, contentDigest)` — tenant มาจาก context */
+/** identity referenced across systems: `(origin, templateId, version, contentDigest)`; the tenant comes from the context */
 export interface JourneyTemplateRefV1 {
   readonly origin: JourneyTemplateOrigin;
   readonly templateId: string;
@@ -145,7 +145,7 @@ export interface JourneyTemplateContentV1 {
   readonly templateSchemaVersion: typeof JOURNEY_TEMPLATE_SCHEMA_VERSION;
   readonly authoringSchemaVersion: JourneyAuthoringSchemaVersion;
   readonly registryVersion: JourneyAuthoringRegistryVersion;
-  /** graph skeleton — ทุก node ต้องมี `templateNodeKey` และ reference ต้องมาทาง parameter เท่านั้น */
+  /** graph skeleton: every node must have a `templateNodeKey`, and references must come only through parameters */
   readonly document: AuthoringDocumentV1;
   readonly parameterSchema: readonly JourneyTemplateParameterV1[];
   readonly requiredCapabilities: readonly string[];
@@ -164,7 +164,7 @@ export interface JourneyTemplateVersionViewV1 extends JourneyTemplateRefV1 {
 
 // ── Provenance (#330 §7) ─────────────────────────────────────────────────────
 
-/** อธิบายที่มาและเป็นฐานของ upgrade เท่านั้น ไม่ใช่ runtime dependency */
+/** explains the origin and is the basis of an upgrade only; not a runtime dependency */
 export interface JourneyTemplateProvenanceV1 {
   readonly source: JourneyTemplateRefV1;
   readonly journeyId: string;
@@ -186,7 +186,7 @@ export const JOURNEY_TEMPLATE_CONFLICT_KINDS = Object.freeze([
 ] as const);
 export type JourneyTemplateConflictKind = (typeof JOURNEY_TEMPLATE_CONFLICT_KINDS)[number];
 
-/** conflict ที่ block แก้ด้วยการเลือกไม่ได้ ต้อง bind/แก้ต้นทางก่อน */
+/** a blocking conflict that cannot be resolved by choosing: bind/fix the source first */
 export const JOURNEY_TEMPLATE_BLOCKING_CONFLICT_KINDS = Object.freeze([
   'PARAMETER_REQUIRED_UNBOUND',
   'UNKNOWN_NODE_OR_CAPABILITY',
@@ -217,7 +217,7 @@ export interface JourneyTemplateUpgradeProposalV1 {
   readonly conflictDigest: string;
 }
 
-// ── Commands และ REST DTOs (Phase Spec §5) ───────────────────────────────────
+// ── Commands and REST DTOs (Phase Spec §5) ───────────────────────────────────
 
 export const JOURNEY_TEMPLATE_COMMANDS = Object.freeze([
   'CreateTemplateDraft',
@@ -285,7 +285,7 @@ export interface CheckTemplateUpgradeRequestV1 {
 }
 
 export interface ApplyTemplateUpgradeRequestV1 {
-  /** version เป้าหมายที่ proposal ถูกคำนวณจาก — server คำนวณซ้ำแล้วต้องได้ digest เดิม */
+  /** the target version the proposal was computed from: the server recomputes and must get the same digest */
   readonly targetVersion: number;
   readonly expectedHeadVersion: number;
   readonly expectedDraftRevision: number;
@@ -304,7 +304,7 @@ export function isJourneyTemplateParameterType(
   return typeof value === 'string' && PARAMETER_TYPE_SET.has(value);
 }
 
-/** การแจ้งเตือนเป็นข้อมูลเท่านั้น (#330 §9) — ไม่ auto-apply, ไม่ publish และไม่แตะ enrollment */
+/** the notification is data only (#330 §9): no auto-apply, no publish and no touching enrollments */
 export const JOURNEY_TEMPLATE_NOTICE_KINDS = Object.freeze([
   'UPDATE_AVAILABLE',
   'DEPRECATED',
@@ -324,7 +324,7 @@ export function isJourneyTemplateResourceKind(
   return typeof value === 'string' && RESOURCE_KIND_SET.has(value);
 }
 
-/** bind target ชี้ได้แค่ `/config/<scalar field>` — ห้ามแตะ nodeId/type/edge หรือแทนทั้ง object */
+/** a bind target can point only at `/config/<scalar field>`: it must not touch nodeId/type/edge or replace a whole object */
 export function isJourneyTemplateBindPointer(pointer: string): boolean {
   return /^\/config\/[A-Za-z][A-Za-z0-9]*$/.test(pointer);
 }

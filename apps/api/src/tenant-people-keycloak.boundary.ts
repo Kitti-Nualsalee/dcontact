@@ -33,7 +33,7 @@ test('real Keycloak service client creates once and reads the immutable outcome'
     reconcileOnly: false,
     command: {
       commandId: randomUUID(),
-      displayName: 'ทดสอบ adapter B2',
+      displayName: 'B2 adapter test',
       email,
       username: email,
       role: 'AGENT',
@@ -114,7 +114,7 @@ test('real Keycloak service client creates once and reads the immutable outcome'
       if (outcome.outcome === 'SENT') return outcome;
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
-    assert.fail('ต้องได้ exact SENT receipt ของ generation ที่ร้องขอ');
+    assert.fail('must get an exact SENT receipt of the requested generation');
   }
   await invitation.dispatch(firstAttempt);
   const firstSent = await readSent(firstAttempt);

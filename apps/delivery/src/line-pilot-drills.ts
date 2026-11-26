@@ -1,15 +1,15 @@
 /**
- * Owner: Delivery/Channels — ขั้นตอน PR02 replay probe และ RB01 rollback drill (S2.7 #368)
+ * Owner: Delivery/Channels — PR02 replay probe and RB01 rollback drill steps (S2.7 #368)
  *
- * Authority: #360 §D ข้อ 7 และ 10, decision บน #368 (2026-09-23)
+ * Authority: #360 §D items 7 and 10, decision on #368 (2026-09-23)
  *
- * - replay probe: re-POST exact request เดิม (payload + `X-Line-Retry-Key` เดิม) หนึ่งครั้งหลัง accepted
- *   ต้องได้ `409` + `x-line-accepted-request-id` = request ID ของ acceptance และ `sentMessages.id` เดิม
- *   ผ่าน control plane (one-shot replay + จอง `PROVIDER_ATTEMPT`) และบันทึกเป็น audit เท่านั้น
- * - rollback drill: technical switch off → kill → ไม่มี delivery ค้าง → revoke token ที่ provider +
- *   ใน metadata → คำขอส่งใหม่ต้องถูกปฏิเสธก่อน provider I/O
+ * - replay probe: re-POST the exact original request (same payload + `X-Line-Retry-Key`) once after accepted;
+ *   must get `409` + `x-line-accepted-request-id` = the acceptance request ID and the original `sentMessages.id`,
+ *   goes through the control plane (one-shot replay + reserving a `PROVIDER_ATTEMPT`) and is recorded as audit only
+ * - rollback drill: technical switch off → kill → no delivery stuck → revoke the token at the provider +
+ *   in metadata → a new send request must be rejected before provider I/O
  *
- * ทั้งสองขั้นคืน evidence ที่มีแค่ status/ID/digest — ไม่มี token, recipient หรือเนื้อหาข้อความ
+ * Both steps return evidence holding only status/ID/digest — no token, recipient or message content
  */
 import { createHash, randomUUID } from 'node:crypto';
 import { withTenantDatabaseTransaction, type PrismaClient } from '@d-contact/db';
@@ -85,7 +85,7 @@ function begin(deps: LinePilotDrillDeps, command: LineSubmitCommand, contentRef:
   };
 }
 
-/** PR02 ข้อ 7: ยิงซ้ำหนึ่งครั้งเท่านั้น — เรียกซ้ำหลังผ่านแล้วจะชน cap ของ attempt ไม่ใช่ยิงเพิ่มลอย ๆ */
+/** PR02 item 7: fire again exactly once — calling again after it passed hits the attempt cap rather than firing arbitrarily more */
 export async function runLineReplayProbe(
   deps: LinePilotDrillDeps,
   command: LineSubmitCommand,
@@ -204,12 +204,12 @@ export interface LineRollbackDrillInput {
   credentialRefId: string;
   recipientFingerprint: string;
   contentRef: string;
-  /** ค่า revoke ที่ protected runner ประกอบจาก Keychain — ไม่ถูกเก็บหรือคืนออกไป */
+  /** The revoke value the protected runner assembles from the Keychain — never stored or returned */
   revocation: () => Promise<LineTokenRevocation | null>;
   quota?: LineQuotaSnapshot;
 }
 
-/** type alias เพื่อให้ใส่ลง provider bundle ที่รับ evidence แบบ record ได้ */
+/** type alias so it can be put into the provider bundle that accepts evidence as a record */
 export type LineRollbackDrillEvidence = {
   type: 'line.rollback-drill';
   checkId: 'S2-LINE-RB01';
@@ -225,8 +225,8 @@ export type LineRollbackDrillEvidence = {
 };
 
 /**
- * RB01: ทำครบทุกขั้นแม้ขั้นก่อนหน้าล้ม เพื่อให้ scope จบในสถานะปิดเสมอ (kill ชนะทุกอย่าง)
- * การ revoke ที่ provider ล้มไม่ทำให้ metadata revoke ถูกข้าม — credential ห้ามกลับมา active
+ * RB01: do every step even if an earlier step fails so the scope always ends closed (kill beats everything)
+ * A provider-side revoke failure does not cause the metadata revoke to be skipped — the credential must never become active again
  */
 export async function runLineRollbackDrill(
   deps: Omit<LinePilotDrillDeps, 'recipients'>,
@@ -247,7 +247,7 @@ export async function runLineRollbackDrill(
         },
       }),
     );
-    if (!gate) throw new Error('ไม่พบ gate ของ scope pilot');
+    if (!gate) throw new Error('pilot scope gate not found');
     return gate;
   };
 
@@ -281,7 +281,7 @@ export async function runLineRollbackDrill(
     now(),
   );
 
-  // คำขอส่งใหม่ต้องถูกปฏิเสธที่ `beginRun` ซึ่งเป็นด่านก่อน provider I/O ทุกทางของ adapter
+  // a new send request must be rejected at `beginRun`, which is the gate before every provider I/O route of the adapter
   const probe = await deps.control.beginRun(deps.actor, {
     tenantId,
     scope: input.scope,
@@ -304,7 +304,7 @@ export async function runLineRollbackDrill(
     unresolvedDeliveries,
     providerRevoked,
     metadataRevoked,
-    // ใช้ต่อไม่ได้จริงต้องครบทั้งฝั่ง LINE และฝั่ง metadata
+    // genuinely unusable requires both the LINE side and the metadata side
     credentialRevoked: providerRevoked && metadataRevoked,
     freshSendBlockedBeforeIo,
     freshSendDenialCode: probe.status === 'DENIED' ? probe.code : null,
@@ -319,13 +319,13 @@ export async function runLineRollbackDrill(
 }
 
 export interface LineCappedPilotFacts {
-  /** จาก cap ledger ของ run: หน่วย logical delivery ที่ COMMITTED */
+  /** From the run's cap ledger: logical delivery units that are COMMITTED */
   logicalDeliveries: number;
-  /** Attempt/Touch/refund ของ delivery ตาม canonical facts ของ Governance */
+  /** Attempt/Touch/refund of the delivery per Governance's canonical facts */
   attempts: number;
   touches: number;
   refunds: number;
-  /** attempt receipt ที่ accepted มากกว่าหนึ่ง หรือ message ID มากกว่าชุดเดียว = ผู้รับอาจเห็นซ้ำ */
+  /** more than one accepted attempt receipt, or more than one set of message IDs = the recipient may see duplicates */
   acceptedReceipts: number;
   proposalPresentationDigest: string;
 }
@@ -347,7 +347,7 @@ export type LineCappedPilotEvidence = {
   replayEvidenceDigest: string | null;
 };
 
-/** รูปเดียวกับที่ `scripts/cxa-s2-provider-bundle.mjs` ตรวจ invariant ของ PR02 (#360 §D ข้อ 5–9) */
+/** The same shape that `scripts/cxa-s2-provider-bundle.mjs` uses to check the PR02 invariants (#360 §D items 5–9) */
 export function buildLineCappedPilotEvidence(
   probe: LineReplayProbeEvidence,
   facts: LineCappedPilotFacts,

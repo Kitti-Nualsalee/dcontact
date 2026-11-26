@@ -2,19 +2,19 @@ import type { ExpressionContext, ExpressionEvaluator } from '@d-contact/cxa-cont
 import type { JourneyGraphStep } from './journey-definition.js';
 
 /**
- * J5.2 (#340): transition semantics ของ step หนึ่งตัวแบบ pure — ไม่มี I/O, ไม่มี clock จริง
+ * J5.2 (#340): the pure transition semantics of a single step — no I/O, no real clock
  *
- * เป็นชุดเดียวที่ทั้ง runtime (`JourneyExecutionService`) และ simulator ของ authoring ใช้
- * เพื่อไม่ให้เกิด executor ชุดที่สอง (stop condition #340) — ถ้าพฤติกรรมของ node เปลี่ยน ต้องเปลี่ยน
- * ที่นี่ที่เดียว แล้วทั้งการรันจริงและการจำลองเปลี่ยนตามพร้อมกัน
+ * the one set that both the runtime (`JourneyExecutionService`) and the authoring simulator use
+ * so that a second executor never arises (stop condition #340) — if a node's behavior changes, it must change
+ * here only, and both real runs and simulation change along with it at once
  */
 export type JourneyStepPlan =
   | { readonly kind: 'EXIT' }
   | { readonly kind: 'WAIT'; readonly nextStepId: string; readonly wakeAt: Date }
   | { readonly kind: 'BRANCH'; readonly nextStepId: string; readonly branchResult: boolean }
-  /** SEND หยุดที่ cursor เดิมจนกว่า delivery hand-off จะเสร็จ แล้วค่อยเดินไป `next` */
+  /** SEND stays at the existing cursor until the delivery hand-off completes, then moves to `next` */
   | { readonly kind: 'AWAIT_SEND'; readonly nextStepId: string }
-  /** owner action รอผลจาก owner: accepted → `next`, rejected → `onReject` */
+  /** an owner action waits for the owner's result: accepted → `next`, rejected → `onReject` */
   | {
       readonly kind: 'AWAIT_OWNER';
       readonly acceptedStepId: string;
@@ -46,7 +46,7 @@ export function planJourneyStep(
         context: input.context,
         expectedType: 'boolean',
       });
-      // BRANCH ที่ประเมินไม่ได้ต้อง fail closed ไปทาง whenFalse ไม่ใช่ค้างอยู่กับที่
+      // a BRANCH that cannot be evaluated must fail closed to whenFalse, not stay stuck in place
       const branchResult = evaluation.status === 'OK' && evaluation.value === true;
       return {
         kind: 'BRANCH',
@@ -63,7 +63,7 @@ export function planJourneyStep(
   }
 }
 
-/** owner result ที่ถือว่าสำเร็จเดิน `next`; REJECTED เดิน `onReject` (J5.0 / Phase Contract §7) */
+/** an owner result counted as success goes to `next`; REJECTED goes to `onReject` (J5.0 / Phase Contract §7) */
 export function ownerResultNextStep(
   plan: Extract<JourneyStepPlan, { kind: 'AWAIT_OWNER' }>,
   outcome: 'ACCEPTED' | 'REJECTED',

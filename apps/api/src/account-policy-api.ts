@@ -1,7 +1,7 @@
 /**
- * AC1 (#594): `GET/PUT /api/v1/tenant/account-policy` — admin ของ tenant เท่านั้น (#589)
+ * AC1 (#594): `GET/PUT /api/v1/tenant/account-policy` — tenant admin only (#589)
  *
- * tenant และผู้แก้มาจาก token เสมอ ไม่รับจาก path/body; envelope คงที่ `{ code, field?, reason? }`
+ * the tenant and the editor always come from the token, never from the path/body; a fixed envelope `{ code, field?, reason? }`
  */
 import {
   BadRequestException,

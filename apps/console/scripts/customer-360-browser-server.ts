@@ -1,9 +1,9 @@
 /**
- * Cus360 C2 (#792): browser sandbox แบบ loopback ที่ทิ้งได้
- * Chromium → Console (Vite, mode e2e) → proxy → Nest API จริง (gateway guard, c360 predicates, RLS ด้วย dcontact_app) → PostgreSQL
+ * Cus360 C2 (#792): disposable loopback browser sandbox
+ * Chromium → Console (Vite, mode e2e) → proxy → real Nest API (gateway guard, c360 predicates, RLS via dcontact_app) → PostgreSQL
  *
- * ข้อจำกัดที่ต้องรู้: identity เป็น stub verifier (token = alias ของ actor) เหมือน integration tests ไม่ใช่ Keycloak จริง
- * จึงไม่นับเป็นหลักฐาน actual OIDC boundary; ใช้ข้อมูลสังเคราะห์ทั้งหมดและไม่เชื่อมต่อ UAT/VM
+ * Limitations to know: identity is a stub verifier (token = actor alias), like the integration tests, not a real Keycloak,
+ * so it does not count as evidence of the actual OIDC boundary; all data is synthetic and it does not connect to UAT/VM
  */
 import { createServer as createHttpServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
@@ -34,7 +34,7 @@ async function close() {
 }
 
 try {
-  // แต่ละ browser test ใช้ budget ของตัวเอง; multi-instance budget ทดสอบกับ Redis จริงแยกแล้ว
+  // each browser test uses its own budget; the multi-instance budget is tested separately against a real Redis
   let quota = new TenantClientRateLimiter();
   const m1 = process.env.C360_M1_BROWSER === 'true';
   const f = await setup(
@@ -74,11 +74,11 @@ try {
     },
   });
 
-  // ---- seed (สังเคราะห์ทั้งหมด) ----
+  // ---- seed (entirely synthetic) ----
   const ids: Record<string, string> = {};
   ids.somchai = await contact(f, {
-    displayName: 'สมชาย ใจดี',
-    company: 'บริษัท ตัวอย่าง จำกัด',
+    displayName: 'สมชาย ใจดี', // allow-thai: seed name asserted by Thai e2e specs
+    company: 'บริษัท ตัวอย่าง จำกัด', // allow-thai: seed company asserted by Thai e2e specs
     vip: true,
   });
   await head(f, ids.somchai, 'ACTIVE');
@@ -93,7 +93,7 @@ try {
     'REVIEW_REQUIRED',
     'Somchai.Old@Example.COM',
   );
-  await tag(f, ids.somchai, 'ลูกค้าสำคัญ');
+  await tag(f, ids.somchai, 'ลูกค้าสำคัญ'); // allow-thai: seed tag asserted by Thai e2e specs
   await interaction(f, ids.somchai, 'admin');
   await interaction(f, ids.somchai, 'admin');
   await interaction(f, ids.somchai, 'agent');
@@ -102,16 +102,16 @@ try {
   await head(f, ids.somsri, 'ACTIVE');
   await grant(f, 'admin', ids.somsri, 'READ');
   await point(f, ids.somsri, 'PHONE', '+6621234567');
-  ids.legacy = await contact(f, { displayName: 'ลูกค้าเดิม ก่อนมีสถานะ identity' });
+  ids.legacy = await contact(f, { displayName: 'ลูกค้าเดิม ก่อนมีสถานะ identity' }); // allow-thai: seed name asserted by Thai e2e specs
   await grant(f, 'admin', ids.legacy, 'READ');
   ids.ambiguous = await contact(f, { displayName: 'Ambiguous Amy' });
   await head(f, ids.ambiguous, 'AMBIGUOUS');
   await grant(f, 'admin', ids.ambiguous, 'READ');
   ids.longName = await contact(f, {
     displayName:
-      'นางสาวสมหญิง ผู้มีชื่อยาวมากเพื่อทดสอบการตัดบรรทัดและการแสดงผลบนจอแคบ Wolfeschlegelsteinhausenbergerdorff',
+      'นางสาวสมหญิง ผู้มีชื่อยาวมากเพื่อทดสอบการตัดบรรทัดและการแสดงผลบนจอแคบ Wolfeschlegelsteinhausenbergerdorff', // allow-thai: long Thai name for wrap tests
     company:
-      'บริษัท ที่มีชื่อยาวมากเช่นกัน เพื่อทดสอบการ wrap ของข้อความในตารางและหัวโปรไฟล์ จำกัด (มหาชน)',
+      'บริษัท ที่มีชื่อยาวมากเช่นกัน เพื่อทดสอบการ wrap ของข้อความในตารางและหัวโปรไฟล์ จำกัด (มหาชน)', // allow-thai: long Thai company for wrap tests
   });
   await grant(f, 'admin', ids.longName, 'READ');
   ids.canonical = await contact(f, { displayName: 'Canonical Carol' });
@@ -127,7 +127,7 @@ try {
     expectedSourceLineageRevision: 0,
     correlationId: 'c2-browser-merge',
   });
-  ids.hidden = await contact(f, { displayName: 'ซ่อนจากทุกคน' });
+  ids.hidden = await contact(f, { displayName: 'ซ่อนจากทุกคน' }); // allow-thai: seed name asserted by Thai e2e specs
   const revokable: Record<string, Awaited<ReturnType<typeof grant>>> = {};
   for (const [key, displayName] of [
     ['revokable', 'Revoke Rita'],
@@ -139,16 +139,16 @@ try {
     ids[key] = await contact(f, { displayName });
     revokable[key] = await grant(f, 'admin', ids[key], 'READ');
   }
-  // Mia มีสายของผู้ใช้มากกว่าหนึ่งหน้า (limit 20) เพื่อทดสอบโหลดประวัติเพิ่ม
+  // Mia has more than one page of user calls (limit 20) to test loading more history
   for (let i = 0; i < 22; i += 1) await interaction(f, ids.revokableMore, 'admin');
-  ids.empty = await contact(f, { displayName: 'ไม่มีประวัติ Empty' });
+  ids.empty = await contact(f, { displayName: 'ไม่มีประวัติ Empty' }); // allow-thai: seed name asserted by Thai e2e specs
   await grant(f, 'admin', ids.empty, 'READ');
   for (let i = 1; i <= 24; i += 1) {
-    const bulk = await contact(f, { displayName: `ลูกค้าจำนวนมาก ${String(i).padStart(2, '0')}` });
+    const bulk = await contact(f, { displayName: `ลูกค้าจำนวนมาก ${String(i).padStart(2, '0')}` }); // allow-thai: seed name asserted by Thai e2e specs
     await grant(f, 'admin', bulk, 'READ');
   }
   await contact(f, { displayName: 'Foreign Tenant', tenantId: f.otherTenantId });
-  // Supervisor อ่านลูกค้า C1 ผ่าน IAM VIEW ของทีม (owner + IAM ตามทัน)
+  // Supervisor reads C1 customers through the team IAM VIEW (owner + IAM caught up)
   ids.scoped = f.contactId;
   await f.scopes.grant({
     tenantId: f.tenantId,
@@ -167,7 +167,7 @@ try {
   let delayMs = 0;
   let failNext: { fragment: string; status: number } | undefined;
   let scopeLagging = false;
-  // หน่วงการตอบหลัง forward แล้ว (ผลถูกคำนวณก่อน แต่ถึง browser ช้า) เพื่อทดสอบ response ค้างที่มาหลังสิทธิ์ถูกถอน
+  // delay the response after forwarding (the result is computed first but reaches the browser late) to test a stale response arriving after permission is revoked
   let slow: { pattern: RegExp; wait: Promise<void>; release: () => void } | undefined;
   let slowStatus: number | null = null;
   let slowSent = false;
@@ -239,7 +239,7 @@ try {
             release,
           };
         } else if (action === 'fail')
-          // คงอยู่จนกว่าจะสั่ง fail/0/x เพราะ React StrictMode (dev) ยิง effect สองรอบ
+          // kept until fail/0/x is requested, because React StrictMode (dev) fires effects twice
           failNext = Number(a) > 0 ? { fragment: b ?? '', status: Number(a) } : undefined;
         else if (action === 'owner')
           await f.owner.$executeRawUnsafe(
@@ -254,12 +254,12 @@ try {
               : 'GRANT SELECT ON cg_preferences TO dcontact_app',
           );
         else if (action === 'scope') {
-          // lag: owner ออกจาก segment แต่ IAM ยังไม่ตามทัน → DEFER; fresh: IAM ตามทันและสมาชิกกลับมา
+          // lag: owner left the segment but IAM has not caught up → DEFER; fresh: IAM caught up and the member is back
           if (a === 'lag') {
             await ownerCommit(f, 'SILVER');
             scopeLagging = true;
           } else {
-            // IAM รับ revision ต่อเนื่อง: ส่ง SILVER ที่ค้างก่อน แล้วค่อย GOLD
+            // IAM accepts consecutive revisions: send the pending SILVER first, then GOLD
             await deliverToIam(f);
             await ownerCommit(f, 'GOLD');
             await deliverToIam(f);
@@ -313,7 +313,7 @@ try {
       const headers = new Headers();
       for (const name of ['content-type', 'x-request-id'])
         if (typeof req.headers[name] === 'string') headers.set(name, req.headers[name]);
-      // token จำลองของ browser → actor ที่ sandbox เลือก (stub verifier รับ alias เป็น bearer)
+      // simulated browser token → actor chosen by the sandbox (the stub verifier accepts the alias as a bearer)
       headers.set('authorization', `Bearer ${actor}`);
       const response = await fetch(`${f.base}${url}`, {
         method: req.method,
@@ -359,7 +359,7 @@ try {
   await vite.listen();
   cleanups.push(() => vite.close());
   process.stdout.write(
-    'Customer 360 browser sandbox พร้อม: UI → API/RLS/DB จริง (identity เป็น stub)\n',
+    'Customer 360 browser sandbox ready: UI → API/RLS/DB for real (identity is a stub)\n',
   );
   for (const signal of ['SIGINT', 'SIGTERM'] as const)
     process.once(signal, () => {

@@ -1,10 +1,10 @@
 /**
- * E1.11 (#485): API ของ allowlist (`/api/v1/tenant/embed-origins`) และ HTML shell `/dphone/embed`
+ * E1.11 (#485): the allowlist API (`/api/v1/tenant/embed-origins`) and the HTML shell `/dphone/embed`
  *
- * - `ADMIN` แก้ได้, `SUPERVISOR` อ่านได้; envelope คงที่ `{ code, field?, reason? }`
- * - shell ส่ง `frame-ancestors` จาก allowlist ของ tenant (ไม่มี = `'none'`) + CSP เข้มงวด + `no-store`
- *   และฝัง allowlist ชุดเดียวกันเป็น JSON ใน document ให้ iframe ล็อก host origin (ไม่รับค่าจาก host)
- * - alias ที่ไม่มีอยู่ตอบเหมือน tenant ที่ปิดการฝัง (ไม่เผยว่ามี tenant ไหนบ้าง)
+ * - `ADMIN` can edit, `SUPERVISOR` can read; a fixed envelope `{ code, field?, reason? }`
+ * - the shell sends `frame-ancestors` from the tenant allowlist (none = `'none'`) + a strict CSP + `no-store`
+ *   and embeds the same allowlist as JSON in the document so the iframe locks the host origin (no value accepted from the host)
+ * - an alias that does not exist answers like a tenant with embedding off (does not reveal which tenants exist)
  */
 import { randomBytes } from 'node:crypto';
 import type { ServerResponse } from 'node:http';
@@ -37,11 +37,11 @@ export const EMBED_ORIGIN_SERVICE = Symbol('EMBED_ORIGIN_SERVICE');
 export const DPHONE_EMBED_SHELL_OPTIONS = Symbol('DPHONE_EMBED_SHELL_OPTIONS');
 
 export interface DphoneEmbedShellOptions {
-  /** module entry ของ embed (Vite entry แยกใน apps/workspace) — ไม่ตั้ง = shell ว่าง */
+  /** the module entry of embed (a separate Vite entry in apps/workspace) — unset = an empty shell */
   scriptUrl?: string;
-  /** origin เพิ่มเติมของ connect-src (Keycloak, SIP WSS) — runtime ใน E1.13/E1.14 */
+  /** extra connect-src origins (Keycloak, SIP WSS) — runtime in E1.13/E1.14 */
   connectSrc?: readonly string[];
-  /** E1.13: OIDC ของ dphone ที่ถูกฝัง — issuer ถูกเพิ่มใน connect-src ให้เอง (token/revoke endpoint) */
+  /** E1.13: the OIDC of the embedded dphone — the issuer is added to connect-src automatically (token/revoke endpoint) */
   auth?: { issuer: string; clientId: string };
 }
 
@@ -136,7 +136,7 @@ function connectSrcOf(options: DphoneEmbedShellOptions): string[] {
   return [...new Set(origins)];
 }
 
-/** `frame-ancestors` + CSP ของ shell — ไม่มี origin = `'none'` */
+/** `frame-ancestors` + the shell's CSP — no origin = `'none'` */
 export function embedShellHeaders(
   policy: EmbedShellPolicy | null,
   options: DphoneEmbedShellOptions,
@@ -178,16 +178,16 @@ export function embedShellHtml(
     tenant: policy?.tenantAlias ?? null,
     allowedHostOrigins: policy?.origins ?? [],
     auth: policy && options.auth ? options.auth : null,
-    // E1.14: ระดับ screen-pop ต่อ origin สำหรับ `dphone.ready` (ข้อมูลจริงผ่าน server ทุกครั้ง)
+    // E1.14: the screen-pop level per origin for `dphone.ready` (real data always goes through the server)
     screenPopLevels: policy?.screenPopLevels ?? {},
   };
-  // JSON ใน <script type="application/json"> — escape `<` กันปิด tag ก่อนเวลา
+  // JSON in <script type="application/json"> — escape `<` so the tag does not close early
   const json = JSON.stringify(config).replace(/</g, '\\u003c');
   const script =
     options.scriptUrl && policy?.origins.length
       ? `<script type="module" nonce="${nonce}" src="${options.scriptUrl}"></script>`
       : '';
-  // E1.14: build ของ embed ออก CSS คู่กับ JS (`embed/dphone-embed.css`); dev server ของ Vite inject เอง
+  // E1.14: the embed build emits CSS alongside JS (`embed/dphone-embed.css`); the Vite dev server injects it itself
   let stylesheetUrl: string | undefined;
   if (options.scriptUrl) {
     const assetUrl = new URL(options.scriptUrl);

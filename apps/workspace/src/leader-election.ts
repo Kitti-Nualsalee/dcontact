@@ -1,13 +1,13 @@
 /**
- * leader election ของแท็บ Workspace ภายใน origin เดียว (`BroadcastChannel` + heartbeat ใน `localStorage`)
+ * leader election of Workspace tabs within one origin (`BroadcastChannel` + heartbeat in `localStorage`)
  *
- * ADR-026 ข้อ 2 (แก้ใน E1.9 #483, ใช้ใน E1.12 #486): **เป็นแค่ตัวลดภาระภายใน origin — ไม่ใช่ตัวรับประกัน
- * "จุดรับงานเดียว"** ตัวบังคับคือ work-session lease ฝั่ง server (`/api/v1/me/work-session`) ครอบทุก surface
- * รวม dphone ที่ถูกฝังคนละ origin ซึ่งเบราว์เซอร์มองไม่เห็นกัน
+ * ADR-026 item 2 (amended in E1.9 #483, used in E1.12 #486): **only a load reducer within an origin — not a guarantee
+ * of "a single work point"**; the enforcer is the server-side work-session lease (`/api/v1/me/work-session`) covering every surface
+ * including a dphone embedded on another origin, which browsers cannot see
  *
- * - work-session lease (บังคับทุก tenant ตั้งแต่ #583): leader ของ origin เป็นแท็บเดียวที่ขอ lease อัตโนมัติ
- *   (แท็บอื่นไม่ยิงคำขอซ้อน) — จะรับงานได้หรือไม่ตัดสินจาก lease เท่านั้น การเสีย leader ไม่ตัดสาย
- * - ไม่มี `workSession` (test/harness เท่านั้น): working tab (leader) ต่อ WS แบบเดิมของ D1 แต่ไม่มี SIP
+ * - work-session lease (enforced for every tenant since #583): the origin's leader is the only tab that requests the lease automatically
+ *   (other tabs fire no duplicate request) — whether work can be taken is decided by the lease alone; losing the leader does not cut a call
+ * - no `workSession` (test/harness only): the working tab (leader) connects the WS as in D1 but has no SIP
  */
 export interface WorkspaceLeaderLease {
   tabId: string;

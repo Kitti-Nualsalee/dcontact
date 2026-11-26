@@ -1,15 +1,15 @@
 import { randomUUID } from 'node:crypto';
 import type { coreFixture } from './tenant-core-test-fixtures.js';
 
-/** เฉพาะส่วนที่ helper ใช้ — ทั้ง `setup()` ของ C1 และ identity sandbox เข้ากันได้ */
+/** only the parts the helper uses — both C1's `setup()` and the identity sandbox are compatible */
 type Fixture = Pick<
   Awaited<ReturnType<typeof coreFixture>>,
   'owner' | 'tenantId' | 'otherTenantId' | 'actors'
 >;
 
 /**
- * Cus360 C2 (#792): helper ข้อมูลสังเคราะห์ของ read tests และ browser sandbox
- * เขียนผ่าน owner connection ใต้ command สังเคราะห์ (C3 ยังไม่มี writer ของ point) — ใช้ใน DB ทดสอบเท่านั้น
+ * Cus360 C2 (#792): the synthetic data helper of the read tests and the browser sandbox
+ * writes through the owner connection under a synthetic command (C3 has no point writer yet) — used in the test DB only
  */
 
 let tick = 0;
@@ -24,10 +24,10 @@ export async function contact(
     data: {
       id,
       tenantId: data.tenantId ?? f.tenantId,
-      displayName: data.displayName ?? `ลูกค้า ${tick}`,
+      displayName: data.displayName ?? `ลูกค้า ${tick}`, // allow-thai: default customer name shared with the Console browser sandbox
       company: data.company,
       vip: data.vip ?? false,
-      // เวลาเรียงตามลำดับสร้างและไม่ซ้ำ เพื่อให้ cursor มี tie-breaker ที่คาดเดาได้
+      // the time follows creation order and is unique, so the cursor has a predictable tie-breaker
       createdAt: new Date(Date.UTC(2026, 10, 1, 0, 0, 0, 0) + tick * 1000),
     },
   });

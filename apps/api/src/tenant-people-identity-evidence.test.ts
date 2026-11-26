@@ -83,7 +83,7 @@ function fixture() {
         role: 'AGENT' as const,
         payloadDigest: ref('f'),
         fencingToken: '3',
-        displayName: 'ชื่อใหม่' as string | null,
+        displayName: 'New name' as string | null,
         attempted: true,
         outcome: 'SUCCEEDED' as string | null,
         receiptRef: ref('9') as string | null,
@@ -196,7 +196,7 @@ function fixture() {
   return { rows, provider, source, database, statements, seen };
 }
 
-test('#868 identity evidence: receipt ทุกชนิดตรงกันเป็น CONSISTENT และอ่านแบบ read-only', async () => {
+test('#868 identity evidence: every kind of receipt matching is CONSISTENT and read-only', async () => {
   const { source, database, statements, seen } = fixture();
   const evidence = await collectPeopleIdentityEvidence(database, [source]);
   assert.equal(evidence.status, 'CONSISTENT');
@@ -230,27 +230,27 @@ test('#868 identity evidence: receipt ทุกชนิดตรงกันเ
   assert.equal((seen.disable![0] as Record<string, unknown>).reconcileOnly, true);
 });
 
-test('#868 identity evidence: ความต่างระหว่าง application กับ provider เป็น INCONSISTENT', async (t) => {
+test('#868 identity evidence: a difference between application and provider is INCONSISTENT', async (t) => {
   const cases: [string, (value: ReturnType<typeof fixture>) => void, string][] = [
     [
-      'step receipt ref ต่าง',
+      'a different step receipt ref',
       (f) => f.provider.steps.set('TENANT_ROLE', { outcome: 'SUCCEEDED', receiptRef: ref('f') }),
       'RECEIPT_MISMATCH',
     ],
     [
-      'provider มี receipt ที่ application ไม่มี',
+      'the provider has a receipt that the application does not',
       (f) => {
         f.rows.steps = f.rows.steps.filter((row) => row.step !== 'VERIFY_PROVISIONED');
       },
       'UNRECORDED_PROVIDER_RECEIPT',
     ],
     [
-      'application มี receipt แต่ provider อ่านไม่ได้',
+      'the application has a receipt but the provider cannot be read',
       (f) => f.provider.steps.set('CREATE_IDENTITY', { outcome: 'UNKNOWN' }),
       'PROVIDER_UNREADABLE',
     ],
     [
-      'invitation dispatch ไม่มี receipt ทั้งสองฝั่ง',
+      'invitation dispatch has no receipt on either side',
       (f) => {
         f.rows.dispatches[0]!.outcome = null;
         f.rows.dispatches[0]!.receiptRef = null;
@@ -259,12 +259,12 @@ test('#868 identity evidence: ความต่างระหว่าง appl
       'PROVIDER_UNREADABLE',
     ],
     [
-      'invitation outcome ต่าง',
+      'a different invitation outcome',
       (f) => (f.provider.invitation = { outcome: 'FAILED', receiptRef: ref('a') }),
       'RECEIPT_MISMATCH',
     ],
     [
-      'disable attempted แต่ application ไม่มี receipt',
+      'disable attempted but the application has no receipt',
       (f) => {
         f.rows.disables[0]!.outcome = null;
         f.rows.disables[0]!.receiptRef = null;
@@ -272,7 +272,7 @@ test('#868 identity evidence: ความต่างระหว่าง appl
       'UNRECORDED_PROVIDER_RECEIPT',
     ],
     [
-      'worker binding ถูกปิดจน RLS ซ่อนทุกแถว',
+      'the worker binding is disabled so RLS hides every row',
       (f) => {
         f.rows.bindingEnabled = false;
         f.rows.operations = [];
@@ -284,7 +284,7 @@ test('#868 identity evidence: ความต่างระหว่าง appl
       'WORKER_BINDING_DISABLED',
     ],
     [
-      'Keycloak มี resend intent แต่ application ไม่มี proof',
+      'Keycloak has a resend intent but the application has no proof',
       (f) => {
         f.rows.preparations[0]!.intentRef = null;
         f.rows.preparations[0]!.notBeforeEpoch = null;
@@ -292,12 +292,12 @@ test('#868 identity evidence: ความต่างระหว่าง appl
       'UNRECORDED_PROVIDER_RECEIPT',
     ],
     [
-      'resend intent fence ต่างกัน',
+      'the resend intent fence differs',
       (f) => (f.provider.preparation = { ...f.provider.preparation, notBeforeEpoch: 1700000009 }),
       'RECEIPT_MISMATCH',
     ],
     [
-      'provider ตอบ UNKNOWN พร้อม reasonCode แม้ application ไม่มี receipt',
+      'the provider answers UNKNOWN with a reasonCode even though the application has no receipt',
       (f) => {
         f.rows.steps = f.rows.steps.filter((row) => row.step !== 'VERIFY_MAPPING');
         f.provider.steps.set('VERIFY_MAPPING', {
@@ -308,7 +308,7 @@ test('#868 identity evidence: ความต่างระหว่าง appl
       'PROVIDER_UNREADABLE',
     ],
     [
-      'payload ของ operation ถูกแก้',
+      'the operation payload was edited',
       (f) => {
         f.rows.operations[0]!.payload = { ...request, displayName: 'Changed' };
       },
@@ -328,7 +328,7 @@ test('#868 identity evidence: ความต่างระหว่าง appl
     });
 });
 
-test('#868 identity evidence: readiness ผิดหรือ HTTP ล้มทำให้ INCONSISTENT แม้ไม่มี mismatch', async () => {
+test('#868 identity evidence: a wrong readiness or a failed HTTP makes it INCONSISTENT even without a mismatch', async () => {
   for (const mutate of [
     (f: ReturnType<typeof fixture>) => (f.provider.readiness = null),
     (f: ReturnType<typeof fixture>) =>
@@ -351,7 +351,7 @@ test('#868 identity evidence: readiness ผิดหรือ HTTP ล้มท�
   );
 });
 
-test('#868 identity evidence: preparation ที่มี dispatch แล้วเทียบผ่าน dispatch ไม่อ่าน intent ซ้ำ', async () => {
+test('#868 identity evidence: a preparation that already has a dispatch is compared through the dispatch and does not re-read the intent', async () => {
   const value = fixture();
   value.rows.dispatches.push({
     ...value.rows.dispatches[0]!,
@@ -365,7 +365,7 @@ test('#868 identity evidence: preparation ที่มี dispatch แล้ว�
   assert.equal(evidence.tenants[0]?.counts.preparations, 1);
   assert.equal(evidence.tenants[0]?.counts.invitations, 2);
 
-  // not-before ที่ส่งจริงต่างจาก proof หรือไม่มี proof ต้องไม่ผ่าน
+  // a not-before that was actually sent differs from the proof, or no proof, must not pass
   value.provider.invitation = { ...value.provider.invitation, notBeforeEpoch: 1700000009 } as never;
   const drifted = await collectPeopleIdentityEvidence(value.database, [value.source]);
   assert.deepEqual(
@@ -383,7 +383,7 @@ test('#868 identity evidence: preparation ที่มี dispatch แล้ว�
   );
 });
 
-test('#868 identity evidence: disable ที่ยังไม่ attempted และไม่มี receipt ไม่ถูกอ่านจาก provider', async () => {
+test('#868 identity evidence: a disable that is not attempted and has no receipt is not read from the provider', async () => {
   const value = fixture();
   value.rows.disables[0]!.attempted = false;
   value.rows.disables[0]!.outcome = null;
@@ -393,28 +393,28 @@ test('#868 identity evidence: disable ที่ยังไม่ attempted แ�
   assert.equal(value.seen.disable!.length, 0);
 });
 
-test('#998 identity evidence: เทียบ receipt ของแก้ชื่อ/เปิดกลับ อ่าน GET อย่างเดียว และจับผลที่ไม่ตรง', async () => {
+test('#998 identity evidence: compares the receipt of rename/re-enable, reads GET only, and catches a mismatching result', async () => {
   const value = fixture();
   let evidence = await collectPeopleIdentityEvidence(value.database, [value.source]);
   assert.equal(evidence.status, 'CONSISTENT');
   const attempt = value.seen.account![0] as Record<string, unknown>;
   assert.equal(attempt.step, 'UPDATE_PROFILE');
-  assert.equal(attempt.displayName, 'ชื่อใหม่');
+  assert.equal(attempt.displayName, 'New name');
   assert.equal(attempt.reconcileOnly, true);
-  assert.doesNotMatch(JSON.stringify(evidence), /ชื่อใหม่/);
-  // Keycloak มี receipt แต่ app ไม่มี (เช่นแก้ชื่อถูกปิดแทนด้วย disable หลัง Keycloak เปลี่ยนชื่อแล้ว)
+  assert.doesNotMatch(JSON.stringify(evidence), /New name/);
+  // Keycloak has a receipt but the app does not (e.g. a rename was superseded by a disable after Keycloak had renamed)
   value.rows.accountChanges[0]!.outcome = null;
   value.rows.accountChanges[0]!.receiptRef = null;
   evidence = await collectPeopleIdentityEvidence(value.database, [value.source]);
   assert.equal(evidence.status, 'INCONSISTENT');
   assert.equal(evidence.tenants[0]?.mismatches[0]?.kind, 'ACCOUNT_CHANGE');
   assert.equal(evidence.tenants[0]?.mismatches[0]?.reason, 'UNRECORDED_PROVIDER_RECEIPT');
-  // ไม่มี reader แต่มีคำสั่ง attempted = อ่านไม่ได้ ไม่ใช่ความสอดคล้อง
+  // no reader but an attempted command = unreadable, not consistency
   const missing = fixture();
   delete missing.source.readAccountChange;
   evidence = await collectPeopleIdentityEvidence(missing.database, [missing.source]);
   assert.equal(evidence.tenants[0]?.mismatches[0]?.reason, 'PROVIDER_UNREADABLE');
-  // เปิดกลับไม่ส่งชื่อ และคำสั่งที่ยังไม่ attempted ไม่ถูกอ่าน
+  // re-enable sends no name, and a command that is not attempted is not read
   const enable = fixture();
   enable.rows.accountChanges[0]!.kind = 'ENABLE_ACCOUNT';
   enable.rows.accountChanges[0]!.displayName = null;

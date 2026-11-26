@@ -1,6 +1,6 @@
 /**
- * U1.5 (#433): object storage ของหลักฐาน UAT — retention 90 วัน, bucket ส่วนตัว, key อยู่ใต้ prefix เสมอ
- * ใช้ S3 client ปลอมที่จด command ทุกตัว เพื่อยืนยัน input ที่ส่งไป storage ตรงตัว
+ * U1.5 (#433): UAT evidence object storage — 90-day retention, a private bucket, a key always under the prefix
+ * uses a fake S3 client that records every command, to confirm the input sent to storage is exact
  */
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -37,15 +37,15 @@ function fakeClient(respond: (command: object) => unknown = () => ({})) {
   return { client, sent };
 }
 
-/** ไม่มี policy บน bucket = S3 ตอบ NoSuchBucketPolicy */
+/** no policy on the bucket = S3 answers NoSuchBucketPolicy */
 const privateBucket = (command: object) =>
   command instanceof GetBucketPolicyCommand ? named('NoSuchBucketPolicy') : {};
 
-/** bucket ยังไม่มี: HeadBucket = 404 */
+/** the bucket does not exist yet: HeadBucket = 404 */
 const missingBucket = (command: object) =>
   command instanceof HeadBucketCommand ? notFound() : privateBucket(command);
 
-test('U1.5 ensureBucket สร้าง bucket แบบ idempotent และตั้ง lifecycle หมดอายุ 90 วันบน prefix', async () => {
+test('U1.5 ensureBucket creates the bucket idempotently and sets a 90-day expiry lifecycle on the prefix', async () => {
   const { client, sent } = fakeClient(missingBucket);
   await new UatEvidenceObjectStorage(client, 'uat-evidence').ensureBucket();
   assert.deepEqual(
@@ -72,7 +72,7 @@ test('U1.5 ensureBucket สร้าง bucket แบบ idempotent และต
     },
   });
 
-  // แข่งกันสร้างหลัง Head 404: BucketAlreadyOwnedByYou = ของเรา ตั้ง lifecycle ต่อ
+  // racing to create after a Head 404: BucketAlreadyOwnedByYou = ours, continue setting the lifecycle
   const race = fakeClient((command) =>
     command instanceof CreateBucketCommand
       ? named('BucketAlreadyOwnedByYou')
@@ -80,7 +80,7 @@ test('U1.5 ensureBucket สร้าง bucket แบบ idempotent และต
   );
   await new UatEvidenceObjectStorage(race.client, 'uat-evidence').ensureBucket();
   assert.ok(race.sent[2] instanceof PutBucketLifecycleConfigurationCommand);
-  // แข่งแล้วเจ้าของอื่นได้ไป (Head 404 → BucketAlreadyExists) = บูตไม่ผ่าน
+  // racing and another owner won (Head 404 → BucketAlreadyExists) = the boot fails
   const foreign = fakeClient((command) =>
     command instanceof CreateBucketCommand ? named('BucketAlreadyExists') : missingBucket(command),
   );
@@ -90,7 +90,7 @@ test('U1.5 ensureBucket สร้าง bucket แบบ idempotent และต
   );
 });
 
-test('#540 bucket ที่ bootstrap สร้างด้วย root: Head 200 = ไม่เรียก CreateBucket (SeaweedFS ตอบ BucketAlreadyExists)', async () => {
+test('#540 a bucket that bootstrap created with root: Head 200 = CreateBucket is not called (SeaweedFS answers BucketAlreadyExists)', async () => {
   const { client, sent } = fakeClient((command) =>
     command instanceof CreateBucketCommand ? named('BucketAlreadyExists') : privateBucket(command),
   );
@@ -101,7 +101,7 @@ test('#540 bucket ที่ bootstrap สร้างด้วย root: Head 200
   );
 });
 
-test('#540 HeadBucket ถูกปฏิเสธ (403) = บูตไม่ผ่าน ไม่พยายามสร้าง bucket', async () => {
+test('#540 HeadBucket rejected (403) = the boot fails and no bucket creation is attempted', async () => {
   const forbidden = Object.assign(named('Forbidden'), { $metadata: { httpStatusCode: 403 } });
   const { client, sent } = fakeClient((command) =>
     command instanceof HeadBucketCommand ? forbidden : privateBucket(command),
@@ -113,7 +113,7 @@ test('#540 HeadBucket ถูกปฏิเสธ (403) = บูตไม่ผ�
   assert.equal(sent.length, 1);
 });
 
-test('U1.5 bucket ต้องเป็นส่วนตัว: มี bucket policy = บูตไม่ผ่าน และ adapter ไม่ตั้ง policy/ACL เอง', async () => {
+test('U1.5 the bucket must be private: a bucket policy = the boot fails and the adapter sets no policy/ACL itself', async () => {
   const policy = JSON.stringify({
     Statement: [{ Effect: 'Allow', Principal: '*', Action: 's3:GetObject' }],
   });
@@ -129,7 +129,7 @@ test('U1.5 bucket ต้องเป็นส่วนตัว: มี bucket p
   }
 });
 
-test('U1.5 put/get/delete ใช้ key ใต้ uat-evidence/ เท่านั้น; object หาย = null', async () => {
+test('U1.5 put/get/delete use keys under uat-evidence/ only; a missing object = null', async () => {
   const bytes = new Uint8Array([1, 2, 3]);
   const { client, sent } = fakeClient((command) => {
     if (command instanceof GetObjectCommand) {
@@ -161,7 +161,7 @@ test('U1.5 put/get/delete ใช้ key ใต้ uat-evidence/ เท่าน�
   await assert.rejects(storage.deleteObject('../x'), /outside the uat-evidence prefix/);
 });
 
-test('UAT ไม่มี default credential: endpoint/access/secret ของ object storage ต้องระบุเสมอ', () => {
+test('UAT has no default credential: the object storage endpoint/access/secret must always be given', () => {
   const complete = {
     S3_ENDPOINT: 'http://object-storage:9000',
     S3_ACCESS_KEY: 'uat-evidence-writer',
@@ -176,7 +176,7 @@ test('UAT ไม่มี default credential: endpoint/access/secret ของ o
   }
 });
 
-test('UAT ยังอ่าน MINIO_* และ UAT_EVIDENCE_BUCKET เดิมได้ช่วงเปลี่ยนผ่าน (ADR-029)', () => {
+test('UAT can still read the old MINIO_* and UAT_EVIDENCE_BUCKET during the transition (ADR-029)', () => {
   const storage = UatEvidenceObjectStorage.fromEnvironment({
     MINIO_ENDPOINT: 'http://minio:9000',
     MINIO_ACCESS_KEY: 'uat-evidence-writer',

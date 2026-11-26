@@ -15,11 +15,11 @@ async function waitFor(check: () => Promise<boolean>, timeoutMs = 20_000): Promi
     if (await check()) return;
     await new Promise((resolve) => setTimeout(resolve, 200));
   }
-  throw new Error('เงื่อนไขไม่เป็นจริงภายในเวลาที่กำหนด');
+  throw new Error('the condition did not become true within the allotted time');
 }
 
 test(
-  'acknowledgement consumer projects ack event ลง cg_consumer_acknowledgements แบบ idempotent',
+  'the acknowledgement consumer projects an ack event into cg_consumer_acknowledgements idempotently',
   { timeout: 45_000 },
   async (t) => {
     const owner = new PrismaClient();
@@ -102,7 +102,7 @@ test(
     assert.equal(applied.consumer, 'journey');
     assert.equal(applied.appliedVersion, 1);
 
-    // duplicate eventId เดิม -> ไม่มี row ใหม่เกิดขึ้น (idempotency boundary)
+    // the same eventId again -> no new row appears (idempotency boundary)
     await publishAck(firstEventId, {
       contractVersion: 1,
       consumer: 'journey',
@@ -113,7 +113,7 @@ test(
       affectedCount: 1,
       sourcePayloadHash: 'a'.repeat(64),
     });
-    // ยืนยันด้วย marker event แยกว่า consumer ประมวลผลถึงจุดนี้แล้วจริง (เห็น count ไม่เพิ่ม)
+    // confirm with a separate marker event that the consumer has really processed up to this point (the count is seen not to increase)
     const markerEventId = randomUUID();
     await publishAck(markerEventId, {
       contractVersion: 1,
@@ -131,7 +131,7 @@ test(
     });
     assert.equal(await owner.cgConsumerAcknowledgement.count({ where: { tenantId } }), 2);
 
-    // hash ต่างกันบน (consumer, aggregateType, aggregateId, appliedVersion) เดิม -> QUARANTINED
+    // a different hash on the same (consumer, aggregateType, aggregateId, appliedVersion) -> QUARANTINED
     const conflictingEventId = randomUUID();
     await publishAck(conflictingEventId, {
       contractVersion: 1,

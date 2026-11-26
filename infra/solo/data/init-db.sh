@@ -1,25 +1,25 @@
 #!/bin/sh
-# #923: เตรียม PostgreSQL บน VM data ของ UAT Solo — รันบน VM data ด้วย sudo (idempotent)
+# #923: prepare PostgreSQL on the data VM of UAT Solo — run on the data VM with sudo (idempotent)
 #
 #   sudo SOLO_ENV=/path/solo.env sh init-db.sh [--reset]
 #
-# อ่านรหัสผ่านจาก solo.env (สร้างโดย infra/solo/bin/solo-uat.sh) ไม่พิมพ์ค่า secret
-# --reset ลบฐานทั้งหมดของ Solo แล้วสร้างใหม่ (owner อนุมัติให้ล้างข้อมูล UAT ได้)
+# reads passwords from solo.env (created by infra/solo/bin/solo-uat.sh) and never prints secret values
+# --reset deletes all Solo databases and recreates them (the owner approved wiping UAT data)
 #
 # role:
-#   dcontact              owner ของฐานแอป เป็น SUPERUSER เหมือน dev (infra/docker) เพราะ guard ใน schema
-#                         เช่น TEAM_TENANT_CONTEXT_REQUIRED และ API แบบเต็มอาศัย session superuser ของ owner
-#                         รับ login เฉพาะ VM app/voice ตาม pg_hba
-#   dcontact_app          runtime NOBYPASSRLS — สร้างก่อน rls.sql เพื่อไม่ให้ได้รหัสผ่าน dev ใน rls.sql
-#   dcontact_platform     runtime ของ platform NOBYPASSRLS
+#   dcontact              owner of the app database, a SUPERUSER like dev (infra/docker) because schema guards
+#                         such as TEAM_TENANT_CONTEXT_REQUIRED and the full API rely on the owner's superuser session
+#                         accepts logins from the app/voice VMs only, per pg_hba
+#   dcontact_app          runtime NOBYPASSRLS — created before rls.sql so rls.sql does not give it the dev password
+#   dcontact_platform     platform runtime NOBYPASSRLS
 #   dcontact_provisioner  provisioning NOBYPASSRLS
-#   keycloak              owner ของฐาน keycloak
-#   voice_edge_owner      owner ของฐาน voice edge (Kamailio อ่านด้วย kamailio_ro จาก grant-kamailio.sql)
-#   dcontact_tenant_people_worker  NOLOGIN ที่ migration ต้องใช้ (owner สร้าง role เองไม่ได้)
+#   keycloak              owner of the keycloak database
+#   voice_edge_owner      owner of the voice edge database (Kamailio reads it as kamailio_ro from grant-kamailio.sql)
+#   dcontact_tenant_people_worker  NOLOGIN, needed by a migration (the owner cannot create the role itself)
 set -eu
 
 : "${SOLO_ENV:?SOLO_ENV is required}"
-[ -r "$SOLO_ENV" ] || { echo "อ่าน $SOLO_ENV ไม่ได้" >&2; exit 64; }
+[ -r "$SOLO_ENV" ] || { echo "cannot read $SOLO_ENV" >&2; exit 64; }
 
 value() {
   sed -n "s/^$1=//p" "$SOLO_ENV" | tail -1
@@ -30,7 +30,7 @@ psql_super() {
 }
 
 ensure_role() { # ensure_role <name> <password> <attributes>
-  [ -n "$2" ] || { echo "ไม่มีรหัสผ่านของ role $1 ใน solo.env" >&2; exit 64; }
+  [ -n "$2" ] || { echo "no password for role $1 in solo.env" >&2; exit 64; }
   psql_super -d postgres -v name="$1" -v password="$2" <<SQL
 SELECT format('CREATE ROLE %I LOGIN', :'name')
 WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'name') \gexec
@@ -52,7 +52,7 @@ SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = :'name' A
 SELECT format('DROP DATABASE IF EXISTS %I', :'name') \gexec
 SQL
   done
-  echo "ลบฐานของ Solo แล้ว"
+  echo "Solo databases deleted"
 fi
 
 ensure_role dcontact "$(value SOLO_DB_OWNER_PASSWORD)" 'SUPERUSER'
@@ -62,7 +62,7 @@ ensure_role dcontact_provisioner "$(value SOLO_DB_PROVISIONER_PASSWORD)" 'NOSUPE
 ensure_role keycloak "$(value SOLO_KEYCLOAK_DB_PASSWORD)" 'NOSUPERUSER NOBYPASSRLS'
 ensure_role voice_edge_owner "$(value SOLO_VOICE_EDGE_OWNER_PASSWORD)" 'NOSUPERUSER NOBYPASSRLS'
 
-# migration 20261020100000 สร้าง role นี้เองถ้ายังไม่มี แต่ owner ไม่มี CREATEROLE — สร้างไว้ก่อนแบบเดียวกับ UAT 3 VM
+# migration 20261020100000 creates this role itself if it does not exist, but the owner has no CREATEROLE — create it first, the same way as the 3-VM UAT
 psql_super -d postgres <<'SQL'
 SELECT 'CREATE ROLE dcontact_tenant_people_worker NOLOGIN NOBYPASSRLS'
 WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'dcontact_tenant_people_worker') \gexec
@@ -72,9 +72,9 @@ ensure_database dcontact dcontact
 ensure_database keycloak keycloak
 ensure_database dcontact_voice_edge voice_edge_owner
 
-# Prisma ต้องสร้าง/แก้ object ใน schema public ของฐานแอป
+# Prisma must create/alter objects in schema public of the app database
 psql_super -d dcontact -c 'GRANT ALL ON SCHEMA public TO dcontact; ALTER SCHEMA public OWNER TO dcontact;'
 psql_super -d keycloak -c 'ALTER SCHEMA public OWNER TO keycloak;'
 psql_super -d dcontact_voice_edge -c 'ALTER SCHEMA public OWNER TO voice_edge_owner;'
 
-echo "ฐาน Solo พร้อม: dcontact, keycloak, dcontact_voice_edge"
+echo "Solo databases ready: dcontact, keycloak, dcontact_voice_edge"

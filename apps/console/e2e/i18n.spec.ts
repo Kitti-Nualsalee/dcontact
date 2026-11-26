@@ -1,16 +1,18 @@
 import { expect, test } from '@playwright/test';
 
 /**
- * D1.11 (#450): สลับภาษาต้องไม่ reload — ตรวจด้วย `performance` ของหน้าเดิมและ marker ใน `window`
- * ที่จะหายไปทันทีถ้ามีการโหลดหน้าใหม่ (Phase Contract: ห้าม waive)
+ * D1.11 (#450): switching language must not reload — checked with the same page's `performance` and a marker in `window`
+ * that disappears immediately if a new page is loaded (Phase Contract: no waiving)
  */
 test.use({ locale: 'th-TH', timezoneId: 'America/New_York' });
 
-test('สลับ TH → EN → TH ทันทีโดยไม่ reload และ formatter เปลี่ยนตามภาษา', async ({ page }) => {
+test('switch TH → EN → TH immediately without reload, and the formatter follows the language', async ({
+  page,
+}) => {
   await page.goto('/?view=i18n');
   await expect(page.getByTestId('language-label')).toHaveText('ภาษา');
   await expect(page.locator('html')).toHaveAttribute('lang', 'th');
-  // ไม่มีผู้ใช้/tenant → timezone ของระบบ ไม่ใช่เวลาเครื่อง (browser ตั้งเป็น New York)
+  // no user/tenant → the system timezone, not the device time (the browser is set to New York)
   await expect(page.getByTestId('time-zone')).toHaveText('Asia/Bangkok');
   await expect(page.getByTestId('sample-date')).toHaveText('12 ก.ย. 2569 16:40');
 
@@ -42,11 +44,11 @@ test('สลับ TH → EN → TH ทันทีโดยไม่ reload แ
     navigations: performance.getEntriesByType('navigation').length,
   }));
   expect(after).toEqual({ ...before, marker: 'same-document' });
-  // bundle ทั้งสองภาษาโหลดตั้งแต่เริ่ม — สลับภาษาแล้วไม่มี request ใหม่เลย
+  // both language bundles load at startup — switching language makes no new request at all
   expect(requests).toEqual([]);
 });
 
-test('ภาษา browser เป็นขั้นที่สามของลำดับ — browser อังกฤษได้ EN เมื่อไม่มีค่าผู้ใช้/tenant', async ({
+test('browser language is the third step of the order — an English browser gets EN when there is no user/tenant value', async ({
   browser,
 }) => {
   const context = await browser.newContext({ locale: 'en-US' });

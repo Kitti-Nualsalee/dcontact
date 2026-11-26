@@ -1,4 +1,4 @@
-# Platform Console แยก origin; ไม่เปิด Mailpit, Keycloak admin หรือ metrics
+# Platform Console has its own origin; does not expose Mailpit, the Keycloak admin or metrics
 {
 	admin off
 	persist_config off

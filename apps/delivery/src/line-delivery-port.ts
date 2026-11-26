@@ -1,19 +1,19 @@
 /**
  * Owner: Delivery/Channels — LINE in-memory `DeliveryPort` simulation (S1.6, decision #100/#102)
  *
- * ไม่มี LINE account, credential, SDK, HTTP/webhook, DNS/socket หรือ provider I/O ใด ๆ
- * ทุกอย่างเป็น in-memory state machine ที่ขับด้วย `ManualClock` และ explicit control
- * (`claim`/`submit`/`scheduleCallback`/`runNext`/`deliverCallback`) เท่านั้น
+ * No LINE account, credential, SDK, HTTP/webhook, DNS/socket or any provider I/O
+ * Everything is an in-memory state machine driven only by `ManualClock` and explicit control
+ * (`claim`/`submit`/`scheduleCallback`/`runNext`/`deliverCallback`)
  *
- * ลำดับที่ห้ามสลับ (เหมือน C1.3):
- *   1. rollout gate ต้องเปิด (ไม่ DISABLED/KILLED) ก่อนแตะ Governance เสมอ
- *   2. claim ผ่าน Governance ก่อน แล้วจึง persist store ก่อนตอบ QUEUED
- *   3. beginProviderSubmission (barrier) ก่อนแตะ "transport" (callback queue) เสมอ
- *   4. หลัง barrier ห้าม release/resend — timeout/cancel ต้องไป reconcile เท่านั้น
+ * Order that must not be swapped (same as C1.3):
+ *   1. the rollout gate must be open (not DISABLED/KILLED) before ever touching Governance
+ *   2. claim through Governance first, then persist the store before answering QUEUED
+ *   3. beginProviderSubmission (barrier) always before touching the "transport" (callback queue)
+ *   4. after the barrier never release/resend — timeout/cancel must go only to reconcile
  *
- * ทุก method รับ `deliveryId`/`tenantId` แล้ว "load" ค่าอื่นทั้งหมดจาก store เอง —
- * caller ไม่มีทางส่ง reservationId/providerRequestKey/senderIdentityId ที่ไม่ตรง binding
- * เข้ามาสวมรอยได้ ทุก governance call จึงพา binding เดิมของ record ไปเสมอ
+ * Every method takes `deliveryId`/`tenantId` and then "loads" all other values from the store itself —
+ * a caller has no way to pass in a reservationId/providerRequestKey/senderIdentityId that does not match the binding
+ * to impersonate, so every governance call always carries the record's original binding
  */
 import {
   actionKey as toActionKey,
@@ -54,14 +54,14 @@ import { LineRolloutGate } from './line-rollout-gate.js';
 export class LineDeliveryNotFoundError extends Error {
   readonly code = 'LINE_DELIVERY_NOT_FOUND';
   constructor(readonly deliveryId: string) {
-    super(`ไม่พบ LINE simulated delivery: ${deliveryId}`);
+    super(`LINE simulated delivery not found: ${deliveryId}`);
     this.name = 'LineDeliveryNotFoundError';
   }
 }
 
 /**
- * S1 simulation นี้ไม่มี provider จริงจึงไม่เคยออก `PROVIDER_ACCEPTED` (#361) — outcome ใบนั้น
- * เป็นของ LINE adapter จริงใน S2.4 (#370) ที่เขียน `dl_provider_submission_attempts` เอง
+ * This S1 simulation has no real provider so it never emits `PROVIDER_ACCEPTED` (#361) — that outcome
+ * belongs to the real LINE adapter in S2.4 (#370), which writes `dl_provider_submission_attempts` itself
  */
 type LineSimulationSettleOutcome = Exclude<NormalizedDeliveryOutcome, 'PROVIDER_ACCEPTED'>;
 
@@ -71,7 +71,7 @@ export class LineInvalidTransitionError extends Error {
     readonly from: LineDeliveryState,
     readonly attempted: string,
   ) {
-    super(`ไม่รองรับ transition จาก ${from} ด้วย ${attempted}`);
+    super(`unsupported transition from ${from} with ${attempted}`);
     this.name = 'LineInvalidTransitionError';
   }
 }
@@ -142,8 +142,8 @@ function canonical(value: object): string {
 }
 
 /**
- * Owner: Delivery/Channels. สร้างใหม่ได้หลายอินสแตนซ์บน `store`/`rolloutGate`/`caps` เดิม
- * เพื่อจำลอง process restart — state ทั้งหมดอยู่นอก instance นี้เสมอ
+ * Owner: Delivery/Channels. Can be created as many instances as needed over the same `store`/`rolloutGate`/`caps`
+ * to simulate a process restart — all state always lives outside this instance
  */
 export class LineDeliveryPort implements DeliveryPort {
   private readonly clock: ManualClock;
@@ -188,7 +188,7 @@ export class LineDeliveryPort implements DeliveryPort {
 
   async enqueue(command: EnqueueDeliveryCommand): Promise<EnqueueDeliveryResult> {
     if (command.channel !== LINE_CHANNEL) {
-      throw new TypeError('LineDeliveryPort รับเฉพาะ channel LINE');
+      throw new TypeError('LineDeliveryPort accepts only the LINE channel');
     }
     const scope: LineScopeTuple = {
       tenantId: command.tenantId,
@@ -210,7 +210,7 @@ export class LineDeliveryPort implements DeliveryPort {
 
     const gateState = this.rolloutGate.currentState(scope);
     if (gateState === 'DISABLED' || gateState === 'KILLED') {
-      // scope นอก pilot tuple ก็คือ DISABLED เสมอ — ไม่เผยว่ามี reservation อยู่จริงหรือไม่
+      // A scope outside the pilot tuple is always DISABLED — does not reveal whether a reservation really exists
       return { status: 'ERROR', code: 'RESERVATION_NOT_FOUND' };
     }
 
@@ -274,7 +274,7 @@ export class LineDeliveryPort implements DeliveryPort {
     };
   }
 
-  /** worker-level dequeue lock — ไม่แตะ Governance; เป็นคนละ lease จาก reservation lease */
+  /** worker-level dequeue lock — does not touch Governance; a lease separate from the reservation lease */
   claim(tenantId: string, deliveryId: string): LineDeliveryEvidence {
     const record = this.require(tenantId, deliveryId);
     if (TERMINAL_STATES.has(record.state) || record.state === 'CLAIMED') {
@@ -295,7 +295,7 @@ export class LineDeliveryPort implements DeliveryPort {
     return evidenceFromRecord(updated);
   }
 
-  /** pre-barrier: release; post-barrier: reconcile — ไม่มีทางอื่น (ดู #102 §4) */
+  /** pre-barrier: release; post-barrier: reconcile — no other way (see #102 §4) */
   async cancel(
     tenantId: string,
     deliveryId: string,
@@ -347,7 +347,7 @@ export class LineDeliveryPort implements DeliveryPort {
     return evidenceFromRecord(updated);
   }
 
-  /** re-run CG3 สำหรับ delivery ใบนี้; restrictive mutation → cancel (release หรือ reconcile ตาม state) */
+  /** re-run CG3 for this delivery; restrictive mutation → cancel (release or reconcile depending on state) */
   async applyCg3Mutation(
     tenantId: string,
     deliveryId: string,
@@ -433,7 +433,7 @@ export class LineDeliveryPort implements DeliveryPort {
     return { status: 'AWAITING_CALLBACK', evidence: evidenceFromRecord(updated) };
   }
 
-  /** enqueue callback ลง queue กลาง — เรียงตาม (atMs, sequence) เสมอไม่ว่า enqueue ลำดับไหน */
+  /** enqueue a callback onto the central queue — always ordered by (atMs, sequence) regardless of enqueue order */
   scheduleCallback(
     tenantId: string,
     deliveryId: string,
@@ -465,7 +465,7 @@ export class LineDeliveryPort implements DeliveryPort {
     return this.applyCallback(envelope, correlationId);
   }
 
-  /** ขับ callback ตรง ๆ โดยไม่ผ่าน queue — ใช้ทดสอบ duplicate/conflict/out-of-order ชัด ๆ */
+  /** drive a callback directly without going through the queue — for testing duplicate/conflict/out-of-order explicitly */
   async deliverCallback(
     tenantId: string,
     deliveryId: string,
@@ -490,8 +490,8 @@ export class LineDeliveryPort implements DeliveryPort {
   ): Promise<LineDeliveryEvidence> {
     const record = this.require(envelope.tenantId, envelope.deliveryId);
     const scope = this.scopeOf(record);
-    // outcomeRef เดิม+payload เดิมเป็น no-op เสมอ, payload ต่างเป็น conflict — ตรวจก่อนเช็ค
-    // terminal เพื่อไม่ให้ terminal state บังหลักฐาน hash-conflict ที่มาซ้ำ ref เดิม
+    // The same outcomeRef + same payload is always a no-op, a different payload is a conflict — checked before checking
+    // terminal so that the terminal state does not hide the hash-conflict evidence that repeats the same ref
     const disposition = this.store.recordOutcomeRef(
       scopeKey(scope),
       envelope.outcomeRef,
@@ -500,7 +500,7 @@ export class LineDeliveryPort implements DeliveryPort {
     if (disposition === 'DUPLICATE_NOOP') return evidenceFromRecord(record);
 
     if (TERMINAL_STATES.has(record.state)) {
-      // terminal outcome แรกชนะเสมอ; ใบที่มาทีหลังด้วย ref ใหม่ (out-of-order/late) เป็น no-op
+      // The first terminal outcome always wins; a later one with a new ref (out-of-order/late) is a no-op
       return evidenceFromRecord(record);
     }
 
@@ -542,9 +542,9 @@ export class LineDeliveryPort implements DeliveryPort {
     }
 
     if (record.state === 'UNKNOWN_RECONCILING') {
-      // reconcile ที่เคยผ่าน ACCEPTED (Governance confirm แล้ว) จบได้แค่ DELIVERED/DELIVERY_FAILED;
-      // reconcile ที่ timeout ก่อนถึง ACCEPTED จบได้แค่ PROVIDER_REJECTED — ตรงกับ reservation
-      // state CONFIRMED/RESERVED ที่ ContactGovernancePort.settleDelivery ยึดเป็น authority
+      // A reconcile that previously passed ACCEPTED (Governance confirmed) can end only as DELIVERED/DELIVERY_FAILED;
+      // a reconcile that timed out before reaching ACCEPTED can end only as PROVIDER_REJECTED — matching the reservation
+      // state CONFIRMED/RESERVED which ContactGovernancePort.settleDelivery treats as the authority
       const resolvable = record.reconcilingFromAccepted
         ? envelope.outcome === 'DELIVERED' || envelope.outcome === 'DELIVERY_FAILED'
         : envelope.outcome === 'PROVIDER_REJECTED';
@@ -587,7 +587,7 @@ export class LineDeliveryPort implements DeliveryPort {
     return evidenceFromRecord(updated);
   }
 
-  /** unknown ค้างเกิน threshold ของ scope นี้ → system kill (ดู #102 §6) */
+  /** unknown stuck beyond the scope's threshold → system kill (see #102 §6) */
   checkUnknownReconcilingTimeouts(scope: LineScopeTuple): string[] {
     const timedOut = this.caps.findTimedOutUnknownReconciling(scope, this.clock.nowMs());
     if (timedOut.length > 0 && isAllowlistedScope(scope)) {

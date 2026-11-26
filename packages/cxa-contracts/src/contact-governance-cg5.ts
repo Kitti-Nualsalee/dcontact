@@ -1,14 +1,14 @@
 /**
- * CG5 wire/domain primitives แบบ additive สำหรับชั้น dashboard, anomaly alert, compliance export
- * และ external read API ของ Contact Governance (สเปก #284, Phase Contract #274)
+ * CG5 wire/domain primitives, additive, for the dashboard, anomaly alert and compliance export layers
+ * and the external read API of Contact Governance (spec #284, Phase Contract #274)
  *
- * ไฟล์นี้เป็น contract ล้วน ไม่มี I/O และไม่มี state — projection, alert และ export ถูกนิยามเป็น
- * ค่าที่ปิดชุดไว้ เพื่อให้ owner ฝั่ง Governance, API, Console และ acceptance อ้างชุดเดียวกัน
+ * This file is a pure contract with no I/O and no state: projections, alerts and exports are defined as
+ * closed sets of values so the Governance owner, API, Console and acceptance all reference the same one
  *
- * ข้อห้ามที่สืบทอดมาจากคำตัดสิน #266–#273 และบังคับผ่าน type/validator ในไฟล์นี้:
- * - projection, alert, manifest และ event ไม่มี PII — การสืบรายบุคคลอ่าน canonical เสมอ
- * - `governance:restrictions:write` ถูกจองชื่อไว้ แต่ยังไม่ผูก route ใดในเฟสนี้
- * - ค่าของ config ราย tenant อยู่ในช่วงที่ระบบกำหนดเท่านั้น ไม่ใช่ค่าอิสระ
+ * Prohibitions inherited from decisions #266-#273 and enforced through the types/validators in this file:
+ * - projections, alerts, manifests and events carry no PII; per-person tracing always reads the canonical data
+ * - `governance:restrictions:write` is a reserved name but is not bound to any route in this phase
+ * - per-tenant config values must stay within the system-defined ranges, not free values
  */
 import type { ContactMutationId } from './identifiers.js';
 import type { ContactChannel, ContactDecision } from './contact-governance.js';
@@ -22,7 +22,7 @@ export type Cg5ContractVersion = typeof CG5_CONTRACT_VERSION;
 export type Cg5RuleRegistryVersion = typeof CG5_RULE_REGISTRY_VERSION;
 export type Cg5ManifestSchemaVersion = typeof CG5_MANIFEST_SCHEMA_VERSION;
 
-// ── Metric และ granularity (#268) ────────────────────────────────────────────
+// ── Metric and granularity (#268) ────────────────────────────────────────────
 
 export const CG5_METRIC_KEYS = Object.freeze([
   'cg.decision',
@@ -37,7 +37,7 @@ export const CG5_METRIC_KEYS = Object.freeze([
 
 export type Cg5MetricKey = (typeof CG5_METRIC_KEYS)[number];
 
-/** ทางป้อนของแต่ละ metric ตาม #266: event ผ่าน inbox เดิม หรือการอ่าน canonical เป็นรอบ */
+/** How each metric is fed per #266: an event through the existing inbox, or a periodic read of the canonical data */
 export const CG5_METRIC_FEEDS = Object.freeze({
   'cg.decision': 'INCREMENTAL_READ',
   'cg.restriction': 'EVENT_INBOX',
@@ -61,8 +61,8 @@ export const CG5_GRANULARITY_SECONDS = Object.freeze({
 } as const satisfies Readonly<Record<Cg5Granularity, number>>);
 
 /**
- * มิติของตารางสรุป — ทุก field เป็น aggregate dimension ไม่ใช่ตัวระบุบุคคล
- * `teamId` อยู่ในมิติหลักเพราะเป็นเงื่อนไขเดียวที่ทำให้ SUPERVISOR เห็น dashboard ของทีมตัวเองได้
+ * Dimensions of the summary table: every field is an aggregate dimension, not a person identifier
+ * `teamId` is a primary dimension because it is the only condition that lets a SUPERVISOR see their own team's dashboard
  */
 export interface Cg5MetricDimensions {
   readonly channel: ContactChannel | null;
@@ -83,8 +83,8 @@ export const CG5_EMPTY_DIMENSIONS: Cg5MetricDimensions = Object.freeze({
 });
 
 /**
- * `dimensionKey` ทำให้ unique constraint ของ bucket ใช้ได้จริง — Postgres ถือว่า NULL ไม่เท่ากับ NULL
- * การ unique บนคอลัมน์ที่เป็น null ได้โดยตรงจึงปล่อยให้เกิดแถวซ้ำแบบเงียบ ๆ
+ * `dimensionKey` makes the bucket's unique constraint effective: Postgres treats NULL as not equal to NULL,
+ * so a unique constraint directly on a nullable column silently allows duplicate rows
  */
 export function cg5DimensionKey(dimensions: Cg5MetricDimensions): Cg4Digest {
   return canonicalCg4Digest({
@@ -108,9 +108,9 @@ export interface Cg5RuleMetadata {
   readonly ruleCode: string;
   readonly kind: Cg5RuleKind;
   readonly defaultSeverity: Cg5AlertSeverity;
-  /** metric ที่กฎนี้อ่าน; `null` สำหรับกฎที่ประเมินสุขภาพของ projection เอง */
+  /** the metric this rule reads; `null` for a rule that evaluates the health of the projection itself */
   readonly metricKey: Cg5MetricKey | null;
-  /** กฎเทียบฐานถูกระงับเมื่อข้อมูลไม่ครบ ส่วนกฎค่าคงที่คือผู้รายงานว่าข้อมูลไม่ครบ */
+  /** A baseline-comparison rule is suppressed when data is incomplete, while a fixed-threshold rule reports that data is incomplete */
   readonly suppressibleByDataGap: boolean;
   readonly registryVersion: Cg5RuleRegistryVersion;
 }
@@ -190,7 +190,7 @@ export function isCg5RuleCode(value: string): value is Cg5RuleCode {
 export const CG5_ALERT_STATES = Object.freeze(['OPEN', 'ACKED', 'RESOLVED', 'SUPPRESSED'] as const);
 export type Cg5AlertState = (typeof CG5_ALERT_STATES)[number];
 
-/** alert ปิดตัวเองเมื่อค่ากลับสู่ปกติ และ ack ไม่ใช่การปิด — ตาราง transition ปิดชุดไว้ที่นี่ */
+/** An alert closes itself when the value returns to normal, and an ack is not a close: the transition table is closed here */
 const CG5_ALERT_TRANSITIONS: Readonly<Record<Cg5AlertState, readonly Cg5AlertState[]>> =
   Object.freeze({
     OPEN: Object.freeze(['ACKED', 'RESOLVED', 'SUPPRESSED'] as const),
@@ -203,7 +203,7 @@ export function canCg5AlertTransition(from: Cg5AlertState, to: Cg5AlertState): b
   return CG5_ALERT_TRANSITIONS[from].includes(to);
 }
 
-/** scope ของ alert เป็นระดับรวมเสมอ ไม่มี contact/identity ตาม #269 */
+/** The scope of an alert is always aggregate, with no contact/identity per #269 */
 export interface Cg5AlertScope {
   readonly channel: ContactChannel | null;
   readonly purpose: string | null;
@@ -241,7 +241,7 @@ export const CG5_EXPORT_STATES = Object.freeze([
 ] as const);
 export type Cg5ExportState = (typeof CG5_EXPORT_STATES)[number];
 
-/** manifest บันทึกจำนวนแถวและ digest ได้ แต่ห้ามบันทึกเนื้อหาแถว */
+/** A manifest may record the row count and digest, but must not record row contents */
 export interface Cg5ExportManifestV1 {
   readonly contractVersion: Cg5ContractVersion;
   readonly manifestSchemaVersion: Cg5ManifestSchemaVersion;
@@ -309,7 +309,7 @@ export const CG5_API_SCOPES = Object.freeze({
 
 export type Cg5ApiScope = (typeof CG5_API_SCOPES)[keyof typeof CG5_API_SCOPES];
 
-/** scope ที่ผูกกับ route ได้จริงในเฟสนี้ — ชุดเขียนถูกจองชื่อไว้เฉย ๆ */
+/** scopes that can actually be bound to a route in this phase: the write set is reserved by name only */
 export const CG5_BOUND_API_SCOPES = Object.freeze([
   CG5_API_SCOPES.READ,
   CG5_API_SCOPES.EVIDENCE,
@@ -317,7 +317,7 @@ export const CG5_BOUND_API_SCOPES = Object.freeze([
 
 export const CG5_RESERVED_API_SCOPES = Object.freeze([CG5_API_SCOPES.RESTRICTIONS_WRITE] as const);
 
-/** scope ที่ผูกกับ route ได้จริง — แยก type ออกจาก `Cg5ApiScope` ซึ่งรวมชื่อที่จองไว้ด้วย */
+/** scopes actually bound to a route: a type separate from `Cg5ApiScope`, which also includes the reserved names */
 export type Cg5BoundApiScope = (typeof CG5_BOUND_API_SCOPES)[number];
 export type Cg5ReservedApiScope = (typeof CG5_RESERVED_API_SCOPES)[number];
 
@@ -354,7 +354,10 @@ export class Cg5ContractError extends Error {
 
 export function assertCg5BoundApiScope(scope: string): asserts scope is Cg5BoundApiScope {
   if (!isCg5BoundApiScope(scope)) {
-    throw new Cg5ContractError('SCOPE_NOT_BOUND', `scope ${scope} ยังไม่ผูกกับ route ใดในเฟสนี้`);
+    throw new Cg5ContractError(
+      'SCOPE_NOT_BOUND',
+      `scope ${scope} is not bound to any route in this phase`,
+    );
   }
 }
 
@@ -367,13 +370,13 @@ export function assertSupportedCg5Versions(versions: Cg5SupportedVersions): void
   if (versions.contractVersion !== CG5_CONTRACT_VERSION) {
     throw new Cg5ContractError(
       'UNSUPPORTED_CONTRACT_VERSION',
-      `รองรับ contractVersion ${CG5_CONTRACT_VERSION} เท่านั้น ได้รับ ${versions.contractVersion}`,
+      `Only contractVersion ${CG5_CONTRACT_VERSION} is supported, received ${versions.contractVersion}`,
     );
   }
   if (versions.ruleRegistryVersion !== CG5_RULE_REGISTRY_VERSION) {
     throw new Cg5ContractError(
       'UNSUPPORTED_RULE_REGISTRY_VERSION',
-      `รองรับ ruleRegistryVersion ${CG5_RULE_REGISTRY_VERSION} เท่านั้น ได้รับ ${versions.ruleRegistryVersion}`,
+      `Only ruleRegistryVersion ${CG5_RULE_REGISTRY_VERSION} is supported, received ${versions.ruleRegistryVersion}`,
     );
   }
 }
@@ -381,8 +384,8 @@ export function assertSupportedCg5Versions(versions: Cg5SupportedVersions): void
 // ── PII guard (#266, #270) ───────────────────────────────────────────────────
 
 /**
- * ชื่อ field ที่ห้ามปรากฏใน projection, alert, manifest และ event ของ CG5
- * ไม่ใช่การตรวจเนื้อหา แต่เป็นการปิดประตูที่ชื่อ field ซึ่งเป็นทางที่ PII หลุดเข้ามาได้ง่ายที่สุด
+ * Field names that must not appear in a CG5 projection, alert, manifest or event
+ * This is not a content check but a closed door on field names, the easiest way for PII to leak in
  */
 export const CG5_FORBIDDEN_PAYLOAD_FIELDS = Object.freeze([
   'contactid',
@@ -411,7 +414,7 @@ export function assertCg5PiiFreePayload(payload: unknown, path = 'payload'): voi
     if ((CG5_FORBIDDEN_PAYLOAD_FIELDS as readonly string[]).includes(key.toLowerCase())) {
       throw new Cg5ContractError(
         'PII_FIELD_FORBIDDEN',
-        `${path}.${key} เป็น field ที่ห้ามอยู่ใน payload ของ CG5`,
+        `${path}.${key} is a field that must not appear in a CG5 payload`,
       );
     }
     assertCg5PiiFreePayload(value, `${path}.${key}`);
@@ -430,8 +433,8 @@ const bound = (min: number, max: number, fallback: number): Cg5NumericBound =>
   Object.freeze({ min, max, fallback });
 
 /**
- * ช่วงค่าที่ระบบยอมให้ tenant ตั้ง — retention ตั้งสั้นกว่าเพดานได้ แต่ยาวเกินเพดานไม่ได้
- * และรอบ refresh อยู่ในระดับนาทีตาม #266
+ * Ranges the system lets a tenant set: retention may be set shorter than the ceiling but not longer
+ * and the refresh interval is on the order of minutes per #266
  */
 export const CG5_CONFIG_BOUNDS = Object.freeze({
   refreshIntervalSeconds: bound(60, 300, 120),
@@ -500,11 +503,11 @@ export function assertCg5TenantConfig(
   const detail = violations.map((violation) => `${violation.field}:${violation.reason}`).join(', ');
   throw new Cg5ContractError(
     missing.length === violations.length ? 'CONFIG_FIELD_MISSING' : 'CONFIG_OUT_OF_RANGE',
-    `config ราย tenant ไม่ผ่านการตรวจ: ${detail}`,
+    `per-tenant config failed validation: ${detail}`,
   );
 }
 
-/** digest ของ config ที่ใช้เทียบว่าค่าที่ worker ถืออยู่ตรงกับที่บันทึกไว้ */
+/** digest of the config, used to compare whether the values a worker holds match what was saved */
 export function cg5ConfigDigest(config: Cg5TenantConfigValues): Cg4Digest {
   return canonicalCg4Digest(
     Object.fromEntries(

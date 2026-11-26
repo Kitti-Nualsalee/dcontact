@@ -1,13 +1,13 @@
 /**
- * J3.6 (#217) — durable ingest/apply ของ canonical `customer.segment.changed`
+ * J3.6 (#217) — durable ingest/apply of the canonical `customer.segment.changed`
  *
- * ยึด identity สองชั้นแบบเดียวกับ J2.3: transport `(tenantId, source, eventId)` แยกจาก logical
- * `(tenantId, contactId, segmentId, membershipRevision)` — broker ส่ง event เดิมซ้ำชนทางแรก
- * ส่วน revision เดิมที่มาคนละ event ชนทางที่สอง ทั้งคู่ต้องไม่สร้าง receipt ใบที่สอง
+ * Follows the same two-layer identity as J2.3: transport `(tenantId, source, eventId)` separate from logical
+ * `(tenantId, contactId, segmentId, membershipRevision)` — the broker sending the same event again collides on the first,
+ * while the same revision arriving as a different event collides on the second; neither may create a second receipt
  *
- * ที่นี่ไม่ตัดสินสิทธิ์และไม่อ่าน Customer 360 เอง — caller (trigger processor) เป็นคนเรียก
- * `CustomerSegmentMembershipReader.resolveEntry` และ `TeamContactScopeAuthorizer` แล้วส่งผลที่
- * ได้เข้ามา repository นี้รับผิดชอบเฉพาะการเขียนให้ atomic และรักษา invariant ของ stream
+ * This does not decide permissions and does not read Customer 360 itself — the caller (the trigger processor) calls
+ * `CustomerSegmentMembershipReader.resolveEntry` and `TeamContactScopeAuthorizer` and passes in the results
+ * it gets. This repository is responsible only for writing atomically and keeping the stream's invariants
  */
 import { randomUUID } from 'node:crypto';
 import {
@@ -51,31 +51,33 @@ export class SegmentReceiptHashConflictError extends Error {
     readonly identity: string,
     readonly kind: 'TRANSPORT' | 'LOGICAL',
   ) {
-    super(`Segment receipt hash ขัดแย้งกับของเดิม (${kind}): ${identity}`);
+    super(`Segment receipt hash conflicts with the existing one (${kind}): ${identity}`);
     this.name = 'SegmentReceiptHashConflictError';
   }
 }
 
 /**
- * entry ที่จบไปแล้วห้ามถูกชุบชีวิตกลับมาเป็น enrollment ใหม่
+ * an entry that has ended must not be revived into a new enrollment
  *
- * ถ้าปล่อยผ่าน การส่ง event ย้อนหลังหรือ replay จะทำให้ contact ถูก enroll ซ้ำเข้า journey
- * ด้วยเหตุผลที่หมดอายุไปแล้ว — การเข้า segment รอบใหม่ต้องมากับ entryId ใหม่เท่านั้น
+ * if let through, sending a backdated event or a replay would enroll the contact into the journey again
+ * for a reason that has expired — a new entry into the segment must come with a new entryId only
  */
 export class SegmentEntryTerminalError extends Error {
   readonly code = 'INVALID_MEMBERSHIP_TRANSITION' as const;
 
   constructor(readonly entryId: string) {
-    super(`entry ${entryId} ถูกปิดไปแล้ว สร้าง enrollment ใหม่จาก entry เดิมไม่ได้`);
+    super(
+      `entry ${entryId} was already closed; cannot create a new enrollment from the existing entry`,
+    );
     this.name = 'SegmentEntryTerminalError';
   }
 }
 
-/** enrollment intent หนึ่งใบต่อ (journey, version) — reason เก็บได้แค่ ref/version/digest */
+/** one enrollment intent per (journey, version) — the reason can hold only a ref/version/digest */
 export interface SegmentEnrollmentIntentInput {
   journeyId: string;
   journeyVersion: number;
-  /** entry step ของ graph ที่ published ไว้ — enrollment เริ่มเดินจากจุดนี้ */
+  /** entry step of the published graph — the enrollment starts running from here */
   entryStepId: string;
   reasonMembershipRevision: number;
   reasonDefinitionVersion: number;
@@ -86,9 +88,9 @@ export interface SegmentEnrollmentIntentInput {
 export interface ApplySegmentEnrollmentInput {
   tenantId: string;
   receiptId: string;
-  /** entryId ที่ resolveEntry ยืนยันว่า ELIGIBLE — ไม่ใช่ค่าที่ caller ส่งมาเอง */
+  /** the entryId that resolveEntry confirmed as ELIGIBLE — not a value the caller sent itself */
   entryId: string;
-  /** survivor ที่ Customer 360 ตัดสิน; ต่างจาก contactId บน receipt เมื่อมีการ merge */
+  /** the survivor Customer 360 decided; differs from the contactId on the receipt when there was a merge */
   canonicalContactId: string;
   intents: readonly SegmentEnrollmentIntentInput[];
   correlationId: string;
@@ -99,7 +101,7 @@ export interface ApplySegmentRefilterInput {
   tenantId: string;
   receiptId: string;
   reasonCode: string;
-  /** ปิด entry นี้ถาวร (LEFT/invalidation) — ครั้งแรกเท่านั้นที่ได้ผล */
+  /** closes this entry permanently (LEFT/invalidation) — only the first time takes effect */
   terminalEntryId?: string;
   correlationId: string;
 }
@@ -111,7 +113,7 @@ export interface SegmentOutboxEventInput {
   payloadHash: string;
 }
 
-/** cursor ที่เคลมมาแล้วพร้อม receipt ต้นทาง — อ่านมาในทรานแซกชันเดียวกันเพื่อไม่หลุด RLS context */
+/** a cursor already claimed together with its source receipt — read in the same transaction so it does not escape the RLS context */
 export type ClaimedRefilterCursor = JrSegmentRefilterCursor & {
   receipt: { entryId: string | null; changeKind: string };
 };
@@ -137,8 +139,8 @@ export class JourneySegmentReceiptRepository {
   }
 
   /**
-   * ตัดสิน DUPLICATE/READY/WAITING_FOR_GAP/IGNORED_SUPERSEDED/QUARANTINED จาก
-   * membershipRevision เทียบกับ head — ไม่เคย apply แบบ last-write-wins
+   * decides DUPLICATE/READY/WAITING_FOR_GAP/IGNORED_SUPERSEDED/QUARANTINED from
+   * membershipRevision compared with the head — never applies as last-write-wins
    */
   async ingest(input: IngestSegmentReceiptInput): Promise<IngestSegmentReceiptResult> {
     return withTenantDatabaseTransaction(this.database, input.tenantId, async (transaction) => {
@@ -183,8 +185,8 @@ export class JourneySegmentReceiptRepository {
             ? 'READY'
             : 'WAITING_FOR_GAP';
 
-      // savepoint กันไม่ให้ P2002 ของ insert นี้ทำทั้ง transaction abort — Postgres ปฏิเสธ
-      // ทุก statement ถัดไปจนกว่าจะ rollback ถ้าไม่มี savepoint แยกไว้ก่อน
+      // a savepoint keeps the P2002 of this insert from aborting the whole transaction — Postgres rejects
+      // every later statement until rollback if there is no separate savepoint beforehand
       await transaction.$executeRaw`SAVEPOINT segment_ingest`;
       try {
         const created = await transaction.jrSegmentReceipt.create({
@@ -214,7 +216,7 @@ export class JourneySegmentReceiptRepository {
       } catch (error) {
         if (!isUniqueViolation(error)) throw error;
         await transaction.$executeRaw`ROLLBACK TO SAVEPOINT segment_ingest`;
-        // race: worker อีกตัวแทรก revision เดียวกันสำเร็จก่อน — อ่านของจริงแล้วตัดสินใหม่
+        // race: another worker inserted the same revision first — read the real one and decide again
         const raced = await transaction.jrSegmentReceipt.findUniqueOrThrow({
           where: {
             tenantId_contactId_segmentId_membershipRevision: {
@@ -242,10 +244,10 @@ export class JourneySegmentReceiptRepository {
   }
 
   /**
-   * เคลม receipt ที่พร้อมประมวลผลหนึ่งใบด้วย lease/CAS
+   * claims one receipt ready for processing with a lease/CAS
    *
-   * รวม PROCESSING ที่ lease หมดอายุกลับเข้าคิวด้วย — worker ที่ตายกลางทางต้องไม่ทำให้ receipt
-   * ค้างตลอดกาล และเพราะ apply ทั้งก้อนเป็น transaction เดียว การ claim ซ้ำจึงไม่ apply ซ้ำ
+   * includes PROCESSING whose lease expired, returning it to the queue — a worker that died midway must not leave a receipt
+   * stuck forever, and because the whole apply is one transaction, claiming again does not apply twice
    */
   async claimNextReady(
     tenantId: string,
@@ -282,10 +284,10 @@ export class JourneySegmentReceiptRepository {
   }
 
   /**
-   * commit receipt + head + enrollment intent + outbox ในทรานแซกชันเดียว
+   * commits receipt + head + enrollment intent + outbox in a single transaction
    *
-   * ทั้งสี่อย่างต้องไปด้วยกันเสมอ: intent ที่ไม่มี receipt คือ enrollment ที่ไม่มีเหตุผล
-   * ส่วน outbox ที่ไม่มี intent คือการประกาศสิ่งที่ไม่เคยเกิดขึ้น
+   * all four must always go together: an intent with no receipt is an enrollment with no reason,
+   * and an outbox with no intent announces something that never happened
    */
   async applyEnrollment(
     input: ApplySegmentEnrollmentInput,
@@ -305,8 +307,8 @@ export class JourneySegmentReceiptRepository {
       }
 
       for (const intent of input.intents) {
-        // unique (tenant, journey, version, contact, segment, entry) ทำให้ entry เดียวได้
-        // อย่างมากหนึ่ง enrollment ต่อ journey version แม้มี consumer หลายตัวยิงพร้อมกัน
+        // unique (tenant, journey, version, contact, segment, entry) makes one entry get
+        // at most one enrollment per journey version even when several consumers fire at once
         await transaction.$executeRaw`SAVEPOINT segment_intent`;
         try {
           const intentId = this.id();
@@ -328,10 +330,10 @@ export class JourneySegmentReceiptRepository {
             },
           });
           /**
-           * enrollment จริงต้องเกิดในทรานแซกชันเดียวกับ intent
+           * the real enrollment must happen in the same transaction as the intent
            *
-           * intent คือ "เหตุผล" ส่วน enrollment คือ "งาน" — ถ้าแยกกันเขียน จะมีช่วงที่มีเหตุผล
-           * แต่ไม่มีงาน (หรือกลับกัน) แล้วการยกเลิกตอน re-filter จะหา action ที่ต้องยกเลิกไม่เจอ
+           * the intent is the "reason" and the enrollment is the "work" — if written separately there would be a window with a reason
+           * but no work (or the reverse), and cancelling during re-filter would not find the action to cancel
            */
           await transaction.jrEnrollment.create({
             data: {
@@ -350,7 +352,7 @@ export class JourneySegmentReceiptRepository {
           await transaction.$executeRaw`RELEASE SAVEPOINT segment_intent`;
         } catch (error) {
           if (!isUniqueViolation(error)) throw error;
-          // intent ใบเดิมมีอยู่แล้ว = replay ที่ถูกต้อง ไม่ใช่ความผิดพลาด
+          // an existing intent = a legitimate replay, not an error
           await transaction.$executeRaw`ROLLBACK TO SAVEPOINT segment_intent`;
         }
       }
@@ -361,10 +363,10 @@ export class JourneySegmentReceiptRepository {
   }
 
   /**
-   * commit receipt + head + re-filter cursor + outbox ในทรานแซกชันเดียว
+   * commits receipt + head + re-filter cursor + outbox in a single transaction
    *
-   * ใช้กับ change ที่ไม่ได้พา enrollment ใหม่เข้ามา (LEFT, correction, invalidation) — งานจริง
-   * ของการประเมินใหม่เป็นของ J3.7 ที่นี่แค่บันทึกว่ามีอะไรรอประเมินอยู่
+   * used for changes that bring no new enrollment (LEFT, correction, invalidation) — the real work
+   * of re-evaluation belongs to J3.7; this only records that something is waiting to be evaluated
    */
   async applyRefilter(
     input: ApplySegmentRefilterInput,
@@ -381,10 +383,10 @@ export class JourneySegmentReceiptRepository {
       const head = await this.advanceHead(transaction, receipt);
 
       /**
-       * first-terminal protection: entry ปิดได้ครั้งเดียว
+       * first-terminal protection: an entry can be closed only once
        *
-       * ถ้าปล่อยให้เขียนทับ เหตุผลและ revision ที่ปิด entry จะเปลี่ยนไปตาม event ใบล่าสุดที่
-       * บังเอิญมาถึง ซึ่งทำให้ audit ตอบไม่ได้ว่าจริง ๆ แล้วอะไรเป็นตัวปิด entry นั้น
+       * if overwriting were allowed, the reason and revision that closed the entry would change with the latest event that
+       * happened to arrive, leaving the audit unable to answer what actually closed that entry
        */
       if (input.terminalEntryId && head.terminalEntryId === null) {
         await transaction.jrSegmentHead.update({
@@ -429,11 +431,11 @@ export class JourneySegmentReceiptRepository {
   }
 
   /**
-   * ปิด receipt โดยไม่สร้างงานอะไรต่อ — head ยังต้องเลื่อน
+   * closes a receipt without creating any further work — the head still has to advance
    *
-   * ใช้กับ change ที่ไม่มี journey ไหนสนใจ หรือ contact ที่ไม่ eligible แล้ว ถ้าไม่เลื่อน head
-   * revision ถัดไปของ stream เดียวกันจะติด WAITING_FOR_GAP ตลอดไปเพราะรอ revision นี้ที่ไม่มี
-   * วันถูก apply และไม่สร้าง outbox เพราะไม่มีอะไรให้ประกาศ
+   * used for a change no journey cares about, or a contact that is no longer eligible; without advancing the head,
+   * the next revision of the same stream would be stuck in WAITING_FOR_GAP forever waiting for this revision, which would
+   * never be applied, and no outbox is created because there is nothing to announce
    */
   async applyNoOp(tenantId: string, receiptId: string): Promise<JrSegmentReceipt> {
     return withTenantDatabaseTransaction(this.database, tenantId, async (transaction) => {
@@ -449,10 +451,10 @@ export class JourneySegmentReceiptRepository {
   }
 
   /**
-   * เคลมงาน re-filter หนึ่งใบด้วย lease/CAS
+   * claims one re-filter job with a lease/CAS
    *
-   * รวม REVALIDATING ที่ lease หมดอายุกลับเข้าคิว และ DEFERRED/HELD ที่ถึงเวลาลองใหม่แล้ว
-   * — งานที่ถูกกันไว้ต้องมีวันกลับมาเสมอ ไม่งั้น contact จะค้างอยู่กับสถานะที่ไม่มีใครตามต่อ
+   * includes REVALIDATING whose lease expired returning to the queue, and DEFERRED/HELD whose retry time has come
+   * — work that is set aside must always have a day to come back, otherwise the contact would be stuck in a state nobody follows up
    */
   async claimNextRefilter(
     tenantId: string,
@@ -477,9 +479,9 @@ export class JourneySegmentReceiptRepository {
       const candidate = candidates[0];
       if (!candidate) return undefined;
       /**
-       * ดึง receipt มาด้วยในคำสั่งเดียว — การอ่านทีหลังนอก transaction นี้จะหลุดจาก tenant
-       * context ที่ RLS ใช้ (`current_setting('app.tenant_id')` กลายเป็นสตริงว่างแล้ว cast
-       * เป็น uuid ไม่ได้) และการเปิด transaction ใหม่ก็เปิดช่องให้ข้อมูลเปลี่ยนคั่นกลาง
+       * fetch the receipt in the same statement — reading later outside this transaction would escape the tenant
+       * context that RLS uses (`current_setting('app.tenant_id')` becomes an empty string that cannot be cast
+       * to uuid) and opening a new transaction would also let data change in between
        */
       return transaction.jrSegmentRefilterCursor.update({
         where: { id: candidate.id },
@@ -495,10 +497,10 @@ export class JourneySegmentReceiptRepository {
   }
 
   /**
-   * ปิดงาน re-filter ที่ตัดสินได้แล้ว — NO_OP กับ CANCELLED เท่านั้นที่เป็นปลายทาง
+   * closes a re-filter job that can be decided — only NO_OP and CANCELLED are final
    *
-   * CHECK constraint ของ #216 บังคับว่า settledAt ต้องมีเฉพาะสองสถานะนี้ ที่นี่จึงตั้งให้
-   * สอดคล้องกันแทนที่จะปล่อยให้ caller เดาเอง
+   * the CHECK constraint of #216 requires settledAt to exist only for these two states, so here it is set to
+   * match instead of leaving the caller to guess
    */
   async settleRefilter(
     tenantId: string,
@@ -522,10 +524,10 @@ export class JourneySegmentReceiptRepository {
   }
 
   /**
-   * พักงาน re-filter ไว้ก่อนโดยยังไม่ปิด — ปล่อย lease และเลื่อนเวลาลองใหม่เสมอ
+   * puts a re-filter job aside without closing it — always releases the lease and delays the retry time
    *
-   * DEFERRED ใช้เมื่อ context ยังไม่พร้อม, HELD เมื่อมีงานฝั่ง owner ค้างอยู่, RECONCILING
-   * เมื่อรอ canonical fact ใบใหม่จาก Customer 360 ทั้งสามต้องกลับมาเองได้ ไม่ใช่รอคนมากด
+   * DEFERRED is used when the context is not ready, HELD when owner-side work is pending, RECONCILING
+   * when waiting for a new canonical fact from Customer 360; all three must come back on their own, not wait for a person to press a button
    */
   async holdRefilter(
     tenantId: string,
@@ -589,8 +591,8 @@ export class JourneySegmentReceiptRepository {
   }
 
   /**
-   * ปล่อย lease แล้วเลื่อนเวลาให้ลองใหม่ — ใช้กับสาเหตุชั่วคราวเท่านั้น (STALE/unavailable)
-   * ไม่ใช่กับ payload ที่เสียถาวร ซึ่งต้องไป QUARANTINED
+   * releases the lease and delays the time to retry — for temporary causes only (STALE/unavailable)
+   * not for a permanently broken payload, which must go to QUARANTINED
    */
   async markRetryableFailure(
     tenantId: string,
@@ -650,8 +652,8 @@ export class JourneySegmentReceiptRepository {
   }
 
   /**
-   * head เลื่อนแล้ว: WAITING_FOR_GAP ของ stream นี้อาจพร้อม apply ต่อเพราะ gap ถูกเติมแล้ว
-   * หรือกลายเป็นของเก่าที่ไม่ต้อง apply อีก — ไม่งั้นจะค้างรออยู่ตลอดไป
+   * the head moved: a WAITING_FOR_GAP of this stream may be ready to apply because the gap was filled
+   * or may have become stale and need no apply — otherwise it would wait forever
    */
   private async promoteWaiting(
     transaction: Prisma.TransactionClient,

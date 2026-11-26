@@ -1,20 +1,20 @@
 # syntax=docker/dockerfile:1
 #
-# #923: image ของ VM app ใน UAT แบบ D-Contact Solo
-# build จาก root ของ repository: docker build -f infra/solo/app/Dockerfile --target <target> .
+# #923: image of the app VM in the D-Contact Solo UAT
+# build from the repository root: docker build -f infra/solo/app/Dockerfile --target <target> .
 #
-# ต่างจาก apps/api/Dockerfile ของ UAT 3 VM ซึ่งบูตได้เฉพาะ profile `uat` (ไม่มี Router และปิด Kafka)
-# Solo รันระบบเต็มแบบเดียวกับ dev stack: API (`dist/main.js`), Router, Telephony และ QM worker
+# Unlike apps/api/Dockerfile of the 3-VM UAT, which can only boot profile `uat` (no Router, and Kafka disabled)
+# Solo runs the full system like the dev stack: API (`dist/main.js`), Router, Telephony and the QM worker
 #
 # target:
-#   services — API, Router, Telephony, QM แบบ production dependencies รันเป็น non-root
-#   ops      — repository ทั้งชุดพร้อม dev dependencies สำหรับ migrate, rls, seed และ script ของ operator
+#   services — API, Router, Telephony, QM with production dependencies, run as non-root
+#   ops      — the whole repository with dev dependencies for migrate, rls, seed and the operator scripts
 #
-# base image pin ด้วย digest เหมือน image ของ UAT
+# base image is pinned by digest like the UAT images
 ARG NODE_IMAGE=node:20-bookworm-slim@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0
 
 FROM ${NODE_IMAGE} AS runtime-base
-# Prisma query engine ต้องใช้ OpenSSL ของ Debian bookworm
+# the Prisma query engine needs the OpenSSL of Debian bookworm
 RUN apt-get update \
   && apt-get install -y --no-install-recommends openssl ca-certificates \
   && rm -rf /var/lib/apt/lists/* \
@@ -29,7 +29,7 @@ RUN corepack enable && corepack prepare pnpm@9.12.0 --activate
 WORKDIR /repo
 COPY . .
 RUN pnpm install --frozen-lockfile
-# prisma generate ไม่ต่อฐานข้อมูล — URL นี้มีไว้ให้ schema parse ผ่านเท่านั้น
+# prisma generate does not connect to a database — this URL only lets the schema parse
 RUN DATABASE_URL=postgresql://build@localhost:5432/build pnpm --filter @d-contact/db generate \
   && pnpm --filter "@d-contact/api..." build \
   && pnpm --filter "@d-contact/router..." build \
@@ -40,7 +40,7 @@ RUN DATABASE_URL=postgresql://build@localhost:5432/build pnpm --filter @d-contac
   && test -f apps/telephony/dist/main.js \
   && test -f apps/qm/dist/main.js
 
-# ops: ใช้ build stage ทั้งชุด เพิ่ม psql สำหรับ script ของ operator
+# ops: uses the whole build stage, adds psql for the operator scripts
 FROM build AS ops
 RUN apt-get update \
   && apt-get install -y --no-install-recommends postgresql-client \
@@ -48,7 +48,7 @@ RUN apt-get update \
 WORKDIR /repo
 
 FROM build AS deploy
-# production dependencies เท่านั้น แล้วคัด Prisma client ที่ generate แล้วตามไปทุกตัว
+# production dependencies only, then pick up every generated Prisma client
 RUN pnpm --filter @d-contact/api deploy --prod /out/api \
   && pnpm --filter @d-contact/router deploy --prod /out/router \
   && pnpm --filter @d-contact/telephony deploy --prod /out/telephony \
@@ -73,6 +73,6 @@ COPY --from=deploy /out/router /app/router
 COPY --from=deploy /out/telephony /app/telephony
 COPY --from=deploy /out/qm /app/qm
 USER 10001:10001
-# compose เลือก working_dir และคำสั่งต่อ service: /app/<service> + node dist/main.js
+# compose chooses the working_dir and command per service: /app/<service> + node dist/main.js
 WORKDIR /app/api
 CMD ["node", "dist/main.js"]

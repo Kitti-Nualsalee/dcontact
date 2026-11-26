@@ -16,7 +16,7 @@ const environment = {
   LOCAL_RTP_RELAY_CONFIG_JSON: JSON.stringify(configuration),
 };
 
-test('local relay CLI ออกจาก process แม้ shutdown ล้มและมี handle ค้าง', () => {
+test('the local relay CLI exits the process even when shutdown fails and a handle is left open', () => {
   const result = spawnSync(
     process.execPath,
     [
@@ -46,7 +46,7 @@ test('local relay CLI ออกจาก process แม้ shutdown ล้มแ
   assert.doesNotMatch(result.stderr, /synthetic shutdown timeout/);
 });
 
-test('local relay CLI configuration ต้อง opt-in project และ host ตรงกัน', () => {
+test('the local relay CLI configuration must opt in and the project and host must match', () => {
   assert.deepEqual(localRtpRelayConfiguration(environment), configuration);
   for (const patch of [
     { LOCAL_RTP_RELAY_PROJECT: undefined },
@@ -59,7 +59,7 @@ test('local relay CLI configuration ต้อง opt-in project และ host �
     );
 });
 
-test('local relay CLI configuration ไม่รับ arbitrary fields หรือ malformed input', () => {
+test('the local relay CLI configuration rejects arbitrary fields or malformed input', () => {
   for (const value of [
     '',
     '{',

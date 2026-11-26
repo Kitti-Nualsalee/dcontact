@@ -25,19 +25,19 @@ import {
 } from './agent-work-metrics.js';
 
 /**
- * #986 ประวัติและสรุปงานของทีม (owner ตัดสิน #859 วันที่ 22 พ.ย. 2569)
+ * #986 team history and work summary (the owner decided #859 on 22 Nov 2026)
  *
- * - "ของทีม" = ทีมของ Agent ตอนรับสาย ตามหลักฐาน `voice_interaction_handling_attributions` (#967)
- *   สายที่ไม่มีหลักฐานไม่นับ และไม่เติมย้อนหลังจากทีมปัจจุบัน
- * - Supervisor ที่ active เห็นเฉพาะทีมปัจจุบันของตน ส่วน Admin ที่ active เห็นทุกทีมของ tenant
- *   บทบาท สถานะ และทีมอ่านจาก DB ทุก request ไม่เชื่อ role ใน token อย่างเดียว
- * - ทีมอื่น tenant อื่น และรายการที่ไม่มีจริง ตอบ 404 เหมือนกัน
- * - นับงานด้วยนิยามเดียวกับงานของฉัน (#964, `agent-work-metrics.ts`)
+ * - "the team's" = the Agent's team at answer time, per the `voice_interaction_handling_attributions` evidence (#967)
+ *   a call with no evidence is not counted and is not backfilled from the current team
+ * - an active Supervisor sees only their own current team while an active Admin sees every team of the tenant
+ *   the role, status and team are read from the DB on every request, never trusting only the role in the token
+ * - another team, another tenant and a nonexistent item all answer 404 identically
+ * - counts work with the same definition as my work (#964, `agent-work-metrics.ts`)
  */
 export const TEAM_HISTORY_DATABASE = Symbol('TEAM_HISTORY_DATABASE');
 
 type Actor = { tenantId: string; userId: string };
-/** ทีมที่ผู้ขอดูได้: `all` = Admin ทุกทีม, `team` = ทีมเดียว */
+/** the teams the requester can view: `all` = an Admin sees every team, `team` = a single team */
 type Access = { kind: 'admin' } | { kind: 'supervisor'; teamId: string };
 type Cursor = {
   version: 1;
@@ -64,8 +64,8 @@ async function accessOf(tx: Prisma.TransactionClient, actor: Actor): Promise<Acc
 }
 
 /**
- * ทีมที่จะอ่าน — Supervisor ระบุได้เฉพาะทีมตัวเอง (ไม่ระบุ = ทีมตัวเอง), Admin ไม่ระบุ = ทุกทีม
- * ทีมที่ระบุแต่ไม่มีใน tenant หรือไม่ใช่ของ Supervisor ตอบ 404
+ * the team to read — a Supervisor can name only their own team (unspecified = their own team), an Admin unspecified = every team
+ * a named team that is not in the tenant or is not the Supervisor's answers 404
  */
 async function teamScope(
   tx: Prisma.TransactionClient,
@@ -88,7 +88,7 @@ async function teamScope(
 
 const scopeKey = (teamId: string | null) => teamId ?? '*';
 
-/** เวลาสนทนา = วางสาย − รับสาย (นิยามเดียวกับค่าเฉลี่ยในสรุป) */
+/** conversation time = hang-up − answer (the same definition as the average in the summary) */
 function talkSecondsOf(answeredAt: Date | null, endedAt: Date | null): number | null {
   return answeredAt && endedAt && endedAt >= answeredAt
     ? Math.round((endedAt.getTime() - answeredAt.getTime()) / 1000)
@@ -134,7 +134,7 @@ export interface TeamHistoryQuery {
   disposition?: unknown;
 }
 
-/** ทีมที่ผู้ขอดูได้ — Supervisor ได้ทีมเดียว Admin ได้ทุกทีมของ tenant */
+/** the teams the requester can view — a Supervisor gets one team, an Admin gets every team of the tenant */
 export async function readTeamHistoryTeams(database: PrismaClient, actor: Actor) {
   return withTenantDatabaseTransaction(database, actor.tenantId, async (tx) => {
     const access = await accessOf(tx, actor);
@@ -230,7 +230,7 @@ export async function readTeamHistory(
   });
 }
 
-/** สรุปงานที่จบของทีมในช่วงเวลา แยกตามผลบันทึกและตาม Agent — นับจาก CTE และตัวกรองเดียวกับรายการ */
+/** the team's finished-work summary over a period, split by wrap-up result and by Agent — counted from the same CTE and filters as the list */
 export async function readTeamHistorySummary(
   database: PrismaClient,
   actor: Actor,
@@ -323,7 +323,7 @@ export async function readTeamHistorySummary(
   });
 }
 
-/** ผลบันทึกและโน้ตของงานหนึ่งรายการ — เปิดได้เมื่อรายการนั้นอยู่ในขอบเขตทีมของผู้ขอ */
+/** the wrap-up result and note of one item — can be opened when that item is within the requester's team scope */
 export async function readTeamHistoryItem(
   database: PrismaClient,
   actor: Actor,

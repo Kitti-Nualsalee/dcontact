@@ -1,9 +1,9 @@
 /**
- * #604: Supervisor Workspace บน component layer (ADR-028) และ i18n — parity กับ Agent Workspace (D1.15)
+ * #604: Supervisor Workspace on the component layer (ADR-028) and i18n — parity with Agent Workspace (D1.15)
  *
- * - ใน shell ใหม่ (`ui.shell.v2`) ไม่วาด rail/แถบบนของตัวเอง — shell มี breadcrumb, ภาษา และเมนูผู้ใช้แล้ว
- * - flag ปิด: คง rail/แถบบน/ปุ่มออกจากระบบเดิม แต่เนื้อหาใช้ component และ token ชุดเดียวกัน
- * - จอแคบเป็น read-only (ADR-026 ข้อ 8, #48) และทุกคำสั่งต้องมีเหตุผลก่อนส่ง
+ * - inside the new shell (`ui.shell.v2`) it draws no rail/top bar of its own — the shell already has breadcrumb, language and user menu
+ * - flag off: keep the old rail/top bar/sign-out button, but the content uses the same components and tokens
+ * - narrow screens are read-only (ADR-026 item 8, #48) and every command needs a reason before it is sent
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from '@d-contact/i18n/react';
@@ -29,7 +29,7 @@ type MutationDraft =
   | { kind: 'agent'; id: string; label: string; state: ForcedState; reason: string }
   | { kind: 'queue'; id: string; label: string; isActive: boolean; reason: string };
 
-// สีของสถานะมาจาก token ของ agent status — ข้อความแปลแล้วอยู่ในชิปเสมอ (สีไม่ใช่ตัวบอกความหมายตัวเดียว)
+// status colors come from the agent status tokens — the translated text is always in the chip (color is never the only carrier of meaning)
 const STATE_CHIP: Record<AgentState, AgentStatus> = {
   OFFLINE: 'offline',
   AVAILABLE: 'available',
@@ -45,7 +45,7 @@ export interface SupervisorWorkspaceProps {
   onSignOut?: () => void;
 }
 
-/** token มาก่อนเนื้อหา (แบบเดียวกับ WorkspaceApp) — ทั้งสองสถานะของ flag ใช้ component ชุดใหม่ */
+/** the token comes before the content (same as WorkspaceApp) — both flag states use the new components */
 export function SupervisorWorkspace(props: SupervisorWorkspaceProps) {
   const tokensReady = useShellTokens();
   if (!tokensReady) return null;
@@ -66,8 +66,8 @@ function SupervisorLive({ api, tenantLabel = 'D-Contact', onSignOut }: Superviso
   const snapshotRequest = useRef(0);
   const mutationPending = useRef(false);
 
-  // #684: Supervisor อ่านสถานะสดทุก 5 วินาทีโดยไม่ถือ lease/SIP หรือแย่ง agent socket (ADR-026).
-  // ไม่ซ้อนคำขอ และคำตอบก่อน mutation ไม่มีสิทธิ์ทับ snapshot ที่ยืนยันหลังคำสั่ง.
+  // #684: the Supervisor reads live state every 5 seconds without holding a lease/SIP or contending for the agent socket (ADR-026).
+  // no overlapping requests, and an answer from before a mutation may not overwrite the snapshot confirmed after the command.
   useEffect(() => {
     let active = true;
     let inFlight = false;
@@ -108,7 +108,7 @@ function SupervisorLive({ api, tenantLabel = 'D-Contact', onSignOut }: Superviso
     return () => media.removeEventListener('change', update);
   }, []);
 
-  // เก็บเป็น key แล้วแปลตอน render — สลับภาษาแล้วรายการเปลี่ยนตามโดยไม่คำนวณใหม่
+  // stored as keys and translated at render — the list follows a language switch without recomputing
   const risks = useMemo(() => {
     if (!snapshot) return [];
     return [
@@ -374,7 +374,7 @@ function ConfirmMutation({
   onSubmit: () => void;
 }) {
   const { t } = useTranslation('supervisor');
-  // คงค่าล่าสุดไว้ระหว่าง animation ปิด — dialog ไม่กระพริบเป็นช่องว่าง
+  // keep the latest value during the closing animation — the dialog does not flash blank
   const [shown, setShown] = useState(mutation);
   useEffect(() => {
     if (mutation) setShown(mutation);

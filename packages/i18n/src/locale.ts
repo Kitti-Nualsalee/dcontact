@@ -1,9 +1,9 @@
 /**
- * D1.11 (#450): ลำดับการเลือกภาษาและ timezone ตาม D1.5 (#425)
+ * D1.11 (#450): order for choosing language and timezone per D1.5 (#425)
  *
- * ภาษา: ผู้ใช้ (Keycloak attribute `locale`) → ค่าเริ่มต้นของ tenant → ภาษา browser → `th`
- * timezone: ผู้ใช้ (claim `zoneinfo`) → tenant (IANA) — ไม่ใช้เวลาเครื่องเด็ดขาด เพราะเอเจนต์ที่นั่ง
- * ต่างเครื่อง/ต่างประเทศต้องเห็นเวลาของงานตรงกัน
+ * language: user (Keycloak attribute `locale`) → tenant default → browser language → `th`
+ * timezone: user (claim `zoneinfo`) → tenant (IANA) — never the machine time, because agents on
+ * different machines/countries must see the same job times
  */
 
 export const SUPPORTED_LOCALES = ['th', 'en'] as const;
@@ -12,12 +12,12 @@ export type SupportedLocale = (typeof SUPPORTED_LOCALES)[number];
 export const DEFAULT_LOCALE: SupportedLocale = 'th';
 
 /**
- * ใช้เมื่อทั้งผู้ใช้และ tenant ยังไม่มี timezone (tenant เดิมก่อน A1.5 ไม่มีแถว `tenant_settings`)
- * เป็นค่าคงที่ของระบบ ไม่ใช่เวลาเครื่อง
+ * used when neither the user nor the tenant has a timezone yet (tenants before A1.5 have no `tenant_settings` row)
+ * a system constant, not the machine time
  */
 export const DEFAULT_TIME_ZONE = 'Asia/Bangkok';
 
-/** รับ `th`, `th-TH`, `en_US`, `EN` ฯลฯ แล้วคืนภาษาที่ระบบรองรับ หรือ undefined */
+/** accepts `th`, `th-TH`, `en_US`, `EN`, etc. and returns a supported language, or undefined */
 export function normalizeLocale(value: unknown): SupportedLocale | undefined {
   if (typeof value !== 'string') return undefined;
   const language = value.trim().toLowerCase().split(/[-_]/)[0];
@@ -27,7 +27,7 @@ export function normalizeLocale(value: unknown): SupportedLocale | undefined {
 export interface LocaleSources {
   user?: unknown;
   tenant?: unknown;
-  /** `navigator.languages` ตามลำดับที่ browser ส่งมา */
+  /** `navigator.languages` in the order the browser sends them */
   browser?: readonly string[];
 }
 

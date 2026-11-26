@@ -1,9 +1,9 @@
 /**
- * #956 — controller ของเคส Agent บนฐานแยก (เช่น dcontact_956) ด้วย application role ที่ไม่ bypass RLS
- * ตั้ง DATABASE_URL (owner) และ APPLICATION_DATABASE_URL ก่อนรัน ห้ามรันบนฐาน dcontact ร่วม
+ * #956 — the Agent cases controller on a separate database (e.g. dcontact_956) with an application role that does not bypass RLS
+ * set DATABASE_URL (owner) and APPLICATION_DATABASE_URL before running; never run on the shared dcontact database
  *
- * การอนุญาตลูกค้าด้วย segment scope จริงทดสอบอยู่ใน customer-360 แล้ว ที่นี่ทดสอบว่า controller
- * เติมชื่อลูกค้าเฉพาะเมื่อตัวตรวจสิทธิ์ตอบว่าเห็นได้ และตัวตรวจจริงที่ไม่มี grant ต้องไม่เห็น (fail closed)
+ * customer authorization by a real segment scope is tested in customer-360 already; here we test that the controller
+ * fills in the customer name only when the permission checker says it is visible, and a real checker without a grant must not see it (fail closed)
  */
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -54,13 +54,13 @@ async function setup(t: TestContext) {
   });
   await owner.user.createMany({
     data: [
-      user(agentId, 'สมหญิง ใจดี', teamId),
-      user(teammateId, 'ปกรณ์ ศรีสุข', teamId),
-      user(outsiderId, 'คนทีมอื่น', otherTeamId),
+      user(agentId, 'Somying Jaidee', teamId),
+      user(teammateId, 'Pakorn Srisuk', teamId),
+      user(outsiderId, 'Other team member', otherTeamId),
     ],
   });
   await owner.contact.create({
-    data: { id: contactId, tenantId, displayName: 'คุณภา จันทร์เพ็ญ', company: 'Siam Retail' },
+    data: { id: contactId, tenantId, displayName: 'Khun Pa Chanpen', company: 'Siam Retail' },
   });
   await owner.interaction.create({
     data: {
@@ -107,40 +107,40 @@ async function httpError(work: Promise<unknown>, status: number, code: string) {
   });
 }
 
-test('เปิดเคสผ่าน HTTP แล้วรายละเอียดมีชื่อคน ชื่อทีม และลูกค้าเมื่อทีมเห็นลูกค้าได้', async (t) => {
+test('open a case via HTTP and the detail has the person names, team name and customer when the team can see the customer', async (t) => {
   const f = await setup(t);
   const api = f.controller(allowAll);
   const opened = await api.open(f.request(f.agentId), {
     commandId: randomUUID(),
     interactionId: f.workId,
-    subject: 'เครื่อง X200 ชำรุด',
-    note: 'รอคลังยืนยัน',
+    subject: 'Machine X200 is broken',
+    note: 'Waiting for warehouse confirmation',
     assigneeUserId: f.teammateId,
   });
 
   const detail = await api.detail(f.request(f.agentId), opened.caseId);
   assert.equal(detail.teamName, 'Retail Support');
-  assert.deepEqual(detail.customer, { displayName: 'คุณภา จันทร์เพ็ญ', company: 'Siam Retail' });
-  assert.equal(detail.case.contactDisplayName, 'คุณภา จันทร์เพ็ญ');
-  assert.equal(detail.people[f.agentId], 'สมหญิง ใจดี');
-  assert.equal(detail.people[f.teammateId], 'ปกรณ์ ศรีสุข');
+  assert.deepEqual(detail.customer, { displayName: 'Khun Pa Chanpen', company: 'Siam Retail' });
+  assert.equal(detail.case.contactDisplayName, 'Khun Pa Chanpen');
+  assert.equal(detail.people[f.agentId], 'Somying Jaidee');
+  assert.equal(detail.people[f.teammateId], 'Pakorn Srisuk');
 
   const page = await api.list(f.request(f.teammateId), undefined, '1', undefined, undefined);
   assert.deepEqual(
     page.items.map((item) => [item.id, item.contactDisplayName]),
-    [[opened.caseId, 'คุณภา จันทร์เพ็ญ']],
+    [[opened.caseId, 'Khun Pa Chanpen']],
   );
-  assert.equal(page.people[f.teammateId], 'ปกรณ์ ศรีสุข');
+  assert.equal(page.people[f.teammateId], 'Pakorn Srisuk');
   assert.equal(page.nextCursor, null);
 });
 
-test('ทีมไม่เห็นลูกค้า: ไม่ส่งชื่อหรือบริษัทออกไป แต่เคสยังเปิดดูได้', async (t) => {
+test('a team that cannot see the customer: no name or company is sent out, but the case can still be opened', async (t) => {
   const f = await setup(t);
   const opened = await f.controller(allowAll).open(f.request(f.agentId), {
     commandId: randomUUID(),
     interactionId: f.workId,
-    subject: 'ติดตามการคืนเงิน',
-    note: 'โน้ต',
+    subject: 'Refund follow-up',
+    note: 'Note',
   });
   const api = f.controller(denyAll);
   const detail = await api.detail(f.request(f.agentId), opened.caseId);
@@ -148,29 +148,29 @@ test('ทีมไม่เห็นลูกค้า: ไม่ส่งชื
   assert.equal('contactDisplayName' in detail.case, false);
   const page = await api.list(f.request(f.agentId), undefined, undefined, undefined, undefined);
   assert.equal('contactDisplayName' in page.items[0]!, false);
-  assert.ok(!JSON.stringify({ detail, page }).includes('คุณภา'));
+  assert.ok(!JSON.stringify({ detail, page }).includes('Chanpen'));
 });
 
-test('ตัวตรวจสิทธิ์จริงของ Customer 360 ที่ไม่มี segment grant ต้องไม่เห็นลูกค้า (fail closed)', async (t) => {
+test('the real Customer 360 permission checker without a segment grant must not see the customer (fail closed)', async (t) => {
   const f = await setup(t);
   const opened = await f.controller(allowAll).open(f.request(f.agentId), {
     commandId: randomUUID(),
     interactionId: f.workId,
-    subject: 'ติดตามการคืนเงิน',
-    note: 'โน้ต',
+    subject: 'Refund follow-up',
+    note: 'Note',
   });
   const detail = await f.controller().detail(f.request(f.agentId), opened.caseId);
   assert.equal(detail.customer, null);
 });
 
-test('error ของ Cases กลายเป็น HTTP status พร้อม code และ correlationId', async (t) => {
+test('Cases errors become an HTTP status with a code and correlationId', async (t) => {
   const f = await setup(t);
   const api = f.controller(denyAll);
   const opened = await api.open(f.request(f.agentId), {
     commandId: randomUUID(),
     interactionId: f.workId,
-    subject: 'เรื่องทดสอบ',
-    note: 'โน้ต',
+    subject: 'Test matter',
+    note: 'Note',
   });
 
   await httpError(api.detail(f.request(f.outsiderId), opened.caseId), 404, 'CASE_NOT_FOUND');
@@ -178,7 +178,7 @@ test('error ของ Cases กลายเป็น HTTP status พร้อม
     api.addNote(f.request(f.agentId), opened.caseId, {
       commandId: randomUUID(),
       expectedVersion: 9,
-      note: 'ซ้อน',
+      note: 'Nested',
     }),
     409,
     'VERSION_CONFLICT',
@@ -207,22 +207,22 @@ test('error ของ Cases กลายเป็น HTTP status พร้อม
   const noted = await api.addNote(f.request(f.agentId), opened.caseId, {
     commandId: randomUUID(),
     expectedVersion: 1,
-    note: 'โทรตามแล้ว',
+    note: 'Called to follow up',
   });
   assert.equal(noted.version, 2);
   assert.deepEqual(
     (await api.teamAgents(f.request(f.agentId))).items.map((item) => item.displayName).sort(),
-    ['ปกรณ์ ศรีสุข', 'สมหญิง ใจดี'].sort(),
+    ['Pakorn Srisuk', 'Somying Jaidee'].sort(),
   );
 });
 
-test('ตรวจสิทธิ์ลูกค้าล้ม (เช่น DB error): เคสยังเปิดได้ และไม่มีข้อมูลลูกค้าใน response', async (t) => {
+test('the customer permission check fails (e.g. a DB error): the case still opens and there is no customer data in the response', async (t) => {
   const f = await setup(t);
   const opened = await f.controller(allowAll).open(f.request(f.agentId), {
     commandId: randomUUID(),
     interactionId: f.workId,
-    subject: 'ติดตามการคืนเงิน',
-    note: 'โน้ต',
+    subject: 'Refund follow-up',
+    note: 'Note',
   });
   const failing: CaseCustomerAccess = async () => {
     throw new Error('statement timeout');

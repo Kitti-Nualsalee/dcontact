@@ -2,17 +2,17 @@ import { Prisma } from '@d-contact/db';
 import { stableDigest } from './cg3-persistence.js';
 
 /**
- * CG4.8 (#191): version ของ contact event stream
+ * CG4.8 (#191): version of the contact event stream
  *
- * CG3 และ CG4 exception publish ลง aggregate `contact_governance_contact/contactId` เดียวกัน
- * และ #179 §1/§4 กำหนดให้ stream นี้มี monotonic version เดียวจาก `cg_contact_state_heads`
- * ถ้า exception ใช้ counter ของตัวเอง version 1 ของ CG3 กับของ CG4 จะชนกันที่ consumer ทุกตัว
- * และกลายเป็น hash conflict หรือ gap ที่ hold งานไว้ตลอด
+ * CG3 and CG4 exceptions publish to the same aggregate `contact_governance_contact/contactId`,
+ * and #179 §1/§4 requires this stream to have a single monotonic version from `cg_contact_state_heads`.
+ * If exceptions used their own counter, version 1 of CG3 and of CG4 would collide at every consumer
+ * and become a hash conflict or a gap that holds work indefinitely
  *
- * optimistic concurrency ของ exception command ยังอยู่ที่ `cg_exception_contact_head` ตามเดิม
- * (migration 20260913122000) — ที่นี่ขยับเฉพาะ stream version และไม่แตะ digest chain ของ CG3
- * การ upsert แบบ atomic ถือ row lock ของ head จนจบ transaction จึงเรียงกับ CG3 writer ที่
- * CAS บน row เดียวกันได้โดยไม่ต้องใช้ advisory lock เพิ่ม (ไม่สร้างลำดับ lock ใหม่ให้ deadlock)
+ * The optimistic concurrency of the exception command remains on `cg_exception_contact_head` as before
+ * (migration 20260913122000): here only the stream version advances, and the CG3 digest chain is untouched.
+ * The atomic upsert holds the head's row lock until the transaction ends, so it serializes with the CG3 writer that
+ * does CAS on the same row without needing an extra advisory lock (no new lock ordering that could deadlock)
  */
 const EMPTY_CONTACT_STATE_DIGEST = stableDigest({ preferences: [] });
 
@@ -33,6 +33,6 @@ export async function nextContactStreamVersion(
     RETURNING "aggregate_version"
   `);
   const version = rows[0]?.aggregate_version;
-  if (version === undefined) throw new Error('ขยับ contact stream version ไม่สำเร็จ');
+  if (version === undefined) throw new Error('failed to advance the contact stream version');
   return Number(version);
 }

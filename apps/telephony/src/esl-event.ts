@@ -1,6 +1,6 @@
 import type { FreeSwitchEvent } from './freeswitch-normalizer.js';
 
-/** แยก header ของ event ที่ ESL ส่งแบบ text/event-plain; ไม่ตีความ command reply */
+/** Splits the headers of an event ESL sends as text/event-plain; does not interpret command replies */
 export function parseEslEvent(frame: string): FreeSwitchEvent | undefined {
   const separator = frame.search(/\r?\n\r?\n/);
   const body = separator < 0 ? undefined : frame.slice(separator).replace(/^\r?\n\r?\n/, '');

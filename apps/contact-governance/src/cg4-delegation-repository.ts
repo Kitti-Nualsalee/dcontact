@@ -15,13 +15,13 @@ import { Cg3IdempotencyConflictError, stableDigest } from './cg3-persistence.js'
 
 function nonEmpty(value: string, field: string): string {
   const normalized = value.trim();
-  if (!normalized) throw new TypeError(`${field} ต้องเป็น string ที่ไม่ว่าง`);
+  if (!normalized) throw new TypeError(`${field} must be a non-empty string`);
   return normalized;
 }
 
 function instant(value: string, field: string): Date {
   const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) throw new TypeError(`${field} ต้องเป็น ISO-8601 timestamp`);
+  if (Number.isNaN(parsed.getTime())) throw new TypeError(`${field} must be an ISO-8601 timestamp`);
   return parsed;
 }
 
@@ -73,7 +73,7 @@ export class Cg4DelegationRepository {
     nonEmpty(input.scopeKey, 'scopeKey');
     nonEmpty(input.idempotencyKey, 'idempotencyKey');
     if (!Number.isInteger(input.grantVersion) || input.grantVersion < 1) {
-      throw new RangeError('grantVersion ต้องเป็น positive integer');
+      throw new RangeError('grantVersion must be a positive integer');
     }
     const startsAt = instant(input.startsAt, 'startsAt');
     const expiresAt = instant(input.expiresAt, 'expiresAt');

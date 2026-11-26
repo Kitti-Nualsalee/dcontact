@@ -1,13 +1,13 @@
 /**
- * Owner: IAM provisioning — Keycloak Admin REST client ของ saga adapters (A1.4 #409)
+ * Owner: IAM provisioning — Keycloak Admin REST client for the saga adapters (A1.4 #409)
  *
- * - ใช้ service account `dcontact-provisioner` (client_credentials) ไม่ใช่ admin ของ master realm
- * - error ถูกแปลงเป็น `ProvisioningStepError` ที่มีแค่ machine code: ห้ามพก response body, email,
- *   token หรือ URL ที่มี query ของผู้ใช้ออกไปถึง log/receipt/audit
- * - timeout/network failure ของคำสั่งที่เขียน = `AMBIGUOUS` (อาจเกิดแล้ว) ส่วนคำสั่งอ่าน = `TRANSIENT`
+ * - uses the service account `dcontact-provisioner` (client_credentials), not an admin of the master realm
+ * - errors are converted to `ProvisioningStepError` carrying only a machine code: never carry a response body, email,
+ *   token or URL with the user's query out to the log/receipt/audit
+ * - timeout/network failure of a write command = `AMBIGUOUS` (it may have happened), of a read command = `TRANSIENT`
  *
- * Keycloak 26.0: Organization admin API ต้องใช้ realm-management `manage-realm`
- * (ยังไม่มี fine-grained admin permission) — secret ของ client นี้จึงต้องอยู่เฉพาะ worker
+ * Keycloak 26.0: the Organization admin API needs realm-management `manage-realm`
+ * (no fine-grained admin permission yet) — so this client's secret must live only in the worker
  */
 import { SpanKind } from '@opentelemetry/api';
 import { keycloakOperation, setSpanAttributes, withSpan } from './platform-tracing.js';
@@ -18,7 +18,7 @@ export interface KeycloakAdminOptions {
   realm: string;
   clientId: string;
   clientSecret: string;
-  /** inject ได้สำหรับจำลอง lost response/timeout ในเทสต์ */
+  /** injectable to simulate a lost response/timeout in tests */
   fetch?: typeof fetch;
   now?: () => Date;
 }
@@ -46,15 +46,15 @@ export class KeycloakAdminClient {
   }
 
   /**
-   * เรียก `/admin/realms/{realm}{path}` — status ที่อยู่ใน `accept` คืนให้ผู้เรียกตัดสินเอง
-   * (เช่น 404 = ไม่มี, 409 = ชนกัน) นอกนั้นแปลงเป็น step error
+   * Calls `/admin/realms/{realm}{path}` — a status listed in `accept` is returned for the caller to decide
+   * (e.g. 404 = absent, 409 = clash); anything else is converted to a step error
    */
   async admin<T = unknown>(
     method: Method,
     path: string,
     init: { body?: unknown; rawBody?: string; signal?: AbortSignal; accept?: number[] } = {},
   ): Promise<KeycloakResponse<T>> {
-    // A1.8b: span ต่อ call — ชื่อเป็น path template (id → {id}, ไม่มี query ที่อาจมี email)
+    // A1.8b: span per call — the name is a path template (id → {id}, no query that may contain an email)
     const operation = keycloakOperation(method, path);
     return withSpan(
       `keycloak ${operation}`,
@@ -93,7 +93,7 @@ export class KeycloakAdminClient {
       } catch {
         throw unreachable(method, init.signal);
       }
-      // token หมดอายุระหว่างทาง: ขอใหม่หนึ่งครั้ง (คำสั่งยังไม่ถูกประมวลผลเพราะ 401 มาก่อน)
+      // the token expired along the way: request a new one once (the command was not processed because the 401 came first)
       if (response.status === 401 && round === 0) continue;
       const text = await response.text().catch(() => '');
       if (!accept.includes(response.status)) throw statusError(method, response.status);
@@ -131,7 +131,7 @@ export class KeycloakAdminClient {
         },
       );
     } catch {
-      // ยังไม่ได้ส่งคำสั่งใด ๆ — retry ได้โดยไม่เสี่ยง
+      // no command has been sent yet — safe to retry
       throw new ProvisioningStepError('TRANSIENT', 'KEYCLOAK_UNREACHABLE');
     }
     if (response.status >= 500)
@@ -151,7 +151,7 @@ function unreachable(method: Method, signal: AbortSignal | undefined): Provision
       timedOut ? 'EXTERNAL_TIMEOUT' : 'KEYCLOAK_UNREACHABLE',
     );
   }
-  // คำสั่งเขียนอาจถึง Keycloak แล้ว — รอบหน้าต้องถาม find ก่อน
+  // a write command may have reached Keycloak — next round must ask find first
   return new ProvisioningStepError(
     'AMBIGUOUS',
     timedOut ? 'EXTERNAL_TIMEOUT' : 'KEYCLOAK_UNREACHABLE',

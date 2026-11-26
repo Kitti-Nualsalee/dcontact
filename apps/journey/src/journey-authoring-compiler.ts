@@ -37,9 +37,9 @@ import type {
 import { validateJourneyDefinitionStructure } from './journey-definition-validator.js';
 
 /**
- * J5.2 (#340): deterministic compiler จาก authoring document ไปยัง `JourneyDefinitionContent` เดิม
- * (Phase Spec #337 §4) — ไม่มี runtime DSL ใหม่: node หนึ่งตัวคือ step หนึ่งตัว (`step.id = nodeId`)
- * และ edge compile ลง scalar field ตาม port catalog; compiler ไม่อ่าน `layout`
+ * J5.2 (#340): deterministic compiler from an authoring document to the existing `JourneyDefinitionContent`
+ * (Phase Spec #337 §4) — no new runtime DSL: one node is one step (`step.id = nodeId`)
+ * and an edge compiles into a scalar field per the port catalog; the compiler does not read `layout`
  */
 
 export type JourneyCompileArtifact = CompileArtifactV1<JourneyDefinitionContent>;
@@ -70,8 +70,8 @@ function compileTrigger(trigger: AuthoringTriggerNodeV1): JourneyTrigger {
 }
 
 /**
- * reference ที่ publish ต้องตรวจกับ owner ปัจจุบัน — digest ผูก artifact กับชุด reference นี้ ถ้าชุดเปลี่ยน
- * (เช่น draft อ้าง team อื่น) artifact เดิมใช้ publish ไม่ได้
+ * The references being published must be checked against the current owner — the digest binds the artifact to this set of references; if the set changes
+ * (e.g. the draft references another team) the old artifact cannot be used to publish
  */
 export function journeyReferenceSet(content: JourneyDefinitionContent) {
   const references = new Set<string>([
@@ -95,7 +95,7 @@ function error(
   return { code, severity: 'ERROR', stage, messageKey: `journey.authoring.${code}`, ...extra };
 }
 
-/** document ที่ผ่าน validator แล้ว → runtime content (ยังไม่ผ่าน runtime validator) */
+/** A document that passed the validator → runtime content (not yet through the runtime validator) */
 function buildRuntimeContent(
   document: AuthoringDocumentV1,
   ownerTeamId: string,
@@ -141,7 +141,7 @@ export function compileJourneyDraft(
   }
 
   const content = buildRuntimeContent(document as AuthoringDocumentV1, binding.ownerTeamId);
-  // runtime validator เดิมเป็นด่านสุดท้ายของโครงสร้าง — reason code เดิมติดไปใน legacyReasonCode
+  // the existing runtime validator is the last gate on structure — its reason code is carried in legacyReasonCode
   const runtimeCodes = validateJourneyDefinitionStructure(content, dependencies.evaluator);
   const compileDiagnostics: JourneyDiagnosticV1[] = runtimeCodes.map((code) =>
     error('DEFINITION_INVALID', 'COMPILE', { legacyReasonCode: code }),
@@ -196,11 +196,11 @@ const TRIGGER_TYPE = {
 const TRANSITION_FIELDS = new Set(['next', 'whenTrue', 'whenFalse', 'onReject']);
 
 /**
- * แปลง definition เดิม (J1–J3) เป็น authoring document แบบ deterministic เพื่อ round-trip/roll-forward
- * step ชนิดที่ registry ไม่รู้จักถูกเก็บเป็น `UNSUPPORTED` พร้อม source เดิมครบ ห้าม drop หรือ normalize
+ * Converts an existing definition (J1–J3) into an authoring document deterministically for round-trip/roll-forward.
+ * A step type the registry does not know is kept as `UNSUPPORTED` with its whole original source; never drop or normalize it
  */
 export function importJourneyDefinition(source: JourneyDefinitionContent): AuthoringDocumentV1 {
-  // ทำงานบน canonical form: ชุดที่ไม่มีลำดับ (exit rules) ได้ document เดียวกันไม่ว่าต้นทางเรียงแบบไหน
+  // works on the canonical form: an unordered set (exit rules) yields the same document regardless of source order
   const content = canonicalRuntimeDefinition(source);
   const stepIds = new Set(content.graph.steps.map((step) => step.id));
   let triggerId = 'trigger';
@@ -260,7 +260,7 @@ export function importJourneyDefinition(source: JourneyDefinitionContent): Autho
       exitRules: content.exitRules,
       maxDurationDays: content.maxDurationDays,
     },
-    // layout แค่จัดเรียงเริ่มต้นให้อ่านได้ ไม่มีผลต่อ runtime hash
+    // layout only provides a readable default arrangement and has no effect on the runtime hash
     layout: {
       nodes: Object.fromEntries([
         [triggerId, { x: 0, y: 0 }],

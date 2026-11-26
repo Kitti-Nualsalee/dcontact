@@ -1,5 +1,5 @@
 #!/bin/sh
-# #490: render เฉพาะ credential ของ E1 sandbox ลง tmpfs ก่อน FreeSWITCH เริ่ม
+# #490: render only the E1 sandbox credentials into tmpfs before FreeSWITCH starts
 set -eu
 umask 077
 
@@ -9,18 +9,18 @@ require_secret() {
     E1_DIRECTORY_PASSWORD) value="${E1_DIRECTORY_PASSWORD:-}" ;;
     E1_ESL_PASSWORD) value="${E1_ESL_PASSWORD:-}" ;;
     *)
-      echo "ไม่รู้จักชื่อตัวแปร secret" >&2
+      echo "unknown secret variable name" >&2
       exit 64
       ;;
   esac
   case "$value" in
     ''|*[!A-Za-z0-9]*)
-      echo "${name} ต้องเป็น alphanumeric ที่ไม่ว่าง" >&2
+      echo "${name} must be a non-empty alphanumeric value" >&2
       exit 64
       ;;
   esac
   if [ "${#value}" -lt 16 ]; then
-    echo "${name} ต้องยาวอย่างน้อย 16 ตัวอักษร" >&2
+    echo "${name} must be at least 16 characters long" >&2
     exit 64
   fi
   printf '%s' "$value"

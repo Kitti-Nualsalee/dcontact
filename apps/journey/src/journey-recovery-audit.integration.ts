@@ -29,7 +29,7 @@ async function fixture(t: TestContext) {
   return { owner, application, tenantId };
 }
 
-test('record บันทึก manual recovery แบบ append-only และ findFor เรียงตามเวลา', async (t) => {
+test('record keeps manual recovery append-only and findFor sorts by time', async (t) => {
   const f = await fixture(t);
   const auditLog = new JourneyRecoveryAuditLog(f.application);
   const actorId = randomUUID();
@@ -63,7 +63,7 @@ test('record บันทึก manual recovery แบบ append-only และ 
   assert.equal(await f.owner.jrRecoveryAudit.count({ where: { tenantId: f.tenantId } }), 2);
 });
 
-test('tenant คนละใบไม่เห็น recovery audit ของกันและกัน', async (t) => {
+test('different tenants do not see each other recovery audit', async (t) => {
   const a = await fixture(t);
   const b = await fixture(t);
   const auditLog = new JourneyRecoveryAuditLog(a.application);

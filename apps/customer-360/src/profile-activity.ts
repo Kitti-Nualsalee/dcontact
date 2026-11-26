@@ -73,7 +73,7 @@ export type C360ActivityCoverage = {
 };
 export type C360ActivityEvidence = ReadonlyMap<string, readonly CoverageInterval[]>;
 
-/** โหลด evidence ที่ผู้ดูแลส่งมากับ release ตอนเริ่มระบบเท่านั้น ไม่รับค่าจาก request */
+/** Loads only the evidence an operator ships with the release at startup; never accepts values from a request */
 export function parseC360ActivityEvidence(raw: string | undefined): C360ActivityEvidence {
   const evidence = new Map<string, CoverageInterval[]>();
   if (!raw) return evidence;
@@ -112,7 +112,7 @@ export function parseC360ActivityEvidence(raw: string | undefined): C360Activity
       evidence.set(tenantId, intervals);
     }
   } catch {
-    // ไม่เผยค่าที่ผิดรูปและไม่รับรอง coverage จาก manifest ที่ตรวจไม่ได้
+    // Do not expose malformed values and do not certify coverage from a manifest that cannot be verified
     return new Map();
   }
   return evidence;
@@ -213,7 +213,7 @@ export async function readC360Activity(
     ]),
     scope: c360ScopeDigest(actor),
   };
-  // Cursor เก็บ fingerprint ของ VIEW เพื่อให้ตรวจ scope หลังประเมิน DEFER ในช่วงที่ cursor ตรึงไว้
+  // The cursor stores a fingerprint of the VIEW so scope can be re-checked after evaluating DEFER while the cursor is pinned
   const viewFingerprint = async () => {
     const [scope] = await tx.$queryRaw<{ fingerprint: string }[]>(Prisma.sql`
       SELECT concat(count(*), ':',

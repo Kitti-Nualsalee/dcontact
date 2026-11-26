@@ -1,5 +1,5 @@
 import { useShellPageNav } from '@d-contact/ui-react';
-/** Console ใหม่กับ Navigation API รุ่นก่อนที่ยังไม่มี pages */
+/** new Console with an earlier Navigation API that has no pages yet */
 export function CorePageLinks({
   tenant,
   teams,

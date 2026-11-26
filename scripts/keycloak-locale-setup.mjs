@@ -2,26 +2,26 @@ import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
 
 /**
- * D1.11 (#450): ภาษาและ timezone ของผู้ใช้บน realm `dcontact` — idempotent ผ่าน Admin API
- * จึงใช้ได้ทั้ง realm ใหม่และ realm ที่ import ไปแล้ว (`--import-realm` ไม่ import ซ้ำ)
+ * D1.11 (#450): the language and timezone of users on the `dcontact` realm - idempotent through the Admin API
+ * so it works on both a new realm and an already imported one (`--import-realm` does not import again)
  *
- * - เปิด internationalization: `th` (ค่าเริ่มต้น) และ `en` — Keycloak จึงเก็บ attribute `locale`
- *   ของผู้ใช้, ใส่ claim `locale` ใน token (scope `profile`) และแสดงหน้า login/อีเมลตามภาษาผู้ใช้
- * - ประกาศ attribute `zoneinfo` ใน user profile (Keycloak 24+ ทิ้ง attribute ที่ไม่ได้ประกาศ)
- *   ให้ mapper `zoneinfo` ของ scope `profile` ส่ง timezone ของผู้ใช้ (IANA) ออกมาใน token
- *   ผู้ใช้เห็นได้ แต่แก้ได้เฉพาะ admin — ยังไม่มีหน้าตั้ง timezone ของผู้ใช้ใน D1
+ * - enable internationalization: `th` (the default) and `en` - so Keycloak stores the user `locale` attribute,
+ *   puts the `locale` claim in the token (scope `profile`) and shows the login pages/emails in the user language
+ * - declare the `zoneinfo` attribute in the user profile (Keycloak 24+ drops attributes that are not declared)
+ *   so the `zoneinfo` mapper of the `profile` scope sends the user timezone (IANA) out in the token
+ *   the user can see it but only an admin can edit it - D1 has no page to set a user timezone yet
  *
- * ผู้ใช้เปลี่ยนภาษาของตัวเองผ่าน Account REST API ด้วย token ของตัวเอง (`@d-contact/i18n`)
- * ไม่ต้องให้ API ของ D-Contact ถือสิทธิ์ admin ของ realm — ต้องมี `account/manage-account` ซึ่งมากับ
- * `default-roles-dcontact` ผู้ใช้ที่สร้างผ่าน Admin API (provisioning) ได้ role นี้อัตโนมัติ แต่ผู้ใช้ dev
- * ที่ import จาก realm JSON พร้อม `realmRoles` ระบุเองไม่ได้ สคริปต์จึงเติมให้ (ปิดด้วย `--no-dev-users`)
- * attribute ของ tenant (`tenant_id`, `tenant_slug`, `dc_user_id`) ยังเป็น read-only สำหรับผู้ใช้
+ * users change their own language through the Account REST API with their own token (`@d-contact/i18n`)
+ * the D-Contact API does not need to hold realm admin rights - it needs `account/manage-account`, which comes with
+ * `default-roles-dcontact`; users created through the Admin API (provisioning) get this role automatically, but dev users
+ * imported from the realm JSON cannot name it in `realmRoles` themselves, so the script adds it (disable with `--no-dev-users`)
+ * the tenant attributes (`tenant_id`, `tenant_slug`, `dc_user_id`) remain read-only for users
  */
 export const LOCALE_REALM = 'dcontact';
 export const REALM_LOCALES = Object.freeze(['th', 'en']);
 export const REALM_DEFAULT_LOCALE = 'th';
 export const REALM_DEFAULT_ROLE = 'default-roles-dcontact';
-/** ตรงกับ `users` ใน infra/keycloak/realm-dcontact.dev.json */
+/** Matches `users` in infra/keycloak/realm-dcontact.dev.json */
 export const LOCALE_DEV_USERS = Object.freeze([
   'admin@demo.local',
   'agent1000@demo.local',
@@ -43,7 +43,7 @@ async function request(path, { method = 'GET', token, body, form } = {}) {
     body: body === undefined ? form : JSON.stringify(body),
   });
   if (!response.ok) {
-    throw new Error(`${method} ${path} ล้มเหลว (${response.status}): ${await response.text()}`);
+    throw new Error(`${method} ${path} failed (${response.status}): ${await response.text()}`);
   }
   const text = await response.text();
   return text ? JSON.parse(text) : undefined;
@@ -67,13 +67,13 @@ const realmPath = `/admin/realms/${LOCALE_REALM}`;
 export const ZONEINFO_ATTRIBUTE = Object.freeze({
   name: 'zoneinfo',
   displayName: 'Time zone',
-  // AC6 (#599): ผู้ใช้ไม่เห็น attribute นี้ (หน้า required action ของ identity provider จะแสดงเป็นช่องฟอร์ม)
-  // — claim `zoneinfo` ใน token มาจาก mapper ซึ่งอ่าน attribute ตรง ไม่ผ่านสิทธิ์ view ของผู้ใช้
+  // AC6 (#599): the user does not see this attribute (the required action page of the identity provider would show it as a form field)
+  // - the `zoneinfo` claim in the token comes from a mapper, which reads the attribute directly and not through the user view permission
   permissions: { view: ['admin'], edit: ['admin'] },
   multivalued: false,
 });
 
-/** คืน user profile config ที่มี `zoneinfo` — ไม่แตะ attribute อื่นที่มีอยู่ */
+/** Return the user profile config that has `zoneinfo` - does not touch other existing attributes */
 export function withZoneinfoAttribute(profile) {
   const attributes = profile.attributes ?? [];
   if (attributes.some((attribute) => attribute.name === ZONEINFO_ATTRIBUTE.name)) return profile;

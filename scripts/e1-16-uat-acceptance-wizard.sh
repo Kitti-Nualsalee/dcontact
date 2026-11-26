@@ -198,7 +198,7 @@ cleanup() {
 trap cleanup EXIT
 
 require_command() {
-  command -v "$1" >/dev/null 2>&1 || { warn "ต้องติดตั้ง $1 ก่อน"; exit 1; }
+  command -v "$1" >/dev/null 2>&1 || { warn "$1 must be installed first"; exit 1; }
 }
 
 set_environment_secret() {
@@ -223,30 +223,30 @@ uat_ssh() {
 
 banner "E1.16 · UAT acceptance"
 
-stage "ตรวจ prerequisites และขอบเขต"
+stage "Check prerequisites and scope"
 require_command gh
 require_command git
 require_command ssh
 gh auth status >/dev/null
 MAIN_SHA="$(gh api "repos/$REPOSITORY/commits/main" --jq .sha)"
 LOCAL_SHA="$(git rev-parse HEAD)"
-[[ "$LOCAL_SHA" == "$MAIN_SHA" ]] || { warn "ต้อง checkout final main ($MAIN_SHA) ก่อนรัน wizard"; exit 1; }
-ask TENANT_SLUG "Tenant slug สำหรับ UAT (ห้ามเป็น tenant ของ #77):"
-[[ "$TENANT_SLUG" =~ ^[a-z0-9][a-z0-9-]{1,62}$ ]] || { warn "tenant slug ผิดรูป"; exit 1; }
-ask OPERATOR_ACTOR "Operator actor สำหรับ audit (เช่น email):"
-[[ "$OPERATOR_ACTOR" =~ ^[A-Za-z0-9@._+-]+$ ]] || { warn "operator actor ผิดรูป"; exit 1; }
-ask ISSUE_77_CONFIRM "พิมพ์ NOT-ISSUE-77 เพื่อยืนยันว่า tenant นี้ไม่ใช่งาน pilot #77:"
-[[ "$ISSUE_77_CONFIRM" == "NOT-ISSUE-77" ]] || { warn "หยุด: ห้ามแตะ tenant ของ #77"; exit 1; }
+[[ "$LOCAL_SHA" == "$MAIN_SHA" ]] || { warn "check out final main ($MAIN_SHA) before running the wizard"; exit 1; }
+ask TENANT_SLUG "Tenant slug for UAT (must not be the #77 tenant):"
+[[ "$TENANT_SLUG" =~ ^[a-z0-9][a-z0-9-]{1,62}$ ]] || { warn "tenant slug is malformed"; exit 1; }
+ask OPERATOR_ACTOR "Operator actor for the audit (e.g. email):"
+[[ "$OPERATOR_ACTOR" =~ ^[A-Za-z0-9@._+-]+$ ]] || { warn "operator actor is malformed"; exit 1; }
+ask ISSUE_77_CONFIRM "Type NOT-ISSUE-77 to confirm this tenant is not the #77 pilot:"
+[[ "$ISSUE_77_CONFIRM" == "NOT-ISSUE-77" ]] || { warn "stopping: do not touch the #77 tenant"; exit 1; }
 note "acceptance SHA: $MAIN_SHA"
 
-stage "ตั้ง GitHub environment secrets"
-say "ค่าทั้งสี่มาจากเครื่อง/secret store ของเจ้าของ UAT และไม่ถูกเขียนลงไฟล์"
+stage "Set the GitHub environment secrets"
+say "All four values come from the UAT owner machine/secret store and are never written to a file"
 ask_secret UAT_SSH_PRIVATE_KEY "UAT_SSH_PRIVATE_KEY:"
 ask_secret UAT_SSH_KNOWN_HOSTS "UAT_SSH_KNOWN_HOSTS:"
 ask_secret UAT_SSH_HOST "UAT_SSH_HOST:"
 ask_secret UAT_SSH_USER "UAT_SSH_USER:"
 for value in "$UAT_SSH_PRIVATE_KEY" "$UAT_SSH_KNOWN_HOSTS" "$UAT_SSH_HOST" "$UAT_SSH_USER"; do
-  [[ -n "$value" ]] || { warn "secret ห้ามว่าง"; exit 1; }
+  [[ -n "$value" ]] || { warn "secret must not be empty"; exit 1; }
 done
 set_environment_secret UAT_SSH_PRIVATE_KEY "$UAT_SSH_PRIVATE_KEY"
 set_environment_secret UAT_SSH_KNOWN_HOSTS "$UAT_SSH_KNOWN_HOSTS"
@@ -255,56 +255,56 @@ set_environment_secret UAT_SSH_USER "$UAT_SSH_USER"
 setup_ssh
 uat_ssh "printf 'SSH_READY\\n'" | grep -qx SSH_READY
 
-stage "Deploy final main ไป UAT"
-ask INITIAL_DEPLOY "เป็น deploy ครั้งแรกหรือไม่? พิมพ์ true หรือ false:"
-[[ "$INITIAL_DEPLOY" == "true" || "$INITIAL_DEPLOY" == "false" ]] || { warn "ต้องเป็น true หรือ false"; exit 1; }
-confirm "dispatch uat-preview deploy ของ $MAIN_SHA ตอนนี้?" || exit 1
+stage "Deploy final main to UAT"
+ask INITIAL_DEPLOY "Is this the first deploy? Type true or false:"
+[[ "$INITIAL_DEPLOY" == "true" || "$INITIAL_DEPLOY" == "false" ]] || { warn "must be true or false"; exit 1; }
+confirm "Dispatch the uat-preview deploy of $MAIN_SHA now?" || exit 1
 gh workflow run uat-preview.yml --repo "$REPOSITORY" --ref main \
   -f action=deploy -f rollback_sha= -f initial_deploy="$INITIAL_DEPLOY"
 sleep 5
 DEPLOY_RUN="$(gh run list --repo "$REPOSITORY" --workflow uat-preview.yml --branch main \
   --event workflow_dispatch --limit 1 --json databaseId,headSha --jq '.[0] | select(.headSha == "'"$MAIN_SHA"'") | .databaseId')"
-[[ -n "$DEPLOY_RUN" ]] || { warn "หา deploy run ของ SHA นี้ไม่พบ"; exit 1; }
+[[ -n "$DEPLOY_RUN" ]] || { warn "deploy run for this SHA not found"; exit 1; }
 open_url "https://github.com/$REPOSITORY/actions/runs/$DEPLOY_RUN"
-step "ให้ required reviewer อนุมัติ environment uat-preview"
+step "Have the required reviewer approve the uat-preview environment"
 gh run watch "$DEPLOY_RUN" --repo "$REPOSITORY" --exit-status
 
-stage "Allowlist origin และเปิด embed flag"
+stage "Allowlist the origin and enable the embed flag"
 UAT_HOST="$(gh variable get UAT_HOST --env "$ENVIRONMENT" --repo "$REPOSITORY")"
 HOST_ORIGIN="https://$UAT_HOST"
 uat_ssh "UAT_ROOT='$UAT_ROOT' '$UAT_ROOT/releases/$MAIN_SHA/bin/uat-deploy.sh' e1-enable '$MAIN_SHA'"
 uat_ssh "UAT_ROOT='$UAT_ROOT' '$UAT_ROOT/releases/$MAIN_SHA/bin/uat-deploy.sh' smoke '$MAIN_SHA'"
 open_url "$HOST_ORIGIN/?view=dphone-embedding"
-step "เข้าสู่ระบบด้วยบัญชี UAT ADMIN แล้วเพิ่ม origin $HOST_ORIGIN"
-step "ตั้ง screen-pop level เป็น ids และยืนยันว่า Console แสดง audit สำเร็จ"
-pause "กด Enter เมื่อ allowlist พร้อม"
-confirm "เปิด dphone.embed.enabled ให้ $TENANT_SLUG ตอนนี้?" || exit 1
+step "Sign in with the UAT ADMIN account and add the origin $HOST_ORIGIN"
+step "Set the screen-pop level to ids and confirm the Console shows the audit succeeded"
+pause "Press Enter when the allowlist is ready"
+confirm "Enable dphone.embed.enabled for $TENANT_SLUG now?" || exit 1
 uat_ssh "UAT_ROOT='$UAT_ROOT' '$UAT_ROOT/releases/$MAIN_SHA/bin/uat-deploy.sh' ui-flag '$MAIN_SHA' '$TENANT_SLUG' on '$OPERATOR_ACTOR'"
 
 stage "Edge desktop + microphone acceptance"
 HOST_URL="$HOST_ORIGIN/examples/dphone-host/index.html?tenant=$TENANT_SLUG"
 open_url "$HOST_URL"
-step "ใช้ Microsoft Edge desktop รุ่นล่าสุด เปิด DevTools และยืนยันว่า launcher v1 โหลดสำเร็จ"
-step "กดเข้าสู่ระบบ: ต้องเห็น popup ของ Keycloak และ origin ของ $HOST_ORIGIN ชัดเจน"
-step "กดตรวจอุปกรณ์เสียง: ต้องเห็น browser microphone prompt ของ $HOST_ORIGIN แล้วเลือก Allow"
-step "ยืนยันรับสาย, screen-pop, activity ack และ click-to-call; ระหว่าง ACTIVE ทดลอง reload ปกติแล้วต้องถูกเตือน"
+step "Use the latest Microsoft Edge desktop, open DevTools and confirm launcher v1 loads"
+step "Click sign in: the Keycloak popup and the origin $HOST_ORIGIN must be clearly visible"
+step "Click the audio device check: the browser microphone prompt for $HOST_ORIGIN must appear, then choose Allow"
+step "Confirm answering a call, screen-pop, activity ack and click-to-call; during ACTIVE try a normal reload and a warning must appear"
 open_url "https://github.com/$REPOSITORY/issues/490"
-step "แนบ screenshot/video ที่เห็น Edge version, origin, mic prompt และผลทั้งสี่ความสามารถใน #490"
-ask EVIDENCE_URL "วาง URL ของ evidence comment ใน #490:"
-[[ "$EVIDENCE_URL" == https://github.com/$REPOSITORY/issues/490* ]] || { warn "ต้องเป็น URL จาก #490"; exit 1; }
+step "Attach a screenshot/video showing the Edge version, origin, mic prompt and the result of all four capabilities in #490"
+ask EVIDENCE_URL "Paste the URL of the evidence comment in #490:"
+[[ "$EVIDENCE_URL" == https://github.com/$REPOSITORY/issues/490* ]] || { warn "must be a URL from #490"; exit 1; }
 
 stage "Rollback embed flag"
-confirm "ปิด dphone.embed.enabled เพื่อซ้อม rollback ตอนนี้?" || exit 1
+confirm "Disable dphone.embed.enabled to rehearse the rollback now?" || exit 1
 uat_ssh "UAT_ROOT='$UAT_ROOT' '$UAT_ROOT/releases/$MAIN_SHA/bin/uat-deploy.sh' ui-flag '$MAIN_SHA' '$TENANT_SLUG' off '$OPERATOR_ACTOR'"
 open_url "$HOST_URL"
-step "reload reference host และยืนยัน iframe ถูก fail-closed; สายที่ active ก่อนปิดต้องไม่หลุดจนจบ"
-pause "กด Enter เมื่อยืนยัน flag rollback แล้ว"
+step "Reload the reference host and confirm the iframe fails closed; a call that was active before the switch-off must not drop until it ends"
+pause "Press Enter when the flag rollback is confirmed"
 uat_ssh "UAT_ROOT='$UAT_ROOT' '$UAT_ROOT/releases/$MAIN_SHA/bin/uat-deploy.sh' e1-disable '$MAIN_SHA'"
 uat_ssh "UAT_ROOT='$UAT_ROOT' '$UAT_ROOT/releases/$MAIN_SHA/bin/uat-deploy.sh' smoke '$MAIN_SHA'"
 
-stage "Deployment rollback และบันทึกหลักฐาน"
-warn "ขั้นนี้ต้องมี previous successful deployment record; ถ้าไม่มีให้ตอบ No และเก็บ gate นี้ไว้รอบถัดไป"
-if confirm "rollback Console/API ไป deployment record ก่อนหน้า?"; then
+stage "Deployment rollback and recording the evidence"
+warn "This step needs a previous successful deployment record; if there is none, answer No and keep this gate for the next round"
+if confirm "Roll back Console/API to the previous deployment record?"; then
   gh workflow run uat-preview.yml --repo "$REPOSITORY" --ref main \
     -f action=rollback -f rollback_sha= -f initial_deploy=false
   sleep 5
@@ -313,8 +313,8 @@ if confirm "rollback Console/API ไป deployment record ก่อนหน้�
   open_url "https://github.com/$REPOSITORY/actions/runs/$ROLLBACK_RUN"
   gh run watch "$ROLLBACK_RUN" --repo "$REPOSITORY" --exit-status
 else
-  SKIPPED+=("deployment rollback: ยังไม่มี previous successful deployment record")
+  SKIPPED+=("deployment rollback: there is no previous successful deployment record yet")
 fi
-gh issue comment 490 --repo "$REPOSITORY" --body "E1.16 manual acceptance บน main \`$MAIN_SHA\`: Edge desktop + mic/origin prompt และ flow ฝัง dphone ผ่านตาม evidence $EVIDENCE_URL; เปิด/ปิด \`dphone.embed.enabled\` ผ่าน audited operator CLI แล้ว โดย tenant ที่ใช้ไม่ใช่ #77. Deploy run: https://github.com/$REPOSITORY/actions/runs/$DEPLOY_RUN${ROLLBACK_RUN:+ · rollback run: https://github.com/$REPOSITORY/actions/runs/$ROLLBACK_RUN}"
+gh issue comment 490 --repo "$REPOSITORY" --body "E1.16 manual acceptance บน main \`$MAIN_SHA\`: Edge desktop + mic/origin prompt และ flow ฝัง dphone ผ่านตาม evidence $EVIDENCE_URL; เปิด/ปิด \`dphone.embed.enabled\` ผ่าน audited operator CLI แล้ว โดย tenant ที่ใช้ไม่ใช่ #77. Deploy run: https://github.com/$REPOSITORY/actions/runs/$DEPLOY_RUN${ROLLBACK_RUN:+ · rollback run: https://github.com/$REPOSITORY/actions/runs/$ROLLBACK_RUN}" # allow-thai: comment text posted to GitHub issue #490
 
 finish

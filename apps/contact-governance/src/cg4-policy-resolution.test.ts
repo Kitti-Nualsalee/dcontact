@@ -26,7 +26,7 @@ function resolve(heads: Cg4ScopeHeadFacts[], request = { channel: 'VOICE' as con
   return resolveCg4ActivePolicy({ heads, request, now: NOW, cacheTtlSeconds: 300 });
 }
 
-test('scope ที่ยังไม่มี policy คืน UNCONFIGURED ไม่ใช่ fail closed', () => {
+test('a scope that has no policy yet returns UNCONFIGURED, not fail closed', () => {
   assert.equal(resolve([]).outcome, 'UNCONFIGURED');
   assert.equal(
     resolve([head({ scopeKey: buildCg4PolicyScopeKey({ channel: 'EMAIL' }) })]).outcome,
@@ -34,7 +34,7 @@ test('scope ที่ยังไม่มี policy คืน UNCONFIGURED ไ�
   );
 });
 
-test('เลือก head ที่ specificity สูงสุด ไม่ใช่ตัวที่ publish ล่าสุด', () => {
+test('picks the head with the highest specificity, not the most recently published', () => {
   const generic = head({ scopeKey: buildCg4PolicyScopeKey({}), policyId: 'generic' });
   const specific = head({
     scopeKey: buildCg4PolicyScopeKey({ channel: 'VOICE', purpose: 'MARKETING' }),
@@ -46,7 +46,7 @@ test('เลือก head ที่ specificity สูงสุด ไม่ใ
   assert.equal(result.head.policyId, 'specific');
 });
 
-test('head ที่ specificity เท่ากันสองตัว match request เดียวกัน fail closed', () => {
+test('two heads with equal specificity matching the same request fail closed', () => {
   const byChannel = head({ scopeKey: buildCg4PolicyScopeKey({ channel: 'VOICE' }), policyId: 'a' });
   const byPurpose = head({
     scopeKey: buildCg4PolicyScopeKey({ purpose: 'MARKETING' }),
@@ -61,7 +61,7 @@ test('head ที่ specificity เท่ากันสองตัว match r
   assert.equal(result.reason, 'GOVERNANCE_STATE_UNAVAILABLE');
 });
 
-test('schema/registry/evaluator version ที่ไม่รองรับ fail closed', () => {
+test('an unsupported schema/registry/evaluator version fails closed', () => {
   for (const overrides of [
     { schemaVersion: 2 },
     { registryVersion: 'CG4_RULE_REGISTRY_V0' },
@@ -73,7 +73,7 @@ test('schema/registry/evaluator version ที่ไม่รองรับ fai
   }
 });
 
-test('scheduled activation ที่ถึงเวลาแล้วแต่ยังไม่ activate ห้าม fallback ไป version เก่า', () => {
+test('a scheduled activation that is due but not yet activated must not fall back to the old version', () => {
   const due = resolve([head({ nextActivationAt: new Date('2026-01-05T11:59:59.000Z') })]);
   assert.ok(due.outcome === 'FAIL_CLOSED');
   assert.equal(due.reason, 'POLICY_ACTIVATION_PENDING');
@@ -83,7 +83,7 @@ test('scheduled activation ที่ถึงเวลาแล้วแต่�
   assert.equal(exactly.reason, 'POLICY_ACTIVATION_PENDING');
 });
 
-test('validUntil ถูกตัดด้วย TTL หรือ nextActivationAt แล้วแต่อันไหนมาก่อน', () => {
+test('validUntil is cut by the TTL or nextActivationAt, whichever comes first', () => {
   const ttlBound = resolve([head()]);
   assert.ok(ttlBound.outcome === 'RESOLVED');
   assert.equal(ttlBound.validUntil.toISOString(), '2026-01-05T12:05:00.000Z');

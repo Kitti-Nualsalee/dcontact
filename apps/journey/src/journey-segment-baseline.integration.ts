@@ -81,7 +81,7 @@ async function fixture(t: TestContext) {
 
 type Fixture = Awaited<ReturnType<typeof fixture>>;
 
-/** สร้าง membership ของ Customer 360 ที่ "มีอยู่ก่อน" เปิด J3 */
+/** creates a Customer 360 membership that "existed before" J3 was turned on */
 async function existingMembership(f: Fixture, revision: number, state: 'IN' | 'OUT' = 'IN') {
   const contactId = randomUUID();
   await f.owner.contact.create({ data: { id: contactId, tenantId: f.tenantId } });
@@ -131,7 +131,7 @@ async function existingMembership(f: Fixture, revision: number, state: 'IN' | 'O
   return contactId;
 }
 
-test('baseline ตั้ง head ให้ membership ที่มีอยู่ก่อน โดยไม่สร้าง enrollment เลยสักใบ', async (t) => {
+test('the baseline sets the head for memberships that existed before, without creating a single enrollment', async (t) => {
   const f = await fixture(t);
   const contacts = await Promise.all([
     existingMembership(f, 5),
@@ -147,15 +147,19 @@ test('baseline ตั้ง head ให้ membership ที่มีอยู�
   assert.equal(heads.length, 3);
   for (const contactId of contacts) {
     const head = heads.find((row) => row.contactId === contactId);
-    assert.ok(head, 'ทุก stream ต้องมี head');
-    assert.equal(head.terminalEntryId, null, 'baseline ไม่ได้เห็นเหตุการณ์ปิด entry จึงห้ามเขียน');
+    assert.ok(head, 'every stream must have a head');
+    assert.equal(
+      head.terminalEntryId,
+      null,
+      'the baseline did not see the entry-closing event so it must not write one',
+    );
   }
 
   /**
-   * ข้อสำคัญที่สุดของ baseline: ห้ามมี enrollment เกิดขึ้นเลย
+   * the most important point of the baseline: no enrollment may be created at all
    *
-   * contact เหล่านี้อยู่ใน segment มาก่อนเปิดระบบ การ enroll ทุกคนตอนเปิดเท่ากับยิงแคมเปญใส่
-   * ฐานลูกค้าทั้งหมดพร้อมกันโดยไม่มีใครสั่ง
+   * these contacts were in the segment before the system was turned on; enrolling everyone at turn-on would fire the campaign at
+   * the entire customer base at once with nobody ordering it
    */
   assert.equal(
     await f.owner.jrSegmentEnrollmentIntent.count({ where: { tenantId: f.tenantId } }),
@@ -166,7 +170,7 @@ test('baseline ตั้ง head ให้ membership ที่มีอยู�
   assert.equal(await f.owner.jrSegmentReceipt.count({ where: { tenantId: f.tenantId } }), 0);
 });
 
-test('รัน baseline ซ้ำได้ผลเท่าเดิม ไม่สร้างอะไรเพิ่ม', async (t) => {
+test('running the baseline again gives the same result and creates nothing more', async (t) => {
   const f = await fixture(t);
   await existingMembership(f, 5);
   await existingMembership(f, 2);
@@ -175,15 +179,15 @@ test('รัน baseline ซ้ำได้ผลเท่าเดิม ไม
   const second = await f.baseline.baselineTenant(f.tenantId);
 
   assert.equal(first.baselined, 2);
-  assert.equal(second.baselined, 0, 'รอบสองต้องไม่ตั้ง baseline ซ้ำ');
+  assert.equal(second.baselined, 0, 'the second round must not set the baseline again');
   assert.equal(second.skipped, 2);
   assert.equal(await f.owner.jrSegmentHead.count({ where: { tenantId: f.tenantId } }), 2);
 });
 
-test('baseline ไม่ดึง head ที่เดินไปไกลแล้วให้ถอยกลับ', async (t) => {
+test('the baseline does not pull back a head that has already moved far ahead', async (t) => {
   const f = await fixture(t);
   const contactId = await existingMembership(f, 2);
-  // ระบบเดินไปถึง revision 9 แล้วก่อนที่จะมีคนสั่ง baseline ซ้ำ
+  // the system had already advanced to revision 9 before anyone ordered the baseline again
   await f.owner.jrSegmentHead.create({
     data: {
       tenantId: f.tenantId,
@@ -197,25 +201,25 @@ test('baseline ไม่ดึง head ที่เดินไปไกลแ�
   assert.equal(result.baselined, 0);
   assert.equal(result.skipped, 1);
   const head = await f.owner.jrSegmentHead.findFirstOrThrow({ where: { tenantId: f.tenantId } });
-  assert.equal(head.lastAppliedRevision, 9, 'head ห้ามถูกดึงถอยหลัง');
+  assert.equal(head.lastAppliedRevision, 9, 'the head must not be pulled backwards');
 });
 
-test('baseline แบ่งชุดได้และ resume ต่อจาก cursor เดิมโดยไม่ข้าม stream', async (t) => {
+test('the baseline can be split into batches and resumes from the existing cursor without skipping a stream', async (t) => {
   const f = await fixture(t);
   for (let index = 0; index < 5; index += 1) await existingMembership(f, index + 1);
 
-  // รอบแรกทำแค่สองใบแล้วหยุด เหมือนถูก kill กลางทาง
+  // the first round does only two and stops, as if killed midway
   const first = await f.baseline.baselineNext({ tenantId: f.tenantId, batchSize: 2 });
   assert.equal(first.baselined, 2);
-  assert.ok(first.nextCursor, 'ยังไม่จบต้องมี cursor ให้ทำต่อ');
+  assert.ok(first.nextCursor, 'when not finished there must be a cursor to continue');
 
-  // resume จาก cursor เดิม
+  // resume from the existing cursor
   const rest = await f.baseline.baselineTenant(f.tenantId, 2);
-  assert.equal(rest.baselined + first.baselined, 5, 'ทุก stream ต้องถูกทำครบ ไม่มีใครถูกข้าม');
+  assert.equal(rest.baselined + first.baselined, 5, 'every stream must be done and none skipped');
   assert.equal(await f.owner.jrSegmentHead.count({ where: { tenantId: f.tenantId } }), 5);
 });
 
-test('membership ที่ OUT อยู่แล้วก็ได้ baseline แต่ไม่ถูกทำเครื่องหมายว่าจบ', async (t) => {
+test('a membership that is already OUT also gets a baseline but is not marked as ended', async (t) => {
   const f = await fixture(t);
   await existingMembership(f, 4, 'OUT');
 
@@ -226,7 +230,7 @@ test('membership ที่ OUT อยู่แล้วก็ได้ baseline 
   assert.equal(head.terminalReasonCode, null);
 });
 
-test('rebuild ประกอบ head จาก receipt ที่ apply แล้ว และรันซ้ำได้ผลเท่าเดิม', async (t) => {
+test('rebuild assembles the head from receipts already applied and running again gives the same result', async (t) => {
   const f = await fixture(t);
   const contactId = await existingMembership(f, 1);
   const entryId = `entry-${f.suffix}`;
@@ -266,18 +270,18 @@ test('rebuild ประกอบ head จาก receipt ที่ apply แล�
   });
   const outboxBefore = await f.owner.jrSegmentOutbox.count({ where: { tenantId: f.tenantId } });
 
-  // projection เสียหาย — ลบ head ทิ้งแล้วประกอบใหม่จาก ledger
+  // the projection is damaged — delete the head and rebuild it from the ledger
   await f.owner.jrSegmentHead.deleteMany({ where: { tenantId: f.tenantId, contactId } });
   const rebuilt = await f.baseline.rebuildHead(f.tenantId, contactId, f.segmentId);
   assert.equal(rebuilt.lastAppliedRevision, 2);
   assert.equal(rebuilt.rebuilt, true);
 
-  // รันซ้ำต้องได้เท่าเดิมและไม่นับว่าเปลี่ยนอะไร
+  // running again must give the same result and not count as changing anything
   const again = await f.baseline.rebuildHead(f.tenantId, contactId, f.segmentId);
   assert.equal(again.lastAppliedRevision, 2);
-  assert.equal(again.rebuilt, false, 'rebuild ที่ไม่มีอะไรเปลี่ยนต้องไม่รายงานว่าเขียน');
+  assert.equal(again.rebuilt, false, 'a rebuild where nothing changed must not report a write');
 
-  // rebuild projection ไม่ใช่การ replay effect
+  // rebuilding the projection is not a replay of effects
   assert.equal(
     await f.owner.jrSegmentEnrollmentIntent.count({ where: { tenantId: f.tenantId } }),
     intentsBefore,
@@ -285,11 +289,11 @@ test('rebuild ประกอบ head จาก receipt ที่ apply แล�
   assert.equal(
     await f.owner.jrSegmentOutbox.count({ where: { tenantId: f.tenantId } }),
     outboxBefore,
-    'rebuild ต้องไม่สร้าง outbox ซ้ำ',
+    'rebuild must not create a duplicate outbox',
   );
 });
 
-test('rebuild ของ stream ที่ไม่มี receipt ที่ apply แล้วไม่สร้าง head ขึ้นมาลอย ๆ', async (t) => {
+test('rebuild of a stream with no applied receipt does not create a floating head', async (t) => {
   const f = await fixture(t);
   const contactId = await existingMembership(f, 1);
   await f.owner.jrSegmentHead.deleteMany({ where: { tenantId: f.tenantId } });
@@ -300,11 +304,11 @@ test('rebuild ของ stream ที่ไม่มี receipt ที่ apply 
   assert.equal(await f.owner.jrSegmentHead.count({ where: { tenantId: f.tenantId } }), 0);
 });
 
-test('crash/kill drill ข้ามทุก rollout stage resume ได้โดยไม่ข้าม stream หรือสร้าง effect ซ้ำ', async (t) => {
+test('a crash/kill drill across every rollout stage can resume without skipping a stream or duplicating effects', async (t) => {
   const f = await fixture(t);
   for (let index = 0; index < 5; index += 1) await existingMembership(f, index + 1);
 
-  // OWNER_BACKFILL: worker แรก commit ได้แค่ batch แรกก่อนถูก kill
+  // OWNER_BACKFILL: the first worker commits only the first batch before being killed
   const firstWorker = new JourneySegmentBaseline(f.application);
   const rolloutBeforeKill = new JourneySegmentRollout(f.application);
   let view = await rolloutBeforeKill.read(f.tenantId);
@@ -316,16 +320,19 @@ test('crash/kill drill ข้ามทุก rollout stage resume ได้โ�
   });
   const firstBatch = await firstWorker.baselineNext({ tenantId: f.tenantId, batchSize: 2 });
   assert.equal(firstBatch.baselined, 2);
-  assert.ok(firstBatch.nextCursor, 'worker ที่ถูก kill ต้องทิ้ง fact ที่ commit แล้วไว้ให้ resume');
+  assert.ok(
+    firstBatch.nextCursor,
+    'a killed worker must leave committed facts behind to resume from',
+  );
 
-  // process ใหม่ไม่มี cursor ใน memory: rerun จาก durable heads ต้อง skip สิ่งที่ commit แล้ว
+  // a new process has no in-memory cursor: rerunning from the durable heads must skip what was already committed
   const resumedWorker = new JourneySegmentBaseline(f.application);
   const resumed = await resumedWorker.baselineTenant(f.tenantId, 2);
   assert.equal(resumed.baselined, 3);
   assert.equal(resumed.skipped, 2);
   assert.equal(await f.owner.jrSegmentHead.count({ where: { tenantId: f.tenantId } }), 5);
 
-  // SHADOW_MEMBERSHIP: crash หลัง append mismatch ก่อน worker รับผลกลับ ต้องไม่ append ซ้ำ
+  // SHADOW_MEMBERSHIP: a crash after appending a mismatch but before the worker got the result back must not append again
   const afterBackfillRestart = new JourneySegmentRollout(f.application);
   view = await afterBackfillRestart.read(f.tenantId);
   view = await afterBackfillRestart.advance({
@@ -357,7 +364,7 @@ test('crash/kill drill ข้ามทุก rollout stage resume ได้โ�
   );
   assert.equal(await f.owner.jrSegmentShadowMismatch.count({ where: { tenantId: f.tenantId } }), 1);
 
-  // SHADOW_RECEIPT_REFILTER และ SCOPED_INTERNAL_ENABLED: stage/freeze ต้องรอดจาก process ใหม่
+  // SHADOW_RECEIPT_REFILTER and SCOPED_INTERNAL_ENABLED: stage/freeze must survive a new process
   view = await afterShadowRestart.read(f.tenantId);
   view = await afterShadowRestart.advance({
     tenantId: f.tenantId,

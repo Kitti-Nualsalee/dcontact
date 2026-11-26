@@ -93,7 +93,7 @@ elif command!='sleep':sys.exit(99)
 }
 
 for (const action of ['keycloak', 'rollback']) {
-  test(`${action}: คืน dependent proxy เดิมและรอ HTTP/OIDC จริงก่อนรายงานผ่าน`, (t) => {
+  test(`${action}: restores the dependent proxy and waits for real HTTP/OIDC before reporting a pass`, (t) => {
     const f = fixture(t);
     const r = f.run(action, { HTTP_RETRY: '1' });
     assert.equal(r.status, 0, r.stderr);
@@ -117,7 +117,7 @@ for (const action of ['keycloak', 'rollback']) {
     assert.equal(existsSync(f.marker), action === 'rollback');
   });
 
-  test(`${action}: proxy digest ไม่ตรงต้องหยุดก่อนสลับ Keycloak โดย rollback ยังปิด rollout ก่อน`, (t) => {
+  test(`${action}: a proxy digest mismatch must stop before switching Keycloak, with rollback still keeping the rollout closed first`, (t) => {
     const f = fixture(t);
     writeFileSync(f.marker, 'old');
     if (action === 'rollback')
@@ -135,7 +135,7 @@ for (const action of ['keycloak', 'rollback']) {
     }
   });
 
-  test(`${action}: Compose ล้มยังคืน proxy แต่ไม่เปลี่ยน failure เป็น success`, (t) => {
+  test(`${action}: when Compose fails the proxy is still restored but the failure is not turned into a success`, (t) => {
     const f = fixture(t);
     writeFileSync(f.marker, 'old');
     const r = f.run(action, { COMPOSE_FAIL: '1' });
@@ -146,7 +146,7 @@ for (const action of ['keycloak', 'rollback']) {
 }
 
 for (const env of [{ START_FAIL: '1' }, { HTTP_FAIL: '1' }]) {
-  test(`rollback: ${Object.keys(env)[0]} ต้องไม่เหลือ marker เก่าที่เปิด canary ได้`, (t) => {
+  test(`rollback: ${Object.keys(env)[0]} must not leave an old marker that could open the canary`, (t) => {
     const f = fixture(t);
     writeFileSync(f.marker, 'old');
     const r = f.run('rollback', env);
@@ -159,13 +159,13 @@ for (const env of [{ START_FAIL: '1' }, { HTTP_FAIL: '1' }]) {
   });
 }
 
-test('update: สร้าง Platform API/worker/Console ใหม่จาก release นี้โดยคง rollout และไม่แตะ Keycloak', (t) => {
+test('update: recreates the Platform API/worker/Console from this release keeping the rollout and not touching Keycloak', (t) => {
   const f = fixture(t);
   const env = 'PLATFORM_PROVISIONING_ENABLED=true\nPLATFORM_OPERATOR_ALLOWLIST=subject\n';
   writeFileSync(join(f.root, 'platform/platform.env'), env, { mode: 0o600 });
   const r = f.run('update');
   assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, /UPDATE ผ่าน/);
+  assert.match(r.stdout, /UPDATE passed/);
   const compose = f.commands().filter((c) => c[0] === 'docker-compose');
   assert.ok(compose.every((c) => c.includes('dcontact-platform-uat')));
   assert.ok(
@@ -187,7 +187,7 @@ test('update: สร้าง Platform API/worker/Console ใหม่จาก 
   assert.equal(readFileSync(join(f.root, 'platform/platform.env'), 'utf8'), env);
 });
 
-test('update: release ที่ไฟล์ไม่ครบหรือ SHA ไม่ตรงต้องหยุดก่อนเรียก Compose', (t) => {
+test('update: a release with incomplete files or a mismatched SHA must stop before calling Compose', (t) => {
   const f = fixture(t);
   writeFileSync(
     join(f.root, `platform/releases/${sha}/platform-release.env`),
@@ -195,7 +195,7 @@ test('update: release ที่ไฟล์ไม่ครบหรือ SHA �
   );
   const r = f.run('update');
   assert.notEqual(r.status, 0);
-  assert.match(r.stderr, /release SHA ไม่ตรง/);
+  assert.match(r.stderr, /release SHA mismatch/);
   assert.ok(
     !existsSync(join(f.root, 'commands')) || !f.commands().some((c) => c[0] === 'docker-compose'),
   );

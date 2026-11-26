@@ -72,7 +72,7 @@ async function ready(check, label) {
     } catch {}
     await wait(500);
   }
-  throw new Error(`${label} ไม่พร้อมภายใน 60s`);
+  throw new Error(`${label} was not ready within 60s`);
 }
 function container(name, memory, args) {
   containers.push(name);
@@ -100,7 +100,7 @@ function container(name, memory, args) {
 }
 function mapped(name, port) {
   const value = docker('port', name, `${port}/tcp`);
-  if (!/^127\.0\.0\.1:\d+$/.test(value)) throw new Error(`port mapping ผิด: ${value}`);
+  if (!/^127\.0\.0\.1:\d+$/.test(value)) throw new Error(`wrong port mapping: ${value}`);
   return Number(value.split(':')[1]);
 }
 async function cleanup() {
@@ -140,9 +140,10 @@ process.once('SIGTERM', () => void cleanup().finally(() => process.exit(143)));
 
 try {
   const disk = statfsSync(evidence);
-  if (disk.bavail * disk.bsize < 2 * 1024 ** 3) throw new Error('ต้องมี disk ว่างอย่างน้อย 2GiB');
+  if (disk.bavail * disk.bsize < 2 * 1024 ** 3)
+    throw new Error('at least 2GiB of free disk is required');
   const memory = Number(docker('info', '--format', '{{.MemTotal}}'));
-  if (memory < 3 * 1024 ** 3) throw new Error('Docker ต้องมี memory อย่างน้อย 3GiB');
+  if (memory < 3 * 1024 ** 3) throw new Error('Docker must have at least 3GiB of memory');
   for (const image of images) docker('image', 'inspect', image);
   docker('network', 'create', network);
   const postgres = `${prefix}-pg`;
@@ -227,7 +228,7 @@ try {
       2,
     ),
   );
-  console.log(`หลักฐาน: ${evidence}`);
+  console.log(`evidence: ${evidence}`);
   const beforeSources = sourceDigests();
   writeFileSync(resolve(evidence, 'sources.json'), JSON.stringify(beforeSources, null, 2));
   runner = spawn(
@@ -247,7 +248,7 @@ try {
   clearTimeout(timeout);
   if (code !== 0) throw new Error(`managed SIP acceptance runner exit ${code}`);
   if (JSON.stringify(sourceDigests()) !== JSON.stringify(beforeSources))
-    throw new Error('source เปลี่ยนระหว่าง run ต้องรัน proof ใหม่');
+    throw new Error('the source changed during the run; the proof must be re-run');
   const result = JSON.parse(readFileSync(resolve(evidence, 'result.json'), 'utf8'));
   const requiredCases = [
     'twoAgents-noanswer20s-skip-next',
@@ -263,7 +264,7 @@ try {
     !Array.isArray(result.cases) ||
     requiredCases.some((name) => result.cases.filter((item) => item.name === name).length !== 1)
   )
-    throw new Error('ไม่มีหลักฐานครบจาก runner');
+    throw new Error('the runner did not give complete evidence');
   console.log(`MANAGED_ROUTING_ACCEPTANCE_PASS ${evidence}`);
 } catch (error) {
   process.exitCode = 1;
@@ -272,7 +273,7 @@ try {
     JSON.stringify({ status: 'FAIL', error: String(error) }, null, 2),
   );
   console.error(error);
-  console.error(`MANAGED_ROUTING_ACCEPTANCE_FAIL หลักฐาน: ${evidence}`);
+  console.error(`MANAGED_ROUTING_ACCEPTANCE_FAIL evidence: ${evidence}`);
 } finally {
   await cleanup();
 }

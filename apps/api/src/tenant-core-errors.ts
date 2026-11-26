@@ -38,8 +38,8 @@ export function coreFail(
   });
 }
 /**
- * รหัสสำหรับ log ของ error ที่ไม่คาดไว้: Prisma code, SQLSTATE และรหัส EXCEPTION ของ trigger
- * (เช่น `CORE_TEAM_EFFECT_RECEIPT_REQUIRED`) เฉพาะเมื่อข้อความเป็นรหัสตัวพิมพ์ใหญ่ล้วน — ไม่คืนข้อความอิสระ
+ * codes for logging unexpected errors: the Prisma code, SQLSTATE and the trigger EXCEPTION code
+ * (e.g. `CORE_TEAM_EFFECT_RECEIPT_REQUIRED`) only when the message is entirely an uppercase code — never returns free text
  */
 export function unexpectedErrorCode(error: unknown): string | null {
   if (!error || typeof error !== 'object') return null;
@@ -87,7 +87,7 @@ export class TenantCoreErrors implements ExceptionFilter {
         retryable: false,
       };
     }
-    // 500 เดิมไม่มี log เลย จึงหาสาเหตุไม่ได้ (#977) — บันทึกเฉพาะชนิดและรหัส ไม่บันทึกข้อความที่อาจมีข้อมูลผู้ใช้
+    // the original 500 had no log at all so the cause could not be found (#977) — record only the kind and code, not a message that may contain user data
     if (status === 500)
       console.error(
         JSON.stringify({

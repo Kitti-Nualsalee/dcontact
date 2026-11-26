@@ -1,16 +1,16 @@
 /**
- * Owner: Delivery/Channels — policy ล้วนของ LINE control plane (S2.3 #367)
+ * Owner: Delivery/Channels — pure policy of the LINE control plane (S2.3 #367)
  *
- * Authority: rollout/security decision #358 §A/§B/§C/§D/§E/§F และ Phase Contract #362 §9/§10
+ * Authority: rollout/security decision #358 §A/§B/§C/§D/§E/§F and Phase Contract #362 §9/§10
  *
- * ไฟล์นี้ไม่มี I/O, ไม่มี database, ไม่มี credential value และไม่มี provider call — มีแต่
- * ตารางตัดสินใจที่อ่านแล้วเทียบกับคำตัดสินได้ตรง ๆ: ใครสั่งอะไรได้, business state ไหนแตะ
- * provider operation ใดได้, cap หนึ่งหน่วยต้องผ่าน limit อะไรบ้าง, proposal digest คิดจากอะไร,
- * quota snapshot แบบไหนใช้ไม่ได้ และสัญญาณไหนต้อง kill อัตโนมัติ
+ * This file has no I/O, no database, no credential value and no provider call — only
+ * decision tables that can be read and compared directly with the decisions: who may order what, which business state may touch
+ * which provider operation, which limits one cap unit must pass, what the proposal digest is computed from,
+ * which quota snapshots are unusable, and which signals must trigger an automatic kill.
  *
- * ทุกค่าที่เป็นตัวเลข cap มาจาก `LINE_PILOT_CAPS` (S2) หรือ authorization ของ trial ที่ถูกจำกัดด้วย
- * `LINE_TEAM_TRIAL_MAX_CAPS` (#567) ของ `@d-contact/cxa-contracts` เสมอ — ที่นี่ห้ามมี literal ของ cap ซ้ำ
- * เพราะการปรับ cap สูงขึ้นต้องเป็น decision ใหม่ (#358 §C)
+ * Every numeric cap value always comes from `LINE_PILOT_CAPS` (S2) or from a trial authorization bounded by
+ * `LINE_TEAM_TRIAL_MAX_CAPS` (#567) of `@d-contact/cxa-contracts` — no duplicate cap literal may appear here
+ * because raising a cap needs a new decision (#358 §C)
  */
 import { createHash } from 'node:crypto';
 import {
@@ -26,7 +26,7 @@ import {
 } from '@d-contact/cxa-contracts';
 import type { LineCapLimit } from './line-control-repository.js';
 
-/** ตรงกับ Postgres enum `DlLineActorKind`; `SYSTEM` ใช้ได้เฉพาะ kill อัตโนมัติ */
+/** Matches the Postgres enum `DlLineActorKind`; `SYSTEM` is allowed only for automatic kill */
 export const LINE_CONTROL_ACTOR_ROLES = [
   'TENANT_ADMIN',
   'COMPLIANCE',
@@ -55,9 +55,9 @@ export const LINE_CONTROL_ACTIONS = [
 export type LineControlAction = (typeof LINE_CONTROL_ACTIONS)[number];
 
 /**
- * authority matrix ตาม #358 §E: Platform Operator เสนอ/เปิด switch/execute, Tenant Admin ยืนยัน
- * recipient/purpose/content, Compliance อนุมัติการเลื่อนขั้นและยก kill ส่วนการลดขั้นกับ kill
- * ทำได้ทันทีโดยฝั่งใดฝั่งหนึ่ง (#358 §C/§F) — `SYSTEM` มีสิทธิ์เฉพาะ kill อัตโนมัติเท่านั้น
+ * Authority matrix per #358 §E: Platform Operator proposes/opens the switch/executes, Tenant Admin confirms
+ * recipient/purpose/content, Compliance approves promotion and lifting a kill, while lowering a step and kill
+ * can be done immediately by either side (#358 §C/§F) — `SYSTEM` is permitted only automatic kill
  */
 export const LINE_CONTROL_AUTHORITY: Readonly<
   Record<LineControlAction, readonly LineControlActorRole[]>
@@ -65,8 +65,8 @@ export const LINE_CONTROL_AUTHORITY: Readonly<
   ADVANCE_STATE: ['COMPLIANCE'],
   LOWER_STATE: ['COMPLIANCE', 'PLATFORM_OPERATOR'],
   SET_TECHNICAL_SWITCH: ['PLATFORM_OPERATOR'],
-  // #567 (T5): Tenant Admin ของ tenant pilot กด kill จากหน้า inbound ได้ — kill เป็นทาง fail-closed เสมอ
-  // ส่วนการยก kill ยังเป็นของ Compliance เท่านั้น
+  // #567 (T5): the Tenant Admin of a pilot tenant can press kill from the inbound page — kill is always the fail-closed route
+  // while lifting a kill remains Compliance only
   KILL: ['TENANT_ADMIN', 'COMPLIANCE', 'PLATFORM_OPERATOR', 'SYSTEM'],
   CLEAR_KILL: ['COMPLIANCE'],
   REGISTER_ALLOWLIST: ['TENANT_ADMIN'],
@@ -88,7 +88,7 @@ export class LineControlAuthorizationError extends Error {
     readonly actorRole: LineControlActorRole,
     readonly action: LineControlAction,
   ) {
-    super(`actor role ${actorRole} ไม่มีสิทธิ ${action}`);
+    super(`actor role ${actorRole} is not permitted to ${action}`);
     this.name = 'LineControlAuthorizationError';
   }
 }
@@ -107,8 +107,8 @@ export function assertControlAuthority(
 // ── Business state → provider operation (#358 §A) ────────────────────────────
 
 /**
- * operation ที่ control plane รู้จัก ไม่ใช่ HTTP call จริง (S2.3 ไม่มี provider I/O):
- * เป็น "สิทธิ์ที่ผู้เรียกกำลังขอ" ซึ่ง S2.4/S2.5 จะต้องขอก่อนแตะ transport เสมอ
+ * Operations the control plane knows, not real HTTP calls (S2.3 has no provider I/O):
+ * they are the "permission the caller is asking for", which S2.4/S2.5 must always request before touching the transport
  */
 export const LINE_PROVIDER_OPERATIONS = [
   'LOCAL_VALIDATION',
@@ -120,7 +120,7 @@ export const LINE_PROVIDER_OPERATIONS = [
 ] as const;
 export type LineProviderOperation = (typeof LINE_PROVIDER_OPERATIONS)[number];
 
-/** business state ต่ำสุดที่อนุญาต operation นั้น — `DISABLED` ไม่อนุญาตอะไรเลย */
+/** Lowest business state that permits the operation — `DISABLED` permits nothing at all */
 export const LINE_OPERATION_MINIMUM_STATE: Readonly<
   Record<LineProviderOperation, Exclude<LineRolloutState, 'DISABLED'>>
 > = Object.freeze({
@@ -132,7 +132,7 @@ export const LINE_OPERATION_MINIMUM_STATE: Readonly<
   PUSH: 'CAPPED_PILOT',
 });
 
-/** operation ที่ต้องมี network ไปหา LINE จริง จึงต้องมี credential + quota ที่อ่านได้ */
+/** Operations that need the network to reach real LINE, so they need a readable credential + quota */
 export const LINE_OPERATIONS_NEEDING_PROVIDER: readonly LineProviderOperation[] = Object.freeze([
   'TOKEN_VERIFY',
   'QUOTA_READ',
@@ -164,7 +164,7 @@ export function needsProviderCredential(operation: LineProviderOperation): boole
   return LINE_OPERATIONS_NEEDING_PROVIDER.includes(operation);
 }
 
-/** เลื่อนขึ้นทีละขั้นเท่านั้น (trigger `DL_LINE_GATE_STEP` บังคับซ้ำใน DB) */
+/** Advances one step at a time only (the trigger `DL_LINE_GATE_STEP` enforces it again in the DB) */
 export function isSingleStepAdvance(from: LineRolloutState, to: LineRolloutState): boolean {
   return rolloutRank(to) === rolloutRank(from) + 1;
 }
@@ -177,7 +177,7 @@ export function isLowering(from: LineRolloutState, to: LineRolloutState): boolea
 
 const DAY_MS = 24 * 60 * 60_000;
 
-/** cap ของ logical delivery ที่ใช้ตัดสินหนึ่งครั้ง — S2 = `LINE_PILOT_CAPS`, trial = ค่าใน authorization */
+/** Cap of the logical delivery used for one decision — S2 = `LINE_PILOT_CAPS`, trial = the value in the authorization */
 export interface LineDeliveryCaps {
   perRun: number;
   perRecipientPer24h: number;
@@ -192,7 +192,7 @@ export const LINE_PILOT_DELIVERY_CAPS: LineDeliveryCaps = Object.freeze({
   lifetime: LINE_PILOT_CAPS.logicalDeliveriesLifetime,
 });
 
-/** แถว authorization ที่พอจะ derive cap ได้ (ไม่ผูก Prisma) */
+/** An authorization row sufficient to derive the cap (not bound to Prisma) */
 export interface LineRunCapSource {
   profile: string;
   capLogicalDeliveries: number;
@@ -202,8 +202,8 @@ export interface LineRunCapSource {
 }
 
 /**
- * cap ของ run: S2 ใช้ค่าคงที่เสมอแม้แถวจะเขียนอะไรมา; trial ใช้ค่าในแถวแต่ไม่เกินเพดาน และค่าที่หายไป = 0
- * (fail closed — DB CHECK บังคับว่ามีครบอยู่แล้ว ที่นี่เป็นด่านที่สอง)
+ * Cap of a run: S2 always uses constants whatever the row says; a trial uses the value in the row but not above the ceiling, and a missing value = 0
+ * (fail closed — the DB CHECK already enforces completeness, this is the second gate)
  */
 export function lineDeliveryCapsFor(run: LineRunCapSource): LineDeliveryCaps {
   if (run.profile !== LINE_TEAM_TRIAL_PROFILE) return LINE_PILOT_DELIVERY_CAPS;
@@ -227,18 +227,18 @@ export function isTeamTrialRun(run: { profile: string }): boolean {
 export interface LineCapLimitInput {
   capKind: LineCapKind;
   at: Date;
-  /** cap ของ run ใบนี้ ลดจาก profile ได้แต่เกินไม่ได้ (DB CHECK บังคับ 1..4) */
+  /** Cap of this run, can be lowered from the profile but not exceeded (the DB CHECK enforces 1..4) */
   runCapProviderAttempts?: number;
-  /** #567: cap ของ logical delivery ตาม profile ของ run — ไม่ระบุ = S2 */
+  /** #567: cap of the logical delivery per the run's profile — unspecified = S2 */
   deliveryCaps?: LineDeliveryCaps;
 }
 
 /**
- * limit ทั้งชุดของ cap หนึ่งหน่วย — ผู้เรียก `reserveCap` ต้องส่งชุดนี้ครบเสมอ (hand-off ของ S2.1)
- * ส่งไม่ครบ = มี cap ที่ไม่มีใครนับ และ ledger จะบอกว่า "ผ่าน" ทั้งที่เกิน profile ไปแล้ว
+ * The full set of limits for one cap unit — the caller of `reserveCap` must always pass the whole set (S2.1 hand-off).
+ * An incomplete set = a cap nobody counts, and the ledger would say "passed" even though the profile was exceeded.
  *
- * LOGICAL_DELIVERY มีสี่มิติพร้อมกัน: 1/run, 1/recipient/24h, 3/24h และ 10 ตลอด profile
- * นับเฉพาะแถว RESERVED+COMMITTED — งานที่ release ก่อน barrier ไม่กินโควตาของวัน/lifetime
+ * LOGICAL_DELIVERY has four dimensions at once: 1/run, 1/recipient/24h, 3/24h and 10 across the profile.
+ * Counts only RESERVED+COMMITTED rows — work released before the barrier does not eat the daily/lifetime quota
  */
 export function lineCapLimits(input: LineCapLimitInput): LineCapLimit[] {
   const since = new Date(input.at.getTime() - DAY_MS);
@@ -302,17 +302,17 @@ export function lineCapLimits(input: LineCapLimitInput): LineCapLimit[] {
         },
       ];
   }
-  // cap kind ใหม่ต้องมี limit ของตัวเองเสมอ — ปล่อยผ่านเป็นการยอมให้มี cap ที่ไม่มีใครนับ
+  // A new cap kind must always have its own limit — letting it through would allow a cap nobody counts
   const exhaustive: never = input.capKind;
-  throw new TypeError(`ไม่มี cap limit ของ ${String(exhaustive)}`);
+  throw new TypeError(`no cap limit for ${String(exhaustive)}`);
 }
 
 // ── Immutable run proposal (#358 §E) ─────────────────────────────────────────
 
 /**
- * ทุกมิติที่ approver มองเห็นตอนอนุมัติ — digest คิดจากค่าเหล่านี้เท่านั้น ผู้ execute จึงแก้
- * อะไรหลัง approval ไม่ได้โดยที่ digest ยังเท่าเดิม (`proposalRef` ทำให้ run ใบใหม่ของ binding
- * เดิมมี digest ใหม่ ไม่ไปชน unique ของใบที่ consume ไปแล้ว)
+ * Every dimension the approver sees at approval — the digest is computed from these values only, so the executor cannot change
+ * anything after approval while keeping the digest the same (`proposalRef` gives a new run of the same
+ * binding a new digest, so it does not collide with the unique of one already consumed)
  */
 export interface LineRunProposalDigestInput {
   tenantId: string;
@@ -333,7 +333,7 @@ export interface LineRunProposalDigestInput {
   proposalRef: string;
   proposedAt: Date;
   expiresAt: Date;
-  /** #567: มีเฉพาะ trial — S2 ไม่ใส่ เพื่อให้ digest ของ S2 เหมือนเดิมทุก byte */
+  /** #567: present only for a trial — S2 omits it so the S2 digest stays identical byte for byte */
   trial?: {
     trialRef: string;
     capRecipientPer24h: number;
@@ -380,7 +380,7 @@ export function lineRunProposalDigest(input: LineRunProposalDigestInput): string
   return createHash('sha256').update(JSON.stringify(canonical)).digest('hex');
 }
 
-/** #567: TTL ของ trial (≤30 วัน) — DB CHECK บังคับซ้ำ */
+/** #567: TTL of a trial (≤30 days) — the DB CHECK enforces it again */
 export function lineTeamTrialExpiry(proposedAt: Date, days: number): Date {
   const bounded = Math.min(
     Math.max(Math.trunc(days), 1),
@@ -389,7 +389,7 @@ export function lineTeamTrialExpiry(proposedAt: Date, days: number): Date {
   return new Date(proposedAt.getTime() + bounded * DAY_MS);
 }
 
-/** TTL ของ one-shot authorization — DB CHECK บังคับซ้ำว่าต้องไม่เกินค่านี้ */
+/** TTL of a one-shot authorization — the DB CHECK enforces again that it must not exceed this value */
 export function lineRunExpiry(proposedAt: Date): Date {
   return new Date(proposedAt.getTime() + LINE_PILOT_CAPS.runAuthorizationTtlMinutes * 60_000);
 }
@@ -397,8 +397,8 @@ export function lineRunExpiry(proposedAt: Date): Date {
 // ── Quota advisory (#358 §D) ─────────────────────────────────────────────────
 
 /**
- * snapshot ที่ผู้เรียก (S2.4 transport) อ่านมาจาก LINE — control plane ไม่ยิงเอง
- * `type` ตามคำตอบของ provider: `limited` มีเพดาน, `none` คือไม่จำกัด
+ * Snapshot the caller (S2.4 transport) read from LINE — the control plane does not fire it itself.
+ * `type` follows the provider's answer: `limited` has a ceiling, `none` means unlimited
  */
 export interface LineQuotaSnapshot {
   type: 'limited' | 'none';
@@ -410,13 +410,13 @@ export interface LineQuotaSnapshot {
 export const LINE_QUOTA_ADVISORY_STATUSES = ['OK', 'EXHAUSTED', 'STALE', 'UNAVAILABLE'] as const;
 export type LineQuotaAdvisoryStatus = (typeof LINE_QUOTA_ADVISORY_STATUSES)[number];
 
-/** snapshot เก่ากว่านี้ถือว่าใช้ตัดสินใจไม่ได้ — สั้นกว่า TTL ของ authorization หนึ่งเท่าตัว */
+/** A snapshot older than this is unusable for decisions — one times shorter than the authorization TTL */
 export const LINE_QUOTA_SNAPSHOT_MAX_AGE_MS =
   (LINE_PILOT_CAPS.runAuthorizationTtlMinutes / 2) * 60_000;
 
 /**
- * quota เป็น advisory/approximate: ใช้ "ปฏิเสธ" ได้อย่างเดียว ห้ามใช้แทน durable cap
- * ไม่มี snapshot, snapshot เก่า หรือโควตาเหลือไม่พอ = fail closed ทั้งสามกรณี (#358 §D)
+ * quota is advisory/approximate: it can be used only to "reject", never to replace the durable cap.
+ * No snapshot, a stale snapshot, or insufficient remaining quota = fail closed in all three cases (#358 §D)
  */
 export function evaluateQuotaAdvisory(
   snapshot: LineQuotaSnapshot | undefined,
@@ -435,8 +435,8 @@ export function evaluateQuotaAdvisory(
 // ── Automatic kill (#358 §F) ─────────────────────────────────────────────────
 
 /**
- * สัญญาณที่ control plane ถือว่าเป็น "ต้อง kill ทันที" — ชุดปิดตาม #358 §F
- * สัญญาณเหล่านี้มาจากผู้เรียกที่เห็นเหตุการณ์จริง (adapter/worker/acceptance) ไม่ใช่การเดาเอง
+ * Signals the control plane treats as "must kill immediately" — a closed set per #358 §F.
+ * These signals come from callers that saw the real event (adapter/worker/acceptance), not from guessing
  */
 export const LINE_CONTROL_SIGNALS = [
   'CROSS_TENANT_LEAK',
@@ -453,19 +453,19 @@ export const LINE_CONTROL_SIGNALS = [
 ] as const;
 export type LineControlSignal = (typeof LINE_CONTROL_SIGNALS)[number];
 
-/** signal ทุกตัวมี kill reason ชื่อเดียวกันใน `LINE_KILL_REASONS` — mapping จึงเป็น identity */
+/** Every signal has a kill reason of the same name in `LINE_KILL_REASONS` — so the mapping is an identity */
 export function automaticKillReasonFor(signal: LineControlSignal): LineKillReason {
   return signal;
 }
 
-/** kill ที่มาจากคน: แยกตาม role เพื่อให้ audit บอกได้ว่าใครสั่ง (#358 §F) */
+/** A kill that comes from a human: split by role so audit can tell who ordered it (#358 §F) */
 export function operatorKillReasonFor(role: LineControlActorRole): LineKillReason {
   return role === 'COMPLIANCE' ? 'COMPLIANCE_KILL' : 'OPERATOR_KILL';
 }
 
 /**
- * provider outcome ที่ต้องปิด scope ทันทีโดยไม่ต้องรอคนตัดสิน (#358 §D/§F)
- * outcome ที่ไม่อยู่ในตารางนี้ (rejected/unavailable/unknown) ยังเป็นเรื่องของ delivery ใบเดียว
+ * Provider outcomes that must close the scope immediately without waiting for a human decision (#358 §D/§F).
+ * Outcomes not in this table (rejected/unavailable/unknown) remain a matter for a single delivery
  */
 export const LINE_OUTCOME_KILL_SIGNALS: Readonly<
   Partial<Record<LineProviderOutcomeCode, LineControlSignal>>

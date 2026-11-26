@@ -125,7 +125,7 @@ const exportInput: Record<string, unknown> = {
   reason: 'quarterly audit',
 };
 
-test('CG5.8 export route idempotent, ซ่อน requester ใน SUMMARY และบังคับ tenant/capability', async (t) => {
+test('CG5.8 the export route is idempotent, hides the requester in SUMMARY and enforces tenant/capability', async (t) => {
   const f = await fixture(t);
   const create = async (token = 'tenant-token', body = exportInput) =>
     request(f.base, token, {
@@ -153,7 +153,7 @@ test('CG5.8 export route idempotent, ซ่อน requester ใน SUMMARY แ�
       version: 2,
       storagePrefix: `governance-exports/${f.tenantId}/${one.exportId}`,
       manifestDigest: 'a'.repeat(64),
-      // route เทียบกับเวลาจริง: วันที่คงที่จะกลายเป็น expired เมื่อเวลาผ่านไปและทำให้เทสต์ล้มเอง
+      // the route compares against real time: a fixed date would become expired as time passes and fail the test by itself
       expiresAt: new Date(Date.now() + 86_400_000),
     },
   });
@@ -171,7 +171,7 @@ test('CG5.8 export route idempotent, ซ่อน requester ใน SUMMARY แ�
   );
 });
 
-test('CG5-TI02 ไฟล์ export อยู่ใต้ prefix ของ tenant และ tenant อื่นดึงไม่ได้แม้รู้ exportId', async (t) => {
+test('CG5-TI02 an export file is under the tenant prefix and another tenant cannot fetch it even knowing the exportId', async (t) => {
   const f = await fixture(t);
   const created = await request(f.base, 'tenant-token', {
     method: 'POST',
@@ -191,7 +191,7 @@ test('CG5-TI02 ไฟล์ export อยู่ใต้ prefix ของ tenant
     },
   });
 
-  // not-found แบบเดียวกับ ID ที่ไม่มีอยู่จริง: ไม่เผยว่ามี export นี้ใน tenant อื่น
+  // the same not-found as an ID that never existed: does not reveal that this export exists in another tenant
   const missing = await request(`${f.base}/${randomUUID()}`, 'other-token');
   const missingBody = await missing.json();
   for (const path of [`${f.base}/${exportId}`, `${f.base}/${exportId}/download`]) {

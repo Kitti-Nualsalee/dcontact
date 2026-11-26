@@ -18,14 +18,14 @@ import {
 } from './customer-360-test-fixtures.js';
 
 /**
- * Cus360 C1 (#791) S3: HTTP จริง → predicate → PostgreSQL/RLS ด้วย application role
- * ใช้ owner writers จริง (segment/membership ของ C360 และ grant/projection ของ IAM) ไม่เขียน head ปลอม
+ * Cus360 C1 (#791) S3: real HTTP → predicate → PostgreSQL/RLS with the application role
+ * uses the real owner writers (the C360 segment/membership and the IAM grant/projection), never writing a fake head
  */
 
 const capabilities = (f: Fixture, token: string, contactId = f.contactId) =>
   f.request(`customer-360/contacts/${contactId}/capabilities`, token);
 
-test('S3 HTTP: Admin ต้องมี custodian grant ของ contact นั้น; Admin อีกคนและ contact ที่ไม่มีอยู่ได้ 404 แบบเดียวกัน', async () => {
+test('S3 HTTP: an Admin needs a custodian grant for that contact; another Admin and a nonexistent contact get the same 404', async () => {
   const f = await setup();
   try {
     const missing = await capabilities(f, 'admin', randomUUID());
@@ -35,7 +35,7 @@ test('S3 HTTP: Admin ต้องมี custodian grant ของ contact นั
     assert.deepEqual(hidden.body.error, missing.body.error);
 
     await grantCustodian(f, 'admin', 'MANAGE');
-    // legacy ที่ยังไม่มี identity head: อ่านได้แต่แก้ไม่ได้ และ GET ไม่สร้าง head
+    // a legacy contact with no identity head yet: readable but not editable, and GET creates no head
     const legacy = await capabilities(f, 'admin');
     assert.equal(legacy.status, 200);
     assert.deepEqual(legacy.body, {
@@ -59,7 +59,7 @@ test('S3 HTTP: Admin ต้องมี custodian grant ของ contact นั
         .capabilities,
       { read: true, manage: false },
     );
-    // ถอน grant แบบ append-only แล้วสิทธิ์หายทันที
+    // revoke the grant append-only and the permission is gone at once
     await f.owner.c360ContactCustodianRevocation.create({
       data: {
         id: randomUUID(),
@@ -77,7 +77,7 @@ test('S3 HTTP: Admin ต้องมี custodian grant ของ contact นั
   }
 });
 
-test('S3 HTTP: Agent, Compliance, unbound proof, disabled และต่าง tenant ไม่มี generic route', async () => {
+test('S3 HTTP: Agent, Compliance, an unbound proof, disabled and another tenant have no generic route', async () => {
   const f = await setup();
   try {
     await grantCustodian(f, 'admin', 'MANAGE');
@@ -90,7 +90,7 @@ test('S3 HTTP: Agent, Compliance, unbound proof, disabled และต่าง 
     ] as const) {
       const response = await capabilities(f, token);
       assert.equal(response.status, status, token);
-      assert.equal(JSON.stringify(response.body).includes('ลูกค้า C1'), false);
+      assert.equal(JSON.stringify(response.body).includes('ลูกค้า C1'), false); // allow-thai: shared fixture name also asserted by the Console e2e
     }
     for (const token of ['agent', 'supervisor', 'compliance']) {
       assert.equal(
@@ -109,13 +109,13 @@ test('S3 HTTP: Agent, Compliance, unbound proof, disabled และต่าง 
   }
 });
 
-test('S3 HTTP: current User/proof เปลี่ยนแล้วสิทธิ์หายทันที (subject proof, role, disable)', async () => {
+test('S3 HTTP: when the current User/proof changes the permission is gone at once (subject proof, role, disable)', async () => {
   const f = await setup();
   try {
     await grantCustodian(f, 'admin', 'MANAGE');
     const adminId = f.actors.get('admin')!.id;
     assert.equal((await capabilities(f, 'admin')).status, 200);
-    // subject ของ token ไม่ตรงกับ User ปัจจุบันอีกแล้ว (proof เปลี่ยน) → ปฏิเสธ แล้วกลับมาได้เมื่อ proof ตรง
+    // the token subject no longer matches the current User (the proof changed) → rejected, and it works again when the proof matches
     await f.owner.user.update({ where: { id: adminId }, data: { keycloakId: randomUUID() } });
     assert.equal((await capabilities(f, 'admin')).status, 403);
     await f.owner.user.update({ where: { id: adminId }, data: { keycloakId: adminId } });
@@ -131,7 +131,7 @@ test('S3 HTTP: current User/proof เปลี่ยนแล้วสิทธ�
   }
 });
 
-test('S3 HTTP: Supervisor อ่านได้เมื่อ IAM VIEW ตรงกับ owner revision; projection lag/INVALIDATED เป็น 503 ไม่ใช่ ALLOW', async () => {
+test('S3 HTTP: a Supervisor can read when IAM VIEW matches the owner revision; projection lag/INVALIDATED is 503, not ALLOW', async () => {
   const f = await setup();
   try {
     assert.equal((await capabilities(f, 'supervisor')).status, 404);
@@ -142,7 +142,7 @@ test('S3 HTTP: Supervisor อ่านได้เมื่อ IAM VIEW ตร�
       permission: 'VIEW',
       correlationId: 'c1-s3-grant',
     });
-    // owner บอกว่าเป็นสมาชิกแล้วแต่ IAM ยังไม่ได้รับ event → DEFER
+    // the owner says a member but IAM has not received the event → DEFER
     await ownerCommit(f, 'GOLD');
     const lagging = await capabilities(f, 'supervisor');
     assert.equal(lagging.status, 503);
@@ -157,7 +157,7 @@ test('S3 HTTP: Supervisor อ่านได้เมื่อ IAM VIEW ตร�
       manage: false,
     });
 
-    // owner ออกจาก segment ก่อน Kafka ถึง IAM: projection IN เดิมต้องไม่ให้ ALLOW
+    // the owner leaves the segment before Kafka reaches IAM: the old projection IN must not give ALLOW
     await ownerCommit(f, 'SILVER');
     assert.equal((await capabilities(f, 'supervisor')).status, 503);
     await deliverToIam(f);
@@ -167,7 +167,7 @@ test('S3 HTTP: Supervisor อ่านได้เมื่อ IAM VIEW ตร�
     await deliverToIam(f, 'IDENTITY_INVALIDATED');
     assert.equal((await capabilities(f, 'supervisor')).status, 503);
 
-    // event revision เดิมส่งซ้ำไม่ล้าง INVALIDATED; ต้องมี owner revision ใหม่ที่ IAM ตามทัน
+    // a resent event of the same revision does not clear INVALIDATED; there must be a new owner revision that IAM catches up with
     await deliverToIam(f, 'ENTERED');
     assert.equal((await capabilities(f, 'supervisor')).status, 503);
     await ownerCommit(f, 'SILVER');
@@ -176,7 +176,7 @@ test('S3 HTTP: Supervisor อ่านได้เมื่อ IAM VIEW ตร�
     await deliverToIam(f);
     assert.equal((await capabilities(f, 'supervisor')).status, 200);
 
-    // Admin ในทีมเดียวกันอ่านผ่าน VIEW ได้ แต่ไม่ได้สิทธิ์แก้; Agent ในทีมเดียวกันยังไม่มี generic route
+    // an Admin in the same team reads through VIEW but gets no edit permission; an Agent in the same team still has no generic route
     const admin = await capabilities(f, 'admin');
     assert.deepEqual((admin.body as unknown as { capabilities: unknown }).capabilities, {
       read: true,
@@ -188,7 +188,7 @@ test('S3 HTTP: Supervisor อ่านได้เมื่อ IAM VIEW ตร�
   }
 });
 
-test('S3: list/count/detail ใช้ predicate เดียวกัน และ DEFER ไม่ถูกนับเป็นรายการที่อ่านได้', async () => {
+test('S3: list/count/detail use the same predicate and DEFER is not counted as a readable item', async () => {
   const f = await setup();
   try {
     await f.scopes.grant({
@@ -219,7 +219,7 @@ test('S3: list/count/detail ใช้ predicate เดียวกัน แล�
     await deliverToIam(f);
     assert.deepEqual(await counts(), { readable: 1, deferred: 0 });
     assert.equal((await capabilities(f, 'supervisor')).status, 200);
-    // ต่าง tenant: RLS + predicate ไม่คืนอะไรเลย
+    // another tenant: RLS + the predicate return nothing at all
     const outsider = await withTenantDatabaseTransaction(f.db, f.otherTenantId, (tx) =>
       tx.$queryRaw<{ n: bigint }[]>(
         Prisma.sql`SELECT count(*) AS n FROM contacts c WHERE ${c360ReadableContactSql(actor)}`,
@@ -231,7 +231,7 @@ test('S3: list/count/detail ใช้ predicate เดียวกัน แล�
   }
 });
 
-test('S3 HTTP: command receipt/reconcile ผ่าน gate และ receipt ซ่อน ref เมื่อผู้อ่านหมดสิทธิ์', async () => {
+test('S3 HTTP: command receipt/reconcile pass the gate and the receipt hides the ref when the reader loses permission', async () => {
   const f = await setup();
   try {
     const admin = f.actors.get('admin')!;
@@ -251,7 +251,7 @@ test('S3 HTTP: command receipt/reconcile ผ่าน gate และ receipt ซ
       'COMMAND_NOT_APPLIED',
     );
 
-    // receipt ที่ commit แล้วของ admin; ref ชี้ contact ที่ admin ไม่มีสิทธิ์อ่าน → ไม่คืน ref
+    // an admin's receipt already committed; the ref points to a contact the admin has no permission to read → the ref is not returned
     const key = {
       tenantId: f.tenantId,
       actorIdentityKey: c360ActorIdentityKey({
@@ -294,7 +294,7 @@ test('S3 HTTP: command receipt/reconcile ผ่าน gate และ receipt ซ
     const visible = (await f.request(`customer-360/commands/${key.commandId}`))
       .body as unknown as ReceiptBody;
     assert.deepEqual(visible.command.resourceRefs, [{ type: 'CONTACT', id: f.contactId }]);
-    // admin อีกคนมองไม่เห็น command ของคนอื่น (key ผูกกับ actor)
+    // another admin cannot see someone else's command (the key is bound to the actor)
     assert.equal(
       (await f.request(`customer-360/commands/${key.commandId}`, 'admin-two')).status,
       404,
@@ -304,7 +304,7 @@ test('S3 HTTP: command receipt/reconcile ผ่าน gate และ receipt ซ
   }
 });
 
-test('S3: create capability ต้องมาจาก operator grant ที่ยังไม่ถูกถอน และให้สิทธิ์ตัวเองไม่ได้', async () => {
+test('S3: create capability must come from an operator grant that is not revoked, and one cannot grant it to oneself', async () => {
   const f = await setup();
   try {
     const { authorizeC360ContactCreate } = await import('@d-contact/customer-360');
@@ -353,7 +353,7 @@ test('S3: create capability ต้องมาจาก operator grant ที่
       tx.c360ActorCapabilityGrant.create({ data: grant }),
     );
     assert.equal(await allowed(), true);
-    // role ไม่ใช่ ADMIN แล้ว capability ใช้ไม่ได้
+    // the role is no longer ADMIN so the capability cannot be used
     assert.equal(
       await withTenantDatabaseTransaction(f.db, f.tenantId, (tx) =>
         authorizeC360ContactCreate(tx, { ...actor, role: 'SUPERVISOR' }),

@@ -6,22 +6,22 @@
       "file": "src/team-reference-guards.integration.ts",
       "pattern": null,
       "requiredCases": [
-        "Team guards: application User INSERT ไม่เพิ่ม reference เข้าทีมปิด แม้ไม่ผ่าน Core API",
-        "Team guards: final state กัน same-tx insert→deactivate และยอมรับเพิ่มแล้วถอนก่อนปิด",
-        "Team guards: Queue ที่ inactive และ Skill ยังเป็น current reference; ย้ายออก/ถอนได้ก่อนปิด",
-        "Team guards: future delegation ยังบล็อก แต่หมดอายุ/ถอนแล้วไม่บล็อก",
-        "Team guards: Journey ใช้ pinned version; terminal/history ไม่บล็อก และ unresolved legacy บล็อกเฉพาะการปิด",
-        "Team guards: CG และ outbound แยก terminal จริงจาก expiry/lease; reopening ต้องใช้ทีม active",
-        "Team guards: User writer-first/deactivate-first แข่งกันด้วย transaction จริงและ try-lock ไม่รอ",
-        "Team guards: owner intent legacy ไม่มี canonical binding ปิดทีมใดใน tenant ไม่ได้ แต่ rename/cleanup ยังทำได้",
-        "Team guards: validated owner payload ระบุ source/target โดยไม่เดา head และ ACK ยังบล็อกจน continuation durable",
-        "Team guards: schedule CLAIMED ต้องมี durable enrollment จึงเลิกบล็อก pinned owner",
-        "Team guards: scoped refilter/future work และ pending segment intent บล็อก; unscoped/terminal entry ไม่บล็อก",
-        "Team guards: SEND ที่ยัง HELD บล็อกแม้ enrollment terminal และ reservation release แล้ว; terminal SEND เป็น history",
-        "Team guards: resolve canonical owner receipt ก่อนถือว่า legacy unknown; version ที่ไม่รู้จักไม่ยืม proof ของ command เดิม",
-        "Team guards: legacy reference เดิมไม่อนุญาต reactivate User/Queue หรือยืด grant บนทีมปิด; cleanup ยังได้",
-        "Team guards: EXPLAIN ANALYZE closure บน 60,000 references อยู่ใน budget 2s และไม่รวม tenant อื่น",
-        "Team guards: app ไม่ยืม PROVISIONING lifecycle เพื่อข้าม Core effect receipt ของ provisioner"
+        "Team guards: application User INSERT does not add a reference to a closed team, even bypassing the Core API",
+        "Team guards: final state blocks same-tx insert→deactivate and accepts add then remove before closing",
+        "Team guards: an inactive Queue and a Skill are still current references; moving out/removing is allowed before closing",
+        "Team guards: future delegation still blocks, but expired/revoked delegation does not block",
+        "Team guards: Journey uses the pinned version; terminal/history does not block and unresolved legacy blocks only closing",
+        "Team guards: CG and outbound distinguish a true terminal from expiry/lease; reopening requires an active team",
+        "Team guards: User writer-first/deactivate-first race with real transactions and try-lock does not wait",
+        "Team guards: legacy owner intent without a canonical binding blocks closing any team in the tenant, but rename/cleanup still work",
+        "Team guards: validated owner payload identifies source/target without guessing the head and ACK still blocks until the continuation is durable",
+        "Team guards: a schedule in CLAIMED needs a durable enrollment before it stops blocking the pinned owner",
+        "Team guards: scoped refilter/future work and pending segment intent block; unscoped/terminal entry does not block",
+        "Team guards: a SEND still HELD blocks even when the enrollment is terminal and the reservation is released; a terminal SEND is history",
+        "Team guards: resolve the canonical owner receipt before treating it as legacy unknown; an unknown version does not borrow the proof of the original command",
+        "Team guards: a legacy reference does not allow reactivating a User/Queue or extending a grant on a closed team; cleanup still works",
+        "Team guards: EXPLAIN ANALYZE closure on 60,000 references stays within the 2s budget and excludes other tenants",
+        "Team guards: app does not borrow the PROVISIONING lifecycle to bypass the provisioner Core effect receipt"
       ]
     },
     {
@@ -29,19 +29,19 @@
       "file": "src/tenant-core-teams.integration.ts",
       "pattern": null,
       "requiredCases": [
-        "ทีม: Admin สร้างผ่าน HTTP แล้วอ่านกลับ UUID เดิมและ revision1 โดยไม่เปิด Voice policy",
-        "ทีม: เปลี่ยนชื่อด้วย CAS และ replay เดิม ไม่เพิ่ม revision เมื่อ no-op และปฏิเสธ revision เก่า",
-        "ทีม: รายการ UUID keyset มี signed cursor ผูก tenant/live scope และ Supervisor เห็นทีมตนเอง",
-        "ทีม DB: no-op DML หลัง Core command ไม่เพิ่ม revision และไม่บังคับ receipt เก่าซ้ำ",
-        "ทีม DB: app ลบ UUID หรือแก้ metadata revision และเปลี่ยนชื่อโดยไม่มี effect receipt ไม่ได้",
-        "ทีม: ปิดทีมว่างด้วย CAS เก็บ receipt/audit แล้ว replay/no-op ได้; ยังเปลี่ยนชื่อทีมปิดได้",
-        "ทีม: ปิดทีมที่มี User รวม inactive ไม่ได้ เก็บ rejection เดิม และส่งเฉพาะชนิดกับจำนวน",
-        "ทีม: unknown legacy ระงับเฉพาะปิดทีม; create/rename ทำได้ และ inactive no-op ไม่ตรวจ closure ซ้ำ",
-        "ทีม: validation ใช้ UTF-16/trim/อักขระควบคุม และชื่อ unique รวม inactive แบบ case-sensitive",
-        "ทีม: ทุก endpoint ใช้ live proof/role และไม่เปิดเผยข้อมูล resource ต่าง tenant หรือทีม Supervisor อื่น",
-        "ทีม: reference fence busy คง admission ไว้ ไม่มี effect และ retry command เดิมสำเร็จหลังปล่อย lock",
-        "ทีม: read/list คืน X-Request-Id ที่ตรวจแล้ว และไม่ cache ผลตามสิทธิ์ผู้ใช้",
-        "ทีม: เปลี่ยนชื่อยังทำได้ขณะ reference fence ถูกถือ ไม่ต้องรอ tenant ว่าง"
+        "Team: an Admin creates via HTTP and reads back the same UUID and revision 1 without enabling a Voice policy",
+        "Team: rename with CAS and replay of the original, no revision increase on a no-op, and an old revision is rejected",
+        "Team: the UUID keyset list has a signed cursor bound to tenant/live scope and a Supervisor sees their own team",
+        "Team DB: a no-op DML after a Core command does not increase the revision and does not force an old receipt again",
+        "Team DB: the app cannot delete a UUID, edit revision metadata or rename without an effect receipt",
+        "Team: deactivate an empty team with CAS, keep receipt/audit, then replay/no-op works; a deactivated team can still be renamed",
+        "Team: cannot deactivate a team that has Users including inactive ones, keeps the original rejection, and sends only the kind and count",
+        "Team: unknown legacy suppresses only deactivation; create/rename work and an inactive no-op does not recheck the closure",
+        "Team: validation uses UTF-16/trim/control characters, and the name is unique including inactive, case-sensitive",
+        "Team: every endpoint uses live proof/role and does not reveal data of a resource in another tenant or another Supervisor team",
+        "Team: a busy reference fence keeps the admission, has no effect, and retrying the original command succeeds after the lock is released",
+        "Team: read/list return a validated X-Request-Id and do not cache results that depend on user permission",
+        "Team: rename still works while the reference fence is held, without waiting for the tenant to be idle"
       ]
     },
     {
@@ -49,7 +49,7 @@
       "file": "src/tenant-core-team-people.integration.ts",
       "pattern": null,
       "requiredCases": [
-        "Team/People: actual B2 pending operation/lifecycle คง creation Team แม้ User ย้ายออก; terminal no-effect เหลือประวัติ"
+        "Team/People: an actual B2 pending operation/lifecycle keeps the Team creation even when a User moves out; a terminal no-effect leaves history"
       ]
     },
     {
@@ -72,7 +72,7 @@
       "requiredCases": [
         "Core Team fence: actual IAM grant writer-first",
         "Core Team fence: actual IAM grant deactivate-first",
-        "Core Team fence: known IAM writer ต้องตรวจ Team fence ก่อนรอ scope-version row เดิม",
+        "Core Team fence: known IAM writer must check the Team fence before waiting on the existing scope-version row",
         "Core Team fence: actual IAM current grant revoke writer-first",
         "Core Team fence: actual IAM current grant revoke deactivate-first"
       ]
@@ -121,7 +121,7 @@
         "Core Team fence: actual reservation release deactivate-first",
         "Core Team fence: actual reservation settle writer-first",
         "Core Team fence: actual reservation settle deactivate-first",
-        "Core Team fence: actual settlement cleanup ยังทำได้บน legacy inactive Team โดยไม่เปิดกลับ"
+        "Core Team fence: actual settlement cleanup can still be done on a legacy inactive Team without reactivating it"
       ]
     },
     {
@@ -177,7 +177,7 @@
       "file": "src/team-reference-writers.integration.ts",
       "pattern": "Core Team fence|Team writers",
       "requiredCases": [
-        "Team writers: actual Journey/Template draft writers สร้าง current ownership ที่ห้ามปิดทีม",
+        "Team writers: the actual Journey/Template draft writers create current ownership that forbids closing the team",
         "Core Team fence: actual Journey draft ownership writer-first",
         "Core Team fence: actual Journey draft ownership deactivate-first",
         "Core Team fence: actual Template draft ownership writer-first",
@@ -199,7 +199,7 @@
         "Core Team fence: actual Journey authoring rollForward deactivate-first",
         "Core Team fence: actual Journey authoring clone writer-first",
         "Core Team fence: actual Journey authoring clone deactivate-first",
-        "Core Team fence: raw ACTIVE Journey publication ต้องปฏิเสธ legacy inactive Team"
+        "Core Team fence: a raw ACTIVE Journey publication must reject a legacy inactive Team"
       ]
     },
     {
@@ -219,7 +219,7 @@
         "Core Team fence: actual Template instantiate deactivate-first",
         "Core Team fence: actual Template upgrade writer-first",
         "Core Team fence: actual Template upgrade deactivate-first",
-        "Core Team fence: raw ACTIVE Template publication ต้องปฏิเสธ legacy inactive Team"
+        "Core Team fence: a raw ACTIVE Template publication must reject a legacy inactive Team"
       ]
     },
     {

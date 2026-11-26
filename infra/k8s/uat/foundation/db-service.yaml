@@ -1,4 +1,4 @@
-# PostgreSQL อยู่นอก cluster; selectorless Service ให้ชื่อภายในคงที่
+# PostgreSQL runs outside the cluster; a selectorless Service gives it a stable internal name
 apiVersion: v1
 kind: Service
 metadata:

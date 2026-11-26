@@ -61,7 +61,7 @@ export class Cg5AlertRepository {
       });
       if (current && current.state === input.state) return current;
       if (current && !canCg5AlertTransition(current.state, input.state))
-        throw new TypeError('alert transition ไม่ถูกต้อง');
+        throw new TypeError('invalid alert transition');
       const now = this.now();
       const version = (current?.version ?? 0) + 1;
       const stateDigest = stableDigest({
@@ -161,11 +161,11 @@ export class Cg5AlertRepository {
       const current = await tx.cg5AlertState.findUnique({
         where: { tenantId_id: { tenantId: input.tenantId, id: input.alertId } },
       });
-      if (!current) throw new TypeError('ไม่พบ alert');
+      if (!current) throw new TypeError('alert not found');
       if (current.version !== input.expectedVersion)
         throw new Cg5AlertVersionConflictError(input.expectedVersion, current.version);
       if (!canCg5AlertTransition(current.state, 'ACKED'))
-        throw new TypeError('alert นี้ ack ไม่ได้');
+        throw new TypeError('this alert cannot be acked');
       const now = this.now();
       const version = current.version + 1;
       const stateDigest = stableDigest({

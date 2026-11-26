@@ -1,20 +1,20 @@
 #!/usr/bin/env node
 /**
- * ตัวอย่าง client ของ External customer API (#954): ขอ token แบบ client_credentials → สร้างลูกค้า →
- * อ่านกลับ → ค้นด้วยอีเมล ใช้ HTTP API สาธารณะเท่านั้น ไม่มี credential ของฐานข้อมูล
+ * Example client of the External customer API (#954): request a client_credentials token → create a customer →
+ * read it back → search by email. Uses the public HTTP API only, with no database credentials
  *
  *   API_BASE_URL=http://localhost:3000 \
  *   TOKEN_URL=http://localhost:8081/realms/dcontact/protocol/openid-connect/token \
  *   CLIENT_ID=<service client> CLIENT_SECRET=<secret> \
  *   node examples/external-customer-api/client.mjs
  *
- * ผลลัพธ์เป็น JSON หนึ่งบรรทัด ไม่พิมพ์ token, secret หรือข้อมูลลูกค้า
+ * The output is a single JSON line; it never prints a token, secret or customer data
  */
 import { randomUUID } from 'node:crypto';
 
 const need = (name) => {
   const value = process.env[name];
-  if (!value) throw new Error(`ต้องตั้ง ${name}`);
+  if (!value) throw new Error(`${name} must be set`);
   return value;
 };
 const api = `${need('API_BASE_URL').replace(/\/$/, '')}/api/v1/customer-360`;
@@ -29,7 +29,7 @@ async function accessToken() {
       client_secret: need('CLIENT_SECRET'),
     }),
   });
-  if (!response.ok) throw new Error(`ขอ token ไม่สำเร็จ: HTTP ${response.status}`);
+  if (!response.ok) throw new Error(`token request failed: HTTP ${response.status}`);
   return (await response.json()).access_token;
 }
 
@@ -43,8 +43,8 @@ async function call(token, method, path, body) {
 }
 
 /**
- * ส่ง commandId เดิมซ้ำเมื่อผลยังไม่แน่นอน (เครือข่ายขาด, 429, 503): server ไม่สร้างลูกค้าซ้ำ
- * เปลี่ยน commandId เฉพาะเมื่อตั้งใจสร้างลูกค้าอีกราย
+ * Resend the same commandId when the result is still uncertain (network drop, 429, 503): the server does not create the customer twice
+ * Change the commandId only when you intend to create another customer
  */
 async function createContact(token, profile) {
   const commandId = randomUUID();
@@ -58,27 +58,30 @@ async function createContact(token, profile) {
     if (result.status === 201 || result.status === 200) return result.body.command;
     if (![0, 429, 503].includes(result.status))
       throw new Error(
-        `สร้างลูกค้าไม่สำเร็จ: HTTP ${result.status} ${result.body?.error?.code ?? ''}`,
+        `creating the customer failed: HTTP ${result.status} ${result.body?.error?.code ?? ''}`,
       );
     await new Promise((resolve) => setTimeout(resolve, attempt * 500));
   }
-  throw new Error('สร้างลูกค้าไม่สำเร็จหลังลองซ้ำ ตรวจผลด้วย GET commands/:commandId');
+  throw new Error(
+    'creating the customer failed after retries; check the result with GET commands/:commandId',
+  );
 }
 
 const token = await accessToken();
 const email = `example-${randomUUID().slice(0, 8)}@example.test`;
 const receipt = await createContact(token, {
-  displayName: 'ลูกค้าตัวอย่างจากระบบภายนอก',
-  company: 'บริษัท ตัวอย่าง จำกัด',
+  displayName: 'Sample customer from an external system',
+  company: 'Example Co., Ltd.',
   points: [{ kind: 'EMAIL', value: email }],
 });
-// receipt ไม่มีข้อมูลลูกค้า ต้องอ่านค่าปัจจุบันกลับเอง
+// the receipt has no customer data, so read the current values back yourself
 const contactId = receipt.resourceRefs[0]?.id;
-if (!contactId) throw new Error('receipt ไม่มี Contact ที่อ่านได้');
+if (!contactId) throw new Error('the receipt has no readable Contact');
 const profile = await call(token, 'GET', `contacts/${contactId}`);
-if (profile.status !== 200) throw new Error(`อ่านลูกค้าไม่สำเร็จ: HTTP ${profile.status}`);
+if (profile.status !== 200) throw new Error(`reading the customer failed: HTTP ${profile.status}`);
 const search = await call(token, 'POST', 'contacts/search', { type: 'EMAIL', query: email });
-if (search.status !== 200) throw new Error(`ค้นลูกค้าไม่สำเร็จ: HTTP ${search.status}`);
+if (search.status !== 200)
+  throw new Error(`searching for the customer failed: HTTP ${search.status}`);
 const found = search.body.items.some((item) => item.contactId === contactId);
-if (!found) throw new Error('ค้นด้วยอีเมลไม่พบลูกค้าที่เพิ่งสร้าง');
+if (!found) throw new Error('the email search did not find the customer that was just created');
 console.log(JSON.stringify({ result: 'PASS', contactId, readback: true, searchFound: true }));

@@ -1,18 +1,18 @@
 /**
- * D1.13 (#452): เปิด/ปิด UI flag ระดับ tenant (`ui.shell.v2`) โดย platform operator เท่านั้น
- * (ผู้ใช้ตัดสิน 2026-09-25) — `database` = Prisma ของ role `dcontact_platform`
+ * D1.13 (#452): turn a tenant-level UI flag (`ui.shell.v2`) on/off, by a platform operator only
+ * (the user decided 2026-09-25) — `database` = Prisma with role `dcontact_platform`
  *
- * - ทุกการเปลี่ยนต้องมีเหตุผลและ actor และเขียน audit ใน transaction เดียวกัน
- * - การ **เปิด** ต้องยืนยันว่าไม่ขัดกับการเก็บหลักฐาน voice pilot #77 (Phase Contract: ห้ามเปิดระหว่าง #77
- *   จนกว่าผู้ใช้ยืนยัน) — การปิดทำได้ทันทีเสมอเพราะเป็นทาง rollback
- * - ตารางอยู่ใต้ tenant_isolation จึงตั้ง tenant context ก่อนเขียนเหมือนฝั่งแอป
+ * - every change needs a reason and an actor and writes an audit in the same transaction
+ * - **turning on** must confirm it does not conflict with collecting voice pilot #77 evidence (Phase Contract: must not be enabled during #77
+ *   until the user confirms) — turning off is always allowed immediately because it is the rollback path
+ * - the table is under tenant_isolation, so set the tenant context before writing, as the app side does
  */
 import { withTenantDatabaseTransaction, type PrismaClient } from '@d-contact/db';
 
 export const TENANT_UI_FLAGS = [
   'ui.shell.v2',
-  // #583: `workSession.lease.enforced` ถูกลบ — work-session lease บังคับทุก tenant แล้ว (แถวเดิมใน DB ไม่มีผล)
-  // E1.11 (#485): อนุญาตให้ฝัง dphone ในระบบของลูกค้า (ต้องมี allowlist + entitlement ด้วย)
+  // #583: `workSession.lease.enforced` was removed — the work-session lease is enforced for every tenant (the old row in the DB has no effect)
+  // E1.11 (#485): allows embedding dphone in the customer's system (also needs an allowlist + entitlement)
   'dphone.embed.enabled',
 ] as const;
 export type TenantUiFlagKey = (typeof TENANT_UI_FLAGS)[number];
@@ -37,7 +37,7 @@ export interface SetTenantUiFlagInput {
   enabled: boolean;
   reason: string;
   actor: string;
-  /** ต้องเป็น true เมื่อเปิด flag ใดๆ — ยืนยันว่าผู้ใช้อนุญาตแล้วเทียบกับ gate ของ #77 (D1/E1 Phase Contract) */
+  /** must be true when turning on any flag — confirms the user has approved it against the gate of #77 (D1/E1 Phase Contract) */
   voicePilotAcknowledged?: boolean;
 }
 

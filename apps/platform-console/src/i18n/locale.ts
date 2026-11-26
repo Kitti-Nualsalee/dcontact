@@ -6,7 +6,7 @@ export const PLATFORM_TIME_ZONE = 'Asia/Bangkok';
 type LocaleStorage = Pick<Storage, 'getItem' | 'setItem'>;
 type StorageSource = () => LocaleStorage;
 
-/** storage เป็น callback เพราะ browser อาจปฏิเสธตั้งแต่การอ่าน window.sessionStorage */
+/** storage is a callback because the browser may refuse as early as reading window.sessionStorage */
 export function resolvePlatformLocale(input: {
   storage: StorageSource;
   browser: readonly string[];
@@ -15,7 +15,7 @@ export function resolvePlatformLocale(input: {
     const stored = input.storage().getItem(PLATFORM_LOCALE_KEY);
     if (stored === 'th' || stored === 'en') return stored;
   } catch {
-    // preference ใช้ไม่ได้ไม่ขวางการเปิดแอป และไม่ต้องเรียก API เพื่อหาค่าสำรอง
+    // an unusable preference must not block opening the app, and no API call is needed to find a fallback
   }
   return resolveLocale({ browser: input.browser });
 }
@@ -24,6 +24,6 @@ export function savePlatformLocale(locale: SupportedLocale, storage: StorageSour
   try {
     storage().setItem(PLATFORM_LOCALE_KEY, locale);
   } catch {
-    // LocaleProvider เปลี่ยนภาษาใน memory แล้ว แม้ storage ถูกปิดหรือเต็ม
+    // LocaleProvider changes the language in memory even if storage is blocked or full
   }
 }

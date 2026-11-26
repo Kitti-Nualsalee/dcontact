@@ -1,14 +1,14 @@
 /**
- * #956 dphone แบบลอย (`.dp-floating`, position fixed ลากย้ายได้) ทับส่วนล่างของแผงงานด้านขวา
- * hook นี้วัดความสูงที่ทับจริงแล้วตั้ง `--aw-dphone-inset` บนแผง ให้เนื้อหาเว้นที่และปุ่มที่ติดท้ายแผง
- * ยกขึ้นพ้น dphone ไม่ทับ = 0 จึงไม่เปลี่ยน layout เมื่อ dphone อยู่ที่อื่นหรือถูกแยกหน้าต่าง
+ * #956 the floating dphone (`.dp-floating`, position fixed, draggable) overlaps the bottom of the right work panel
+ * this hook measures the real overlapping height and sets `--aw-dphone-inset` on the panel so the content leaves room and the button pinned at the end of the panel
+ * rises above dphone; no overlap = 0, so the layout does not change when dphone is elsewhere or detached into a window
  */
 import { useEffect, type RefObject } from 'react';
 
 const FLOATING = '.dp-floating';
 const GAP_PX = 8;
 
-/** ความสูงที่ `floating` ทับขอบล่างของ `pane` (0 เมื่อไม่ทับทั้งแนวนอนและแนวตั้ง) */
+/** height by which `floating` overlaps the bottom edge of `pane` (0 when there is no overlap both horizontally and vertically) */
 export function overlapInset(pane: DOMRectReadOnly, floating: DOMRectReadOnly | undefined): number {
   if (!floating || floating.width === 0 || floating.height === 0) return 0;
   const horizontal = floating.left < pane.right && floating.right > pane.left;
@@ -43,7 +43,7 @@ export function useFloatingOverlapInset(pane: RefObject<HTMLElement | null>, ena
       if (!frame) frame = requestAnimationFrame(measure);
     }
     resize.observe(element);
-    // dphone ย้ายตำแหน่งด้วย inline style และเปลี่ยนขนาด/โหมดด้วย class
+    // dphone moves position through inline style and changes size/mode through class
     mutations.observe(document.body, {
       subtree: true,
       childList: true,

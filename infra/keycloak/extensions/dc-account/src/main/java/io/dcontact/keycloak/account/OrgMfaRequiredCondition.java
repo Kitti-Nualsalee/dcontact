@@ -8,18 +8,18 @@ import org.keycloak.models.RealmModel;
 import org.keycloak.models.UserModel;
 
 /**
- * AC2 (#595): condition {@code dc-org-mfa-required} — จริงเมื่อผู้ใช้เป็นสมาชิก Organization ที่ตั้ง {@code
+ * AC2 (#595): condition {@code dc-org-mfa-required} — true when the user is a member of an Organization that has {@code
  * dc_mfa_required=true}
  *
- * <p>ใช้ใน browser flow ของ tenant (`dcontact-browser`):
+ * <p>Used in the tenant browser flow (`dcontact-browser`):
  *
  * <ul>
- *   <li>subflow "Org 2FA": condition นี้ + {@code auth-otp-form} แบบ REQUIRED — ยังไม่มี OTP = Keycloak
- *       ตั้ง required action {@code CONFIGURE_TOTP}; มีแล้ว = ถาม OTP
- *   <li>subflow 2FA เดิม: เพิ่ม condition นี้แบบ {@code negate} เพื่อไม่ถาม OTP ซ้ำสองรอบ
+ *   <li>subflow "Org 2FA": this condition + {@code auth-otp-form} as REQUIRED — if there is no OTP yet, Keycloak
+ *       sets the required action {@code CONFIGURE_TOTP}; if there is, it asks for the OTP
+ *   <li>the existing 2FA subflow: add this condition as {@code negate} so the OTP is not asked twice
  * </ul>
  *
- * <p>ประเมินตอน login เท่านั้น จึงมีผลตอน login ครั้งถัดไปและไม่ตัด session ที่ใช้อยู่ (#589 D10, ADR-026)
+ * <p>Evaluated at login only, so it takes effect at the next login and does not cut a session in use (#589 D10, ADR-026)
  */
 public class OrgMfaRequiredCondition implements ConditionalAuthenticator {
 

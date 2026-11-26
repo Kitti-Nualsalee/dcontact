@@ -44,7 +44,7 @@ const REQUIRED_NON_OVERRIDABLE = [
   'CALLBACK_OVERRIDE_EXPIRED',
 ] as const;
 
-test('CG4-F01: hard boundary ทั้งหมดเป็น non-overridable และ registry immutable', () => {
+test('CG4-F01: every hard boundary is non-overridable and the registry is immutable', () => {
   assert.ok(Object.isFrozen(CG4_RULE_REGISTRY));
   assert.deepEqual(
     Object.values(CG4_RULE_REGISTRY)
@@ -63,7 +63,7 @@ test('CG4-F01: hard boundary ทั้งหมดเป็น non-overridable �
   }
 });
 
-test('unknown rule metadata fail closed แทนการรับ metadata จาก caller', () => {
+test('unknown rule metadata fails closed instead of accepting metadata from the caller', () => {
   const resolution = resolveCg4RuleMetadata('CALLER_INVENTED_ALLOW');
   assert.equal(resolution.known, false);
   assert.equal(resolution.metadata.ruleClass, 'NON_OVERRIDABLE');
@@ -82,7 +82,7 @@ test('unknown rule metadata fail closed แทนการรับ metadata จ
   if (!eligibility.eligible) assert.equal(eligibility.reason, 'RULE_NOT_REGISTERED');
 });
 
-test('CG4-REG02 contract: approved exception ต้องผ่าน registry + policy positive allowlist', () => {
+test('CG4-REG02 contract: an approved exception must pass the registry + policy positive allowlist', () => {
   const allowed = resolveCg4OverrideEligibility({
     ruleCode: CG4_RULE_CODES.QUIET_HOURS,
     mechanism: 'APPROVED_EXCEPTION',
@@ -119,7 +119,7 @@ test('CG4-REG02 contract: approved exception ต้องผ่าน registry +
   if (!hardRule.eligible) assert.equal(hardRule.reason, 'NON_OVERRIDABLE_RULE');
 });
 
-test('customer callback ไม่เปิดทางให้ generic exception ข้าม explicit preference', () => {
+test('a customer callback does not open a way for a generic exception to cross an explicit preference', () => {
   const callback = resolveCg4OverrideEligibility({
     ruleCode: CG4_RULE_CODES.PREFERENCE_WINDOW_CLOSED,
     mechanism: 'CUSTOMER_CALLBACK',
@@ -146,7 +146,7 @@ test('customer callback ไม่เปิดทางให้ generic exceptio
   }
 });
 
-test('risk floor และ platform lifetime cap ลดสิทธิ์แบบ deterministic', () => {
+test('the risk floor and platform lifetime cap reduce entitlement deterministically', () => {
   const lowRisk = resolveCg4OverrideEligibility({
     ruleCode: CG4_RULE_CODES.DAILY_TOUCH_CAP,
     mechanism: 'APPROVED_EXCEPTION',
@@ -198,7 +198,7 @@ test('risk floor และ platform lifetime cap ลดสิทธิ์แบ�
   if (!emergencyTooLong.eligible) assert.equal(emergencyTooLong.reason, 'LIFETIME_EXCEEDS_CAP');
 });
 
-test('CG4 payload คง Kafka envelope V2 และ public authorization port แบบ structural', () => {
+test('the CG4 payload keeps the Kafka envelope V2 and the public authorization port structurally', () => {
   const payload = createCg4CanonicalChangePayloadFixture();
   const event: KafkaEventEnvelopeV2<Cg4CanonicalChangePayloadV1> = {
     schemaVersion: 2,

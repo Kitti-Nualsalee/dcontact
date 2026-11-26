@@ -59,7 +59,7 @@ function run(overrides: Record<string, unknown> = {}) {
   });
 }
 
-test('candidate ที่ถูกต้องผ่าน mandatory suite ทั้ง platform และ tenant pack', () => {
+test('a valid candidate passes the mandatory suite of both the platform and tenant packs', () => {
   const result = run();
   const failures = result.checks.filter((check) => check.outcome === 'FAIL');
   assert.deepEqual(
@@ -72,25 +72,25 @@ test('candidate ที่ถูกต้องผ่าน mandatory suite ท�
   assert.equal(result.tenantFixtureDigest, digestCg4FixturePack(TENANT_PACK));
 });
 
-test('ทุก check ใน platform pack ถูกรันจริง ไม่มีอันไหนถูกข้ามเงียบ ๆ', () => {
+test('every check in the platform pack is really run, none is silently skipped', () => {
   const result = run();
   const ids = new Set(result.checks.map((check) => check.id));
   for (const check of CG4_PLATFORM_FIXTURE_PACK.checks) assert.ok(ids.has(check.id), check.id);
-  // ทุก check ที่ประกาศไว้ต้องมี assertion อย่างน้อยหนึ่งครั้งกับ candidate ตัวอย่างนี้
+  // every declared check must have at least one assertion against this sample candidate
   for (const check of result.checks) {
-    assert.ok(check.assertions > 0, `${check.id} ไม่ได้ assert อะไรเลย`);
+    assert.ok(check.assertions > 0, `${check.id} asserted nothing`);
   }
 });
 
-test('candidate ที่พยายามยก hard rule ผ่าน allowlist ถูก compiler ปฏิเสธก่อนถึง suite', () => {
+test('a candidate that tries to lift a hard rule through the allowlist is rejected by the compiler before reaching the suite', () => {
   assert.throws(() => compile({ allowedOperationalRuleCodes: ['QUIET_HOURS', 'DNC_GLOBAL'] }));
 });
 
-test('ผลลัพธ์ deterministic: input เดิมให้ result digest เดิม', () => {
+test('the result is deterministic: the same input gives the same result digest', () => {
   assert.equal(run().resultDigest, run().resultDigest);
 });
 
-test('เปลี่ยน content ทำให้ result digest และ artifact digest เปลี่ยน', () => {
+test('changing the content changes the result digest and the artifact digest', () => {
   const base = previewCg4Policy({
     compiled: compile(),
     baseContent: null,
@@ -115,7 +115,7 @@ test('เปลี่ยน content ทำให้ result digest และ arti
   assert.notEqual(base.previewDigest, changed.previewDigest);
 });
 
-test('artifact digest ผูกกับ fixture pack: แก้ pack แล้ว digest เปลี่ยน', () => {
+test('the artifact digest is bound to the fixture pack: editing the pack changes the digest', () => {
   const pinned = {
     baseContent: null,
     baseHeadVersion: 0,
@@ -133,7 +133,7 @@ test('artifact digest ผูกกับ fixture pack: แก้ pack แล้�
   assert.notEqual(withDefault.artifactDigest, withEdited.artifactDigest);
 });
 
-test('artifact digest ผูกกับ head ที่ diff ด้วย: head ต่างกัน digest ต่างกัน', () => {
+test('the artifact digest is bound to the head it is diffed against: a different head gives a different digest', () => {
   const shared = {
     compiled: compile(),
     baseContent: null,
@@ -154,7 +154,7 @@ test('artifact digest ผูกกับ head ที่ diff ด้วย: head 
   assert.notEqual(atHeadZero.artifactDigest, atHeadOne.artifactDigest);
 });
 
-test('preview คืน diff class และ result counts ที่สอดคล้องกับ candidate', () => {
+test('preview returns a diff class and result counts consistent with the candidate', () => {
   const preview = previewCg4Policy({
     compiled: compile(),
     baseContent: null,
@@ -167,18 +167,18 @@ test('preview คืน diff class และ result counts ที่สอดค
   assert.equal(preview.diffClass, 'RELAXATION');
   const total = Object.values(preview.resultCounts).reduce((sum, count) => sum + count, 0);
   assert.equal(total, 48);
-  assert.ok(preview.resultCounts.DEFER > 0, 'ต้องมีช่วง quiet hours ที่ DEFER');
-  assert.ok(preview.resultCounts.PASSED > 0, 'ต้องมีช่วงที่ผ่าน');
+  assert.ok(preview.resultCounts.DEFER > 0, 'there must be a quiet-hours period that DEFERs');
+  assert.ok(preview.resultCounts.PASSED > 0, 'there must be a period that passes');
 });
 
-test('candidate ที่ไม่มี temporal constraint เลยยังผ่าน suite แต่ไม่มี DEFER', () => {
+test('a candidate with no temporal constraint at all still passes the suite but has no DEFER', () => {
   const result = run({ quietHours: [], holidays: [] });
   assert.equal(result.outcome, 'PASS');
 });
 
-test('suite ไม่ vacuous: facts ที่ไม่ตรงกับ content ที่ประกาศทำให้ check ตก', () => {
+test('the suite is not vacuous: facts that do not match the declared content make a check fail', () => {
   const compiled = compile();
-  // จำลอง compiler ที่ปล่อย facts เพี้ยนจาก content ที่ author ประกาศไว้
+  // simulate a compiler that lets facts drift from the content the author declared
   const drifted = {
     ...compiled,
     facts: { ...compiled.facts, quietHours: [] },
@@ -195,7 +195,7 @@ test('suite ไม่ vacuous: facts ที่ไม่ตรงกับ conten
   assert.ok(clock!.failures.length > 0);
 });
 
-test('suite ไม่ vacuous: content ที่หลุด hard rule เข้า allowlist ทำให้ check ตก', () => {
+test('the suite is not vacuous: content that lets a hard rule into the allowlist makes a check fail', () => {
   const compiled = compile();
   const tampered = {
     ...compiled,

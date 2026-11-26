@@ -1,8 +1,8 @@
 /**
  * D1.11 (#450): `GET /api/v1/tenant/locale-defaults`
  *
- * ต่อ DB ด้วย `dcontact_app` (NOBYPASSRLS) เพื่อพิสูจน์ว่า tenant เห็นเฉพาะ `tenant_settings` ของตัวเอง
- * และ tenant ที่ไม่มีแถว settings ได้ `null` แทน error
+ * connects to the DB with `dcontact_app` (NOBYPASSRLS) to prove that a tenant sees only its own `tenant_settings`
+ * and a tenant with no settings row gets `null` instead of an error
  */
 import 'reflect-metadata';
 import assert from 'node:assert/strict';
@@ -72,7 +72,7 @@ async function harness(t: TestContext) {
     verifyAccessToken: async (token: string): Promise<VerifiedOidcClaims> => {
       if (token === 'agent-with-settings') return claims(withSettings, ['agent']);
       if (token === 'admin-without-settings') return claims(withoutSettings, ['admin']);
-      throw new Error('token ไม่ถูกต้อง');
+      throw new Error('invalid token');
     },
   };
 
@@ -94,7 +94,7 @@ async function harness(t: TestContext) {
 
   t.after(async () => {
     await app.close();
-    // ล้างเฉพาะ fixture ของ test ด้วย owner ใน sandbox; runtime ยังคง immutable provenance
+    // clear only the test fixtures with the owner in the sandbox; the runtime still keeps immutable provenance
     await owner.$transaction(async (tx) => {
       await tx.$executeRawUnsafe("SET LOCAL session_replication_role = 'replica'");
       await tx.tenantSettings.deleteMany({ where: { tenantId: withSettings } });
@@ -110,21 +110,21 @@ async function harness(t: TestContext) {
   return { get };
 }
 
-test('ผู้ใช้ทุก role ของ tenant อ่านค่าเริ่มต้นของ tenant ตัวเองได้', async (t) => {
+test("users of every role of the tenant can read their own tenant's defaults", async (t) => {
   const { get } = await harness(t);
   const response = await get('agent-with-settings');
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { locale: 'en', timeZone: 'Asia/Tokyo' });
 });
 
-test('tenant ที่ไม่มี tenant_settings ได้ null ไม่ใช่ error และไม่เห็นค่าของ tenant อื่น', async (t) => {
+test('a tenant with no tenant_settings gets null, not an error, and does not see the values of another tenant', async (t) => {
   const { get } = await harness(t);
   const response = await get('admin-without-settings');
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { locale: null, timeZone: null });
 });
 
-test('ไม่มี bearer token → 401', async (t) => {
+test('no bearer token → 401', async (t) => {
   const { get } = await harness(t);
   assert.equal((await get()).status, 401);
 });

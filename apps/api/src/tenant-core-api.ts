@@ -150,7 +150,7 @@ export class TenantCoreSettingsController {
     sendCoreResponse(response, result, coreRequestId(req));
   }
 
-  /** #936 รายการเหตุผล Not Ready — อ่านได้ทุกบทบาทของ Core Settings แก้ได้เฉพาะ ADMIN */
+  /** #936 the Not Ready reason list — readable by every Core Settings role, editable only by ADMIN */
   @Get('not-ready-reasons')
   @Header('Cache-Control', 'no-store')
   notReadyReasons(

@@ -12,7 +12,7 @@ import {
 } from './core-settings/api.js';
 const original: Organization = {
   id: 'f7e4aba1-dc3c-4f02-9f3b-e050ee5ef7a0',
-  displayName: 'องค์กรเดิม',
+  displayName: 'Original Organization',
   defaults: null,
   revision: '0',
 };
@@ -23,12 +23,12 @@ const receipt: CoreReceipt = {
     resourceId: original.id,
     outcome: 'APPLIED',
     committedRevision: '1',
-    resourceSnapshot: { ...original, displayName: 'ชื่อใหม่', revision: '1' },
+    resourceSnapshot: { ...original, displayName: 'New name', revision: '1' },
     error: null,
   },
 };
-test('หน้าทีม: pending ของ Admin ไม่ขวาง Supervisor อ่าน own Team หลังเปลี่ยนสิทธิ์', async () => {
-  const team: Team = { id: original.id, name: 'ทีมของฉัน', isActive: true, revision: '1' };
+test('teams page: an Admin pending state does not block a Supervisor reading own Team after permissions change', async () => {
+  const team: Team = { id: original.id, name: 'My team', isActive: true, revision: '1' };
   const saved = storage();
   saved.setItem(`dc:core-settings:command:identity:team:${team.id}`, receipt.command.id);
   const forbidden = async () => {
@@ -100,7 +100,7 @@ function fixture() {
     },
   };
 }
-test('หน้าองค์กร: แจ้งบันทึกแล้วเมื่อ readback ตรง receipt และไม่สร้าง defaults จากการแก้ชื่อ', async () => {
+test('organization page: reports saved when the readback matches the receipt and does not create defaults from a rename', async () => {
   const f = fixture(),
     saved = storage();
   const model = new CoreOrganizationModel(
@@ -110,7 +110,7 @@ test('หน้าองค์กร: แจ้งบันทึกแล้ว
     () => receipt.command.id,
   );
   await model.load();
-  model.edit({ displayName: 'ชื่อใหม่' });
+  model.edit({ displayName: 'New name' });
   await model.save();
   assert.equal(model.state, 'SAVED');
   assert.equal(model.current?.revision, '1');
@@ -118,7 +118,7 @@ test('หน้าองค์กร: แจ้งบันทึกแล้ว
   assert.equal(saved.map.size, 0);
 });
 
-test('หน้าองค์กร: response หลุดแล้ว reload เก็บเฉพาะ commandId และกู้ receipt/readback ก่อนแก้ใหม่', async () => {
+test('organization page: a lost response then reload keeps only the commandId and recovers the receipt/readback before a new edit', async () => {
   const f = fixture(),
     saved = storage();
   f.api.save = async () => {
@@ -132,18 +132,18 @@ test('หน้าองค์กร: response หลุดแล้ว reload �
     () => receipt.command.id,
   );
   await model.load();
-  model.edit({ displayName: 'ชื่อใหม่' });
+  model.edit({ displayName: 'New name' });
   await model.save();
   assert.equal(model.state, 'UNKNOWN');
   assert.deepEqual([...saved.map.values()], [receipt.command.id]);
   const reloaded = new CoreOrganizationModel(f.api, 'verified-identity', saved);
   await reloaded.load();
   assert.equal(reloaded.state, 'SAVED');
-  assert.equal(reloaded.current?.displayName, 'ชื่อใหม่');
+  assert.equal(reloaded.current?.displayName, 'New name');
   assert.equal(saved.map.size, 0);
 });
 
-test('หน้าองค์กร: lookup404 ไม่สรุปว่าล้มเหลว และ reconcile ยัง PENDING จึงไม่ส่งคำสั่งใหม่', async () => {
+test('organization page: lookup404 does not conclude failure, and reconcile still PENDING so no new command is sent', async () => {
   const f = fixture(),
     saved = storage(),
     model = new CoreOrganizationModel(f.api, 'identity', saved, () => receipt.command.id);
@@ -155,15 +155,15 @@ test('หน้าองค์กร: lookup404 ไม่สรุปว่า�
   };
   f.api.reconcile = async () => ({ state: 'PENDING', commandId: receipt.command.id });
   await model.load();
-  model.edit({ displayName: 'ร่างยังอยู่' });
+  model.edit({ displayName: 'Draft kept' });
   await model.save();
   await model.checkPending();
   assert.equal(model.state, 'UNKNOWN');
-  assert.equal(model.draft.displayName, 'ร่างยังอยู่');
+  assert.equal(model.draft.displayName, 'Draft kept');
   assert.equal(model.pending, receipt.command.id);
   assert.equal(model.editable, false);
 });
-test('หน้าองค์กร: NOT_APPLIED เป็น fence ให้ตรวจค่าปัจจุบันก่อนเริ่ม command ใหม่', async () => {
+test('organization page: NOT_APPLIED is a fence to check the current value before starting a new command', async () => {
   const f = fixture(),
     saved = storage(),
     model = new CoreOrganizationModel(f.api, 'identity', saved, () => receipt.command.id);
@@ -180,24 +180,24 @@ test('หน้าองค์กร: NOT_APPLIED เป็น fence ให้�
     },
   });
   await model.load();
-  model.edit({ displayName: 'ร่างยังอยู่' });
+  model.edit({ displayName: 'Draft kept' });
   await model.save();
   await model.checkPending();
   assert.equal(model.state, 'CONFLICT');
   assert.equal(model.message, 'NOT_APPLIED');
-  assert.equal(model.draft.displayName, 'ร่างยังอยู่');
+  assert.equal(model.draft.displayName, 'Draft kept');
   assert.equal(saved.map.size, 0);
   await model.loadLatest();
-  assert.equal(model.draft.displayName, 'องค์กรเดิม');
+  assert.equal(model.draft.displayName, 'Original Organization');
   assert.equal(model.state, 'CLEAN');
 });
-test('หน้าองค์กร: readback ล้มเหลว/เก่ากว่า receipt ห้ามแจ้งสำเร็จ และเก็บ command เดิม', async () => {
+test('organization page: a failed/older-than-receipt readback must not report success, and keeps the original command', async () => {
   const f = fixture(),
     saved = storage(),
     model = new CoreOrganizationModel(f.api, 'identity', saved, () => receipt.command.id);
   f.api.save = async () => receipt;
   await model.load();
-  model.edit({ displayName: 'ชื่อใหม่' });
+  model.edit({ displayName: 'New name' });
   await model.save();
   assert.equal(model.state, 'UNKNOWN');
   assert.equal(model.pending, receipt.command.id);
@@ -206,53 +206,53 @@ test('หน้าองค์กร: readback ล้มเหลว/เก่�
   await model.checkPending();
   assert.equal(model.state, 'SAVED');
 });
-test('หน้าองค์กร: readback ใหม่กว่า receipt แสดงค่าที่ commit แยกจาก current values', async () => {
+test('organization page: a readback newer than the receipt shows the committed value separate from the current values', async () => {
   const f = fixture(),
     saved = storage(),
     model = new CoreOrganizationModel(f.api, 'identity', saved, () => receipt.command.id);
   f.api.save = async () => {
     f.setResource({
       ...receipt.command.resourceSnapshot!,
-      displayName: 'อีกคนแก้ต่อ',
+      displayName: 'Edited by someone else',
       revision: '2',
     });
     return receipt;
   };
   await model.load();
-  model.edit({ displayName: 'ชื่อใหม่' });
+  model.edit({ displayName: 'New name' });
   await model.save();
   assert.equal(model.state, 'SAVED');
   assert.equal(model.message, 'SAVED_LATER');
-  assert.equal(model.current?.displayName, 'อีกคนแก้ต่อ');
-  assert.equal(model.committed?.displayName, 'ชื่อใหม่');
+  assert.equal(model.current?.displayName, 'Edited by someone else');
+  assert.equal(model.committed?.displayName, 'New name');
 });
-test('หน้าองค์กร: same identity reauth คงร่าง และ revision ชนไม่เขียนทับอัตโนมัติ', async () => {
+test('organization page: same-identity reauth keeps the draft, and a revision conflict does not overwrite automatically', async () => {
   const f = fixture(),
     saved = storage(),
     model = new CoreOrganizationModel(f.api, 'identity', saved, () => receipt.command.id);
   await model.load();
-  model.edit({ displayName: 'ร่างของฉัน' });
+  model.edit({ displayName: 'My draft' });
   f.api.capabilities = async () => {
     throw new CoreApiError(401, 'CORE_ACCESS_DENIED');
   };
   await model.load();
   assert.equal(model.state, 'REAUTH');
-  assert.equal(model.draft.displayName, 'ร่างของฉัน');
+  assert.equal(model.draft.displayName, 'My draft');
   f.api.capabilities = async () => ({ organization: { read: true, write: true } });
   await model.load();
   assert.equal(model.state, 'DIRTY');
-  f.setResource({ ...original, revision: '1', displayName: 'อีกคนบันทึก' });
+  f.setResource({ ...original, revision: '1', displayName: 'Saved by someone else' });
   await model.load();
   assert.equal(model.state, 'CONFLICT');
-  assert.equal(model.draft.displayName, 'ร่างของฉัน');
+  assert.equal(model.draft.displayName, 'My draft');
   assert.equal(model.editable, false);
 });
-test('หน้าองค์กร: narrow เก็บร่างแล้วขยายจอต้องตรวจค่า/สิทธิ์ใหม่ และ forbidden ล้างข้อมูล', async () => {
+test('organization page: narrow keeps the draft, then widening must re-check values/permission, and forbidden clears the data', async () => {
   const f = fixture(),
     saved = storage(),
     model = new CoreOrganizationModel(f.api, 'identity', saved);
   await model.load();
-  model.edit({ displayName: 'ร่างของฉัน' });
+  model.edit({ displayName: 'My draft' });
   await model.setNarrow(true);
   assert.equal(model.editable, false);
   f.api.capabilities = async () => {
@@ -264,7 +264,7 @@ test('หน้าองค์กร: narrow เก็บร่างแล้�
   assert.equal(model.state, 'READ_ONLY');
 });
 
-test('หน้าองค์กร: validation ชุดเดียวกับ API ห้ามส่งชื่อ/เขตเวลาที่ผิด', async () => {
+test('organization page: the same validation as the API, a wrong name/timezone must not be sent', async () => {
   const { coreNameFixtures, coreTimeZoneFixtures } =
     await import('@d-contact/shared/src/core-settings-fixtures.js');
   for (const { value, valid } of coreNameFixtures) {
@@ -289,7 +289,7 @@ test('หน้าองค์กร: validation ชุดเดียวกั�
   }
 });
 
-test('หน้าองค์กร: response จาก load เก่าที่มาช้าต้องไม่เขียนทับร่าง/ค่าล่าสุด', async () => {
+test('organization page: a late response from an old load must not overwrite the draft/latest values', async () => {
   const f = fixture(),
     model = new CoreOrganizationModel(f.api, 'identity', storage());
   let release!: (value: Organization) => void,
@@ -302,25 +302,25 @@ test('หน้าองค์กร: response จาก load เก่าที
       first = false;
       return delayed;
     }
-    return Promise.resolve({ ...original, displayName: 'ค่าล่าสุด', revision: '1' });
+    return Promise.resolve({ ...original, displayName: 'Latest value', revision: '1' });
   };
   const old = model.load();
   await model.load();
-  model.edit({ displayName: 'ร่างที่ยังไม่บันทึก' });
+  model.edit({ displayName: 'Unsaved draft' });
   release(original);
   await old;
   assert.equal(model.current?.revision, '1');
-  assert.equal(model.draft.displayName, 'ร่างที่ยังไม่บันทึก');
+  assert.equal(model.draft.displayName, 'Unsaved draft');
 });
 
-test('หน้าองค์กร: ถอนหน้าเดิมระหว่างตรวจคำสั่งต้องไม่ reconcile ต่อหรือคืนข้อมูลเก่า', async () => {
+test('organization page: withdrawing the old page while checking a command must not keep reconciling or return old data', async () => {
   const f = fixture(),
     model = new CoreOrganizationModel(f.api, 'identity', storage(), () => receipt.command.id);
   f.api.save = async () => {
     throw Error('transport');
   };
   await model.load();
-  model.edit({ displayName: 'ชื่อใหม่' });
+  model.edit({ displayName: 'New name' });
   await model.save();
   let release!: (value: { state: 'ADMITTED'; commandId: string }) => void;
   f.api.command = () =>
@@ -328,7 +328,7 @@ test('หน้าองค์กร: ถอนหน้าเดิมระห
       release = resolve;
     });
   f.api.reconcile = async () => {
-    assert.fail('ไม่ควร reconcile หลัง clear');
+    assert.fail('must not reconcile after clear');
   };
   const checking = model.checkPending();
   model.clear();
@@ -338,7 +338,7 @@ test('หน้าองค์กร: ถอนหน้าเดิมระห
   assert.equal(model.current, undefined);
 });
 
-test('หน้าองค์กร: save ที่ล้มเหลวหลัง clear ต้องไม่คืนสถานะของ identity เดิม', async () => {
+test('organization page: a save that fails after clear must not return the state of the old identity', async () => {
   const f = fixture(),
     model = new CoreOrganizationModel(f.api, 'identity', storage(), () => receipt.command.id);
   let reject!: (error: unknown) => void;
@@ -347,7 +347,7 @@ test('หน้าองค์กร: save ที่ล้มเหลวหล�
       reject = fail;
     });
   await model.load();
-  model.edit({ displayName: 'ชื่อใหม่' });
+  model.edit({ displayName: 'New name' });
   const saving = model.save();
   model.clear();
   reject(new CoreApiError(401, 'CORE_ACCESS_DENIED'));

@@ -8,17 +8,17 @@ function assert(condition, message) {
 }
 
 /**
- * E0 อนุญาตเฉพาะ test adapter; ห้าม acceptance นี้ถูกใช้เป็นหลักฐานว่า
- * provider traffic หรือ CG2/J1 production adapter เปิดใช้งานแล้ว.
+ * E0 allows only the test adapter; this acceptance must not be used as evidence that
+ * provider traffic or a CG2/J1 production adapter is enabled.
  */
 export function cxaE0AdapterProfileSummary(environment = process.env) {
   const adapterProfile = environment.CXA_E0_ADAPTER_PROFILE ?? TEST_ADAPTER_PROFILE;
   const providerTrafficEnabled = environment.CXA_PROVIDER_TRAFFIC_ENABLED === 'true';
   assert(
     adapterProfile === TEST_ADAPTER_PROFILE,
-    `E0 acceptance รองรับ adapter profile ${TEST_ADAPTER_PROFILE} เท่านั้น`,
+    `E0 acceptance supports only the ${TEST_ADAPTER_PROFILE} adapter profile`,
   );
-  assert(!providerTrafficEnabled, 'E0 acceptance ห้ามเปิด actual provider traffic');
+  assert(!providerTrafficEnabled, 'E0 acceptance must not enable actual provider traffic');
   return {
     type: 'adapter-profile.readiness',
     workflow: 'cx-automation-e0-adapter-profile',

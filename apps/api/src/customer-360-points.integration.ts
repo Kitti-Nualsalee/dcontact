@@ -19,8 +19,8 @@ import { Prisma, withTenantDatabaseTransaction } from '@d-contact/db';
 import { activeHead, grantCustodian, setup, type Fixture } from './customer-360-test-fixtures.js';
 
 /**
- * Cus360 C3 (#793) S2: owner point service ผ่าน S2 command engine จริงบน PostgreSQL/RLS
- * caller ถือ fences และตรวจ manage แบบเดียวกับที่ C4 จะใช้ ไม่เขียน point ผ่าน owner connection
+ * Cus360 C3 (#793) S2: the owner point service through the real S2 command engine on PostgreSQL/RLS
+ * the caller holds the fences and checks manage the same way C4 will, and does not write a point through the owner connection
  */
 type Write = (
   tx: Prisma.TransactionClient,
@@ -115,7 +115,7 @@ const revision = async (f: Fixture, contactId = f.contactId) =>
     await f.owner.contact.findUniqueOrThrow({ where: { id: contactId } })
   ).profileRevision.toString();
 
-test('S2: add เก็บ provenance และเพิ่ม revision ครั้งเดียว; ค่าเดิมเป็น NO_OP; parser/revision ผิดถูก REJECTED ไม่มี effect', async () => {
+test('S2: add keeps provenance and increases the revision once; the same value is NO_OP; a wrong parser/revision is REJECTED with no effect', async () => {
   const f = await setup();
   try {
     await manageable(f);
@@ -130,7 +130,7 @@ test('S2: add เก็บ provenance และเพิ่ม revision คร�
     assert.equal(row!.sourceKind, 'PROFILE_COMMAND');
     assert.equal(row!.normalizationVersion, 'c360-phone-v1+libphonenumber-js@1.13.15/max');
 
-    // ค่าเดียวกันในรูปแบบอื่นเป็น NO_OP: มี receipt แต่ไม่มี revision ใหม่หรือ change-audit
+    // the same value in another format is NO_OP: there is a receipt but no new revision or change-audit
     const again = await point(f, phone('+1 213 373 4253'));
     assert.equal(again.outcome, 'NO_OP');
     assert.equal(await revision(f), '1');
@@ -145,7 +145,7 @@ test('S2: add เก็บ provenance และเพิ่ม revision คร�
     assert.equal((await points(f)).length, 1);
     assert.equal(await revision(f), '1');
 
-    // audit ไม่มีค่า phone/email ก่อน–หลัง
+    // the audit has no phone/email value before–after
     const audits = await f.owner.c360ProfileAudit.findMany({ where: { tenantId: f.tenantId } });
     assert.equal(audits.length, 1);
     assert.ok(
@@ -158,13 +158,13 @@ test('S2: add เก็บ provenance และเพิ่ม revision คร�
   }
 });
 
-test('S2: ค่าเดียวกันบนสอง contact เก็บได้; retire/replace เฉพาะรายไม่กระทบอีกคนหรือ identity เดิม', async () => {
+test('S2: the same value on two contacts is storable; retire/replace affects only that one and not the other or the original identity', async () => {
   const f = await setup();
   try {
     await manageable(f);
     const other = randomUUID();
     await f.owner.contact.create({
-      data: { id: other, tenantId: f.tenantId, displayName: 'อีกคน' },
+      data: { id: other, tenantId: f.tenantId, displayName: 'Another person' },
     });
     await f.owner.c360IdentityHead.create({
       data: {
@@ -181,7 +181,7 @@ test('S2: ค่าเดียวกันบนสอง contact เก็บ�
     await f.owner.c360ContactCustodianGrant.create({
       data: { ...grant!, id: randomUUID(), contactId: other, grantedAt: undefined },
     });
-    // legacy identity ค่าเดียวกันของ contact แรก: owner/value ต้องไม่ถูกแตะ
+    // the same-value legacy identity of the first contact: owner/value must not be touched
     const identity = await f.owner.contactIdentity.create({
       data: {
         tenantId: f.tenantId,
@@ -200,7 +200,7 @@ test('S2: ค่าเดียวกันบนสอง contact เก็บ�
     const [theirs] = await points(f, other);
     assert.equal(mine!.normalizedValue, theirs!.normalizedValue);
 
-    // point ของอีก contact ผ่าน context ของ contact นี้ = ไม่พบ
+    // a point of another contact through this contact's context = not found
     const foreign = await point(f, (tx, c) => retireC360ContactPoint(tx, c, theirs!.id));
     assert.deepEqual([foreign.outcome, foreign.code], ['REJECTED', 'POINT_NOT_FOUND']);
 
@@ -234,7 +234,7 @@ test('S2: ค่าเดียวกันบนสอง contact เก็บ�
       replaceC360ContactPoint(tx, c, mine!.id, { kind: 'EMAIL', value: 'x@example.com' }),
     );
     assert.deepEqual([replaceRetired.outcome, replaceRetired.code], ['REJECTED', 'POINT_RETIRED']);
-    // attribute เดิมแก้ไม่ได้แม้ผ่าน application role (DB trigger)
+    // an original attribute cannot be edited even through the application role (DB trigger)
     await assert.rejects(
       f.db
         .$executeRaw`UPDATE c360_contact_points SET raw_value = 'x' WHERE id = ${after[1]!.id}::uuid`,
@@ -245,7 +245,7 @@ test('S2: ค่าเดียวกันบนสอง contact เก็บ�
   }
 });
 
-test('S2: quota 10 ACTIVE ต่อชนิด; legacy ที่เกินอยู่แล้ว retire/replace ได้แต่เพิ่มไม่ได้', async () => {
+test('S2: quota 10 ACTIVE per kind; a legacy already over can retire/replace but cannot add', async () => {
   const f = await setup();
   try {
     await manageable(f);
@@ -256,10 +256,10 @@ test('S2: quota 10 ACTIVE ต่อชนิด; legacy ที่เกินอ
       );
     const over = await point(f, phone('+1 213 373 4299'));
     assert.deepEqual([over.outcome, over.code], ['REJECTED', 'POINT_QUOTA_EXCEEDED']);
-    // email มีเพดานแยก
+    // email has a separate cap
     assert.equal((await point(f, email('a@example.com'))).outcome, 'APPLIED');
 
-    // legacy เกินเพดาน: ข้อมูลเดิมไม่ถูกตัดทิ้ง (ใส่ผ่าน owner เหมือนผลของ migration เดิม)
+    // legacy over the cap: the original data is not cut off (inserted through the owner like the result of the original migration)
     const [command] = await f.owner.c360ProfileCommand.findMany({
       where: { tenantId: f.tenantId },
       take: 1,
@@ -307,7 +307,7 @@ test('S2: quota 10 ACTIVE ต่อชนิด; legacy ที่เกินอ
     );
     assert.equal(await active(), 11);
 
-    // แทน REVIEW_REQUIRED ด้วยค่าที่ใช้ได้ = เพิ่ม ACTIVE ใหม่ จึงต้องผ่าน quota (legacy ไม่ข้ามเพดาน)
+    // replacing REVIEW_REQUIRED with a usable value = adding a new ACTIVE one, so it must pass the quota (legacy does not skip the cap)
     const review = randomUUID();
     await f.owner.c360ContactPoint.create({
       data: {
@@ -344,8 +344,8 @@ test('S2: quota 10 ACTIVE ต่อชนิด; legacy ที่เกินอ
 });
 
 /**
- * หยุด writer ที่ insert point ค่า `value` หลังผ่าน lockContact และ insert แล้ว (ก่อนเพิ่ม revision/commit)
- * แล้วรัน `during` ระหว่างนั้น; trigger barrier เป็นของ test เท่านั้น
+ * stops a writer that inserts a point with value `value` after passing lockContact and after the insert (before the revision increase/commit)
+ * then runs `during` in between; the trigger barrier belongs to the test only
  */
 async function pausedInsert<T>(
   f: Fixture,
@@ -355,7 +355,7 @@ async function pausedInsert<T>(
 ) {
   const suffix = randomUUID().replaceAll('-', '');
   const barrier = randomInt(1_000_000, 1_000_000_000);
-  // ค่าทั้งหมดสร้างใน test (UUID/integer/E.164 ที่ตรวจแล้ว) ไม่มี input ภายนอก
+  // all values are built in the test (validated UUID/integer/E.164) with no external input
   assert.match(value, /^\+[0-9]{8,15}$/);
   await f.owner.$executeRawUnsafe(
     `CREATE FUNCTION public.c360_test_point_${suffix}() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $$ BEGIN IF NEW.normalized_value='${value}' THEN PERFORM set_config('lock_timeout','10s',true); PERFORM pg_advisory_xact_lock(${barrier}::bigint); END IF; RETURN NEW; END $$`,
@@ -386,7 +386,7 @@ async function pausedInsert<T>(
         SELECT EXISTS (SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND classid = 0
           AND objid = ${barrier}::bigint::oid AND NOT granted) AS waiting`;
       if (row?.waiting) break;
-      if (waited > 3000) assert.fail('writer ไม่ถึง barrier');
+      if (waited > 3000) assert.fail('the writer did not reach the barrier');
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
     await during();
@@ -403,7 +403,7 @@ async function pausedInsert<T>(
   }
 }
 
-test('S2: add แข่งกันที่ช่องสุดท้ายของ quota ทั้งสองลำดับ: ไม่เกินเพดาน และผู้แพ้ไม่มี effect', async () => {
+test('S2: add racing for the last quota slot in both orders: does not exceed the cap, and the loser has no effect', async () => {
   const f = await setup();
   try {
     await manageable(f);
@@ -415,7 +415,7 @@ test('S2: add แข่งกันที่ช่องสุดท้ายข
         where: { tenantId: f.tenantId, contactId: f.contactId, state: 'ACTIVE' },
       });
 
-    // ลำดับ 1: A อ่าน revision/quota และ insert แล้วแต่ยังไม่ commit; B ที่มาทีหลังต้องไม่เห็นช่องว่าง
+    // order 1: A read the revision/quota and inserted but has not committed; B arriving later must not see the free slot
     let late: unknown;
     const first = await pausedInsert(
       f,
@@ -431,12 +431,12 @@ test('S2: add แข่งกันที่ช่องสุดท้ายข
     assert.equal((first as { outcome: string }).outcome, 'APPLIED');
     assert.ok(
       late instanceof C360ProfileCommandError && late.code === 'RESOURCE_BUSY',
-      `ผู้มาทีหลังต้องได้ RESOURCE_BUSY แต่ได้ ${JSON.stringify(late)}`,
+      `the latecomer must get RESOURCE_BUSY but got ${JSON.stringify(late)}`,
     );
     assert.equal(await active(), 10);
     assert.equal(await revision(f), String(Number(expected) + 1));
 
-    // ลำดับ 2: ผู้ชนะ commit ไปแล้ว คำสั่งที่ใช้ revision เดิมได้ REVISION_CONFLICT ไม่มี effect
+    // order 2: the winner has committed, a command using the original revision gets REVISION_CONFLICT with no effect
     const retried = await point(f, phone('+1 213 373 4381'), { expected });
     assert.deepEqual([retried.outcome, retried.code], ['REJECTED', 'REVISION_CONFLICT']);
     assert.equal(await active(), 10);
@@ -445,7 +445,7 @@ test('S2: add แข่งกันที่ช่องสุดท้ายข
   }
 });
 
-test('S2: owner ปฏิเสธ contact ที่ไม่มี head ACTIVE แม้ caller ข้าม authorization', async () => {
+test('S2: the owner rejects a contact with no ACTIVE head even when the caller skips authorization', async () => {
   const f = await setup();
   try {
     await assert.rejects(

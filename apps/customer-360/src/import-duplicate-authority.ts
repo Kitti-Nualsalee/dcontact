@@ -25,9 +25,9 @@ const unavailable = () => new C360ReadError(503, 'SCOPE_UNAVAILABLE', true);
 type Match = { row_indexes: number[]; id: string; readable: boolean; deferred: boolean };
 
 /**
- * ต้องเรียกใน tenant-scoped READ COMMITTED transaction หลัง gateway ตรวจ identity/proof แล้ว
- * ใช้ current Contact VIEW predicate ของ C2 และคืนเพียง boolean ต่อ input row; ไม่คืน count/id/PII.
- * เรียกเสร็จ caller ต้องตรวจ owner/proof/capability อีกครั้งก่อนส่ง preview ทุกหน้า
+ * Must be called inside a tenant-scoped READ COMMITTED transaction after the gateway has verified identity/proof.
+ * Uses the current Contact VIEW predicate of C2 and returns only a boolean per input row; no count/id/PII.
+ * After it returns, the caller must re-check owner/proof/capability before sending every preview page.
  */
 export function createC360ImportDuplicateAuthority(
   tx: Prisma.TransactionClient,

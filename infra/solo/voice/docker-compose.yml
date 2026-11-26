@@ -1,12 +1,12 @@
-# #923: VM voice ของ UAT แบบ D-Contact Solo (192.168.31.206)
-# nginx (TLS), Kamailio (ขอบ SIP) และ FreeSWITCH ใช้ host network ของ VM ตามแบบ Solo
-# ใช้ผ่าน infra/solo/bin/solo-uat.sh เท่านั้น ไฟล์อยู่ที่ /opt/dcontact-solo/voice/ บน VM
+# #923: voice VM of the D-Contact Solo UAT (192.168.31.206)
+# nginx (TLS), Kamailio (SIP edge) and FreeSWITCH use the host network of the VM in the Solo layout
+# use only through infra/solo/bin/solo-uat.sh; the files live at /opt/dcontact-solo/voice/ on the VM
 #
-# พอร์ตบน VM:
-#   443/TCP              nginx → web บน VM app และ /sip-ws → FreeSWITCH WSS 127.0.0.1:7443
-#   5060/UDP+TCP         Kamailio รับ trunk / สายจำลองที่อยู่ในตาราง voice edge
-#   5080/UDP             FreeSWITCH profile pstn-sim รับเฉพาะ Kamailio (ACL)
-#   8021/TCP             ESL รับเฉพาะ VM app (ACL)
+# ports on the VM:
+#   443/TCP              nginx → web on the app VM and /sip-ws → FreeSWITCH WSS 127.0.0.1:7443
+#   5060/UDP+TCP         Kamailio accepts trunks / simulated calls that are in the voice edge tables
+#   5080/UDP             FreeSWITCH profile pstn-sim accepts only Kamailio (ACL)
+#   8021/TCP             ESL accepts only the app VM (ACL)
 #   16384-16683/UDP      RTP
 name: dcontact-solo-voice
 
@@ -50,7 +50,7 @@ services:
       FREESWITCH_DIRECTORY_PASSWORD: ${FREESWITCH_DIRECTORY_PASSWORD:?FREESWITCH_DIRECTORY_PASSWORD is required}
     volumes:
       - ./freeswitch:/solo-freeswitch:ro
-      # เสียงบันทึก: export ด้วย NFS ให้ Telephony บน VM app อ่านแล้วส่งเข้า object storage (solo-uat.sh voice)
+      # recordings: exported over NFS so Telephony on the app VM reads them and sends them to object storage (solo-uat.sh voice)
       - /srv/dcontact-solo/recordings:/var/lib/freeswitch/recordings
     tmpfs:
       - /etc/freeswitch:mode=0755
@@ -58,7 +58,7 @@ services:
       - SYS_NICE
     mem_limit: 1g
     healthcheck:
-      # docker exec ได้ env ของ container (entrypoint unset เฉพาะใน process ของ FreeSWITCH)
+      # docker exec gets the container's env (the entrypoint unsets it only in the FreeSWITCH process)
       test: ['CMD-SHELL', 'fs_cli -p "$$FREESWITCH_ESL_PASSWORD" -x status']
       interval: 10s
       timeout: 5s

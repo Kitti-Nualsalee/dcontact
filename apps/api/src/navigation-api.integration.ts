@@ -1,10 +1,10 @@
 /**
- * D1.12 (#451): Navigation API บน Postgres จริงด้วย role `dcontact_app` (NOBYPASSRLS)
+ * D1.12 (#451): the Navigation API on real Postgres with the role `dcontact_app` (NOBYPASSRLS)
  *
- * acceptance ที่ห้าม waive:
- * - role/plan ที่ต่างกันได้รายการต่างกัน และแอปที่ไม่มีสิทธิ์ไม่อยู่ใน response เลย
- * - two-tenant isolation ของหมุดผู้ใช้และค่าเริ่มต้นของ tenant
- * - เกิน 15 / revision ไม่ตรง / แอปไม่มีสิทธิ์ → error ที่กำหนด (แอปไม่มีสิทธิ์ตอบเหมือนแอปที่ไม่มีอยู่)
+ * acceptance that must not be waived:
+ * - different roles/plans get different lists, and an app without permission is not in the response at all
+ * - two-tenant isolation of user pins and the tenant defaults
+ * - over 15 / revision mismatch / app without permission → the defined error (an app without permission answers like one that does not exist)
  */
 import 'reflect-metadata';
 import assert from 'node:assert/strict';
@@ -41,7 +41,7 @@ async function harness(t: TestContext) {
     emptyPlan: randomUUID(),
     legacy: randomUUID(),
   };
-  // ผู้ใช้ id เดียวกันในสอง tenant — หมุดต้องไม่ปนกัน (PK = tenant + user)
+  // the same user id in two tenants — pins must not mix (PK = tenant + user)
   const sharedUserId = randomUUID();
   const otherUserId = randomUUID();
 
@@ -80,7 +80,7 @@ async function harness(t: TestContext) {
   const verifier = {
     verifyAccessToken: async (token: string): Promise<VerifiedOidcClaims> => {
       const entry = tokens.get(token);
-      if (!entry) throw new Error('token ไม่ถูกต้อง');
+      if (!entry) throw new Error('invalid token');
       const tenantId = tenants[entry.tenant];
       const slug = `d1-12-nav-${tenantId.slice(0, 8)}`;
       return {
@@ -151,7 +151,7 @@ async function harness(t: TestContext) {
 
 const appIds = (body: { apps: { id: string }[] }) => body.apps.map((app) => app.id);
 
-test('Agent history ใช้ active domain AGENT ทั้งการแสดงเมนูและการปักหมุด ไม่ใช้ composite role แทน', async (t) => {
+test('Agent history uses the active domain AGENT for both menu display and pinning, not a composite role', async (t) => {
   const { owner, tenants, navigation, putPins, otherUserId } = await harness(t);
   await owner.user.create({
     data: {
@@ -176,7 +176,7 @@ test('Agent history ใช้ active domain AGENT ทั้งการแสด
   assert.equal(appIds((await navigation('journey-agent')).json).includes('agent-history'), false);
 });
 
-test('role และ plan ต่างกันได้รายการต่างกัน และแอปที่มองไม่เห็นไม่อยู่ใน response เลย', async (t) => {
+test('different roles and plans get different lists, and an invisible app is not in the response at all', async (t) => {
   const { navigation } = await harness(t);
 
   const journeyAdmin = await navigation('journey-admin');
@@ -189,7 +189,10 @@ test('role และ plan ต่างกันได้รายการต่
     'tenant-people',
     'customers',
   ]);
-  assert.ok(!journeyAdmin.text.includes('contact-governance'), 'plan ไม่รวม governance');
+  assert.ok(
+    !journeyAdmin.text.includes('contact-governance'),
+    'the plan does not include governance',
+  );
   assert.ok(!journeyAdmin.text.includes('navigation.apps.contactGovernance'));
   assert.deepEqual(
     journeyAdmin.json.groups.map((group: { id: string }) => group.id),
@@ -203,7 +206,7 @@ test('role และ plan ต่างกันได้รายการต่
     path: '/?view=journeys',
   });
 
-  // #651: พื้นที่งานบน rail + เมนูย่อย — คัดตาม role/plan ที่ server และพื้นที่ว่างไม่ถูกส่ง
+  // #651: work areas on the rail + submenu — filtered by role/plan on the server and empty areas are not sent
   assert.deepEqual(journeyAdmin.json.areas, [
     {
       id: 'home',
@@ -286,12 +289,12 @@ test('role และ plan ต่างกันได้รายการต่
   assert.deepEqual(
     journeyAgent.json.areas.map((area: { id: string }) => area.id),
     ['home', 'workspace'],
-    'agent เห็นพื้นที่เดียว ไม่มีพื้นที่ว่าง',
+    'the agent sees a single area, no empty area',
   );
   for (const hidden of ['supervisor-workspace', 'journeys', 'contact-governance']) {
-    assert.ok(!journeyAgent.text.includes(hidden), `agent ต้องไม่เห็น ${hidden}`);
+    assert.ok(!journeyAgent.text.includes(hidden), `the agent must not see ${hidden}`);
   }
-  assert.equal(journeyAgent.json.tenantDefaultPins, undefined, 'เฉพาะ ADMIN');
+  assert.equal(journeyAgent.json.tenantDefaultPins, undefined, 'ADMIN only');
 
   const emptyAdmin = await navigation('empty-admin');
   assert.deepEqual(appIds(emptyAdmin.json), [
@@ -302,7 +305,7 @@ test('role และ plan ต่างกันได้รายการต่
     'customers',
   ]);
 
-  // tenant ที่ไม่มี plan binding (ก่อน A1) — role อย่างเดียว (ตัดสินใน #451)
+  // a tenant with no plan binding (pre-A1) — role only (decided in #451)
   const legacyAdmin = await navigation('legacy-admin');
   assert.deepEqual(appIds(legacyAdmin.json), [
     'home',
@@ -329,10 +332,10 @@ test('role และ plan ต่างกันได้รายการต่
     revision: 0,
   });
   assert.deepEqual(legacyAdmin.json.limits, { maxPins: 15 });
-  assert.deepEqual(legacyAdmin.json.features, { shellV2: false }, 'flag ปิดโดย default');
+  assert.deepEqual(legacyAdmin.json.features, { shellV2: false }, 'the flag is off by default');
 });
 
-test('ui.shell.v2 เป็นของ tenant: เปิดให้ tenant หนึ่งไม่กระทบอีก tenant และแอปเขียน flag เองไม่ได้', async (t) => {
+test('ui.shell.v2 belongs to the tenant: enabling it for one tenant does not affect another and the app cannot write the flag itself', async (t) => {
   const { owner, application, navigation, tenants } = await harness(t);
   await owner.tenantUiFlag.create({
     data: {
@@ -363,7 +366,7 @@ test('ui.shell.v2 เป็นของ tenant: เปิดให้ tenant ห
   );
 });
 
-test('หมุดผู้ใช้: revision, เพดาน 15, แอปไม่มีสิทธิ์ตอบเหมือนแอปที่ไม่มีอยู่', async (t) => {
+test('user pins: revision, the cap of 15, an app without permission answers like one that does not exist', async (t) => {
   const { navigation, putPins } = await harness(t);
 
   const created = await putPins('journey-admin', {
@@ -402,9 +405,9 @@ test('หมุดผู้ใช้: revision, เพดาน 15, แอปไ
   assert.equal(hidden.status, 422);
   assert.deepEqual(hidden.json, { code: 'APP_NOT_AVAILABLE', safeParams: { field: 'appIds' } });
   assert.equal(unknown.status, hidden.status);
-  assert.equal(unknown.text, hidden.text, 'ห้ามเปิดเผยว่าแอปที่ไม่มีสิทธิ์มีอยู่');
+  assert.equal(unknown.text, hidden.text, 'must not reveal that an app without permission exists');
 
-  // agent ปักแอปของ supervisor ไม่ได้ ถึงแอปจะอยู่ใน plan
+  // an agent cannot pin a supervisor app, even if the app is in the plan
   const agentPinsSupervisor = await putPins('journey-agent', {
     appIds: ['supervisor-workspace'],
     expectedRevision: 0,
@@ -424,11 +427,11 @@ test('หมุดผู้ใช้: revision, เพดาน 15, แอปไ
   assert.equal(
     (await navigation('journey-admin')).json.pins.revision,
     2,
-    'คำขอที่ปฏิเสธไม่แตะข้อมูล',
+    'a rejected request does not touch data',
   );
 });
 
-test('คำขอพร้อมกันที่ revision เดียวกัน สำเร็จได้คำขอเดียว', async (t) => {
+test('concurrent requests at the same revision: only one request succeeds', async (t) => {
   const { putPins } = await harness(t);
   const results = await Promise.all(
     Array.from({ length: 4 }, () =>
@@ -438,7 +441,7 @@ test('คำขอพร้อมกันที่ revision เดียวก�
   assert.deepEqual(results.map((r) => r.status).sort(), [200, 409, 409, 409]);
 });
 
-test('ค่าเริ่มต้นของ tenant: ADMIN เท่านั้น, audit, ผู้ใช้ใหม่เห็นชุดนี้ และผู้ใช้ปรับทับได้', async (t) => {
+test('tenant defaults: ADMIN only, audit, a new user sees this set and a user can override it', async (t) => {
   const { owner, navigation, putDefault, putPins, tenants } = await harness(t);
 
   const byAgent = await putDefault('journey-agent', { appIds: [], expectedRevision: 0 });
@@ -451,7 +454,7 @@ test('ค่าเริ่มต้นของ tenant: ADMIN เท่าน�
   assert.equal(notEntitled.status, 422);
   assert.equal(notEntitled.json.code, 'APP_NOT_AVAILABLE');
 
-  // ADMIN ใส่แอปของ supervisor ในชุดเริ่มต้นได้ (ตาม plan) — agent ที่อ่านจะถูกกรองออกเอง
+  // an ADMIN can put a supervisor app in the starter set (per plan) — an agent reading it is filtered out automatically
   const saved = await putDefault('journey-admin', {
     appIds: ['journeys', 'agent-workspace'],
     expectedRevision: 0,
@@ -479,7 +482,7 @@ test('ค่าเริ่มต้นของ tenant: ADMIN เท่าน�
   const audit = await owner.navigationAuditEvent.findMany({
     where: { tenantId: tenants.journeyPlan },
   });
-  assert.equal(audit.length, 1, 'คำขอที่ถูกปฏิเสธไม่เขียน audit');
+  assert.equal(audit.length, 1, 'a rejected request writes no audit');
   assert.equal(audit[0]!.action, 'TENANT_DEFAULT_PINS_UPDATED');
   assert.equal(audit[0]!.correlationId, 'd1-12-test');
   assert.deepEqual(audit[0]!.details, {
@@ -489,7 +492,7 @@ test('ค่าเริ่มต้นของ tenant: ADMIN เท่าน�
   });
 });
 
-test('two-tenant isolation: หมุดและค่าเริ่มต้นไม่ข้าม tenant แม้ user id เดียวกัน', async (t) => {
+test('two-tenant isolation: pins and defaults do not cross tenants even with the same user id', async (t) => {
   const { navigation, putPins, putDefault } = await harness(t);
 
   await putPins('journey-admin', { appIds: ['journeys'], expectedRevision: 0 });
@@ -501,7 +504,7 @@ test('two-tenant isolation: หมุดและค่าเริ่มต้�
   assert.deepEqual(legacy.json.tenantDefaultPins, { appIds: [], revision: 0 });
   assert.equal((await navigation('legacy-agent')).json.pins.source, 'SYSTEM');
 
-  // user id เดียวกันใน tenant อื่นเริ่มที่ revision 0 ของตัวเอง
+  // the same user id in another tenant starts at its own revision 0
   const ownRow = await putPins('legacy-admin', {
     appIds: ['contact-governance'],
     expectedRevision: 0,
@@ -510,7 +513,7 @@ test('two-tenant isolation: หมุดและค่าเริ่มต้�
   assert.deepEqual((await navigation('journey-admin')).json.pins.appIds, ['journeys']);
 });
 
-test('audit เป็น append-only สำหรับ role ของแอป และ RLS ซ่อนแถวของ tenant อื่น', async (t) => {
+test('audit is append-only for the app role, and RLS hides rows of another tenant', async (t) => {
   const { application, putDefault, tenants } = await harness(t);
   await putDefault('journey-admin', { appIds: [], expectedRevision: 0 });
 
@@ -536,10 +539,14 @@ test('audit เป็น append-only สำหรับ role ของแอป 
     ]),
   );
   assert.equal(own, 1);
-  assert.deepEqual(fromOtherTenant, [0, 0], 'RLS ซ่อนแถวของ tenant อื่นแม้ระบุ tenantId ตรง');
+  assert.deepEqual(
+    fromOtherTenant,
+    [0, 0],
+    'RLS hides rows of another tenant even when tenantId is given directly',
+  );
 });
 
-test('ค่าเริ่มต้นของ tenant: admin สองคนส่ง revision เดียวกันพร้อมกัน — สำเร็จคนเดียว และ 409 บอก revision ล่าสุดจริง', async (t) => {
+test('tenant defaults: two admins send the same revision at the same time — only one succeeds and the 409 reports the real latest revision', async (t) => {
   const { putDefault } = await harness(t);
   await putDefault('journey-admin', { appIds: [], expectedRevision: 0 });
   const results = await Promise.all(

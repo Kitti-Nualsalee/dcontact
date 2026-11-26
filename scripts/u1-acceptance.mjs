@@ -22,19 +22,19 @@ import {
 } from './u1-uat-keycloak-users.mjs';
 
 /**
- * U1.7 (#435): acceptance gate ของ UAT first slice บน backend จริง ก่อนเปิด #416
+ * U1.7 (#435): acceptance gate of the UAT first slice on a real backend, before opening #416
  *
  * Authority: Phase Contract #374, evidence #379, first slice #372
  *
- * - stack รูปเดียวกับ UAT: API entry `uat-main` (`DCONTACT_API_PROFILE=uat`) ต่อ Postgres ด้วย app role
- *   (RLS), Keycloak จริง (realm จาก template ของ UAT: PKCE + password+TOTP + Organization), evidence store
- *   แบบ S3 (object storage ของ dev compose ใน CI) และ Console ผ่าน Vite ที่ proxy `/api/v1` แบบ same-origin
- * - Playwright ไม่ mock API เลย (`apps/console/e2e-uat/`); ข้อมูลตั้งต้นสร้างแบบเดียวกับ operator
- *   (`UatFixtureProvisioner`) และบัญชี Keycloak สุ่มใหม่ทุกรอบ (ไม่มี credential ของ dev)
- * - หลักฐาน = screenshot + manifest เท่านั้น (ห้าม trace/HAR/video ตาม #379) และ manifest ต้องผ่าน
- *   negative scan ของ server (bundle) และของ gate เอง
- * - marker `U1_ACCEPTANCE_GATE_PASSED` ออกเมื่อทุก check PASS บน `U1_EXPECTED_COMMIT_SHA` ที่ tree สะอาด
- *   เท่านั้น — marker นี้แปลว่า "พร้อมเปิด #416" ไม่ใช่ "UAT ผ่าน": #416 ยังต้องเดินบน URL จริงโดยทีม UAT
+ * - a stack of the same shape as UAT: the API entry `uat-main` (`DCONTACT_API_PROFILE=uat`) connects to Postgres with the app role
+ *   (RLS), a real Keycloak (a realm from the UAT template: PKCE + password+TOTP + Organization), an S3-style evidence store
+ *   (the object storage of the dev compose in CI) and the Console through Vite proxying `/api/v1` same-origin
+ * - Playwright mocks no API at all (`apps/console/e2e-uat/`); the seed data is created the same way as the operator does
+ *   (`UatFixtureProvisioner`) and the Keycloak accounts are freshly randomized every run (no dev credential)
+ * - evidence = screenshots + a manifest only (no trace/HAR/video per #379) and the manifest must pass the
+ *   negative scan of the server (bundle) and of the gate itself
+ * - the marker `U1_ACCEPTANCE_GATE_PASSED` is issued only when every check PASSES on `U1_EXPECTED_COMMIT_SHA` with a clean tree
+ *   - this marker means "ready to open #416", not "UAT passed": #416 still has to be walked through on a real URL by the UAT team
  */
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -48,67 +48,67 @@ export const U1_EVIDENCE_SCOPE =
 export const U1_OUTPUT_RELATIVE = 'artifacts/u1-acceptance';
 
 /**
- * step catalog ที่ gate provision ลง fixture pack และ #416 อ้างอิง (docs/u1-uat-acceptance-checklist.md)
- * expected ตรึงใน pack; ผู้ทดสอบกรอกแค่ actual/ผล
+ * the step catalog that the gate provisions into the fixture pack and that #416 references (docs/u1-uat-acceptance-checklist.md)
+ * expected is pinned in the pack; the tester fills in only the actual/result
  */
 export const U1_STEP_CATALOG = Object.freeze([
   {
     stepId: 'RUN_OPENED',
-    title: 'เปิดรอบ UAT',
+    title: 'เปิดรอบ UAT', // allow-thai: step catalog is provisioned into the fixture pack (persisted, digest-bound, shown to UAT testers)
     expected:
-      'รอบนี้ ACTIVE พร้อม run ID, build SHA และ fixture digest จาก server; รอบก่อนหน้า (ถ้ามี) ปิดเป็น COMPLETED/ABANDONED และหลักฐานเดิมยังอ่านได้',
+      'รอบนี้ ACTIVE พร้อม run ID, build SHA และ fixture digest จาก server; รอบก่อนหน้า (ถ้ามี) ปิดเป็น COMPLETED/ABANDONED และหลักฐานเดิมยังอ่านได้', // allow-thai: fixture pack step text (persisted)
     stateLabel: 'REAL_STATE',
   },
   {
     stepId: 'MAKER_EDIT',
-    title: 'Maker แก้ Journey ของรอบ',
-    expected: 'แทรก WAIT ได้ EVENT_TRIGGER → SEND → WAIT → EXIT และบันทึกได้ revision ใหม่',
+    title: 'Maker แก้ Journey ของรอบ', // allow-thai: fixture pack step text (persisted)
+    expected: 'แทรก WAIT ได้ EVENT_TRIGGER → SEND → WAIT → EXIT และบันทึกได้ revision ใหม่', // allow-thai: fixture pack step text (persisted)
     stateLabel: 'REAL_STATE',
   },
   {
     stepId: 'DIAGNOSTIC_RECOVERY',
-    title: 'แก้ diagnostic',
+    title: 'แก้ diagnostic', // allow-thai: fixture pack step text (persisted)
     expected:
-      'graph ที่ไม่สมบูรณ์บันทึกได้แต่ validate พบ diagnostic ที่ชี้ node; แก้แล้ว validate ไม่พบข้อผิดพลาด',
+      'graph ที่ไม่สมบูรณ์บันทึกได้แต่ validate พบ diagnostic ที่ชี้ node; แก้แล้ว validate ไม่พบข้อผิดพลาด', // allow-thai: fixture pack step text (persisted)
     stateLabel: 'REAL_STATE',
   },
   {
     stepId: 'COMPILE',
-    title: 'Compile ฉบับร่าง',
-    expected: 'compile revision ล่าสุดได้ compile digest จาก server',
+    title: 'Compile ฉบับร่าง', // allow-thai: fixture pack step text (persisted)
+    expected: 'compile revision ล่าสุดได้ compile digest จาก server', // allow-thai: fixture pack step text (persisted)
     stateLabel: 'REAL_STATE',
   },
   {
     stepId: 'SIMULATE',
-    title: 'จำลองการทำงาน',
+    title: 'จำลองการทำงาน', // allow-thai: fixture pack step text (persisted)
     expected:
-      'จำลองด้วย fixture ที่ server ตรึง ผลติดป้าย SIMULATION_ONLY และแสดงเวลาเสมือน ไม่ใช่การส่งจริง',
+      'จำลองด้วย fixture ที่ server ตรึง ผลติดป้าย SIMULATION_ONLY และแสดงเวลาเสมือน ไม่ใช่การส่งจริง', // allow-thai: fixture pack step text (persisted)
     stateLabel: 'SIMULATION_ONLY',
   },
   {
     stepId: 'SUBMIT_REVIEW',
-    title: 'ส่งตรวจ',
-    expected: 'candidate เข้าสถานะ IN_REVIEW และ maker ไม่มีปุ่มตัดสินงานของตัวเอง',
+    title: 'ส่งตรวจ', // allow-thai: fixture pack step text (persisted)
+    expected: 'candidate เข้าสถานะ IN_REVIEW และ maker ไม่มีปุ่มตัดสินงานของตัวเอง', // allow-thai: fixture pack step text (persisted)
     stateLabel: 'REAL_STATE',
   },
   {
     stepId: 'REVIEW_APPROVE',
-    title: 'Reviewer อนุมัติ',
+    title: 'Reviewer อนุมัติ', // allow-thai: fixture pack step text (persisted)
     expected:
-      'reviewer คนละบัญชีหา candidate เองจากตัวกรองรอตรวจ เห็น compile digest เดียวกัน แล้วอนุมัติได้ APPROVED',
+      'reviewer คนละบัญชีหา candidate เองจากตัวกรองรอตรวจ เห็น compile digest เดียวกัน แล้วอนุมัติได้ APPROVED', // allow-thai: fixture pack step text (persisted)
     stateLabel: 'REAL_STATE',
   },
   {
     stepId: 'PUBLISH',
     title: 'Publish',
-    expected: 'maker publish ได้ version และ receipt ที่ server ยืนยัน',
+    expected: 'maker publish ได้ version และ receipt ที่ server ยืนยัน', // allow-thai: fixture pack step text (persisted)
     stateLabel: 'REAL_STATE',
   },
   {
     stepId: 'AUDIT',
-    title: 'ตรวจ audit',
+    title: 'ตรวจ audit', // allow-thai: fixture pack step text (persisted)
     expected:
-      'ประวัติแสดง REVIEW_SUBMITTED, REVIEW_APPROVED และ JOURNEY_PUBLISHED ของ Journey รอบนี้',
+      'ประวัติแสดง REVIEW_SUBMITTED, REVIEW_APPROVED และ JOURNEY_PUBLISHED ของ Journey รอบนี้', // allow-thai: fixture pack step text (persisted)
     stateLabel: 'REAL_STATE',
   },
 ]);
@@ -118,7 +118,7 @@ export const U1_SIMULATION_FIXTURE = Object.freeze({
   startAt: '2026-09-01T02:00:00.000Z',
   seed: 'u1-gate-seed-1',
   context: { segment: 'synthetic-u1' },
-  // ผลของ SEND ใน simulation เป็นค่าสมมติของ fixture (SIMULATION_ONLY) — node id มาจาก baseline ของ pack
+  // the SEND result in simulation is a made-up fixture value (SIMULATION_ONLY) - the node id comes from the baseline of the pack
   sendOutcomes: { 'send-1': 'SENT' },
 });
 
@@ -127,30 +127,54 @@ function check(id, dimension, title) {
 }
 
 /**
- * checks ของ gate — check ที่มาจาก Playwright ผูกกับ test ที่ชื่อขึ้นต้นด้วย id นั้น (ไม่มี test = FAIL)
- * ลำดับ = ลำดับที่รายงาน
+ * the checks of the gate - a check that comes from Playwright is bound to the test whose name starts with that id (no test = FAIL)
+ * order = the order reported
  */
 export const U1_CHECKS = Object.freeze([
   check(
     'U1-SETUP',
     'environment',
-    'Keycloak realm/บัญชี + fixture pack ผ่าน UatFixtureProvisioner',
+    'Keycloak realm/accounts + fixture pack through UatFixtureProvisioner',
   ),
-  check('U1-PROFILE', 'environment', 'API บูตจาก uat-main ด้วย profile uat'),
+  check('U1-PROFILE', 'environment', 'the API boots from uat-main with the uat profile'),
   check('U1-MAKER', 'functional', 'maker: edit, diagnostic recovery, compile/simulate, submit'),
-  check('U1-REVIEW', 'authorization', 'reviewer คนละบัญชีหา candidate จากตัวกรองรอตรวจแล้วอนุมัติ'),
+  check(
+    'U1-REVIEW',
+    'authorization',
+    'a reviewer on a different account finds the candidate from the pending-review filter and approves it',
+  ),
   check('U1-PUBLISH', 'functional', 'publish + receipt + audit'),
   check(
     'U1-RERUN',
     'recovery',
-    'เริ่มรอบใหม่ แล้ว rerun: รอบใหม่ ACTIVE, รอบเดิมปิด, หลักฐานเดิมอยู่',
+    'start a new round and rerun: the new round is ACTIVE, the old round is closed, and the old evidence is kept',
   ),
-  check('U1-NEG-SELF-APPROVAL', 'authorization', 'maker อนุมัติงานตัวเองไม่ได้'),
-  check('U1-NEG-CROSS-TENANT', 'tenant-isolation', 'token ของ tenant อื่นแตะ run/Journey ไม่ได้'),
-  check('U1-NEG-ABANDONED', 'recovery', 'candidate ของรอบที่ ABANDONED ส่งตรวจ/publish ไม่ได้'),
-  check('U1-NEG-EGRESS', 'boundary', 'provider egress BLOCKED และ route นอก allowlist ถูกปิด'),
-  check('U1-EVIDENCE', 'evidence', 'screenshot ผ่าน evidence API + bundle verdict/scan PASS'),
-  check('U1-EVIDENCE-HYGIENE', 'evidence', 'ไม่มี trace/HAR/video และ manifest ผ่าน negative scan'),
+  check('U1-NEG-SELF-APPROVAL', 'authorization', 'a maker cannot approve their own work'),
+  check(
+    'U1-NEG-CROSS-TENANT',
+    'tenant-isolation',
+    'a token of another tenant cannot touch the run/Journey',
+  ),
+  check(
+    'U1-NEG-ABANDONED',
+    'recovery',
+    'a candidate of an ABANDONED round cannot be submitted/published',
+  ),
+  check(
+    'U1-NEG-EGRESS',
+    'boundary',
+    'provider egress is BLOCKED and routes outside the allowlist are closed',
+  ),
+  check(
+    'U1-EVIDENCE',
+    'evidence',
+    'screenshot through the evidence API + bundle verdict/scan PASS',
+  ),
+  check(
+    'U1-EVIDENCE-HYGIENE',
+    'evidence',
+    'no trace/HAR/video and the manifest passes the negative scan',
+  ),
 ]);
 
 const PLAYWRIGHT_CHECKS = new Set([
@@ -175,7 +199,7 @@ export function sha256(value) {
 
 function runGit(arguments_) {
   const result = spawnSync('git', arguments_, { cwd: repositoryRoot, encoding: 'utf8' });
-  if (result.status !== 0 || result.error) throw new Error(`git ${arguments_.join(' ')} ล้มเหลว`);
+  if (result.status !== 0 || result.error) throw new Error(`git ${arguments_.join(' ')} failed`);
   return String(result.stdout).trim();
 }
 
@@ -202,7 +226,7 @@ export function createU1Context(environment = process.env) {
 
 // ── Checks / summary / manifest (pure) ───────────────────────────────────────
 
-/** สถานะ check จากผล Playwright: ทุก test ของ id ต้อง passed และต้องมีอย่างน้อยหนึ่ง test */
+/** Check status from the Playwright result: every test of the id must have passed and there must be at least one test */
 export function playwrightCheckStatus(id, tests) {
   const owned = tests.filter((entry) => entry.title.startsWith(`${id} `));
   if (owned.length === 0) return { status: 'FAIL', detail: 'NO_TEST' };
@@ -212,7 +236,7 @@ export function playwrightCheckStatus(id, tests) {
     : { status: 'FAIL', tests: owned.length, failed: failed.map((entry) => entry.title) };
 }
 
-/** รวบรวม test จาก Playwright JSON report (suite ซ้อนได้หลายชั้น) */
+/** Collect tests from the Playwright JSON report (suites can nest several levels) */
 export function flattenPlaywrightReport(report) {
   const tests = [];
   const visit = (suite) => {
@@ -273,8 +297,8 @@ const SENSITIVE_VALUE = [
 ];
 
 /**
- * negative scan ของ manifest ฝั่ง gate: token/credential/อีเมล/OIDC code และค่าลับของรอบนี้
- * (รหัสผ่าน/TOTP secret ที่สุ่มให้บัญชี) ต้องไม่อยู่ในหลักฐาน — คืน findings (ไม่คืนค่าที่ match)
+ * the negative scan of the manifest on the gate side: tokens/credentials/emails/OIDC codes and the secrets of this run
+ * (the passwords/TOTP secrets randomized for the accounts) must not be in the evidence - returns findings (not the matched value)
  */
 export function scanU1Evidence(value, secrets = []) {
   const findings = [];
@@ -302,9 +326,9 @@ export function scanU1Evidence(value, secrets = []) {
   return findings;
 }
 
-/** ไฟล์ที่ห้ามเป็นหลักฐาน (#379): Playwright trace, HAR, video, network log */
+/** Files that must not be evidence (#379): a Playwright trace, HAR, video, network log */
 export function forbiddenEvidenceFiles(paths) {
-  // ตรวจชื่อไฟล์เท่านั้น — ชื่อโฟลเดอร์ของ Playwright มาจากชื่อ test ซึ่งอาจมีคำว่า trace
+  // check file names only - Playwright folder names come from the test name, which may contain the word trace
   return paths.filter((path) => {
     const name = path.split(/[\\/]/).at(-1) ?? '';
     return /\.(?:zip|har|webm|mp4|trace|network|log)$/i.test(name) || /^trace/i.test(name);
@@ -389,14 +413,14 @@ export function u1Environment(environment = process.env) {
 
 // ── Identity (Keycloak) ──────────────────────────────────────────────────────
 
-/** รหัสผ่านตาม password policy ของ realm UAT (ยาว, ตัวใหญ่/เล็ก/ตัวเลข) — สุ่มใหม่ทุกรอบ ไม่เก็บ */
+/** A password per the password policy of the UAT realm (long, upper/lower case/digits) - randomized every run, not stored */
 function randomPassword() {
   return `U1g${randomBytes(12).toString('base64url')}7a`;
 }
 
 /**
- * realm ของ gate = template ของ UAT ที่ render ด้วย renderer เดียวกับ U1.6 แล้วเปลี่ยนเฉพาะชื่อ realm,
- * origin ของ Console (localhost) และเพิ่ม Organization ของ tenant ที่สอง — flow/OTP/PKCE/mapper เหมือน UAT
+ * the gate realm = the UAT template rendered with the same renderer as U1.6, changing only the realm name,
+ * the Console origin (localhost) and adding the Organization of a second tenant - the flow/OTP/PKCE/mapper are the same as UAT
  */
 export function renderGateRealm({ realm, consoleOrigin, tenants }) {
   const template = JSON.parse(readFileSync(resolve(repositoryRoot, UAT_REALM_TEMPLATE), 'utf8'));
@@ -463,8 +487,8 @@ async function createGateAccount(admin, realm, organizations, account) {
   const [user] = await admin.call(
     `${base}/users?${new URLSearchParams({ username: account.username, exact: 'true' })}`,
   );
-  if (!user) throw new Error(`Keycloak user ของ ${account.role} ไม่ถูกสร้าง`);
-  // required action ค่าเริ่มต้นของ realm (CONFIGURE_TOTP) ไม่ต้องใช้ — มี OTP credential แล้ว
+  if (!user) throw new Error(`the Keycloak user of ${account.role} was not created`);
+  // the default required action of the realm (CONFIGURE_TOTP) is not needed - an OTP credential already exists
   await admin.call(`${base}/users/${user.id}`, {
     method: 'PUT',
     body: { ...user, requiredActions: [] },
@@ -516,7 +540,7 @@ export async function setupU1Identity(config, fixture) {
 
 const API_FORBIDDEN_ENV = [/^LINE_/, /^KAFKA_BROKERS$/, /^SIP_/];
 
-/** env ของ API สร้างใหม่ทั้งชุด — ไม่สืบ env ของ runner ที่อาจมี LINE_/KAFKA_/SIP_ (profile uat จะไม่บูต) */
+/** The API env is rebuilt from scratch - it does not inherit the runner env, which may have LINE_/KAFKA_/SIP_ (the uat profile would not boot) */
 export function u1ApiEnvironment(config, base = process.env) {
   const inherited = Object.fromEntries(
     ['PATH', 'HOME', 'TMPDIR', 'LANG', 'SystemRoot']
@@ -544,7 +568,8 @@ export function u1ApiEnvironment(config, base = process.env) {
   const conflicting = Object.keys(environment).filter((name) =>
     API_FORBIDDEN_ENV.some((pattern) => pattern.test(name)),
   );
-  if (conflicting.length > 0) throw new Error(`env ขัดกับ profile uat: ${conflicting.join(', ')}`);
+  if (conflicting.length > 0)
+    throw new Error(`env conflicts with the uat profile: ${conflicting.join(', ')}`);
   return environment;
 }
 
@@ -555,14 +580,14 @@ async function waitFor(check, { timeoutMs, intervalMs = 500, label }) {
       const value = await check();
       if (value) return value;
     } catch {
-      // ยังไม่พร้อม
+      // not ready yet
     }
-    if (Date.now() > deadline) throw new Error(`${label} ไม่พร้อมภายใน ${timeoutMs}ms`);
+    if (Date.now() > deadline) throw new Error(`${label} was not ready within ${timeoutMs}ms`);
     await new Promise((resolveWait) => setTimeout(resolveWait, intervalMs));
   }
 }
 
-/** บูต API จาก entry ของ UAT (`dist/uat-main.js`) แล้วรอ `/api/v1/runtime-profile` */
+/** Boot the API from the UAT entry (`dist/uat-main.js`) and wait for `/api/v1/runtime-profile` */
 export async function startU1Api(config) {
   const log = [];
   const child = spawn(process.execPath, ['dist/uat-main.js'], {
@@ -571,7 +596,7 @@ export async function startU1Api(config) {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   const remember = (chunk) => {
-    // เก็บเฉพาะชื่อ event ของ log แบบ JSON — ไม่เก็บข้อความดิบที่อาจมี config
+    // keep only the event names of the JSON log - not the raw text, which may contain config
     for (const line of String(chunk).split('\n')) {
       const match = line.match(/"event":"([a-z0-9._]+)"/);
       if (match) log.push(match[1]);
@@ -592,7 +617,7 @@ export async function startU1Api(config) {
     { timeoutMs: 60_000, label: 'UAT API' },
   ).catch((error) => {
     throw new Error(
-      `API profile uat บูตไม่ผ่าน (${[...new Set(log)].join(', ')}): ${error.message}`,
+      `API profile uat failed to boot (${[...new Set(log)].join(', ')}): ${error.message}`,
     );
   });
   return { child, profile, events: log };
@@ -620,7 +645,7 @@ export async function runU1Acceptance(options = {}) {
   const config = u1Environment(environment);
   const outputRoot = resolve(repositoryRoot, U1_OUTPUT_RELATIVE);
   const screenshotDir = resolve(outputRoot, 'screenshots');
-  // state ของรอบ (มีรหัสผ่าน/TOTP secret ที่สุ่ม) อยู่นอก artifacts และลบทิ้งเมื่อจบ
+  // the state of the run (which has the randomized password/TOTP secret) lives outside artifacts and is deleted at the end
   const scratch = mkdtempSync(join(tmpdir(), 'u1-gate-'));
   const statePath = join(scratch, 'state.json');
   const reportPath = join(scratch, 'playwright-report.json');
@@ -683,7 +708,7 @@ export async function runU1Acceptance(options = {}) {
         api.profile.kafka === 'DISABLED' &&
         api.profile.lineWebhook === 'DISABLED';
       record('U1-PROFILE', ok ? 'PASS' : 'FAIL', { profile: api.profile });
-      if (!ok) throw new Error('runtime profile ไม่ใช่ uat ที่ปิด side effect');
+      if (!ok) throw new Error('the runtime profile is not a uat with side effects disabled');
     } catch (error) {
       if (!checks.some((item) => item.id === 'U1-PROFILE'))
         record('U1-PROFILE', 'FAIL', { detail: String(error?.message ?? error).slice(0, 300) });
@@ -772,7 +797,7 @@ export async function runU1Acceptance(options = {}) {
   try {
     return finish();
   } finally {
-    // state ของรอบมีรหัสผ่าน/TOTP secret — ลบเสมอแม้สรุปผลล้ม
+    // the state of the run has the password/TOTP secret - always delete, even if the summary fails
     rmSync(scratch, { recursive: true, force: true });
   }
 
@@ -787,7 +812,7 @@ export async function runU1Acceptance(options = {}) {
       bundles,
       screenshots,
     };
-    // hygiene: ไฟล์ที่ Playwright/gate เขียนต้องไม่มี trace/HAR/video และ manifest ต้องผ่าน scan
+    // hygiene: files written by Playwright/the gate must have no trace/HAR/video and the manifest must pass the scan
     const produced = [...listFiles(join(scratch, 'test-results')), ...listFiles(outputRoot)].map(
       (path) => relative(repositoryRoot, path),
     );

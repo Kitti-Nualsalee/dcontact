@@ -6,7 +6,7 @@ import {
   dphoneAuthCallbackHtml,
 } from './dphone-auth-callback.js';
 
-test('E1.13 callback: ส่งเฉพาะ code/state/error ไปที่ opener ด้วย targetOrigin ของตัวเอง แล้วลบ query และปิด', () => {
+test('E1.13 callback: sends only code/state/error to the opener with its own targetOrigin, then removes the query and closes', () => {
   const html = dphoneAuthCallbackHtml('n1');
   assert.match(html, /<script nonce="n1">/);
   assert.match(html, new RegExp(`type: '${DPHONE_AUTH_CALLBACK_MESSAGE}'`));
@@ -17,7 +17,7 @@ test('E1.13 callback: ส่งเฉพาะ code/state/error ไปที่ 
   assert.doesNotMatch(html, /access_token|refresh_token|fetch\(/);
 });
 
-test('E1.13 callback: CSP เข้มงวด, ห้ามถูกฝัง, ไม่ cache และไม่ส่ง referrer', () => {
+test('E1.13 callback: strict CSP, no embedding, no cache and no referrer', () => {
   const headers = dphoneAuthCallbackHeaders('n2');
   assert.equal(
     headers['content-security-policy'],

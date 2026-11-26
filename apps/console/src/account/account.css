@@ -1,4 +1,4 @@
-/* AC5 (#598): บัญชีของฉัน / นโยบายบัญชี — token ของ D1 เท่านั้น */
+/* AC5 (#598): My account / account policy — D1 tokens only */
 .account {
   display: grid;
   gap: var(--dc-space-6);
@@ -130,7 +130,7 @@
   margin: 0;
 }
 
-/* QR ต้องเข้มบนพื้นสว่างเสมอ (กล้องอ่านไม่ได้ถ้ากลับสี) — ถ้าเพิ่มธีมมืดต้องคงพื้นสว่างไว้ */
+/* the QR must always be dark on a light background (cameras cannot read an inverted one) — if a dark theme is added, keep the light background */
 .account__qr {
   inline-size: 200px;
   block-size: 200px;

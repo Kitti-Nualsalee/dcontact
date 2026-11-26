@@ -1,12 +1,12 @@
 /**
- * #566: client ของ `GET /api/v1/line-pilot/inbound` — read-only ของ LINE pilot บน UAT
+ * #566: client of `GET /api/v1/line-pilot/inbound` — the read-only LINE pilot on UAT
  *
- * route อยู่ใน service `line-webhook` ของ overlay `uat-line` เท่านั้น: ไม่มี overlay = 404
- * (`ROUTE_NOT_AVAILABLE_IN_PROFILE` จาก api ของ UAT) → Console ซ่อนหน้า/ลิงก์ทั้งหมด
- * tenant/actor มาจาก bearer token; response ไม่มี LINE ID ดิบ (server ตัดออกแล้ว)
+ * the route exists only in the `line-webhook` service of the `uat-line` overlay: no overlay = 404
+ * (`ROUTE_NOT_AVAILABLE_IN_PROFILE` from the UAT api) → Console hides every page/link
+ * tenant/actor come from the bearer token; the response has no raw LINE ID (the server strips it)
  */
 const INBOUND = '/api/v1/line-pilot/inbound';
-/** ตรวจสิทธิ์อย่างเดียว (204) — ไม่อ่านข้อความและไม่ถูก audit เป็นการเปิดดู */
+/** permission check only (204) — does not read messages and is not audited as a view */
 const ACCESS = '/api/v1/line-pilot/access';
 
 export interface LineInboundItem {
@@ -34,7 +34,7 @@ export class LineInboundApiError extends Error {
   }
 }
 
-/** #567: สถานะของ team trial — ไม่มี route (404) = ไม่ได้เปิด trial */
+/** #567: team trial status — no route (404) = trial not enabled */
 export interface LineTrialStatus {
   active: boolean;
   killed: boolean;
@@ -50,12 +50,12 @@ export type LineReplyResult =
 
 export interface LineInboundApi {
   list(input?: { limit?: number; before?: string }): Promise<LineInboundPage>;
-  /** #567: null = trial ไม่ได้เปิด */
+  /** #567: null = trial not enabled */
   trialStatus(): Promise<LineTrialStatus | null>;
-  /** idempotencyKey เดิมตลอด intent เดียว — retry ด้วย key เดิมไม่ส่งซ้ำ */
+  /** the same idempotencyKey for a single intent — a retry with the same key does not resend */
   reply(inboxEntryId: string, text: string, idempotencyKey: string): Promise<LineReplyResult>;
   kill(): Promise<void>;
-  /** 404 = ไม่มี overlay, 403 = มี overlay แต่บัญชีนี้ไม่มีสิทธิ์ */
+  /** 404 = no overlay, 403 = overlay present but this account has no permission */
   availability(): Promise<LineInboundAvailability>;
 }
 
@@ -113,7 +113,7 @@ export function createLineInboundApi(options: {
       if (response.ok && (body.status === 'SENT' || body.status === 'PENDING')) {
         return { status: body.status, deliveryId: body.deliveryId ?? '' };
       }
-      // Nest ห่อ body ของ HttpException ไว้ตรง ๆ หรือใน message แล้วแต่รูปแบบ
+      // Nest wraps the HttpException body directly or inside message depending on the shape
       return {
         status: 'FAILED',
         code: body.code ?? body.message?.code ?? `HTTP_${response.status}`,

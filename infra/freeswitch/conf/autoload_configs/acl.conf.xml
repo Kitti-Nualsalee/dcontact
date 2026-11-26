@@ -1,10 +1,10 @@
 <configuration name="acl.conf" description="Network Lists">
   <network-lists>
     <list name="localnet.auto" default="allow"/>
-    <!-- D1.16 (#455): network ที่ถือเป็น local สำหรับ media (profile internal `local-network-acl`)
-         FreeSWITCH ใช้ ext-rtp-ip (127.0.0.1) กับ peer ที่ไม่อยู่ใน list นี้ — browser บนเครื่อง host
-         เข้ามาทาง gateway ของ docker network (172.x.0.1) จึงได้ ICE candidate 127.0.0.1 ที่ publish ไว้
-         ส่วน SIPp/container อื่นใน network เดียวกันยังคุย media ด้วย IP ภายในตามเดิม -->
+    <!-- D1.16 (#455): networks treated as local for media (profile internal `local-network-acl`)
+         FreeSWITCH uses ext-rtp-ip (127.0.0.1) for peers that are not in this list — a browser on the host machine
+         arrives through the docker network gateway (172.x.0.1), so it gets the published ICE candidate 127.0.0.1
+         while SIPp/other containers on the same network keep talking media over internal IPs as before -->
     <list name="dcontact_media_local" default="deny">
       <node type="deny" cidr="172.16.0.1/32"/>
       <node type="deny" cidr="172.17.0.1/32"/>
@@ -26,19 +26,19 @@
       <node type="allow" cidr="172.16.0.0/12"/>
       <node type="allow" cidr="192.168.0.0/16"/>
     </list>
-    <!-- D1.16 (#455): ICE candidate ของ browser ที่รับได้ (profile internal `apply-candidate-acl`)
-         ค่า default ของ FreeSWITCH คือ wan.auto ซึ่งทิ้ง candidate ภายใน (192.168.x / 10.x / 127.x) ทั้งหมด
-         browser บน dev มีแต่ candidate ภายใน สายไป WebRTC จึงล้มด้วย INCOMPATIBLE_DESTINATION
-         DEV ONLY: production ต้องจำกัดตามเครือข่ายจริง + TURN -->
+    <!-- D1.16 (#455): browser ICE candidates that are accepted (profile internal `apply-candidate-acl`)
+         the FreeSWITCH default is wan.auto, which drops all internal candidates (192.168.x / 10.x / 127.x)
+         a browser on dev only has internal candidates, so WebRTC calls fail with INCOMPATIBLE_DESTINATION
+         DEV ONLY: production must restrict by the real network + TURN -->
     <list name="dcontact_webrtc_candidates" default="deny">
       <node type="allow" cidr="10.0.0.0/8"/>
       <node type="allow" cidr="127.0.0.0/8"/>
       <node type="allow" cidr="172.16.0.0/12"/>
       <node type="allow" cidr="192.168.0.0/16"/>
     </list>
-    <!-- #562: IP ที่ profile `pstn-sim` (5080) รับสายโดยไม่ challenge — container ใน docker network ของ dev/CI
-         ปฏิเสธ gateway ของ docker (172.x.0.1) เพื่อไม่ให้เครื่อง host ส่งสายเข้าโดยไม่ยืนยันตัว
-         DEV ONLY: production กำหนด ACL ต่อ carrier ตาม IP จริง -->
+    <!-- #562: IPs that profile `pstn-sim` (5080) accepts calls from without a challenge — containers in the dev/CI docker network
+         reject the docker gateway (172.x.0.1) so the host machine cannot send calls in without authentication
+         DEV ONLY: production sets an ACL per carrier by real IP -->
     <list name="dcontact_pstn_sim" default="deny">
       <node type="deny" cidr="172.16.0.1/32"/>
       <node type="deny" cidr="172.17.0.1/32"/>
@@ -58,8 +58,8 @@
       <node type="deny" cidr="172.31.0.1/32"/>
       <node type="allow" cidr="172.16.0.0/12"/>
     </list>
-    <!-- DEV ONLY: อนุญาต ESL จากทุกที่ (host เข้ามาทาง docker bridge)
-         Production: จำกัดเฉพาะ subnet ของ backend services -->
+    <!-- DEV ONLY: allow ESL from anywhere (the host arrives through the docker bridge)
+         Production: restrict to the subnet of the backend services -->
     <list name="esl_allow" default="allow"/>
   </network-lists>
 </configuration>

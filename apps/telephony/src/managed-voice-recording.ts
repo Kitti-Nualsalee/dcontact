@@ -4,13 +4,13 @@ import { normalizeFreeSwitchEvent, type FreeSwitchEvent } from './freeswitch-nor
 import { normalizeManagedVoiceEvent } from './managed-voice-events.js';
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-/** เพดานของสายที่จำว่าเริ่มบันทึกแล้ว กันกรณี hangup ของขาลูกค้าไม่มาถึง (เช่น ESL หลุด) */
+/** Cap on calls remembered as already recording, guarding against the customer-leg hangup never arriving (e.g. ESL dropped) */
 const maxBegun = 1_000;
 
 /**
- * #991: event ของขาที่มี `dcontact_offer_id` (หลัง adapter ตั้งบนขาลูกค้าก่อน bridge ก็เข้าทางนี้ด้วย)
- * วงจรบันทึกเสียงรันเสมอแม้ managed runtime throw เพราะถ้าลูกค้าวางตอนฐานข้อมูลสะดุด
- * แถว recording จะไม่มี endedAt และ retry archive จะไม่หยิบมาอีก lifecycle ตรวจ tenant/interaction/คิวเองจาก DB
+ * #991: events of a leg with `dcontact_offer_id` (after the adapter sets it on the customer leg before bridge, they come this way too)
+ * The recording cycle always runs even when the managed runtime throws, because if the customer hangs up while the database hiccups
+ * the recording row would have no endedAt and the archive retry would never pick it up. The lifecycle checks tenant/interaction/queue itself from the DB
  */
 export async function routeManagedOfferLegWithRecording<T>(
   source: FreeSwitchEvent,
@@ -26,15 +26,15 @@ export async function routeManagedOfferLegWithRecording<T>(
 }
 
 /**
- * #991: สาย managed ไม่ผ่าน Kafka/legacy router จึงไม่ผ่าน `publishTelephonyCallEvent` ด้วย
- * ตัวนี้ตัดสินว่า event ESL ของสาย managed ตัวไหนเริ่ม/ปิดวงจรบันทึกเสียงเดิม
- * (recording-lifecycle เช็ก `queue.recordingEnabled` เองจึงไม่ต้องรู้ที่นี่)
- * - เริ่ม: CHANNEL_BRIDGE ที่ผูกสายลูกค้ากับ Agent ที่ managed ส่ง offer ไป (มี offer/agent/B-leg ครบ)
- * - ปิด: CHANNEL_HANGUP_COMPLETE ของขาลูกค้า (Unique-ID เป็นสายลูกค้า ไม่ใช่ขา Agent)
- * ใช้ envelope แบบเดียวกับ legacy (`call.answered`/`call.hangup`) เพื่อให้ lifecycle ไม่ต้องแยกสองทาง
+ * #991: managed calls do not go through Kafka/the legacy router, so they do not go through `publishTelephonyCallEvent` either.
+ * This decides which ESL events of a managed call start/close the existing recording cycle
+ * (recording-lifecycle checks `queue.recordingEnabled` itself, so it need not be known here)
+ * - start: a CHANNEL_BRIDGE that binds the customer call to the Agent that managed sent an offer to (with offer/agent/B-leg all present)
+ * - close: CHANNEL_HANGUP_COMPLETE of the customer leg (the Unique-ID is the customer call, not the Agent leg)
+ * It uses the same envelope as legacy (`call.answered`/`call.hangup`) so the lifecycle need not split into two paths
  */
 export class ManagedRecordingTrigger {
-  /** สายที่สั่งเริ่มแล้ว: bridge ซ้ำ (FreeSWITCH ส่งจากทั้งสองขา) ไม่ต้องเข้า DB อีก */
+  /** Calls already told to start: a repeated bridge (FreeSWITCH sends it from both legs) need not hit the DB again */
   private readonly begun = new Set<string>();
 
   constructor(
@@ -45,7 +45,7 @@ export class ManagedRecordingTrigger {
     },
   ) {}
 
-  /** คืน envelope ที่ต้องส่งเข้าวงจรบันทึกเสียง หรือ undefined ถ้า event นี้ไม่เกี่ยว */
+  /** Returns the envelope to send into the recording cycle, or undefined if this event is irrelevant */
   decide(
     source: FreeSwitchEvent,
     tenantId: string,
@@ -58,7 +58,7 @@ export class ManagedRecordingTrigger {
     }
     if (!managed) return undefined;
     if (managed.type === 'call.bridge') {
-      // bridge ของ managed ต้องเป็นขาลูกค้ากับ Agent: Bridge-A-Unique-ID ตรงกับสายลูกค้าที่ runtime ถืออยู่
+      // A managed bridge must be the customer leg with the Agent: Bridge-A-Unique-ID matches the customer call the runtime holds
       if (source['Bridge-A-Unique-ID'] !== managed.callUuid) return undefined;
       if (this.begun.has(managed.callUuid)) return undefined;
       const event = this.envelope(source, tenantId, 'call.answered');

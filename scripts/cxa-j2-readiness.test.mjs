@@ -60,7 +60,7 @@ function runFixture(options = {}) {
   });
 }
 
-test('J2 readiness ครอบคลุม acceptance matrix ทั้ง 16 check ตาม #138', () => {
+test('J2 readiness covers all 16 checks of the acceptance matrix per #138', () => {
   assert.equal(CXA_J2_READINESS_CHECKS.length, 16);
   assert.deepEqual(
     CXA_J2_READINESS_CHECKS.map(({ id }) => id),
@@ -91,11 +91,11 @@ test('J2 readiness ครอบคลุม acceptance matrix ทั้ง 16 ch
     'originate barrier TEST_ADAPTER only',
     'cross-tenant rejection',
     'WORK scope',
-    'ไม่ reuse admission decision',
+    'does not reuse admission decision',
     'version gap wait/reconcile',
     'IDENTITY_UNRESOLVED',
     'reconciler apply terminal-precedence',
-    'TOO_LATE เมื่อ irreversible',
+    'TOO_LATE when irreversible',
     'WAITING_FOR_GAP reevaluation',
     'JrRecoveryAudit append-only',
     'fresh migration',
@@ -106,7 +106,7 @@ test('J2 readiness ครอบคลุม acceptance matrix ทั้ง 16 ch
   }
 });
 
-test('JOURNEY_J2_ACCEPTED ออกเฉพาะเมื่อ check ครบ 16 ตัว PASS พร้อมกัน', () => {
+test('JOURNEY_J2_ACCEPTED is issued only when all 16 checks PASS together', () => {
   const allPassing = CXA_J2_READINESS_CHECKS.map(({ id }) => ({ checkId: id, status: 'PASS' }));
   const summary = cxaJ2Summary(allPassing, defaultBranchContext);
   assert.deepEqual(summary.markers, [J2_MARKER]);
@@ -120,19 +120,19 @@ test('JOURNEY_J2_ACCEPTED ออกเฉพาะเมื่อ check คร�
   assert.equal(partial.entryCondition, 'NOT_READY');
 });
 
-test('PR run (มี pullRequest) ไม่ออก marker แม้ check ทุกตัว PASS — ได้แค่ candidate manifest', () => {
+test('a PR run (with a pullRequest) issues no marker even if every check PASSES - only a candidate manifest', () => {
   const result = runFixture({ context: prContext });
   assert.deepEqual(result.summary.markers, []);
   assert.equal(result.manifest.markers, undefined);
 });
 
-test('default-branch run ที่ check ครบ 16 ตัว PASS ออก JOURNEY_J2_ACCEPTED', () => {
+test('a default-branch run where all 16 checks PASS issues JOURNEY_J2_ACCEPTED', () => {
   const result = runFixture();
   assert.deepEqual(result.manifest.markers, [J2_MARKER]);
   assert.doesNotThrow(() => assertValidCxaJ2EvidenceManifest(result.manifest));
 });
 
-test('เมื่อ check ใดก็ตามล้ม marker ต้องไม่ออก', () => {
+test('when any check fails, the marker must not be issued', () => {
   for (const failedCheck of CXA_J2_READINESS_CHECKS) {
     const result = runFixture({
       executeCheck(check) {
@@ -148,30 +148,36 @@ test('เมื่อ check ใดก็ตามล้ม marker ต้อง�
   }
 });
 
-test('manifest ผูก check artifact กับ commit เดียวและปฏิเสธ SHA/commit mismatch', () => {
+test('manifest binds check artifacts to a single commit and rejects SHA/commit mismatch', () => {
   const result = runFixture();
   assert.doesNotThrow(() => assertValidCxaJ2EvidenceManifest(result.manifest));
 
   const changedCommit = structuredClone(result.manifest);
   changedCommit.artifacts[0].commitSha = 'c'.repeat(40);
-  assert.throws(() => assertValidCxaJ2EvidenceManifest(changedCommit), /commit ไม่ตรง/);
+  assert.throws(
+    () => assertValidCxaJ2EvidenceManifest(changedCommit),
+    /commit that does not match/,
+  );
 
   const changedHash = structuredClone(result.manifest);
   changedHash.artifacts[0].sha256 = '0'.repeat(64);
   assert.throws(() => assertValidCxaJ2EvidenceManifest(changedHash), /SHA-256/);
 });
 
-test('marker ถูกปฏิเสธเมื่อ check, artifact หรือ owner profile evidence ไม่ครบ', () => {
+test('marker is rejected when the check, artifact or owner profile evidence is incomplete', () => {
   const result = runFixture();
 
   const missingCheck = structuredClone(result.manifest);
   missingCheck.checks = [];
   missingCheck.artifacts = [];
-  assert.throws(() => assertValidCxaJ2EvidenceManifest(missingCheck), /check ครบทั้ง 16 ตัว/);
+  assert.throws(() => assertValidCxaJ2EvidenceManifest(missingCheck), /all 16 checks/);
 
   const missingArtifact = structuredClone(result.manifest);
   missingArtifact.artifacts.pop();
-  assert.throws(() => assertValidCxaJ2EvidenceManifest(missingArtifact), /หนึ่งรายการต่อ check/);
+  assert.throws(
+    () => assertValidCxaJ2EvidenceManifest(missingArtifact),
+    /one evidence artifact per check/,
+  );
 
   const missingProfileEvidence = structuredClone(result.manifest);
   missingProfileEvidence.checks
@@ -191,13 +197,13 @@ test('marker ถูกปฏิเสธเมื่อ check, artifact หร�
   );
 });
 
-test('evidence manifest ปฏิเสธ PII และ credential', () => {
+test('evidence manifest rejects PII and credentials', () => {
   assert.throws(() => assertPiiSafeEvidence({ value: 'customer@example.test' }), /PII/);
-  assert.throws(() => assertPiiSafeEvidence({ client_secret: 'do-not-record' }), /field ต้องห้าม/);
-  assert.throws(() => assertPiiSafeEvidence({ contactRef: 'line-user-1234' }), /field ต้องห้าม/);
+  assert.throws(() => assertPiiSafeEvidence({ client_secret: 'do-not-record' }), /forbidden field/);
+  assert.throws(() => assertPiiSafeEvidence({ contactRef: 'line-user-1234' }), /forbidden field/);
 });
 
-test('J2 owner profile fail closed เมื่อ Cases/Dialer ไม่ใช่ DURABLE_OWNER หรือเปิด provider traffic/release', () => {
+test('J2 owner profile fails closed when Cases/Dialer is not DURABLE_OWNER or provider traffic/release is enabled', () => {
   assert.deepEqual(cxaJ2ProfileSummary({}), {
     type: 'owner-profile.readiness',
     workflow: 'cx-automation-j2-owner-profile',
@@ -225,7 +231,7 @@ test('J2 owner profile fail closed เมื่อ Cases/Dialer ไม่ใช�
   );
   assert.throws(
     () => cxaJ2ProfileSummary({ CXA_PROVIDER_TRAFFIC_ENABLED: 'true' }),
-    /ห้ามเปิด actual provider traffic/,
+    /must not enable actual provider traffic/,
   );
   assert.throws(() => cxaJ2ProfileSummary({ CXA_J2_RELEASE_ENABLED: 'true' }), /releaseEnabled/);
   assert.equal(
@@ -234,7 +240,7 @@ test('J2 owner profile fail closed เมื่อ Cases/Dialer ไม่ใช�
   );
 });
 
-test('owner profile evidence ถูกเก็บจาก child process ใน manifest diagnostic', () => {
+test('owner profile evidence is collected from a child process in the manifest diagnostic', () => {
   const profileCheck = CXA_J2_READINESS_CHECKS.find(({ id }) => id === 'J2-OB01');
   const diagnostic = executeReadinessCheck({
     ...profileCheck,
@@ -245,7 +251,7 @@ test('owner profile evidence ถูกเก็บจาก child process ใน
   assert.equal(diagnostic.evidence?.[0]?.actualProviderTraffic, false);
 });
 
-test('manifest factory ระบุ dimension ครบตาม check matrix', () => {
+test('manifest factory identifies every dimension per the check matrix', () => {
   const diagnostics = CXA_J2_READINESS_CHECKS.map(({ id, dimension }) => ({
     checkId: id,
     dimension,

@@ -1,6 +1,6 @@
 <#--
-  #515: login-password.ftl ของ base (Keycloak 26.0.0 ปรับตาม 26.7.5 ใน #592) — ขั้นที่สองของ tenant login หลังกรอกอีเมล
-  ปรับตามแบบ B; #password, name="password" และ #kc-login เหมือนเดิม
+  #515: login-password.ftl of the base (Keycloak 26.0.0, adapted to 26.7.5 in #592) — the second step of the tenant login after entering the email
+  adapted to design B; #password, name="password" and #kc-login unchanged
 -->
 <#import "template.ftl" as layout>
 <@layout.registrationLayout displayMessage=!messagesPerField.existsError('password'); section>

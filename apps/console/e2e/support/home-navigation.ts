@@ -1,4 +1,4 @@
-/** ข้อมูลจำลองจาก registry จริง — server คัด role/plan ก่อนส่งให้ browser */
+/** mock data from the real registry — the server filters role/plan before sending to the browser */
 import { createRequire } from 'node:module';
 import type { EffectiveEntitlements } from '../../../api/src/navigation-registry.js';
 const { NAVIGATION_GROUPS, visibleApps, visibleAreas } = createRequire(import.meta.url)(

@@ -14,20 +14,20 @@ import org.keycloak.services.resources.RealmsResource;
 import org.keycloak.utils.SecureContextResolver;
 
 /**
- * R1 (#593) / AC6 (#599): cookie ของ realm ของ D-Contact ใช้ชื่อ {@code DC_*} แทน {@code KEYCLOAK_*}/{@code KC_*}
+ * R1 (#593) / AC6 (#599): the cookies of the D-Contact realm use the names {@code DC_*} instead of {@code KEYCLOAK_*}/{@code KC_*}
  *
- * <p>implement {@link CookieProvider} เอง (ไม่ extend {@code DefaultCookieProvider}, ไม่ใช้ reflection) โดยใช้เฉพาะ
- * getter สาธารณะของ {@link CookieType} — ชื่อใหม่คำนวณจากชื่อเดิมเป็น string จึงไม่ต้องสร้าง {@code CookieType} เอง:
+ * <p>implements {@link CookieProvider} itself (does not extend {@code DefaultCookieProvider}, no reflection) using only
+ * the public getters of {@link CookieType} — the new name is computed from the old name as a string, so no {@code CookieType} has to be created:
  *
  * <ul>
- *   <li>path, SameSite, Secure, HttpOnly และอายุ ตามที่ Keycloak กำหนดไว้ใน {@code CookieType} ทุกประการ
- *       (ตรรกะเดียวกับ {@code DefaultCookieProvider} ของ 26.7.5: SameSite=None ที่ไม่ใช่ secure context ลดเป็น Lax)
- *   <li>ชนิด cookie ใหม่ที่ Keycloak เพิ่มภายหลังถูกเปลี่ยนชื่ออัตโนมัติ เพราะชื่อมาจาก {@code type.getName()}
- *   <li>ถ้า Keycloak เปลี่ยน API ที่ใช้ ({@code CookieType}, {@code CookiePath}, {@code RealmsResource.realmBaseUrl}, ...)
- *       คลาสนี้จะ <b>ไม่ compile</b> — gate {@code A1-F-KEYCLOAK-EXTENSION} จับได้ตอน upgrade ไม่ใช่ตอน deploy
- *   <li>ช่วง rollout: ผู้ใช้ที่ยังถือ cookie ชื่อเดิม อ่านค่าเดิมได้ แล้วชื่อเดิมถูกหมดอายุตอนเขียนชื่อใหม่
- *       (ไม่ส่งชื่อเดิมไปให้เบราว์เซอร์ที่ไม่มี)
- *   <li>เฉพาะ realm ที่กำหนด (ค่าเริ่มต้น {@code dcontact}) — realm master/admin console ใช้ชื่อเดิม
+ *   <li>path, SameSite, Secure, HttpOnly and lifetime follow what Keycloak defines in {@code CookieType} exactly
+ *       (the same logic as {@code DefaultCookieProvider} of 26.7.5: SameSite=None outside a secure context is lowered to Lax)
+ *   <li>new cookie types that Keycloak adds later are renamed automatically, because the name comes from {@code type.getName()}
+ *   <li>if Keycloak changes the API used ({@code CookieType}, {@code CookiePath}, {@code RealmsResource.realmBaseUrl}, ...)
+ *       this class will <b>not compile</b> — the gate {@code A1-F-KEYCLOAK-EXTENSION} catches it at upgrade time, not at deploy time
+ *   <li>during rollout: a user who still holds a cookie with the old name can have the old value read, and the old name is expired when the new name is written
+ *       (the old name is not sent to a browser that does not have it)
+ *   <li>only the configured realms (default {@code dcontact}) — the master realm/admin console keeps the original names
  * </ul>
  */
 public class DcCookieProvider implements CookieProvider {
@@ -42,13 +42,13 @@ public class DcCookieProvider implements CookieProvider {
     this.realms = realms;
     this.requestCookies = session.getContext().getHttpRequest().getHttpHeaders().getCookies();
     this.secure = SecureContextResolver.isSecureContext(session);
-    // เหมือน DefaultCookieProvider: ล้าง cookie ของ Keycloak รุ่นเก่าที่ไม่ใช้แล้ว (หมดอายุเฉพาะที่เบราว์เซอร์ส่งมา)
+    // same as DefaultCookieProvider: clear the old cookies of previous Keycloak versions that are no longer used (expire only those the browser sent)
     for (CookieType old : CookieType.OLD_UNUSED_COOKIES) {
       expire(old);
     }
   }
 
-  /** {@code KEYCLOAK_SESSION} → {@code DC_SESSION}, {@code KC_RESTART} → {@code DC_RESTART}, อื่น ๆ → {@code DC_<ชื่อ>} */
+  /** {@code KEYCLOAK_SESSION} → {@code DC_SESSION}, {@code KC_RESTART} → {@code DC_RESTART}, others → {@code DC_<name>} */
   static String renamedName(String name) {
     return "DC_" + name.replaceFirst("^(KEYCLOAK_|KC_)", "");
   }
@@ -58,7 +58,7 @@ public class DcCookieProvider implements CookieProvider {
     return realm != null && realms.contains(realm.getName());
   }
 
-  /** ชื่อที่ใช้เขียน/อ่านจริง; cookie เก่าที่ Keycloak ลบอยู่แล้ว ({@code *_LEGACY}) คงชื่อเดิมเพื่อให้ลบถูกตัว */
+  /** the name actually used to write/read; old cookies that Keycloak already deletes ({@code *_LEGACY}) keep their original name so the right one is deleted */
   private String nameOf(CookieType type) {
     String name = type.getName();
     return name.endsWith("_LEGACY") || !applies() ? name : renamedName(name);
@@ -97,7 +97,7 @@ public class DcCookieProvider implements CookieProvider {
   @Override
   public String get(CookieType type) {
     Cookie cookie = requestCookies.get(nameOf(type));
-    // rollout: session ที่ login ก่อนเปิด provider ยังใช้ได้จนกว่าจะถูกเขียนใหม่ด้วยชื่อใหม่
+    // rollout: a session that logged in before the provider was enabled stays valid until it is rewritten with the new name
     if (cookie == null && !nameOf(type).equals(type.getName())) {
       cookie = requestCookies.get(type.getName());
     }
@@ -111,7 +111,7 @@ public class DcCookieProvider implements CookieProvider {
     retireOriginalName(type, name);
   }
 
-  /** หมดอายุชื่อเดิมเฉพาะเมื่อเบราว์เซอร์ส่งมา — ผู้ใช้ใหม่ไม่เห็นชื่อเดิมใน response เลย */
+  /** expire the old name only when the browser sent it — a new user never sees the old name in the response */
   private void retireOriginalName(CookieType type, String writtenName) {
     if (!writtenName.equals(type.getName())) expireIfSent(type, type.getName());
   }
@@ -123,7 +123,7 @@ public class DcCookieProvider implements CookieProvider {
     session.getContext().getHttpResponse().setCookieIfAbsent(cookie);
   }
 
-  /** ตรรกะเดียวกับ {@code CookiePathResolver} ของ Keycloak (คลาสนั้นเป็น package-private) */
+  /** the same logic as Keycloak's {@code CookiePathResolver} (that class is package-private) */
   private String path(CookieType type) {
     KeycloakContext context = session.getContext();
     if (type.getPath() == CookiePath.REQUEST) {

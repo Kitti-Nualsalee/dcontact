@@ -47,7 +47,7 @@ function queryAsApplicationRole(sql: string): string {
   ).trim();
 }
 
-test('CG3 migration สร้าง canonical tables, compatibility columns และ validated tenant constraints', () => {
+test('CG3 migration creates canonical tables, compatibility columns and validated tenant constraints', () => {
   const tables = [
     'cg_preferences',
     'cg_policies',
@@ -100,7 +100,7 @@ test('CG3 migration สร้าง canonical tables, compatibility columns แ�
   );
 });
 
-test('CG3 tables บังคับ RLS สอง tenant, composite binding และ immutable application grants', (t) => {
+test('CG3 tables enforce two-tenant RLS, composite binding and immutable application grants', (t) => {
   const tenantA = randomUUID();
   const tenantB = randomUUID();
   const contactA = randomUUID();

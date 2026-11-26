@@ -74,7 +74,7 @@ export class TenantPeopleController {
     return readPeopleDirectory(this.database, actor(request), query);
   }
 
-  /** ค้นหาด้วยชื่อ/email/extension ผ่าน body เพื่อไม่ให้คำค้นอยู่ใน URL หรือ access log */
+  /** search by name/email/extension through the body so the query is not in the URL or access log */
   @Post('people/users/search')
   @HttpCode(200)
   @Header('Cache-Control', 'no-store')
@@ -137,7 +137,7 @@ export class TenantPeopleController {
     return accepted;
   }
 
-  /** #998 1B: แก้ชื่อที่แสดงทั้ง app และ Keycloak firstName ผ่าน worker (202 แล้วตามผลที่ operations/:id) */
+  /** #998 1B: rename the display name in both the app and Keycloak firstName through the worker (202, then follow the result at operations/:id) */
   @Patch('people/users/:id/profile')
   @HttpCode(202)
   @Header('Cache-Control', 'no-store')
@@ -150,7 +150,7 @@ export class TenantPeopleController {
     return this.accountChange('UPDATE_PROFILE', request, id, body, response);
   }
 
-  /** #998 2: เปิดบัญชีที่ปิดแล้วกลับ ผู้ใช้ใช้รหัสผ่าน/TOTP เดิม */
+  /** #998 2: re-enable a disabled account, the user keeps the original password/TOTP */
   @Post('people/users/:id/enable')
   @HttpCode(202)
   @Header('Cache-Control', 'no-store')
@@ -180,7 +180,7 @@ export class TenantPeopleController {
     return accepted;
   }
 
-  /** #998 1A: ย้ายทีม — ไม่แตะ Keycloak จึงไม่ต้องรอ identity readiness */
+  /** #998 1A: move team — does not touch Keycloak so it need not wait for identity readiness */
   @Patch('people/users/:id/team')
   @HttpCode(200)
   @Header('Cache-Control', 'no-store')

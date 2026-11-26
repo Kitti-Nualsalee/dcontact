@@ -21,9 +21,9 @@ import {
 } from './team-segment-scope-api.js';
 
 /**
- * #911: ลูกค้าที่สร้างผ่าน HTTP (CSV import และ create) → segment ระบบ → outbox/relay →
- * IAM projection → Agent ค้นเจอผ่าน work API จริง บน PostgreSQL ด้วย application role
- * Kafka ถูกแทนด้วย producer ที่ส่ง envelope เข้า handler เดียวกับ IAM consumer (ไม่ใช่ broker จริง)
+ * #911: a customer created through HTTP (CSV import and create) → system segment → outbox/relay →
+ * IAM projection → an Agent finds them through the real work API, on PostgreSQL with the application role
+ * Kafka is replaced by a producer that sends the envelope into the same handler as the IAM consumer (not a real broker)
  */
 
 const PHONE_IMPORTED = '+66812345678';
@@ -42,7 +42,7 @@ async function fixture() {
     undefined,
     undefined,
     [
-      // #915: Admin ให้ WORK ผ่าน HTTP ด้วย application role เดียวกับ Cus360
+      // #915: an Admin grants WORK over HTTP with the same application role as Cus360
       { provide: TEAM_SEGMENT_SCOPE_DATABASE, useExisting: CUSTOMER_360_DATABASE },
       {
         provide: CUSTOMER_360_WORK_AUTH,
@@ -89,7 +89,7 @@ async function fixture() {
   const search = (phone: string, token = 'agent') =>
     work('candidates/search', { type: 'PHONE', query: phone }, token);
 
-  // Kafka แทนด้วย producer ที่จด envelope; drain ส่งเข้า handler แบบเดียวกับ IAM consumer
+  // Kafka is replaced by a producer that records the envelope; drain sends it into the same handler as the IAM consumer
   const sent: unknown[] = [];
   const producer: DcProducer = {
     async send(_topic, event) {
@@ -165,14 +165,14 @@ async function importCsv(f: Awaited<ReturnType<typeof fixture>>, csv: string) {
   return done.rows[0].contactId as string;
 }
 
-test('#911: ลูกค้าที่นำเข้า/สร้างใหม่เข้า segment ระบบ แล้ว Agent ของทีมที่ได้ WORK ค้นเจอและเลือกในสายได้', async (t) => {
+test('#911: a customer who is imported/newly created enters the system segment, then an Agent of the team that has WORK finds them and can select them on a call', async (t) => {
   const f = await fixture();
   t.after(() => f.close());
   await allowCreate(f);
-  const imported = await importCsv(f, `name,phone\nลูกค้านำเข้า,${PHONE_IMPORTED}\n`);
+  const imported = await importCsv(f, `name,phone\nImported customer,${PHONE_IMPORTED}\n`);
   const created = await f.request('customer-360/contacts', 'admin', {
     commandId: randomUUID(),
-    displayName: 'ลูกค้า VIP',
+    displayName: 'VIP customer',
     vip: true,
     points: [{ kind: 'PHONE', value: PHONE_CREATED }],
   });
@@ -181,7 +181,7 @@ test('#911: ลูกค้าที่นำเข้า/สร้างให�
     created.body as unknown as { command: { resourceRefs: { type: string; id: string }[] } }
   ).command.resourceRefs.find((ref) => ref.type === 'CONTACT')!.id;
 
-  // ก่อน runtime ทำงาน: ไม่มี membership และ Agent ไม่เห็น
+  // before the runtime runs: no membership and the Agent does not see them
   assert.deepEqual(await f.heads(imported), {});
   assert.equal((await f.search(PHONE_IMPORTED)).body.items?.length ?? 0, 0);
 
@@ -189,7 +189,7 @@ test('#911: ลูกค้าที่นำเข้า/สร้างให�
   assert.ok(first.contacts >= 2);
   assert.deepEqual(await f.heads(imported), { 'system:all-customers': 'IN', 'system:vip': 'OUT' });
   assert.deepEqual(await f.heads(vipId), { 'system:all-customers': 'IN', 'system:vip': 'IN' });
-  // ประเมินซ้ำไม่มีงานค้าง
+  // evaluating again leaves no pending work
   assert.equal((await f.runtime.evaluatePending(f.tenantId)).contacts, 0);
 
   const events = await f.project();
@@ -197,7 +197,7 @@ test('#911: ลูกค้าที่นำเข้า/สร้างให�
   assert.ok(events.includes('system:vip:ENTERED'));
   assert.equal(events.filter((event) => event === 'system:vip:ENTERED').length, 1);
 
-  // membership อย่างเดียวไม่ให้สิทธิ์: ทีมที่ยังไม่ได้ WORK ค้นไม่เจอ
+  // membership alone grants no permission: a team without WORK does not find them
   assert.equal((await f.search(PHONE_IMPORTED)).body.items?.length ?? 0, 0);
 
   await f.scopes.grant({
@@ -210,7 +210,7 @@ test('#911: ลูกค้าที่นำเข้า/สร้างให�
   const found = await f.search(PHONE_IMPORTED);
   assert.equal(found.status, 201);
   assert.equal(found.body.items.length, 1);
-  assert.equal(found.body.items[0].displayName, 'ลูกค้านำเข้า');
+  assert.equal(found.body.items[0].displayName, 'Imported customer');
   const linked = await f.work('customer-link', {
     commandId: randomUUID(),
     expectedLinkageRevision: '0',
@@ -218,7 +218,7 @@ test('#911: ลูกค้าที่นำเข้า/สร้างให�
   });
   assert.equal(linked.status, 200);
   assert.equal(linked.body.command.outcome, 'APPLIED');
-  // ต่าง tenant ใช้งานนี้ไม่ได้
+  // another tenant cannot use this work
   assert.notEqual((await f.search(PHONE_IMPORTED, 'foreign')).status, 201);
   assert.equal(
     await f.owner.c360SegmentMembershipHead.count({ where: { tenantId: f.otherTenantId } }),
@@ -226,11 +226,11 @@ test('#911: ลูกค้าที่นำเข้า/สร้างให�
   );
 });
 
-test('#915: Admin ให้และถอน WORK บน segment ระบบผ่าน HTTP แล้ว Agent ค้นเจอและค้นไม่เจอตาม', async (t) => {
+test('#915: an Admin grants and revokes WORK on a system segment over HTTP, and the Agent finds and does not find accordingly', async (t) => {
   const f = await fixture();
   t.after(() => f.close());
   await allowCreate(f);
-  await importCsv(f, `name,phone\nลูกค้านำเข้า,${PHONE_IMPORTED}\n`);
+  await importCsv(f, `name,phone\nImported customer,${PHONE_IMPORTED}\n`);
   await f.runtime.evaluatePending(f.tenantId);
   await f.project();
   type ScopeBody = {
@@ -245,11 +245,11 @@ test('#915: Admin ให้และถอน WORK บน segment ระบบ�
   };
   const scope = { teamId: f.teamId, segmentId: 'system:all-customers' };
 
-  // สิทธิ์ที่ไม่รองรับและ role อื่นถูกปฏิเสธ ไม่ขยายสิทธิ์ให้ supervisor/agent
+  // an unsupported permission and other roles are rejected, without extending permission to a supervisor/agent
   assert.equal((await call('admin', { ...scope, permission: 'CONTACT' })).status, 400);
   assert.equal((await call('supervisor', { ...scope, permission: 'WORK' })).status, 403);
   assert.equal((await call('agent', { ...scope, permission: 'WORK' })).status, 403);
-  // VIEW (ค่าเริ่มต้นเดิม) ไม่ให้ Agent ค้นลูกค้าในงาน
+  // VIEW (the original default) does not let an Agent search customers in work
   const view = await call('admin', scope);
   assert.equal(view.status, 201);
   assert.equal((await f.search(PHONE_IMPORTED)).body.items?.length ?? 0, 0);
@@ -277,17 +277,17 @@ test('#915: Admin ให้และถอน WORK บน segment ระบบ�
   const revoked = await fetch(`${f.base}/api/v1/${path}/${work.body.grantId}`, {
     method: 'DELETE',
     headers: { authorization: 'Bearer admin', 'content-type': 'application/json' },
-    body: JSON.stringify({ reasonCode: 'ย้ายทีม' }),
+    body: JSON.stringify({ reasonCode: 'Team move' }),
   });
   assert.equal(revoked.status, 204);
   assert.equal((await f.search(PHONE_IMPORTED)).body.items?.length ?? 0, 0);
 });
 
-test('#911: แก้ vip แล้ว VIP membership ตาม และประเมินซ้ำไม่สร้าง event ซ้ำ', async (t) => {
+test('#911: editing vip makes VIP membership follow, and evaluating again creates no duplicate event', async (t) => {
   const f = await fixture();
   t.after(() => f.close());
   await allowCreate(f);
-  const contactId = await importCsv(f, `name,phone\nยังไม่ VIP,${PHONE_IMPORTED}\n`);
+  const contactId = await importCsv(f, `name,phone\nNot VIP yet,${PHONE_IMPORTED}\n`);
   await f.runtime.evaluatePending(f.tenantId);
   await f.project();
   assert.equal((await f.heads(contactId))['system:vip'], 'OUT');
@@ -302,7 +302,7 @@ test('#911: แก้ vip แล้ว VIP membership ตาม และปร�
       commandId: randomUUID(),
       expectedProfileRevision: revisions.profile,
       expectedLineageRevision: String(revisions.lineage),
-      displayName: 'เป็น VIP แล้ว',
+      displayName: 'Now VIP',
       company: null,
       vip: true,
     },
@@ -312,14 +312,14 @@ test('#911: แก้ vip แล้ว VIP membership ตาม และปร�
   const result = await f.runtime.evaluatePending(f.tenantId);
   assert.equal(result.snapshots, 1);
   assert.equal((await f.heads(contactId))['system:vip'], 'IN');
-  // snapshot ใหม่ที่ยังอยู่ใน "ลูกค้าทั้งหมด" ออก CORRECTED ตาม contract เดิมของ commitEvaluation
-  // (สถานะยัง IN ไม่กระทบสิทธิ์) ส่วน VIP เข้า segment เป็น ENTERED
+  // a new snapshot still in "all customers" leaves with CORRECTED per the original commitEvaluation contract
+  // (the state is still IN and does not affect permission) while VIP enters the segment as ENTERED
   assert.deepEqual((await f.project()).sort(), [
     'system:all-customers:CORRECTED',
     'system:vip:ENTERED',
   ]);
   assert.equal((await f.heads(contactId))['system:all-customers'], 'IN');
-  // ไม่มีอะไรเปลี่ยน: ไม่มีงานและไม่มี event ใหม่
+  // nothing changed: no work and no new event
   assert.equal((await f.runtime.evaluatePending(f.tenantId)).contacts, 0);
   assert.deepEqual(await f.project(), []);
 });

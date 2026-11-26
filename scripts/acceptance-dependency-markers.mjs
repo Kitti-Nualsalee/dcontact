@@ -8,11 +8,11 @@ import { sha256 } from './cxa-c1-readiness.mjs';
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 /**
- * #559: REG ของ J2/J3/J5 ไม่ spawn acceptance ของ phase ก่อนหน้าซ้ำ แต่ตรวจ marker ใน evidence manifest
- * ของ phase นั้นบน SHA เดียวกัน — manifest มาจาก immutable CI artifact ของ run ใดก็ได้บน SHA นี้
- * (ตัดสินใจข้อ 1 ของ #559) ซึ่ง `acceptance-fetch-evidence.mjs` ดาวน์โหลดมาพร้อม provenance
+ * #559: the REG of J2/J3/J5 does not re-spawn the acceptance of earlier phases, but checks the marker in that phase's evidence manifest
+ * on the same SHA - the manifest comes from an immutable CI artifact of any run on this SHA
+ * (decision 1 of #559), which `acceptance-fetch-evidence.mjs` downloads together with provenance
  *
- * `dispatch` คือคำสั่งที่ต้องรันก่อนเมื่อ marker ขาด
+ * `dispatch` is the command that must be run first when a marker is missing
  */
 export const ACCEPTANCE_PHASES = Object.freeze({
   c1: Object.freeze({
@@ -47,10 +47,10 @@ export const ACCEPTANCE_PHASES = Object.freeze({
   }),
 });
 
-/** phase ที่ REG ของแต่ละ acceptance ต้องเห็น marker บน SHA เดียวกัน */
+/** The phases whose marker each acceptance REG must see on the same SHA */
 export const ACCEPTANCE_DEPENDENCIES = Object.freeze({
   J2: Object.freeze(['c1', 's1']),
-  // #572: CG4-REG01 ตรวจ S1 ผ่าน `cxa-cg4-dependency-readiness.mjs` (J2 ไม่ใช่ prerequisite ของ CG4)
+  // #572: CG4-REG01 checks S1 via `cxa-cg4-dependency-readiness.mjs` (J2 is not a prerequisite of CG4)
   CG4: Object.freeze(['s1']),
   J3: Object.freeze(['s1', 'j2', 'cg4']),
   J5: Object.freeze(['c1', 'j2', 'j3', 's1']),
@@ -75,8 +75,8 @@ function readJson(path) {
 }
 
 /**
- * manifest ที่นับได้ต้องมี provenance จากการดาวน์โหลด CI artifact บน SHA เดียวกัน และ digest ของไฟล์ต้องตรง
- * ไฟล์ที่ไม่มี provenance (เช่นไฟล์ค้างจาก local run) หรือถูกแก้หลังดาวน์โหลดไม่นับ
+ * A countable manifest must have provenance from downloading a CI artifact on the same SHA, and the file digest must match.
+ * A file without provenance (e.g. a leftover from a local run) or edited after download does not count.
  */
 export function loadVerifiedManifests(artifactsRoot, phase, commitSha) {
   const { directory } = ACCEPTANCE_PHASES[phase];
@@ -99,7 +99,7 @@ export function loadVerifiedManifests(artifactsRoot, phase, commitSha) {
     });
 }
 
-/** นับเฉพาะ manifest บน commit เดียวกันที่ไม่ใช่ candidate และมี marker ของเฟสนั้นจริง */
+/** Count only manifests on the same commit that are not candidates and really carry the marker for that phase */
 export function phaseMarkerStatus(records, commitSha, phase) {
   const { marker, dispatch } = ACCEPTANCE_PHASES[phase];
   const accepted = records.find(
@@ -112,20 +112,20 @@ export function phaseMarkerStatus(records, commitSha, phase) {
     ? {
         status: 'ACCEPTED_SAME_SHA',
         marker,
-        // digest อยู่ใต้ key `sha256` ที่ PII guard รู้จัก — hex ยาวอาจบังเอิญคล้ายเบอร์โทรที่ท้าย string
+        // the digest sits under the `sha256` key that the PII guard knows - a long hex may look like a phone number at the end of a string
         manifest: { sha256: sha256(accepted.manifest) },
-        // run id เป็น number: PII guard ตรวจเฉพาะ string ซึ่ง run id อาจบังเอิญคล้ายเบอร์โทร
+        // run id is a number: the PII guard checks only strings, and a run id may happen to look like a phone number
         sourceRunId: accepted.source ? Number(accepted.source.runId) : null,
       }
     : { status: 'ABSENT', marker, manifest: null, remediation: dispatch };
 }
 
 /**
- * `records` override ใช้ใน test (ถือว่าผ่าน provenance แล้ว) — ปกติโหลดจาก `artifacts/`
+ * the `records` override is used in tests (treated as having passed provenance) - normally loaded from `artifacts/`
  */
 export function acceptanceDependencySummary(acceptance, options = {}) {
   const phases = ACCEPTANCE_DEPENDENCIES[acceptance];
-  if (!phases) throw new TypeError(`ไม่รู้จัก acceptance ${acceptance}`);
+  if (!phases) throw new TypeError(`unknown acceptance ${acceptance}`);
   const commitSha = options.commitSha ?? git(['rev-parse', 'HEAD']);
   const artifactsRoot = options.artifactsRoot ?? resolve(repositoryRoot, 'artifacts');
   const records = options.records ?? {};
@@ -157,11 +157,11 @@ export function missingDependencyMessage(summary) {
     ([, value]) => value.status !== 'ACCEPTED_SAME_SHA',
   );
   return [
-    `marker ของ dependency ยังไม่ครบบน ${summary.commitSha}:`,
+    `dependency marker is incomplete on ${summary.commitSha}:`,
     ...missing.map(
-      ([phase, value]) => `- ${phase} (${value.marker}): สั่ง \`${value.remediation}\``,
+      ([phase, value]) => `- ${phase} (${value.marker}): run \`${value.remediation}\``,
     ),
-    'แล้วรอให้ผ่านก่อนสั่ง acceptance นี้อีกครั้ง',
+    'and wait for it to pass before running this acceptance again',
   ].join('\n');
 }
 

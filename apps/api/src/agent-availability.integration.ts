@@ -46,7 +46,7 @@ async function fixture(context: TestContext) {
       id: userId,
       tenantId,
       email: `${userId}@example.invalid`,
-      displayName: 'คู่ทดสอบ availability',
+      displayName: 'Availability test pair',
       passwordHash: '!TEST_ONLY',
       role: 'AGENT',
       extension: '1101',
@@ -165,7 +165,7 @@ async function fixture(context: TestContext) {
   return { owner, application, actor, foreign, leases, sip, lease, available, snapshot, call };
 }
 
-test('agent เปิดรับสายด้วย lease ของตนและ snapshot ยืนยัน AVAILABLE จาก server', async (context) => {
+test('an agent opens for calls with their own lease and the snapshot confirms AVAILABLE from the server', async (context) => {
   const state = await fixture(context);
   const response = await state.available(state.lease.leaseId, 'actor', {
     state: 'AVAILABLE',
@@ -178,7 +178,7 @@ test('agent เปิดรับสายด้วย lease ของตนแ�
   assert.equal((await state.snapshot('foreign')).agent.state, 'OFFLINE');
 });
 
-test('ไม่มี/ผิด lease หรือ request state อื่น ห้ามเปิดรับสาย', async (context) => {
+test('no/wrong lease or another request state must not open for calls', async (context) => {
   const state = await fixture(context);
   assert.equal((await state.available('')).status, 400);
   assert.equal((await state.available('invalid')).status, 400);
@@ -188,7 +188,7 @@ test('ไม่มี/ผิด lease หรือ request state อื่น �
     (await state.available(state.lease.leaseId, 'actor', { state: 'BUSY' })).status,
     400,
   );
-  // #937 Not Ready ต้องมีเหตุผล และ AVAILABLE/OFFLINE ห้ามมีเหตุผล
+  // #937 Not Ready must have a reason, and AVAILABLE/OFFLINE must not have one
   assert.equal(
     (await state.available(state.lease.leaseId, 'actor', { state: 'BREAK' })).status,
     400,
@@ -205,14 +205,14 @@ test('ไม่มี/ผิด lease หรือ request state อื่น �
   assert.equal((await state.snapshot()).agent.state, 'OFFLINE');
 });
 
-test('role ที่ไม่ใช่ agent และ token ไม่ถูกต้อง ห้ามเปิดรับสาย', async (context) => {
+test('a role that is not agent and an invalid token must not open for calls', async (context) => {
   const state = await fixture(context);
   assert.equal((await state.available(state.lease.leaseId, 'admin')).status, 403);
   assert.equal((await state.available(state.lease.leaseId, 'invalid-token')).status, 401);
   assert.equal((await state.snapshot()).agent.state, 'OFFLINE');
 });
 
-test('expired/released/taken-over lease ไม่เปิด AVAILABLE', async (context) => {
+test('an expired/released/taken-over lease does not open AVAILABLE', async (context) => {
   const state = await fixture(context);
   await state.owner.agentWorkSessionLease.update({
     where: { id: state.lease.leaseId },
@@ -240,7 +240,7 @@ test('expired/released/taken-over lease ไม่เปิด AVAILABLE', async 
   assert.equal((await state.snapshot()).agent.state, 'OFFLINE');
 });
 
-test('credential ที่ revoke หรือยังไม่ออก ห้ามเปิดรับสาย', async (context) => {
+test('a credential that is revoked or not yet issued must not open for calls', async (context) => {
   const state = await fixture(context);
   await state.owner.agentSipCredential.update({
     where: { workSessionLeaseId: state.lease.leaseId },
@@ -257,10 +257,10 @@ test('credential ที่ revoke หรือยังไม่ออก ห้
 });
 
 for (const busyState of ['ASSIGNED', 'ACTIVE', 'WRAPUP'] as const) {
-  test(`VOICE ${busyState} ห้ามเปลี่ยน agent กลับ AVAILABLE`, async (context) => {
+  test(`VOICE ${busyState} must not change the agent back to AVAILABLE`, async (context) => {
     const state = await fixture(context);
     const queue = await state.owner.queue.create({
-      data: { tenantId: state.actor.tenantId, name: 'ทดสอบ busy', channels: ['VOICE'] },
+      data: { tenantId: state.actor.tenantId, name: 'Busy test', channels: ['VOICE'] },
     });
     await state.owner.interaction.create({
       data: {
@@ -280,7 +280,7 @@ for (const busyState of ['ASSIGNED', 'ACTIVE', 'WRAPUP'] as const) {
   });
 }
 
-test('คำสั่งซ้ำและ race กับ release ไม่ปลุก agent หลังเสีย lease', async (context) => {
+test('a repeated command and a race with release do not wake the agent after the lease is lost', async (context) => {
   const state = await fixture(context);
   assert.equal((await state.available()).status, 200);
   assert.equal((await state.available()).status, 200);
@@ -315,7 +315,7 @@ test('คำสั่งซ้ำและ race กับ release ไม่ป�
   }
 });
 
-test('takeover ที่ commit ระหว่าง request รอ lock ทำให้ lease เก่าถูกปฏิเสธ', async (context) => {
+test('a takeover that commits while a request waits for the lock causes the old lease to be rejected', async (context) => {
   const state = await fixture(context);
   let unlock!: () => void;
   let locked!: () => void;
@@ -348,7 +348,7 @@ test('takeover ที่ commit ระหว่าง request รอ lock ทำ
   assert.equal((await state.snapshot()).agent.state, 'OFFLINE');
 });
 
-test('embedded origin/flag ถูกปิด ห้ามเปิดรับสายแม้ lease และ SIP ยังไม่หมด', async (context) => {
+test('an embedded origin/flag that is disabled must not open for calls even though the lease and SIP have not expired', async (context) => {
   const state = await fixture(context);
   await state.leases.release(state.actor, state.lease.leaseId, 'test-release');
   await state.owner.tenantUiFlag.create({
@@ -356,14 +356,14 @@ test('embedded origin/flag ถูกปิด ห้ามเปิดรับ�
       tenantId: state.actor.tenantId,
       flagKey: 'dphone.embed.enabled',
       enabled: true,
-      reason: 'ทดสอบ',
+      reason: 'Test',
       updatedByActor: 'test',
     },
   });
   const origins = new EmbedOriginService(state.application);
   const origin = await origins.create(
     state.actor,
-    { origin: 'https://crm.example.test', label: 'ทดสอบ' },
+    { origin: 'https://crm.example.test', label: 'Test' },
     'test-origin',
   );
   const embeddedLeases = new WorkSessionLeases(state.application, { embedOrigins: origins });
@@ -411,7 +411,7 @@ test('embedded origin/flag ถูกปิด ห้ามเปิดรับ�
   assert.equal((await state.available(lease.leaseId)).status, 403);
 });
 
-test('release ที่เริ่ม transaction ก่อน AVAILABLE แต่ commit ทีหลัง ต้องเห็น OFFLINE ล่าสุด', async (context) => {
+test('a release that starts its transaction before AVAILABLE but commits later must see the latest OFFLINE', async (context) => {
   const state = await fixture(context);
   let resume!: () => void;
   let started!: () => void;
@@ -449,9 +449,9 @@ test('release ที่เริ่ม transaction ก่อน AVAILABLE แต
   assert.equal((await state.snapshot()).agent.state, 'OFFLINE');
 });
 
-// ─── #937 Not Ready / Offline ของ Agent เอง, เหตุผลของ tenant และสถานะหลังจบงาน ───
+// ─── #937 the Agent own Not Ready / Offline, the tenant reasons and the after-work state ───
 
-test('#937 Not Ready ด้วยเหตุผลของ tenant: snapshot มีเหตุผล เวลาเริ่ม และผู้เปลี่ยน, เหตุผลถูกนับว่าใช้แล้ว', async (context) => {
+test('#937 Not Ready with a tenant reason: the snapshot has the reason, start time and who changed it, and the reason is counted as used', async (context) => {
   const state = await fixture(context);
   const before = Date.now();
   const response = await state.available(state.lease.leaseId, 'actor', {
@@ -476,7 +476,7 @@ test('#937 Not Ready ด้วยเหตุผลของ tenant: snapshot �
   );
   assert.equal(used?.used, true);
 
-  // คำสั่งซ้ำไม่เพิ่ม log, เปลี่ยนเหตุผลเพิ่ม log ใหม่
+  // a repeated command adds no log; changing the reason adds a new log
   await state.available(state.lease.leaseId, 'actor', { state: 'BREAK', reasonCode: 'LUNCH' });
   await state.available(state.lease.leaseId, 'actor', { state: 'BREAK', reasonCode: 'MEETING' });
   const logs = await state.owner.agentStateLog.findMany({
@@ -494,7 +494,7 @@ test('#937 Not Ready ด้วยเหตุผลของ tenant: snapshot �
   assert.equal((await state.snapshot('foreign')).agent.reasonCode, null);
 });
 
-test('#937 เหตุผลที่ปิดแล้วหรือไม่มีอยู่ถูกปฏิเสธ และรายการให้ Agent มีเฉพาะที่เปิดตามลำดับ', async (context) => {
+test('#937 a closed or nonexistent reason is rejected, and the list for the Agent has only the open ones in order', async (context) => {
   const state = await fixture(context);
   await withTenantDatabaseTransaction(
     state.owner,
@@ -519,12 +519,12 @@ test('#937 เหตุผลที่ปิดแล้วหรือไม่
     reasons.map((reason) => reason.code),
     ['BREAK', 'LUNCH', 'TRAINING', 'COACHING', 'BACK_OFFICE', 'PERSONAL'],
   );
-  assert.equal(reasons[0]?.labelTh, 'พักสั้น');
+  assert.equal(reasons[0]?.labelTh, 'พักสั้น'); // allow-thai: default reason label seeded by the migration
   assert.equal((await state.call('not-ready-reasons', 'GET', undefined, 'admin')).status, 403);
   assert.equal((await state.snapshot()).agent.state, 'OFFLINE');
 });
 
-test('#937 Offline และ Not Ready ไม่ต้องมี SIP credential แต่ยังต้องถือ lease ของตัวเอง และห้ามเปลี่ยนระหว่างมีงาน', async (context) => {
+test('#937 Offline and Not Ready need no SIP credential but still need to hold their own lease, and cannot change during work', async (context) => {
   const state = await fixture(context);
   await state.owner.agentSipCredential.updateMany({
     where: { tenantId: state.actor.tenantId },
@@ -546,7 +546,7 @@ test('#937 Offline และ Not Ready ไม่ต้องมี SIP credentia
   assert.equal((await state.available(state.lease.leaseId, 'actor')).status, 409);
 
   const queue = await state.owner.queue.create({
-    data: { tenantId: state.actor.tenantId, name: 'ทดสอบ busy #937', channels: ['VOICE'] },
+    data: { tenantId: state.actor.tenantId, name: 'Busy test #937', channels: ['VOICE'] },
   });
   await state.owner.interaction.create({
     data: {
@@ -565,7 +565,7 @@ test('#937 Offline และ Not Ready ไม่ต้องมี SIP credentia
   }
 });
 
-test('#937 สถานะหลังจบงาน: ตั้งระหว่างสาย เก็บที่ server ใช้ตอนบันทึกสรุปผลครั้งเดียว แล้วกลับเป็นค่าเริ่มต้น', async (context) => {
+test('#937 after-work state: set during a call, kept on the server, used once when saving the wrap-up, then returns to the default', async (context) => {
   const state = await fixture(context);
   const set = await state.call('after-work', 'PUT', { state: 'BREAK', reasonCode: 'LUNCH' });
   assert.equal(set.status, 200);
@@ -581,7 +581,7 @@ test('#937 สถานะหลังจบงาน: ตั้งระหว�
   );
 
   const queue = await state.owner.queue.create({
-    data: { tenantId: state.actor.tenantId, name: 'ทดสอบ after-work', channels: ['VOICE'] },
+    data: { tenantId: state.actor.tenantId, name: 'After-work test', channels: ['VOICE'] },
   });
   const wrapup = async () => {
     const interaction = await state.owner.interaction.create({
@@ -606,7 +606,7 @@ test('#937 สถานะหลังจบงาน: ตั้งระหว�
   assert.equal(agent.reasonCode, 'LUNCH');
   assert.deepEqual(agent.afterWork, { state: 'AVAILABLE' });
 
-  // ไม่ได้ตั้งไว้ = Ready, และตั้งแล้วเปลี่ยนใจเป็น Ready ได้
+  // not set = Ready, and after setting it can be changed back to Ready
   await state.call('after-work', 'PUT', { state: 'BREAK', reasonCode: 'TRAINING' });
   await state.call('after-work', 'PUT', { state: 'AVAILABLE' });
   await wrapup();
@@ -615,7 +615,7 @@ test('#937 สถานะหลังจบงาน: ตั้งระหว�
   assert.equal(agent.reasonCode, null);
 });
 
-test('#937 Supervisor บังคับสถานะ → snapshot บอกว่า Supervisor เปลี่ยน พร้อมชื่อและเหตุผลที่กรอก', async (context) => {
+test('#937 a Supervisor forces the state → the snapshot says the Supervisor changed it, with the name and the reason entered', async (context) => {
   const state = await fixture(context);
   const supervisorId = randomUUID();
   await state.owner.user.create({
@@ -623,7 +623,7 @@ test('#937 Supervisor บังคับสถานะ → snapshot บอก�
       id: supervisorId,
       tenantId: state.actor.tenantId,
       email: `${supervisorId}@example.invalid`,
-      displayName: 'หัวหน้าทีม ทดสอบ',
+      displayName: 'Team supervisor test',
       passwordHash: '!TEST_ONLY',
       role: 'SUPERVISOR',
     },
@@ -633,15 +633,15 @@ test('#937 Supervisor บังคับสถานะ → snapshot บอก�
       tenantId: state.actor.tenantId,
       userId: state.actor.userId,
       state: 'BREAK',
-      reason: 'ประชุมทีมด่วน',
+      reason: 'Urgent team meeting',
       actorUserId: supervisorId,
     },
   });
   const { agent } = await state.snapshot();
   assert.equal(agent.state, 'BREAK');
   assert.equal(agent.changedBy, 'SUPERVISOR');
-  assert.equal(agent.changedByName, 'หัวหน้าทีม ทดสอบ');
-  assert.equal(agent.changeNote, 'ประชุมทีมด่วน');
+  assert.equal(agent.changedByName, 'Team supervisor test');
+  assert.equal(agent.changeNote, 'Urgent team meeting');
   await state.owner.agentStateLog.deleteMany({ where: { tenantId: state.actor.tenantId } });
   await state.owner.user.delete({ where: { id: supervisorId } });
 });

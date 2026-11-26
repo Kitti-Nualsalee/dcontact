@@ -15,15 +15,15 @@ import {
 } from './profile-authorization.js';
 
 /**
- * Cus360 C2 (#792) S1: read model ของ Console (R1 D/F/G, E1 F)
+ * Cus360 C2 (#792) S1: read model for the Console (R1 D/F/G, E1 F)
  *
- * - รายการ/จำนวน/รายละเอียดประกอบจาก SQL fragment เดียวกับ C1 (`c360ReadableContactSql`) เท่านั้น;
- *   ไม่ประกอบเงื่อนไขสิทธิ์เอง ไม่นับ DEFER เป็นศูนย์ และไม่เขียนอะไรเลย (GET/search ไม่สร้าง head/หลักฐาน)
- * - Directory ไม่แสดง MERGED predecessor ซ้ำ; AMBIGUOUS แสดงเป็น review-required (อ่านอย่างเดียว)
- * - search: NAME prefix หรือ PHONE/EMAIL เต็มค่าเท่านั้น (ไม่มี wildcard/regex/substring);
- *   ตัวอักษร `%` `_` `\` เป็นตัวอักษรธรรมดา (ใช้ `starts_with` ไม่ใช่ LIKE)
- * - cursor เป็น authenticated-encrypted envelope (AES-256-GCM) ผูก tenant/actor/filter/scope และอายุ 15 นาที
- *   ไม่มี raw query; ทุกหน้า authorize ใหม่ จึงไม่คืนข้อมูลจาก snapshot สิทธิ์เก่า
+ * - list/count/detail are composed only from the same SQL fragment as C1 (`c360ReadableContactSql`);
+ *   no permission conditions of its own, DEFER is never counted as zero, and nothing is written (GET/search create no head/evidence)
+ * - The directory does not list a MERGED predecessor again; AMBIGUOUS is shown as review-required (read-only)
+ * - search: NAME prefix or a full PHONE/EMAIL value only (no wildcard/regex/substring);
+ *   the characters `%` `_` `\` are plain characters (uses `starts_with`, not LIKE)
+ * - the cursor is an authenticated-encrypted envelope (AES-256-GCM) bound to tenant/actor/filter/scope and valid for 15 minutes;
+ *   no raw query; every page re-authorizes, so data from an old permission snapshot is never returned
  */
 
 export const C360_SEARCH_DEFAULT_LIMIT = 20;
@@ -38,7 +38,7 @@ export class C360ReadError extends Error {
     readonly code: string,
     readonly retryable = false,
     readonly fieldErrors?: readonly { field: string; code: string }[],
-    /** ค่าที่คำนวณจริง (เช่น จาก limiter) — filter ต้องคงไว้ ไม่ทับด้วยค่าเริ่มต้น */
+    /** the actually computed value (e.g. from the limiter) — the filter must keep it and not overwrite it with the default */
     readonly retryAfterSeconds?: number,
   ) {
     super(code);
@@ -57,13 +57,13 @@ export interface C360CursorKey {
 }
 
 export interface C360CursorPayload {
-  /** ชนิด cursor เพื่อไม่ให้ใช้ข้าม resource (directory / timeline) */
+  /** cursor kind, so it cannot be used across resources (directory / timeline) */
   kind: string;
   tenantId: string;
   userId: string;
-  /** digest ของ filter ที่ cursor นี้ใช้ได้ (ไม่ใช่ raw query) */
+  /** digest of the filter this cursor is valid for (not a raw query) */
   filter: string;
-  /** digest ของ role/team ของ actor ตอนออก cursor */
+  /** digest of the actor's role/team when the cursor was issued */
   scope: string;
   position: readonly string[];
 }
@@ -84,15 +84,15 @@ export function c360ScopeDigest(actor: C360VerifiedActor): string {
 }
 
 /**
- * ผู้อ่านรายการ/รายละเอียดลูกค้า: human (role/team/custodian) หรือ service principal (READ grant ราย Contact)
- * list, count และ detail ของผู้อ่านเดียวกันประกอบจาก `readable` ชุดเดียว จึงไม่มีรายการที่นับได้แต่เปิดไม่ได้
+ * Reader of customer lists/details: a human (role/team/custodian) or a service principal (per-Contact READ grant)
+ * list, count and detail for the same reader are composed from a single `readable` set, so no item can be counted but not opened
  */
 export interface C360ContactReader {
   tenantId: string;
-  /** ผูก cursor กับผู้อ่าน: userId ของ human หรือ id ของ service principal */
+  /** binds the cursor to the reader: the human's userId or the service principal's id */
   cursorSubject: string;
   scopeDigest: string;
-  /** Fragment สำหรับ `FROM contacts c WHERE ...` */
+  /** Fragment for `FROM contacts c WHERE ...` */
   readable: Prisma.Sql;
   deferred: Prisma.Sql;
   access(tx: Prisma.TransactionClient, contactId: string): Promise<C360ContactAccess>;
@@ -114,8 +114,8 @@ export function c360FilterDigest(parts: readonly string[]): string {
 }
 
 /**
- * `keys[0]` ใช้ออก cursor ใหม่; ที่เหลือใช้ถอดจนหมดอายุ (key rotation) ตาม E1 I
- * ไม่มี key ที่ตั้งไว้ = ใช้ key ชั่วคราวของ process (cursor ใช้ข้าม instance/restart ไม่ได้ → ค้นใหม่)
+ * `keys[0]` issues new cursors; the rest are used for decryption until they expire (key rotation) per E1 I
+ * no configured key = use an ephemeral per-process key (a cursor cannot be used across instances/restarts → search again)
  */
 export function createC360CursorCodec(
   keys: readonly C360CursorKey[],
@@ -181,7 +181,7 @@ export function createC360CursorCodec(
   };
 }
 
-/** `CUSTOMER_360_CURSOR_KEYS="kid1:<base64 32 bytes>,kid0:<base64 32 bytes>"` (ตัวแรก = ใช้ออก cursor) */
+/** `CUSTOMER_360_CURSOR_KEYS="kid1:<base64 32 bytes>,kid0:<base64 32 bytes>"` (first = used to issue cursors) */
 export function c360CursorCodecFromEnv(
   env: Record<string, string | undefined> = process.env,
 ): C360CursorCodec {
@@ -193,10 +193,10 @@ export function c360CursorCodecFromEnv(
       })
     : [{ id: 'eph', key: randomBytes(32) }];
   if (!raw && env.NODE_ENV === 'production')
-    // ไม่ fail closed เพราะ cursor ที่ใช้ข้าม instance ไม่ได้ทำให้ต้องค้นใหม่เท่านั้น (ไม่เปิดข้อมูล) และ
-    // deployment ที่ยังไม่มี secret นี้ต้องไม่ล้ม; แจ้งเตือนชัดเจนให้ตั้งค่าก่อนใช้หลาย instance
+    // not fail closed because a cursor that cannot be used across instances only forces a new search (no data is exposed), and
+    // a deployment without this secret must not break; warn clearly so it is configured before running several instances
     process.emitWarning(
-      'CUSTOMER_360_CURSOR_KEYS ไม่ได้ตั้งค่า: cursor ของ Customer 360 ใช้ key ชั่วคราวต่อ process และใช้ข้าม instance/restart ไม่ได้',
+      'CUSTOMER_360_CURSOR_KEYS is not set: Customer 360 cursors use an ephemeral per-process key and cannot be used across instances/restarts',
       { code: 'C360_CURSOR_KEYS_MISSING' },
     );
   return createC360CursorCodec(keys);
@@ -243,7 +243,7 @@ function nameKey(value: string): string {
   return normalized;
 }
 
-/** ใช้ parser เดียวกับ owner โดยคงรหัส validation ที่ Console รองรับ */
+/** Uses the same parser as the owner while keeping the validation codes the Console supports */
 function contactPointKey(kind: 'PHONE' | 'EMAIL', value: string): string {
   try {
     return (kind === 'PHONE' ? normalizeC360Phone(value) : normalizeC360Email(value))
@@ -260,7 +260,7 @@ function contactPointKey(kind: 'PHONE' | 'EMAIL', value: string): string {
 
 const SEARCH_FIELDS = new Set(['type', 'query', 'limit', 'cursor']);
 
-/** strict allowlist; ข้อความ error ไม่มีค่าที่ผู้ใช้กรอก */
+/** strict allowlist; error messages never contain the user's input */
 export function parseC360SearchInput(body: unknown): NormalizedSearch {
   if (!body || typeof body !== 'object' || Array.isArray(body))
     throw validation('body', 'OBJECT_REQUIRED');
@@ -294,7 +294,7 @@ export function parseC360SearchInput(body: unknown): NormalizedSearch {
   return { type, key, limit, cursor };
 }
 
-/** แสดง channel ที่ตรงแบบ mask — ไม่คืนค่าเต็มของ point ผ่านรายการค้นหา */
+/** Shows the matched channel masked — never returns the full point value through search results */
 export function maskC360Channel(kind: 'PHONE' | 'EMAIL', key: string): string {
   if (kind === 'PHONE')
     return `${key.slice(0, 3)}${'•'.repeat(Math.max(2, key.length - 7))}${key.slice(-4)}`;
@@ -317,9 +317,9 @@ export interface C360SearchItem {
 export interface C360SearchResult {
   items: C360SearchItem[];
   nextCursor: string | null;
-  /** INCOMPLETE = มีรายการที่ IAM ยังตามทัน owner ไม่ทัน (DEFER) จึงยังตัดสินสิทธิ์ไม่ได้ ไม่ใช่ "ไม่มี" */
+  /** INCOMPLETE = some items have an IAM that has not caught up with the owner (DEFER), so permission cannot be decided yet; not "none" */
   scope: { state: 'COMPLETE' | 'INCOMPLETE' };
-  /** เฉพาะ DIRECTORY หน้าแรก: predicate เดียวกับ list; INCOMPLETE → value เป็น null (ไม่เป็น 0) */
+  /** DIRECTORY first page only: same predicate as list; INCOMPLETE → value is null (not 0) */
   accessibleCount?: { state: 'AVAILABLE'; value: number } | { state: 'UNAVAILABLE'; value: null };
 }
 
@@ -345,7 +345,7 @@ const NOT_MERGED = Prisma.sql`NOT EXISTS (
 
 const SEARCH_ROLES = new Set(['ADMIN', 'SUPERVISOR']);
 
-/** Predicate ของ directory ใช้ร่วมระหว่าง C2 list/count และ M1 Overview เสมอ */
+/** The directory predicate is always shared between the C2 list/count and the M1 Overview */
 const directoryReadable = (reader: C360ContactReader) =>
   Prisma.sql`${reader.readable} AND ${NOT_MERGED}`;
 
@@ -374,12 +374,12 @@ export async function searchC360Contacts(
   body: unknown,
   codec: C360CursorCodec,
 ): Promise<C360SearchResult> {
-  // Agent/Compliance ไม่มี generic directory (R1 C); gateway ตัดไปแล้ว ที่นี่เป็นชั้นที่สอง
+  // Agent/Compliance have no generic directory (R1 C); the gateway already cuts them off, this is the second layer
   if (!SEARCH_ROLES.has(actor.role)) throw new C360ReadError(403, 'CUSTOMER_ACCESS_DENIED');
   return searchC360ContactsAs(tx, c360UserContactReader(actor), body, codec);
 }
 
-/** ผู้เรียกต้องตรวจตัวตนของผู้อ่านแล้ว (human role หรือ service binding ที่ถือ guard ใน transaction นี้) */
+/** The caller must have verified the reader's identity (a human role or a service binding that holds the guard in this transaction) */
 export async function searchC360ContactsAs(
   tx: Prisma.TransactionClient,
   reader: C360ContactReader,
@@ -502,14 +502,14 @@ export interface C360ProfileView {
   identity: {
     state: C360IdentityView;
     reviewRequired: boolean;
-    /** เฉพาะ MERGED และเฉพาะเมื่อ actor อ่าน canonical target ได้จริง — ไม่ redirect, ไม่เปิดเผย hidden target */
+    /** MERGED only, and only when the actor can really read the canonical target — no redirect, no hidden target is revealed */
     canonicalContactId?: string;
   };
   capabilities: { read: true; manage: boolean };
   source: { authorizationBasis: string; vipSource: string };
 }
 
-/** DENY/ไม่พบ = 404 เหมือนกัน, DEFER = 503 SCOPE_UNAVAILABLE; ใช้ร่วมกันทุก read ของ contact เดียว */
+/** DENY/not found = the same 404, DEFER = 503 SCOPE_UNAVAILABLE; shared by every read of a single contact */
 export async function requireReadableC360Contact(
   tx: Prisma.TransactionClient,
   actor: C360VerifiedActor,
@@ -527,8 +527,8 @@ export type C360SectionResult<T> =
   | { state: 'UNAVAILABLE'; asOf: string; reason: 'OWNER_UNAVAILABLE'; retryable: true };
 
 /**
- * อ่านข้อมูลเสริมจาก owner หลังตรวจสิทธิ์ลูกค้าแล้ว: ถ้า owner ล้ม (error ของ DB/owner) ต้องได้ typed
- * UNAVAILABLE ไม่ใช่ empty และไม่ทำให้ core profile ล้ม. ใช้ SAVEPOINT เพื่อให้ transaction ใช้ต่อได้
+ * Reads supplementary data from the owner after customer permission is verified: if the owner fails (DB/owner error) it must yield a typed
+ * UNAVAILABLE, not empty, and must not fail the core profile. Uses a SAVEPOINT so the transaction stays usable
  */
 export async function runC360OwnerSection<T>(
   tx: Prisma.TransactionClient,
@@ -551,7 +551,7 @@ export async function runC360OwnerSection<T>(
   }
 }
 
-/** Core profile: ไม่ส่ง supplementary data ใด ๆ (timeline/governance แยก endpoint และแยก failure) */
+/** Core profile: sends no supplementary data (timeline/governance are separate endpoints with separate failures) */
 export async function readC360Profile(
   tx: Prisma.TransactionClient,
   actor: C360VerifiedActor,
@@ -561,7 +561,7 @@ export async function readC360Profile(
   return readC360ProfileAs(tx, c360UserContactReader(actor), contactId);
 }
 
-/** ผู้เรียกต้องตรวจตัวตนของผู้อ่านแล้ว; DENY/ไม่พบ = 404 เหมือนกัน */
+/** The caller must have verified the reader's identity; DENY/not found = the same 404 */
 export async function readC360ProfileAs(
   tx: Prisma.TransactionClient,
   reader: C360ContactReader,

@@ -16,7 +16,9 @@ for (const scenario of [
   'forbidden',
   'not-recorded',
 ]) {
-  test(`ปิดบัญชี ${scenario}: ยืนยันก่อนส่งและไม่ retry เมื่อผลไม่ชัดเจน`, async ({ page }) => {
+  test(`disable account ${scenario}: confirm before sending and do not retry when the result is uncertain`, async ({
+    page,
+  }) => {
     if (scenario === 'poll') await page.clock.install();
     const user = {
       id: userId,
@@ -75,7 +77,7 @@ for (const scenario of [
           return route.fulfill({ status: 503, json: { code: 'CAPABILITY_NOT_READY' } });
         if (scenario === 'forbidden')
           return route.fulfill({ status: 403, json: { code: 'FORBIDDEN' } });
-        // response หายก่อน server บันทึกคำสั่ง: ไม่รู้ผลจนกว่าจะตรวจคำสั่งเดิม
+        // the response was lost before the server recorded the command: unknown until the original command is checked
         if (scenario === 'not-recorded') return route.abort('failed');
         if (scenario === 'last-admin' || scenario === 'busy')
           return route.fulfill({
@@ -91,7 +93,7 @@ for (const scenario of [
           json: { operationId, userId, status: 'ACCEPTED', accountState: 'DISABLING' },
         });
       }
-      // CONFIG_BUSY/คำสั่งที่ไม่ได้บันทึก: server ไม่มีคำสั่งนี้
+      // CONFIG_BUSY / a command that was not recorded: the server has no such command
       if (path === `commands/${commandId}` && !['busy', 'not-recorded'].includes(scenario))
         return route.fulfill({ json: { result: { operationId, userId } } });
       if (path === `operations/${operationId}`) {
@@ -113,7 +115,7 @@ for (const scenario of [
       return;
     }
     const refreshDisable = panel.getByRole('button', { name: 'ตรวจผลการปิดบัญชี', exact: true });
-    // ยังไม่มีคำสั่งค้าง: ไม่แสดงปุ่มตรวจผล
+    // no pending command yet: the check-result button is not shown
     await expect(panel.getByRole('button', { name: 'ปิดบัญชี…', exact: true })).toBeEnabled();
     await expect(refreshDisable).toHaveCount(0);
     const dialog = page.getByRole('alertdialog');
@@ -131,7 +133,7 @@ for (const scenario of [
     expect(posts).toBe(0);
     await dialog.getByRole('button', { name: 'ยกเลิก', exact: true }).click();
     await expect(dialog).toHaveCount(0);
-    // เปิดใหม่ต้องเริ่มจากช่องเหตุผลว่าง ไม่ให้เหตุผลเก่าตามไปยืนยันครั้งใหม่
+    // reopening must start from an empty reason field, so an old reason does not follow into the new confirmation
     await panel.getByRole('button', { name: 'ปิดบัญชี…', exact: true }).click();
     await expect(reason).toHaveValue('');
     await page.keyboard.press('Escape');
@@ -144,7 +146,7 @@ for (const scenario of [
     }
     if (scenario === 'forbidden') {
       await expect(dialog.getByRole('alert')).toContainText('คุณไม่มีสิทธิ์ปิดบัญชีนี้');
-      // 403 ของคำสั่งไม่แทนทั้งหน้า People: การ์ดและรายละเอียดยังอยู่ ไม่ค้างคำสั่ง
+      // a 403 on the command does not replace the whole People page: the card and detail stay, no pending command
       await expect(panel).toBeVisible();
       await expect(page.getByText(/ไม่มีสิทธิ์จัดการบัญชี/)).toHaveCount(0);
       await dialog.getByRole('button', { name: 'ยกเลิก', exact: true }).click();
@@ -208,7 +210,7 @@ for (const scenario of [
       });
     } else await panel.getByRole('button', { name: 'ตรวจผลการปิดบัญชี', exact: true }).click();
     await expect(panel).toContainText('ปิดบัญชีและ session สำเร็จแล้ว');
-    // ปิดสำเร็จแล้ว: ไม่มีคำสั่งค้าง จึงไม่เหลือปุ่มตรวจผลหรือปุ่มปิดบัญชีซ้อนกับการ์ดเปิดบัญชีกลับ
+    // closed successfully: no pending command, so no check-result button or disable button remains overlapping the re-enable card
     await expect(panel.getByRole('button')).toHaveCount(0);
     await expect(page.getByRole('button', { name: /^ตรวจผล/ })).toHaveCount(0);
     expect(posts).toBe(scenario === 'readiness-race' ? 2 : 1);
@@ -230,7 +232,9 @@ for (const scenario of [
   });
 }
 
-test('บัญชีปิดอยู่แล้ว: การ์ดปิดบัญชีย่อเหลือบรรทัดเดียวและไม่มีปุ่ม', async ({ page }) => {
+test('account already disabled: the disable card shrinks to one line with no button', async ({
+  page,
+}) => {
   const user = {
     id: userId,
     displayName: 'ผู้ใช้ปิดอยู่แล้ว',
@@ -287,7 +291,7 @@ test('บัญชีปิดอยู่แล้ว: การ์ดปิด
   const enable = page.getByRole('region', { name: 'เปิดบัญชีกลับ' });
   await expect(enable).toBeVisible();
   expect(checks).toBe(0);
-  // รอปุ่มเปิดบัญชีกลับเปลี่ยนจากกำลังตรวจความพร้อมเป็นกดได้และ transition สีจบก่อนสแกน contrast
+  // wait until the re-enable button changes from checking readiness to pressable and the color transition ends before the contrast scan
   await expect(enable.getByRole('button', { name: 'เปิดบัญชีกลับ…', exact: true })).toBeEnabled();
   await page.evaluate(() => Promise.all(document.getAnimations().map((item) => item.finished)));
   await page.waitForTimeout(300);

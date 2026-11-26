@@ -16,15 +16,15 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 
 /**
- * S2.6 (#366): LINE provider pilot acceptance — frozen registry 19 checks ของ #360 §B
+ * S2.6 (#366): LINE provider pilot acceptance - frozen registry of the 19 checks of #360 §B
  *
- * - `cxa:s2:focused` รัน automated checks 15 ตัว (ไม่รวม REG01 และ provider checks) เป็น candidate เสมอ
- * - `cxa:s2:acceptance` รันครบ 19 checks: automated 16 ตัวรันคำสั่งจริง ส่วน PR01/PR02/RB01 มาจาก
- *   sanitized bundle ของ protected runner (`CXA_S2_PROVIDER_BUNDLES`) ที่ตรวจซ้ำแล้วเท่านั้น
- * - marker `OUTBOUND_DELIVERY_LINE_PILOT_READY` ออกได้เมื่อ 19/19 PASS บน clean final main SHA เดียว +
- *   immutable Actions artifact + bundle ผ่าน + negative scans ผ่าน + rollback state ตรง #360 §F
- * - status ของ check/dimension derive จาก suite/bundle เท่านั้น ไม่มี override/waiver; skip/flaky = FAIL
- * - output ของทุก suite ถูกสแกนหา LINE ID/credential (runtime log layer ของ OB02) พบ = suite FAIL
+ * - `cxa:s2:focused` runs 15 automated checks (excluding REG01 and the provider checks) and is always a candidate
+ * - `cxa:s2:acceptance` runs all 19 checks: 16 automated ones run real commands, while PR01/PR02/RB01 come only from the
+ *   re-verified sanitized bundle of the protected runner (`CXA_S2_PROVIDER_BUNDLES`)
+ * - the marker `OUTBOUND_DELIVERY_LINE_PILOT_READY` can be issued when 19/19 PASS on a single clean final main SHA +
+ *   an immutable Actions artifact + the bundle passes + the negative scans pass + the rollback state matches #360 §F
+ * - the status of a check/dimension is derived from the suite/bundle only, with no override/waiver; skip/flaky = FAIL
+ * - the output of every suite is scanned for LINE IDs/credentials (the runtime log layer of OB02); a finding = suite FAIL
  */
 export const S2_MARKER = S2_PILOT_MARKER;
 export const S2_WORKFLOW = Object.freeze({ name: 'cxa-s2-acceptance', version: 1 });
@@ -62,8 +62,8 @@ export const S2_DIMENSIONS = Object.freeze([
 ]);
 
 /**
- * flags ของ marker ตาม #360 §F — marker ไม่มี authority เปิด traffic
- * `actualProviderTraffic=true` หมายถึงมี capped-pilot evidence ใน run นี้ ไม่ใช่ gate เปิดค้าง
+ * marker flags per #360 §F - the marker has no authority to open traffic
+ * `actualProviderTraffic=true` means there is capped-pilot evidence in this run, not a gate left open
  */
 export const S2_MARKER_FLAGS = Object.freeze({
   simulationOnly: false,
@@ -78,9 +78,9 @@ export const S2_MARKER_FLAGS = Object.freeze({
 });
 
 /**
- * deterministic fault suites (#360 §B: failure cases ใช้ provider double/fault proxy เท่านั้น)
- * ชี้ไปที่ไฟล์เทสต์ที่ inject fault นั้นจริง — test ของ registry ตรวจว่าไฟล์มีอยู่และทุก automated check
- * ที่ไม่ใช่ REG01/EV01 มี fault suite อย่างน้อยหนึ่งชุด
+ * deterministic fault suites (#360 §B: failure cases use only a provider double/fault proxy)
+ * point to the test files that really inject that fault - the registry test checks the files exist and every automated check
+ * that is not REG01/EV01 has at least one fault suite
  */
 export const S2_FAULT_SUITES = Object.freeze([
   {
@@ -88,7 +88,7 @@ export const S2_FAULT_SUITES = Object.freeze([
     faults: [
       '2xx',
       '409+accepted id',
-      '409 ไม่มี id',
+      '409 without an id',
       '400/404',
       '401/403',
       '429',
@@ -118,10 +118,10 @@ export const S2_FAULT_SUITES = Object.freeze([
   {
     id: 'S2FX-BARRIER-CRASH',
     faults: [
-      'crash ก่อน barrier',
-      'crash หลัง barrier',
+      'crash before the barrier',
+      'crash after the barrier',
       'restart replay',
-      'kill ก่อน/หลัง barrier',
+      'kill before/after the barrier',
     ],
     sources: [
       'apps/delivery/src/line-outbound-adapter.integration.ts',
@@ -242,7 +242,7 @@ function automated(id, dimension, boundaries, faultSuites, commands) {
     boundaries,
     faultSuites,
     commands,
-    remediation: `แก้ ${id} ตาม #360/#362`,
+    remediation: `Fix ${id} per #360/#362`,
   };
 }
 
@@ -254,11 +254,11 @@ function provider(id, dimension, boundaries) {
     boundaries,
     faultSuites: [],
     commands: [],
-    remediation: `รัน ${id} บน protected runner แล้ว ingest bundle ใหม่ (#360 §C/§D)`,
+    remediation: `Run ${id} on the protected runner and ingest a new bundle (#360 §C/§D)`,
   };
 }
 
-/** #360 §B: 19 checks / 9 dimensions — ลำดับของ command คือลำดับที่ suite ถูกรันครั้งแรก */
+/** #360 §B: 19 checks / 9 dimensions - the order of commands is the order suites are first run */
 export const CXA_S2_READINESS_CHECKS = Object.freeze([
   automated(
     'S2-LINE-F01',
@@ -270,7 +270,7 @@ export const CXA_S2_READINESS_CHECKS = Object.freeze([
   automated(
     'S2-LINE-F02',
     'functional',
-    ['2xx/409/4xx/429/5xx/timeout mapping ตาม #357'],
+    ['2xx/409/4xx/429/5xx/timeout mapping per #357'],
     ['S2FX-PROVIDER-MAPPING'],
     [contracts, deliveryUnit, deliveryIntegration],
   ),
@@ -284,14 +284,14 @@ export const CXA_S2_READINESS_CHECKS = Object.freeze([
   automated(
     'S2-LINE-F04',
     'functional',
-    ['reservation/Attempt/Touch/refund matrix', 'explicit response binding ตาม #361'],
+    ['reservation/Attempt/Touch/refund matrix', 'explicit response binding per #361'],
     ['S2FX-TOUCH-BINDING'],
     [contracts, deliveryIntegration, correlatedTouch],
   ),
   automated(
     'S2-LINE-TI01',
     'tenant-isolation',
-    ['pilot+guard tenant', 'channel/sender/recipient/content/credential swap fail ก่อน I/O'],
+    ['pilot+guard tenant', 'channel/sender/recipient/content/credential swap fails before I/O'],
     ['S2FX-TENANT-SWAP'],
     [deliveryIntegration, correlatedTouch, webhookApi],
   ),
@@ -332,7 +332,7 @@ export const CXA_S2_READINESS_CHECKS = Object.freeze([
   automated(
     'S2-LINE-RC01',
     'recovery',
-    ['crash/fault matrix ก่อน/หลัง submission barrier', 'no blind resend/release'],
+    ['crash/fault matrix before/after the submission barrier', 'no blind resend/release'],
     ['S2FX-BARRIER-CRASH'],
     [deliveryUnit, deliveryIntegration],
   ),
@@ -374,7 +374,7 @@ export const CXA_S2_READINESS_CHECKS = Object.freeze([
   automated(
     'S2-LINE-REG01',
     'regression',
-    ['build/typecheck/lint', 'E0/C1/S1 acceptance บน SHA เดียว', 'no disabled tests'],
+    ['build/typecheck/lint', 'E0/C1/S1 acceptance on the same SHA', 'no disabled tests'],
     [],
     [
       [pnpm, 'build'],
@@ -394,12 +394,12 @@ export const CXA_S2_READINESS_CHECKS = Object.freeze([
   provider('S2-LINE-PR02', 'idempotency', [
     'protected actual push 1 logical delivery: 200',
     'same-key replay 409',
-    'message IDs ตรง',
-    'quoted reply สร้าง Touch 1',
+    'message IDs match',
+    'a quoted reply creates Touch 1',
   ]),
   provider('S2-LINE-RB01', 'recovery', [
     'switch off + kill + drain/quarantine + revoke token',
-    'send ใหม่ถูก block ก่อน I/O',
+    'a new send is blocked before I/O',
   ]),
   automated(
     'S2-LINE-EV01',
@@ -422,7 +422,7 @@ export function s2Checks(scope = 'full') {
 
 const suiteKey = (command) => JSON.stringify(command);
 
-/** รวมคำสั่งซ้ำข้าม check เหลือ suite เดียวตามลำดับที่ปรากฏครั้งแรก */
+/** Merge repeated commands across checks into a single suite in the order first seen */
 export function s2SuitePlan(checks = CXA_S2_READINESS_CHECKS) {
   const suites = new Map();
   for (const item of checks) {
@@ -490,7 +490,7 @@ export function executeS2Suite(suite, runner = spawnSync) {
       tap.cancelled === 0 &&
       tap.skipped === 0 &&
       tap.todo === 0);
-  // runtime log layer ของ OB02: log ที่มี LINE ID/credential = suite ล้ม แม้เทสต์จะผ่าน
+  // the runtime log layer of OB02: a log with a LINE ID/credential = the suite fails even if the tests pass
   const leaks = scanTextForS2Leaks(output);
   const passed = exitedCleanly && tapClean && leaks.length === 0;
   const evidence = passed ? s2StructuredEvidence(output) : [];
@@ -517,8 +517,8 @@ export function executeS2Suite(suite, runner = spawnSync) {
 // ── Provider evidence (bundle ingestion) ────────────────────────────────────
 
 /**
- * PR01/PR02/RB01 ไม่มีคำสั่งให้รันใน CI — ผลมาจาก bundle ที่ผ่าน `verifyS2ProviderBundles` เท่านั้น
- * ไม่มี bundle = FAIL (missing evidence ไม่ใช่ skip), bundle เชื่อไม่ได้ = FAIL ทุก provider check
+ * PR01/PR02/RB01 have no command to run in CI - the result comes only from a bundle that passed `verifyS2ProviderBundles`
+ * no bundle = FAIL (missing evidence, not a skip); an untrustworthy bundle = FAIL for every provider check
  */
 export function ingestS2ProviderEvidence(
   paths,
@@ -565,7 +565,7 @@ function composeProviderCheck(item, providerEvidence) {
 
 function runGit(arguments_) {
   const result = spawnSync('git', arguments_, { cwd: repositoryRoot, encoding: 'utf8' });
-  if (result.status !== 0 || result.error) throw new Error(`git ${arguments_.join(' ')} ล้มเหลว`);
+  if (result.status !== 0 || result.error) throw new Error(`git ${arguments_.join(' ')} failed`);
   return String(result.stdout).trim();
 }
 
@@ -574,7 +574,7 @@ function repositoryName(environment) {
   const match = runGit(['config', '--get', 'remote.origin.url']).match(
     /(?:github\.com[/:])([^/]+\/[^/.]+)(?:\.git)?$/,
   );
-  if (!match) throw new TypeError('ไม่สามารถระบุ repository สำหรับ S2 manifest');
+  if (!match) throw new TypeError('cannot determine the repository for the S2 manifest');
   return match[1];
 }
 
@@ -683,8 +683,8 @@ function evidenceOf(checks, type) {
 const passed = (checks, id) => checks.find((item) => item.id === id)?.status === 'PASS';
 
 /**
- * flags derive จาก evidence ของ run นี้ — candidate จึงไม่มีทางอ้าง provider conformance ที่ไม่มีจริง
- * สถานะ ณ artifact (switch/kill/credential) รู้ได้จาก RB01 เท่านั้น: ไม่มี RB01 PASS = `null`
+ * flags are derived from the evidence of this run - so a candidate cannot claim provider conformance that does not exist
+ * the state at the artifact (switch/kill/credential) is known only from RB01: no RB01 PASS = `null`
  */
 export function s2DerivedFlags(checks) {
   const pr01 = passed(checks, 'S2-LINE-PR01');
@@ -759,7 +759,7 @@ export function cxaS2Summary(
     markerEligible: scope === 'full',
     entryCondition: markers.length > 0 ? S2_MARKER : 'NOT_READY',
     evidenceScope:
-      'S2 Development + Capped Pilot only; marker ไม่เปิด traffic และ productionReleaseEnabled=false',
+      'S2 Development + Capped Pilot only; the marker does not open traffic and productionReleaseEnabled=false',
   };
 }
 
@@ -862,70 +862,80 @@ export function createCxaS2EvidenceManifest(
 const FULL_SHA = /^[0-9a-f]{40}$/i;
 
 export function assertValidCxaS2EvidenceManifest(manifest) {
-  // PII/credential ก่อน validation อื่นทั้งหมด (#360 §E)
+  // PII/credential check before all other validation (#360 §E)
   assertS2EvidenceSafe(manifest);
   if (
     manifest.schemaVersion !== 1 ||
     manifest.phase !== 'S2' ||
     manifest.evidenceType !== 'provider-pilot-acceptance'
   )
-    throw new TypeError('S2 manifest มี schemaVersion/phase/evidenceType ไม่ถูกต้อง');
+    throw new TypeError('S2 manifest has an invalid schemaVersion/phase/evidenceType');
   if (!['full', 'focused'].includes(manifest.scope))
-    throw new TypeError('S2 manifest ต้องระบุ scope full หรือ focused');
+    throw new TypeError('S2 manifest must specify a scope of full or focused');
   for (const field of ['commitSha', 'finalMainSha', 'expectedCommitSha']) {
     if (!FULL_SHA.test(manifest[field] ?? ''))
-      throw new TypeError(`S2 manifest ต้องมี ${field} แบบ SHA เต็ม`);
+      throw new TypeError(`S2 manifest must have a full SHA for ${field}`);
   }
-  if (!(manifest.retentionDays >= 90)) throw new TypeError('S2 artifact ต้องเก็บอย่างน้อย 90 วัน');
+  if (!(manifest.retentionDays >= 90))
+    throw new TypeError('S2 artifact must be kept for at least 90 days');
 
   const expected = s2Checks(manifest.scope);
   const registered = new Map(expected.map((item) => [item.id, item]));
   const checks = manifest.checks ?? [];
   if (new Set(checks.map((item) => item.id)).size !== checks.length)
-    throw new TypeError('S2 manifest มี check ซ้ำ');
+    throw new TypeError('S2 manifest has a duplicate check');
   const unknown = checks.find((item) => !registered.has(item.id));
-  if (unknown) throw new TypeError(`S2 manifest มี check ที่ไม่อยู่ใน scope: ${unknown.id}`);
+  if (unknown) throw new TypeError(`S2 manifest has a check outside the scope: ${unknown.id}`);
   if (checks.length !== expected.length)
     throw new TypeError(
-      `S2 manifest scope ${manifest.scope} ต้องมี check ครบ ${expected.length} ตัว`,
+      `S2 manifest scope ${manifest.scope} must have all ${expected.length} checks`,
     );
   if (checks.some((item) => registered.get(item.id).dimension !== item.dimension))
-    throw new TypeError('S2 manifest มี dimension ของ check ไม่ตรง registry');
+    throw new TypeError('S2 manifest has a check dimension that does not match the registry');
 
   if (JSON.stringify(manifest.dimensions) !== JSON.stringify(dimensionsOf(checks, manifest.scope)))
-    throw new TypeError('S2 manifest dimensions ต้อง derive จาก checks เท่านั้น');
+    throw new TypeError('S2 manifest dimensions must be derived from the checks only');
   if (JSON.stringify(manifest.flags) !== JSON.stringify(s2DerivedFlags(checks)))
-    throw new TypeError('S2 manifest flags ต้อง derive จาก evidence ของ run นี้');
+    throw new TypeError('S2 manifest flags must be derived from the evidence of this run');
   if (manifest.flags.productionReleaseEnabled !== false)
-    throw new TypeError('S2 ห้ามเปิด productionReleaseEnabled');
+    throw new TypeError('S2 must not enable productionReleaseEnabled');
 
   const suites = new Map((manifest.suites ?? []).map((suite) => [suite.id, suite]));
   if (suites.size === 0 || suites.size !== (manifest.suites ?? []).length)
-    throw new TypeError('S2 manifest ต้องมี suites ที่ id ไม่ซ้ำ');
+    throw new TypeError('S2 manifest must have suites with unique ids');
   const commands = (manifest.suites ?? []).map((suite) => suiteKey(suite.command));
   if (new Set(commands).size !== commands.length)
-    throw new TypeError('S2 manifest รัน suite เดียวกันซ้ำใน run เดียว');
+    throw new TypeError('S2 manifest runs the same suite more than once in a single run');
   for (const item of checks) {
     const definition = registered.get(item.id);
     if (definition.kind === 'provider') {
-      if (item.subchecks) throw new TypeError(`provider check ${item.id} ต้องไม่อ้าง suite`);
+      if (item.subchecks)
+        throw new TypeError(`provider check ${item.id} must not reference a suite`);
       if (item.status === 'PASS' && !item.provider)
-        throw new TypeError(`provider check ${item.id} PASS ได้เฉพาะเมื่อมี bundle evidence`);
+        throw new TypeError(
+          `provider check ${item.id} can PASS only when there is bundle evidence`,
+        );
       if (item.status === 'PASS' && manifest.provider?.status !== 'VERIFIED')
-        throw new TypeError(`provider check ${item.id} PASS ได้เฉพาะเมื่อ bundle ผ่านการตรวจ`);
+        throw new TypeError(
+          `provider check ${item.id} can PASS only when the bundle has been verified`,
+        );
       continue;
     }
     const subchecks = item.subchecks ?? [];
     if (subchecks.length !== definition.commands.length)
-      throw new TypeError(`S2 check ${item.id} ต้องอ้าง suite ครบตาม registry`);
+      throw new TypeError(`S2 check ${item.id} must reference every suite per the registry`);
     for (const subcheck of subchecks) {
       const suite = suites.get(subcheck.suiteId);
       if (!suite || suite.status !== subcheck.status || !suite.checkIds.includes(item.id))
-        throw new TypeError(`S2 check ${item.id} อ้าง suite ที่ไม่ตรงกับผลของ suite`);
+        throw new TypeError(
+          `S2 check ${item.id} references a suite that does not match the suite result`,
+        );
     }
     const derived = subchecks.every((subcheck) => subcheck.status === 'PASS') ? 'PASS' : 'FAIL';
     if (item.status !== derived)
-      throw new TypeError(`S2 check ${item.id} มี status ไม่ตรงกับ suite ที่อ้าง`);
+      throw new TypeError(
+        `S2 check ${item.id} has a status that does not match the referenced suite`,
+      );
   }
 
   const artifacts = manifest.artifacts ?? [];
@@ -933,36 +943,38 @@ export function assertValidCxaS2EvidenceManifest(manifest) {
     artifacts.length !== checks.length ||
     new Set(artifacts.map(({ id }) => id)).size !== checks.length
   )
-    throw new TypeError('S2 manifest ต้องมี evidence artifact หนึ่งรายการต่อ check');
+    throw new TypeError('S2 manifest must have one evidence artifact per check');
   for (const artifact of artifacts) {
     const item = checks.find(({ id }) => `check:${id}` === artifact.id);
-    if (!item) throw new TypeError('S2 evidence artifact อ้าง check ที่ไม่มี');
+    if (!item) throw new TypeError('S2 evidence artifact references a check that does not exist');
     if (artifact.commitSha !== manifest.commitSha)
-      throw new TypeError('S2 evidence artifact อ้าง commit ไม่ตรงกับ manifest');
+      throw new TypeError(
+        'S2 evidence artifact references a commit that does not match the manifest',
+      );
     if (artifact.sha256 !== sha256(item))
-      throw new TypeError('SHA-256 ของ S2 evidence artifact ไม่ตรงกับ check');
+      throw new TypeError('SHA-256 of the S2 evidence artifact does not match the check');
   }
 
   const markers = manifest.markers ?? [];
   if (markers.some((marker) => marker !== S2_MARKER) || new Set(markers).size !== markers.length)
-    throw new TypeError('S2 manifest มี marker ไม่ถูกต้อง');
+    throw new TypeError('S2 manifest has an invalid marker');
   if (markers.length === 0) {
     if (manifest.candidate !== true || manifest.entryCondition !== 'NOT_READY')
-      throw new TypeError('S2 manifest ที่ไม่มี marker ต้องเป็น candidate และ NOT_READY');
+      throw new TypeError('an S2 manifest without a marker must be a candidate and NOT_READY');
     return;
   }
 
   if (manifest.scope !== 'full')
-    throw new TypeError('focused run ออก S2 marker ไม่ได้ ได้แค่ candidate manifest');
+    throw new TypeError('a focused run cannot issue the S2 marker, only a candidate manifest');
   if (manifest.candidate !== false || (manifest.markerBlockers ?? []).length > 0)
-    throw new TypeError('S2 marker ออกพร้อม candidate/blocker ไม่ได้');
+    throw new TypeError('an S2 marker cannot be issued together with a candidate/blocker');
   if (
     checks.some((item) => item.status !== 'PASS') ||
     [...suites.values()].some((suite) => suite.status !== 'PASS')
   )
-    throw new TypeError(`${S2_MARKER} ต้องมีทุก check/suite PASS (ไม่มี skip/flaky/waiver)`);
+    throw new TypeError(`${S2_MARKER} needs every check/suite to PASS (no skip/flaky/waiver)`);
   if (manifest.pullRequest?.number !== null && manifest.pullRequest?.number !== undefined)
-    throw new TypeError('PR run ออก S2 marker ไม่ได้');
+    throw new TypeError('a PR run cannot issue the S2 marker');
   if (
     manifest.commitSha !== manifest.finalMainSha ||
     manifest.commitSha !== manifest.expectedCommitSha ||
@@ -970,7 +982,7 @@ export function assertValidCxaS2EvidenceManifest(manifest) {
     manifest.refProof?.cleanTree !== true
   )
     throw new TypeError(
-      'S2 marker ต้องมาจาก clean final main SHA (HEAD == origin/main == expected)',
+      'the S2 marker must come from a clean final main SHA (HEAD == origin/main == expected)',
     );
   if (
     manifest.artifact?.immutable !== true ||
@@ -979,18 +991,18 @@ export function assertValidCxaS2EvidenceManifest(manifest) {
       manifest.artifact?.url ?? '',
     )
   )
-    throw new TypeError('S2 marker ต้องอ้าง immutable CI artifact');
+    throw new TypeError('the S2 marker must reference an immutable CI artifact');
   if (manifest.provider?.status !== 'VERIFIED' || (manifest.provider?.bundles ?? []).length === 0)
-    throw new TypeError('S2 marker ต้องมี provider bundle ที่ตรวจแล้ว');
+    throw new TypeError('the S2 marker must have a verified provider bundle');
   if (JSON.stringify(manifest.flags) !== JSON.stringify(S2_MARKER_FLAGS))
-    throw new TypeError('S2 marker ต้องมี fixed flags ตาม #360 §F');
+    throw new TypeError('the S2 marker must have the fixed flags per #360 §F');
   if (manifest.negativeScan?.status !== 'PASS')
-    throw new TypeError('S2 marker ต้องผ่าน negative scans');
+    throw new TypeError('the S2 marker must pass the negative scans');
   if (
     manifest.migration?.schema?.existing !== 'PASS' ||
     manifest.migration?.schema?.fresh !== 'PASS'
   )
-    throw new TypeError('S2 marker ต้องพิสูจน์ migration ทั้ง fresh และ existing');
+    throw new TypeError('the S2 marker must prove the migration both fresh and existing');
 }
 
 // ── Runner ──────────────────────────────────────────────────────────────────

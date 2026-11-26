@@ -13,7 +13,7 @@ import { C360SegmentEvaluator } from './segment-evaluator.js';
 
 const definition: C360SegmentDefinitionContentV1 = {
   contractVersion: 1,
-  name: 'ลูกค้า GOLD ที่มียอดค้าง',
+  name: 'GOLD customers with an outstanding balance',
   expression: {
     language: 'DC_EXPR',
     version: 1,
@@ -49,7 +49,7 @@ const typedSnapshot = {
   sourceCutoffAt: '2026-09-13T11:05:00+07:00',
 } as const;
 
-test('definition เป็น closed DC_EXPR contract และ content digest ไม่ขึ้นกับ object key order', () => {
+test('definition is a closed DC_EXPR contract and the content digest does not depend on object key order', () => {
   const validated = validateSegmentDefinitionContent(definition);
   assert.equal(validated.expression.language, 'DC_EXPR');
   assert.equal(
@@ -83,11 +83,11 @@ test('definition เป็น closed DC_EXPR contract และ content digest �
   );
 });
 
-test('canonical JSON เรียง key แบบไม่ขึ้นกับ locale ของ runtime', () => {
+test('canonical JSON sorts keys independently of the runtime locale', () => {
   assert.equal(canonicalJson({ ä: 1, z: 2 }), '{"z":2,"ä":1}');
 });
 
-test('definition ปฏิเสธ unknown version และ reference ที่ไม่ใช่ owner-local fact', () => {
+test('definition rejects an unknown version and references that are not an owner-local fact', () => {
   assert.throws(
     () =>
       validateSegmentDefinitionContent({
@@ -112,7 +112,7 @@ test('definition ปฏิเสธ unknown version และ reference ที�
   );
 });
 
-test('typed fact normalization คง type, normalize timestamp และ fail closed เมื่อเวลา/type คลุมเครือ', () => {
+test('typed fact normalization keeps the type, normalizes timestamps and fails closed when time/type is ambiguous', () => {
   const normalized = normalizeFactSnapshot(typedSnapshot);
   assert.deepEqual(normalized.attributes, {
     crmLabel: 'synthetic-customer-label',
@@ -143,7 +143,7 @@ test('typed fact normalization คง type, normalize timestamp และ fail c
   );
 });
 
-test('evaluator ให้ result/digest เดิมข้าม retry และไม่คืน raw fact ใน evidence result', () => {
+test('evaluator gives the same result/digest across retries and returns no raw fact in the evidence result', () => {
   const evaluator = new C360SegmentEvaluator(new DcExprEvaluator());
   const input = {
     tenantId: 'tenant-a',
@@ -162,7 +162,7 @@ test('evaluator ให้ result/digest เดิมข้าม retry และ
   assert.doesNotMatch(JSON.stringify(first), /synthetic-customer-label|GOLD|2500/);
 });
 
-test('expression type mismatch คืน ERROR แบบ deterministic และไม่สร้าง positive result', () => {
+test('expression type mismatch returns a deterministic ERROR and creates no positive result', () => {
   const evaluator = new C360SegmentEvaluator(new DcExprEvaluator());
   const invalidType: C360SegmentDefinitionContentV1 = {
     ...definition,

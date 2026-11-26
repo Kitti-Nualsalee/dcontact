@@ -31,7 +31,7 @@ function uuid(value: unknown, field: string): string {
   return value;
 }
 
-/** segment ระบบของ #911 ใช้ prefix `system:` จึงต้องรับ `:` ด้วย */
+/** the system segment of #911 uses the prefix `system:` so it must accept `:` too */
 export function teamScopeSegment(value: unknown): string {
   if (typeof value !== 'string' || !/^[A-Za-z0-9_:-]{1,120}$/.test(value))
     throw new BadRequestException({
@@ -43,8 +43,8 @@ export function teamScopeSegment(value: unknown): string {
 }
 
 /**
- * #915: Admin ให้ทีมได้ VIEW (screen-pop, #519) หรือ WORK (Agent ค้น/เชื่อมลูกค้าในงาน, #911)
- * ไม่ส่ง = VIEW เพื่อให้ client เดิมของหน้า dphone ทำงานเหมือนเดิม; CONTACT ยังไม่เปิดผ่าน API นี้
+ * #915: an Admin can give a team VIEW (screen-pop, #519) or WORK (an Agent searches/links customers in work, #911)
+ * unspecified = VIEW so the original client of the dphone page works as before; CONTACT is not opened through this API yet
  */
 export type TeamScopeApiPermission = 'VIEW' | 'WORK';
 export function teamScopePermission(value: unknown, fallback?: TeamScopeApiPermission) {

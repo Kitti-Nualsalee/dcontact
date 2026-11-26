@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""#537: ประกอบ uat.env บน VM2 จาก credential bundle ของ VM3 โดยไม่แสดง secret."""
+"""#537: assemble uat.env on VM2 from the VM3 credential bundle without showing secrets."""
 
 from __future__ import annotations
 
@@ -34,32 +34,32 @@ def main() -> None:
         fail('usage: python3 vm2-create-uat-env.py /path/to/dcontact-uat-db-credentials.env')
     bundle = Path(sys.argv[1])
     if not bundle.is_file() or stat.S_IMODE(bundle.stat().st_mode) != 0o600:
-        fail('credential bundle ไม่อยู่หรือ mode ไม่ใช่ 600')
+        fail('credential bundle is missing or its mode is not 600')
     if TARGET.exists():
-        fail('uat.env มีอยู่แล้ว; หยุดเพื่อไม่เขียนทับ secret')
+        fail('uat.env already exists; stopping so the secret is not overwritten')
     if ROOT.stat().st_uid != os.getuid() or stat.S_IMODE(ROOT.stat().st_mode) != 0o700:
-        fail('UAT_ROOT ต้องเป็นของ user นี้และ mode 700')
+        fail('UAT_ROOT must be owned by this user with mode 700')
 
     values: dict[str, str] = {}
     for line in bundle.read_text().splitlines():
         if not line or line.startswith('#'):
             continue
         if '=' not in line:
-            fail('credential bundle มีรูปแบบผิด')
+            fail('credential bundle has an invalid format')
         key, value = line.split('=', 1)
         if key in values or key not in EXPECTED or not value:
-            fail('credential bundle มี key/ค่าไม่ถูกต้อง')
+            fail('credential bundle has an invalid key/value')
         values[key] = value
     if set(values) != EXPECTED or values['UAT_POSTGRES_USER'] != 'dcontact_uat_owner':
-        fail('credential bundle ไม่ครบหรือตัวตน owner ไม่ตรง')
+        fail('credential bundle is incomplete or the owner identity does not match')
     for key in EXPECTED - {'UAT_POSTGRES_USER'}:
         if len(values[key]) != 48 or not values[key].isalnum() or not values[key].isascii():
-            fail(f'{key} ไม่ใช่รหัสผ่านสุ่ม 48 ตัวจาก VM3')
+            fail(f'{key} is not the random 48-character password from VM3')
 
     output = {
         'UAT_HOST': 'dcontact-uat.osd.co.th',
         'UAT_ALLOWED_CIDRS': '"192.168.102.0/24 127.0.0.1/32"',
-        # Compose interpolate ไฟล์ฐานก่อน overlay ลบ TLS secret; /dev/null ไม่มี private key บน VM2
+        # Compose interpolates the base file before the overlay removes the TLS secret; /dev/null holds no private key on VM2
         'UAT_TLS_CERT_FILE': '/dev/null',
         'UAT_TLS_KEY_FILE': '/dev/null',
         'UAT_TENANT_ID': str(uuid.uuid4()),
@@ -75,7 +75,7 @@ def main() -> None:
         'UAT_S3_API_SECRET_KEY': random_value(48),
     }
     if output['UAT_S3_ROOT_ACCESS_KEY'] == output['UAT_S3_API_ACCESS_KEY']:
-        fail('S3 access keys ซ้ำกัน')
+        fail('S3 access keys are duplicated')
 
     fd = os.open(TARGET, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     try:
@@ -87,9 +87,9 @@ def main() -> None:
     except BaseException:
         TARGET.unlink(missing_ok=True)
         raise
-    print(f'สร้าง {TARGET} สำเร็จ (mode 600; ไม่แสดง secret)')
+    print(f'created {TARGET} successfully (mode 600; secrets not shown)')
     bundle.unlink()
-    print('ลบ credential bundle ชั่วคราวจาก VM2 แล้ว')
+    print('removed the temporary credential bundle from VM2')
 
 
 if __name__ == '__main__':

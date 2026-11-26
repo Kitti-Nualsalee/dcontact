@@ -1,8 +1,8 @@
 /**
- * Fixture ที่ใช้ร่วมกันระหว่าง integration test ของ C1.3 กับ conformance suite ของ #67
+ * Fixture shared by the C1.3 integration test and the #67 conformance suite.
  *
- * เป็น test support ล้วน ๆ: production path ไม่มีอะไร import ไฟล์นี้ และมันเป็นที่เดียว
- * ที่ประกอบ `ContactGovernanceService` ตัวจริงเข้ากับ `DeliveryTestAdapter`
+ * Pure test support: no production path imports this file, and it is the only place
+ * that wires the real `ContactGovernanceService` to `DeliveryTestAdapter`.
  */
 import { randomUUID } from 'node:crypto';
 import { PrismaClient } from '@d-contact/db';
@@ -19,7 +19,7 @@ import { DeliveryTestAdapter } from './delivery-test-adapter.js';
 import { ScriptedTestTransport, type TransportResponse } from './test-transport.js';
 
 export const RESERVED_AT = '2026-09-10T09:00:00.000Z';
-/** ตรงกับ RESERVATION_TTL_MS 15 นาทีของ Governance เพื่อให้ conformance advance แล้วหมดอายุจริง */
+/** Matches the Governance RESERVATION_TTL_MS of 15 minutes so conformance can advance until it really expires */
 export const RESERVATION_EXPIRY = '2026-09-10T09:15:00.000Z';
 export const LEASE_EXPIRY = '2026-09-10T09:10:00.000Z';
 

@@ -1,17 +1,17 @@
 /**
- * Owner: Journey — durable execution ของ J1 (C1.5)
+ * Owner: Journey — durable execution of J1 (C1.5)
  *
- * ขอบเขต C1.5: enrollment lifecycle, Schedule/Event ingress dedupe, WAIT wake-up,
- * cancellation/goal/exit/max-age และ restart safety เท่านั้น
- * **ไม่มี** Governance, Delivery หรือ provider traffic — node `SEND` หยุดที่
- * `AWAITING_SEND` เพื่อส่งต่อให้ C1.6 ประกอบ ไม่ใช่ให้ที่นี่เรียกเอง
+ * C1.5 scope: enrollment lifecycle, Schedule/Event ingress dedupe, WAIT wake-up,
+ * cancellation/goal/exit/max-age and restart safety only
+ * **No** Governance, Delivery or provider traffic — a `SEND` node stops at
+ * `AWAITING_SEND` to hand over to C1.6 to assemble, not for this code to call itself
  *
- * กติกาที่โค้ดนี้ต้องรักษา:
- *   1. `(enrollment_id, step_sequence)` เป็น unique — worker สองตัวที่ claim งานเดียวกัน
- *      จะมีตัวเดียวที่ insert step run ผ่าน อีกตัวรู้ตัวจาก unique violation ไม่ใช่จากการอ่าน
- *   2. terminal ครั้งแรกชนะเสมอ และตรวจซ้ำใน transaction เดียวกับที่จะรัน node
- *      — cancel/goal/exit/max-age ที่มาก่อนจึงตัดหน้างานได้แน่นอน
- *   3. evidence ที่ปล่อยออกมีแต่ opaque id, step id และ enum ห้ามมี payload หรือ PII
+ * Rules this code must keep:
+ *   1. `(enrollment_id, step_sequence)` is unique — of two workers that claim the same job
+ *      only one's step run insert succeeds; the other learns from the unique violation, not from a read
+ *   2. the first terminal always wins and is rechecked in the same transaction that runs the node
+ *      — a cancel/goal/exit/max-age that came earlier therefore cuts in for sure
+ *   3. emitted evidence has only opaque ids, step ids and enums — no payload or PII
  */
 import { randomUUID } from 'node:crypto';
 import {
@@ -42,7 +42,7 @@ export interface JourneyDefinitionSource {
 export interface JourneyExecutionOptions {
   now?: () => Date;
   id?: () => string;
-  /** lease ของ worker ต่อการ claim หนึ่งครั้ง; หมดอายุแล้ว worker อื่นหยิบต่อได้ */
+  /** worker lease per claim; once expired another worker can pick it up */
   claimSeconds?: number;
 }
 
@@ -77,7 +77,7 @@ export interface EnrollFromEventInput {
 export interface EnrollFromScheduleInput {
   journeyId: string;
   journeyVersion: number;
-  /** จุดเวลาของ occurrence ที่ scheduler ตั้งใจยิง ไม่ใช่เวลาที่ worker ตื่น */
+  /** the point in time of the occurrence the scheduler intended to fire, not the time the worker woke up */
   occurrenceAt: string;
   correlationId: string;
 }
@@ -85,7 +85,7 @@ export interface EnrollFromScheduleInput {
 export interface AdvanceInput {
   correlationId: string;
   causationId?: string;
-  /** context ของ BRANCH; ผู้เรียกเป็นคนตัดสินว่าอะไรเข้ามาได้ ที่นี่ไม่ persist ค่า */
+  /** BRANCH context; the caller decides what comes in, no value is persisted here */
   context?: ExpressionContext;
 }
 
@@ -93,7 +93,7 @@ export class JourneyEnrollmentNotFoundError extends Error {
   readonly code = 'ENROLLMENT_NOT_FOUND';
 
   constructor(readonly enrollmentId: string) {
-    super(`ไม่พบ enrollment: ${enrollmentId}`);
+    super(`enrollment not found: ${enrollmentId}`);
     this.name = 'JourneyEnrollmentNotFoundError';
   }
 }
@@ -105,14 +105,14 @@ export class JourneyDefinitionNotPublishedError extends Error {
     readonly journeyId: string,
     readonly version: number,
   ) {
-    super(`Journey version ยังไม่ publish: ${journeyId}:${version}`);
+    super(`Journey version is not published yet: ${journeyId}:${version}`);
     this.name = 'JourneyDefinitionNotPublishedError';
   }
 }
 
 /**
- * J5.2 (#340): head ที่ PAUSED/DEPRECATED หยุดรับ enrollment ใหม่เท่านั้น — enrollment เดิมยัง advance ต่อ
- * และ replay ของ enrollment ที่สร้างไปแล้วยังคืนใบเดิม (Phase Contract §5)
+ * J5.2 (#340): a PAUSED/DEPRECATED head only stops accepting new enrollments — existing enrollments still advance
+ * and a replay of an already-created enrollment still returns the original one (Phase Contract §5)
  */
 export class JourneyNotAcceptingEnrollmentsError extends Error {
   readonly code = 'JOURNEY_LIFECYCLE_CONFLICT';
@@ -121,7 +121,7 @@ export class JourneyNotAcceptingEnrollmentsError extends Error {
     readonly journeyId: string,
     readonly lifecycle: string,
   ) {
-    super(`Journey ${journeyId} อยู่ในสถานะ ${lifecycle} จึงไม่รับ enrollment ใหม่`);
+    super(`Journey ${journeyId} is in state ${lifecycle} so it does not accept new enrollments`);
     this.name = 'JourneyNotAcceptingEnrollmentsError';
   }
 }
@@ -133,7 +133,7 @@ export class JourneyStepRaceError extends Error {
     readonly enrollmentId: string,
     readonly stepSequence: number,
   ) {
-    super(`step ${stepSequence} ของ ${enrollmentId} ถูก worker อื่นรันไปแล้ว`);
+    super(`step ${stepSequence} of ${enrollmentId} was already run by another worker`);
     this.name = 'JourneyStepRaceError';
   }
 }
@@ -184,7 +184,7 @@ function view(row: EnrollmentRow): EnrollmentView {
 
 function stepOf(graph: JourneyGraph, stepId: string): JourneyGraphStep {
   const step = graph.steps.find((candidate) => candidate.id === stepId);
-  if (!step) throw new TypeError(`graph ไม่มี step ${stepId}`);
+  if (!step) throw new TypeError(`graph has no step ${stepId}`);
   return step;
 }
 
@@ -221,8 +221,8 @@ export class JourneyExecutionService {
   }
 
   /**
-   * Event ingress: `(tenant_id, event_inbox_id)` เป็น unique อยู่แล้ว การเรียกซ้ำด้วย
-   * receipt เดิมจึงคืน enrollment เดิมแทนที่จะเปิดใบใหม่ ถึงจะมาจากคนละ worker
+   * Event ingress: `(tenant_id, event_inbox_id)` is already unique, so calling again with
+   * the same receipt returns the existing enrollment instead of opening a new one, even from a different worker
    */
   async enrollFromEvent(tenantId: string, input: EnrollFromEventInput): Promise<EnrollmentView> {
     const definition = await this.publishedGraph(tenantId, input.journeyId, input.journeyVersion);
@@ -255,9 +255,9 @@ export class JourneyExecutionService {
   }
 
   /**
-   * Schedule ingress: unique `(tenant, journey, version, occurrence_at)` เป็นตัวกัน cron
-   * ที่ยิงซ้ำ ไม่ว่าจะจาก scheduler เอง, worker หลายตัว หรือ restart — ผู้แพ้อ่าน
-   * occurrence เดิมแล้วคืน enrollment ใบเดียวกัน
+   * Schedule ingress: unique `(tenant, journey, version, occurrence_at)` guards against a cron
+   * that fires twice, whether from the scheduler itself, several workers or a restart — the loser reads the
+   * existing occurrence and returns the same enrollment
    */
   async enrollFromSchedule(
     tenantId: string,
@@ -266,7 +266,7 @@ export class JourneyExecutionService {
     const definition = await this.publishedGraph(tenantId, input.journeyId, input.journeyVersion);
     const occurrenceAt = new Date(input.occurrenceAt);
     if (Number.isNaN(occurrenceAt.getTime())) {
-      throw new TypeError('occurrenceAt ต้องเป็น ISO-8601 timestamp');
+      throw new TypeError('occurrenceAt must be an ISO-8601 timestamp');
     }
 
     return withTenantDatabaseTransaction(this.database, tenantId, async (transaction) => {
@@ -331,8 +331,8 @@ export class JourneyExecutionService {
   }
 
   /**
-   * เดินหนึ่ง node ต่อการเรียกหนึ่งครั้ง ไม่ใช่ทั้ง graph — ผู้เรียกเป็นคนคุมจังหวะ
-   * และ crash กลางทางจึงเสียแค่ node เดียวที่ยังไม่ commit
+   * Advances one node per call, not the whole graph — the caller controls the pace
+   * and a crash midway loses only the one node that has not committed
    */
   async advance(
     tenantId: string,
@@ -355,7 +355,7 @@ export class JourneyExecutionService {
       });
       if (!row) throw new JourneyEnrollmentNotFoundError(enrollmentId);
 
-      // terminal ที่มาก่อน (cancel/goal/exit) ชนะเสมอ และเช็คในทรานแซกชันเดียวกับที่จะรัน node
+      // an earlier terminal (cancel/goal/exit) always wins, and is checked in the same transaction that runs the node
       if (row.runState === 'TERMINAL') {
         return {
           kind: 'TERMINAL' as const,
@@ -377,8 +377,8 @@ export class JourneyExecutionService {
         return { kind: 'TERMINAL' as const, reason: 'GRAPH_EXIT', enrollment: view(done) };
       }
 
-      // SEND ที่ส่งมอบให้ C1.6 แล้วยังค้างอยู่ที่ cursor เดิม การเรียก advance ซ้ำจึงต้อง
-      // เป็น replay ของ hand-off เดิม ไม่ใช่การรัน node เดิมอีกรอบ
+      // a SEND handed over to C1.6 stays at the same cursor, so calling advance again must
+      // be a replay of the original hand-off, not another run of the same node
       const parked = await this.pendingSend(transaction, tenantId, row);
       if (parked) {
         return {
@@ -391,7 +391,7 @@ export class JourneyExecutionService {
 
       const step = stepOf(definition.graph, row.currentStepId);
       const sequence = row.stepSequence + 1;
-      // semantics ของ node มาจาก planner กลางชุดเดียวกับ simulator ของ J5 (#340)
+      // node semantics come from the same central planner as the J5 simulator (#340)
       const plan = planJourneyStep(step, {
         now,
         context: input.context ?? {},
@@ -450,7 +450,7 @@ export class JourneyExecutionService {
         };
       }
 
-      // SEND: C1.5 หยุดตรงนี้ ไม่แตะ Governance/Delivery — C1.6 เป็นคนต่อ
+      // SEND: C1.5 stops here and does not touch Governance/Delivery — C1.6 continues from here
       await this.recordStepRun(transaction, tenantId, row, sequence, step, input, {
         state: 'AWAITING_SEND',
         nextStepId: plan.kind === 'AWAIT_SEND' ? plan.nextStepId : plan.acceptedStepId,
@@ -478,15 +478,15 @@ export class JourneyExecutionService {
       where: { tenantId_journeyId: { tenantId, journeyId } },
       select: { lifecycle: true },
     });
-    // journey เดิมที่ยังไม่มี authoring head ไม่ถูกกระทบ
+    // an existing journey without an authoring head is not affected
     if (head && !lifecycleAcceptsNewEnrollments(head.lifecycle)) {
       throw new JourneyNotAcceptingEnrollmentsError(journeyId, head.lifecycle);
     }
   }
 
   /**
-   * หยิบงานที่ถึงเวลาแล้วด้วย `FOR UPDATE SKIP LOCKED` + lease: worker หลายตัวจึงแบ่ง
-   * งานกันได้โดยไม่ต้องคุยกัน และงานของ worker ที่ตายจะกลับเข้าคิวเมื่อ lease หมด
+   * Picks up due work with `FOR UPDATE SKIP LOCKED` + lease: several workers can therefore split
+   * the work without talking to each other, and the work of a dead worker returns to the queue when the lease expires
    */
   async claimDueWork(
     tenantId: string,
@@ -520,8 +520,8 @@ export class JourneyExecutionService {
   }
 
   /**
-   * durable state contract ที่ C1.6 จะเรียกเมื่อ SEND ถูกส่งมอบสำเร็จ — ที่นี่ไม่รู้และ
-   * ไม่สนใจว่า Governance/Delivery ทำอะไร รู้แค่ว่า cursor เดินต่อได้แล้ว
+   * the durable state contract C1.6 calls when a SEND is handed over successfully — this code does not know and
+   * does not care what Governance/Delivery did, only that the cursor can move on now
    */
   async completeSend(
     tenantId: string,
@@ -555,7 +555,7 @@ export class JourneyExecutionService {
       if (!parked) throw new JourneyStepRaceError(enrollmentId, row.stepSequence);
 
       const step = stepOf(definition.graph, parked.stepId);
-      if (step.type !== 'SEND') throw new TypeError(`step ${step.id} ไม่ใช่ SEND`);
+      if (step.type !== 'SEND') throw new TypeError(`step ${step.id} is not a SEND`);
 
       const sequence = row.stepSequence + 1;
       await this.recordStepRun(transaction, tenantId, row, sequence, step, input, {
@@ -592,22 +592,22 @@ export class JourneyExecutionService {
     return { stepId: last.stepId, stepSequence: last.stepSequence };
   }
 
-  /** ยกเลิกจากภายนอก — ชนะงานที่ยังไม่ submit เสมอ และเก็บเหตุผลไว้ครั้งเดียว */
+  /** cancel from outside — always beats work not yet submitted, and keeps the reason only once */
   cancel(tenantId: string, enrollmentId: string): Promise<EnrollmentView> {
     return this.terminate(tenantId, enrollmentId, 'CANCELLED');
   }
 
-  /** goal สำเร็จ — enrollment ที่เหลือไม่ต้องเดินต่อ */
+  /** goal reached — remaining enrollments need not continue */
   reachGoal(tenantId: string, enrollmentId: string): Promise<EnrollmentView> {
     return this.terminate(tenantId, enrollmentId, 'GOAL_REACHED');
   }
 
-  /** exit rule ยิงจากภายนอก (event หรือ higher-priority journey) */
+  /** an exit rule fired from outside (event or higher-priority journey) */
   applyExitRule(tenantId: string, enrollmentId: string): Promise<EnrollmentView> {
     return this.terminate(tenantId, enrollmentId, 'EXIT_RULE');
   }
 
-  /** ปิด enrollment ที่เกิน max age ทั้งชุด — idempotent ต่อ enrollment ที่จบไปแล้ว */
+  /** closes enrollments past max age in bulk — idempotent for enrollments that already ended */
   async sweepMaxAge(tenantId: string, limit = 50): Promise<EnrollmentView[]> {
     const now = this.now();
     return withTenantDatabaseTransaction(this.database, tenantId, async (transaction) => {
@@ -640,7 +640,7 @@ export class JourneyExecutionService {
     return row;
   }
 
-  /** อ่านสถานะปัจจุบันเป็น evidence ที่ปลอดภัย — ไม่มี payload หรือ context ติดออกมา */
+  /** read the current state as safe evidence — no payload or context leaks out */
   async describe(tenantId: string, enrollmentId: string): Promise<EnrollmentView> {
     return view(await this.read(tenantId, enrollmentId));
   }
@@ -662,7 +662,7 @@ export class JourneyExecutionService {
     });
   }
 
-  /** terminal แรกชนะ: แถวที่จบแล้วคืนค่าเดิมโดยไม่เขียนทับเหตุผลหรือเวลา */
+  /** the first terminal wins: an already-ended row returns the existing value without overwriting the reason or time */
   private async writeTerminal(
     transaction: Prisma.TransactionClient,
     tenantId: string,
@@ -686,7 +686,7 @@ export class JourneyExecutionService {
       },
     });
     if (updated.count === 0) {
-      // worker อื่นปิดไปก่อนแล้ว — เหตุผลของเขาเป็นตัวจริง
+      // another worker closed it first — its reason is the real one
       return transaction.jrEnrollment.findFirstOrThrow({
         where: { id: row.id, tenantId },
         select: enrollmentSelection,
@@ -699,8 +699,8 @@ export class JourneyExecutionService {
   }
 
   /**
-   * ledger เป็นตัวกันการรันซ้ำ ไม่ใช่การอ่านก่อนเขียน: worker ที่แพ้จะชน unique
-   * `(enrollment_id, step_sequence)` แล้วรู้ว่า node นี้มีคนรันไปแล้ว
+   * the ledger is what guards against double runs, not read-before-write: the losing worker hits the unique
+   * `(enrollment_id, step_sequence)` and learns that someone already ran this node
    */
   private async recordStepRun(
     transaction: Prisma.TransactionClient,
@@ -738,7 +738,7 @@ export class JourneyExecutionService {
     }
   }
 
-  /** CAS ที่ step_sequence: cursor เดินได้ต่อเมื่อยังอยู่ตำแหน่งที่เราอ่านมา */
+  /** CAS on step_sequence: the cursor can advance only if it is still at the position we read */
   private async moveCursor(
     transaction: Prisma.TransactionClient,
     tenantId: string,

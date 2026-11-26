@@ -21,7 +21,7 @@ import {
   createCg4PolicyCandidateFixture,
 } from './testing/cg4-fixtures.js';
 
-test('canonical CG4 serialization และ SHA-256 ไม่ขึ้นกับ object key order', () => {
+test('canonical CG4 serialization and SHA-256 do not depend on object key order', () => {
   const left = { z: 1, nested: { beta: true, alpha: ['x', 2] }, omitted: undefined };
   const right = { nested: { alpha: ['x', 2], beta: true }, z: 1 };
   assert.equal(canonicalCg4Json(left), canonicalCg4Json(right));
@@ -30,7 +30,7 @@ test('canonical CG4 serialization และ SHA-256 ไม่ขึ้นกั�
   assert.notEqual(canonicalCg4Digest(left), canonicalCg4Digest({ ...right, z: 2 }));
 });
 
-test('canonical CG4 serialization ปฏิเสธค่าที่ replay ไม่ได้อย่าง deterministic', () => {
+test('canonical CG4 serialization rejects values that cannot be replayed deterministically', () => {
   assert.throws(
     () => canonicalCg4Json({ value: Number.NaN }),
     (error: unknown) =>
@@ -63,7 +63,7 @@ test('unknown contract/schema/registry/evaluator version fail closed', () => {
   }
 });
 
-test('deterministic fixtures ใช้ opaque references และไม่สร้าง caller authority', () => {
+test('deterministic fixtures use opaque references and create no caller authority', () => {
   assert.deepEqual(createCg4PolicyCandidateFixture(), createCg4PolicyCandidateFixture());
   assert.deepEqual(createCg4ExceptionRequestFixture(), createCg4ExceptionRequestFixture());
   assert.deepEqual(createCg4ExceptionResultFixture(), createCg4ExceptionResultFixture());
@@ -87,7 +87,7 @@ test('deterministic fixtures ใช้ opaque references และไม่ส�
   }
 });
 
-test('CG4 trace pin เป็น optional additive field และคง ContactAuthorizationPort เดิม', async () => {
+test('the CG4 trace pin is an optional additive field and keeps the original ContactAuthorizationPort', async () => {
   const legacyOutcome: AuthorizationOutcome = {
     decisionId: 'decision-fixture-001',
     decision: 'ALLOW',

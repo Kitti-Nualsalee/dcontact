@@ -1,10 +1,10 @@
 /**
- * E1.11 (#485): Console client ของ `/api/v1/tenant/embed-origins`
+ * E1.11 (#485): Console client of `/api/v1/tenant/embed-origins`
  *
- * tenant และผู้ทำมาจาก bearer token ที่ gateway ตรวจแล้ว — body มีแค่ข้อมูลของ origin
+ * tenant and actor come from the bearer token the gateway has verified — the body holds only the origin's data
  */
 
-/** E1.14: ระดับข้อมูล screen-pop ต่อ origin — `custom` ยังตั้งไม่ได้ (API ตอบ UNAVAILABLE) */
+/** E1.14: screen-pop data level per origin — `custom` cannot be set yet (the API answers UNAVAILABLE) */
 export type ScreenPopLevel = 'off' | 'ids' | 'contact';
 
 export interface EmbedOrigin {

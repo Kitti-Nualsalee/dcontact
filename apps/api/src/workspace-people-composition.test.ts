@@ -19,12 +19,12 @@ const environment = {
   TENANT_PEOPLE_DISABLE_ENABLED: 'true',
 };
 
-test('Workspace People default-off และไม่เปิด connection จาก process environment แทน input', async () => {
+test('Workspace People is default-off and does not open a connection from the process environment instead of the input', async () => {
   const runtime = createWorkspacePeopleRuntime({ environment: {} });
   assert.equal(await runtime.isReady(tenantId), false);
 });
 
-test('Workspace B7 ต้องมี direct flush port ก่อนประกอบ disable runtime โดยไม่ import Kafka/default API', async () => {
+test('Workspace B7 needs a direct flush port before composing the disable runtime, without importing Kafka/the default API', async () => {
   assert.throws(
     () => createWorkspacePeopleRuntime({ environment }),
     /PEOPLE_DISABLE_FLUSH_REQUIRED/,
@@ -33,7 +33,7 @@ test('Workspace B7 ต้องมี direct flush port ก่อนประก
     environment,
     peopleDisableFlush: {
       async flush() {
-        assert.fail('ไม่ควรส่ง command ระหว่างประกอบ runtime');
+        assert.fail('must not send a command while composing the runtime');
       },
     },
   });

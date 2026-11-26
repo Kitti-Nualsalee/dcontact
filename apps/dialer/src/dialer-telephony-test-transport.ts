@@ -26,7 +26,7 @@ export class ProviderTrafficNotAllowedError extends Error {
 
   constructor(readonly adapter: string) {
     super(
-      `Dialer originate barrier ไม่รับ adapter อื่นนอกจาก ${TELEPHONY_TEST_ADAPTER}: ${adapter}`,
+      `Dialer originate barrier accepts no adapter other than ${TELEPHONY_TEST_ADAPTER}: ${adapter}`,
     );
     this.name = 'ProviderTrafficNotAllowedError';
   }
@@ -35,8 +35,8 @@ export class ProviderTrafficNotAllowedError extends Error {
 export type ScriptedTelephonyResponse = TelephonyOriginateResponse;
 
 /**
- * ตอบตามสคริปต์ที่ตั้งไว้ล่วงหน้าต่อ `targetId` (default `ACCEPTED`) — ไม่มี network I/O,
- * ไม่มี timer จริง เพื่อให้ test deterministic
+ * Answers by a pre-set script per `targetId` (default `ACCEPTED`) — no network I/O,
+ * no real timer, so tests stay deterministic
  */
 export class ScriptedTelephonyTransport implements TelephonyTransport {
   private readonly scripted = new Map<string, ScriptedTelephonyResponse>();

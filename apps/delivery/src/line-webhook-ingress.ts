@@ -1,15 +1,15 @@
 /**
  * Owner: Delivery/Channels — LINE webhook ingress (S2.5 #369, #359 §A–§E)
  *
- * ลำดับที่เปลี่ยนไม่ได้:
- *   1. เลือก binding + channel secret จาก trusted deployment config **ก่อน** แตะ body
- *   2. verify HMAC-SHA256 บน raw bytes แบบ constant-time — ไม่ผ่าน = `401` และไม่ parse/persist อะไรเลย
- *   3. หลัง verify จึง decode/parse/validate และเทียบ `destination` กับ binding
- *   4. commit inbox rows + encrypted payload + inbound events ของทั้ง request แบบ atomic
- *   5. ตอบ `200` หลัง durable commit เท่านั้น; commit ไม่สำเร็จตอบ `503` ให้ LINE redeliver
+ * Order that cannot be changed:
+ *   1. select the binding + channel secret from trusted deployment config **before** touching the body
+ *   2. verify HMAC-SHA256 over the raw bytes in constant time — failing = `401` and nothing is parsed/persisted
+ *   3. only after verify decode/parse/validate and compare `destination` with the binding
+ *   4. commit the inbox rows + encrypted payload + inbound events of the whole request atomically
+ *   5. answer `200` only after the durable commit; a failed commit answers `503` so LINE redelivers
  *
- * `{events: []}` (verify request ของ LINE Console) ตอบ `200` โดยไม่สร้าง business row
- * destination ไม่ตรง: persist quarantine + audit แล้วตอบ `200` เพื่อไม่สร้าง redelivery storm (#359 §A)
+ * `{events: []}` (the verify request of the LINE Console) answers `200` without creating a business row.
+ * destination mismatch: persist a quarantine + audit then answer `200` to avoid creating a redelivery storm (#359 §A)
  */
 import { createHash, createCipheriv, randomBytes, randomUUID } from 'node:crypto';
 import { Prisma, withTenantDatabaseTransaction, type PrismaClient } from '@d-contact/db';
@@ -23,14 +23,14 @@ import { LineIdempotencyConflictError } from './line-repository-support.js';
 import type { LineWebhookEventInput } from './line-webhook-repository.js';
 import { LINE_WEBHOOK_MAX_BODY_BYTES, verifyLineSignature } from './line-webhook-signature.js';
 
-/** binding ของ S2 singleton profile — มาจาก deployment config ไม่ใช่จาก body */
+/** binding of the S2 singleton profile — comes from deployment config, not from the body */
 export interface LineWebhookBinding {
   tenantId: string;
   channelAccountId: string;
-  /** bot destination ที่คาดไว้ (LINE ส่งมาใน `destination`) */
+  /** the expected bot destination (LINE sends it in `destination`) */
   destination: string;
   channelSecret: string;
-  /** ชื่อ keychain reference ของ key ที่ใช้เข้ารหัส operational payload */
+  /** the keychain reference name of the key used to encrypt the operational payload */
   payloadKeyRef: string;
   payloadKey: Buffer;
 }
@@ -67,7 +67,7 @@ function asObject(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-/** forward-compatible: field ใหม่ที่ไม่รู้จักผ่านได้ ชนิดที่ผิดรูปเท่านั้นที่เป็น schema invalid */
+/** forward-compatible: an unknown new field passes through, only a malformed type is schema invalid */
 function parseEvent(value: unknown): ParsedLineEvent | null {
   const event = asObject(value);
   if (!event) return null;
@@ -96,9 +96,9 @@ export function lineProtectedPayloadRef(channelAccountId: string, webhookEventId
 }
 
 /**
- * hash ของ "ตัว event" ที่ใช้ตัดสิน duplicate กับ conflict — ไม่รวม `deliveryContext` เพราะ LINE
- * เปลี่ยน `isRedelivery` เป็น true ตอนส่งซ้ำ ถ้านับด้วย redelivery ปกติทุกครั้งจะกลายเป็น
- * idempotency conflict และถูก quarantine (#359 §D: redelivery เป็น metadata ไม่ใช่ identity)
+ * the hash of "the event itself" used to decide duplicate vs conflict — excludes `deliveryContext` because LINE
+ * flips `isRedelivery` to true on a resend; if it were counted, every normal redelivery would become an
+ * idempotency conflict and be quarantined (#359 §D: redelivery is metadata, not identity)
  */
 export function lineEventPayloadDigest(event: Record<string, unknown>): string {
   const { deliveryContext: _redeliveryMetadata, ...identity } = event;
@@ -121,7 +121,7 @@ export class LineWebhookIngress {
     if (request.rawBody.byteLength > LINE_WEBHOOK_MAX_BODY_BYTES) {
       return { status: 413, code: 'WEBHOOK_SCHEMA_INVALID', ...empty };
     }
-    // signature เป็น authority เดียว (#359 §B) — IP หรือ header อื่นไม่ใช่
+    // the signature is the sole authority (#359 §B) — not the IP or another header
     if (!verifyLineSignature(request.rawBody, this.binding.channelSecret, request.signature)) {
       return { status: 401, code: 'WEBHOOK_SIGNATURE_INVALID', ...empty };
     }
@@ -169,14 +169,14 @@ export class LineWebhookIngress {
       if (error instanceof LineIdempotencyConflictError) {
         return { status: 200, code: 'WEBHOOK_IDEMPOTENCY_CONFLICT', ...empty };
       }
-      // ยังไม่ durable — ห้ามตอบ 2xx เพราะ LINE จะไม่ redeliver ให้ (#359 §C)
+      // not durable yet — must not answer 2xx because LINE will not redeliver (#359 §C)
       return { status: 503, code: 'WEBHOOK_DURABILITY_UNAVAILABLE', ...empty };
     }
   }
 
   /**
-   * inbox + payload + event ของทั้ง request อยู่ใน transaction เดียว: ล้มกลางทางแปลว่าไม่มีแถวใดเลย
-   * และผู้เรียกตอบ 503 ให้ provider ส่งซ้ำ
+   * the inbox + payload + events of the whole request are in one transaction: failing midway means no row at all,
+   * and the caller answers 503 so the provider resends
    */
   private async persist(
     transaction: Prisma.TransactionClient,
@@ -222,7 +222,7 @@ export class LineWebhookIngress {
           duplicates += 1;
           continue;
         }
-        // payload ต่างบน event ID เดิม: quarantine ของเดิม ไม่เขียนทับ (#359 §C)
+        // a different payload on the original event ID: quarantine the original, do not overwrite (#359 §C)
         await transaction.dlLineWebhookInboxEntry.updateMany({
           where: {
             tenantId: this.binding.tenantId,
@@ -284,7 +284,7 @@ export class LineWebhookIngress {
     return { status: 200, code, accepted, duplicates, conflicts };
   }
 
-  /** ciphertext เท่านั้น — plaintext ของ body ไม่เคยถูกเขียนลง database */
+  /** ciphertext only — the plaintext of the body is never written to the database */
   private async storePayload(
     transaction: Prisma.TransactionClient,
     protectedPayloadRef: string,

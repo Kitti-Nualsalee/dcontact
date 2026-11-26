@@ -1,4 +1,4 @@
-# #490: ใช้เฉพาะ E1 acceptance overlay; TLS ยังจบที่ nginx VM1
+# #490: used only by the E1 acceptance overlay; TLS still terminates at nginx on VM1
 {
 	admin off
 	persist_config off
@@ -16,7 +16,7 @@
 		-Server
 	}
 
-	# ADR033: ใช้ framing policy ของ Keycloak เฉพาะ protocol iframe นี้
+	# ADR033: use the Keycloak framing policy for this protocol iframe only
 	@frameProtected not path /auth/realms/dcontact/dc-account/login-status-iframe.html
 	header @frameProtected >X-Frame-Options DENY
 
@@ -32,10 +32,10 @@
 		@embedBootstrapAssets path /workspace/embed/dphone-embed.js /workspace/embed/dphone-embed.css
 		header @embedBootstrapAssets Cache-Control "no-cache"
 
-		# browser และ FreeSWITCH ใช้ WSS ตรงกัน เพื่อให้ Sofia ตอบ Via: SIP/2.0/WSS
+		# the browser and FreeSWITCH both use WSS so that Sofia answers Via: SIP/2.0/WSS
 		handle /sip-ws {
 			reverse_proxy https://freeswitch:7443 {
-				# SIP response ต้องส่งทันที ไม่รวม buffer ระหว่าง WebSocket tunnel
+				# SIP responses must be sent immediately, with no buffering inside the WebSocket tunnel
 				flush_interval -1
 				transport http {
 					tls_insecure_skip_verify
@@ -49,9 +49,9 @@
 				header_up X-Forwarded-Proto https
 			}
 		}
-		# #868: admission fence ของ People — มีไฟล์ people-mutations ใน directory ที่ mount แบบอ่านอย่างเดียว
-		# = ปฏิเสธคำขอแก้ไข People ใหม่ก่อนถึง API ทุกรุ่น; GET และ worker ใน API ยังทำงานต่อ
-		# ตอบ code เดียวกับ API เมื่อยังไม่รับงาน เพื่อให้ Console ทุกรุ่นรู้ว่าคำขอไม่ถูกรับ
+		# #868: People admission fence; a people-mutations file in the read-only mounted directory
+		# = reject new People edit requests before they reach any API release; GET and the worker inside the API keep running
+		# answers with the same code as the API when it is not accepting work, so every Console release knows the request was not accepted
 		@peopleAdmissionFence {
 			not method GET HEAD OPTIONS
 			path_regexp (?i)^/api/+v1/+tenant-voice/+people(/|$)

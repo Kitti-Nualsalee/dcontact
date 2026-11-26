@@ -146,7 +146,7 @@ async function dispatched(
   await repository.markCommandDispatched(f.tenantId, f.commandId);
 }
 
-test('ACKNOWLEDGED commit result, continuation, step run และ success cursor แบบ atomic', async (t) => {
+test('ACKNOWLEDGED commits the result, continuation, step run and success cursor atomically', async (t) => {
   const f = await fixture(t);
   const repository = new JourneyOwnerActionRepository(f.application);
   await dispatched(f, repository);
@@ -169,7 +169,7 @@ test('ACKNOWLEDGED commit result, continuation, step run และ success curso
   assert.equal(runs[0]?.nextStepId, SUCCESS_STEP_ID);
 });
 
-test('REJECTED เลือก onReject และ duplicate/concurrent replay ไม่ advance ซ้ำ', async (t) => {
+test('REJECTED chooses onReject and a duplicate/concurrent replay does not advance twice', async (t) => {
   const f = await fixture(t);
   const repository = new JourneyOwnerActionRepository(f.application);
   await dispatched(f, repository);
@@ -189,7 +189,7 @@ test('REJECTED เลือก onReject และ duplicate/concurrent replay �
   assert.equal(await f.owner.jrStepRun.count({ where: { tenantId: f.tenantId } }), 1);
 });
 
-test('terminal enrollment ชนะผล success และบันทึก TERMINAL_IGNORED โดยไม่เดิน cursor', async (t) => {
+test('a terminal enrollment wins over a success result and records TERMINAL_IGNORED without moving the cursor', async (t) => {
   const f = await fixture(t);
   const repository = new JourneyOwnerActionRepository(f.application);
   await dispatched(f, repository);
@@ -212,7 +212,7 @@ test('terminal enrollment ชนะผล success และบันทึก TE
   assert.equal(await f.owner.jrStepRun.count({ where: { tenantId: f.tenantId } }), 0);
 });
 
-test('TOO_LATE ไม่ถูกตีความเป็น success และบันทึก TERMINAL_IGNORED', async (t) => {
+test('TOO_LATE is not interpreted as success and records TERMINAL_IGNORED', async (t) => {
   const f = await fixture(t);
   const repository = new JourneyOwnerActionRepository(f.application);
   await dispatched(f, repository);
@@ -230,7 +230,7 @@ test('TOO_LATE ไม่ถูกตีความเป็น success แล�
   assert.equal(enrollment.stepSequence, 0);
 });
 
-test('action terminal ที่ commit ก่อน ACK ชนะและเก็บ evidence โดยไม่เดิน cursor', async (t) => {
+test('an action terminal committed before the ACK wins and keeps the evidence without moving the cursor', async (t) => {
   const f = await fixture(t);
   const repository = new JourneyOwnerActionRepository(f.application);
   await dispatched(f, repository);
@@ -251,7 +251,7 @@ test('action terminal ที่ commit ก่อน ACK ชนะและเก
 });
 
 for (const phase of ['RESULT_PERSISTED', 'CONTINUATION_PERSISTED', 'STEP_RECORDED'] as const) {
-  test(`crash หลัง ${phase} rollback result/action/ledger/cursor ทั้ง transaction`, async (t) => {
+  test(`a crash after ${phase} rolls back the result/action/ledger/cursor of the whole transaction`, async (t) => {
     const f = await fixture(t);
     const setup = new JourneyOwnerActionRepository(f.application);
     await dispatched(f, setup);
@@ -277,7 +277,7 @@ for (const phase of ['RESULT_PERSISTED', 'CONTINUATION_PERSISTED', 'STEP_RECORDE
   });
 }
 
-test('reconciler เติม continuation ให้ legacy committed result และ replayซ้ำไม่เดินอีก', async (t) => {
+test('the reconciler fills in the continuation for a legacy committed result and a repeated replay does not advance again', async (t) => {
   const f = await fixture(t);
   const actionId = randomUUID();
   await f.owner.jrOwnerAction.create({
@@ -330,7 +330,7 @@ test('reconciler เติม continuation ให้ legacy committed result แ
   assert.equal(await f.owner.jrOwnerContinuation.count({ where: { tenantId: f.tenantId } }), 1);
 });
 
-test('legacy action ที่ไม่มี deterministic binding ยังรับผลได้แต่ห้ามเดา cursor', async (t) => {
+test('a legacy action with no deterministic binding can still receive a result but must not guess the cursor', async (t) => {
   const f = await fixture(t);
   const repository = new JourneyOwnerActionRepository(f.application);
   await repository.ensureAction({

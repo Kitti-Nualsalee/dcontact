@@ -12,12 +12,12 @@ import { coreFixture } from './tenant-core-test-fixtures.js';
 import type { VoiceActor } from './tenant-voice-catalog.js';
 
 /**
- * Cus360 C2 (#792): actor ที่ยืนยันผ่านเส้น B2 (verified receipts, #863 `dc_people_configuration_authority`)
- * ได้ "ตัวตน" ของ ADMIN/SUPERVISOR เท่านั้น — ไม่ได้สิทธิ์ลูกค้าเพิ่ม: ไม่มี grant = directory ว่าง/count 0/profile 404
+ * Cus360 C2 (#792): an actor confirmed through the B2 path (verified receipts, #863 `dc_people_configuration_authority`)
+ * gets only the "identity" of ADMIN/SUPERVISOR — no extra customer permission: no grant = empty directory/count 0/profile 404
  */
 
 for (const role of ['ADMIN'] as const) {
-  test(`B2 ${role} ที่ผ่าน provisioning+activation (ไม่มี manual binding) อ่านลูกค้าได้เฉพาะที่มี custodian grant`, async () => {
+  test(`B2 ${role} that passed provisioning+activation (no manual binding) reads only customers with a custodian grant`, async () => {
     const owner = new PrismaClient();
     const application = new PrismaClient({
       datasources: { db: { url: process.env.APPLICATION_DATABASE_URL } },
@@ -78,7 +78,7 @@ for (const role of ['ADMIN'] as const) {
       await owner.$executeRaw`INSERT INTO tenant_voice_identity_bindings(tenant_id,user_id,issuer,subject_id,client_id,tenant_slug,organization_id,identity_class,source_kind,evidence_ref,evidence_digest,verified_by_operator_subject,verified_at,revision,is_active)
       VALUES(${tenantId}::uuid,${initialAdminId}::uuid,${issuer},${initialAdminId},'dcontact-console',${slug},${tenantId}::uuid,'TENANT_USER','BOOTSTRAP_MANIFEST','isolated-initial-admin',${'a'.repeat(64)},'isolated-operator',now(),1,true)`;
       await owner.$executeRaw`INSERT INTO tenant_voice_provisioning_policies(tenant_id,revision,source_kind,accounts_limit,agents_limit,voice_queues_limit,skills_limit,approved_by_operator_subject,approved_at,approval_ref,reason)
-      VALUES(${tenantId}::uuid,1,'UAT_EXPLICIT',20,10,3,3,'isolated-operator',now(),'isolated-c2b2','ทดสอบ authority ของบัญชีใหม่กับ Customer 360')`;
+      VALUES(${tenantId}::uuid,1,'UAT_EXPLICIT',20,10,3,3,'isolated-operator',now(),'isolated-c2b2','Authority test of a new account with Customer 360')`;
       await owner.$executeRaw`INSERT INTO tenant_people_worker_bindings(tenant_id,database_principal,approval_ref)
       VALUES(${tenantId}::uuid,${principal},'isolated-c2b2')`;
       const created = await acceptPeopleCreate(application, initial, {
@@ -114,9 +114,9 @@ for (const role of ['ADMIN'] as const) {
       const bindings = await owner.$queryRaw<{ count: number }[]>`
         SELECT count(*)::integer AS count FROM tenant_voice_identity_bindings
         WHERE tenant_id=${tenantId}::uuid AND user_id=${created.userId}::uuid`;
-      assert.equal(bindings[0]!.count, 0, 'ไม่มี manual binding — ผ่านเส้น B2 เท่านั้น');
+      assert.equal(bindings[0]!.count, 0, 'no manual binding — through the B2 path only');
 
-      // verifier จำลองเฉพาะบัญชี B2 นี้ (ไม่ใช่ Keycloak): claims ตรงกับ issuer/slug ที่ B2 ตรวจจาก receipts
+      // a verifier that simulates only this B2 account (not Keycloak): claims match the issuer/slug that B2 checks from the receipts
       const verifier: OidcAccessTokenVerifier = {
         verifyAccessToken: async (token: string) => {
           assert.equal(token, 'b2');
@@ -136,7 +136,7 @@ for (const role of ['ADMIN'] as const) {
       };
       fixture = await coreFixture([Customer360ReadController], verifier);
       const f = fixture;
-      // helper ของ read fixtures ใช้เฉพาะ owner/tenantId/actors
+      // the read fixtures helper uses only owner/tenantId/actors
       const base = (actors = new Map()) =>
         ({ owner, tenantId, otherTenantId: tenantId, actors }) as unknown as Parameters<
           typeof contact
@@ -152,7 +152,7 @@ for (const role of ['ADMIN'] as const) {
         displayName: 'B2 Granted',
       });
       const withoutGrant = await contact(base(), { displayName: 'B2 Hidden' });
-      // ตัวตนผ่าน B2 แล้ว แต่ยังไม่มี custodian grant → ว่าง/0/404 (ไม่มี bypass จากตัวตน)
+      // the identity passed B2 but there is no custodian grant yet → empty/0/404 (no bypass from identity)
       const before = await search();
       assert.equal(before.status, 200);
       assert.deepEqual(before.body.items, []);

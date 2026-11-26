@@ -21,13 +21,13 @@ function rejects(body: unknown) {
   );
 }
 
-test('request: ตัดช่องว่างชื่อ และรับเฉพาะ field ที่รู้จัก', () => {
+test('request: trims the name whitespace and accepts only known fields', () => {
   const parsed = parseNotReadyReasonsRequest({
     commandId: 'c',
     expectedRevision: '1',
-    reasons: [{ code: 'BREAK', labelTh: ' พักสั้น ', labelEn: ' Break ', isActive: true }],
+    reasons: [{ code: 'BREAK', labelTh: ' Short break ', labelEn: ' Break ', isActive: true }],
   });
-  assert.deepEqual(parsed.reasons, [reason('พักสั้น', 'Break', true, 'BREAK')]);
+  assert.deepEqual(parsed.reasons, [reason('Short break', 'Break', true, 'BREAK')]);
   rejects({ reasons: [] });
   rejects({ reasons: [reason('a', 'b')], extra: 1 });
   rejects({ reasons: [{ ...reason('a', 'b'), position: 1 }] });
@@ -37,17 +37,20 @@ test('request: ตัดช่องว่างชื่อ และรับ�
   rejects({ reasons: Array.from({ length: 31 }, (_, i) => reason(`th${i}`, `en${i}`)) });
 });
 
-test('กติกา: ชื่อว่าง/ยาวเกิน/ซ้ำ ชี้แถว และต้องเปิดอย่างน้อยหนึ่งเหตุผล', () => {
+test('rules: an empty/too long/duplicate name points at the row, and at least one reason must be enabled', () => {
   assert.deepEqual(
-    notReadyReasonsFieldErrors([reason('พักสั้น', 'Break'), reason('ประชุม', 'Meeting')]),
+    notReadyReasonsFieldErrors([
+      reason('Short break', 'Break'),
+      reason('Staff meeting', 'Meeting'),
+    ]),
     {},
   );
   assert.deepEqual(
     notReadyReasonsFieldErrors([
       reason('', 'Break'),
-      reason('ประชุม', 'meeting'),
-      reason('ประชุม', 'MEETING'),
-      reason('ก'.repeat(41), 'Long'),
+      reason('Staff meeting', 'meeting'),
+      reason('Staff meeting', 'MEETING'),
+      reason('ก'.repeat(41), 'Long'), // allow-thai: Thai label length is counted in characters
     ]),
     {
       'reasons.0.labelTh': 'core.validation.notReadyReasonLabel',
@@ -56,17 +59,17 @@ test('กติกา: ชื่อว่าง/ยาวเกิน/ซ้ำ 
       'reasons.3.labelTh': 'core.validation.notReadyReasonLabel',
     },
   );
-  assert.deepEqual(notReadyReasonsFieldErrors([reason('พัก', 'Break', false)]), {
+  assert.deepEqual(notReadyReasonsFieldErrors([reason('Rest', 'Break', false)]), {
     reasons: 'core.validation.notReadyReasonActiveRequired',
   });
 });
 
-test('code ของเหตุผลใหม่มาจากชื่อภาษาอังกฤษ และไม่ชนกับที่มีอยู่', () => {
+test('the code of a new reason comes from the English name and does not collide with existing ones', () => {
   assert.equal(newNotReadyReasonCode('Quality check', new Set()), 'QUALITY_CHECK');
   assert.equal(newNotReadyReasonCode('Break', new Set(['BREAK'])), 'BREAK_2');
   assert.equal(newNotReadyReasonCode('Break', new Set(['BREAK', 'BREAK_2'])), 'BREAK_3');
   assert.equal(newNotReadyReasonCode('1:1 coaching', new Set()), 'COACHING');
-  assert.equal(newNotReadyReasonCode('ประชุม', new Set()), 'REASON');
+  assert.equal(newNotReadyReasonCode('ประชุม', new Set()), 'REASON'); // allow-thai: a Thai-only name falls back to the REASON code
   assert.equal(newNotReadyReasonCode('X', new Set()), 'X_X');
   assert.match(newNotReadyReasonCode('a'.repeat(60), new Set()), /^[A-Z][A-Z0-9_]{1,31}$/);
 });

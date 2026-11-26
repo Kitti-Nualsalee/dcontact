@@ -5,8 +5,8 @@ import styles from './AppShell.module.css';
 const InShellContext = createContext(false);
 
 /**
- * เนื้อหาหน้าใช้ตัดสินว่าต้องวาด chrome เดิมของตัวเอง (skip link, header, main) หรือไม่ —
- * อยู่ใน AppShell แล้วต้องไม่วาดซ้ำ (landmark ซ้อนกันทำให้ screen reader สับสน)
+ * page content uses this to decide whether it must draw its own old chrome (skip link, header, main) —
+ * when inside the AppShell it must not draw it again (nested landmarks confuse screen readers)
  */
 export function useInShell(): boolean {
   return useContext(InShellContext);
@@ -15,8 +15,8 @@ export function useInShell(): boolean {
 const PageNavContext = createContext(false);
 
 /**
- * #658: shell วาดหน้าย่อยของแอปในเมนูย่อยแล้ว — เนื้อหาหน้าต้องไม่วาดแท็บเดียวกันซ้ำ
- * (เมื่อเมนูย่อยไม่มีหน้าย่อย เช่น API รุ่นเก่า เนื้อหาต้องใช้แท็บของตัวเอง)
+ * #658: the shell draws the app's sub-pages in the sub-menu — page content must not draw the same tabs again
+ * (when the sub-menu has no sub-pages, e.g. an older API, the content must use its own tabs)
  */
 export function useShellPageNav(): boolean {
   return useContext(PageNavContext);
@@ -28,15 +28,15 @@ export function ShellPageNavProvider({ value, children }: { value: boolean; chil
 
 export interface AppShellProps {
   rail: ReactNode;
-  /** Console มีแผงเมนูย่อย; Workspace ไม่มี (D1.2) */
+  /** Console has a sub-menu panel; Workspace does not (D1.2) */
   subNav?: ReactNode;
   topBar: ReactNode;
   children: ReactNode;
 }
 
 /**
- * โครงร่วมของ Console/Workspace: rail | (SubNav) | แถบบน + เนื้อหา
- * มี skip link ไปที่เนื้อหา เพราะ rail + SubNav มีลิงก์ก่อนถึงเนื้อหาหลายสิบจุด
+ * shared frame of Console/Workspace: rail | (SubNav) | top bar + content
+ * has a skip link to the content because the rail + SubNav have dozens of links before the main content
  */
 export function AppShell({ rail, subNav, topBar, children }: AppShellProps) {
   const t = useUiText();

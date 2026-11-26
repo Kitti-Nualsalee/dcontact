@@ -53,7 +53,7 @@ export function PeopleDisable({
       ? { commandId: user.disableCommandId, operationId: user.disableOperationId }
       : undefined);
   const [pending, setPending] = useState(existing);
-  // undefined = กำลังตรวจ capabilities ครั้งแรก
+  // undefined = first capabilities check in progress
   const [ready, setReady] = useState<boolean>(),
     [busy, setBusy] = useState(false),
     [confirm, setConfirm] = useState(false);
@@ -74,7 +74,7 @@ export function PeopleDisable({
     else sessionStorage.removeItem(storageKey);
     setPending(value);
   }
-  /** 401 ส่งต่อให้หน้า People เสมอ; 403 ของคำสั่งปิดบัญชีแสดงใน Dialog/การ์ด ไม่แทนทั้งหน้า */
+  /** 401 is always passed on to the People page; a 403 on the disable command is shown in the Dialog/card and does not replace the whole page */
   function failed(value: unknown, write = false) {
     if (!mounted.current) return;
     setReady((current) => current ?? false);
@@ -109,7 +109,7 @@ export function PeopleDisable({
     inFlight.current = true;
     setBusy(true);
     setError('');
-    // server ไม่มีคำสั่ง/operation นี้: ไม่ได้บันทึกไว้ ล้างคำสั่งค้างแล้วเปิดให้ส่งใหม่ได้
+    // the server has no such command/operation: it was not recorded; clear the stale command and allow sending again
     const missing = (value: unknown) => {
       if (!commandMissing(value)) throw value;
       return undefined;
@@ -205,13 +205,13 @@ export function PeopleDisable({
       setStatus('WAITING_EXTERNAL');
       setReason('');
       setConfirm(false);
-      // คำสั่งรับแล้ว: อ่านรายละเอียดไม่สำเร็จไม่ทำให้ล้างคำสั่งค้าง
+      // the command was accepted: failing to read the detail does not clear the pending command
       const detail = await api.detail(user.id).catch(() => undefined);
       if (detail && mounted.current) callbacks.current.onUser(detail);
     } catch (value) {
       if (!mounted.current) return;
       let outcome = commandOutcome(value);
-      // 408/CONFIG_BUSY: ตรวจคำสั่งเดิมทันที ถ้า server ไม่มีคำสั่งนี้ก็ถือว่าปฏิเสธแน่นอน
+      // 408/CONFIG_BUSY: check the original command immediately; if the server has no such command it is definitely rejected
       if (outcome === 'AMBIGUOUS') {
         try {
           const accepted = await api.invitationCommand(reference.commandId, user.id);
@@ -233,7 +233,7 @@ export function PeopleDisable({
       const rejected = outcome === 'REJECTED';
       if (rejected) remember(undefined);
       failed(value, true);
-      // ผลไม่ชัดเจน: ปิด dialog ให้แผงแสดงคำสั่งค้างและปุ่มตรวจผลเดิม
+      // uncertain result: close the dialog so the panel shows the pending command and the button to check the original result
       if (mounted.current && !rejected) setConfirm(false);
       if (mounted.current && notAccepted) {
         setReady(false);
@@ -246,13 +246,13 @@ export function PeopleDisable({
     }
   }
   if (!api.disableReady || !api.disable || !api.disableOperation) return null;
-  // บัญชีที่ไม่มี lifecycle ของ People (เช่นบัญชีจาก seed) ระบบยืนยันตัวตนไม่ยอมให้ปิดผ่าน People
+  // an account with no People lifecycle (e.g. an account from seed): the identity system does not allow disabling it through People
   const managed = accountStatus(user) !== 'UNKNOWN';
   const eligible =
     managed &&
     user.isActive &&
     !['DISABLING', 'DISABLED', 'ATTENTION_REQUIRED', 'PROVISIONING'].includes(user.accountState);
-  // บัญชีปิดแล้วและไม่มีคำสั่งค้าง: การ์ดนี้ย่อเหลือบรรทัดเดียว ให้การ์ด "เปิดบัญชีกลับ" เป็นจุดทำงานต่อ
+  // account already disabled and no pending command: this card shrinks to one line, leaving the "Re-enable account" card as the place to continue
   const closed = user.accountState === 'DISABLED' && !user.isActive && !pending;
   const displayedStatus =
     (status === 'SUCCEEDED' && user.isActive ? '' : status) ||

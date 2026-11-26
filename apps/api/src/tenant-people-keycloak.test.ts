@@ -32,7 +32,7 @@ const configuration = {
   clientSecret: 'synthetic-secret',
 };
 
-test('activation ใช้ fresh GET และปฏิเสธ proof ที่ correlation หรือ schema ไม่ครบ', async () => {
+test('activation uses a fresh GET and rejects a proof with incomplete correlation or schema', async () => {
   let transform: (proof: Record<string, unknown>) => unknown = (proof) => proof;
   const probes = new Set<string>();
   const methods: string[] = [];

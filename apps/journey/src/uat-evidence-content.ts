@@ -1,15 +1,15 @@
 /**
- * Owner: UAT control — ตรวจเนื้อหาหลักฐาน UAT แบบ pure (U1.5 #433)
+ * Owner: UAT control — pure checking of UAT evidence content (U1.5 #433)
  *
  * Authority: Phase Contract #374, evidence/defect #379
  *
- * - รับเฉพาะภาพหน้าจอ PNG/JPEG ตรวจจาก magic bytes ไม่เชื่อ content type ที่ browser ส่ง; zip (รวม Playwright
- *   `trace.zip`), JSON/HAR, network log และข้อความล้วนถูกปฏิเสธเสมอ
- * - ไฟล์ต้อง parse เป็นโครง PNG/JPEG ได้ครบและไม่มีข้อมูลต่อท้าย (กันไฟล์ polyglot ที่แอบพ่วง trace/zip มา)
- * - negative scan ตรวจ token/JWT, `Authorization`/cookie, รูปแบบ secret, email/เบอร์โทรจริง และ `code=`/`state=`
- *   ของ OIDC; ผลบอกเฉพาะชนิดที่พบ ไม่คืนข้อความที่ match (ไม่ขยายการรั่ว)
- * - ภาพตรวจได้เฉพาะ metadata ที่เป็นข้อความ (PNG tEXt/zTXt/iTXt + ancillary chunk อื่น, JPEG COM/APPn)
- *   ไม่ทำ OCR ของพิกเซล — อยู่นอกขอบเขตของ U1.5; ผู้ทดสอบยังต้องไม่ถ่ายจอที่มี secret/PII
+ * - accepts only PNG/JPEG screenshots checked from the magic bytes, not trusting the content type the browser sends; zip (including Playwright
+ *   `trace.zip`), JSON/HAR, network logs and plain text are always rejected
+ * - a file must parse completely as a PNG/JPEG structure with no trailing data (guards against a polyglot file that smuggles in a trace/zip)
+ * - the negative scan checks token/JWT, `Authorization`/cookie, secret shapes, real email/phone numbers and the OIDC `code=`/`state=`;
+ *   the result states only the kinds found and does not return the matched text (so the leak is not widened)
+ * - an image can be checked only through its textual metadata (PNG tEXt/zTXt/iTXt + other ancillary chunks, JPEG COM/APPn)
+ *   with no OCR of pixels — outside the scope of U1.5; testers must still not capture a screen containing a secret/PII
  */
 import { inflateSync } from 'node:zlib';
 
@@ -29,15 +29,15 @@ export const UAT_SENSITIVE_KINDS = [
 export type UatSensitiveKind = (typeof UAT_SENSITIVE_KINDS)[number];
 
 /**
- * รูปแบบข้อมูลจริง/secret ที่ต้องไม่อยู่ใน fixture, ผลบันทึก หรือหลักฐานของ UAT
- * ใช้ร่วมกันทั้งตอน provision fixture pack (U1.1) และ negative scan ของ run (U1.5)
+ * real data/secret shapes that must not be in a fixture, a recorded result or UAT evidence
+ * shared by both the fixture pack provision (U1.1) and the negative scan of a run (U1.5)
  */
 export const UAT_SENSITIVE_PATTERNS: ReadonlyArray<readonly [UatSensitiveKind, RegExp]> = [
   ['EMAIL', /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/],
   ['JWT', /eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/],
   ['BEARER', /\bBearer\s+[A-Za-z0-9._~+/-]{8,}/i],
-  // เบอร์ไทย และเบอร์สากลรูป E.164 — ขอบทั้งสองด้านต้องไม่ใช่ตัวเลข/ตัวอักษร ASCII ไม่งั้น hex อย่าง git SHA
-  // (`0812345678ab…`) ถูกจับเป็นเบอร์ (U1.11 #512); เบอร์ที่ต่อด้วยภาษาไทย/ช่องว่างยังถูกจับ
+  // Thai numbers and international numbers in E.164 form — both edges must not be a digit/ASCII letter, otherwise hex such as a git SHA
+  // (`0812345678ab…`) would be caught as a number (U1.11 #512); a number followed by Thai text/whitespace is still caught
   ['PHONE', /(?<![0-9A-Za-z-])(?:(?:\+66|0)[1-9][0-9]{7,8}|\+[1-9][0-9]{7,14})(?![0-9A-Za-z])/],
   ['AUTHORIZATION_HEADER', /\b(?:proxy-)?authorization\s*["']?\s*[:=]\s*["']?[A-Za-z0-9]/i],
   ['COOKIE', /\b(?:set-)?cookie\s*["']?\s*[:=]\s*["']?[^\s;=]+=/i],
@@ -45,7 +45,7 @@ export const UAT_SENSITIVE_PATTERNS: ReadonlyArray<readonly [UatSensitiveKind, R
     'SECRET',
     new RegExp(
       [
-        // key=value / key: value ของ credential ทั่วไป
+        // key=value / key: value of a common credential
         String.raw`\b(?:client[_-]?secret|api[_-]?key|access[_-]?token|refresh[_-]?token|id[_-]?token|session[_-]?token|private[_-]?key|password|passwd|secret)\s*["']?\s*[:=]\s*["']?[^\s"'&,;]{6,}`,
         String.raw`-----BEGIN [A-Z ]*PRIVATE KEY-----`,
         String.raw`\bAKIA[0-9A-Z]{16}\b`,
@@ -60,20 +60,20 @@ export const UAT_SENSITIVE_PATTERNS: ReadonlyArray<readonly [UatSensitiveKind, R
   ['OIDC_STATE', /[?&#]state=[^&#\s]+/i],
 ];
 
-/** ชนิดของข้อมูลต้องห้ามที่พบในข้อความ — เรียงตาม `UAT_SENSITIVE_KINDS` และไม่ซ้ำ */
+/** the kinds of forbidden data found in the text — sorted per `UAT_SENSITIVE_KINDS` and without duplicates */
 export function scanUatText(value: string): UatSensitiveKind[] {
-  // metadata บางชนิด (เช่น UTF-16 ของ EXIF) มี NUL คั่นทุกตัวอักษร — ตรวจทั้งแบบเดิมและแบบตัด NUL
+  // some metadata (e.g. EXIF UTF-16) has a NUL between every character — check both the original and the NUL-stripped form
   const variants = value.includes('\u0000') ? [value, value.replace(/\u0000/g, '')] : [value];
   return UAT_SENSITIVE_PATTERNS.filter(([, pattern]) =>
     variants.some((variant) => pattern.test(variant)),
   ).map(([kind]) => kind);
 }
 
-// ── ชนิดไฟล์ ──────────────────────────────────────────────────────────────
+// ── file kinds ────────────────────────────────────────────────────────────
 
 export const UAT_EVIDENCE_CONTENT_TYPES = ['image/png', 'image/jpeg'] as const;
 export type UatEvidenceContentType = (typeof UAT_EVIDENCE_CONTENT_TYPES)[number];
-/** เพดานขนาดภาพหน้าจอหนึ่งไฟล์ */
+/** size ceiling of a single screenshot file */
 export const UAT_EVIDENCE_MAX_BYTES = 5 * 1024 * 1024;
 
 export type UatEvidenceSniff = 'PNG' | 'JPEG' | 'ZIP' | 'GZIP' | 'JSON' | 'TEXT' | 'UNKNOWN';
@@ -84,11 +84,11 @@ function startsWith(bytes: Uint8Array, prefix: readonly number[]): boolean {
   return prefix.length <= bytes.length && prefix.every((byte, index) => bytes[index] === byte);
 }
 
-/** ชนิดจาก magic bytes — ใช้บอกเหตุผลที่ปฏิเสธโดยไม่สะท้อนเนื้อหาไฟล์กลับไป */
+/** the kind from magic bytes — used to state the reason for rejecting without reflecting the file content back */
 export function sniffUatEvidence(bytes: Uint8Array): UatEvidenceSniff {
   if (startsWith(bytes, PNG_SIGNATURE)) return 'PNG';
   if (startsWith(bytes, [0xff, 0xd8, 0xff])) return 'JPEG';
-  // PK\x03\x04 / PK\x05\x06 (zip เปล่า) / PK\x07\x08 — ครอบ Playwright trace.zip
+  // PK\x03\x04 / PK\x05\x06 (an empty zip) / PK\x07\x08 — covers the Playwright trace.zip
   if (startsWith(bytes, [0x50, 0x4b]) && [3, 5, 7].includes(bytes[2] ?? 0)) return 'ZIP';
   if (startsWith(bytes, [0x1f, 0x8b])) return 'GZIP';
   const head = Buffer.from(bytes.subarray(0, 512)).toString('utf8').replace(/^﻿/, '').trimStart();
@@ -103,7 +103,7 @@ export function sniffUatEvidence(bytes: Uint8Array): UatEvidenceSniff {
   return 'UNKNOWN';
 }
 
-// ── metadata ที่เป็นข้อความในภาพ ─────────────────────────────────────────────
+// ── textual metadata in an image ─────────────────────────────────────────────
 
 export type UatImageTextField = 'PNG_TEXT' | 'PNG_ANCILLARY' | 'JPEG_COM' | 'JPEG_APP';
 
@@ -119,7 +119,7 @@ export class UatEvidenceFormatError extends Error {
   }
 }
 
-/** เพดานข้อความที่คลายจาก zTXt/iTXt — กัน zip bomb ใน metadata */
+/** ceiling on text decompressed from zTXt/iTXt — guards against a zip bomb in metadata */
 const MAX_INFLATED_TEXT = 1024 * 1024;
 
 function malformed(): never {
@@ -130,7 +130,7 @@ function inflateText(data: Uint8Array): string {
   try {
     return inflateSync(data, { maxOutputLength: MAX_INFLATED_TEXT }).toString('utf8');
   } catch {
-    // คลายไม่ได้ (หรือใหญ่เกินเพดาน) = metadata ผิดรูป — ไม่ปล่อยให้หลุด scan
+    // cannot decompress (or exceeds the ceiling) = malformed metadata — must not slip past the scan
     return malformed();
   }
 }
@@ -178,7 +178,7 @@ function parsePng(bytes: Uint8Array): UatImageText[] {
         text: compressed ? inflateText(body) : Buffer.from(body).toString('utf8'),
       });
     } else if (!['IHDR', 'PLTE', 'IDAT'].includes(type)) {
-      // ancillary chunk อื่น (eXIf, private chunk ฯลฯ) — ตรวจเป็นข้อความดิบ
+      // other ancillary chunks (eXIf, private chunks, etc.) — checked as raw text
       texts.push({ field: 'PNG_ANCILLARY', text: latin1(data) });
     }
   }
@@ -193,7 +193,7 @@ function parseJpeg(bytes: Uint8Array): UatImageText[] {
   let offset = 2;
   for (;;) {
     if (offset + 2 > view.length || view[offset] !== 0xff) malformed();
-    // fill byte 0xFF ซ้ำได้ก่อน marker
+    // the fill byte 0xFF may repeat before a marker
     while (view[offset + 1] === 0xff) offset += 1;
     if (offset + 2 > view.length) malformed();
     const marker = view[offset + 1]!;
@@ -210,7 +210,7 @@ function parseJpeg(bytes: Uint8Array): UatImageText[] {
     else if (marker >= 0xe0 && marker <= 0xef)
       texts.push({ field: 'JPEG_APP', text: latin1(data) });
     if (marker === 0xda) {
-      // entropy-coded data: วิ่งจนเจอ marker จริง (0xFF ที่ไม่ใช่ byte stuffing 0x00 หรือ RSTn)
+      // entropy-coded data: run until a real marker (0xFF that is not byte stuffing 0x00 or RSTn)
       for (;;) {
         if (offset + 1 >= view.length) malformed();
         if (view[offset] === 0xff) {
@@ -225,7 +225,7 @@ function parseJpeg(bytes: Uint8Array): UatImageText[] {
   return texts;
 }
 
-/** ข้อความใน metadata ของภาพ — ภาพที่ parse ไม่ผ่านหรือมีข้อมูลต่อท้ายโยน `UatEvidenceFormatError` */
+/** text in an image's metadata — an image that fails to parse or has trailing data throws `UatEvidenceFormatError` */
 export function extractUatImageText(
   bytes: Uint8Array,
   contentType: UatEvidenceContentType,

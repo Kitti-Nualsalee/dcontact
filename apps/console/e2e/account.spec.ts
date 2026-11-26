@@ -2,12 +2,12 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 
 /**
- * AC5 (#598): Console › บัญชีของฉัน / นโยบายบัญชี — API จำลองด้วย page.route
- * (สิทธิ์และกติกาจริงตรวจใน API boundary test ของ AC4 กับ Keycloak จริง)
+ * AC5 (#598): Console › My account / Account policy — the API is mocked with page.route
+ * (real permissions and rules are checked in AC4's API boundary test with a real Keycloak)
  */
 test.use({ locale: 'th-TH' });
 
-test('profile ที่ไม่เปิด Account แสดงสถานะไม่พร้อมโดยไม่มีฟอร์มหรือ retry ทั้ง TH/EN', async ({
+test('a profile that does not enable Account shows a not-ready state with no form or retry in both TH/EN', async ({
   page,
 }) => {
   const state = initialState();
@@ -36,7 +36,7 @@ for (const failure of [
   { status: 401, code: 'AUTHORIZATION_CONTEXT_UNAVAILABLE' },
   { status: 500, code: 'ROUTE_NOT_AVAILABLE_IN_PROFILE' },
 ]) {
-  test(`Account error ${failure.status}/${failure.code} ยังแสดง error และ retry ไม่ถูกกลบเป็น unavailable`, async ({
+  test(`Account error ${failure.status}/${failure.code} still shows the error and retry is not masked as unavailable`, async ({
     page,
   }) => {
     const state = initialState();
@@ -226,7 +226,7 @@ for (const [locale, lang, title] of [
 ] as const) {
   test.describe(`axe (${lang})`, () => {
     test.use({ locale });
-    test(`บัญชีของฉัน/นโยบายบัญชี/dialog เพิ่มอุปกรณ์: 0 serious/critical และไม่มีคำว่า Keycloak (${lang})`, async ({
+    test(`My account/Account policy/add-device dialog: 0 serious/critical and no word Keycloak (${lang})`, async ({
       page,
     }) => {
       const state = initialState({
@@ -255,7 +255,7 @@ for (const [locale, lang, title] of [
   });
 }
 
-test('เมนูผู้ใช้ของ Console มี "บัญชีของฉัน" เปิดในแท็บเดิม และเมนูย่อยมีนโยบายบัญชีเฉพาะ admin', async ({
+test('the Console user menu has "My account" opening in the same tab, and the submenu has account policy for admin only', async ({
   page,
 }) => {
   await mockApi(page, initialState());
@@ -274,7 +274,7 @@ test('เมนูผู้ใช้ของ Console มี "บัญชีข
   await expect(page.getByText('เฉพาะผู้ดูแลระบบขององค์กรเท่านั้น')).toBeVisible();
 });
 
-test('ข้อมูลส่วนตัว: ใช้ keyboard แก้ชื่อแล้วบันทึก', async ({ page }) => {
+test('personal data: edit the name with the keyboard and save', async ({ page }) => {
   const state = initialState();
   await mockApi(page, state);
   await page.goto('/?view=account&tenant=demo');
@@ -293,7 +293,7 @@ test('ข้อมูลส่วนตัว: ใช้ keyboard แก้ช�
   ]);
 });
 
-test('รหัสผ่าน: ไม่ตรงกันเตือนก่อนส่ง, กฎขององค์กรแสดงจาก rules[], สำเร็จแล้วล้างช่อง', async ({
+test('password: a mismatch warns before sending, the organization rules show from rules[], and success clears the fields', async ({
   page,
 }) => {
   const state = initialState();
@@ -331,7 +331,7 @@ test('รหัสผ่าน: ไม่ตรงกันเตือนก่
   });
 });
 
-test('อีเมล: ขอเปลี่ยน (ต้องยืนยัน) แสดงคำขอที่รอ, ยกเลิกได้; ADMIN_ONLY ไม่มีฟอร์ม', async ({
+test('email: requesting a change (needs verification) shows the pending request and can be cancelled; ADMIN_ONLY has no form', async ({
   page,
 }) => {
   const state = initialState();
@@ -361,7 +361,7 @@ test('อีเมล: ขอเปลี่ยน (ต้องยืนยั�
   await expect(page.getByLabel('อีเมลใหม่')).toHaveCount(0);
 });
 
-test('ลิงก์ยืนยันอีเมล: token หายจาก URL ทันที, ไม่อยู่ใน history/storage, ยืนยันครั้งเดียว', async ({
+test('email verification link: the token disappears from the URL immediately, is not in history/storage, and verifies once', async ({
   page,
 }) => {
   const state = initialState({ pendingEmail: 'new@demo.example' });
@@ -382,25 +382,25 @@ test('ลิงก์ยืนยันอีเมล: token หายจาก
   expect(leftovers.session).not.toContain('tok-secret-123');
   expect(leftovers.local).not.toContain('tok-secret-123');
   await expect(page.locator('dd').filter({ hasText: 'new@demo.example' })).toBeVisible();
-  // replaceState ไม่ใช่ pushState: ย้อนกลับไปไม่เจอ URL ที่มี token และเดินหน้ากลับมาเป็น URL ที่ไม่มี token
+  // replaceState, not pushState: going back finds no URL with the token and going forward returns to a URL without a token
   await page.goBack();
   expect(page.url()).not.toContain('tok-secret-123');
   await page.goForward();
   expect(page.url()).not.toContain('tok-secret-123');
 
-  // reload ไม่ยืนยันซ้ำ
+  // reload does not verify again
   await page.reload();
   await expect(page.getByRole('heading', { level: 1, name: 'บัญชีของฉัน' })).toBeVisible();
   expect(state.writes).toHaveLength(1);
 
-  // token หมดอายุ → ข้อความที่แปลแล้ว
+  // expired token → the translated message
   state.failNext = { status: 410, json: { code: 'EMAIL_CHANGE_EXPIRED' } };
   await page.goto('/?tenant=demo&view=account&verify=old-token');
   await expect(page.getByText('ลิงก์ยืนยันหมดอายุหรือถูกใช้แล้ว')).toBeVisible();
   expect(page.url()).not.toContain('old-token');
 });
 
-test('2FA: เพิ่มอุปกรณ์ด้วย QR + รหัสแบบพิมพ์, รหัสผิดเตือน, เครื่องสุดท้ายลบไม่ได้เมื่อบังคับ, ลบด้วย dialog ยืนยัน', async ({
+test('2FA: add a device with a QR + typed code, a wrong code warns, the last device cannot be removed when enforced, removal uses a confirm dialog', async ({
   page,
 }) => {
   const state = initialState();
@@ -429,14 +429,14 @@ test('2FA: เพิ่มอุปกรณ์ด้วย QR + รหัสแ
   });
   await expect(page.getByText('โทรศัพท์', { exact: true })).toBeVisible();
 
-  // บังคับ 2FA + เหลือเครื่องเดียว: ปุ่มลบปิดพร้อมคำอธิบาย
+  // 2FA enforced + one device left: the delete button is disabled with an explanation
   state.account.mfa.required = true;
   await page.reload();
   await expect(page.getByText('องค์กรของคุณบังคับใช้ 2FA')).toBeVisible();
   await expect(page.getByRole('button', { name: 'ลบอุปกรณ์ โทรศัพท์' })).toBeDisabled();
   await expect(page.getByText('ลบอุปกรณ์เครื่องสุดท้ายไม่ได้')).toBeVisible();
 
-  // สองเครื่อง: ลบได้หลังยืนยัน (Esc ยกเลิกแล้ว focus กลับ)
+  // two devices: can delete after confirming (Esc cancels, then focus returns)
   state.account.mfa.devices = twoDevices();
   await page.reload();
   const remove = page.getByRole('button', { name: 'ลบอุปกรณ์ แท็บเล็ต' });
@@ -452,7 +452,7 @@ test('2FA: เพิ่มอุปกรณ์ด้วย QR + รหัสแ
   expect(state.writes.at(-1)).toEqual({ method: 'DELETE', path: '/mfa/totp/dev-2', body: null });
 });
 
-test('นโยบายบัญชี (admin): ต้องมีเหตุผล, ส่ง revision เดิม, ชนกับ admin อื่นแล้วโหลดค่าล่าสุด', async ({
+test('account policy (admin): a reason is required, sends the original revision, a clash with another admin loads the latest values', async ({
   page,
 }) => {
   const state = initialState();
@@ -487,7 +487,7 @@ test('นโยบายบัญชี (admin): ต้องมีเหตุ�
   });
   await expect(page.getByText(/แก้ไขล่าสุด/)).toBeVisible();
 
-  // admin อื่นแก้ก่อน → 409 แล้วโหลดค่าล่าสุด
+  // another admin edited first → 409, then load the latest values
   state.policy = { ...state.policy, emailChange: 'IMMEDIATE', revision: 5 };
   state.failNext = { status: 409, json: { code: 'REVISION_CONFLICT' } };
   await page.getByRole('switch', { name: 'บังคับใช้ 2FA กับผู้ใช้ทุกคน' }).focus();

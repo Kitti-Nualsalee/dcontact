@@ -1,4 +1,4 @@
-# ใช้ input ที่ render แล้วจาก template ของ U1.9; Job ไม่อยู่ใน Kustomize base
+# Uses input already rendered from the U1.9 template; the Job is not part of the Kustomize base
 apiVersion: batch/v1
 kind: Job
 metadata:

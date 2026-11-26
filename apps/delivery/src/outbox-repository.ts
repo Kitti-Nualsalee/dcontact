@@ -1,15 +1,15 @@
 /**
- * Owner: Channels/Dialer — durable ownership ของ outbox
+ * Owner: Channels/Dialer — durable ownership of the outbox
  *
- * ทุก write ผ่าน `withTenantDatabaseTransaction` เพื่อให้ RLS ของ `dl_outbox_entries`
- * ทำงานจริงกับ application role และไม่มี query ไหนอ่านข้าม tenant ได้
- * repository ไม่รู้จัก Governance หรือ transport — มันเก็บสถานะอย่างเดียว
+ * Every write goes through `withTenantDatabaseTransaction` so the RLS of `dl_outbox_entries`
+ * really works with the application role and no query can read across tenants.
+ * The repository knows neither Governance nor a transport — it stores state only
  *
- * Mixed-version guard (S2.1 #365): repository หนึ่งตัวผูกกับ adapter เดียว ทุก read/claim/advance
- * ที่ทำงานกับ delivery กรองด้วย adapter นั้น worker ของ TEST_ADAPTER จึงไม่เคยหยิบแถว
- * LINE_MESSAGING_API ไป submit/reconcile และกลับกัน ยกเว้น `findByActionKey` ที่ต้องเห็นทุก
- * adapter เพราะ `(tenant_id, action_key)` เป็น idempotency identity ร่วม — ผู้เรียกต้องปฏิเสธ
- * แถวของ adapter อื่นเอง
+ * Mixed-version guard (S2.1 #365): one repository is bound to one adapter, and every read/claim/advance
+ * that works with a delivery filters by that adapter, so the TEST_ADAPTER worker never picks up a
+ * LINE_MESSAGING_API row to submit/reconcile and vice versa, except `findByActionKey` which must see every
+ * adapter because `(tenant_id, action_key)` is the shared idempotency identity — the caller must reject
+ * a row of another adapter itself
  */
 import {
   Prisma,
@@ -47,7 +47,7 @@ export class OutboxEntryAlreadyExistsError extends Error {
   readonly code = 'OUTBOX_ENTRY_ALREADY_EXISTS';
 
   constructor(readonly actionKey: string) {
-    super(`มี outbox entry ของ actionKey ${actionKey} อยู่แล้ว`);
+    super(`an outbox entry for actionKey ${actionKey} already exists`);
     this.name = 'OutboxEntryAlreadyExistsError';
   }
 }
@@ -62,7 +62,7 @@ export class OutboxRepository {
     readonly adapter: DlDeliveryAdapter = 'TEST_ADAPTER',
   ) {}
 
-  /** ไม่กรอง adapter โดยตั้งใจ — ดูหมายเหตุ mixed-version guard ด้านบน */
+  /** deliberately does not filter by adapter — see the mixed-version guard note above */
   findByActionKey(tenantId: string, actionKey: string): Promise<DlOutboxEntry | null> {
     return withTenantDatabaseTransaction(this.database, tenantId, (transaction) =>
       transaction.dlOutboxEntry.findFirst({ where: { tenantId, actionKey } }),
@@ -78,15 +78,15 @@ export class OutboxRepository {
   }
 
   /**
-   * insert เดียวที่ arbitrate การแข่งกันของ enqueue พร้อมกัน: unique index
-   * `(tenant_id, action_key)` เป็นผู้ตัดสิน ไม่ใช่การอ่านก่อนเขียน ผู้แพ้จึงรู้ตัว
-   * จาก P2002 แทนที่จะเขียนทับ delivery ของผู้ชนะ
+   * the single insert that arbitrates racing concurrent enqueues: the unique index
+   * `(tenant_id, action_key)` decides, not a read-before-write, so the loser knows
+   * from P2002 instead of overwriting the winner's delivery
    */
   async create(input: CreateOutboxEntryInput): Promise<DlOutboxEntry> {
     return this.createWith(input, async (_transaction, entry) => entry).then(({ entry }) => entry);
   }
 
-  /** เขียน extension ของ adapter ใน transaction เดียวกับ generic outbox เพื่อไม่ทิ้ง delivery กำพร้า */
+  /** write the adapter's extension in the same transaction as the generic outbox so no delivery is orphaned */
   async createWith<T>(
     input: CreateOutboxEntryInput,
     afterCreate: (transaction: Prisma.TransactionClient, entry: DlOutboxEntry) => Promise<T>,
@@ -127,8 +127,8 @@ export class OutboxRepository {
   }
 
   /**
-   * เลื่อน state แบบมีเงื่อนไข: `expected` คือ state ที่ผู้เรียกอ่านมา ถ้าแถวขยับไป
-   * แล้วโดย worker อื่น update จะไม่โดนแถวไหนเลยและคืน null ให้ผู้เรียกอ่านใหม่
+   * conditional state advance: `expected` is the state the caller read; if the row has already been moved
+   * by another worker the update hits no row and returns null so the caller re-reads
    */
   async advance(
     tenantId: string,
@@ -154,7 +154,7 @@ export class OutboxRepository {
     });
   }
 
-  /** งานที่ผ่าน submission barrier แล้วแต่ lease หมด — ต้อง reconcile ห้ามส่งซ้ำ */
+  /** jobs that passed the submission barrier but whose lease expired — must reconcile, never resend */
   findReconcilable(tenantId: string, notAfter: Date): Promise<DlOutboxEntry[]> {
     return withTenantDatabaseTransaction(this.database, tenantId, (transaction) =>
       transaction.dlOutboxEntry.findMany({

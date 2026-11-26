@@ -6,7 +6,7 @@ import { guardMigrations } from './u1-uat-readiness.mjs';
 const path =
   'packages/db/prisma/migrations/20261019140000_core_organization_provenance/migration.sql';
 const sql = readFileSync(new URL('../' + path, import.meta.url), 'utf8');
-test('Core release: nullable provenance ตาม Phase Contract ผ่านเฉพาะ migration bytes ที่ review แล้ว', () => {
+test('Core release: nullable provenance per the Phase Contract passes only for reviewed migration bytes', () => {
   assert.equal(guardMigrations([{ status: 'A', path, sql }]).status, 'PASS');
   for (const change of [
     { status: 'M', path, sql },
@@ -21,7 +21,7 @@ test('Core release: nullable provenance ตาม Phase Contract ผ่านเ
     assert.equal(guardMigrations([change]).status, 'FAIL');
 });
 
-test('Core organization smoke: environment ไม่พร้อมต้องไม่สร้าง PASS', async () => {
+test('Core organization smoke: an unready environment must not produce PASS', async () => {
   const { runOrganizationSmoke } = await import('./core-settings-organization-smoke.mjs');
   await assert.rejects(
     runOrganizationSmoke({ baseUrl: 'http://vm.example', accessToken: 'synthetic-token' }),
@@ -35,7 +35,7 @@ test('Core organization smoke: environment ไม่พร้อมต้อง�
   await assert.rejects(runOrganizationSmoke({ baseUrl: 'https://vm.example' }));
 });
 
-test('Core organization smoke: ใช้ authenticated HTTP จริงและไม่พิมพ์ชื่อ/token ในรายงาน', async (t) => {
+test('Core organization smoke: uses real authenticated HTTP and does not print names/tokens in the report', async (t) => {
   const { runOrganizationSmoke } = await import('./core-settings-organization-smoke.mjs');
   const server = createServer((req, res) => {
     res.setHeader('Content-Type', 'application/json');
@@ -58,7 +58,7 @@ test('Core organization smoke: ใช้ authenticated HTTP จริงแล�
       '/api/v1/tenant/core-settings/organization': {
         organization: {
           id: 'synthetic-resource',
-          displayName: 'ห้ามอยู่ใน report',
+          displayName: 'must not appear in report',
           defaults: null,
           revision: '0',
         },
@@ -90,19 +90,19 @@ test('Core organization smoke: ใช้ authenticated HTTP จริงแล�
   assert.equal(
     teamRequired.result,
     'FAIL',
-    'ไม่มี Team routes/capabilities/menu ต้องไม่รับรอง Team smoke',
+    'no Team routes/capabilities/menu must not certify the Team smoke',
   );
   assert.equal(result.result, 'PASS');
   assert.equal(result.voiceSmoke, 'NOT_RUN');
   assert.equal(result.vmTrial, 'NOT_PROVEN');
   assert.ok(!JSON.stringify(result).includes('synthetic-never-log'));
-  assert.ok(!JSON.stringify(result).includes('ห้ามอยู่ใน report'));
+  assert.ok(!JSON.stringify(result).includes('must not appear in report'));
 });
-test('Core Team smoke: ต้องมี list/detail/menu และรายงานไม่เผยชื่อหรือ token', async (t) => {
+test('Core Team smoke: needs list/detail/menu and the report does not reveal names or tokens', async (t) => {
   const { runOrganizationSmoke } = await import('./core-settings-organization-smoke.mjs');
   const team = {
     id: '11111111-1111-4111-8111-111111111111',
-    name: 'ห้ามเผยชื่อทีม',
+    name: 'must not reveal team name',
     isActive: true,
     revision: '1',
   };

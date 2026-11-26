@@ -1,7 +1,7 @@
 <#--
-  #522: layout ของอีเมล HTML — table + inline style เพราะ mail client ไม่รองรับ stylesheet และ var()
-  ค่าสี/ตัวอักษรมาจาก dc-tokens.ftl (สร้างจาก packages/ui/src/tokens.css) — ห้ามเขียนค่าตรงในไฟล์นี้
-  โลโก้เป็นตัวอักษร "D-Contact" ไม่ใช้รูป (ไม่ต้องมี URL สาธารณะ และ Keycloak แนบรูปแบบ CID ไม่ได้)
+  #522: HTML email layout — table + inline style because mail clients support neither stylesheets nor var()
+  colors/fonts come from dc-tokens.ftl (generated from packages/ui/src/tokens.css) — never write literal values in this file
+  the logo is the text "D-Contact", not an image (no public URL needed, and Keycloak cannot attach a CID image)
 -->
 <#import "dc-tokens.ftl" as tokens>
 <#assign dc = tokens.dc>

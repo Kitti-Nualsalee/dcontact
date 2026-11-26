@@ -1,11 +1,11 @@
 /**
- * S2.3 (#367) acceptance: durable control plane บน Postgres จริงด้วย application role (RLS ทำงาน)
+ * S2.3 (#367) acceptance: durable control plane on real Postgres with the application role (RLS in effect)
  *
- * ครอบคลุม `S2-LINE-AU01` (authority/approval/one-shot), `S2-LINE-CC01` (cap/concurrency/kill)
- * และ negative checks ฝั่ง TI/RC/OB: tenant isolation, restart, worker race, cap reservation,
- * kill latch, credential rotation และ quota ที่ fail closed
+ * Covers `S2-LINE-AU01` (authority/approval/one-shot), `S2-LINE-CC01` (cap/concurrency/kill)
+ * and the negative checks on the TI/RC/OB side: tenant isolation, restart, worker race, cap reservation,
+ * kill latch, credential rotation and quota that fails closed
  *
- * ไม่มี network, ไม่มี LINE SDK, ไม่มี credential value และไม่มี PII — ทุกค่าเป็น fixture สังเคราะห์
+ * No network, no LINE SDK, no credential value and no PII — every value is a synthetic fixture
  */
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -50,7 +50,7 @@ function quotaAt(minutes: number, totalUsage = 1): LineQuotaSnapshot {
   return { type: 'limited', targetLimit: 500, totalUsage, observedAt: at(minutes) };
 }
 
-/** ดึงค่าจาก outcome ที่ต้องสำเร็จ — ล้มที่นี่แปลว่า precondition ของเทสต์เองพัง */
+/** Pulls the value out of an outcome that must succeed — failing here means the test's own precondition broke */
 function applied<T>(outcome: LineControlOutcome<T>, label: string): T {
   assert.equal(outcome.status, 'APPLIED', `${label}: ${JSON.stringify(outcome)}`);
   return (outcome as { status: 'APPLIED'; value: T }).value;
@@ -70,8 +70,8 @@ interface Pilot {
 }
 
 /**
- * พา scope หนึ่งจาก DISABLED ไปจนถึง CAPPED_PILOT ด้วยคำสั่งจริงของ control plane เท่านั้น
- * (ไม่มีการเขียนตารางตรง ๆ) — ลำดับนี้คือ deploy order ของ #358 §A/§E
+ * Takes one scope from DISABLED all the way to CAPPED_PILOT using only real control plane commands
+ * (no direct table writes) — this order is the deploy order of #358 §A/§E
  */
 async function bootstrapPilot(
   context: LinePersistenceFixture,
@@ -128,14 +128,14 @@ async function bootstrapPilot(
   return { plane, scope, gate, credential, tenantId };
 }
 
-/** allowlist + proposal + approval สองชั้น สำหรับ recipient หนึ่งราย */
+/** allowlist + proposal + two-layer approval for one recipient */
 async function approveRunFor(
   pilot: Pilot,
   label: string,
   recipientFingerprint: string,
   proposedAt: Date,
 ) {
-  // tuple เดียวมีได้แถวเดียวตาม unique index — recipient เดิมใช้ allowlist ใบเดิมเสมอ
+  // A single tuple can have only one row per the unique index — the same recipient always reuses the same allowlist
   const allowlistEntry =
     (await pilot.plane.findAllowlistEntry(
       pilot.tenantId,
@@ -209,11 +209,11 @@ function beginCommand(
 
 // ── Rollout ladder (#358 §A) ─────────────────────────────────────────────────
 
-test('ladder: แต่ละขั้นเปิดสิทธิ์เพิ่มทีละชั้น และ scope ที่ไม่มี gate ตอบ generic เสมอ', async (t) => {
+test('ladder: each step opens one more layer of rights, and a scope with no gate always answers generically', async (t) => {
   const context = await fixture(t);
   const plane = new LineControlPlane({ control: context.control, audit: context.audit });
 
-  // ยังไม่มี gate เลย: ไม่บอกว่า tenant/scope นี้มีอยู่จริงหรือไม่
+  // No gate yet: does not reveal whether this tenant/scope really exists
   assert.equal(
     denial(
       await plane.evaluate({
@@ -239,7 +239,7 @@ test('ladder: แต่ละขั้นเปิดสิทธิ์เพิ
   assert.equal(denial(await check('TOKEN_VERIFY')), 'LINE_GATE_AUTHORIZATION_DENIED');
   assert.equal(denial(await check('PUSH')), 'LINE_GATE_AUTHORIZATION_DENIED');
 
-  // DRY_RUN ตรวจ allowlist จริง ต่างกันแค่ไม่มี network: recipient ที่ไม่มีใน allowlist ถูกปฏิเสธ
+  // DRY_RUN checks the real allowlist, differing only in having no network: a recipient not in the allowlist is rejected
   const dryRun = (recipientFingerprint: string) =>
     plane.evaluate({
       scope: pilot.scope,
@@ -280,10 +280,10 @@ test('ladder: แต่ละขั้นเปิดสิทธิ์เพิ
   assert.equal(
     denial(await check('PUSH')),
     'LINE_GATE_AUTHORIZATION_DENIED',
-    'conformance ยังห้าม push',
+    'conformance still must not push',
   );
 
-  // ข้ามขั้นไม่ได้ และปิด switch แล้วทุกอย่างกลับเป็นปิดทันที
+  // Steps cannot be skipped, and once the switch is off everything goes back to closed immediately
   assert.equal(
     denial(await plane.advanceState(compliance, gate, 'DISABLED', null, at(2))),
     'LINE_GATE_INVALID_TRANSITION',
@@ -291,7 +291,7 @@ test('ladder: แต่ละขั้นเปิดสิทธิ์เพิ
   gate = applied(await plane.setTechnicalSwitch(operator, gate, false, at(2)), 'switch off');
   assert.equal(denial(await check('LOCAL_VALIDATION')), 'LINE_GATE_TECHNICAL_SWITCH_OFF');
 
-  // CAS: ใช้ version เก่าเขียนทับไม่ได้ ต้องอ่านใหม่ก่อนเสมอ
+  // CAS: writing over with an old version is impossible, must always re-read first
   const stale = await plane.setTechnicalSwitch(
     operator,
     { ...gate, version: gate.version - 1 },
@@ -303,7 +303,7 @@ test('ladder: แต่ละขั้นเปิดสิทธิ์เพิ
 
 // ── Authority (#358 §E) — S2-LINE-AU01 ───────────────────────────────────────
 
-test('authority: role ผิดถูกปฏิเสธก่อนแตะ state และผู้เสนอ approve ตัวเองไม่ได้', async (t) => {
+test('authority: a wrong role is rejected before touching state, and the proposer cannot approve their own', async (t) => {
   const context = await fixture(t);
   const pilot = await bootstrapPilot(context, context.tenantA);
 
@@ -340,15 +340,15 @@ test('authority: role ผิดถูกปฏิเสธก่อนแตะ 
   await assert.rejects(
     pilot.plane.approveRun(operator, pilot.tenantId, run.id, at(2)),
     LineControlAuthorizationError,
-    'ผู้ execute ไม่มีสิทธิ์ approve',
+    'the executor has no right to approve',
   );
   await assert.rejects(
     pilot.plane.beginRun(compliance, beginCommand(pilot, run.id, 'dlv_none', digest('r'), 2)),
     LineControlAuthorizationError,
-    'Compliance ไม่ใช่ผู้ execute',
+    'Compliance is not the executor',
   );
 
-  // ผู้เสนอสวมหมวก Tenant Admin มา approve ใบของตัวเองไม่ได้
+  // The proposer wearing the Tenant Admin hat cannot approve their own proposal
   const selfApproval = await pilot.plane.approveRun(
     { role: 'TENANT_ADMIN', ref: operator.ref },
     pilot.tenantId,
@@ -358,7 +358,7 @@ test('authority: role ผิดถูกปฏิเสธก่อนแตะ 
   assert.equal(denial(selfApproval), 'LINE_GATE_AUTHORIZATION_DENIED');
 });
 
-test('authority: คนเดียวถือสอง role ได้ แต่ต้องยืนยันสองครั้งแยกกัน', async (t) => {
+test('authority: one person can hold two roles, but must confirm twice separately', async (t) => {
   const context = await fixture(t);
   const pilot = await bootstrapPilot(context, context.tenantA);
   const allowlistEntry = await pilot.plane.registerAllowlistEntry(
@@ -404,13 +404,13 @@ test('authority: คนเดียวถือสอง role ได้ แต�
     ),
     'tenant admin',
   );
-  assert.equal(first.state, 'PROPOSED', 'อนุมัติชั้นเดียวยังไม่พอ');
+  assert.equal(first.state, 'PROPOSED', 'a single layer of approval is not enough');
   const second = applied(
     await pilot.plane.approveRun({ role: 'COMPLIANCE', ref: human }, pilot.tenantId, run.id, at(3)),
     'compliance',
   );
   assert.equal(second.state, 'APPROVED');
-  // ยืนยันซ้ำ role เดิมไม่เพิ่มอะไร
+  // Confirming the same role again adds nothing
   assert.equal(
     (
       await pilot.plane.approveRun(
@@ -426,7 +426,7 @@ test('authority: คนเดียวถือสอง role ได้ แต�
 
 // ── Exact allowlist (#358 §B) ────────────────────────────────────────────────
 
-test('allowlist: recipient/content ที่ไม่ตรงถูกปฏิเสธและ kill scope ทันที', async (t) => {
+test('allowlist: a mismatching recipient/content is rejected and kills the scope immediately', async (t) => {
   const context = await fixture(t);
   const pilot = await bootstrapPilot(context, context.tenantA);
   const recipient = digest('r-exact');
@@ -440,14 +440,14 @@ test('allowlist: recipient/content ที่ไม่ตรงถูกปฏิ
   const killed = (await pilot.plane.findGate(pilot.scope))!;
   assert.equal(killed.killed, true);
   assert.equal(killed.killReason, 'ALLOWLIST_BINDING_MISMATCH');
-  assert.equal(killed.technicalSwitchOn, false, 'kill ปิด switch ในแถวเดียวกัน');
+  assert.equal(killed.technicalSwitchOn, false, 'kill turns the switch off in the same row');
 
-  // authorization ยังไม่ถูกใช้: binding ไม่ผ่านตั้งแต่ก่อน consume
+  // The authorization has not been used: the binding fails before consume
   const stillApproved = await context.control.findRun(pilot.tenantId, run.id);
   assert.equal(stillApproved?.state, 'APPROVED');
 });
 
-test('allowlist: revoke หรือหมดอายุ = ปฏิเสธแบบ generic โดยไม่ kill', async (t) => {
+test('allowlist: revoke or expiry = generic rejection without a kill', async (t) => {
   const context = await fixture(t);
   const pilot = await bootstrapPilot(context, context.tenantA);
   const recipient = digest('r-revoke');
@@ -469,8 +469,12 @@ test('allowlist: revoke หรือหมดอายุ = ปฏิเสธ�
     beginCommand(pilot, run.id, delivery.deliveryId, recipient, 3),
   );
   assert.equal(denial(result), 'LINE_GATE_SCOPE_NOT_ALLOWED');
-  assert.equal((await pilot.plane.findGate(pilot.scope))!.killed, false, 'revoke ปกติไม่ใช่ kill');
-  // revoke ซ้ำไม่ได้ และ tuple ที่อนุมัติแล้วแก้ไม่ได้
+  assert.equal(
+    (await pilot.plane.findGate(pilot.scope))!.killed,
+    false,
+    'a normal revoke is not a kill',
+  );
+  // Cannot revoke twice, and an approved tuple cannot be edited
   assert.equal(
     await pilot.plane.revokeAllowlistEntry(
       compliance,
@@ -485,7 +489,7 @@ test('allowlist: revoke หรือหมดอายุ = ปฏิเสธ�
 
 // ── One-shot run authorization — S2-LINE-AU01 ────────────────────────────────
 
-test('one-shot: worker ห้าตัวแย่ง authorization เดียวได้ผู้ชนะหนึ่งตัว', async (t) => {
+test('one-shot: five workers racing for one authorization yield exactly one winner', async (t) => {
   const context = await fixture(t);
   const pilot = await bootstrapPilot(context, context.tenantA);
   const recipient = digest('r-race');
@@ -514,7 +518,7 @@ test('one-shot: worker ห้าตัวแย่ง authorization เดีย
     consumed?.consumedDeliveryId,
     (authorized[0] as { logicalDelivery: { deliveryId: string } }).logicalDelivery.deliveryId,
   );
-  // ledger มีหน่วย logical delivery ของผู้ชนะใบเดียว
+  // The ledger has the logical delivery unit of only the single winner
   const ledger = await context.control.listActiveCapEntries(
     pilot.tenantId,
     pilot.gate.id,
@@ -523,7 +527,7 @@ test('one-shot: worker ห้าตัวแย่ง authorization เดีย
   assert.equal(ledger.length, 1);
 });
 
-test('restart: instance ใหม่ replay delivery เดิมได้ผลเดิม ไม่ consume ซ้ำและไม่จองเพิ่ม', async (t) => {
+test('restart: a new instance replays the same delivery with the same result, without consuming again or reserving more', async (t) => {
   const context = await fixture(t);
   const pilot = await bootstrapPilot(context, context.tenantA);
   const recipient = digest('r-restart');
@@ -536,7 +540,7 @@ test('restart: instance ใหม่ replay delivery เดิมได้ผล
   );
   assert.equal(first.status, 'AUTHORIZED');
 
-  // process ใหม่: state ทั้งหมดต้องมาจาก Postgres ไม่มีอะไรค้างใน memory ของ instance เดิม
+  // New process: all state must come from Postgres, nothing lingering in the old instance memory
   const restarted = new LineControlPlane({ control: context.control, audit: context.audit });
   const replay = await restarted.beginRun(
     operator,
@@ -548,10 +552,10 @@ test('restart: instance ใหม่ replay delivery เดิมได้ผล
     (await context.control.listActiveCapEntries(pilot.tenantId, pilot.gate.id, 'LOGICAL_DELIVERY'))
       .length,
     1,
-    'replay ต้องไม่จองหน่วยเพิ่ม',
+    'replay must not reserve additional units',
   );
 
-  // ข้าม barrier แล้ว restart อีกครั้ง: ได้สิทธิ์เดิมแต่เป็น POST — ต้องไป reconcile ไม่ใช่ส่งใหม่
+  // Cross the barrier then restart again: gets the same entitlement but it is a POST — must reconcile, not resend
   assert.equal(await restarted.commitDelivery(pilot.tenantId, delivery.deliveryId, at(6)), true);
   const afterBarrier = await restarted.beginRun(
     operator,
@@ -564,7 +568,7 @@ test('restart: instance ใหม่ replay delivery เดิมได้ผล
 
 // ── Caps (#358 §C) — S2-LINE-CC01 ────────────────────────────────────────────
 
-test('cap: 1/recipient/24h และ 3/24h นับจาก ledger และคืนสิทธิ์เมื่อพ้นหน้าต่าง', async (t) => {
+test('cap: 1/recipient/24h and 3/24h are counted from the ledger and the allowance returns once the window passes', async (t) => {
   const context = await fixture(t);
   const pilot = await bootstrapPilot(context, context.tenantA);
 
@@ -583,7 +587,7 @@ test('cap: 1/recipient/24h และ 3/24h นับจาก ledger และ�
 
   const first = digest('r-window-1');
   assert.equal((await send('w1', first, 1)).status, 'AUTHORIZED');
-  // recipient เดิมภายใน 24 ชม. ถูกปฏิเสธก่อน cap ของวัน
+  // The same recipient within 24 hours is rejected before the daily cap
   assert.equal(denial(await send('w1b', first, 2)), 'CONTACT_WINDOW_CAP_EXCEEDED');
 
   assert.equal((await send('w2', digest('r-window-2'), 3)).status, 'AUTHORIZED');
@@ -591,14 +595,14 @@ test('cap: 1/recipient/24h และ 3/24h นับจาก ledger และ�
   assert.equal(
     denial(await send('w4', digest('r-window-4'), 5)),
     'SUBMISSION_WINDOW_CAP_EXCEEDED',
-    `เกิน ${LINE_PILOT_CAPS.logicalDeliveriesPer24h}/24h`,
+    `exceeds ${LINE_PILOT_CAPS.logicalDeliveriesPer24h}/24h`,
   );
 
-  // พ้น 24 ชม. หน้าต่างเลื่อน: recipient เดิมส่งได้อีกครั้ง
+  // After 24 hours the window slides: the same recipient can be sent to again
   assert.equal((await send('w5', first, DAY_MINUTES + 10)).status, 'AUTHORIZED');
 });
 
-test('cap: lifetime 10 ต่อ profile ปิดตายแม้หน้าต่างรายวันจะว่าง', async (t) => {
+test('cap: lifetime 10 per profile is a hard stop even when the daily window is free', async (t) => {
   const context = await fixture(t);
   const pilot = await bootstrapPilot(context, context.tenantA);
   const lifetime = LINE_PILOT_CAPS.logicalDeliveriesLifetime;
@@ -622,7 +626,7 @@ test('cap: lifetime 10 ต่อ profile ปิดตายแม้หน้า
   assert.deepEqual(results, [...Array(lifetime).fill('AUTHORIZED'), 'LIFETIME_CAP_EXCEEDED']);
 });
 
-test('cap: concurrency 1 — ใบที่สองถูกปฏิเสธและคืนหน่วยที่เพิ่งจอง', async (t) => {
+test('cap: concurrency 1 — the second one is rejected and the unit it just reserved is returned', async (t) => {
   const context = await fixture(t);
   const pilot = await bootstrapPilot(context, context.tenantA);
   const firstRecipient = digest('r-conc-1');
@@ -647,7 +651,7 @@ test('cap: concurrency 1 — ใบที่สองถูกปฏิเสธ
   );
   assert.equal(denial(blocked), 'CONCURRENT_SUBMISSION_CAP_EXCEEDED');
 
-  // หน่วยของใบที่ถูกปฏิเสธต้องไม่ค้างกิน budget ของวัน
+  // The unit of the rejected one must not linger and eat the daily budget
   const active = await context.control.listActiveCapEntries(
     pilot.tenantId,
     pilot.gate.id,
@@ -657,7 +661,7 @@ test('cap: concurrency 1 — ใบที่สองถูกปฏิเสธ
     active.map((entry) => entry.deliveryId),
     [deliveryA.deliveryId],
   );
-  // one-shot ถูกเผาไปแล้วตามเจตนา: ต้องเสนอ/อนุมัติใหม่เท่านั้น
+  // The one-shot was burned on purpose: must propose/approve again
   assert.equal((await context.control.findRun(pilot.tenantId, runB.id))?.state, 'CONSUMED');
 
   await pilot.plane.commitDelivery(pilot.tenantId, deliveryA.deliveryId, at(3));
@@ -671,10 +675,10 @@ test('cap: concurrency 1 — ใบที่สองถูกปฏิเสธ
       )
     ).status,
     'AUTHORIZED',
-    'slot ว่างแล้วหลัง commit',
+    'the slot is free after commit',
   );
 
-  // ปลุก delivery ที่ release ไปแล้วไม่ได้ — การนับ cap เชื่อไม่ได้ จึง kill
+  // Cannot wake a delivery that was already released — the cap counting is untrustworthy, so kill
   const resurrect = await pilot.plane.beginRun(
     operator,
     beginCommand(pilot, runB.id, deliveryB.deliveryId, secondRecipient, 5),
@@ -686,7 +690,7 @@ test('cap: concurrency 1 — ใบที่สองถูกปฏิเสธ
   );
 });
 
-test('cap: provider attempt ไม่เกิน 4 ต่อ delivery แล้ว kill อัตโนมัติ', async (t) => {
+test('cap: provider attempts do not exceed 4 per delivery, then automatic kill', async (t) => {
   const context = await fixture(t);
   const pilot = await bootstrapPilot(context, context.tenantA);
   const recipient = digest('r-attempt');
@@ -720,14 +724,14 @@ test('cap: provider attempt ไม่เกิน 4 ต่อ delivery แล้
   assert.equal(denial(exhausted), 'PROVIDER_ATTEMPT_CAP_EXCEEDED');
   const killed = (await pilot.plane.findGate(pilot.scope))!;
   assert.equal(killed.killReason, 'PROVIDER_ATTEMPTS_EXHAUSTED');
-  // scope ที่ถูก kill จองอะไรเพิ่มไม่ได้อีก
+  // A killed scope cannot reserve anything more
   assert.equal(
     denial(await pilot.plane.reserveProviderAttempt(operator, command, killed, run, 1)),
     'LINE_GATE_KILLED',
   );
 });
 
-test('unknown-reconciling: หนึ่งใบค้าง = pause งานใหม่ทั้ง scope แต่ใบเดิมยัง reconcile ต่อได้', async (t) => {
+test('unknown-reconciling: one stuck = pause new work for the whole scope, but the old one can still reconcile', async (t) => {
   const context = await fixture(t);
   const pilot = await bootstrapPilot(context, context.tenantA);
   const firstRecipient = digest('r-unknown-1');
@@ -755,7 +759,7 @@ test('unknown-reconciling: หนึ่งใบค้าง = pause งาน�
     ),
     'CONCURRENT_UNKNOWN_RECONCILING_CAP_EXCEEDED',
   );
-  // ใบที่ค้างยังจอง attempt เพื่อ reconcile ด้วย key เดิมได้
+  // The stuck one can still reserve an attempt to reconcile with the same key
   assert.equal(
     (await pilot.plane.reserveProviderAttempt(operator, commandA, gate, runA, 1)).status,
     'APPLIED',
@@ -780,7 +784,7 @@ test('unknown-reconciling: หนึ่งใบค้าง = pause งาน�
 
 // ── Kill / rollback (#358 §F) ────────────────────────────────────────────────
 
-test('kill: latch ชนะทุก state, อยู่ข้าม restart และยกได้เฉพาะ Compliance ด้วย ref ใหม่', async (t) => {
+test('kill: the latch beats every state, survives restart and can be lifted only by Compliance with a new ref', async (t) => {
   const context = await fixture(t);
   const pilot = await bootstrapPilot(context, context.tenantA);
 
@@ -819,10 +823,14 @@ test('kill: latch ชนะทุก state, อยู่ข้าม restart แ
     'clear',
   );
   assert.equal(cleared.killed, false);
-  assert.equal(cleared.businessState, 'DISABLED', 'ยก kill แล้วต้องเริ่มใหม่จาก DISABLED');
+  assert.equal(
+    cleared.businessState,
+    'DISABLED',
+    'after lifting the kill must start over from DISABLED',
+  );
   assert.equal(cleared.technicalSwitchOn, false);
 
-  // kill รอบถัดไปต้องใช้ ref ใหม่เสมอ ใช้ ref เดิมซ้ำไม่ได้
+  // The next kill must always use a new ref, reusing the old ref is impossible
   const again = await restarted.kill(compliance, cleared, 'PILOT_ROLLBACK', at(4));
   assert.equal(
     denial(await restarted.clearWithApproval(compliance, again, 'approval:kill-clear:0001', at(5))),
@@ -830,7 +838,7 @@ test('kill: latch ชนะทุก state, อยู่ข้าม restart แ
   );
 });
 
-test('kill: ก่อน barrier release หน่วยได้ หลัง barrier ปลดไม่ได้', async (t) => {
+test('kill: before the barrier units can be released, after the barrier they cannot be', async (t) => {
   const context = await fixture(t);
   const pilot = await bootstrapPilot(context, context.tenantA);
   const recipientA = digest('r-barrier-1');
@@ -871,7 +879,7 @@ test('kill: ก่อน barrier release หน่วยได้ หลัง b
   assert.equal(
     await pilot.plane.releaseDelivery(pilot.tenantId, deliveryB.deliveryId, at(6)),
     false,
-    'หน่วยที่ commit แล้วคืนไม่ได้',
+    'a committed unit cannot be returned',
   );
   await pilot.plane.killByActor(compliance, pilot.gate, at(7));
   const ledger = await context.owner.dlLineCapLedgerEntry.findMany({
@@ -881,12 +889,16 @@ test('kill: ก่อน barrier release หน่วยได้ หลัง b
       capKind: 'LOGICAL_DELIVERY',
     },
   });
-  assert.equal(ledger[0]?.state, 'COMMITTED', 'kill ไม่ย้อนหลักฐานที่ข้าม barrier ไปแล้ว');
+  assert.equal(
+    ledger[0]?.state,
+    'COMMITTED',
+    'kill does not rewind evidence that already crossed the barrier',
+  );
 });
 
 // ── Credential (#358 §G) ─────────────────────────────────────────────────────
 
-test('credential: rotation ทำให้ run ที่ pin version เก่าไว้ข้าม barrier ไม่ได้', async (t) => {
+test('credential: rotation stops a run that pinned the old version from crossing the barrier', async (t) => {
   const context = await fixture(t);
   const pilot = await bootstrapPilot(context, context.tenantA);
   const recipient = digest('r-rotate');
@@ -922,7 +934,7 @@ test('credential: rotation ทำให้ run ที่ pin version เก่�
   assert.equal(
     (await context.control.findCredentialRef(pilot.tenantId, pilot.credential.id))?.status,
     'RETIRED',
-    'version เก่าต้องถูก retire ใน transaction เดียวกัน',
+    'the old version must be retired in the same transaction',
   );
 
   assert.equal(
@@ -935,7 +947,7 @@ test('credential: rotation ทำให้ run ที่ pin version เก่�
     'CREDENTIAL_VERSION_MISMATCH',
   );
 
-  // revoke แล้วไม่มี ACTIVE เหลือ: ทุก operation ที่แตะ provider ปิดหมด
+  // After revoke no ACTIVE remains: every operation that touches the provider is closed
   assert.equal(
     await pilot.plane.revokeCredential(operator, pilot.tenantId, rotated.id, at(4)),
     true,
@@ -954,7 +966,7 @@ test('credential: rotation ทำให้ run ที่ pin version เก่�
   );
 });
 
-test('credential: client_id ไม่ตรง Channel ID = ไม่ activate และเป็นสัญญาณ auth failure', async (t) => {
+test('credential: client_id not matching the Channel ID = does not activate and is an auth failure signal', async (t) => {
   const context = await fixture(t);
   const pilot = await bootstrapPilot(context, context.tenantA);
   const candidate = await pilot.plane.registerCredential(
@@ -989,7 +1001,7 @@ test('credential: client_id ไม่ตรง Channel ID = ไม่ activate �
 
 // ── Quota advisory (#358 §D) ─────────────────────────────────────────────────
 
-test('quota: ไม่มี snapshot = ปิด, quota หมด = kill อัตโนมัติ และไม่แทน durable cap', async (t) => {
+test('quota: no snapshot = closed, quota exhausted = automatic kill, and it does not replace the durable cap', async (t) => {
   const context = await fixture(t);
   const pilot = await bootstrapPilot(context, context.tenantA);
   const recipient = digest('r-quota');
@@ -1006,7 +1018,7 @@ test('quota: ไม่มี snapshot = ปิด, quota หมด = kill อั
       }),
     ),
     'LINE_GATE_AUTHORIZATION_DENIED',
-    'อ่าน quota ไม่ได้ = fail closed',
+    'cannot read quota = fail closed',
   );
 
   const exhausted = await pilot.plane.beginRun(operator, {
@@ -1018,13 +1030,13 @@ test('quota: ไม่มี snapshot = ปิด, quota หมด = kill อั
   assert.equal(
     (await context.control.findRun(pilot.tenantId, run.id))?.state,
     'APPROVED',
-    'quota ปิดก่อนถึง one-shot จึงไม่เผา authorization',
+    'quota closes before the one-shot so the authorization is not burned',
   );
 });
 
-// ── Tenant isolation และ audit ───────────────────────────────────────────────
+// ── Tenant isolation and audit ───────────────────────────────────────────────
 
-test('tenant isolation: control plane ของอีก tenant มองไม่เห็นและตอบแบบไม่เผยข้อมูล', async (t) => {
+test('tenant isolation: the control plane of another tenant is invisible and answers without revealing information', async (t) => {
   const context = await fixture(t);
   const pilot = await bootstrapPilot(context, context.tenantA);
   const recipient = digest('r-isolation');
@@ -1032,7 +1044,7 @@ test('tenant isolation: control plane ของอีก tenant มองไม�
   const guard = await bootstrapPilot(context, context.tenantB, { credentialVersion: 1 });
   const guardDelivery = await context.seedDelivery(context.tenantB);
 
-  // tenant B ถือ ID ของ run ฝั่ง A มาใช้ไม่ได้ และคำตอบไม่บอกว่า ID นั้นมีจริง
+  // Tenant B cannot use the ID of a run on side A, and the answer does not reveal that the ID really exists
   const crossTenant = await guard.plane.beginRun(operator, {
     ...beginCommand(guard, run.id, guardDelivery.deliveryId, recipient, 2),
     tenantId: context.tenantB,
@@ -1043,7 +1055,7 @@ test('tenant isolation: control plane ของอีก tenant มองไม�
   assert.equal((await context.control.findRun(pilot.tenantId, run.id))?.state, 'APPROVED');
 });
 
-test('audit: ทุกคำสั่งมีแถว append-only, replay ไม่เพิ่มแถว และไม่มี field ต้องห้าม', async (t) => {
+test('audit: every command has an append-only row, replay adds no row, and there is no forbidden field', async (t) => {
   const context = await fixture(t);
   const pilot = await bootstrapPilot(context, context.tenantA);
   const recipient = digest('r-audit');
@@ -1070,7 +1082,7 @@ test('audit: ทุกคำสั่งมีแถว append-only, replay ไ�
     'RUN_CONSUMED',
     'CAP_RESERVED',
   ]) {
-    assert.ok(codes.includes(expected), `ขาด audit ${expected}`);
+    assert.ok(codes.includes(expected), `missing audit ${expected}`);
   }
   assert.deepEqual([...new Set(events.map((event) => event.actorKind))].sort(), [
     'COMPLIANCE',
@@ -1082,7 +1094,7 @@ test('audit: ทุกคำสั่งมีแถว append-only, replay ไ�
     assert.doesNotThrow(() => assertRedactedPayload(event));
   }
 
-  // replay คำสั่งเดิมด้วยค่าเดิม: audit ต้องไม่งอก
+  // Replaying the same command with the same values: audit must not grow
   const before = events.length;
   await pilot.plane.beginRun(
     operator,
@@ -1090,7 +1102,7 @@ test('audit: ทุกคำสั่งมีแถว append-only, replay ไ�
   );
   assert.equal((await context.audit.list(pilot.tenantId)).length, before);
 
-  // หลักฐานแก้ย้อนหลังไม่ได้แม้เป็น application role
+  // Evidence cannot be edited retroactively even by the application role
   await assert.rejects(
     context.asApplication(
       pilot.tenantId,

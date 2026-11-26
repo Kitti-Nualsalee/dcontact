@@ -13,7 +13,7 @@ export function createJourneyKafkaPublisher(producer: DcProducer): JourneyEventP
         tenantId,
         occurredAt: event.occurredAt,
         correlationId: receiptId,
-        // receiptId มีอยู่ก่อน resolve contact จึงปลอดภัยสำหรับใช้เป็น ingress ordering key.
+        // receiptId exists before the contact is resolved, so it is safe to use as the ingress ordering key.
         orderingKey: receiptId,
         aggregateType: 'journey_event_receipt',
         aggregateId: receiptId,

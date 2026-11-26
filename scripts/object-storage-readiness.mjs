@@ -1,8 +1,8 @@
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 
-// ADR-029: readiness ของ object storage ตรวจด้วย S3 API (`HeadBucket`) ไม่ใช้ endpoint เฉพาะของผู้ผลิต
-// env ชุดเดียวกับแอป (`S3_*`, fallback `MINIO_*`); ค่า default ตรงกับ dev compose
+// ADR-029: object storage readiness is checked with the S3 API (`HeadBucket`), not a vendor-specific endpoint
+// the same env as the app (`S3_*`, fallback `MINIO_*`); defaults match the dev compose
 export const DEV_BUCKETS = ['recordings', 'governance-exports', 'uat-evidence'];
 
 export function objectStorageConfiguration(environment = process.env) {
@@ -19,19 +19,19 @@ export function objectStorageConfiguration(environment = process.env) {
   };
 }
 
-/** โหลด client จาก workspace ของแอป เพราะ root ไม่มี `@aws-sdk/client-s3` เป็น dependency */
+/** Load the client from the app workspace because the root does not have `@aws-sdk/client-s3` as a dependency */
 export async function loadS3() {
   const require = createRequire(new URL('../apps/api/package.json', import.meta.url));
   return import(pathToFileURL(require.resolve('@aws-sdk/client-s3')).href);
 }
 
-/** presigner อยู่ใน workspace ของแอปเช่นกัน (ใช้ใน contract test) */
+/** the presigner is in the app workspace too (used in the contract test) */
 export async function loadPresigner() {
   const require = createRequire(new URL('../apps/api/package.json', import.meta.url));
   return import(pathToFileURL(require.resolve('@aws-sdk/s3-request-presigner')).href);
 }
 
-/** คืนรายชื่อ bucket ที่ใช้ไม่ได้ พร้อมเหตุผล; ว่าง = พร้อม */
+/** Return the list of buckets that are unusable with the reason; empty = ready */
 export async function missingBuckets({
   environment = process.env,
   buckets = DEV_BUCKETS,

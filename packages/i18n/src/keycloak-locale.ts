@@ -1,10 +1,10 @@
 /**
- * D1.11 (#450): ภาษาและ timezone ของผู้ใช้เก็บใน Keycloak (D1.5) เพื่อให้หน้า login และอีเมลของ
- * Keycloak ตรงกับแอป และตามผู้ใช้ข้ามเครื่อง
+ * D1.11 (#450): the user's language and timezone are stored in Keycloak (D1.5) so the Keycloak login page and emails
+ * match the app, and follow the user across devices
  *
- * - อ่าน: claim `locale` และ `zoneinfo` ที่ scope `profile` ของ Keycloak ใส่ใน ID token อยู่แล้ว
- * - เขียน: Keycloak Account REST API (`{issuer}/account`) ด้วย access token ของผู้ใช้เอง
- *   API ของ D-Contact จึงไม่ต้องถือสิทธิ์ admin ของ realm เพื่อแก้ข้อมูลผู้ใช้
+ * - read: the `locale` and `zoneinfo` claims that Keycloak's `profile` scope already puts in the ID token
+ * - write: Keycloak Account REST API (`{issuer}/account`) with the user's own access token,
+ *   so the D-Contact API does not need realm admin rights to edit user data
  */
 import { normalizeLocale, isIanaTimeZone, type SupportedLocale } from './locale.js';
 
@@ -13,7 +13,7 @@ export interface UserLocalePreference {
   timeZone?: string;
 }
 
-/** รับ `profile` ของ oidc-client-ts (claims ของ ID token) */
+/** takes the `profile` of oidc-client-ts (ID token claims) */
 export function readUserLocalePreference(
   claims: Record<string, unknown> | undefined,
 ): UserLocalePreference {
@@ -23,7 +23,7 @@ export function readUserLocalePreference(
 }
 
 export interface SaveUserLocaleInput {
-  /** issuer ของ realm เช่น `http://localhost:8081/realms/dcontact` */
+  /** realm issuer, e.g. `http://localhost:8081/realms/dcontact` */
   issuer: string;
   accessToken: string;
   locale: SupportedLocale;
@@ -32,14 +32,14 @@ export interface SaveUserLocaleInput {
 
 export class UserLocaleSaveError extends Error {
   constructor(readonly status: number) {
-    super(`บันทึกภาษาของผู้ใช้ไม่สำเร็จ (${status})`);
+    super(`failed to save the user's language (${status})`);
     this.name = 'UserLocaleSaveError';
   }
 }
 
 /**
- * Account API แทนที่ทั้ง representation จึงต้องอ่านของเดิมก่อนแล้วเปลี่ยนเฉพาะ `attributes.locale`
- * ไม่เช่นนั้นชื่อ/อีเมลที่ไม่ได้ส่งไปจะถูกล้าง
+ * The Account API replaces the whole representation, so read the existing one first and change only `attributes.locale`,
+ * otherwise the name/email that was not sent would be cleared
  */
 export async function saveUserLocale(input: SaveUserLocaleInput): Promise<void> {
   const request = input.fetch ?? fetch;

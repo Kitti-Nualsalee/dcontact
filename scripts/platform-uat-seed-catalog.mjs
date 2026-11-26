@@ -1,10 +1,10 @@
-/** A1.9 (#574): catalog สังเคราะห์สำหรับ UAT เท่านั้น; ไม่สร้าง tenant หรือ PII */
+/** A1.9 (#574): a synthetic catalog for UAT only; creates no tenant or PII */
 import { PrismaClient } from '@d-contact/db';
 import { PlatformCatalog } from '@d-contact/platform-control';
 import { canonicalJson } from '@d-contact/shared';
 
 const url = process.env.PLATFORM_DATABASE_URL;
-if (!url || !url.includes('/dcontact_uat?')) throw new Error('ต้องใช้ dcontact_uat เท่านั้น');
+if (!url || !url.includes('/dcontact_uat?')) throw new Error('only dcontact_uat may be used');
 const database = new PrismaClient({ datasources: { db: { url } } });
 const catalog = new PlatformCatalog(database);
 const manifest = {
@@ -29,7 +29,7 @@ try {
     version: 'uat-operational-v1',
     manifest,
   });
-  if (template.status !== 'ACTIVE') throw new Error('UAT template ไม่ ACTIVE');
+  if (template.status !== 'ACTIVE') throw new Error('the UAT template is not ACTIVE');
   for (const [planCode, entitlements] of Object.entries(plans)) {
     const existing = await database.pfPlanVersion.findFirst({
       where: { planCode, status: 'ACTIVE' },
@@ -37,7 +37,9 @@ try {
     });
     if (existing) {
       if (canonicalJson(existing.entitlements) !== canonicalJson(entitlements)) {
-        throw new Error(`plan ${planCode} มี ACTIVE version เนื้อหาไม่ตรง UAT seed`);
+        throw new Error(
+          `plan ${planCode} has an ACTIVE version whose content does not match the UAT seed`,
+        );
       }
     } else {
       await catalog.publishPlanVersion({ planCode, entitlements });

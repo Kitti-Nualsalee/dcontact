@@ -1,8 +1,8 @@
 /**
- * U1.9 (#506) — fixture pack ของ UAT first slice ที่ commit ไว้ (template + renderer + example) ต้องไม่ rot:
- * render ได้, ผ่าน parser/negative scan ของ U1.1/U1.8, digest คงที่, baseline ผ่าน J5 validate/compile/simulate
- * ตามที่ step catalog บอก, catalog ครบทุกข้อของ walkthrough #416 และ example ที่ยังไม่กรอกถูกปฏิเสธ
- * (ส่วนที่ต้องใช้ Postgres อยู่ใน `uat-fixture-pack.integration.ts`)
+ * U1.9 (#506) — the committed UAT first slice fixture pack (template + renderer + example) must not rot:
+ * it renders, passes the U1.1/U1.8 parser/negative scan, has a stable digest, the baseline passes J5 validate/compile/simulate
+ * as the step catalog says, the catalog covers every item of the #416 walkthrough, and an unfilled example is rejected
+ * (the parts that need Postgres are in `uat-fixture-pack.integration.ts`)
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -33,7 +33,7 @@ const readJson = (path: string) => JSON.parse(readFileSync(path, 'utf8')) as Rec
 const template = readJson(TEMPLATE_PATH);
 const example = readJson(EXAMPLE_PATH);
 
-/** ค่าสังเคราะห์คงที่แทนค่าจาก secret store — ไม่ใช่ข้อมูลจริงของใคร */
+/** fixed synthetic values standing in for secret store values — not anyone's real data */
 const SYNTHETIC_FILL = Object.freeze({
   tenantId: '0b9d6a52-1f0e-4c1a-9a51-7d7c2f9e0001',
   ownerTeamId: '0b9d6a52-1f0e-4c1a-9a51-7d7c2f9e0002',
@@ -42,7 +42,7 @@ const SYNTHETIC_FILL = Object.freeze({
   buildSha: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678',
 });
 
-/** สำเนาของ example ที่กรอกแล้ว (แบบที่ operator ทำจาก secret store) */
+/** a copy of the filled example (as an operator makes it from the secret store) */
 function filledExample(overrides: Partial<Record<keyof typeof SYNTHETIC_FILL, string>> = {}) {
   const ids = { ...SYNTHETIC_FILL, ...overrides };
   const short = ids.tenantId.slice(0, 8);
@@ -53,12 +53,12 @@ function filledExample(overrides: Partial<Record<keyof typeof SYNTHETIC_FILL, st
     maker: {
       dcUserId: ids.maker,
       email: `maker-${short}@uat-tester.example`,
-      displayName: `ผู้ทดสอบ Maker ${short}`,
+      displayName: `Tester Maker ${short}`,
     },
     reviewer: {
       dcUserId: ids.reviewer,
       email: `reviewer-${short}@uat-tester.example`,
-      displayName: `ผู้ทดสอบ Reviewer ${short}`,
+      displayName: `Tester Reviewer ${short}`,
     },
     rollout: { ...example.rollout, evidenceRef: 'u1-9-fixture-test' },
     fixturePack: { ...example.fixturePack, packVersion: 'uat-first-slice-1' },
@@ -97,7 +97,7 @@ function compile(document: unknown) {
   );
 }
 
-/** MAKER_EDIT ของ catalog: แทรก WAIT หลัง SEND (Console ตั้ง node id เอง — ที่นี่ใช้ `wait-1`) */
+/** MAKER_EDIT of the catalog: insert a WAIT after SEND (the Console sets the node id itself — here `wait-1` is used) */
 function withInsertedWait(document: AuthoringDocumentV1, waitSeconds = 600): AuthoringDocumentV1 {
   return {
     ...document,
@@ -122,13 +122,13 @@ function withInsertedWait(document: AuthoringDocumentV1, waitSeconds = 600): Aut
 }
 
 /**
- * walkthrough ของ #416 และรายการ step ของ #379 → stepId ที่ต้องมีใน catalog
- * stepId ที่ซ้ำกับ `U1_STEP_CATALOG` ของ acceptance gate (U1.7 #435) ใช้ id/expected เดียวกัน
+ * #416 walkthrough and #379 step list → the stepIds that must be in the catalog
+ * a stepId that duplicates `U1_STEP_CATALOG` of the acceptance gate (U1.7 #435) uses the same id/expected
  */
 const WALKTHROUGH_STEPS: Readonly<Record<string, readonly string[]>> = Object.freeze({
-  'login ของ maker ด้วย TOTP': ['MAKER_LOGIN_TOTP', 'LOGIN_WITHOUT_TOTP_REFUSED'],
-  'สร้าง/แก้ Journey': ['RUN_OPENED', 'BASELINE_OPEN', 'MAKER_EDIT'],
-  'validate และแก้ตาม diagnostic': ['DIAGNOSTIC_RECOVERY'],
+  'maker login with TOTP': ['MAKER_LOGIN_TOTP', 'LOGIN_WITHOUT_TOTP_REFUSED'],
+  'create/edit a Journey': ['RUN_OPENED', 'BASELINE_OPEN', 'MAKER_EDIT'],
+  'validate and fix per diagnostic': ['DIAGNOSTIC_RECOVERY'],
   'compile, preview, simulate': [
     'COMPILE',
     'PREVIEW_PLAN',
@@ -137,25 +137,25 @@ const WALKTHROUGH_STEPS: Readonly<Record<string, readonly string[]>> = Object.fr
     'SIMULATE_REPEATABLE',
     'SIMULATION_NOT_DELIVERY',
   ],
-  ส่งตรวจ: ['SUBMIT_REVIEW'],
-  'reviewer login และหา candidate เอง': ['REVIEWER_LOGIN_TOTP', 'REVIEW_APPROVE'],
-  'ตรวจ candidate ตรงตัวแล้วอนุมัติ': ['REVIEW_APPROVE'],
-  อนุมัติงานตัวเองถูกปฏิเสธ: ['SELF_APPROVAL_REJECTED'],
-  'maker publish และ version/receipt ที่เป็นทางการ': ['PUBLISH'],
+  'submit for review': ['SUBMIT_REVIEW'],
+  'reviewer login and finds the candidate themselves': ['REVIEWER_LOGIN_TOTP', 'REVIEW_APPROVE'],
+  'check the exact candidate and approve': ['REVIEW_APPROVE'],
+  'approving own work is rejected': ['SELF_APPROVAL_REJECTED'],
+  'maker publish and the official version/receipt': ['PUBLISH'],
   audit: ['AUDIT'],
-  'เริ่มรอบใหม่ และ rerun': ['RUN_OPENED', 'BASELINE_OPEN', 'RUN_RESTART_BLOCKED_IN_REVIEW'],
+  'start a new round and rerun': ['RUN_OPENED', 'BASELINE_OPEN', 'RUN_RESTART_BLOCKED_IN_REVIEW'],
   'failure/recovery': ['FAILURE_STALE_TAB', 'FAILURE_RETRY_NO_DUPLICATE'],
-  'session หมดอายุ': ['SESSION_EXPIRED'],
+  'session expired': ['SESSION_EXPIRED'],
   'refresh / deep link / Back / Forward': ['NAV_REFRESH', 'NAV_DEEP_LINK', 'NAV_BACK_FORWARD'],
   'accessibility (keyboard/focus)': ['A11Y_KEYBOARD', 'A11Y_FOCUS'],
-  'ไม่มีขั้น CLI/DB': ['NO_CLI_OR_DB'],
-  'แนบหลักฐานและ export bundle ที่ผ่าน scan': [
+  'no CLI/DB step': ['NO_CLI_OR_DB'],
+  'attach evidence and export a bundle that passes the scan': [
     'EVIDENCE_UPLOAD',
     'STEP_RESULTS_RECORDED',
     'EVIDENCE_EXPORT_BUNDLE',
   ],
 });
-/** step ของ acceptance gate U1.7 (`U1_STEP_CATALOG`) — ต้องอยู่ใน pack ครบและเรียงลำดับเดียวกัน */
+/** steps of the U1.7 acceptance gate (`U1_STEP_CATALOG`) — must all be in the pack in the same order */
 const GATE_STEP_IDS = [
   'RUN_OPENED',
   'MAKER_EDIT',
@@ -176,12 +176,12 @@ const SIMULATION_ONLY_STEPS = [
 ];
 
 /**
- * digest ของ pack ที่ render ด้วย `SYNTHETIC_FILL` — เปลี่ยนเมื่อเนื้อหา template เปลี่ยน ซึ่งต้องออกเป็น
- * template/pack version ใหม่ (pack version เดิมที่ provision แล้วจะได้ `FIXTURE_PACK_DIGEST_MISMATCH`)
+ * digest of the pack rendered with `SYNTHETIC_FILL` — changes when the template content changes, which must be issued as a
+ * new template/pack version (an already provisioned pack of the old version would get `FIXTURE_PACK_DIGEST_MISMATCH`)
  */
 const PINNED_DIGEST = '54be2b86acebed6609fbe500366201c3a29220d9d7390c7ac5223ad377dde2f3';
 
-test('U1.9 template มีแต่ข้อมูลสังเคราะห์ + placeholder ของ deployment ครบชุดเดียว', () => {
+test('U1.9 the template has only synthetic data + a single complete set of deployment placeholders', () => {
   assert.deepEqual(scanUatText(readFileSync(TEMPLATE_PATH, 'utf8')), []);
   assert.deepEqual(scanUatText(readFileSync(EXAMPLE_PATH, 'utf8')), []);
   const placeholders = [...readFileSync(TEMPLATE_PATH, 'utf8').matchAll(/__UAT_[A-Z0-9_]+__/g)]
@@ -196,11 +196,11 @@ test('U1.9 template มีแต่ข้อมูลสังเคราะห
     '__UAT_REVIEWER_SUBJECT_ID__',
     '__UAT_TENANT_ID__',
   ]);
-  // template ตรงตัวยัง provision ไม่ได้ (ไม่มี UUID จริง)
+  // the exact template cannot be provisioned yet (no real UUID)
   assert.throws(() => parseUatFixturePackManifest(template));
 });
 
-test('U1.9 render ได้ input UatProvisionV1 ที่ parser ของ U1.8/U1.1 รับ และ digest คงที่', () => {
+test('U1.9 renders a UatProvisionV1 input that the U1.8/U1.1 parser accepts, with a stable digest', () => {
   const first = render(filledExample());
   assert.equal(first.code, 0, first.stderr);
   assert.deepEqual(first.status, {
@@ -209,8 +209,8 @@ test('U1.9 render ได้ input UatProvisionV1 ที่ parser ของ U1.8
     template: 'uat-first-slice.v1',
     steps: String(template.steps.length),
   });
-  // stderr ไม่สะท้อนค่าจาก input (อีเมล/ชื่อ)
-  assert.doesNotMatch(first.stderr, /@|ผู้ทดสอบ/);
+  // stderr does not echo values from the input (email/name)
+  assert.doesNotMatch(first.stderr, /@|Tester/);
   const rendered = first.output!;
   const input = parseUatProvisionInput(rendered);
   const manifest = parseUatFixturePackManifest(input.fixturePack);
@@ -221,7 +221,7 @@ test('U1.9 render ได้ input UatProvisionV1 ที่ parser ของ U1.8
   assert.equal(manifest.ownerTeamId, SYNTHETIC_FILL.ownerTeamId);
   assert.equal(manifest.makerSubjectId, SYNTHETIC_FILL.maker);
   assert.equal(manifest.reviewerSubjectId, SYNTHETIC_FILL.reviewer);
-  // ส่วนอื่นของ input ไม่ถูกแตะ
+  // the other parts of the input are untouched
   assert.deepEqual({ ...rendered, fixturePack: null }, { ...filledExample(), fixturePack: null });
   assert.deepEqual(scanUatText(JSON.stringify(rendered.fixturePack)), []);
 
@@ -232,7 +232,7 @@ test('U1.9 render ได้ input UatProvisionV1 ที่ parser ของ U1.8
     digest,
   );
   assert.equal(digest, PINNED_DIGEST);
-  // ค่าของ deployment อยู่ใน digest: build SHA อื่น = digest อื่น
+  // deployment values are in the digest: a different build SHA = a different digest
   const other = render(filledExample(), ['--build-sha', 'f'.repeat(40)]);
   assert.notEqual(
     uatFixturePackDigest(parseUatFixturePackManifest(other.output!.fixturePack)),
@@ -240,10 +240,10 @@ test('U1.9 render ได้ input UatProvisionV1 ที่ parser ของ U1.8
   );
 });
 
-test('U1.9 baseline + MAKER_EDIT (EVENT_TRIGGER → SEND → WAIT → EXIT) ผ่าน J5 validate/compile/preview/simulate ตามที่ catalog บอก', () => {
+test('U1.9 baseline + MAKER_EDIT (EVENT_TRIGGER → SEND → WAIT → EXIT) pass J5 validate/compile/preview/simulate as the catalog says', () => {
   const manifest = parseUatFixturePackManifest(render(filledExample()).output!.fixturePack);
   const document = manifest.baselineDocument as unknown as AuthoringDocumentV1;
-  // baseline เดียวกับ acceptance gate U1.7: EVENT_TRIGGER → SEND → EXIT แล้ว maker แทรก WAIT เอง
+  // same baseline as the U1.7 acceptance gate: EVENT_TRIGGER → SEND → EXIT, then the maker inserts WAIT themselves
   assert.equal(document.trigger.type, 'EVENT_TRIGGER');
   assert.deepEqual(
     document.nodes.map((node) => [node.nodeId, node.type]),
@@ -252,14 +252,14 @@ test('U1.9 baseline + MAKER_EDIT (EVENT_TRIGGER → SEND → WAIT → EXIT) ผ�
       ['done', 'EXIT'],
     ],
   );
-  // ref ของ manifest ตรงกับที่ baseline ใช้จริง
+  // the manifest refs match what the baseline actually uses
   assert.equal(document.settings.senderIdentityId, manifest.senderRef);
   assert.deepEqual(document.nodes[0]!.type === 'SEND' && document.nodes[0]!.config, {
     channel: 'LINE',
     contentRef: manifest.contentRef,
   });
   const fixture = manifest.simulationFixture as SimulationFixtureV1;
-  // ไม่มี sendOutcomes ของ SEND = simulation จบพร้อม PREVIEW_FIXTURE_INVALID (สิ่งที่ gate พบ)
+  // no sendOutcomes for SEND = the simulation ends with PREVIEW_FIXTURE_INVALID (what the gate found)
   assert.deepEqual(fixture.sendOutcomes, { 'send-1': 'SENT' });
   const simulate = (doc: AuthoringDocumentV1) =>
     simulateJourneyScenario(compile(doc).artifact!, fixture, { evaluator, capabilities });
@@ -302,7 +302,7 @@ test('U1.9 baseline + MAKER_EDIT (EVENT_TRIGGER → SEND → WAIT → EXIT) ผ�
     );
   }
 
-  // DIAGNOSTIC_RECOVERY: ตัดเส้นถัดไปของ WAIT = PORT_CARDINALITY_INVALID ที่ node และยังบันทึกได้
+  // DIAGNOSTIC_RECOVERY: cutting the next edge of WAIT = PORT_CARDINALITY_INVALID at the node and it can still be saved
   const edited = withInsertedWait(document);
   const broken = { ...edited, edges: edited.edges.filter((e) => e.edgeId !== 'wait-1.next') };
   assert.deepEqual(
@@ -316,7 +316,7 @@ test('U1.9 baseline + MAKER_EDIT (EVENT_TRIGGER → SEND → WAIT → EXIT) ผ�
   assert.equal(compile(broken).artifact, null);
 });
 
-test('U1.9 step catalog ครอบทุกข้อของ walkthrough #416/#379 ด้วย stepId คงที่และป้ายสถานะถูก', () => {
+test('U1.9 the step catalog covers every item of the #416/#379 walkthrough with fixed stepIds and correct state labels', () => {
   const manifest = parseUatFixturePackManifest(render(filledExample()).output!.fixturePack);
   const steps = manifest.steps;
   assert.ok(steps.length <= 60);
@@ -324,21 +324,21 @@ test('U1.9 step catalog ครอบทุกข้อของ walkthrough #416
   assert.equal(new Set(ids).size, ids.length);
   for (const step of steps) {
     assert.match(step.stepId, UAT_STEP_ID_PATTERN);
-    // title ของ step จาก gate U1.7 คงตามต้นฉบับ (เช่น `Publish`) เพื่อให้ #416 มี catalog เดียว
+    // the step title from gate U1.7 stays as originally written (e.g. `Publish`) so #416 has a single catalog
     if (!GATE_STEP_IDS.includes(step.stepId)) {
-      assert.match(step.title, /[\u0E00-\u0E7F]/, `title ภาษาไทย: ${step.stepId}`);
+      assert.match(step.title, /[\u0E00-\u0E7F]/, `Thai title: ${step.stepId}`);
     }
-    assert.match(step.expected, /[\u0E00-\u0E7F]/, `expected ภาษาไทย: ${step.stepId}`);
+    assert.match(step.expected, /[\u0E00-\u0E7F]/, `Thai expected: ${step.stepId}`);
   }
-  // หนึ่ง catalog สำหรับ #416: step ของ gate อยู่ครบ ตามลำดับเดิม
+  // one catalog for #416: the gate steps are all there, in the original order
   assert.deepEqual(
     ids.filter((id) => GATE_STEP_IDS.includes(id)),
     GATE_STEP_IDS,
   );
   for (const [item, required] of Object.entries(WALKTHROUGH_STEPS)) {
-    for (const stepId of required) assert.ok(ids.includes(stepId), `${item}: ขาด ${stepId}`);
+    for (const stepId of required) assert.ok(ids.includes(stepId), `${item}: missing ${stepId}`);
   }
-  // ไม่มี step ลอยที่ไม่ได้ผูกกับข้อใดของ walkthrough (ยกเว้นป้าย profile UAT ที่เป็นเงื่อนไขก่อนเริ่ม)
+  // no stray step that is not tied to any walkthrough item (except the UAT profile label, a precondition before starting)
   const covered = new Set([...Object.values(WALKTHROUGH_STEPS).flat(), 'UAT_PROFILE_VISIBLE']);
   assert.deepEqual(
     ids.filter((id) => !covered.has(id)),
@@ -353,7 +353,7 @@ test('U1.9 step catalog ครอบทุกข้อของ walkthrough #416
   }
 });
 
-test('U1.9 example ที่ยังไม่กรอกหรือยังไม่ render ถูกปฏิเสธทั้ง renderer และ parser ของ CLI', () => {
+test('U1.9 an unfilled or unrendered example is rejected by both the renderer and the CLI parser', () => {
   const rejects = (value: unknown, code: string, field?: string) =>
     assert.throws(
       () => parseUatProvisionInput(value),
@@ -365,7 +365,7 @@ test('U1.9 example ที่ยังไม่กรอกหรือยัง�
       },
     );
   rejects(example, 'INPUT_PLACEHOLDER', 'tenant.id');
-  // field อิสระที่รูปแบบรับ `__UAT_…__` ได้ก็ยังถูกดัก
+  // a free field whose format accepts `__UAT_…__` is still caught
   const filled = filledExample();
   rejects(
     { ...filled, tenant: { ...filled.tenant, name: '__UAT_TENANT_NAME__' } },
@@ -373,7 +373,7 @@ test('U1.9 example ที่ยังไม่กรอกหรือยัง�
     'tenant.name',
   );
   rejects(filled, 'FIXTURE_PACK_NOT_RENDERED', 'fixturePack.template');
-  // template ตรง ๆ แทน manifest
+  // the template itself instead of a manifest
   rejects({ ...filled, fixturePack: template }, 'INPUT_PLACEHOLDER', 'fixturePack.environment');
 
   const renderRejects = (input: unknown, code: string, field?: string, argv?: string[]) => {
@@ -383,7 +383,7 @@ test('U1.9 example ที่ยังไม่กรอกหรือยัง�
     assert.equal(result.status.status, 'FAIL');
     assert.equal(result.status.code, code, JSON.stringify(result.status));
     if (field) assert.equal(result.status.field, field);
-    assert.doesNotMatch(result.stderr, /@|ผู้ทดสอบ/);
+    assert.doesNotMatch(result.stderr, /@|Tester/);
   };
   renderRejects(example, 'PLACEHOLDER_UNFILLED', 'tenant.id');
   renderRejects(
@@ -403,6 +403,6 @@ test('U1.9 example ที่ยังไม่กรอกหรือยัง�
     'fixturePack',
   );
   renderRejects('{not json', 'INPUT_UNREADABLE');
-  // render แล้วซ้ำอีกรอบไม่ได้ (stub หายไปแล้ว)
+  // rendered once, it cannot be rendered again (the stub is gone)
   renderRejects(render(filled).output, 'INPUT_INVALID', 'fixturePack');
 });

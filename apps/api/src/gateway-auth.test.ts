@@ -142,7 +142,7 @@ test('API Gateway exposes 401/403 and derives tenant context only from verified 
   assert.doesNotMatch(serializedDiagnostics, /agent-token|invalid-token|must-not-be-logged/);
 });
 
-test('service route ต้องมี governance:read scope และ derivation tenant/client มาจาก token', async (t) => {
+test('a service route needs the governance:read scope and the tenant/client derivation comes from the token', async (t) => {
   const verifier = {
     verifyAccessToken: async (token: string) => {
       if (token === 'read') return serviceClaims('governance:read');
@@ -174,7 +174,7 @@ test('service route ต้องมี governance:read scope และ derivatio
   assert.deepEqual(await accepted.json(), { tenantId, clientId: 'governance-reader' });
 });
 
-test('A1.8a (#447): tenant ที่ยังไม่ ACTIVE ถูกปฏิเสธ 401 ทั้ง workspace และ service identity', async (t) => {
+test('A1.8a (#447): a tenant that is not yet ACTIVE is rejected with 401 for both workspace and service identity', async (t) => {
   const diagnostics: GatewayDiagnostic[] = [];
   let active = false;
   const checked: string[] = [];
@@ -217,7 +217,7 @@ test('A1.8a (#447): tenant ที่ยังไม่ ACTIVE ถูกปฏิ
       ...(method === 'POST' ? { body: '{}' } : {}),
     });
 
-  // first admin ของ tenant ที่ยัง PROVISIONING: token ถูกต้องแต่เข้าไม่ได้ และตอบเหมือน token ใช้ไม่ได้
+  // the first admin of a tenant still PROVISIONING: a valid token but cannot enter, and answers like an unusable token
   const denied = await call('/probe', 'first-admin-token');
   assert.equal(denied.status, 401);
   assert.deepEqual(checked, [tenantId]);
@@ -226,7 +226,7 @@ test('A1.8a (#447): tenant ที่ยังไม่ ACTIVE ถูกปฏิ
     [{ event: 'gateway.request.denied', reason: 'unauthenticated' }],
   );
 
-  // service identity (client_credentials) ของ tenant ที่ยังไม่ ACTIVE ก็เข้าไม่ได้
+  // the service identity (client_credentials) of a tenant that is not yet ACTIVE also cannot enter
   assert.equal((await call('/service-probe', 'service-token')).status, 401);
 
   active = true;

@@ -1,9 +1,9 @@
 import { type Page, type Request } from '@playwright/test';
 
 /**
- * J5.6 (#344) + D1.14/D1.16: mock ของ `/api/v1/journey-authoring/**` แบบมี state และ navigation ของ shell
- * ใช้ร่วมระหว่าง `e2e/journey-authoring.spec.ts` และ `e2e-evidence/d1-visual-evidence.spec.ts`
- * ข้อมูลเป็น synthetic ทั้งหมด ไม่มี PII
+ * J5.6 (#344) + D1.14/D1.16: stateful mock of `/api/v1/journey-authoring/**` and the shell navigation
+ * shared between `e2e/journey-authoring.spec.ts` and `e2e-evidence/d1-visual-evidence.spec.ts`
+ * the data is entirely synthetic with no PII
  */
 
 export const JOURNEY_ID = '6f1b2c3d-4e5f-4a60-8b7c-9d0e1f2a3b41';
@@ -63,7 +63,7 @@ export interface JourneyState {
   notices: Json[];
 }
 
-/** capability ที่ server คืนตาม persona — reviewer ไม่มีสิทธิ์แก้/publish */
+/** capabilities the server returns per persona — a reviewer has no edit/publish permission */
 export const PERMISSIONS = {
   author: { edit: true, review: true, publish: true },
   reviewer: { edit: false, review: true, publish: false },
@@ -72,7 +72,7 @@ export const PERMISSIONS = {
 export class AuthoringMock {
   readonly requests: Request[] = [];
   readonly journeys = new Map<string, JourneyState>();
-  /** ครั้งถัดไปที่ PUT draft จะเจอ revision ใหม่จากคนอื่นก่อน */
+  /** the next PUT draft will meet a new revision from someone else first */
   concurrentEdit = false;
   publishUnknown = false;
   publishCommitted = false;
@@ -117,7 +117,7 @@ export class AuthoringMock {
   }
 
   async install(page: Page) {
-    // API ที่ไม่ใช่ UAT ไม่มี route profile — Console ต้องไม่แสดง UI ของ UAT (U1.4 #432)
+    // a non-UAT API has no profile route — Console must not show the UAT UI (U1.4 #432)
     await page.route('**/api/v1/runtime-profile', (route) =>
       route.fulfill({ status: 404, json: { message: 'Not Found' } }),
     );
@@ -125,7 +125,7 @@ export class AuthoringMock {
       const request = route.request();
       this.requests.push(request);
       const path = new URL(request.url()).pathname.replace('/api/v1/journey-authoring', '');
-      // ภาพหน้าจอเป็น raw body — parse JSON เฉพาะ request ที่เป็น JSON
+      // a screenshot is a raw body — parse JSON only for requests that are JSON
       const isJson = (request.headers()['content-type'] ?? '').startsWith('application/json');
       const body = ((isJson ? request.postDataJSON() : null) ?? {}) as Json;
       const reply = (status: number, payload: unknown) =>

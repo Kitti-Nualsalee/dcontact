@@ -1,10 +1,10 @@
 /**
- * #868: หลักฐาน identity และผลภายนอกของ People ก่อน/หลังสลับ API รุ่นบน UAT
+ * #868: identity evidence and external results of People before/after switching the API version on UAT
  *
- * อ่าน application DB ด้วย worker principal ใน transaction read-only แล้วอ่าน receipt ฝั่ง Keycloak ผ่าน GET
- * ของ extension ด้วย adapter เดียวกับ worker (`readOutcome`) ไม่เรียก POST, ไม่ส่งเมล และไม่คืน secret/token/PII
- * Keycloak ทำงานเฉพาะ operation ที่ application บันทึกไว้ก่อน การไล่ทุก operation/step/generation จาก DB จึงจับได้ทั้ง
- * receipt ที่ไม่ตรงและผลฝั่ง provider ที่ application ไม่มีบันทึก
+ * reads the application DB with the worker principal in a read-only transaction, then reads the Keycloak-side receipt through GET
+ * of the extension with the same adapter as the worker (`readOutcome`), without calling POST, sending mail or returning a secret/token/PII
+ * Keycloak acts only on operations the application recorded first, so walking every operation/step/generation from the DB catches both
+ * a mismatching receipt and a provider-side result that the application has no record of
  */
 import { createHash } from 'node:crypto';
 import { withTenantDatabaseTransaction, type PrismaClient } from '@d-contact/db';
@@ -46,11 +46,11 @@ export interface PeopleIdentityEvidenceSource {
   readInvitation(attempt: PeopleInvitationAttempt): Promise<PeopleInvitationOutcome>;
   readPreparation(attempt: PeopleInvitationAttempt): Promise<PeopleInvitationPreparation>;
   readDisable(attempt: PeopleDisableAttempt): Promise<PeopleDisableOutcome>;
-  /** #998: receipt ของ UPDATE_PROFILE/ENABLE_ACCOUNT; ไม่มี reader แต่มีคำสั่งที่ attempted แล้ว = PROVIDER_UNREADABLE */
+  /** #998: the receipt of UPDATE_PROFILE/ENABLE_ACCOUNT; no reader but an already attempted command = PROVIDER_UNREADABLE */
   readAccountChange?(attempt: PeopleAccountAttempt): Promise<PeopleAccountOutcome>;
-  /** จำนวน HTTP ที่ไม่ใช่ 2xx หรือ exception; adapter คืน UNKNOWN ทั้งกรณีไม่มี receipt และอ่านไม่ได้ */
+  /** the count of non-2xx HTTP responses or exceptions; the adapter returns UNKNOWN both when there is no receipt and when it cannot be read */
   requestFailures(): number;
-  /** readiness ที่ต้องเป็น true ตาม flag ของ runtime เช่น invitationReady เมื่อเปิด invitation */
+  /** readiness that must be true per the runtime flag, e.g. invitationReady when invitations are enabled */
   requiredReadiness?: readonly ('invitationReady' | 'disableReady' | 'accountReady')[];
 }
 
@@ -137,9 +137,9 @@ async function readApplication(database: PrismaClient, tenantId: string) {
     database,
     tenantId,
     async (transaction) => {
-      // set_config ของ tenant เป็น query แรกแล้ว PostgreSQL ยังยอมให้เปลี่ยนเป็น read-only ได้ (ไม่ยอมกลับเป็น read-write)
+      // the tenant set_config is the first query, and PostgreSQL still lets the transaction become read-only (but not back to read-write)
       await transaction.$executeRawUnsafe('SET TRANSACTION READ ONLY');
-      // RLS แบบ RESTRICTIVE ซ่อนทุกแถวเมื่อ binding ของ session_user ปิด; 0 rows ต้องไม่กลายเป็นความสอดคล้อง
+      // RESTRICTIVE RLS hides every row when the binding of session_user is closed; 0 rows must not become consistency
       const [binding] = await transaction.$queryRaw<{ enabled: boolean }[]>`
       SELECT EXISTS(SELECT 1 FROM tenant_people_worker_bindings WHERE tenant_id=${tenantId}::uuid
         AND database_principal=session_user AND enabled) AS enabled`;
@@ -148,7 +148,7 @@ async function readApplication(database: PrismaClient, tenantId: string) {
         command_id::text AS "commandId",correlation_id::text AS "correlationId",payload_digest AS "payloadDigest",
         request_payload AS payload
       FROM tenant_people_operations WHERE tenant_id=${tenantId}::uuid ORDER BY id`;
-      // receipt ล่าสุดที่ไม่ใช่ UNKNOWN ต่อ step; Keycloak เก็บหนึ่ง receipt ต่อ operation/step
+      // the latest non-UNKNOWN receipt per step; Keycloak keeps one receipt per operation/step
       const steps = await transaction.$queryRaw<StepReceiptRow[]>`
       SELECT DISTINCT ON (operation_id,step) operation_id::text AS "operationId",step,outcome,
         provider_receipt_ref AS "receiptRef"
@@ -175,12 +175,12 @@ async function readApplication(database: PrismaClient, tenantId: string) {
       FROM tenant_people_disables s
       LEFT JOIN tenant_people_disable_receipts r ON r.tenant_id=s.tenant_id AND r.operation_id=s.id AND r.outcome<>'UNKNOWN'
       WHERE s.tenant_id=${tenantId}::uuid
-        -- #998: disable ที่ถูกเปิดกลับสำเร็จภายหลังมี readback เป็น UNKNOWN โดยชอบ (identity enabled แล้ว) จึงไม่นำมาเทียบ
+        -- #998: a disable that was later successfully re-enabled has an UNKNOWN readback by design (the identity is enabled again), so it is not compared
         AND NOT EXISTS(SELECT 1 FROM tenant_people_account_changes c WHERE c.tenant_id=s.tenant_id AND c.user_id=s.user_id
           AND c.kind='ENABLE_ACCOUNT' AND c.state='SUCCEEDED' AND c.created_at>s.created_at)
       ORDER BY s.id,r.fencing_token DESC NULLS LAST`;
-      // #998: ข้ามคำสั่งที่ readback เป็น UNKNOWN โดยชอบเพราะมีผลใหม่กว่ามาแทน — แก้ชื่อที่ถูกแก้ชื่อสำเร็จอีกครั้ง
-      // และเปิดกลับที่ถูกปิดบัญชีสำเร็จภายหลัง; แก้ชื่อที่ถูกปิดแทน (SUPERSEDED_BY_DISABLE) ยังเทียบเพื่อจับชื่อที่ Keycloak เปลี่ยนแต่ app ไม่เปลี่ยน
+      // #998: skip a command whose readback is UNKNOWN by design because a newer result replaced it — a rename that was successfully renamed again
+      // and a re-enable of an account later successfully disabled; a rename superseded by a disable (SUPERSEDED_BY_DISABLE) is still compared to catch a name that Keycloak changed but the app did not
       const accountChanges = await transaction.$queryRaw<AccountChangeRow[]>`
       SELECT DISTINCT ON (c.id) c.id::text AS "operationId",c.kind,c.user_id::text AS "userId",c.identity_id::text AS "identityId",
         c.role,c.payload_digest AS "payloadDigest",c.fencing_token::text AS "fencingToken",c.display_name AS "displayName",
@@ -203,7 +203,7 @@ async function readApplication(database: PrismaClient, tenantId: string) {
         disables,
       };
     },
-    // snapshot เดียวกันทุก query เพื่อไม่ให้ operation ที่เกิดระหว่างอ่านกลายเป็นผลปลอม
+    // the same snapshot for every query so an operation that happens during the read does not become a false result
     { isolationLevel: 'RepeatableRead' },
   );
 }
@@ -226,7 +226,7 @@ function compare(
   application: Recorded | null,
   provider: Recorded,
 ): PeopleIdentityMismatch['reason'] | null {
-  // UNKNOWN ที่มี reasonCode คือ provider ตอบว่าข้อมูลไม่ตรง ไม่ใช่ "ไม่มี receipt"
+  // an UNKNOWN with a reasonCode means the provider answered that the data does not match, not "no receipt"
   if (provider.outcome === 'UNKNOWN')
     return application || provider.reasonCode ? 'PROVIDER_UNREADABLE' : null;
   if (!application) return 'UNRECORDED_PROVIDER_RECEIPT';
@@ -355,7 +355,7 @@ export async function collectTenantPeopleIdentityEvidence(
       command,
     });
     const provider = recorded(outcome);
-    // dispatch ที่ไม่มี receipt ทั้งสองฝั่งคือผลที่ยังไม่ชัด ไม่ใช่ความสอดคล้อง
+    // a dispatch with no receipt on either side is an unclear result, not consistency
     const reason =
       !local && provider.outcome === 'UNKNOWN' ? 'PROVIDER_UNREADABLE' : compare(local, provider);
     if (reason)
@@ -367,7 +367,7 @@ export async function collectTenantPeopleIdentityEvidence(
         application: local,
         provider,
       });
-    // dispatch รุ่น ≥2 ต้องมี proof ใน DB และ not-before ที่ Keycloak ส่งจริงต้องตรงกับ proof นั้น
+    // a dispatch of generation ≥2 must have a proof in the DB and the not-before that Keycloak actually sent must match that proof
     const prepared = application.preparations.find(
       (row) => row.providerAttemptRef === dispatch.providerAttemptRef,
     );
@@ -387,8 +387,8 @@ export async function collectTenantPeopleIdentityEvidence(
     }
   }
   for (const preparation of application.preparations) {
-    // preparation ที่มี dispatch แล้วเทียบ not-before กับผล dispatch GET ด้านบน ซึ่งไม่ต้องเป็น fence ปัจจุบัน
-    // intent GET ปฏิเสธรุ่นที่ถูกแทนแล้ว (GENERATION_FENCE_CONFLICT) จึงอ่านเฉพาะ intent ที่ยังไม่มี dispatch
+    // a preparation that already has a dispatch compares not-before against the dispatch GET result above, which need not be the current fence
+    // the intent GET rejects a generation that was already superseded (GENERATION_FENCE_CONFLICT), so it reads only an intent with no dispatch yet
     if (
       application.dispatches.some(
         (dispatch) => dispatch.providerAttemptRef === preparation.providerAttemptRef,
@@ -429,7 +429,7 @@ export async function collectTenantPeopleIdentityEvidence(
       leaseExpiresAt: NEVER,
       command,
     });
-    // intent ฝั่ง Keycloak ตั้ง not-before fence ให้ลิงก์รุ่นก่อนแล้ว แม้ยังไม่มี dispatch จึงต้องมี proof ตรงกัน
+    // the Keycloak-side intent already set the not-before fence for the previous generation's link even without a dispatch, so a matching proof is required
     const provider: Recorded =
       result.outcome === 'INTENT'
         ? { outcome: 'INTENT', receiptRef: `${result.intentRef}:${result.notBeforeEpoch}` }

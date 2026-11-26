@@ -52,7 +52,7 @@ function claims(tenantId: string, userId: string): VerifiedOidcClaims {
   };
 }
 
-test('Agent snapshot ใช้ tenant/user จาก token และคืน authoritative Interaction version', async (t) => {
+test('the Agent snapshot uses the tenant/user from the token and returns the authoritative Interaction version', async (t) => {
   const applicationRole = await application.$queryRaw<
     { rolname: string; rolsuper: boolean; rolbypassrls: boolean }[]
   >`SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user`;
@@ -109,8 +109,8 @@ test('Agent snapshot ใช้ tenant/user จาก token และคืน au
   });
   await owner.queue.createMany({
     data: [
-      { id: queueAId, tenantId: tenantAId, name: 'บริการลูกค้า A', channels: ['VOICE'] },
-      { id: queueBId, tenantId: tenantBId, name: 'บริการลูกค้า B', channels: ['VOICE'] },
+      { id: queueAId, tenantId: tenantAId, name: 'Customer service A', channels: ['VOICE'] },
+      { id: queueBId, tenantId: tenantBId, name: 'Customer service B', channels: ['VOICE'] },
     ],
   });
   await owner.user.create({
@@ -237,7 +237,7 @@ test('Agent snapshot ใช้ tenant/user จาก token และคืน au
       await owner.agentStateLog.deleteMany({ where: { tenantId } });
       await owner.queue.deleteMany({ where: { tenantId } });
       await owner.user.deleteMany({ where: { tenantId } });
-      // ล้างเฉพาะ fixture ของ test ด้วย owner ใน sandbox; runtime ยังคง immutable provenance
+      // clear only the test fixtures with the owner in the sandbox; the runtime still keeps immutable provenance
       await owner.$transaction(async (tx) => {
         await tx.$executeRawUnsafe("SET LOCAL session_replication_role = 'replica'");
         await tx.tenantSettings.deleteMany({ where: { tenantId } });
@@ -255,7 +255,7 @@ test('Agent snapshot ใช้ tenant/user จาก token และคืน au
 
   assert.equal(response.status, 200, await response.clone().text());
   const body = (await response.json()) as { agent: { stateSince: string | null } };
-  // #937 เวลาเริ่มสถานะมาจาก log ล่าสุด — ตรวจรูปแบบแยก แล้วเทียบส่วนที่เหลือทั้งก้อน
+  // #937 the start time of a state comes from the latest log — check the format separately, then compare the whole remainder
   assert.match(body.agent.stateSince ?? '', /^\d{4}-\d\d-\d\dT/);
   assert.deepEqual(body, {
     capabilities: { voiceWrapupV1: 1, agentStatusV1: 1 },
@@ -276,7 +276,7 @@ test('Agent snapshot ใช้ tenant/user จาก token และคืน au
       voiceWrapupPolicy: 'LEGACY',
       version: interactionVersion.id.toString(),
       caller: '0812345678',
-      queue: { id: queueAId, name: 'บริการลูกค้า A' },
+      queue: { id: queueAId, name: 'Customer service A' },
       offerExpiresAt: '2026-09-06T10:00:20.000Z',
       answeredAt: null,
       endedAt: null,
@@ -355,7 +355,7 @@ test('Agent snapshot ใช้ tenant/user จาก token และคืน au
   const noteInput = {
     commandId: noteCommandId,
     disposition: 'CUSTOMER_ASSISTED',
-    note: '  สรุป 😀\r\nบรรทัดที่สอง  ',
+    note: '  Summary 😀\r\nSecond line  ',
   };
   const submitNote = (input = noteInput) =>
     fetch(`${noteUrl}/wrapup-v1`, {
@@ -422,7 +422,7 @@ test('Agent snapshot ใช้ tenant/user จาก token และคืน au
     policyVersion: 1,
     state: 'COMPLETED',
     disposition: 'CUSTOMER_ASSISTED',
-    note: 'สรุป 😀\nบรรทัดที่สอง',
+    note: 'Summary 😀\nSecond line',
     recordedAt: savedResult.recordedAt,
     recordedAtSource: 'SERVER_COMMIT',
     legacy: false,
@@ -450,7 +450,7 @@ test('Agent snapshot ใช้ tenant/user จาก token และคืน au
   assert.equal(commandStatus.status, 200);
   const statusResult = (await commandStatus.json()) as { status: string };
   assert.equal(statusResult.status, 'COMMITTED');
-  assert.equal(JSON.stringify(statusResult).includes('สรุป'), false);
+  assert.equal(JSON.stringify(statusResult).includes('Summary'), false);
   const otherTenantRead = await fetch(`${noteUrl}/wrapup-result`, {
     headers: { authorization: 'Bearer agent-b-token' },
   });
@@ -493,7 +493,7 @@ test('Agent snapshot ใช้ tenant/user จาก token และคืน au
   const receiptWithoutNote = await owner.commandReceipt.findFirstOrThrow({
     where: { commandId: noteCommandId },
   });
-  assert.equal(JSON.stringify(receiptWithoutNote.result).includes('สรุป'), false);
+  assert.equal(JSON.stringify(receiptWithoutNote.result).includes('Summary'), false);
   assert.ok(receiptWithoutNote.payloadDigest);
   await assert.rejects(
     application.$transaction(async (transaction) => {
@@ -826,7 +826,7 @@ test('Agent snapshot ใช้ tenant/user จาก token และคืน au
   );
   assert.equal(leaseRequests.length, 0);
 
-  // #964 สรุปงานของฉันนับจากนิยามเดียวกับรายการ และไม่รวมงานของ Agent/tenant อื่น
+  // #964 my-work summary counts from the same definition as the list, and excludes work of other Agents/tenants
   await owner.tenantSettings.create({
     data: {
       tenantId: tenantAId,
@@ -904,7 +904,7 @@ test('Agent snapshot ใช้ tenant/user จาก token และคืน au
   assert.equal(allSummary.period.key, 'all');
   assert.equal(allSummary.period.from, null);
   assert.equal(allSummary.period.timeZone, 'Asia/Bangkok');
-  // ทุกช่วงสิ้นสุดที่เวลาคำนวณ — งาน fixture ที่บันทึกในอนาคต (2027) จึงไม่นับ
+  // every period ends at the as-of time — fixture work recorded in the future (2027) is not counted
   assert.ok(allSummary.period.to && new Date(allSummary.period.to) <= new Date());
   const asOf = `&to=${allSummary.period.to}`;
   const everyId = await listAll(asOf);
@@ -943,7 +943,7 @@ test('Agent snapshot ใช้ tenant/user จาก token และคืน au
   });
   assert.equal(mismatchedCursor.status, 400);
   assert.equal(((await mismatchedCursor.json()) as { code: string }).code, 'INVALID_CURSOR');
-  // cursor v1 ของรุ่นก่อน #964 ยังใช้ได้เมื่อไม่มีตัวกรอง
+  // a cursor v1 from before #964 is still usable when there is no filter
   const legacyCursor = Buffer.from(
     JSON.stringify({
       version: 1,
@@ -977,7 +977,7 @@ test('Agent snapshot ใช้ tenant/user จาก token และคืน au
   const noteRecordedAt = allHistory.items.find(
     (item) => item.interactionId === noteInteractionId,
   )?.recordedAt;
-  // งานที่บันทึกก่อนเที่ยงคืนกรุงเทพไม่อยู่ใน "วันนี้" ถ้า test รันคร่อมเที่ยงคืน
+  // work recorded before Bangkok midnight is not in "today" if the test runs across midnight
   if (noteRecordedAt && noteRecordedAt >= today.period.from)
     assert.ok(todayIds.includes(noteInteractionId));
   assert.equal(todayIds.includes(talkId), false);

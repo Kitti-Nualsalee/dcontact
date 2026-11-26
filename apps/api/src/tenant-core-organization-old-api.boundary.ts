@@ -1,4 +1,4 @@
-/** ภาพ API รุ่นก่อนรัน entrypoint จริงกับ schema ใหม่บน network sandbox เฉพาะงาน */
+/** the previous API image runs the real entrypoint against the new schema on a network sandbox dedicated to the task */
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { execFileSync } from 'node:child_process';
@@ -16,10 +16,10 @@ function docker(args: string[], env?: NodeJS.ProcessEnv) {
   }).trim();
 }
 test(
-  'องค์กร compatibility: old API image อ่าน CORE_ADMIN nullable provenance/locale และ rollback คง ledger',
+  'Organization compatibility: the old API image reads CORE_ADMIN nullable provenance/locale and a rollback keeps the ledger',
   {
     skip: !image
-      ? 'NOT_RUN: ต้องระบุ CORE_COMPAT_OLD_API_IMAGE และ owned DB/Keycloak containers'
+      ? 'NOT_RUN: CORE_COMPAT_OLD_API_IMAGE and owned DB/Keycloak containers must be given'
       : false,
     timeout: 120_000,
   },
@@ -27,7 +27,7 @@ test(
     assert.ok(image);
     const pg = process.env.CORE_COMPAT_POSTGRES_CONTAINER,
       kc = process.env.CORE_COMPAT_KEYCLOAK_CONTAINER;
-    assert.ok(pg && kc, 'ต้องระบุ containers ที่เป็น sandbox ของงานนี้');
+    assert.ok(pg && kc, "the containers that are this task's sandbox must be given");
     const source = docker([
       'image',
       'inspect',
@@ -147,8 +147,8 @@ test(
       } catch {}
       await new Promise((r) => setTimeout(r, 500));
     }
-    assert.ok(ready, 'old image ต้อง boot workspace entrypoint จริง');
-    // Docker attach network อาจปิด host connections เดิม; เปิด owner connection ใหม่ก่อน conservation reads
+    assert.ok(ready, 'the old image must boot the real workspace entrypoint');
+    // Docker attach network may close the existing host connections; open a new owner connection before the conservation reads
     await f.owner.$disconnect();
     const response = await fetch(`${base}/api/v1/tenant/locale-defaults`, {
       headers: { authorization: `Bearer ${token}` },
@@ -177,7 +177,7 @@ test(
       );
     } else {
       assert.equal(receipt.status, 404);
-      // rollback ไปก่อนมี Core ปิด route นี้ แต่ต้องไม่ทำลาย ledger ของ schema ใหม่
+      // a rollback to before Core closes this route, but must not destroy the ledger of the new schema
       assert.equal(
         (await f.request(`tenant/core-settings/commands/${saved.body.command.id}`, token)).body
           .command.outcome,

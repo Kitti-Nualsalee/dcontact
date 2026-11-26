@@ -1,4 +1,4 @@
-/** VIEW = screen-pop (#519), WORK = Agent ค้นและเชื่อมลูกค้าในงาน (#915) */
+/** VIEW = screen-pop (#519), WORK = Agent searches and links customers in work (#915) */
 export type TeamScopePermission = 'VIEW' | 'WORK';
 
 export interface TeamViewScope {

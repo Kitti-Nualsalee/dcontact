@@ -1,4 +1,4 @@
-/** #956 กฎของร่างเคสใน Workspace แยกจาก component เพื่อทดสอบด้วย unit test */
+/** #956 rules of the case draft in Workspace, separate from the component so it can be unit tested */
 import { AgentApiError } from './agent-api.js';
 
 export const CASE_SUBJECT_MAX = 200;
@@ -11,9 +11,9 @@ export type CaseError =
 export interface CaseDraft {
   subject: string;
   note: string;
-  /** ว่าง = ตัวเอง */
+  /** empty = themselves */
   assigneeUserId: string;
-  /** ใช้ซ้ำเมื่อผลไม่ทราบ เพื่อให้ server ตอบผลเดิมแทนการสร้างเคสซ้ำ */
+  /** reused when the result is unknown, so the server answers the original result instead of creating a duplicate case */
   commandId: string;
   phase: CasePhase;
   error?: CaseError;
@@ -32,7 +32,7 @@ export function emptyCaseDraft(newId: () => string = () => crypto.randomUUID()):
   };
 }
 
-/** นับความยาวเป็นตัวอักษรหลัง normalize แบบเดียวกับโน้ตของ wrapup */
+/** count length in characters after normalizing the same way as the wrapup note */
 export function normalizeCaseText(value: string): string {
   return value.replace(/\r\n/g, '\n').trim();
 }
@@ -43,8 +43,8 @@ export function caseTextValid(value: string, max: number): boolean {
 }
 
 /**
- * แปลง error ของคำสั่งเปิดเคสเป็นสิ่งที่ผู้ใช้เห็น `unknown` = ไม่รู้ว่า server commit หรือยัง
- * ต้องล็อกฟอร์มและส่ง commandId เดิมซ้ำ ส่วน error ที่รู้ผลแน่นอนให้ใช้ commandId ใหม่ในการกดครั้งถัดไป
+ * convert an error of the open-case command into what the user sees; `unknown` = unknown whether the server committed yet
+ * the form must be locked and the same commandId resent; an error with a known result uses a new commandId on the next press
  */
 export function classifyOpenCaseError(
   error: unknown,
@@ -62,7 +62,7 @@ export function classifyOpenCaseError(
     case 'WORK_HAS_CASE':
       return { phase: 'editing', error: 'workHasCase', newCommand: true };
     case 'CONTACT_REQUIRED':
-      // แถบ "เลือกลูกค้าก่อน" บอกเหตุอยู่แล้ว
+      // the "choose a customer first" bar already says the reason
       return { phase: 'editing', error: undefined, newCommand: true };
     case 'INVALID_INPUT':
       return { phase: 'editing', error: 'invalid', newCommand: true };

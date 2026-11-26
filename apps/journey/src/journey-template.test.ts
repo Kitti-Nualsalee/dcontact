@@ -40,7 +40,7 @@ const reminder = () =>
     document: { nodes: AuthoringStepNodeV1[] };
   };
 
-test('built-in catalog ผ่าน digest allowlist และไฟล์ที่ถูกแก้โดยไม่อัปเดต allowlist ใช้ไม่ได้ทั้ง catalog', () => {
+test('the built-in catalog passes the digest allowlist and a file edited without updating the allowlist makes the whole catalog unusable', () => {
   assert.equal(catalog.list().length, 2);
   for (const entry of catalog.list()) {
     assert.equal(entry.origin, 'PLATFORM_BUILTIN');
@@ -72,7 +72,7 @@ test('built-in catalog ผ่าน digest allowlist และไฟล์ที
   );
 });
 
-test('package ต้องปิดชุด: secret/script param, reference ที่ฝังใน graph และ bind target ที่ไม่ใช่ scalar ถูกปฏิเสธ', () => {
+test('a package must be a closed set: secret/script params, a reference embedded in the graph and a non-scalar bind target are rejected', () => {
   assert.deepEqual(validateTemplatePackage(reminder(), capabilities), []);
 
   const secret = reminder() as any;
@@ -87,7 +87,7 @@ test('package ต้องปิดชุด: secret/script param, reference ท
     codes(validateTemplatePackage(secret, capabilities)).includes('TEMPLATE_PARAMETER_INVALID'),
   );
 
-  // contentRef ที่ไม่ได้ผูกกับ parameter = template ฝัง reference จริงไว้
+  // a contentRef not bound to a parameter = the template embedded a real reference
   const embedded = reminder() as any;
   embedded.parameterSchema = embedded.parameterSchema.filter(
     (item: any) => item.parameterKey !== 'reminderContent',
@@ -125,7 +125,7 @@ test('package ต้องปิดชุด: secret/script param, reference ท
   );
 });
 
-test('binder: required/unknown/unsafe fail closed และ instance คนละ Journey ได้ node ID คนละชุดแบบ deterministic', () => {
+test('binder: required/unknown/unsafe fail closed and instances of different Journeys get different sets of node IDs deterministically', () => {
   const content = reminder();
   assert.deepEqual(
     codes(
@@ -163,7 +163,7 @@ test('binder: required/unknown/unsafe fail closed และ instance คนล�
   assert.equal(a.bindingDigest, b.bindingDigest);
   const idsA = Object.values(a.nodeMapping);
   assert.ok(idsA.every((id) => !Object.values(b.nodeMapping).includes(id)));
-  // ค่า binding เข้าไปอยู่ใน document ของ tenant และ compile ได้จริง
+  // the binding value goes into the tenant document and can really be compiled
   const compiled = compileJourneyDraft(
     a.document,
     {
@@ -208,7 +208,7 @@ const upgradeInput = (
   capabilities,
 });
 
-test('upgrade: template ไม่เปลี่ยนความหมายเป็น visual-only และ proposal digest คงที่', () => {
+test('upgrade: a template with no change in meaning is visual-only and the proposal digest is stable', () => {
   const { base, local, nodeMapping } = instance();
   const target = reminder() as any;
   target.document.layout.nodes.send = { x: 999, y: 1 };
@@ -222,7 +222,7 @@ test('upgrade: template ไม่เปลี่ยนความหมาย�
   assert.deepEqual(first.proposedDocument.nodes, local.nodes);
 });
 
-test('upgrade: template แก้ field ที่ local ไม่แตะรับได้เลย, แก้ชนกันต้องเลือก explicit และ field ที่ bind คงค่าของ tenant', () => {
+test('upgrade: a template edit to a field local did not touch is accepted directly, conflicting edits need an explicit choice and a bound field keeps the tenant value', () => {
   const { base, local, nodeMapping } = instance();
   const target = reminder() as any;
   target.document.nodes.find((node: any) => node.templateNodeKey === 'done').config.reason =
@@ -238,7 +238,7 @@ test('upgrade: template แก้ field ที่ local ไม่แตะรั
   ) as any;
   assert.equal(send.config.contentRef, 'content-thai-reminder');
 
-  // ทั้ง local และ template แก้ field เดียวกันต่างค่า → conflict ไม่มี silent merge
+  // both local and the template edited the same field to different values → a conflict, no silent merge
   const edited = structuredClone(local) as any;
   edited.nodes.find((node: any) => node.nodeId === nodeMapping.done).config.reason = 'LOCAL_REASON';
   const proposal = checkTemplateUpgrade(upgradeInput(base, target, edited, nodeMapping));
@@ -272,7 +272,7 @@ test('upgrade: template แก้ field ที่ local ไม่แตะรั
   assert.equal(reason(take.document), 'REMINDER_SENT');
   assert.equal(reason(keep.document), 'LOCAL_REASON');
 
-  // draft เปลี่ยนหลังเห็น proposal → stale ห้าม apply ทับ
+  // the draft changed after the proposal was seen → stale, must not apply over it
   const moved = structuredClone(edited);
   moved.settings.maxDurationDays = 3;
   assert.throws(
@@ -285,7 +285,7 @@ test('upgrade: template แก้ field ที่ local ไม่แตะรั
   );
 });
 
-test('upgrade: template ลบ node ที่ local แก้ไว้ และ required parameter ใหม่ที่ไม่มีค่าต้องไม่ผ่านแบบเงียบ', () => {
+test('upgrade: a template deleting a node that local edited and a new required parameter with no value must not pass silently', () => {
   const { base, local, nodeMapping } = instance();
   const target = reminder() as any;
   target.document.nodes = target.document.nodes.filter(
@@ -298,14 +298,14 @@ test('upgrade: template ลบ node ที่ local แก้ไว้ และ
   target.parameterSchema = target.parameterSchema.filter(
     (item: any) => item.parameterKey !== 'waitSeconds',
   );
-  // local ไม่ได้แก้ wait: ลบตาม template ได้และ compile ได้
+  // local did not edit wait: it can be deleted along with the template and can be compiled
   const removed = checkTemplateUpgrade(upgradeInput(base, target, local, nodeMapping));
   assert.ok(!removed.proposedDocument.nodes.some((node: any) => node.nodeId === nodeMapping.wait));
 
   const edited = structuredClone(local) as any;
   edited.nodes.find((node: any) => node.nodeId === nodeMapping.wait).label = 'x';
   edited.nodes.find((node: any) => node.nodeId === nodeMapping.done).config.reason = 'LOCAL';
-  // template เพิ่ม SEND ใหม่ที่ต้องใช้ content ใหม่ (required ไม่มี default) — ไม่มีค่าเดิมให้ใช้ต่อจึง block
+  // the template adds a new SEND that needs new content (required, no default) — there is no existing value to continue with, so it blocks
   const withRequired = structuredClone(target) as any;
   withRequired.document.nodes.find((node: any) => node.templateNodeKey === 'done').config.reason =
     'TEMPLATE';

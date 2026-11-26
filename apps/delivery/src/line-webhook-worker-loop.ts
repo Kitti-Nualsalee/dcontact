@@ -1,10 +1,10 @@
 /**
- * Owner: Delivery/Channels — loop ต่อเนื่องของ webhook worker (#567 T4)
+ * Owner: Delivery/Channels — continuous loop of the webhook worker (#567 T4)
  *
- * `LineWebhookWorker.runOnce` + `resolvePending` ใช้ lease ของ inbox (`lease_owner`, `lease_expires_at`) อยู่แล้ว
- * จึงรันพร้อมกับ `pilot await-touch` หรือ loop อีก instance ได้โดยไม่ประมวลผลแถวเดียวกันซ้ำ
- * loop นี้เพิ่มแค่จังหวะ: พักเมื่อไม่มีงาน, backoff แบบมีเพดานเมื่อ DB/ปลายทางล่ม และหยุดแบบ graceful
- * (`stop()` รอ batch ปัจจุบันจบ ไม่ตัดกลาง transaction)
+ * `LineWebhookWorker.runOnce` + `resolvePending` already use the inbox lease (`lease_owner`, `lease_expires_at`)
+ * so it can run alongside `pilot await-touch` or another loop instance without processing the same row twice.
+ * this loop adds only the rhythm: rest when there is no work, bounded backoff when the DB/destination is down, and a graceful stop
+ * (`stop()` waits for the current batch to finish and does not cut a transaction midway)
  */
 import type { LineWebhookWorkerResult } from './line-webhook-worker.js';
 
@@ -18,7 +18,7 @@ export interface LineWebhookWorkerLoopOptions {
   tenantId: string;
   idleMs?: number;
   maxBackoffMs?: number;
-  /** ข้อมูลสำหรับ log — เฉพาะตัวเลขและ code ไม่มี payload */
+  /** data for logs — numbers and codes only, no payload */
   onTick?: (event: {
     kind: 'processed' | 'failed';
     processed?: number;
@@ -50,7 +50,7 @@ export class LineWebhookWorkerLoop {
     this.running ??= this.loop();
   }
 
-  /** หยุดรับรอบใหม่และรอรอบที่กำลังทำจบ */
+  /** stop accepting new rounds and wait for the round in progress to finish */
   async stop(): Promise<void> {
     this.controller.abort();
     await this.running;
@@ -68,7 +68,7 @@ export class LineWebhookWorkerLoop {
         failures = 0;
         const processed = projected.processed + resolved.processed;
         this.options.onTick?.({ kind: 'processed', processed });
-        // มีงานเต็ม batch = ทำต่อทันที; ไม่มีงาน = พัก
+        // a full batch of work = continue immediately; no work = rest
         if (processed === 0) await sleep(idleMs, this.controller.signal);
       } catch {
         failures += 1;

@@ -1,7 +1,7 @@
 import http from 'node:http';
 import https from 'node:https';
 import { pathToFileURL } from 'node:url';
-/** Authenticated route smoke อ่านอย่างเดียว; ไม่สร้าง command/config/identity และไม่รับรอง Voice/VM trial */
+/** Authenticated route smoke is read-only; it creates no command/config/identity and does not certify a Voice/VM trial */
 export async function runOrganizationSmoke({
   baseUrl,
   accessToken,
@@ -18,8 +18,8 @@ export async function runOrganizationSmoke({
     !['https:', 'http:'].includes(base.protocol) ||
     (base.protocol === 'http:' && !['127.0.0.1', 'localhost'].includes(base.hostname))
   )
-    throw Error('ต้องใช้ HTTPS หรือ isolated loopback');
-  if (!accessToken) throw Error('ต้องมี access token ผ่าน environment');
+    throw Error('HTTPS or an isolated loopback is required');
+  if (!accessToken) throw Error('an access token via the environment is required');
   async function request(path, authenticated = true, method = 'GET') {
     try {
       return await new Promise((resolve, reject) => {
@@ -161,7 +161,7 @@ export async function runOrganizationSmoke({
         (list.data.nextCursor === null || typeof list.data.nextCursor === 'string'),
       list.status,
     );
-    // fixture ต้องมีอย่างน้อยหนึ่งทีมเพื่อพิสูจน์ detail ด้วยสิทธิ์จริง
+    // the fixture must have at least one team to prove detail with real privileges
     const detail =
       Array.isArray(rows) && validTeam(rows[0])
         ? await request(`/api/v1/tenant/core-settings/teams/${encodeURIComponent(rows[0].id)}`)
@@ -203,7 +203,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     if (result.result !== 'PASS') process.exitCode = 1;
   } catch {
     console.error(
-      'Core organization smoke ไม่พร้อม: ตรวจ URL/token/environment โดยไม่พิมพ์ secret',
+      'Core organization smoke is not ready: check the URL/token/environment without printing secrets',
     );
     process.exitCode = 1;
   }

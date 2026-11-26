@@ -19,7 +19,7 @@ for (const scenario of [
   'preauth-401',
   'preauth-403',
 ])
-  test(`create/status ${scenario}: บัญชี provision แล้วต้องยังรอ activation และ reload อ่าน operation เดิม`, async ({
+  test(`create/status ${scenario}: a provisioned account must still await activation and reload reads the original operation`, async ({
     page,
   }) => {
     let creates = 0,
@@ -193,7 +193,7 @@ for (const scenario of [
         (item) => item.impact === 'serious' || item.impact === 'critical',
       ),
     ).toEqual([]);
-    // ผลสุดท้ายแล้วปิดแถบได้ และไม่กลับมาหลัง reload
+    // after the final result the bar can be dismissed and does not come back after reload
     await banner.getByRole('button', { name: 'ปิดแถบนี้', exact: true }).click();
     await expect(banner).toHaveCount(0);
     await page.reload();
@@ -202,7 +202,9 @@ for (const scenario of [
   });
 
 for (const ending of ['success', 'auth', 'unmount'])
-  test(`poll ทุก 5s เฉพาะ visible ไม่ซ้อน manual refresh และหยุด ${ending}`, async ({ page }) => {
+  test(`poll every 5s only when visible, not overlapping a manual refresh, and stop ${ending}`, async ({
+    page,
+  }) => {
     await page.clock.install();
     let reads = 0;
     let release: (() => void) | undefined;
@@ -296,7 +298,9 @@ for (const ending of ['success', 'auth', 'unmount'])
     expect(reads).toBe(3);
   });
 
-test('capability ไม่พร้อมต้องไม่ส่ง mutation หรือเปิด extension pool', async ({ page }) => {
+test('capability not ready must not send a mutation or open the extension pool', async ({
+  page,
+}) => {
   const unexpected: string[] = [];
   await page.route('**/api/v1/me/navigation**', (route) =>
     route.fulfill({ json: homeNavigation(['admin'], true) }),
@@ -324,7 +328,9 @@ test('capability ไม่พร้อมต้องไม่ส่ง mutation
   expect(unexpected).toEqual([]);
 });
 
-test('production auth root เปิด People โดยไม่ขอ Interaction context', async ({ page }) => {
+test('production auth root opens People without asking for an Interaction context', async ({
+  page,
+}) => {
   await page.goto('/?view=tenant-people&tenant=demo&authRootHarness=1');
   await expect(page.getByRole('main')).toBeVisible();
   await expect(

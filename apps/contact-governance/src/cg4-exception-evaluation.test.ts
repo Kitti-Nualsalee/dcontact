@@ -63,7 +63,7 @@ function coverage(
   });
 }
 
-test('effective state ใช้ database time และ expiresAt เป็น exclusive boundary', () => {
+test('effective state uses database time and expiresAt as an exclusive boundary', () => {
   const window = {
     startsAt: new Date('2026-09-13T11:00:00.000Z'),
     expiresAt: new Date('2026-09-13T13:00:00.000Z'),
@@ -88,14 +88,14 @@ test('effective state ใช้ database time และ expiresAt เป็น e
     }),
     'ACTIVE',
   );
-  // now === expiresAt ใช้ไม่ได้แล้ว
+  // now === expiresAt can no longer be used
   assert.equal(
     resolveCg4EffectiveState({ workflowState: 'APPROVED', ...window, now: window.expiresAt }),
     'EXPIRED',
   );
 });
 
-test('workflow state ที่ไม่ใช่ APPROVED เป็น INACTIVE เสมอ แม้อยู่ในช่วงเวลา', () => {
+test('a workflow state other than APPROVED is always INACTIVE, even within the time range', () => {
   const window = {
     startsAt: new Date('2026-09-13T11:00:00.000Z'),
     expiresAt: new Date('2026-09-13T13:00:00.000Z'),
@@ -106,7 +106,7 @@ test('workflow state ที่ไม่ใช่ APPROVED เป็น INACTIVE 
   }
 });
 
-test('exception ที่ match ทุกมิติแบบ exact ยก provisional rule ได้ และคืน pin สำหรับ trace', () => {
+test('an exception that matches every dimension exactly can lift a provisional rule, and returns a pin for the trace', () => {
   const result = coverage();
   assert.equal(result.covered, true);
   assert.ok(result.covered);
@@ -120,7 +120,7 @@ test('exception ที่ match ทุกมิติแบบ exact ยก prov
   });
 });
 
-test('scope ที่ต่างกันแม้มิติเดียวไม่ยก rule (ไม่มี wildcard/nearest match)', () => {
+test('a scope that differs in even one dimension does not lift a rule (no wildcard/nearest match)', () => {
   assert.equal(coverage({}, { channel: 'EMAIL' }).covered, false);
   assert.equal(coverage({}, { purpose: 'MARKETING' }).covered, false);
   assert.equal(coverage({}, { source: 'JOURNEY' }).covered, false);
@@ -129,7 +129,7 @@ test('scope ที่ต่างกันแม้มิติเดียว�
   assert.equal(coverage({}, { identityId: undefined }).covered, false);
 });
 
-test('CONTACT_WIDE ครอบทุก identity แต่ EXACT_IDENTITY ต้องตรงตัว', () => {
+test('CONTACT_WIDE covers every identity but EXACT_IDENTITY must match exactly', () => {
   const contactWide = {
     scopeKind: 'CONTACT_WIDE' as const,
     identityId: null,
@@ -137,21 +137,21 @@ test('CONTACT_WIDE ครอบทุก identity แต่ EXACT_IDENTITY ต�
   };
   assert.equal(coverage(contactWide, { identityId: 'identity-9' }).covered, true);
   assert.equal(coverage(contactWide, { identityId: undefined }).covered, true);
-  // exception ที่ประกาศ CONTACT_WIDE แต่ยังผูก identity อยู่ถือว่าไม่ match (ห้ามตีความ null เอง)
+  // an exception declared CONTACT_WIDE but still bound to an identity counts as not matching (never interpret null itself)
   assert.equal(
     coverage({ scopeKind: 'CONTACT_WIDE', identityId: 'identity-1' }, {}).covered,
     false,
   );
 });
 
-test('rule ที่ไม่อยู่ใน allowedRuleCodes ของ exception ไม่ถูกยก', () => {
+test('a rule not in the exception allowedRuleCodes is not lifted', () => {
   const result = coverage({}, {}, 'TENANT_HOLIDAY');
   assert.equal(result.covered, false);
   assert.ok(!result.covered);
   assert.equal(result.reason, 'RULE_NOT_COVERED');
 });
 
-test('non-overridable rule ไม่ถูกยกแม้ exception จะ list ไว้', () => {
+test('a non-overridable rule is not lifted even if the exception lists it', () => {
   const result = coverage(
     { allowedRuleCodes: ['DNC_GLOBAL'], policyAllowedRuleCodes: ['DNC_GLOBAL'] },
     {},
@@ -162,14 +162,14 @@ test('non-overridable rule ไม่ถูกยกแม้ exception จะ li
   assert.equal(result.reason, 'RULE_NOT_OVERRIDABLE');
 });
 
-test('rule ที่ policy version ที่ pin ไว้ไม่ได้อนุญาต ไม่ถูกยก', () => {
+test('a rule that the pinned policy version does not allow is not lifted', () => {
   const result = coverage({ policyAllowedRuleCodes: ['MIN_GAP'] });
   assert.equal(result.covered, false);
   assert.ok(!result.covered);
   assert.equal(result.reason, 'RULE_NOT_OVERRIDABLE');
 });
 
-test('policy digest ที่ drift หรือ policy ที่หายไปทำให้ fail closed', () => {
+test('a drifted policy digest or a missing policy makes it fail closed', () => {
   const drifted = coverage({ currentPolicyContentDigest: 'd'.repeat(64) });
   assert.ok(!drifted.covered);
   assert.equal(drifted.reason, 'POLICY_BINDING_STALE');
@@ -179,13 +179,13 @@ test('policy digest ที่ drift หรือ policy ที่หายไป
   assert.equal(missing.reason, 'POLICY_BINDING_STALE');
 });
 
-test('registry version ที่ไม่ตรงกับ evaluator ปัจจุบันทำให้ fail closed', () => {
+test('a registry version that does not match the current evaluator makes it fail closed', () => {
   const result = coverage({ registryVersion: 'CG4_RULE_REGISTRY_V0' });
   assert.ok(!result.covered);
   assert.equal(result.reason, 'REGISTRY_VERSION_STALE');
 });
 
-test('exception ที่ยังไม่เริ่ม/หมดอายุ/ถูก revoke ไม่ยก rule', () => {
+test('an exception that has not started/has expired/was revoked does not lift a rule', () => {
   const scheduled = coverage({
     startsAt: new Date('2026-09-13T13:00:00.000Z'),
     expiresAt: new Date('2026-09-13T14:00:00.000Z'),
@@ -205,7 +205,7 @@ test('exception ที่ยังไม่เริ่ม/หมดอายุ
   assert.equal(revoked.reason, 'NOT_ACTIVE');
 });
 
-test('เลือก exception ตัวแรกที่ match ตามลำดับที่ caller ส่งมา (deterministic)', () => {
+test('picks the first exception that matches in the order the caller sent (deterministic)', () => {
   const result = resolveCg4ExceptionCoverage({
     exceptions: [
       facts({ seriesId: 'series-expired', workflowState: 'REVOKED' }),
@@ -220,7 +220,7 @@ test('เลือก exception ตัวแรกที่ match ตามล�
   assert.equal(result.pin.revisionId, 'revision-match');
 });
 
-test('ไม่มี exception เลยคืน RULE_NOT_COVERED โดยไม่ throw', () => {
+test('no exception at all returns RULE_NOT_COVERED without throwing', () => {
   const result = resolveCg4ExceptionCoverage({
     exceptions: [],
     context: context(),

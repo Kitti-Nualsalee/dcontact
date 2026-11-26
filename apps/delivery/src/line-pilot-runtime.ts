@@ -1,13 +1,13 @@
 /**
- * Owner: Delivery/Channels — สภาพแวดล้อมของ CLI pilot ของ LINE (#565 S1/S4, ADR-031)
+ * Owner: Delivery/Channels — runtime environment of the LINE pilot CLI (#565 S1/S4, ADR-031)
  *
- * CLI ทั้งสาม (`provider:pr01`, `pilot:setup`, `pilot`) รันได้สองที่:
+ * All three CLIs (`provider:pr01`, `pilot:setup`, `pilot`) can run in two places:
  *
- * - `keychain` (ค่าเริ่มต้น): protected runner บน macOS เดิม — secret จาก Keychain, provenance จาก Git checkout
- * - `file`: runner `line-pilot` บน UAT VM2 — secret จากไฟล์ Compose `secrets`, recipient/state ใน volume
- *   และ provenance จาก release ที่ deploy (`DCONTACT_BUILD_SHA` ของ image) เพราะใน container ไม่มี Git
+ * - `keychain` (default): the existing protected runner on macOS — secrets from the Keychain, provenance from a Git checkout
+ * - `file`: the `line-pilot` runner on UAT VM2 — secrets from the Compose `secrets` files, recipient/state in a volume
+ *   and provenance from the deployed release (`DCONTACT_BUILD_SHA` of the image) because a container has no Git
  *
- * env เลือกได้แค่โหมดและ path — ไม่มี secret ใน env (#362 §9)
+ * env selects only the mode and paths — no secret in env (#362 §9)
  */
 import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
@@ -28,9 +28,9 @@ import { LINE_PILOT_CHANNEL_ACCOUNT_ID } from './line-provider-conformance.js';
 const SHA = /^[0-9a-f]{40}$/;
 
 export interface LinePilotProvenance {
-  /** commit ที่ evidence ผูกไว้ */
+  /** the commit the evidence is bound to */
   commitSha: string;
-  /** ยืนยันว่าโค้ดที่รันคือ commit นั้นจริง — ไม่ผ่าน = throw */
+  /** confirm that the code running is really that commit — failing = throw */
   assertFinalMain(expected?: string): void;
   migrationsDir: string;
   registryPath: string;
@@ -96,8 +96,8 @@ function releaseProvenance(environment: NodeJS.ProcessEnv): LinePilotProvenance 
   if (!migrationsDir || !registryPath) throw new LinePilotRuntimeError('PATH_REQUIRED');
   return {
     commitSha,
-    // image ไม่รู้ว่า origin/main อยู่ที่ไหน — ตรวจได้แค่ว่าตรงกับ SHA ที่ผู้สั่งคาดไว้ (ถ้าระบุ)
-    // REG01/marker ตรวจซ้ำว่าเป็น final-main SHA เดียวกันอีกชั้น
+    // the image does not know where origin/main is — it can only check that it matches the SHA the commander expected (if given)
+    // REG01/marker re-checks that it is the same final-main SHA as another layer
     assertFinalMain(expected) {
       const required = expected ?? environment.CXA_S2_EXPECTED_COMMIT_SHA;
       if (required && required !== commitSha) throw new LinePilotRuntimeError('NOT_FINAL_MAIN');

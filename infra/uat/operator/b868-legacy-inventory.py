@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""สำรวจ release record รุ่นเดิมแบบอ่านอย่างเดียว; ไม่รับรอง provenance หรือ rollback."""
+"""Survey the old-format release records read-only; does not certify provenance or rollback."""
 import argparse
 import fcntl
 import hashlib

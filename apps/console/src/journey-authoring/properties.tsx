@@ -1,8 +1,8 @@
 /**
- * J5.6 (#344): typed properties ของ node ที่เลือก และ settings ระดับ Journey
+ * J5.6 (#344): typed properties of the selected node and Journey-level settings
  *
- * field ข้อความ commit ตอน blur/Enter เพื่อให้ undo หนึ่งครั้งคือหนึ่งการแก้ field ไม่ใช่หนึ่งตัวอักษร
- * ค่าที่ใส่ถูกตรวจแค่รูปพื้นฐานเพื่อบอกผู้ใช้ทันที — ความถูกต้องจริงตัดสินที่ server validate/compile
+ * text fields commit on blur/Enter so one undo is one field edit, not one character
+ * entered values are checked only for basic shape to tell the user immediately — real correctness is decided by server validate/compile
  */
 import { useEffect, useId, useState } from 'react';
 import type { AuthoringDocumentV1 } from '@d-contact/cxa-contracts';

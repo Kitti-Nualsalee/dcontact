@@ -2,14 +2,14 @@ import { readFileSync } from 'node:fs';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page, type Request } from '@playwright/test';
 
-// D1.14 (#453): ข้อความมาจาก catalog ตามภาษา browser — ชุดนี้ตรวจ flow J5 เดิมบนภาษาไทย
+// D1.14 (#453): text comes from the catalog per the browser language — this suite checks the original J5 flow in Thai
 test.use({ locale: 'th-TH' });
 
 /**
  * J5.6 (#344): Journey authoring Console end-to-end
  *
- * Mock เฉพาะ `/api/v1/journey-authoring/**` แบบมี state (CAS/revision จริง) — ข้อมูลเป็น synthetic
- * ทั้งหมด ไม่มี PII; request ที่ออกนอก origin ของ Console ถือว่าผิด
+ * Stateful mock of `/api/v1/journey-authoring/**` only (real CAS/revision) — the data is entirely synthetic
+ * with no PII; a request going outside the Console origin counts as wrong
  */
 
 import {
@@ -41,11 +41,13 @@ async function expectNoSeriousA11yViolations(page: Page) {
 
 test.use({ viewport: { width: 1440, height: 1000 } });
 
-test('keyboard-only authoring: เพิ่ม/ตั้งค่า/ต่อ/เรียง/ลบ แล้วบันทึกด้วย CAS', async ({ page }) => {
+test('keyboard-only authoring: add/configure/connect/reorder/delete, then save with CAS', async ({
+  page,
+}) => {
   const mock = new AuthoringMock();
   await openEditor(page, mock);
 
-  // canvas: roving focus ด้วยลูกศร, Enter เลือก → properties เปลี่ยนตาม
+  // canvas: roving focus with arrows, Enter selects → properties change accordingly
   const canvas = page.getByRole('group', { name: 'ผังขั้นตอนของ Journey' });
   await canvas.getByRole('button', { name: 'เริ่มเมื่อเกิด event' }).focus();
   await page.keyboard.press('ArrowDown');
@@ -53,7 +55,7 @@ test('keyboard-only authoring: เพิ่ม/ตั้งค่า/ต่อ/�
   await page.keyboard.press('Enter');
   await expect(page.getByRole('heading', { level: 2, name: 'ส่งข้อความ' })).toBeVisible();
 
-  // outline: แทรก WAIT หลัง SEND ด้วย control ปกติ
+  // outline: insert WAIT after SEND with ordinary controls
   const insertType = page.getByLabel('แทรกขั้นตอนหลัง ถัดไป').first();
   await insertType.selectOption('WAIT');
   await insertType.focus();
@@ -62,7 +64,7 @@ test('keyboard-only authoring: เพิ่ม/ตั้งค่า/ต่อ/�
   await expect(canvas.getByRole('button', { name: 'รอ' })).toBeVisible();
   await expect(page.getByLabel('ถัดไป ของ รอ ไปที่')).toHaveValue('done');
 
-  // properties: commit ตอน Enter
+  // properties: commit on Enter
   const wait = page.getByLabel('ระยะเวลารอ (วินาที)');
   await wait.fill('600');
   await wait.press('Enter');
@@ -71,12 +73,12 @@ test('keyboard-only authoring: เพิ่ม/ตั้งค่า/ต่อ/�
   await label.press('Enter');
   await expect(canvas.getByRole('button', { name: 'รอชำระ 10 นาที' })).toBeVisible();
 
-  // reorder + ย้ายตำแหน่งด้วย Shift+ลูกศร (visual-only)
+  // reorder + move position with Shift+arrow (visual-only)
   await page.getByRole('button', { name: 'เลื่อนขึ้น รอชำระ 10 นาที' }).press('Enter');
   await canvas.getByRole('button', { name: 'รอชำระ 10 นาที' }).focus();
   await page.keyboard.press('Shift+ArrowRight');
 
-  // ลบแล้ว undo ด้วย keyboard shortcut
+  // delete then undo with a keyboard shortcut
   await page.getByRole('button', { name: 'ลบ จบ Journey' }).press('Enter');
   await expect(canvas.getByRole('button', { name: 'จบ Journey' })).toHaveCount(0);
   await canvas.getByRole('button', { name: 'รอชำระ 10 นาที' }).focus();
@@ -99,14 +101,14 @@ test('keyboard-only authoring: เพิ่ม/ตั้งค่า/ต่อ/�
   const nodes = (body.document as { nodes: Json[] }).nodes;
   const saved = nodes.find((node) => node.type === 'WAIT')!;
   expect(saved).toMatchObject({ label: 'รอชำระ 10 นาที', config: { waitSeconds: 600 } });
-  // reorder ทำให้ WAIT อยู่ก่อน SEND ใน document; layout เปลี่ยนแค่ตำแหน่ง
+  // reorder puts WAIT before SEND in the document; layout changes only the position
   expect(nodes.map((node) => node.type)).toEqual(['SEND', 'WAIT', 'EXIT']);
   expect(Object.keys((body.document as { layout: { nodes: Json } }).layout.nodes)).toContain(
     String(saved.nodeId),
   );
 });
 
-test('diagnostics ลิงก์กลับ node และ validate ใช้ revision ที่บันทึกแล้ว; dialog trap focus และ Esc คืน focus', async ({
+test('diagnostics link back to the node and validate uses the saved revision; dialog traps focus and Esc returns focus', async ({
   page,
 }) => {
   const mock = new AuthoringMock();
@@ -130,7 +132,7 @@ test('diagnostics ลิงก์กลับ node และ validate ใช้ 
   await expect(page.getByRole('button', { name: 'อนุมัติ', exact: true })).toBeFocused();
 });
 
-test('409 เปิด compare/reload/keep-copy และ keep-copy บันทึกบน revision ล่าสุด', async ({
+test('409 opens compare/reload/keep-copy and keep-copy saves on the latest revision', async ({
   page,
 }) => {
   const mock = new AuthoringMock();
@@ -161,7 +163,7 @@ test('409 เปิด compare/reload/keep-copy และ keep-copy บันท
   });
 });
 
-test('session recovery ของแท็บ: reload แล้วกู้การแก้ที่ยังไม่บันทึกได้', async ({ page }) => {
+test('tab session recovery: reload restores unsaved edits', async ({ page }) => {
   const mock = new AuthoringMock();
   await openEditor(page, mock);
   const name = page.getByLabel('ชื่อ Journey');
@@ -176,7 +178,7 @@ test('session recovery ของแท็บ: reload แล้วกู้กา
   expect(mock.mutations()).toHaveLength(0);
 });
 
-test('publish ที่ไม่รู้ผล (202) ต้อง resolve ด้วย key เดิม ไม่แสดงว่าสำเร็จก่อนรู้ผล', async ({
+test('publish with an unknown result (202) must resolve with the same key and not show success before the result is known', async ({
   page,
 }) => {
   const mock = new AuthoringMock();
@@ -214,7 +216,7 @@ test('publish ที่ไม่รู้ผล (202) ต้อง resolve ด�
   });
 });
 
-test('templates: instantiate ด้วย version+digest ที่เห็น แล้ว upgrade ต้องเลือก resolution ก่อน apply', async ({
+test('templates: instantiate with the version+digest being viewed, then upgrade must choose a resolution before apply', async ({
   page,
 }) => {
   const mock = new AuthoringMock();
@@ -235,7 +237,7 @@ test('templates: instantiate ด้วย version+digest ที่เห็น �
     targetOwnerTeamId: 'team-synthetic',
     name: 'เตือนชำระ Q4',
   });
-  // ค่า parameter ไม่ถูกเก็บลง storage ของ browser
+  // parameter values are not stored in the browser storage
   expect(
     await page.evaluate(() => JSON.stringify({ ...sessionStorage, ...localStorage })),
   ).not.toContain('content-q4');
@@ -258,7 +260,7 @@ test('templates: instantiate ด้วย version+digest ที่เห็น �
   });
 });
 
-test('960px แก้ได้เต็ม; 959px อ่านอย่างเดียวและไม่ส่ง mutation', async ({ page }) => {
+test('960px fully editable; 959px read-only and sends no mutation', async ({ page }) => {
   const mock = new AuthoringMock();
   await page.setViewportSize({ width: 960, height: 900 });
   await openEditor(page, mock);
@@ -280,7 +282,7 @@ test('960px แก้ได้เต็ม; 959px อ่านอย่างเ
   expect(mock.mutations()).toHaveLength(0);
 });
 
-test('a11y: editor ไม่มี serious/critical, 200% zoom ไม่ล้นแนวนอน และ reduced motion ปิด transition', async ({
+test('a11y: editor has no serious/critical, 200% zoom does not overflow horizontally, and reduced motion disables transitions', async ({
   page,
 }) => {
   const mock = new AuthoringMock();
@@ -294,7 +296,7 @@ test('a11y: editor ไม่มี serious/critical, 200% zoom ไม่ล้�
     .evaluate((element) => getComputedStyle(element).transitionDuration);
   expect(transition.split(',').every((value) => parseFloat(value) === 0)).toBe(true);
 
-  // 200% zoom ของจอ 1280px = viewport 640 CSS px
+  // 200% zoom of a 1280px screen = viewport 640 CSS px
   await page.setViewportSize({ width: 640, height: 800 });
   await expect(page.getByRole('note').filter({ hasText: 'อ่านอย่างเดียว' })).toBeVisible();
   const overflow = await page.evaluate(
@@ -304,7 +306,7 @@ test('a11y: editor ไม่มี serious/critical, 200% zoom ไม่ล้�
   await expectNoSeriousA11yViolations(page);
 });
 
-test('U1.3 reviewer หา candidate ที่รอตรวจจากรายการ เปิดดู exact candidate แล้วอนุมัติ และดู audit ได้', async ({
+test('U1.3 a reviewer finds the candidate awaiting review from the list, opens the exact candidate, approves it and can view the audit', async ({
   page,
 }) => {
   const mock = new AuthoringMock();
@@ -321,7 +323,7 @@ test('U1.3 reviewer หา candidate ที่รอตรวจจากรา�
   await mock.install(page);
   await page.goto('/?view=journeys');
 
-  // รายการบอก review state จาก server; ตัวกรอง "รอตรวจ" แสดงงานที่ reviewer ตัดสินได้
+  // the list shows the review state from the server; the "awaiting review" filter shows work the reviewer can decide
   await expect(page.getByRole('cell', { name: 'รอตรวจ' })).toBeVisible();
   await page.getByRole('button', { name: 'รอตรวจ' }).click();
   await expect(page.getByRole('button', { name: 'รอตรวจ' })).toHaveAttribute(
@@ -332,7 +334,7 @@ test('U1.3 reviewer หา candidate ที่รอตรวจจากรา�
   await expectNoSeriousA11yViolations(page);
   await page.getByRole('button', { name: 'ติดตามการชำระ' }).click();
 
-  // reviewer เห็น exact candidate และปุ่มตัดสิน แต่ไม่มีปุ่มส่งตรวจ (ไม่มี journey.edit)
+  // the reviewer sees the exact candidate and the decide buttons, but no submit-for-review button (no journey.edit)
   const candidate = page.getByRole('definition').filter({ hasText: DIGEST('a').slice(0, 12) });
   await expect(candidate).toBeVisible();
   await expect(page.getByRole('button', { name: 'ส่งตรวจ' })).toHaveCount(0);
@@ -349,7 +351,7 @@ test('U1.3 reviewer หา candidate ที่รอตรวจจากรา�
   );
   expect(decision?.postDataJSON()).toMatchObject({ decision: 'APPROVE', reasonCode: 'LOOKS_GOOD' });
 
-  // audit โหลดเมื่อกดเท่านั้น (การอ่าน audit ถูกบันทึกเป็น audit เอง)
+  // the audit loads only when pressed (reading the audit is itself audited)
   expect(mock.requests.some((request) => request.url().endsWith('/audit'))).toBe(false);
   await page.getByRole('button', { name: 'แสดงประวัติ' }).click();
   const timeline = page.getByRole('list', { name: 'ประวัติการเปลี่ยนแปลง ใหม่สุดก่อน' });
@@ -359,7 +361,9 @@ test('U1.3 reviewer หา candidate ที่รอตรวจจากรา�
   await expectNoSeriousA11yViolations(page);
 });
 
-test('U1.3 ผู้ส่งตรวจเห็นเหตุผลว่าต้องใช้ reviewer คนอื่น และไม่มีปุ่มตัดสิน', async ({ page }) => {
+test('U1.3 the submitter sees the reason another reviewer is required and has no decide button', async ({
+  page,
+}) => {
   const mock = new AuthoringMock();
   mock.journeys.get(JOURNEY_ID)!.review = {
     reviewId: REVIEW_ID,
@@ -375,12 +379,12 @@ test('U1.3 ผู้ส่งตรวจเห็นเหตุผลว่า
   await expect(page.getByRole('button', { name: 'อนุมัติ', exact: true })).toHaveCount(0);
 });
 
-// ── D1.14 (#453): หน้า Journeys บน shell/i18n/component ใหม่ ────────────────────────────────
+// ── D1.14 (#453): the Journeys page on the new shell/i18n/components ────────────────────────
 
-test.describe('D1.14 ภาษาอังกฤษ', () => {
+test.describe('D1.14 English', () => {
   test.use({ locale: 'en-US' });
 
-  test('ข้อความทั้งหน้าเป็นภาษาอังกฤษจาก catalog และ axe ไม่มี serious/critical ทั้งรายการและ editor', async ({
+  test('the whole page text is English from the catalog and axe has no serious/critical on both the list and the editor', async ({
     page,
   }) => {
     const mock = new AuthoringMock();
@@ -398,7 +402,7 @@ test.describe('D1.14 ภาษาอังกฤษ', () => {
   });
 });
 
-test('flag ui.shell.v2 เปิด: Journeys อยู่ใน AppShell โดยไม่มี chrome เดิมซ้ำ และ axe ผ่านทั้ง TH/EN', async ({
+test('flag ui.shell.v2 on: Journeys is in AppShell without the old chrome duplicated, and axe passes in both TH/EN', async ({
   page,
 }) => {
   const mock = new AuthoringMock();
@@ -416,7 +420,7 @@ test('flag ui.shell.v2 เปิด: Journeys อยู่ใน AppShell โด
   await expectNoSeriousA11yViolations(page);
 });
 
-test('flag ปิด: Journeys ใช้ chrome เดิมของหน้า (skip link + header) บน component/token ใหม่', async ({
+test("flag off: Journeys uses the page's original chrome (skip link + header) on the new components/tokens", async ({
   page,
 }) => {
   const mock = new AuthoringMock();
@@ -432,7 +436,7 @@ test('flag ปิด: Journeys ใช้ chrome เดิมของหน้�
   await expectNoSeriousA11yViolations(page);
 });
 
-test('สลับภาษาระหว่างแก้ Journey: ข้อความเปลี่ยนทันที ไม่ reload และการแก้ที่ยังไม่บันทึกยังอยู่', async ({
+test('switching language while editing a Journey: text changes immediately, no reload, and unsaved edits remain', async ({
   page,
 }) => {
   const mock = new AuthoringMock();
@@ -451,7 +455,7 @@ test('สลับภาษาระหว่างแก้ Journey: ข้อ�
   expect(await page.evaluate(() => performance.timeOrigin)).toBe(origin);
 });
 
-// ── U1.4 (#432): UAT run บน Journey Console ────────────────────────────────────────────────
+// ── U1.4 (#432): UAT run on the Journey Console ─────────────────────────────────────────────
 
 const RUN_ID = '9c4d5e6f-7a8b-4c93-9dae-2f3a4b5c6d74';
 const NEXT_RUN_ID = 'ad5e6f7a-8b9c-4da4-8ebf-3a4b5c6d7e85';
@@ -477,16 +481,16 @@ const UAT_FIXTURE = {
 };
 
 /**
- * mock ของ `/api/v1/runtime-profile` (profile uat) และ `/api/v1/uat-runs/**` แบบมี state — ติดตั้งหลัง
- * `AuthoringMock` จึงชนะ route 404 ของ profile; ข้อมูล synthetic ทั้งหมด
+ * stateful mock of `/api/v1/runtime-profile` (profile uat) and `/api/v1/uat-runs/**` — installed after
+ * `AuthoringMock`, so it wins over the profile's 404 route; all data is synthetic
  */
 class UatMock {
   readonly requests: Request[] = [];
   run: Json | null;
-  /** ครั้งถัดไปที่ `เริ่มรอบใหม่` ถูกปฏิเสธด้วย response นี้ */
+  /** the next `Start new round` is rejected with this response */
   startFailure: { status: number; body: Json } | null = null;
   unauthorized = false;
-  /** U1.5 (#433): metadata ของภาพหน้าจอที่ mock รับไว้ */
+  /** U1.5 (#433): metadata of screenshots the mock accepted */
   evidence: Json[] = [];
 
   constructor(private readonly authoring: AuthoringMock) {
@@ -533,7 +537,7 @@ class UatMock {
       const request = route.request();
       this.requests.push(request);
       const path = new URL(request.url()).pathname.replace('/api/v1/uat-runs', '');
-      // ภาพหน้าจอเป็น raw body — parse JSON เฉพาะ request ที่เป็น JSON
+      // a screenshot is a raw body — parse JSON only for requests that are JSON
       const isJson = (request.headers()['content-type'] ?? '').startsWith('application/json');
       const body = ((isJson ? request.postDataJSON() : null) ?? {}) as Json;
       const reply = (status: number, payload: unknown) =>
@@ -597,7 +601,7 @@ class UatMock {
         if (request.method() === 'GET') {
           return reply(200, { runId: this.run.runId, items: this.evidence });
         }
-        // server จริงตรวจ content type แล้วตรวจ magic bytes ซ้ำ — mock ทำตามขั้นเดียวกันแบบย่อ
+        // the real server checks the content type and then re-checks magic bytes — the mock follows the same steps in short form
         const type = request.headers()['content-type'];
         const bytes = request.postDataBuffer();
         if (type !== 'image/png' && type !== 'image/jpeg') {
@@ -658,7 +662,7 @@ async function openUat(page: Page, query = '') {
   return { authoring, uat, panel };
 }
 
-/** URL มีแค่ view/tenant/journey (opaque id) — ไม่มี token หรือค่าที่ผู้ทดสอบกรอก */
+/** the URL has only view/tenant/journey (opaque id) — no token or value the tester typed */
 function expectOpaqueUrl(page: Page) {
   const url = new URL(page.url());
   expect(
@@ -667,7 +671,7 @@ function expectOpaqueUrl(page: Page) {
   expect(page.url()).not.toMatch(/token|bearer|eyJ|@/i);
 }
 
-test('U1.4 UAT: badge/ขอบเขต + ข้อมูล run จาก server, บันทึก PASS และ FAIL พร้อม severity; axe ผ่าน', async ({
+test('U1.4 UAT: badge/scope + run data from the server, record PASS and FAIL with severity; axe passes', async ({
   page,
 }) => {
   const { uat, panel } = await openUat(page);
@@ -680,7 +684,7 @@ test('U1.4 UAT: badge/ขอบเขต + ข้อมูล run จาก serv
   await expect(facts.filter({ hasText: 'abc1234def56' })).toBeVisible();
   await expect(panel.getByText('ยังไม่มีผลที่บันทึกในรอบนี้')).toBeVisible();
 
-  // PASS: expected มาจาก step catalog ของ server
+  // PASS: expected comes from the server's step catalog
   await expect(
     panel.getByRole('definition').filter({ hasText: 'บันทึกฉบับร่างได้ revision ใหม่' }),
   ).toBeVisible();
@@ -693,7 +697,7 @@ test('U1.4 UAT: badge/ขอบเขต + ข้อมูล run จาก serv
     panel.getByRole('status').filter({ hasText: 'บันทึกผลของ MAKER_EDIT แล้ว' }),
   ).toBeVisible();
 
-  // FAIL: ต้องเลือก severity ก่อนส่ง
+  // FAIL: a severity must be chosen before sending
   await panel.getByLabel('ขั้นตอนที่ทดสอบ').selectOption('SIMULATE');
   await panel.getByLabel('ไม่ผ่าน (FAIL)').check();
   await panel.getByLabel('สิ่งที่เกิดขึ้นจริง').fill('จบที่ MAX_DURATION');
@@ -730,7 +734,7 @@ test('U1.4 UAT: badge/ขอบเขต + ข้อมูล run จาก serv
   await expectNoSeriousA11yViolations(page);
 });
 
-test('U1.4 เริ่มรอบใหม่: confirm แล้วเห็นรอบใหม่และไปที่ Journey ใหม่; 409 PENDING_REVIEW บอกทางไปต่อ', async ({
+test('U1.4 start new round: confirm then see the new round and go to the new Journey; 409 PENDING_REVIEW points to the way forward', async ({
   page,
 }) => {
   const { uat, panel } = await openUat(page);
@@ -755,7 +759,7 @@ test('U1.4 เริ่มรอบใหม่: confirm แล้วเห็�
   });
   expect(start!.headers()['idempotency-key']).toMatch(/^uat-start-/);
 
-  // run เดิมยังมีงานรอตรวจ: server ปฏิเสธและบอก next safe action
+  // the original run still has work awaiting review: the server rejects and states the next safe action
   uat.startFailure = {
     status: 409,
     body: { code: 'UAT_RUN_PENDING_REVIEW', safeParams: { nextSafeAction: 'DECIDE_REVIEW' } },
@@ -769,18 +773,18 @@ test('U1.4 เริ่มรอบใหม่: confirm แล้วเห็�
   await expect(alert).toBeVisible();
   await expect(alert).toContainText('ให้ reviewer ตัดสินงานที่รอตรวจ');
   await expect(alert.getByRole('button', { name: 'เปิด Journey ของรอบนี้' })).toBeVisible();
-  // ไม่อนุมานว่ารอบใหม่เริ่มแล้ว — ยังเป็นรอบที่ 2 ตาม server
+  // do not infer that the new round started — it is still round 2 per the server
   await expect(panel.getByRole('definition').filter({ hasText: 'รอบที่ 2' })).toBeVisible();
   await expect(panel.getByRole('definition').filter({ hasText: 'รอบที่ 3' })).toHaveCount(0);
   expectOpaqueUrl(page);
 });
 
-test('U1.4 simulation ใน UAT ใช้ fixture ของ server ตรงตัว และแสดง SIMULATION_ONLY กับเวลาเสมือน', async ({
+test("U1.4 simulation in UAT uses the server's fixture exactly and shows SIMULATION_ONLY with the virtual time", async ({
   page,
 }) => {
   const { authoring } = await openUat(page, `&journey=${JOURNEY_ID}`);
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
-  // ไม่มีช่อง JSON context ที่ browser สร้างเองใน UAT
+  // there is no browser-built JSON context field in UAT
   await expect(page.getByLabel('Context สังเคราะห์สำหรับ simulation (JSON)')).toHaveCount(0);
   const fixture = page.getByRole('definition').filter({ hasText: 'uat-fixture-1' });
   await expect(fixture).toBeVisible();
@@ -798,14 +802,14 @@ test('U1.4 simulation ใน UAT ใช้ fixture ของ server ตรงต
   expect((simulation.postDataJSON() as Json).fixture).toEqual(UAT_FIXTURE);
 });
 
-test('U1.4 deep link/refresh/Back/Forward ไม่ตัน, focus ไป heading และการแก้ที่ยังไม่บันทึกไม่หาย', async ({
+test('U1.4 deep link/refresh/Back/Forward do not dead-end, focus goes to the heading, and unsaved edits are not lost', async ({
   page,
 }) => {
   const mock = new AuthoringMock();
   await mock.install(page);
   await page.goto('/?view=journeys');
   await expect(page.getByRole('heading', { level: 1, name: 'Journey authoring' })).toBeVisible();
-  // ไม่ใช่ UAT (profile 404): ไม่มี UI ของ UAT เลย
+  // not UAT (profile 404): no UAT UI at all
   await expect(page.getByRole('region', { name: 'รอบทดสอบ UAT' })).toHaveCount(0);
   await expect(page.getByText('UAT / จำลอง (simulated)')).toHaveCount(0);
 
@@ -828,7 +832,7 @@ test('U1.4 deep link/refresh/Back/Forward ไม่ตัน, focus ไป headi
     page.getByRole('alert').filter({ hasText: 'พบการแก้ไขที่ยังไม่บันทึก' }),
   ).toBeVisible();
 
-  // refresh บน deep link เปิด Journey เดิมและยังกู้การแก้ได้
+  // refresh on a deep link opens the same Journey and can still restore edits
   await page.reload();
   await expect(
     page.getByRole('alert').filter({ hasText: 'พบการแก้ไขที่ยังไม่บันทึก' }),
@@ -840,7 +844,7 @@ test('U1.4 deep link/refresh/Back/Forward ไม่ตัน, focus ไป headi
 
   await page.getByRole('button', { name: '← รายการ Journey' }).click();
   await expect(listHeading).toBeFocused();
-  // ออกจาก editor ด้วยปุ่มกลับแล้ว Back: การแก้ยังอยู่ใน session recovery ให้กู้ได้อีก
+  // leaving the editor with the back button then Back: the edits remain in session recovery to restore again
   await page.goBack();
   await expect(
     page.getByRole('alert').filter({ hasText: 'พบการแก้ไขที่ยังไม่บันทึก' }),
@@ -848,7 +852,9 @@ test('U1.4 deep link/refresh/Back/Forward ไม่ตัน, focus ไป headi
   expect(mock.mutations()).toHaveLength(0);
 });
 
-test('U1.4 session หมด (401) ที่ UAT API แสดงทางเข้าสู่ระบบใหม่ ไม่ตัน', async ({ page }) => {
+test('U1.4 session expired (401) at the UAT API shows a way to sign in again, no dead end', async ({
+  page,
+}) => {
   const authoring = new AuthoringMock();
   const uat = new UatMock(authoring);
   uat.unauthorized = true;
@@ -864,7 +870,7 @@ test('U1.4 session หมด (401) ที่ UAT API แสดงทางเข
   await expectNoSeriousA11yViolations(page);
 });
 
-test('U1.4 959px: แผง UAT อ่านอย่างเดียว ไม่มีปุ่มบันทึกผล/เริ่มรอบใหม่ และไม่ส่ง mutation', async ({
+test('U1.4 959px: the UAT panel is read-only with no save-result/start-new-round buttons and sends no mutation', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 959, height: 900 });
@@ -885,7 +891,7 @@ test('U1.4 959px: แผง UAT อ่านอย่างเดียว ไ�
   await expectNoSeriousA11yViolations(page);
 });
 
-test('U1.4 แผง UAT อยู่ในเนื้อหาหน้า: เห็นเหมือนกันทั้ง flag ui.shell.v2 เปิดและปิด', async ({
+test('U1.4 the UAT panel is in the page content: seen the same with flag ui.shell.v2 on and off', async ({
   page,
 }) => {
   for (const shellV2 of [true, false]) {
@@ -898,14 +904,14 @@ test('U1.4 แผง UAT อยู่ในเนื้อหาหน้า: �
   }
 });
 
-// ── U1.5 (#433): ภาพหน้าจอหลักฐานและ evidence bundle ───────────────────────────────────────
+// ── U1.5 (#433): evidence screenshots and the evidence bundle ──────────────────────────────
 
-/** PNG signature + IHDR ขั้นต่ำ — mock ตรวจแค่ magic bytes */
+/** PNG signature + minimal IHDR — the mock checks only magic bytes */
 const PNG_BYTES = Buffer.from([
   0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
 ]);
 
-test('U1.5 แนบภาพหน้าจอ, เห็น digest, trace ถูกปฏิเสธพร้อมทางไปต่อ และส่งออก bundle ผ่าน Blob', async ({
+test('U1.5 attach a screenshot, see the digest, a trace is rejected with a way forward, and export the bundle through a Blob', async ({
   page,
 }) => {
   const { uat, panel } = await openUat(page);
@@ -927,7 +933,7 @@ test('U1.5 แนบภาพหน้าจอ, เห็น digest, trace ถ�
   await expect(row).toContainText(DIGEST('7').slice(0, 12));
   await expect(row).toContainText('image/png');
 
-  // Playwright trace (zip) ถูก server ปฏิเสธ — แสดงเหตุผลและทางไปต่อ ไม่มีอะไรถูกเพิ่ม
+  // a Playwright trace (zip) is rejected by the server — show the reason and the way forward, nothing is added
   await file.setInputFiles({
     name: 'trace.zip',
     mimeType: 'application/zip',
@@ -950,7 +956,7 @@ test('U1.5 แนบภาพหน้าจอ, เห็น digest, trace ถ�
   expect(rejected!.headers()['content-type']).toBe('application/zip');
   expect(rejected!.headers()['idempotency-key']).not.toBe(accepted!.headers()['idempotency-key']);
 
-  // ส่งออก bundle: fetch พร้อม bearer header แล้วดาวน์โหลดจาก Blob — ไม่มี token ใน URL
+  // export the bundle: fetch with a bearer header then download from a Blob — no token in the URL
   const [download] = await Promise.all([
     page.waitForEvent('download'),
     evidence.getByRole('button', { name: 'ส่งออก evidence bundle' }).click(),

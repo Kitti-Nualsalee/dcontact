@@ -1,9 +1,9 @@
 /**
- * A1.8b (#473): server span ต่อ HTTP request ของ Platform API
+ * A1.8b (#473): server span per HTTP request of the Platform API
  *
- * - เป็น root ของ trace เสมอ — ไม่รับ `traceparent` จาก client (Console อยู่นอก trust boundary)
- * - ชื่อ span ใช้ route template (`/api/v1/provisioning-requests/:requestId`) ไม่ใช่ URL จริง และไม่มี query
- * - repository/intake อ่าน traceparent จาก context นี้ไปเก็บใน DB ให้ worker ต่อ trace เดียวกัน
+ * - always the root of the trace — does not accept `traceparent` from the client (the Console is outside the trust boundary)
+ * - the span name uses the route template (`/api/v1/provisioning-requests/:requestId`), not the real URL, and has no query
+ * - the repository/intake reads traceparent from this context and stores it in the DB so the worker continues the same trace
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Injectable, type NestMiddleware } from '@nestjs/common';

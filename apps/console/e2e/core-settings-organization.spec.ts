@@ -56,7 +56,7 @@ async function login(page: Page, request: APIRequestContext, alias = 'admin') {
   );
   return config;
 }
-test('Rail: เปลี่ยน Home/องค์กรและ back/forward โดยคง document กับ OIDC session เดิม', async ({
+test('Rail: switching Home/organization and back/forward keeps the same document and OIDC session', async ({
   page,
   request,
 }) => {
@@ -87,7 +87,7 @@ test('Rail: เปลี่ยน Home/องค์กรและ back/forward 
   expect(documents).toBe(0);
   expect(identityRequests).toBe(0);
 });
-test('Rail: ร่างองค์กรคงอยู่เมื่อยกเลิก Rail/forward และยืนยันแล้วออกได้โดยไม่เสีย history', async ({
+test('Rail: the organization draft stays when Rail/forward is cancelled, and confirming leaves without breaking history', async ({
   page,
   request,
 }) => {
@@ -117,7 +117,7 @@ test('Rail: ร่างองค์กรคงอยู่เมื่อย�
   await page.goForward();
   await expect(page).toHaveURL(/view=home/);
 });
-test('Rail: หน้าย่อย Governance คง tenant และ back/forward เดิมก่อนเปลี่ยนกลับ Home', async ({
+test('Rail: the Governance sub-page keeps the tenant and back/forward before switching back to Home', async ({
   page,
   request,
 }) => {
@@ -140,7 +140,7 @@ test('Rail: หน้าย่อย Governance คง tenant และ back/for
   await expect(page).toHaveURL(/view=home/);
   expect(await page.evaluate(() => performance.timeOrigin)).toBe(timeOrigin);
 });
-test('องค์กร: login จริง → แก้ชื่อ → readback และตั้ง defaults ครั้งแรกโดยหน้าเดิมไม่เปลี่ยนภาษา', async ({
+test('organization: real login → edit the name → readback and set defaults the first time, with the page not changing language', async ({
   page,
   request,
 }) => {
@@ -168,7 +168,7 @@ test('องค์กร: login จริง → แก้ชื่อ → readb
   await expect(page.getByRole('status')).toContainText('บันทึกและตรวจข้อมูลเรียบร้อยแล้ว');
 });
 
-test('องค์กร: validation ใกล้ field และ no-op หลัง normalize ไม่แจ้งเปลี่ยนข้อมูล', async ({
+test('organization: validation near the field, and a no-op after normalize does not report a data change', async ({
   page,
   request,
 }) => {
@@ -182,7 +182,7 @@ test('องค์กร: validation ใกล้ field และ no-op หล�
   await page.getByRole('button', { name: 'บันทึกการเปลี่ยนแปลง', exact: true }).click();
   await expect(page.getByRole('status')).toContainText('ข้อมูลเหมือนเดิม ตรวจผลเรียบร้อยแล้ว');
 });
-test('องค์กร: Admin สองคนแก้ชนกันต้องให้ตรวจ latest และคงร่าง', async ({
+test('organization: two Admins editing in a clash must be asked to check the latest and keep the draft', async ({
   page,
   request,
   browser,
@@ -214,7 +214,7 @@ test('องค์กร: Admin สองคนแก้ชนกันต้อ
     await otherContext.close();
   }
 });
-test('องค์กร: response หายใช้ command-only recovery หลัง reload ไม่ส่ง business PATCH ซ้ำ', async ({
+test('organization: a lost response uses command-only recovery after reload and does not resend the business PATCH', async ({
   page,
   request,
 }) => {
@@ -232,7 +232,7 @@ test('องค์กร: response หายใช้ command-only recovery ห�
   expect(refs[0][1]).toMatch(/^[a-f0-9-]{36}$/);
   page.once('dialog', (d) => d.accept());
   await page.reload();
-  // userStore เป็น memory: boot กู้ SSO แล้วตรวจ command เดิมก่อนแก้ โดยไม่ถาม login ซ้ำ
+  // userStore is in memory: boot restores SSO then checks the original command before editing, without asking to log in again
   await expect(page.getByRole('status')).toContainText('บันทึกและตรวจข้อมูลเรียบร้อยแล้ว');
   await expect(page.getByRole('textbox', { name: 'ชื่อแสดงขององค์กร', exact: true })).toHaveValue(
     'ยืนยันผลหลัง reload',
@@ -243,7 +243,10 @@ test('องค์กร: response หายใช้ command-only recovery ห�
     ),
   ).toHaveLength(0);
 });
-test('องค์กร: readback ขาดหายคง UNKNOWN แล้วตรวจ receipt เดิมสำเร็จ', async ({ page, request }) => {
+test('organization: a missing readback stays UNKNOWN, then checking the original receipt succeeds', async ({
+  page,
+  request,
+}) => {
   await login(page, request);
   await request.post('/__core_test/fault/readback');
   await page
@@ -254,7 +257,7 @@ test('องค์กร: readback ขาดหายคง UNKNOWN แล้ว
   await page.getByRole('button', { name: 'ตรวจผลบันทึกอีกครั้ง' }).click();
   await expect(page.getByRole('status')).toContainText('บันทึกและตรวจข้อมูลเรียบร้อยแล้ว');
 });
-test('องค์กร: narrow เก็บร่าง เตือนก่อนออก และ revoke ไม่ใช้ cached capability', async ({
+test('organization: narrow keeps the draft, warns before leaving, and revoke does not use a cached capability', async ({
   page,
   request,
 }) => {
@@ -295,7 +298,10 @@ test('องค์กร: narrow เก็บร่าง เตือนก่�
     await request.post('/__core_test/restore');
   }
 });
-test('องค์กร: Supervisor อ่านอย่างเดียวและมีทางเข้าหน้า Team จริง', async ({ page, request }) => {
+test('organization: a Supervisor is read-only and has a real way into the Team page', async ({
+  page,
+  request,
+}) => {
   await login(page, request, 'supervisor');
   await expect(page.getByText('คุณมีสิทธิ์ดูข้อมูลเท่านั้น')).toBeVisible();
   await expect(page.getByRole('button', { name: 'บันทึกการเปลี่ยนแปลง', exact: true })).toHaveCount(
@@ -307,7 +313,7 @@ test('องค์กร: Supervisor อ่านอย่างเดียว�
   );
 });
 
-test('องค์กร: same identity reauth อยู่หน้าเดิมคงร่าง แล้วตรวจคำสั่งก่อนแก้ใหม่', async ({
+test('organization: same-identity reauth stays on the same page keeping the draft, then checks the command before editing again', async ({
   page,
   request,
 }) => {
@@ -324,7 +330,7 @@ test('องค์กร: same identity reauth อยู่หน้าเดิ
   await expect(page.getByRole('status')).toContainText('คำสั่งนี้ไม่ได้เปลี่ยนข้อมูล');
   await expect(name).toHaveValue('ร่างก่อน session หมด');
 });
-test('องค์กร: keyboard warning ยกเลิก sign-out คงร่าง แล้ว sign-out ล้างร่างและ command reference', async ({
+test('organization: the keyboard warning cancels sign-out and keeps the draft, then sign-out clears the draft and command reference', async ({
   page,
   request,
 }) => {
@@ -356,7 +362,10 @@ test('องค์กร: keyboard warning ยกเลิก sign-out คงร
   ).not.toHaveValue('ข้อมูลบัญชีก่อนหน้า');
 });
 
-test('องค์กร: English UI ผ่าน real OIDC/API ใน tenant แยก', async ({ browser, request }) => {
+test('organization: English UI through real OIDC/API in a separate tenant', async ({
+  browser,
+  request,
+}) => {
   const context = await browser.newContext({ locale: 'en-US' });
   const page = await context.newPage();
   try {
@@ -371,7 +380,7 @@ test('องค์กร: English UI ผ่าน real OIDC/API ใน tenant �
   }
 });
 
-test('Console session: เปลี่ยนเมนูและ reload ต้องกู้ SSO โดยไม่ถาม login ซ้ำ', async ({
+test('Console session: switching menus and reload must restore SSO without asking to log in again', async ({
   page,
   request,
 }) => {
@@ -405,7 +414,7 @@ test('Console session: เปลี่ยนเมนูและ reload ต้�
   ).toBe(false);
 });
 
-test('Console session: SSO ใช้ไม่ได้จบที่ login UI และไม่วน auth request', async ({
+test('Console session: unusable SSO ends at the login UI and does not loop auth requests', async ({
   page,
   request,
   context,
@@ -429,7 +438,7 @@ test('Console session: SSO ใช้ไม่ได้จบที่ login UI �
   expect(new URL(page.url()).pathname).toBe('/');
 });
 
-test('Console session: explicit sign-out และ reload ต้องไม่กู้ SSO กลับเข้าเอง', async ({
+test('Console session: explicit sign-out and reload must not restore SSO back in by themselves', async ({
   page,
   request,
 }) => {
@@ -455,7 +464,7 @@ test('Console session: explicit sign-out และ reload ต้องไม่�
   expect(attempts).toBe(0);
 });
 
-test('Console session: discovery ค้างต้องจบที่ login UI ตาม network timeout', async ({
+test('Console session: a hanging discovery must end at the login UI per the network timeout', async ({
   page,
   request,
 }) => {
@@ -467,7 +476,7 @@ test('Console session: discovery ค้างต้องจบที่ login U
   ).toBeVisible({ timeout: 12000 });
 });
 
-test('Console session: token request ค้างต้องจบที่ login UI ตาม network timeout', async ({
+test('Console session: a hanging token request must end at the login UI per the network timeout', async ({
   page,
   request,
 }) => {

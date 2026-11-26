@@ -7,7 +7,8 @@ import test from 'node:test';
 
 const container = process.env.VOICE_SKILL_TEST_CONTAINER;
 const databaseUser = process.env.VOICE_SKILL_TEST_USER ?? 'postgres';
-if (!container) throw new Error('ต้องระบุ VOICE_SKILL_TEST_CONTAINER ของ PostgreSQL sandbox');
+if (!container)
+  throw new Error('VOICE_SKILL_TEST_CONTAINER of the PostgreSQL sandbox must be specified');
 const migration = readFileSync(
   resolve(__dirname, '../prisma/migrations/20261022130000_tenant_voice_skill_scope/migration.sql'),
   'utf8',
@@ -76,7 +77,7 @@ INSERT INTO agent_skills(user_id,skill_id,level) VALUES('${userA}','${skillA}',5
 INSERT INTO queue_skills(queue_id,skill_id,min_level) VALUES('${queueA}','${skillA}',1),('${queueB}','${skillB}',5);
 `;
 
-test('Voice skill migration: contamination ต้อง rollback ทั้ง agent และ queue', async (context) => {
+test('Voice skill migration: contamination must roll back both the agent and the queue', async (context) => {
   for (const table of ['agent_skills', 'queue_skills']) {
     await context.test(table, () => {
       const database = `voice_skill_${randomUUID().replaceAll('-', '')}`;
@@ -99,7 +100,7 @@ test('Voice skill migration: contamination ต้อง rollback ทั้ง ag
   }
 });
 
-test('Voice config commit: descriptor/receipt ไม่แทน revision/audit และ metadata targets ต้อง busy', () => {
+test('Voice config commit: a descriptor/receipt does not replace the revision/audit and metadata targets must be busy', () => {
   const database = `voice_skill_${randomUUID().replaceAll('-', '')}`;
   sql('postgres', `CREATE DATABASE ${database}`);
   try {
@@ -202,7 +203,7 @@ test('Voice config commit: descriptor/receipt ไม่แทน revision/audit 
   }
 });
 
-test('Voice skill migration: backfill, composite FK, checks และ FORCE RLS', () => {
+test('Voice skill migration: backfill, composite FK, checks and FORCE RLS', () => {
   const database = `voice_skill_${randomUUID().replaceAll('-', '')}`;
   sql('postgres', `CREATE DATABASE ${database}`);
   try {

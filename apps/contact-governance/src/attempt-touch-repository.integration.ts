@@ -120,7 +120,7 @@ function input(
   };
 }
 
-test('บันทึก canonical Attempt และ Successful Touch ใน transaction เดียวและ query ตาม tenant/contact/time', async (t) => {
+test('records the canonical Attempt and Successful Touch in one transaction and queries by tenant/contact/time', async (t) => {
   const f = await fixture(t);
   const ids = [randomUUID(), randomUUID()];
   const repository = new AttemptTouchRepository(f.application, {
@@ -141,7 +141,7 @@ test('บันทึก canonical Attempt และ Successful Touch ใน tra
   assert.deepEqual(history.touches, [snapshot.touch]);
 });
 
-test('duplicate และ race ของ outcome เดิมคืน snapshot เดิมโดยไม่สร้าง Attempt/Touch ซ้ำ', async (t) => {
+test('a duplicate and a race of the same outcome return the original snapshot without creating a duplicate Attempt/Touch', async (t) => {
   const f = await fixture(t);
   const repository = new AttemptTouchRepository(f.application);
 
@@ -155,7 +155,7 @@ test('duplicate และ race ของ outcome เดิมคืน snapshot 
   assert.equal(await f.owner.cgTouch.count({ where: { tenantId: f.tenantId } }), 1);
 });
 
-test('outcomeRef เดิมกับ canonical binding/outcome อื่นคืน IDEMPOTENCY_CONFLICT และไม่เพิ่ม fact', async (t) => {
+test('the same outcomeRef with a different canonical binding/outcome returns IDEMPOTENCY_CONFLICT and adds no fact', async (t) => {
   const f = await fixture(t);
   const repository = new AttemptTouchRepository(f.application);
   await repository.record(input(f));
@@ -178,7 +178,7 @@ test('outcomeRef เดิมกับ canonical binding/outcome อื่นค
   assert.equal(await f.owner.cgTouch.count({ where: { tenantId: f.tenantId } }), 1);
 });
 
-test('cross-tenant reservation/contact ID swap ถูกซ่อนเป็น RESERVATION_NOT_FOUND', async (t) => {
+test('a cross-tenant reservation/contact ID swap is hidden as RESERVATION_NOT_FOUND', async (t) => {
   const tenantA = await fixture(t);
   const tenantB = await fixture(t);
   const repository = new AttemptTouchRepository(tenantA.application);
@@ -202,7 +202,7 @@ test('cross-tenant reservation/contact ID swap ถูกซ่อนเป็น
   assert.equal(await tenantB.owner.cgAttempt.count({ where: { tenantId: tenantB.tenantId } }), 0);
 });
 
-test('outcomeRef เดียวกันแยก tenant ได้ และ reader รองรับ row ที่ไม่มี optional legacy fields/touch', async (t) => {
+test('the same outcomeRef is separate per tenant, and the reader supports a row with no optional legacy fields/touch', async (t) => {
   const tenantA = await fixture(t, false);
   const tenantB = await fixture(t, false);
   const repositoryA = new AttemptTouchRepository(tenantA.application);

@@ -35,7 +35,7 @@ export interface TeamRecordingsApi {
     cursor?: string;
   }): Promise<{ items: RecordingItem[]; nextCursor: string | null }>;
   open(recordingId: string): Promise<PlaybackSession>;
-  /** WAV ช่วงสั้นที่เล่นได้ด้วยตัวเอง สิทธิ์ถูกตรวจใหม่ทุกครั้งที่ขอ */
+  /** a short WAV that can play on its own; permission is re-checked on every request */
   chunk(
     recordingId: string,
     sessionId: string,
@@ -50,7 +50,7 @@ export function createTeamRecordingsApi(options: {
   accessToken(): string | undefined;
 }): TeamRecordingsApi {
   const root = `${options.baseUrl.replace(/\/$/, '')}/api/v1/recordings`;
-  // token อยู่ใน header เท่านั้น ไม่ใส่ใน URL ของเสียง
+  // the token is in the header only, never in the audio URL
   async function call(path: string, body?: unknown): Promise<Response> {
     const token = options.accessToken();
     if (!token) throw new RecordingApiError(401);

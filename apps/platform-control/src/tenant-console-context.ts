@@ -1,17 +1,17 @@
 /**
- * #901: deployment context ของ tenant Console ที่ binding ของ first admin ผูกไว้
+ * #901: deployment context of the tenant Console that the first admin's binding is tied to
  *
- * issuer/client เป็น operator config ของ worker ไม่มาจาก request หรือ token และต้องตรง `iss`/`azp`
- * ที่ API ตรวจจาก Console session จริง (`tenantConfigurationCaller`)
+ * issuer/client are operator config of the worker, not from a request or token, and must match the `iss`/`azp`
+ * that the API checks from a real Console session (`tenantConfigurationCaller`)
  */
 export interface TenantConsoleContext {
   issuer: string;
   clientId: string;
-  /** #907: origin ของ tenant Console (`https://host[:port]`) — redirect ราย tenant คือ `<origin>/?tenant=<slug>` */
+  /** #907: origin of the tenant Console (`https://host[:port]`) — the per-tenant redirect is `<origin>/?tenant=<slug>` */
   origin: string;
 }
 
-/** client ที่เป็นของ platform/Keycloak เอง — ห้ามใช้เป็น tenant Console (ตรงกับ guard ฝั่ง API และ DB) */
+/** clients that belong to the platform/Keycloak itself — must not be used as the tenant Console (matches the guard on the API and DB side) */
 const PROTECTED_CLIENTS = new Set([
   'platform-console',
   'dcontact-platform-api',
@@ -29,14 +29,14 @@ export function tenantConsoleContext(
   origin: string,
 ): TenantConsoleContext {
   if (!ISSUER.test(issuer)) {
-    throw new Error('PLATFORM_TENANT_CONSOLE_ISSUER ต้องเป็น issuer ของ realm (…/realms/<realm>)');
+    throw new Error('PLATFORM_TENANT_CONSOLE_ISSUER must be a realm issuer (…/realms/<realm>)');
   }
   if (!CLIENT.test(clientId) || PROTECTED_CLIENTS.has(clientId)) {
-    throw new Error('PLATFORM_TENANT_CONSOLE_CLIENT_ID ต้องเป็น client ของ tenant Console');
+    throw new Error('PLATFORM_TENANT_CONSOLE_CLIENT_ID must be a tenant Console client');
   }
   if (!ORIGIN.test(origin)) {
     throw new Error(
-      'PLATFORM_TENANT_CONSOLE_ORIGIN ต้องเป็น origin (scheme://host[:port]) ไม่มี path',
+      'PLATFORM_TENANT_CONSOLE_ORIGIN must be an origin (scheme://host[:port]) with no path',
     );
   }
   return { issuer, clientId, origin };

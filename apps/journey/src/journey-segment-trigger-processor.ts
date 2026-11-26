@@ -1,16 +1,16 @@
 /**
- * J3.6 (#217) — apply phase ของ segment membership receipt
+ * J3.6 (#217) — the apply phase of the segment membership receipt
  *
- * ปิดวงจรระหว่าง consumer (ingest) กับ repository (persist): claim receipt ที่ READY หนึ่งใบ,
- * re-read exact entry จาก Customer 360, ตรวจ current team scope, match published
- * SEGMENT_ENTRY definitions แล้วจึงตัดสินว่าจะ enroll, re-filter, ปล่อยผ่าน หรือส่งไป review
+ * Closes the loop between the consumer (ingest) and the repository (persist): claims one READY receipt,
+ * re-reads the exact entry from Customer 360, checks the current team scope, matches the published
+ * SEGMENT_ENTRY definitions, then decides whether to enroll, re-filter, let it pass, or send it to review
  *
- * resolve ทุกอย่างนอก transaction (read-only) แล้วค่อยเปิดทรานแซกชันเดียวตอน persist —
- * ไม่ถือ DB lock ระหว่างรอ Customer 360 หรือ IAM ตอบ แบบเดียวกับ J2.7
+ * resolves everything outside the transaction (read-only) and opens a single transaction only to persist —
+ * holding no DB lock while waiting for Customer 360 or IAM to answer, same as J2.7
  *
- * caller ส่ง snapshot ของ membership หรือ scope เข้ามาเป็น authority ไม่ได้: ค่าเดียวที่เชื่อถือ
- * คือสิ่งที่ resolveEntry กับ authorizer ตอบ ณ เวลาที่ประมวลผลจริง ไม่ใช่ค่าที่ติดมากับ event
- * (stop condition ของ #217)
+ * the caller cannot pass in a snapshot of membership or scope as an authority: the only trusted values
+ * are what resolveEntry and the authorizer answer at the real processing time, not values that came with the event
+ * (the stop condition of #217)
  */
 import { createHash } from 'node:crypto';
 import type { Prisma, PrismaClient } from '@d-contact/db';
@@ -53,7 +53,7 @@ export interface JourneySegmentTriggerProcessorOptions {
   leaseSeconds?: number;
 }
 
-/** change kind ที่พา "การเข้า segment ครั้งใหม่" มาด้วย — ที่เหลือเป็นงานของ re-filter */
+/** change kinds that carry a "new entry into the segment" — the rest are the job of re-filter */
 const ENTRY_CHANGE_KINDS = new Set(['ENTERED']);
 
 export class JourneySegmentTriggerProcessor {
@@ -77,7 +77,7 @@ export class JourneySegmentTriggerProcessor {
     });
   }
 
-  /** ประมวลผล receipt ที่ READY ได้สูงสุดหนึ่งใบต่อครั้ง; caller กำหนด polling loop เอง */
+  /** processes at most one READY receipt per call; the caller sets the polling loop itself */
   async executeNext(tenantId: string, workerId: string): Promise<SegmentTriggerOutcome> {
     const claimed = await this.receipts.claimNextReady(tenantId, workerId, this.leaseSeconds);
     if (!claimed) return undefined;
@@ -85,9 +85,9 @@ export class JourneySegmentTriggerProcessor {
     const at = this.now().toISOString();
 
     /**
-     * change ที่ไม่ใช่การเข้าใหม่ (LEFT/CORRECTED/REFILTER_REQUIRED/IDENTITY_INVALIDATED)
-     * ไม่ต้อง resolve อะไรเลยที่นี่ — บันทึกเป็นงานรอประเมินแล้วให้ J3.7 ทำต่อ การพยายาม
-     * ตัดสินแทนมันที่นี่จะกลายเป็นการ re-filter ด้วยข้อมูลครึ่งเดียว
+     * a change that is not a new entry (LEFT/CORRECTED/REFILTER_REQUIRED/IDENTITY_INVALIDATED)
+     * needs nothing resolved here — record it as work awaiting evaluation and let J3.7 continue. Trying to
+     * decide on its behalf here would turn into re-filtering with half the data
      */
     if (!ENTRY_CHANGE_KINDS.has(claimed.changeKind)) {
       await this.receipts.applyRefilter(
@@ -95,7 +95,7 @@ export class JourneySegmentTriggerProcessor {
           tenantId,
           receiptId: claimed.id,
           reasonCode: claimed.changeKind,
-          // LEFT ปิด entry นั้นถาวร ส่วน kind อื่นแค่สั่งให้ประเมินใหม่
+          // LEFT closes that entry permanently while other kinds only order a re-evaluation
           ...(claimed.changeKind === 'LEFT' && claimed.entryId
             ? { terminalEntryId: claimed.entryId }
             : {}),
@@ -110,7 +110,7 @@ export class JourneySegmentTriggerProcessor {
     }
 
     if (!claimed.entryId) {
-      // ENTERED ที่ไม่มี entryId ขัดกับ contract เอง — เป็นความผิดปกติที่ต้องมีคนดู
+      // an ENTERED without an entryId contradicts the contract itself — an abnormality that someone has to look at
       await this.receipts.markReview(tenantId, claimed.id, 'PAYLOAD_VALIDATION_FAILED');
       return 'REVIEW';
     }
@@ -125,7 +125,7 @@ export class JourneySegmentTriggerProcessor {
     });
 
     if (resolution.status === 'STALE') {
-      // context ยังตามไม่ทัน ไม่ใช่ว่าไม่มีสิทธิ์ — ต้องเริ่มประเมินใหม่ทั้งหมดในรอบถัดไป
+      // the context has not caught up, it is not that there is no permission — the whole evaluation must start over in the next round
       await this.receipts.markRetryableFailure(
         tenantId,
         claimed.id,
@@ -136,8 +136,8 @@ export class JourneySegmentTriggerProcessor {
     }
     if (resolution.status === 'AMBIGUOUS' || resolution.status === 'NOT_FOUND') {
       /**
-       * ใช้ reason code ตรงตามที่ Customer 360 ตอบ แต่ไม่พยายามบอกมากกว่านั้น — การแยกว่า
-       * "ไม่มีจริง" กับ "เป็นของ tenant อื่น" จะเปิดให้เดา existence ข้าม tenant ได้
+       * uses the reason code exactly as Customer 360 answered but does not try to say more — separating
+       * "does not exist" from "belongs to another tenant" would let a caller guess existence across tenants
        */
       await this.receipts.markReview(tenantId, claimed.id, resolution.reasonCode);
       return 'REVIEW';
@@ -152,15 +152,15 @@ export class JourneySegmentTriggerProcessor {
       claimed.segmentId,
     );
     if (matched.length === 0) {
-      // ไม่มี journey ไหนสนใจ segment นี้ — head ต้องเลื่อนอยู่ดี ไม่งั้น revision ถัดไปค้าง
+      // no journey cares about this segment — the head must still advance, otherwise the next revision gets stuck
       await this.receipts.applyNoOp(tenantId, claimed.id);
       return 'NO_MATCH';
     }
 
     /**
-     * survivor ที่ Customer 360 ตัดสินเท่านั้นที่ใช้ได้ ไม่ใช่ contactId ที่ติดมากับ event
-     * — merge ทำให้สองค่านี้ต่างกัน และการใช้ค่าจาก event จะสร้าง enrollment ให้ contact
-     * ที่ไม่มีอยู่แล้ว
+     * only the survivor Customer 360 decided can be used, not the contactId that came with the event
+     * — a merge makes the two differ, and using the value from the event would create an enrollment for a contact
+     * that no longer exists
      */
     const canonicalContactId = resolution.contactId;
 
@@ -187,8 +187,8 @@ export class JourneySegmentTriggerProcessor {
     }
 
     /**
-     * DENY คือ "ทีมนี้ทำงานกับ contact นี้ไม่ได้" ไม่ใช่การบล็อกทาง Governance — บันทึกเป็น
-     * Governance BLOCK ไม่ได้เด็ดขาด (acceptance ของ #217) แค่ไม่สร้าง enrollment ให้ทีมนั้น
+     * DENY means "this team cannot work with this contact", not a Governance block — recording it as a
+     * Governance BLOCK is strictly forbidden (acceptance of #217); it just creates no enrollment for that team
      */
     const allowed = matched.filter((_, index) => scopes[index]?.decision === 'ALLOW');
     if (allowed.length === 0) {
@@ -228,8 +228,8 @@ export class JourneySegmentTriggerProcessor {
   }
 
   /**
-   * payload ของ outbox เก็บได้แค่ reference/version/digest เหมือน enrollment reason
-   * — ไม่มีค่า attribute, ไม่มี identity ดิบ และไม่มีนิยาม segment
+   * the outbox payload can hold only a reference/version/digest like the enrollment reason
+   * — no attribute values, no raw identity and no segment definition
    */
   private outboxEvent(
     contactIdValue: string,
@@ -241,7 +241,7 @@ export class JourneySegmentTriggerProcessor {
       eventType: 'journey.segment_entry.recorded',
       orderingKey: `${contactIdValue}:${segmentIdValue}`,
       payload,
-      // hash ต้องคำนวณจาก payload จริงเสมอ ค่าที่สุ่มมาจะทำให้ integrity check ทั้งเส้นไร้ความหมาย
+      // the hash must always be computed from the real payload; a random value would make the whole integrity check meaningless
       payloadHash: createHash('sha256').update(canonicalJson(payload)).digest('hex'),
     };
   }

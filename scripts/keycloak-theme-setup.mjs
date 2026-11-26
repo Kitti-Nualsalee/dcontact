@@ -2,10 +2,10 @@ import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
 
 /**
- * #515: ตั้ง login theme `dcontact` ให้ realm ที่ import ไปแล้ว (`--import-realm` ไม่ import ซ้ำ)
- * #522: และ email theme `dcontact` (อีเมลเชิญ first admin)
- * idempotent — ค่าเดิมตรงแล้วไม่ PUT
- * theme ของ Platform Console (`dcontact-platform`) ตั้งเป็น client attribute ใน keycloak-platform-setup.mjs
+ * #515: set the `dcontact` login theme for an already imported realm (`--import-realm` does not import again)
+ * #522: and the `dcontact` email theme (the first admin invitation email)
+ * idempotent - when the value already matches, no PUT
+ * the theme of the Platform Console (`dcontact-platform`) is set as a client attribute in keycloak-platform-setup.mjs
  */
 export const LOGIN_THEME = 'dcontact';
 export const PLATFORM_LOGIN_THEME = 'dcontact-platform';
@@ -27,7 +27,7 @@ async function request(path, { method = 'GET', token, body, form } = {}) {
     body: body === undefined ? form : JSON.stringify(body),
   });
   if (!response.ok) {
-    throw new Error(`${method} ${path} ล้มเหลว (${response.status}): ${await response.text()}`);
+    throw new Error(`${method} ${path} failed (${response.status}): ${await response.text()}`);
   }
   const text = await response.text();
   return text ? JSON.parse(text) : undefined;
@@ -47,7 +47,7 @@ export async function setupKeycloakTheme() {
   if (current.loginTheme === LOGIN_THEME && current.emailTheme === EMAIL_THEME) {
     return { changed: false };
   }
-  // PUT บางส่วนได้ — field ที่ไม่ส่งไม่ถูกแตะ
+  // a partial PUT is allowed - fields that are not sent are not touched
   await request(`/admin/realms/${realm}`, {
     method: 'PUT',
     token,

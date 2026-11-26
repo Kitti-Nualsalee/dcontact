@@ -12,18 +12,18 @@ export interface RecordingArchive {
 }
 
 export interface TelephonyRecordingLifecycleOptions {
-  /** mkdir บน storage ที่ไม่ตอบ (เช่น NFS ค้าง) ต้องไม่ค้างงานเริ่มบันทึกของสาย ค่าเริ่มต้น 5 วินาที */
+  /** An mkdir on unresponsive storage (e.g. a hung NFS) must not stall the call's start-recording work. Default 5 seconds */
   prepareTimeoutMs?: number;
-  /** archive (อ่านไฟล์ + PUT) ที่ค้างนานเกินนี้ถือว่าล้ม ไม่ให้ค้างรอบ retry ค่าเริ่มต้น 60 วินาที */
+  /** An archive (file read + PUT) stuck longer than this counts as failed so it does not stall the retry round. Default 60 seconds */
   archiveTimeoutMs?: number;
   /**
-   * หยุดลองไฟล์ที่ไม่มี (ENOENT) เมื่อครบทุกข้อ: วางสายมาแล้วเกิน missingFileGraceMs (30 นาที),
-   * process นี้เห็น ENOENT ต่อเนื่องเกิน missingFileObservationMs (10 นาที) และมี archive อื่นของ node
-   * สำเร็จหลังเห็นไฟล์หายครั้งแรก (พิสูจน์ว่า storage มองเห็น ไม่ใช่ mount หายทั้งก้อน)
+   * Stop retrying a missing file (ENOENT) when all of these hold: more than missingFileGraceMs (30 minutes) since hangup,
+   * this process has seen ENOENT continuously for more than missingFileObservationMs (10 minutes), and another archive of the node
+   * succeeded after the file was first seen missing (proving the storage is visible and the whole mount has not vanished)
    */
   missingFileGraceMs?: number;
   missingFileObservationMs?: number;
-  /** รอบ retry ที่ล้มจะเว้นรายการนั้นนานขึ้นทีละเท่า เริ่ม 5 วินาที สูงสุด 5 นาที */
+  /** A failed retry round skips that item for exponentially longer, starting at 5 seconds up to 5 minutes */
   retryBackoffInitialMs?: number;
   retryBackoffMaxMs?: number;
   now?: () => Date;
@@ -37,7 +37,7 @@ export interface PendingArchive {
   endedAt?: Date | null;
 }
 
-/** Telephony เป็นเจ้าของการสร้าง recording เมื่อ media bridge เริ่มขึ้น. */
+/** Telephony owns creating the recording when the media bridge starts. */
 export class TelephonyRecordingLifecycle {
   private readonly prepareTimeoutMs: number;
   private readonly archiveTimeoutMs: number;
@@ -47,9 +47,9 @@ export class TelephonyRecordingLifecycle {
   private readonly retryBackoffMaxMs: number;
   private readonly now: () => Date;
   private readonly log: (message: string, details: Record<string, unknown>) => void;
-  /** recording ที่กำลัง archive อยู่ (จาก hangup หรือรอบ retry) กันอ่านไฟล์และ PUT ซ้ำพร้อมกัน */
+  /** Recordings being archived (from hangup or a retry round), preventing concurrent duplicate file reads and PUTs */
   private readonly archivesInFlight = new Set<string>();
-  /** สถานะ backoff ในหน่วยความจำของรายการที่ retry ล้ม รีสตาร์ทแล้วเริ่มนับใหม่ */
+  /** In-memory backoff state of items whose retry failed; counting restarts after a restart */
   private readonly retryFailures = new Map<
     string,
     {
@@ -59,7 +59,7 @@ export class TelephonyRecordingLifecycle {
       successesAtFirstMissing?: number;
     }
   >();
-  /** จำนวน archive ที่สำเร็จใน process นี้ ใช้พิสูจน์ว่า storage ยังมองเห็นหลังไฟล์หนึ่งหาย */
+  /** Number of archives that succeeded in this process, used to prove storage is still visible after one file went missing */
   private archiveSuccesses = 0;
   private retryInProgress = false;
 
@@ -87,8 +87,8 @@ export class TelephonyRecordingLifecycle {
   }
 
   /**
-   * ขั้นที่ 1 สร้างแถว recording (DB อย่างเดียว เร็ว) แล้วคืนขั้นที่ 2 (เตรียม storage, ประกาศ, uuid_record)
-   * ให้ caller เรียงต่อเอง hangup จึงตั้ง endedAt ได้โดยไม่ต้องรอ storage ที่ช้า
+   * Step 1 creates the recording row (DB only, fast) and returns step 2 (prepare storage, announcement, uuid_record)
+   * for the caller to sequence itself, so hangup can set endedAt without waiting for slow storage
    */
   async beginForAnsweredCall(
     event: KafkaEventEnvelope<TelephonyCallEvent>,
@@ -177,8 +177,8 @@ export class TelephonyRecordingLifecycle {
         channelLayout: recording.channelLayout,
       });
     } catch (error) {
-      // #923: ไม่มีไฟล์เสียงเกิดขึ้น ถ้าปล่อยแถวไว้ retryPendingArchives จะวนอ่านไฟล์ที่ไม่มีวันมี (ENOENT)
-      // จึงลบแถวทิ้งก่อนส่ง error ต่อ ลบได้แม้ hangup ตั้ง endedAt ไปแล้วระหว่างรอ storage
+      // #923: no audio file was produced; if the row were left, retryPendingArchives would keep reading a file that will never exist (ENOENT),
+      // so delete the row before rethrowing the error. It can be deleted even when hangup already set endedAt while waiting for storage
       await this.discardUnstartedRecording(event.tenantId, recording.id);
       throw error;
     }
@@ -193,8 +193,8 @@ export class TelephonyRecordingLifecycle {
       );
       return;
     } catch (deleteError) {
-      // hangup อาจตั้ง endedAt ระหว่างรอ storage แล้ว QM สร้าง job อ้างแถวนี้ (FK RESTRICT) จึงลบไม่ได้
-      // รู้แน่ว่าไม่ได้สั่ง uuid_record จึงหยุดลองทันทีพร้อมหลักฐานแทนการปล่อยให้ retry ไล่ไฟล์ที่ไม่มีวันมี
+      // hangup may set endedAt while waiting for storage and QM then creates a job referencing this row (FK RESTRICT), so it cannot be deleted.
+      // It is certain uuid_record was not sent, so stop retrying at once with evidence instead of letting retry chase a file that will never exist
       try {
         const abandoned = await withTenantDatabaseTransaction(
           this.database,
@@ -244,7 +244,7 @@ export class TelephonyRecordingLifecycle {
     if (recording) await this.archiveEndedRecording(event.tenantId, recording);
   }
 
-  /** ตั้ง endedAt (DB อย่างเดียว) และคืนแถวที่ต้อง archive ต่อ QM อ่าน endedAt ตอน interaction.ended */
+  /** Sets endedAt (DB only) and returns the row to archive next. QM reads endedAt at interaction.ended */
   async endForHungupCall(
     event: KafkaEventEnvelope<TelephonyCallEvent>,
   ): Promise<PendingArchive | undefined> {
@@ -292,8 +292,8 @@ export class TelephonyRecordingLifecycle {
   }
 
   /**
-   * ลอง archive recording ที่วางสายแล้วแต่ยังไม่ขึ้น object storage ของ node นี้
-   * รายการที่ล้มไม่ขวางรายการอื่นหรือ tenant อื่น และรอบที่ซ้อนกันจะถูกข้าม
+   * Tries to archive recordings that were hung up but are not yet in the object storage of this node.
+   * A failed item does not block other items or other tenants, and overlapping rounds are skipped
    */
   async retryPendingArchives(telephonyNodeId: string): Promise<string[]> {
     if (this.retryInProgress) return [];
@@ -378,7 +378,7 @@ export class TelephonyRecordingLifecycle {
       storageVisible
     ) {
       try {
-        // เช่น ผู้โทรวางสายก่อน FreeSWITCH สร้างไฟล์: ไฟล์ไม่มีวันมี จึงหยุดลองและเก็บหลักฐานไว้ใน audit
+        // e.g. the caller hangs up before FreeSWITCH creates the file: the file will never exist, so stop retrying and keep the evidence in the audit
         const abandoned = await this.abandonMissingRecording(tenantId, telephonyNodeId, recording, {
           attempts,
           missingForMs,
@@ -439,7 +439,7 @@ export class TelephonyRecordingLifecycle {
           tenantId,
           archivedAt: null,
           deletedAt: null,
-          // เหมือน retention: recording ที่ติด legal hold ไม่ถูกตั้ง deletedAt
+          // Same as retention: a recording under legal hold does not get deletedAt set
           legalHolds: { none: { releasedAt: null } },
         },
         data: { deletedAt: now },
@@ -464,7 +464,7 @@ export class TelephonyRecordingLifecycle {
     });
   }
 
-  /** คืน false ถ้ามีงาน archive ของ recording นี้กำลังทำอยู่แล้ว */
+  /** Returns false if an archive job for this recording is already running */
   private async archiveRecording(tenantId: string, recording: PendingArchive): Promise<boolean> {
     if (this.archivesInFlight.has(recording.id)) return false;
     this.archivesInFlight.add(recording.id);
@@ -513,7 +513,7 @@ function errorCode(error: unknown): string | undefined {
   return typeof code === 'string' ? code : undefined;
 }
 
-/** log เฉพาะชื่อ รหัส และข้อความ ไม่ส่ง error object ทั้งก้อนที่อาจพก config/credential ของ client */
+/** Logs only the name, code and message, not the whole error object that may carry the client config/credentials */
 export function describeError(error: unknown): Record<string, unknown> {
   const failure = error instanceof Error ? error : undefined;
   return {

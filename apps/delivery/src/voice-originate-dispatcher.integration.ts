@@ -26,7 +26,7 @@ const allowRollout = {
   authorize: async () => ({ status: 'ALLOWED', state: 'SANDBOX', replay: false }) as const,
 };
 
-test('voice dispatcher persist submission barrier ก่อน publish command opaque เพียงครั้งเดียว', async (t) => {
+test('voice dispatcher persists the submission barrier before publishing the opaque command exactly once', async (t) => {
   const context = await createDeliveryFixture();
   t.after(() => context.dispose());
   const input = await enqueueInput(context, 'published');
@@ -86,7 +86,7 @@ test('voice dispatcher persist submission barrier ก่อน publish command o
   assert.equal(commands.length, 1);
 });
 
-test('voice dispatcher publish ล้มเหลวหลัง barrier แล้วต้อง reconcile โดยไม่ retry', async (t) => {
+test('voice dispatcher publish fails after the barrier and must reconcile without retry', async (t) => {
   const context = await createDeliveryFixture();
   t.after(() => context.dispose());
   const input = await enqueueInput(context, 'publish-failure');
@@ -146,7 +146,7 @@ test('voice dispatcher publish ล้มเหลวหลัง barrier แล�
   assert.equal(attempted, 1);
 });
 
-test('voice dispatcher default-off ไม่แตะ provider submission หรือ publisher', async (t) => {
+test('voice dispatcher default-off does not touch the provider submission or the publisher', async (t) => {
   const context = await createDeliveryFixture();
   t.after(() => context.dispose());
   const input = await enqueueInput(context, 'disabled');

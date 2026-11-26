@@ -91,7 +91,7 @@ async function main() {
     recordingsDirectory,
   );
   const recordingTasks = new RecordingTaskQueue();
-  // #979: managed routing v1 หลาย tenant — ปิดโดยปริยาย ถ้าไม่เปิด ทุกอย่างข้างล่างเป็น legacy ตามเดิม
+  // #979: multi-tenant managed routing v1 — off by default; when not enabled, everything below stays legacy as before
   const managedDatabaseUrl = process.env.APPLICATION_DATABASE_URL ?? process.env.DATABASE_URL;
   const managedDatabases = isManagedVoiceEnabled()
     ? [0, 1].map(
@@ -117,8 +117,8 @@ async function main() {
         now: () => new Date().toISOString(),
       })
     : undefined;
-  // #991: สาย managed ไม่ส่ง Kafka จึงรันเฉพาะวงจรบันทึกเสียง (publish เป็น no-op)
-  // ความล้มเหลวของวงจรบันทึกเสียงไม่ทำให้ routing ล้ม และ log แยกจาก ignored ESL event
+  // #991: managed calls are not sent to Kafka, so only the recording cycle runs (publish is a no-op)
+  // A failure of the recording cycle does not break routing and is logged separately from ignored ESL events
   const recordManagedCall = async (source: FreeSwitchEvent, tenantId: string) => {
     try {
       const event = managedRecording?.decide(source, tenantId);
@@ -183,7 +183,7 @@ async function main() {
     }
     const parsed = parseEslEvent(frame);
     if (!parsed) return;
-    // #562: สายจาก trunk ได้ tenant ตอน park ไม่ใช่ตอน create — PARK อื่นไม่ใช่ call event
+    // #562: a trunk call gets its tenant at park, not at create — any other PARK is not a call event
     const source =
       parsed['Event-Name'] === 'CHANNEL_PARK'
         ? parkedCallAsCreated(
@@ -274,7 +274,7 @@ async function main() {
       if (managed) {
         const route = await routeManagedCall(source, tenantId, managed.routing);
         if (route !== 'legacy') {
-          // 'ignored' ยังต้องปิดบันทึกถ้าเป็น hangup ของสายที่ managed ถืออยู่ แม้ runtime ประมวลผล event ไม่สำเร็จ
+          // 'ignored' must still close the recording if it is a hangup of a call managed holds, even when the runtime failed to process the event
           await recordManagedCall(source, tenantId);
           return;
         }
@@ -310,8 +310,8 @@ async function main() {
       await handleFrame(next.header, next.frame);
   };
   if (managed) {
-    // managed ต้องได้ event ของสายเดียวกันตามลำดับ (offer ก่อน answer ก่อน bridge) จึงเรียงต่อสาย
-    // สายต่างกันยังทำพร้อมกันได้ งานช้าของสาย legacy (archive เสียง, Kafka) จึงไม่ขวางสายอื่น
+    // managed must receive the events of the same call in order (offer before answer before bridge), so they are ordered per call
+    // Different calls can still run concurrently, so slow work of a legacy call (audio archive, Kafka) does not block other calls
     const eventQueue = new KeyedSerialQueue((error) =>
       console.error('[telephony] ignored ESL event', error),
     );
@@ -352,7 +352,7 @@ async function main() {
     socket.removeAllListeners('data');
     socket.end();
     await managed?.stop();
-    // งาน archive ที่ค้างจะถูก retry รอบหน้าหลังเริ่มใหม่ จึงรอแค่ช่วงสั้น ๆ
+    // Pending archive work is retried next time after a restart, so only a short wait is needed
     if (!(await recordingTasks.drain(5_000))) {
       console.error('[telephony] recording tasks still running at shutdown', {
         pending: recordingTasks.size,

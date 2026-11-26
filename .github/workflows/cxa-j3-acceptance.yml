@@ -2,17 +2,17 @@ name: cxa-j3-acceptance
 
 on:
   workflow_dispatch:
-  # ADR-032: CI `acceptance=chain` เรียกต่อจาก J2/CG4 ใน run เดียวกัน (SHA เดียวกัน)
+  # ADR-032: CI `acceptance=chain` calls this after J2/CG4 in the same run (same SHA)
   workflow_call:
 
 permissions:
   contents: read
-  # #559: ดึง evidence manifest ของ S1/J2/CG4 จาก artifact ของ run อื่นบน SHA เดียวกัน
+  # #559: fetch the S1/J2/CG4 evidence manifests from another run's artifacts on the same SHA
   actions: read
 
 jobs:
   cxa-j3-acceptance:
-    # J3 completion อนุญาตเฉพาะ main; PR ตรวจ validator ใน CI เดิม
+    # J3 completion is allowed on main only; PRs have the validator checked in the existing CI
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 90

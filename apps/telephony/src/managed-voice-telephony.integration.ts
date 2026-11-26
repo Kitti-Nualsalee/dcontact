@@ -75,7 +75,7 @@ async function managedTenant(owner: PrismaClient, label: string, agents = 1) {
   return { tenantId, sipDomain };
 }
 
-/** FreeSWITCH ESL จำลองแบบ TCP ที่ตอบเหมือน switch จริงพอให้ adapter ทำ offer ได้ */
+/** A TCP fake FreeSWITCH ESL that answers like a real switch well enough for the adapter to make an offer */
 function fakeSwitch(password: string) {
   const channels = new Map<string, Record<string, string>>();
   const globals = new Map<string, string>();
@@ -142,7 +142,7 @@ async function until(check: () => Promise<boolean> | boolean, label: string, tim
   assert.fail(`timed out waiting for ${label}`);
 }
 
-test('#979 main.ts managed: heartbeat และ offer ต่อ tenant ใช้ SIP domain ของ tenant นั้น', async (context) => {
+test('#979 main.ts managed: heartbeat and offer per tenant use the SIP domain of that tenant', async (context) => {
   const owner = new PrismaClient();
   const database = new PrismaClient({ datasources: { db: { url: applicationUrl } } });
   const dispatchDatabase = new PrismaClient({ datasources: { db: { url: applicationUrl } } });
@@ -178,7 +178,7 @@ test('#979 main.ts managed: heartbeat และ offer ต่อ tenant ใช้
         FROM voice_managed_runtime_readiness WHERE tenant_id=${tenantId}::uuid AND telephony_node_id=${nodeId}`
     )[0]?.wired === true;
 
-  // ยังไม่ยืนยัน ESL subscription: ห้ามประกาศ readiness
+  // ESL subscription not confirmed yet: must not announce readiness
   managed.start();
   await delay(2_500);
   assert.equal(await readiness(alpha.tenantId), false);
@@ -191,7 +191,7 @@ test('#979 main.ts managed: heartbeat และ offer ต่อ tenant ใช้
   const callers = { alpha: randomUUID(), beta: randomUUID(), crossed: randomUUID() };
   fake.channels.set(callers.alpha, { domain_name: alpha.sipDomain });
   fake.channels.set(callers.beta, { domain_name: beta.sipDomain });
-  // สายที่มาจาก domain ของ beta แต่ถูกส่งเป็น tenant alpha ต้องไม่ถูกผูกหรือ originate
+  // A call from the domain of beta but sent as tenant alpha must not be bound or originated
   fake.channels.set(callers.crossed, { domain_name: beta.sipDomain });
   const created = (callUuid: string) => ({
     'Event-Name': 'CHANNEL_CREATE',
@@ -206,7 +206,7 @@ test('#979 main.ts managed: heartbeat และ offer ต่อ tenant ใช้
     await routeManagedCall(created(callers.crossed), alpha.tenantId, routing),
     'managed',
   );
-  // เบอร์ที่ไม่ได้ผูกคิว managed กลับไป legacy
+  // A number not bound to a managed queue goes back to legacy
   assert.equal(
     await routeManagedCall(
       { ...created(randomUUID()), 'Caller-Destination-Number': '2001' },
@@ -243,7 +243,7 @@ test('#979 main.ts managed: heartbeat และ offer ต่อ tenant ใช้
     WHERE tenant_id=${alpha.tenantId}::uuid AND call_uuid=${callers.crossed} AND command_type='offer.create'`;
   assert.deepEqual(crossedCommand, { status: 'PENDING', lastError: 'DIRECT_PORT_UNCONFIRMED' });
 
-  // ปิดแล้วถอน readiness ทันทีโดยไม่รอ TTL
+  // After closing, readiness is withdrawn at once without waiting for the TTL
   await managed.stop();
   assert.equal(await readiness(alpha.tenantId), false);
   assert.equal(await readiness(beta.tenantId), false);

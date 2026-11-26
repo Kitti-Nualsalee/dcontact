@@ -199,7 +199,7 @@ export class AgentWorkspaceController {
       return {
         capabilities: {
           voiceWrapupV1: 1,
-          // #938 server รองรับ Not Ready + เหตุผล, Offline และสถานะหลังจบงาน (#937) — Workspace เปิดหน้าเลือกสถานะ
+          // #938 the server supports Not Ready + reason, Offline and the after-work state (#937) — the Workspace opens the state picker
           agentStatusV1: 1,
           ...(this.customerAvailable ? { workCustomerV1: 1 } : {}),
         },
@@ -208,7 +208,7 @@ export class AgentWorkspaceController {
           displayName: agent.displayName,
           extension: agent.extension,
           state: latestState?.state ?? 'OFFLINE',
-          // #937 เวลาในสถานะ, เหตุผล Not Ready และใครเปลี่ยน (Supervisor บังคับ = ชื่อและเหตุผลที่กรอก)
+          // #937 time in the state, the Not Ready reason and who changed it (Supervisor forced = the name and reason entered)
           stateSince: latestState?.startedAt.toISOString() ?? null,
           reasonCode: latestState?.reasonCode ?? null,
           changedBy,
@@ -250,7 +250,7 @@ export class AgentWorkspaceController {
   ) {
     const actor = identity(request);
     const leaseId = requiredUuid(workSessionLeaseId ?? '', 'x-work-session-lease-id');
-    // #937: AVAILABLE (เดิม), BREAK + reasonCode (Not Ready) หรือ OFFLINE ของ Agent ตัวเอง
+    // #937: AVAILABLE (original), BREAK + reasonCode (Not Ready) or OFFLINE of the Agent themselves
     const requested = parseAgentSelfState(body);
     if (!requested) throw new BadRequestException({ code: 'VALIDATION_FAILED', field: 'state' });
     return withTenantDatabaseTransaction(this.database, actor.tenantId, async (transaction) => {
@@ -313,7 +313,7 @@ export class AgentWorkspaceController {
           state: { in: ['ASSIGNED', 'ACTIVE', 'WRAPUP'] },
         },
       });
-      // ระหว่างมีงานเปลี่ยนเองไม่ได้ — ใช้สถานะหลังจบงาน (PUT after-work) แทน
+      // cannot change on their own during work — use the after-work state (PUT after-work) instead
       if (busy) throw new ConflictException({ code: 'WORK_SESSION_BUSY' });
       if (
         requested.reasonCode &&
@@ -345,7 +345,7 @@ export class AgentWorkspaceController {
     });
   }
 
-  /** #937 เหตุผล Not Ready ที่ Agent เลือกได้ตอนนี้ ตามลำดับที่ Admin ตั้ง (#936) */
+  /** #937 the Not Ready reasons the Agent can choose now, in the order the Admin set (#936) */
   @Get('not-ready-reasons')
   @GatewayRoles('agent')
   @Header('Cache-Control', 'no-store')
@@ -357,8 +357,8 @@ export class AgentWorkspaceController {
   }
 
   /**
-   * #937 สถานะหลังจบงาน — ใช้ตอนปิดงานหลังสาย (บันทึกสรุปผล) ครั้งเดียว ไม่ตั้ง = Ready
-   * ตั้งได้ทุกเวลา ค่านี้อยู่ที่ server จึงไม่หายเมื่อ reload
+   * #937 the after-work state — used when closing work after a call (wrap-up) once; unset = Ready
+   * can be set at any time; this value lives on the server so it is not lost on reload
    */
   @Put('after-work')
   @HttpCode(200)

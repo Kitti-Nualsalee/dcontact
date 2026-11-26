@@ -4,7 +4,7 @@ import { createCustomerTagsApi } from './customer-tags/api.js';
 
 const id = '7f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b';
 
-test('catalog client ส่งคำสั่งเดิมผ่าน body และคืน terminal แม้ HTTP เป็น conflict', async () => {
+test('catalog client sends the original command through the body and returns terminal even when HTTP is a conflict', async () => {
   const original = globalThis.fetch;
   const calls: { url: string; init: RequestInit }[] = [];
   globalThis.fetch = (async (url: string, init: RequestInit) => {
@@ -19,7 +19,7 @@ test('catalog client ส่งคำสั่งเดิมผ่าน body �
   }) as typeof fetch;
   try {
     const api = createCustomerTagsApi({ baseUrl: 'https://api.test/', accessToken: () => 'token' });
-    const result = await api.rename(id, { commandId: id, expectedRevision: '3', name: 'ตัวอย่าง' });
+    const result = await api.rename(id, { commandId: id, expectedRevision: '3', name: 'Sample' });
     assert.equal(result.state, 'TERMINAL');
     assert.equal(calls[0]!.url, `https://api.test/api/v1/customer-360/tags/${id}`);
     assert.equal(calls[0]!.init.method, 'PATCH');
@@ -27,7 +27,7 @@ test('catalog client ส่งคำสั่งเดิมผ่าน body �
     assert.deepEqual(JSON.parse(calls[0]!.init.body as string), {
       commandId: id,
       expectedRevision: '3',
-      name: 'ตัวอย่าง',
+      name: 'Sample',
     });
     await assert.rejects(api.detail('invalid'), { status: 404 });
     assert.equal(calls.length, 1);
@@ -36,7 +36,7 @@ test('catalog client ส่งคำสั่งเดิมผ่าน body �
   }
 });
 
-test('catalog client แยก UNKNOWN, field error และ session ที่หมดอายุ', async () => {
+test('catalog client distinguishes UNKNOWN, field errors and an expired session', async () => {
   const original = globalThis.fetch;
   let token: string | undefined;
   try {

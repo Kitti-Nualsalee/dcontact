@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test';
 // Browser locale is English, so the review screen renders the English catalog
 test.use({ locale: 'en-US' });
 
-test('ผู้ตรวจฟัง signed playback เห็น transcript gap และ publish หลัง server ยืนยัน', async ({
+test('a reviewer listens to signed playback, sees the transcript gap, and publishes after the server confirms', async ({
   page,
 }) => {
   let status: 'DRAFT' | 'PUBLISHED' = 'DRAFT';
@@ -76,7 +76,7 @@ test('ผู้ตรวจฟัง signed playback เห็น transcript gap
   expect(publishBody?.commandId).toEqual(expect.any(String));
 });
 
-test('ลบ media แล้ว transcript และ evaluation ยังแสดงอยู่', async ({ page }) => {
+test('after deleting media the transcript and evaluation are still shown', async ({ page }) => {
   await page.route('**/api/v1/qm/console-contexts/48ef8d3d-c90e-4e71-a5e0-ebd58d78de59', (route) =>
     route.fulfill({
       status: 200,

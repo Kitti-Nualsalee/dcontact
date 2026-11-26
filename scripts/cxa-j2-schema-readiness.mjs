@@ -7,7 +7,7 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 const composeArguments = ['compose', '-f', 'infra/docker/docker-compose.dev.yml'];
 
-/** ตารางใหม่ที่ J2 เพิ่มเข้ามา (ไม่รวม jr_journey_definitions ที่ C1.4 สร้างไว้ก่อนแล้ว) */
+/** New tables J2 adds (excluding jr_journey_definitions, which C1.4 created earlier) */
 export const CANONICAL_J2_TABLES = [
   'jr_outcome_receipts',
   'jr_outcome_heads',
@@ -26,7 +26,7 @@ export const CANONICAL_J2_TABLES = [
   'ob_campaign_targets',
   'ob_dialer_command_inbox',
   'ob_callbacks',
-  // J2.9 (#137): rollout gate ของ originate barrier ที่แชร์ข้าม Dialer instance
+  // J2.9 (#137): rollout gate of the originate barrier shared across Dialer instances
   'ob_originate_rollout_state',
   'ob_originate_rollout_scopes',
   'ob_originate_rollout_audit',
@@ -56,7 +56,7 @@ export function parseJ2SchemaEvidence(value) {
   const match = String(value)
     .trim()
     .match(/^(\d+)\|(\d+)\|(\d+)$/);
-  if (!match) throw new TypeError('schema evidence ต้องมีจำนวน table|RLS|policy');
+  if (!match) throw new TypeError('schema evidence must have the table|RLS|policy counts');
   const [, tables, rlsEnabled, tenantPolicies] = match.map(Number);
   const expected = CANONICAL_J2_TABLES.length;
   return {
@@ -79,7 +79,7 @@ function execute(command, arguments_, options = {}) {
   });
   if (result.status !== 0 || result.error) {
     throw new Error(
-      `${command} ล้มเหลวด้วย status ${result.status ?? result.error?.code ?? 'unknown'}`,
+      `${command} failed with status ${result.status ?? result.error?.code ?? 'unknown'}`,
     );
   }
   return String(result.stdout ?? '').trim();
@@ -102,11 +102,11 @@ function inspectDatabase(databaseName) {
   return parseJ2SchemaEvidence(databaseCommand(databaseName, 'psql', '-tAc', evidenceQuery));
 }
 
-/** J2-MG01: migration ครอบคลุมตาราง J2 ใหม่ทั้งหมดทั้งบน DB ที่มีอยู่และ fresh migrate */
+/** J2-MG01: the migration covers all the new J2 tables, both on an existing DB and on a fresh migrate */
 export function runCxaJ2SchemaReadiness() {
   const existingDatabase = process.env.CXA_ACCEPTANCE_DATABASE_NAME ?? 'dcontact';
   if (!/^[a-zA-Z0-9_]+$/.test(existingDatabase)) {
-    throw new TypeError('CXA_ACCEPTANCE_DATABASE_NAME มีชื่อฐานข้อมูลไม่ถูกต้อง');
+    throw new TypeError('CXA_ACCEPTANCE_DATABASE_NAME contains an invalid database name');
   }
   const freshDatabase = `dcontact_cxa_j2_verify_${randomBytes(6).toString('hex')}`;
 

@@ -3,8 +3,8 @@ import { test, expect, type Page } from '@playwright/test';
 import { coreLogin } from './core-settings-helpers.js';
 
 /**
- * #936 หน้าเหตุผล Not Ready ใน Core Settings — Console จริง → Keycloak → API/RLS
- * `NOT_READY_REASONS_EVIDENCE_DIR=<dir>` = เก็บภาพหลักฐานสำหรับ PR
+ * #936 the Not Ready reasons page in Core Settings — real Console → Keycloak → API/RLS
+ * `NOT_READY_REASONS_EVIDENCE_DIR=<dir>` = collect evidence screenshots for the PR
  */
 async function evidence(page: Page, name: string) {
   const dir = process.env.NOT_READY_REASONS_EVIDENCE_DIR;
@@ -15,7 +15,7 @@ async function openReasons(page: Page) {
   await expect(page.getByRole('heading', { name: 'เหตุผล Not Ready', level: 1 })).toBeVisible();
   await expect(list(page).getByRole('listitem')).toHaveCount(7);
 }
-/** Switch ของ react-aria ซ่อน input ไว้ — สลับด้วยคีย์บอร์ดแบบเดียวกับผู้ใช้ */
+/** the react-aria Switch hides the input — toggle by keyboard the way a user does */
 async function toggle(page: Page, name: string) {
   await page.getByRole('switch', { name }).focus();
   await page.keyboard.press('Space');
@@ -27,7 +27,7 @@ const thaiNames = (page: Page) =>
     .getByRole('textbox', { name: 'ชื่อภาษาไทย' })
     .evaluateAll((inputs) => inputs.map((input) => (input as HTMLInputElement).value));
 
-test('Admin: เปลี่ยนชื่อ เรียงลำดับ ปิด เพิ่ม และลบ แล้วบันทึกครั้งเดียว — โหลดใหม่ได้รายการเดิม', async ({
+test('Admin: rename, reorder, disable, add and delete, then save once — reloading returns the same list', async ({
   page,
   request,
 }) => {
@@ -81,13 +81,13 @@ test('Admin: เปลี่ยนชื่อ เรียงลำดับ �
   await expect(page.getByRole('switch', { name: 'เปิดใช้เหตุผล ประชุม' })).not.toBeChecked();
 });
 
-test('ปิดทุกเหตุผล → บันทึกไม่ได้และบอกว่าต้องเปิดอย่างน้อยหนึ่ง, ชื่อซ้ำ → server ชี้แถว', async ({
+test('disabling every reason → cannot save and it says at least one must be enabled; a duplicate name → the server points at the row', async ({
   page,
   request,
 }) => {
   await coreLogin(page, request);
   await openReasons(page);
-  // รอบก่อนหน้าในไฟล์นี้ปิดบางเหตุผลไว้แล้ว — ปิดเฉพาะที่ยังเปิด
+  // an earlier round in this file already disabled some reasons — disable only those still enabled
   for (const name of await thaiNames(page))
     if (await page.getByRole('switch', { name: `เปิดใช้เหตุผล ${name}` }).isChecked())
       await toggle(page, `เปิดใช้เหตุผล ${name}`);
@@ -106,7 +106,10 @@ test('ปิดทุกเหตุผล → บันทึกไม่ได
   await expect(row(page, 1)).toContainText('ชื่อนี้ซ้ำกับเหตุผลอื่น');
 });
 
-test('EN: ข้อความของหน้าเปลี่ยนตามภาษาโดยไม่ทิ้งร่าง', async ({ page, request }) => {
+test('EN: the page text changes with the language without dropping the draft', async ({
+  page,
+  request,
+}) => {
   await coreLogin(page, request);
   await openReasons(page);
   await row(page, 0).getByRole('textbox', { name: 'ชื่อภาษาไทย' }).fill('พักสั้น 10 นาที');

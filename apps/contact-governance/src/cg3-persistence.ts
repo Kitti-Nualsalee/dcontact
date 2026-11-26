@@ -60,7 +60,7 @@ export interface CgEventPayloadV1 {
 
 function jsonRecord(value: unknown, field: string): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new TypeError(`${field} ต้องเป็น JSON object`);
+    throw new TypeError(`${field} must be a JSON object`);
   }
   return value as Record<string, unknown>;
 }
@@ -72,18 +72,18 @@ function assertKnownKeys(
 ): void {
   const allowed = new Set(allowedKeys);
   const unknownKey = Object.keys(record).find((key) => !allowed.has(key));
-  if (unknownKey) throw new TypeError(`${field} มี field ที่ไม่รู้จัก: ${unknownKey}`);
+  if (unknownKey) throw new TypeError(`${field} has an unknown field: ${unknownKey}`);
 }
 
 function optionalString(value: unknown, field: string): string | null {
   if (value === undefined || value === null) return null;
-  if (typeof value !== 'string') throw new TypeError(`${field} ต้องเป็น string หรือ null`);
+  if (typeof value !== 'string') throw new TypeError(`${field} must be a string or null`);
   return nonEmpty(value, field);
 }
 
 function requiredString(value: unknown, field: string): string {
   const normalized = optionalString(value, field);
-  if (normalized === null) throw new TypeError(`${field} ต้องเป็น string ที่ไม่ว่าง`);
+  if (normalized === null) throw new TypeError(`${field} must be a non-empty string`);
   return normalized;
 }
 
@@ -92,7 +92,7 @@ export function validateCgScope(value: unknown): CgPreferenceScope {
   assertKnownKeys(scope, ['identityId', 'channel', 'purpose', 'contactKind'], 'affectedScope');
   const channel = optionalString(scope.channel, 'channel');
   if (channel !== null && !CONTACT_CHANNELS.has(channel as ContactChannel)) {
-    throw new TypeError('channel ไม่อยู่ใน ContactChannel');
+    throw new TypeError('channel is not in ContactChannel');
   }
   return {
     identityId: optionalString(scope.identityId, 'identityId'),
@@ -118,20 +118,20 @@ export function validateCgEventPayloadV1(value: unknown): CgEventPayloadV1 {
     ],
     'payload',
   );
-  if (payload.contractVersion !== 1) throw new RangeError('contractVersion ต้องเป็น 1');
+  if (payload.contractVersion !== 1) throw new RangeError('contractVersion must be 1');
   if (!Number.isInteger(payload.subjectVersion) || (payload.subjectVersion as number) < 1) {
-    throw new RangeError('subjectVersion ต้องเป็น positive integer');
+    throw new RangeError('subjectVersion must be a positive integer');
   }
   const policyVersion = payload.policyVersion;
   if (
     policyVersion !== undefined &&
     (!Number.isInteger(policyVersion) || (policyVersion as number) < 1)
   ) {
-    throw new RangeError('policyVersion ต้องเป็น positive integer');
+    throw new RangeError('policyVersion must be a positive integer');
   }
   const stateDigest = requiredString(payload.stateDigest, 'stateDigest');
   if (!/^[a-f0-9]{64}$/.test(stateDigest)) {
-    throw new TypeError('stateDigest ต้องเป็น lowercase SHA-256');
+    throw new TypeError('stateDigest must be a lowercase SHA-256');
   }
   const effectiveAt = instant(
     requiredString(payload.effectiveAt, 'effectiveAt'),
@@ -152,7 +152,7 @@ export function validateCgEventPayloadV1(value: unknown): CgEventPayloadV1 {
 
 function localMinute(value: string, field: string): number {
   const match = /^(?:[01]\d|2[0-3]):[0-5]\d$/.exec(value);
-  if (!match) throw new TypeError(`${field} ต้องเป็นเวลา HH:mm`);
+  if (!match) throw new TypeError(`${field} must be a time in HH:mm`);
   const [hour, minute] = value.split(':').map(Number);
   return hour! * 60 + minute!;
 }
@@ -164,7 +164,7 @@ export function normalizeLocalTimeWindows(windows: readonly LocalTimeWindow[]): 
       daysOfWeek.length === 0 ||
       daysOfWeek.some((day) => !Number.isInteger(day) || day < 1 || day > 7)
     ) {
-      throw new TypeError(`windows[${index}].daysOfWeek ต้องอยู่ระหว่าง 1 ถึง 7`);
+      throw new TypeError(`windows[${index}].daysOfWeek must be between 1 and 7`);
     }
     localMinute(window.startLocal, `windows[${index}].startLocal`);
     localMinute(window.endLocal, `windows[${index}].endLocal`);
@@ -190,7 +190,7 @@ export function normalizeLocalTimeWindows(windows: readonly LocalTimeWindow[]): 
   intervals.sort((left, right) => left.start - right.start || left.end - right.end);
   for (let index = 1; index < intervals.length; index += 1) {
     if (intervals[index]!.start < intervals[index - 1]!.end) {
-      throw new RangeError('local-time windows ทับซ้อนกันหลัง normalize');
+      throw new RangeError('local-time windows overlap after normalization');
     }
   }
 
@@ -305,7 +305,7 @@ export class Cg3IdempotencyConflictError extends Error {
   readonly code = 'IDEMPOTENCY_CONFLICT';
 
   constructor(readonly idempotencyKey: string) {
-    super(`Idempotency-Key ถูกใช้กับ canonical request อื่นแล้ว: ${idempotencyKey}`);
+    super(`Idempotency-Key was already used with a different canonical request: ${idempotencyKey}`);
     this.name = 'Cg3IdempotencyConflictError';
   }
 }
@@ -317,7 +317,7 @@ export class Cg3VersionConflictError extends Error {
     readonly expectedVersion: number,
     readonly actualVersion: number,
   ) {
-    super(`expectedVersion ${expectedVersion} ไม่ตรงกับ aggregateVersion ${actualVersion}`);
+    super(`expectedVersion ${expectedVersion} does not match aggregateVersion ${actualVersion}`);
     this.name = 'Cg3VersionConflictError';
   }
 }
@@ -326,7 +326,7 @@ export class Cg3ResourceNotFoundError extends Error {
   readonly code = 'RESOURCE_NOT_FOUND';
 
   constructor() {
-    super('ไม่พบ resource ใน active tenant');
+    super('Resource not found in the active tenant');
     this.name = 'Cg3ResourceNotFoundError';
   }
 }
@@ -337,13 +337,13 @@ export interface Cg3PreferenceRepositoryOptions {
 
 function nonEmpty(value: string, field: string): string {
   const normalized = value.trim();
-  if (!normalized) throw new TypeError(`${field} ต้องเป็น string ที่ไม่ว่าง`);
+  if (!normalized) throw new TypeError(`${field} must be a non-empty string`);
   return normalized;
 }
 
 function instant(value: string, field: string): Date {
   const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) throw new TypeError(`${field} ต้องเป็น ISO-8601 timestamp`);
+  if (Number.isNaN(parsed.getTime())) throw new TypeError(`${field} must be an ISO-8601 timestamp`);
   return parsed;
 }
 
@@ -441,19 +441,19 @@ export class Cg3PreferenceRepository {
     nonEmpty(input.idempotencyKey, 'idempotencyKey');
     nonEmpty(input.correlationId, 'correlationId');
     if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 0) {
-      throw new RangeError('expectedVersion ต้องเป็น integer ตั้งแต่ 0');
+      throw new RangeError('expectedVersion must be an integer >= 0');
     }
     const occurredAt = instant(input.occurredAt, 'occurredAt');
     const effectiveFrom = instant(input.effectiveFrom, 'effectiveFrom');
     const effectiveTo = input.effectiveTo ? instant(input.effectiveTo, 'effectiveTo') : undefined;
     if (effectiveTo && effectiveTo <= effectiveFrom) {
-      throw new RangeError('effectiveTo ต้องอยู่หลัง effectiveFrom');
+      throw new RangeError('effectiveTo must be after effectiveFrom');
     }
     if (input.timezone) {
       try {
         new Intl.DateTimeFormat('en-US', { timeZone: input.timezone }).format(occurredAt);
       } catch {
-        throw new TypeError('timezone ต้องเป็น IANA timezone ที่ถูกต้อง');
+        throw new TypeError('timezone must be a valid IANA timezone');
       }
     }
     const preferredWindows = normalizeLocalTimeWindows(input.preferredWindows);
@@ -687,7 +687,7 @@ export class Cg3PreferenceRepository {
     nonEmpty(input.idempotencyKey, 'idempotencyKey');
     nonEmpty(input.correlationId, 'correlationId');
     if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 0) {
-      throw new RangeError('expectedVersion ต้องเป็น integer ตั้งแต่ 0');
+      throw new RangeError('expectedVersion must be an integer >= 0');
     }
     const occurredAt = instant(input.occurredAt, 'occurredAt');
     const requestHash = stableDigest({
@@ -746,7 +746,7 @@ export class Cg3PreferenceRepository {
         orderBy: { version: 'desc' },
       });
       if (!latestInScope || latestInScope.id !== target.id) {
-        // preference นี้ถูก supersede ไปแล้ว ไม่ใช่ active version อีกต่อไป
+        // this preference has already been superseded and is no longer the active version
         throw new Cg3ResourceNotFoundError();
       }
 
@@ -881,7 +881,7 @@ export class Cg3PreferenceRepository {
   async history(query: PreferenceHistoryQuery): Promise<PreferenceView[]> {
     const limit = query.limit ?? 100;
     if (!Number.isInteger(limit) || limit < 1 || limit > 500) {
-      throw new RangeError('preference history limit ต้องเป็น integer ระหว่าง 1 ถึง 500');
+      throw new RangeError('preference history limit must be an integer between 1 and 500');
     }
     return withTenantDatabaseTransaction(this.database, query.tenantId, async (transaction) => {
       const preferences = await transaction.cgPreference.findMany({

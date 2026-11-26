@@ -17,16 +17,16 @@ export { DialogTrigger };
 export interface DialogProps extends Omit<ModalOverlayProps, 'className' | 'children'> {
   title: ReactNode;
   children: ReactNode | ((close: () => void) => ReactNode);
-  /** ปุ่มท้าย dialog — รับ `close` เพื่อปิดหลังทำงานเสร็จ */
+  /** dialog footer buttons — receives `close` to close after the work is done */
   footer?: (close: () => void) => ReactNode;
-  /** `alertdialog` สำหรับการยืนยันที่ย้อนไม่ได้ */
+  /** `alertdialog` for irreversible confirmations */
   role?: 'dialog' | 'alertdialog';
   className?: string;
 }
 
 /**
- * modal แบบ trap focus: Esc ปิด, focus กลับไปที่ปุ่มที่เปิด (React Aria)
- * ใช้คู่กับ `<DialogTrigger>` หรือควบคุมด้วย `isOpen`/`onOpenChange`
+ * focus-trapping modal: Esc closes, focus returns to the button that opened it (React Aria)
+ * use with `<DialogTrigger>` or control with `isOpen`/`onOpenChange`
  */
 export function Dialog({
   title,

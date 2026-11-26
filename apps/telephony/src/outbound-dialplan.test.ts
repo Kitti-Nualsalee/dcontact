@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { resolve } from 'node:path';
 
-test('FreeSWITCH dialplan ปฏิเสธ agent direct outbound นอก internal sandbox routes', () => {
+test('the FreeSWITCH dialplan rejects agent direct outbound outside internal sandbox routes', () => {
   const dialplan = readFileSync(
     resolve(process.cwd(), '../../infra/freeswitch/conf/dialplan/default.xml'),
     'utf8',

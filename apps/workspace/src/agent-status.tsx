@@ -1,6 +1,6 @@
 /**
- * #938 หน้าเลือกสถานะหลัง login และตัวเลือกสถานะใน Workspace (docs/agent-readiness-setup.md)
- * ส่วนแสดงผลล้วน — ลำดับการเตรียมรับสายและการเรียก API อยู่ใน workspace-app.tsx (view เดียวกัน ไม่ remount)
+ * #938 status picker page after login and the status selector in Workspace (docs/agent-readiness-setup.md)
+ * display only — the order of preparing for calls and the API calls live in workspace-app.tsx (same view, no remount)
  */
 import { useEffect, useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -20,7 +20,7 @@ export type PrepFailure = 'lease' | 'mic' | 'phone' | 'ready';
 const LAST_CHOICE_KEY = 'dcontact.workspace.lastStatus';
 const PREP_STEPS: PrepStep[] = ['lease', 'mic', 'phone', 'ready'];
 
-/** สถานะล่าสุดที่ Agent เลือก (จำต่อ browser) ครั้งแรกเป็น Ready — คำตัดสิน owner ข้อ 6 */
+/** latest status the Agent chose (remembered per browser), Ready the first time — owner decision item 6 */
 export function lastStatusChoice(): StatusChoice {
   try {
     const value: unknown = JSON.parse(localStorage.getItem(LAST_CHOICE_KEY) ?? 'null');
@@ -32,7 +32,7 @@ export function lastStatusChoice(): StatusChoice {
         return { state: 'BREAK', reasonCode: choice.reasonCode };
     }
   } catch {
-    // อ่านไม่ได้ = ค่าเริ่มต้น
+    // unreadable = default
   }
   return { state: 'AVAILABLE' };
 }
@@ -41,7 +41,7 @@ export function rememberStatusChoice(choice: StatusChoice): void {
   try {
     localStorage.setItem(LAST_CHOICE_KEY, JSON.stringify(choice));
   } catch {
-    // จำไม่ได้ก็ใช้ต่อในหน้านี้
+    // if it cannot be remembered, keep using it in this page
   }
 }
 
@@ -57,7 +57,7 @@ export function useReasonLabel(): (
   };
 }
 
-/** เวลาในสถานะแบบเดินเอง (m:ss หรือ h:mm:ss) */
+/** self-ticking time in state (m:ss or h:mm:ss) */
 export function useElapsed(since: string | null | undefined): string {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -210,7 +210,7 @@ export function StatusGate({
   );
 }
 
-/** เหตุผลที่ใช้เมื่อเตรียมรับสายไม่สำเร็จ: งานหลังบ้าน ถ้าไม่มี = เหตุผลแรกที่เปิดอยู่ */
+/** reason used when preparing for calls fails: back-office work, or if none = the first enabled reason */
 export function fallbackReason(reasons: NotReadyReason[]): string | undefined {
   return (reasons.find((reason) => reason.code === 'BACK_OFFICE') ?? reasons[0])?.code;
 }
@@ -247,7 +247,7 @@ export function StatusSelector({
   const reasonLabel = useReasonLabel();
   const elapsed = useElapsed(since);
   const system = state === 'RESERVED' || state === 'BUSY' || state === 'ACW';
-  // BREAK ที่ระบบตั้งโดยไม่มีเหตุผล = cooldown ของ router (ไม่ได้รับสายที่เสนอ)
+  // a BREAK set by the system without a reason = router cooldown (did not take an offered call)
   const cooldown = state === 'BREAK' && !reasonCode && changedBy !== 'SUPERVISOR';
   const options: SelectOption[] = [
     { id: 'AVAILABLE', label: t('agentStatus.state.AVAILABLE') },
@@ -255,7 +255,7 @@ export function StatusSelector({
       id: `BREAK:${reason.code}`,
       label: t('agentStatus.notReadyWith', { reason: reasonLabel(reasons, reason.code) }),
     })),
-    // เหตุผลที่ Admin ปิดไปแล้วแต่ Agent ยังอยู่ในนั้น ยังแสดงค่าปัจจุบันได้
+    // a reason the Admin already disabled but the Agent is still in — still show the current value
     ...(state === 'BREAK' && reasonCode && !reasons.some((reason) => reason.code === reasonCode)
       ? [
           {
@@ -265,7 +265,7 @@ export function StatusSelector({
           },
         ]
       : []),
-    // Supervisor ตั้ง Not Ready โดยไม่เลือกเหตุผลจากรายการ
+    // a Supervisor set Not Ready without choosing a reason from the list
     ...(state === 'BREAK' && !reasonCode
       ? [{ id: 'BREAK:', label: t('agentStatus.state.BREAK'), isDisabled: true }]
       : []),

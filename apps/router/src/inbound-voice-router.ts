@@ -1133,7 +1133,7 @@ export class InboundVoiceRouter {
             id: existing.id,
             tenantId: event.tenantId,
             state: 'ASSIGNED',
-            // #967: สายที่ถูกเสนอให้ Agent คนใหม่ระหว่างนี้ต้องไม่ถูกรับด้วยคำตอบของคนเดิม
+            // #967: a call offered to a new Agent in the meantime must not be answered with the reply of the earlier one
             agentId: existing.agentId,
             ...(existing.offerExpiresAt ? { offerExpiresAt: { gt: answeredAt } } : {}),
           },

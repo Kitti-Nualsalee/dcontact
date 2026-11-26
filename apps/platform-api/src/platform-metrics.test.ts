@@ -5,7 +5,7 @@ import { carriesTenantContext, type PlatformAuthDiagnostic } from './platform-au
 import { meteredDiagnostics } from './platform-metrics.js';
 import { platformClaims, tenantClaims } from './test-tokens.js';
 
-test('meteredDiagnostics นับตาม decision/reason/capability โดยไม่มี subject/correlation id', async () => {
+test('meteredDiagnostics counts by decision/reason/capability with no subject/correlation id', async () => {
   const registry = new Registry();
   const forwarded: PlatformAuthDiagnostic[] = [];
   const sink = meteredDiagnostics({ write: (event) => forwarded.push(event) }, registry);
@@ -33,12 +33,12 @@ test('meteredDiagnostics นับตาม decision/reason/capability โดย
     'dcontact_platform_api_auth_decisions_total{decision="denied",reason="TENANT_CONTEXT_PRESENT",capability="none"} 1',
     'dcontact_platform_api_auth_decisions_total{decision="denied",reason="MIXED_TOKEN_TRIPWIRE",capability="CONTROL_PLANE_READ"} 1',
   ]) {
-    assert.ok(text.includes(series), `ขาด ${series}\n${text}`);
+    assert.ok(text.includes(series), `missing ${series}\n${text}`);
   }
   assert.equal(/corr-secret|sub-leak/.test(text), false);
 });
 
-test('tripwire ตรวจ tenant context ด้วยรายการของตัวเอง', () => {
+test('tripwire checks tenant context against its own list', () => {
   assert.equal(carriesTenantContext(platformClaims('platform_operator')), false);
   assert.equal(carriesTenantContext(tenantClaims()), true);
   for (const extra of [

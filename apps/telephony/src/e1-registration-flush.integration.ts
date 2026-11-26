@@ -4,7 +4,7 @@ import test from 'node:test';
 import { PrismaClient } from '@d-contact/db';
 import { E1RegistrationFlusher, type E1RegistrationFlushInput } from './e1-registration-flush.js';
 
-test('flush ภายใต้ RLS ต้อง revoked+released, ปกป้อง lease ใหม่ และไม่เปลี่ยน ACTIVE interaction', async (context) => {
+test('flush under RLS must be revoked+released, protect the new lease and not change an ACTIVE interaction', async (context) => {
   const owner = new PrismaClient();
   const application = new PrismaClient({
     datasources: {

@@ -7,10 +7,10 @@ import {
   userInitials,
 } from './user.js';
 
-test('ชื่อที่แสดง: name → given_name + family_name → preferred_username', () => {
+test('display name: name → given_name + family_name → preferred_username', () => {
   assert.equal(
-    displayNameFromClaims({ name: 'สมชาย ใจดี', given_name: 'x', preferred_username: 'y' }),
-    'สมชาย ใจดี',
+    displayNameFromClaims({ name: 'สมชาย ใจดี', given_name: 'x', preferred_username: 'y' }), // allow-thai: Thai name fixture
+    'สมชาย ใจดี', // allow-thai: Thai name fixture
   );
   assert.equal(
     displayNameFromClaims({
@@ -25,7 +25,7 @@ test('ชื่อที่แสดง: name → given_name + family_name → p
   assert.equal(displayNameFromClaims({}), '');
 });
 
-test('บทบาท: เฉพาะที่รู้จักตามลำดับคงที่ — role อื่นใน token ถูกซ่อน', () => {
+test('roles: only known ones in a fixed order — other roles in the token are hidden', () => {
   assert.deepEqual(
     shellRolesFromClaims({
       realm_access: { roles: ['agent', 'offline_access', 'admin', 'default-roles-dcontact'] },
@@ -36,7 +36,7 @@ test('บทบาท: เฉพาะที่รู้จักตามลำ
   assert.deepEqual(shellRolesFromClaims({}), []);
 });
 
-test('shellUserFromClaims รวมชื่อ, email, organization และบทบาท', () => {
+test('shellUserFromClaims combines name, email, organization and roles', () => {
   assert.deepEqual(
     shellUserFromClaims(
       {
@@ -56,17 +56,17 @@ test('shellUserFromClaims รวมชื่อ, email, organization และ�
   assert.equal(shellUserFromClaims({ name: 'x', email: '' }).email, undefined);
 });
 
-test('อักษรย่อ: ไทยข้ามสระหน้า, อังกฤษเป็นตัวพิมพ์ใหญ่, ไม่มีตัวอักษร = ว่าง', () => {
+test('initials: Thai skips leading vowels, English is uppercase, no letters = empty', () => {
   assert.equal(userInitials('Somchai Jaidee'), 'SJ');
   assert.equal(userInitials('somchai'), 'S');
-  assert.equal(userInitials('สมชาย ใจดี'), 'สจ');
-  assert.equal(userInitials('ไพโรจน์ แก้วใส'), 'พก');
+  assert.equal(userInitials('สมชาย ใจดี'), 'สจ'); // allow-thai: Thai initials
+  assert.equal(userInitials('ไพโรจน์ แก้วใส'), 'พก'); // allow-thai: Thai initials
   assert.equal(userInitials('Anna Maria de Souza'), 'AS');
   assert.equal(userInitials('  (agent) 01 '), 'A');
   assert.equal(userInitials('123 456'), '');
   assert.equal(userInitials(''), '');
 });
 
-test('อักษรย่อไม่ขึ้นกับ locale ของเครื่อง (เช่น ตุรกี i → I ไม่ใช่ İ)', () => {
+test('initials do not depend on the machine locale (e.g. Turkish i → I, not İ)', () => {
   assert.equal(userInitials('ilker ince'), 'II');
 });

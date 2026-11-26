@@ -56,9 +56,9 @@
   box-shadow: var(--dc-focus-ring-inset);
 }
 
-/* forced-colors: outline มาจาก tokens.css — หัวคอลัมน์ แถว และเซลล์วาดด้านในให้ตรงกับ ring แบบ inset
-   แถวที่เลือกบอกด้วยพื้นสีอย่างเดียว ซึ่งโหมดนี้บังคับเป็น Canvas จึงใส่แถบ Highlight ที่ต้นแถวแทน
-   (ไม่ทาพื้นทั้งแถว เพราะเซลล์มีเนื้อหาหลายสี เช่น badge ที่ต้องให้ระบบจัดสีให้) */
+/* forced-colors: the outline comes from tokens.css — column headers, rows and cells are drawn inside to match the inset ring
+   a selected row is shown by background color only, which this mode forces to Canvas, so a Highlight bar is put at the row start instead
+   (the whole row is not filled because cells contain many colors, e.g. a badge that must be colored by the system) */
 @media (forced-colors: active) {
   .column[data-focus-visible],
   .row[data-focus-visible],

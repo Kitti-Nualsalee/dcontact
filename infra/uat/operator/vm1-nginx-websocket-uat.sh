@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# #490: ย้าย SIP WebSocket จาก VM1 override ชั่วคราวกลับไปให้ Caddy ใน release ดูแล
+# #490: move the SIP WebSocket from the temporary VM1 override back to be managed by Caddy in the release
 set -euo pipefail
 
 mode="${1:---check}"
 [[ "$mode" == --check || "$mode" == --apply ]] || { echo 'usage: sudo bash vm1-nginx-websocket-uat.sh [--check|--apply]' >&2; exit 64; }
-[[ "$(id -u)" -eq 0 ]] || { echo 'ต้องรันด้วย sudo บน VM1' >&2; exit 1; }
+[[ "$(id -u)" -eq 0 ]] || { echo 'must run with sudo on VM1' >&2; exit 1; }
 
 host=dcontact-uat.osd.co.th
 vm1=192.168.102.114
 vm2=192.168.102.112
 config=/etc/nginx/conf.d/dcontact-uat.osd.co.th.conf
 
-ip -4 -o addr show | grep -Fq "$vm1/" || { echo "เครื่องนี้ไม่มี IP $vm1" >&2; exit 1; }
-[[ -f "$config" ]] || { echo "ไม่พบ $config" >&2; exit 1; }
+ip -4 -o addr show | grep -Fq "$vm1/" || { echo "this machine does not have IP $vm1" >&2; exit 1; }
+[[ -f "$config" ]] || { echo "$config not found" >&2; exit 1; }
 
 expected="$(mktemp)"
 candidate="$(mktemp)"
@@ -72,7 +72,7 @@ server {
 NGINX
 
 if cmp -s "$expected" "$config"; then
-  echo 'CHECK ผ่าน: VM1 ส่ง /sip-ws ผ่าน Caddy แบบไม่ buffer แล้ว'
+  echo 'CHECK passed: VM1 sends /sip-ws through Caddy without buffering'
   exit 0
 fi
 
@@ -105,9 +105,9 @@ manual_sip_ws = re.compile(
 
 source, removed = manual_sip_ws.subn('', source)
 if removed > 1:
-    raise SystemExit('พบ /sip-ws override มากกว่าหนึ่ง block; หยุดเพื่อตรวจด้วยมือ')
+    raise SystemExit('found more than one /sip-ws override block; stopping to check by hand')
 if 'location = /sip-ws {' in source:
-    raise SystemExit('พบ /sip-ws block ที่ไม่ใช่ override รุ่นเดิม; หยุดเพื่อตรวจด้วยมือ')
+    raise SystemExit('found a /sip-ws block that is not the previous override; stopping to check by hand')
 source = source.replace(
     '        proxy_set_header Connection "";\n',
     '        proxy_set_header Upgrade $http_upgrade;\n'
@@ -140,17 +140,17 @@ relay_sip_ws = '''    # SIP WebSocket ต้อง stream frame เล็ก ๆ
 '''
 needle = '    location / {\n'
 if needle not in source:
-    raise SystemExit('ไม่พบ generic location; หยุดเพื่อตรวจด้วยมือ')
+    raise SystemExit('generic location not found; stopping to check by hand')
 source = source.replace(needle, relay_sip_ws + needle, 1)
 Path(sys.argv[2]).write_text(source)
 PY
 
 if ! cmp -s "$expected" "$candidate"; then
-  echo 'config UAT ไม่ตรงกับ state ที่ migration รู้จัก; หยุดเพื่อตรวจด้วยมือ' >&2
+  echo 'the UAT config does not match a state the migration recognizes; stopping to check by hand' >&2
   exit 1
 fi
 if [[ "$mode" == --check ]]; then
-  echo 'พบ config WebSocket รุ่นเดิม; --apply จะ backup config, ส่ง /sip-ws ผ่าน Caddy แบบไม่ buffer และ reload nginx'
+  echo 'found the previous WebSocket config; --apply will back up the config, send /sip-ws through Caddy without buffering and reload nginx'
   exit 1
 fi
 
@@ -160,8 +160,8 @@ install -o root -g root -m 0644 "$expected" "$config"
 if ! nginx -t; then
   cp --preserve=mode,ownership "$backup" "$config"
   nginx -t >/dev/null || true
-  echo 'nginx -t ไม่ผ่าน; คืน config จาก backup แล้ว' >&2
+  echo 'nginx -t failed; restored the config from backup' >&2
   exit 1
 fi
 systemctl reload nginx
-echo "APPLY ผ่าน: backup=$(basename "$backup"); /sip-ws ส่งผ่าน Caddy แบบไม่ buffer"
+echo "APPLY passed: backup=$(basename "$backup"); /sip-ws is sent through Caddy without buffering"

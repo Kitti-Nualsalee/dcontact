@@ -1,25 +1,25 @@
 /**
- * Owner: Delivery/Channels — durable control plane ของ LINE pilot (S2.3 #367)
+ * Owner: Delivery/Channels — durable control plane of the LINE pilot (S2.3 #367)
  *
  * Authority: rollout/security decision #358, account authority #356, Phase Contract #362 §9
  *
- * ที่นี่คือ `LineRolloutAuthority` ของ #362 §4: propose/approve/consume/kill/clearWithApproval
- * ทุกสถานะอยู่ใน Postgres ไม่มี counter หรือ latch ใน memory — instance ใหม่หลัง restart อ่าน
- * ความจริงเดิมได้ครบ และ worker สองตัวแข่งกันได้ผู้ชนะหนึ่งตัวเสมอเพราะ race safety มาจาก
- * CAS/unique index/row lock ของ `LineControlRepository` ไม่ใช่การเช็คใน process นี้
+ * This is the `LineRolloutAuthority` of #362 §4: propose/approve/consume/kill/clearWithApproval.
+ * All state is in Postgres, with no counter or latch in memory — a new instance after restart reads
+ * the same truth in full, and two workers racing always yield exactly one winner because race safety comes from
+ * the CAS/unique index/row lock of `LineControlRepository`, not from a check in this process.
  *
- * ลำดับที่ห้ามสลับของ effective gate (#358 §A) — ค่าใดหาย/อ่านไม่ได้/ไม่ตรง = `DISABLED`:
- *   1. durable business state ของ exact scope
- *   2. technical switch ของ Platform Operator
- *   3. kill latch (ชนะทุก state)
- *   4. exact allowlist + config digest (recipient/content/config ตรงทุกมิติ)
- *   5. credential ที่ ACTIVE และเป็น version เดียวกับที่ run authorization pin ไว้
- *   6. quota snapshot ที่ยังสดและเหลือพอ (advisory — ไม่แทน durable cap)
- *   7. one-shot run authorization ที่อนุมัติครบ ยังไม่หมดอายุ และยังไม่ถูกใช้
- * จากนั้นจึงจอง cap แบบ atomic; CG3 recheck เป็นของผู้เรียก (Governance owner) ก่อนข้าม barrier
+ * Order of the effective gate that must not be swapped (#358 §A) — any value missing/unreadable/mismatching = `DISABLED`:
+ *   1. durable business state of the exact scope
+ *   2. technical switch of the Platform Operator
+ *   3. kill latch (beats every state)
+ *   4. exact allowlist + config digest (recipient/content/config match on every dimension)
+ *   5. credential that is ACTIVE and is the same version the run authorization pinned
+ *   6. quota snapshot that is still fresh and sufficient (advisory — does not replace the durable cap)
+ *   7. one-shot run authorization that is fully approved, not yet expired and not yet used
+ * Only then is the cap reserved atomically; the CG3 recheck belongs to the caller (Governance owner) before crossing the barrier.
  *
- * ไฟล์นี้ไม่มี provider I/O, ไม่มี secret value และไม่อ่าน environment variable — quota snapshot
- * กับผลการ verify token เป็น input ที่ owner ของ transport (S2.4) ป้อนเข้ามา
+ * This file has no provider I/O, no secret value and does not read environment variables — the quota snapshot
+ * and the token verify result are inputs fed in by the transport owner (S2.4)
  */
 import { createHash, randomUUID } from 'node:crypto';
 import type {
@@ -71,7 +71,7 @@ import {
 
 export interface LineControlActor {
   role: LineControlActorRole;
-  /** opaque ref ของผู้สั่ง — ไม่ใช่อีเมลลูกค้าหรือ LINE user ID (DB CHECK ปฏิเสธรูปแบบนั้น) */
+  /** Opaque ref of the commander — not a customer email or LINE user ID (the DB CHECK rejects that form) */
   ref: string;
 }
 
@@ -84,10 +84,10 @@ export interface LineGateEvaluationRequest {
   scope: LineGateScope;
   operation: LineProviderOperation;
   at: Date;
-  /** จำเป็นสำหรับทุก operation ที่แตะ provider */
+  /** Required for every operation that touches the provider */
   configDigest?: string;
   quota?: LineQuotaSnapshot;
-  /** จำเป็นสำหรับ PUSH เท่านั้น — ต้องตรงกับ allowlist tuple ที่อนุมัติไว้ทุกค่า */
+  /** Required for PUSH only — must match every value of the approved allowlist tuple */
   runAuthorizationId?: string;
   deliveryId?: string;
   recipientFingerprint?: string;
@@ -100,14 +100,14 @@ export interface LineGateAllowed {
   credential?: DlLineCredentialRef;
   allowlistEntry?: DlLineAllowlistEntry;
   run?: DlLineRunAuthorization;
-  /** true เมื่อ authorization ใบนี้ถูก consume โดย delivery ใบเดียวกันไปแล้ว (replay หลัง restart) */
+  /** true when this authorization was already consumed by this very delivery (replay after restart) */
   alreadyConsumed: boolean;
 }
 
 export interface LineGateDenied {
   status: 'DENIED';
   code: LineGateErrorCode;
-  /** สัญญาณที่ทำให้ต้อง kill อัตโนมัติ — มีเฉพาะเคสที่ผิดสัญญาจริง ไม่ใช่ scope นอก allowlist */
+  /** Signal that forces an automatic kill — only genuine contract-violating cases, not a scope outside the allowlist */
   signal?: LineControlSignal;
 }
 
@@ -121,11 +121,11 @@ export interface LineRunGrant {
   credential: DlLineCredentialRef;
   logicalDelivery: DlLineCapLedgerEntry;
   /**
-   * `PRE` = ยังไม่ข้าม barrier (release ได้), `POST` = หน่วย logical delivery commit ไปแล้ว
-   * ผู้เรียกที่ได้ `POST` หลัง restart ต้องไป exact-key reconciliation ห้าม submit ใหม่ (#362 §11)
+   * `PRE` = has not crossed the barrier (release allowed), `POST` = the logical delivery unit is already committed;
+   * a caller that gets `POST` after restart must go to exact-key reconciliation and must not submit again (#362 §11)
    */
   barrier: 'PRE' | 'POST';
-  /** มีเฉพาะตอน `PRE` — slot ของ concurrency ที่ถืออยู่ */
+  /** Only present at `PRE` — the concurrency slot being held */
   concurrencySlot?: DlLineCapLedgerEntry;
 }
 
@@ -159,9 +159,9 @@ export interface RegisterLineCredentialCommand {
   longLivedExceptionRef?: string;
 }
 
-/** ผลการ verify token ที่ owner ของ transport อ่านมาจาก LINE — ไม่มีค่า token อยู่ในนี้ */
+/** Result of the token verify that the transport owner read from LINE — contains no token value */
 export interface LineCredentialVerification {
-  /** `client_id` ที่ provider ตอบกลับ ต้องเท่ากับ Channel ID ของ scope (#358 §G) */
+  /** The `client_id` the provider answered with, must equal the Channel ID of the scope (#358 §G) */
   channelAccountId: string;
   verifiedAt: Date;
 }
@@ -171,15 +171,15 @@ export interface ProposeLineRunCommand {
   gate: DlLineScopeGate;
   allowlistEntry: DlLineAllowlistEntry;
   credential: DlLineCredentialRef;
-  /** ref ที่ operator ตั้งให้ run ใบนี้ — ทำให้ binding เดิมเสนอใหม่ได้โดยไม่ชนใบที่ใช้ไปแล้ว */
+  /** Ref the operator assigns to this run — lets the same binding be proposed again without colliding with one already used */
   proposalRef: string;
   proposedAt: Date;
   capProviderAttempts?: number;
 }
 
 /**
- * #567 (T3): เสนอ trial หนึ่งชุด — หนึ่ง authorization ต่อผู้รับใน allowlist ภายใต้ `trialRef` เดียว
- * ผู้รับแต่ละคนต้องมี contact ใน Contact Governance (consent ตรวจตอนส่งทุกครั้ง)
+ * #567 (T3): propose one trial set — one authorization per recipient in the allowlist under a single `trialRef`.
+ * Each recipient must have a contact in Contact Governance (consent is checked on every send)
  */
 export interface ProposeLineTeamTrialCommand {
   tenantId: string;
@@ -221,7 +221,7 @@ const ACCESS_TOKEN_KINDS: readonly LineCredentialKind[] = [
 export interface LineControlPlaneOptions {
   control: LineControlRepository;
   audit: LineAuditRepository;
-  /** inject ได้เพื่อให้เทสต์ deterministic; production ใช้ `randomUUID` */
+  /** Injectable to make tests deterministic; production uses `randomUUID` */
   newId?: () => string;
 }
 
@@ -239,8 +239,8 @@ export class LineControlPlane {
   // ── Audit ─────────────────────────────────────────────────────────────────
 
   /**
-   * eventId คงที่ต่อ "คำสั่งเดียวกัน": replay คำสั่งเดิมด้วยค่าเดิมคืนแถวเดิม ส่วนคำสั่งที่ต่าง
-   * (คนละ actor/คนละ version) ได้ eventId คนละตัว จึงบันทึกครบทั้งผู้ชนะและผู้แพ้ของ race
+   * eventId is constant per "the same command": replaying the same command with the same values returns the original row, while a different command
+   * (different actor/different version) gets a different eventId, so both the winner and loser of a race are recorded in full
    */
   private async record(entry: {
     tenantId: string;
@@ -251,7 +251,7 @@ export class LineControlPlane {
     subjectId?: string;
     deliveryId?: string;
     evidenceDigest?: string;
-    /** ค่าที่ทำให้คำสั่งนี้ต่างจากคำสั่งอื่นบน subject เดียวกัน */
+    /** Value that makes this command differ from other commands on the same subject */
     salt: readonly string[];
   }): Promise<void> {
     const salt = createHash('sha256')
@@ -275,7 +275,7 @@ export class LineControlPlane {
 
   // ── Gate lifecycle ────────────────────────────────────────────────────────
 
-  /** สร้าง gate ของ exact scope เป็น DISABLED ถ้ายังไม่มี — idempotent ต่อผู้เรียกทุกคน */
+  /** Create the gate of the exact scope as DISABLED if it does not exist yet — idempotent for every caller */
   async ensureScope(actor: LineControlActor, scope: LineGateScope): Promise<DlLineScopeGate> {
     assertControlAuthority(actor.role, 'SET_TECHNICAL_SWITCH');
     return this.control.ensureGate(this.newId(), scope);
@@ -285,7 +285,7 @@ export class LineControlPlane {
     return this.control.findGate(scope);
   }
 
-  /** ค้น allowlist ด้วย exact tuple — ผู้เรียกต้องรู้ recipient/content/config ครบถึงจะเจอ */
+  /** Look up the allowlist by exact tuple — the caller must know the full recipient/content/config to find it */
   findAllowlistEntry(
     tenantId: string,
     gateId: string,
@@ -303,8 +303,8 @@ export class LineControlPlane {
   }
 
   /**
-   * เลื่อน business state ขึ้นทีละขั้นด้วย approval ของ Compliance (#358 §E) — ตั้งแต่
-   * `PROVIDER_CONFORMANCE` ขึ้นไปต้องมี config digest ที่ allowlist/run authorization ใช้ร่วมกัน
+   * Advance the business state one step at a time with Compliance approval (#358 §E) — from
+   * `PROVIDER_CONFORMANCE` upward there must be a config digest that the allowlist/run authorization share
    */
   async advanceState(
     actor: LineControlActor,
@@ -339,7 +339,7 @@ export class LineControlPlane {
     return { status: 'APPLIED', value: updated };
   }
 
-  /** ลดขั้นทำได้ทันทีโดย Compliance หรือ Platform Operator (#358 §C) */
+  /** Downgrading can be done immediately by Compliance or the Platform Operator (#358 §C) */
   async lowerState(
     actor: LineControlActor,
     gate: DlLineScopeGate,
@@ -366,7 +366,7 @@ export class LineControlPlane {
     return { status: 'APPLIED', value: updated };
   }
 
-  /** technical switch เป็นของ Platform Operator ล้วน และเปิดบน scope ที่ถูก kill ไม่ได้ */
+  /** The technical switch belongs solely to the Platform Operator, and cannot be turned on for a scope that was killed */
   async setTechnicalSwitch(
     actor: LineControlActor,
     gate: DlLineScopeGate,
@@ -392,8 +392,8 @@ export class LineControlPlane {
   }
 
   /**
-   * kill latch: ไม่ต้องรู้ version และชนะทุก state — ครั้งแรกบันทึกเหตุผล ครั้งต่อไปเป็น no-op
-   * ที่ยังคืน gate ซึ่ง latch อยู่ audit บันทึกผู้สั่งทุกคน ไม่ใช่เฉพาะผู้ที่ latch สำเร็จ
+   * kill latch: no need to know the version and it beats every state — the first call records the reason, later calls are a no-op
+   * that still returns the latched gate. Audit records every commander, not only the one whose latch succeeded
    */
   async kill(
     actor: LineControlActor,
@@ -415,7 +415,7 @@ export class LineControlPlane {
     return killed;
   }
 
-  /** kill ที่ระบบตัดสินเอง (#358 §F) — actor เป็น `SYSTEM` ไม่ใช่การตัดสินใจของคน */
+  /** A kill the system decides by itself (#358 §F) — the actor is `SYSTEM`, not a human decision */
   killOnSignal(
     gate: DlLineScopeGate,
     signal: LineControlSignal,
@@ -429,14 +429,14 @@ export class LineControlPlane {
     );
   }
 
-  /** kill โดยคน: reason ผูกกับ role ของผู้สั่งเพื่อให้ audit แยก operator/compliance ได้ */
+  /** Human kill: the reason is bound to the commander's role so audit can distinguish operator/compliance */
   killByActor(actor: LineControlActor, gate: DlLineScopeGate, at: Date): Promise<DlLineScopeGate> {
     return this.kill(actor, gate, operatorKillReasonFor(actor.role), at);
   }
 
   /**
-   * ยก kill ต้องเป็น Compliance และต้องมี approval ref ใหม่ที่อ้าง remediation/evidence
-   * (#358 §E) — DB trigger บังคับซ้ำว่า ref ต้องไม่ซ้ำของเดิมและ state ต้องกลับไป `DISABLED`
+   * Lifting a kill must be done by Compliance and needs a new approval ref that cites remediation/evidence
+   * (#358 §E) — a DB trigger enforces again that the ref must not repeat an old one and the state must return to `DISABLED`
    */
   async clearWithApproval(
     actor: LineControlActor,
@@ -470,7 +470,7 @@ export class LineControlPlane {
 
   // ── Allowlist ─────────────────────────────────────────────────────────────
 
-  /** Tenant Admin เป็นผู้ยืนยัน recipient/purpose/content ของ scope (#358 §E) */
+  /** The Tenant Admin confirms the recipient/purpose/content of the scope (#358 §E) */
   async registerAllowlistEntry(
     actor: LineControlActor,
     command: RegisterLineAllowlistCommand,
@@ -532,7 +532,7 @@ export class LineControlPlane {
 
   // ── Credential metadata (#358 §G) ─────────────────────────────────────────
 
-  /** เก็บได้เฉพาะ reference/metadata; ค่าจริงอยู่ Keychain และผ่าน `LineCredentialBoundary` เท่านั้น */
+  /** Holds only a reference/metadata; the real value lives in the Keychain and passes only through `LineCredentialBoundary` */
   async registerCredential(
     actor: LineControlActor,
     command: RegisterLineCredentialCommand,
@@ -556,8 +556,8 @@ export class LineControlPlane {
   }
 
   /**
-   * activate ได้ต่อเมื่อ verify แล้วและ `client_id` ตรงกับ Channel ID ของ credential นั้น
-   * (#358 §G) — ไม่ตรงคือสัญญาณ auth failure จริง: ไม่ activate และให้ผู้เรียก kill scope
+   * Can activate only once verified and the `client_id` matches the Channel ID of that credential
+   * (#358 §G) — a mismatch is a genuine auth failure signal: do not activate and the caller must kill the scope
    */
   async verifyAndActivateCredential(
     actor: LineControlActor,
@@ -619,8 +619,8 @@ export class LineControlPlane {
   // ── Run authorization (#358 §E) ───────────────────────────────────────────
 
   /**
-   * proposal เป็น immutable: digest คิดจาก binding ทั้งชุดที่ approver มองเห็น ผู้ execute
-   * จึงแก้ค่าใดหลัง approval ไม่ได้โดยที่ digest ยังเท่าเดิม caps/TTL pin จาก profile ตรง ๆ
+   * The proposal is immutable: the digest is computed from the whole binding the approver sees, so the executor
+   * cannot change any value after approval while keeping the digest the same. caps/TTL are pinned directly from the profile
    */
   async proposeRun(
     actor: LineControlActor,
@@ -647,7 +647,7 @@ export class LineControlPlane {
     }
     const expiresAt = lineRunExpiry(command.proposedAt);
     if (credential.expiresAt !== null && credential.expiresAt.getTime() <= expiresAt.getTime()) {
-      // token ที่จะหมดอายุก่อน authorization หมดอายุ ทำให้ worker ข้าม barrier ด้วย token ตาย
+      // A token that would expire before the authorization expires would let a worker cross the barrier with a dead token
       return { status: 'DENIED', code: 'CREDENTIAL_UNAVAILABLE' };
     }
 
@@ -704,10 +704,10 @@ export class LineControlPlane {
   }
 
   /**
-   * #567 (T3): เสนอ trial ทั้งชุด — หนึ่ง authorization ต่อผู้รับ ใช้ได้หลาย delivery จนหมดอายุ (≤30 วัน)
-   * cap อยู่ในแถว (ไม่เกิน `LINE_TEAM_TRIAL_MAX_CAPS`) และ allowlist ต้องเป็น content class ของ trial
-   * ชุดเดียวกันอนุมัติด้วย `approveRun` ทีละแถวโดยคนเดียวกัน (CLI `trial-approve` ทำให้ในคำสั่งเดียว)
-   * ผล: ทั้งชุดหรือไม่มีเลยไม่ได้รับประกันข้ามแถว — แถวที่สร้างแล้วเสนอซ้ำด้วย input เดิมได้แถวเดิม
+   * #567 (T3): propose a whole trial — one authorization per recipient, usable for many deliveries until expiry (≤30 days).
+   * The cap is in the row (not above `LINE_TEAM_TRIAL_MAX_CAPS`) and the allowlist must be the content class of the trial.
+   * The same set is approved with `approveRun` row by row by the same person (the CLI `trial-approve` does it in one command).
+   * Result: all-or-nothing across rows is not guaranteed — a row already created, proposed again with the same input, returns the same row
    */
   async proposeTeamTrial(
     actor: LineControlActor,
@@ -743,7 +743,7 @@ export class LineControlPlane {
         allowlistEntry.revokedAt ||
         allowlistEntry.contentRef !== LINE_TEAM_TRIAL_CONTENT_CLASS ||
         allowlistEntry.validFrom.getTime() > command.proposedAt.getTime() ||
-        // allowlist ต้องครอบคลุมทั้งช่วงของ trial ไม่งั้นผู้รับหลุดกลางทางแบบเงียบ ๆ
+        // The allowlist must cover the whole trial period, otherwise a recipient would silently drop out midway
         allowlistEntry.validUntil.getTime() < expiresAt.getTime()
       ) {
         return { status: 'DENIED', code: 'LINE_GATE_SCOPE_NOT_ALLOWED' };
@@ -757,7 +757,7 @@ export class LineControlPlane {
       command.capProviderAttempts ?? max.providerAttemptsPerLogicalDelivery,
       max.providerAttemptsPerLogicalDelivery,
     );
-    // หนึ่งผู้รับใช้ได้ไม่เกิน 20/วัน × จำนวนวันของ trial (และไม่เกินเพดานต่อ run)
+    // One recipient can use at most 20/day × the number of days in the trial (and not above the per-run ceiling)
     const days = Math.ceil((expiresAt.getTime() - command.proposedAt.getTime()) / 86_400_000);
     const capLogicalDeliveries = Math.min(perRecipientPer24h * days, max.logicalDeliveriesPerRun);
     const runs: DlLineRunAuthorization[] = [];
@@ -829,8 +829,8 @@ export class LineControlPlane {
   }
 
   /**
-   * ผู้เสนอ approve ตัวเองไม่ได้ (#358 §E) — คนเดียวถือได้ทั้ง Tenant Admin และ Compliance
-   * แต่ต้องยืนยันสองครั้งแยกกัน และห้ามเป็นคนเดียวกับผู้เสนอ/ผู้ execute
+   * The proposer cannot approve their own (#358 §E) — one person may hold both Tenant Admin and Compliance
+   * but must confirm twice separately, and must not be the same person as the proposer/executor
    */
   async approveRun(
     actor: LineControlActor,
@@ -896,9 +896,9 @@ export class LineControlPlane {
   // ── Fail-closed evaluation (#358 §A) ──────────────────────────────────────
 
   /**
-   * read-only: ไม่เปลี่ยนสถานะใด ๆ เพื่อให้เรียกซ้ำได้ทุกจุด (preflight, หลัง restart, ก่อน barrier)
-   * การปฏิเสธที่ไม่ใช่ความผิดของ scope คืน code กลาง ๆ และไม่บอกว่า gate/allowlist/recipient
-   * มีอยู่จริงหรือไม่ (#358 §B) — ผู้เรียกจึงเอา code ไปแยกแยะข้อมูลของ tenant อื่นไม่ได้
+   * read-only: changes no state so it can be called repeatedly at any point (preflight, after restart, before the barrier).
+   * A rejection that is not the scope's fault returns a neutral code and does not reveal whether the gate/allowlist/recipient
+   * really exists (#358 §B) — so the caller cannot use the code to discern another tenant's data
    */
   async evaluate(request: LineGateEvaluationRequest): Promise<LineGateDecision> {
     const gate = await this.control.findGate(request.scope);
@@ -911,8 +911,8 @@ export class LineControlPlane {
       return { status: 'DENIED', code: 'LINE_GATE_AUTHORIZATION_DENIED' };
     }
     if (!needsProviderCredential(request.operation)) {
-      // DRY_RUN ต้อง resolve/validate allowlist ให้จริงเมื่อผู้เรียกระบุ recipient/content มาด้วย
-      // (#358 §A) — ต่างกันแค่ตรงที่ไม่มี network I/O ไม่ใช่ข้ามการตรวจ
+      // DRY_RUN must really resolve/validate the allowlist when the caller specifies a recipient/content
+      // (#358 §A) — the only difference is having no network I/O, not skipping the check
       if (request.recipientFingerprint !== undefined || request.contentDigest !== undefined) {
         const entry = await this.matchedAllowlistEntry(gate, request);
         if (!entry) return { status: 'DENIED', code: 'LINE_GATE_SCOPE_NOT_ALLOWED' };
@@ -974,7 +974,7 @@ export class LineControlPlane {
     ) {
       return { status: 'DENIED', code: 'LINE_GATE_SCOPE_NOT_ALLOWED' };
     }
-    // binding mismatch ภายใน run ที่อนุมัติแล้วคือ bypass จริง ไม่ใช่ scope นอก allowlist ธรรมดา
+    // A binding mismatch inside an approved run is a genuine bypass, not an ordinary scope outside the allowlist
     if (
       allowlistEntry.recipientFingerprint !== request.recipientFingerprint ||
       allowlistEntry.contentDigest !== request.contentDigest ||
@@ -1006,7 +1006,7 @@ export class LineControlPlane {
     return { status: 'ALLOWED', gate, credential, allowlistEntry, run, alreadyConsumed: false };
   }
 
-  /** allowlist ที่ตรง tuple ที่ผู้เรียกถืออยู่จริง และยังอยู่ในช่วงใช้งาน */
+  /** An allowlist that matches the tuple the caller really holds and is still within its usable period */
   private async matchedAllowlistEntry(
     gate: DlLineScopeGate,
     request: LineGateEvaluationRequest,
@@ -1034,12 +1034,12 @@ export class LineControlPlane {
   // ── One-shot run + atomic caps ────────────────────────────────────────────
 
   /**
-   * barrier ของ control plane: อ่าน durable state ให้ครบก่อน แล้วจึง consume one-shot
-   * ลำดับ consume ก่อน reserve เป็นเจตนา — cap ที่ปฏิเสธหลัง consume จะเผา authorization ทิ้ง
-   * และบังคับให้ต้องเสนอ/อนุมัติใหม่ ซึ่งเป็นด้าน fail-closed ที่ถูกต้องของ one-shot
+   * Barrier of the control plane: read the durable state in full first, then consume the one-shot.
+   * Consuming before reserving is deliberate — a cap that rejects after consume burns the authorization
+   * and forces a new propose/approve, which is the correct fail-closed side of the one-shot.
    *
-   * เรียกซ้ำด้วย deliveryId เดิมหลัง restart ได้ผลเดิม: `evaluate` เห็นว่า authorization ถูก
-   * consume โดย delivery ใบนี้แล้ว จึงข้าม `consumeRun` และ cap reservation คืน replay เดิม
+   * Calling again with the same deliveryId after restart gives the same result: `evaluate` sees that the authorization was already
+   * consumed by this delivery, so it skips `consumeRun` and the cap reservation and returns the original replay
    */
   async beginRun(actor: LineControlActor, command: BeginLineRunCommand): Promise<LineRunResult> {
     assertControlAuthority(actor.role, 'EXECUTE_RUN');
@@ -1062,7 +1062,7 @@ export class LineControlPlane {
       return { status: 'DENIED', code: 'RUN_AUTHORIZATION_MISSING' };
     }
 
-    // unknown-reconciling ค้างอยู่ = auto-pause งานใหม่ แต่ reconciliation ของใบเดิมยังเดินต่อได้
+    // unknown-reconciling stuck = auto-pause new work, but reconciliation of the old one keeps going
     const unknown = await this.control.listActiveCapEntries(
       command.tenantId,
       gate.id,
@@ -1075,7 +1075,7 @@ export class LineControlPlane {
       });
     }
 
-    // #567: trial ไม่ใช่ one-shot — ไม่ consume; การส่งแต่ละครั้งนับผ่าน cap ledger ตาม cap ในแถว
+    // #567: a trial is not a one-shot — no consume; each send is counted through the cap ledger per the cap in the row
     if (!decision.alreadyConsumed && !isTeamTrialRun(run)) {
       const consumed = await this.control.consumeRun(
         command.tenantId,
@@ -1105,7 +1105,7 @@ export class LineControlPlane {
     if (logical.status === 'DENIED') {
       return this.denyRun(actor, command, { status: 'DENIED', code: logical.code });
     }
-    // delivery ที่ release ไปแล้วถูกปลุกกลับมาใหม่ = การนับ cap เชื่อไม่ได้อีกต่อไป (#358 §F)
+    // A delivery that was released and then woken again = cap counting can no longer be trusted (#358 §F)
     if (logical.entry.state === 'RELEASED') {
       return this.denyRun(actor, command, {
         status: 'DENIED',
@@ -1113,7 +1113,7 @@ export class LineControlPlane {
         signal: 'CAP_ACCOUNTING_INCONSISTENCY',
       });
     }
-    // restart หลังข้าม barrier: หน่วยถูก commit ไปแล้ว ห้ามจอง slot ใหม่และห้าม submit ใหม่
+    // Restart after crossing the barrier: the unit is already committed, must not reserve a new slot and must not submit again
     if (logical.entry.state === 'COMMITTED') {
       return {
         status: 'AUTHORIZED',
@@ -1128,7 +1128,7 @@ export class LineControlPlane {
 
     const slot = await this.reserve(command, gate.id, run.id, 'CONCURRENT_SUBMISSION', {});
     if (slot.status === 'DENIED') {
-      // ยังไม่ข้าม barrier: คืนหน่วย logical delivery ที่เพิ่งจองเพื่อไม่ให้กิน budget ของวัน
+      // Has not crossed the barrier: return the logical delivery unit just reserved so it does not eat the daily budget
       if (!logical.replay) {
         await this.control.settleCap(
           command.tenantId,
@@ -1149,7 +1149,7 @@ export class LineControlPlane {
       });
     }
 
-    // replay ของ reservation เดิมไม่ใช่การจองใหม่ จึงไม่มีแถว audit เพิ่ม
+    // A replay of the original reservation is not a new reservation, so no extra audit row
     if (!logical.replay) {
       await this.record({
         tenantId: command.tenantId,
@@ -1206,7 +1206,7 @@ export class LineControlPlane {
     });
   }
 
-  /** ปฏิเสธหนึ่งครั้ง = audit หนึ่งแถว และ kill ทันทีถ้าเป็นสัญญาณตาม #358 §F */
+  /** One rejection = one audit row, and an immediate kill if it is a signal per #358 §F */
   private async denyRun(
     actor: LineControlActor,
     command: BeginLineRunCommand,
@@ -1230,8 +1230,8 @@ export class LineControlPlane {
   }
 
   /**
-   * provider attempt หนึ่งครั้ง (รวม attempt แรก) — เกิน cap ของ run คือสัญญาณ
-   * `PROVIDER_ATTEMPTS_EXHAUSTED` ที่ต้อง kill + quarantine ห้ามออก key ใหม่ (#358 §C)
+   * One provider attempt (including the first attempt) — exceeding the run cap is the signal
+   * `PROVIDER_ATTEMPTS_EXHAUSTED` that must kill + quarantine and never issue a new key (#358 §C)
    */
   async reserveProviderAttempt(
     actor: LineControlActor,
@@ -1256,9 +1256,9 @@ export class LineControlPlane {
   }
 
   /**
-   * S2.7 (#368 decision 2026-09-23): replay probe ของ PR02 — exact request เดิมที่ยิงซ้ำหลัง accepted
-   * เพื่อพิสูจน์ `409` เป็น audit `PROVIDER` เท่านั้น ไม่ใช่ attempt receipt และไม่แตะ Governance
-   * ผู้เรียกต้องจอง `PROVIDER_ATTEMPT` ผ่าน `reserveProviderAttempt` ก่อนยิงแล้ว
+   * S2.7 (#368 decision 2026-09-23): PR02 replay probe — the exact original request fired again after accepted
+   * to prove the `409` is a `PROVIDER` audit only, not an attempt receipt, and does not touch Governance.
+   * The caller must reserve a `PROVIDER_ATTEMPT` through `reserveProviderAttempt` before firing
    */
   async recordProviderReplayProbe(
     actor: LineControlActor,
@@ -1284,7 +1284,7 @@ export class LineControlPlane {
     });
   }
 
-  /** ข้าม barrier แล้ว: หน่วย logical delivery กลายเป็น COMMITTED และคืน slot ของ concurrency */
+  /** Crossed the barrier: the logical delivery unit becomes COMMITTED and the concurrency slot is returned */
   async commitDelivery(tenantId: string, deliveryId: string, at: Date): Promise<boolean> {
     const committed = await this.control.settleCap(
       tenantId,
@@ -1299,8 +1299,8 @@ export class LineControlPlane {
   }
 
   /**
-   * ก่อน barrier เท่านั้น: คืนทั้งหน่วยและ slot — ถ้าหน่วย commit ไปแล้วคืนไม่ได้และผู้เรียก
-   * ต้องไปทาง exact-key reconciliation แทน (#358 §F, #362 §11)
+   * Before the barrier only: return both the unit and the slot — if the unit is already committed it cannot be returned and the caller
+   * must go the exact-key reconciliation route instead (#358 §F, #362 §11)
    */
   async releaseDelivery(tenantId: string, deliveryId: string, at: Date): Promise<boolean> {
     const released = await this.control.settleCap(
@@ -1315,7 +1315,7 @@ export class LineControlPlane {
     return released;
   }
 
-  /** unknown outcome: จอง slot ที่มีได้ทีละหนึ่ง แล้ว pause งานใหม่ของ scope นี้ (#358 §C) */
+  /** unknown outcome: reserve a slot, only one at a time is possible, then pause new work in this scope (#358 §C) */
   async enterUnknownReconciling(
     command: BeginLineRunCommand,
     gateId: string,

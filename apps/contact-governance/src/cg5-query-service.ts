@@ -8,7 +8,7 @@ export class Cg5ProjectionNotReadyError extends Error {
   readonly code = 'CG5_PROJECTION_NOT_READY';
 
   constructor(readonly state: string) {
-    super(`CG5 projection ยังไม่พร้อม: ${state}`);
+    super(`CG5 projection is not ready: ${state}`);
     this.name = 'Cg5ProjectionNotReadyError';
   }
 }
@@ -62,7 +62,7 @@ export class Cg5QueryService {
   async metrics(tenantId: string, scope: Cg5QueryScope, query: Cg5MetricQuery) {
     await this.assertReady(tenantId);
     if (scope.kind === 'TEAM' && query.teamId && query.teamId !== scope.teamId) {
-      throw new TypeError('team scope ไม่อนุญาต');
+      throw new TypeError('team scope is not allowed');
     }
     return withTenantDatabaseTransaction(this.database, tenantId, async (tx) => {
       const rows = await tx.cg5MetricBucket.findMany({
@@ -129,7 +129,7 @@ export class Cg5QueryService {
   ) {
     await this.assertReady(tenantId);
     // These buckets intentionally have no team dimension. Returning them to a supervisor would leak tenant totals.
-    if (scope.kind === 'TEAM') throw new TypeError('team scope ไม่อนุญาต');
+    if (scope.kind === 'TEAM') throw new TypeError('team scope is not allowed');
     return withTenantDatabaseTransaction(this.database, tenantId, async (tx) => {
       const rows = await tx.cg5PolicyImpactBucket.findMany({
         where: {

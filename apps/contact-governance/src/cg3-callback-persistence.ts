@@ -14,8 +14,8 @@ import {
 } from './cg3-persistence.js';
 
 /**
- * Request-side ของ callback exception (#101 §5). Consumption เกิดเป็น side effect
- * ภายใน `authorizeAndReserve()` เท่านั้น (S1.2) — ไม่มี HTTP consume/revoke command ใน S1.3
+ * Request side of a callback exception (#101 §5). Consumption happens as a side effect
+ * inside `authorizeAndReserve()` only (S1.2): there is no HTTP consume/revoke command in S1.3
  */
 
 export interface RequestCallbackInput {
@@ -62,7 +62,7 @@ export interface CallbackRequestView {
 export interface RequestCallbackResult {
   mutationId: string;
   callbackRequest: CallbackRequestView;
-  /** plaintext one-use token — ส่งกลับครั้งเดียวตอนสร้าง; server เก็บเฉพาะ hash */
+  /** plaintext one-use token: returned only once at creation; the server keeps only the hash */
   oneUseToken: string;
 }
 
@@ -74,13 +74,13 @@ export interface CallbackHistoryQuery {
 
 function nonEmpty(value: string, field: string): string {
   const normalized = value.trim();
-  if (!normalized) throw new TypeError(`${field} ต้องเป็น string ที่ไม่ว่าง`);
+  if (!normalized) throw new TypeError(`${field} must be a non-empty string`);
   return normalized;
 }
 
 function instant(value: string, field: string): Date {
   const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) throw new TypeError(`${field} ต้องเป็น ISO-8601 timestamp`);
+  if (Number.isNaN(parsed.getTime())) throw new TypeError(`${field} must be an ISO-8601 timestamp`);
   return parsed;
 }
 
@@ -147,10 +147,10 @@ export class Cg3CallbackRepository {
   }
 
   /**
-   * สร้าง callback request ใหม่ในซีรีส์ที่ระบุด้วย exact scope
-   * (contactId, identityId, channel, purpose) — CAS ผ่าน `expectedVersion`
-   * เทียบกับ version ล่าสุดของซีรีส์นั้น (ไม่ใช่ CgContactStateHead — callback มี
-   * versioning ของตัวเองแยกจาก preference aggregate)
+   * Create a new callback request in the series identified by the exact scope
+   * (contactId, identityId, channel, purpose): CAS through `expectedVersion`
+   * against the latest version of that series (not CgContactStateHead: a callback has its
+   * own versioning, separate from the preference aggregate)
    */
   async request(input: RequestCallbackInput): Promise<RequestCallbackResult> {
     nonEmpty(input.tenantId, 'tenantId');
@@ -163,17 +163,17 @@ export class Cg3CallbackRepository {
     nonEmpty(input.idempotencyKey, 'idempotencyKey');
     nonEmpty(input.correlationId, 'correlationId');
     if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 0) {
-      throw new RangeError('expectedVersion ต้องเป็น integer ตั้งแต่ 0');
+      throw new RangeError('expectedVersion must be an integer >= 0');
     }
     const requestedAt = instant(input.requestedAt, 'requestedAt');
     const expiresAt = instant(input.expiresAt, 'expiresAt');
     if (expiresAt <= requestedAt) {
-      throw new RangeError('expiresAt ต้องอยู่หลัง requestedAt');
+      throw new RangeError('expiresAt must be after requestedAt');
     }
     try {
       new Intl.DateTimeFormat('en-US', { timeZone: input.requestedTimezone }).format(requestedAt);
     } catch {
-      throw new TypeError('requestedTimezone ต้องเป็น IANA timezone ที่ถูกต้อง');
+      throw new TypeError('requestedTimezone must be a valid IANA timezone');
     }
 
     const requestHash = stableDigest({
@@ -314,7 +314,7 @@ export class Cg3CallbackRepository {
   async history(query: CallbackHistoryQuery): Promise<CallbackRequestView[]> {
     const limit = query.limit ?? 100;
     if (!Number.isInteger(limit) || limit < 1 || limit > 500) {
-      throw new RangeError('callback history limit ต้องเป็น integer ระหว่าง 1 ถึง 500');
+      throw new RangeError('callback history limit must be an integer between 1 and 500');
     }
     return withTenantDatabaseTransaction(this.database, query.tenantId, async (transaction) => {
       const callbacks = await transaction.cgCallbackRequest.findMany({

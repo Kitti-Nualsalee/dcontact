@@ -11,32 +11,45 @@ import {
   type QmFormDefinition,
 } from './qm-evaluation-form.js';
 
-/** ฟอร์มตัวอย่างใน docs/quality-management.md §8 ย่อเหลือสอง section */
+/** the sample form in docs/quality-management.md §8 trimmed to two sections */
 const sample = {
   sections: [
     {
       id: 'opening',
-      name: '  การเปิดสาย ',
+      name: '  Call opening ',
       weight: 20,
       questions: [
-        { id: 'greet', type: 'YES_NO', text: 'กล่าวชื่อบริษัทและชื่อตัวเอง', points: 10 },
+        { id: 'greet', type: 'YES_NO', text: 'States company name and own name', points: 10 },
         {
           id: 'verify',
           type: 'YES_NO',
-          text: 'ยืนยันตัวตนลูกค้าครบถ้วน',
+          text: 'Fully verifies customer identity',
           points: 10,
           autoFail: true,
         },
-        { id: 'tone', type: 'SCALE', text: 'น้ำเสียง', scale: [1, 5], points: 10, allowNa: true },
+        {
+          id: 'tone',
+          type: 'SCALE',
+          text: 'Tone of voice',
+          scale: [1, 5],
+          points: 10,
+          allowNa: true,
+        },
       ],
     },
     {
       id: 'solve',
-      name: 'การแก้ปัญหา',
+      name: 'Problem solving',
       weight: 80,
       questions: [
-        { id: 'fixed', type: 'YES_NO', text: 'แก้ปัญหาได้ในสายเดียว', points: 20, allowNa: true },
-        { id: 'note', type: 'TEXT', text: 'สิ่งที่ทำได้ดี' },
+        {
+          id: 'fixed',
+          type: 'YES_NO',
+          text: 'Solved the problem in one call',
+          points: 20,
+          allowNa: true,
+        },
+        { id: 'note', type: 'TEXT', text: 'What went well' },
       ],
     },
   ],
@@ -56,19 +69,19 @@ const codes = (fn: () => unknown) => {
   assert.fail('expected QmFormValidationError');
 };
 
-test('definition ถูกทำให้เป็นรูปมาตรฐาน: ตัดช่องว่างและ field ที่ไม่รู้จัก', () => {
+test('the definition is normalized: whitespace and unknown fields are stripped', () => {
   const parsed = form();
-  assert.equal(parsed.sections[0]!.name, 'การเปิดสาย');
+  assert.equal(parsed.sections[0]!.name, 'Call opening');
   assert.equal(parsed.requireCommentBelow, 60);
   assert.deepEqual(Object.keys(parsed).sort(), ['requireCommentBelow', 'scoreMethod', 'sections']);
   assert.deepEqual(parsed.sections[1]!.questions[1], {
     id: 'note',
     type: 'TEXT',
-    text: 'สิ่งที่ทำได้ดี',
+    text: 'What went well',
   });
 });
 
-test('ร่างฟอร์มว่างบันทึกได้ แต่ publish ต้องมีข้อที่ให้คะแนน', () => {
+test('a blank draft form can be saved but publishing needs scored items', () => {
   assert.deepEqual(parseFormDefinition({ sections: [] }, 'draft').sections, []);
   assert.deepEqual(
     codes(() => parseFormDefinition({ sections: [] }, 'publish')),
@@ -85,7 +98,7 @@ test('ร่างฟอร์มว่างบันทึกได้ แต�
   );
 });
 
-test('definition ที่ผิดรายงานทุกตำแหน่ง', () => {
+test('an invalid definition reports every position', () => {
   const bad = {
     sections: [
       {
@@ -117,7 +130,7 @@ test('definition ที่ผิดรายงานทุกตำแหน่
   );
 });
 
-test('ตอบครบทุกข้อได้เต็ม 100', () => {
+test('answering every item gives a full 100', () => {
   const answers = parseAnswers(
     form(),
     {
@@ -125,11 +138,11 @@ test('ตอบครบทุกข้อได้เต็ม 100', () => {
       verify: { value: true },
       tone: { value: 5 },
       fixed: { value: true },
-      note: { value: '  ดีมาก ' },
+      note: { value: '  Very good ' },
     },
     'publish',
   );
-  assert.deepEqual(answers.at(-1), { questionId: 'note', value: 'ดีมาก', na: false });
+  assert.deepEqual(answers.at(-1), { questionId: 'note', value: 'Very good', na: false });
   assert.deepEqual(scoreEvaluation(form(), answers), {
     rawScore: 100,
     finalScore: 100,
@@ -141,15 +154,15 @@ test('ตอบครบทุกข้อได้เต็ม 100', () => {
   });
 });
 
-test('N/A ออกจากตัวหาร ไม่ใช่ได้ 0 และ SCALE คิดตามสัดส่วนจากค่าต่ำสุด', () => {
-  // opening: greet 10 + tone (3-1)/(5-1)*10 = 5 → 15/20; verify N/A ไม่ได้ (ไม่ allowNa) จึงตอบ true
+test('N/A leaves the denominator, not a 0, and SCALE is proportional from the minimum', () => {
+  // opening: greet 10 + tone (3-1)/(5-1)*10 = 5 → 15/20; verify N/A is not allowed (no allowNa) so it answers true
   const answers = parseAnswers(
     form(),
     { greet: { value: true }, verify: { value: true }, tone: { value: 3 }, fixed: { na: true } },
     'publish',
   );
   const score = scoreEvaluation(form(), answers)!;
-  // opening = 25/30 = 83.33%; solve ไม่มีข้อให้คะแนนเหลือ → ตัดออกจาก weight ทั้ง section
+  // opening = 25/30 = 83.33%; solve has no scored item left → removed from the weight of the whole section
   assert.deepEqual(score.sections, [
     { sectionId: 'opening', score: 83.33 },
     { sectionId: 'solve', score: null },
@@ -158,7 +171,7 @@ test('N/A ออกจากตัวหาร ไม่ใช่ได้ 0 แ
   assert.equal(score.finalScore, 83.33);
 });
 
-test('weight ของ section ถ่วงคะแนนรวม', () => {
+test('the section weight weights the overall score', () => {
   const answers = parseAnswers(
     form(),
     {
@@ -173,7 +186,7 @@ test('weight ของ section ถ่วงคะแนนรวม', () => {
   assert.equal(scoreEvaluation(form(), answers)!.rawScore, 90);
 });
 
-test('auto-fail ทำให้คะแนนสุดท้ายเป็น 0 แต่เก็บ raw ไว้', () => {
+test('auto-fail makes the final score 0 but keeps the raw one', () => {
   const answers = parseAnswers(
     form(),
     {
@@ -191,7 +204,7 @@ test('auto-fail ทำให้คะแนนสุดท้ายเป็น 
   assert.equal(score.rawScore, 93.33);
 });
 
-test('ร่างตอบไม่ครบได้ แต่ publish ต้องตอบทุกข้อที่ให้คะแนน (TEXT ไม่บังคับ)', () => {
+test('an incomplete draft is allowed but publishing needs every scored item answered (TEXT is optional)', () => {
   const partial = parseAnswers(form(), { greet: { value: true } }, 'draft');
   assert.equal(partial.length, 1);
   assert.deepEqual(
@@ -200,7 +213,7 @@ test('ร่างตอบไม่ครบได้ แต่ publish ต้�
   );
 });
 
-test('คำตอบที่ผิดชนิด ผิดช่วง N/A ที่ไม่อนุญาต และข้อที่ไม่มีในฟอร์มถูกปฏิเสธ', () => {
+test('an answer of the wrong type, out of range, N/A where not allowed, and an item not in the form are rejected', () => {
   assert.deepEqual(
     codes(() =>
       parseAnswers(
@@ -225,7 +238,7 @@ test('คำตอบที่ผิดชนิด ผิดช่วง N/A �
   );
 });
 
-test('ทุกข้อเป็น N/A ไม่มีคะแนน และ publish ไม่ได้', () => {
+test('every item N/A has no score and cannot be published', () => {
   const onlyNa = parseFormDefinition(
     {
       sections: [
@@ -247,7 +260,7 @@ test('ทุกข้อเป็น N/A ไม่มีคะแนน แล�
   );
 });
 
-test('คะแนนต่ำกว่าเกณฑ์ต้องมีความเห็น', () => {
+test('a score below the threshold needs a comment', () => {
   const answers = parseAnswers(
     form(),
     {
@@ -263,10 +276,10 @@ test('คะแนนต่ำกว่าเกณฑ์ต้องมีค�
     codes(() => assertPublishable(form(), score, normalizeComment('   '))),
     ['comment:COMMENT_REQUIRED'],
   );
-  assert.equal(assertPublishable(form(), score, 'ไม่ยืนยันตัวตน').finalScore, 0);
+  assert.equal(assertPublishable(form(), score, 'Did not verify identity').finalScore, 0);
 });
 
-test('answersView คืนรูปที่ API รับ เพื่อส่งกลับมาแก้ต่อได้', () => {
+test('answersView returns the shape the API accepts, so it can be sent back for further editing', () => {
   const answers = parseAnswers(form(), { greet: { value: true }, tone: { na: true } }, 'draft');
   const view = answersView(answers);
   assert.deepEqual(view, { greet: { value: true }, tone: { na: true } });

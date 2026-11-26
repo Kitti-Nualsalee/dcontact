@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# A1.9 (#574): Platform API และ worker ใช้ image เดียว แต่รันคนละ process และ DB role
+# A1.9 (#574): the Platform API and the worker share one image but run as separate processes with separate DB roles
 ARG NODE_IMAGE=node:20-bookworm-slim@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0
 FROM ${NODE_IMAGE} AS build
 ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH CI=true

@@ -14,30 +14,30 @@ export interface ShellFrameProps {
   maxPins: number;
   onTogglePin: (appId: string) => void;
   currentAppId: string;
-  /** host router รับลิงก์ภายในได้ โดย Workspace ไม่ต้องเปลี่ยนการนำทางเดิม */
+  /** the host router can take internal links, so Workspace does not need to change its existing navigation */
   onNavigate?: (href: string) => boolean;
-  /** #651: พื้นที่งานบน rail (ว่าง/ไม่ส่ง = rail แสดงหมุดแอปแบบเดิม) */
+  /** #651: work areas on the rail (empty/not passed = the rail shows the old app pins) */
   areas?: readonly ShellArea[];
-  /** ย้ายทางเข้าบางแอปไปแถบบน โดยไม่เปลี่ยนข้อมูล launcher หรือหมุดที่บันทึกไว้ */
+  /** moves some app entries to the top bar without changing the launcher data or saved pins */
   railExcludedAppIds?: readonly string[];
   brand: ReactNode;
   breadcrumb: readonly string[];
-  /** Console ย้ายตำแหน่งมาเหนือเนื้อหา; ค่าเดิมของ Workspace ยังอยู่แถบบน */
+  /** Console moves the position above the content; Workspace's default stays on the top bar */
   breadcrumbPlacement?: 'topbar' | 'content';
   language: 'th' | 'en';
   onLanguageChange: (language: 'th' | 'en') => void;
-  /** Console ส่ง `<SubNav>`; Workspace ไม่ส่ง (D1.2) */
+  /** Console passes `<SubNav>`; Workspace does not (D1.2) */
   subNav?: ReactNode;
   createActions?: readonly ShellCreateAction[];
   railFooter?: ReactNode;
-  /** ส่วนขวาของแถบบนก่อนปุ่มภาษา เช่น สถานะพร้อมรับงานของ Workspace */
+  /** right part of the top bar before the language button, e.g. Workspace's ready-for-work status */
   topBarActions?: ReactNode;
-  /** #588: เมนูผู้ใช้ขวาสุดของแถบบน — ไม่ส่ง = แถบบนเหมือนเดิม */
+  /** #588: user menu at the far right of the top bar — not passed = the top bar stays as before */
   user?: UserMenuProps;
   children: ReactNode;
 }
 
-/** ประกอบ AppShell + Rail + AppLauncher + TopBar ชุดเดียวกันให้ทั้งสองแอป */
+/** composes the same AppShell + Rail + AppLauncher + TopBar for both apps */
 export function ShellFrame(props: ShellFrameProps) {
   const excluded = new Set(props.railExcludedAppIds);
   const pinnedApps = props.pinnedIds

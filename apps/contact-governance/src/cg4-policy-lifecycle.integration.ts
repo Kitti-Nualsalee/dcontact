@@ -73,8 +73,8 @@ async function fixture(t: TestContext) {
     await owner.cg4PolicyTestArtifact.deleteMany({ where: { tenantId: tenant } });
     await owner.cg4PolicyActivationJob.deleteMany({ where: { tenantId: tenant } });
     await owner.cg4PolicyScopeHead.deleteMany({ where: { tenantId: tenant } });
-    // supersedesId/rollbackOfId ชี้กันเองภายในตารางแบบ DAG และ immutability trigger ห้าม
-    // ตัด reference ทิ้งก่อนลบ จึงต้องลบทีละชั้นจากใบที่ไม่มีใครอ้างถึงแล้ว
+    // supersedesId/rollbackOfId point at each other within the table as a DAG, and the immutability trigger forbids
+    // cutting the reference before deleting, so delete layer by layer starting from leaves nobody references
     for (;;) {
       const rows = await owner.cg4Policy.findMany({
         where: { tenantId: tenant },
@@ -264,7 +264,7 @@ async function publish(f: Fixture, candidate: Awaited<ReturnType<typeof approved
   });
 }
 
-test('immediate publish ย้าย head แบบ atomic และ supersede version เดิมพร้อมปิด interval', async (t) => {
+test('an immediate publish moves the head atomically and supersedes the original version while closing the interval', async (t) => {
   const f = await fixture(t);
   const first = await publish(f, await approvedCandidate(f));
   assert.equal(first.lifecycleState, 'ACTIVE');
@@ -309,7 +309,7 @@ test('immediate publish ย้าย head แบบ atomic และ supersede v
   assert.equal((events[1]?.payload as Record<string, unknown>).restrictiveness, 'TIGHTENING');
 });
 
-test('publish ซ้ำด้วย idempotency key เดิมคืนผลเดิมและไม่ขยับ head', async (t) => {
+test('a repeated publish with the same idempotency key returns the original result and does not move the head', async (t) => {
   const f = await fixture(t);
   const candidate = await approvedCandidate(f);
   const key = randomUUID();
@@ -338,10 +338,10 @@ test('publish ซ้ำด้วย idempotency key เดิมคืนผล�
   );
 });
 
-test('head ที่ขยับหลัง approve ทำให้ publish ถูกปฏิเสธด้วย POLICY_HEAD_CONFLICT', async (t) => {
+test('a head that moved after approve makes the publish rejected with POLICY_HEAD_CONFLICT', async (t) => {
   const f = await fixture(t);
   const stale = await approvedCandidate(f);
-  // candidate อีกใบ publish ก่อน ทำให้ base head ของ stale ไม่ตรงแล้ว
+  // another candidate publishes first, so the base head of the stale one no longer matches
   await publish(f, await approvedCandidate(f));
 
   await assert.rejects(
@@ -351,7 +351,7 @@ test('head ที่ขยับหลัง approve ทำให้ publish ถ
   );
 });
 
-test('relaxation ต้องมีสอง checker และหนึ่งในนั้นเป็น direct Compliance', async (t) => {
+test('a relaxation needs two checkers and one of them is a direct Compliance', async (t) => {
   const f = await fixture(t);
   const relaxing = { content: content({ allowedOperationalRuleCodes: ['QUIET_HOURS'] }) };
   await assert.rejects(
@@ -369,7 +369,7 @@ test('relaxation ต้องมีสอง checker และหนึ่งใ
   assert.equal(published.lifecycleState, 'ACTIVE');
 });
 
-test('draft ที่ถูกแก้หลังรัน test ทำให้ artifact stale และ submit ไม่ผ่าน', async (t) => {
+test('a draft edited after running tests makes the artifact stale and the submit fails', async (t) => {
   const f = await fixture(t);
   const draft = await f.repository.createDraft({
     tenantId: f.tenant,
@@ -414,7 +414,7 @@ test('draft ที่ถูกแก้หลังรัน test ทำให�
   );
 });
 
-test('amend ด้วย draftRevision เก่าเป็น version conflict และแก้ content หลัง submit ไม่ได้', async (t) => {
+test('an amend with an old draftRevision is a version conflict, and content cannot be edited after submit', async (t) => {
   const f = await fixture(t);
   const draft = await f.repository.createDraft({
     tenantId: f.tenant,
@@ -444,7 +444,7 @@ test('amend ด้วย draftRevision เก่าเป็น version conflict
   );
 });
 
-test('scheduled publish สร้าง durable job แล้ว activate ตามเวลาโดยไม่ย้าย head ก่อนถึงเวลา', async (t) => {
+test('a scheduled publish creates a durable job, then activates on time without moving the head before then', async (t) => {
   const f = await fixture(t);
   await publish(f, await approvedCandidate(f));
 
@@ -463,7 +463,11 @@ test('scheduled publish สร้าง durable job แล้ว activate ตา
   const head = await f.owner.cg4PolicyScopeHead.findFirstOrThrow({
     where: { tenantId: f.tenant, scopeKey: SCOPE_KEY },
   });
-  assert.equal(head.headPolicyVersion, 1, 'head ยังต้องชี้ version เดิมจนกว่าจะถึงเวลา');
+  assert.equal(
+    head.headPolicyVersion,
+    1,
+    'the head must still point at the original version until the time comes',
+  );
   assert.equal(head.nextActivationAt?.toISOString(), later);
 
   const job = await f.owner.cg4PolicyActivationJob.findFirstOrThrow({
@@ -506,7 +510,7 @@ test('scheduled publish สร้าง durable job แล้ว activate ตา
   );
 });
 
-test('scope เดียวมี scheduled candidate ค้างได้แค่ใบเดียว', async (t) => {
+test('a single scope can have only one pending scheduled candidate', async (t) => {
   const f = await fixture(t);
   await publish(f, await approvedCandidate(f));
   await publish(
@@ -535,10 +539,10 @@ test('scope เดียวมี scheduled candidate ค้างได้แ�
   );
 });
 
-test('scope ที่กำกวมกับ active scope ที่ specificity เดียวกันสร้าง series ใหม่ไม่ได้', async (t) => {
+test('a scope that is ambiguous with an active scope at the same specificity cannot create a new series', async (t) => {
   const f = await fixture(t);
   await publish(f, await approvedCandidate(f));
-  // SCOPE_KEY ผูก channel+purpose; อีกอันผูก channel+contactKind ซึ่ง specificity เท่ากัน
+  // SCOPE_KEY binds channel+purpose; the other binds channel+contactKind, which has equal specificity
   await assert.rejects(
     f.repository.createDraft({
       tenantId: f.tenant,
@@ -562,7 +566,7 @@ test('scope ที่กำกวมกับ active scope ที่ specificity
   );
 });
 
-test('rollback สร้าง version ใหม่จาก content เดิม ไม่ปลุก row เก่ากลับมา', async (t) => {
+test('a rollback creates a new version from the original content and does not revive the old row', async (t) => {
   const f = await fixture(t);
   const first = await publish(f, await approvedCandidate(f));
   const firstRow = await f.owner.cg4Policy.findFirstOrThrow({
@@ -594,13 +598,13 @@ test('rollback สร้าง version ใหม่จาก content เดิ�
     where: { tenantId: f.tenant, policyId: first.policyId, version: 3 },
   });
   assert.equal(rolledRow.rollbackOfId, firstRow.id);
-  // version 1 ยังเป็น SUPERSEDED ตามเดิม — ไม่มี pointer flip
+  // version 1 remains SUPERSEDED as before: no pointer flip
   assert.equal(
     (await f.owner.cg4Policy.findFirstOrThrow({ where: { id: firstRow.id } })).status,
     'SUPERSEDED',
   );
 
-  // rollback ที่ทำให้หลวมกว่า active ปัจจุบันต้องใช้สอง checker เหมือน relaxation อื่น
+  // a rollback that makes things looser than the current active needs two checkers like any other relaxation
   const tested = await f.repository.runTests({
     tenantId: f.tenant,
     policyId: first.policyId,
@@ -614,7 +618,7 @@ test('rollback สร้าง version ใหม่จาก content เดิ�
   assert.equal(tested.preview.diffClass, 'RELAXATION');
 });
 
-test('kill switch เปิดได้ทันที บล็อก relaxation publish และเคลียร์ต้องมี approval จากคนอื่น', async (t) => {
+test('a kill switch can be opened immediately, blocks a relaxation publish, and clearing needs approval from someone else', async (t) => {
   const f = await fixture(t);
   await publish(f, await approvedCandidate(f));
 
@@ -627,7 +631,7 @@ test('kill switch เปิดได้ทันที บล็อก relaxatio
   });
   assert.equal(activated.state, 'ACTIVE');
 
-  // CG4.8 (#191): เปิดซ้ำขณะยัง ACTIVE ไม่เปลี่ยน canonical state จึงไม่ออก event ใหม่
+  // CG4.8 (#191): re-opening while still ACTIVE does not change the canonical state, so no new event is emitted
   const reactivated = await f.repository.killSwitch({
     tenantId: f.tenant,
     scopeKey: SCOPE_KEY,
@@ -683,8 +687,8 @@ test('kill switch เปิดได้ทันที บล็อก relaxatio
   assert.equal(cleared.state, 'CLEARED');
   assert.equal(cleared.killSwitchId, activated.killSwitchId);
 
-  // CG4.8 (#191): ACTIVE(1) → CLEARED(2) บน aggregate ของ kill switch; version คงที่จะถูกทุก
-  // consumer quarantine เป็น hash conflict
+  // CG4.8 (#191): ACTIVE(1) -> CLEARED(2) on the kill switch aggregate; a fixed version would be quarantined by every
+  // consumer as a hash conflict
   const killEvents = await f.owner.cgEventOutbox.findMany({
     where: { tenantId: f.tenant, eventType: 'governance.kill-switch.changed' },
     orderBy: { aggregateVersion: 'asc' },
@@ -706,7 +710,7 @@ test('kill switch เปิดได้ทันที บล็อก relaxatio
   assert.equal(affectedScope.purpose, 'SERVICE_NOTIFICATION');
 });
 
-test('database บังคับว่า active head ต่อ scope มีได้ version เดียว', async (t) => {
+test('the database enforces that an active head per scope can have only one version', async (t) => {
   const f = await fixture(t);
   const published = await publish(f, await approvedCandidate(f));
   const row = await f.owner.cg4Policy.findFirstOrThrow({
@@ -732,7 +736,7 @@ test('database บังคับว่า active head ต่อ scope มีไ
   );
 });
 
-test('trigger ห้ามแก้ content ของ version ที่ ACTIVE แล้ว', async (t) => {
+test('a trigger forbids editing the content of a version that is already ACTIVE', async (t) => {
   const f = await fixture(t);
   const published = await publish(f, await approvedCandidate(f));
   await assert.rejects(

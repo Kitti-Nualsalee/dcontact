@@ -3,7 +3,7 @@ import test from 'node:test';
 import { coreOverviewIdentitySandbox } from './tenant-core-identity-sandbox.js';
 
 test(
-  'Overview actual OIDC: counts/rules และ role/revoke ไม่ใช้ verifier stub',
+  'Overview actual OIDC: counts/rules and role/revoke do not use a verifier stub',
   {
     skip: !process.env.CORE_IDENTITY_SANDBOX_URL
       ? 'NOT_RUN: isolated identity sandbox required'

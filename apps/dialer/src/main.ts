@@ -61,7 +61,7 @@ const consumer = await createDialerGovernanceConsumer({
   groupId: process.env.DIALER_GOVERNANCE_CONSUMER_GROUP_ID ?? 'dcontact-dialer-cg3-v1',
   dlq,
 });
-// J2.8 (#136): รับ owner command จาก Journey ทาง dc.dialer.commands และตอบผลกลับ dc.dialer.events
+// J2.8 (#136): receives owner commands from Journey over dc.dialer.commands and replies on dc.dialer.events
 const ownerCommandConsumer = await createDialerOwnerCommandConsumer({
   owner: new DialerOwnerCommandService(database, createDialerOwnerScopeAuthorizer(database)),
   producer,

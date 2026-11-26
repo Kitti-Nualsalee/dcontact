@@ -1,8 +1,8 @@
 /**
- * S2.3 (#367): ตารางตัดสินใจของ control plane เทียบกับ #358 ทีละข้อ
+ * S2.3 (#367): the control plane decision table checked against #358 item by item
  *
- * เทสต์ชุดนี้ไม่มี database และไม่มี I/O — ตรวจว่า "กฎ" ตรงกับคำตัดสิน ส่วนการบังคับใช้กฎ
- * บน Postgres จริงอยู่ใน `line-control-plane.integration.ts`
+ * This suite has no database and no I/O — it checks that the "rules" match the decisions, while enforcement of the rules
+ * on real Postgres lives in `line-control-plane.integration.ts`
  */
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -44,7 +44,7 @@ const T0 = new Date('2026-09-22T10:00:00.000Z');
 
 // ── Authority matrix (#358 §E) ───────────────────────────────────────────────
 
-test('authority: แยกผู้เสนอ ผู้อนุมัติ และผู้เปิด switch ออกจากกันตาม #358 §E', () => {
+test('authority: proposer, approver and switch opener are kept separate per #358 §E', () => {
   assert.deepEqual(LINE_CONTROL_AUTHORITY.PROPOSE_RUN, ['PLATFORM_OPERATOR']);
   assert.deepEqual(LINE_CONTROL_AUTHORITY.APPROVE_RUN_TENANT_ADMIN, ['TENANT_ADMIN']);
   assert.deepEqual(LINE_CONTROL_AUTHORITY.APPROVE_RUN_COMPLIANCE, ['COMPLIANCE']);
@@ -53,14 +53,14 @@ test('authority: แยกผู้เสนอ ผู้อนุมัติ �
   assert.deepEqual(LINE_CONTROL_AUTHORITY.ADVANCE_STATE, ['COMPLIANCE']);
   assert.deepEqual(LINE_CONTROL_AUTHORITY.CLEAR_KILL, ['COMPLIANCE']);
 
-  // ผู้ที่ execute/propose ได้ ต้องอนุมัติ run ของตัวเองไม่ได้เลยในทุกทาง
+  // Anyone who can execute/propose must never be able to approve their own run, by any route
   assert.equal(mayPerform('PLATFORM_OPERATOR', 'APPROVE_RUN_TENANT_ADMIN'), false);
   assert.equal(mayPerform('PLATFORM_OPERATOR', 'APPROVE_RUN_COMPLIANCE'), false);
   assert.equal(mayPerform('TENANT_ADMIN', 'SET_TECHNICAL_SWITCH'), false);
   assert.equal(mayPerform('TENANT_ADMIN', 'ADVANCE_STATE'), false);
 });
 
-test('authority: ทุก action มีเจ้าของ และ SYSTEM ทำได้เฉพาะ kill อัตโนมัติ', () => {
+test('authority: every action has an owner, and SYSTEM can do only automatic kill', () => {
   for (const action of LINE_CONTROL_ACTIONS) {
     const roles = LINE_CONTROL_AUTHORITY[action];
     assert.ok(roles.length > 0, action);
@@ -70,7 +70,7 @@ test('authority: ทุก action มีเจ้าของ และ SYSTEM �
   assert.deepEqual(systemActions, ['KILL']);
 });
 
-test('authority: role ที่ไม่มีสิทธิ์ได้ error code เดียวคงที่', () => {
+test('authority: a role without permission gets one fixed error code', () => {
   assert.throws(
     () => assertControlAuthority('SYSTEM', 'ADVANCE_STATE'),
     (error: unknown) => {
@@ -85,7 +85,7 @@ test('authority: role ที่ไม่มีสิทธิ์ได้ error 
 
 // ── Business state → operation (#358 §A) ─────────────────────────────────────
 
-test('rollout state: DRY_RUN ไม่มี network, PROVIDER_CONFORMANCE ยังห้าม push', () => {
+test('rollout state: DRY_RUN has no network, PROVIDER_CONFORMANCE still must not push', () => {
   const allowed = (state: LineRolloutState): LineProviderOperation[] =>
     LINE_PROVIDER_OPERATIONS.filter((operation) => allowsOperation(state, operation));
 
@@ -101,7 +101,7 @@ test('rollout state: DRY_RUN ไม่มี network, PROVIDER_CONFORMANCE ย�
   assert.deepEqual(allowed('CAPPED_PILOT'), [...LINE_PROVIDER_OPERATIONS]);
 });
 
-test('rollout state: เฉพาะ LOCAL_VALIDATION ที่ไม่ต้องใช้ credential/quota', () => {
+test('rollout state: only LOCAL_VALIDATION needs no credential/quota', () => {
   assert.equal(needsProviderCredential('LOCAL_VALIDATION'), false);
   for (const operation of LINE_PROVIDER_OPERATIONS) {
     if (operation === 'LOCAL_VALIDATION') continue;
@@ -109,7 +109,7 @@ test('rollout state: เฉพาะ LOCAL_VALIDATION ที่ไม่ต้�
   }
 });
 
-test('rollout state: เลื่อนขึ้นทีละขั้น แต่ลดลงข้ามขั้นได้ทันที', () => {
+test('rollout state: advances one step at a time, but can be lowered across steps immediately', () => {
   assert.equal(isSingleStepAdvance('DISABLED', 'DRY_RUN'), true);
   assert.equal(isSingleStepAdvance('DRY_RUN', 'CAPPED_PILOT'), false);
   assert.equal(isSingleStepAdvance('DISABLED', 'DISABLED'), false);
@@ -123,7 +123,7 @@ test('rollout state: เลื่อนขึ้นทีละขั้น แ�
 
 // ── Cap profile (#358 §C) ────────────────────────────────────────────────────
 
-test('cap: logical delivery ต้องส่ง limit ครบสี่มิติของ profile', () => {
+test('cap: a logical delivery must pass all four limit dimensions of the profile', () => {
   const limits = lineCapLimits({ capKind: 'LOGICAL_DELIVERY', at: T0 });
   assert.equal(limits.length, 4);
   const byCode = Object.fromEntries(limits.map((limit) => [limit.code, limit]));
@@ -144,13 +144,13 @@ test('cap: logical delivery ต้องส่ง limit ครบสี่มิ
   assert.equal(byCode.SUBMISSION_WINDOW_CAP_EXCEEDED?.max, LINE_PILOT_CAPS.logicalDeliveriesPer24h);
   assert.equal(byCode.SUBMISSION_WINDOW_CAP_EXCEEDED?.sameRecipient, undefined);
 
-  // lifetime ไม่มีหน้าต่างเวลา — นับทุกแถวของ profile
+  // lifetime has no time window — counts every row of the profile
   assert.equal(byCode.LIFETIME_CAP_EXCEEDED?.max, LINE_PILOT_CAPS.logicalDeliveriesLifetime);
   assert.equal(byCode.LIFETIME_CAP_EXCEEDED?.since, undefined);
   for (const limit of limits) assert.equal(limit.capKind, 'LOGICAL_DELIVERY');
 });
 
-test('cap: concurrency นับเฉพาะ slot ที่ยังถืออยู่ และ attempt นับต่อ delivery เดียว', () => {
+test('cap: concurrency counts only slots still held, and attempts are counted per single delivery', () => {
   const [submission] = lineCapLimits({ capKind: 'CONCURRENT_SUBMISSION', at: T0 });
   assert.equal(submission?.max, LINE_PILOT_CAPS.concurrentSubmissions);
   assert.equal(submission?.activeOnly, true);
@@ -164,7 +164,7 @@ test('cap: concurrency นับเฉพาะ slot ที่ยังถือ
   assert.equal(attempt?.sameDelivery, true);
 });
 
-test('cap: run ลด provider attempt ได้ แต่ขอเกิน profile ไม่ได้', () => {
+test('cap: a run can lower provider attempts but cannot ask for more than the profile', () => {
   const lowered = lineCapLimits({
     capKind: 'PROVIDER_ATTEMPT',
     at: T0,
@@ -202,7 +202,7 @@ const proposal: LineRunProposalDigestInput = {
   expiresAt: lineRunExpiry(T0),
 };
 
-test('proposal digest: deterministic และไวต่อทุกมิติที่ผู้อนุมัติเห็น', () => {
+test('proposal digest: deterministic and sensitive to every dimension the approver sees', () => {
   const baseline = lineRunProposalDigest(proposal);
   assert.match(baseline, /^[a-f0-9]{64}$/);
   assert.equal(lineRunProposalDigest({ ...proposal }), baseline);
@@ -227,7 +227,7 @@ test('proposal digest: deterministic และไวต่อทุกมิต�
   }
 });
 
-test('proposal TTL: 30 นาทีตาม profile', () => {
+test('proposal TTL: 30 minutes per the profile', () => {
   assert.equal(
     lineRunExpiry(T0).getTime() - T0.getTime(),
     LINE_PILOT_CAPS.runAuthorizationTtlMinutes * 60_000,
@@ -236,7 +236,7 @@ test('proposal TTL: 30 นาทีตาม profile', () => {
 
 // ── Quota advisory (#358 §D) ─────────────────────────────────────────────────
 
-test('quota: ไม่มี snapshot, snapshot เก่า หรืออ่านเพดานไม่ได้ = ใช้ไม่ได้ทั้งหมด', () => {
+test('quota: no snapshot, a stale snapshot, or an unreadable ceiling = entirely unusable', () => {
   assert.equal(evaluateQuotaAdvisory(undefined, T0), 'UNAVAILABLE');
   assert.equal(
     evaluateQuotaAdvisory(
@@ -245,7 +245,7 @@ test('quota: ไม่มี snapshot, snapshot เก่า หรืออ่�
     ),
     'STALE',
   );
-  // snapshot ที่ "มาจากอนาคต" คือ clock skew — ใช้ตัดสินใจไม่ได้เช่นกัน
+  // A snapshot "from the future" is clock skew — it cannot be used for decisions either
   assert.equal(
     evaluateQuotaAdvisory(
       { type: 'limited', targetLimit: 500, totalUsage: 0, observedAt: new Date(T0.getTime() + 1) },
@@ -259,7 +259,7 @@ test('quota: ไม่มี snapshot, snapshot เก่า หรืออ่�
   );
 });
 
-test('quota: เหลือไม่พอสำหรับ run เดียว = EXHAUSTED, ไม่จำกัด = OK', () => {
+test('quota: not enough left for a single run = EXHAUSTED, unlimited = OK', () => {
   assert.equal(
     evaluateQuotaAdvisory(
       { type: 'limited', targetLimit: 200, totalUsage: 200, observedAt: T0 },
@@ -282,14 +282,14 @@ test('quota: เหลือไม่พอสำหรับ run เดีย�
 
 // ── Automatic kill (#358 §F) ─────────────────────────────────────────────────
 
-test('kill: ทุกสัญญาณอัตโนมัติมี reason ของตัวเองใน vocabulary เดียวกัน', () => {
+test('kill: every automatic signal has its own reason in the same vocabulary', () => {
   for (const signal of LINE_CONTROL_SIGNALS) {
     assert.equal(automaticKillReasonFor(signal), signal);
   }
   assert.equal(LINE_CONTROL_SIGNALS.length, 11);
 });
 
-test('kill: reason ของคนแยกตาม role และ outcome ที่ต้องปิด scope มีสามตัว', () => {
+test('kill: human reasons are split by role and the outcomes that must close a scope number three', () => {
   const roles: LineControlActorRole[] = ['PLATFORM_OPERATOR', 'TENANT_ADMIN', 'SYSTEM'];
   for (const role of roles) assert.equal(operatorKillReasonFor(role), 'OPERATOR_KILL');
   assert.equal(operatorKillReasonFor('COMPLIANCE'), 'COMPLIANCE_KILL');
@@ -309,7 +309,7 @@ test('kill: reason ของคนแยกตาม role และ outcome ท�
   for (const code of notKilling) assert.equal(killSignalForOutcome(code), undefined, code);
 });
 
-test('#567 cap ของ trial มาจากแถว authorization แต่ไม่เกินเพดาน และ S2 ใช้ค่าคงที่เสมอ', () => {
+test('#567 the trial cap comes from the authorization row but not above the ceiling, and S2 always uses constants', () => {
   assert.deepEqual(
     lineDeliveryCapsFor({
       profile: 'S2_LINE_LOCAL_PILOT_V1',
@@ -341,7 +341,7 @@ test('#567 cap ของ trial มาจากแถว authorization แต่�
   );
 });
 
-test('#567 digest ของ S2 ไม่เปลี่ยนเมื่อไม่มี trial และ trial ได้ digest ต่างกันตาม cap', () => {
+test('#567 the S2 digest does not change when there is no trial, and a trial gets a different digest per cap', () => {
   const input = {
     tenantId: 't',
     gateId: 'g',
@@ -362,7 +362,7 @@ test('#567 digest ของ S2 ไม่เปลี่ยนเมื่อไ�
     proposedAt: new Date('2026-10-01T00:00:00.000Z'),
     expiresAt: new Date('2026-10-01T00:30:00.000Z'),
   };
-  // ค่าคงที่จาก main ก่อน #567 — digest ของ proposal ที่อนุมัติแล้วต้องตรงเดิมทุก byte
+  // Constants from main before #567 — the digest of an already approved proposal must match byte for byte
   assert.equal(
     lineRunProposalDigest(input),
     'c349bf4547c33616d571fe3210d50dbc57b4117968ff275f80d5d3cf45c4b724',
@@ -383,7 +383,7 @@ test('#567 digest ของ S2 ไม่เปลี่ยนเมื่อไ�
   );
 });
 
-test('#567 Tenant Admin kill ได้แต่ยก kill ไม่ได้', () => {
+test('#567 a Tenant Admin can kill but cannot lift a kill', () => {
   assert.equal(mayPerform('TENANT_ADMIN', 'KILL'), true);
   assert.equal(mayPerform('TENANT_ADMIN', 'CLEAR_KILL'), false);
   assert.equal(operatorKillReasonFor('TENANT_ADMIN'), 'OPERATOR_KILL');

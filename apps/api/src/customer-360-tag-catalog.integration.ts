@@ -14,11 +14,11 @@ import { Customer360TagCatalogController } from './customer-360-tag-catalog-api.
 import { Customer360OperatorController } from './customer-360-operator-api.js';
 
 /** M1-A: public HTTP → current actor → owner command/receipt → PostgreSQL RLS */
-test('Admin สร้างแท็กแล้วอ่านกลับได้; replay ไม่สร้างซ้ำและไม่เพิ่มสิทธิ์อ่านลูกค้า', async (t) => {
+test('an Admin creates a tag and reads it back; a replay creates no duplicate and adds no customer read permission', async (t) => {
   const f = await setup([Customer360TagCatalogController]);
   t.after(() => f.close());
   const commandId = randomUUID();
-  const payload = { commandId, name: '  ลูกค้าสำคัญ  ' };
+  const payload = { commandId, name: '  Important customer  ' };
   const result = await f.request('customer-360/tags', 'admin', payload);
   assert.equal(result.status, 201);
   const receipt = (
@@ -29,7 +29,10 @@ test('Admin สร้างแท็กแล้วอ่านกลับไ�
   assert.equal(receipt.outcome, 'APPLIED');
   const id = receipt.resourceRefs.find((ref) => ref.type === 'TAG')?.id;
   assert.ok(id);
-  assert.ok(!JSON.stringify(result.body).includes('ลูกค้าสำคัญ'), 'receipt ไม่มีชื่อแท็ก');
+  assert.ok(
+    !JSON.stringify(result.body).includes('Important customer'),
+    'the receipt has no tag name',
+  );
   const current = await f.request(`customer-360/tags/${id}`, 'admin');
   assert.equal(current.status, 200);
   const body = current.body as unknown as {
@@ -42,14 +45,14 @@ test('Admin สร้างแท็กแล้วอ่านกลับไ�
     { id: body.id, name: body.name, state: body.state, revision: body.revision },
     {
       id,
-      name: 'ลูกค้าสำคัญ',
+      name: 'Important customer',
       state: 'ACTIVE',
       revision: '0',
     },
   );
   assert.deepEqual((await f.request('customer-360/tags', 'admin', payload)).body, result.body);
   assert.equal(
-    await f.owner.c360Tag.count({ where: { tenantId: f.tenantId, name: 'ลูกค้าสำคัญ' } }),
+    await f.owner.c360Tag.count({ where: { tenantId: f.tenantId, name: 'Important customer' } }),
     1,
   );
   assert.equal(
@@ -66,13 +69,13 @@ test('Admin สร้างแท็กแล้วอ่านกลับไ�
   );
 });
 
-test('catalog และ receipt ตรวจ role, active user และ proof ปัจจุบันทุกครั้ง', async (t) => {
+test('the catalog and receipt check the role, active user and current proof every time', async (t) => {
   const f = await setup([Customer360TagCatalogController]);
   t.after(() => f.close());
   const commandId = randomUUID();
   const created = await f.request('customer-360/tags', 'admin', {
     commandId,
-    name: 'สิทธิ์ปัจจุบัน',
+    name: 'Current permission',
   });
   const id = (created.body as unknown as { command: { resourceRefs: { id: string }[] } }).command
     .resourceRefs[0]!.id;
@@ -80,8 +83,12 @@ test('catalog และ receipt ตรวจ role, active user และ proof �
     assert.equal((await f.request('customer-360/tags', token)).status, 403, token);
     assert.equal((await f.request(`customer-360/tags/${id}`, token)).status, 403, token);
     assert.equal(
-      (await f.request('customer-360/tags', token, { commandId: randomUUID(), name: 'ห้ามสร้าง' }))
-        .status,
+      (
+        await f.request('customer-360/tags', token, {
+          commandId: randomUUID(),
+          name: 'Do not create',
+        })
+      ).status,
       403,
       token,
     );
@@ -107,7 +114,7 @@ test('catalog และ receipt ตรวจ role, active user และ proof �
   assert.equal((await f.request(`customer-360/commands/${commandId}`, 'admin')).status, 201);
 });
 
-test('เมนู catalog แสดงเฉพาะ runtime พร้อมและ Admin ที่ proof ปัจจุบันผ่าน', async (t) => {
+test('the catalog menu shows only when the runtime is ready and the Admin has current proof', async (t) => {
   const f = await setup([Customer360TagCatalogController]);
   t.after(() => f.close());
   const hasMenu = async (token: string) => {
@@ -130,11 +137,11 @@ test('เมนู catalog แสดงเฉพาะ runtime พร้อม�
   assert.equal(await hasMenu('admin'), false);
 });
 
-test('index ของ catalog และ Activity รองรับ keyset order ใน PostgreSQL', async (t) => {
+test('the catalog and Activity indexes support keyset order in PostgreSQL', async (t) => {
   const f = await setup([Customer360TagCatalogController]);
   t.after(() => f.close());
   await withTenantDatabaseTransaction(f.db, f.tenantId, async (tx) => {
-    // Fixture มีข้อมูลน้อยมาก จึงปิด seqscan เฉพาะ transaction นี้เพื่อพิสูจน์ว่า index ใช้กับ query ได้
+    // the fixture has very little data, so seqscan is disabled for this transaction only to prove the index is usable by the query
     await tx.$executeRaw`SET LOCAL enable_seqscan = off`;
     const tags = await tx.$queryRaw<
       { 'QUERY PLAN': string }[]
@@ -150,7 +157,7 @@ test('index ของ catalog และ Activity รองรับ keyset order
   });
 });
 
-test('reconcile command ที่ไม่ทราบผลปิดด้วย tombstone และ late create ไม่ทำงาน', async (t) => {
+test('reconcile closes a command with unknown outcome with a tombstone and a late create does nothing', async (t) => {
   const f = await setup([Customer360TagCatalogController]);
   t.after(() => f.close());
   const commandId = randomUUID();
@@ -162,16 +169,16 @@ test('reconcile command ที่ไม่ทราบผลปิดด้ว�
   );
   const late = await f.request('customer-360/tags', 'admin', {
     commandId,
-    name: 'ห้ามสร้างภายหลัง',
+    name: 'Do not create later',
   });
   assert.deepEqual(late.body, reconciled.body);
   assert.equal(
-    await f.owner.c360Tag.count({ where: { tenantId: f.tenantId, name: 'ห้ามสร้างภายหลัง' } }),
+    await f.owner.c360Tag.count({ where: { tenantId: f.tenantId, name: 'Do not create later' } }),
     0,
   );
 });
 
-test('catalog write และ detail ใช้ budget แยก; limiter ล่มปิดการเขียนโดยไม่สร้าง receipt', async (t) => {
+test('catalog write and detail use separate budgets; a limiter outage closes writes without creating a receipt', async (t) => {
   const calls: string[] = [];
   let mode: 'ok' | 'limited' | 'down' = 'ok';
   const f = await setup([Customer360TagCatalogController], {
@@ -187,13 +194,13 @@ test('catalog write และ detail ใช้ budget แยก; limiter ล่�
   mode = 'limited';
   const limited = await f.request('customer-360/tags', 'admin', {
     commandId,
-    name: 'ทดสอบ budget',
+    name: 'Budget test',
   });
   assert.equal(limited.status, 429);
   assert.equal(limited.headers.get('retry-after'), '7');
   mode = 'down';
   assert.equal(
-    (await f.request('customer-360/tags', 'admin', { commandId, name: 'ทดสอบ budget' })).status,
+    (await f.request('customer-360/tags', 'admin', { commandId, name: 'Budget test' })).status,
     503,
   );
   assert.equal(
@@ -203,7 +210,7 @@ test('catalog write และ detail ใช้ budget แยก; limiter ล่�
   mode = 'ok';
   const created = await f.request('customer-360/tags', 'admin', {
     commandId,
-    name: 'ทดสอบ budget',
+    name: 'Budget test',
   });
   const id = (created.body as unknown as { command: { resourceRefs: { id: string }[] } }).command
     .resourceRefs[0]!.id;
@@ -211,7 +218,7 @@ test('catalog write และ detail ใช้ budget แยก; limiter ล่�
   assert.deepEqual(calls, ['c360-write-v1', 'c360-write-v1', 'c360-write-v1', 'c360-receipt-v1']);
 });
 
-test('ชื่อแท็กที่มี control หรือยาวเกินตอบ field error โดยไม่สร้าง command หรือสะท้อนค่า', async (t) => {
+test('a tag name with control characters or too long gets a field error without creating a command or echoing the value', async (t) => {
   const f = await setup([Customer360TagCatalogController]);
   t.after(() => f.close());
   for (const [name, code] of [
@@ -233,7 +240,7 @@ test('ชื่อแท็กที่มี control หรือยาวเ�
   }
 });
 
-test('rename คง ID และ provenance; no-op/conflict/retire ไม่ทับ revision หรือสร้าง audit ซ้ำ', async (t) => {
+test('rename keeps the ID and provenance; no-op/conflict/retire do not overwrite the revision or add duplicate audit', async (t) => {
   const f = await setup([Customer360TagCatalogController]);
   t.after(() => f.close());
   const create = await f.request('customer-360/tags', 'admin', {
@@ -327,7 +334,7 @@ test('rename คง ID และ provenance; no-op/conflict/retire ไม่ท�
   );
 });
 
-test('tag catalog ปิดโดยปริยายและเปิดได้เมื่อ runtime ผ่านและตั้ง feature flag ชัดเจน', async () => {
+test('the tag catalog is off by default and can be turned on when the runtime passes and the feature flag is explicitly set', async () => {
   const { createC360TagCatalogRuntime } = await import('./customer-360-tag-runtime.js');
   const { C360_PARSER_INTEGRITY } = await import('./customer-360-write-runtime.js');
   const { assertC360ContactPointRuntime } =
@@ -360,12 +367,15 @@ test('tag catalog ปิดโดยปริยายและเปิดไ�
   );
 });
 
-test('catalog runtime ไม่พร้อมปิดเฉพาะ catalog routes โดยไม่สร้าง command', async (t) => {
+test('a runtime that is not ready closes only the catalog routes without creating a command', async (t) => {
   const f = await setup([Customer360TagCatalogController]);
   t.after(() => f.close());
   f.tagRuntime.ready = false;
   const commandId = randomUUID();
-  const result = await f.request('customer-360/tags', 'admin', { commandId, name: 'ไม่ควรสร้าง' });
+  const result = await f.request('customer-360/tags', 'admin', {
+    commandId,
+    name: 'Should not be created',
+  });
   assert.equal(result.status, 503);
   assert.equal(result.body.error.code, 'CATALOG_UNAVAILABLE');
   assert.equal((await f.request(`customer-360/tags/${randomUUID()}`, 'admin')).status, 503);
@@ -376,7 +386,7 @@ test('catalog runtime ไม่พร้อมปิดเฉพาะ catalog r
   );
 });
 
-test('catalog list ใช้ keyset cursor ที่ผูก actor/filter, ไม่ส่ง key หรือข้าม tenant', async (t) => {
+test('the catalog list uses a keyset cursor bound to the actor/filter, does not send the key or cross tenants', async (t) => {
   const f = await setup([Customer360TagCatalogController]);
   t.after(() => f.close());
   for (const name of ['Charlie', 'Alpha', 'Bravo'])
@@ -429,7 +439,7 @@ test('catalog list ใช้ keyset cursor ที่ผูก actor/filter, ไ�
   assert.equal(changed.body.error.code, 'CURSOR_CONTEXT_CHANGED');
 });
 
-test('receipt budget จำกัดแยกและ Redis ล่มกู้ได้เฉพาะ receipt ที่ commit แล้ว', async (t) => {
+test('the receipt budget is limited separately and a Redis outage recovers only committed receipts', async (t) => {
   let mode: 'ok' | 'limited' | 'down' = 'ok';
   const f = await setup([Customer360TagCatalogController], {
     async consume() {
@@ -466,21 +476,21 @@ test('receipt budget จำกัดแยกและ Redis ล่มกู้�
 });
 
 for (const winner of ['catalog', 'operator'] as const) {
-  test(`name-key fence: ${winner} สร้างก่อนและอีก owner ไม่สร้างชื่อซ้ำ`, async (t) => {
+  test(`name-key fence: ${winner} creates first and the other owner does not create a duplicate name`, async (t) => {
     const f = await setup([Customer360TagCatalogController, Customer360OperatorController]);
     t.after(() => f.close());
     const slot = winner === 'catalog' ? 601 : 602;
-    const catalog = { commandId: randomUUID(), name: 'ชื่อชนกัน' };
+    const catalog = { commandId: randomUUID(), name: 'Colliding name' };
     const operator = {
       commandId: randomUUID(),
       evidenceRef: 'ticket:TEST-M1A',
       reasonCode: 'APPROVED_CUSTODIAN',
-      command: { action: 'TAG_SEED', names: ['ชื่อชนกัน'] },
+      command: { action: 'TAG_SEED', names: ['Colliding name'] },
     };
     const create = () => f.request('customer-360/tags', 'admin', catalog);
     const seed = () => f.request('customer-360/operator/commands', 'operator', operator);
     await f.owner.$executeRawUnsafe(
-      `CREATE FUNCTION m1a_test_seed_race() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.name = 'ชื่อชนกัน' THEN PERFORM pg_advisory_xact_lock(819, ${slot}); END IF; RETURN NEW; END $$`,
+      `CREATE FUNCTION m1a_test_seed_race() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.name = 'Colliding name' THEN PERFORM pg_advisory_xact_lock(819, ${slot}); END IF; RETURN NEW; END $$`,
     );
     await f.owner.$executeRawUnsafe(
       'CREATE TRIGGER m1a_test_seed_race BEFORE INSERT ON c360_tags FOR EACH ROW EXECUTE FUNCTION m1a_test_seed_race()',
@@ -521,7 +531,7 @@ for (const winner of ['catalog', 'operator'] as const) {
           'TAG_NAME_CONFLICT',
         );
       assert.equal(
-        await f.owner.c360Tag.count({ where: { tenantId: f.tenantId, nameKey: 'ชื่อชนกัน' } }),
+        await f.owner.c360Tag.count({ where: { tenantId: f.tenantId, nameKey: 'Colliding name' } }),
         1,
       );
     } finally {
@@ -531,11 +541,11 @@ for (const winner of ['catalog', 'operator'] as const) {
   });
 }
 
-test('สอง rename ชื่อเดียวกันไม่สร้างชื่อซ้ำ และคำสั่งที่แพ้กู้ผลโดยใช้ command เดิม', async (t) => {
+test('two renames to the same name do not create a duplicate, and the losing command recovers its result using the original command', async (t) => {
   const f = await setup([Customer360TagCatalogController]);
   t.after(() => f.close());
   const ids: string[] = [];
-  for (const name of ['หนึ่ง', 'สอง']) {
+  for (const name of ['One', 'Two']) {
     const result = await f.request('customer-360/tags', 'admin', { commandId: randomUUID(), name });
     ids.push(
       (result.body as unknown as { command: { resourceRefs: { id: string }[] } }).command
@@ -545,7 +555,7 @@ test('สอง rename ชื่อเดียวกันไม่สร้า
   const commands = ids.map(() => ({
     commandId: randomUUID(),
     expectedRevision: '0',
-    name: 'ชื่อร่วม',
+    name: 'Shared name',
   }));
   const results = await Promise.all(
     ids.map((id, index) => f.request(`customer-360/tags/${id}`, 'admin', commands[index], 'PATCH')),
@@ -565,7 +575,7 @@ test('สอง rename ชื่อเดียวกันไม่สร้า
     'TAG_NAME_CONFLICT',
   );
   assert.equal(
-    await f.owner.c360Tag.count({ where: { tenantId: f.tenantId, nameKey: 'ชื่อร่วม' } }),
+    await f.owner.c360Tag.count({ where: { tenantId: f.tenantId, nameKey: 'Shared name' } }),
     1,
   );
   assert.equal(
@@ -576,7 +586,7 @@ test('สอง rename ชื่อเดียวกันไม่สร้า
   );
 });
 
-test('operator replay receipt เดิมของชื่อที่เคยรับ control ได้ แต่ห้าม admit คำสั่งใหม่', async (t) => {
+test('an operator replay of the original receipt for a name that once admitted control characters is allowed, but admitting a new command is not', async (t) => {
   const f = await setup([Customer360TagCatalogController, Customer360OperatorController]);
   t.after(() => f.close());
   const subject = f.actors.get('operator')!.id;
@@ -594,7 +604,7 @@ test('operator replay receipt เดิมของชื่อที่เค�
     commandId,
     evidenceRef: 'ticket:LEGACY-SEED',
     reasonCode: 'APPROVED_CUSTODIAN',
-    command: { action: 'TAG_SEED', names: ['เดิม\tแท็ก'] },
+    command: { action: 'TAG_SEED', names: ['old\ttag'] },
   };
   const version = `${C360_OPERATOR_CONTRACT_VERSION}+${C360_TAG_NORMALIZATION_VERSION}`;
   const prepared = prepareC360ProfileCommand({
@@ -640,7 +650,7 @@ test('operator replay receipt เดิมของชื่อที่เค�
   );
   const mismatch = await f.request('customer-360/operator/commands', 'operator', {
     ...payload,
-    command: { action: 'TAG_SEED', names: ['อื่น\tแท็ก'] },
+    command: { action: 'TAG_SEED', names: ['other\ttag'] },
   });
   assert.equal(mismatch.status, 409);
   const newId = randomUUID();

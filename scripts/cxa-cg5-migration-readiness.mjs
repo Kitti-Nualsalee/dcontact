@@ -7,14 +7,14 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const migrationsRoot = resolve(repositoryRoot, 'packages/db/prisma/migrations');
 
 /**
- * CG5-MG01 (#273, Phase Contract §2/§8): migration ของ CG5 ต้อง additive ล้วน
+ * CG5-MG01 (#273, Phase Contract §2/§8): the CG5 migration must be purely additive
  *
- * - สร้าง/แก้ได้เฉพาะ object ของ CG5 (`cg5_*`, type `Cg5*`) และเพิ่มค่า enum เดิมแบบ `ADD VALUE`
- * - ห้าม DROP/RENAME/TRUNCATE และห้ามเขียนข้อมูล (INSERT/UPDATE/DELETE) ทุกกรณี
- * - index บนตาราง canonical ต้องเป็น `CREATE INDEX CONCURRENTLY` แบบไม่ unique และอยู่ไฟล์เดียวโดดเดี่ยว
- *   (Postgres สร้าง concurrent index ใน transaction ร่วมกับคำสั่งอื่นไม่ได้)
+ * - may create/alter only CG5 objects (`cg5_*`, type `Cg5*`) and add existing enum values with `ADD VALUE`
+ * - no DROP/RENAME/TRUNCATE and no data writes (INSERT/UPDATE/DELETE) in any case
+ * - an index on a canonical table must be a non-unique `CREATE INDEX CONCURRENTLY` alone in its own file
+ *   (Postgres cannot create a concurrent index in a transaction together with other statements)
  *
- * ตรวจแบบ static จากไฟล์ SQL ที่ commit จริง ไม่พึ่งฐานข้อมูล จึงไม่มีทางผ่านเพราะ environment
+ * Checked statically from the committed SQL files, not depending on a database, so it cannot pass because of the environment
  */
 
 const isCg5Name = (name) => /^"?(cg5_|Cg5)/.test(name);
@@ -34,7 +34,7 @@ function tablesAfterOn(statement) {
   return match ? match[1].split(',').map((name) => name.trim()) : [];
 }
 
-/** คืน null เมื่อ statement additive ไม่งั้นคืนเหตุผลที่ละเมิด */
+/** Return null when the statement is additive, otherwise the violated reason */
 export function cg5StatementViolation(statement, statementsInFile) {
   if (/\b(DROP|RENAME|TRUNCATE)\b/i.test(statement)) return 'DESTRUCTIVE_DDL';
   if (/^(INSERT|UPDATE|DELETE|COPY)\b/i.test(statement)) return 'DATA_WRITE';
@@ -96,11 +96,11 @@ export function readCg5Migrations(root = migrationsRoot) {
 }
 
 export function cxaCg5MigrationSummary(migrations = readCg5Migrations()) {
-  if (migrations.length === 0) throw new Error('CG5-MG01 ไม่พบ migration ของ CG5');
+  if (migrations.length === 0) throw new Error('CG5-MG01 found no CG5 migration');
   const { violations, canonicalIndexes } = cg5MigrationReport(migrations);
   if (violations.length > 0) {
     throw new Error(
-      `CG5-MG01 migration ไม่ additive: ${violations
+      `CG5-MG01 migration is not additive: ${violations
         .map(({ migration, reason }) => `${migration}=${reason}`)
         .join(', ')}`,
     );

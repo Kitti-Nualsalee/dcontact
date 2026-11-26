@@ -44,7 +44,7 @@ const DIMENSIONS: Cg5MetricDimensions = {
   teamId: 'team-001',
 };
 
-test('dimensionKey ไม่ขึ้นกับ key order และแยกแถวที่มิติเป็น null ออกจากกัน', () => {
+test('dimensionKey does not depend on key order and separates rows whose dimension is null', () => {
   const reordered: Cg5MetricDimensions = {
     teamId: 'team-001',
     reasonCode: 'QUIET_HOURS',
@@ -56,28 +56,28 @@ test('dimensionKey ไม่ขึ้นกับ key order และแยก�
   assert.equal(cg5DimensionKey(DIMENSIONS), cg5DimensionKey(reordered));
   assert.match(cg5DimensionKey(DIMENSIONS), /^[a-f0-9]{64}$/);
 
-  // สองแถวที่ต่างกันเฉพาะมิติที่เป็น null ต้องได้คนละ key มิฉะนั้น unique constraint จะปล่อยแถวซ้ำ
+  // two rows that differ only in a null dimension must get different keys, otherwise the unique constraint lets duplicate rows through
   const withoutTeam = { ...DIMENSIONS, teamId: null };
   const withoutReason = { ...DIMENSIONS, reasonCode: null };
   assert.notEqual(cg5DimensionKey(DIMENSIONS), cg5DimensionKey(withoutTeam));
   assert.notEqual(cg5DimensionKey(withoutTeam), cg5DimensionKey(withoutReason));
 });
 
-test('metric key ทั้ง 8 คีย์มีทางป้อนกำกับครบ', () => {
+test('all 8 metric keys have a feed path declared', () => {
   assert.equal(CG5_METRIC_KEYS.length, 8);
   for (const key of CG5_METRIC_KEYS) {
     assert.ok(
       CG5_METRIC_FEEDS[key] === 'EVENT_INBOX' || CG5_METRIC_FEEDS[key] === 'INCREMENTAL_READ',
     );
   }
-  // ปริมาณการตัดสินต้องมาจากการอ่าน canonical เป็นรอบ ไม่ใช่ event ในเส้นทางตัดสิน (#266)
+  // decision volume must come from a periodic read of the canonical data, not from an event on the decision path (#266)
   assert.equal(CG5_METRIC_FEEDS['cg.decision'], 'INCREMENTAL_READ');
   assert.equal(CG5_METRIC_FEEDS['cg.reservation'], 'INCREMENTAL_READ');
   assert.equal(CG5_METRIC_FEEDS['cg.restriction'], 'EVENT_INBOX');
   assert.deepEqual(Object.values(CG5_GRANULARITY_SECONDS), [300, 3_600, 86_400]);
 });
 
-test('rule registry ปิดชุดไว้ 10 กฎ และมีเพียงกฎเทียบฐานที่ถูกระงับได้เมื่อข้อมูลไม่ครบ', () => {
+test('the rule registry is a closed set of 10 rules, and only baseline-comparison rules can be suppressed when data is incomplete', () => {
   assert.equal(CG5_RULE_CODES.length, 10);
   assert.ok(isCg5RuleCode('CG5_OPT_OUT_SPIKE'));
   assert.equal(isCg5RuleCode('CG5_NOT_A_RULE'), false);
@@ -93,7 +93,7 @@ test('rule registry ปิดชุดไว้ 10 กฎ และมีเพ�
   }
 });
 
-test('alert เปลี่ยนสถานะได้เฉพาะเส้นทางที่ปิดชุดไว้ และ ack ไม่ใช่การปิด', () => {
+test('an alert can change state only along the closed paths, and ack is not a close', () => {
   assert.ok(canCg5AlertTransition('OPEN', 'ACKED'));
   assert.ok(canCg5AlertTransition('ACKED', 'RESOLVED'));
   assert.ok(canCg5AlertTransition('RESOLVED', 'OPEN'));
@@ -101,11 +101,11 @@ test('alert เปลี่ยนสถานะได้เฉพาะเส�
   assert.equal(canCg5AlertTransition('SUPPRESSED', 'ACKED'), false);
 });
 
-test('scope เขียนถูกจองชื่อไว้แต่ยังผูกกับ route ไม่ได้', () => {
+test('write scopes are reserved by name but cannot be bound to a route yet', () => {
   assert.deepEqual([...CG5_BOUND_API_SCOPES], ['governance:read', 'governance:evidence']);
   assert.deepEqual([...CG5_RESERVED_API_SCOPES], ['governance:restrictions:write']);
 
-  // หลัง assert ผ่าน type ต้องแคบเหลือเฉพาะ scope ที่ผูก route ได้ ไม่ใช่ Cg5ApiScope ทั้งชุด
+  // after the assert passes, the type must narrow to only the scopes that can bind to a route, not the whole Cg5ApiScope
   const scope: string = 'governance:read';
   assertCg5BoundApiScope(scope);
   const bound: Cg5BoundApiScope = scope;
@@ -117,7 +117,7 @@ test('scope เขียนถูกจองชื่อไว้แต่ย�
   );
 });
 
-test('contract version และ rule registry version ที่ไม่รองรับ fail closed', () => {
+test('unsupported contract version and rule registry version fail closed', () => {
   assertSupportedCg5Versions({
     contractVersion: CG5_CONTRACT_VERSION,
     ruleRegistryVersion: CG5_RULE_REGISTRY_VERSION,
@@ -142,7 +142,7 @@ test('contract version และ rule registry version ที่ไม่รอ�
   );
 });
 
-test('config ราย tenant ต้องอยู่ในช่วงที่ระบบกำหนดและครบทุก field', () => {
+test('per-tenant config must be within the system-defined ranges and have every field', () => {
   assert.deepEqual(validateCg5TenantConfig(CG5_DEFAULT_TENANT_CONFIG), []);
 
   const tooLongRetention = createCg5TenantConfigFixture({ retentionDailyMonths: 24 });
@@ -151,7 +151,7 @@ test('config ราย tenant ต้องอยู่ในช่วงที�
   assert.equal(violations[0]?.field, 'retentionDailyMonths');
   assert.equal(violations[0]?.reason, 'ABOVE_MAX');
 
-  // ตั้งสั้นกว่าเพดานได้ แต่ยาวเกินเพดานไม่ได้ (#268)
+  // may be set shorter than the ceiling but not longer (#268)
   assert.deepEqual(
     validateCg5TenantConfig(createCg5TenantConfigFixture({ retentionDailyMonths: 6 })),
     [],
@@ -171,7 +171,7 @@ test('config ราย tenant ต้องอยู่ในช่วงที�
     (error: unknown) => error instanceof Cg5ContractError && error.code === 'CONFIG_OUT_OF_RANGE',
   );
 
-  // รอบ refresh อยู่ในระดับนาทีเสมอตาม #266
+  // the refresh interval is always on the order of minutes per #266
   const refresh = CG5_CONFIG_BOUNDS.refreshIntervalSeconds;
   assert.equal(refresh.min, 60);
   assert.equal(refresh.max, 300);
@@ -179,15 +179,15 @@ test('config ราย tenant ต้องอยู่ในช่วงที�
   for (const [field, range] of Object.entries(CG5_CONFIG_BOUNDS) as Array<
     [Cg5ConfigField, { min: number; max: number; fallback: number }]
   >) {
-    assert.ok(range.min <= range.max, `${field} ต้องมีช่วงที่ใช้ได้จริง`);
+    assert.ok(range.min <= range.max, `${field} must have a usable range`);
     assert.ok(
       range.fallback >= range.min && range.fallback <= range.max,
-      `${field} fallback ต้องอยู่ในช่วง`,
+      `${field} fallback must be within the range`,
     );
   }
 });
 
-test('config digest ไม่ขึ้นกับ key order และเปลี่ยนเมื่อค่าที่บังคับใช้เปลี่ยน', () => {
+test('config digest does not depend on key order and changes when an enforced value changes', () => {
   const left = createCg5TenantConfigFixture();
   const right = createCg5TenantConfigFixture();
   assert.equal(cg5ConfigDigest(left), cg5ConfigDigest(right));
@@ -197,7 +197,7 @@ test('config digest ไม่ขึ้นกับ key order และเปล�
   );
 });
 
-test('payload ของ alert และ export ผ่านการตรวจว่าไม่มี PII', () => {
+test('alert and export payloads pass the check that they have no PII', () => {
   assertCg5PiiFreePayload(createCg5AlertChangedPayloadFixture());
   assertCg5PiiFreePayload(createCg5ExportChangedPayloadFixture());
   assertCg5PiiFreePayload(createCg5ExportManifestFixture());
@@ -216,7 +216,7 @@ test('payload ของ alert และ export ผ่านการตรวจ
   );
 });
 
-test('event type และ aggregate type เป็นค่าคงที่ที่ consumer ยึดได้', () => {
+test('event type and aggregate type are constants consumers can rely on', () => {
   assert.equal(CG5_EVENT_TYPES.ALERT_CHANGED, 'governance.alert.changed');
   assert.equal(CG5_EVENT_TYPES.EXPORT_CHANGED, 'governance.export.changed');
   assert.equal(CG5_EVENT_AGGREGATE_TYPES.ALERT, 'contact_governance_alert');

@@ -1,15 +1,15 @@
 /**
- * Owner: Platform control plane — เหตุการณ์ฝั่ง First admin ใน Action history (A1.8 #413, #391)
+ * Owner: Platform control plane — First admin events in Action history (A1.8 #413, #391)
  *
- * worker อ่าน Keycloak user events ของ first admin ที่ได้คำเชิญแล้ว แล้วบันทึกลง `pf_action_history`
- * ด้วย actor `FIRST_ADMIN` (subject = Keycloak user id)
+ * The worker reads the Keycloak user events of a first admin who has been invited and records them in `pf_action_history`
+ * with actor `FIRST_ADMIN` (subject = Keycloak user id)
  *
- * - เก็บแค่ชนิดเหตุการณ์และเวลา — ไม่อ่าน/เก็บ `details.username` (email), IP หรือ session ของ Keycloak
- * - Keycloak 26 ไม่มี event id: แต่ละชนิดบันทึกครั้งเดียวต่อ (request, identity) ด้วย history id ที่
- *   derive จากค่าเหล่านั้น + `skipDuplicates` จึง replay/worker หลายตัวได้โดยไม่ซ้ำ
- * - `FIRST_ADMIN_ACTIVATED` ใช้นิยามเดียวกับ invitation outbox: emailVerified และไม่มี required action
- *   เหลือ; เวลาคือเหตุการณ์ล่าสุดที่เห็น (event หมดอายุแล้ว = เวลาที่ตรวจพบ)
- * - หยุดตามเมื่อบันทึก ACTIVATED แล้ว หรือคำเชิญเก่ากว่า `trackDays`
+ * - stores only the event type and time — never reads/stores `details.username` (email), IP or the Keycloak session
+ * - Keycloak 26 has no event id: each type is recorded once per (request, identity) with a history id
+ *   derived from those values + `skipDuplicates`, so replays/multiple workers do not duplicate
+ * - `FIRST_ADMIN_ACTIVATED` uses the same definition as the invitation outbox: emailVerified and no required action
+ *   left; the time is the latest event seen (an expired event = the time it was detected)
+ * - stops once ACTIVATED is recorded or the invitation is older than `trackDays`
  */
 import { createHash } from 'node:crypto';
 import type { PrismaClient } from '@d-contact/db';
@@ -25,7 +25,7 @@ interface KeycloakEvent {
   details?: Record<string, unknown>;
 }
 
-/** ชนิด event ที่ realm ต้องเก็บ — setup ของ Keycloak ใช้รายการเดียวกัน */
+/** event types the realm must keep — the Keycloak setup uses the same list */
 export const FIRST_ADMIN_KEYCLOAK_EVENT_TYPES = [
   'VERIFY_EMAIL',
   'CUSTOM_REQUIRED_ACTION',
@@ -34,7 +34,7 @@ export const FIRST_ADMIN_KEYCLOAK_EVENT_TYPES = [
   'UPDATE_CREDENTIAL',
 ] as const;
 
-/** แปลง Keycloak event เป็นเหตุการณ์ของ timeline — อ่านเฉพาะ type และ field ที่ไม่ใช่ PII */
+/** converts a Keycloak event into a timeline event — reads only the type and non-PII fields */
 export function firstAdminActivityOf(event: KeycloakEvent): FirstAdminActivityKind | null {
   const action = event.details?.custom_required_action;
   const credential = event.details?.credential_type;
@@ -58,7 +58,7 @@ export function firstAdminActivityOf(event: KeycloakEvent): FirstAdminActivityKi
   }
 }
 
-/** uuid ที่คงที่ต่อ (request, identity, action) — insert ซ้ำชน primary key แล้วถูกข้าม */
+/** a uuid stable per (request, identity, action) — a repeated insert hits the primary key and is skipped */
 function historyId(requestId: string, userId: string, action: FirstAdminActivityKind): string {
   const hex = createHash('sha256')
     .update(`first-admin-activity\0${requestId}\0${userId}\0${action}`)
@@ -91,11 +91,11 @@ export class FirstAdminActivityReconciler {
     private readonly platform: PrismaClient,
     private readonly keycloak: Pick<KeycloakAdminClient, 'admin'>,
     private readonly options: {
-      /** ระยะห่างขั้นต่ำระหว่างการตรวจ request เดิม */
+      /** minimum gap between checks of the same request */
       intervalMs?: number;
       trackDays?: number;
       now?: () => Date;
-      /** จำกัด tenant (ใช้ในเทสต์) */
+      /** restrict to a tenant (used in tests) */
       scope?: () => string[] | undefined;
     } = {},
   ) {}

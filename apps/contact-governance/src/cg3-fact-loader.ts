@@ -160,7 +160,7 @@ function scopeCompatible(
   return true;
 }
 
-/** โหลด CG3 facts ทั้งหมดที่ evaluator ต้องใช้ ภายใน transaction เดียวกับ authorizeAndReserve */
+/** load all CG3 facts the evaluator needs, inside the same transaction as authorizeAndReserve */
 export async function loadCg3Facts(
   transaction: Prisma.TransactionClient,
   query: Cg3FactQuery,

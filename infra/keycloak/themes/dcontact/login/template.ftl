@@ -1,10 +1,10 @@
 <#--
-  #515: layout ของทุกหน้าใน login theme (login, OTP, required actions ของคำเชิญ, error, info)
-  แทน template.ftl ของ base แต่คง contract ที่ test และ script อ่านอยู่:
-  - `<h1 id="kc-page-title">` (keycloak-test-support.ts อ่านชื่อหน้า)
-  - `<form>` แรกของหน้าเป็นฟอร์มของหน้านั้นเอง (keycloak-platform-login.mjs และ completeInvitation อ่าน action จาก form แรก)
-    — ตัวเลือกภาษาจึงเป็นลิงก์ ไม่ใช่ form และอยู่หลังเนื้อหา (ลิงก์ action-token ลิงก์แรกต้องเป็นของหน้า)
-  - section ที่หน้าต่างๆ ส่งมา: header, show-username, form, socialProviders, info (+ subtitle ของหน้าที่ theme นี้ override)
+  #515: layout of every page in the login theme (login, OTP, invitation required actions, error, info)
+  replaces the base template.ftl but keeps the contract that tests and scripts read:
+  - `<h1 id="kc-page-title">` (keycloak-test-support.ts reads the page title)
+  - the first `<form>` of the page is the page's own form (keycloak-platform-login.mjs and completeInvitation read the action from the first form)
+      — so the language selector is a link, not a form, and sits after the content (the first action-token link must belong to the page)
+  - the sections that pages send: header, show-username, form, socialProviders, info (+ subtitle of the pages this theme overrides)
 -->
 <#import "footer.ftl" as loginFooter>
 <#macro registrationLayout bodyClass="" displayInfo=false displayMessage=true displayRequiredFields=false>
@@ -51,7 +51,7 @@
             <script src="${script}" type="text/javascript"></script>
         </#list>
     </#if>
-    <#-- #592: authChecker.js ของ Keycloak 26.7 (startSessionPolling + checkAuthSession แทน checkCookiesAndSetTimer) -->
+    <#-- #592: authChecker.js of Keycloak 26.7 (startSessionPolling + checkAuthSession instead of checkCookiesAndSetTimer) -->
     <script type="module">
         <#outputformat "JavaScript">
         import { startSessionPolling } from ${(url.resourcesPath + "/js/authChecker.js")?c};
@@ -183,8 +183,8 @@
 
             <@loginFooter.content/>
         </div>
-        <#-- ตัวเลือกภาษาอยู่หลังเนื้อหาใน DOM (CSS ยกขึ้นไปมุมขวาบน): URL ของมันมี action-token ด้วย
-             และ completeInvitation ใน keycloak-test-support.ts ตามลิงก์ action-token ลิงก์แรกของหน้า -->
+        <#-- The language selector is after the content in the DOM (CSS lifts it to the top right): its URL also carries an action-token
+             and completeInvitation in keycloak-test-support.ts follows the first action-token link of the page -->
         <#if realm.internationalizationEnabled && locale.supported?size gt 1>
             <nav id="kc-locale" class="dc-locale" aria-label="${msg("languages")}">
                 <#list locale.supported as l>

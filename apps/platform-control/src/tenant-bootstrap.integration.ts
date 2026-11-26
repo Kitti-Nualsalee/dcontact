@@ -1,12 +1,12 @@
 /**
- * A1.5 (#410) acceptance บน Postgres จริง (fast gate — ไม่ต้องใช้ Keycloak)
+ * A1.5 (#410) acceptance on real Postgres (fast gate — no Keycloak needed)
  *
- * PLAN_BOOTSTRAP และ READINESS เป็นตัวจริง; KEYCLOAK_ORGANIZATION เป็น fake และ FIRST_ADMIN/INVITATION
- * เป็น test port ที่เขียน DB แบบเดียวกับ adapter จริงของ A1.4 (users row + invitation SENT)
+ * PLAN_BOOTSTRAP and READINESS are the real ones; KEYCLOAK_ORGANIZATION is a fake and FIRST_ADMIN/INVITATION
+ * are test ports that write the DB the same way as the real A1.4 adapters (users row + invitation SENT)
  *
- * ครอบ: manifest/plan pin + version ใหม่, REVOKED/DEPRECATED, duplicate/restart/concurrent bootstrap,
+ * Covers: manifest/plan pin + new version, REVOKED/DEPRECATED, duplicate/restart/concurrent bootstrap,
  * stale revision/identity field edit, readiness fail (plan/manifest digest, missing receipt,
- * cross-tenant binding) และ baseline ที่ inactive
+ * cross-tenant binding) and an inactive baseline
  */
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -29,7 +29,7 @@ async function setup(t: TestContext) {
   const tenants: string[] = [];
   const keycloakId = (requestId: string) => deterministicUuid('test:keycloak-user', requestId);
 
-  /** เขียน users row แบบ adapter จริง (Admin Team + keycloak_id) ผ่าน provisioner */
+  /** writes a users row like the real adapter (Admin Team + keycloak_id) through the provisioner */
   const firstAdmin: ProvisioningStepPort = {
     async find(context) {
       const row = await f.provisioner.user.findUnique({
@@ -58,7 +58,7 @@ async function setup(t: TestContext) {
       return { externalRef: keycloakId(context.requestId) };
     },
   };
-  /** invitation ที่ส่งแล้วหนึ่ง generation แบบ outbox จริง (intent → SENT) */
+  /** one sent invitation generation like the real outbox (intent → SENT) */
   const invitation: ProvisioningStepPort = {
     async find(context) {
       const row = await f.platform.pfInvitation.findFirst({
@@ -97,7 +97,7 @@ async function setup(t: TestContext) {
 
   const bootstrap = new TenantBootstrapPort(f.platform, f.provisioner);
   const readiness = new TenantReadinessPort(f.platform, f.provisioner);
-  /** `only` จำกัดให้ worker เห็นเฉพาะ tenant เดียว — กันไม่ให้หยิบ request ของเคสอื่นในเทสต์เดียวกัน */
+  /** `only` restricts the worker to see a single tenant — keeps it from picking up another case's request in the same test */
   const worker = (only?: string, workerId = `bootstrap-${randomUUID().slice(0, 8)}`) =>
     new ProvisioningSagaWorker(
       f.platform,
@@ -146,7 +146,7 @@ async function rejectsWith(work: Promise<unknown>, code: PlatformProvisioningErr
   });
 }
 
-test('happy path: baseline ครบ, drafts inactive, plan/manifest ตาม pin แล้ว ACTIVE หลัง readiness', async (t) => {
+test('happy path: full baseline, drafts inactive, plan/manifest per the pin, then ACTIVE after readiness', async (t) => {
   const s = await setup(t);
   const accepted = await s.accept();
   await s.worker().drain();
@@ -165,7 +165,7 @@ test('happy path: baseline ครบ, drafts inactive, plan/manifest ตาม p
   );
   const [queue, ...moreQueues] = await s.f.owner.queue.findMany({ where: { tenantId } });
   assert.equal(moreQueues.length, 0);
-  // ไม่มี traffic อัตโนมัติ: queue inactive, ไม่มี channel
+  // no automatic traffic: queue inactive, no channel
   assert.deepEqual(
     [queue!.id, queue!.isActive, queue!.channels, queue!.teamId],
     [ids.generalQueueId, false, [], ids.generalTeamId],
@@ -191,11 +191,11 @@ test('happy path: baseline ครบ, drafts inactive, plan/manifest ตาม p
     where: { requestId: accepted.requestId, stepKey: 'READINESS', outcome: 'SUCCEEDED' },
   });
   assert.match(receipt.outputDigest ?? '', /^[a-f0-9]{64}$/);
-  // หลัง ACTIVE แล้ว provisioner มองไม่เห็นและเขียน baseline ของ tenant นี้ไม่ได้อีก
+  // after ACTIVE the provisioner can no longer see or write this tenant's baseline
   assert.equal(await s.f.provisioner.team.count({ where: { tenantId } }), 0);
 });
 
-test('duplicate/restart/concurrent bootstrap ไม่สร้าง metadata ซ้ำ แล้ว saga adopt', async (t) => {
+test('duplicate/restart/concurrent bootstrap does not create duplicate metadata, then the saga adopts', async (t) => {
   const s = await setup(t);
   const accepted = await s.accept();
   const request = await s.request(accepted.requestId);
@@ -219,10 +219,10 @@ test('duplicate/restart/concurrent bootstrap ไม่สร้าง metadata �
   assert.ok(adopted.some((row) => row.stepKey === 'PLAN_BOOTSTRAP'));
 });
 
-test('manifest: version ใหม่ไม่เปลี่ยน request เดิม; DEPRECATED เริ่มใหม่ไม่ได้; REVOKED หยุด in-flight', async (t) => {
+test('manifest: a new version does not change an existing request; DEPRECATED cannot start new; REVOKED stops in-flight', async (t) => {
   const s = await setup(t);
   const pinned = await s.accept();
-  // ออก version ใหม่แล้วเลิกใช้ version เดิม — request ที่ pin ไว้ยังทำต่อด้วย manifest เดิม
+  // issue a new version then retire the old version — a request that pinned it still continues with the original manifest
   const next = await s.f.catalog.publishBootstrapTemplate({
     version: `${s.f.templateVersion}-next`,
     manifest: { ...FIXTURE_MANIFEST, adminTeam: { name: 'Administrators' } },
@@ -246,7 +246,7 @@ test('manifest: version ใหม่ไม่เปลี่ยน request เ�
   });
   assert.equal(adminTeam.name, 'Admin Team');
 
-  // REVOKED: request ที่ยังไม่จบเข้า ACTION_REQUIRED ก่อนเริ่ม step ใหม่
+  // REVOKED: an unfinished request goes to ACTION_REQUIRED before starting a new step
   const inFlight = await s.accept({ bootstrapTemplateVersion: next.version });
   await s.f.catalog.setTemplateStatus(next.version, 'REVOKED');
   await s.worker().drain();
@@ -262,7 +262,7 @@ test('manifest: version ใหม่ไม่เปลี่ยน request เ�
   );
 });
 
-test('plan: pin snapshot ตอนรับคำขอ — version ใหม่/เลิกใช้ไม่เปลี่ยน request เดิม; digest ไม่ตรงหรือเลิกใช้ = PLAN_UNAVAILABLE', async (t) => {
+test('plan: pins the snapshot when the request is accepted — a new/retired version does not change an existing request; a digest mismatch or retirement = PLAN_UNAVAILABLE', async (t) => {
   const s = await setup(t);
   const pinned = await s.accept();
   const newer = await s.f.catalog.publishPlanVersion({
@@ -296,7 +296,7 @@ test('plan: pin snapshot ตอนรับคำขอ — version ใหม่
     [binding.planVersion, binding.entitlements],
     [s.f.publishedPlan.version, s.f.publishedPlan.entitlements],
   );
-  // snapshot แก้ย้อนหลังไม่ได้
+  // a snapshot cannot be edited retroactively
   await assert.rejects(
     s.f.platform.pfPlanVersion.update({
       where: { planCode_version: { planCode: 'growth', version: newer.version } },
@@ -306,13 +306,13 @@ test('plan: pin snapshot ตอนรับคำขอ — version ใหม่
   );
 });
 
-test('edit: CAS บน revision, identity field ล็อก, field ล็อกหลัง step เจ้าของสำเร็จ และ audit ทุกผล', async (t) => {
+test('edit: CAS on revision, identity fields locked, fields locked once the owning step succeeds, and an audit for every outcome', async (t) => {
   const s = await setup(t);
   const accepted = await s.accept();
   const base = {
     requestId: accepted.requestId,
     reasonCode: 'CUSTOMER_CORRECTION',
-    comment: 'ลูกค้าแจ้งแก้ข้อมูล',
+    comment: 'customer asked to correct the data',
     actor: OPERATOR,
     correlationId: 'corr-edit',
   };
@@ -342,14 +342,14 @@ test('edit: CAS บน revision, identity field ล็อก, field ล็อก
   assert.deepEqual(edited.changedFields, ['displayName', 'timezone']);
   const afterEdit = await s.request(accepted.requestId);
   assert.deepEqual([afterEdit.timezone, afterEdit.tenant.name], ['Asia/Tokyo', 'Renamed Customer']);
-  // payload เดิม (idempotency binding) ไม่เปลี่ยน; digest ใหม่อยู่ใน payload revision
+  // the original payload (idempotency binding) does not change; the new digest is in the payload revision
   const [payloadRevision] = await s.f.owner.pfRequestPayloadRevision.findMany({
     where: { requestId: accepted.requestId },
   });
   assert.equal(payloadRevision!.payloadDigest, edited.payloadDigest);
   assert.notEqual(payloadRevision!.payloadDigest, afterEdit.payloadDigest);
 
-  // หยุดก่อน FIRST_ADMIN: รัน saga จน bootstrap สำเร็จ แล้วแก้ locale ไม่ได้ แต่ชื่อ first-admin ยังแก้ได้
+  // stops before FIRST_ADMIN: run the saga until bootstrap succeeds, then locale cannot be edited but the first-admin name still can
   const worker = s.worker(accepted.tenantId);
   while (
     (await s.request(accepted.requestId)).steps.find((step) => step.stepKey === 'PLAN_BOOTSTRAP')!
@@ -392,9 +392,9 @@ test('edit: CAS บน revision, identity field ล็อก, field ล็อก
   assert.equal((await s.request(accepted.requestId)).status, 'SUCCEEDED');
 });
 
-test('readiness fail: missing receipt, plan/manifest digest mismatch และ cross-tenant binding', async (t) => {
+test('readiness fail: missing receipt, plan/manifest digest mismatch and cross-tenant binding', async (t) => {
   const s = await setup(t);
-  // ยังไม่ได้ทำอะไร: receipt/baseline/admin/invitation ขาด
+  // nothing done yet: receipt/baseline/admin/invitation are missing
   const fresh = await s.accept();
   const empty = await s.readiness.evaluate(
     provisioningStepContext(await s.request(fresh.requestId), 'READINESS', 1),
@@ -412,11 +412,11 @@ test('readiness fail: missing receipt, plan/manifest digest mismatch และ c
   }
   assert.equal(JSON.stringify(empty.evidence).includes('@'), false);
 
-  // ทำจนถึงก่อน READINESS แล้วแก้ข้อมูลเบื้องหลังเพื่อพิสูจน์ว่า readiness จับได้
+  // run up to just before READINESS then change the underlying data to prove readiness catches it
   const tampered = async (mutate: (tenantId: string, requestId: string) => Promise<unknown>) => {
     const accepted = await s.accept();
     const worker = s.worker(accepted.tenantId);
-    // เดินจน INVITATION สำเร็จ (step ก่อน READINESS) แล้วค่อยแก้ข้อมูลเบื้องหลัง
+    // run until INVITATION succeeds (the step before READINESS) then change the underlying data
     for (let round = 0; round < 20; round += 1) {
       const result = await worker.runOnce();
       if (result.kind === 'STEP_SUCCEEDED' && result.stepKey === 'INVITATION') break;
@@ -450,7 +450,7 @@ test('readiness fail: missing receipt, plan/manifest digest mismatch และ c
       }),
       /TEAM_INACTIVE/,
     );
-    // จำลอง corruption จาก owner หลัง normal DML ถูก guard ปฏิเสธ เพื่อคง READINESS negative gate
+    // simulate corruption from the owner after normal DML is rejected by a guard, to keep the READINESS negative gate
     await s.f.owner.$transaction(async (transaction) => {
       await transaction.$executeRawUnsafe("SET LOCAL session_replication_role='replica'");
       await transaction.queue.update({

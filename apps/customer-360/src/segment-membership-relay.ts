@@ -26,7 +26,7 @@ export interface C360MembershipPublishAttempt {
 
 export interface C360MembershipRelayOptions {
   now?: () => Date;
-  /** exponential backoff ต่อ attempt ก่อน retry; default สูงสุดห้านาที */
+  /** exponential backoff per attempt before retrying; the default maximum is five minutes */
   backoffMs?: (attempts: number) => number;
 }
 
@@ -35,11 +35,11 @@ function defaultBackoffMs(attempts: number): number {
 }
 
 /**
- * error ที่เกิดจากตัว row เองเสีย (payload validate ไม่ผ่าน, hash ไม่ตรงกับที่ commit ไว้,
- * envelope ประกอบไม่ได้) — retry ไปกี่ครั้งก็ได้ผลเดิมเพราะข้อมูลในแถวนั้นไม่เปลี่ยน
+ * an error caused by the row itself being broken (payload fails validation, hash differs from the committed one,
+ * envelope cannot be assembled) — retrying any number of times gives the same result because the data in that row does not change
  *
- * แยกจาก broker ล่ม/เน็ตหลุดซึ่ง retry แล้วมีโอกาสสำเร็จจริง การยุบสองอย่างนี้เป็น FAILED
- * เหมือนกันทำให้แถวที่เสียถาวรวนอยู่ในคิวตลอดไปโดยไม่มีใครรู้
+ * Distinct from a broker outage/network drop, where a retry can actually succeed. Collapsing both into FAILED
+ * would leave a permanently broken row circulating in the queue forever with nobody noticing
  */
 class MembershipOutboxCorruptionError extends Error {
   constructor(reason: string) {
@@ -49,8 +49,8 @@ class MembershipOutboxCorruptionError extends Error {
 }
 
 /**
- * Transactional-outbox relay ของ Customer 360. eventId และ occurredAt มาจาก canonical
- * row ที่ commit แล้ว จึงคงเดิมทุก broker retry; duplicate delivery ถูกจัดการด้วย eventId.
+ * Transactional-outbox relay for Customer 360. eventId and occurredAt come from the canonical
+ * row that was already committed, so they stay the same on every broker retry; duplicate delivery is handled by eventId.
  */
 export class C360SegmentMembershipRelay {
   private readonly now: () => Date;
@@ -65,16 +65,16 @@ export class C360SegmentMembershipRelay {
     this.backoffMs = options.backoffMs ?? defaultBackoffMs;
   }
 
-  /** เผยแพร่ outbox row เดียวที่พร้อม; undefined หมายถึงไม่มีงานใน tenant นี้ */
+  /** publishes a single ready outbox row; undefined means there is no work in this tenant */
   async publishNext(tenantId: string): Promise<C360MembershipPublishAttempt | undefined> {
     const now = this.now();
     return withTenantDatabaseTransaction(this.database, tenantId, async (transaction) => {
-      // SKIP LOCKED อย่างเดียวรับประกันลำดับใน stream ไม่ได้: worker คนที่สองจะข้ามแถวที่
-      // ถูกล็อกไปหยิบ revision ถัดไปของ contact/segment เดียวกัน แล้วอาจส่ง N+1 ออกก่อน N
-      // ถ้า worker แรกช้า ผู้บริโภคจึงเห็น membership change ผิดลำดับ
+      // SKIP LOCKED alone cannot guarantee ordering within a stream: a second worker skips the row that is
+      // locked and picks the next revision of the same contact/segment, and may send N+1 before N
+      // if the first worker is slow, so consumers see membership changes out of order
       //
-      // กันด้วยการไม่หยิบแถวที่ยังมี revision ก่อนหน้าของ stream เดียวกันค้างอยู่ — แถวนั้น
-      // จะถูกหยิบก็ต่อเมื่อรุ่นก่อนหน้า PUBLISHED หรือ QUARANTINED (คือจบเรื่องแล้ว) เท่านั้น
+      // Prevent this by not picking a row while an earlier revision of the same stream is still pending — that row
+      // is picked only once the previous revision is PUBLISHED or QUARANTINED (i.e. finished)
       const candidates = await transaction.$queryRaw<Array<{ id: string }>>(Prisma.sql`
         SELECT o.id
         FROM c360_segment_membership_outbox o
@@ -109,13 +109,13 @@ export class C360SegmentMembershipRelay {
           payload = validateSegmentMembershipChangePayload(row.payload);
         } catch (error) {
           throw new MembershipOutboxCorruptionError(
-            `payload ใน outbox ไม่ผ่าน contract: ${error instanceof Error ? error.message : String(error)}`,
+            `the outbox payload does not satisfy the contract: ${error instanceof Error ? error.message : String(error)}`,
           );
         }
         const payloadHash = canonicalSegmentMembershipHash(contractTenantId(tenantId), payload);
         if (payloadHash !== row.payloadHash) {
           throw new MembershipOutboxCorruptionError(
-            'payload hash ไม่ตรงกับที่ commit ไว้ตอนสร้าง outbox row',
+            'payload hash does not match the one committed when the outbox row was created',
           );
         }
         const streamId = customerSegmentMembershipStreamId(payload.contactId, payload.segmentId);
@@ -139,7 +139,7 @@ export class C360SegmentMembershipRelay {
           validated = assertSegmentMembershipChangeEnvelope(envelope);
         } catch (error) {
           throw new MembershipOutboxCorruptionError(
-            `envelope ประกอบจาก row นี้ไม่ผ่าน contract: ${error instanceof Error ? error.message : String(error)}`,
+            `the envelope assembled from this row does not satisfy the contract: ${error instanceof Error ? error.message : String(error)}`,
           );
         }
         await this.producer.send(KAFKA_TOPICS.CUSTOMER_EVENTS, validated);

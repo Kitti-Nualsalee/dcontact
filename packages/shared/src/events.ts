@@ -1,53 +1,53 @@
 import type { AgentState, Channel, InteractionState } from './interaction';
 
 /**
- * Event contracts บน Kafka — ทุก service คุยกันผ่าน events เหล่านี้ (ดู ADR-003)
- * telephony/channels ผลิต → router ตัดสินใจ → api กระจายไป UI ผ่าน WebSocket
- * ทุก message มี tenantId ทั้งใน header และ payload; Redis เหลือบทบาท state store เท่านั้น
+ * Event contracts on Kafka — every service talks to the others through these events (see ADR-003)
+ * telephony/channels produce → router decides → api fans out to the UI over WebSocket
+ * every message carries tenantId in both the header and the payload; Redis remains only a state store
  */
 
 export const KAFKA_TOPICS = {
   /**
-   * raw events จาก media server ทุก vendor — FreeSWITCH หรือ Asterisk (telephony produce, key = callUuid)
-   * ชื่อเดิม `dc.fs.events` ถูกเลิกใช้ตาม ADR-023 ข้อ 6 เพราะผูกกับ vendor เดียว
+   * raw events from every vendor's media server — FreeSWITCH or Asterisk (telephony produces, key = callUuid)
+   * the old name `dc.fs.events` was retired per ADR-023 item 6 because it was tied to a single vendor
    */
   TELEPHONY_EVENTS: 'dc.telephony.events',
-  /** ข้อความ/เหตุการณ์ขาเข้าจากช่องทาง digital (channels produce, key = conversationId) */
+  /** inbound messages/events from digital channels (channels produce, key = conversationId) */
   CHANNEL_EVENTS: 'dc.channel.events',
-  /** interaction lifecycle events ทุก channel (key = interactionId) — source of truth ของ metering/billing */
+  /** interaction lifecycle events for every channel (key = interactionId) — source of truth for metering/billing */
   INTERACTION_EVENTS: 'dc.interaction.events',
   /** agent state changes (key = agentId) */
   AGENT_EVENTS: 'dc.agent.events',
-  /** call control commands router → telephony (key = callUuid) — ใช้จริง Phase 1 */
+  /** call control commands router → telephony (key = callUuid) — used for real in Phase 1 */
   TELEPHONY_COMMANDS: 'dc.telephony.commands',
-  /** ส่งข้อความออกช่องทาง digital: router → channels (key = conversationId) */
+  /** send outbound messages to digital channels: router → channels (key = conversationId) */
   CHANNEL_COMMANDS: 'dc.channel.commands',
-  /** งานถอดเสียง/วิเคราะห์แบบ asynchronous ของ QM (key = jobId) */
+  /** asynchronous QM transcription/analysis jobs (key = jobId) */
   QM_JOBS: 'dc.qm.jobs',
-  /** ผลลัพธ์ QM สำหรับ API/WebSocket fan-out (key = tenantId) */
+  /** QM results for API/WebSocket fan-out (key = tenantId) */
   QM_EVENTS: 'dc.qm.events',
   /**
-   * เหตุการณ์จากระบบธุรกิจของลูกค้า → journey engine (key = contactRef)
-   * เข้าทาง `POST /api/v1/events` แล้วถูก dedupe ด้วย (tenantId, source, eventId) ก่อนวางลง topic
-   * ดู ADR-025 (CX automation)
+   * events from the customer's business systems → journey engine (key = contactRef)
+   * enters through `POST /api/v1/events` and is deduped by (tenantId, source, eventId) before being placed on the topic
+   * see ADR-025 (CX automation)
    */
   JOURNEY_EVENTS: 'dc.journey.events',
   /**
-   * canonical Customer 360 facts (key = contactId:segmentId) — Customer 360 เป็น owner/producer;
-   * Journey และ consumer อื่นอ่านแบบ read-only และตรวจ revision ก่อน apply
+   * canonical Customer 360 facts (key = contactId:segmentId) — Customer 360 is the owner/producer;
+   * Journey and other consumers read read-only and check the revision before applying
    */
   CUSTOMER_EVENTS: 'dc.customer.events',
   /** IAM canonical scope invalidations (key = teamId); restrictive changes trigger re-filter. */
   ADMIN_EVENTS: 'dc.admin.events',
   /**
-   * CG3/CG4 canonical snapshot notifications (key = tenantId:contactId หรือ tenantId:policyId)
-   * — restriction/consent/preference/policy/exception/kill changed; payload มีเฉพาะ version/scope/digest
-   * และไม่มี raw PII (#104, #179)
+   * CG3/CG4 canonical snapshot notifications (key = tenantId:contactId or tenantId:policyId)
+   * — restriction/consent/preference/policy/exception/kill changed; the payload has only version/scope/digest
+   * and no raw PII (#104, #179)
    */
   CONTACT_GOVERNANCE_EVENTS: 'dc.contact-governance.events',
   /**
-   * downstream consumer (Journey/Dialer/Channels/Workspace) ประกาศว่า apply CG3/CG4 event แล้ว
-   * — Contact Governance consume เป็น read-only projection ลง cg_consumer_acknowledgements เท่านั้น
+   * a downstream consumer (Journey/Dialer/Channels/Workspace) declares it has applied a CG3/CG4 event
+   * — Contact Governance consumes it only as a read-only projection into cg_consumer_acknowledgements
    */
   CONTACT_GOVERNANCE_ACKNOWLEDGEMENTS: 'dc.contact-governance.acknowledgements',
   /** Journey → Cases durable owner commands (key = actionKey). */
@@ -58,9 +58,9 @@ export const KAFKA_TOPICS = {
   DIALER_COMMANDS: 'dc.dialer.commands',
   /** Dialer canonical command results (key = actionKey). */
   DIALER_EVENTS: 'dc.dialer.events',
-  /** Journey → Delivery reconcile command หลัง submission barrier (key = actionKey). */
+  /** Journey → Delivery reconcile command after the submission barrier (key = actionKey). */
   DELIVERY_COMMANDS: 'dc.delivery.commands',
-  /** quarantine สำหรับ Kafka contract ที่ตรวจไม่ผ่าน; access/retention แยกจาก topic ธุรกิจ */
+  /** quarantine for Kafka contracts that fail validation; access/retention are separate from business topics */
   DEAD_LETTER: 'dc.platform.dlq',
 } as const;
 
@@ -100,25 +100,25 @@ export interface AgentEvent extends BaseEvent {
 }
 
 /**
- * เหตุการณ์จากระบบธุรกิจของลูกค้า — ทางเข้าหลักของ CX automation (ADR-025)
+ * Events from the customer's business systems — the main entry to CX automation (ADR-025)
  *
- * กติกาที่ทำให้ API retry ไม่ทำให้ลูกค้าถูกดึงเข้า journey ซ้ำ:
- *   unique (tenantId, source, eventId) ที่ event inbox — ยิงซ้ำได้ไม่จำกัด ผลลัพธ์เท่าเดิม
- * `eventId` ต้องมาจาก **ระบบผู้ส่ง** และคงที่ทุกครั้งที่ retry เหตุการณ์เดียวกัน
- * (วินัยเดียวกับ providerMessageId / clientToken ใน ADR-024)
+ * Rules that keep an API retry from pulling a customer into a journey twice:
+ *   unique (tenantId, source, eventId) at the event inbox — it can be fired any number of times with the same result
+ * `eventId` must come from the **sending system** and stay the same on every retry of the same event
+ * (the same discipline as providerMessageId / clientToken in ADR-024)
  */
 export interface InboundBusinessEvent {
-  /** ระบบต้นทาง เช่น 'billing' | 'wms' | 'crm' — ทำให้ eventId ไม่ชนกันข้ามระบบ */
+  /** the source system, e.g. 'billing' | 'wms' | 'crm' — keeps eventId from colliding across systems */
   source: string;
-  /** id ของเหตุการณ์ฝั่งผู้ส่ง — คงที่เมื่อ retry */
+  /** the sender's id for the event — stable across retries */
   eventId: string;
-  /** ชนิดเหตุการณ์ เช่น 'payment.failed' */
+  /** event type, e.g. 'payment.failed' */
   type: string;
-  /** เวลาที่เหตุการณ์เกิดจริง (ไม่ใช่เวลาที่เรารับ) */
+  /** when the event actually occurred (not when we received it) */
   occurredAt: string; // ISO-8601
-  /** เวอร์ชันของ payload — ผู้ส่งเปลี่ยนโครงได้โดยไม่ทำให้ของเก่าพัง */
+  /** payload version — the sender can change the structure without breaking old data */
   schemaVersion: number;
-  /** ชี้ลูกค้าด้วย identity ใดก็ได้ที่ระบบเรารู้จัก (ADR-020) */
+  /** points at the customer by any identity we know (ADR-020) */
   contactRef: { kind: 'PHONE' | 'EMAIL' | 'LINE' | 'CRM_ID'; value: string };
   payload: Record<string, unknown>;
 }

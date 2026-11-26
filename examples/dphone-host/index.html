@@ -1,10 +1,10 @@
 <!doctype html>
 <!--
-  E1.15 (#489): host อ้างอิงของ dphone ที่ถูกฝัง — HTML ธรรมดา ไม่ใช้ framework (E1.7 #463 ข้อ 3)
+  E1.15 (#489): reference host of the embedded dphone — plain HTML, no framework (E1.7 #463 item 3)
 
-  วิธีใช้: แทน DPHONE_ORIGIN ด้วย origin ของ dphone (เช่น https://dphone.example.com) และ TENANT ด้วย alias
-  ของ tenant แล้วเปิดหน้านี้จาก origin ที่อยู่ใน allowlist ของ Console › Integrations › dphone embedding
-  ดูคู่มือเต็มที่ docs/dphone-embed/README.md
+  Usage: replace DPHONE_ORIGIN with the dphone origin (e.g. https://dphone.example.com) and TENANT with the alias
+  of the tenant, then open this page from an origin that is in the allowlist of Console › Integrations › dphone embedding
+  See the full guide at docs/dphone-embed/README.md
 -->
 <html lang="th">
   <head>
@@ -75,7 +75,7 @@
         configuredTenant === ['TEN', 'ANT'].join('')
           ? new URL(window.location.href).searchParams.get('tenant')
           : configuredTenant;
-      if (!tenant) throw new Error('ต้องระบุ tenant ใน query string');
+      if (!tenant) throw new Error('tenant must be given in the query string');
       dphone.setAttribute('tenant', tenant);
       await import(new URL('/embed/v1/dphone-launcher.js', origin).href);
       const saved = new Set();
@@ -85,19 +85,19 @@
         document.body.dataset.screenPopLevel = event.detail.screenPopLevel;
       });
 
-      // ข้อมูลตามระดับที่ tenant ตั้งไว้ต่อ origin — ใช้ textContent เสมอ (ไม่ใส่เป็น HTML)
+      // data at the level the tenant set per origin — always use textContent (never insert as HTML)
       dphone.addEventListener('screenpop', (event) => {
         document.getElementById('screenpop').textContent = JSON.stringify(event.detail, null, 2);
       });
 
-      // บันทึกกิจกรรมแบบ idempotent ด้วย interactionId; launcher ack ให้เมื่อ promise สำเร็จ
+      // record the activity idempotently with interactionId; the launcher acks when the promise succeeds
       dphone.addEventListener('activity', (event) => {
         event.waitUntil(
           (async () => {
             if (saved.has(event.detail.interactionId)) return;
             saved.add(event.detail.interactionId);
             const item = document.createElement('li');
-            item.textContent = `${event.detail.interactionId} · ${event.detail.disposition ?? '-'} · ${event.detail.durationSeconds} วินาที`;
+            item.textContent = `${event.detail.interactionId} · ${event.detail.disposition ?? '-'} · ${event.detail.durationSeconds} วินาที`; // allow-thai: asserted by the workspace e2e (unit label)
             document.getElementById('activities').append(item);
           })(),
         );
@@ -107,14 +107,14 @@
         event.preventDefault();
         const form = new FormData(event.currentTarget);
         const result = document.getElementById('call-result');
-        result.textContent = 'ส่งเบอร์ให้ dphone แล้ว — รอ agent กดโทร';
+        result.textContent = 'ส่งเบอร์ให้ dphone แล้ว — รอ agent กดโทร'; // allow-thai: asserted by the workspace e2e
         try {
           const outcome = await dphone.call(String(form.get('number')), {
             contactId: String(form.get('contactId') || '') || undefined,
           });
-          result.textContent = `ผล: ${outcome.status}${outcome.reasonCode ? ` (${outcome.reasonCode})` : ''}`;
+          result.textContent = `ผล: ${outcome.status}${outcome.reasonCode ? ` (${outcome.reasonCode})` : ''}`; // allow-thai: asserted by the workspace e2e
         } catch (error) {
-          result.textContent = `ส่งไม่สำเร็จ: ${error.message}`;
+          result.textContent = `ส่งไม่สำเร็จ: ${error.message}`; // allow-thai: sample CRM UI text
         }
       });
     </script>

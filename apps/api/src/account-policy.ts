@@ -1,13 +1,13 @@
 /**
- * Owner: IAM — นโยบายบัญชีของ tenant (AC1 #594, Phase Contract #589, ADR-033)
+ * Owner: IAM — the tenant account policy (AC1 #594, Phase Contract #589, ADR-033)
  *
- * - การแก้ email ของผู้ใช้: `VERIFY` (ค่าเริ่มต้น) | `IMMEDIATE` | `ADMIN_ONLY`; บังคับ 2FA: ค่าเริ่มต้นปิด
- * - ไม่มีแถว = ค่าเริ่มต้น และ `revision` = 0 — แถวแรกถูกสร้างตอน admin แก้ครั้งแรก
- * - ทุกการเปลี่ยนต้องมีเหตุผล 3–500 ตัวอักษร และเขียน audit ค่าก่อน/หลังใน transaction เดียวกัน
- * - เปลี่ยน `mfaRequired` ต้อง sync ไป Organization ของ Keycloak (`dc_mfa_required`) ผ่าน port ของ AC2
- *   ภายใน transaction — sync ล้ม = ไม่บันทึก; ยังไม่มี port = ปฏิเสธ (`MFA_ENFORCEMENT_UNAVAILABLE`)
- *   แทนการบันทึกค่าที่ระบบ identity ยังไม่บังคับจริง
- * - บังคับ 2FA มีผลตอน login ครั้งถัดไป ไม่ตัด session ที่ใช้อยู่ (#589 D10, ADR-026)
+ * - editing a user's email: `VERIFY` (default) | `IMMEDIATE` | `ADMIN_ONLY`; 2FA enforcement: off by default
+ * - no row = the defaults and `revision` = 0 — the first row is created when an admin first edits
+ * - every change needs a reason of 3–500 characters and writes a before/after audit in the same transaction
+ * - changing `mfaRequired` must sync to the Keycloak Organization (`dc_mfa_required`) through the AC2 port
+ *   inside the transaction — sync fails = not saved; no port yet = rejected (`MFA_ENFORCEMENT_UNAVAILABLE`)
+ *   rather than saving a value the identity system does not actually enforce yet
+ * - 2FA enforcement takes effect at the next login and does not cut a session in use (#589 D10, ADR-026)
  */
 import { randomUUID } from 'node:crypto';
 import { Prisma, withTenantDatabaseTransaction, type PrismaClient } from '@d-contact/db';
@@ -26,7 +26,7 @@ export const DEFAULT_ACCOUNT_POLICY: Readonly<AccountPolicy> = Object.freeze({
 });
 
 export interface AccountPolicyView extends AccountPolicy {
-  /** 0 = ยังไม่เคยตั้ง (ใช้ค่าเริ่มต้น) */
+  /** 0 = never set (uses the defaults) */
   revision: number;
   updatedAt: string | null;
 }
@@ -35,7 +35,7 @@ export type AccountPolicyErrorCode =
   | 'VALIDATION_FAILED'
   | 'REVISION_CONFLICT'
   | 'MFA_ENFORCEMENT_UNAVAILABLE'
-  /** ระบบ identity ไม่ตอบหรือปฏิเสธการ sync — ไม่บอกชื่อระบบกับผู้ใช้ (#589) */
+  /** the identity system does not answer or rejects the sync — the system name is not revealed to the user (#589) */
   | 'IDENTITY_UNAVAILABLE';
 
 export class AccountPolicyError extends Error {
@@ -49,9 +49,9 @@ export class AccountPolicyError extends Error {
 }
 
 /**
- * sync การบังคับ 2FA ไป Organization ของ tenant ใน Keycloak — implement ใน AC2 (#595):
- * `KeycloakOrganizationMfa` (keycloak-account-service.ts) ผ่าน extension `dc-account`
- * ต้อง idempotent: เรียกซ้ำด้วยค่าเดิมได้ผลเดิม; ล้ม = throw `AccountPolicyError('IDENTITY_UNAVAILABLE')`
+ * syncs 2FA enforcement to the tenant's Organization in Keycloak — implemented in AC2 (#595):
+ * `KeycloakOrganizationMfa` (keycloak-account-service.ts) through the `dc-account` extension
+ * must be idempotent: calling again with the same value gives the same result; failure = throw `AccountPolicyError('IDENTITY_UNAVAILABLE')`
  */
 export interface OrganizationMfaPort {
   setMfaRequired(tenantId: string, required: boolean): Promise<void>;
@@ -69,7 +69,7 @@ export interface AccountPolicyOptions {
 
 type Tx = Prisma.TransactionClient;
 
-/** อ่านนโยบายภายใน transaction ของ tenant — ใช้ร่วมกับ self-service API (AC4) */
+/** reads the policy inside the tenant transaction — shared with the self-service API (AC4) */
 export async function readAccountPolicy(tx: Tx, tenantId: string): Promise<AccountPolicyView> {
   const row = await tx.tenantAccountPolicy.findUnique({ where: { tenantId } });
   if (!row) return { ...DEFAULT_ACCOUNT_POLICY, revision: 0, updatedAt: null };
@@ -123,7 +123,7 @@ export class AccountPolicyService {
     const mfaRequired = input.mfaRequired as boolean | undefined;
 
     return withTenantDatabaseTransaction(this.database, actor.tenantId, async (tx) => {
-      // แถวแรกยังไม่มีให้ lock — ล็อกต่อ tenant แทน (สอง admin แก้พร้อมกัน = คนหลังได้ REVISION_CONFLICT)
+      // the first row does not exist to lock yet — lock per tenant instead (two admins editing at once = the later gets REVISION_CONFLICT)
       await tx.$executeRaw(
         Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${`tenant_account_policies:${actor.tenantId}`}))`,
       );
@@ -134,7 +134,7 @@ export class AccountPolicyService {
         emailChange: emailChange ?? before.emailChange,
         mfaRequired: mfaRequired ?? before.mfaRequired,
       };
-      // ไม่มีอะไรเปลี่ยน = ไม่เขียนแถวหรือ audit และไม่เพิ่ม revision (ส่งซ้ำได้ผลเดิม)
+      // nothing changed = no row or audit written and no revision increase (resending gets the same result)
       if (next.emailChange === before.emailChange && next.mfaRequired === before.mfaRequired) {
         return before;
       }
@@ -170,7 +170,7 @@ export class AccountPolicyService {
           occurredAt: now,
         },
       });
-      // sync เป็นขั้นสุดท้ายก่อน commit — ล้มแล้ว transaction ถูกยกเลิก ไม่มีนโยบายที่บังคับไม่ได้จริงค้างอยู่
+      // sync is the final step before commit — if it fails the transaction is cancelled and no policy that cannot really be enforced is left behind
       if (next.mfaRequired !== before.mfaRequired) {
         if (!this.options.mfa) throw new AccountPolicyError('MFA_ENFORCEMENT_UNAVAILABLE');
         await this.options.mfa.setMfaRequired(actor.tenantId, next.mfaRequired);

@@ -14,7 +14,7 @@ const input: E1RegistrationFlushInput = {
   },
 };
 
-test('flush ตรวจ revoked/released binding, ปกป้อง credential ใหม่ และ audit หลัง ESL reply เท่านั้น', async () => {
+test('flush checks the revoked/released binding, protects the new credential and audits only after the ESL reply', async () => {
   let revoked = false;
   let active = 0;
   let completed = false;

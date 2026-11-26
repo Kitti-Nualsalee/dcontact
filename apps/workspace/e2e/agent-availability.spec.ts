@@ -1,6 +1,8 @@
 import { expect, test } from './fixtures';
 
-test('เปิดรับสายรอ server acknowledgement และกันกดซ้ำ', async ({ page }) => {
+test('opening for calls waits for the server acknowledgement and blocks repeated presses', async ({
+  page,
+}) => {
   let requests = 0;
   let confirm!: () => void;
   const confirmation = new Promise<void>((resolve) => {
@@ -26,7 +28,7 @@ test('เปิดรับสายรอ server acknowledgement และก�
   expect(requests).toBe(1);
 });
 
-test('server ปฏิเสธ availability ยัง OFFLINE และแจ้ง failure', async ({ page }) => {
+test('server rejects availability, stays OFFLINE and reports a failure', async ({ page }) => {
   await page.route('**/api/v1/workspace/agent/availability', (route) =>
     route.fulfill({ status: 403, json: { code: 'WORK_SESSION_CHANGED' } }),
   );
@@ -39,7 +41,9 @@ test('server ปฏิเสธ availability ยัง OFFLINE และแจ�
   await expect(page.getByRole('button', { name: 'เปิดรับสาย' })).toBeEnabled();
 });
 
-test('ไมค์หยุดระหว่างรอ acknowledgement ห้ามแสดง AVAILABLE จากผลที่มาช้า', async ({ page }) => {
+test('the mic stops while waiting for the acknowledgement: must not show AVAILABLE from a late result', async ({
+  page,
+}) => {
   let requested = false;
   let confirm!: () => void;
   const confirmation = new Promise<void>((resolve) => {
@@ -65,7 +69,7 @@ test('ไมค์หยุดระหว่างรอ acknowledgement ห้
   await expect(page.getByRole('button', { name: 'เปิดรับสาย' })).toBeDisabled();
 });
 
-test('ack เก่าหลังไมค์เสียและตรวจใหม่พร้อมแล้ว ห้ามเปิด AVAILABLE โดยไม่กดเปิดใหม่', async ({
+test('a stale ack after the mic failed and a re-check is ready: must not open AVAILABLE without pressing open again', async ({
   page,
 }) => {
   let requested = false;

@@ -19,7 +19,7 @@ const evaluate = (id: string, contact: { vip: boolean; company: string | null })
     segmentDefinitionVersion: 1,
     snapshotVersion: 1,
     definition: segment(id).definition,
-    // repository normalize typed facts ก่อนเก็บ/ประเมินเสมอ
+    // the repository always normalizes typed facts before storing/evaluating
     snapshot: normalizeFactSnapshot({
       attributes: c360ContactFacts(contact),
       computed: {},
@@ -27,18 +27,18 @@ const evaluate = (id: string, contact: { vip: boolean; company: string | null })
     }),
   }).outcome;
 
-test('segment ระบบผ่าน contract เดิมและประเมินจาก facts ของ Contact', () => {
+test('the system segment passes the original contract and is evaluated from the facts of the Contact', () => {
   for (const item of C360_SYSTEM_SEGMENTS) validateSegmentDefinitionContent(item.definition);
   assert.deepEqual(
     C360_SYSTEM_SEGMENTS.map((item) => item.segmentId),
     ['system:all-customers', 'system:vip'],
   );
   assert.equal(evaluate('system:all-customers', { vip: false, company: null }), 'MATCH');
-  assert.equal(evaluate('system:vip', { vip: true, company: 'บริษัท' }), 'MATCH');
+  assert.equal(evaluate('system:vip', { vip: true, company: 'Company' }), 'MATCH');
   assert.equal(evaluate('system:vip', { vip: false, company: null }), 'NO_MATCH');
 });
 
-test('facts มีเฉพาะ vip/company แบบ typed และ commandId คงที่ต่อ input', () => {
+test('facts hold only typed vip/company and commandId is stable per input', () => {
   assert.deepEqual(c360ContactFacts({ vip: true, company: null }), {
     vip: { type: 'BOOLEAN', value: true },
     company: { type: 'NULL', value: null },
@@ -55,7 +55,7 @@ test('facts มีเฉพาะ vip/company แบบ typed และ commandI
     c360SystemEvaluationCommandId(input),
     c360SystemEvaluationCommandId({ ...input, expectedMembershipRevision: 1 }),
   );
-  // receipt unique ต่อ tenant: contact ต่างกันต้องได้ commandId ต่างกัน
+  // the receipt is unique per tenant: different contacts must get different commandIds
   assert.notEqual(
     c360SystemEvaluationCommandId(input),
     c360SystemEvaluationCommandId({ ...input, contactId: '00000000-0000-4000-8000-000000000003' }),

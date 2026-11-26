@@ -16,36 +16,36 @@ function fixture(files) {
   return dir;
 }
 
-test('catalog ครบสองภาษาผ่าน โดยนับ plural ของไทย (_other) เท่ากับของอังกฤษ (_one/_other)', () => {
+test('complete two-language catalog passes, counting Thai plural (_other) equal to English (_one/_other)', () => {
   const dir = fixture({
-    'th/common.json': { nav: { home: 'หน้าแรก' }, item_other: '{{count}} รายการ' },
+    'th/common.json': { nav: { home: 'หน้าแรก' }, item_other: '{{count}} รายการ' }, // allow-thai: Thai catalog fixture
     'en/common.json': { nav: { home: 'Home' }, item_one: '1 item', item_other: '{{count}} items' },
   });
   assert.deepEqual(checkCatalogs(dir), []);
 });
 
-test('รายงาน key ที่ขาด, ไฟล์ที่ขาด และข้อความว่าง', () => {
+test('reports missing keys, missing files and empty messages', () => {
   const dir = fixture({
-    'th/common.json': { nav: { home: 'หน้าแรก', queue: 'คิว' } },
+    'th/common.json': { nav: { home: 'หน้าแรก', queue: 'คิว' } }, // allow-thai: Thai catalog fixture
     'en/common.json': { nav: { home: '' }, extra: 'Extra' },
-    'th/journeys.json': { title: 'เส้นทาง' },
+    'th/journeys.json': { title: 'เส้นทาง' }, // allow-thai: Thai catalog fixture
   });
   const problems = checkCatalogs(dir);
-  assert.ok(problems.some((p) => p.includes('en/common.json: ขาด key "nav.queue"')));
-  assert.ok(problems.some((p) => p.includes('th/common.json: ขาด key "extra"')));
+  assert.ok(problems.some((p) => p.includes('en/common.json: missing key "nav.queue"')));
+  assert.ok(problems.some((p) => p.includes('th/common.json: missing key "extra"')));
   assert.ok(
-    problems.some((p) => p.includes('en/common.json: "nav.home" ต้องเป็นข้อความที่ไม่ว่าง')),
+    problems.some((p) => p.includes('en/common.json: "nav.home" must be a non-empty message')),
   );
-  assert.ok(problems.some((p) => p.includes('en/journeys.json: ไม่มีไฟล์')));
+  assert.ok(problems.some((p) => p.includes('en/journeys.json: file is missing')));
 });
 
-test('CLI จบด้วย exit code 1 เมื่อ key ขาด เพื่อให้ CI ล้ม', () => {
+test('CLI exits with code 1 when a key is missing so CI fails', () => {
   const dir = fixture({
-    'th/common.json': { a: 'ก', b: 'ข' },
+    'th/common.json': { a: 'ก', b: 'ข' }, // allow-thai: Thai catalog fixture
     'en/common.json': { a: 'A' },
   });
   const script = fileURLToPath(new URL('./check-catalogs.mjs', import.meta.url));
   const result = spawnSync(process.execPath, [script, dir], { encoding: 'utf8' });
   assert.equal(result.status, 1);
-  assert.match(result.stderr, /ขาด key "b"/);
+  assert.match(result.stderr, /missing key "b"/);
 });

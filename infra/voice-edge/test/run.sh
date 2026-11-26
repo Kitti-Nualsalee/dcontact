@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# ทดสอบ Kamailio voice edge กับ FreeSWITCH จริงและ SIPp เป็น trunk จำลอง (ADR-038, #923)
-# ใช้: bash infra/voice-edge/test/run.sh   (KEEP=1 เพื่อไม่ลบ stack หลังจบ)
+# test Kamailio voice edge with a real FreeSWITCH and SIPp as simulated trunks (ADR-038, #923)
+# usage: bash infra/voice-edge/test/run.sh   (KEEP=1 to keep the stack after finishing)
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -22,7 +22,7 @@ trap cleanup EXIT
 
 compose up -d --build --wait edge-db freeswitch kamailio trunk-a trunk-b stranger >/dev/null
 
-# รอ Kamailio เห็น FreeSWITCH ผ่าน OPTIONS (flag AP = active + probing)
+# wait for Kamailio to see FreeSWITCH via OPTIONS (flag AP = active + probing)
 for _ in $(seq 1 30); do
   if compose exec -T kamailio kamcmd -s unix:/tmp/kamailio_ctl dispatcher.list 2>/dev/null | grep -q 'FLAGS: AP'; then break; fi
   sleep 1
@@ -32,13 +32,13 @@ expect() { # expect <code> <host> <ip> <destination>
   sipp_in "$2" "$KAM" -sf "/scenarios/uac-expect-$1.xml" -s "$4" -i "$3" -p 5070 -m 1 -timeout 15s -timeout_error -nostdin -nr
 }
 
-check 'สายเข้าจาก IP ที่ไม่มีในตาราง trunk ถูกปฏิเสธ 403' expect 403 stranger 172.30.50.42 021000001
-check 'trunk ของ t1 โทรเข้าเบอร์ของ t2 ถูกปฏิเสธ 403' expect 403 trunk-a 172.30.50.40 021000002
-check 'ปลายทางที่ไม่ใช่ตัวเลขถูกปฏิเสธ 404' expect 404 trunk-a 172.30.50.40 'abc'
+check 'inbound call from an IP not in the trunk table is rejected with 403' expect 403 stranger 172.30.50.42 021000001
+check 't1 trunk calling a t2 number is rejected with 403' expect 403 trunk-a 172.30.50.40 021000002
+check 'non-numeric destination is rejected with 404' expect 404 trunk-a 172.30.50.40 'abc'
 before=$(fs 'show channels count' | grep -o '^[0-9]*' || echo 0)
-[ "${before:-0}" = "0" ] && ok 'สายที่ถูกปฏิเสธไม่ถึง FreeSWITCH' || bad "สายที่ถูกปฏิเสธไม่ถึง FreeSWITCH (มี $before channel)"
+[ "${before:-0}" = "0" ] && ok 'rejected calls do not reach FreeSWITCH' || bad "rejected calls reached FreeSWITCH ($before channels)"
 
-# สายเข้าที่ถูกต้อง: ถือสายไว้ระหว่างทดสอบเพดาน แล้วรับสายและวางผ่าน Record-Route
+# a valid inbound call: hold the call while testing the ceiling, then answer and hang up through Record-Route
 compose exec -T trunk-a sh -c "sipp $KAM -sf /scenarios/uac-answered.xml -s 021000001 -i 172.30.50.40 -p 5071 -m 1 -d 2000 -timeout 40s -timeout_error -nostdin -nr >/tmp/inbound.log 2>&1; echo \$? >/tmp/inbound.rc" &
 inbound_pid=$!
 
@@ -51,43 +51,43 @@ print(next((r["uuid"] for r in d.get("rows",[]) if r.get("dest")=="2000"),""))' 
   sleep 0.5
 done
 if [ -z "$uuid" ]; then
-  bad 'สายเข้าเบอร์ 021000001 ถึง FreeSWITCH เป็น DID 2000'
+  bad 'inbound call to number 021000001 reaches FreeSWITCH as DID 2000'
 else
-  ok 'สายเข้าเบอร์ 021000001 ถึง FreeSWITCH เป็น DID 2000'
+  ok 'inbound call to number 021000001 reaches FreeSWITCH as DID 2000'
   domain=$(fs "uuid_getvar $uuid domain_name" | tr -d '\r\n')
-  [ "$domain" = 't1.sip.test' ] && ok 'FreeSWITCH ได้ domain ของ t1 (header ปลอมถูกลบ)' || bad "domain_name = '$domain'"
+  [ "$domain" = 't1.sip.test' ] && ok 'FreeSWITCH got the domain of t1 (the forged header was removed)' || bad "domain_name = '$domain'"
   peer=$(fs "uuid_getvar $uuid sip_network_ip" | tr -d '\r\n')
-  [ "$peer" = '172.30.50.20' ] && ok 'สายมาจาก Kamailio' || bad "sip_network_ip = '$peer'"
+  [ "$peer" = '172.30.50.20' ] && ok 'the call came from Kamailio' || bad "sip_network_ip = '$peer'"
   leftover=$(fs "uuid_getvar $uuid sip_h_X-DContact-Domain" | tr -d '\r\n')
-  [ "$leftover" = '_undef_' ] || [ -z "$leftover" ] && ok 'header ถูกลบจากตัวแปรก่อน park' || bad "sip_h_X-DContact-Domain = '$leftover'"
+  [ "$leftover" = '_undef_' ] || [ -z "$leftover" ] && ok 'the header was removed from the variables before park' || bad "sip_h_X-DContact-Domain = '$leftover'"
 
-  check 'สายที่สองของ t1 เกินเพดาน 1 สายถูกปฏิเสธ 503' expect 503 trunk-a 172.30.50.40 021000001
+  check 'second t1 call over the ceiling of 1 is rejected with 503' expect 503 trunk-a 172.30.50.40 021000001
 
   fs "uuid_answer $uuid" >/dev/null
 fi
 wait "$inbound_pid" || true
 rc=$(compose exec -T trunk-a cat /tmp/inbound.rc 2>/dev/null | tr -d '\r\n' || echo 1)
-if [ "$rc" = '0' ]; then ok 'รับสายแล้ววางสายผ่าน Kamailio ครบ'; else bad "สายเข้าจบไม่ครบ (sipp rc=$rc)"; compose exec -T trunk-a cat /tmp/inbound.log | tail -20; fi
+if [ "$rc" = '0' ]; then ok 'answered and hung up through Kamailio completely'; else bad "the inbound call did not complete (sipp rc=$rc)"; compose exec -T trunk-a cat /tmp/inbound.log | tail -20; fi
 
-# สายออก: trunk-a เป็นปลายทาง ตรวจว่ามาจาก Kamailio และไม่มี header ภายในหลุด
+# outbound call: trunk-a is the destination; check it came from Kamailio and that no internal header leaked
 compose exec -T trunk-a sh -c "sipp -sf /scenarios/uas-trunk.xml -i 172.30.50.40 -p 5060 -m 1 -timeout 30s -timeout_error -nostdin -nr >/tmp/outbound.log 2>&1; echo \$? >/tmp/outbound.rc" &
 outbound_pid=$!
 sleep 1
 originate=$(fs "originate {sip_h_X-DContact-Domain=t1.sip.test,origination_caller_id_number=021000001,originate_timeout=10}sofia/pstn-sim/0899000001@$KAM &park" | tr -d '\r')
 if [[ "$originate" == +OK* ]]; then
-  ok 'สายออกของ t1 ด้วยเบอร์ของ t1 ไปถึง trunk ของ t1'
+  ok 'outbound t1 call with a t1 number reaches the t1 trunk'
   fs "uuid_kill ${originate#+OK }" >/dev/null
 else
-  bad "สายออกของ t1: $originate"
+  bad "outbound t1 call: $originate"
 fi
 wait "$outbound_pid" || true
 rc=$(compose exec -T trunk-a cat /tmp/outbound.rc 2>/dev/null | tr -d '\r\n' || echo 1)
-if [ "$rc" = '0' ]; then ok 'trunk ได้สายจาก Kamailio ไม่มี X-DContact- หลุด และวางสายครบ'; else bad "trunk ฝั่งสายออก (sipp rc=$rc)"; compose exec -T trunk-a cat /tmp/outbound.log | tail -20; fi
+if [ "$rc" = '0' ]; then ok 'trunk got the call from Kamailio with no X-DContact- leaked and hung up completely'; else bad "outbound-side trunk (sipp rc=$rc)"; compose exec -T trunk-a cat /tmp/outbound.log | tail -20; fi
 
 denied=$(fs "originate {sip_h_X-DContact-Domain=t1.sip.test,origination_caller_id_number=021000002,originate_timeout=5}sofia/pstn-sim/0899000001@$KAM &park" | tr -d '\r')
-[[ "$denied" == -ERR* ]] && ok "t1 ใช้เบอร์ของ t2 โทรออกไม่ได้ ($denied)" || bad "t1 ใช้เบอร์ของ t2 โทรออกได้: $denied"
+[[ "$denied" == -ERR* ]] && ok "t1 cannot call out with a t2 number ($denied)" || bad "t1 can call out with a t2 number: $denied"
 nohdr=$(fs "originate {origination_caller_id_number=021000001,originate_timeout=5}sofia/pstn-sim/0899000001@$KAM &park" | tr -d '\r')
-[[ "$nohdr" == -ERR* ]] && ok "สายออกที่ไม่ระบุ tenant ถูกปฏิเสธ ($nohdr)" || bad "สายออกที่ไม่ระบุ tenant ผ่าน: $nohdr"
+[[ "$nohdr" == -ERR* ]] && ok "outbound call without a tenant is rejected ($nohdr)" || bad "outbound call without a tenant passed: $nohdr"
 
-echo "ผล: ผ่าน $pass ไม่ผ่าน $fail"
+echo "result: passed $pass failed $fail"
 [ "$fail" = 0 ]

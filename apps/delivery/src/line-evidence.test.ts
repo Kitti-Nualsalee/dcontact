@@ -1,5 +1,5 @@
 /**
- * S1.6 acceptance: S1-LINE-SIM03 — negative source scan และ manifest/marker/flags ตาม #102 §7
+ * S1.6 acceptance: S1-LINE-SIM03 — negative source scan and manifest/marker/flags per #102 §7
  */
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -18,8 +18,8 @@ import type { LineDeliveryEvidence } from './line-delivery-port.js';
 const SRC_DIR = dirname(fileURLToPath(import.meta.url));
 
 /**
- * ไม่รวม `line-evidence.ts` เอง — ไฟล์นั้นเป็น denylist/scanner ต้องเก็บ token ต้องห้าม
- * ไว้เป็น string literal เพื่อตรวจไฟล์อื่น การมี token เหล่านั้นในตัวเองไม่ใช่การใช้งานจริง
+ * Excludes `line-evidence.ts` itself — that file is a denylist/scanner that must keep the forbidden tokens
+ * as string literals to check other files; having those tokens in itself is not real usage
  */
 function readLineSimulationSourceFiles(): string[] {
   return readdirSync(SRC_DIR)

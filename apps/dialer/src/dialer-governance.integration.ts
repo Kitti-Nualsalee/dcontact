@@ -112,7 +112,7 @@ function blockRevalidator(): DialerCanonicalRevalidator {
   };
 }
 
-test('CG3 event ยกเลิก Dialer attempt ก่อน barrier แบบ idempotent และ release หลัง commit', async (t) => {
+test('a CG3 event cancels the Dialer attempt before the barrier idempotently and releases after commit', async (t) => {
   const f = await fixture(t);
   const service = new DialerGovernanceInvalidationService(f.database, blockRevalidator(), {
     consumer: 'dialer-cg3-pre',
@@ -143,7 +143,7 @@ test('CG3 event ยกเลิก Dialer attempt ก่อน barrier แบบ
         released.push(input.actionKey);
       },
       async requestReconcile() {
-        throw new Error('งานก่อน barrier ต้องไม่ reconcile');
+        throw new Error('work before the barrier must not reconcile');
       },
     },
     { now: () => new Date('2026-09-12T10:00:02.000Z') },
@@ -158,7 +158,7 @@ test('CG3 event ยกเลิก Dialer attempt ก่อน barrier แบบ
   assert.deepEqual(released, [f.actionKey]);
 });
 
-test('CG3 event หลัง barrier ขอ reconcile เท่านั้น ไม่ release หรือ retry แบบเดาเอง', async (t) => {
+test('a CG3 event after the barrier only requests reconcile, without guessing a release or retry', async (t) => {
   const f = await fixture(t, 'POST_BARRIER');
   const service = new DialerGovernanceInvalidationService(f.database, blockRevalidator(), {
     consumer: 'dialer-cg3-post',
@@ -182,7 +182,7 @@ test('CG3 event หลัง barrier ขอ reconcile เท่านั้น �
   assert.deepEqual(reconciled, [`${attempt.deliveryId}:${attempt.providerRequestKey}`]);
 });
 
-test('สายที่กำลังคุยไม่ถูก hard-disconnect แต่ถูก block next outbound action', async (t) => {
+test('a call in progress is not hard-disconnected but its next outbound action is blocked', async (t) => {
   const f = await fixture(t, 'IN_PROGRESS');
   const service = new DialerGovernanceInvalidationService(f.database, blockRevalidator(), {
     consumer: 'dialer-cg3-active',
@@ -197,7 +197,7 @@ test('สายที่กำลังคุยไม่ถูก hard-disconne
   );
 });
 
-test('งาน QUEUED ที่ยังไม่มี reservation ถูก hold แบบ fail-closed และไม่ release แบบเดาเอง', async (t) => {
+test('QUEUED work without a reservation is held fail-closed and is not released by guessing', async (t) => {
   const f = await fixture(t, 'QUEUED');
   const service = new DialerGovernanceInvalidationService(
     f.database,
@@ -218,7 +218,7 @@ test('งาน QUEUED ที่ยังไม่มี reservation ถูก h
   );
 });
 
-test('version gap hold งานและไม่ acknowledge APPLIED จน replay ต่อเนื่อง', async (t) => {
+test('a version gap holds work and does not acknowledge APPLIED until the replay is contiguous', async (t) => {
   const f = await fixture(t);
   const service = new DialerGovernanceInvalidationService(f.database, blockRevalidator(), {
     consumer: 'dialer-cg3-gap',
@@ -240,7 +240,7 @@ test('version gap hold งานและไม่ acknowledge APPLIED จน re
   );
 });
 
-test('event hash conflict quarantine เฉพาะ tenant และ guard tenant ไม่เปลี่ยน', async (t) => {
+test('an event hash conflict quarantines only the tenant and the tenant guard does not change', async (t) => {
   const f = await fixture(t);
   const guard = await fixture(t);
   const service = new DialerGovernanceInvalidationService(
@@ -275,7 +275,7 @@ test('event hash conflict quarantine เฉพาะ tenant และ guard tena
   );
 });
 
-test('reservation swap ข้าม tenant ถูกปฏิเสธที่ immutable binding โดยไม่เผยข้อมูล tenant อื่น', async (t) => {
+test('a cross-tenant reservation swap is rejected at the immutable binding without exposing another tenant data', async (t) => {
   const f = await fixture(t);
   const guard = await fixture(t);
   await assert.rejects(

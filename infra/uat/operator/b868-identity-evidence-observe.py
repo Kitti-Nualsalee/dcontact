@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""#868: ผูกหลักฐาน identity ของ People กับ runtime ที่สังเกตได้บน VM2 ก่อน/หลังสลับ API
+"""#868: bind People identity evidence to the runtime observed on VM2 before/after the API switch
 
-รัน `dist/tenant-people-identity-evidence-main.js` ใน API container เดิมด้วย `docker exec` เพื่อให้ client secret
-อยู่ใน container แล้วผูกผลกับ Keycloak image/repository digest และ API image จาก release-record-inspect
-ผลต้อง CONSISTENT และ runtime ต้องไม่เปลี่ยนระหว่างอ่าน; ไม่รับรอง rollback และไม่ส่ง mutation ใด
+Runs `dist/tenant-people-identity-evidence-main.js` in the existing API container with `docker exec` so the client secret
+stays in the container, then binds the result to the Keycloak image/repository digest and the API image from release-record-inspect
+The result must be CONSISTENT and the runtime must not change while reading; does not certify rollback and sends no mutation
 """
 import hashlib
 import importlib.util
@@ -38,12 +38,12 @@ def observe(inspect_runtime, execute=subprocess.run):
         except (ValueError, IndexError, AttributeError):
             failure = None
         if failure is None:
-            # NOT_CONFIGURED เขียนลง stdout เป็น {"status":"NOT_CONFIGURED"}
+            # NOT_CONFIGURED is written to stdout as {"status":"NOT_CONFIGURED"}
             try:
                 failure = json.loads(stdout.strip().splitlines()[-1]).get('status')
             except (ValueError, IndexError, AttributeError):
                 failure = None
-        # CLI เขียนเฉพาะ status/error code ไม่มี secret; แนบ code ที่ตรงรูปแบบไว้ให้ผู้ปฏิบัติงานเห็นสาเหตุ
+        # the CLI writes only a status/error code and no secret; attach a code that matches the pattern so the operator can see the cause
         detail = failure if isinstance(failure, str) and re.fullmatch('[A-Z0-9_]{1,64}', failure) else 'UNKNOWN'
         raise RuntimeError('IDENTITY_EVIDENCE_UNAVAILABLE:' + detail)
     lines = result.stdout.decode().strip().splitlines() if isinstance(result.stdout, bytes) else (
@@ -69,7 +69,7 @@ def observe(inspect_runtime, execute=subprocess.run):
 
 
 def components(inspection):
-    # release-record-inspect คืน UatReleaseInspectionV1; observe ใช้เฉพาะข้อมูลราย component
+    # release-record-inspect returns UatReleaseInspectionV1; observe uses only the per-component data
     if not isinstance(inspection, dict) or inspection.get('schema') != 'UatReleaseInspectionV1':
         raise RuntimeError('RUNTIME_INSPECTION_INVALID')
     return inspection['components']

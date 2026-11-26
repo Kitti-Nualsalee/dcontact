@@ -1,6 +1,6 @@
 /* ============================================================
-   Supervisor Workspace — #604: token ล้วน (`var(--dc-*)`), class ขึ้นต้นด้วย `sv-`
-   chrome เดิมตอนปิด flag ui.shell.v2 (rail/แถบบน) ยังอยู่ใน workspace-app.css
+   Supervisor Workspace — #604: tokens only (`var(--dc-*)`), classes start with `sv-`
+   the old chrome when the flag ui.shell.v2 is off (rail/top bar) still lives in workspace-app.css
    stylelint: pnpm --filter @d-contact/workspace lint:css
    ============================================================ */
 
@@ -71,7 +71,7 @@
   gap: var(--dc-space-3);
 }
 
-/* ป้ายจอแคบแสดงเฉพาะเมื่อ control ถูกซ่อน (ต่ำกว่า 760px เท่ากับ desktopControls) */
+/* narrow-screen badge shows only when the control is hidden (below 760px, equal to desktopControls) */
 .sv-narrow-readonly {
   display: none;
 }
@@ -87,7 +87,7 @@
   }
 }
 
-/* ── ข้อความสถานะ ── */
+/* ── status messages ── */
 .sv-warning {
   margin-bottom: var(--dc-space-6);
   padding: var(--dc-space-5) var(--dc-space-6);
@@ -215,7 +215,7 @@
   color: var(--dc-text-muted);
 }
 
-/* ── dialog ยืนยัน ── */
+/* ── confirmation dialog ── */
 .sv-confirm {
   display: flex;
   flex-direction: column;

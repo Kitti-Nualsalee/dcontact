@@ -1,14 +1,14 @@
 /**
- * Owner: Delivery/Channels — durable outbox ของ PII-safe events (S2.5 #369, #362 §5)
+ * Owner: Delivery/Channels — durable outbox of PII-safe events (S2.5 #369, #362 §5)
  *
- * Channels ไม่เขียน `cg_event_outbox` ซึ่งเป็นของ Contact Governance จึงมี outbox ของตัวเอง
+ * Channels does not write `cg_event_outbox`, which belongs to Contact Governance, so it has an outbox of its own
  *
- * - `eventId` คงที่ต่อ transition เดิม: enqueue ซ้ำด้วย payload เดิมเป็น no-op ไม่ใช่ event ที่สอง
- *   payload ต่างบน eventId เดิมเป็น conflict เพราะ event ที่ประกาศออกไปแล้วแก้ไม่ได้
- * - enqueue รับ transaction จากผู้เรียกได้ เพื่อให้ event ถูก commit พร้อมแถวธุรกิจเสมอ
- *   (ไม่มีทางที่ inbox commit แล้ว event หาย หรือ event ออกไปแล้ว inbox rollback)
- * - payload ถูก CHECK ที่ database อีกชั้นว่าไม่มี field ต้องห้าม ที่นี่ตรวจซ้ำก่อนส่งเพื่อให้ error
- *   บอกตำแหน่งได้โดยไม่ต้องรอ constraint violation
+ * - `eventId` is constant per transition: enqueueing again with the same payload is a no-op, not a second event;
+ *   a different payload on the same eventId is a conflict because an event already announced cannot be edited
+ * - enqueue accepts a transaction from the caller so the event is always committed with the business row
+ *   (no way for the inbox to commit and the event to vanish, or the event to go out and the inbox to roll back)
+ * - the payload is CHECKed again at the database for forbidden fields; it is re-checked here before sending so the error
+ *   can point to the location without waiting for a constraint violation
  */
 import { createHash } from 'node:crypto';
 import {
@@ -25,7 +25,7 @@ export interface EnqueueLineEventInput {
   id: string;
   tenantId: string;
   event: LineEventV1;
-  /** คีย์จัดลำดับของ consumer — ปกติคือ delivery/channel account ที่ event นั้นพูดถึง */
+  /** Ordering key for the consumer — normally the delivery/channel account the event talks about */
   orderingKey: string;
   availableAt?: Date;
 }
@@ -39,13 +39,13 @@ export function lineEventPayloadHash(event: LineEventV1): string {
 export class LineEventOutboxRepository {
   constructor(private readonly database: PrismaClient) {}
 
-  /** enqueue ภายใน transaction ของผู้เรียก (ถ้าให้มา) — event กับแถวธุรกิจ commit พร้อมกันเสมอ */
+  /** enqueue inside the caller's transaction (if given) — the event and the business row always commit together */
   async enqueue(
     input: EnqueueLineEventInput,
     transaction?: Prisma.TransactionClient,
   ): Promise<DlLineEventOutboxEntry> {
     if (!EVENT_TYPES.has(input.event.type)) {
-      throw new TypeError(`LINE event type ไม่อยู่ในสัญญา: ${input.event.type}`);
+      throw new TypeError(`LINE event type is not in the contract: ${input.event.type}`);
     }
     assertRedactedPayload(input.event);
     const payload = input.event as unknown as Prisma.InputJsonValue;
@@ -90,7 +90,7 @@ export class LineEventOutboxRepository {
     }
   }
 
-  /** claim ด้วย lease + SKIP LOCKED เหมือน inbox — publisher หลายตัวไม่หยิบ event เดียวกัน */
+  /** claim with lease + SKIP LOCKED like the inbox — multiple publishers do not pick the same event */
   claim(
     tenantId: string,
     leaseOwner: string,
@@ -137,7 +137,7 @@ export class LineEventOutboxRepository {
     });
   }
 
-  /** ปล่อยกลับเข้า queue พร้อม backoff — event ไม่หายแม้ broker ล่ม */
+  /** Release back into the queue with backoff — the event is not lost even if the broker is down */
   release(tenantId: string, id: string, leaseOwner: string, availableAt: Date): Promise<boolean> {
     return withTenantDatabaseTransaction(this.database, tenantId, async (transaction) => {
       const updated = await transaction.dlLineEventOutboxEntry.updateMany({

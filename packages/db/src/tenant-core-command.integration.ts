@@ -45,7 +45,7 @@ async function ledgerFixture() {
   };
 }
 
-test('Core DB: admission ที่ต้อง CAS ห้าม expectedRevision=null และ NO_OP ห้าม revision=null', async () => {
+test('Core DB: an admission that needs CAS forbids expectedRevision=null and NO_OP forbids revision=null', async () => {
   const command = await ledgerFixture();
   await assert.rejects(
     withTenantDatabaseTransaction(app, command.tenantId, (tx) =>
@@ -78,7 +78,7 @@ const keyOf = (c: Awaited<ReturnType<typeof ledgerFixture>>) => ({
   commandId: c.commandId,
 });
 
-test('Core DB: APPLIED ที่ขาด audit rollback resource/revision/receipt พร้อมกัน แต่ admission ยังอยู่', async () => {
+test('Core DB: an APPLIED missing its audit rolls back resource/revision/receipt together, but the admission remains', async () => {
   const c = await ledgerFixture();
   await withTenantDatabaseTransaction(app, c.tenantId, (tx) =>
     tx.tenantCoreCommand.create({ data: c }),
@@ -115,7 +115,7 @@ test('Core DB: APPLIED ที่ขาด audit rollback resource/revision/recei
   });
 });
 
-test('Core DB: audit ต้องตรง command/resource/revision/snapshot และมี APPLIED receipt', async () => {
+test('Core DB: the audit must match command/resource/revision/snapshot and have an APPLIED receipt', async () => {
   const c = await ledgerFixture();
   await withTenantDatabaseTransaction(app, c.tenantId, (tx) =>
     tx.tenantCoreCommand.create({ data: c }),
@@ -183,7 +183,7 @@ test('Core DB: audit ต้องตรง command/resource/revision/snapshot �
   );
 });
 
-test('Core DB: NO_OP ต้องคง expected revision และ tombstone ต้องมี NOT_APPLIED proof', async () => {
+test('Core DB: NO_OP must keep the expected revision and a tombstone must have a NOT_APPLIED proof', async () => {
   const c = await ledgerFixture();
   await withTenantDatabaseTransaction(app, c.tenantId, (tx) =>
     tx.tenantCoreCommand.create({ data: c }),
@@ -228,7 +228,7 @@ test('Core DB: NO_OP ต้องคง expected revision และ tombstone �
   );
 });
 
-test('Core DB/RLS: foreign tenant/actor และไม่มี tenant context มองไม่เห็น command', async () => {
+test('Core DB/RLS: a foreign tenant/actor and a missing tenant context cannot see the command', async () => {
   const a = await ledgerFixture();
   const b = await ledgerFixture();
   await withTenantDatabaseTransaction(app, a.tenantId, (tx) =>
@@ -255,7 +255,7 @@ test('Core DB/RLS: foreign tenant/actor และไม่มี tenant context 
   assert.deepEqual(await app.tenantCoreCommand.findMany(), []);
 });
 
-test('Core DB grants: command/receipt/audit append-only และ proof ยัง SELECT-only หลัง apply-rls', async () => {
+test('Core DB grants: command/receipt/audit are append-only and proof stays SELECT-only after apply-rls', async () => {
   const c = await ledgerFixture();
   await withTenantDatabaseTransaction(app, c.tenantId, (tx) =>
     tx.tenantCoreCommand.create({ data: c }),
@@ -295,7 +295,7 @@ test('Core DB grants: command/receipt/audit append-only และ proof ยั�
   assert.ok(grants.every((g) => !['UPDATE', 'DELETE', 'TRUNCATE'].includes(g.privilege_type)));
 });
 
-test('Core DB: receipt ห้ามอ้าง snapshot ของ resource อื่น', async () => {
+test('Core DB: a receipt must not reference the snapshot of another resource', async () => {
   const c = await ledgerFixture();
   await withTenantDatabaseTransaction(app, c.tenantId, (tx) =>
     tx.tenantCoreCommand.create({ data: c }),
@@ -316,7 +316,7 @@ test('Core DB: receipt ห้ามอ้าง snapshot ของ resource อ�
   );
 });
 
-test('Core DB: receipt เก่าไม่รับรอง covered-field effect รอบใหม่', async () => {
+test('Core DB: an old receipt does not vouch for a new round of covered-field effects', async () => {
   const c = await ledgerFixture();
   await withTenantDatabaseTransaction(app, c.tenantId, async (tx) => {
     await tx.tenantCoreCommand.create({ data: c });
@@ -363,7 +363,7 @@ test('Core DB: receipt เก่าไม่รับรอง covered-field eff
   );
 });
 
-test('Core DB: revision UPDATE ต้องมีผลใหม่และ DB ไม่เชื่อ transactionId จาก caller', async () => {
+test('Core DB: a revision UPDATE must have a new effect and the DB does not trust a transactionId from the caller', async () => {
   const c = await ledgerFixture();
   async function commitEffect(before: bigint) {
     const command = { ...c, commandId: randomUUID(), expectedRevision: before };

@@ -1,6 +1,6 @@
 <#--
-  #515: login-username.ftl ของ base (Keycloak 26.0.0 ปรับตาม 26.7.5 ใน #592) — ขั้นแรกของ tenant login (organization: กรอกอีเมลก่อน)
-  ปรับตามแบบ B; #username, name="username" และ #kc-login เหมือนเดิม
+  #515: login-username.ftl of the base (Keycloak 26.0.0, adapted to 26.7.5 in #592) — the first step of the tenant login (organization: enter the email first)
+  adapted to design B; #username, name="username" and #kc-login unchanged
 -->
 <#import "template.ftl" as layout>
 <@layout.registrationLayout displayMessage=!messagesPerField.existsError('username') displayInfo=(realm.password && realm.registrationAllowed && !registrationDisabled??); section>

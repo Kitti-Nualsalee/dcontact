@@ -30,18 +30,18 @@ import type { PlatformRollout } from '@d-contact/platform-control';
 export interface PlatformApiModuleOptions {
   verifier: PlatformAccessTokenVerifier;
   diagnostics: PlatformAuthDiagnosticSink;
-  /** A1.8: `platformProvisioning.enabled` + canary allowlist — บังคับส่ง ไม่มีค่า default ที่เปิดไว้ */
+  /** A1.8: `platformProvisioning.enabled` + canary allowlist — required, no default that leaves it on */
   rollout: PlatformRollout;
   clock?: () => Date;
-  /** controller เพิ่มเติม — อยู่ใต้ guard เดียวกันเสมอ */
+  /** extra controllers — always under the same guard */
   controllers?: Type[];
-  /** A1.6: service ของ control plane (Prisma role `dcontact_platform`) — ไม่ส่งมา = ไม่มี provisioning routes */
+  /** A1.6: control plane service (Prisma role `dcontact_platform`) — not passed = no provisioning routes */
   services?: PlatformServices;
 }
 
 @Module({})
 export class PlatformApiModule implements NestModule {
-  /** A1.8b: server span ครอบทั้ง guard/handler — no-op เมื่อ tracing ปิด */
+  /** A1.8b: server span wrapping the whole guard/handler — no-op when tracing is off */
   configure(consumer: MiddlewareConsumer) {
     consumer.apply(PlatformTracingMiddleware).forRoutes('*');
   }

@@ -1,4 +1,4 @@
-# TLS จบที่ Traefik; service นี้รับ traffic ภายใน cluster เท่านั้น
+# TLS terminates at Traefik; this service accepts traffic from inside the cluster only
 {
 	admin off
 	persist_config off

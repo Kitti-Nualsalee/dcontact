@@ -1,14 +1,14 @@
 /**
- * Owner: UAT control — หลักฐานภาพหน้าจอ, negative scan และ evidence bundle ของ UAT run (U1.5 #433)
+ * Owner: UAT control — screenshot evidence, negative scan and the evidence bundle of a UAT run (U1.5 #433)
  *
  * Authority: Phase Contract #374, evidence/defect #379
  *
- * - ภาพหน้าจอเก็บใน object storage ส่วนตัวภายใน UAT stack ผ่าน `UatEvidenceStorage` เท่านั้น อัปโหลดและอ่าน
- *   ผ่าน API ที่ตรวจสิทธิ์ฝั่ง server ทุกครั้ง — ไม่มี public URL/presigned URL; DB เก็บแค่ metadata + sha256
- * - หลักฐานของ run ที่ปิดแล้วแก้/เพิ่มไม่ได้ (append-only + trigger เหมือน `uat_run_step_results`)
- * - negative scan ตรวจผลบันทึกทุก step และ metadata ของภาพทุกไฟล์; พบอะไร = finding S1 และ run ถือว่า `FAIL`
- *   ผล scan บันทึกแบบ append-only ต่อ input digest (เนื้อหาเดิม = ผลเดิม ไม่ scan ซ้ำแม้ภาพหมดอายุ retention แล้ว)
- * - bundle เป็น JSON metadata ล้วน (ไม่มี byte ของภาพ ไม่มีข้อความที่ scan เจอ) พร้อม digest ของตัวเอง
+ * - screenshots are kept in private object storage inside the UAT stack through `UatEvidenceStorage` only; upload and read
+ *   go through an API that checks permissions on the server every time — no public URL/presigned URL; the DB keeps only metadata + sha256
+ * - the evidence of a closed run cannot be edited/added to (append-only + a trigger like `uat_run_step_results`)
+ * - the negative scan checks every step result and the metadata of every image; finding anything = an S1 finding and the run counts as `FAIL`
+ *   scan results are recorded append-only per input digest (same content = same result, no rescan even after the image passes its retention)
+ * - the bundle is pure JSON metadata (no image bytes, no text the scan found) with its own digest
  */
 import { createHash, randomUUID } from 'node:crypto';
 import { withTenantDatabaseTransaction, type Prisma, type PrismaClient } from '@d-contact/db';
@@ -40,13 +40,13 @@ type Tx = Prisma.TransactionClient;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SHA256 = /^[a-f0-9]{64}$/;
 
-/** version ของกติกา scan — เปลี่ยนกติกาแล้วต้องเปลี่ยนค่านี้ เพื่อให้ scan ใหม่ไม่ถูกแทนด้วยผลเก่า */
+/** version of the scan rules — changing the rules requires changing this value so a new scan is not replaced by an old result */
 export const UAT_NEGATIVE_SCAN_VERSION = 'UAT_NEGATIVE_SCAN_V1';
 
 // ── Storage port ──────────────────────────────────────────────────────────
 
 /**
- * object storage ส่วนตัวของหลักฐาน UAT — adapter ต้องไม่มีทางสร้าง public/presigned URL
+ * private object storage for UAT evidence — an adapter must have no way to create a public/presigned URL
  * key = `uat-evidence/<tenantId>/<runId>/<evidenceId>`
  */
 export interface UatEvidenceStorage {
@@ -56,7 +56,7 @@ export interface UatEvidenceStorage {
     readonly contentType: UatEvidenceContentType;
     readonly sha256: string;
   }): Promise<void>;
-  /** `null` = ไม่มี object แล้ว (เช่นหมดอายุ retention) */
+  /** `null` = the object no longer exists (e.g. past retention) */
   getObject(key: string): Promise<Uint8Array | null>;
   deleteObject(key: string): Promise<void>;
 }
@@ -83,7 +83,7 @@ export type UatScanFindingLocation =
   | {
       source: 'STEP_RESULT';
       stepId: string;
-      /** ลำดับของผลใน run (เรียงตามเวลาที่บันทึก) */
+      /** order of the result within the run (sorted by the time it was recorded) */
       resultIndex: number;
       field: 'actual' | 'expected' | 'correlationId';
     }
@@ -97,7 +97,7 @@ export type UatScanFindingLocation =
 export type UatScanFindingKind =
   UatSensitiveKind | 'EVIDENCE_UNAVAILABLE' | 'EVIDENCE_INTEGRITY' | 'EVIDENCE_FORMAT';
 
-/** finding บอกได้แค่ชนิด + ตำแหน่ง ไม่มีข้อความที่ match */
+/** a finding states only the kind + location, with no matched text */
 export interface UatScanFinding {
   kind: UatScanFindingKind;
   severity: 'S1';
@@ -130,12 +130,12 @@ export interface UatEvidenceBundleV1 {
     openedAt: string;
     closedAt: string | null;
   };
-  /** step catalog พร้อมป้าย state ต่อ step — REAL_STATE กับ SIMULATION_ONLY ไม่ปนกัน */
+  /** the step catalog with a state label per step — REAL_STATE and SIMULATION_ONLY are not mixed */
   steps: Array<{ stepId: string; title: string; stateLabel: UatStateLabelV1 }>;
   stateLabels: Record<UatStateLabelV1, string[]>;
   stepResults: UatStepResultView[];
   screenshots: UatEvidenceView[];
-  /** audit ของ Journey ของ run — metadata/ref เท่านั้น (ไม่รวมการอ่าน audit เอง) */
+  /** audit of the run's Journey — metadata/refs only (excluding reads of the audit itself) */
   auditRefs: Array<{
     auditId: string;
     action: string;
@@ -145,16 +145,16 @@ export interface UatEvidenceBundleV1 {
     occurredAt: string;
   }>;
   scan: UatRunScanView;
-  /** FAIL = scan พบ finding หรือผลล่าสุดของ step ใด FAIL; INCOMPLETE = ยังมี step ที่ไม่ผ่าน/ไม่มีผล */
+  /** FAIL = the scan found a finding or the latest result of any step is FAIL; INCOMPLETE = some step has not passed/has no result */
   verdict: 'PASS' | 'FAIL' | 'INCOMPLETE';
-  /** sha256 ของ canonical JSON ของ bundle ทั้งก้อนโดยไม่รวม field `digest` */
+  /** sha256 of the canonical JSON of the whole bundle excluding the `digest` field */
   digest: string;
 }
 
 export interface RecordUatEvidenceInput {
   readonly runId: string;
   readonly stepId: string;
-  /** content type ที่ client ประกาศ — ต้องตรงกับ magic bytes */
+  /** the content type the client declared — must match the magic bytes */
   readonly contentType: string;
   readonly bytes: Uint8Array;
 }
@@ -162,8 +162,8 @@ export interface RecordUatEvidenceInput {
 // ── Pure helpers ──────────────────────────────────────────────────────────
 
 /**
- * ตรวจไฟล์ก่อนเก็บ: ต้องเป็น PNG/JPEG ตาม magic bytes และตรงกับ content type ที่ประกาศ
- * trace (zip), HAR/JSON, network log (ข้อความ) และอื่น ๆ ถูกปฏิเสธ
+ * checks a file before storing: it must be PNG/JPEG per the magic bytes and match the declared content type
+ * trace (zip), HAR/JSON, network log (text) and others are rejected
  */
 export function assertUatScreenshot(
   contentType: string,
@@ -198,12 +198,12 @@ export function sha256Hex(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex');
 }
 
-/** digest ของ bundle — canonical JSON เดียวกับ digest ของ fixture pack (J5 canonical) */
+/** digest of the bundle — the same canonical JSON as the digest of the fixture pack (J5 canonical) */
 export function uatEvidenceBundleDigest(bundle: Omit<UatEvidenceBundleV1, 'digest'>): string {
   return journeyAuthoringDigest(bundle);
 }
 
-/** คำนวณ digest ใหม่จากเนื้อหาแล้วเทียบกับ digest ที่ bundle อ้าง */
+/** recomputes the digest from the content and compares it with the digest the bundle claims */
 export function verifyUatEvidenceBundleDigest(bundle: UatEvidenceBundleV1): boolean {
   const { digest, ...content } = bundle;
   return SHA256.test(digest) && uatEvidenceBundleDigest(content) === digest;
@@ -217,7 +217,7 @@ function sensitiveFindings(
   return scanUatText(text).map((kind) => ({ kind, severity: 'S1', location }));
 }
 
-/** negative scan ของผลบันทึก step — pure */
+/** negative scan of recorded step results — pure */
 export function scanUatStepResults(results: readonly UatStepResultView[]): UatScanFinding[] {
   return results.flatMap((result, resultIndex) =>
     (['actual', 'expected', 'correlationId'] as const).flatMap((field) =>
@@ -231,7 +231,7 @@ export function scanUatStepResults(results: readonly UatStepResultView[]): UatSc
   );
 }
 
-/** negative scan ของภาพหนึ่งไฟล์: integrity (sha256) + metadata ที่เป็นข้อความ — pure */
+/** negative scan of a single image: integrity (sha256) + textual metadata — pure */
 export function scanUatEvidenceBytes(
   evidence: Pick<UatEvidenceView, 'evidenceId' | 'stepId' | 'sha256' | 'contentType'>,
   bytes: Uint8Array | null,
@@ -314,7 +314,7 @@ function scanView(row: ScanRow): UatRunScanView {
   };
 }
 
-/** trigger ของ DB ปฏิเสธ insert เพราะ run ปิดไปแล้วระหว่างทาง */
+/** the DB trigger rejects the insert because the run was closed in the meantime */
 function runClosedByTrigger(error: unknown): boolean {
   return error instanceof Error && error.message.includes('UAT_RUN_CLOSED');
 }
@@ -343,10 +343,10 @@ export class UatEvidenceRepository {
   // ── Commands ──
 
   /**
-   * อัปโหลดภาพหน้าจอของ step หนึ่ง — idempotent ต่อ `Idempotency-Key`
-   * 1. ตรวจไฟล์ (ชนิด/ขนาด/โครงสร้าง) และสิทธิ์/สถานะ run ก่อนแตะ storage
-   * 2. เขียน object ลง storage ส่วนตัว
-   * 3. transaction: insert metadata + receipt (trigger ปฏิเสธถ้า run ปิดไประหว่างทาง → ลบ object ทิ้ง)
+   * uploads the screenshot of a step — idempotent per `Idempotency-Key`
+   * 1. check the file (kind/size/structure) and the permissions/run state before touching storage
+   * 2. write the object into private storage
+   * 3. transaction: insert metadata + receipt (the trigger rejects if the run was closed meanwhile → delete the object)
    */
   async record(
     context: JourneyCommandContext,
@@ -386,7 +386,7 @@ export class UatEvidenceRepository {
     await this.storage.putObject({ key, bytes: input.bytes, contentType, sha256 });
     try {
       return await this.scoped(context.tenantId, async (tx) => {
-        // คำขอซ้ำที่วิ่งขนานกันจบไปก่อน — ใช้ผลนั้น แล้วลบ object ของคำขอนี้ทิ้ง
+        // a repeated request running in parallel finished first — use that result and delete this request's object
         const replay = await this.replay(tx, context, requestHash);
         if (replay) return replay as unknown as UatEvidenceView;
         const recordedAt = this.now();
@@ -426,7 +426,7 @@ export class UatEvidenceRepository {
       await this.discard(key);
       if (runClosedByTrigger(error)) throw new UatRunError('UAT_RUN_CLOSED');
       if (uniqueViolation(error)) {
-        // key เดียวกันถูกใช้พร้อมกัน: คำขอเดียวกัน = replay ผลที่บันทึกไปก่อน, ต่างกัน = conflict
+        // the same key used concurrently: the same request = replay the result recorded first, a different one = conflict
         const replay = await this.scoped(context.tenantId, (tx) =>
           this.replay(tx, context, requestHash),
         );
@@ -438,9 +438,9 @@ export class UatEvidenceRepository {
   }
 
   /**
-   * negative scan ของ run — ผลของ input เดิม (ผลบันทึก + หลักฐานชุดเดิม + กติกาเดิม) ถูกใช้ซ้ำ
-   * ไม่ต้องใช้ `Idempotency-Key`: คำสั่งนี้ idempotent โดยธรรมชาติ (unique ต่อ input digest)
-   * run ที่ปิดแล้วยัง scan ได้ เพราะ scan ไม่เปลี่ยนหลักฐาน — เป็นผลตรวจที่ต่อท้ายแบบ append-only
+   * negative scan of a run — the result of the same input (recorded results + same evidence set + same rules) is reused
+   * needs no `Idempotency-Key`: this command is naturally idempotent (unique per input digest)
+   * a closed run can still be scanned because the scan does not change evidence — it is a check result appended append-only
    */
   async scan(
     tenantId: string,
@@ -467,7 +467,7 @@ export class UatEvidenceRepository {
     });
   }
 
-  /** byte ของภาพ — ตรวจ sha256 กับที่บันทึกไว้ก่อนส่งออก (object ถูกแก้ = ไม่ส่ง) */
+  /** the image bytes — sha256 is checked against the recorded value before export (an edited object = not sent) */
   async content(
     tenantId: string,
     actor: JourneyAuthoringActor,
@@ -490,7 +490,7 @@ export class UatEvidenceRepository {
     return { contentType: row.contentType as UatEvidenceContentType, sha256: row.sha256, bytes };
   }
 
-  /** evidence bundle (JSON) ของ run — scan ให้เป็นปัจจุบันก่อนเสมอ */
+  /** the evidence bundle (JSON) of a run — always scanned up to date first */
   async bundle(
     tenantId: string,
     actor: JourneyAuthoringActor,
@@ -504,7 +504,7 @@ export class UatEvidenceRepository {
               tenantId,
               resourceKind: 'JOURNEY',
               resourceId: snapshot.run.journeyId,
-              // การอ่าน audit เป็น access log ไม่ใช่หลักฐานของ run — ไม่ให้ bundle เปลี่ยนเพราะมีคนอ่าน
+              // reading audit is an access log, not run evidence — the bundle must not change because someone read it
               action: { not: 'AUDIT_READ' },
             },
             orderBy: [{ occurredAt: 'asc' }, { id: 'asc' }],
@@ -616,7 +616,7 @@ export class UatEvidenceRepository {
       );
       return scanView(row);
     } catch (error) {
-      // scan ของ input เดียวกันที่วิ่งขนานกันบันทึกไปก่อน — ผลต้องเหมือนกันจึงใช้แถวนั้น
+      // a scan of the same input running in parallel recorded first — the result must be identical so that row is used
       if (uniqueViolation(error)) {
         const raced = await existing();
         if (raced) return scanView(raced);
@@ -661,7 +661,7 @@ export class UatEvidenceRepository {
     });
   }
 
-  /** run ของ tenant ใน token + ผู้เรียกเป็นผู้ทดสอบของ pack; ไม่ใช่ = ตอบเหมือนไม่มี run (ไม่เผย existence) */
+  /** the tenant's run in the token + the caller is a tester of the pack; otherwise answer as if there is no run (does not reveal existence) */
   private async participantRun(
     tx: Tx,
     context: { tenantId: string; actor: JourneyAuthoringActor },
@@ -697,7 +697,7 @@ export class UatEvidenceRepository {
     return receipt.response;
   }
 
-  /** ลบ object ที่ไม่มี metadata อ้างถึง — ล้มก็ไม่เป็นไร (retention 90 วันเก็บกวาดให้) */
+  /** deletes an object no metadata references — failing is fine (the 90-day retention sweeps it) */
   private async discard(key: string): Promise<void> {
     await this.storage.deleteObject(key).catch(() => undefined);
   }

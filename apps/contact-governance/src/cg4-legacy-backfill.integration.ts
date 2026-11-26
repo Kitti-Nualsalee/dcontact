@@ -6,8 +6,8 @@ import { Cg4LegacyBackfill, CG4_BACKFILL_KILL_REASONS } from './cg4-legacy-backf
 import { compileCg4Policy } from './cg4-policy-compiler.js';
 
 /**
- * CG4.10 (#193) PR-A: backfill CG3 → CG4 ผ่าน application role (RLS) บน Postgres จริง
- * ครอบ `CG4-MG02` ส่วน backfill/reconcile ambiguity/seed compatibility
+ * CG4.10 (#193) PR-A: backfill CG3 -> CG4 through the application role (RLS) on a real Postgres
+ * covers the backfill/reconcile ambiguity/seed compatibility part of `CG4-MG02`
  */
 
 const NOW = new Date('2026-09-14T00:00:00.000Z');
@@ -98,7 +98,7 @@ const countsFor = async (f: Fixture) => ({
   ledger: await f.owner.cg4BackfillLedger.count({ where: { tenantId: f.tenant } }),
 });
 
-test('CG4-MG02: CG3 PUBLISHED ที่มีผลเป็น LEGACY_ACTIVE head พร้อม approval LEGACY_MIGRATED และ rerun ไม่มี effect ซ้ำ', async (t) => {
+test('CG4-MG02: a CG3 PUBLISHED in effect becomes a LEGACY_ACTIVE head with a LEGACY_MIGRATED approval, and a rerun has no duplicate effect', async (t) => {
   const f = await fixture(t);
   const policyId = randomUUID();
   await cg3Policy(f, { policyId, version: 1, status: 'SUPERSEDED' });
@@ -150,7 +150,7 @@ test('CG4-MG02: CG3 PUBLISHED ที่มีผลเป็น LEGACY_ACTIVE he
   assert.equal(approval.capabilitySource, 'LEGACY_MIGRATED');
   assert.equal(approval.approverRef, 'legacy-checker-synthetic');
 
-  // backfill ไม่สร้าง historic event ย้อนหลังให้ policy ที่ย้ายมา
+  // the backfill creates no retroactive historic event for a migrated policy
   assert.equal(await f.owner.cgEventOutbox.count({ where: { tenantId: f.tenant } }), 0);
 
   const before = await countsFor(f);
@@ -159,11 +159,11 @@ test('CG4-MG02: CG3 PUBLISHED ที่มีผลเป็น LEGACY_ACTIVE he
   assert.equal(rerun.alreadyRecorded, 1);
   assert.deepEqual(await countsFor(f), before);
 
-  // ประวัติ CG3 ไม่ถูกแก้หรือลบ
+  // the CG3 history is not edited or deleted
   assert.equal(await f.owner.cgPolicy.count({ where: { tenantId: f.tenant } }), 2);
 });
 
-test('CG4-MG02: scope เดียวกันมีสอง policy series ไม่มีผู้ชนะ จึงเปิด kill switch แทนการสร้าง head', async (t) => {
+test('CG4-MG02: the same scope with two policy series has no winner, so a kill switch is opened instead of creating a head', async (t) => {
   const f = await fixture(t);
   const first = await cg3Policy(f, { publishedAt: new Date('2026-02-01T00:00:00.000Z') });
   const second = await cg3Policy(f, { publishedAt: new Date('2026-03-01T00:00:00.000Z') });
@@ -195,7 +195,7 @@ test('CG4-MG02: scope เดียวกันมีสอง policy series ไ�
   assert.deepEqual(await countsFor(f), before);
 });
 
-test('CG4-MG02: equal specificity ที่ request เดียวชนได้ทั้งคู่ ถูก kill ทั้งสอง scope', async (t) => {
+test('CG4-MG02: equal specificity that a single request can hit both ways kills both scopes', async (t) => {
   const f = await fixture(t);
   await cg3Policy(f, { purpose: null, channel: 'LINE' });
   await cg3Policy(f, { purpose: 'MARKETING', channel: null });
@@ -214,7 +214,7 @@ test('CG4-MG02: equal specificity ที่ request เดียวชนได�
   assert.equal(await f.owner.cg4PolicyScopeHead.count({ where: { tenantId: f.tenant } }), 0);
 });
 
-test('CG4-MG02: scope ที่มี CG4 head อยู่แล้วถูก kill แทนการแทนที่ head ของ CG4', async (t) => {
+test('CG4-MG02: a scope that already has a CG4 head is killed instead of replacing the CG4 head', async (t) => {
   const f = await fixture(t);
   const policyId = randomUUID();
   const native = await f.owner.cg4Policy.create({
@@ -252,7 +252,7 @@ test('CG4-MG02: scope ที่มี CG4 head อยู่แล้วถูก
   assert.equal(after.headPolicyRevisionId, native.id);
 });
 
-test('CG4-MG02: content ที่ CG4 compile ไม่ได้ถูก kill แบบ fail closed ไม่ปล่อยให้ scope ไม่มี policy', async (t) => {
+test('CG4-MG02: content that CG4 cannot compile is killed fail-closed, so a scope is not left with no policy', async (t) => {
   const f = await fixture(t);
   await cg3Policy(f, { overridableRules: ['DNC_GLOBAL'] as unknown as Prisma.InputJsonValue });
   const report = await f.backfill();
@@ -261,7 +261,7 @@ test('CG4-MG02: content ที่ CG4 compile ไม่ได้ถูก kill �
   assert.equal(await f.owner.cg4Policy.count({ where: { tenantId: f.tenant } }), 0);
 });
 
-test('CG4-MG02: DRAFT ถูก map เป็น CG4 DRAFT, policy ที่ยังไม่มีผลถูกรายงาน และ callback ที่อ้าง exception ไม่มีจริงถูกรายงาน', async (t) => {
+test('CG4-MG02: DRAFT is mapped to a CG4 DRAFT, a policy not yet in effect is reported, and a callback referencing a nonexistent exception is reported', async (t) => {
   const f = await fixture(t);
   const draft = await cg3Policy(f, {
     status: 'DRAFT',
@@ -316,7 +316,7 @@ test('CG4-MG02: DRAFT ถูก map เป็น CG4 DRAFT, policy ที่ย�
   assert.equal(rerun.deferred.length, 1);
 });
 
-test('CG4-MG02: DB บังคับว่า origin เปลี่ยนไม่ได้ และ LEGACY_MIGRATED approval ใช้กับ version ของ CG4 ไม่ได้', async (t) => {
+test('CG4-MG02: the DB enforces that the origin cannot change, and a LEGACY_MIGRATED approval cannot be used with a CG4 version', async (t) => {
   const f = await fixture(t);
   const native = await f.owner.cg4Policy.create({
     data: {
@@ -353,7 +353,7 @@ test('CG4-MG02: DB บังคับว่า origin เปลี่ยนไ�
     }),
     /LEGACY_MIGRATED approval requires a LEGACY_CG3 policy version/,
   );
-  // capability ของ legacy ใช้กับ source ที่นับ quorum จริง (DIRECT/DELEGATED) ไม่ได้
+  // a legacy capability cannot be used with a source that counts toward a real quorum (DIRECT/DELEGATED)
   await assert.rejects(
     f.owner.cg4PolicyApproval.create({
       data: {

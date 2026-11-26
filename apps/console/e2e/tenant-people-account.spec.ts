@@ -15,9 +15,9 @@ async function mockPeople(
     disabled: boolean;
     ready?: boolean;
     respond: Scenario;
-    /** บัญชีจาก seed: ไม่มี lifecycle ของ People (directory ตอบ UNKNOWN) */
+    /** an account from seed: no People lifecycle (the directory answers UNKNOWN) */
     unmanaged?: boolean;
-    /** หน่วง capabilities จนกว่า promise จะ resolve */
+    /** hold capabilities until the promise resolves */
     capabilities?: Promise<void>;
   },
 ) {
@@ -49,7 +49,7 @@ async function mockPeople(
     const request = route.request();
     const path = new URL(request.url()).pathname.split('/tenant-voice/')[1];
     if (path?.startsWith('commands/')) lookups.push(path);
-    // หน่วงเฉพาะ capabilities ที่หน้ารายละเอียดขอ (หลังเปิดบัญชี) ไม่บล็อกหน้ารายการ
+    // hold only the capabilities the detail page requests (after opening an account), not blocking the list page
     if (path === `people/users/${USER_ID}`) detailOpened = true;
     if (path === 'capabilities' && detailOpened) await options.capabilities;
     if (path === 'capabilities')
@@ -85,7 +85,7 @@ async function mockPeople(
       if (options.respond === 'credentials')
         return route.fulfill({ status: 409, json: { code: 'CREDENTIALS_NOT_READY' } });
       if (options.respond === 'unknown') return route.fulfill({ status: 502, body: '' });
-      // UAT 25 พ.ย. 2569: API ต่อฐานด้วย owner แล้ว PATCH ตอบ 403 FORBIDDEN
+      // UAT 25 Nov 2026: the API connected to the DB as owner and PATCH answered 403 FORBIDDEN
       if (options.respond === 'forbidden')
         return route.fulfill({ status: 403, json: { code: 'FORBIDDEN' } });
       const kind = write[1] === 'profile' ? 'UPDATE_PROFILE' : 'ENABLE_ACCOUNT';
@@ -98,7 +98,7 @@ async function mockPeople(
           state: 'QUEUED',
         },
       };
-      // worker ทำเสร็จหลังรับคำสั่ง: รอบตรวจถัดไปเห็นผลจริง
+      // the worker finishes after accepting the command: the next check sees the real result
       operationState = options.respond === 'rejected' ? 'REJECTED' : 'SUCCEEDED';
       setTimeout(() => {
         if (options.respond === 'rejected') return;
@@ -141,7 +141,7 @@ async function pendingKeys(page: Page) {
 }
 
 async function axe(page: Page) {
-  // สแกนหลัง animation เปิด Dialog จบ ไม่งั้นสีปุ่มยังโปร่งแสงอยู่
+  // scan after the Dialog-open animation ends, otherwise the button color is still translucent
   await page.evaluate(() => Promise.all(document.getAnimations().map((item) => item.finished)));
   const result = await new AxeBuilder({ page })
     .include('[role="dialog"],[role="alertdialog"]')
@@ -152,11 +152,11 @@ async function axe(page: Page) {
 }
 
 for (const respond of ['success', 'busy', 'unknown'] as const)
-  test(`แก้ชื่อที่แสดง ${respond}: ส่ง revision/ชื่อ/เหตุผลครั้งเดียว และแสดงชื่อใหม่หลังยืนยันผลเท่านั้น`, async ({
+  test(`edit display name ${respond}: sends revision/name/reason once, and shows the new name only after the result is confirmed`, async ({
     page,
   }) => {
     const writes = await mockPeople(page, { disabled: false, respond });
-    // บัญชีที่ใช้งานอยู่ไม่มีแผงเปิดบัญชีกลับ
+    // an active account has no re-enable panel
     await expect(page.getByRole('region', { name: 'เปิดบัญชีกลับ' })).toHaveCount(0);
     await page.getByRole('button', { name: 'แก้ชื่อที่แสดง…', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: 'แก้ชื่อที่แสดงของ สมหญิง เดิม' });
@@ -187,7 +187,7 @@ for (const respond of ['success', 'busy', 'unknown'] as const)
     }
     await expect(dialog).toHaveCount(0);
     if (respond === 'unknown') {
-      // ไม่รู้ว่ารับคำสั่งหรือยัง: แสดงคำสั่งค้างและปุ่มตรวจผล ไม่ส่งซ้ำ ชื่อเดิมยังอยู่
+      // not known whether the command was accepted: show the pending command and the check-result button, do not resend, the old name stays
       await expect(page.getByText(/กำลังเปลี่ยนชื่อ/)).toBeVisible();
       await expect(page.getByRole('alert').filter({ hasText: 'ยังยืนยันผลไม่ได้' })).toBeVisible();
       await expect(
@@ -206,7 +206,7 @@ for (const respond of ['success', 'busy', 'unknown'] as const)
   });
 
 for (const respond of ['success', 'credentials', 'unknown', 'rejected'] as const)
-  test(`เปิดบัญชีกลับ ${respond}: ยืนยันใน alertdialog พร้อมเหตุผล บัญชียังปิดจนกว่าผลจะยืนยัน`, async ({
+  test(`re-enable account ${respond}: confirm in an alertdialog with a reason, the account stays disabled until the result is confirmed`, async ({
     page,
   }) => {
     const writes = await mockPeople(page, { disabled: true, respond });
@@ -262,7 +262,7 @@ for (const respond of ['success', 'credentials', 'unknown', 'rejected'] as const
     expect(writes).toHaveLength(1);
   });
 
-test('ยังไม่พร้อม: ปุ่มแก้ชื่อและเปิดบัญชีกลับกดไม่ได้', async ({ page }) => {
+test('not ready: the edit-name and re-enable buttons cannot be pressed', async ({ page }) => {
   const writes = await mockPeople(page, { disabled: true, ready: false, respond: 'success' });
   await expect(
     page
@@ -273,13 +273,13 @@ test('ยังไม่พร้อม: ปุ่มแก้ชื่อแล
   expect(writes).toHaveLength(0);
 });
 
-test('แก้ชื่อได้ 403: แสดง error ใน Dialog หน้ารายละเอียดยังอยู่ ไม่ค้างคำสั่ง และลองใหม่ได้', async ({
+test('edit name gets 403: show the error in the Dialog, the detail page stays, no pending command, and can retry', async ({
   page,
 }) => {
   const writes = await mockPeople(page, { disabled: false, respond: 'forbidden' });
   const dialog = await fillRename(page);
   await expect(dialog.getByRole('alert')).toContainText('คุณไม่มีสิทธิ์ทำรายการนี้กับบัญชีนี้');
-  // ไม่แทนทั้งหน้าด้วย FORBIDDEN: รายละเอียดบัญชียังอยู่หลัง Dialog
+  // do not replace the whole page with FORBIDDEN: the account detail stays behind the Dialog
   await expect(page.getByRole('region', { name: 'รายละเอียดบัญชี' })).toBeVisible();
   await expect(page.getByText(/ไม่มีสิทธิ์จัดการบัญชี/)).toHaveCount(0);
   expect(await pendingKeys(page)).toEqual([]);
@@ -292,7 +292,7 @@ test('แก้ชื่อได้ 403: แสดง error ใน Dialog ห�
   expect(writes.lookups).toEqual([]);
 });
 
-test('คำสั่งค้างแต่ server ไม่พบคำสั่ง (404): ล้างคำสั่งค้าง แจ้งผล และเปิดให้แก้ชื่อใหม่', async ({
+test('a pending command but the server cannot find it (404): clear the pending command, report, and allow editing the name again', async ({
   page,
 }) => {
   const writes = await mockPeople(page, { disabled: false, respond: 'unknown' });
@@ -300,7 +300,7 @@ test('คำสั่งค้างแต่ server ไม่พบคำสั
   await expect(dialog).toHaveCount(0);
   await expect(page.getByText(/กำลังเปลี่ยนชื่อ/)).toBeVisible();
   expect(await pendingKeys(page)).toHaveLength(1);
-  // ผลไม่ชัดเจน: ตรวจคำสั่งเดิม server ตอบ 404 = ไม่ได้บันทึกคำสั่งนี้
+  // uncertain result: check the original command, the server answers 404 = this command was not recorded
   await page.getByRole('button', { name: 'ตรวจผลการแก้ชื่อ', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('ไม่พบคำสั่งเดิมในระบบ');
   await expect(page.getByText(/กำลังเปลี่ยนชื่อ/)).toHaveCount(0);
@@ -308,13 +308,13 @@ test('คำสั่งค้างแต่ server ไม่พบคำสั
   await expect(page.getByRole('button', { name: 'แก้ชื่อที่แสดง…', exact: true })).toBeEnabled();
   expect(await pendingKeys(page)).toEqual([]);
   expect(writes.lookups).toHaveLength(1);
-  // ไม่ poll ต่อหลังล้างคำสั่งค้าง
+  // no more polling after clearing the pending command
   await page.waitForTimeout(5_500);
   expect(writes.lookups).toHaveLength(1);
   expect(writes).toHaveLength(1);
 });
 
-test('บัญชีจาก seed ที่ People แก้ไม่ได้: ปุ่มแก้ชื่อและปิดบัญชีกดไม่ได้พร้อมคำอธิบาย ก่อนกรอกอะไร', async ({
+test('an account from seed that People cannot edit: the edit-name and disable buttons cannot be pressed, with an explanation, before entering anything', async ({
   page,
 }) => {
   const writes = await mockPeople(page, { disabled: false, unmanaged: true, respond: 'success' });
@@ -323,7 +323,7 @@ test('บัญชีจาก seed ที่ People แก้ไม่ได้
   );
   await expect(page.getByRole('button', { name: 'แก้ชื่อที่แสดง…', exact: true })).toBeDisabled();
   await expect(page.getByText(/บริการยืนยันตัวตนยังไม่พร้อม/)).toHaveCount(0);
-  // ปิดบัญชีก็ทำผ่าน People ไม่ได้เช่นกัน
+  // disabling the account cannot be done through People either
   const disable = page.getByRole('region', { name: 'ปิดบัญชี', exact: true });
   await expect(disable).toContainText(
     'ปิดบัญชีที่นี่ไม่ได้ เพราะบัญชีนี้ไม่ได้สร้างหรือเปิดใช้งานผ่านหน้า People',
@@ -333,7 +333,7 @@ test('บัญชีจาก seed ที่ People แก้ไม่ได้
   expect(writes).toHaveLength(0);
 });
 
-test('ระหว่างโหลด capabilities: แสดงกำลังตรวจความพร้อม ไม่ใช่ “ยังไม่พร้อม”', async ({ page }) => {
+test('while loading capabilities: shows checking readiness, not "not ready"', async ({ page }) => {
   let release!: () => void;
   const capabilities = new Promise<void>((resolve) => (release = resolve));
   await mockPeople(page, { disabled: false, respond: 'success', capabilities });

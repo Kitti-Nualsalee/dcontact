@@ -15,7 +15,7 @@ import {
 import { WorkspaceSessionHttpAdapter } from './http-session-adapter.js';
 import { WorkspaceSessionWebSocketAdapter } from './websocket-session-adapter.js';
 
-/** A1.8a (#447): tenant ของ fixture เป็น ACTIVE — การปฏิเสธ PROVISIONING มีเทสต์ของตัวเอง */
+/** A1.8a (#447): the fixture's tenant is ACTIVE — rejecting PROVISIONING has its own test */
 const ACTIVE_TENANTS = { isActive: async () => true };
 
 const agent: VerifiedWorkspaceIdentity = {
@@ -107,7 +107,7 @@ test('only verified OIDC claims can establish a tenant-bound workspace identity'
   assert.deepEqual(identity, agent);
 });
 
-test('client credentials claims สร้าง service identity ที่ผูกกับ tenant', () => {
+test('client credentials claims create a service identity bound to a tenant', () => {
   const identity = toVerifiedServiceIdentity(
     {
       tenant_id: agent.tenantId,
@@ -133,7 +133,7 @@ test('client credentials claims สร้าง service identity ที่ผู
   });
 });
 
-test('service identity ปฏิเสธ access token ของผู้ใช้แม้มี service role', () => {
+test('a service identity rejects a user access token even with a service role', () => {
   assert.throws(
     () =>
       toVerifiedServiceIdentity(
@@ -490,7 +490,7 @@ test('an authenticated WebSocket claim moves the server working tab within tenan
   assert.deepEqual(scopedTenants, [agent.tenantId, agent.tenantId, agent.tenantId]);
 });
 
-test('A1.8a (#447): tenant ที่ยังไม่ ACTIVE ถูกปฏิเสธเหมือน token ใช้ไม่ได้ ที่ HTTP boundary', async () => {
+test('A1.8a (#447): a tenant that is not yet ACTIVE is rejected like an unusable token, at the HTTP boundary', async () => {
   const lifecycle = new Map<string, string>([[agent.tenantId, 'PROVISIONING']]);
   const gateway = new WorkspaceSessionGateway(
     {
@@ -510,7 +510,7 @@ test('A1.8a (#447): tenant ที่ยังไม่ ACTIVE ถูกปฏิ
   );
   const adapter = new WorkspaceSessionHttpAdapter(gateway);
   const denied = await adapter.connect({ authorization: 'Bearer first-admin', tabId: 'tab-a' });
-  // ไม่เผยสถานะ provisioning: ตอบแบบเดียวกับ token ใช้ไม่ได้
+  // do not reveal provisioning state: answer the same as an unusable token
   assert.deepEqual(denied, { status: 401, body: { code: 'UNAUTHENTICATED' } });
 
   lifecycle.set(agent.tenantId, 'ACTIVE');
@@ -518,7 +518,7 @@ test('A1.8a (#447): tenant ที่ยังไม่ ACTIVE ถูกปฏิ
   assert.equal(allowed.status, 200);
 });
 
-test('A1.8a (#447): CachedTenantLifecycleGate cache เฉพาะ ACTIVE และ fail closed เมื่อ loader ล้ม', async () => {
+test('A1.8a (#447): CachedTenantLifecycleGate caches only ACTIVE and fails closed when the loader fails', async () => {
   let now = 0;
   let calls = 0;
   const statuses = new Map<string, string>([
@@ -539,7 +539,7 @@ test('A1.8a (#447): CachedTenantLifecycleGate cache เฉพาะ ACTIVE แ�
   now = 1_001;
   assert.equal(await gate.isActive('active'), true);
   assert.equal(calls, 2);
-  // ผลที่ไม่ใช่ ACTIVE ไม่ถูก cache — เปิดทันทีเมื่อ provisioning จบ
+  // a result that is not ACTIVE is not cached — open immediately when provisioning finishes
   assert.equal(await gate.isActive('provisioning'), false);
   statuses.set('provisioning', 'ACTIVE');
   assert.equal(await gate.isActive('provisioning'), true);

@@ -92,7 +92,7 @@ class MemoryStorage implements Storage {
   }
 }
 
-test('J5.6 ค่าคงที่ node/port ของ Console ตรงกับ contracts ทุกตัว', () => {
+test('J5.6 every Console node/port constant matches the contracts', () => {
   assert.deepEqual([...TRIGGER_NODE_TYPES], [...JOURNEY_TRIGGER_NODE_TYPES]);
   assert.deepEqual([...RUNTIME_NODE_TYPES], [...JOURNEY_RUNTIME_NODE_TYPES]);
   assert.deepEqual([...RESTRICTED_NODE_TYPES], [...JOURNEY_RESTRICTED_NODE_TYPES]);
@@ -106,7 +106,7 @@ test('J5.6 ค่าคงที่ node/port ของ Console ตรงกั�
   }
 });
 
-test('J5.6 แทรกขั้นตอนหลัง port ต่อสายเดิมให้ครบ และ connect แทนที่ edge เดิมของ port', () => {
+test('J5.6 inserting a step after a port keeps the original wiring complete, and connect replaces the existing edge of the port', () => {
   const inserted = applyCommand(base(), addAfter('trigger', 'start', 'send-1'));
   assert.equal(edgeFrom(inserted, 'trigger', 'start')?.target.nodeId, 'send-1');
   assert.equal(edgeFrom(inserted, 'send-1', 'next')?.target.nodeId, 'done');
@@ -141,7 +141,7 @@ test('J5.6 แทรกขั้นตอนหลัง port ต่อสาย
   assert.equal(deleted.layout.nodes['send-1'], undefined);
 });
 
-test('J5.6 node ที่ไม่รู้จักเป็น read-only: แก้/ลบไม่ได้และ source เดิมอยู่ครบ', () => {
+test('J5.6 an unknown node is read-only: it cannot be edited/deleted and its original source stays intact', () => {
   const legacy: AuthoringDocumentV1 = {
     ...base(),
     nodes: [
@@ -164,7 +164,7 @@ test('J5.6 node ที่ไม่รู้จักเป็น read-only: แ�
   });
 });
 
-test('J5.6 reducer: canvas/outline ใช้ command log เดียว, undo/redo และ keep-copy ตัดเฉพาะที่ใช้ไม่ได้', () => {
+test('J5.6 reducer: canvas/outline use one command log, and undo/redo and keep-copy drop only what is unusable', () => {
   let state = initialEditorState(snapshot(base()));
   state = editorReducer(state, {
     type: 'COMMAND',
@@ -190,7 +190,7 @@ test('J5.6 reducer: canvas/outline ใช้ command log เดียว, undo/r
   const send = document.nodes.find((node) => node.nodeId === 'send-1');
   assert.equal((send as { config: { contentRef: string } }).config.contentRef, 'content-a');
 
-  // server มี revision ใหม่ที่ลบ done ไปแล้ว: command ที่ยังใช้ได้ถูกเก็บ ที่ใช้ไม่ได้ถูกนับและตัด
+  // the server has a new revision that removed done: commands still usable are kept, unusable ones are counted and dropped
   const latest: AuthoringDocumentV1 = { ...base(), nodes: [], edges: [], layout: { nodes: {} } };
   const conflicted = editorReducer(state, { type: 'CONFLICT', latest: snapshot(latest, 2) });
   assert.ok(conflicted.conflict);
@@ -207,7 +207,7 @@ test('J5.6 reducer: canvas/outline ใช้ command log เดียว, undo/r
   assert.equal(reloaded.commands.length, 0);
 });
 
-test('U1.7 reducer: validate ที่ไม่พบข้อผิดพลาดนับว่าตรวจแล้ว จนกว่าจะแก้หรือโหลด snapshot ใหม่', () => {
+test('U1.7 reducer: a validate that finds no errors counts as checked, until the document is edited or a new snapshot is loaded', () => {
   let state = initialEditorState(snapshot(base()));
   assert.equal(state.checked, false);
   state = editorReducer(state, { type: 'DIAGNOSTICS', diagnostics: [] });
@@ -225,7 +225,7 @@ test('U1.7 reducer: validate ที่ไม่พบข้อผิดพลา
   assert.equal(state.checked, false);
 });
 
-test('J5.6 session recovery ผูก scope/resource/base revision และล้างทั้ง scope ได้', () => {
+test('J5.6 session recovery binds scope/resource/base revision and can clear the whole scope', () => {
   const storage = new MemoryStorage();
   const key = recoveryKey('tenant-a:session-1', 'j-1', 3);
   const commands: AuthoringCommand[] = [addAfter('trigger', 'start', 'send-1')];
@@ -244,11 +244,11 @@ test('J5.6 session recovery ผูก scope/resource/base revision และล�
   assert.equal(storage.getItem(key), null);
 });
 
-test('D1.14 เวลาจาก server ที่ parse ไม่ได้แสดงค่าดิบแทนการโยน error ทั้งหน้า', async () => {
+test('D1.14 server time that cannot be parsed shows the raw value instead of throwing an error for the whole page', async () => {
   const { createFormatters } = await import('@d-contact/i18n');
   const { serverTime } = await import('./journey-authoring/server-time.js');
   const formatters = createFormatters({ locale: 'th', timeZone: 'Asia/Bangkok' });
-  assert.equal(serverTime(formatters, '2026-09-22T01:00:00.000Z'), '22 ก.ย. 2569 08:00');
+  assert.equal(serverTime(formatters, '2026-09-22T01:00:00.000Z'), '22 ก.ย. 2569 08:00'); // allow-thai: Thai Buddhist-calendar formatter output
   assert.equal(serverTime(formatters, 'not-a-date'), 'not-a-date');
   assert.equal(serverTime(formatters, ''), '');
 });

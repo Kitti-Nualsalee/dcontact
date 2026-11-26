@@ -9,7 +9,7 @@ import {
 import { VoiceOriginateDeliveryService } from './voice-originate-delivery.js';
 import { VoiceRolloutControlPlane } from './voice-rollout-control.js';
 
-test('voice observability แจ้ง stuck settlement และ watchdog kill scope โดยไม่ settle/resend', async (t) => {
+test('voice observability reports a stuck settlement and the watchdog kills the scope without settling/resending', async (t) => {
   const context = await createDeliveryFixture();
   t.after(() => context.dispose());
   const at = new Date(RESERVED_AT);

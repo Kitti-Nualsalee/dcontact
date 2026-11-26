@@ -7,7 +7,7 @@ import {
   lineContentDigest,
 } from './line-push-request.js';
 
-test('#567 canonical request จากแหล่งเนื้อหาให้ผลเท่ากับ fixture เดิมทุก byte', async () => {
+test('#567 a canonical request from the content source yields the same as the original fixture byte for byte', async () => {
   const fingerprint = 'a'.repeat(64);
   const resolved = await LINE_FIXTURE_CONTENT_SOURCE.resolve(
     't',

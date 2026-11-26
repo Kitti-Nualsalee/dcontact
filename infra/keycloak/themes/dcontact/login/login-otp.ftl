@@ -1,5 +1,5 @@
 <#--
-  #515: login-otp.ftl ของ base (Keycloak 26.0.0 ปรับตาม 26.7.5 ใน #592) ปรับตามแบบ B — #otp, name="otp", #kc-login และ selectedCredentialId เหมือนเดิม
+  #515: login-otp.ftl of the base (Keycloak 26.0.0, adapted to 26.7.5 in #592) adapted to design B — #otp, name="otp", #kc-login and selectedCredentialId unchanged
 -->
 <#import "template.ftl" as layout>
 <@layout.registrationLayout displayMessage=!messagesPerField.existsError('totp'); section>

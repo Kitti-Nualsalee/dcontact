@@ -23,10 +23,10 @@ import {
 
 export type ReconcileOutcome = ApplyOwnerResultOutcome | 'NO_RESULT_YET';
 
-/** J2OwnerResultStatus จริงมีมากกว่าที่ JrOwnerResultKind แยกได้ — success ทุกชนิด
+/** the real J2OwnerResultStatus has more kinds than JrOwnerResultKind can tell apart — every success kind
  * (CREATED/LINKED/REOPENED/ADMITTED/ALREADY_ADMITTED/SCHEDULED/ALREADY_SCHEDULED)
- * ยุบเป็น ACKNOWLEDGED เดียวเพราะ Journey สนใจแค่ "owner รับแล้ว" ไม่ใช่รายละเอียด
- * ภายในของ owner นั้น ๆ */
+ * collapses into the single ACKNOWLEDGED because Journey cares only that "the owner accepted", not the owner's
+ * internal details */
 export const STATUS_TO_RESULT_KIND: Record<
   J2OwnerResultStatus,
   'ACKNOWLEDGED' | 'REJECTED' | 'CANCELLED' | 'SUPERSEDED' | 'TOO_LATE'
@@ -44,12 +44,12 @@ export const STATUS_TO_RESULT_KIND: Record<
   REJECTED: 'REJECTED',
 };
 
-/** hash เนื้อหาของผลเอง (ไม่ใช่ requestHash ของ command เดิม) เพื่อตรวจ conflict ของ
- * ผลที่มาซ้ำภายใต้ commandId เดียวกันแต่เนื้อหาต่าง */
+/** hash of the result content itself (not the requestHash of the original command) to detect a conflict for
+ * a result repeated under the same commandId but with different content */
 /**
- * export เพื่อให้ result consumer (push path) ใช้ตัวเดียวกับ reconciler (pull path)
- * — ผลใบเดียวกันที่มาสองทางต้องได้ resultHash เท่ากัน ไม่งั้น applyResult จะมองเป็น
- * CONFLICT ทั้งที่เป็นผลเดียวกัน
+ * exported so the result consumer (push path) uses the same one as the reconciler (pull path)
+ * — the same result arriving by two routes must get the same resultHash, otherwise applyResult would see
+ * a CONFLICT even though it is the same result
  */
 export function hashResult(result: J2OwnerResultPayloadV1): string {
   const canonical = JSON.stringify({
@@ -74,16 +74,16 @@ export class JourneyOwnerResultReconciler {
   }
 
   /**
-   * query owner ด้วย actionKey/requestHash เดิมแล้ว apply ผลถ้ามี — เรียกซ้ำได้
-   * ปลอดภัยเสมอ (idempotent); ไม่มีผลกลับมาไม่ใช่ error แค่ยังรอ (ACK_UNKNOWN
-   * escalation เป็นการตัดสินใจของ caller เอง ไม่ใช่ที่นี่)
+   * queries the owner with the original actionKey/requestHash and applies the result if there is one — always safe
+   * to call again (idempotent); no result coming back is not an error, just still waiting (ACK_UNKNOWN
+   * escalation is the caller's own decision, not made here)
    */
   async reconcile(
     tenantId: string,
     actionKey: string,
     /**
-     * requestHash ของ command ที่ต้องการถาม — ค่าเริ่มต้นคือ command ต้นเรื่องของ action ส่วน cancel/
-     * supersede ใช้ actionKey เดิมแต่ hash ของตัวเอง owner จึงแยก receipt สองใบด้วยค่านี้
+     * the requestHash of the command to ask about — the default is the original command of the action, while cancel/
+     * supersede use the same actionKey but their own hash, so the owner separates the two receipts by this value
      */
     requestHash?: string,
   ): Promise<ReconcileOutcome> {

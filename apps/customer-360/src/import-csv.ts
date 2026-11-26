@@ -5,7 +5,7 @@ import {
   type C360CreateProfile,
 } from './profile-write.js';
 
-/** ขอบเขต transport ของ CSV import แบบ synchronous (#909); ไม่มี raw cell ใน error */
+/** Transport limits of the synchronous CSV import (#909); no raw cell appears in errors */
 export const C360_IMPORT_MAX_BYTES = 1024 * 1024;
 export const C360_IMPORT_MAX_ROWS = 1_000;
 export const C360_IMPORT_MAX_COLUMNS = 32;
@@ -21,11 +21,11 @@ export class C360ImportCsvError extends Error {
 
 export interface C360ImportCsv {
   headers: string[];
-  /** หนึ่งรายการต่อ CSV record; เลขแถวเริ่ม 1 หลัง header ไม่ใช่เลขบรรทัด */
+  /** One entry per CSV record; row numbers start at 1 after the header and are not line numbers */
   rows: string[][];
 }
 
-/** Parse RFC-style comma/quote records จาก UTF-8 จริง โดยจำกัดขนาดก่อนส่งต่อ core validator */
+/** Parses RFC-style comma/quote records from real UTF-8, enforcing size limits before handing off to the core validator */
 export function parseC360ImportCsv(bytes: Uint8Array): C360ImportCsv {
   if (bytes.byteLength > C360_IMPORT_MAX_BYTES)
     throw new C360ImportCsvError('IMPORT_LIMIT_EXCEEDED');
@@ -122,7 +122,7 @@ const IMPORT_FIELDS = ['displayName', 'company', 'phone', 'email', 'vip', 'phone
 const object = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
 
-/** Mapping เป็นข้อมูลจาก client ต้อง validate ทั้ง shape, ชื่อ header และประเทศก่อนบันทึก */
+/** The mapping comes from the client, so validate its shape, header names and country before saving */
 export function validateC360ImportMapping(
   value: unknown,
   headers: readonly string[],
@@ -161,12 +161,12 @@ export class C360ImportMappingError extends Error {
   }
 }
 
-/** ผล invalid มีเฉพาะ field/code ไม่มี raw cell หรือข้อความที่มาจาก parser */
+/** An invalid result carries only field/code, never a raw cell or parser-originated text */
 export type C360ImportRowValidation =
   | { valid: true; profile: C360CreateProfile }
   | { valid: false; fieldErrors: readonly { field: string; code: string }[] };
 
-/** ใช้ normalizer เดียวกับ C4; ผล profile ถือเป็น private data ห้ามใส่ audit/receipt/log */
+/** Uses the same normalizer as C4; the profile result is private data and must not go into audit/receipt/log */
 export function normalizeC360ImportRow(
   headers: readonly string[],
   cells: readonly string[],

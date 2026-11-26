@@ -16,24 +16,24 @@ import {
 } from './cg4-policy-compiler.js';
 
 /**
- * CG4.10 (#193) PR-A: backfill CG3 policy → CG4 (#179 §6 ขั้น backfill + reconcile ambiguity +
+ * CG4.10 (#193) PR-A: backfill CG3 policy -> CG4 (#179 §6 backfill step + reconcile ambiguity +
  * seed compatibility)
  *
- * เป็นคำสั่งของ operator ที่รันซ้ำได้ ไม่ใช่ส่วนของ migration และไม่เปลี่ยน runtime decision path:
- * ตราบใดที่ rollout ของ tenant ยังเป็น DISABLED runtime ยังอ่าน CG3 `cg_policies` เหมือนเดิม
+ * A re-runnable operator command, not part of a migration, and it does not change the runtime decision path:
+ * as long as the tenant's rollout is still DISABLED, the runtime keeps reading CG3 `cg_policies` as before
  *
- * - CG3 `PUBLISHED` ที่มีผลอยู่ → CG4 version `ACTIVE` origin `LEGACY_CG3` + scope head + approval
- *   `LEGACY_MIGRATED` ที่คง baseline ได้แต่นับเป็น quorum ของ version ใหม่ไม่ได้ (DB trigger)
+ * - a CG3 `PUBLISHED` that is in effect -> CG4 version `ACTIVE` origin `LEGACY_CG3` + scope head + approval
+ *   `LEGACY_MIGRATED` that keeps the baseline but cannot count toward the quorum of a new version (DB trigger)
  * - CG3 `DRAFT` → CG4 `DRAFT` origin `LEGACY_CG3`
- * - ไม่มีผู้ชนะเดียว (overlap ตรง scope, equal specificity, head ของ CG4 อยู่แล้ว หรือ content ที่
- *   compile ไม่ได้) → **ไม่สร้าง head** แต่เปิด scoped kill switch พร้อม canonical event แทน
- *   เพราะ scope ที่ไม่มี head จะกลายเป็น "ไม่มี policy" ตอน switch ซึ่งเป็นการผ่อนลงแบบเงียบ
- * - callback ที่อ้าง `approvedExceptionId` ซึ่งไม่มี canonical exception → รายงานเป็น orphan
- *   (evaluator ใช้ ref นั้นไม่ได้อยู่แล้ว) โดยไม่สร้าง approval ขึ้นเอง
+ * - no single winner (exact scope overlap, equal specificity, the CG4 head already exists, or content that
+ *   cannot be compiled) -> **no head is created**, but a scoped kill switch is opened with a canonical event instead,
+ *   because a scope with no head would become "no policy" at switch time, which is a silent relaxation
+ * - a callback that references an `approvedExceptionId` with no canonical exception -> reported as an orphan
+ *   (the evaluator cannot use that ref anyway) without creating an approval on its own
  *
- * ทุกผลถูกบันทึกใน `cg4_backfill_ledger` แบบ unique ต่อ source จึงรันซ้ำแล้วไม่เกิด effect ซ้ำ
- * backfill ไม่ออก event ย้อนหลังให้ policy ที่ย้ายมา (ข้อเท็จจริงเดิมไม่ได้เปลี่ยน) ออกเฉพาะ event
- * ของ kill switch ที่เพิ่งเปิดจริง
+ * Every result is recorded in `cg4_backfill_ledger`, unique per source, so a re-run produces no duplicate effect
+ * the backfill emits no retroactive event for a migrated policy (the original facts did not change); it emits only the
+ * event of a kill switch that was actually newly opened
  */
 
 export const CG4_BACKFILL_KILL_REASONS = Object.freeze({
@@ -54,14 +54,14 @@ export const CG4_BACKFILL_TARGETS = Object.freeze({
   ORPHAN_CALLBACK_REF: 'ORPHAN_CALLBACK_EXCEPTION_REF',
 } as const);
 
-/** capability ของ approval ที่ย้ายมา — ไม่อยู่ใน capability matrix ของ CG4 จึงไม่มี grant ใดถือได้ */
+/** capability of a migrated approval: not in the CG4 capability matrix, so no grant can hold it */
 export const CG4_LEGACY_APPROVAL_CAPABILITY = 'cg.legacy.migrated';
 
 const POLICY_LOCK_SCOPE = 'cg4-policy';
 
 export interface Cg4LegacyBackfillInput {
   tenantId: string;
-  /** opaque subject ref ของ operator ที่สั่ง backfill — ไม่ใช่ชื่อหรืออีเมล */
+  /** opaque subject ref of the operator who ordered the backfill: not a name or email */
   operatorRef: string;
 }
 
@@ -80,7 +80,7 @@ export interface Cg4LegacyBackfillReport {
   deferred: Array<{ legacyRowId: string; effectiveFrom: string }>;
   unmappableDrafts: Array<{ legacyRowId: string; code: string }>;
   orphanCallbackRefs: Array<{ callbackRequestId: string }>;
-  /** source ที่เคย backfill แล้วในรอบก่อน จึงไม่ถูกแตะซ้ำ */
+  /** a source that was backfilled in an earlier run, so it is not touched again */
   alreadyRecorded: number;
 }
 
@@ -114,7 +114,7 @@ function contentFor(row: CgPolicy, holidays: readonly CgHolidayCalendarEntry[]) 
     quietHours: row.quietHours,
     callbackMode: row.callbackMode,
     overridableRules: row.overridableRules,
-    // CG3 ไม่มีกลไก Approved exception: allowlist ของ CG4 จึงเริ่มว่างเสมอ ห้ามอนุมานเพิ่ม
+    // CG3 has no Approved exception mechanism: the CG4 allowlist always starts empty and must not be inferred to grow
     allowedOperationalRuleCodes: [],
     holidays: holidays
       .filter((entry) => entry.policyId === row.policyId && entry.policyVersion === row.version)
@@ -137,7 +137,7 @@ function ambiguous(left: string, right: string): boolean {
   try {
     return cg4PolicyScopesAmbiguous(left, right);
   } catch {
-    // head ที่ scopeKey ไม่ใช่ canonical form resolve ใน CG4 ไม่ได้อยู่แล้ว จึงไม่นับเป็นคู่ชน
+    // a head whose scopeKey is not in canonical form cannot be resolved in CG4 anyway, so it does not count as a conflict pair
     return false;
   }
 }
@@ -155,8 +155,8 @@ export class Cg4LegacyBackfill {
   }
 
   async run(input: Cg4LegacyBackfillInput): Promise<Cg4LegacyBackfillReport> {
-    if (!input.tenantId?.trim()) throw new TypeError('tenantId ต้องระบุ');
-    if (!input.operatorRef?.trim()) throw new TypeError('operatorRef ต้องระบุ');
+    if (!input.tenantId?.trim()) throw new TypeError('tenantId is required');
+    if (!input.operatorRef?.trim()) throw new TypeError('operatorRef is required');
     const tenantId = input.tenantId;
     const now = this.now();
     const runId = this.id();
@@ -230,13 +230,13 @@ export class Cg4LegacyBackfill {
         }
       };
 
-      // ── CG3 version ล่าสุดที่มีผลอยู่ต่อ policy series ─────────────────────────────
+      // ── latest CG3 version in effect per policy series ─────────────────────────────
       const activeBySeries = new Map<string, CgPolicy>();
       for (const row of policies) {
         if (row.status !== 'PUBLISHED') continue;
         if (row.effectiveTo && row.effectiveTo.getTime() <= now.getTime()) continue;
         if (row.effectiveFrom.getTime() > now.getTime()) {
-          // ยังไม่ถึงเวลามีผลใน CG3: ต้องให้ operator ตัดสินก่อน switch ไม่ map เป็น head ล่วงหน้า
+          // not yet in effect in CG3: the operator must decide before the switch; do not map it to a head in advance
           report.deferred.push({
             legacyRowId: row.id,
             effectiveFrom: row.effectiveFrom.toISOString(),
@@ -263,7 +263,7 @@ export class Cg4LegacyBackfill {
         candidates.push(toCandidate(row));
       }
 
-      // ── reconcile ambiguity ก่อนสร้าง head (#179 §6 ขั้น 3) ────────────────────────
+      // ── reconcile ambiguity before creating a head (#179 §6 step 3) ────────────────────────
       const kills = new Map<string, { reason: Cg4BackfillKillReason; sources: Set<string> }>();
       const kill = (scopeKey: string, reason: Cg4BackfillKillReason, sourceId: string) => {
         const entry = kills.get(scopeKey) ?? { reason, sources: new Set<string>() };
@@ -274,8 +274,8 @@ export class Cg4LegacyBackfill {
       const byScope = new Map<string, Candidate[]>();
       for (const candidate of candidates) {
         if (!candidate.scopeKey || candidate.failure) {
-          // scopeKey ที่สร้างไม่ได้เลยทำให้ไม่รู้ขอบเขต: ใช้ scope ที่อ่านไม่ออกซึ่ง kill switch
-          // ถือว่าครอบทั้ง tenant แบบ fail closed
+          // a scopeKey that cannot be built at all means the boundary is unknown: use an unreadable scope, which the kill switch
+          // treats as covering the whole tenant, failing closed
           kill(
             candidate.scopeKey ?? `legacy-policy:${candidate.row.policyId}`,
             CG4_BACKFILL_KILL_REASONS.UNMAPPABLE_POLICY,
@@ -377,7 +377,7 @@ export class Cg4LegacyBackfill {
         });
       }
 
-      // ── map CG3 PUBLISHED ที่มีผู้ชนะเดียวเป็น LEGACY_ACTIVE head ─────────────────
+      // ── map a CG3 PUBLISHED with a single winner to a LEGACY_ACTIVE head ─────────────────
       for (const candidate of candidates) {
         const { row, scopeKey, compiled } = candidate;
         if (!scopeKey || !compiled || candidate.failure || kills.has(scopeKey)) continue;
@@ -486,7 +486,7 @@ export class Cg4LegacyBackfill {
         });
       }
 
-      // ── CG3 DRAFT → CG4 DRAFT (ไม่มี head, ต้องทดสอบและอนุมัติด้วย CG4 ก่อน publish) ──
+      // ── CG3 DRAFT -> CG4 DRAFT (no head; must be tested and approved with CG4 before publish) ──
       for (const row of policies) {
         if (row.status !== 'DRAFT') continue;
         if (ledger.has(`cg_policies:${row.id}`)) {
@@ -553,7 +553,7 @@ export class Cg4LegacyBackfill {
         });
       }
 
-      // ── callback ที่อ้าง exception ซึ่งไม่มี canonical series (#179 §6 ขั้น 5) ────────
+      // ── a callback that references an exception with no canonical series (#179 §6 step 5) ────────
       const callbacks = await transaction.cgCallbackRequest.findMany({
         where: { tenantId, approvedExceptionId: { not: null } },
         select: { id: true, approvedExceptionId: true },

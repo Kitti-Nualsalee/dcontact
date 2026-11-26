@@ -18,7 +18,7 @@ test('a chunk built by the API parses back to the same format and frames', () =>
   const format = parseWavHeader(source.subarray(0, 4096), source.length);
   assert.deepEqual(format, { dataOffset: 44, sampleRate: 8000, channels: 2, totalFrames: 8000 });
   assert.deepEqual(frameByteRange(format, 100, 50), { start: 444, endInclusive: 643, frames: 50 });
-  // ช่วงสุดท้ายถูกตัดตามความยาวไฟล์
+  // the last range is clipped to the file length
   assert.equal(frameByteRange(format, 7990, 16000).frames, 10);
 });
 

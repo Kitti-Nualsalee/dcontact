@@ -1,6 +1,6 @@
 /**
- * J2.8 (#136) — พิสูจน์ขารับ ENSURE_CASE ของ Cases ผ่าน Kafka จริง: ผลกลับ `dc.case.events` ผ่าน
- * result contract, redelivery ไม่สร้าง Case ซ้ำ และ command ที่ผิด contract ถูกกักเข้า DLQ
+ * J2.8 (#136) — proves the Cases ENSURE_CASE receive path over real Kafka: the result goes back to `dc.case.events` via the
+ * result contract, redelivery does not create a duplicate Case, and a command violating the contract is quarantined to the DLQ
  */
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -45,7 +45,7 @@ async function waitFor(check: () => boolean, timeoutMs = 25_000) {
     if (check()) return;
     await new Promise((resolve) => setTimeout(resolve, 150));
   }
-  throw new Error('เงื่อนไขไม่เป็นจริงภายในเวลาที่กำหนด');
+  throw new Error('condition did not become true within the allotted time');
 }
 
 async function fixture(t: TestContext) {
@@ -182,7 +182,7 @@ async function fixture(t: TestContext) {
 }
 
 test(
-  'ENSURE_CASE จาก Kafka สร้าง Case ครั้งเดียว และ redelivery publish ผลเดิมด้วย eventId เดิม',
+  'ENSURE_CASE from Kafka creates a Case once, and redelivery publishes the same result with the same eventId',
   { timeout: 90_000 },
   async (t) => {
     const f = await fixture(t);
@@ -204,7 +204,7 @@ test(
 );
 
 test(
-  'ENSURE_CASE ที่ผิด contract ถูกกักเข้า DLQ โดยไม่สร้าง Case และไม่ block command ถัดไป',
+  'an ENSURE_CASE violating the contract is quarantined to the DLQ without creating a Case and without blocking the next command',
   { timeout: 90_000 },
   async (t) => {
     const f = await fixture(t);

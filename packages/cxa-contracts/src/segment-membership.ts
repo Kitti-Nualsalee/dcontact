@@ -37,9 +37,9 @@ type SegmentMembershipChangeCommonV1 = {
   membershipRevision: MembershipRevision;
   snapshotVersion: CustomerSnapshotVersion;
   evaluatedAt: string;
-  /** lowercase SHA-256 ของ canonical state ที่ Customer 360 เป็น owner */
+  /** lowercase SHA-256 of the canonical state that Customer 360 owns */
   stateDigest: string;
-  /** opaque reference ที่ควบคุมสิทธิ์เข้าถึง; ห้ามเป็น raw evaluation evidence หรือ PII */
+  /** opaque reference that controls access; must not be raw evaluation evidence or PII */
   evidenceRef?: SegmentEvidenceRef;
 };
 
@@ -68,7 +68,7 @@ export const J3_EVENT_TYPES = {
   CUSTOMER_SEGMENT_CHANGED: 'customer.segment.changed',
 } as const;
 
-/** โครงสร้าง Kafka V2 เดิมสำหรับเลี่ยง dependency cycle ไปยัง transport package */
+/** the original Kafka V2 shape, to avoid a dependency cycle to the transport package */
 export type J3KafkaEnvelopeV2<TPayload extends Record<string, unknown>> = {
   schemaVersion: 2;
   eventKind: 'CANONICAL';
@@ -119,7 +119,7 @@ export type ReadSegmentMembershipChangesInput = Readonly<{
   tenantId: TenantId;
   contactId: ContactId;
   segmentId: SegmentId;
-  /** revision ที่ consumer apply แล้ว; ศูนย์หมายถึงขอตั้งแต่ต้น stream */
+  /** the revision the consumer has applied; zero means requesting from the start of the stream */
   afterRevision: number;
   throughRevision: MembershipRevision;
 }>;
@@ -127,7 +127,7 @@ export type ReadSegmentMembershipChangesInput = Readonly<{
 export type SegmentMembershipChangesRead =
   | Readonly<{
       status: 'CHANGES';
-      /** เรียง membershipRevision จากน้อยไปมากแบบต่อเนื่องตลอดช่วงที่ขอ */
+      /** in ascending membershipRevision order, contiguous across the requested range */
       changes: readonly SegmentMembershipChangePayloadV1[];
     }>
   | Readonly<{
@@ -142,8 +142,8 @@ export type SegmentMembershipChangesRead =
   | Readonly<{ status: 'NOT_FOUND'; reasonCode: 'RESOURCE_NOT_FOUND' }>;
 
 /**
- * Customer 360 เป็น owner ของ read boundary นี้ โดย tenantId มาจาก trusted service context;
- * caller ส่ง membership snapshot, survivor contact หรือ team scope มาเป็น authority ไม่ได้
+ * Customer 360 owns this read boundary, and tenantId comes from the trusted service context;
+ * the caller cannot send a membership snapshot, survivor contact or team scope as authority
  */
 export interface CustomerSegmentMembershipReader<TContext = undefined> {
   resolveEntry(
@@ -224,7 +224,7 @@ function fail(field: string, reason: string): never {
 
 function objectValue(value: unknown, field: string): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return fail(field, 'ต้องเป็น object');
+    return fail(field, 'must be an object');
   }
   return value as Record<string, unknown>;
 }
@@ -237,10 +237,10 @@ function exactKeys(
 ): void {
   const allowed = new Set([...required, ...optional]);
   for (const key of Object.keys(value)) {
-    if (!allowed.has(key)) fail(`${field}.${key}`, 'ไม่อยู่ใน closed contract');
+    if (!allowed.has(key)) fail(`${field}.${key}`, 'is not in the closed contract');
   }
   for (const key of required) {
-    if (!(key in value)) fail(`${field}.${key}`, 'จำเป็นต้องระบุ');
+    if (!(key in value)) fail(`${field}.${key}`, 'is required');
   }
 }
 
@@ -248,7 +248,7 @@ function requireContractVersion(value: unknown): asserts value is typeof J3_CONT
   if (value !== J3_CONTRACT_VERSION) {
     throw new J3ContractError(
       'UNSUPPORTED_CONTRACT_VERSION',
-      `ไม่รองรับ J3 contractVersion: ${String(value)}`,
+      `Unsupported J3 contractVersion: ${String(value)}`,
     );
   }
 }
@@ -261,27 +261,28 @@ function opaqueReference(value: unknown, field: string): asserts value is string
     !/^[A-Za-z0-9][A-Za-z0-9:._-]{0,159}$/.test(value) ||
     (normalizedPhoneCandidate !== undefined && /^\d{7,}$/.test(normalizedPhoneCandidate))
   ) {
-    fail(field, 'ต้องเป็น opaque internal reference ที่ไม่ว่างและไม่ใช่ PII text');
+    fail(field, 'must be a non-empty opaque internal reference that is not PII text');
   }
 }
 
 function positiveVersion(value: unknown, field: string): asserts value is number {
-  if (!Number.isInteger(value) || (value as number) < 1) fail(field, 'ต้องเป็นจำนวนเต็มตั้งแต่ 1');
+  if (!Number.isInteger(value) || (value as number) < 1) fail(field, 'must be an integer >= 1');
 }
 
 function nonNegativeVersion(value: unknown, field: string): asserts value is number {
-  if (!Number.isInteger(value) || (value as number) < 0) fail(field, 'ต้องเป็นจำนวนเต็มไม่ติดลบ');
+  if (!Number.isInteger(value) || (value as number) < 0)
+    fail(field, 'must be a non-negative integer');
 }
 
 function timestamp(value: unknown, field: string): asserts value is string {
   if (typeof value !== 'string' || Number.isNaN(Date.parse(value))) {
-    fail(field, 'ต้องเป็น ISO-8601 timestamp');
+    fail(field, 'must be an ISO-8601 timestamp');
   }
 }
 
 function hashValue(value: unknown, field: string): asserts value is string {
   if (typeof value !== 'string' || !/^[a-f0-9]{64}$/.test(value)) {
-    fail(field, 'ต้องเป็น lowercase SHA-256');
+    fail(field, 'must be a lowercase SHA-256');
   }
 }
 
@@ -293,7 +294,7 @@ function validateOptionalSupersedesRevision(value: unknown, currentRevision: num
   if (value === undefined) return;
   positiveVersion(value, 'payload.supersedesRevision');
   if (value >= currentRevision) {
-    fail('payload.supersedesRevision', 'ต้องน้อยกว่า membershipRevision ปัจจุบัน');
+    fail('payload.supersedesRevision', 'must be less than the current membershipRevision');
   }
 }
 
@@ -316,7 +317,7 @@ export function validateSegmentMembershipChangePayload(
 
   requireContractVersion(candidate.contractVersion);
   if (!CHANGE_KINDS.has(String(candidate.changeKind))) {
-    fail('payload.changeKind', 'ไม่รองรับ');
+    fail('payload.changeKind', 'is not supported');
   }
 
   switch (candidate.changeKind) {
@@ -352,7 +353,7 @@ export function validateSegmentMembershipChangePayload(
       validateOptionalEntryId(candidate.entryId);
       break;
     default:
-      return fail('payload.changeKind', 'ไม่รองรับ');
+      return fail('payload.changeKind', 'is not supported');
   }
 
   opaqueReference(candidate.contactId, 'payload.contactId');
@@ -415,7 +416,7 @@ export function validateReadSegmentMembershipChangesInput(
   nonNegativeVersion(candidate.afterRevision, 'input.afterRevision');
   positiveVersion(candidate.throughRevision, 'input.throughRevision');
   if (candidate.afterRevision >= candidate.throughRevision) {
-    fail('input', 'afterRevision ต้องน้อยกว่า throughRevision');
+    fail('input', 'afterRevision must be less than throughRevision');
   }
   return {
     tenantId: tenantId(candidate.tenantId),
@@ -437,7 +438,7 @@ function canonicalJson(value: unknown): string {
   if (value === null) return 'null';
   if (typeof value === 'string' || typeof value === 'boolean') return JSON.stringify(value);
   if (typeof value === 'number') {
-    if (!Number.isFinite(value)) fail('canonical payload', 'ตัวเลขต้องเป็น finite');
+    if (!Number.isFinite(value)) fail('canonical payload', 'numbers must be finite');
     return JSON.stringify(value);
   }
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
@@ -449,7 +450,7 @@ function canonicalJson(value: unknown): string {
       .map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`)
       .join(',')}}`;
   }
-  return fail('canonical payload', `ไม่รองรับ value type ${typeof value}`);
+  return fail('canonical payload', `unsupported value type ${typeof value}`);
 }
 
 export function canonicalSegmentMembershipHash(tenant: TenantId, value: unknown): string {
@@ -483,7 +484,7 @@ function validateEnvelope(value: unknown): Record<string, unknown> {
   if (candidate.schemaVersion !== 2) {
     throw new J3ContractError(
       'UNSUPPORTED_SCHEMA_VERSION',
-      `J3 ต้องใช้ Kafka envelope schemaVersion=2: ${String(candidate.schemaVersion)}`,
+      `J3 must use Kafka envelope schemaVersion=2: ${String(candidate.schemaVersion)}`,
     );
   }
   opaqueReference(candidate.eventId, 'envelope.eventId');
@@ -506,7 +507,7 @@ export function assertSegmentMembershipChangeEnvelope(
   if (envelope.orderingKey !== streamId || envelope.aggregateId !== streamId) {
     throw new J3ContractError(
       'ORDERING_KEY_MISMATCH',
-      'orderingKey และ aggregateId ต้องตรงกับ contactId:segmentId',
+      'orderingKey and aggregateId must match contactId:segmentId',
     );
   }
   if (
@@ -517,7 +518,7 @@ export function assertSegmentMembershipChangeEnvelope(
   ) {
     throw new J3ContractError(
       'BINDING_MISMATCH',
-      'Kafka V2 aggregate metadata ไม่ตรงกับ canonical membership payload',
+      'Kafka V2 aggregate metadata does not match the canonical membership payload',
     );
   }
   return { ...envelope, payload } as J3KafkaEnvelopeV2<SegmentMembershipChangePayloadV1>;

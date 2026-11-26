@@ -1,12 +1,12 @@
 /**
- * D1.11 (#450): ค่าเริ่มต้นด้านภาษาและ timezone ของ tenant สำหรับ Console/Workspace
+ * D1.11 (#450): the tenant's default language and timezone for the Console/Workspace
  *
- * ลำดับการเลือกภาษา (D1.5) คือ ผู้ใช้ → tenant → browser → `th` และ timezone คือ ผู้ใช้ → tenant
- * ค่าของผู้ใช้อยู่ใน token (claim `locale`/`zoneinfo`) ส่วนค่าของ tenant คือ `tenant_settings` ที่
- * provisioning (A1.5) สร้าง — route นี้อ่านอย่างเดียว และคืนค่าดิบให้ `@d-contact/i18n` ตัดสินฝั่ง client
+ * the language selection order (D1.5) is user → tenant → browser → `th`, and the timezone is user → tenant
+ * the user's value is in the token (claim `locale`/`zoneinfo`) while the tenant's value is the `tenant_settings` that
+ * provisioning (A1.5) creates — this route is read-only and returns the raw values for `@d-contact/i18n` to decide on the client side
  *
- * tenant เดิมก่อน A1.5 ไม่มีแถว `tenant_settings` จึงได้ `null` ทั้งคู่ (ไม่ใช่ 404) เพื่อให้ client
- * ไหลไปขั้นถัดไปของลำดับได้ตามปกติ; tenant มาจาก bearer token เท่านั้น ไม่รับจาก path/query
+ * a tenant from before A1.5 has no `tenant_settings` row so it gets `null` for both (not 404) so the client
+ * flows on to the next step of the order as usual; the tenant comes only from the bearer token, never from the path/query
  */
 import { Controller, Get, Inject, Req, UnauthorizedException } from '@nestjs/common';
 import { withTenantDatabaseTransaction, type PrismaClient } from '@d-contact/db';

@@ -7,9 +7,9 @@ import { sha256 } from './cxa-c1-readiness.mjs';
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 /**
- * CG5-REG01/REG02 (#273 §2): CG5 ไม่บังคับ marker ของเฟสอื่นบน SHA เดียวกัน แต่ต้องบันทึกว่าหลักฐานรอบนี้
- * ยืนอยู่บนอะไร — script นี้รายงานเฉพาะสิ่งที่พบใน manifest จริง (`ACCEPTED_SAME_SHA` หรือ `ABSENT`)
- * ส่วน `CONTRACT_COMPATIBLE` ตัดสินที่ runner จากผล targeted conformance ของ check ที่ครอบเฟสนั้น
+ * CG5-REG01/REG02 (#273 §2): CG5 does not require markers of other phases on the same SHA, but must record what this round of evidence
+ * stands on - this script reports only what is found in a real manifest (`ACCEPTED_SAME_SHA` or `ABSENT`);
+ * `CONTRACT_COMPATIBLE` is decided by the runner from the targeted conformance results of the checks that cover that phase
  */
 export const CG5_DEPENDENCY_PHASES = Object.freeze([
   {
@@ -48,7 +48,7 @@ function manifestsIn(directory) {
     });
 }
 
-/** manifest ที่นับได้ต้องอยู่บน commit เดียวกันและมี marker ของเฟสนั้นจริง — ไฟล์ค้างจาก SHA อื่นไม่นับ */
+/** A countable manifest must be on the same commit and really carry the marker of that phase - a leftover file from another SHA does not count */
 export function cg5PhaseMarkerStatus(manifests, commitSha, marker) {
   const accepted = manifests.find(
     (manifest) => manifest?.commitSha === commitSha && (manifest.markers ?? []).includes(marker),

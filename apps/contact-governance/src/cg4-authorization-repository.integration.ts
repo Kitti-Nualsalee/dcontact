@@ -48,7 +48,7 @@ async function fixture(t: TestContext) {
     await owner.cg4ExceptionHead.deleteMany({ where: { tenantId: tenant } });
     await owner.cg4Exception.deleteMany({ where: { tenantId: tenant } });
     await owner.cg4ContactExceptionHead.deleteMany({ where: { tenantId: tenant } });
-    // CG4.8 (#191): exception event ขยับ contact stream version ใน cg_contact_state_heads ด้วย
+    // CG4.8 (#191): an exception event also advances the contact stream version in cg_contact_state_heads
     await owner.cgContactStateHead.deleteMany({ where: { tenantId: tenant } });
     await owner.cgCommandReceipt.deleteMany({ where: { tenantId: tenant } });
     await owner.cgEventOutbox.deleteMany({ where: { tenantId: tenant } });
@@ -159,7 +159,7 @@ function checker(
   });
 }
 
-test('CG4.3 exception approval: STANDARD ผ่านด้วย checker อิสระ 1 คนที่ต่างจาก maker', async (t) => {
+test('CG4.3 exception approval: STANDARD passes with 1 independent checker different from the maker', async (t) => {
   const f = await fixture(t);
   const foundation = new Cg4FoundationRepository(f.application);
   const approvals = new Cg4ApprovalRepository(f.application);
@@ -193,7 +193,7 @@ test('CG4.3 exception approval: STANDARD ผ่านด้วย checker อิ
   );
 });
 
-test('CG4.3 exception approval: HIGH ต้องการ checker 2 คนที่ต่างกันและอย่างน้อยหนึ่งคนถือ direct Compliance', async (t) => {
+test('CG4.3 exception approval: HIGH needs 2 different checkers and at least one holds direct Compliance', async (t) => {
   const f = await fixture(t);
   const foundation = new Cg4FoundationRepository(f.application);
   const approvals = new Cg4ApprovalRepository(f.application);
@@ -237,7 +237,7 @@ test('CG4.3 exception approval: HIGH ต้องการ checker 2 คนท�
   assert.equal(second.quorum.current, 2);
 });
 
-test('CG4.3 exception approval: maker approve คำขอของตัวเองถูกปฏิเสธ (self-approval)', async (t) => {
+test('CG4.3 exception approval: a maker approving their own request is rejected (self-approval)', async (t) => {
   const f = await fixture(t);
   const foundation = new Cg4FoundationRepository(f.application);
   const approvals = new Cg4ApprovalRepository(f.application);
@@ -265,7 +265,7 @@ test('CG4.3 exception approval: maker approve คำขอของตัวเ�
   );
 });
 
-test('CG4.3 exception approval: checker เดิม approve ซ้ำถูกปฏิเสธทั้งใน application และที่ DB unique constraint', async (t) => {
+test('CG4.3 exception approval: the same checker approving again is rejected both in the application and at the DB unique constraint', async (t) => {
   const f = await fixture(t);
   const foundation = new Cg4FoundationRepository(f.application);
   const approvals = new Cg4ApprovalRepository(f.application);
@@ -330,7 +330,7 @@ test('CG4.3 exception approval: checker เดิม approve ซ้ำถูก�
   );
 });
 
-test('CG4.3 exception approval: idempotency key เดิมคืนผลเดิมโดยไม่สร้าง approval แถวใหม่', async (t) => {
+test('CG4.3 exception approval: the same idempotency key returns the original result without creating a new approval row', async (t) => {
   const f = await fixture(t);
   const foundation = new Cg4FoundationRepository(f.application);
   const approvals = new Cg4ApprovalRepository(f.application);
@@ -374,7 +374,7 @@ test('CG4.3 exception approval: idempotency key เดิมคืนผลเ�
   );
 });
 
-test('CG4.3 exception approval: CAS ปฏิเสธเมื่อ expectedRevision หรือ expectedContentDigest ไม่ตรง', async (t) => {
+test('CG4.3 exception approval: CAS rejects when expectedRevision or expectedContentDigest does not match', async (t) => {
   const f = await fixture(t);
   const foundation = new Cg4FoundationRepository(f.application);
   const approvals = new Cg4ApprovalRepository(f.application);
@@ -399,7 +399,7 @@ test('CG4.3 exception approval: CAS ปฏิเสธเมื่อ expectedRe
   );
 });
 
-test('CG4.3 policy approval: tightening/neutral quorum ผ่านด้วย independent Compliance checker 1 คน', async (t) => {
+test('CG4.3 policy approval: a tightening/neutral quorum passes with 1 independent Compliance checker', async (t) => {
   const f = await fixture(t);
   const approvals = new Cg4ApprovalRepository(f.application);
 
@@ -419,7 +419,7 @@ test('CG4.3 policy approval: tightening/neutral quorum ผ่านด้วย 
   assert.equal(tightening.quorum.status, 'MET');
 });
 
-test('CG4.3 policy approval: relaxation ต้องการ checker 2 คนที่ต่างกันและอย่างน้อยหนึ่งคนถือ direct Compliance', async (t) => {
+test('CG4.3 policy approval: relaxation needs 2 different checkers and at least one holds direct Compliance', async (t) => {
   const f = await fixture(t);
   const approvals = new Cg4ApprovalRepository(f.application);
   const maker = 'policy-maker-1';
@@ -457,7 +457,7 @@ test('CG4.3 policy approval: relaxation ต้องการ checker 2 คน�
   assert.equal(relaxationSecond.quorum.status, 'MET');
 });
 
-test('CG4.3 delegation: grant สำเร็จ, retry ด้วย idempotency key เดิมคืนผลเดิม, capability นอกชุด delegable ถูกปฏิเสธที่ DB ด้วย', async (t) => {
+test('CG4.3 delegation: a grant succeeds, a retry with the same idempotency key returns the original result, and a capability outside the delegable set is also rejected at the DB', async (t) => {
   const f = await fixture(t);
   const delegations = new Cg4DelegationRepository(f.application);
 
@@ -541,7 +541,7 @@ test('CG4.3 delegation: grant สำเร็จ, retry ด้วย idempotency
   );
 });
 
-test('CG4.3 delegation: application layer ปฏิเสธ self-delegation และ capability ที่มอบหมายไม่ได้ก่อนแตะ DB', async (t) => {
+test('CG4.3 delegation: the application layer rejects self-delegation and a non-delegable capability before touching the DB', async (t) => {
   const f = await fixture(t);
   const delegations = new Cg4DelegationRepository(f.application);
 
@@ -580,7 +580,7 @@ test('CG4.3 delegation: application layer ปฏิเสธ self-delegation แ
   assert.equal(await f.owner.cg4Delegation.count({ where: { tenantId: f.tenant } }), 0);
 });
 
-test('CG4.3 exception approval: checker ที่ถือ capability ผ่าน delegation ใช้ approve HIGH ไม่ได้ (fail closed)', async (t) => {
+test('CG4.3 exception approval: a checker holding a capability through delegation cannot approve HIGH (fail closed)', async (t) => {
   const f = await fixture(t);
   const foundation = new Cg4FoundationRepository(f.application);
   const approvals = new Cg4ApprovalRepository(f.application);

@@ -15,11 +15,11 @@ function content(overrides: Record<string, unknown> = {}) {
   });
 }
 
-test('content ที่เหมือนกันทุกมิติเป็น NEUTRAL', () => {
+test('content that is identical in every dimension is NEUTRAL', () => {
   assert.equal(classifyCg4PolicyDiff(content(), content()).diffClass, 'NEUTRAL');
 });
 
-test('quiet hours ที่กว้างขึ้นเป็น TIGHTENING แคบลงเป็น RELAXATION', () => {
+test('wider quiet hours are TIGHTENING and narrower are RELAXATION', () => {
   const wider = content({
     quietHours: [{ daysOfWeek: [1, 2, 3, 4, 5, 6, 7], startLocal: '21:00', endLocal: '06:00' }],
   });
@@ -30,7 +30,7 @@ test('quiet hours ที่กว้างขึ้นเป็น TIGHTENING �
   assert.equal(classifyCg4PolicyDiff(content(), narrower).diffClass, 'RELAXATION');
 });
 
-test('quiet hours ที่ขยับหน้าต่าง (กว้างขึ้นบางส่วน แคบลงบางส่วน) fail closed เป็น RELAXATION', () => {
+test('quiet hours whose window shifts (partly wider, partly narrower) fail closed as RELAXATION', () => {
   const shifted = content({
     quietHours: [{ daysOfWeek: [1, 2, 3, 4, 5, 6, 7], startLocal: '23:00', endLocal: '07:00' }],
   });
@@ -39,7 +39,7 @@ test('quiet hours ที่ขยับหน้าต่าง (กว้าง
   assert.equal(diff.changes.find((c) => c.dimension === 'quietHours')?.direction, 'RELAXATION');
 });
 
-test('เพิ่มวันหยุด CLOSED เป็น TIGHTENING และถอดออกเป็น RELAXATION', () => {
+test('adding a CLOSED holiday is TIGHTENING and removing it is RELAXATION', () => {
   const withHoliday = content({
     holidays: [{ localDate: '2026-01-01', effect: 'CLOSED', windows: [] }],
   });
@@ -47,7 +47,7 @@ test('เพิ่มวันหยุด CLOSED เป็น TIGHTENING แล
   assert.equal(classifyCg4PolicyDiff(withHoliday, content()).diffClass, 'RELAXATION');
 });
 
-test('วันหยุดแบบ WINDOWS ที่เปิดกว้างกว่า CLOSED เป็น RELAXATION', () => {
+test('a WINDOWS holiday that opens wider than CLOSED is RELAXATION', () => {
   const closed = content({
     holidays: [{ localDate: '2026-01-02', effect: 'CLOSED', windows: [] }],
   });
@@ -64,14 +64,14 @@ test('วันหยุดแบบ WINDOWS ที่เปิดกว้า�
   assert.equal(classifyCg4PolicyDiff(windows, closed).diffClass, 'TIGHTENING');
 });
 
-test('allowlist ที่ยาวขึ้นเป็น RELAXATION สั้นลงเป็น TIGHTENING', () => {
+test('a longer allowlist is RELAXATION and a shorter one is TIGHTENING', () => {
   const more = content({ allowedOperationalRuleCodes: ['QUIET_HOURS', 'TENANT_HOLIDAY'] });
   const none = content({ allowedOperationalRuleCodes: [] });
   assert.equal(classifyCg4PolicyDiff(content(), more).diffClass, 'RELAXATION');
   assert.equal(classifyCg4PolicyDiff(content(), none).diffClass, 'TIGHTENING');
 });
 
-test('callback mode ที่อนุญาตมากขึ้นเป็น RELAXATION', () => {
+test('a callback mode that allows more is RELAXATION', () => {
   assert.equal(
     classifyCg4PolicyDiff(content(), content({ callbackMode: 'TIME_POLICY_OVERRIDE' })).diffClass,
     'RELAXATION',
@@ -82,7 +82,7 @@ test('callback mode ที่อนุญาตมากขึ้นเป็น
   );
 });
 
-test('เปลี่ยน timezone fallback พิสูจน์ไม่ได้ว่าแคบลง จึงเป็น RELAXATION', () => {
+test('changing the timezone fallback cannot be proven narrower, so it is RELAXATION', () => {
   const diff = classifyCg4PolicyDiff(content(), content({ timezoneFallback: 'America/New_York' }));
   assert.equal(diff.diffClass, 'RELAXATION');
   assert.equal(
@@ -91,18 +91,18 @@ test('เปลี่ยน timezone fallback พิสูจน์ไม่ไ�
   );
 });
 
-test('version แรกของ scope เทียบกับ baseline ว่าง: quiet hours อย่างเดียวเป็น TIGHTENING', () => {
+test('the first version of a scope compared with an empty baseline: quiet hours alone are TIGHTENING', () => {
   const tightOnly = content({
     callbackMode: 'NO_OVERRIDE',
     overridableRules: [],
     allowedOperationalRuleCodes: [],
   });
   assert.equal(classifyCg4PolicyDiff(null, tightOnly).diffClass, 'TIGHTENING');
-  // ถ้า version แรกเปิด override ไว้ด้วย ถือว่ามีมิติที่ผ่อนคลาย
+  // if the first version also enables an override, it counts as having a relaxing dimension
   assert.equal(classifyCg4PolicyDiff(null, content()).diffClass, 'RELAXATION');
 });
 
-test('diff digest ต่างกันเมื่อ base หรือ candidate ต่างกัน และคงที่เมื่อ input เดิม', () => {
+test('the diff digest differs when the base or candidate differs, and is stable for the same input', () => {
   const a = classifyCg4PolicyDiff(content(), content({ callbackMode: 'NO_OVERRIDE' }));
   const b = classifyCg4PolicyDiff(content(), content({ callbackMode: 'NO_OVERRIDE' }));
   const c = classifyCg4PolicyDiff(null, content({ callbackMode: 'NO_OVERRIDE' }));

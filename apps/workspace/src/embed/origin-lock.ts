@@ -1,11 +1,11 @@
 /**
- * E1.11 (#485): ล็อก host origin ของ dphone ที่ถูกฝัง (E1.5 #461 ข้อ 5)
+ * E1.11 (#485): lock the host origin of the embedded dphone (E1.5 #461 item 5)
  *
- * - allowlist มาจาก JSON ที่ API ฝังใน shell (`#dphone-embed-config`) เท่านั้น — ไม่รับค่าจาก host
- * - host origin หาจาก `location.ancestorOrigins` (Chrome/Edge) หรือ `document.referrer`
- *   ถ้าไม่ตรงกับ allowlist แบบ exact จะไม่เริ่มทำงาน
- * - หลังล็อก ข้อความขาเข้าต้องมี `event.origin` ตรงกับที่ล็อกและ `event.source === window.parent`
- * - ได้ `embed.origin.revoked` ของ origin ที่ล็อก → ปฏิเสธข้อความจาก host นั้นทันที
+ * - the allowlist comes only from JSON the API embeds in the shell (`#dphone-embed-config`) — values from the host are not accepted
+ * - the host origin is found from `location.ancestorOrigins` (Chrome/Edge) or `document.referrer`
+ *   if it does not match the allowlist exactly, it does not start
+ * - after locking, an inbound message must have `event.origin` equal to the locked one and `event.source === window.parent`
+ * - on receiving `embed.origin.revoked` for the locked origin → reject messages from that host immediately
  */
 
 export interface EmbedConfig {
@@ -13,9 +13,9 @@ export interface EmbedConfig {
   ownerWindow?: boolean;
   tenant: string | null;
   allowedHostOrigins: string[];
-  /** E1.13: OIDC ของ dphone ที่ถูกฝัง (client `dphone-embedded`) — ไม่มี = ยัง login ไม่ได้ */
+  /** E1.13: OIDC of the embedded dphone (client `dphone-embedded`) — absent = cannot log in yet */
   auth: { issuer: string; clientId: string } | null;
-  /** E1.14: ระดับ screen-pop ต่อ origin (ค่าที่ไม่รู้จัก/ไม่มี = off) — server ตรวจซ้ำตอนส่งจริง */
+  /** E1.14: screen-pop level per origin (unknown/absent value = off) — the server re-checks when actually sending */
   screenPopLevels?: Record<string, 'off' | 'ids' | 'contact' | 'custom'>;
 }
 
@@ -57,9 +57,9 @@ export function resolveHostOrigin(input: {
 
 export interface HostOriginLock {
   readonly origin: string;
-  /** ข้อความจาก host ที่ล็อกไว้เท่านั้น (exact origin + source เป็น parent) และยังไม่ถูกเพิกถอน */
+  /** messages only from the locked host (exact origin + source is the parent) and not yet revoked */
   accepts(event: { origin: string; source: unknown }): boolean;
-  /** `embed.origin.revoked` จาก WS — คืน true เมื่อเป็น origin ที่ล็อกไว้ (หยุดรับข้อความทันที) */
+  /** `embed.origin.revoked` from the WS — returns true when it is the locked origin (stops accepting messages immediately) */
   revoke(origin: string): boolean;
   readonly revoked: boolean;
 }

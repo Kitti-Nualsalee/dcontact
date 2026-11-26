@@ -1,8 +1,8 @@
 /**
- * J2.8 (#136) — พิสูจน์ว่า owner command เดินทางออก Kafka จริง ไม่ใช่แค่ compile ผ่าน
+ * J2.8 (#136) — proves that owner commands really travel out through Kafka, not just that it compiles
  *
- * ครอบสามข้อที่สเปคระบุ: publish ลง `dc.case.commands`/`dc.dialer.commands` จริง,
- * mark dispatch หลัง broker ack (ไม่ใช่ก่อน) และ ordering key ผูกกับ actionKey
+ * Covers the three points the spec states: really publishes to `dc.case.commands`/`dc.dialer.commands`,
+ * marks dispatch after the broker ack (not before), and the ordering key is bound to actionKey
  */
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -39,7 +39,7 @@ async function waitFor(check: () => boolean, timeoutMs = 20_000): Promise<void> 
     if (check()) return;
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
-  throw new Error('เงื่อนไขไม่เป็นจริงภายในเวลาที่กำหนด');
+  throw new Error('condition did not become true within the allotted time');
 }
 
 async function fixture(t: TestContext) {
@@ -69,7 +69,7 @@ async function fixture(t: TestContext) {
   return { owner, application, tenantId, enrollmentId };
 }
 
-/** shape เดียวกับที่ JourneyOutcomeTriggerProcessor สร้างจริง ไม่ได้ย่อให้ test ผ่านง่าย */
+/** the same shape that JourneyOutcomeTriggerProcessor really builds, not trimmed to make the test pass easily */
 function ensureCaseCommand(
   tenantId: string,
   enrollmentId: string,
@@ -99,7 +99,7 @@ function ensureCaseCommand(
 }
 
 test(
-  'persistCommand publish ลง dc.case.commands จริงและคืน PERSISTED หลัง broker ack',
+  'persistCommand really publishes to dc.case.commands and returns PERSISTED after the broker ack',
   { timeout: 60_000 },
   async (t) => {
     const f = await fixture(t);
@@ -143,8 +143,8 @@ test(
     assert.equal(persisted.actionKey, actionKey);
 
     await waitFor(() => received.length === 1);
-    // owner ต้องตรวจ envelope ที่ได้รับด้วย contract เดียวกันผ่าน — ordering key ผูก actionKey
-    // (cancel/supersede ใช้ actionKey เดิมจึงอยู่ partition เดียวกัน) และ eventId = commandId
+    // the owner must check the received envelope with the same contract — the ordering key is bound to actionKey
+    // (cancel/supersede use the same actionKey so they land in the same partition) and eventId = commandId
     const envelope = assertOwnerCommandEnvelope(received[0]);
     assert.equal(envelope.orderingKey, actionKey);
     assert.equal(envelope.eventId, commandId);
@@ -154,7 +154,7 @@ test(
 );
 
 test(
-  'relay mark command เป็น SENT ต่อเมื่อ publish สำเร็จ — broker ล่มแล้วต้องคง PENDING',
+  'the relay marks a command SENT only when the publish succeeds — a broker outage must keep it PENDING',
   { timeout: 60_000 },
   async (t) => {
     const f = await fixture(t);
@@ -174,7 +174,7 @@ test(
       commandPayload: command,
     });
 
-    // port ที่ publish ไม่สำเร็จ = broker ล่ม — relay ต้องไม่ mark SENT
+    // a port whose publish fails = broker down — the relay must not mark SENT
     const failingPort = {
       async persistCommand(): Promise<never> {
         throw new Error('broker unavailable');
@@ -187,7 +187,7 @@ test(
       f.application,
       failingPort as never,
       failingPort as never,
-      // retry ทันทีเพื่อให้ assert ต่อได้ในเทสเดียว ไม่ต้องรอ backoff จริง 30 วินาที
+      // retry immediately so the assertions can continue in a single test without waiting for the real 30 second backoff
       { retryDelayMs: 0 },
     );
 
@@ -195,10 +195,10 @@ test(
     const afterFailure = await f.owner.jrOwnerCommandOutbox.findFirstOrThrow({
       where: { tenantId: f.tenantId, commandId },
     });
-    assert.equal(afterFailure.state, 'PENDING', 'publish ไม่สำเร็จต้องไม่ถูก mark SENT');
+    assert.equal(afterFailure.state, 'PENDING', 'a failed publish must not be marked SENT');
     assert.equal(afterFailure.sentAt, null);
 
-    // ครั้งนี้ publish สำเร็จจริงผ่าน Kafka
+    // this time the publish really succeeds through Kafka
     const producer = await createProducer(`j2-8-relay-${randomUUID()}-producer`, {
       brokers: ['localhost:9092'],
     });
@@ -220,7 +220,7 @@ test(
   },
 );
 
-test('payload ที่ผิด contract ถูกปฏิเสธก่อน publish ไม่หลุดลง topic', async (t) => {
+test('a payload that violates the contract is rejected before publish and does not leak onto the topic', async (t) => {
   const f = await fixture(t);
   const sent: unknown[] = [];
   const port = createKafkaOwnerCommandPort({
@@ -238,13 +238,13 @@ test('payload ที่ผิด contract ถูกปฏิเสธก่อ�
       contractVersion: 1,
       commandId: randomUUID(),
       actionKey: 'broken',
-      // ขาด requestHash/commandType ที่ contract บังคับ
+      // missing the requestHash/commandType the contract requires
     } as never),
   );
-  assert.deepEqual(sent, [], 'payload ที่ผิด contract ต้องไม่ถูก publish');
+  assert.deepEqual(sent, [], 'a payload that violates the contract must not be published');
 });
 
-test('queryAction ถาม owner ผ่าน topic ด้วย query envelope ตาม contract และไม่แต่งผลขึ้นเอง', async (t) => {
+test('queryAction asks the owner through the topic with a contract query envelope and does not make up a result', async (t) => {
   const f = await fixture(t);
   const sent: Array<{ topic: unknown; event: unknown }> = [];
   const port = createKafkaOwnerCommandPort({
@@ -265,7 +265,11 @@ test('queryAction ถาม owner ผ่าน topic ด้วย query envelope
     requestHash,
   });
 
-  assert.equal(answer, undefined, 'ผลจริงต้องกลับมาทาง result consumer เท่านั้น');
+  assert.equal(
+    answer,
+    undefined,
+    'the real result must come back only through the result consumer',
+  );
   assert.equal(sent.length, 1);
   assert.equal(sent[0]!.topic, KAFKA_TOPICS.DIALER_COMMANDS);
   const envelope = assertOwnerActionQueryEnvelope(sent[0]!.event);

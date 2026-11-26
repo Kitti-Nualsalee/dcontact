@@ -113,7 +113,7 @@ function commandFor(
   return withOwnerRequestHash(toTenantId(f.rawTenantId), draft) as J2CaseOwnerCommandV1;
 }
 
-test('ไม่มี case เดิม: ENSURE_CASE สร้างเคสใหม่และตอบ CREATED', async (t) => {
+test('no existing case: ENSURE_CASE creates a new case and answers CREATED', async (t) => {
   const f = await fixture(t);
   const service = new CasesEnsureCaseService(f.application);
   const tenant = toTenantId(f.rawTenantId);
@@ -144,7 +144,7 @@ test('ไม่มี case เดิม: ENSURE_CASE สร้างเคสใ
   );
 });
 
-test('retry ด้วย actionKey/requestHash เดิมคืนผลเดิมโดยไม่สร้าง case ซ้ำ', async (t) => {
+test('retry with the same actionKey/requestHash returns the same result without creating a duplicate case', async (t) => {
   const f = await fixture(t);
   const service = new CasesEnsureCaseService(f.application);
   const tenant = toTenantId(f.rawTenantId);
@@ -158,7 +158,7 @@ test('retry ด้วย actionKey/requestHash เดิมคืนผลเด
   assert.equal(await f.owner.csCommandInbox.count({ where: { tenantId: f.rawTenantId } }), 1);
 });
 
-test('actionKey เดิมกับ requestHash ต่างถูกปฏิเสธเป็น IDEMPOTENCY_CONFLICT', async (t) => {
+test('the same actionKey with a different requestHash is rejected as IDEMPOTENCY_CONFLICT', async (t) => {
   const f = await fixture(t);
   const service = new CasesEnsureCaseService(f.application);
   const tenant = toTenantId(f.rawTenantId);
@@ -172,7 +172,7 @@ test('actionKey เดิมกับ requestHash ต่างถูกปฏิ
   assert.notEqual(
     conflicting.requestHash,
     command.requestHash,
-    'fixture ต้องผลิต hash ต่างกันจริง',
+    'the fixture must produce different hashes',
   );
   await assert.rejects(
     () => service.persistCommand(tenant, conflicting),
@@ -183,7 +183,7 @@ test('actionKey เดิมกับ requestHash ต่างถูกปฏิ
   );
 });
 
-test('มี case OPEN เดิมของ contact/case type เดียวกัน: ตอบ LINKED และเพิ่ม activity', async (t) => {
+test('an existing OPEN case for the same contact/case type: answers LINKED and adds an activity', async (t) => {
   const f = await fixture(t);
   const service = new CasesEnsureCaseService(f.application);
   const tenant = toTenantId(f.rawTenantId);
@@ -215,7 +215,7 @@ test('มี case OPEN เดิมของ contact/case type เดียว�
   );
 });
 
-test('case RESOLVED กับ reopen policy อนุญาต: ตอบ REOPENED และนับ reopenCount', async (t) => {
+test('a RESOLVED case with a permitting reopen policy: answers REOPENED and counts reopenCount', async (t) => {
   const f = await fixture(t);
   const service = new CasesEnsureCaseService(f.application);
   const tenant = toTenantId(f.rawTenantId);
@@ -259,7 +259,7 @@ test('case RESOLVED กับ reopen policy อนุญาต: ตอบ REOPEN
   assert.equal(stored.resolvedAt, null);
 });
 
-test('case RESOLVED กับ reopen policy ไม่อนุญาต: เปิดเคสใหม่แทนการบังคับ reopen', async (t) => {
+test('a RESOLVED case with a non-permitting reopen policy: opens a new case instead of forcing a reopen', async (t) => {
   const f = await fixture(t);
   const service = new CasesEnsureCaseService(f.application);
   const tenant = toTenantId(f.rawTenantId);
@@ -288,10 +288,14 @@ test('case RESOLVED กับ reopen policy ไม่อนุญาต: เป�
   const stillResolved = await f.owner.csCase.findUniqueOrThrow({
     where: { id: created!.ownerAggregate!.id },
   });
-  assert.equal(stillResolved.status, 'RESOLVED', 'ห้าม reopen เงียบ ๆ เมื่อ policy ไม่อนุญาต');
+  assert.equal(
+    stillResolved.status,
+    'RESOLVED',
+    'must not reopen silently when the policy does not allow it',
+  );
 });
 
-test('case CLOSED เดิม: เปิดเคสใหม่พร้อมเชื่อม RELATED กับเคสเดิม', async (t) => {
+test('an existing CLOSED case: opens a new case and links it RELATED to the old case', async (t) => {
   const f = await fixture(t);
   const service = new CasesEnsureCaseService(f.application);
   const tenant = toTenantId(f.rawTenantId);
@@ -325,7 +329,7 @@ test('case CLOSED เดิม: เปิดเคสใหม่พร้อม
   assert.equal(link.kind, 'RELATED');
 });
 
-test('contact ข้าม tenant ถูกปฏิเสธเป็น REJECTED โดยไม่เปิดเผย existence', async (t) => {
+test('a cross-tenant contact is rejected as REJECTED without revealing existence', async (t) => {
   const f = await fixture(t);
   const other = await fixture(t);
   const service = new CasesEnsureCaseService(f.application);
@@ -345,7 +349,7 @@ test('contact ข้าม tenant ถูกปฏิเสธเป็น REJECT
   assert.equal(await f.owner.csCase.count({ where: { tenantId: f.rawTenantId } }), 0);
 });
 
-test('targetOwnerTeamId ข้าม tenant ถูกปฏิเสธเป็น REJECTED', async (t) => {
+test('a cross-tenant targetOwnerTeamId is rejected as REJECTED', async (t) => {
   const f = await fixture(t);
   const other = await fixture(t);
   const service = new CasesEnsureCaseService(f.application);
@@ -362,7 +366,7 @@ test('targetOwnerTeamId ข้าม tenant ถูกปฏิเสธเป็
   assert.equal(result?.code, 'TEAM_SEGMENT_NOT_ALLOWED');
 });
 
-test('caseTypePolicyRef ที่ไม่มีอยู่จริงถูกปฏิเสธเป็น OWNER_REJECTED', async (t) => {
+test('a caseTypePolicyRef that does not exist is rejected as OWNER_REJECTED', async (t) => {
   const f = await fixture(t);
   const service = new CasesEnsureCaseService(f.application);
   const tenant = toTenantId(f.rawTenantId);
@@ -381,20 +385,20 @@ test('caseTypePolicyRef ที่ไม่มีอยู่จริงถู�
   assert.equal(result?.reasonCode, 'CASE_TYPE_POLICY_NOT_FOUND');
 });
 
-test('queryAction ที่ไม่มี actionKey นี้คืน undefined', async (t) => {
+test('queryAction returns undefined when this actionKey does not exist', async (t) => {
   const f = await fixture(t);
   const service = new CasesEnsureCaseService(f.application);
   const tenant = toTenantId(f.rawTenantId);
 
   const result = await service.queryAction(tenant, {
     contractVersion: 1,
-    actionKey: actionKey('ไม่มีจริง:1:ensure-case'),
+    actionKey: actionKey('missing:1:ensure-case'),
     requestHash: 'a'.repeat(64),
   });
   assert.equal(result, undefined);
 });
 
-test('tenant คนละใบไม่เห็น case ของกันและกัน', async (t) => {
+test('different tenants cannot see each other cases', async (t) => {
   const a = await fixture(t);
   const b = await fixture(t);
   const service = new CasesEnsureCaseService(a.application);
@@ -410,7 +414,7 @@ test('tenant คนละใบไม่เห็น case ของกันแ�
   assert.equal(otherView, undefined);
 });
 
-test('#956: เคสที่ Agent เปิดเองไม่ถูก ENSURE_CASE link/reopen แม้ลูกค้าและประเภทตรงกัน', async (t) => {
+test('#956: a case opened by an Agent is not linked/reopened by ENSURE_CASE even when customer and type match', async (t) => {
   const f = await fixture(t);
   const service = new CasesEnsureCaseService(f.application);
   const tenant = toTenantId(f.rawTenantId);
@@ -436,7 +440,7 @@ test('#956: เคสที่ Agent เปิดเองไม่ถูก ENS
         caseTypeKey: 'COLLECTIONS',
         status: 'OPEN',
         version: 3,
-        subject: 'เคสที่ Agent เปิด',
+        subject: 'Case opened by an Agent',
         teamId: f.rawTeamId,
         assigneeUserId: agentId,
         createdByUserId: agentId,

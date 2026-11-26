@@ -1,15 +1,15 @@
 /**
- * Owner: Delivery/Channels — sanitized evidence bundle ของ protected provider runner (S2.6 #366)
+ * Owner: Delivery/Channels — sanitized evidence bundle of the protected provider runner (S2.6 #366)
  *
  * Authority: #360 §C/§E/§G
  *
- * bundle คือสิ่งเดียวที่ออกจากเครื่อง protected runner ไปถึง CI: ไม่มี token/secret/recipient/body
- * มีแค่ evidence ของ provider checks (PR01 ใน S2.6; PR02/RB01 ใน S2.7) พร้อม SHA-256 รายชิ้นและ
- * digest ของทั้งก้อน ฝั่ง CI (`scripts/cxa-s2-provider-bundle.mjs`) คำนวณ digest ซ้ำด้วยอัลกอริทึม
- * เดียวกัน (JSON ที่เรียง key แล้ว) ถ้าไม่ตรงคือ `EVIDENCE_HASH_MISMATCH`
+ * The bundle is the only thing that leaves the protected runner machine to reach CI: no token/secret/recipient/body,
+ * only evidence of the provider checks (PR01 in S2.6; PR02/RB01 in S2.7) with a per-item SHA-256 and
+ * a digest of the whole. The CI side (`scripts/cxa-s2-provider-bundle.mjs`) recomputes the digest with the same
+ * algorithm (JSON with sorted keys); a mismatch is `EVIDENCE_HASH_MISMATCH`
  *
- * bundle ที่สร้างบนเครื่อง local เป็น candidate เสมอ — marker ต้องมาจาก ingestion job บน final main
- * ที่ตรวจ bundle นี้ซ้ำแล้ว upload เป็น immutable Actions artifact (#360 §G)
+ * A bundle created on a local machine is always a candidate — the marker must come from the ingestion job on final main
+ * that re-checks this bundle then uploads it as an immutable Actions artifact (#360 §G)
  */
 import { createHash } from 'node:crypto';
 import { assertRedactedPayload } from './line-credential-boundary.js';
@@ -61,7 +61,7 @@ function stableValue(value: unknown): unknown {
   );
 }
 
-/** อัลกอริทึมเดียวกับ `sha256` ของ `scripts/cxa-c1-readiness.mjs` — ห้ามแยกกันเปลี่ยน */
+/** The same algorithm as `sha256` in `scripts/cxa-c1-readiness.mjs` — must never be changed separately */
 export function stableSha256(value: unknown): string {
   return createHash('sha256')
     .update(JSON.stringify(stableValue(value)))
@@ -72,7 +72,7 @@ const FULL_SHA = /^[0-9a-f]{40}$/;
 
 export class LineProviderBundleError extends Error {
   constructor(readonly code: 'BUNDLE_INVALID' | 'PII_OR_CREDENTIAL_LEAK') {
-    super(`สร้าง provider evidence bundle ไม่ได้: ${code}`);
+    super(`cannot build the provider evidence bundle: ${code}`);
     this.name = 'LineProviderBundleError';
   }
 }
@@ -82,7 +82,7 @@ export interface BuildLineProviderBundleInput {
   generatedAt: Date;
   runner: Omit<LineProviderEvidenceBundle['runner'], 'profile'>;
   evidence: readonly LineProviderCheckEvidence[];
-  /** ค่า secret จริงที่ runner ถืออยู่ — ใช้ตรวจแบบ exact-value แล้วทิ้ง ไม่ถูกเก็บ */
+  /** the real secret values the runner holds — used for an exact-value check then discarded, never stored */
   secrets: readonly string[];
 }
 

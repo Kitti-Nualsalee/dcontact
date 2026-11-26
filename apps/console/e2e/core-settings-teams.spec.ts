@@ -1,6 +1,9 @@
 import { test, expect } from '@playwright/test';
 import { coreLogin } from './core-settings-helpers.js';
-test('ทีม: Admin สร้างทีมผ่าน UI แล้วอ่านกลับจาก API จริง', async ({ page, request }) => {
+test('team: Admin creates a team through the UI then reads it back from the real API', async ({
+  page,
+  request,
+}) => {
   await coreLogin(page, request);
   await expect(page.getByRole('heading', { name: 'ทีม', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'สร้างทีม', exact: true }).click();
@@ -12,7 +15,7 @@ test('ทีม: Admin สร้างทีมผ่าน UI แล้วอ�
   );
   await expect(page).toHaveURL(/team=[a-f0-9-]{36}/);
 });
-test('ทีม: create response หายแล้ว reload ตรวจ command เดิม ไม่สร้างทีมซ้ำ', async ({
+test('team: a lost create response then reload checks the original command and does not create a duplicate team', async ({
   page,
   request,
 }) => {
@@ -34,7 +37,7 @@ test('ทีม: create response หายแล้ว reload ตรวจ comma
   await expect(page.getByRole('heading', { name: 'ทีมกู้ผล Create', exact: true })).toBeVisible();
   await expect(page.getByRole('link', { name: 'ทีมกู้ผล Create', exact: true })).toHaveCount(1);
 });
-test('ทีม: rename/no-op → ยืนยัน deactivate → inactive ยัง rename ได้และ UUID เดิม', async ({
+test('team: rename/no-op → confirm deactivate → an inactive team can still be renamed and keeps the same UUID', async ({
   page,
   request,
 }) => {
@@ -66,7 +69,10 @@ test('ทีม: rename/no-op → ยืนยัน deactivate → inactive ย
     page.getByRole('link', { name: 'ทีมปิดเปลี่ยนชื่อแล้ว', exact: true }),
   ).toBeVisible();
 });
-test('ทีม: current reference ปฏิเสธ deactivate พร้อมชนิดและจำนวน', async ({ page, request }) => {
+test('team: a current reference rejects deactivate with the type and count', async ({
+  page,
+  request,
+}) => {
   await coreLogin(page, request);
   await page.getByRole('link', { name: 'Core care', exact: true }).click();
   await page.getByRole('button', { name: 'ปิดทีม', exact: true }).click();
@@ -75,7 +81,11 @@ test('ทีม: current reference ปฏิเสธ deactivate พร้อม
   await expect(page.getByRole('status')).toContainText('บัญชีผู้ใช้:');
   await expect(page.getByRole('button', { name: 'โหลดค่าล่าสุดและเริ่มแก้ใหม่' })).toBeVisible();
 });
-test('ทีม: Admin สองคนแก้ชนกัน ร่างไม่ถูกเขียนทับ', async ({ page, request, browser }) => {
+test('team: two Admins editing in a clash, the draft is not overwritten', async ({
+  page,
+  request,
+  browser,
+}) => {
   await coreLogin(page, request);
   await page.getByRole('link', { name: 'Core care', exact: true }).click();
   const otherContext = await browser.newContext({ locale: 'th-TH' });
@@ -103,7 +113,7 @@ test('ทีม: Admin สองคนแก้ชนกัน ร่างไ�
     await otherContext.close();
   }
 });
-test('ทีม: validation/duplicate เก็บร่างและ keyboard Escape คืน focus', async ({
+test('team: validation/duplicate keep the draft and keyboard Escape returns focus', async ({
   page,
   request,
 }) => {
@@ -124,7 +134,7 @@ test('ทีม: validation/duplicate เก็บร่างและ keyboard
   await name.press('Escape');
   await expect(page.getByRole('button', { name: 'สร้างทีม', exact: true })).toBeFocused();
 });
-test('ทีม: Supervisor own team อ่านอย่างเดียวและ direct link ของทีมอื่นไม่แสดงข้อมูล', async ({
+test('team: Supervisor own team is read-only and a direct link to another team shows no data', async ({
   page,
   request,
 }) => {
@@ -141,7 +151,7 @@ test('ทีม: Supervisor own team อ่านอย่างเดียว�
   await expect(page.getByRole('status')).toContainText('ไม่พบทีม');
   await expect(page.getByRole('link', { name: 'Core care', exact: true })).toHaveCount(0);
 });
-test('ทีม: narrow ระหว่างร่างเป็น readonly ขยายแล้ว recheck และคงร่าง', async ({
+test('team: narrow during a draft is readonly, widening rechecks and keeps the draft', async ({
   page,
   request,
 }) => {
@@ -161,7 +171,10 @@ test('ทีม: narrow ระหว่างร่างเป็น readonly �
     page.getByRole('button', { name: 'บันทึกการเปลี่ยนแปลง', exact: true }),
   ).toBeEnabled();
 });
-test('ทีม: ย่อจอระหว่างยืนยันปิดทีมต้องซ่อน mutation และไม่ปิดทีม', async ({ page, request }) => {
+test('team: shrinking the screen during close-team confirmation must hide the mutation and not close the team', async ({
+  page,
+  request,
+}) => {
   const config = await coreLogin(page, request);
   const history = await (await request.post('/__core_test/history')).json();
   await page.goto(`/?tenant=${config.tenant}&view=core-settings&page=teams&team=${history.id}`);
@@ -174,7 +187,7 @@ test('ทีม: ย่อจอระหว่างยืนยันปิด
   await expect(page.getByRole('button', { name: 'ปิดทีม', exact: true })).toBeEnabled();
   await expect(page.getByRole('alertdialog')).toHaveCount(0);
 });
-test('ทีม: history-only ปิดได้ ส่วน unresolved legacy บล็อกเฉพาะปิดทีม', async ({
+test('team: history-only can be closed, while an unresolved legacy blocks only closing the team', async ({
   page,
   request,
 }) => {
@@ -199,7 +212,7 @@ test('ทีม: history-only ปิดได้ ส่วน unresolved legacy 
     await request.post('/__core_test/resolve');
   }
 });
-test('ทีม: busy จาก DB fence จริง → reconcile และ late POST ไม่เกิด delayed apply', async ({
+test('team: busy from a real DB fence → reconcile and a late POST causes no delayed apply', async ({
   page,
   request,
 }) => {
@@ -227,7 +240,7 @@ test('ทีม: busy จาก DB fence จริง → reconcile และ la
     history.name,
   );
 });
-test('ทีม: readback หายไม่แจ้งสำเร็จจนตรวจ receipt เดิม และ reauth คงร่าง', async ({
+test('team: a missing readback does not report success until the original receipt is checked, and reauth keeps the draft', async ({
   page,
   request,
 }) => {
@@ -254,7 +267,7 @@ test('ทีม: readback หายไม่แจ้งสำเร็จจน
   await page.getByRole('button', { name: 'บันทึกการเปลี่ยนแปลง', exact: true }).click();
   await expect(page.getByRole('status')).toContainText('บันทึกและตรวจข้อมูลเรียบร้อยแล้ว');
 });
-test('ทีม: ถอนสิทธิ์ขณะมีร่างต้องซ่อนข้อมูลและไม่ใช้ capability เก่า', async ({
+test('team: revoking permission while a draft exists must hide the data and not use the old capability', async ({
   page,
   request,
 }) => {
@@ -276,7 +289,10 @@ test('ทีม: ถอนสิทธิ์ขณะมีร่างต้อ
   }
 });
 for (const alias of ['agent', 'compliance', 'unbound', 'disabled', 'foreign']) {
-  test(`ทีม: ${alias} ไม่มี Core access และไม่แสดง Team metadata`, async ({ page, request }) => {
+  test(`team: ${alias} has no Core access and shows no Team metadata`, async ({
+    page,
+    request,
+  }) => {
     await coreLogin(page, request, alias);
     await expect(
       page.getByText('ไม่สามารถเข้าถึงการตั้งค่าองค์กรด้วยสิทธิ์ปัจจุบัน'),

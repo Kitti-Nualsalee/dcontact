@@ -1,10 +1,10 @@
 import { expect, test } from './fixtures';
 
-// #956 happy path ของการเปิดเคสจากงานที่กำลังคุย ใช้ route mock เท่านั้น ไม่ใช่หลักฐานของ API จริง
+// #956 happy path of opening a case from the work being talked about; route mocks only, not evidence of the real API
 const workId = '7a33ac96-d87d-4ca4-ab75-f27e40e943be';
 const caseId = '9b0c6a1e-2f3d-4c5b-8a7e-1d2c3b4a5f6e';
 
-test('เปิดเคสจากงานที่ผูกลูกค้าแล้ว: ผลไม่ทราบครั้งแรกส่ง commandId เดิมซ้ำ แล้วได้ลิงก์ไป Console', async ({
+test('open a case from work already linked to a customer: the first unknown result resends the same commandId, then gets a link to Console', async ({
   page,
 }) => {
   let state = 'ASSIGNED';

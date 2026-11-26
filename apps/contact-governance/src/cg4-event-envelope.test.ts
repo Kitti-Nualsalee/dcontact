@@ -26,7 +26,7 @@ function parse(overrides: Record<string, unknown> = {}, eventType = 'exception.c
   return parseCg4CanonicalEvent({ eventType, payload: payload(overrides) });
 }
 
-test('canonical payload ของทั้งสาม event type ผ่าน', () => {
+test('the canonical payload of all three event types passes', () => {
   for (const eventType of [
     'exception.changed',
     'policy.changed',
@@ -37,13 +37,13 @@ test('canonical payload ของทั้งสาม event type ผ่าน',
   }
 });
 
-test('event type ที่ไม่ใช่ canonical CG4 ถูกปฏิเสธ', () => {
+test('an event type that is not canonical CG4 is rejected', () => {
   const result = parseCg4CanonicalEvent({ eventType: 'preference.changed', payload: payload() });
   assert.ok(!result.ok);
   assert.equal(result.reason, 'UNSUPPORTED_EVENT_TYPE');
 });
 
-test('contract/schema/registry/evaluator version ที่ไม่รู้จักถูกแยก reason กัน', () => {
+test('an unknown contract/schema/registry/evaluator version is separated by reason', () => {
   const cases = [
     [{ contractVersion: 2 }, 'UNSUPPORTED_CONTRACT_VERSION'],
     [{ policySchemaVersion: 2 }, 'UNSUPPORTED_POLICY_SCHEMA_VERSION'],
@@ -57,7 +57,7 @@ test('contract/schema/registry/evaluator version ที่ไม่รู้จ�
   }
 });
 
-test('payload ที่ field หายหรือผิดชนิดถูกปฏิเสธเป็น MALFORMED', () => {
+test('a payload with a missing or wrongly typed field is rejected as MALFORMED', () => {
   for (const overrides of [
     { subjectId: 42 },
     { subjectVersion: '3' },
@@ -74,7 +74,7 @@ test('payload ที่ field หายหรือผิดชนิดถู�
   assert.equal(notObject.reason, 'MALFORMED_PAYLOAD');
 });
 
-test('field ที่ห้ามมี PII/actor/evidence ถูกจับได้แม้ซ้อนลึก', () => {
+test('a field that must not hold PII/actor/evidence is caught even when deeply nested', () => {
   const top = parse({ evidenceRef: 'ticket://INC-1' });
   assert.ok(!top.ok);
   assert.equal(top.reason, 'RESTRICTED_FIELD_PRESENT');
@@ -88,7 +88,7 @@ test('field ที่ห้ามมี PII/actor/evidence ถูกจับไ
   assert.equal(inArray.reason, 'RESTRICTED_FIELD_PRESENT');
 });
 
-test('opaque UUID และ reason code ไม่ถือเป็น restricted field', () => {
+test('an opaque UUID and a reason code are not treated as restricted fields', () => {
   const result = parse({
     subjectId: '2f1c1b3a-0000-4000-8000-000000000000',
     affectedScope: { scopeKey: 'x', channel: 'VOICE', purpose: 'MARKETING' },
@@ -96,10 +96,10 @@ test('opaque UUID และ reason code ไม่ถือเป็น restricte
   assert.equal(result.ok, true);
 });
 
-test('เฉพาะ malformed/restricted เท่านั้นที่เป็นความผิดฝั่ง producer', () => {
+test('only malformed/restricted are producer-side faults', () => {
   assert.equal(isCg4ProducerSideRejection('MALFORMED_PAYLOAD'), true);
   assert.equal(isCg4ProducerSideRejection('RESTRICTED_FIELD_PRESENT'), true);
-  // version ที่ใหม่กว่ายังส่งได้ — consumer เป็นคนตัดสินใจ DLQ เอง
+  // a newer version can still be sent: the consumer decides on the DLQ itself
   assert.equal(isCg4ProducerSideRejection('UNSUPPORTED_CONTRACT_VERSION'), false);
   assert.equal(isCg4ProducerSideRejection('UNSUPPORTED_EVENT_TYPE'), false);
 });

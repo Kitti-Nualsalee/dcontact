@@ -1,13 +1,13 @@
 /**
- * Owner: IAM — self-service บัญชีของผู้ใช้ทุก role (AC4 #597, Phase Contract #589, ADR-033)
+ * Owner: IAM — account self-service for users of every role (AC4 #597, Phase Contract #589, ADR-033)
  *
- * - เป้าหมายมาจาก token เท่านั้น: `dc_user_id` + tenant → แถว `users` (RLS) → `keycloak_id`
- *   ไม่รับ user id จาก body/path
- * - ทุกการเปลี่ยนทำใน transaction ของ tenant พร้อม advisory lock ต่อผู้ใช้ และเรียกระบบ identity เป็นขั้นสุดท้าย
- *   ก่อน commit: identity ล้ม = transaction ถูกยกเลิก (ไม่มี audit/email/แถวค้าง) ซึ่งเป็น compensation ของ
- *   saga ตาม iam-architecture §7; identity สำเร็จแต่ commit ล้ม (หายาก) = identity นำหน้า DB จนกว่าจะทำซ้ำ
- * - `users.display_name` เป็นแหล่งจริงของชื่อ แล้ว push ไป Keycloak; email ถูก sync ทั้ง `users.email` และ Keycloak
- * - email แจ้งเตือน/ยืนยันเข้า outbox ของ AC3 ใน transaction เดียวกัน; audit ไม่มีรหัสผ่าน/secret/token/email
+ * - the target comes only from the token: `dc_user_id` + tenant → a `users` row (RLS) → `keycloak_id`
+ *   no user id is accepted from the body/path
+ * - every change runs in the tenant transaction with a per-user advisory lock, and calls the identity system as the final step
+ *   before commit: identity fails = the transaction is cancelled (no audit/email/leftover row), which is the compensation of the
+ *   saga per iam-architecture §7; identity succeeds but commit fails (rare) = identity is ahead of the DB until repeated
+ * - `users.display_name` is the source of truth for the name, then pushed to Keycloak; the email is synced to both `users.email` and Keycloak
+ * - notification/confirmation email goes to the AC3 outbox in the same transaction; the audit has no password/secret/token/email
  */
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { Prisma, withTenantDatabaseTransaction, type PrismaClient } from '@d-contact/db';
@@ -103,7 +103,7 @@ export class AccountSelfService {
     this.limiter = options.limiter ?? new TenantClientRateLimiter(this.now);
   }
 
-  // ── อ่าน ──
+  // ── read ──
 
   async get(actor: AccountActor): Promise<AccountView> {
     const { identityId, policy, pending } = await withTenantDatabaseTransaction(
@@ -137,7 +137,7 @@ export class AccountSelfService {
     };
   }
 
-  // ── ชื่อ ──
+  // ── name ──
 
   async updateProfile(
     actor: AccountActor,
@@ -157,7 +157,7 @@ export class AccountSelfService {
     return { firstName, lastName };
   }
 
-  // ── รหัสผ่าน (D4: ไม่ถามรหัสเดิม + email แจ้ง) ──
+  // ── password (D4: does not ask for the old password + notification email) ──
 
   async changePassword(
     actor: AccountActor,
@@ -270,7 +270,7 @@ export class AccountSelfService {
           status: 'PENDING',
         },
       });
-      // ไม่บอกว่า token ไม่มี, ใช้แล้ว หรือหมดอายุ — ตอบแบบเดียวกันหมด
+      // does not say whether the token is missing, used or expired — every case answers the same
       if (!change) return 'EXPIRED' as const;
       const now = this.now();
       if (change.expiresAt <= now) {
@@ -335,7 +335,7 @@ export class AccountSelfService {
       async (tx) => {
         const identityId = await this.identityIdOf(tx, actor);
         await this.lock(tx, actor);
-        // ลงทะเบียนค้างได้ทีละรายการ — เริ่มใหม่ = ทิ้งของเดิม
+        // one pending enrolment at a time — starting again = discarding the original
         await tx.accountTotpEnrolment.deleteMany({
           where: { tenantId: actor.tenantId, userId: actor.userId },
         });
@@ -373,7 +373,7 @@ export class AccountSelfService {
     }
     const code = input.code;
     const label = requiredText(input.label, 'label', LABEL_MAX);
-    // นับครั้งที่ลองแล้ว commit ก่อนเรียก identity — code ผิดก็ยังถูกนับ
+    // count the attempt and commit before calling identity — a wrong code is still counted
     const claim = await withTenantDatabaseTransaction(this.database, actor.tenantId, async (tx) => {
       const identityId = await this.identityIdOf(tx, actor);
       await this.lock(tx, actor);
@@ -440,9 +440,9 @@ export class AccountSelfService {
     });
   }
 
-  // ── ภายใน ──
+  // ── internal ──
 
-  /** transaction ของ tenant + lock ต่อผู้ใช้; งานใน `work` เรียก identity เป็นขั้นสุดท้าย */
+  /** the tenant transaction + a per-user lock; the work in `work` calls identity as the final step */
   private mutate<T>(actor: AccountActor, work: (tx: Tx, identityId: string) => Promise<T>) {
     return withTenantDatabaseTransaction(
       this.database,
@@ -462,7 +462,7 @@ export class AccountSelfService {
     );
   }
 
-  /** ผู้ใช้ของ token ใน tenant ของ token (RLS) — ไม่มีหรือยังไม่ผูกกับระบบ identity = ใช้งานไม่ได้ */
+  /** the token's user in the token's tenant (RLS) — missing or not yet bound to the identity system = unusable */
   private async identityIdOf(tx: Tx, actor: AccountActor): Promise<string> {
     const user = await tx.user.findFirst({
       where: { id: actor.userId, tenantId: actor.tenantId, isActive: true },
@@ -486,7 +486,7 @@ export class AccountSelfService {
     }
   }
 
-  /** เปลี่ยน email จริง: `users.email` → audit → แจ้ง email เดิม → identity (ขั้นสุดท้าย) */
+  /** the real email change: `users.email` → audit → notify the old email → identity (final step) */
   private async applyEmail(
     tx: Tx,
     actor: AccountActor,

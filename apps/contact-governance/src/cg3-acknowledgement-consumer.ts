@@ -16,12 +16,12 @@ import {
 import { KAFKA_TOPICS } from '@d-contact/shared';
 
 /**
- * Consumer ฝั่ง Contact Governance สำหรับ dc.contact-governance.acknowledgements
- * (#104: "Contact Governance consume acknowledgement เป็น projection เท่านั้น ไม่มี
- * synchronous fan-out, shared writable inbox หรือ distributed transaction")
+ * Contact Governance-side consumer for dc.contact-governance.acknowledgements
+ * (#104: "Contact Governance consumes acknowledgements as a projection only: no
+ * synchronous fan-out, shared writable inbox or distributed transaction")
  *
- * downstream consumer (Journey/Dialer/Workspace — S1.5/S1.7/S1.8) publish payload นี้
- * หลัง apply CG3 event ของตัวเองสำเร็จแล้วเท่านั้น
+ * A downstream consumer (Journey/Dialer/Workspace: S1.5/S1.7/S1.8) publishes this payload
+ * only after it has successfully applied its own CG3 event
  */
 export interface AcknowledgementPayloadV1 {
   contractVersion: 1;
@@ -31,9 +31,9 @@ export interface AcknowledgementPayloadV1 {
   appliedVersion: number;
   outcome: 'APPLIED' | 'NO_OP' | 'FAILED';
   affectedCount: number;
-  /** payloadHash ของ cg event ต้นทางที่ consumer นั้น apply — ใช้ตรวจ hash conflict */
+  /** payloadHash of the source cg event that the consumer applied: used to detect a hash conflict */
   sourcePayloadHash: string;
-  /** CG4.8 (#191) additive: stateDigest ของ Governance ที่ consumer apply แล้ว */
+  /** CG4.8 (#191) additive: the Governance stateDigest that the consumer has applied */
   appliedStateDigest?: string;
 }
 
@@ -58,9 +58,9 @@ function isAcknowledgementPayloadV1(value: unknown): value is AcknowledgementPay
 }
 
 /**
- * cg_consumer_acknowledgements ทำหน้าที่ทั้ง completion record (idempotency) และ
- * projection ในตัวเดียว — unique (tenantId, eventId, consumer, appliedVersion) ป้องกัน
- * double-apply; eventId เดียวกันแต่ hash ต่างกันถูก quarantine แทนที่จะ overwrite
+ * cg_consumer_acknowledgements acts as both the completion record (idempotency) and the
+ * projection in a single table: unique (tenantId, eventId, consumer, appliedVersion) prevents
+ * a double-apply; the same eventId with a different hash is quarantined instead of overwritten
  */
 export function createDurableAcknowledgementIdempotencyStore(
   database: PrismaClient,
@@ -147,8 +147,8 @@ export function createCg3AcknowledgementConsumer(
     idempotency: createDurableAcknowledgementIdempotencyStore(options.database),
     handler: async ({ event }, transaction) => {
       if (!isAcknowledgementPayloadV1(event.payload)) {
-        // contract ไม่ตรง — ทิ้งแบบ silent ไม่ throw (จะทำให้ offset commit ไม่ได้และ retry วนซ้ำ)
-        // เนื่องจาก producer ฝั่งนี้ยังไม่มีจริงใน S1.4 (S1.5/S1.7/S1.8 เป็นผู้ผลิต)
+        // contract mismatch: drop silently without throwing (throwing would block the offset commit and retry in a loop)
+        // because this side's producers do not really exist in S1.4 yet (S1.5/S1.7/S1.8 are the producers)
         return;
       }
       await applyAcknowledgement(transaction, event.tenantId, event.eventId, event.payload);

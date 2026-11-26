@@ -1,4 +1,4 @@
-/* E1.11 (#485): Integrations › dphone embedding — token ของ D1 เท่านั้น */
+/* E1.11 (#485): Integrations › dphone embedding — D1 tokens only */
 .dphone-embedding {
   display: grid;
   gap: var(--dc-space-5);
@@ -103,7 +103,7 @@
   justify-self: start;
 }
 
-/* E1.14: คำอธิบายการลดระดับข้อมูลใน dialog ของ screen-pop */
+/* E1.14: explanation of the data-level downgrade in the screen-pop dialog */
 .dphone-embedding__hint {
   color: var(--dc-text-secondary);
   font-size: var(--dc-text-sm);

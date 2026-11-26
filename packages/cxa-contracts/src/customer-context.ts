@@ -43,8 +43,8 @@ export interface MissingCustomerContext {
 }
 
 /**
- * Cus360 C3 (#793): identity เดิมยังไม่ถูก import เป็น contact point จึงตัดสินไม่ได้ในตอนนี้
- * ไม่ใช่ NOT_FOUND: consumer ต้องไม่บันทึกผลถาวร และ retry หลัง import ครบ (ไม่ fallback ไปค่า raw)
+ * Cus360 C3 (#793): the original identity has not been imported as a contact point, so it cannot be decided right now
+ * Not NOT_FOUND: the consumer must not persist the result, and must retry after the import completes (no fallback to the raw value)
  */
 export interface DeferredCustomerContext {
   status: 'DEFERRED';

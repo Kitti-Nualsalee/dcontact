@@ -22,7 +22,9 @@ const options = {
   autoResendUnfulfilledCommands: false,
   commandTimeout: 1000,
 };
-const skip = !url ? 'NOT_RUN: ต้องตั้ง C360_RATE_LIMIT_TEST_REDIS_URL สำหรับ Redis แยก' : false;
+const skip = !url
+  ? 'NOT_RUN: C360_RATE_LIMIT_TEST_REDIS_URL must be set for a separate Redis'
+  : false;
 const client = () => {
   const redis = new Redis(url!, { ...options, lazyConnect: true });
   redis.on('error', () => undefined);
@@ -30,7 +32,7 @@ const client = () => {
 };
 
 test(
-  'HTTP: ไม่มี Redis configuration ปิด search และ readback แต่ไม่ปิด route อื่น',
+  'HTTP: with no Redis configuration, search and readback are closed but not other routes',
   { skip },
   async (t) => {
     const f = await setup([Customer360ReadController], createCustomer360SearchLimiter(undefined));
@@ -45,7 +47,7 @@ test(
 );
 
 test(
-  'Redis จริง: write และ receipt มี actor/tenant budget แยกกันบนสอง instance',
+  'Real Redis: write and receipt have separate actor/tenant budgets across two instances',
   { skip },
   async (t) => {
     const { first, second } = await clients(t);
@@ -79,7 +81,7 @@ test(
 );
 
 test(
-  'HTTP สอง instance ใช้ write และ receipt budget ร่วมกันโดย replay ไม่มี effect ซ้ำ',
+  'HTTP two instances share the write and receipt budget, with a replay having no duplicate effect',
   { skip },
   async (t) => {
     const { first, second } = await clients(t);
@@ -141,7 +143,7 @@ async function clients(t: import('node:test').TestContext) {
 }
 
 test(
-  'Redis จริง: สอง instance แข่งกันใช้ quota actor ร่วมกันและแยก actor/tenant',
+  'Real Redis: two instances race for the shared actor quota and keep actor/tenant separate',
   { skip },
   async (t) => {
     const { a, first, second } = await clients(t);
@@ -163,7 +165,7 @@ test(
 );
 
 test(
-  'Redis จริง: tenant quota รวมทุก actor และไม่กิน actor quota เมื่อ tenant เต็ม',
+  'Real Redis: the tenant quota covers every actor and does not consume the actor quota when the tenant is full',
   { skip },
   async (t) => {
     const { a, first, second } = await clients(t);
@@ -186,7 +188,7 @@ test(
 );
 
 test(
-  'Redis จริง: Retry-After, window expiry, corrupt state และการเชื่อมต่อกลับ',
+  'Real Redis: Retry-After, window expiry, corrupt state and reconnecting',
   { skip },
   async (t) => {
     const { a, first } = await clients(t);
@@ -209,7 +211,7 @@ test(
 );
 
 test(
-  'HTTP สอง instance ใช้ Redis quota ร่วมกันและคืน 503 เมื่อ Redis ใช้ไม่ได้',
+  'HTTP two instances share the Redis quota and return 503 when Redis is unusable',
   { skip },
   async (t) => {
     const { b, first, second } = await clients(t);
@@ -250,7 +252,7 @@ test(
 );
 
 test(
-  'M1 HTTP สอง instance ใช้ write quota ร่วมกันและกู้ receipt ที่ commit แล้วเมื่อ Redis ล่ม',
+  'M1 HTTP two instances share the write quota and recover a receipt that was committed when Redis goes down',
   { skip },
   async (t) => {
     const { b, first, second } = await clients(t);
@@ -268,13 +270,13 @@ test(
     for (let i = 0; i < 30; i++) {
       const response = await request(i % 2 ? replica.base : f.base, 'tags', {
         commandId: i === 0 ? firstCommand : randomUUID(),
-        name: `แท็ก ${i}`,
+        name: `Tag ${i}`,
       });
       assert.equal(response.status, 201);
     }
     const rejected = await request(replica.base, 'tags', {
       commandId: randomUUID(),
-      name: 'เกิน quota',
+      name: 'Over quota',
     });
     assert.equal(rejected.status, 429);
     assert.ok(Number(rejected.headers.get('retry-after')) > 0);
@@ -289,11 +291,11 @@ test(
 );
 
 test(
-  'Redis ค้างจริง: fail closed ภายในเวลาและกลับมาใช้ได้หลังคืนบริการ',
+  'Real Redis hang: fail closed within the time limit and usable again after service returns',
   {
     skip:
       !url || !process.env.C360_RATE_LIMIT_TEST_REDIS_CONTAINER
-        ? 'NOT_RUN: ต้องใช้ Redis container แยกของ runner'
+        ? 'NOT_RUN: a separate Redis container from the runner is required'
         : false,
   },
   async (t) => {
@@ -310,7 +312,7 @@ test(
     stopped = true;
     const start = Date.now();
     await assert.rejects(first.consume(input));
-    assert.ok(Date.now() - start < 2500, 'Redis unavailable ต้องตอบในเวลาจำกัด');
+    assert.ok(Date.now() - start < 2500, 'Redis unavailable must answer within a bounded time');
     execFileSync('docker', ['unpause', name], { stdio: 'ignore' });
     stopped = false;
     let recovered = false;
@@ -322,7 +324,7 @@ test(
       } catch {}
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
-    assert.equal(recovered, true, 'Redis ต้อง reconnect ได้');
+    assert.equal(recovered, true, 'Redis must be able to reconnect');
     assert.equal(await first.consume({ ...input, actorId: randomUUID() }), null);
   },
 );

@@ -7,7 +7,7 @@ import {
   setConditionalEtag,
 } from './contact-governance-external-read-api.js';
 
-test('external decision summary redact reference และไม่เผย trace/reservation', () => {
+test('the external decision summary redacts references and does not reveal trace/reservation', () => {
   const decision = {
     decisionId: '11111111-1111-4111-8111-111111111111',
     decision: 'BLOCK',
@@ -33,7 +33,7 @@ test('external decision summary redact reference และไม่เผย tra
   assert.equal(evidence.exceptionRef, 'case://restricted/42');
 });
 
-test('external policy view ตัด maker/checker/approval reference ออกเสมอ', () => {
+test('the external policy view always strips maker/checker/approval references', () => {
   const view = externalPolicyView({
     policyId: 'sales',
     version: 3,
@@ -51,7 +51,7 @@ test('external policy view ตัด maker/checker/approval reference ออก�
   });
 });
 
-test('external ETag stable และ If-None-Match ที่ตรงกันได้ 304', () => {
+test('the external ETag is stable and a matching If-None-Match gets 304', () => {
   const view = { aggregateVersion: 7, preference: { decision: 'BLOCK' } };
   const etag = externalEtag('effective-preference', view);
   assert.equal(etag, externalEtag('effective-preference', view));

@@ -1,9 +1,9 @@
 /**
- * J2.8 (#136) — `J2DialerOwnerPort` เดียวของ Dialer ที่ consumer ใช้: route ตาม commandType ไปยัง
- * owner service ที่เป็นเจ้าของ aggregate นั้น (campaign target หรือ callback)
+ * J2.8 (#136) — the single `J2DialerOwnerPort` of Dialer used by the consumer: routes by commandType to the
+ * owner service that owns that aggregate (campaign target or callback)
  *
- * query ไม่ต้อง route — receipt ทุกชนิดอยู่ใน `ob_dialer_command_inbox` เดียวกันและแยกกันด้วย
- * `(actionKey, requestHash)` อยู่แล้ว
+ * A query needs no routing — every kind of receipt lives in the same `ob_dialer_command_inbox` and is separated by
+ * `(actionKey, requestHash)` already
  */
 import type { PrismaClient } from '@d-contact/db';
 import type {

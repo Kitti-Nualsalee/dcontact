@@ -1,7 +1,7 @@
 name: UAT labels
 
-# U1.5 (#433): label ของ defect จาก UAT ตาม #379 — สร้าง/อัปเดตแบบ idempotent (`--force`)
-# รันเมื่อไฟล์นี้เปลี่ยนบน main หรือสั่งเองจาก Actions
+# U1.5 (#433): UAT defect labels per #379 — created/updated idempotently (`--force`)
+# runs when this file changes on main or is dispatched manually from Actions
 on:
   push:
     branches: [main]

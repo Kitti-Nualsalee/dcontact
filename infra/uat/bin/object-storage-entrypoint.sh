@@ -1,10 +1,10 @@
 #!/bin/sh
-# #540 (ADR-029): object storage ของ UAT = SeaweedFS `weed server -s3` (ไม่ใช้ `weed mini` ที่เปิด admin/worker gRPC)
-# สร้าง s3.json จาก env ใน tmpfs ของ container เท่านั้น (secret ไม่ลง volume/log) แล้ว exec weed
+# #540 (ADR-029): UAT object storage = SeaweedFS `weed server -s3` (not `weed mini`, which opens admin/worker gRPC)
+# builds s3.json from env only in the container's tmpfs (secrets never land on a volume/log) then execs weed
 #
-# identity มีแค่ root (bootstrap/lifecycle/migration) กับ uat-evidence-api — ไม่มี anonymous
-# สิทธิ์ของ API = policy `uat-evidence-api` แบบ AWS (ตัวเดียวกับที่ MinIO ใช้ใน U1.5 #433) ผ่าน policyNames
-# ห้ามใช้ `actions` แบบหยาบกับ API: ไม่มี Admin = ensureBucket บูตไม่ผ่าน, มี Admin = ตั้ง bucket policy public ได้ (spike #539)
+# the identities are only root (bootstrap/lifecycle/migration) and uat-evidence-api; no anonymous access
+# the API's permissions = the AWS-style policy `uat-evidence-api` (the same one MinIO used in U1.5 #433) via policyNames
+# never use coarse `actions` for the API: without Admin ensureBucket fails to boot, with Admin it can set a public bucket policy (spike #539)
 set -eu
 
 : "${UAT_S3_ROOT_ACCESS_KEY:?UAT_S3_ROOT_ACCESS_KEY is required}"
@@ -17,7 +17,7 @@ fail() {
   exit 1
 }
 
-# ค่าเข้า JSON โดยตรง จึงรับเฉพาะตัวอักษรที่ไม่ต้อง escape (secret ของ UAT เป็น hex อยู่แล้ว)
+# values go into the JSON directly, so only characters that need no escaping are accepted (UAT secrets are already hex)
 for name in UAT_S3_ROOT_ACCESS_KEY UAT_S3_ROOT_SECRET_KEY UAT_S3_API_ACCESS_KEY UAT_S3_API_SECRET_KEY; do
   eval "value=\${$name}"
   case "$value" in
@@ -57,8 +57,8 @@ JSON
 chmod 0400 "$config"
 unset UAT_S3_ROOT_SECRET_KEY UAT_S3_API_SECRET_KEY
 
-# volume.max/volumeSizeLimitMB: หนึ่ง bucket = หนึ่ง collection ที่จองหลาย volume (spike: max=20 หมด)
-# UAT มี bucket เดียว (uat-evidence) — 64 MB × สูงสุด 64 volume = 4 GB ต่อ disk ของ VM (retention 90 วัน)
+# volume.max/volumeSizeLimitMB: one bucket = one collection that reserves many volumes (spike: max=20 ran out)
+# UAT has a single bucket (uat-evidence): 64 MB × at most 64 volumes = 4 GB per VM disk (90-day retention)
 exec /usr/bin/weed -logtostderr=true server \
   -dir=/data \
   -ip.bind=0.0.0.0 \

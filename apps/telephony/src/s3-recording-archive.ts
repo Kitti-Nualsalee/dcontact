@@ -15,7 +15,7 @@ export interface RecordingObjectWriter {
   send(command: PutObjectCommand): Promise<unknown>;
 }
 
-/** ย้าย recording จาก shared FreeSWITCH volume เข้า tenant prefix ของ object storage (S3). */
+/** Moves a recording from the shared FreeSWITCH volume into the tenant prefix of object storage (S3). */
 export class S3RecordingArchive implements RecordingArchive {
   private readonly writer: RecordingObjectWriter;
 

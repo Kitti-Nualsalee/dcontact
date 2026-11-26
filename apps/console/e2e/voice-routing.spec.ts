@@ -27,7 +27,7 @@ const item = (name: string, kind: string) => ({
 });
 test.use({ locale: 'th-TH' });
 for (const section of ['queues', 'skills'])
-  test(`production auth root เปิด Voice ${section} โดยไม่บังคับ Interaction context`, async ({
+  test(`production auth root opens Voice ${section} without forcing an Interaction context`, async ({
     page,
   }) => {
     await page.goto(`/?view=voice-routing&section=${section}&tenant=demo&authRootHarness=1`);
@@ -110,7 +110,7 @@ async function fill(page: Page, name: string, skill = false) {
   await page.getByRole('option', { name: 'ทีม UAT' }).click();
 }
 for (const kind of ['queues', 'skills'])
-  test(`${kind}: create→readback→reload และไม่ใช้ lease/SIP/WS`, async ({ page }) => {
+  test(`${kind}: create→readback→reload and no lease/SIP/WS`, async ({ page }) => {
     const data = await harness(page);
     const forbidden: string[] = [];
     page.on('request', (r) => {
@@ -138,7 +138,7 @@ for (const kind of ['queues', 'skills'])
     await page.screenshot({ path: `/tmp/dcontact-b1-${kind}-th.png`, fullPage: true });
   });
 for (const outcome of ['lost response', 'HTTP 408'])
-  test(`${outcome} + reload → command lookup เดิม → readback โดยไม่ส่ง create ใหม่`, async ({
+  test(`${outcome} + reload → original command lookup → readback without sending a new create`, async ({
     page,
   }) => {
     const data = await harness(
@@ -168,7 +168,9 @@ for (const outcome of ['lost response', 'HTTP 408'])
     expect(data.commands).toHaveLength(1);
     expect(data.reads()).toBeGreaterThan(0);
   });
-test('Supervisor อ่านอย่างเดียว และ missing policy กัน create พร้อมบอกเหตุผล', async ({ page }) => {
+test('a Supervisor is read-only, and a missing policy blocks create with the reason', async ({
+  page,
+}) => {
   await harness(page, { readOnly: true });
   await page.goto('/?view=voice-routing&tenant=demo');
   await expect(page.getByText('อ่านอย่างเดียวสำหรับ Supervisor', { exact: true })).toBeVisible();
@@ -182,7 +184,7 @@ test('Supervisor อ่านอย่างเดียว และ missing po
   await expect(page.getByRole('button', { name: 'สร้างรายการ', exact: true })).toBeDisabled();
 });
 for (const status of [401, 403])
-  test(`HTTP ${status} แสดงสถานะสิทธิ์และไม่เปิด create`, async ({ page }) => {
+  test(`HTTP ${status} shows a permission status and does not open create`, async ({ page }) => {
     await harness(page, { status });
     await page.goto('/?view=voice-routing&tenant=demo');
     await expect(page.getByRole('alert')).toContainText(
@@ -192,7 +194,7 @@ for (const status of [401, 403])
   });
 test.describe('English', () => {
   test.use({ locale: 'en-US' });
-  test('แสดง catalog และ policy ภาษาอังกฤษ', async ({ page }) => {
+  test('shows the English catalog and policy', async ({ page }) => {
     await harness(page);
     await page.goto('/?view=voice-routing&tenant=demo');
     await expect(
@@ -204,7 +206,9 @@ test.describe('English', () => {
 });
 
 for (const mode of ['shell', 'shell-off', 'legacy-pages'] as const)
-  test(`${mode}: สลับคิว/skill ไฮไลต์ตรงหน้าและย้อนกลับโดยไม่ reload`, async ({ page }) => {
+  test(`${mode}: switching queue/skill highlights the right page and goes back without reload`, async ({
+    page,
+  }) => {
     await harness(page, { shellV2: mode !== 'shell-off', legacyPages: mode === 'legacy-pages' });
     await page.goto('/?view=voice-routing&section=queues&tenant=demo');
     await expect(page.getByRole('heading', { name: 'คิว Voice', exact: true })).toBeVisible();

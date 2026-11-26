@@ -118,7 +118,7 @@ export function Cg5Dashboard({ api, viewer }: { api: Cg5ConsoleApi; viewer: Gove
     () =>
       Object.entries(metricKeys).map(([key, labelKey]) => ({
         label: t(labelKey),
-        // ไม่มี projection (เช่น backfill ยังไม่จบ) ต้องบอกว่าไม่พร้อม ไม่ใช่แสดง 0 ที่ดูเหมือนตัวเลขจริง
+        // with no projection (e.g. backfill not finished) it must say not ready, not show a 0 that looks like a real number
         value:
           metrics.data?.items
             .filter((item) => item.metricKey === key)

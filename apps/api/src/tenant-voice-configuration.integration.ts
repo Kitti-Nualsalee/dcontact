@@ -146,7 +146,7 @@ test('B4 authenticated HTTP/PostgreSQL: atomic config, receipts, scoped projecti
     commandId: randomUUID(),
     expectedRevision,
     reasonCode: 'CONFIG_CHANGE',
-    reason: 'เตรียมทีมทดสอบ',
+    reason: 'Prepare a test team',
   });
   const create = async (kind: 'queues' | 'skills', team = teamId) => {
     const result = await request(`/${kind}`, 'POST', {
@@ -328,10 +328,10 @@ test('B4 authenticated HTTP/PostgreSQL: atomic config, receipts, scoped projecti
       assert.equal((await active.json()).code, 'CAPABILITY_NOT_READY');
       const renamed = await request(`/queues/${queue.id}`, 'PATCH', {
         ...envelope(2),
-        name: '  คิว   ใหม่  ',
+        name: '  New   queue  ',
       });
       assert.equal(renamed.status, 200, await renamed.clone().text());
-      assert.equal((await renamed.json()).name, 'คิว ใหม่');
+      assert.equal((await renamed.json()).name, 'New queue');
       const enabled = await request(`/queues/${queue.id}`, 'PATCH', {
         ...envelope(3),
         isActive: true,
@@ -744,7 +744,7 @@ test('B4 authenticated HTTP/PostgreSQL: atomic config, receipts, scoped projecti
     });
   });
   await context.test(
-    '#991 คิว managed เปิด recording ได้และเปิดใช้ได้; auto QM/transcription ยังกันไว้',
+    '#991 a managed queue can enable recording and be enabled; auto QM/transcription is still blocked',
     async () => {
       await owner.$executeRaw`UPDATE voice_managed_runtime_readiness SET expires_at=clock_timestamp()+interval '1 minute' WHERE tenant_id=${tenantId}::uuid`;
       const revisionOf = async () =>
@@ -773,7 +773,7 @@ test('B4 authenticated HTTP/PostgreSQL: atomic config, receipts, scoped projecti
       const body = await activated.json();
       assert.equal(body.isActive, true);
       assert.equal(body.recordingEnabled, true);
-      // คิวเปิดอยู่แต่ runtime หมดอายุ: trigger RAISE ผ่าน UnknownRequestError ต้องได้ 503 ไม่ใช่ 500
+      // the queue is open but the runtime has expired: a trigger RAISE through UnknownRequestError must get 503, not 500
       await owner.$executeRaw`UPDATE voice_managed_runtime_readiness SET expires_at=clock_timestamp()-interval '1 second' WHERE tenant_id=${tenantId}::uuid`;
       const notReady = await request(`/queues/${queue.id}`, 'PATCH', {
         ...envelope(await revisionOf()),

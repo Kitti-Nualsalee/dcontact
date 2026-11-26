@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createAgentWorkspaceApi, workspaceSocketUrl } from './agent-api.js';
 
-test('Agent API ส่งเฉพาะ bearer token และไม่รับ tenant/user จาก browser', async () => {
+test('Agent API sends only the bearer token and does not accept tenant/user from the browser', async () => {
   const requests: { input: string; init?: RequestInit }[] = [];
   const api = createAgentWorkspaceApi({
     baseUrl: 'https://api.example',
@@ -46,7 +46,7 @@ test('Agent API ส่งเฉพาะ bearer token และไม่รั�
   });
 });
 
-test('Agent API ปฏิเสธการเรียกเมื่อไม่มี access token ใน memory', async () => {
+test('Agent API rejects calls when there is no access token in memory', async () => {
   const api = createAgentWorkspaceApi({
     baseUrl: 'https://api.example',
     accessToken: () => undefined,
@@ -56,7 +56,7 @@ test('Agent API ปฏิเสธการเรียกเมื่อไม�
   await assert.rejects(api.snapshot(), /authenticated access token/);
 });
 
-test('เปิดรับสายส่ง lease และรอ acknowledgement AVAILABLE จาก server', async () => {
+test('opening for calls sends the lease and waits for the AVAILABLE acknowledgement from the server', async () => {
   let sent: RequestInit | undefined;
   const api = createAgentWorkspaceApi({
     baseUrl: 'https://api.example',
@@ -77,7 +77,7 @@ test('เปิดรับสายส่ง lease และรอ acknowledgem
   assert.deepEqual(JSON.parse(String(sent?.body)), { state: 'AVAILABLE' });
 });
 
-test('เปิดรับสายผ่าน embedded authorizedFetch และไม่ยอมรับ error/ack ที่ผิด', async () => {
+test('opening for calls through embedded authorizedFetch and rejecting a wrong error/ack', async () => {
   for (const [status, body] of [
     [403, { code: 'WORK_SESSION_CHANGED' }],
     [200, { state: 'OFFLINE' }],
@@ -95,7 +95,7 @@ test('เปิดรับสายผ่าน embedded authorizedFetch แล
   }
 });
 
-test('live event ของ Workspace ใช้ D-Contact WebSocket โดยไม่ใส่ token ใน URL', () => {
+test('Workspace live events use the D-Contact WebSocket without putting a token in the URL', () => {
   assert.equal(
     workspaceSocketUrl('https://api.example/anything?access_token=must-not-survive'),
     'wss://api.example/api/v1/workspace-session',
@@ -106,7 +106,7 @@ test('live event ของ Workspace ใช้ D-Contact WebSocket โดยไ�
   );
 });
 
-test('#956 เปิดเคสส่ง commandId และร่างไปที่ API เคส ส่วน error มี code จาก server', async () => {
+test('#956 opening a case sends commandId and the draft to the case API, and an error carries the code from the server', async () => {
   const requests: { input: string; init?: RequestInit }[] = [];
   let reply: Response = new Response(JSON.stringify({ caseId: 'case-1', version: 1 }), {
     status: 201,
@@ -122,8 +122,8 @@ test('#956 เปิดเคสส่ง commandId และร่างไป�
 
   const opened = await api.openCase!({
     interactionId: '9a8a5477-aa53-4254-ae68-a21ab64cc2bb',
-    subject: 'ขอเปลี่ยนเครื่อง',
-    note: 'รอคลังยืนยัน',
+    subject: 'Request device replacement',
+    note: 'Waiting for warehouse confirmation',
     commandId: '04e5b24d-f298-4e5e-83d9-2cadfd7ed204',
   });
   assert.deepEqual(opened, { caseId: 'case-1', version: 1 });
@@ -132,8 +132,8 @@ test('#956 เปิดเคสส่ง commandId และร่างไป�
   assert.deepEqual(JSON.parse(String(requests[0]?.init?.body)), {
     commandId: '04e5b24d-f298-4e5e-83d9-2cadfd7ed204',
     interactionId: '9a8a5477-aa53-4254-ae68-a21ab64cc2bb',
-    subject: 'ขอเปลี่ยนเครื่อง',
-    note: 'รอคลังยืนยัน',
+    subject: 'Request device replacement',
+    note: 'Waiting for warehouse confirmation',
   });
 
   reply = new Response(JSON.stringify({ code: 'CONTACT_REQUIRED' }), { status: 409 });
@@ -149,10 +149,10 @@ test('#956 เปิดเคสส่ง commandId และร่างไป�
   );
 
   reply = new Response(
-    JSON.stringify({ items: [{ userId: 'u-1', displayName: 'สมหญิง' }, { userId: 2 }] }),
+    JSON.stringify({ items: [{ userId: 'u-1', displayName: 'Alice' }, { userId: 2 }] }),
     { status: 200 },
   );
-  assert.deepEqual(await api.caseTeamAgents!(), [{ userId: 'u-1', displayName: 'สมหญิง' }]);
+  assert.deepEqual(await api.caseTeamAgents!(), [{ userId: 'u-1', displayName: 'Alice' }]);
   assert.equal(
     requests.at(-1)?.input,
     'https://api.example/api/v1/workspace/agent/cases/team-agents',

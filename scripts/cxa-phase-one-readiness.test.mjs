@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { CXA_PHASE_ONE_READINESS_CHECKS, cxaPhaseOneSummary } from './cxa-phase-one-readiness.mjs';
 
-test('CX Automation Phase 1 gate ครบ regression, schema, governance, ingress, Kafka และ two-tenant journey', () => {
+test('CX Automation Phase 1 gate covers regression, schema, governance, ingress, Kafka and a two-tenant journey', () => {
   assert.equal(CXA_PHASE_ONE_READINESS_CHECKS[0]?.id, 'phase-two-regression');
   assert.deepEqual(
     CXA_PHASE_ONE_READINESS_CHECKS.find(({ id }) => id === 'tenant-isolation')?.command,
@@ -32,7 +32,7 @@ test('CX Automation Phase 1 gate ครบ regression, schema, governance, ingre
   assert.doesNotMatch(serialized, /production SLA/i);
 });
 
-test('CX Automation Phase 1 marker ปรากฏเฉพาะเมื่อทุก gate ผ่าน', () => {
+test('CX Automation Phase 1 marker appears only when every gate passes', () => {
   assert.equal(
     cxaPhaseOneSummary([{ status: 'PASS' }, { status: 'PASS' }]).entryCondition,
     'CX_AUTOMATION_PHASE_1_ACCEPTED',

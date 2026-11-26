@@ -123,7 +123,7 @@ async function setup(t: TestContext) {
   const document = (name = 'j1-schedule'): AuthoringDocumentV1 =>
     importJourneyDefinition({ ...fixture(name), ownerTeamId: teamId });
 
-  /** candidate ที่ APPROVED — ขั้น submit/vote เป็นของ J5.3 จึงสร้างตรงด้วย owner role */
+  /** APPROVED candidate — the submit/vote step belongs to J5.3, so it is created directly with the owner role */
   const approve = async (journeyId: string, repo = repository()) => {
     const head = await owner.jrJourneyHead.findUniqueOrThrow({
       where: { tenantId_journeyId: { tenantId, journeyId } },
@@ -152,7 +152,7 @@ async function setup(t: TestContext) {
         state: 'APPROVED',
       },
     });
-    // vote อิสระหนึ่งใบ — J5.3 ตรวจ epoch/scope ของผู้อนุมัติซ้ำตอน publish
+    // one independent vote — J5.3 rechecks the approver's epoch/scope again at publish
     await owner.jrReviewDecisionRecord.create({
       data: {
         tenantId,
@@ -201,7 +201,7 @@ const rejects = (promise: Promise<unknown>, code: string) =>
     (error: unknown) => error instanceof JourneyAuthoringError && error.code === code,
   );
 
-test('J5-ID01 draft CAS + idempotency: key เดิมได้ผลเดิม, key เดิม payload ต่าง conflict, stale ไม่เกิด revision', async (t) => {
+test('J5-ID01 draft CAS + idempotency: same key gets the same result, same key with a different payload conflicts, stale creates no revision', async (t) => {
   const f = await setup(t);
   const repo = f.repository();
   const createKey = `create-${randomUUID()}`;
@@ -238,7 +238,7 @@ test('J5-ID01 draft CAS + idempotency: key เดิมได้ผลเดิ�
   assert.equal(updated.draftRevision, 2);
   assert.equal(updated.headVersion, 2);
 
-  // CAS เก่าแพ้ และไม่มี revision ใหม่เกิดขึ้น — ไม่มี auto-merge
+  // the old CAS loses and no new revision is created — no auto-merge
   const staleKey = `stale-${randomUUID()}`;
   await rejects(
     repo.updateJourneyDraft(f.context(staleKey), { ...cas, document: f.document() }),
@@ -253,13 +253,13 @@ test('J5-ID01 draft CAS + idempotency: key เดิมได้ผลเดิ�
     'DRAFT_VERSION_CONFLICT',
   );
   assert.equal(await f.owner.jrJourneyDraft.count({ where: { journeyId: created.journeyId } }), 2);
-  // ผลล้มแบบ deterministic ถูกจำใน receipt: key เดิมได้ error เดิมแม้ภายหลังจะผ่านได้
+  // a deterministic failure is remembered in the receipt: the same key gets the same error even if it would pass later
   await rejects(
     repo.updateJourneyDraft(f.context(staleKey), { ...cas, document: f.document() }),
     'PUBLISHED_HEAD_CONFLICT',
   );
 
-  // schema พังบันทึกไม่ได้ แต่ graph ไม่สมบูรณ์บันทึกได้พร้อม diagnostics
+  // a broken schema cannot be saved, but an incomplete graph can be saved with diagnostics
   await rejects(
     repo.updateJourneyDraft(f.context(), {
       ...cas,
@@ -281,7 +281,7 @@ test('J5-ID01 draft CAS + idempotency: key เดิมได้ผลเดิ�
   assert.ok(saved.diagnostics.some((item) => item.code === 'PORT_CARDINALITY_INVALID'));
 });
 
-test('J5-CC01 update พร้อมกันด้วย CAS เดียวกันชนะได้ตัวเดียว', async (t) => {
+test('J5-CC01 concurrent updates with the same CAS: only one wins', async (t) => {
   const f = await setup(t);
   const repo = f.repository();
   const created = await repo.createJourneyDraft(f.context(), {
@@ -310,7 +310,7 @@ test('J5-CC01 update พร้อมกันด้วย CAS เดียวก
   assert.equal(await f.owner.jrJourneyDraft.count({ where: { journeyId: created.journeyId } }), 2);
 });
 
-test('J5-AU02 rollout ปิดหรือไม่มีสิทธิ์ fail closed และ tenant อื่นมองไม่เห็น journey', async (t) => {
+test('J5-AU02 rollout off or no permission fails closed and other tenants cannot see the journey', async (t) => {
   const f = await setup(t);
   const created = await f.repository().createJourneyDraft(f.context(), {
     ownerTeamId: f.teamId,
@@ -342,7 +342,7 @@ test('J5-AU02 rollout ปิดหรือไม่มีสิทธิ์ fai
     'DEPENDENCY_UNAVAILABLE',
   );
 
-  // foreign/missing ตอบ not-found แบบเดียวกัน
+  // foreign/missing answer with the same not-found
   await rejects(
     f.repository().getJourneyAuthoringState(f.otherTenantId, f.context().actor, created.journeyId),
     'JOURNEY_NOT_FOUND',
@@ -353,7 +353,7 @@ test('J5-AU02 rollout ปิดหรือไม่มีสิทธิ์ fai
   );
 });
 
-test('J5-ID01/RC01 publish atomic: key เดิมไม่ duplicate, resolve ด้วย key เดิม และ crash ไม่ทิ้ง state ครึ่งเดียว', async (t) => {
+test('J5-ID01/RC01 atomic publish: same key does not duplicate, resolve with the same key, and a crash leaves no half-written state', async (t) => {
   const f = await setup(t);
   const created = await f.repository().createJourneyDraft(f.context(), {
     ownerTeamId: f.teamId,
@@ -362,7 +362,7 @@ test('J5-ID01/RC01 publish atomic: key เดิมไม่ duplicate, resolve 
   const binding = await f.approve(created.journeyId);
   const publishKey = `publish-${randomUUID()}`;
 
-  // crash หลังเขียน definition และหลังขยับ head: rollback ทั้งชุด ไม่มี version ค้าง
+  // crash after writing the definition and after moving the head: the whole set rolls back, no dangling version
   for (const boundary of ['DEFINITION_PUBLISHED', 'HEAD_ACTIVATED'] as const) {
     const crashing = f.repository({
       checkpoint: (name) => {
@@ -384,7 +384,7 @@ test('J5-ID01/RC01 publish atomic: key เดิมไม่ duplicate, resolve 
   const published = await f.repository().publishJourneyDraft(f.context(publishKey), binding);
   assert.equal(published.outcome, 'PUBLISHED');
   assert.equal(published.version, 1);
-  // client ที่ไม่รู้ผลส่งซ้ำด้วย key เดิม: ได้ผลเดิม ไม่เกิด version ใหม่
+  // a client that does not know the outcome resends with the same key: gets the same result, no new version
   assert.deepEqual(
     await f.repository().publishJourneyDraft(f.context(publishKey), binding),
     published,
@@ -421,7 +421,7 @@ test('J5-ID01/RC01 publish atomic: key เดิมไม่ duplicate, resolve 
     (await f.owner.jrReviewCandidate.findUniqueOrThrow({ where: { id: binding.reviewId } })).state,
     'SUPERSEDED',
   );
-  // approval ที่ใช้ไปแล้วนำไป publish ซ้ำด้วย key ใหม่ไม่ได้
+  // an approval that was already used cannot be used to publish again with a new key
   await rejects(
     f.repository().publishJourneyDraft(f.context(), {
       ...binding,
@@ -431,7 +431,7 @@ test('J5-ID01/RC01 publish atomic: key เดิมไม่ duplicate, resolve 
     'APPROVAL_REQUIRED',
   );
 
-  // audit/outbox เป็น metadata เท่านั้น ไม่มี document หรือ graph
+  // audit/outbox are metadata only, with no document or graph
   const outbox = await f.owner.jrAuthoringOutbox.findMany({
     where: { resourceId: created.journeyId },
   });
@@ -454,7 +454,7 @@ test('J5-ID01/RC01 publish atomic: key เดิมไม่ duplicate, resolve 
   );
 });
 
-test('J5-CC02 stale draft/head/review/capability ไม่เกิด version ใหม่', async (t) => {
+test('J5-CC02 stale draft/head/review/capability creates no new version', async (t) => {
   const f = await setup(t);
   const repo = f.repository();
   const created = await repo.createJourneyDraft(f.context(), {
@@ -463,7 +463,7 @@ test('J5-CC02 stale draft/head/review/capability ไม่เกิด version �
   });
   const binding = await f.approve(created.journeyId);
 
-  // capability registry เปลี่ยนหลัง compile → artifact stale
+  // the capability registry changes after compile → the artifact is stale
   const changed = f.repository({
     capabilities: JOURNEY_RUNTIME_CAPABILITIES.map((capability) => ({ ...capability, version: 2 })),
   });
@@ -473,7 +473,7 @@ test('J5-CC02 stale draft/head/review/capability ไม่เกิด version �
     'REVIEW_CANDIDATE_STALE',
   );
 
-  // draft ขยับหลัง review: publish ด้วย binding เดิมต้องแพ้
+  // the draft moved after review: publishing with the old binding must lose
   const edited = f.document();
   (edited.settings as { maxDurationDays: number }).maxDurationDays = 30;
   const updated = await repo.updateJourneyDraft(f.context(), {
@@ -493,7 +493,7 @@ test('J5-CC02 stale draft/head/review/capability ไม่เกิด version �
     0,
   );
 
-  // compile ของ revision เก่ายังคืนผลได้แต่ติดธง stale
+  // compiling an old revision still returns a result but flagged stale
   const stale = await repo.compileJourneyDraft(f.tenantId, f.context().actor, {
     journeyId: created.journeyId,
     draftRevision: 1,
@@ -503,7 +503,7 @@ test('J5-CC02 stale draft/head/review/capability ไม่เกิด version �
   assert.ok(stale.artifact);
 });
 
-test('J5-RC02 lifecycle: PAUSED หยุด enrollment ใหม่แต่ของเดิมเดินต่อ, DEPRECATED แก้ไม่ได้, roll-forward/clone/discard', async (t) => {
+test('J5-RC02 lifecycle: PAUSED stops new enrollment but existing ones continue, DEPRECATED cannot be edited, roll-forward/clone/discard', async (t) => {
   const f = await setup(t);
   const repo = f.repository();
   const created = await repo.createJourneyDraft(f.context(), {
@@ -535,7 +535,7 @@ test('J5-RC02 lifecycle: PAUSED หยุด enrollment ใหม่แต่ข
     reasonCode: 'OPERATOR_PAUSE',
   });
   await assert.rejects(enroll('2026-09-08T09:00:00.000Z'), JourneyNotAcceptingEnrollmentsError);
-  // replay ของ occurrence เดิมยังได้ enrollment ใบเดิม และ enrollment เดิมยังเดินต่อ
+  // replaying the same occurrence still gets the same enrollment and the existing enrollment continues
   assert.equal((await enroll('2026-09-01T09:00:00.000Z')).enrollmentId, before.enrollmentId);
   const advanced = await execution.advance(f.tenantId, before.enrollmentId, {
     correlationId: 'corr',
@@ -559,7 +559,7 @@ test('J5-RC02 lifecycle: PAUSED หยุด enrollment ใหม่แต่ข
   });
   assert.ok(await enroll('2026-09-15T09:00:00.000Z'));
 
-  // roll-forward: draft ใหม่จาก version เดิม, clone: journey ใหม่ที่ไม่มี enrollment ติดไป
+  // roll-forward: a new draft from the existing version; clone: a new journey with no enrollment carried over
   const rolled = await repo.createRollForwardFromVersion(f.context(), {
     journeyId: created.journeyId,
     sourceVersion: 1,
@@ -683,7 +683,7 @@ for (const operation of ['publish', 'resume', 'transfer', 'rollForward', 'clone'
       });
     });
 
-test('Core Team fence: raw ACTIVE Journey publication ต้องปฏิเสธ legacy inactive Team', async (t) => {
+test('Core Team fence: a raw ACTIVE Journey publication must reject a legacy inactive Team', async (t) => {
   const f = await setup(t);
   const repo = f.repository();
   const created = await repo.createJourneyDraft(f.context(), {

@@ -1,9 +1,9 @@
 /**
- * Platform API client ของ Console (A1.7 #412) — ตาม #388 checkpoint 1
+ * Platform API client of the Console (A1.7 #412) — per #388 checkpoint 1
  *
- * - token มาจาก OIDC session ใน memory ทุก request (ไม่เก็บใน localStorage/URL)
- * - error ทุกแบบกลายเป็น `PlatformApiError` ที่ถือ envelope ของ API (network = code `NETWORK`)
- * - body ไม่มีช่อง tenantId/status: target resolve จาก path และ record ฝั่ง server เสมอ
+ * - the token comes from the in-memory OIDC session on every request (never stored in localStorage/URL)
+ * - every kind of error becomes a `PlatformApiError` that holds the API envelope (network = code `NETWORK`)
+ * - the body has no tenantId/status field: the target is always resolved from the path and the server-side record
  */
 import type {
   ActionHistoryItem,

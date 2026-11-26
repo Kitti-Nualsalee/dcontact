@@ -1,9 +1,9 @@
 /**
- * #956 — HTTP ของเคสที่ Agent ดูแลในทีม (`/api/v1/workspace/agent/cases`)
+ * #956 — the HTTP of the cases an Agent handles in the team (`/api/v1/workspace/agent/cases`)
  *
- * การเขียน `cs_*` ทั้งหมดผ่าน `AgentCases` ของ `@d-contact/cases` ไฟล์นี้แปลง HTTP เป็นคำสั่ง
- * แปลง error เป็น status และเติมชื่อคนกับลูกค้าสำหรับแสดงผล
- * ชื่อลูกค้าแสดงเฉพาะเมื่อทีมของผู้ดูยังมีสิทธิ์ WORK หรือ VIEW บนลูกค้ารายนั้นใน Customer 360
+ * all `cs_*` writes go through `AgentCases` of `@d-contact/cases`; this file turns HTTP into commands,
+ * maps errors to a status and fills in person and customer names for display
+ * a customer name is shown only when the viewer's team still has WORK or VIEW permission on that customer in Customer 360
  */
 import {
   BadRequestException,
@@ -38,7 +38,7 @@ import { GatewayRoles, type AuthenticatedGatewayRequest } from './gateway-auth.j
 export const AGENT_CASES_DATABASE = Symbol('AGENT_CASES_DATABASE');
 const logger = new Logger('AgentCases');
 
-/** log เฉพาะชนิดและ code ของ error ไม่ log body หรือข้อความที่อาจมีข้อมูลลูกค้า */
+/** logs only the kind and code of the error, never the body or a message that may contain customer data */
 function errorSummary(error: unknown) {
   const code =
     error && typeof error === 'object' && 'code' in error && typeof error.code === 'string'
@@ -48,7 +48,7 @@ function errorSummary(error: unknown) {
 }
 export const AGENT_CASES_CUSTOMER_ACCESS = Symbol('AGENT_CASES_CUSTOMER_ACCESS');
 
-/** ตอบว่าทีมของผู้ดูเห็นลูกค้ารายนี้ได้ตอนนี้หรือไม่ ไม่โยน error (ตรวจไม่ได้ = ไม่เห็น) */
+/** answers whether the viewer's team can see this customer right now, without throwing (cannot check = cannot see) */
 export type CaseCustomerAccess = (
   transaction: Prisma.TransactionClient,
   actor: { tenantId: string; userId: string; role: 'AGENT'; teamId: string },
@@ -66,7 +66,7 @@ function actorOf(request: AuthenticatedGatewayRequest): AgentCaseActor {
   return { tenantId: identity.tenantId, userId: identity.userId };
 }
 
-/** แปลง error ของ Cases เป็น HTTP พร้อม code และ correlationId ให้ client ตัดสินใจได้ */
+/** maps a Cases error to HTTP with a code and correlationId so the client can decide */
 export function caseHttpError(error: unknown, correlationId?: string): HttpException {
   if (error instanceof HttpException) return error;
   if (error instanceof AgentCaseError) {
@@ -238,7 +238,7 @@ export class AgentCasesController {
     }
   }
 
-  /** ชื่อของคนที่ปรากฏในรายการหรือไทม์ไลน์ รวมคนที่ย้ายทีมหรือปิดบัญชีแล้ว (อยู่ใน tenant เดียวกัน) */
+  /** the names of people appearing in the list or timeline, including those who moved team or whose account is closed (in the same tenant) */
   private async people(actor: AgentCaseActor, ids: string[]): Promise<Record<string, string>> {
     if (ids.length === 0) return {};
     const rows = await withTenantDatabaseTransaction(this.database, actor.tenantId, (transaction) =>
@@ -261,8 +261,8 @@ export class AgentCasesController {
   }
 
   /**
-   * อ่านชื่อและบริษัทของลูกค้าเฉพาะรายที่ทีมของผู้ดูมีสิทธิ์ WORK หรือ VIEW ตอนนี้
-   * รายที่ไม่มีสิทธิ์หรือตรวจไม่ได้จะไม่อยู่ใน Map แล้วหน้าจอแสดง "ไม่มีข้อมูลลูกค้า"
+   * reads the name and company of a customer only for the ones the viewer's team has WORK or VIEW permission on right now
+   * ones without permission or that cannot be checked are not in the Map and the screen shows "no customer data"
    */
   private async customers(
     actor: AgentCaseActor,
@@ -275,7 +275,7 @@ export class AgentCasesController {
     try {
       await this.readCustomers(actor, unique, result);
     } catch (error) {
-      // โหลดลูกค้าไม่ได้ไม่ทำให้เคสเปิดไม่ได้ หน้าจอแสดงว่าไม่มีข้อมูลลูกค้าแทน (fail closed)
+      // failing to load the customers does not stop the case from opening, the screen shows no customer data instead (fail closed)
       logger.warn({ event: 'case_customer_unavailable', correlationId, ...errorSummary(error) });
       return new Map();
     }
@@ -311,15 +311,15 @@ export class AgentCasesController {
   }
 }
 
-/** ค่าเริ่มต้น: ใช้กฎ WORK/VIEW ของ Customer 360 ชุดเดียวกับแผงลูกค้าใน Workspace */
+/** the default: uses the same Customer 360 WORK/VIEW rules as the customer panel in the Workspace */
 export const customer360Access: CaseCustomerAccess = async (transaction, actor, contactId) => {
   for (const permission of ['WORK', 'VIEW'] as const) {
     try {
       await authorizeC360WorkContact(transaction, actor, contactId, permission);
       return true;
     } catch (error) {
-      // ไม่มีสิทธิ์ระดับนี้ หรือ scope ยังตามไม่ทัน ลองระดับถัดไป ส่วน DB error ทำให้ transaction
-      // ใช้ต่อไม่ได้ จึงโยนต่อให้ customers() ตอบว่าไม่มีข้อมูลลูกค้าทั้งชุด
+      // no permission at this level or the scope has not caught up, try the next level; a DB error makes the transaction
+      // unusable, so it is rethrown for customers() to answer with no customer data for the whole set
       if (!(error instanceof C360WorkError)) throw error;
     }
   }

@@ -1,4 +1,4 @@
-/** S1.5 — Journey-owned immutable inbox สำหรับ Delivery barrier lifecycle. */
+/** S1.5 — Journey-owned immutable inbox for the Delivery barrier lifecycle. */
 import { createHash, randomUUID } from 'node:crypto';
 import { Prisma, type PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
 import type {
@@ -23,9 +23,9 @@ function bindingHash(input: JourneyActionLifecycleRecord): string {
 }
 
 /**
- * ปฏิเสธ binding ที่หายหรือขัดกัน และห้ามอนุมาน lifecycle transition เอง
- * Delivery retry eventId เดิมได้ปลอดภัย; payload ที่เปลี่ยนใต้ id เดิมจะถูก quarantine
- * ด้วยการ throw ก่อน Journey action ใดขยับสถานะ
+ * Rejects missing or conflicting bindings and never infers a lifecycle transition on its own.
+ * Delivery may safely retry the same eventId; a payload that changes under the same id is quarantined
+ * by throwing before any Journey action changes state.
  */
 export class JourneyActionLifecycleInboxService implements JourneyActionLifecyclePort {
   constructor(private readonly database: PrismaClient) {}
@@ -43,7 +43,7 @@ export class JourneyActionLifecycleInboxService implements JourneyActionLifecycl
       });
       if (existing) {
         if (existing.bindingHash !== hash) {
-          throw new Error('Journey lifecycle eventId มี immutable binding ที่ขัดแย้งกัน');
+          throw new Error('Journey lifecycle eventId has a conflicting immutable binding');
         }
         return;
       }
@@ -51,12 +51,13 @@ export class JourneyActionLifecycleInboxService implements JourneyActionLifecycl
         where: { tenantId, actionKey: input.actionKey, reservationId: input.reservationId },
         select: { id: true, realtimeState: true, deliveryId: true, providerRequestKey: true },
       });
-      if (!action) throw new Error('Journey lifecycle ไม่พบ action/reservation binding');
+      if (!action)
+        throw new Error('Journey lifecycle could not find the action/reservation binding');
       if (
         (action.deliveryId && action.deliveryId !== input.deliveryId) ||
         (action.providerRequestKey && action.providerRequestKey !== input.providerRequestKey)
       ) {
-        throw new Error('Journey lifecycle delivery/provider binding ขัดแย้งกัน');
+        throw new Error('Journey lifecycle delivery/provider binding conflicts');
       }
       const expected =
         input.state === 'PRE_BARRIER'
@@ -66,7 +67,7 @@ export class JourneyActionLifecycleInboxService implements JourneyActionLifecycl
             : ['POST_BARRIER'];
       if (!expected.includes(action.realtimeState)) {
         throw new Error(
-          `Journey lifecycle transition ไม่ถูกต้องจาก ${action.realtimeState} ไป ${input.state}`,
+          `Journey lifecycle transition is invalid from ${action.realtimeState} to ${input.state}`,
         );
       }
       await transaction.jrAction.update({

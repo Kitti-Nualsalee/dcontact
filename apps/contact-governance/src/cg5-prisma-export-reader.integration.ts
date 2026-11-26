@@ -43,7 +43,7 @@ async function fixture(t: TestContext) {
   return { tenantId, application };
 }
 
-test('CG5.8 canonical reader ดึงจาก audit canonical และ redacts SUMMARY', async (t) => {
+test('the CG5.8 canonical reader pulls from the canonical audit and redacts SUMMARY', async (t) => {
   const f = await fixture(t);
   const reader = new PrismaCg5CanonicalExportReader(f.application);
   const input = {

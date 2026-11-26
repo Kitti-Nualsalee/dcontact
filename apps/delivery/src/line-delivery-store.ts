@@ -1,10 +1,10 @@
 /**
- * Owner: Delivery/Channels — shared in-memory durable store ของ LINE simulation (S1.6)
+ * Owner: Delivery/Channels — shared in-memory durable store of the LINE simulation (S1.6)
  *
- * "durable" ในความหมายของ S1 คือ: state ทั้งหมดอยู่ในอินสแตนซ์นี้เดียว ไม่ใช่ private field
- * ของ `LineDeliveryPort` — restart จำลองได้โดยสร้าง `LineDeliveryPort` ใหม่ผูกกับ store
- * เดิม (ดู `line-delivery-port.ts`), แล้ว replay จาก event log กลับสู่ state เดิมทุกครั้ง
- * ไม่มี Prisma, ไม่มี process จริง — เป็นแค่ boundary ที่ทำให้ "restart" มีความหมายทดสอบได้
+ * "durable" in the S1 sense means: all state lives in this single instance, not in a private field
+ * of `LineDeliveryPort` — a restart can be simulated by creating a new `LineDeliveryPort` bound to the same
+ * store (see `line-delivery-port.ts`), then replaying from the event log back to the same state every time.
+ * No Prisma, no real process — it is only a boundary that makes "restart" meaningful to test
  */
 
 export type LineDeliveryState =
@@ -36,7 +36,7 @@ export interface LineDeliveryRecord {
   correlationId: string;
   causationId?: string;
   inputHash: string;
-  /** leaseVersion ของ reservation ตอน claim สำเร็จ — ใช้เป็น CAS ตอน beginProviderSubmission */
+  /** leaseVersion of the reservation at the successful claim — used as the CAS at beginProviderSubmission */
   leaseVersion: number;
   state: LineDeliveryState;
   outcome?: 'DELIVERED' | 'DELIVERY_FAILED' | 'PROVIDER_REJECTED' | 'UNKNOWN_RECONCILING';
@@ -47,10 +47,10 @@ export interface LineDeliveryRecord {
   submittedAtMs?: number;
   settledAtMs?: number;
   /**
-   * true เมื่อเข้า UNKNOWN_RECONCILING หลังจาก provider เคย ACCEPTED แล้ว (Governance
-   * confirm ไปแล้ว) — ตัดสินว่า reconcile นี้จบได้ด้วย DELIVERED/DELIVERY_FAILED เท่านั้น
-   * ส่วน reconcile ที่ timeout ก่อนถึง ACCEPTED จบได้ด้วย PROVIDER_REJECTED เท่านั้น ตรงกับ
-   * reservation state ฝั่ง Governance (CONFIRMED vs RESERVED) ที่ `settleDelivery` ยึดอยู่
+   * true when entering UNKNOWN_RECONCILING after the provider had already ACCEPTED (Governance
+   * already confirmed) — decides that this reconcile can end only with DELIVERED/DELIVERY_FAILED,
+   * while a reconcile that timed out before reaching ACCEPTED can end only with PROVIDER_REJECTED, matching the
+   * reservation state on the Governance side (CONFIRMED vs RESERVED) that `settleDelivery` relies on
    */
   reconcilingFromAccepted?: boolean;
 }
@@ -81,7 +81,7 @@ export interface LineStoreEvent {
   detail: string;
 }
 
-/** key เดียวกันของ record/callback/event ต้องคงเดิมทุก restart เพื่อให้ replay ตรงกัน */
+/** The same key of a record/callback/event must stay unchanged across every restart so replay matches */
 function recordKey(tenantId: string, deliveryId: string): string {
   return `${tenantId}:${deliveryId}`;
 }
@@ -125,7 +125,7 @@ export class LineSimulationStore {
   ): LineDeliveryRecord {
     const key = recordKey(tenantId, deliveryId);
     const current = this.records.get(key);
-    if (!current) throw new Error(`ไม่พบ LINE delivery record: ${key}`);
+    if (!current) throw new Error(`LINE delivery record not found: ${key}`);
     const next = { ...current, ...patch };
     this.records.set(key, next);
     this.appendEvent(tenantId, deliveryId, eventType, next.state, nowMs);
@@ -147,7 +147,7 @@ export class LineSimulationStore {
     return this.events;
   }
 
-  /** ใบใหม่ที่ outcomeRef ซ้ำกับใบก่อนหน้าเป็น no-op เดิม; payload ต่างเป็น conflict — ดู #102 §3 */
+  /** A new item whose outcomeRef repeats an earlier one is the same no-op; a different payload is a conflict — see #102 §3 */
   recordOutcomeRef(
     scopeKey: string,
     outcomeRef: string,
@@ -167,7 +167,7 @@ export class LineSimulationStore {
     this.callbackQueue.push(structuredClone(envelope));
   }
 
-  /** ประมวลผลตาม (virtual timestamp, sequence) เสมอ ไม่ว่า test จะ enqueue ลำดับไหนก็ตาม */
+  /** Process by (virtual timestamp, sequence) always, regardless of the order the test enqueued */
   popNextDueCallback(nowMs: number): LineCallbackEnvelope | undefined {
     const dueIndexes = this.callbackQueue
       .map((envelope, index) => ({ envelope, index }))
@@ -189,7 +189,7 @@ export class LineSimulationStore {
 export class OutcomeRefConflictError extends Error {
   readonly code = 'IDEMPOTENCY_CONFLICT';
   constructor(readonly outcomeRef: string) {
-    super(`outcomeRef ${outcomeRef} ถูกใช้กับ payload อื่นแล้ว`);
+    super(`outcomeRef ${outcomeRef} was already used with a different payload`);
     this.name = 'OutcomeRefConflictError';
   }
 }

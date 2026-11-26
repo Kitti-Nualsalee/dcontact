@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { isConsoleNavigation } from './shell/console-navigation.js';
 
-test('Console routing รับเฉพาะหน้า tenant เดิม ไม่รับ callback หรือปลายทางอื่น', () => {
+test('Console routing accepts only pages of the same tenant, not a callback or any other destination', () => {
   const current = new URL('http://127.0.0.1:5188/?tenant=acme&view=governance');
   for (const [href, expected] of [
     ['/?tenant=acme&view=home', true],

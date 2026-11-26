@@ -1,23 +1,23 @@
 import { Prisma } from '@d-contact/db';
 
 /**
- * Cus360 C1 (#791) S3: authorization predicates ตาม R1 C และ E1 G (IAM freshness barrier)
+ * Cus360 C1 (#791) S3: authorization predicates per R1 C and E1 G (IAM freshness barrier)
  *
- * แหล่งความจริงเดียวคือ SQL fragments ด้านล่าง: detail, list และ count ประกอบจาก fragment เดียวกัน
- * จึงไม่มีทางที่ list นับรายการที่ detail ปฏิเสธ (หรือกลับกัน)
+ * The single source of truth is the SQL fragments below: detail, list and count are composed from the same fragments
+ * so a list can never count an item that detail rejects (or vice versa)
  *
- * - Admin: explicit custodian grant (ที่ยังไม่ถูกถอน) — MANAGE แก้ได้, READ อ่านได้; หรือ IAM VIEW
- *   ของทีมตัวเองแบบ fresh สำหรับการอ่านเท่านั้น. role ADMIN อย่างเดียวไม่ให้สิทธิ์ทั้ง tenant
- * - Supervisor: ทีมที่ active + IAM VIEW แบบ fresh, อ่านอย่างเดียว
- * - Agent/บทบาทอื่น: ไม่มี generic/directory access (งานของ Agent อยู่ที่ work routes ใน C5)
- * - IAM: ALLOW เมื่อ projection IN และ membershipRevision ตรงกับ owner head ที่ IN; ไม่ตรง/ขาด/
- *   INVALIDATED = DEFER (ไม่ใช่ ALLOW); ไม่มีแถวทั้งสองฝั่ง = ไม่ใช่สมาชิก
- * - GET ไม่สร้าง identity head หรือหลักฐานใด ๆ; head ที่ขาด (legacy) อ่านแบบ compatibility ได้แต่แก้ไม่ได้
+ * - Admin: explicit custodian grant (not revoked) — MANAGE can edit, READ can read; or IAM VIEW
+ *   of the user's own team, fresh, for reading only. The ADMIN role alone does not grant access to the whole tenant
+ * - Supervisor: an active team + fresh IAM VIEW, read-only
+ * - Agent/other roles: no generic/directory access (Agent work lives in the work routes in C5)
+ * - IAM: ALLOW when the projection is IN and membershipRevision matches an owner head that is IN; mismatched/missing/
+ *   INVALIDATED = DEFER (not ALLOW); no row on either side = not a member
+ * - GET creates no identity head or any evidence; a missing head (legacy) can be read for compatibility but not edited
  */
 
 export type C360ActorRole = 'ADMIN' | 'SUPERVISOR' | 'AGENT';
 
-/** Actor ที่ API ตรวจ verified gateway identity + active User + proof binding แล้ว */
+/** An actor for whom the API has verified gateway identity + active User + proof binding */
 export interface C360VerifiedActor {
   tenantId: string;
   userId: string;
@@ -38,7 +38,7 @@ export type C360ContactAccess =
   | { decision: 'DEFER'; reasonCode: 'SCOPE_CONTEXT_STALE' }
   | { decision: 'DENY' };
 
-/** ผู้ใช้ปัจจุบันใน transaction ต้องตรงกับ actor ที่ API ตรวจไว้ (role/team/active เปลี่ยนแล้ว = ปฏิเสธ) */
+/** The current user in the transaction must match the actor the API verified (role/team/active changed = reject) */
 function actorIsCurrent(actor: C360VerifiedActor): Prisma.Sql {
   return Prisma.sql`EXISTS (
     SELECT 1 FROM users u
@@ -66,8 +66,8 @@ function custodian(
 }
 
 /**
- * แถว segment ที่ทีมได้ VIEW พร้อม projection (IAM) และ owner head (C360) ของ contact นี้
- * `fresh` = ฝั่ง IAM ยังตามทัน owner; `member` = ทั้งสองฝั่งบอกว่า IN
+ * Segment rows the team has VIEW on, with the projection (IAM) and owner head (C360) for this contact
+ * `fresh` = the IAM side has caught up with the owner; `member` = both sides say IN
  */
 function teamViewRows(actor: C360VerifiedActor, condition: Prisma.Sql): Prisma.Sql {
   if ((actor.role !== 'ADMIN' && actor.role !== 'SUPERVISOR') || !actor.teamId)
@@ -87,11 +87,11 @@ function teamViewRows(actor: C360VerifiedActor, condition: Prisma.Sql): Prisma.S
 }
 
 const FRESH_MEMBER = Prisma.sql`p.state = 'IN' AND h.state = 'IN' AND p.membership_revision = h.membership_revision`;
-/** IAM ยังไม่ทัน owner หรือถูก invalidate: ตัดสินไม่ได้ → DEFER */
+/** IAM has not caught up with the owner or was invalidated: cannot decide → DEFER */
 const STALE = Prisma.sql`(p.state = 'INVALIDATED' OR h.state = 'INVALIDATED'
   OR p.membership_revision IS DISTINCT FROM h.membership_revision)`;
 
-/** Fragment สำหรับ `FROM contacts c WHERE ...` ของ list/count/detail: อ่านได้แบบ ALLOW */
+/** Fragment for `FROM contacts c WHERE ...` of list/count/detail: readable as ALLOW */
 export function c360ReadableContactSql(actor: C360VerifiedActor): Prisma.Sql {
   if (actor.role === 'AGENT') return Prisma.sql`false`;
   return Prisma.sql`(c.tenant_id = ${actor.tenantId}::uuid AND ${actorIsCurrent(actor)} AND (
@@ -100,8 +100,8 @@ export function c360ReadableContactSql(actor: C360VerifiedActor): Prisma.Sql {
 }
 
 /**
- * Fragment ของรายการที่ยังตัดสินไม่ได้ (DEFER) และไม่อยู่ในชุด ALLOW
- * C2 ใช้เพื่อแจ้ง unavailable/incomplete แทนการนับเป็น 0 — ห้ามคืนข้อมูลของแถวเหล่านี้
+ * Fragment for items that cannot be decided yet (DEFER) and are not in the ALLOW set
+ * C2 uses it to report unavailable/incomplete instead of counting 0 — never return data of these rows
  */
 export function c360DeferredContactSql(actor: C360VerifiedActor): Prisma.Sql {
   if (actor.role === 'AGENT') return Prisma.sql`false`;
@@ -109,14 +109,14 @@ export function c360DeferredContactSql(actor: C360VerifiedActor): Prisma.Sql {
     AND NOT ${c360ReadableContactSql(actor)} AND ${teamViewRows(actor, STALE)})`;
 }
 
-/** แก้โปรไฟล์ได้เฉพาะ Admin ที่มี MANAGE custodian; IAM VIEW ไม่ให้สิทธิ์แก้ */
+/** Only an Admin with a MANAGE custodian can edit the profile; IAM VIEW does not grant edit rights */
 export function c360ManageableContactSql(actor: C360VerifiedActor): Prisma.Sql {
   if (actor.role !== 'ADMIN') return Prisma.sql`false`;
   return Prisma.sql`(c.tenant_id = ${actor.tenantId}::uuid AND ${actorIsCurrent(actor)}
     AND ${custodian(actor, ['MANAGE'])})`;
 }
 
-/** Detail: ประกอบจาก fragment เดียวกับ list/count; ไม่ล็อกและไม่เขียนอะไร */
+/** Detail: composed from the same fragments as list/count; takes no lock and writes nothing */
 export async function authorizeC360ContactAccess(
   tx: Prisma.TransactionClient,
   actor: C360VerifiedActor,
@@ -143,7 +143,7 @@ export async function authorizeC360ContactAccess(
   if (!row) return { decision: 'DENY' };
   if (row.readable) {
     const identity = (row.identity ?? 'LEGACY_MISSING_HEAD') as C360IdentityView;
-    // แก้ได้เฉพาะ contact ที่ identity ACTIVE; MERGED/AMBIGUOUS/legacy ที่ยังไม่มี head อ่านอย่างเดียว
+    // Editable only for contacts whose identity is ACTIVE; MERGED/AMBIGUOUS/legacy without a head are read-only
     const manage = row.manageable && identity === 'ACTIVE';
     return {
       decision: 'ALLOW',
@@ -161,7 +161,7 @@ export async function authorizeC360ContactAccess(
   return { decision: 'DENY' };
 }
 
-/** R1 C: Admin create ต้องมี CONTACT_CREATE capability ที่ operator ให้และยังไม่ถูกถอน */
+/** R1 C: Admin create requires a CONTACT_CREATE capability that an operator granted and has not revoked */
 export async function authorizeC360ContactCreate(
   tx: Prisma.TransactionClient,
   actor: C360VerifiedActor,

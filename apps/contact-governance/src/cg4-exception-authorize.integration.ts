@@ -50,8 +50,8 @@ async function fixture(t: TestContext) {
 
   t.after(async () => {
     await owner.cg4ExceptionApproval.deleteMany({ where: { tenantId: tenant } });
-    // revision อ้าง head ผ่าน renews_exception_id และ head อ้าง revision ผ่าน current_revision_id
-    // จึงต้องตัด renewal reference ก่อน ถึงจะลบสองตารางนี้ได้
+    // a revision references the head through renews_exception_id and the head references the revision through current_revision_id
+    // so the renewal reference must be cut before these two tables can be deleted
     await owner.cg4Exception.updateMany({
       where: { tenantId: tenant },
       data: { renewsExceptionId: null },
@@ -110,8 +110,8 @@ async function fixture(t: TestContext) {
       grantedAt: new Date('2026-09-01T00:00:00.000Z'),
     },
   });
-  // CG3 policy: quiet hours ที่ CG3 เองไม่อนุญาตให้ override (overridableRules ว่าง) เพื่อพิสูจน์ว่า
-  // Approved exception เป็นกลไกอิสระจาก CG3 allowlist
+  // CG3 policy: quiet hours that CG3 itself does not allow to be overridden (empty overridableRules), to prove that
+  // an Approved exception is a mechanism independent of the CG3 allowlist
   await owner.cgPolicy.create({
     data: {
       id: randomUUID(),
@@ -262,11 +262,11 @@ function authorizeInput(overrides: { sourceId?: string; actionKey: string }) {
   };
 }
 
-test('CG4.4: approved exception ยก quiet hours ที่ CG3 ไม่อนุญาตให้ override แล้วสร้าง reservation พร้อม cg4 pins', async (t) => {
+test('CG4.4: an approved exception lifts quiet hours that CG3 does not allow to override, then creates a reservation with cg4 pins', async (t) => {
   const f = await fixture(t);
   const service = new ContactGovernanceService(f.application, { now: () => NOW });
 
-  // ก่อนมี exception: quiet hours เป็นผลสุดท้าย
+  // before the exception: quiet hours are the final result
   const before = await service.authorizeAndReserve(f.tenant, {
     contactId: f.contact,
     identityId: f.identity,
@@ -287,7 +287,7 @@ test('CG4.4: approved exception ยก quiet hours ที่ CG3 ไม่อน
   assert.equal(after.decision, 'ALLOW');
   assert.equal(after.reasonCode, 'POLICY_PASSED');
   assert.ok(after.reservationId);
-  // exception ยก provisional block แล้วเดิน gate ต่อ ไม่ใช่ ALLOW ทันที
+  // the exception lifts the provisional block and continues through the gates, not an immediate ALLOW
   const gates = after.trace.map((entry) => `${entry.gate}:${entry.outcome}`);
   assert.ok(gates.includes('TEMPORAL_POLICY:DEFER'));
   assert.ok(gates.includes('APPROVED_EXCEPTION:PASS'));
@@ -313,7 +313,7 @@ test('CG4.4: approved exception ยก quiet hours ที่ CG3 ไม่อน
   assert.deepEqual(persisted.cg4, after.cg4 as never);
 });
 
-test('CG4.4: revoke ที่ commit ก่อน authorize ทำให้ exception ใช้ไม่ได้ทันที', async (t) => {
+test('CG4.4: a revoke that commits before authorize makes the exception unusable immediately', async (t) => {
   const f = await fixture(t);
   const service = new ContactGovernanceService(f.application, { now: () => NOW });
   const { created, row, transitioned, lifecycle } = await approvedException(f);
@@ -343,7 +343,7 @@ test('CG4.4: revoke ที่ commit ก่อน authorize ทำให้ exce
   assert.equal(result.cg4, undefined);
 });
 
-test('CG4.4: exception ที่ scope ไม่ตรง (source อื่น) ไม่ยก provisional block', async (t) => {
+test('CG4.4: an exception with a non-matching scope (another source) does not lift the provisional block', async (t) => {
   const f = await fixture(t);
   const service = new ContactGovernanceService(f.application, { now: () => NOW });
   await approvedException(f, { sourceId: 'journey-cg44-001' });
@@ -358,7 +358,7 @@ test('CG4.4: exception ที่ scope ไม่ตรง (source อื่น) 
   assert.equal(result.cg4, undefined);
 });
 
-test('CG4.4: exception ที่ยัง active ไม่ข้าม hard gate — consent ที่ถูกเพิกถอนยัง BLOCK', async (t) => {
+test('CG4.4: a still-active exception does not cross a hard gate: a revoked consent still BLOCKs', async (t) => {
   const f = await fixture(t);
   await approvedException(f);
   await f.owner.cgConsent.updateMany({
@@ -379,7 +379,7 @@ test('CG4.4: exception ที่ยัง active ไม่ข้าม hard gate
   assert.equal(result.cg4, undefined);
 });
 
-test('CG4.4: approve ไม่ผ่านเมื่อ quorum ยังไม่ครบ และ maker approve คำขอตัวเองไม่ได้', async (t) => {
+test('CG4.4: approve fails when the quorum is not met, and a maker cannot approve their own request', async (t) => {
   const f = await fixture(t);
   const foundation = new Cg4FoundationRepository(f.application);
   const lifecycle = new Cg4ExceptionLifecycleRepository(f.application, { now: () => NOW });
@@ -447,11 +447,11 @@ test('CG4.4: approve ไม่ผ่านเมื่อ quorum ยังไม
   assert.equal(head.status, 'PENDING');
 });
 
-test('CG4.4: terminal state ไม่ reopen และ amend หลัง APPROVED ถูกปฏิเสธ', async (t) => {
+test('CG4.4: a terminal state does not reopen, and an amend after APPROVED is rejected', async (t) => {
   const f = await fixture(t);
   const { created, row, transitioned, lifecycle, foundation } = await approvedException(f);
 
-  // APPROVED -> APPROVED ซ้ำไม่ได้
+  // APPROVED -> APPROVED again is not allowed
   await assert.rejects(
     lifecycle.transition({
       tenantId: f.tenant,
@@ -470,7 +470,7 @@ test('CG4.4: terminal state ไม่ reopen และ amend หลัง APPROV
     Cg4InvalidLifecycleTransitionError,
   );
 
-  // approved content immutable: amend เป็น revision ใหม่ไม่ได้
+  // approved content is immutable: it cannot be amended into a new revision
   await assert.rejects(
     foundation.recordException({
       tenantId: f.tenant,
@@ -501,7 +501,7 @@ test('CG4.4: terminal state ไม่ reopen และ amend หลัง APPROV
   );
 });
 
-test('CG4.4: overlap ที่ scope+rule+เวลาเดียวกันถูกปฏิเสธตอน approve', async (t) => {
+test('CG4.4: an overlap on the same scope+rule+time is rejected at approve', async (t) => {
   const f = await fixture(t);
   const { transitioned, lifecycle } = await approvedException(f);
   const foundation = new Cg4FoundationRepository(f.application);
@@ -566,7 +566,7 @@ test('CG4.4: overlap ที่ scope+rule+เวลาเดียวกัน�
   );
 });
 
-test('CG4.4: renewal เป็น series ใหม่ที่อ้าง renewsExceptionId โดยไม่ยืดของเดิม', async (t) => {
+test('CG4.4: a renewal is a new series that references renewsExceptionId without extending the original', async (t) => {
   const f = await fixture(t);
   const { created, transitioned } = await approvedException(f);
   const foundation = new Cg4FoundationRepository(f.application);
@@ -604,14 +604,14 @@ test('CG4.4: renewal เป็น series ใหม่ที่อ้าง renew
   assert.equal(renewalRow.renewsExceptionId, created.exception.exceptionId);
   assert.equal(renewalRow.revision, 1);
 
-  // ของเดิมยังจบที่เวลาเดิม ไม่ถูกยืด
+  // the original still ends at the original time, not extended
   const originalRow = await f.owner.cg4Exception.findFirstOrThrow({
     where: { tenantId: f.tenant, exceptionId: created.exception.exceptionId },
   });
   assert.equal(originalRow.expiresAt.toISOString(), '2026-09-15T22:00:00.000Z');
 });
 
-test('CG4.4: transition ใช้ CAS กับ revision/contact aggregate และ idempotency key เดิมคืนผลเดิม', async (t) => {
+test('CG4.4: a transition uses CAS on the revision/contact aggregate, and the same idempotency key returns the original result', async (t) => {
   const f = await fixture(t);
   const { created, row, transitioned, lifecycle } = await approvedException(f);
 
@@ -630,7 +630,7 @@ test('CG4.4: transition ใช้ CAS กับ revision/contact aggregate แ�
     idempotencyKey: randomUUID(),
   };
 
-  // contact aggregate version ที่ stale ถูกปฏิเสธ
+  // a stale contact aggregate version is rejected
   await assert.rejects(
     lifecycle.transition({ ...revokeInput, expectedVersion: 99, idempotencyKey: randomUUID() }),
     Cg3VersionConflictError,
@@ -648,7 +648,7 @@ test('CG4.4: transition ใช้ CAS กับ revision/contact aggregate แ�
   assert.equal(outbox.length, 2); // APPROVE + REVOKE
 });
 
-// ── CG4.8 (#191): contact stream และ re-authorization ของ downstream ─────────────
+// ── CG4.8 (#191): contact stream and downstream re-authorization ─────────────
 
 async function contactStreamVersion(f: Fixture): Promise<number> {
   const head = await f.owner.cgContactStateHead.findUnique({
@@ -682,7 +682,7 @@ async function reservedAction(f: Fixture, service: ContactGovernanceService, act
     });
 }
 
-test('CG4.8: exception event ต่อ version ของ contact stream จาก CG3 ส่วน CAS ของ exception command ยังแยก', async (t) => {
+test('CG4.8: an exception event continues the contact stream version from CG3, while the exception command CAS remains separate', async (t) => {
   const f = await fixture(t);
   await f.owner.cgContactStateHead.create({
     data: {
@@ -714,13 +714,13 @@ test('CG4.8: exception event ต่อ version ของ contact stream จา�
   assert.equal(head.currentDigest, 'c'.repeat(64));
 });
 
-test('CG4.8: re-authorization เห็น approved exception ชุดเดียวกับ authorize และ revoke ทำให้งานเดิมไม่ผ่าน', async (t) => {
+test('CG4.8: re-authorization sees the same approved exceptions as authorize, and a revoke makes the original work fail', async (t) => {
   const f = await fixture(t);
   const service = new ContactGovernanceService(f.application, { now: () => NOW });
   const { created, row, transitioned, lifecycle } = await approvedException(f);
   const revalidate = await reservedAction(f, service, 'cg48-revalidate:1:step-001');
 
-  // เดิม revalidation ไม่ส่ง source/activeExceptions จึงให้ DEFER ทั้งที่ exception ยัง active
+  // previously revalidation did not send source/activeExceptions, so it gave DEFER even though the exception was still active
   const before = await revalidate();
   assert.equal(before.decision, 'ALLOW');
 
@@ -742,12 +742,12 @@ test('CG4.8: re-authorization เห็น approved exception ชุดเดี
   assert.equal(after.decision, 'DEFER');
   assert.equal(after.reasonCode, 'QUIET_HOURS');
 
-  // event ที่ version ใหม่กว่า canonical ยังตามไม่ทันต้อง REVIEW ไม่ใช่ผลเก่า
+  // an event with a version newer than the canonical data has caught up to must REVIEW, not give the old result
   const stale = await revalidate({ sourceAggregateVersion: (await contactStreamVersion(f)) + 1 });
   assert.equal(stale.reasonCode, 'GOVERNANCE_VERSION_STALE');
 });
 
-test('CG4.8: re-authorization คืน REVIEW เมื่อ kill switch ครอบ scope และไม่สนใจ kill switch ของ channel อื่น', async (t) => {
+test('CG4.8: re-authorization returns REVIEW when a kill switch covers the scope, and ignores a kill switch on another channel', async (t) => {
   const f = await fixture(t);
   const service = new ContactGovernanceService(f.application, { now: () => NOW });
   await approvedException(f);
@@ -774,7 +774,7 @@ test('CG4.8: re-authorization คืน REVIEW เมื่อ kill switch ค�
   const held = await revalidate();
   assert.deepEqual([held.decision, held.reasonCode], ['REVIEW', 'GOVERNANCE_KILL_SWITCH_ACTIVE']);
 
-  // kill switch event จริงไม่ถูกเทียบกับ CG3 policy version จึงไม่เป็น stale
+  // a real kill switch event is not compared against the CG3 policy version, so it is not stale
   const viaKillEvent = await revalidate({
     sourceAggregateType: 'POLICY',
     sourceAggregateId: lineKill.id,
@@ -801,7 +801,7 @@ test('CG4.8: re-authorization คืน REVIEW เมื่อ kill switch ค�
   assert.equal(cg4PolicyWithoutHead.reasonCode, 'GOVERNANCE_VERSION_STALE');
 });
 
-// ── Remediation: scoped kill switch ใน authorizeAndReserve (#183 ข้อ 1) ──────────
+// ── Remediation: scoped kill switch in authorizeAndReserve (#183 item 1) ──────────
 
 function activateKillSwitch(f: Fixture, scopeKey: string) {
   return f.owner.cg4ScopeKillSwitch.create({
@@ -817,12 +817,12 @@ function activateKillSwitch(f: Fixture, scopeKey: string) {
   });
 }
 
-test('CG4 kill switch: authorizeAndReserve คืน REVIEW โดยไม่มี reservation และ approved exception ยกไม่ได้', async (t) => {
+test('CG4 kill switch: authorizeAndReserve returns REVIEW with no reservation, and an approved exception cannot lift it', async (t) => {
   const f = await fixture(t);
   const service = new ContactGovernanceService(f.application, { now: () => NOW });
   await approvedException(f);
 
-  // kill switch ของ channel อื่นไม่มีผลกับ LINE
+  // a kill switch on another channel has no effect on LINE
   await activateKillSwitch(f, 'channel=VOICE|contactKind=*|purpose=*|sourceType=*');
   const unaffected = await service.authorizeAndReserve(f.tenant, {
     contactId: f.contact,
@@ -842,7 +842,7 @@ test('CG4 kill switch: authorizeAndReserve คืน REVIEW โดยไม่�
   assert.equal(held.decision, 'REVIEW');
   assert.equal(held.reasonCode, 'GOVERNANCE_KILL_SWITCH_ACTIVE');
   assert.equal(held.reservationId, undefined);
-  // exception ที่ยัง active ไม่ถูกประเมินและไม่ถูก pin
+  // a still-active exception is not evaluated and not pinned
   assert.equal(held.cg4, undefined);
   assert.deepEqual(held.trace.at(-1), {
     gate: 'KILL_SWITCH',
@@ -856,13 +856,13 @@ test('CG4 kill switch: authorizeAndReserve คืน REVIEW โดยไม่�
     0,
   );
 
-  // replay ด้วย actionKey/input เดิมคืน decision เดิม ไม่สร้างผลใหม่
+  // a replay with the same actionKey/input returns the original decision and creates no new result
   const replay = await service.authorizeAndReserve(f.tenant, input);
   assert.equal(replay.decisionId, held.decisionId);
   assert.equal(replay.decision, 'REVIEW');
 });
 
-test('CG4 kill switch: contact scope ครอบเฉพาะ contact นั้น', async (t) => {
+test('CG4 kill switch: a contact scope covers only that contact', async (t) => {
   const f = await fixture(t);
   const service = new ContactGovernanceService(f.application, { now: () => NOW });
   await approvedException(f);
@@ -883,7 +883,7 @@ test('CG4 kill switch: contact scope ครอบเฉพาะ contact นั�
   assert.deepEqual([held.decision, held.reasonCode], ['REVIEW', 'GOVERNANCE_KILL_SWITCH_ACTIVE']);
 });
 
-test('CG4 kill switch: scopeKey ที่อ่านไม่ออกถือว่าครอบแบบ fail closed', async (t) => {
+test('CG4 kill switch: an unreadable scopeKey counts as covering, failing closed', async (t) => {
   const f = await fixture(t);
   const service = new ContactGovernanceService(f.application, { now: () => NOW });
   await approvedException(f);

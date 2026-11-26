@@ -1,11 +1,11 @@
 /**
- * #901: positive identity binding ของ first admin จาก Platform provisioning — Postgres จริง ไม่ต้องใช้ Keycloak
+ * #901: positive identity binding of the first admin from Platform provisioning — real Postgres, no Keycloak needed
  *
- * - saga บันทึก binding ใน transaction เดียวกับที่ request เป็น SUCCEEDED และ tenant เป็น ACTIVE
- * - DB อ่าน subject/Organization จากผลขั้น FIRST_ADMIN/KEYCLOAK_ORGANIZATION และผู้รับรองจาก requested_by
- *   ผู้เรียกส่งได้เพียง issuer/client ของ deployment
- * - หลักฐานไม่ตรง = tenant ไม่ ACTIVE (rollback ทั้ง transaction); เรียกซ้ำด้วยค่าเดิมไม่สร้าง revision ใหม่
- * - tenant app อ่านได้ภายใต้ RLS แต่เรียกฟังก์ชันหรือเขียนเองไม่ได้
+ * - the saga records the binding in the same transaction in which the request becomes SUCCEEDED and the tenant ACTIVE
+ * - the DB reads the subject/Organization from the FIRST_ADMIN/KEYCLOAK_ORGANIZATION step results and the attester from requested_by
+ *   the caller can send only the deployment's issuer/client
+ * - evidence that does not match = tenant not ACTIVE (the whole transaction rolls back); calling again with the same values creates no new revision
+ * - the tenant app can read under RLS but cannot call the function or write itself
  */
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -23,7 +23,7 @@ import type { TenantConsoleContext } from './tenant-console-context.js';
 
 type Fixture = Awaited<ReturnType<typeof createPlatformFixture>>;
 
-/** port ที่คืน external ref แบบ uuid คงที่ต่อ request (แทน Organization ของ Keycloak) */
+/** port returning a uuid external ref stable per request (in place of the Keycloak Organization) */
 function organizationPort(refs: Map<string, string>): ProvisioningStepPort {
   return {
     async find(context) {
@@ -38,7 +38,7 @@ function organizationPort(refs: Map<string, string>): ProvisioningStepPort {
   };
 }
 
-/** สร้างแถว users ของ first admin ด้วย role provisioner แบบเดียวกับ FirstAdminPort แล้วคืน subject */
+/** creates the first admin's users row with the same provisioner role as FirstAdminPort and returns the subject */
 function firstAdminPort(
   f: Fixture,
   subjects: Map<string, string>,
@@ -168,7 +168,7 @@ async function rejects(work: Promise<unknown>, pattern: RegExp) {
   });
 }
 
-test('saga บันทึก binding ของ first admin พร้อม ACTIVE จากหลักฐานของ request เอง', async (t) => {
+test('the saga records the first admin binding together with ACTIVE from the evidence of the request itself', async (t) => {
   const s = await setup(t);
   await s.drain();
   const final = await s.state();
@@ -186,12 +186,12 @@ test('saga บันทึก binding ของ first admin พร้อม ACTI
   assert.equal(binding.sourceKind, 'PLATFORM_PROVISIONING');
   assert.equal(binding.evidenceRef, `platform-provisioning:${s.accepted.requestId}`);
   assert.match(binding.evidenceDigest, /^[a-f0-9]{64}$/);
-  // ผู้รับรองมาจาก request ไม่ใช่จาก worker
+  // the attester comes from the request, not from the worker
   assert.equal(binding.verifiedByOperatorSubject, OPERATOR.subject);
   assert.deepEqual([binding.revision, binding.isActive], [1, true]);
   assert.equal((await s.audits()).length, 1);
 
-  // เรียกซ้ำด้วยค่าเดิม = คืน revision เดิม ไม่เพิ่ม audit; ค่าต่าง = conflict
+  // calling again with the same values = returns the same revision, no extra audit; different values = conflict
   assert.deepEqual(await s.bind(s.f.platform), [{ revision: 1 }]);
   await rejects(
     s.bind(s.f.platform, { ...TENANT_CONSOLE, clientId: 'another-console' }),
@@ -200,7 +200,7 @@ test('saga บันทึก binding ของ first admin พร้อม ACTI
   assert.equal((await s.audits()).length, 1);
 });
 
-test('หลักฐาน first admin ไม่ตรง = tenant ไม่ ACTIVE และไม่มี binding', async (t) => {
+test('first admin evidence that does not match = tenant not ACTIVE and no binding', async (t) => {
   const s = await setup(t, {
     email: () => `someone-else-${randomUUID().slice(0, 8)}@example.test`,
   });
@@ -210,17 +210,17 @@ test('หลักฐาน first admin ไม่ตรง = tenant ไม่ AC
   assert.equal((await s.bindings()).length, 0);
 });
 
-test('repository ที่ไม่ได้ตั้ง tenant Console ไม่บันทึก binding (Platform API ไม่ปิดงาน saga)', async (t) => {
+test('a repository without the tenant Console configured records no binding (the Platform API does not close the saga)', async (t) => {
   const s = await setup(t, { tenantConsole: null });
   await s.drain();
   assert.equal((await s.state()).status, 'SUCCEEDED');
   assert.equal((await s.bindings()).length, 0);
-  // operator backfill ภายหลังด้วย role platform ใช้หลักฐานเดียวกัน
+  // an operator backfills later with the platform role using the same evidence
   assert.deepEqual(await s.bind(s.f.platform), [{ revision: 1 }]);
   assert.equal((await s.bindings()).length, 1);
 });
 
-test('ปฏิเสธก่อน request สำเร็จ, context ที่ไม่ใช่ tenant Console และ role อื่นนอกจาก platform', async (t) => {
+test('rejects before the request succeeds, a context that is not the tenant Console, and any role other than platform', async (t) => {
   const s = await setup(t);
   await rejects(s.bind(s.f.platform), /PLATFORM_BINDING_REQUEST_NOT_SUCCEEDED/);
   await s.drain();
@@ -236,7 +236,7 @@ test('ปฏิเสธก่อน request สำเร็จ, context ที�
   await rejects(s.bind(s.f.application), /permission denied/);
 });
 
-test('tenant app อ่าน binding ได้ภายใต้ RLS แต่เขียนเองไม่ได้', async (t) => {
+test('the tenant app can read the binding under RLS but cannot write it', async (t) => {
   const s = await setup(t);
   await s.drain();
   const final = await s.state();
@@ -251,7 +251,7 @@ test('tenant app อ่าน binding ได้ภายใต้ RLS แต่�
       `SELECT set_config('app.tenant_id', $1, true)`,
       s.accepted.tenantId,
     );
-    // query เดียวกับที่ findTenantConfigurationActor ใช้ตรวจ positive binding
+    // the same query findTenantConfigurationActor uses to check the positive binding
     return transaction.$queryRaw<{ revision: number }[]>`
       SELECT revision FROM tenant_voice_identity_bindings
       WHERE tenant_id=${s.accepted.tenantId}::uuid AND user_id=${userId}::uuid
@@ -265,7 +265,7 @@ test('tenant app อ่าน binding ได้ภายใต้ RLS แต่�
   );
 });
 
-test('#914: saga ให้ CONTACT_CREATE แก่ first admin พร้อม command/receipt/audit และเรียกซ้ำไม่ให้ซ้ำ', async (t) => {
+test('#914: the saga grants CONTACT_CREATE to the first admin with command/receipt/audit and a repeat does not duplicate', async (t) => {
   const s = await setup(t);
   await s.drain();
   const userId = firstAdminUserId(s.accepted.requestId);
@@ -294,7 +294,7 @@ test('#914: saga ให้ CONTACT_CREATE แก่ first admin พร้อม 
     [['CAPABILITY_GRANT', userId, [evidence, `requested-by:${OPERATOR.subject}`]]],
   );
 
-  // เรียกซ้ำ (เช่น backfill ซ้ำ) = NO_OP ไม่มีแถวใหม่
+  // calling again (e.g. a repeated backfill) = NO_OP, no new rows
   assert.deepEqual(await s.grantContactCreate(s.f.platform), [{ outcome: 'NO_OP' }]);
   const again = await s.capability();
   assert.deepEqual(
@@ -302,7 +302,7 @@ test('#914: saga ให้ CONTACT_CREATE แก่ first admin พร้อม 
     [1, 1, 1, 1],
   );
 
-  // query เดียวกับ authorizeC360ContactCreate ภายใต้ RLS ของ tenant app
+  // the same query as authorizeC360ContactCreate under the tenant app's RLS
   const allowed = await s.f.application.$transaction(async (transaction) => {
     await transaction.$executeRawUnsafe(
       `SELECT set_config('app.tenant_id', $1, true)`,
@@ -322,16 +322,16 @@ test('#914: saga ให้ CONTACT_CREATE แก่ first admin พร้อม 
   assert.deepEqual(allowed, [{ allowed: true }]);
 });
 
-test('#914: ถอนแล้วเรียกซ้ำไม่ให้ใหม่; ต้องมี binding ก่อน; เรียกได้เฉพาะ role platform', async (t) => {
+test('#914: after revoking, a repeat does not grant again; a binding is required first; only the platform role can call it', async (t) => {
   const s = await setup(t, { tenantConsole: null });
   await s.drain();
   assert.equal((await s.state()).status, 'SUCCEEDED');
-  // ไม่มี binding ของ request นี้ = ไม่รู้ว่าใครคือ first admin ที่ยืนยันแล้ว
+  // no binding for this request = we do not know who the verified first admin is
   await rejects(s.grantContactCreate(s.f.platform), /PLATFORM_CAPABILITY_BINDING_MISSING/);
   await rejects(s.grantContactCreate(s.f.provisioner), /permission denied/);
   await rejects(s.grantContactCreate(s.f.application), /permission denied/);
 
-  // backfill ของ tenant เดิม: bind แล้วให้สิทธิ์ด้วย role platform
+  // backfill of an existing tenant: bind then grant with the platform role
   await s.bind(s.f.platform);
   assert.deepEqual(await s.grantContactCreate(s.f.platform), [{ outcome: 'APPLIED' }]);
   const [grant] = (await s.capability()).grants;

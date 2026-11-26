@@ -1,11 +1,11 @@
 import type { TeamScopePermission, TeamViewScope } from '../team-scopes/api.js';
 
 /**
- * #915: Admin ให้ทีมเห็นและทำงานกับลูกค้าผ่าน segment ระบบของ #911 เท่านั้นในรอบนี้
- * (ยังไม่มีหน้า authoring segment) — id ต้องตรงกับที่ evaluator ใน apps/api สร้าง
+ * #915: in this round Admin lets teams see and work with customers only through the system segments of #911
+ * (there is no segment authoring page yet) — the id must match what the evaluator in apps/api creates
  */
 export const SYSTEM_SEGMENTS = ['system:all-customers', 'system:vip'] as const;
-/** key ใน catalog — i18next ใช้ `:` แยก namespace จึงใช้ id ของ segment เป็น key ตรง ๆ ไม่ได้ */
+/** key in the catalog — i18next uses `:` to separate namespaces, so the segment id cannot be used directly as a key */
 export const SEGMENT_LABEL_KEYS: Record<(typeof SYSTEM_SEGMENTS)[number], string> = {
   'system:all-customers': 'segments.allCustomers',
   'system:vip': 'segments.vip',
@@ -21,14 +21,14 @@ export interface AccessTeam {
 export interface AccessRow {
   grantId: string;
   teamId: string;
-  /** null = ทีมไม่อยู่ในรายการ (ถูกปิดหรือโหลดไม่ครบ) ให้หน้าแสดง id แทน */
+  /** null = the team is not in the list (disabled or not fully loaded), so the page shows the id instead */
   teamName: string | null;
   teamActive: boolean;
   segmentId: string;
   permission: TeamScopePermission;
 }
 
-/** รวม grant กับชื่อทีม เรียงตามชื่อทีม → segment → WORK ก่อน VIEW */
+/** combine grants with team names, sorted by team name → segment → WORK before VIEW */
 export function accessRows(scopes: readonly TeamViewScope[], teams: readonly AccessTeam[]) {
   const byId = new Map(teams.map((team) => [team.id, team]));
   return scopes
@@ -48,12 +48,12 @@ export function accessRows(scopes: readonly TeamViewScope[], teams: readonly Acc
     );
 }
 
-/** ทีมที่ให้สิทธิ์ใหม่ได้ = ทีมที่ยังใช้งาน เรียงตามชื่อ */
+/** teams that can be newly granted = teams still active, sorted by name */
 export function grantableTeams(teams: readonly AccessTeam[]) {
   return teams.filter((team) => team.isActive).sort((a, b) => a.name.localeCompare(b.name, 'th'));
 }
 
-/** มี grant เดียวกันอยู่แล้ว — กันการกดซ้ำก่อนส่ง (server ตอบ DUPLICATE ได้อยู่แล้ว) */
+/** an identical grant already exists — prevents a double press before sending (the server can answer DUPLICATE anyway) */
 export function hasGrant(
   rows: readonly AccessRow[],
   input: { teamId: string; segmentId: string; permission: TeamScopePermission },
@@ -66,13 +66,13 @@ export function hasGrant(
   );
 }
 
-/** เหตุผลการถอนต้องยาว 3–120 ตัวอักษรตาม API */
+/** the revoke reason must be 3–120 characters per the API */
 export function validRevokeReason(value: string) {
   const length = value.trim().length;
   return length >= 3 && length <= 120;
 }
 
-/** สิทธิ์อีกแบบของทีมบน segment เดียวกันที่ยังอยู่หลังถอน `row` — VIEW/WORK เป็น grant คนละแถว */
+/** the other kind of team access on the same segment that remains after revoking `row` — VIEW/WORK are separate grant rows */
 export function remainingPermission(rows: readonly AccessRow[], row: AccessRow) {
   return rows.find(
     (other) =>

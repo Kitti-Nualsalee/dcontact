@@ -42,8 +42,8 @@ export function createJourneyRealtimeGovernancePorts(
   options: JourneyFoundationPortOptions = {},
 ): JourneyRealtimeGovernancePorts {
   const governance = new ContactGovernanceService(database, options.contactGovernance);
-  // package นี้อาจถูก build ก่อน Contact Governance ใน local incremental build;
-  // runtime object เดียวกัน implements contract ทั้งสองตาม source owner.
+  // This package may be built before Contact Governance in a local incremental build;
+  // the same runtime object implements both contracts per the source owner.
   return {
     revalidation: governance as unknown as ContactGovernanceRevalidationPort,
     settlement: governance,
@@ -51,8 +51,8 @@ export function createJourneyRealtimeGovernancePorts(
 }
 
 /**
- * composition root ชั่วคราวของ E0.6: Journey รับเพียง narrow ports;
- * concrete domain services และ database adapters อยู่นอก Journey app.
+ * Temporary composition root of E0.6: Journey receives only narrow ports;
+ * concrete domain services and database adapters live outside the Journey app.
  */
 export function createJourneyFoundationPorts(
   database: PrismaClient,
@@ -74,8 +74,8 @@ class PrismaCustomerContextReader implements CustomerContextReader<Prisma.Transa
   ) {
     const contactRef = input.contactRef;
     const identityType = contactRef.kind === 'CRM_ID' ? undefined : contactRef.kind;
-    // E0.6 ยังไม่มี authoritative mapping ของ CRM_ID จึงรักษา REVIEW path เดิมไว้
-    // แทนการปล่อย identifier ที่ยังยืนยันไม่ได้ไปยัง Contact Governance.
+    // E0.6 has no authoritative mapping of CRM_ID yet, so the existing REVIEW path is kept
+    // instead of releasing an identifier that cannot yet be verified to Contact Governance.
     if (!identityType) {
       return { status: 'AMBIGUOUS' as const, reasonCode: 'IDENTITY_AMBIGUOUS' as const };
     }
@@ -93,13 +93,13 @@ class PrismaCustomerContextReader implements CustomerContextReader<Prisma.Transa
       });
       if (!identity)
         return { status: 'NOT_FOUND' as const, reasonCode: 'IDENTITY_NOT_FOUND' as const };
-      // C3 (#793) bridge: raw unique match ไม่ใช่ verified identity; PHONE/EMAIL ต้องมี contact point
-      // ที่ import จาก identity นี้และยัง ACTIVE, ค่าเดียวกันบนหลาย contact = AMBIGUOUS
+      // C3 (#793) bridge: a raw unique match is not a verified identity; PHONE/EMAIL need a contact point
+      // imported from this identity and still ACTIVE; the same value on several contacts = AMBIGUOUS
       if (identityType === 'PHONE' || identityType === 'EMAIL') {
         const eligibility = await legacyIdentityEligibility(client, input.tenantId, identity.id);
         if (eligibility === 'SHARED')
           return { status: 'AMBIGUOUS' as const, reasonCode: 'IDENTITY_AMBIGUOUS' as const };
-        // ยังไม่ import: ห้ามตัดสินเป็น NOT_FOUND ถาวรในช่วง rollout ให้ consumer retry หลัง import
+        // Not yet imported: must not decide a permanent NOT_FOUND during rollout; let the consumer retry after import
         if (eligibility === 'UNMAPPED')
           return { status: 'DEFERRED' as const, reasonCode: 'IDENTITY_MAPPING_PENDING' as const };
         if (eligibility !== 'ELIGIBLE')
@@ -123,7 +123,7 @@ class PrismaCustomerContextReader implements CustomerContextReader<Prisma.Transa
   }
 }
 
-/** J2.7 composition boundary: outcome trigger processing รับเพียง narrow ports เช่นเดียวกับ #135 */
+/** J2.7 composition boundary: outcome trigger processing receives only narrow ports, as in #135 */
 export interface JourneyOutcomeTriggerPorts {
   identityResolver: CustomerIdentityResolver<Prisma.TransactionClient>;
   teamContactScopeAuthorizer: TeamContactScopeAuthorizer<Prisma.TransactionClient>;
@@ -155,9 +155,9 @@ class PrismaCustomerIdentityResolver implements CustomerIdentityResolver<Prisma.
       if (!contact) return notFound;
 
       /**
-       * Customer 360 identity head (J3) เป็น authority ของ merge/split/unmerge — head เก็บ
-       * canonical pointer แบบ flatten แล้ว (repointMergeChain) จึงอ่านชั้นเดียวพอ
-       * ไม่มี head = contact ไม่เคยผ่าน identity operation ใด ๆ จึงเป็น survivor ของตัวเอง
+       * The Customer 360 identity head (J3) is the authority for merge/split/unmerge — the head stores
+       * a flattened canonical pointer (repointMergeChain), so reading one level is enough.
+       * No head = the contact never went through any identity operation, so it is its own survivor
        */
       const head = await client.c360IdentityHead.findUnique({
         where: { tenantId_contactId: { tenantId: input.tenantId, contactId: input.contactId } },
@@ -181,16 +181,16 @@ class PrismaCustomerIdentityResolver implements CustomerIdentityResolver<Prisma.
           : ambiguous;
       }
 
-      // MERGED: survivor ต้องยัง ACTIVE และชี้ตัวเองใน tenant เดียวกัน — ถ้า chain ยังไม่นิ่ง
-      // (survivor ถูก merge/ambiguous ต่อ) ถือว่ายัง resolve ไม่ได้ ไม่เดา survivor เอง
+      // MERGED: the survivor must still be ACTIVE and point to itself in the same tenant — if the chain is not yet stable
+      // (the survivor was merged/made ambiguous further), treat it as not yet resolvable and do not guess the survivor
       const survivor = await client.c360IdentityHead.findUnique({
         where: {
           tenantId_contactId: { tenantId: input.tenantId, contactId: head.canonicalContactId },
         },
         select: { state: true, canonicalContactId: true },
       });
-      // survivor ที่ไม่มี head = ไม่เคยผ่าน identity operation เอง; FK ของ head รับประกันว่า
-      // canonical contact อยู่ใน tenant เดียวกัน จึงไม่มีทาง redirect ข้าม tenant
+      // A survivor without a head = never went through an identity operation itself; the head FK guarantees that
+      // the canonical contact is in the same tenant, so there is no way to redirect across tenants
       if (
         survivor &&
         (survivor.state !== 'ACTIVE' || survivor.canonicalContactId !== head.canonicalContactId)

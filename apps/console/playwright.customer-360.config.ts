@@ -1,18 +1,18 @@
 import { defineConfig, devices } from '@playwright/test';
 const devTrialBrowser = process.env.C360_DEV_TRIAL_BROWSER;
 if (devTrialBrowser && !['chrome', 'edge'].includes(devTrialBrowser))
-  throw new Error('C360_DEV_TRIAL_BROWSER ต้องเป็น chrome หรือ edge');
+  throw new Error('C360_DEV_TRIAL_BROWSER must be chrome or edge');
 const browserPort = Number(process.env.C360_BROWSER_PORT ?? 5198);
 
 /**
- * Cus360 C2 (#792): browser tests ของ Customers/โปรไฟล์ (read-only)
- * sandbox: Vite (mode e2e) → proxy → API/RLS/DB จริง ผ่าน `scripts/customer-360-browser-server.ts`
- * ต้องตั้ง DATABASE_URL / APPLICATION_DATABASE_URL ของ DB แยก (ห้ามใช้ DB ร่วมหรือ UAT)
+ * Cus360 C2 (#792): browser tests for Customers/profile (read-only)
+ * sandbox: Vite (mode e2e) → proxy → real API/RLS/DB through `scripts/customer-360-browser-server.ts`
+ * DATABASE_URL / APPLICATION_DATABASE_URL must be set to a separate DB (never the shared DB or UAT)
  */
 export default defineConfig({
   testDir: './e2e',
   testMatch: ['customer-360-*.spec.ts'],
-  // M1 ใช้ sandbox/identity คนละชุดและมี config เฉพาะ ห้ามรันผ่าน C2 config
+  // M1 uses a different sandbox/identity and has its own config; do not run it through the C2 config
   testIgnore: [
     'customer-360-m1.spec.ts',
     'customer-360-m1-oidc.spec.ts',
@@ -38,7 +38,7 @@ export default defineConfig({
     timeout: 120_000,
     reuseExistingServer: false,
   },
-  // รัน process ใหม่ต่อ browser/รอบ เพื่อให้ webServer สร้าง fixtures ใหม่ทุกครั้ง
+  // start a new process per browser/round so the webServer builds fresh fixtures every time
   projects: devTrialBrowser
     ? [
         {

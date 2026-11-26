@@ -24,7 +24,7 @@ export interface Cg5TenantConfigSnapshot {
 }
 
 export interface UpdateCg5TenantConfigInput {
-  /** tenant จาก trusted caller; repository ไม่ใช่ authorization boundary ของ HTTP */
+  /** tenant from a trusted caller; the repository is not the HTTP authorization boundary */
   tenantId: string;
   expectedVersion: number;
   config: Cg5TenantConfigV1;
@@ -34,17 +34,17 @@ export interface UpdateCg5TenantConfigInput {
 
 function validatedConfig(value: unknown): Cg5TenantConfigV1 {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new TypeError('config ต้องเป็น object');
+    throw new TypeError('config must be an object');
   }
   const input = value as Record<string, unknown>;
   if (input.contractVersion !== CG5_CONTRACT_VERSION) {
-    throw new TypeError('config ต้องใช้ contractVersion 1');
+    throw new TypeError('config must use contractVersion 1');
   }
   const allowed = new Set(['contractVersion', ...Object.keys(CG5_CONFIG_BOUNDS)]);
   if (Object.keys(input).some((key) => !allowed.has(key))) {
-    throw new TypeError('config มี field ที่ไม่ได้ประกาศใน contract');
+    throw new TypeError('config has a field not declared in the contract');
   }
-  // validator ของ shared contract ตรวจชนิด number และช่วงค่าทุก field
+  // the shared contract validator checks the number type and the range of every field
   assertCg5TenantConfig(input);
   return { ...input, contractVersion: CG5_CONTRACT_VERSION };
 }
@@ -75,16 +75,17 @@ export class PrismaCg5TenantConfigRepository {
   async update(input: UpdateCg5TenantConfigInput): Promise<Cg5TenantConfigSnapshot> {
     const config = validatedConfig(input.config);
     if (!Number.isSafeInteger(input.expectedVersion) || input.expectedVersion < 0) {
-      throw new TypeError('expectedVersion ต้องเป็นจำนวนเต็มที่ไม่ติดลบ');
+      throw new TypeError('expectedVersion must be a non-negative integer');
     }
     const actorRef = input.actorRef.trim();
     const evidenceRef = input.evidenceRef.trim();
-    if (!actorRef || !evidenceRef) throw new TypeError('actorRef และ evidenceRef ต้องไม่ว่าง');
+    if (!actorRef || !evidenceRef)
+      throw new TypeError('actorRef and evidenceRef must not be empty');
     const result = await withTenantDatabaseTransaction(
       this.database,
       input.tenantId,
       async (tx) => {
-        // serialize รวมการสร้างแถวแรก เพื่อให้คำสั่งที่ชนกันยังเก็บ conflict audit ได้
+        // serialize including the creation of the first row, so a conflicting command can still keep a conflict audit
         await tx.$queryRaw(
           Prisma.sql`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${`cg5-config:${input.tenantId}`}))`,
         );
@@ -128,7 +129,7 @@ export class PrismaCg5TenantConfigRepository {
         return { conflict: false as const, snapshot: snapshot(input.tenantId, row) };
       },
     );
-    // throw หลัง commit เพื่อไม่ rollback หลักฐานของคำสั่งที่ชน version
+    // throw after commit so as not to roll back the evidence of the command that conflicted on version
     if (result.conflict) {
       throw new Cg3VersionConflictError(input.expectedVersion, result.actualVersion);
     }

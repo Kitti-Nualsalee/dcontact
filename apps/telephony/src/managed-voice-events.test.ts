@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { normalizeManagedVoiceEvent } from './managed-voice-events.js';
 
-test('answer เก็บ exact offer/agent/B-leg และ caller correlation', () => {
+test('answer keeps the exact offer/agent/B-leg and caller correlation', () => {
   const source = {
     'Event-Name': 'CHANNEL_ANSWER',
     'Unique-ID': 'bleg',

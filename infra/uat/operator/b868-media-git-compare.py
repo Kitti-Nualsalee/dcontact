@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""เทียบ observation กับ Git tree แบบอ่านอย่างเดียว ไม่รับรอง provenance หรือ rollback."""
+"""Compare an observation against a Git tree read-only; does not certify provenance or rollback."""
 import argparse
 from datetime import datetime, timezone
 import hashlib

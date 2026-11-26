@@ -21,8 +21,8 @@ export const RECORDING_DATABASE = Symbol('RECORDING_DATABASE');
 export const TELEPHONY_COMMAND_PUBLISHER = Symbol('TELEPHONY_COMMAND_PUBLISHER');
 export const RECORDING_STORAGE = Symbol('RECORDING_STORAGE');
 /**
- * #967: true เมื่อ `RECORDING_SUPERVISOR_PLAYBACK=on` (ไม่ provide = ปิด)
- * เปิดแล้ว Supervisor ฟังผ่าน `recording-playback-api.ts` และ route presign เดิมในไฟล์นี้ตอบ 403
+ * #967: true when `RECORDING_SUPERVISOR_PLAYBACK=on` (not provided = off)
+ * once on, a Supervisor listens through `recording-playback-api.ts` and the existing presign route in this file answers 403
  */
 export const RECORDING_SUPERVISOR_PLAYBACK = Symbol('RECORDING_SUPERVISOR_PLAYBACK');
 
@@ -302,7 +302,7 @@ export class RecordingController {
     @Param('recordingId') recordingId: string,
     @Body() body: RecordingPlaybackBody,
   ) {
-    // #967: เมื่อเปิดฟังผ่าน API แบบตรวจสิทธิ์ทุก chunk ต้องไม่มีทางออก presigned URL เหลืออยู่
+    // #967: when listening through the API with permission checked on every chunk, there must be no presigned URL exit left
     if (this.supervisorPlayback) throw new ForbiddenException({ code: 'PLAYBACK_ACCESS_DENIED' });
     if (typeof body.download !== 'boolean')
       throw new BadRequestException('download must be a boolean');

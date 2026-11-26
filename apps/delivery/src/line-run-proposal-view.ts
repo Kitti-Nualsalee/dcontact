@@ -1,16 +1,16 @@
 /**
- * Owner: Delivery/Channels — one-shot proposal ที่แสดงให้ผู้ใช้ยืนยันก่อน `S2-LINE-PR02` (S2.6 #366)
+ * Owner: Delivery/Channels — one-shot proposal shown to the user to confirm before `S2-LINE-PR02` (S2.6 #366)
  *
  * Authority: #360 §C, #358 §E
  *
- * view นี้รวมทุกค่าที่ผู้อนุมัติต้องเห็นไว้ในที่เดียวแล้วผูกด้วย `presentationDigest`:
- * final main SHA + config/migration/registry digests, tenant/channel/sender แบบ opaque,
- * recipient fingerprint (ไม่ใช่ LINE user ID), fixture + ข้อความ + content digest, credential
- * version/fingerprint/expiry, cap/quota snapshot, retry UUID และเวลาหมดอายุ 30 นาที
+ * This view gathers every value the approver must see in one place and binds them with `presentationDigest`:
+ * final main SHA + config/migration/registry digests, tenant/channel/sender as opaque values,
+ * recipient fingerprint (not the LINE user ID), fixture + text + content digest, credential
+ * version/fingerprint/expiry, cap/quota snapshot, retry UUID and the 30-minute expiry
  *
- * ผู้ใช้ยืนยันด้วย digest ตรงตัวอักษร; ค่าใดเปลี่ยน digest ก็เปลี่ยนและ approval เดิมใช้ไม่ได้
- * ข้อความ fixture อยู่ได้เฉพาะใน view นี้ — `lineRunProposalEvidence` ตัดออกเหลือ content digest
- * ก่อนเข้า immutable artifact (#360 §E)
+ * The user confirms with a digest matching character for character; any changed value changes the digest and the old approval is unusable.
+ * The fixture text may live only in this view — `lineRunProposalEvidence` strips it down to the content digest
+ * before it enters an immutable artifact (#360 §E)
  */
 import { LINE_PILOT_CAPS } from '@d-contact/cxa-contracts';
 import { isLineRetryKey, lineContentDigest, resolveLineFixture } from './line-push-request.js';
@@ -40,7 +40,7 @@ export interface LineRunProposalViewInput {
   };
   allowlistEntry: { recipientFingerprint: string; contentRef: string; contentDigest: string };
   credential: { fingerprint: string; expiresAt: Date | null; credentialKind: string };
-  /** ยอดใช้ cap ปัจจุบันจาก ledger ของ gate — ไม่ใช่ค่าคงที่ของ profile */
+  /** current cap usage from the gate's ledger — not the profile's constants */
   capUsage: { recipientLast24h: number; last24h: number; lifetime: number };
   quota: {
     type: 'limited' | 'none';
@@ -100,7 +100,7 @@ export class LineRunProposalViewError extends Error {
       | 'CAP_SNAPSHOT_EXCEEDED'
       | 'FINAL_MAIN_SHA_INVALID',
   ) {
-    super(`สร้าง proposal view ไม่ได้: ${code}`);
+    super(`cannot build the proposal view: ${code}`);
     this.name = 'LineRunProposalViewError';
   }
 }
@@ -108,8 +108,8 @@ export class LineRunProposalViewError extends Error {
 const FULL_SHA = /^[0-9a-f]{40}$/;
 
 /**
- * ตรวจก่อนแสดง: view ที่ผู้ใช้เห็นต้องตรงกับสิ่งที่ worker จะส่งจริง ถ้า content digest ของ allowlist
- * ไม่ตรง fixture หรือ cap เต็มแล้ว ให้ล้มตั้งแต่ตรงนี้ ไม่ใช่ให้ผู้ใช้อนุมัติสิ่งที่ส่งไม่ได้
+ * Check before showing: the view the user sees must match what the worker will really send. If the allowlist content digest
+ * does not match the fixture or the cap is already full, fail right here rather than letting the user approve something that cannot be sent
  */
 export function buildLineRunProposalView(input: LineRunProposalViewInput): LineRunProposalView {
   if (!FULL_SHA.test(input.finalMainSha)) {
@@ -185,7 +185,7 @@ export function buildLineRunProposalView(input: LineRunProposalViewInput): LineR
   return { ...view, presentationDigest: stableSha256(view) };
 }
 
-/** ตรวจว่าค่าที่ผู้ใช้พิมพ์ยืนยันตรง digest ทุกตัวอักษร — ไม่รับ prefix หรือ case ต่าง */
+/** Check that the value the user typed to confirm matches the digest character for character — no prefix or different case accepted */
 export function lineProposalApprovalMatches(
   view: LineRunProposalView,
   confirmedDigest: string,
@@ -195,8 +195,8 @@ export function lineProposalApprovalMatches(
 }
 
 /**
- * รูปที่เข้า immutable artifact ได้: ไม่มีข้อความ fixture และ Channel ID เหลือแค่ fingerprint
- * digest ของ view เต็มยังอยู่ จึงพิสูจน์ย้อนได้ว่าผู้ใช้อนุมัติ view ใด
+ * The shape that may enter an immutable artifact: no fixture text, and the Channel ID is reduced to a fingerprint.
+ * The digest of the full view remains, so it can later be proven which view the user approved
  */
 export function lineRunProposalEvidence(view: LineRunProposalView) {
   const { fixture, channelAccountId, ...rest } = view;
@@ -212,7 +212,7 @@ export function lineRunProposalEvidence(view: LineRunProposalView) {
   };
 }
 
-/** ข้อความสำหรับหน้าจอ/ticket ที่ผู้ใช้อ่านก่อนยืนยัน — บรรทัดสุดท้ายคือ digest ที่ต้องพิมพ์ตอบ */
+/** Text for the screen/ticket the user reads before confirming — the last line is the digest that must be typed back */
 export function renderLineRunProposal(view: LineRunProposalView): string {
   const lines = [
     'LINE capped pilot — one-shot proposal (S2-LINE-PR02)',
@@ -225,15 +225,15 @@ export function renderLineRunProposal(view: LineRunProposalView): string {
     `purpose/contact kind: ${view.purpose} / ${view.contactKind}`,
     `recipient fingerprint: ${view.recipientFingerprint}`,
     `fixture: ${view.fixture.contentRef} v${view.fixture.version}`,
-    ...view.fixture.text.map((text) => `  ข้อความ: ${text}`),
+    ...view.fixture.text.map((text) => `  message: ${text}`),
     `content digest: ${view.fixture.contentDigest}`,
-    `credential: ${view.credential.kind} #${view.credential.version} fingerprint ${view.credential.fingerprint} หมดอายุ ${view.credential.expiresAt ?? 'ไม่ระบุ'}`,
+    `credential: ${view.credential.kind} #${view.credential.version} fingerprint ${view.credential.fingerprint} expires ${view.credential.expiresAt ?? 'not specified'}`,
     `caps: ${view.caps.logicalDeliveriesPerRun} delivery/run, attempts ≤ ${view.caps.providerAttemptsPerLogicalDelivery}, recipient 24h ${view.caps.recipientPer24h.used}/${view.caps.recipientPer24h.max}, 24h ${view.caps.per24h.used}/${view.caps.per24h.max}, lifetime ${view.caps.lifetime.used}/${view.caps.lifetime.max}`,
-    `quota: ${view.quota.type} ${view.quota.totalUsage}/${view.quota.targetLimit ?? '∞'} ณ ${view.quota.observedAt}`,
+    `quota: ${view.quota.type} ${view.quota.totalUsage}/${view.quota.targetLimit ?? '∞'} as of ${view.quota.observedAt}`,
     `retry key: ${view.retryKey}`,
     `proposal digest: ${view.proposalDigest}`,
-    `หมดอายุ: ${view.expiresAt}`,
-    `ยืนยันด้วย presentation digest: ${view.presentationDigest}`,
+    `expires: ${view.expiresAt}`,
+    `confirm with the presentation digest: ${view.presentationDigest}`,
   ];
   return `${lines.join('\n')}\n`;
 }

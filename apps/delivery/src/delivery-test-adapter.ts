@@ -1,15 +1,15 @@
 /**
- * Owner: Channels/Dialer — durable test adapter ของ DeliveryPort (C1.3)
+ * Owner: Channels/Dialer — durable test adapter for DeliveryPort (C1.3)
  *
- * ขอบเขต C1: ไม่มี provider credential, ไม่มี network I/O และไม่มี traffic จริง
- * adapter ถือ durable outbox เป็นของตัวเอง ส่วน reservation, Attempt และ Touch ยังเป็น
- * ของ Governance ทั้งหมด — ที่นี่ไม่เคยเขียน state เหล่านั้นเองและไม่ import
- * contact-governance โดยตรง มีแต่ `ContactGovernancePort` ที่ถูก inject เข้ามา
+ * C1 scope: no provider credential, no network I/O and no real traffic.
+ * The adapter owns a durable outbox of its own, while the reservation, Attempt and Touch remain
+ * entirely Governance's — this code never writes that state itself and does not import
+ * contact-governance directly; it only has the injected `ContactGovernancePort`.
  *
- * ลำดับที่ห้ามสลับ:
- *   1. claim ผ่าน Governance ก่อน แล้วจึง persist outbox ก่อนตอบ QUEUED
- *   2. beginProviderSubmission (durable barrier) ก่อนแตะ transport เสมอ
- *   3. หลัง barrier ห้าม release/refund/blind retry — timeout ต้องไป reconcile
+ * Order that must not be swapped:
+ *   1. claim through Governance first, then persist the outbox before answering QUEUED
+ *   2. beginProviderSubmission (durable barrier) always before touching the transport
+ *   3. after the barrier never release/refund/blind retry — a timeout must go to reconcile
  */
 import { randomUUID, createHash } from 'node:crypto';
 import type { DlOutboxEntry, PrismaClient } from '@d-contact/db';
@@ -42,7 +42,7 @@ import {
 } from './outbox-repository.js';
 import { TEST_ADAPTER, ScriptedTestTransport, type DeliveryTransport } from './test-transport.js';
 
-/** code ที่ `enqueue` ห้ามคืน — ถ้าโผล่มาแปลว่า Governance เปลี่ยนสัญญา ต้อง fail closed */
+/** Codes `enqueue` must never return — if one appears, Governance changed the contract and we must fail closed */
 const ENQUEUE_FORBIDDEN_CODES = new Set([
   'STALE_RESERVATION_LEASE',
   'DELIVERY_RECONCILIATION_REQUIRED',
@@ -77,7 +77,7 @@ export class DeliveryNotFoundError extends Error {
   readonly code = 'DELIVERY_NOT_FOUND';
 
   constructor(readonly deliveryId: string) {
-    super(`ไม่พบ delivery ${deliveryId} ใน outbox`);
+    super(`delivery ${deliveryId} not found in the outbox`);
     this.name = 'DeliveryNotFoundError';
   }
 }
@@ -105,9 +105,9 @@ export class DeliveryTestAdapter implements DeliveryPort {
   }
 
   /**
-   * duplicate ที่ commit แล้วจะ replay delivery เดิม ส่วน duplicate ที่ยังบินอยู่พร้อมกัน
-   * จะแพ้ unique index แล้วได้ IDEMPOTENCY_CONFLICT ตามสัญญาของ #67 — ผู้เรียกที่ลอง
-   * ใหม่หลังจากนั้นจะได้ replay ปกติ
+   * A committed duplicate replays the original delivery, while a duplicate still in flight at the same time
+   * loses on the unique index and gets IDEMPOTENCY_CONFLICT per the #67 contract — a caller that retries
+   * afterwards gets a normal replay
    */
   async enqueue(command: EnqueueDeliveryCommand): Promise<EnqueueDeliveryResult> {
     assertOpaqueContentRef(command.contentRef);
@@ -187,7 +187,7 @@ export class DeliveryTestAdapter implements DeliveryPort {
   }
 
   private replay(entry: DlOutboxEntry, inputHash: string): EnqueueDeliveryResult {
-    // actionKey เดียวกันที่ adapter อื่นถือไว้ไม่ใช่ replay ของเรา (mixed-version guard)
+    // An actionKey held by another adapter is not a replay of ours (mixed-version guard)
     if (entry.adapter !== TEST_ADAPTER || entry.inputHash !== inputHash) {
       return { status: 'ERROR', code: 'IDEMPOTENCY_CONFLICT' };
     }
@@ -215,8 +215,8 @@ export class DeliveryTestAdapter implements DeliveryPort {
   }
 
   /**
-   * ขั้นตอนที่แตะ transport ได้ขั้นเดียว แถวที่อยู่ใน SUBMITTING แปลว่าเคยผ่าน barrier
-   * และอาจส่งไปแล้ว — ห้ามส่งซ้ำเด็ดขาด ต้องไป reconcile อย่างเดียว
+   * The only step that may touch the transport. A row in SUBMITTING has already passed the barrier
+   * and may have been sent — it must never be sent again, only reconciled
    */
   async submit(work: DeliveryWorkItem): Promise<DeliverySubmissionResult> {
     const entry = await this.require(work.tenantId, work.deliveryId);
@@ -242,8 +242,8 @@ export class DeliveryTestAdapter implements DeliveryPort {
       return { status: 'BLOCKED', code: error.code, evidence: deliveryEvidence(entry) };
     }
 
-    // barrier ผ่านแล้ว: บันทึกก่อนแตะ transport เพื่อให้ crash ระหว่างส่งยังอ่านเจอว่า
-    // งานนี้ "อาจส่งไปแล้ว" แทนที่จะดูเหมือนงานที่ยังไม่เริ่ม
+    // Barrier passed: record before touching the transport so that a crash mid-send still reads back that
+    // this job "may have been sent" instead of looking like a job that has not started
     const submitting = await this.outbox.advance(entry.tenantId, entry.deliveryId, ['QUEUED'], {
       state: 'SUBMITTING',
       submittedAt: this.now(),
@@ -292,8 +292,8 @@ export class DeliveryTestAdapter implements DeliveryPort {
   }
 
   /**
-   * ผลลัพธ์ที่ normalize แล้วจาก provider หนึ่งใบต่อหนึ่ง outcomeRef; terminal outcome
-   * แรกชนะ ใบที่มาทีหลังคืน snapshot เดิมโดยไม่ settle ซ้ำและไม่สร้าง Attempt/Touch เพิ่ม
+   * Normalized result from the provider, one per outcomeRef; the first terminal outcome
+   * wins, and a later one returns the original snapshot without settling again or creating extra Attempt/Touch
    */
   async recordOutcome(input: RecordOutcomeInput): Promise<DeliveryEvidence> {
     const entry = await this.require(input.tenantId, input.deliveryId);
@@ -343,8 +343,8 @@ export class DeliveryTestAdapter implements DeliveryPort {
     entry: DlOutboxEntry,
     correlationId: string,
   ): Promise<DlOutboxEntry> {
-    // outcomeRef และ occurredAt ของ reconcile ต้องคงที่ต่อ delivery: sweeper รันซ้ำได้
-    // ทุกกี่รอบก็ยังเป็น replay ของ settle ใบเดิม ไม่ใช่ใบใหม่ที่ input ไม่ตรงกัน
+    // The outcomeRef and occurredAt of reconcile must stay constant per delivery: the sweeper can run any
+    // number of times and it is still a replay of the same settle, not a new one with mismatched input
     await this.governance.settleDelivery({
       ...this.governanceCommand(entry, correlationId),
       providerRequestKey: toProviderRequestKey(entry.providerRequestKey),
@@ -362,8 +362,8 @@ export class DeliveryTestAdapter implements DeliveryPort {
   }
 
   /**
-   * งานที่ผ่าน barrier แล้วแต่ lease หมดโดยไม่มีผล — รายงาน UNKNOWN_RECONCILING
-   * เข้าหา Governance ห้าม release, refund หรือส่งใหม่
+   * A job that passed the barrier but whose lease expired without a result — reports UNKNOWN_RECONCILING
+   * to Governance; must not release, refund or resend
    */
   async reconcileExpired(tenantId: string, correlationId: string): Promise<DeliveryEvidence[]> {
     const stale = await this.outbox.findReconcilable(tenantId, this.now());
@@ -374,7 +374,7 @@ export class DeliveryTestAdapter implements DeliveryPort {
     return evidence;
   }
 
-  /** view สำหรับ test/evidence — ไม่เคยคืน contentRef หรือ binding ที่เป็น PII boundary */
+  /** View for test/evidence — never returns contentRef or bindings, which are the PII boundary */
   async evidenceFor(tenantId: string, deliveryId: string): Promise<DeliveryEvidence> {
     return deliveryEvidence(await this.require(tenantId, deliveryId));
   }

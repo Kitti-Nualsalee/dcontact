@@ -1,13 +1,13 @@
 /**
- * Owner: Delivery/Channels — ตัวอ่าน secret ของ LINE จากไฟล์บน Linux (#565 S4, ADR-031)
+ * Owner: Delivery/Channels — reader of LINE secrets from files on Linux (#565 S4, ADR-031)
  *
- * ใช้แทน macOS Keychain บน UAT VM2: Compose `secrets` mount ไฟล์ read-only ไว้ที่ directory เดียว
- * (ค่าเริ่ม `/run/secrets`) และ recipient ที่ runner บันทึกเองอยู่ใน state directory ที่เขียนได้
+ * Replaces the macOS Keychain on UAT VM2: Compose `secrets` mounts files read-only in a single directory
+ * (default `/run/secrets`) and the recipient the runner records itself lives in a writable state directory
  *
- * - reference ยังเป็น `LineKeychainReference` เดิม (เก็บใน database ได้) — map เป็นชื่อไฟล์คงที่
- *   และรับเฉพาะ service ของ channel ที่ผูกไว้ตอนสร้าง
- * - ไฟล์ที่ group/other อ่านหรือเขียนได้ = ใช้ไม่ได้ (fail closed) เพราะแปลว่าสิทธิ์ถูกตั้งผิด
- * - error ไม่มี path, ชื่อไฟล์หรือค่า — ผู้เรียกได้แค่ `CREDENTIAL_UNAVAILABLE`
+ * - the reference remains the existing `LineKeychainReference` (storable in the database) — mapped to a fixed file name
+ *   and accepts only the service of the channel bound at construction
+ * - a file readable or writable by group/other = unusable (fail closed) because it means permissions were set wrongly
+ * - the error has no path, file name or value — the caller gets only `CREDENTIAL_UNAVAILABLE`
  */
 import { constants } from 'node:fs';
 import { chmod, mkdir, open, rename, stat } from 'node:fs/promises';
@@ -20,7 +20,7 @@ export type LineSecretSourceKind = (typeof LINE_SECRET_SOURCES)[number];
 
 export const DEFAULT_LINE_CREDENTIAL_DIR = '/run/secrets';
 
-/** account ของ secret ที่ operator ใส่ (read-only) → ชื่อไฟล์ใน secret directory */
+/** account of a secret the operator supplies (read-only) → file name in the secret directory */
 export const LINE_SECRET_FILES: Readonly<Record<string, string>> = Object.freeze({
   'channel-access-token': 'line-channel-access-token',
   'channel-secret': 'line-channel-secret',
@@ -35,7 +35,7 @@ export class LineFileSecretReadError extends Error {
   readonly code = 'CREDENTIAL_UNAVAILABLE';
 
   constructor() {
-    super('อ่าน credential จากไฟล์ไม่ได้');
+    super('cannot read the credential from the file');
     this.name = 'LineFileSecretReadError';
   }
 }
@@ -46,9 +46,9 @@ export interface LineSecretWriter {
 
 export interface FileLineSecretOptions {
   channelAccountId: string;
-  /** directory ของไฟล์จาก Compose `secrets` */
+  /** directory of the files from Compose `secrets` */
   secretDir?: string;
-  /** state directory ของ runner — recipient อยู่ใต้ `recipients/`; ไม่มี = อ่าน/เขียน recipient ไม่ได้ */
+  /** state directory of the runner — the recipient lives under `recipients/`; absent = cannot read/write the recipient */
   stateDir?: string;
 }
 
@@ -92,7 +92,7 @@ export class FileLineSecretSource implements LineSecretSource {
     } catch {
       throw new LineFileSecretReadError();
     }
-    // operator อาจใส่ newline ท้ายไฟล์ — ตัดเฉพาะตัวนั้น ค่า secret จริงไม่มี whitespace ปลาย
+    // the operator may put a newline at the end of the file — trim only that; a real secret value has no trailing whitespace
     const secret = raw.toString('utf8').replace(/\r?\n$/, '');
     raw.fill(0);
     if (!secret || /\s/.test(secret)) throw new LineFileSecretReadError();
@@ -101,8 +101,8 @@ export class FileLineSecretSource implements LineSecretSource {
 }
 
 /**
- * เขียนได้เฉพาะ recipient ลง state directory (`0600`) — secret ของ operator อยู่บน mount read-only
- * และเปลี่ยนได้ทาง `vm2-line-secrets.sh` เท่านั้น
+ * Can write only the recipient into the state directory (`0600`) — the operator's secret is on a read-only mount
+ * and can be changed only through `vm2-line-secrets.sh`
  */
 export class FileLineSecretWriter implements LineSecretWriter {
   private readonly service: string;

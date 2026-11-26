@@ -14,12 +14,12 @@ const KNOWN = [
 ] as const;
 type Failure = (typeof KNOWN)[number] | 'FAILED' | 'UNKNOWN';
 
-/** สถานะที่ย้ายทีมได้ — ตรงกับที่ server ยอม (กำลังจัดเตรียม/ปิด/ต้องตรวจสอบ ถูกปฏิเสธ) */
+/** statuses that allow a team move — matching what the server accepts (provisioning/disabled/needs-review are rejected) */
 const MOVABLE = new Set(['ACTIVE', 'PENDING_ACTIVATION', 'UNKNOWN']);
 
 /**
- * #998 1A: Admin ย้ายทีมของบัญชี ไม่แตะ Keycloak
- * คำสั่งตอบผลทันที ผลไม่ชัดเจนไม่ส่งซ้ำเอง: โหลดรายละเอียดใหม่ให้ Admin ตัดสินจากสถานะจริง
+ * #998 1A: Admin moves an account's team without touching Keycloak
+ * the command answers the result immediately; an uncertain result is not resent automatically: reload the detail so the Admin decides from the real status
  */
 export function PeopleTeamChange({
   api,
@@ -100,7 +100,7 @@ export function PeopleTeamChange({
       if (known) setError(value.code as Failure);
       else if (value instanceof CatalogApiError && value.status === 400) setError('FAILED');
       else {
-        // ไม่รู้ว่า server ย้ายแล้วหรือยัง: ปิด Dialog แล้วอ่านสถานะจริง ไม่ส่งซ้ำ
+        // not known whether the server moved it: close the Dialog and read the real status, do not resend
         close();
         setDone(label('teamChange.errors.UNKNOWN'));
         await refresh();

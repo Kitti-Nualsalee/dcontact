@@ -155,7 +155,7 @@ test('a late snapshot cannot move the live sequence backwards after reconnect', 
   runtime.stop();
 });
 
-test('governance invalidation ของ owner-local live stream บล็อก outbound จนยืนยัน canonical version', () => {
+test('governance invalidation of an owner-local live stream blocks outbound until the canonical version is confirmed', () => {
   let receive: ((event: unknown) => void) | undefined;
   const alerts: unknown[] = [];
   const runtime = new WorkspaceRuntime(

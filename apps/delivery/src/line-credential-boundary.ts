@@ -1,16 +1,16 @@
 /**
- * Owner: Delivery/Channels — credential boundary ของ LINE control plane (S2.3 #367)
+ * Owner: Delivery/Channels — credential boundary of the LINE control plane (S2.3 #367)
  *
- * Authority: #358 §G และ account authority #356 §2
+ * Authority: #358 §G and account authority #356 §2
  *
- * กติกาเดียวของไฟล์นี้: **secret value มีชีวิตได้เฉพาะใน memory ของ provider boundary**
- * - ไม่มีการอ่าน environment variable, ไม่มี argument ของ CLI, ไม่เขียนลง database/log/evidence
- * - ค่าที่ออกจากที่นี่ได้คือ metadata (ref/version/fingerprint/expiry) เท่านั้น
- * - `LineSecretHandle` ใช้ได้ครั้งเดียวแล้วลบค่าในตัวเองทิ้ง และ serialize ออกมาเป็น `[REDACTED]`
- *   ทุกทาง (`toString`/`toJSON`/`util.inspect`) เพื่อให้เผลอ log ทั้ง object แล้วก็ยังไม่รั่ว
+ * The single rule of this file: **a secret value may live only in the memory of the provider boundary**
+ * - no reading of environment variables, no CLI argument, no writing to database/log/evidence
+ * - only metadata (ref/version/fingerprint/expiry) may leave here
+ * - `LineSecretHandle` can be used once and then erases its own value, and serializes as `[REDACTED]`
+ *   by every route (`toString`/`toJSON`/`util.inspect`) so that accidentally logging the whole object still does not leak
  *
- * การอ่าน secret จริงจาก macOS Keychain เป็นหน้าที่ของ `LineSecretSource` ที่ owner ของ
- * provider transport ฉีดเข้ามา (S2.4) — S2.3 ไม่มี I/O ใด ๆ ทั้งกับ Keychain และกับ LINE
+ * Reading the real secret from the macOS Keychain is the job of `LineSecretSource`, which the owner of the
+ * provider transport injects (S2.4) — S2.3 has no I/O at all, neither to the Keychain nor to LINE
  */
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { inspect } from 'node:util';
@@ -21,18 +21,18 @@ import {
   type LineGateErrorCode,
 } from '@d-contact/cxa-contracts';
 
-/** ชื่อของ secret ใน Keychain ไม่ใช่ตัว secret — ค่านี้เก็บใน database ได้ */
+/** The name of the secret in the Keychain, not the secret itself — this value may be stored in the database */
 export interface LineKeychainReference {
   keychainService: string;
   keychainAccount: string;
 }
 
-/** ผู้เดียวที่ "เห็น" ค่าจริง; implementation อยู่ฝั่ง provider boundary เท่านั้น */
+/** The only party that "sees" the real value; the implementation lives on the provider boundary side only */
 export interface LineSecretSource {
   read(reference: LineKeychainReference): Promise<string>;
 }
 
-/** metadata ที่ durable — รูปร่างตรงกับแถว `dl_line_credential_refs` โดยไม่ผูกกับ Prisma */
+/** Durable metadata — its shape matches the `dl_line_credential_refs` row without being bound to Prisma */
 export interface LineCredentialMetadata {
   id: string;
   version: number;
@@ -51,17 +51,17 @@ export type LineCredentialErrorCode = Extract<
 >;
 
 /**
- * ข้อความของ error ตัวนี้ต้องไม่มีค่า secret, ไม่มีเหตุผลละเอียดของ Keychain และไม่มี ID ของ
- * tenant อื่น — ผู้เรียกได้แค่ machine code พอให้ fail closed ถูกทาง
+ * The message of this error must not contain the secret value, Keychain detail reasons, or the ID of
+ * another tenant — the caller gets only a machine code, enough to fail closed correctly
  */
 export class LineCredentialBoundaryError extends Error {
   constructor(readonly code: LineCredentialErrorCode) {
-    super(`credential ของ LINE ใช้ไม่ได้: ${code}`);
+    super(`LINE credential unusable: ${code}`);
     this.name = 'LineCredentialBoundaryError';
   }
 }
 
-/** fingerprint ที่เก็บใน database คือ sha256 ของค่า ไม่ใช่ค่าเอง จึงย้อนกลับไม่ได้ */
+/** The fingerprint stored in the database is the sha256 of the value, not the value itself, so it cannot be reversed */
 export function lineSecretFingerprint(secret: string): string {
   return createHash('sha256').update(secret, 'utf8').digest('hex');
 }
@@ -74,8 +74,8 @@ function fingerprintMatches(left: string, right: string): boolean {
 const REDACTED = '[REDACTED]';
 
 /**
- * handle ที่ถือค่า secret ไว้ชั่วคราว: `use()` ได้ครั้งเดียว หลังจากนั้นค่าใน handle ถูกลบ
- * ค่าไม่เคยถูก return ออกไปตรง ๆ — ผู้เรียกได้รับค่าเฉพาะใน callback ที่ตัวเองเขียน
+ * A handle that holds the secret value temporarily: `use()` works once, after which the value in the handle is erased.
+ * The value is never returned directly — the caller receives it only inside a callback they write themselves
  */
 export class LineSecretHandle {
   #secret: string | undefined;
@@ -94,7 +94,7 @@ export class LineSecretHandle {
     return this.#used;
   }
 
-  /** ใช้ค่าได้ครั้งเดียวและเฉพาะในขอบเขตของ callback; ค่าถูกทิ้งเสมอแม้ callback จะ throw */
+  /** Use the value exactly once and only within the callback scope; the value is always discarded even if the callback throws */
   async use<T>(work: (secret: string) => Promise<T> | T): Promise<T> {
     if (this.#used || this.#secret === undefined) {
       throw new LineCredentialBoundaryError('CREDENTIAL_UNAVAILABLE');
@@ -105,7 +105,7 @@ export class LineSecretHandle {
     return await work(secret);
   }
 
-  /** ทิ้งค่าทิ้งโดยไม่ใช้ — ใช้ตอน fail closed หลัง resolve แล้วแต่ยังไม่ข้าม barrier */
+  /** Discard the value without using it — used on fail closed after resolve but before crossing the barrier */
   dispose(): void {
     this.#used = true;
     this.#secret = undefined;
@@ -131,9 +131,9 @@ export class LineSecretHandle {
 }
 
 /**
- * ด่านเดียวที่แปลง metadata เป็นค่าใช้งานได้ ตรวจครบก่อนแตะ Keychain:
- * status/revoke/expiry/version ไม่ผ่าน = ไม่อ่านค่าเลย และค่าที่อ่านมาแล้ว fingerprint ไม่ตรง
- * metadata ที่อนุมัติไว้ ก็ถูกทิ้งทันทีโดยไม่ส่งต่อ (rotation ค้างครึ่งทางจึง fail closed)
+ * The single gate that turns metadata into a usable value, checking everything before touching the Keychain:
+ * status/revoke/expiry/version failing = the value is never read, and a value already read whose fingerprint does not match the
+ * approved metadata is discarded immediately without being forwarded (so a rotation stuck halfway fails closed)
  */
 export class LineCredentialBoundary {
   constructor(private readonly source: LineSecretSource) {}
@@ -160,7 +160,7 @@ export class LineCredentialBoundary {
         keychainAccount: metadata.keychainAccount,
       });
     } catch {
-      // ข้อความจริงของ Keychain อาจมีชื่อ item หรือค่า — ไม่ส่งต่อทั้งข้อความและ cause
+      // The real Keychain message may contain the item name or value — forward neither the message nor the cause
       throw new LineCredentialBoundaryError('CREDENTIAL_UNAVAILABLE');
     }
     if (!secret) throw new LineCredentialBoundaryError('CREDENTIAL_UNAVAILABLE');
@@ -175,7 +175,7 @@ export class LineForbiddenFieldError extends Error {
   readonly code = 'PII_OR_CREDENTIAL_LEAK';
 
   constructor(readonly field: string) {
-    super(`payload มี field ที่ห้ามออกนอก provider boundary: ${field}`);
+    super(`payload has a field that must not leave the provider boundary: ${field}`);
     this.name = 'LineForbiddenFieldError';
   }
 }
@@ -185,8 +185,8 @@ const FORBIDDEN_FIELDS = new Set(
 );
 
 /**
- * ด่านสุดท้ายก่อนเขียน audit/evidence: ปฏิเสธ payload ที่มีชื่อ field ต้องห้ามตาม #362 §5
- * ไม่ว่าจะซ้อนลึกแค่ไหน — ตรวจชื่อ field ไม่ใช่เนื้อหา เพราะเนื้อหาที่ redact แล้วยังผ่านได้
+ * The last gate before writing audit/evidence: reject a payload that has a forbidden field name per #362 §5
+ * no matter how deeply nested — checks the field name, not the content, because redacted content can still pass
  */
 export function assertRedactedPayload(value: unknown, path = '$'): void {
   if (Array.isArray(value)) {

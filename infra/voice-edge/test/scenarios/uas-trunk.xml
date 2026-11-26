@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- trunk จำลองรับสายออก: ต้องมาจาก Kamailio และต้องไม่มี header X-DContact- หลุดออกมา -->
+<!-- simulated trunk receiving outbound calls: it must come from Kamailio and no X-DContact- header must leak through -->
 <scenario name="uas-trunk">
   <recv request="INVITE">
     <action>

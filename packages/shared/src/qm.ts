@@ -2,9 +2,9 @@ export type QmTranscriptionTrigger = 'AUTOMATIC' | 'MANUAL';
 export type QmTranscriptionStatus = 'PENDING' | 'PROCESSING' | 'READY' | 'FAILED';
 
 /**
- * failureCode ที่ QM worker ตั้งเองเมื่อทำต่อไม่ได้เพราะ recording (ไม่นับ attempt ของ provider)
- * - RECORDING_NOT_ARCHIVED: ระหว่างรอ archive (job ยัง PENDING) หรือรอครบเพดานแล้ว (FAILED) เปิดใหม่ผ่าน manual request ได้เมื่อ archive แล้ว
- * - RECORDING_DELETED: recording ถูกลบหรือ Telephony เลิกลอง archive (FAILED ถาวร)
+ * failureCode that the QM worker sets itself when it cannot continue because of the recording (does not count provider attempts)
+ * - RECORDING_NOT_ARCHIVED: while waiting for the archive (job still PENDING) or after waiting the full limit (FAILED); can be reopened via a manual request once archived
+ * - RECORDING_DELETED: the recording was deleted or Telephony stopped trying to archive (permanently FAILED)
  */
 export const QM_RECORDING_FAILURE_CODES = {
   RECORDING_NOT_ARCHIVED: 'RECORDING_NOT_ARCHIVED',
