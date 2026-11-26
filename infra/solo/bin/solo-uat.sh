@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# #923: ขึ้น UAT แบบ D-Contact Solo บน VM สามตัว — รันจากเครื่อง operator ที่ root ของ repository
+# #923: brings up the D-Contact Solo UAT on three VMs. Run from the operator machine at the repository root
 #
 #   bash infra/solo/bin/solo-uat.sh <init-env|build|data|app|voice|status> [--reset]
 #
-# ลำดับครั้งแรก: init-env → build → data → app → voice
-#   init-env   สร้าง solo.env (secret ทั้งหมด) นอก repository ครั้งเดียว ไม่เขียนทับไฟล์เดิม
-#   build      ส่งซอร์สของ working tree ไป build image บน VM app และ VM voice (ไม่มี registry)
-#   data       เตรียมฐานบน VM data และตาราง voice edge (--reset = ลบฐานของ Solo แล้วสร้างใหม่)
-#   app        ขึ้น stack บน VM app, migrate, seed แบบ Demo (owner อนุมัติ 19 พ.ย. 2569)
-#   voice      ขึ้น nginx, Kamailio, FreeSWITCH บน VM voice
-#   status     สถานะ container ทั้งสอง VM
+# First-time order: init-env → build → data → app → voice
+#   init-env   create solo.env (all secrets) outside the repository once; never overwrites an existing file
+#   build      ship the working tree source and build images on the app and voice VMs (no registry)
+#   data       prepare the databases on the data VM and the voice edge tables (--reset = drop the Solo databases and recreate)
+#   app        bring up the stack on the app VM, migrate, Demo seed (owner approved 19 Nov 2026)
+#   voice      bring up nginx, Kamailio, FreeSWITCH on the voice VM
+#   status     container status on both VMs
 #
-# ค่าที่ปรับได้ผ่าน env: SOLO_ENV, SOLO_SSH_USER, SOLO_SIM_TRUNK_IP (ใช้ตอน init-env และ data)
-# ไม่พิมพ์ค่า secret: ส่งไฟล์ด้วย scp แล้ว chmod 600 บนปลายทาง
+# Tunable through env: SOLO_ENV, SOLO_SSH_USER, SOLO_SIM_TRUNK_IP (used by init-env and data)
+# Secrets are never printed: files go over scp and get chmod 600 on the target
 set -euo pipefail
 umask 077
 
@@ -34,7 +34,7 @@ remote() { # remote <ip> <command>
 }
 
 load_hosts() {
-  [[ -r "$SOLO_ENV" ]] || fail "ไม่มี $SOLO_ENV — รัน init-env ก่อน"
+  [[ -r "$SOLO_ENV" ]] || fail "$SOLO_ENV is missing; run init-env first"
   VOICE_IP="$(env_value SOLO_VOICE_IP)"
   APP_IP="$(env_value SOLO_APP_IP)"
   DATA_IP="$(env_value SOLO_DATA_IP)"
@@ -52,7 +52,7 @@ secret() {
 
 cmd_init_env() {
   if [[ -e "$SOLO_ENV" ]]; then
-    log "มี $SOLO_ENV อยู่แล้ว ไม่เขียนทับ"
+    log "$SOLO_ENV already exists; not overwriting"
     return
   fi
   mkdir -p "$(dirname "$SOLO_ENV")"
@@ -63,7 +63,7 @@ cmd_init_env() {
   owner="$(secret)"; app_db="$(secret)"; platform="$(secret)"; provisioner="$(secret)"
   directory="$(secret)"; esl="$(secret)"
   cat >"$SOLO_ENV" <<EOF
-# UAT Solo (#923) — สร้างโดย solo-uat.sh init-env ห้าม commit / ห้ามแปะใน issue หรือแชท
+# UAT Solo (#923), created by solo-uat.sh init-env. Never commit it or paste it into an issue or chat
 SOLO_VOICE_IP=$voice
 SOLO_APP_IP=$app
 SOLO_DATA_IP=$data
@@ -73,7 +73,7 @@ SOLO_WORKSPACE_HOST=$workspace
 SOLO_MEDIA_HOST=$media
 SOLO_ASR_HOST=$asr
 SOLO_IMAGE_TAG=dev
-# IP ของเครื่องใน LAN ที่ใช้เป็นสายจำลอง (softphone/SIPp) — Kamailio รับสายเข้าจาก IP นี้เท่านั้น
+# IP of the LAN machine used as the simulated trunk (softphone/SIPp); Kamailio accepts inbound calls from this IP only
 SOLO_SIM_TRUNK_IP=${SOLO_SIM_TRUNK_IP:-}
 
 SOLO_DB_OWNER_PASSWORD=$owner
@@ -83,12 +83,12 @@ SOLO_DB_PROVISIONER_PASSWORD=$provisioner
 SOLO_KEYCLOAK_DB_PASSWORD=$(secret)
 SOLO_VOICE_EDGE_OWNER_PASSWORD=$(secret)
 SOLO_KAMAILIO_DB_PASSWORD=$(secret)
-# รหัสผ่านของผู้ใช้ demo (admin@demo.local, agent1000/1001@demo.local)
+# Password of the demo users (admin@demo.local, agent1000/1001@demo.local)
 SOLO_ADMIN_PASSWORD=$(secret | cut -c1-16)
 SOLO_AGENT_PASSWORD=$(secret | cut -c1-16)
 
-# รันแบบ non-production เหมือน dev stack: consumer ของ Kafka ยังใช้ idempotency store ในหน่วยความจำ
-# ซึ่ง guard ของ production ไม่ยอม — secret ทุกตัวตั้งค่าเองใน solo.env จึงไม่ใช้ค่า fallback ของ dev
+# Runs as non-production like the dev stack: Kafka consumers still use an in-memory idempotency store,
+# which the production guard rejects. Every secret is set in solo.env, so no dev fallback values are used
 NODE_ENV=development
 DATABASE_URL=postgresql://dcontact:$owner@$data:5432/dcontact?schema=public
 APPLICATION_DATABASE_URL=postgresql://dcontact_app:$app_db@$data:5432/dcontact?schema=public
@@ -152,7 +152,7 @@ QM_SCORING_PROMPT_VERSION=not-configured
 QM_SCORING_API_KEY=not-configured-in-solo-uat
 EOF
   chmod 600 "$SOLO_ENV"
-  log "สร้าง $SOLO_ENV แล้ว (mode 600)"
+  log "Created $SOLO_ENV (mode 600)"
 }
 
 set_env_value() { # set_env_value <name> <value>
@@ -166,8 +166,8 @@ set_env_value() { # set_env_value <name> <value>
   rm -f "$tmp"
 }
 
-ship_source() { # ship_source <ip> — ส่ง working tree (ไม่รวมไฟล์ที่ git ignore) ไปที่ /tmp/solo-build
-  # ไม่พา metadata ของ macOS (ไฟล์ ._*) ไปด้วย — javac ของ Keycloak extension พยายาม compile ไฟล์เหล่านั้น
+ship_source() { # ship_source <ip>: ship the working tree (without git-ignored files) to /tmp/solo-build
+  # Leave out macOS metadata (._* files): javac for the Keycloak extension tries to compile them
   ( cd "$ROOT" && git ls-files -co --exclude-standard -z |
     COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs --null -cf - -T - ) |
     remote "$1" 'mkdir -p /tmp/solo-build && find /tmp/solo-build -mindepth 1 -delete && tar -xf - -C /tmp/solo-build'
@@ -197,7 +197,7 @@ cmd_build() {
   ship_source "$VOICE_IP"
   remote "$VOICE_IP" "cd /tmp/solo-build && docker build -q -t dcontact-solo/kamailio:$tag infra/voice-edge/kamailio"
   set_env_value SOLO_IMAGE_TAG "$tag"
-  log "build เสร็จ ตั้ง SOLO_IMAGE_TAG=$tag ใน solo.env แล้ว"
+  log "Build done; set SOLO_IMAGE_TAG=$tag in solo.env"
 }
 
 prepare_remote_dir() { # prepare_remote_dir <ip> <subdir>
@@ -211,32 +211,32 @@ cmd_data() {
   scp -q "${SSH_OPTS[@]}" "$ROOT/infra/solo/data/init-db.sh" "$ROOT/infra/voice-edge/schema.sql" \
     "$ROOT/infra/voice-edge/grant-kamailio.sql" "$SOLO_ENV" "$SSH_USER@$DATA_IP:$REMOTE_ROOT/data/"
   remote "$DATA_IP" "cd $REMOTE_ROOT/data && chmod 600 solo.env && sudo SOLO_ENV=$REMOTE_ROOT/data/solo.env sh init-db.sh $reset"
-  # ตาราง voice edge และ role อ่านอย่างเดียวของ Kamailio
-  # ส่ง SQL ทาง stdin เพราะ user postgres อ่านไฟล์ใน directory mode 700 ของ operator ไม่ได้
+  # Voice edge tables and the read-only Kamailio role.
+  # SQL goes over stdin because the postgres user cannot read files in the operator's mode-700 directory
   remote "$DATA_IP" "cd $REMOTE_ROOT/data && sudo -u postgres psql -X -q -v ON_ERROR_STOP=1 -d dcontact_voice_edge <schema.sql \
     && sudo -u postgres psql -X -q -v ON_ERROR_STOP=1 -d dcontact_voice_edge -v kamailio_password=\"\$(sed -n 's/^SOLO_KAMAILIO_DB_PASSWORD=//p' solo.env)\" <grant-kamailio.sql"
   local sim
   sim="$(env_value SOLO_SIM_TRUNK_IP)"
   if [[ -n "$sim" ]]; then
-    [[ "$sim" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || fail "SOLO_SIM_TRUNK_IP ไม่ใช่ IPv4"
+    [[ "$sim" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || fail "SOLO_SIM_TRUNK_IP is not IPv4"
     remote "$DATA_IP" "sudo -u postgres psql -X -q -v ON_ERROR_STOP=1 -d dcontact_voice_edge -c \"
       INSERT INTO tenant_edge (tenant_domain, max_channels) VALUES ('dcontact.local', 35)
         ON CONFLICT (tenant_domain) DO UPDATE SET max_channels = EXCLUDED.max_channels, enabled = true;
-      INSERT INTO trunk (id, name, tenant_domain, source_ip, host) VALUES ('lan-sim', 'สายจำลองใน LAN', 'dcontact.local', '$sim', '$sim')
+      INSERT INTO trunk (id, name, tenant_domain, source_ip, host) VALUES ('lan-sim', 'LAN simulated trunk', 'dcontact.local', '$sim', '$sim')
         ON CONFLICT (id) DO UPDATE SET source_ip = EXCLUDED.source_ip, host = EXCLUDED.host, enabled = true;
       INSERT INTO number (e164, tenant_domain, trunk_id, route_to) VALUES
         ('021000001', 'dcontact.local', 'lan-sim', '2000'), ('021000002', 'dcontact.local', 'lan-sim', '2001'),
         ('021000004', 'dcontact.local', 'lan-sim', '2002')
         ON CONFLICT (e164) DO NOTHING;\""
-    log "trunk จำลอง lan-sim รับสายจาก $sim: 021000001 → คิว (2000), 021000002 → IVR (2001), 021000004 → คิว managed (2002)"
+    log "Simulated trunk lan-sim accepts calls from $sim: 021000001 → queue (2000), 021000002 → IVR (2001), 021000004 → managed queue (2002)"
   else
-    log "ยังไม่ตั้ง SOLO_SIM_TRUNK_IP ใน solo.env — ข้ามการสร้าง trunk จำลอง"
+    log "SOLO_SIM_TRUNK_IP is not set in solo.env; skipping the simulated trunk"
   fi
   remote "$DATA_IP" "shred -u $REMOTE_ROOT/data/solo.env"
-  log "ฐานบน VM data พร้อม"
+  log "Databases on the data VM are ready"
 }
 
-ops() { # ops <shell command> — รันใน container ops บน network ของ stack
+ops() { # ops <shell command>: run in the ops container on the stack network
   remote "$APP_IP" "cd $REMOTE_ROOT/app && docker run --rm --network dcontact-solo_default --env-file solo.env \
     -e DCONTACT_LINK_DATABASE_URL=\"\$(sed -n 's/^DATABASE_URL=//p' solo.env)\" \
     -e DCONTACT_LINK_ADMIN_PASSWORD=\"\$(sed -n 's/^SOLO_ADMIN_PASSWORD=//p' solo.env)\" \
@@ -253,7 +253,7 @@ wait_healthy() { # wait_healthy <service> <tries>
     fi
     sleep 5
   done
-  fail "$1 ไม่ healthy"
+  fail "$1 is not healthy"
 }
 
 RECORDINGS_EXPORT=/srv/dcontact-solo/recordings
@@ -261,13 +261,13 @@ RECORDINGS_MOUNT_ROOT=/mnt/dcontact-solo
 RECORDINGS_MOUNT=$RECORDINGS_MOUNT_ROOT/recordings
 
 require_ipv4() { # require_ipv4 <name> <value>
-  [[ "$2" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || fail "$1 ไม่ใช่ IPv4"
+  [[ "$2" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || fail "$1 is not IPv4"
 }
 
-export_recordings() { # NFS export ของเสียงบันทึกบน VM voice — รันซ้ำได้ ทั้ง `app` และ `voice` เรียก
-  # FreeSWITCH (root) เขียน WAV ลง directory นี้ Telephony (uid 10001) บน VM app สร้าง directory ของ tenant
-  # และอ่านไฟล์ผ่าน NFS — export เฉพาะ IP ของ VM app, squash ทุกคำขอเป็น 10001 (ไม่ให้ root ข้ามเครื่อง)
-  # และปิด NFSv3 ให้เหลือ v4 ทางเดียว; restart nfsd เฉพาะเมื่อ config เปลี่ยน (restart ทำให้เข้า grace period 90 วินาที)
+export_recordings() { # NFS export of recordings on the voice VM; idempotent, called by both `app` and `voice`
+  # FreeSWITCH (root) writes WAVs into this directory; Telephony (uid 10001) on the app VM creates tenant directories
+  # and reads the files over NFS. Export only to the app VM IP and squash every request to 10001 (no root across machines),
+  # and turn off NFSv3 to leave v4 only; restart nfsd only when the config changes (a restart enters a 90-second grace period)
   require_ipv4 SOLO_APP_IP "$APP_IP"
   remote "$VOICE_IP" "set -eu
     command -v exportfs >/dev/null || { sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nfs-kernel-server >/dev/null; }
@@ -286,19 +286,19 @@ export_recordings() { # NFS export ของเสียงบันทึกบ
     sudo exportfs -ra
     test \"\$(stat -c '%u:%g %a' $RECORDINGS_EXPORT)\" = '10001:10001 770'
     sudo exportfs -s | grep -q '^$RECORDINGS_EXPORT[[:space:]]*$APP_IP('"
-  log "export เสียงบันทึกที่ $RECORDINGS_EXPORT ให้ $APP_IP (NFSv4 เท่านั้น)"
+  log "Exported recordings at $RECORDINGS_EXPORT to $APP_IP (NFSv4 only)"
 }
 
-mount_recordings() { # VM app mount export ของ VM voice แบบ systemd automount — รันซ้ำได้
-  # container ของ Telephony bind directory แม่ ($RECORDINGS_MOUNT_ROOT, rslave) ไม่ใช่จุด automount เอง
-  # จึงเริ่มได้เสมอแม้ VM voice ยังไม่ขึ้น (bind จุด automount ตรง ๆ ล้มด้วย ENODEV เมื่อ NFS ไม่ตอบ)
-  # ถ้า NFS ไม่ตอบ fs call ได้ error ภายใน ~12 วินาที (soft,timeo=20,retrans=2) แทนการค้าง
-  # แก้ตัวเลือกแล้วต้อง umount จุดนี้เองก่อน (automount ไม่ mount ใหม่ขณะยังใช้อยู่)
+mount_recordings() { # The app VM mounts the voice VM export as a systemd automount; idempotent
+  # The Telephony container binds the parent directory ($RECORDINGS_MOUNT_ROOT, rslave), not the automount point itself,
+  # so it always starts even when the voice VM is down (binding the automount point directly fails with ENODEV when NFS does not answer).
+  # When NFS does not answer, fs calls get an error within ~12 seconds (soft,timeo=20,retrans=2) instead of hanging.
+  # After changing the options, umount this point yourself first (automount does not remount while in use)
   require_ipv4 SOLO_VOICE_IP "$VOICE_IP"
   remote "$APP_IP" "set -eu
     command -v mount.nfs >/dev/null || { sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nfs-common >/dev/null; }
     sudo install -d -m 0755 $RECORDINGS_MOUNT_ROOT
-    # สร้างจุด mount เฉพาะครั้งแรก — ถ้า mount อยู่ install -d จะ chmod directory บน VM voice ผ่าน NFS
+    # Create the mount point only the first time: while mounted, install -d would chmod the directory on the voice VM over NFS
     sudo test -d $RECORDINGS_MOUNT || sudo mkdir -m 0755 $RECORDINGS_MOUNT
     sudo sed -i '\#[[:space:]]$RECORDINGS_MOUNT[[:space:]]#d' /etc/fstab
     printf '%s\n' '$VOICE_IP:$RECORDINGS_EXPORT $RECORDINGS_MOUNT nfs4 rw,soft,timeo=20,retrans=2,_netdev,nofail,x-systemd.automount,x-systemd.mount-timeout=10s 0 0' |
@@ -306,12 +306,12 @@ mount_recordings() { # VM app mount export ของ VM voice แบบ systemd 
     sudo systemctl daemon-reload
     sudo systemctl start \"\$(systemd-escape -p --suffix=automount $RECORDINGS_MOUNT)\"
     sudo stat -c '%u:%g %a' $RECORDINGS_MOUNT/. | grep -q '^10001:10001 770\$'"
-  log "mount เสียงบันทึกจาก $VOICE_IP ที่ $RECORDINGS_MOUNT"
+  log "Mounted recordings from $VOICE_IP at $RECORDINGS_MOUNT"
 }
 
 cmd_app() {
   load_hosts
-  [[ "$IMAGE_TAG" != dev ]] || log "SOLO_IMAGE_TAG=dev (ยังไม่ได้ build ด้วยสคริปต์นี้)"
+  [[ "$IMAGE_TAG" != dev ]] || log "SOLO_IMAGE_TAG=dev (not built with this script yet)"
   prepare_remote_dir "$APP_IP" app
   local work
   work="$(mktemp -d)"
@@ -321,13 +321,13 @@ cmd_app() {
   cp "$SOLO_ENV" "$work/solo.env"
   ( cd "$work" && COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs -cf - . ) | remote "$APP_IP" "tar -xf - -C $REMOTE_ROOT/app && chmod 600 $REMOTE_ROOT/app/solo.env && chmod 755 $REMOTE_ROOT/app/keycloak-import && chmod 644 $REMOTE_ROOT/app/keycloak-import/realm-dcontact.json $REMOTE_ROOT/app/Caddyfile"
   rm -rf "$work"
-  # Telephony อ่านเสียงบันทึกจาก VM voice ผ่าน NFS
+  # Telephony reads recordings from the voice VM over NFS
   export_recordings
   mount_recordings
   local compose="cd $REMOTE_ROOT/app && docker compose --env-file solo.env"
   remote "$APP_IP" "$compose up -d redis redpanda redpanda-init object-storage mailpit keycloak"
   wait_healthy keycloak 60
-  log "bucket ของ object storage, migrate, rls, seed ฐานแอป และเชื่อมผู้ใช้ใน Keycloak"
+  log "Object storage buckets, migrate, rls, app database seed and Keycloak user linking"
   ops 'node scripts/object-storage-init.mjs && pnpm db:migrate && pnpm db:rls && pnpm db:seed && node scripts/link-keycloak-dev-identity.mjs'
   remote "$APP_IP" "$compose up -d"
   for _ in $(seq 1 60); do
@@ -336,7 +336,7 @@ cmd_app() {
     fi
     sleep 5
   done
-  log "seed แบบ Demo (ทีม, identity binding, scope, CONTACT_CREATE)"
+  log "Demo seed (teams, identity binding, scope, CONTACT_CREATE)"
   ops 'node scripts/solo-uat-seed.mjs'
   remote "$APP_IP" "$compose ps --format 'table {{.Service}}\t{{.Status}}'"
 }
@@ -354,24 +354,24 @@ cmd_voice() {
   sed -e "s/__SOLO_APP_IP__/$APP_IP/g" -e "s/__SOLO_CONSOLE_HOST__/$CONSOLE_HOST/g" \
     -e "s/__SOLO_WORKSPACE_HOST__/$WORKSPACE_HOST/g" -e "s/__SOLO_MEDIA_HOST__/$MEDIA_HOST/g" \
     -e "s/__SOLO_ASR_HOST__/$ASR_HOST/g" "$ROOT/infra/solo/voice/nginx.conf" >"$work/nginx.conf"
-  printf '# set 1 = FreeSWITCH profile pstn-sim บน VM เดียวกัน\n1 sip:%s:5080 0 0\n' "$VOICE_IP" >"$work/dispatcher.list"
-  # voice ได้เฉพาะค่าที่ใช้ ไม่ได้ secret ของฐานแอป
+  printf '# set 1 = FreeSWITCH profile pstn-sim on the same VM\n1 sip:%s:5080 0 0\n' "$VOICE_IP" >"$work/dispatcher.list"
+  # voice gets only the values it uses, not the app database secrets
   grep -E '^(SOLO_VOICE_IP|SOLO_APP_IP|SOLO_DATA_IP|SOLO_IMAGE_TAG|SOLO_KAMAILIO_DB_PASSWORD|TELEPHONY_NODE_ID|FREESWITCH_ESL_PASSWORD|FREESWITCH_DIRECTORY_PASSWORD)=' \
     "$SOLO_ENV" >"$work/.env"
   ( cd "$work" && COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs -cf - . ) | remote "$VOICE_IP" "tar -xf - -C $REMOTE_ROOT/voice && cd $REMOTE_ROOT/voice && chmod 600 .env && chmod -R a+rX freeswitch nginx.conf dispatcher.list"
   rm -rf "$work"
-  # cert ของ star.osd.co.th วางที่ tls/server.crt และ tls/server.key; ถ้ายังไม่มีใช้ self-signed ชั่วคราว
+  # The star.osd.co.th cert goes in tls/server.crt and tls/server.key; until then a temporary self-signed cert is used
   remote "$VOICE_IP" "cd $REMOTE_ROOT/voice && mkdir -p tls && if [ ! -s tls/server.crt ] || [ ! -s tls/server.key ]; then
       openssl req -x509 -newkey rsa:2048 -nodes -days 90 -subj '/CN=$CONSOLE_HOST' \
         -addext 'subjectAltName=DNS:$CONSOLE_HOST,DNS:$WORKSPACE_HOST' \
-        -keyout tls/server.key -out tls/server.crt 2>/dev/null && echo '# ใช้ cert self-signed ชั่วคราว';
+        -keyout tls/server.key -out tls/server.crt 2>/dev/null && echo '# Using a temporary self-signed cert';
     fi; chmod 644 tls/server.crt; chmod 640 tls/server.key; sudo chgrp 101 tls/server.key"
   export_recordings
   # nginx.conf is extracted as a new file (new inode): the running container keeps the old one and compose does not recreate it
   remote "$VOICE_IP" "cd $REMOTE_ROOT/voice && docker compose up -d && docker compose up -d --force-recreate --no-deps nginx && sleep 15 && docker compose ps --format 'table {{.Service}}\t{{.Status}}'"
-  # Telephony ต่อ ESL ครั้งเดียวตอนเริ่มและไม่ลองใหม่ จึงเริ่มใหม่หลัง FreeSWITCH ขึ้นแล้ว
+  # Telephony connects to ESL once at start and does not retry, so restart it after FreeSWITCH is up
   remote "$APP_IP" "docker restart dcontact-solo-telephony-1 >/dev/null"
-  log "เริ่ม Telephony ใหม่ให้ต่อ ESL ของ FreeSWITCH"
+  log "Restarting Telephony so it connects to the FreeSWITCH ESL"
 }
 
 cmd_status() {

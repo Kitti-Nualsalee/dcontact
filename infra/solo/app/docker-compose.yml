@@ -1,12 +1,12 @@
-# #923: VM app ของ UAT แบบ D-Contact Solo (192.168.31.207)
-# รันระบบเต็มแบบเดียวกับ dev stack ฐานข้อมูลอยู่บน VM data และ TLS จบที่ nginx บน VM voice
+# #923: app VM of the D-Contact Solo UAT (192.168.31.207)
+# Runs the full system like the dev stack; the database is on the data VM and TLS ends at nginx on the voice VM
 #
-# ใช้ผ่าน infra/solo/bin/solo-uat.sh เท่านั้น ไฟล์นี้อยู่ที่ /opt/dcontact-solo/app/ บน VM
-# solo.env (mode 600) อยู่ข้างไฟล์นี้ และมี secret ทั้งหมด — ห้าม commit
+# Use only through infra/solo/bin/solo-uat.sh. On the VM this file lives in /opt/dcontact-solo/app/
+# solo.env (mode 600) sits next to this file and holds every secret. Never commit it
 #
-# พอร์ตที่เปิดออก host:
-#   SOLO_APP_IP:8080   web (Caddy) — รับเฉพาะ nginx บน VM voice
-#   127.0.0.1:8081     Keycloak — สำหรับ operator ผ่าน SSH tunnel เท่านั้น
+# Ports published on the host:
+#   SOLO_APP_IP:8080   web (Caddy), accepts only nginx on the voice VM
+#   127.0.0.1:8081     Keycloak, for the operator through an SSH tunnel only
 name: dcontact-solo
 
 x-service: &service
@@ -94,8 +94,8 @@ services:
     <<: *service
     image: dcontact-solo/keycloak:${SOLO_IMAGE_TAG:?SOLO_IMAGE_TAG is required}
     env_file: []
-    # production mode หลัง proxy: TLS จบที่ nginx บน VM voice, Keycloak ฟัง http ใน network ภายใน
-    # import realm ตอนบูตครั้งแรกเท่านั้น (realm ที่มีอยู่แล้วไม่ถูกเขียนทับ)
+    # Production mode behind a proxy: TLS ends at nginx on the voice VM, Keycloak listens on http in the internal network
+    # The realm is imported on first boot only (an existing realm is not overwritten)
     command: ['start', '--import-realm', '--features=organization']
     environment:
       KC_DB: postgres
@@ -117,7 +117,7 @@ services:
     volumes:
       - ./keycloak-import:/opt/keycloak/data/import:ro
     healthcheck:
-      # เหมือน UAT (#680): ตรวจ status line = 200 ไม่ grep คำว่า UP ทั้ง body
+      # Same as UAT (#680): check for a 200 status line instead of grepping the body for UP
       test:
         - CMD
         - bash
@@ -135,8 +135,8 @@ services:
     command: ['node', 'dist/main.js']
     environment:
       PORT: '3000'
-      # API ต้องต่อฐานด้วย dcontact_app (ไม่ใช่ owner ที่เป็น superuser) ให้ RLS มีผลเหมือน production
-      # และ definer ที่ปฏิเสธ session แบบ superuser/bypassrls (เช่นรับคำสั่ง People #998) ทำงานได้
+      # The API must connect as dcontact_app (not the superuser owner) so RLS applies as in production,
+      # and definers that reject superuser/bypassrls sessions (such as People commands, #998) work
       DATABASE_URL: ${APPLICATION_DATABASE_URL:?APPLICATION_DATABASE_URL is required}
     mem_limit: 900m
     depends_on:
@@ -166,12 +166,12 @@ services:
     command: ['node', 'dist/main.js']
     mem_limit: 384m
     environment:
-      # FreeSWITCH เขียนที่ path นี้บน VM voice; Telephony อ่านไฟล์เดียวกันผ่าน NFS ที่ /mnt/dcontact-solo/recordings
+      # FreeSWITCH writes to this path on the voice VM; Telephony reads the same files over NFS at /mnt/dcontact-solo/recordings
       FREESWITCH_RECORDINGS_DIR: /var/lib/freeswitch/recordings
       FREESWITCH_RECORDINGS_HOST_DIR: /mnt/dcontact-solo/recordings
     volumes:
-      # recordings ข้างในเป็น systemd automount ของ NFS บน host (solo-uat.sh mount_recordings)
-      # bind directory แม่ไม่ใช่จุด automount เพื่อให้ container เริ่มได้แม้ NFS ไม่ตอบ; rslave ให้เห็น mount ที่เกิดภายหลัง
+      # recordings inside is a systemd NFS automount on the host (solo-uat.sh mount_recordings).
+      # Bind the parent directory, not the automount point, so the container starts even when NFS does not answer; rslave shows mounts made later
       - type: bind
         source: /mnt/dcontact-solo
         target: /mnt/dcontact-solo
@@ -183,17 +183,17 @@ services:
 
   qm:
     <<: *service
-    # QM worker: รับ interaction.ended สร้าง transcription job, consume dc.qm.jobs และรัน QmRetryDispatcher ทุก 5 วินาที
-    # อยู่หลัง profile `qm` — `docker compose up -d` ของ solo-uat.sh ไม่เริ่ม service นี้จนกว่า operator
-    # ใส่ COMPOSE_PROFILES=qm ใน solo.env หลังตั้ง QM_MEDIA_ENDPOINT และ QM_TRANSCRIPTION_* เป็น provider จริง (https)
-    # ถ้าเริ่มด้วยค่า placeholder ทุก job (อัตโนมัติและ manual) จะล้มครบ maxAttempts แล้วเป็น FAILED
-    # วิธีเปิด/ปิดอยู่ใน docs/solo-uat.md หัวข้อ QM worker
+    # QM worker: takes interaction.ended, creates transcription jobs, consumes dc.qm.jobs and runs QmRetryDispatcher every 5 seconds.
+    # It sits behind the `qm` profile: solo-uat.sh's `docker compose up -d` does not start it until the operator
+    # adds COMPOSE_PROFILES=qm to solo.env after pointing QM_MEDIA_ENDPOINT and QM_TRANSCRIPTION_* at a real provider (https).
+    # Started with placeholder values, every job (automatic and manual) fails maxAttempts times and becomes FAILED.
+    # How to turn it on/off: docs/solo-uat.md, section QM worker
     profiles: ['qm']
     image: dcontact-solo/services:${SOLO_IMAGE_TAG}
     working_dir: /app/qm
     command: ['node', 'dist/main.js']
     environment:
-      # ใช้ role แอป NOBYPASSRLS: ทุก query ของ QM อยู่ใน withTenantDatabaseTransaction ยกเว้นอ่าน tenants (ไม่มี RLS)
+      # Uses the NOBYPASSRLS app role: every QM query runs in withTenantDatabaseTransaction except reading tenants (no RLS)
       DATABASE_URL: ${APPLICATION_DATABASE_URL:?APPLICATION_DATABASE_URL is required}
     # The ASR host (QM_TRANSCRIPTION_ENDPOINT) is not in DNS: point it at nginx on the voice VM, which holds *.osd.co.th
     # Use :- not :? because compose checks variables of services whose profile is off too

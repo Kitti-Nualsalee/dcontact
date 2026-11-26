@@ -31,7 +31,7 @@ test('HTTP transcription provider enforces HTTPS and the no-training contract', 
               speaker: 'AGENT',
               startMs: 0,
               endMs: 1_200,
-              text: 'สวัสดีค่ะ',
+              text: 'สวัสดีค่ะ', // allow-thai: Thai transcript from the ASR provider
               confidence: 0.92,
             },
           ],
@@ -58,7 +58,7 @@ test('HTTP transcription provider enforces HTTPS and the no-training contract', 
     languageHint: 'th-TH',
     dataUse: 'NO_TRAINING',
   });
-  assert.equal(result.segments[0]?.text, 'สวัสดีค่ะ');
+  assert.equal(result.segments[0]?.text, 'สวัสดีค่ะ'); // allow-thai: Thai text survives parsing
 });
 
 test('HTTP transcription provider sends the protocol header and reports provider error codes', async () => {
