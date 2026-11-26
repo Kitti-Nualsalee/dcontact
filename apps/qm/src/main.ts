@@ -21,6 +21,14 @@ function required(name: string): string {
   return value;
 }
 
+function optionalPositiveInteger(name: string): number | undefined {
+  const raw = process.env[name]?.trim();
+  if (!raw) return undefined;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value <= 0) throw new Error(`${name} must be a positive integer`);
+  return value;
+}
+
 async function main(): Promise<void> {
   const database = new PrismaClient();
   const { publisher, producer } = await createQmJobPublisher();
@@ -35,6 +43,7 @@ async function main(): Promise<void> {
     id: required('QM_TRANSCRIPTION_PROVIDER_ID'),
     endpoint: required('QM_TRANSCRIPTION_ENDPOINT'),
     apiKey: process.env.QM_TRANSCRIPTION_API_KEY,
+    timeoutMs: optionalPositiveInteger('QM_TRANSCRIPTION_TIMEOUT_MS'),
   });
   const scorer = process.env.QM_SCORING_ENDPOINT
     ? new HttpScoringProvider({

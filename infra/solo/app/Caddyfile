@@ -32,6 +32,35 @@
 			reverse_proxy api:3000
 		}
 
+		# QM: the media and ASR hosts come before the path routes so they can never reach the API or Console
+		# nginx on the voice VM accepts both hosts from the app VM only
+		# media: signed URLs of the recordings bucket, forwarded with the original Host (the signature covers it), read-only
+		@media host {$SOLO_MEDIA_HOST}
+		handle @media {
+			@signedRecording {
+				method GET HEAD
+				path /recordings/*
+				query X-Amz-Signature=*
+			}
+			handle @signedRecording {
+				reverse_proxy object-storage:9000
+			}
+			handle {
+				respond 404
+			}
+		}
+		# ASR provider per protocol v1 (the simulator for now): only the protocol paths are open
+		@asr host {$SOLO_ASR_HOST}
+		handle @asr {
+			@asrProtocol path /v1/transcriptions /v1/health
+			handle @asrProtocol {
+				reverse_proxy qm-asr-simulator:8090
+			}
+			handle {
+				respond 404
+			}
+		}
+
 		@keycloakAdmin path /auth/admin /auth/admin/* /auth/realms/master /auth/realms/master/* /auth/metrics /auth/health /auth/health/*
 		respond @keycloakAdmin 404
 		handle /auth/* {
