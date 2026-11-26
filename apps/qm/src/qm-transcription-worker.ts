@@ -81,8 +81,8 @@ function retryDelayMs(attempts: number): number {
 }
 
 /**
- * Telephony อาจส่ง call.hangup ก่อน archive WAV ขึ้น object storage เสร็จ (#988)
- * worker จึงรอ recording.archivedAt โดยไม่นับ attempt ภายในเพดานนับจากเวลาสร้าง job
+ * Telephony may send call.hangup before the WAV archive to object storage finishes (#988),
+ * so the worker waits for recording.archivedAt without counting an attempt, up to a ceiling from job creation
  */
 export const RECORDING_ARCHIVE_WAIT_LIMIT_MS = 60 * 60 * 1_000;
 export const RECORDING_NOT_ARCHIVED = QM_RECORDING_FAILURE_CODES.RECORDING_NOT_ARCHIVED;
@@ -201,16 +201,16 @@ export class QmTranscriptionWorker {
           throw new Error('transcription job message does not match persisted job');
         }
         if (message.attempt <= job.attempts) return { ...job, duplicate: true as const };
-        // FAILED เป็นสถานะสุดท้าย: job ที่ปิดโดยไม่นับ attempt (recording ถูกลบหรือไม่ archive) ยังมี attempts = 0
-        // message ที่ Kafka ส่งซ้ำจึงต้องเป็น no-op ไม่ใช่ throw
+        // FAILED is terminal: a job closed without counting an attempt (recording deleted or never archived) still has attempts = 0,
+        // so a message Kafka redelivers must be a no-op, not a throw
         if (job.status === 'FAILED') return { ...job, duplicate: true as const };
         if (message.attempt !== job.attempts + 1) {
           throw new Error('transcription job attempt is out of sequence');
         }
         if (job.status !== 'PENDING') throw new Error(`transcription job is ${job.status}`);
         if (job.nextAttemptAt && job.nextAttemptAt.getTime() > startedAt.getTime()) {
-          // message ที่มาก่อนเวลา (Kafka ส่งซ้ำหรือ publish ซ้ำ) เป็น no-op: QmRetryDispatcher เป็นตัวขับที่ durable
-          // ถ้า throw consumer จะ retry วนและกั้น message อื่นใน partition เดียวกันจนกว่าจะถึงเวลา
+          // A message that arrives early (Kafka redelivery or a repeat publish) is a no-op: QmRetryDispatcher is the durable driver.
+          // Throwing would make the consumer retry in a loop and block other messages in the same partition until then
           return { ...job, duplicate: true as const };
         }
         if (job.recording.deletedAt) {
@@ -239,7 +239,7 @@ export class QmTranscriptionWorker {
           const nextAttemptAt = new Date(
             Math.min(startedAt.getTime() + archiveWaitDelayMs(waitedMs), deadline.getTime()),
           );
-          // ไม่เพิ่ม attempts: archive ช้าไม่ใช่ความล้มเหลวของ provider; retry dispatcher หยิบต่อเมื่อถึง nextAttemptAt
+          // Do not increment attempts: a slow archive is not a provider failure; the retry dispatcher picks it up at nextAttemptAt
           await transaction.qmTranscriptionJob.update({
             where: { id: job.id },
             data: {
@@ -501,7 +501,7 @@ export class QmTranscriptionWorker {
     };
   }
 
-  /** ปิด job ที่ทำต่อไม่ได้เพราะ recording โดยไม่นับ attempt เพื่อไม่ให้ค้าง PENDING ทั้งที่ dispatchedAt มีค่า */
+  /** Closes a job that cannot continue because of its recording, without counting an attempt, so it does not stay PENDING with dispatchedAt set */
   private async failWithoutAttempt(
     transaction: Prisma.TransactionClient,
     tenantId: string,

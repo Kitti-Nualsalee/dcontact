@@ -33,7 +33,7 @@ async function main(): Promise<void> {
   const database = new PrismaClient();
   const { publisher, producer } = await createQmJobPublisher();
   const workflow = new QmTranscriptionWorkflow(database, publisher);
-  // QM ส่ง media ออกนอกเครือข่ายภายในได้จึงบังคับ HTTPS; QM_MEDIA_ENDPOINT ใช้ override endpoint เฉพาะ QM
+  // QM may send media outside the internal network, so HTTPS is required; QM_MEDIA_ENDPOINT overrides the endpoint for QM only
   const s3 = readS3Configuration({ requireExplicit: true, purpose: 'for QM media source' });
   const media = new S3QmMediaSource({
     s3: { ...s3, endpoint: process.env.QM_MEDIA_ENDPOINT?.trim() || s3.endpoint },

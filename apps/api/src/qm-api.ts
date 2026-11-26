@@ -541,7 +541,7 @@ export class QmController {
         interaction: {
           id: interaction.id,
           channel: interaction.channel,
-          queueName: interaction.queue?.name ?? 'ไม่ระบุ queue',
+          queueName: interaction.queue?.name ?? null,
         },
         recording: recording
           ? {
