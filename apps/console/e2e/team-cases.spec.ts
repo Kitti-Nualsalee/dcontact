@@ -1,10 +1,17 @@
 import { expect, test, type Page } from '@playwright/test';
+import { th } from './support/catalog';
+
+function escapeRegExp(text: string) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+const SUBJECT = 'X200 unit is damaged, replacement requested';
 test.use({ locale: 'th-TH' });
 
 const caseId = '7a33ac96-d87d-4ca4-ab75-f27e40e943be';
 const me = 'first'; // dc_user_id of the harness identity
 const other = 'agent-2';
-const people = { [me]: 'สมหญิง ใจดี', [other]: 'ปกรณ์ ศรีสุข' };
+const people = { [me]: 'Somying Jaidee', [other]: 'Pakorn Srisuk' };
 
 type Status = 'OPEN' | 'RESOLVED' | 'CLOSED';
 interface Fixture {
@@ -76,9 +83,9 @@ async function mockCases(page: Page, fixture: Fixture) {
             ? [
                 {
                   id: caseId,
-                  subject: 'เครื่อง X200 ชำรุด ขอเปลี่ยนเครื่องใหม่',
+                  subject: SUBJECT,
                   contactId: 'c1',
-                  contactDisplayName: 'คุณนภา จันทร์เพ็ญ',
+                  contactDisplayName: 'Napa Chanphen',
                   status: fixture.status,
                   assigneeUserId: fixture.assignee,
                   version: fixture.version,
@@ -108,9 +115,9 @@ async function mockCases(page: Page, fixture: Fixture) {
         json: {
           case: {
             id: caseId,
-            subject: 'เครื่อง X200 ชำรุด ขอเปลี่ยนเครื่องใหม่',
+            subject: SUBJECT,
             contactId: 'c1',
-            contactDisplayName: 'คุณนภา จันทร์เพ็ญ',
+            contactDisplayName: 'Napa Chanphen',
             status: fixture.status,
             assigneeUserId: fixture.assignee,
             version: fixture.version,
@@ -128,7 +135,7 @@ async function mockCases(page: Page, fixture: Fixture) {
           },
           people,
           teamName: 'Retail Support',
-          customer: { displayName: 'คุณนภา จันทร์เพ็ญ', company: 'Siam Retail Co.' },
+          customer: { displayName: 'Napa Chanphen', company: 'Siam Retail Co.' },
         },
       });
     if (request.method() === 'POST') {
@@ -176,7 +183,7 @@ const newFixture = (): Fixture => ({
   status: 'OPEN',
   version: 1,
   assignee: me,
-  notes: ['ลูกค้าแจ้งว่าเครื่องแตกที่ฝาหลัง'],
+  notes: ['The customer reported a crack on the back cover'],
   commands: [],
   seen: new Set(),
 });
@@ -189,48 +196,55 @@ test('an Agent views the list, opens a detail, adds a note, marks resolved, and 
   await page.goto('/?view=team-cases&tenant=demo');
 
   // list: the default is not-closed + mine
-  await expect(page.getByRole('heading', { name: 'เคสของทีม', level: 1 })).toBeVisible();
-  await expect(page.getByRole('grid', { name: 'รายการเคสของทีม' })).toContainText('คุณ');
-  await expect(page.getByText('แสดง 1–1')).toBeVisible();
-  await page
-    .getByRole('button', { name: 'เปิดเคส เครื่อง X200 ชำรุด ขอเปลี่ยนเครื่องใหม่' })
-    .click();
+  await expect(page.getByRole('heading', { name: th('cases:title'), level: 1 })).toBeVisible();
+  await expect(page.getByRole('grid', { name: th('cases:list') })).toContainText(th('cases:you'));
+  await expect(page.getByText(th('cases:page.range', { from: 1, to: 1 }))).toBeVisible();
+  await page.getByRole('button', { name: th('cases:openItem', { subject: SUBJECT }) }).click();
 
   // detail: URL, timeline and the work history link (the viewer's own work)
-  await expect(page.getByRole('heading', { name: /เครื่อง X200/, level: 1 })).toBeFocused();
+  await expect(page.getByRole('heading', { name: /X200/, level: 1 })).toBeFocused();
   expect(new URL(page.url()).searchParams.get('case')).toBe(caseId);
-  await expect(page.getByText('เปิดเคส และให้ตัวเองเป็นผู้รับผิดชอบ')).toBeVisible();
-  await expect(page.getByRole('link', { name: 'เปิดในประวัติงาน' })).toHaveAttribute(
+  await expect(
+    page.getByText(th('cases:timeline.openedSelf', { actor: people[me] })),
+  ).toBeVisible();
+  await expect(page.getByRole('link', { name: th('cases:timeline.openHistory') })).toHaveAttribute(
     'href',
     /view=agent-history&.*interaction=/,
   );
 
   // add a note
-  const note = page.getByRole('textbox', { name: 'เพิ่มโน้ต' });
-  await note.fill('<b>ฝ่ายคลัง</b> ยืนยันสต็อกแล้ว');
-  await page.getByRole('button', { name: 'บันทึกโน้ต' }).click();
-  await expect(page.getByText('<b>ฝ่ายคลัง</b> ยืนยันสต็อกแล้ว', { exact: true })).toBeVisible();
+  const note = page.getByRole('textbox', { name: th('cases:note.label') });
+  await note.fill('<b>Warehouse</b> confirmed the stock');
+  await page.getByRole('button', { name: th('cases:note.submit') }).click();
+  await expect(
+    page.getByText('<b>Warehouse</b> confirmed the stock', { exact: true }),
+  ).toBeVisible();
   await expect(page.locator('.cs-note b')).toHaveCount(0);
   await expect(note).toBeFocused();
   await expect(note).toHaveValue('');
 
   // mark resolved: no confirmation, a new set of buttons and focus
-  await page.getByRole('button', { name: 'ทำเครื่องหมายว่าแก้แล้ว' }).click();
-  await expect(page.getByRole('button', { name: 'เปิดเคสอีกครั้ง' })).toBeVisible();
+  await page.getByRole('button', { name: th('cases:action.resolve') }).click();
+  await expect(page.getByRole('button', { name: th('cases:action.reopen') })).toBeVisible();
   await expect(
-    page.getByRole('group', { name: 'การทำงานกับเคส' }).getByRole('button').first(),
+    page
+      .getByRole('group', { name: th('cases:detail.actions') })
+      .getByRole('button')
+      .first(),
   ).toBeFocused();
 
   // close the case: the alertdialog focus starts at cancel
-  await page.getByRole('button', { name: 'ปิดเคส', exact: true }).click();
+  await page.getByRole('button', { name: th('cases:action.close'), exact: true }).click();
   const dialog = page.getByRole('alertdialog');
-  await expect(dialog).toContainText('เครื่อง X200');
-  await expect(dialog.getByRole('button', { name: 'ยกเลิก' })).toBeFocused();
-  await dialog.getByRole('button', { name: 'ปิดเคส', exact: true }).click();
-  await expect(page.locator('.cs-bar-brand')).toContainText('เคสนี้ปิดแล้วเมื่อ');
+  await expect(dialog).toContainText('X200');
+  await expect(dialog.getByRole('button', { name: th('cases:cancel') })).toBeFocused();
+  await dialog.getByRole('button', { name: th('cases:action.close'), exact: true }).click();
+  await expect(page.locator('.cs-bar-brand')).toContainText(
+    th('cases:closedNotice', { time: '{TIME}' }).split('{TIME}')[0]!.trim(),
+  );
   await expect(page.locator('.cs-bar-brand')).toBeFocused();
-  await expect(page.getByRole('textbox', { name: 'เพิ่มโน้ต' })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'มอบหมาย' })).toHaveCount(0);
+  await expect(page.getByRole('textbox', { name: th('cases:note.label') })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: th('cases:action.assign') })).toHaveCount(0);
 
   // every command has a distinct commandId
   expect(fixture.commands.map((c) => c.path.split('/').pop())).toEqual([
@@ -242,24 +256,26 @@ test('an Agent views the list, opens a detail, adds a note, marks resolved, and 
 
   // Back returns to the list
   await page.goBack();
-  await expect(page.getByRole('grid', { name: 'รายการเคสของทีม' })).toHaveCount(0);
-  await expect(page.getByText('ไม่มีเคสที่ตรงกับตัวกรอง')).toHaveCount(0);
-  await expect(page.getByRole('heading', { name: 'เคสของทีม', level: 1 })).toBeVisible();
+  await expect(page.getByRole('grid', { name: th('cases:list') })).toHaveCount(0);
+  await expect(page.getByText(th('cases:emptyFilter'))).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: th('cases:title'), level: 1 })).toBeVisible();
 });
 
 test('assign through a Dialog and the whole-team filter is in the URL', async ({ page }) => {
   const fixture = newFixture();
   await mockCases(page, fixture);
   await page.goto('/?view=team-cases&tenant=demo&assignee=team&status=ALL');
-  await expect(page.getByRole('grid', { name: 'รายการเคสของทีม' })).toBeVisible();
-  await page.getByRole('link', { name: /เครื่อง X200/ }).click();
-  await page.getByRole('button', { name: 'มอบหมาย' }).click();
-  const dialog = page.getByRole('dialog', { name: 'มอบหมายเคส' });
-  await dialog.getByRole('button', { name: /ผู้รับผิดชอบ/ }).click();
-  await page.getByRole('option', { name: 'ปกรณ์ ศรีสุข' }).click();
-  await dialog.getByRole('button', { name: 'มอบหมาย', exact: true }).click();
+  await expect(page.getByRole('grid', { name: th('cases:list') })).toBeVisible();
+  await page.getByRole('link', { name: /X200/ }).click();
+  await page.getByRole('button', { name: th('cases:action.assign') }).click();
+  const dialog = page.getByRole('dialog', { name: th('cases:assign.title') });
+  await dialog
+    .getByRole('button', { name: new RegExp(escapeRegExp(th('cases:assign.field'))) })
+    .click();
+  await page.getByRole('option', { name: 'Pakorn Srisuk' }).click();
+  await dialog.getByRole('button', { name: th('cases:assign.submit'), exact: true }).click();
   await expect(dialog).toHaveCount(0);
-  await expect(page.getByText('ปกรณ์ ศรีสุข').first()).toBeVisible();
+  await expect(page.getByText('Pakorn Srisuk').first()).toBeVisible();
   expect(fixture.assignee).toBe(other);
   expect(new URL(page.url()).searchParams.get('assignee')).toBe('team');
 });
@@ -270,36 +286,36 @@ test('unknown result: pressing send on the original command uses the original co
   const fixture = newFixture();
   await mockCases(page, fixture);
   await page.goto(`/?view=team-cases&tenant=demo&case=${caseId}`);
-  const note = page.getByRole('textbox', { name: 'เพิ่มโน้ต' });
-  await note.fill('โทรกลับลูกค้าแล้ว');
+  const note = page.getByRole('textbox', { name: th('cases:note.label') });
+  await note.fill('Called the customer back');
   fixture.failNext = 'network';
-  await page.getByRole('button', { name: 'บันทึกโน้ต' }).click();
-  const retry = page.getByRole('button', { name: 'ยังไม่ทราบผล ส่งคำสั่งเดิมอีกครั้ง' });
+  await page.getByRole('button', { name: th('cases:note.submit') }).click();
+  const retry = page.getByRole('button', { name: th('cases:action.unknown') });
   await expect(retry).toBeVisible();
   await retry.click();
-  await expect(page.getByText('โทรกลับลูกค้าแล้ว', { exact: true })).toBeVisible();
+  await expect(page.getByText('Called the customer back', { exact: true })).toBeVisible();
   expect(fixture.commands).toHaveLength(2);
   expect(fixture.commands[1].commandId).toBe(fixture.commands[0].commandId);
-  expect(fixture.notes.filter((n) => n === 'โทรกลับลูกค้าแล้ว')).toHaveLength(1);
+  expect(fixture.notes.filter((n) => n === 'Called the customer back')).toHaveLength(1);
 });
 
 test('conflict: show the bar, keep the note draft, and load the latest case', async ({ page }) => {
   const fixture = newFixture();
   await mockCases(page, fixture);
   await page.goto(`/?view=team-cases&tenant=demo&case=${caseId}`);
-  const note = page.getByRole('textbox', { name: 'เพิ่มโน้ต' });
-  await note.fill('ร่างที่ต้องไม่หาย');
+  const note = page.getByRole('textbox', { name: th('cases:note.label') });
+  await note.fill('A draft that must not be lost');
   fixture.failNext = 'conflict';
-  await page.getByRole('button', { name: 'บันทึกโน้ต' }).click();
-  const alert = page.getByRole('alert').filter({ hasText: 'เคสนี้ถูกแก้ไขหลังจากคุณเปิดหน้า' });
+  await page.getByRole('button', { name: th('cases:note.submit') }).click();
+  const alert = page.getByRole('alert').filter({ hasText: th('cases:conflict') });
   await expect(alert).toBeFocused();
-  await expect(page.getByRole('button', { name: 'บันทึกโน้ต' })).toBeDisabled();
-  await expect(note).toHaveValue('ร่างที่ต้องไม่หาย');
+  await expect(page.getByRole('button', { name: th('cases:note.submit') })).toBeDisabled();
+  await expect(note).toHaveValue('A draft that must not be lost');
   fixture.version += 1;
-  await page.getByRole('button', { name: 'โหลดเคสล่าสุด' }).click();
+  await page.getByRole('button', { name: th('cases:conflictReload') }).click();
   await expect(alert).toHaveCount(0);
-  await expect(note).toHaveValue('ร่างที่ต้องไม่หาย');
-  await page.getByRole('button', { name: 'บันทึกโน้ต' }).click();
+  await expect(note).toHaveValue('A draft that must not be lost');
+  await page.getByRole('button', { name: th('cases:note.submit') }).click();
   expect(fixture.commands[1].commandId).not.toBe(fixture.commands[0].commandId);
-  expect(fixture.notes).toContain('ร่างที่ต้องไม่หาย');
+  expect(fixture.notes).toContain('A draft that must not be lost');
 });

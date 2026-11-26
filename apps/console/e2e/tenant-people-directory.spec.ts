@@ -1,7 +1,12 @@
 import { expect, test } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { homeNavigation } from './support/home-navigation.js';
+import { th } from './support/catalog';
 test.use({ locale: 'th-TH' });
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 for (const unresolved of [false, true])
   test(`Admin list/detail does not create duplicates and does not overwrite a pending unknown: ${unresolved}`, async ({
@@ -12,7 +17,7 @@ for (const unresolved of [false, true])
     const commandId = '10000000-0000-4000-8000-000000000103';
     const account = {
       id: userId,
-      displayName: 'ผู้ทดสอบเดิม',
+      displayName: 'Original Tester',
       email: 'synthetic@example.test',
       username: 'synthetic@example.test',
       role: 'ADMIN',
@@ -62,26 +67,40 @@ for (const unresolved of [false, true])
         ),
       );
     await page.goto('/?view=tenant-people&tenant=demo');
-    await expect(page.getByRole('heading', { name: 'บัญชีในขอบเขตนี้' })).toBeVisible();
-    await page.getByRole('button', { name: 'ดูบัญชี ผู้ทดสอบเดิม', exact: true }).click();
-    const detail = page.getByRole('region', { name: 'รายละเอียดบัญชี' });
+    await expect(
+      page.getByRole('heading', { name: th('tenantPeople:directory.title') }),
+    ).toBeVisible();
+    await page
+      .getByRole('button', {
+        name: `${th('tenantPeople:directory.open')} Original Tester`,
+        exact: true,
+      })
+      .click();
+    const detail = page.getByRole('region', { name: th('tenantPeople:directory.detail') });
     await expect(detail).toContainText('synthetic@example.test');
     if (unresolved) {
       await expect(
-        page.getByRole('button', { name: 'ดูสถานะการจัดเตรียม', exact: true }),
+        page.getByRole('button', { name: th('tenantPeople:directory.status'), exact: true }),
       ).toBeDisabled();
       expect(operationReads).toBe(0);
       expect(mutations).toBe(0);
       return;
     }
-    await page.getByRole('button', { name: 'ดูสถานะการจัดเตรียม', exact: true }).click();
+    await page
+      .getByRole('button', { name: th('tenantPeople:directory.status'), exact: true })
+      .click();
     await expect(
-      page.getByText(/^จัดเตรียมบัญชีแล้ว — ยังรอผู้ใช้เปิดใช้งาน/).first(),
+      page
+        .getByText(new RegExp(`^${escapeRegExp(th('tenantPeople:banner.body.PROVISIONED'))}`))
+        .first(),
     ).toBeVisible();
     expect(details).toBe(1);
     await page.reload();
     await expect(
-      page.getByRole('button', { name: 'ดูบัญชี ผู้ทดสอบเดิม', exact: true }),
+      page.getByRole('button', {
+        name: `${th('tenantPeople:directory.open')} Original Tester`,
+        exact: true,
+      }),
     ).toBeVisible();
     expect(operationReads).toBeGreaterThanOrEqual(1);
     expect(mutations).toBe(0);

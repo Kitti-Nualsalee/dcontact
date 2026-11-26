@@ -3,6 +3,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test, type Page } from '@playwright/test';
+import { th } from '../e2e/catalog';
 
 /**
  * D1.16 (#455): the non-waivable acceptance of D1 (#428) on a real call in the dev stack
@@ -97,7 +98,7 @@ const evidence = (page: Page) =>
 
 async function login(page: Page) {
   await page.goto('/?tenant=demo');
-  await page.getByRole('button', { name: 'เข้าสู่ระบบ' }).click();
+  await page.getByRole('button', { name: th('dphone:embedAuth.signIn') }).click();
   await page.waitForURL(/\/realms\/dcontact\//);
   // Keycloak Organizations uses identity-first: enter the username and submit first, to get the password page
   await page.locator('#username').fill('agent1000@demo.local');
@@ -137,21 +138,26 @@ test('real call: collapse/expand 3 sizes, detach/pull back, and switch language 
 
   await login(page);
   // the locale is stored in Keycloak — a previous run that failed midway may leave it as English
-  await page.getByRole('button', { name: 'ไทย' }).click();
+  await page.getByRole('button', { name: th('ui:shell.languageNames.th') }).click();
   const dphone = page.getByRole('region', { name: 'dphone' });
   await expect(dphone).toBeVisible();
-  await page.getByRole('button', { name: 'ตรวจอุปกรณ์เสียง' }).click();
-  await expect(dphone.getByRole('status', { name: 'dphone' })).toHaveText('โทรศัพท์พร้อม');
-  await page.getByRole('button', { name: 'เปิดรับสาย' }).click();
+  await page.getByRole('button', { name: th('workspace:media.check') }).click();
+  await expect(dphone.getByRole('status', { name: 'dphone' })).toHaveText(th('dphone:phase.READY'));
+  await page.getByRole('button', { name: th('workspace:availability.open') }).click();
   await expect.poll(async () => (await evidence(page)).ws).toBeTruthy();
 
   const caller = placeCall();
   try {
-    await expect(dphone.getByRole('status', { name: 'dphone' })).toHaveText('มีสายเรียกเข้า', {
-      timeout: 60_000,
-    });
-    await dphone.getByRole('button', { name: 'รับสาย' }).click();
-    await expect(dphone.getByRole('status', { name: 'dphone' })).toHaveText('กำลังสนทนา');
+    await expect(dphone.getByRole('status', { name: 'dphone' })).toHaveText(
+      th('dphone:phase.RINGING'),
+      {
+        timeout: 60_000,
+      },
+    );
+    await dphone.getByRole('button', { name: th('dphone:accept') }).click();
+    await expect(dphone.getByRole('status', { name: 'dphone' })).toHaveText(
+      th('dphone:phase.ACTIVE'),
+    );
     await expect.poll(() => callLegs().agent, { timeout: 20_000 }).toMatch(/:ACTIVE$/);
 
     const before = await evidence(page);
@@ -170,17 +176,17 @@ test('real call: collapse/expand 3 sizes, detach/pull back, and switch language 
     };
 
     await page.screenshot({ path: resolve(evidenceDir, 'workspace-th-call-compact.png') });
-    await dphone.getByRole('button', { name: 'ย่อเป็นแถบ' }).click();
-    await expect(dphone.getByRole('button', { name: 'ปิดไมค์' })).toHaveCount(0);
+    await dphone.getByRole('button', { name: th('dphone:size.bar') }).click();
+    await expect(dphone.getByRole('button', { name: th('dphone:mute') })).toHaveCount(0);
     await dphone.screenshot({ path: resolve(evidenceDir, 'dphone-th-bar.png') });
     await check('collapse to bar');
 
-    await dphone.getByRole('button', { name: 'ขยายพร้อมแป้นกด' }).click();
-    await dphone.getByRole('button', { name: 'ส่ง DTMF 5' }).click();
+    await dphone.getByRole('button', { name: th('dphone:size.expanded') }).click();
+    await dphone.getByRole('button', { name: th('dphone:dtmf', { value: '5' }) }).click();
     await dphone.screenshot({ path: resolve(evidenceDir, 'dphone-th-expanded.png') });
     await check('expand with keypad + DTMF');
 
-    await dphone.getByRole('button', { name: 'กะทัดรัด' }).click();
+    await dphone.getByRole('button', { name: th('dphone:size.compact') }).click();
     await dphone.screenshot({ path: resolve(evidenceDir, 'dphone-th-compact.png') });
     await check('compact');
 
@@ -201,17 +207,19 @@ test('real call: collapse/expand 3 sizes, detach/pull back, and switch language 
     await expect(remote.getByRole('status', { name: 'dphone' })).toHaveText('On a call');
     await check('detach window + hold/resume the call from the detached window');
 
-    await page.getByRole('button', { name: 'ไทย' }).click();
-    await expect(remote.getByRole('status', { name: 'dphone' })).toHaveText('กำลังสนทนา');
+    await page.getByRole('button', { name: th('ui:shell.languageNames.th') }).click();
+    await expect(remote.getByRole('status', { name: 'dphone' })).toHaveText(
+      th('dphone:phase.ACTIVE'),
+    );
     await check('switch back to Thai while detached');
 
     const closed = popup.waitForEvent('close');
-    await page.getByRole('button', { name: 'กลับมาที่ Workspace' }).click();
+    await page.getByRole('button', { name: th('dphone:attach') }).click();
     await closed;
-    await expect(dphone.getByRole('button', { name: 'วางสาย' })).toBeVisible();
+    await expect(dphone.getByRole('button', { name: th('dphone:hangup') })).toBeVisible();
     await check('pull dphone back');
 
-    await dphone.getByRole('button', { name: 'วางสาย' }).click();
+    await dphone.getByRole('button', { name: th('dphone:hangup') }).click();
     const callerExit = await new Promise<number | null>((done) => {
       if (caller.process.exitCode !== null) done(caller.process.exitCode);
       else caller.process.once('exit', (code) => done(code));

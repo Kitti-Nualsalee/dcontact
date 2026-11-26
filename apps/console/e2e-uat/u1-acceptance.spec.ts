@@ -1,6 +1,21 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
+import { th } from '../e2e/support/catalog';
+
+function escapeRegExp(text: string) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+const ERRORS_RE = new RegExp(
+  th('journeys:diagnostics.errors', { count: '{N}' }).split('{N}').map(escapeRegExp).join('\\d+'),
+);
+const GO_TO_RE = new RegExp(
+  `^${escapeRegExp(th('journeys:diagnostics.goTo', { node: '{N}' }).split('{N}')[0]!)}`,
+);
+const COMPILED_RE = new RegExp(
+  escapeRegExp(th('journeys:review.compiled', { digest: '{N}' }).split('{N}')[0]!),
+);
 import {
   api,
   gateState,
@@ -68,7 +83,7 @@ function persistEvidence() {
 }
 
 function panelOf(page: Page) {
-  return page.getByRole('region', { name: 'รอบทดสอบ UAT' });
+  return page.getByRole('region', { name: th('journeys:uat.heading') });
 }
 
 /** screenshot after a step — kept as a CI artifact file and uploaded through the run's evidence API */
@@ -123,7 +138,7 @@ async function journeyState(persona: Persona, journeyId: string) {
  */
 async function toList(persona: Persona) {
   const page = sessions[persona].page;
-  const back = page.getByRole('button', { name: '← รายการ Journey' });
+  const back = page.getByRole('button', { name: th('journeys:editor.back') });
   if (await back.isVisible()) await back.click();
   await expect(page.getByRole('heading', { level: 1, name: 'Journey authoring' })).toBeVisible();
   return page;
@@ -131,7 +146,10 @@ async function toList(persona: Persona) {
 
 async function openRunJourney(persona: Persona = 'maker') {
   const page = await toList(persona);
-  await panelOf(page).getByRole('button', { name: 'เปิด Journey ของรอบนี้' }).first().click();
+  await panelOf(page)
+    .getByRole('button', { name: th('journeys:uat.openRunJourney') })
+    .first()
+    .click();
   await expect(page.getByRole('heading', { level: 1, name: JOURNEY_NAME })).toBeVisible();
   return page;
 }
@@ -150,17 +168,19 @@ async function startRunFromConsole(expectedSequence: number): Promise<RunEvidenc
   const page = sessions.maker.page;
   const panel = panelOf(page);
   await expect(panel).toBeVisible();
-  await panel.getByRole('button', { name: 'เริ่มรอบใหม่' }).click();
-  const confirm = page.getByRole('alertdialog', { name: 'ยืนยันเริ่มรอบใหม่' });
-  await expect(confirm.getByLabel('Environment ของ fixture pack')).toHaveValue(
+  await panel.getByRole('button', { name: th('journeys:uat.startNewRun') }).click();
+  const confirm = page.getByRole('alertdialog', { name: th('journeys:uat.confirmTitle') });
+  await expect(confirm.getByLabel(th('journeys:uat.packEnvironment'))).toHaveValue(
     state.fixture.fixturePack.environment,
   );
-  await expect(confirm.getByLabel('Version ของ fixture pack')).toHaveValue(
+  await expect(confirm.getByLabel(th('journeys:uat.packVersion'))).toHaveValue(
     state.fixture.fixturePack.packVersion,
   );
-  await confirm.getByRole('button', { name: 'เริ่มรอบใหม่' }).click();
+  await confirm.getByRole('button', { name: th('journeys:uat.startNewRun') }).click();
   await expect(
-    panel.getByRole('definition').filter({ hasText: `รอบที่ ${expectedSequence}` }),
+    panel
+      .getByRole('definition')
+      .filter({ hasText: th('journeys:uat.sequenceValue', { sequence: expectedSequence }) }),
   ).toBeVisible();
   // Console opens the new round's Journey by itself
   await expect(page.getByRole('heading', { level: 1, name: JOURNEY_NAME })).toBeVisible();
@@ -193,14 +213,16 @@ async function saveDraft(page: Page): Promise<number> {
     (response) =>
       response.request().method() === 'PUT' && new URL(response.url()).pathname.endsWith('/draft'),
   );
-  await page.getByRole('button', { name: 'บันทึกฉบับร่าง' }).click();
+  await page.getByRole('button', { name: th('journeys:editor.save') }).click();
   const response = await saved;
   expect(response.status()).toBe(200);
   const { draftRevision } = (await response.json()) as { draftRevision: number };
   await expect(
-    page.getByRole('status').filter({ hasText: `บันทึกเป็น revision ${draftRevision} แล้ว` }),
+    page
+      .getByRole('status')
+      .filter({ hasText: th('journeys:editor.saved', { revision: draftRevision }) }),
   ).toBeVisible();
-  await expect(page.getByText('มีการแก้ไขที่ยังไม่บันทึก')).toHaveCount(0);
+  await expect(page.getByText(th('journeys:publish.blockerDirty'))).toHaveCount(0);
   return draftRevision;
 }
 
@@ -208,12 +230,14 @@ async function saveDraft(page: Page): Promise<number> {
 async function makerEdit(evidence: RunEvidence) {
   const page = sessions.maker.page;
   const before = await journeyState('maker', evidence.run.journeyId);
-  const insert = page.getByLabel('แทรกขั้นตอนหลัง ถัดไป').first();
+  const insert = page
+    .getByLabel(th('journeys:outline.insertAfter', { port: th('journeys:port.next') }))
+    .first();
   await insert.selectOption('WAIT');
   await insert.locator('xpath=following-sibling::button[1]').click();
-  const canvas = page.getByRole('group', { name: 'ผังขั้นตอนของ Journey' });
-  await expect(canvas.getByRole('button', { name: 'รอ' })).toBeVisible();
-  const wait = page.getByLabel('ระยะเวลารอ (วินาที)');
+  const canvas = page.getByRole('group', { name: th('journeys:canvas.label') });
+  await expect(canvas.getByRole('button', { name: th('journeys:node.WAIT') })).toBeVisible();
+  const wait = page.getByLabel(th('journeys:field.waitSeconds'));
   await wait.fill('600');
   await wait.press('Enter');
   await saveDraft(page);
@@ -231,34 +255,46 @@ async function makerEdit(evidence: RunEvidence) {
     evidence,
     'MAKER_EDIT',
     'maker',
-    `แทรก WAIT 600 วินาที ได้ EVENT_TRIGGER → SEND → WAIT → EXIT บันทึกเป็น revision ${after.head.currentDraftRevision}`,
+    `Inserted WAIT 600 seconds, giving EVENT_TRIGGER → SEND → WAIT → EXIT, saved as revision ${after.head.currentDraftRevision}`,
   );
 }
 
 /** DIAGNOSTIC_RECOVERY: cut the edge from WAIT → validate shows a diagnostic pointing at a node → reconnect → validate is clean */
 async function diagnosticRecovery(evidence: RunEvidence) {
   const page = sessions.maker.page;
-  const port = page.getByLabel('ถัดไป ของ รอ ไปที่');
+  const port = page.getByLabel(
+    th('journeys:outline.portTarget', {
+      port: th('journeys:port.next'),
+      node: th('journeys:node.WAIT'),
+    }),
+  );
   await port.selectOption('');
   await saveDraft(page);
-  await page.getByRole('button', { name: 'ตรวจฉบับร่างที่บันทึกแล้ว' }).click();
-  const errors = page.getByRole('status').filter({ hasText: /server พบข้อผิดพลาด \d+ รายการ/ });
+  await page.getByRole('button', { name: th('journeys:editor.validate') }).click();
+  const errors = page.getByRole('status').filter({ hasText: ERRORS_RE });
   await expect(errors).toBeVisible();
-  const goTo = page.getByRole('button', { name: /^ไปที่ / }).first();
+  const goTo = page.getByRole('button', { name: GO_TO_RE }).first();
   await expect(goTo).toBeVisible();
   const diagnosticText = (await errors.innerText()).trim();
   await capture(evidence, 'DIAGNOSTIC_RECOVERY', 'maker', '');
   await goTo.click();
 
-  await page.getByLabel('ถัดไป ของ รอ ไปที่').selectOption({ label: 'จบ Journey' });
+  await page
+    .getByLabel(
+      th('journeys:outline.portTarget', {
+        port: th('journeys:port.next'),
+        node: th('journeys:node.WAIT'),
+      }),
+    )
+    .selectOption({ label: th('journeys:node.EXIT') });
   await saveDraft(page);
-  await page.getByRole('button', { name: 'ตรวจฉบับร่างที่บันทึกแล้ว' }).click();
+  await page.getByRole('button', { name: th('journeys:editor.validate') }).click();
   await expect(
-    page.getByRole('status').filter({ hasText: 'server ตรวจแล้วไม่พบข้อผิดพลาด' }),
+    page.getByRole('status').filter({ hasText: th('journeys:diagnostics.clean') }),
   ).toBeVisible();
   evidence.actual.set(
     'DIAGNOSTIC_RECOVERY',
-    `ตัดเส้นถัดไปของ WAIT แล้ว validate: ${diagnosticText} พร้อมปุ่มไปที่ node; ต่อกลับไป EXIT แล้ว validate ไม่พบข้อผิดพลาด`,
+    `Cut the next edge of WAIT, then validate: ${diagnosticText} with a go-to-node button; reconnected to EXIT and validate found no errors`,
   );
 }
 
@@ -270,25 +306,28 @@ async function compileAndSimulate(evidence: RunEvidence) {
       response.request().method() === 'POST' &&
       new URL(response.url()).pathname.endsWith('/compile'),
   );
-  await page.getByRole('button', { name: 'Compile ฉบับร่าง' }).click();
+  await page.getByRole('button', { name: th('journeys:review.compile') }).click();
   const compileBody = (await (await compiled).json()) as {
     artifact: { compileDigest: string };
   };
   evidence.compileDigest = compileBody.artifact.compileDigest;
   await expect(
-    page.getByText(`compile แล้ว · digest ${evidence.compileDigest.slice(0, 12)}`, {
-      exact: false,
-    }),
+    page.getByText(
+      th('journeys:review.compiled', { digest: evidence.compileDigest.slice(0, 12) }),
+      {
+        exact: false,
+      },
+    ),
   ).toBeVisible();
   await capture(
     evidence,
     'COMPILE',
     'maker',
-    `compile revision ล่าสุดได้ compile digest ${evidence.compileDigest.slice(0, 12)}`,
+    `Compiled the latest revision and got compile digest ${evidence.compileDigest.slice(0, 12)}`,
   );
 
   // there is no browser-built context field in UAT — use the server's fixture only
-  await expect(page.getByLabel('Context สังเคราะห์สำหรับ simulation (JSON)')).toHaveCount(0);
+  await expect(page.getByLabel(th('journeys:review.contextLabel'))).toHaveCount(0);
   await expect(
     page.getByRole('definition').filter({ hasText: String(state.simulationFixture.fixtureId) }),
   ).toBeVisible();
@@ -297,7 +336,7 @@ async function compileAndSimulate(evidence: RunEvidence) {
       response.request().method() === 'POST' &&
       new URL(response.url()).pathname.endsWith('/simulations'),
   );
-  await page.getByRole('button', { name: 'จำลองการทำงาน' }).click();
+  await page.getByRole('button', { name: th('journeys:review.simulate') }).click();
   const simulation = await simulated;
   expect(simulation.status()).toBe(200);
   expect(simulation.request().postDataJSON()).toMatchObject({ fixture: state.simulationFixture });
@@ -305,7 +344,7 @@ async function compileAndSimulate(evidence: RunEvidence) {
   expect(simulationBody.profile).toBe('SIMULATION_ONLY');
   const result = page.locator('.j5-simulation');
   await expect(result).toContainText('SIMULATION_ONLY');
-  await expect(result).toContainText('เวลาเสมือน');
+  await expect(result).toContainText(th('journeys:review.virtualAt'));
   await expect(result.locator('time').first()).toHaveAttribute(
     'datetime',
     String(state.simulationFixture.startAt),
@@ -314,19 +353,25 @@ async function compileAndSimulate(evidence: RunEvidence) {
     evidence,
     'SIMULATE',
     'maker',
-    'ผลจำลองติดป้าย SIMULATION_ONLY ใช้ fixture ของ server และแสดงเวลาเสมือน ไม่ใช่การส่งจริง',
+    'The simulation result is labelled SIMULATION_ONLY, uses the server fixture and shows virtual time, not a real send',
   );
 }
 
 async function submitReview(evidence: RunEvidence) {
   const page = sessions.maker.page;
-  await page.getByRole('button', { name: 'ส่งตรวจ' }).click();
+  await page.getByRole('button', { name: th('journeys:review.submit') }).click();
   await expect(
-    page.getByRole('status').filter({ hasText: 'สถานะการตรวจ: IN_REVIEW' }),
+    page
+      .getByRole('status')
+      .filter({ hasText: th('journeys:review.state', { state: 'IN_REVIEW' }) }),
   ).toBeVisible();
   // the maker sees the reason another reviewer is required, and there is no decide button
-  await expect(page.getByRole('note').filter({ hasText: 'ต้องให้ reviewer คนอื่น' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'อนุมัติ', exact: true })).toHaveCount(0);
+  await expect(
+    page.getByRole('note').filter({ hasText: th('journeys:review.blockedMaker') }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: th('journeys:review.decision.APPROVE'), exact: true }),
+  ).toHaveCount(0);
   const journey = await journeyState('maker', evidence.run.journeyId);
   expect(journey.review).toMatchObject({
     state: 'IN_REVIEW',
@@ -337,19 +382,20 @@ async function submitReview(evidence: RunEvidence) {
     evidence,
     'SUBMIT_REVIEW',
     'maker',
-    'ส่งตรวจแล้ว สถานะ IN_REVIEW และ maker ไม่มีปุ่มตัดสินงานของตัวเอง',
+    'Submitted for review, status IN_REVIEW, and the maker has no decision button for their own work',
   );
 }
 
 /** the reviewer finds the candidate by themselves with the "awaiting review" filter and approves the exact candidate */
 async function reviewerApprove(evidence: RunEvidence) {
   const page = await toList('reviewer');
-  await page.getByRole('button', { name: 'รอตรวจ' }).click();
-  await expect(page.getByRole('button', { name: 'รอตรวจ' })).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  );
-  await expect(page.getByRole('heading', { level: 2, name: 'งานที่รอให้คุณตรวจ' })).toBeVisible();
+  await page.getByRole('button', { name: th('journeys:list.filterPending') }).click();
+  await expect(
+    page.getByRole('button', { name: th('journeys:list.filterPending') }),
+  ).toHaveAttribute('aria-pressed', 'true');
+  await expect(
+    page.getByRole('heading', { level: 2, name: th('journeys:list.headingPending') }),
+  ).toBeVisible();
   const pending = page.getByRole('table').filter({ hasText: evidence.compileDigest!.slice(0, 12) });
   await expect(pending).toBeVisible();
   await pending.getByRole('button', { name: JOURNEY_NAME }).click();
@@ -359,20 +405,24 @@ async function reviewerApprove(evidence: RunEvidence) {
   await expect(
     page.getByRole('definition').filter({ hasText: evidence.compileDigest!.slice(0, 12) }),
   ).toBeVisible();
-  await expect(page.getByRole('button', { name: 'ส่งตรวจ' })).toHaveCount(0);
-  await page.getByRole('button', { name: 'อนุมัติ', exact: true }).click();
+  await expect(page.getByRole('button', { name: th('journeys:review.submit') })).toHaveCount(0);
+  await page
+    .getByRole('button', { name: th('journeys:review.decision.APPROVE'), exact: true })
+    .click();
   const dialog = page.getByRole('dialog');
   await dialog.getByLabel('Reason code').fill('LOOKS_GOOD');
   await dialog.getByLabel('Evidence reference').fill(`u1-gate-run-${evidence.run.sequence}`);
-  await dialog.getByRole('button', { name: 'อนุมัติ' }).click();
+  await dialog.getByRole('button', { name: th('journeys:review.decision.APPROVE') }).click();
   await expect(
-    page.getByRole('status').filter({ hasText: 'สถานะการตรวจ: APPROVED' }),
+    page
+      .getByRole('status')
+      .filter({ hasText: th('journeys:review.state', { state: 'APPROVED' }) }),
   ).toBeVisible();
   await capture(
     evidence,
     'REVIEW_APPROVE',
     'reviewer',
-    `reviewer คนละบัญชีหา candidate จากตัวกรองรอตรวจ เห็น compile digest ${evidence.compileDigest!.slice(0, 12)} แล้วอนุมัติได้ APPROVED`,
+    `A reviewer on another account found the candidate through the pending filter, saw compile digest ${evidence.compileDigest!.slice(0, 12)} and approved it as APPROVED`,
   );
 }
 
@@ -380,19 +430,23 @@ async function publishAndAudit(evidence: RunEvidence) {
   const page = await openRunJourney('maker');
   expect(new URL(page.url()).searchParams.get('journey')).toBe(evidence.run.journeyId);
   await expect(
-    page.getByRole('status').filter({ hasText: 'สถานะการตรวจ: APPROVED' }),
+    page
+      .getByRole('status')
+      .filter({ hasText: th('journeys:review.state', { state: 'APPROVED' }) }),
   ).toBeVisible();
-  await page.getByRole('button', { name: 'Compile ฉบับร่าง' }).click();
+  await page.getByRole('button', { name: th('journeys:review.compile') }).click();
   await expect(page.getByText(`digest ${evidence.compileDigest!.slice(0, 12)}`)).toBeVisible();
   await page.getByRole('button', { name: 'Publish', exact: true }).click();
-  const confirm = page.getByRole('alertdialog', { name: /ยืนยัน publish version 1/ });
+  const confirm = page.getByRole('alertdialog', {
+    name: new RegExp(escapeRegExp(th('journeys:publish.confirmTitle', { version: 1 }))),
+  });
   await expect(confirm).toBeVisible();
   const published = page.waitForResponse(
     (response) =>
       response.request().method() === 'POST' &&
       new URL(response.url()).pathname.endsWith('/publish'),
   );
-  await confirm.getByRole('button', { name: 'ยืนยัน Publish' }).click();
+  await confirm.getByRole('button', { name: th('journeys:publish.confirmLabel') }).click();
   const receipt = (await (await published).json()) as {
     outcome: string;
     version: number;
@@ -402,18 +456,18 @@ async function publishAndAudit(evidence: RunEvidence) {
   // receipt confirmed by the server (authoritative) — Console shows the result only after it is known
   expect(receipt).toMatchObject({ outcome: 'PUBLISHED', version: 1 });
   expect(receipt.receiptId).toMatch(/^[0-9a-f-]{36}$/);
-  await expect(page.getByText('Publish version 1 สำเร็จ')).toBeVisible();
+  await expect(page.getByText(th('journeys:publish.published', { version: 1 }))).toBeVisible();
   const journey = await journeyState('maker', evidence.run.journeyId);
   expect(journey.head.activeVersion).toBe(1);
   await capture(
     evidence,
     'PUBLISH',
     'maker',
-    `publish ได้ version 1 receipt ${receipt.receiptId.slice(0, 8)} outcome ${receipt.outcome}`,
+    `Published version 1 with receipt ${receipt.receiptId.slice(0, 8)} and outcome ${receipt.outcome}`,
   );
 
-  await page.getByRole('button', { name: 'แสดงประวัติ' }).click();
-  const timeline = page.getByRole('list', { name: 'ประวัติการเปลี่ยนแปลง ใหม่สุดก่อน' });
+  await page.getByRole('button', { name: th('journeys:audit.show') }).click();
+  const timeline = page.getByRole('list', { name: th('journeys:audit.listLabel') });
   for (const action of ['JOURNEY_PUBLISHED', 'REVIEW_APPROVED', 'REVIEW_SUBMITTED']) {
     await expect(timeline).toContainText(action);
   }
@@ -422,7 +476,7 @@ async function publishAndAudit(evidence: RunEvidence) {
     evidence,
     'AUDIT',
     'maker',
-    'ประวัติแสดง REVIEW_SUBMITTED, REVIEW_APPROVED และ JOURNEY_PUBLISHED ของ Journey รอบนี้',
+    'The history shows REVIEW_SUBMITTED, REVIEW_APPROVED and JOURNEY_PUBLISHED for the Journey of this run',
   );
 }
 
@@ -431,27 +485,29 @@ async function recordRunEvidence(evidence: RunEvidence) {
   for (const step of state.stepCatalog) {
     const shot = evidence.shots.get(step.stepId);
     const actual = evidence.actual.get(step.stepId);
-    expect(shot, `ไม่มี screenshot ของ ${step.stepId}`).toBeTruthy();
-    expect(actual, `ไม่มี actual ของ ${step.stepId}`).toBeTruthy();
+    expect(shot, `No screenshot for ${step.stepId}`).toBeTruthy();
+    expect(actual, `No actual text for ${step.stepId}`).toBeTruthy();
     const page = sessions[shot!.persona].page;
     const panel = panelOf(page);
     const sequence = panel
       .getByRole('definition')
-      .filter({ hasText: `รอบที่ ${evidence.run.sequence}` });
+      .filter({ hasText: th('journeys:uat.sequenceValue', { sequence: evidence.run.sequence }) });
     // the other account's panel does not poll — after the maker changes the round the page must be reloaded like a real tester
     if (!(await sequence.isVisible())) await reloadSession(sessions[shot!.persona]);
     await expect(sequence).toBeVisible();
-    await panel.getByLabel('ขั้นตอนที่ทดสอบ').selectOption(step.stepId);
-    await panel.getByLabel('ผ่าน (PASS)').check();
-    await panel.getByLabel('สิ่งที่เกิดขึ้นจริง').fill(actual!);
-    await panel.getByRole('button', { name: 'บันทึกผล', exact: true }).click();
+    await panel.getByLabel(th('journeys:uat.stepLabel')).selectOption(step.stepId);
+    await panel.getByLabel(th('journeys:uat.outcome.PASS')).check();
+    await panel.getByLabel(th('journeys:uat.actualLabel')).fill(actual!);
+    await panel.getByRole('button', { name: th('journeys:uat.record'), exact: true }).click();
     await expect(
-      panel.getByRole('status').filter({ hasText: `บันทึกผลของ ${step.stepId} แล้ว` }),
+      panel
+        .getByRole('status')
+        .filter({ hasText: th('journeys:uat.recorded', { stepId: step.stepId }) }),
     ).toBeVisible();
 
-    const upload = panel.getByRole('region', { name: 'ภาพหน้าจอหลักฐาน' });
-    await upload.getByLabel('ขั้นตอนของภาพหน้าจอ').selectOption(step.stepId);
-    await upload.getByLabel('ไฟล์ภาพหน้าจอ').setInputFiles({
+    const upload = panel.getByRole('region', { name: th('journeys:uat.evidence.heading') });
+    await upload.getByLabel(th('journeys:uat.evidence.stepLabel')).selectOption(step.stepId);
+    await upload.getByLabel(th('journeys:uat.evidence.fileLabel')).setInputFiles({
       name: `${step.stepId}.png`,
       mimeType: 'image/png',
       buffer: shot!.buffer,
@@ -461,10 +517,12 @@ async function recordRunEvidence(evidence: RunEvidence) {
         response.request().method() === 'POST' &&
         new URL(response.url()).pathname === `/api/v1/uat-runs/${evidence.run.runId}/evidence`,
     );
-    await upload.getByRole('button', { name: 'อัปโหลดภาพหน้าจอ' }).click();
+    await upload.getByRole('button', { name: th('journeys:uat.evidence.upload') }).click();
     expect((await uploaded).status()).toBe(200);
     await expect(
-      panel.getByRole('status').filter({ hasText: `แนบภาพหน้าจอของ ${step.stepId} แล้ว` }),
+      panel
+        .getByRole('status')
+        .filter({ hasText: th('journeys:uat.evidence.uploaded', { stepId: step.stepId }) }),
     ).toBeVisible();
   }
 }
@@ -472,10 +530,10 @@ async function recordRunEvidence(evidence: RunEvidence) {
 /** export the bundle through the Console button (fetch + Blob) then check the verdict/scan from the server */
 async function exportBundle(evidence: RunEvidence): Promise<Bundle> {
   const page = sessions.maker.page;
-  const region = panelOf(page).getByRole('region', { name: 'ภาพหน้าจอหลักฐาน' });
+  const region = panelOf(page).getByRole('region', { name: th('journeys:uat.evidence.heading') });
   const [download] = await Promise.all([
     page.waitForEvent('download'),
-    region.getByRole('button', { name: 'ส่งออก evidence bundle' }).click(),
+    region.getByRole('button', { name: th('journeys:uat.evidence.export') }).click(),
   ]);
   const bundle = JSON.parse(readFileSync((await download.path())!, 'utf8')) as Bundle;
   expect(bundle.schema).toBe('UatEvidenceBundleV1');
@@ -494,7 +552,9 @@ async function exportBundle(evidence: RunEvidence): Promise<Bundle> {
     expect(bundle.auditRefs.map((ref) => ref.action)).toContain(action);
   }
   const summary = region.getByRole('definition');
-  await expect(summary.filter({ hasText: 'ผ่าน (PASS)' })).toBeVisible();
+  await expect(
+    summary.filter({ hasText: th('journeys:uat.evidence.verdictValue.PASS') }),
+  ).toBeVisible();
   await expect(summary.filter({ hasText: bundle.digest.slice(0, 12) })).toBeVisible();
   evidence.bundle = bundle;
   return bundle;
@@ -513,8 +573,8 @@ async function walkRun(evidence: RunEvidence, previous?: { run: RunView; lifecyc
     'RUN_OPENED',
     'maker',
     previous
-      ? `รอบที่ ${evidence.run.sequence} ACTIVE; รอบที่ ${previous.run.sequence} ปิดเป็น ${previous.lifecycle} และหลักฐานเดิมยังอ่านได้`
-      : `รอบที่ ${evidence.run.sequence} ACTIVE พร้อม run ID, build SHA และ fixture digest จาก server`,
+      ? `Run ${evidence.run.sequence} is ACTIVE; run ${previous.run.sequence} closed as ${previous.lifecycle} and its earlier evidence is still readable`
+      : `Run ${evidence.run.sequence} is ACTIVE with run ID, build SHA and fixture digest from the server`,
   );
   await makerEdit(evidence);
   await diagnosticRecovery(evidence);
@@ -571,7 +631,10 @@ test('U1-NEG-SELF-APPROVAL a maker holding journey.review cannot approve a candi
   const run1 = runs[0]!;
   // UI: there is no decide button for the submitter
   await expect(
-    sessions.maker.page.getByRole('button', { name: 'อนุมัติ', exact: true }),
+    sessions.maker.page.getByRole('button', {
+      name: th('journeys:review.decision.APPROVE'),
+      exact: true,
+    }),
   ).toHaveCount(0);
   // real API: the maker has the journey.review grant but maker-checker must reject
   const decision = await api(
@@ -640,7 +703,7 @@ test('U1-NEG-CROSS-TENANT a token of another tenant cannot touch the run/Journey
 
   // UI: tenant B's deep link to tenant A's Journey = not found, not data of another tenant
   const page = await openJourney('foreign', run1.run.journeyId, state.accounts.foreign.tenantSlug);
-  await expect(page.getByText('ไม่พบ Journey นี้ หรือคุณไม่มีสิทธิ์เห็น')).toBeVisible();
+  await expect(page.getByText(th('journeys:error.JOURNEY_NOT_FOUND'))).toBeVisible();
   await expect(page.getByRole('heading', { level: 1, name: JOURNEY_NAME })).toHaveCount(0);
   // tenant A's run is unchanged
   const after = await currentRun();
@@ -703,8 +766,8 @@ test('U1-NEG-ABANDONED a candidate of an ABANDONED round cannot be submitted/pub
   // the maker works in round 2 up to compile (candidate) and then starts a new round without publishing
   await makerEdit(run2);
   const page = sessions.maker.page;
-  await page.getByRole('button', { name: 'Compile ฉบับร่าง' }).click();
-  await expect(page.getByText(/compile แล้ว · digest/)).toBeVisible();
+  await page.getByRole('button', { name: th('journeys:review.compile') }).click();
+  await expect(page.getByText(COMPILED_RE)).toBeVisible();
   const stale = await journeyState('maker', run2.run.journeyId);
   const compiled = await api(
     state,
@@ -779,7 +842,7 @@ test('U1-NEG-ABANDONED a candidate of an ABANDONED round cannot be submitted/pub
   );
   expect([edit.status, edit.body]).toEqual([409, frozen]);
   const late = await api(state, sessions.maker, 'POST', `uat-runs/${run2.run.runId}/step-results`, {
-    body: { stepId: 'RUN_OPENED', outcome: 'PASS', actual: 'บันทึกหลังรอบปิด' },
+    body: { stepId: 'RUN_OPENED', outcome: 'PASS', actual: 'Recorded after the run closed' },
   });
   expect([late.status, late.body.code]).toEqual([409, 'UAT_RUN_CLOSED']);
   const head = await journeyState('maker', run2.run.journeyId);
@@ -789,10 +852,10 @@ test('U1-NEG-ABANDONED a candidate of an ABANDONED round cannot be submitted/pub
   // UI: a Journey of a closed round cannot be submitted for review — the server rejects and Console states the reason
   const run2Page = await openJourney('maker', run2.run.journeyId);
   await expect(run2Page.getByRole('heading', { level: 1, name: JOURNEY_NAME })).toBeVisible();
-  await run2Page.getByRole('button', { name: 'Compile ฉบับร่าง' }).click();
-  await expect(run2Page.getByText(/compile แล้ว · digest/)).toBeVisible();
-  await run2Page.getByRole('button', { name: 'ส่งตรวจ' }).click();
-  await expect(run2Page.getByText('สถานะของ Journey ไม่อนุญาตคำสั่งนี้')).toBeVisible();
+  await run2Page.getByRole('button', { name: th('journeys:review.compile') }).click();
+  await expect(run2Page.getByText(COMPILED_RE)).toBeVisible();
+  await run2Page.getByRole('button', { name: th('journeys:review.submit') }).click();
+  await expect(run2Page.getByText(th('journeys:error.JOURNEY_LIFECYCLE_CONFLICT'))).toBeVisible();
   expect((await journeyState('maker', run2.run.journeyId)).review).toBeNull();
 });
 

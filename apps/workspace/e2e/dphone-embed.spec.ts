@@ -11,6 +11,7 @@ import {
   setup,
   signIn,
 } from './embed-harness';
+import { th } from './catalog';
 
 for (const receiptMode of ['committed', 'racing'] as const) {
   test(`V1 recovery ${receiptMode}: sends the activity once and sends no note out to the CRM`, async ({
@@ -18,7 +19,7 @@ for (const receiptMode of ['committed', 'racing'] as const) {
   }) => {
     const { server, frame } = await setup(page);
     const interactionId = '688c850d-5056-426f-9cb8-14af85521382';
-    const note = 'โน้ตส่วนตัว <b>ไม่ส่งไป CRM</b>';
+    const note = 'Private note <b>not sent to CRM</b>';
     let commandReads = 0;
     const result = {
       interactionId,
@@ -75,18 +76,20 @@ for (const receiptMode of ['committed', 'racing'] as const) {
       });
     });
     await signIn(page, frame);
-    await frame.getByRole('button', { name: 'ตรวจอุปกรณ์เสียง' }).click();
+    await frame.getByRole('button', { name: th('workspace:media.check') }).click();
     const dphone = frame.getByRole('region', { name: 'dphone' });
-    await dphone.getByRole('button', { name: 'รับสาย' }).click();
+    await dphone.getByRole('button', { name: th('dphone:accept') }).click();
     server.state = 'WRAPUP';
-    await dphone.getByRole('button', { name: 'วางสาย' }).click();
-    await frame.getByRole('button', { name: 'ลูกค้าได้รับความช่วยเหลือ' }).click();
-    await frame.getByRole('textbox', { name: 'โน้ตสรุป' }).fill(note);
-    await frame.getByRole('button', { name: 'บันทึกผล' }).click();
-    await frame.getByRole('button', { name: 'ตรวจผลที่บันทึก' }).click();
-    await expect(frame.getByRole('heading', { name: 'บันทึกผลแล้ว' })).toBeVisible();
+    await dphone.getByRole('button', { name: th('dphone:hangup') }).click();
+    await frame.getByRole('button', { name: th('workspace:wrapup.assisted') }).click();
+    await frame.getByRole('textbox', { name: th('workspace:wrapup.note') }).fill(note);
+    await frame.getByRole('button', { name: th('workspace:wrapup.submit') }).click();
+    await frame.getByRole('button', { name: th('workspace:wrapup.checkResult') }).click();
+    await expect(frame.getByRole('heading', { name: th('workspace:wrapup.saved') })).toBeVisible();
     await expect(frame.getByText(note, { exact: true })).toBeVisible();
-    await expect(frame.getByText('งานนี้ปิดด้วยคำสั่งอื่นแล้ว', { exact: false })).toHaveCount(0);
+    await expect(
+      frame.getByText(th('workspace:wrapup.alreadyCompleted'), { exact: false }),
+    ).toHaveCount(0);
     await expect
       .poll(async () =>
         (await messages(page)).filter((message) => message.type === 'dphone.activity'),
@@ -108,7 +111,7 @@ test('origin not in the allowlist → dphone does not start and sends no message
   await expect
     .poll(() => dphoneFrame(page)?.evaluate(() => document.documentElement.dataset.embedState))
     .toBe('blocked');
-  await expect(frame.getByRole('button', { name: 'เข้าสู่ระบบ' })).toHaveCount(0);
+  await expect(frame.getByRole('button', { name: th('dphone:embedAuth.signIn') })).toHaveCount(0);
   expect(await messages(page)).toEqual([]);
 });
 
@@ -131,23 +134,27 @@ test('embedded on the host: ready → popup login → lease embedded → incomin
     .toContainEqual({ surface: 'embedded', hostOrigin: HOST });
 
   // the D1.15 dphone in the iframe — after checking audio devices the assigned call rings
-  await frame.getByRole('button', { name: 'ตรวจอุปกรณ์เสียง' }).click();
+  await frame.getByRole('button', { name: th('workspace:media.check') }).click();
   const dphone = frame.getByRole('region', { name: 'dphone' });
-  await expect(dphone.getByRole('status', { name: 'dphone' })).toHaveText('มีสายเรียกเข้า');
+  await expect(dphone.getByRole('status', { name: 'dphone' })).toHaveText(
+    th('dphone:phase.RINGING'),
+  );
   await expect
     .poll(async () => (await messages(page)).filter((m) => m.type === 'dphone.screenpop'))
     .toHaveLength(1);
   expect(server.screenPops[0]!.headers['x-work-session-lease-id']).toBe(server.lease);
 
-  await dphone.getByRole('button', { name: 'รับสาย' }).click();
-  await expect(dphone.getByRole('status', { name: 'dphone' })).toHaveText('กำลังสนทนา');
+  await dphone.getByRole('button', { name: th('dphone:accept') }).click();
+  await expect(dphone.getByRole('status', { name: 'dphone' })).toHaveText(
+    th('dphone:phase.ACTIVE'),
+  );
   const sipBefore = await dphoneFrame(page).evaluate(() => window.__dcontactDphone?.sipSessionId());
 
   // call ends → WRAPUP → save → activity reaches the host, then the host acks
   server.state = 'WRAPUP';
-  await dphone.getByRole('button', { name: 'วางสาย' }).click();
-  await frame.getByRole('button', { name: 'ลูกค้าได้รับความช่วยเหลือ' }).click();
-  await frame.getByRole('button', { name: 'บันทึกผล' }).click();
+  await dphone.getByRole('button', { name: th('dphone:hangup') }).click();
+  await frame.getByRole('button', { name: th('workspace:wrapup.assisted') }).click();
+  await frame.getByRole('button', { name: th('workspace:wrapup.submit') }).click();
   await expect
     .poll(async () => (await messages(page)).filter((m) => m.type === 'dphone.activity'))
     .toHaveLength(1);
@@ -210,10 +217,10 @@ test('click-to-call: the host can only fill in the number; the agent presses cal
       blocked: false,
     });
   expect(server.clickToCalls).toHaveLength(0);
-  const prompt = frame.getByRole('region', { name: 'โทรออกจากระบบที่ฝัง' });
+  const prompt = frame.getByRole('region', { name: th('dphone:embedCall.label') });
   await expect(prompt.getByText('081-234-5678')).toBeVisible();
 
-  await prompt.getByRole('button', { name: 'โทร', exact: true }).click();
+  await prompt.getByRole('button', { name: th('dphone:embedCall.dial'), exact: true }).click();
   await expect
     .poll(() => messages(page))
     .toContainEqual(
@@ -224,7 +231,7 @@ test('click-to-call: the host can only fill in the number; the agent presses cal
       }),
     );
   expect(server.clickToCalls[0]!.headers['x-work-session-lease-id']).toBe(server.lease);
-  await expect(prompt.getByText('โทรออกไม่ได้ตามกติกาการติดต่อลูกค้า')).toBeVisible();
+  await expect(prompt.getByText(th('dphone:embedCall.result.blocked'))).toBeVisible();
 
   // an unsupported v → unsupported_version
   await page.evaluate(() =>
@@ -251,10 +258,12 @@ test('refresh token unusable during a call (revoke/reuse) → a bar asks to log 
 }) => {
   const { frame } = await setup(page);
   await signIn(page, frame);
-  await frame.getByRole('button', { name: 'ตรวจอุปกรณ์เสียง' }).click();
+  await frame.getByRole('button', { name: th('workspace:media.check') }).click();
   const dphone = frame.getByRole('region', { name: 'dphone' });
-  await dphone.getByRole('button', { name: 'รับสาย' }).click();
-  await expect(dphone.getByRole('status', { name: 'dphone' })).toHaveText('กำลังสนทนา');
+  await dphone.getByRole('button', { name: th('dphone:accept') }).click();
+  await expect(dphone.getByRole('status', { name: 'dphone' })).toHaveText(
+    th('dphone:phase.ACTIVE'),
+  );
   const embed = dphoneFrame(page);
   const sipBefore = await embed.evaluate(() => window.__dcontactDphone?.sipSessionId());
 
@@ -268,9 +277,11 @@ test('refresh token unusable during a call (revoke/reuse) → a bar asks to log 
     }),
   );
   await embed.evaluate(() => window.__dphoneEmbed?.auth?.refresh());
-  await expect(frame.getByText('การเข้าสู่ระบบหมดอายุ สายที่คุยอยู่ยังไม่หลุด')).toBeVisible();
-  await expect(frame.getByRole('button', { name: 'เข้าสู่ระบบ' })).toBeVisible();
-  await expect(dphone.getByRole('status', { name: 'dphone' })).toHaveText('กำลังสนทนา');
+  await expect(frame.getByText(th('dphone:embedAuth.status.reauth'))).toBeVisible();
+  await expect(frame.getByRole('button', { name: th('dphone:embedAuth.signIn') })).toBeVisible();
+  await expect(dphone.getByRole('status', { name: 'dphone' })).toHaveText(
+    th('dphone:phase.ACTIVE'),
+  );
   expect(await embed.evaluate(() => window.__dcontactDphone?.sipSessionId())).toBe(sipBefore);
 
   const axe = await new AxeBuilder({ page }).analyze();
@@ -284,17 +295,21 @@ test('deleting the origin during a call → the host channel stops immediately, 
 }) => {
   const { server, frame } = await setup(page);
   await signIn(page, frame);
-  await frame.getByRole('button', { name: 'ตรวจอุปกรณ์เสียง' }).click();
+  await frame.getByRole('button', { name: th('workspace:media.check') }).click();
   const dphone = frame.getByRole('region', { name: 'dphone' });
-  await dphone.getByRole('button', { name: 'รับสาย' }).click();
-  await expect(dphone.getByRole('status', { name: 'dphone' })).toHaveText('กำลังสนทนา');
+  await dphone.getByRole('button', { name: th('dphone:accept') }).click();
+  await expect(dphone.getByRole('status', { name: 'dphone' })).toHaveText(
+    th('dphone:phase.ACTIVE'),
+  );
   const embed = dphoneFrame(page);
   const sipBefore = await embed.evaluate(() => window.__dcontactDphone?.sipSessionId());
   const messageCountBefore = (await messages(page)).length;
 
   server.sendWorkspaceEvent?.({ type: 'embed.origin.revoked', origin: HOST });
   await expect.poll(() => embed.evaluate(() => window.__dphoneEmbed?.lock.revoked)).toBe(true);
-  await expect(dphone.getByRole('status', { name: 'dphone' })).toHaveText('กำลังสนทนา');
+  await expect(dphone.getByRole('status', { name: 'dphone' })).toHaveText(
+    th('dphone:phase.ACTIVE'),
+  );
   expect(await embed.evaluate(() => window.__dcontactDphone?.sipSessionId())).toBe(sipBefore);
 
   await page.evaluate(() =>

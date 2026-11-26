@@ -1,6 +1,7 @@
 import { createHmac } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { expect, type Browser, type BrowserContext, type Page } from '@playwright/test';
+import { th } from '../e2e/support/catalog';
 
 /**
  * U1.7 (#435): helpers of the acceptance gate — state comes from the runner (`scripts/u1-acceptance.mjs`) through a
@@ -98,7 +99,7 @@ export async function login(browser: Browser, account: GateAccount): Promise<Ses
       bearer = header.slice('Bearer '.length);
   });
   await page.goto(`/?view=journeys&tenant=${account.tenantSlug}`);
-  await page.getByRole('button', { name: 'เข้าสู่ระบบ' }).click();
+  await page.getByRole('button', { name: th('common:auth.signIn') }).click();
   await page.locator('#username').fill(account.username);
   await page.locator('#password').fill(account.password);
   await page.locator('#kc-login').click();
@@ -118,7 +119,7 @@ export async function login(browser: Browser, account: GateAccount): Promise<Ses
 export async function reloadSession(session: Session): Promise<void> {
   const { page, account } = session;
   await page.goto(`/?view=journeys&tenant=${account.tenantSlug}`);
-  await page.getByRole('button', { name: 'เข้าสู่ระบบ' }).click();
+  await page.getByRole('button', { name: th('common:auth.signIn') }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'Journey authoring' })).toBeVisible();
   await expect.poll(() => page.url()).not.toMatch(/[?&](code|state|session_state)=/);
 }

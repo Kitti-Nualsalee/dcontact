@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { expect, test, type Page } from '@playwright/test';
+import { th } from '../e2e/catalog.js';
 import { totp } from '../../../scripts/keycloak-platform-login.mjs';
 import { PLATFORM_DEV_USERS } from '../../../scripts/keycloak-platform-setup.mjs';
 
@@ -8,11 +9,15 @@ import { PLATFORM_DEV_USERS } from '../../../scripts/keycloak-platform-setup.mjs
  * search → timeline → recovery preview of a request stuck in ACTION_REQUIRED
  */
 const operator = PLATFORM_DEV_USERS.find((user) => user.role === 'platform_operator')!;
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 const run = randomUUID().slice(0, 6);
 
 async function login(page: Page) {
   await page.goto('/');
-  await page.getByRole('button', { name: 'เข้าสู่ระบบ' }).click();
+  await page.getByRole('button', { name: th('common:auth.signIn') }).click();
   await page.locator('#username').fill(operator.username);
   await page.locator('#password').fill(operator.password);
   await page.locator('#kc-login').click();
@@ -50,16 +55,19 @@ async function existingKeycloakIdentity(email: string) {
 }
 
 async function createTenant(page: Page, slug: string, email: string) {
-  await page.getByRole('button', { name: 'สร้าง tenant' }).first().click();
-  await page.getByLabel('ชื่อลูกค้า / องค์กร').fill(`UAT ${slug}`);
+  await page
+    .getByRole('button', { name: th('common:navigation.create') })
+    .first()
+    .click();
+  await page.getByLabel(th('common:fields.displayName')).fill(`UAT ${slug}`);
   await page.getByLabel('Slug').fill(slug);
   await page.getByLabel('Primary domain').fill(`${slug}.uat.example.test`);
   await page.getByLabel('Plan').selectOption({ index: 1 });
-  await page.getByLabel('ชื่อ First admin').fill('UAT Admin');
-  await page.getByLabel('อีเมล First admin').fill(email);
-  await page.getByRole('button', { name: 'ตรวจสอบข้อมูล →' }).click();
-  await page.getByLabel(/ฉันตรวจสอบ identity/).check();
-  await page.getByRole('button', { name: 'ยืนยันและเริ่ม provision' }).click();
+  await page.getByLabel(th('common:fields.firstAdminDisplayName')).fill('UAT Admin');
+  await page.getByLabel(th('common:fields.firstAdminEmail')).fill(email);
+  await page.getByRole('button', { name: th('common:wizard.review') }).click();
+  await page.getByLabel(new RegExp(escapeRegExp(th('common:wizard.confirm')))).check();
+  await page.getByRole('button', { name: th('common:wizard.submit') }).click();
   await expect(page).toHaveURL(/\/requests\/[0-9a-f-]{36}$/);
 }
 
@@ -69,19 +77,21 @@ test('UAT: create → track → search → timeline → recovery preview through
   await login(page);
   const email = `uat-${run}@uat.example.test`;
   await createTenant(page, `uat-${run}`, email);
-  await expect(page.getByRole('heading', { name: 'พร้อมส่งมอบให้ลูกค้า' })).toBeVisible({
+  await expect(page.getByRole('heading', { name: th('common:request.ready') })).toBeVisible({
     timeout: 90_000,
   });
-  await expect(page.getByText('ส่งถึงผู้ให้บริการอีเมลแล้ว')).toBeVisible();
+  await expect(page.getByText(th('common:invitation.delivery.SENT'))).toBeVisible();
 
   await page.getByRole('button', { name: 'Tenants' }).click();
-  await page.getByLabel('ค้นหา tenant').fill(email);
-  await page.getByLabel('ค้นหา tenant').press('Enter');
+  await page.getByLabel(th('common:list.searchLabel')).fill(email);
+  await page.getByLabel(th('common:list.searchLabel')).press('Enter');
   await expect(page.getByRole('row', { name: new RegExp(`UAT uat-${run}`) })).toContainText(
     'ACTIVE',
   );
-  await page.getByRole('button', { name: `เปิดรายละเอียด UAT uat-${run}` }).click();
-  const timeline = page.getByRole('list', { name: 'เหตุการณ์ล่าสุดก่อน' });
+  await page
+    .getByRole('button', { name: th('common:list.openDetails', { name: `UAT uat-${run}` }) })
+    .click();
+  const timeline = page.getByRole('list', { name: th('common:history.order') });
   await expect(timeline.getByText('Platform Operator').first()).toBeVisible();
   await expect(timeline.getByText('System').first()).toBeVisible();
 
@@ -90,13 +100,19 @@ test('UAT: create → track → search → timeline → recovery preview through
   const taken = await existingKeycloakIdentity(`uat-${run}-taken@uat.example.test`);
   await page.getByRole('button', { name: 'Tenants' }).click();
   await createTenant(page, `uat-${run}-stuck`, taken);
-  await expect(page.getByRole('heading', { name: 'ต้องการการตัดสินใจ' })).toBeVisible({
+  await expect(
+    page.getByRole('heading', { name: th('common:statuses.ACTION_REQUIRED') }),
+  ).toBeVisible({
     timeout: 90_000,
   });
   await expect(page.getByText('FIRST_ADMIN_EMAIL_CONFLICT').first()).toBeVisible();
-  await page.getByRole('button', { name: 'Reconcile & resume (แนะนำ)' }).click();
+  await page
+    .getByRole('button', {
+      name: `${th('common:recovery.actions.RECONCILE.title')}${th('common:recovery.recommended')}`,
+    })
+    .click();
   const panel = page.getByRole('region', { name: /Reconcile & resume/ });
-  await expect(panel.getByText('พบ resource ชื่อเดียวกันของเจ้าของอื่น — ห้ามยึด')).toBeVisible({
+  await expect(panel.getByText(th('common:blocked.CORRELATION_MISMATCH'))).toBeVisible({
     timeout: 30_000,
   });
 

@@ -3,6 +3,8 @@ import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test, type Page } from '@playwright/test';
+import { th } from '../e2e/catalog';
+import { thRegExp, escapeRegExp } from '../e2e/locale-match';
 
 /**
  * Sales-team Demo rehearsal for the Agent side on the stack that `scripts/sales-demo-stack.mjs` already brought up
@@ -93,7 +95,7 @@ function customerPhoneCount(): number {
 
 async function login(page: Page) {
   await page.goto('/?tenant=demo');
-  await page.getByRole('button', { name: 'เข้าสู่ระบบ' }).click();
+  await page.getByRole('button', { name: th('dphone:embedAuth.signIn') }).click();
   await page.waitForURL(/\/realms\/dcontact\//);
   await page.locator('#username').fill('agent1000@demo.local');
   if (!(await page.locator('#password').isVisible())) await page.locator('#kc-login').click();
@@ -153,8 +155,8 @@ test('Demo rehearsal: answer, link the customer, edit data, save the outcome, an
   async function rehearse() {
     // a previous rehearsal or another tab may still hold agent1000's work session (move here)
     // or the old session expired and nobody has taken work yet (start taking work here)
-    const takeOver = page.getByRole('button', { name: 'ย้ายมาที่นี่' });
-    const startHere = page.getByRole('button', { name: 'เริ่มรับงานที่นี่' });
+    const takeOver = page.getByRole('button', { name: th('workspace:lease.move') });
+    const startHere = page.getByRole('button', { name: th('workspace:lease.start') });
     const dphone = page.getByRole('region', { name: 'dphone' });
     const status = dphone.getByRole('status', { name: 'dphone' });
     // the work session window can pop up at any time after the first snapshot — have Playwright press it every time it blocks a press
@@ -168,7 +170,7 @@ test('Demo rehearsal: answer, link the customer, edit data, save the outcome, an
         }
         await takeOver.click({ timeout: 2_000 }).catch(() => undefined);
         await page
-          .getByRole('button', { name: 'ยืนยันย้าย' })
+          .getByRole('button', { name: th('workspace:lease.confirm') })
           .click({ timeout: 5_000 })
           .catch(() => undefined);
       },
@@ -176,12 +178,14 @@ test('Demo rehearsal: answer, link the customer, edit data, save the outcome, an
     );
     await expect(dphone).toBeVisible({ timeout: 30_000 });
     // #938 status picker page after login — a leftover job from the previous run skips this page straight to Workspace
-    const gate = page.getByRole('region', { name: /^สวัสดี / });
-    const workList = page.getByRole('region', { name: 'งานของฉัน' });
+    const gate = page.getByRole('region', {
+      name: new RegExp(`^${escapeRegExp(th('workspace:agentStatus.gate.title', { name: '' }))}`),
+    });
+    const workList = page.getByRole('region', { name: th('workspace:layout.work') });
     await expect(gate.or(workList).first()).toBeVisible({ timeout: 30_000 });
     if (await gate.isVisible()) {
       await gate.getByRole('radio', { name: /^Ready/ }).check();
-      await gate.getByRole('button', { name: 'เข้า Workspace' }).click();
+      await gate.getByRole('button', { name: th('workspace:agentStatus.gate.enter') }).click();
       await expect(gate)
         .toHaveCount(0, { timeout: 30_000 })
         .catch(async () => {
@@ -195,16 +199,24 @@ test('Demo rehearsal: answer, link the customer, edit data, save the outcome, an
         });
     } else {
       // a rehearsal that failed midway left a WRAPUP job — close it first, otherwise the Router sends no new call
-      await page.getByRole('tab', { name: 'สรุปผล', exact: true }).click();
-      const pending = page.getByRole('button', { name: 'ลูกค้าได้รับความช่วยเหลือ' });
+      await page
+        .getByRole('tab', { name: th('workspace:layout.inspector.tabs.wrapup'), exact: true })
+        .click();
+      const pending = page.getByRole('button', { name: th('workspace:wrapup.assisted') });
       if (await pending.isVisible({ timeout: 3_000 }).catch(() => false)) {
         await pending.click();
-        await page.getByRole('textbox', { name: 'โน้ตสรุป' }).fill('ปิดงานค้างจากรอบซ้อมก่อนหน้า');
-        await page.getByRole('button', { name: 'บันทึกผล' }).click();
-        await expect(page.getByRole('heading', { name: 'บันทึกผลแล้ว' })).toBeVisible();
+        await page
+          .getByRole('textbox', { name: th('workspace:wrapup.note') })
+          .fill('Closing work left over from the previous rehearsal');
+        await page.getByRole('button', { name: th('workspace:wrapup.submit') }).click();
+        await expect(
+          page.getByRole('heading', { name: th('workspace:wrapup.saved') }),
+        ).toBeVisible();
       }
       // a run that failed mid-call left a call in progress, so the status selector does not appear until the call ends
-      const selector = page.getByRole('button', { name: /สถานะของฉัน/ });
+      const selector = page.getByRole('button', {
+        name: thRegExp('workspace:agentStatus.selectorLabel'),
+      });
       await expect(selector)
         .toBeVisible({ timeout: 20_000 })
         .catch(async () => {
@@ -217,27 +229,31 @@ test('Demo rehearsal: answer, link the customer, edit data, save the outcome, an
       await selector.click();
       await page.getByRole('option', { name: 'Ready', exact: true }).click();
     }
-    await expect(status).toHaveText('โทรศัพท์พร้อม');
-    await expect(page.getByRole('button', { name: /สถานะของฉัน/ })).toContainText('Ready');
+    await expect(status).toHaveText(th('dphone:phase.READY'));
+    await expect(
+      page.getByRole('button', { name: thRegExp('workspace:agentStatus.selectorLabel') }),
+    ).toContainText('Ready');
     await shot('01-ready');
 
     const caller = placeCall();
     try {
-      await expect(status).toHaveText('มีสายเรียกเข้า', { timeout: 60_000 });
+      await expect(status).toHaveText(th('dphone:phase.RINGING'), { timeout: 60_000 });
       await shot('02-ringing');
-      await dphone.getByRole('button', { name: 'รับสาย' }).click();
-      await expect(status).toHaveText('กำลังสนทนา');
+      await dphone.getByRole('button', { name: th('dphone:accept') }).click();
+      await expect(status).toHaveText(th('dphone:phase.ACTIVE'));
 
       // Cus360 must confirm the work's session with the server before showing customer data (as in the #796 trial)
-      const unlinked = page.getByText('งานนี้ยังไม่เชื่อมกับลูกค้า');
-      const confirmSession = page.getByRole('button', { name: 'ยืนยันตัวตน' });
+      const unlinked = page.getByText(th('workspace:customer.unlinked'));
+      const confirmSession = page.getByRole('button', {
+        name: th('workspace:customer.reauthenticate'),
+      });
       await expect(unlinked.or(confirmSession).first()).toBeVisible();
       if (await confirmSession.isVisible()) await confirmSession.click();
       await expect(unlinked).toBeVisible();
-      await page.getByLabel('เบอร์โทรศัพท์สากลหรืออีเมลเต็มค่า').fill(customerPhone);
-      await page.getByRole('button', { name: 'ค้นหาลูกค้าสำหรับงานนี้' }).click();
-      const select = page.getByRole('button', { name: 'เลือกเชื่อมลูกค้า' });
-      const notFound = page.getByText('ไม่พบลูกค้าที่เลือกได้');
+      await page.getByLabel(th('workspace:customer.query')).fill(customerPhone);
+      await page.getByRole('button', { name: th('workspace:customer.search') }).click();
+      const select = page.getByRole('button', { name: th('workspace:customer.select') });
+      const notFound = page.getByText(th('workspace:customer.empty'));
       await expect(select.or(notFound).first()).toBeVisible();
       if (await notFound.isVisible())
         throw new Error(
@@ -246,37 +262,43 @@ test('Demo rehearsal: answer, link the customer, edit data, save the outcome, an
         );
       await select.click();
       await shot('03-customer-found');
-      await page.getByRole('button', { name: 'ยืนยัน', exact: true }).click();
-      await expect(page.getByText('บันทึกข้อมูลลูกค้าแล้ว')).toBeVisible();
+      await page
+        .getByRole('button', { name: th('workspace:customer.confirm'), exact: true })
+        .click();
+      await expect(page.getByText(th('workspace:customer.saved'))).toBeVisible();
 
-      await page.getByRole('button', { name: 'แก้ชื่อและบริษัท' }).click();
+      await page.getByRole('button', { name: th('workspace:customer.edit') }).click();
       // the value must differ from the previous run, otherwise the server answers that the data is unchanged
       const stamp = new Date().toLocaleTimeString('th-TH', { hour12: false });
-      await page.getByLabel('บริษัท').fill(`บริษัท สยามโลจิสติกส์ จำกัด (ซ้อม ${stamp})`);
-      await page.getByRole('button', { name: 'บันทึกลูกค้า' }).click();
-      await expect(page.getByText('บันทึกข้อมูลลูกค้าแล้ว')).toBeVisible();
+      await page
+        .getByLabel(th('workspace:customer.company'))
+        .fill(`Siam Logistics Co., Ltd. (rehearsal ${stamp})`);
+      await page.getByRole('button', { name: th('workspace:customer.save') }).click();
+      await expect(page.getByText(th('workspace:customer.saved'))).toBeVisible();
       await shot('04-customer-linked');
 
-      await dphone.getByRole('button', { name: 'วางสาย' }).click();
+      await dphone.getByRole('button', { name: th('dphone:hangup') }).click();
     } finally {
       caller.kill('SIGTERM');
     }
 
-    await expect(page.getByRole('heading', { name: 'สรุปผลหลังสาย' })).toBeVisible();
-    await page.getByRole('button', { name: 'ลูกค้าได้รับความช่วยเหลือ' }).click();
+    await expect(page.getByRole('heading', { name: th('workspace:wrapup.title') })).toBeVisible();
+    await page.getByRole('button', { name: th('workspace:wrapup.assisted') }).click();
     await page
-      .getByRole('textbox', { name: 'โน้ตสรุป' })
-      .fill('ลูกค้าสอบถามสถานะการจัดส่ง แจ้งกำหนดส่งแล้ว');
+      .getByRole('textbox', { name: th('workspace:wrapup.note') })
+      .fill('Customer asked about delivery status, delivery date given');
     await shot('05-wrapup');
-    await page.getByRole('button', { name: 'บันทึกผล' }).click();
-    await expect(page.getByRole('heading', { name: 'บันทึกผลแล้ว' })).toBeVisible();
+    await page.getByRole('button', { name: th('workspace:wrapup.submit') }).click();
+    await expect(page.getByRole('heading', { name: th('workspace:wrapup.saved') })).toBeVisible();
     await shot('06-saved');
 
     const [history] = await Promise.all([
       context.waitForEvent('page'),
-      page.getByRole('link', { name: 'เปิดผลในประวัติงาน (แท็บใหม่)' }).click(),
+      page.getByRole('link', { name: th('workspace:wrapup.history') }).click(),
     ]);
-    await expect(history.getByText('ลูกค้าสอบถามสถานะการจัดส่ง แจ้งกำหนดส่งแล้ว')).toBeVisible();
+    await expect(
+      history.getByText('Customer asked about delivery status, delivery date given'),
+    ).toBeVisible();
     await history.screenshot({ path: resolve(shots, '07-history.png') });
   }
 });

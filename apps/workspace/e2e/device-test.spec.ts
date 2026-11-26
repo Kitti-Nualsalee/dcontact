@@ -1,6 +1,8 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from './fixtures';
 import type { Page } from '@playwright/test';
+import { th } from './catalog';
+import { bothLocales, escapeRegExp, thRegExp } from './locale-match';
 
 /**
  * #939: the device-test button at the bottom left of Workspace (shell) — optional, the floating panel is not a modal
@@ -31,7 +33,7 @@ const offer = {
   state: 'ASSIGNED',
   version: '17',
   caller: '081-234-5678',
-  queue: { id: 'queue-service', name: 'บริการลูกค้า' },
+  queue: { id: 'queue-service', name: 'Customer Service' },
   offerExpiresAt: '2026-09-06T10:00:20.000Z',
   answeredAt: null,
   endedAt: null,
@@ -75,7 +77,12 @@ async function open(
     route.fulfill({
       status: 200,
       json: {
-        agent: { id: 'agent-1000', displayName: 'สมชาย ใจดี', extension: '1000', state: 'OFFLINE' },
+        agent: {
+          id: 'agent-1000',
+          displayName: 'Somchai Jaidee',
+          extension: '1000',
+          state: 'OFFLINE',
+        },
         interaction: call ? offer : null,
       },
     }),
@@ -97,20 +104,27 @@ async function open(
     }),
   );
   await page.goto('/?tenant=demo');
-  await expect(page.getByText('สมชาย ใจดี')).toBeVisible();
+  await expect(page.getByText('Somchai Jaidee')).toBeVisible();
 }
 
-const trigger = (page: Page) => page.getByRole('button', { name: /^ทดสอบอุปกรณ์|^Test devices/ });
-const panel = (page: Page) => page.getByRole('dialog', { name: /^(ทดสอบอุปกรณ์|Test devices)$/ });
-const mic = (page: Page) => panel(page).getByRole('region', { name: /^(ไมโครโฟน|Microphone)$/ });
+const trigger = (page: Page) =>
+  page.getByRole('button', { name: new RegExp(`^${bothLocales('workspace:deviceTest.button')}`) });
+const panel = (page: Page) =>
+  page.getByRole('dialog', { name: new RegExp(`^${bothLocales('workspace:deviceTest.title')}$`) });
+const mic = (page: Page) =>
+  panel(page).getByRole('region', {
+    name: new RegExp(`^${bothLocales('workspace:deviceTest.mic.title')}$`),
+  });
 const speaker = (page: Page) =>
-  panel(page).getByRole('region', { name: /^(ลำโพงหรือหูฟัง|Speaker or headset)$/ });
+  panel(page).getByRole('region', {
+    name: new RegExp(`^${bothLocales('workspace:deviceTest.speaker.title')}$`),
+  });
 
 test('open from the bottom left → mic passes when sound is heard, speaker passes when answered heard, Esc closes and the result stays on the button after reload', async ({
   page,
 }) => {
   await open(page);
-  await expect(trigger(page)).toContainText('ยังไม่เคยทดสอบ');
+  await expect(trigger(page)).toContainText(th('workspace:deviceTest.never'));
 
   // bottom left: left of the work list, and not overlapping dphone at the bottom right
   const box = (await trigger(page).boundingBox())!;
@@ -122,13 +136,25 @@ test('open from the bottom left → mic passes when sound is heard, speaker pass
   await trigger(page).click();
   await expect(trigger(page)).toHaveAttribute('aria-expanded', 'true');
   await expect(panel(page)).toBeVisible();
-  await expect(mic(page).getByText('ผ่าน', { exact: true })).toBeVisible();
-  await expect(mic(page).getByRole('status')).toHaveText(/ได้ยินเสียงชัดเจน/);
+  await expect(
+    mic(page).getByText(th('workspace:deviceTest.mic.state.pass'), { exact: true }),
+  ).toBeVisible();
+  await expect(mic(page).getByRole('status')).toHaveText(
+    thRegExp('workspace:deviceTest.mic.hint.pass'),
+  );
 
-  await speaker(page).getByRole('button', { name: 'เล่นเสียงทดสอบ' }).click();
-  await expect(speaker(page).getByText('รอคำตอบ')).toBeVisible();
-  await speaker(page).getByRole('button', { name: 'ได้ยิน', exact: true }).click();
-  await expect(speaker(page).getByText('ผ่าน', { exact: true })).toBeVisible();
+  await speaker(page)
+    .getByRole('button', { name: th('workspace:deviceTest.speaker.play') })
+    .click();
+  await expect(
+    speaker(page).getByText(th('workspace:deviceTest.speaker.state.asking')),
+  ).toBeVisible();
+  await speaker(page)
+    .getByRole('button', { name: th('workspace:deviceTest.speaker.heard'), exact: true })
+    .click();
+  await expect(
+    speaker(page).getByText(th('workspace:deviceTest.speaker.state.pass'), { exact: true }),
+  ).toBeVisible();
 
   const axe = await new AxeBuilder({ page }).include('.aw-devtest').analyze();
   expect(
@@ -142,10 +168,16 @@ test('open from the bottom left → mic passes when sound is heard, speaker pass
   await expect(panel(page)).toHaveCount(0);
   await expect(trigger(page)).toBeFocused();
   await evidence(page, 'device-test-button');
-  await expect(trigger(page)).toContainText(/ผ่าน · วันนี้ \d\d:\d\d/);
+  await expect(trigger(page)).toContainText(
+    new RegExp(
+      `${escapeRegExp(th('workspace:deviceTest.lastPass', { when: th('workspace:deviceTest.today') }))} \\d\\d:\\d\\d`,
+    ),
+  );
 
   await page.reload();
-  await expect(trigger(page)).toContainText(/ผ่าน · วันนี้/);
+  await expect(trigger(page)).toContainText(
+    thRegExp('workspace:deviceTest.lastPass', { when: th('workspace:deviceTest.today') }),
+  );
 });
 
 test('mic denied → explains how to grant permission, and speaker not heard → the button says there is something to check', async ({
@@ -153,18 +185,30 @@ test('mic denied → explains how to grant permission, and speaker not heard →
 }) => {
   await open(page, { mic: 'denied' });
   await trigger(page).click();
-  await expect(mic(page).getByRole('alert')).toContainText('ไม่ได้รับอนุญาตให้ใช้ไมโครโฟน');
-  await expect(mic(page).getByRole('button', { name: 'ลองอีกครั้ง' })).toBeVisible();
+  await expect(mic(page).getByRole('alert')).toContainText(
+    th('workspace:deviceTest.mic.failure.denied.title'),
+  );
+  await expect(
+    mic(page).getByRole('button', { name: th('workspace:deviceTest.retry') }),
+  ).toBeVisible();
 
-  await speaker(page).getByRole('button', { name: 'เล่นเสียงทดสอบ' }).click();
-  await speaker(page).getByRole('button', { name: 'ไม่ได้ยิน' }).click();
-  await expect(speaker(page).getByRole('alert')).toContainText('ไม่ได้ยินเสียงทดสอบ');
+  await speaker(page)
+    .getByRole('button', { name: th('workspace:deviceTest.speaker.play') })
+    .click();
+  await speaker(page)
+    .getByRole('button', { name: th('workspace:deviceTest.speaker.notHeard') })
+    .click();
+  await expect(speaker(page).getByRole('alert')).toContainText(
+    th('workspace:deviceTest.speaker.failTitle'),
+  );
   await evidence(page, 'device-test-denied');
 
   // close by pressing the same button
   await trigger(page).click();
   await expect(panel(page)).toHaveCount(0);
-  await expect(trigger(page)).toContainText(/มีข้อควรตรวจ · วันนี้/);
+  await expect(trigger(page)).toContainText(
+    thRegExp('workspace:deviceTest.lastWarn', { when: th('workspace:deviceTest.today') }),
+  );
 });
 
 test('no sound from the mic for 8 seconds → suggests checking the mute button', async ({
@@ -172,22 +216,28 @@ test('no sound from the mic for 8 seconds → suggests checking the mute button'
 }) => {
   await open(page, { mic: 'silent' });
   await trigger(page).click();
-  await expect(mic(page).getByText('กำลังฟัง')).toBeVisible();
-  await expect(mic(page).getByText('ไม่ได้ยินเสียง', { exact: true })).toBeVisible({
+  await expect(mic(page).getByText(th('workspace:deviceTest.mic.state.listening'))).toBeVisible();
+  await expect(
+    mic(page).getByText(th('workspace:deviceTest.mic.state.quiet'), { exact: true }),
+  ).toBeVisible({
     timeout: 12_000,
   });
-  await expect(mic(page).getByRole('status')).toHaveText(/ตรวจปุ่มปิดเสียง/);
+  await expect(mic(page).getByRole('status')).toHaveText(
+    thRegExp('workspace:deviceTest.mic.hint.quiet'),
+  );
 });
 
 test('during a call → the button is disabled and says the test is possible after the call ends', async ({
   page,
 }) => {
   await open(page, { call: true });
-  await page.getByRole('button', { name: 'ตรวจอุปกรณ์เสียง' }).click();
+  await page.getByRole('button', { name: th('workspace:media.check') }).click();
   const dphone = page.getByRole('region', { name: 'dphone' });
-  await expect(dphone.getByRole('status', { name: 'dphone' })).toHaveText('มีสายเรียกเข้า');
+  await expect(dphone.getByRole('status', { name: 'dphone' })).toHaveText(
+    th('dphone:phase.RINGING'),
+  );
   await expect(trigger(page)).toHaveAttribute('aria-disabled', 'true');
-  await expect(trigger(page)).toContainText('ทดสอบได้หลังจบสาย');
+  await expect(trigger(page)).toContainText(th('workspace:deviceTest.afterCall'));
   await trigger(page).click({ force: true });
   await expect(panel(page)).toHaveCount(0);
 });

@@ -1,6 +1,8 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from './fixtures';
 import type { Page } from '@playwright/test';
+import { th } from './catalog';
+import { escapeRegExp, thRegExp } from './locale-match';
 
 /**
  * D1.15 (#454): the dphone widget in Agent Workspace (flag ui.shell.v2 on) on a simulated transport
@@ -25,13 +27,13 @@ const navigation = {
 };
 
 const snapshot = {
-  agent: { id: 'agent-1000', displayName: 'สมชาย ใจดี', extension: '1000', state: 'RESERVED' },
+  agent: { id: 'agent-1000', displayName: 'Somchai Jaidee', extension: '1000', state: 'RESERVED' },
   interaction: {
     id: 'interaction-offer-1',
     state: 'ASSIGNED',
     version: '17',
     caller: '081-234-5678',
-    queue: { id: 'queue-service', name: 'บริการลูกค้า' },
+    queue: { id: 'queue-service', name: 'Customer Service' },
     offerExpiresAt: '2026-09-06T10:00:20.000Z',
     answeredAt: null,
     endedAt: null,
@@ -64,11 +66,15 @@ async function openWithCall(page: Page) {
   await page.goto('/?tenant=demo');
   const dphone = page.getByRole('region', { name: 'dphone' });
   await expect(dphone).toBeVisible();
-  await page.getByRole('button', { name: 'ตรวจอุปกรณ์เสียง' }).click();
-  await expect(dphone.getByRole('status', { name: 'dphone' })).toHaveText('มีสายเรียกเข้า');
+  await page.getByRole('button', { name: th('workspace:media.check') }).click();
+  await expect(dphone.getByRole('status', { name: 'dphone' })).toHaveText(
+    th('dphone:phase.RINGING'),
+  );
   await expect(dphone.getByText('081-234-5678')).toBeVisible();
-  await dphone.getByRole('button', { name: 'รับสาย' }).click();
-  await expect(dphone.getByRole('status', { name: 'dphone' })).toHaveText('กำลังสนทนา');
+  await dphone.getByRole('button', { name: th('dphone:accept') }).click();
+  await expect(dphone.getByRole('status', { name: 'dphone' })).toHaveText(
+    th('dphone:phase.ACTIVE'),
+  );
   return dphone;
 }
 
@@ -102,13 +108,13 @@ for (const ending of ['local', 'remote'] as const) {
       });
     });
     if (ending === 'local') {
-      await dphone.getByRole('button', { name: 'วางสาย' }).click();
+      await dphone.getByRole('button', { name: th('dphone:hangup') }).click();
     } else {
       await page
         .locator('audio')
         .evaluate((audio) => audio.dispatchEvent(new Event('e2e:sip-terminated')));
     }
-    await expect(page.getByRole('heading', { name: 'สรุปผลหลังสาย' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: th('workspace:wrapup.title') })).toBeVisible();
     expect(snapshotsAfterHangup).toBe(3);
     expect((await evidence(page)).timeOrigin).toBe(before.timeOrigin);
   });
@@ -118,10 +124,12 @@ test('flag on: dphone floats instead of the call control panel, and the old inco
   page,
 }) => {
   const dphone = await openWithCall(page);
-  await expect(page.getByRole('heading', { name: 'สายเรียกเข้า' })).toHaveCount(0);
-  await expect(page.getByRole('heading', { name: 'ควบคุมสาย' })).toHaveCount(0);
-  await expect(dphone.getByRole('button', { name: 'วางสาย' })).toBeVisible();
-  await expect(page.getByRole('status', { name: 'สถานะ dphone' })).toHaveText('กำลังสนทนา');
+  await expect(page.getByRole('heading', { name: th('workspace:offer.title') })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: th('workspace:controls.title') })).toHaveCount(0);
+  await expect(dphone.getByRole('button', { name: th('dphone:hangup') })).toBeVisible();
+  await expect(page.getByRole('status', { name: th('workspace:status.dphone') })).toHaveText(
+    th('dphone:phase.ACTIVE'),
+  );
 });
 
 test('collapse/expand 3 sizes and switch language: the same SIP session, no reload, and DTMF works in the expanded size', async ({
@@ -131,22 +139,24 @@ test('collapse/expand 3 sizes and switch language: the same SIP session, no relo
   const before = await evidence(page);
   expect(before.sip).toMatch(/[0-9a-f-]{36}/);
 
-  await dphone.getByRole('button', { name: 'ย่อเป็นแถบ' }).click();
-  await expect(dphone.getByRole('button', { name: 'ปิดไมค์' })).toHaveCount(0);
-  await expect(dphone.getByRole('button', { name: 'วางสาย' })).toBeVisible();
+  await dphone.getByRole('button', { name: th('dphone:size.bar') }).click();
+  await expect(dphone.getByRole('button', { name: th('dphone:mute') })).toHaveCount(0);
+  await expect(dphone.getByRole('button', { name: th('dphone:hangup') })).toBeVisible();
 
-  await dphone.getByRole('button', { name: 'ขยายพร้อมแป้นกด' }).click();
-  await dphone.getByRole('button', { name: 'ส่ง DTMF 5' }).click();
-  await dphone.getByRole('button', { name: 'ปิดไมค์' }).click();
-  await expect(dphone.getByRole('button', { name: 'เปิดไมค์' })).toBeVisible();
+  await dphone.getByRole('button', { name: th('dphone:size.expanded') }).click();
+  await dphone.getByRole('button', { name: th('dphone:dtmf', { value: '5' }) }).click();
+  await dphone.getByRole('button', { name: th('dphone:mute') }).click();
+  await expect(dphone.getByRole('button', { name: th('dphone:unmute') })).toBeVisible();
 
   await page.getByRole('button', { name: 'English' }).click();
   await expect(dphone.getByRole('status', { name: 'dphone' })).toHaveText('On a call');
   await expect(dphone.getByRole('button', { name: 'Unmute' })).toBeVisible();
-  await page.getByRole('button', { name: 'ไทย' }).click();
+  await page.getByRole('button', { name: th('ui:shell.languageNames.th') }).click();
 
-  await dphone.getByRole('button', { name: 'กะทัดรัด' }).click();
-  await expect(dphone.getByRole('button', { name: 'ส่ง DTMF 5' })).toHaveCount(0);
+  await dphone.getByRole('button', { name: th('dphone:size.compact') }).click();
+  await expect(dphone.getByRole('button', { name: th('dphone:dtmf', { value: '5' }) })).toHaveCount(
+    0,
+  );
   expect(await evidence(page)).toEqual(before);
 });
 
@@ -159,24 +169,28 @@ test('detach the /dphone window then hold the call from the detached window — 
 
   const [popup] = await Promise.all([
     context.waitForEvent('page'),
-    dphone.getByRole('button', { name: 'แยก dphone เป็นหน้าต่าง' }).click(),
+    dphone.getByRole('button', { name: th('dphone:detach') }).click(),
   ]);
-  await expect(page.getByText('dphone เปิดอยู่ในหน้าต่างแยก')).toBeVisible();
+  await expect(page.getByText(th('dphone:detached'))).toBeVisible();
   expect(new URL(popup.url()).pathname).toBe('/dphone');
   expect(new URL(popup.url()).searchParams.get('tenant')).toBe('demo');
   expect(new URL(popup.url()).searchParams.get('remote')).toMatch(/^[0-9a-f-]{36}$/);
 
   const remote = popup.getByRole('region', { name: 'dphone' });
-  await expect(remote.getByRole('status', { name: 'dphone' })).toHaveText('กำลังสนทนา');
+  await expect(remote.getByRole('status', { name: 'dphone' })).toHaveText(
+    th('dphone:phase.ACTIVE'),
+  );
   await expect(remote.getByText('081-234-5678')).toBeVisible();
-  await remote.getByRole('button', { name: 'พักสาย' }).click();
-  await expect(page.getByRole('status', { name: 'สถานะ dphone' })).toHaveText('พักสาย');
-  await expect(remote.getByRole('status', { name: 'dphone' })).toHaveText('พักสาย');
+  await remote.getByRole('button', { name: th('dphone:hold') }).click();
+  await expect(page.getByRole('status', { name: th('workspace:status.dphone') })).toHaveText(
+    th('dphone:phase.HELD'),
+  );
+  await expect(remote.getByRole('status', { name: 'dphone' })).toHaveText(th('dphone:phase.HELD'));
 
   // switch language in Workspace → the detached window follows
   await page.getByRole('button', { name: 'English' }).click();
   await expect(remote.getByRole('status', { name: 'dphone' })).toHaveText('On hold');
-  await page.getByRole('button', { name: 'ไทย' }).click();
+  await page.getByRole('button', { name: th('ui:shell.languageNames.th') }).click();
 
   const axe = await new AxeBuilder({ page: popup }).analyze();
   expect(
@@ -184,10 +198,10 @@ test('detach the /dphone window then hold the call from the detached window — 
   ).toEqual([]);
 
   const closed = popup.waitForEvent('close');
-  await page.getByRole('button', { name: 'กลับมาที่ Workspace' }).click();
+  await page.getByRole('button', { name: th('dphone:attach') }).click();
   await closed;
   await expect(
-    page.getByRole('region', { name: 'dphone' }).getByRole('button', { name: 'กลับเข้าสาย' }),
+    page.getByRole('region', { name: 'dphone' }).getByRole('button', { name: th('dphone:resume') }),
   ).toBeVisible();
   expect(await evidence(page)).toEqual(before);
 });
@@ -200,12 +214,12 @@ test('closing the detached window by hand → the widget returns to Workspace wi
   const before = await evidence(page);
   const [popup] = await Promise.all([
     context.waitForEvent('page'),
-    dphone.getByRole('button', { name: 'แยก dphone เป็นหน้าต่าง' }).click(),
+    dphone.getByRole('button', { name: th('dphone:detach') }).click(),
   ]);
   await expect(popup.getByRole('region', { name: 'dphone' })).toBeVisible();
   await popup.close();
   await expect(
-    page.getByRole('region', { name: 'dphone' }).getByRole('button', { name: 'วางสาย' }),
+    page.getByRole('region', { name: 'dphone' }).getByRole('button', { name: th('dphone:hangup') }),
   ).toBeVisible();
   expect(await evidence(page)).toEqual(before);
 });
@@ -214,7 +228,7 @@ test('/dphone opened directly with no Workspace → states the reason clearly, c
   page,
 }) => {
   await page.goto('/dphone');
-  await expect(page.getByRole('status')).toHaveText(/ไม่พบ Workspace ที่ทำงานอยู่/, {
+  await expect(page.getByRole('status')).toHaveText(thRegExp('dphone:page.noHost'), {
     timeout: 6_000,
   });
   expect(await page.evaluate(() => window.__dcontactDphone)).toBeUndefined();
@@ -227,7 +241,11 @@ for (const language of ['th', 'en'] as const) {
     const dphone = await openWithCall(page);
     if (language === 'en') await page.getByRole('button', { name: 'English' }).click();
     const labels = {
-      th: { bar: 'ย่อเป็นแถบ', compact: 'กะทัดรัด', expanded: 'ขยายพร้อมแป้นกด' },
+      th: {
+        bar: th('dphone:size.bar'),
+        compact: th('dphone:size.compact'),
+        expanded: th('dphone:size.expanded'),
+      },
       en: { bar: 'Minimize to bar', compact: 'Compact', expanded: 'Expand with keypad' },
     }[language];
     for (const size of ['bar', 'compact', 'expanded'] as const) {
@@ -251,14 +269,16 @@ test('a /dphone window opened by itself (bookmark) during a call does not make t
   for (const path of ['/dphone', '/dphone?remote=not-ours']) {
     const stray = await context.newPage();
     await stray.goto(path);
-    await expect(stray.getByRole('status')).toHaveText(/ไม่พบ Workspace ที่ทำงานอยู่/, {
+    await expect(stray.getByRole('status')).toHaveText(thRegExp('dphone:page.noHost'), {
       timeout: 6_000,
     });
-    await expect(dphone.getByRole('button', { name: 'วางสาย' })).toBeVisible();
-    await expect(page.getByText('dphone เปิดอยู่ในหน้าต่างแยก')).toHaveCount(0);
+    await expect(dphone.getByRole('button', { name: th('dphone:hangup') })).toBeVisible();
+    await expect(page.getByText(th('dphone:detached'))).toHaveCount(0);
     await stray.close();
   }
-  await expect(page.getByRole('status', { name: 'สถานะ dphone' })).toHaveText('กำลังสนทนา');
+  await expect(page.getByRole('status', { name: th('workspace:status.dphone') })).toHaveText(
+    th('dphone:phase.ACTIVE'),
+  );
   expect(await evidence(page)).toEqual(before);
 });
 
@@ -267,22 +287,26 @@ test('#588: signing out during a call must confirm — after cancelling the exis
 }) => {
   const dphone = await openWithCall(page);
   const before = await evidence(page);
-  const trigger = page.getByRole('button', { name: /^เมนูผู้ใช้/ });
+  const trigger = page.getByRole('button', {
+    name: new RegExp(`^${escapeRegExp(th('ui:userMenu.open', { name: '' }).trim())}`),
+  });
 
   await trigger.click();
-  await page.getByRole('menuitem', { name: 'ออกจากระบบ' }).click();
-  const dialog = page.getByRole('alertdialog', { name: 'ออกจากระบบทั้งที่ยังมีงานค้าง?' });
+  await page.getByRole('menuitem', { name: th('ui:userMenu.signOut') }).click();
+  const dialog = page.getByRole('alertdialog', { name: th('common:shell.signOutConfirm.title') });
   await expect(dialog).toBeVisible();
-  await dialog.getByRole('button', { name: 'ยกเลิก' }).click();
+  await dialog.getByRole('button', { name: th('ui:userMenu.cancel') }).click();
   await expect(dialog).toBeHidden();
   await expect(trigger).toBeFocused();
-  await expect(dphone.getByRole('status', { name: 'dphone' })).toHaveText('กำลังสนทนา');
+  await expect(dphone.getByRole('status', { name: 'dphone' })).toHaveText(
+    th('dphone:phase.ACTIVE'),
+  );
   expect(await evidence(page)).toEqual(before);
   expect(await page.evaluate(() => (window as { __signOuts?: number }).__signOuts ?? 0)).toBe(0);
 
   await trigger.click();
-  await page.getByRole('menuitem', { name: 'ออกจากระบบ' }).click();
-  await dialog.getByRole('button', { name: 'ออกจากระบบ' }).click();
+  await page.getByRole('menuitem', { name: th('ui:userMenu.signOut') }).click();
+  await dialog.getByRole('button', { name: th('common:shell.signOutConfirm.confirm') }).click();
   await expect(dialog).toBeHidden();
   expect(await page.evaluate(() => (window as { __signOuts?: number }).__signOuts ?? 0)).toBe(1);
 });

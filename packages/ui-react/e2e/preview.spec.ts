@@ -1,5 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
+import { th } from './catalog';
+import { escapeRegExp, pen, pth } from './preview-catalog';
 
 /**
  * D1.10 (#449) acceptance: axe 0 serious/critical in both languages, and every component is usable with the keyboard
@@ -31,12 +33,21 @@ for (const lang of ['th', 'en'] as const) {
     await expect(page.locator('html')).toHaveAttribute('lang', lang);
     expect(await seriousViolations(page)).toEqual([]);
 
-    await page.getByRole('button', { name: lang === 'th' ? 'เปิด dialog' : 'Open dialog' }).click();
+    await page
+      .getByRole('button', { name: lang === 'th' ? pth('dialog.open') : pen('dialog.open') })
+      .click();
     await expect(page.getByRole('dialog')).toBeVisible();
     expect(await seriousViolations(page)).toEqual([]);
     await page.keyboard.press('Escape');
 
-    await page.getByRole('button', { name: lang === 'th' ? /ช่องทาง/ : /Channel/ }).click();
+    await page
+      .getByRole('button', {
+        name:
+          lang === 'th'
+            ? new RegExp(escapeRegExp(pth('select.label')))
+            : new RegExp(escapeRegExp(pen('select.label'))),
+      })
+      .click();
     await expect(page.getByRole('listbox')).toBeVisible();
     expect(await seriousViolations(page)).toEqual([]);
   });
@@ -46,7 +57,7 @@ test('switching the language in the preview changes both the page text and the c
   page,
 }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: 'ไทย' }).focus();
+  await page.getByRole('button', { name: th('shell.languageNames.th') }).focus();
   await page.getByRole('button', { name: 'English' }).click();
   await expect(page.getByRole('heading', { name: 'Buttons' })).toBeVisible();
   // the clear button is hidden while the field is empty (not in the a11y tree) — type first, then check the name from namespace `ui`
@@ -59,31 +70,31 @@ test('keyboard: Tab reaches the button and shows the focus ring per the token', 
   page,
 }) => {
   await page.goto('/');
-  const save = page.getByRole('button', { name: 'บันทึก' });
+  const save = page.getByRole('button', { name: pth('button.primary') });
   for (let i = 0; i < 10 && !(await save.evaluate((el) => el === document.activeElement)); i++) {
     await page.keyboard.press('Tab');
   }
   await expect(save).toBeFocused();
   expect(await focusRingOf(page)).toContain(FOCUS_RING);
   // a button that cannot be pressed is not in the Tab order
-  await expect(page.getByRole('button', { name: 'กดไม่ได้' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: pth('button.disabled') })).toBeDisabled();
 });
 
 test('keyboard: TextField/SearchField — typing, Esc clears the search, required shows an error', async ({
   page,
 }) => {
   await page.goto('/');
-  const search = page.getByRole('searchbox', { name: 'ค้นหาลูกค้า' });
+  const search = page.getByRole('searchbox', { name: pth('field.search') });
   await search.focus();
   // the ring is on the field's frame (Group), not on the inner input
   expect(await search.evaluate((el) => getComputedStyle(el.parentElement!).boxShadow)).toContain(
     FOCUS_RING,
   );
-  await expect(page.getByRole('button', { name: 'ล้างคำค้นหา' })).toBeHidden();
-  await page.keyboard.type('สมชาย');
-  await expect(search).toHaveValue('สมชาย');
+  await expect(page.getByRole('button', { name: th('searchField.clear') })).toBeHidden();
+  await page.keyboard.type('สมชาย'); // allow-thai: typing Thai text into the search field
+  await expect(search).toHaveValue('สมชาย'); // allow-thai: typing Thai text into the search field
   // there is only our own clear button; the browser's × button (input type=search) must not show on top
-  await expect(page.getByRole('button', { name: 'ล้างคำค้นหา' })).toBeVisible();
+  await expect(page.getByRole('button', { name: th('searchField.clear') })).toBeVisible();
   // getComputedStyle cannot read vendor pseudo-elements, so check that a display:none rule matches this input
   expect(
     await search.evaluate((el) =>
@@ -105,7 +116,7 @@ test('keyboard: TextField/SearchField — typing, Esc clears the search, require
   await page.keyboard.press('Escape');
   await expect(search).toHaveValue('');
 
-  const name = page.getByRole('textbox', { name: 'ชื่อ Journey' });
+  const name = page.getByRole('textbox', { name: pth('field.name') });
   await name.focus();
   await page.keyboard.type('Welcome');
   await expect(name).toHaveValue('Welcome');
@@ -116,7 +127,7 @@ test('keyboard: Select opens with Enter, moves with arrows, skips disabled optio
   page,
 }) => {
   await page.goto('/');
-  const trigger = page.getByRole('button', { name: /ช่องทาง/ });
+  const trigger = page.getByRole('button', { name: new RegExp(escapeRegExp(pth('select.label'))) });
   await trigger.focus();
   expect(await focusRingOf(page)).toContain(FOCUS_RING);
   await page.keyboard.press('Enter');
@@ -128,7 +139,7 @@ test('keyboard: Select opens with Enter, moves with arrows, skips disabled optio
   await expect(trigger).toBeFocused();
 
   await page.keyboard.press('ArrowDown');
-  await expect(page.getByRole('option', { name: 'แฟกซ์ (ปิดใช้)' })).toHaveAttribute(
+  await expect(page.getByRole('option', { name: pth('select.fax') })).toHaveAttribute(
     'aria-disabled',
     'true',
   );
@@ -137,12 +148,12 @@ test('keyboard: Select opens with Enter, moves with arrows, skips disabled optio
 
 test('keyboard: Checkbox and Switch toggle with Space', async ({ page }) => {
   await page.goto('/');
-  const checkbox = page.getByRole('checkbox', { name: 'ยอมรับเงื่อนไข' });
+  const checkbox = page.getByRole('checkbox', { name: pth('toggle.consent') });
   await checkbox.focus();
   await page.keyboard.press('Space');
   await expect(checkbox).toBeChecked();
 
-  const toggle = page.getByRole('switch', { name: 'รับสายอัตโนมัติ' });
+  const toggle = page.getByRole('switch', { name: pth('toggle.autoAnswer') });
   await toggle.focus();
   await expect(toggle).toBeChecked();
   await page.keyboard.press('Space');
@@ -151,10 +162,12 @@ test('keyboard: Checkbox and Switch toggle with Space', async ({ page }) => {
 
 test('keyboard: Table moves rows with arrows and selects with Space', async ({ page }) => {
   await page.goto('/');
-  const table = page.getByRole('grid', { name: 'คิวงาน' });
+  const table = page.getByRole('grid', { name: pth('table.label') });
   await table.focus();
   await page.keyboard.press('ArrowDown');
-  const focusedRow = page.getByRole('row', { name: /บริการหลังการขาย/ });
+  const focusedRow = page.getByRole('row', {
+    name: new RegExp(escapeRegExp(pth('table.support'))),
+  });
   await expect(focusedRow).toBeFocused();
   expect(await focusRingOf(page)).toMatch(FOCUS_RING_INSET);
   await page.keyboard.press('Space');
@@ -163,20 +176,23 @@ test('keyboard: Table moves rows with arrows and selects with Space', async ({ p
 
 test('keyboard: Tabs move with arrows and show the matching panel', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('tab', { name: 'ภาพรวม' }).focus();
+  await page.getByRole('tab', { name: pth('tabs.overview') }).focus();
   await page.keyboard.press('ArrowRight');
-  await expect(page.getByRole('tab', { name: 'ขั้นตอน' })).toHaveAttribute('aria-selected', 'true');
-  await expect(page.getByRole('tabpanel')).toHaveText('รายการขั้นตอนตามลำดับ');
+  await expect(page.getByRole('tab', { name: pth('tabs.steps') })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  await expect(page.getByRole('tabpanel')).toHaveText(pth('tabs.stepsBody'));
 });
 
 test('keyboard: Dialog opens with Enter, focus stays inside the dialog, Esc closes and focus returns to the opening button', async ({
   page,
 }) => {
   await page.goto('/');
-  const open = page.getByRole('button', { name: 'เปิด dialog' });
+  const open = page.getByRole('button', { name: pth('dialog.open') });
   await open.focus();
   await page.keyboard.press('Enter');
-  const dialog = page.getByRole('dialog', { name: 'เผยแพร่ Journey' });
+  const dialog = page.getByRole('dialog', { name: pth('dialog.title') });
   await expect(dialog).toBeVisible();
   for (let i = 0; i < 5; i++) {
     await page.keyboard.press('Tab');
@@ -191,15 +207,15 @@ test('keyboard: Toast shows in a named region and can be dismissed with the keyb
   page,
 }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: 'แสดงการแจ้งเตือน' }).focus();
+  await page.getByRole('button', { name: pth('toast.show') }).focus();
   await page.keyboard.press('Enter');
-  const region = page.getByRole('region', { name: 'การแจ้งเตือน' });
-  await expect(region.getByText('บันทึกแล้ว')).toBeVisible();
-  const dismiss = region.getByRole('button', { name: 'ปิดการแจ้งเตือน' });
+  const region = page.getByRole('region', { name: th('toast.region') });
+  await expect(region.getByText(pth('toast.title'))).toBeVisible();
+  const dismiss = region.getByRole('button', { name: th('toast.dismiss') });
   await dismiss.focus();
   expect(await focusRingOf(page)).toContain(FOCUS_RING);
   await page.keyboard.press('Enter');
-  await expect(region.getByText('บันทึกแล้ว')).toBeHidden();
+  await expect(region.getByText(pth('toast.title'))).toBeHidden();
 });
 
 test('forced-colors: Switch still shows the track/thumb and tells on/off apart (background colors are forced to Canvas)', async ({
@@ -207,7 +223,7 @@ test('forced-colors: Switch still shows the track/thumb and tells on/off apart (
 }) => {
   await page.emulateMedia({ forcedColors: 'active' });
   await page.goto('/');
-  const toggle = page.getByRole('switch', { name: 'รับสายอัตโนมัติ' });
+  const toggle = page.getByRole('switch', { name: pth('toggle.autoAnswer') });
   const label = page.locator('label').filter({ has: toggle });
   // the track is a span hidden from the a11y tree (Toggle.tsx) and the thumb is its child
   const parts = () =>
@@ -240,10 +256,10 @@ test('forced-colors: a selected Table row has a Highlight bar at the row start (
 }) => {
   await page.emulateMedia({ forcedColors: 'active' });
   await page.goto('/');
-  const table = page.getByRole('grid', { name: 'คิวงาน' });
+  const table = page.getByRole('grid', { name: pth('table.label') });
   await table.focus();
   await page.keyboard.press('ArrowDown');
-  const row = page.getByRole('row', { name: /บริการหลังการขาย/ });
+  const row = page.getByRole('row', { name: new RegExp(escapeRegExp(pth('table.support'))) });
   await expect(row).toBeFocused();
   await page.keyboard.press('Space');
   await expect(row).toHaveAttribute('aria-selected', 'true');
@@ -253,7 +269,9 @@ test('forced-colors: a selected Table row has a Highlight bar at the row start (
       .first()
       .evaluate((cell) => getComputedStyle(cell).getPropertyValue('border-inline-start-width'));
   expect(await marker(row)).toBe('4px');
-  expect(await marker(page.getByRole('row', { name: /การเงิน/ }))).toBe('0px');
+  expect(
+    await marker(page.getByRole('row', { name: new RegExp(escapeRegExp(pth('table.billing'))) })),
+  ).toBe('0px');
 });
 
 test('forced-colors: Tabs still show the selected tab underline (inset box-shadow is removed in this mode)', async ({
@@ -266,9 +284,12 @@ test('forced-colors: Tabs still show the selected tab underline (inset box-shado
       const bar = getComputedStyle(tab, '::after');
       return { content: bar.content, height: bar.height };
     });
-  await expect(page.getByRole('tab', { name: 'ภาพรวม' })).toHaveAttribute('aria-selected', 'true');
-  expect(await underline('ภาพรวม')).toEqual({ content: '""', height: '4px' });
-  expect((await underline('ขั้นตอน')).content).toBe('none');
+  await expect(page.getByRole('tab', { name: pth('tabs.overview') })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  expect(await underline(pth('tabs.overview'))).toEqual({ content: '""', height: '4px' });
+  expect((await underline(pth('tabs.steps'))).content).toBe('none');
 });
 
 test('forced-colors: a pressed Button (aria-pressed) uses a Highlight background to stand apart from other buttons', async ({
@@ -276,8 +297,8 @@ test('forced-colors: a pressed Button (aria-pressed) uses a Highlight background
 }) => {
   await page.emulateMedia({ forcedColors: 'active' });
   await page.goto('/');
-  const group = page.getByRole('group', { name: 'ภาษา' });
-  const thai = group.getByRole('button', { name: 'ไทย' });
+  const group = page.getByRole('group', { name: pth('language') });
+  const thai = group.getByRole('button', { name: th('shell.languageNames.th') });
   const english = group.getByRole('button', { name: 'English' });
   await expect(thai).toHaveAttribute('aria-pressed', 'true');
   await expect(english).toHaveAttribute('aria-pressed', 'false');

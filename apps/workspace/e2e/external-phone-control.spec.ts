@@ -1,4 +1,6 @@
 import { expect, test } from './fixtures';
+import { th } from './catalog';
+import { thRegExp } from './locale-match';
 
 test('Workspace external simulator: controls stay local without SIP, microphone or business writes', async ({
   page,
@@ -44,25 +46,25 @@ test('Workspace external simulator: controls stay local without SIP, microphone 
   await page.route('**/api/v1/workspace/agent/snapshot', (route) =>
     route.fulfill({
       json: {
-        agent: { id: 'agent', displayName: 'Agent ทดสอบ', extension: '1000', state: 'OFFLINE' },
+        agent: { id: 'agent', displayName: 'Test Agent', extension: '1000', state: 'OFFLINE' },
         interaction: null,
       },
     }),
   );
   await page.goto('/?phoneControl=external-simulator');
-  const panel = page.getByRole('article', { name: 'External softphone — ตัวจำลอง' });
+  const panel = page.getByRole('article', { name: th('dphone:external.title') });
   await expect(panel).toBeVisible();
-  await expect(page.getByRole('button', { name: 'ตรวจอุปกรณ์เสียง' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: th('workspace:media.check') })).toHaveCount(0);
   await expect(page.getByRole('region', { name: 'dphone', exact: true })).toHaveCount(0);
-  await panel.getByRole('button', { name: 'เริ่มตัวจำลอง' }).click();
-  await panel.getByRole('button', { name: 'จำลองสายเข้า' }).click();
-  await expect(panel.getByRole('status')).toHaveText('สายเรียกเข้าจำลอง');
-  await panel.getByRole('button', { name: 'รับสายจำลอง' }).click();
-  await expect(panel.getByRole('status')).toHaveText('อยู่ในสายจำลอง — ไม่มีเสียง');
-  await panel.getByRole('button', { name: 'จบสายจำลอง' }).click();
-  await expect(panel.getByRole('status')).toHaveText('จบสายจำลองแล้ว — พร้อมทดลองใหม่');
-  await panel.getByRole('button', { name: 'จำลองสายเข้า' }).click();
-  await expect(panel.getByRole('status')).toHaveText('สายเรียกเข้าจำลอง');
+  await panel.getByRole('button', { name: th('dphone:external.connect') }).click();
+  await panel.getByRole('button', { name: th('dphone:external.incoming') }).click();
+  await expect(panel.getByRole('status')).toHaveText(th('dphone:external.phase.RINGING'));
+  await panel.getByRole('button', { name: th('dphone:external.accept') }).click();
+  await expect(panel.getByRole('status')).toHaveText(th('dphone:external.phase.ACTIVE'));
+  await panel.getByRole('button', { name: th('dphone:external.hangup') }).click();
+  await expect(panel.getByRole('status')).toHaveText(th('dphone:external.phase.ENDED'));
+  await panel.getByRole('button', { name: th('dphone:external.incoming') }).click();
+  await expect(panel.getByRole('status')).toHaveText(th('dphone:external.phase.RINGING'));
   await page.screenshot({ path: 'test-results/external-softphone-control.png', fullPage: true });
   expect(mutations).toEqual([]);
   expect(
@@ -75,7 +77,7 @@ test('Workspace external simulator: controls stay local without SIP, microphone 
   await page.route('**/api/v1/workspace/agent/snapshot', (route) =>
     route.fulfill({
       json: {
-        agent: { id: 'agent', displayName: 'Agent ทดสอบ', extension: '1000', state: 'BUSY' },
+        agent: { id: 'agent', displayName: 'Test Agent', extension: '1000', state: 'BUSY' },
         interaction: {
           id: 'real-work',
           state: 'ACTIVE',
@@ -91,8 +93,8 @@ test('Workspace external simulator: controls stay local without SIP, microphone 
     }),
   );
   await page.reload();
-  await expect(panel.getByRole('button', { name: 'เริ่มตัวจำลอง' })).toBeDisabled();
-  await expect(panel.getByRole('status')).toHaveText('ยังไม่เริ่มตัวจำลอง');
-  await expect(panel.getByText(/พักตัวจำลองระหว่างมีงานจริง/)).toBeVisible();
+  await expect(panel.getByRole('button', { name: th('dphone:external.connect') })).toBeDisabled();
+  await expect(panel.getByRole('status')).toHaveText(th('dphone:external.phase.DISCONNECTED'));
+  await expect(panel.getByText(thRegExp('dphone:external.paused'))).toBeVisible();
   expect(mutations).toEqual([]);
 });

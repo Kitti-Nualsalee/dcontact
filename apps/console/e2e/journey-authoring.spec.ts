@@ -1,9 +1,19 @@
 import { readFileSync } from 'node:fs';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page, type Request } from '@playwright/test';
+import { th } from './support/catalog';
 
 // D1.14 (#453): text comes from the catalog per the browser language — this suite checks the original J5 flow in Thai
 test.use({ locale: 'th-TH' });
+
+const WAIT_LABEL = 'Wait 10 minutes for payment';
+const UNSAVED_ONE = new RegExp(
+  escapeRegExp(th('journeys:editor.unsaved', { count: 1 }).replace(/^ · /, '')),
+);
+
+function escapeRegExp(text: string) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 /**
  * J5.6 (#344): Journey authoring Console end-to-end
@@ -48,46 +58,61 @@ test('keyboard-only authoring: add/configure/connect/reorder/delete, then save w
   await openEditor(page, mock);
 
   // canvas: roving focus with arrows, Enter selects → properties change accordingly
-  const canvas = page.getByRole('group', { name: 'ผังขั้นตอนของ Journey' });
-  await canvas.getByRole('button', { name: 'เริ่มเมื่อเกิด event' }).focus();
+  const canvas = page.getByRole('group', { name: th('journeys:canvas.label') });
+  await canvas.getByRole('button', { name: th('journeys:node.EVENT_TRIGGER') }).focus();
   await page.keyboard.press('ArrowDown');
-  await expect(canvas.getByRole('button', { name: 'ส่งข้อความ' })).toBeFocused();
+  await expect(canvas.getByRole('button', { name: th('journeys:node.SEND') })).toBeFocused();
   await page.keyboard.press('Enter');
-  await expect(page.getByRole('heading', { level: 2, name: 'ส่งข้อความ' })).toBeVisible();
+  await expect(
+    page.getByRole('heading', { level: 2, name: th('journeys:node.SEND') }),
+  ).toBeVisible();
 
   // outline: insert WAIT after SEND with ordinary controls
-  const insertType = page.getByLabel('แทรกขั้นตอนหลัง ถัดไป').first();
+  const insertType = page
+    .getByLabel(th('journeys:outline.insertAfter', { port: th('journeys:port.next') }))
+    .first();
   await insertType.selectOption('WAIT');
   await insertType.focus();
   await page.keyboard.press('Tab');
   await page.keyboard.press('Enter');
-  await expect(canvas.getByRole('button', { name: 'รอ' })).toBeVisible();
-  await expect(page.getByLabel('ถัดไป ของ รอ ไปที่')).toHaveValue('done');
+  await expect(canvas.getByRole('button', { name: th('journeys:node.WAIT') })).toBeVisible();
+  await expect(
+    page.getByLabel(
+      th('journeys:outline.portTarget', {
+        port: th('journeys:port.next'),
+        node: th('journeys:node.WAIT'),
+      }),
+    ),
+  ).toHaveValue('done');
 
   // properties: commit on Enter
-  const wait = page.getByLabel('ระยะเวลารอ (วินาที)');
+  const wait = page.getByLabel(th('journeys:field.waitSeconds'));
   await wait.fill('600');
   await wait.press('Enter');
-  const label = page.getByLabel('ชื่อที่แสดง');
-  await label.fill('รอชำระ 10 นาที');
+  const label = page.getByLabel(th('journeys:properties.displayName'));
+  await label.fill(WAIT_LABEL);
   await label.press('Enter');
-  await expect(canvas.getByRole('button', { name: 'รอชำระ 10 นาที' })).toBeVisible();
+  await expect(canvas.getByRole('button', { name: WAIT_LABEL })).toBeVisible();
 
   // reorder + move position with Shift+arrow (visual-only)
-  await page.getByRole('button', { name: 'เลื่อนขึ้น รอชำระ 10 นาที' }).press('Enter');
-  await canvas.getByRole('button', { name: 'รอชำระ 10 นาที' }).focus();
+  await page
+    .getByRole('button', { name: `${th('journeys:outline.moveUp')} ${WAIT_LABEL}` })
+    .press('Enter');
+  await canvas.getByRole('button', { name: WAIT_LABEL }).focus();
   await page.keyboard.press('Shift+ArrowRight');
 
   // delete then undo with a keyboard shortcut
-  await page.getByRole('button', { name: 'ลบ จบ Journey' }).press('Enter');
-  await expect(canvas.getByRole('button', { name: 'จบ Journey' })).toHaveCount(0);
-  await canvas.getByRole('button', { name: 'รอชำระ 10 นาที' }).focus();
+  await page
+    .getByRole('button', { name: `${th('journeys:outline.delete')} ${th('journeys:node.EXIT')}` })
+    .press('Enter');
+  await expect(canvas.getByRole('button', { name: th('journeys:node.EXIT') })).toHaveCount(0);
+  await canvas.getByRole('button', { name: WAIT_LABEL }).focus();
   await page.keyboard.press('Control+z');
-  await expect(canvas.getByRole('button', { name: 'จบ Journey' })).toBeVisible();
+  await expect(canvas.getByRole('button', { name: th('journeys:node.EXIT') })).toBeVisible();
 
-  await page.getByRole('button', { name: 'บันทึกฉบับร่าง' }).press('Enter');
+  await page.getByRole('button', { name: th('journeys:editor.save') }).press('Enter');
   await expect(
-    page.getByRole('status').filter({ hasText: 'บันทึกเป็น revision 2 แล้ว' }),
+    page.getByRole('status').filter({ hasText: th('journeys:editor.saved', { revision: 2 }) }),
   ).toBeVisible();
 
   const put = mock.requests.find((request) => request.method() === 'PUT')!;
@@ -100,7 +125,7 @@ test('keyboard-only authoring: add/configure/connect/reorder/delete, then save w
   expect(put.headers()['idempotency-key']).toMatch(/^draft-/);
   const nodes = (body.document as { nodes: Json[] }).nodes;
   const saved = nodes.find((node) => node.type === 'WAIT')!;
-  expect(saved).toMatchObject({ label: 'รอชำระ 10 นาที', config: { waitSeconds: 600 } });
+  expect(saved).toMatchObject({ label: WAIT_LABEL, config: { waitSeconds: 600 } });
   // reorder puts WAIT before SEND in the document; layout changes only the position
   expect(nodes.map((node) => node.type)).toEqual(['SEND', 'WAIT', 'EXIT']);
   expect(Object.keys((body.document as { layout: { nodes: Json } }).layout.nodes)).toContain(
@@ -113,23 +138,37 @@ test('diagnostics link back to the node and validate uses the saved revision; di
 }) => {
   const mock = new AuthoringMock();
   await openEditor(page, mock);
-  await page.getByRole('button', { name: 'ตรวจฉบับร่างที่บันทึกแล้ว' }).click();
+  await page.getByRole('button', { name: th('journeys:editor.validate') }).click();
   await expect(
-    page.getByRole('status').filter({ hasText: 'server พบข้อผิดพลาด 1 รายการ' }),
+    page.getByRole('status').filter({ hasText: th('journeys:diagnostics.errors', { count: 1 }) }),
   ).toBeVisible();
-  await page.getByRole('button', { name: 'ไปที่ ส่งข้อความ' }).press('Enter');
-  await expect(page.getByRole('button', { name: 'ส่งข้อความ มีปัญหา 1 รายการ' })).toBeFocused();
+  await page
+    .getByRole('button', {
+      name: th('journeys:diagnostics.goTo', { node: th('journeys:node.SEND') }),
+    })
+    .press('Enter');
+  await expect(
+    page.getByRole('button', {
+      name: `${th('journeys:node.SEND')}${th('journeys:canvas.withIssues', { count: 1 })}`,
+    }),
+  ).toBeFocused();
 
-  await page.getByRole('button', { name: 'Compile ฉบับร่าง' }).click();
-  await page.getByRole('button', { name: 'ส่งตรวจ' }).click();
-  await page.getByRole('button', { name: 'อนุมัติ', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'ยืนยันอนุมัติ' });
+  await page.getByRole('button', { name: th('journeys:review.compile') }).click();
+  await page.getByRole('button', { name: th('journeys:review.submit') }).click();
+  await page
+    .getByRole('button', { name: th('journeys:review.decision.APPROVE'), exact: true })
+    .click();
+  const dialog = page.getByRole('dialog', {
+    name: th('journeys:review.confirmTitle', { decision: th('journeys:review.decision.APPROVE') }),
+  });
   await expect(dialog.getByLabel('Reason code')).toBeFocused();
   await page.keyboard.press('Shift+Tab');
-  await expect(dialog.getByRole('button', { name: 'ยกเลิก' })).toBeFocused();
+  await expect(dialog.getByRole('button', { name: th('journeys:common.cancel') })).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'อนุมัติ', exact: true })).toBeFocused();
+  await expect(
+    page.getByRole('button', { name: th('journeys:review.decision.APPROVE'), exact: true }),
+  ).toBeFocused();
 });
 
 test('409 opens compare/reload/keep-copy and keep-copy saves on the latest revision', async ({
@@ -137,20 +176,20 @@ test('409 opens compare/reload/keep-copy and keep-copy saves on the latest revis
 }) => {
   const mock = new AuthoringMock();
   await openEditor(page, mock);
-  const exitReason = page.getByLabel('Event ที่ถือว่าบรรลุเป้าหมาย');
+  const exitReason = page.getByLabel(th('journeys:properties.goal'));
   await exitReason.fill('invoice.settled');
   await exitReason.press('Enter');
   mock.concurrentEdit = true;
-  await page.getByRole('button', { name: 'บันทึกฉบับร่าง' }).click();
-  const conflict = page.getByRole('alert').filter({ hasText: 'ฉบับร่างถูกแก้โดยผู้อื่น' });
+  await page.getByRole('button', { name: th('journeys:editor.save') }).click();
+  const conflict = page.getByRole('alert').filter({ hasText: th('journeys:editor.conflictTitle') });
   await expect(conflict).toBeVisible();
   await expect(conflict).toContainText('revision 2');
-  await expect(page.getByRole('button', { name: 'บันทึกฉบับร่าง' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: th('journeys:editor.save') })).toBeDisabled();
 
-  await conflict.getByRole('button', { name: 'ใช้การแก้ของฉันต่อบนฉบับล่าสุด' }).click();
-  await page.getByRole('button', { name: 'บันทึกฉบับร่าง' }).click();
+  await conflict.getByRole('button', { name: th('journeys:editor.conflictKeep') }).click();
+  await page.getByRole('button', { name: th('journeys:editor.save') }).click();
   await expect(
-    page.getByRole('status').filter({ hasText: 'บันทึกเป็น revision 3 แล้ว' }),
+    page.getByRole('status').filter({ hasText: th('journeys:editor.saved', { revision: 3 }) }),
   ).toBeVisible();
   const puts = mock.requests.filter((request) => request.method() === 'PUT');
   expect(puts).toHaveLength(2);
@@ -166,15 +205,17 @@ test('409 opens compare/reload/keep-copy and keep-copy saves on the latest revis
 test('tab session recovery: reload restores unsaved edits', async ({ page }) => {
   const mock = new AuthoringMock();
   await openEditor(page, mock);
-  const name = page.getByLabel('ชื่อ Journey');
-  await name.fill('ชื่อใหม่ก่อน reload');
+  const name = page.getByLabel(th('journeys:properties.name'));
+  await name.fill('New name before reload');
   await name.press('Enter');
   await page.reload();
   await expect(
-    page.getByRole('alert').filter({ hasText: 'พบการแก้ไขที่ยังไม่บันทึก' }),
+    page.getByRole('alert').filter({ hasText: th('journeys:editor.recoveryFound', { count: 1 }) }),
   ).toBeVisible();
-  await page.getByRole('button', { name: 'กู้คืนการแก้ไข' }).click();
-  await expect(page.getByRole('heading', { level: 1, name: 'ชื่อใหม่ก่อน reload' })).toBeVisible();
+  await page.getByRole('button', { name: th('journeys:editor.recoveryRestore') }).click();
+  await expect(
+    page.getByRole('heading', { level: 1, name: 'New name before reload' }),
+  ).toBeVisible();
   expect(mock.mutations()).toHaveLength(0);
 });
 
@@ -194,16 +235,18 @@ test('publish with an unknown result (202) must resolve with the same key and no
   };
   mock.publishUnknown = true;
   await openEditor(page, mock);
-  await page.getByRole('button', { name: 'Compile ฉบับร่าง' }).click();
+  await page.getByRole('button', { name: th('journeys:review.compile') }).click();
   await page.getByRole('button', { name: 'Publish', exact: true }).click();
-  const confirm = page.getByRole('alertdialog', { name: /ยืนยัน publish version 1/ });
+  const confirm = page.getByRole('alertdialog', {
+    name: new RegExp(escapeRegExp(th('journeys:publish.confirmTitle', { version: 1 }))),
+  });
   await expect(confirm).toBeVisible();
-  await confirm.getByRole('button', { name: 'ยืนยัน Publish' }).click();
-  await expect(page.getByText('ยังไม่ทราบผล publish')).toBeVisible();
-  await expect(page.getByText('Publish version 1 สำเร็จ')).toHaveCount(0);
+  await confirm.getByRole('button', { name: th('journeys:publish.confirmLabel') }).click();
+  await expect(page.getByText(th('journeys:publish.unknown'))).toBeVisible();
+  await expect(page.getByText(th('journeys:publish.published', { version: 1 }))).toHaveCount(0);
 
-  await page.getByRole('button', { name: 'ตรวจผล publish' }).click();
-  await expect(page.getByText('Publish version 1 สำเร็จ')).toBeVisible();
+  await page.getByRole('button', { name: th('journeys:publish.resolve') }).click();
+  await expect(page.getByText(th('journeys:publish.published', { version: 1 }))).toBeVisible();
   const publish = mock.requests.filter((request) =>
     new URL(request.url()).pathname.endsWith('/publish'),
   );
@@ -224,33 +267,37 @@ test('templates: instantiate with the version+digest being viewed, then upgrade 
   await page.goto('/?view=journeys');
   await expectNoSeriousA11yViolations(page);
   await page.getByRole('button', { name: 'payment-reminder' }).click();
-  const form = page.getByRole('form', { name: 'สร้าง Journey จาก payment-reminder' });
-  await form.getByLabel('ชื่อ Journey').fill('เตือนชำระ Q4');
-  await form.getByLabel('ทีมเจ้าของ (team ID)').fill('team-synthetic');
+  const form = page.getByRole('form', {
+    name: th('journeys:templates.formLabel', { name: 'payment-reminder' }),
+  });
+  await form.getByLabel(th('journeys:templates.name')).fill('Q4 payment reminder');
+  await form.getByLabel(th('journeys:templates.team')).fill('team-synthetic');
   await form.getByLabel('reminderContent *').fill('content-q4');
-  await form.getByRole('button', { name: 'สร้าง Journey จาก template' }).click();
-  await expect(page.getByRole('heading', { level: 1, name: 'เตือนชำระ Q4' })).toBeVisible();
+  await form.getByRole('button', { name: th('journeys:templates.submit') }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Q4 payment reminder' })).toBeVisible();
   const instantiate = mock.requests.find((request) => request.url().endsWith('/instantiate'))!;
   expect(instantiate.postDataJSON()).toEqual({
     expectedContentDigest: DIGEST('c'),
     bindings: { reminderContent: 'content-q4' },
     targetOwnerTeamId: 'team-synthetic',
-    name: 'เตือนชำระ Q4',
+    name: 'Q4 payment reminder',
   });
   // parameter values are not stored in the browser storage
   expect(
     await page.evaluate(() => JSON.stringify({ ...sessionStorage, ...localStorage })),
   ).not.toContain('content-q4');
 
-  await expect(page.getByText('มี template version 2')).toBeVisible();
-  await page.getByRole('button', { name: 'ตรวจการ upgrade' }).click();
-  const apply = page.getByRole('button', { name: 'ปรับฉบับร่างตาม proposal' });
-  await expect(apply).toBeDisabled();
-  await page.getByLabel('ใช้ของ template').check();
-  await apply.click();
   await expect(
-    page.getByText('ปรับเป็น template version 2 ในฉบับร่างแล้ว ยังไม่ publish'),
+    page.getByText(
+      new RegExp(escapeRegExp(th('journeys:upgrade.updateAvailable', { latest: 2, current: 1 }))),
+    ),
   ).toBeVisible();
+  await page.getByRole('button', { name: th('journeys:upgrade.check') }).click();
+  const apply = page.getByRole('button', { name: th('journeys:upgrade.apply') });
+  await expect(apply).toBeDisabled();
+  await page.getByLabel(th('journeys:upgrade.takeTemplate')).check();
+  await apply.click();
+  await expect(page.getByText(th('journeys:upgrade.applied', { version: 2 }))).toBeVisible();
   const upgrade = mock.requests.find((request) => request.url().endsWith('/template-upgrades'))!;
   expect(upgrade.postDataJSON()).toMatchObject({
     targetVersion: 2,
@@ -264,21 +311,27 @@ test('960px fully editable; 959px read-only and sends no mutation', async ({ pag
   const mock = new AuthoringMock();
   await page.setViewportSize({ width: 960, height: 900 });
   await openEditor(page, mock);
-  await expect(page.getByRole('button', { name: 'บันทึกฉบับร่าง' })).toBeVisible();
+  await expect(page.getByRole('button', { name: th('journeys:editor.save') })).toBeVisible();
 
   await page.setViewportSize({ width: 959, height: 900 });
-  await expect(page.getByRole('note').filter({ hasText: 'อ่านอย่างเดียว' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'บันทึกฉบับร่าง' })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: /^ลบ / })).toHaveCount(0);
+  await expect(
+    page.getByRole('note').filter({ hasText: th('journeys:editor.readOnlyNote') }),
+  ).toBeVisible();
+  await expect(page.getByRole('button', { name: th('journeys:editor.save') })).toHaveCount(0);
+  await expect(
+    page.getByRole('button', {
+      name: new RegExp(`^${escapeRegExp(th('journeys:outline.delete'))} `),
+    }),
+  ).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Publish', exact: true })).toBeDisabled();
-  const canvas = page.getByRole('group', { name: 'ผังขั้นตอนของ Journey' });
-  await canvas.getByRole('button', { name: 'ส่งข้อความ' }).focus();
+  const canvas = page.getByRole('group', { name: th('journeys:canvas.label') });
+  await canvas.getByRole('button', { name: th('journeys:node.SEND') }).focus();
   await page.keyboard.press('Delete');
   await page.keyboard.press('Shift+ArrowDown');
-  await expect(canvas.getByRole('button', { name: 'ส่งข้อความ' })).toBeVisible();
-  await expect(page.getByText('มีการแก้ไขที่ยังไม่บันทึก')).toHaveCount(0);
+  await expect(canvas.getByRole('button', { name: th('journeys:node.SEND') })).toBeVisible();
+  await expect(page.getByText(th('journeys:publish.blockerDirty'))).toHaveCount(0);
   await page.goto('/?view=journeys');
-  await expect(page.getByRole('heading', { name: 'สร้าง Journey เปล่า' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: th('journeys:blank.heading') })).toHaveCount(0);
   expect(mock.mutations()).toHaveLength(0);
 });
 
@@ -291,14 +344,16 @@ test('a11y: editor has no serious/critical, 200% zoom does not overflow horizont
 
   await page.emulateMedia({ reducedMotion: 'reduce' });
   const transition = await page
-    .getByRole('group', { name: 'ผังขั้นตอนของ Journey' })
-    .getByRole('button', { name: 'ส่งข้อความ' })
+    .getByRole('group', { name: th('journeys:canvas.label') })
+    .getByRole('button', { name: th('journeys:node.SEND') })
     .evaluate((element) => getComputedStyle(element).transitionDuration);
   expect(transition.split(',').every((value) => parseFloat(value) === 0)).toBe(true);
 
   // 200% zoom of a 1280px screen = viewport 640 CSS px
   await page.setViewportSize({ width: 640, height: 800 });
-  await expect(page.getByRole('note').filter({ hasText: 'อ่านอย่างเดียว' })).toBeVisible();
+  await expect(
+    page.getByRole('note').filter({ hasText: th('journeys:editor.readOnlyNote') }),
+  ).toBeVisible();
   const overflow = await page.evaluate(
     () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
   );
@@ -324,27 +379,34 @@ test('U1.3 a reviewer finds the candidate awaiting review from the list, opens t
   await page.goto('/?view=journeys');
 
   // the list shows the review state from the server; the "awaiting review" filter shows work the reviewer can decide
-  await expect(page.getByRole('cell', { name: 'รอตรวจ' })).toBeVisible();
-  await page.getByRole('button', { name: 'รอตรวจ' }).click();
-  await expect(page.getByRole('button', { name: 'รอตรวจ' })).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  );
-  await expect(page.getByRole('heading', { level: 2, name: 'งานที่รอให้คุณตรวจ' })).toBeVisible();
+  await expect(
+    page.getByRole('cell', { name: th('journeys:list.reviewState.IN_REVIEW') }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: th('journeys:list.filterPending') }).click();
+  await expect(
+    page.getByRole('button', { name: th('journeys:list.filterPending') }),
+  ).toHaveAttribute('aria-pressed', 'true');
+  await expect(
+    page.getByRole('heading', { level: 2, name: th('journeys:list.headingPending') }),
+  ).toBeVisible();
   await expectNoSeriousA11yViolations(page);
-  await page.getByRole('button', { name: 'ติดตามการชำระ' }).click();
+  await page.getByRole('button', { name: 'Payment follow-up' }).click();
 
   // the reviewer sees the exact candidate and the decide buttons, but no submit-for-review button (no journey.edit)
   const candidate = page.getByRole('definition').filter({ hasText: DIGEST('a').slice(0, 12) });
   await expect(candidate).toBeVisible();
-  await expect(page.getByRole('button', { name: 'ส่งตรวจ' })).toHaveCount(0);
-  await page.getByRole('button', { name: 'อนุมัติ', exact: true }).click();
+  await expect(page.getByRole('button', { name: th('journeys:review.submit') })).toHaveCount(0);
+  await page
+    .getByRole('button', { name: th('journeys:review.decision.APPROVE'), exact: true })
+    .click();
   const dialog = page.getByRole('dialog');
   await dialog.getByLabel('Reason code').fill('LOOKS_GOOD');
   await dialog.getByLabel('Evidence reference').fill('uat-431');
-  await dialog.getByRole('button', { name: 'อนุมัติ' }).click();
+  await dialog.getByRole('button', { name: th('journeys:review.decision.APPROVE') }).click();
   await expect(
-    page.getByRole('status').filter({ hasText: 'สถานะการตรวจ: APPROVED' }),
+    page
+      .getByRole('status')
+      .filter({ hasText: th('journeys:review.state', { state: 'APPROVED' }) }),
   ).toBeVisible();
   const decision = mock.requests.find((request) =>
     new URL(request.url()).pathname.endsWith(`/reviews/${REVIEW_ID}/decisions`),
@@ -353,8 +415,8 @@ test('U1.3 a reviewer finds the candidate awaiting review from the list, opens t
 
   // the audit loads only when pressed (reading the audit is itself audited)
   expect(mock.requests.some((request) => request.url().endsWith('/audit'))).toBe(false);
-  await page.getByRole('button', { name: 'แสดงประวัติ' }).click();
-  const timeline = page.getByRole('list', { name: 'ประวัติการเปลี่ยนแปลง ใหม่สุดก่อน' });
+  await page.getByRole('button', { name: th('journeys:audit.show') }).click();
+  const timeline = page.getByRole('list', { name: th('journeys:audit.listLabel') });
   await expect(timeline.getByRole('listitem')).toHaveCount(2);
   await expect(timeline).toContainText('REVIEW_APPROVED');
   await expect(timeline).toContainText('corr-synthetic-1');
@@ -375,8 +437,12 @@ test('U1.3 the submitter sees the reason another reviewer is required and has no
     makerIsCaller: true,
   };
   await openEditor(page, mock);
-  await expect(page.getByRole('note').filter({ hasText: 'ต้องให้ reviewer คนอื่น' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'อนุมัติ', exact: true })).toHaveCount(0);
+  await expect(
+    page.getByRole('note').filter({ hasText: th('journeys:review.blockedMaker') }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: th('journeys:review.decision.APPROVE'), exact: true }),
+  ).toHaveCount(0);
 });
 
 // ── D1.14 (#453): the Journeys page on the new shell/i18n/components ────────────────────────
@@ -409,10 +475,10 @@ test('flag ui.shell.v2 on: Journeys is in AppShell without the old chrome duplic
   await withShell(page, true);
   await openEditor(page, mock);
 
-  await expect(page.getByRole('navigation', { name: 'เมนูหลัก' })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: th('ui:shell.mainNav') })).toBeVisible();
   await expect(page.getByRole('main')).toHaveCount(1);
   await expect(page.getByText('D-CONTACT', { exact: true })).toHaveCount(0);
-  await expect(page.getByRole('link', { name: 'ข้ามไปที่เนื้อหา' })).toHaveCount(1);
+  await expect(page.getByRole('link', { name: th('ui:shell.skipToContent') })).toHaveCount(1);
   await expectNoSeriousA11yViolations(page);
 
   await page.getByRole('button', { name: 'English' }).click();
@@ -426,7 +492,7 @@ test("flag off: Journeys uses the page's original chrome (skip link + header) on
   const mock = new AuthoringMock();
   await withShell(page, false);
   await openEditor(page, mock);
-  await expect(page.getByRole('navigation', { name: 'เมนูหลัก' })).toHaveCount(0);
+  await expect(page.getByRole('navigation', { name: th('ui:shell.mainNav') })).toHaveCount(0);
   await expect(page.getByText('D-CONTACT', { exact: true })).toBeVisible();
   await expect(page.getByRole('main')).toHaveCount(1);
   const brand = await page.evaluate(() =>
@@ -444,14 +510,17 @@ test('switching language while editing a Journey: text changes immediately, no r
   await openEditor(page, mock);
   const origin = await page.evaluate(() => performance.timeOrigin);
 
-  await page.getByRole('button', { name: 'เพิ่ม', exact: true }).last().click();
-  await expect(page.getByText(/มีการแก้ไขที่ยังไม่บันทึก 1 รายการ/)).toBeVisible();
+  await page
+    .getByRole('button', { name: th('journeys:outline.add'), exact: true })
+    .last()
+    .click();
+  await expect(page.getByText(UNSAVED_ONE)).toBeVisible();
 
   await page.getByRole('button', { name: 'English' }).click();
   await expect(page.getByText(/1 unsaved change/)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Save draft' })).toBeEnabled();
-  await page.getByRole('button', { name: 'ไทย' }).click();
-  await expect(page.getByText(/มีการแก้ไขที่ยังไม่บันทึก 1 รายการ/)).toBeVisible();
+  await page.getByRole('button', { name: th('ui:shell.languageNames.th') }).click();
+  await expect(page.getByText(UNSAVED_ONE)).toBeVisible();
   expect(await page.evaluate(() => performance.timeOrigin)).toBe(origin);
 });
 
@@ -462,14 +531,14 @@ const NEXT_RUN_ID = 'ad5e6f7a-8b9c-4da4-8ebf-3a4b5c6d7e85';
 const UAT_STEPS = [
   {
     stepId: 'MAKER_EDIT',
-    title: 'Maker แก้ฉบับร่าง',
-    expected: 'บันทึกฉบับร่างได้ revision ใหม่',
+    title: 'Maker edits the draft',
+    expected: 'The draft saves as a new revision',
     stateLabel: 'REAL_STATE',
   },
   {
     stepId: 'SIMULATE',
-    title: 'จำลองการทำงาน',
-    expected: 'ผลจำลองจบที่ EXIT',
+    title: 'Run the simulation',
+    expected: 'The simulation ends at EXIT',
     stateLabel: 'SIMULATION_ONLY',
   },
 ];
@@ -563,7 +632,7 @@ class UatMock {
         this.authoring.journeys.set(NEW_JOURNEY_ID, {
           headVersion: 1,
           revision: 1,
-          document: authoringDocument('Journey รอบที่ 2'),
+          document: authoringDocument('Journey round 2'),
           lifecycle: 'DRAFT_ONLY',
           activeVersion: null,
           review: null,
@@ -657,7 +726,7 @@ async function openUat(page: Page, query = '') {
   await authoring.install(page);
   await uat.install(page);
   await page.goto(`/?view=journeys${query}`);
-  const panel = page.getByRole('region', { name: 'รอบทดสอบ UAT' });
+  const panel = page.getByRole('region', { name: th('journeys:uat.heading') });
   await expect(panel).toBeVisible();
   return { authoring, uat, panel };
 }
@@ -675,44 +744,52 @@ test('U1.4 UAT: badge/scope + run data from the server, record PASS and FAIL wit
   page,
 }) => {
   const { uat, panel } = await openUat(page);
-  await expect(panel.getByText('UAT / จำลอง (simulated)')).toBeVisible();
-  await expect(panel.getByRole('note').filter({ hasText: 'ข้อมูลสังเคราะห์' })).toBeVisible();
+  await expect(panel.getByText(th('journeys:uat.badge'))).toBeVisible();
+  await expect(
+    panel.getByRole('note').filter({ hasText: th('journeys:uat.boundary') }),
+  ).toBeVisible();
   const facts = panel.getByRole('definition');
-  await expect(facts.filter({ hasText: 'รอบที่ 1' })).toBeVisible();
+  await expect(
+    facts.filter({ hasText: th('journeys:uat.sequenceValue', { sequence: 1 }) }),
+  ).toBeVisible();
   await expect(facts.filter({ hasText: RUN_ID.slice(0, 8) })).toBeVisible();
   await expect(facts.filter({ hasText: 'uat-pack-1' })).toContainText(DIGEST('5').slice(0, 12));
   await expect(facts.filter({ hasText: 'abc1234def56' })).toBeVisible();
-  await expect(panel.getByText('ยังไม่มีผลที่บันทึกในรอบนี้')).toBeVisible();
+  await expect(panel.getByText(th('journeys:uat.noResults'))).toBeVisible();
 
   // PASS: expected comes from the server's step catalog
   await expect(
-    panel.getByRole('definition').filter({ hasText: 'บันทึกฉบับร่างได้ revision ใหม่' }),
+    panel.getByRole('definition').filter({ hasText: UAT_STEPS[0]!.expected }),
   ).toBeVisible();
-  const record = panel.getByRole('button', { name: 'บันทึกผล', exact: true });
+  const record = panel.getByRole('button', { name: th('journeys:uat.record'), exact: true });
   await expect(record).toBeDisabled();
-  await panel.getByLabel('สิ่งที่เกิดขึ้นจริง').fill('บันทึกได้ revision 2');
-  await panel.getByLabel('Correlation ID (ถ้ามี)').fill('corr-uat-1');
+  await panel.getByLabel(th('journeys:uat.actualLabel')).fill('Saved as revision 2');
+  await panel.getByLabel(th('journeys:uat.correlationLabel')).fill('corr-uat-1');
   await record.click();
   await expect(
-    panel.getByRole('status').filter({ hasText: 'บันทึกผลของ MAKER_EDIT แล้ว' }),
+    panel
+      .getByRole('status')
+      .filter({ hasText: th('journeys:uat.recorded', { stepId: 'MAKER_EDIT' }) }),
   ).toBeVisible();
 
   // FAIL: a severity must be chosen before sending
-  await panel.getByLabel('ขั้นตอนที่ทดสอบ').selectOption('SIMULATE');
-  await panel.getByLabel('ไม่ผ่าน (FAIL)').check();
-  await panel.getByLabel('สิ่งที่เกิดขึ้นจริง').fill('จบที่ MAX_DURATION');
+  await panel.getByLabel(th('journeys:uat.stepLabel')).selectOption('SIMULATE');
+  await panel.getByLabel(th('journeys:uat.outcome.FAIL')).check();
+  await panel.getByLabel(th('journeys:uat.actualLabel')).fill('Ended at MAX_DURATION');
   await expect(record).toBeDisabled();
-  await panel.getByLabel('ความรุนแรง (ต้องระบุเมื่อไม่ผ่าน)').selectOption('S2');
+  await panel.getByLabel(th('journeys:uat.severityLabel')).selectOption('S2');
   await record.click();
   await expect(
-    panel.getByRole('status').filter({ hasText: 'บันทึกผลของ SIMULATE แล้ว' }),
+    panel
+      .getByRole('status')
+      .filter({ hasText: th('journeys:uat.recorded', { stepId: 'SIMULATE' }) }),
   ).toBeVisible();
 
   const rows = panel.getByRole('table').getByRole('row');
   await expect(rows).toHaveCount(3);
-  await expect(rows.nth(1)).toContainText('ผ่าน (PASS)');
+  await expect(rows.nth(1)).toContainText(th('journeys:uat.outcome.PASS'));
   await expect(rows.nth(1)).toContainText('REAL_STATE');
-  await expect(rows.nth(2)).toContainText('ไม่ผ่าน (FAIL)');
+  await expect(rows.nth(2)).toContainText(th('journeys:uat.outcome.FAIL'));
   await expect(rows.nth(2)).toContainText('S2');
   await expect(rows.nth(2)).toContainText('SIMULATION_ONLY');
 
@@ -721,10 +798,10 @@ test('U1.4 UAT: badge/scope + run data from the server, record PASS and FAIL wit
     {
       stepId: 'MAKER_EDIT',
       outcome: 'PASS',
-      actual: 'บันทึกได้ revision 2',
+      actual: 'Saved as revision 2',
       correlationId: 'corr-uat-1',
     },
-    { stepId: 'SIMULATE', outcome: 'FAIL', actual: 'จบที่ MAX_DURATION', severity: 'S2' },
+    { stepId: 'SIMULATE', outcome: 'FAIL', actual: 'Ended at MAX_DURATION', severity: 'S2' },
   ]);
   const keys = posts.map((request) => request.headers()['idempotency-key']);
   expect(keys.every((key) => /^uat-step-/.test(key ?? ''))).toBe(true);
@@ -738,18 +815,22 @@ test('U1.4 start new round: confirm then see the new round and go to the new Jou
   page,
 }) => {
   const { uat, panel } = await openUat(page);
-  await panel.getByRole('button', { name: 'เริ่มรอบใหม่' }).click();
-  const confirm = page.getByRole('alertdialog', { name: 'ยืนยันเริ่มรอบใหม่' });
-  await expect(confirm).toContainText('รอบที่ 1 จะถูกปิด');
+  await panel.getByRole('button', { name: th('journeys:uat.startNewRun') }).click();
+  const confirm = page.getByRole('alertdialog', { name: th('journeys:uat.confirmTitle') });
+  await expect(confirm).toContainText(th('journeys:uat.confirmCloses', { sequence: 1 }));
   await expect(confirm).toContainText('ABANDONED');
-  await expect(confirm.getByLabel('Environment ของ fixture pack')).toHaveValue('uat');
-  await expect(confirm.getByLabel('Version ของ fixture pack')).toHaveValue('uat-pack-1');
+  await expect(confirm.getByLabel(th('journeys:uat.packEnvironment'))).toHaveValue('uat');
+  await expect(confirm.getByLabel(th('journeys:uat.packVersion'))).toHaveValue('uat-pack-1');
   await expectNoSeriousA11yViolations(page);
-  await confirm.getByRole('button', { name: 'เริ่มรอบใหม่' }).click();
+  await confirm.getByRole('button', { name: th('journeys:uat.startNewRun') }).click();
 
-  await expect(panel.getByRole('definition').filter({ hasText: 'รอบที่ 2' })).toBeVisible();
-  await expect(page.getByRole('heading', { level: 1, name: 'Journey รอบที่ 2' })).toBeVisible();
-  await expect(page.getByRole('heading', { level: 1, name: 'Journey รอบที่ 2' })).toBeFocused();
+  await expect(
+    panel
+      .getByRole('definition')
+      .filter({ hasText: th('journeys:uat.sequenceValue', { sequence: 2 }) }),
+  ).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Journey round 2' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Journey round 2' })).toBeFocused();
   expect(new URL(page.url()).searchParams.get('journey')).toBe(NEW_JOURNEY_ID);
   const [start] = uat.posts('/start');
   expect(start!.postDataJSON()).toEqual({
@@ -764,18 +845,30 @@ test('U1.4 start new round: confirm then see the new round and go to the new Jou
     status: 409,
     body: { code: 'UAT_RUN_PENDING_REVIEW', safeParams: { nextSafeAction: 'DECIDE_REVIEW' } },
   };
-  await panel.getByRole('button', { name: 'เริ่มรอบใหม่' }).click();
+  await panel.getByRole('button', { name: th('journeys:uat.startNewRun') }).click();
   await page
-    .getByRole('alertdialog', { name: 'ยืนยันเริ่มรอบใหม่' })
-    .getByRole('button', { name: 'เริ่มรอบใหม่' })
+    .getByRole('alertdialog', { name: th('journeys:uat.confirmTitle') })
+    .getByRole('button', { name: th('journeys:uat.startNewRun') })
     .click();
-  const alert = panel.getByRole('alert').filter({ hasText: 'ยังมีงานรอตรวจ' });
+  const alert = panel
+    .getByRole('alert')
+    .filter({ hasText: th('journeys:uat.error.UAT_RUN_PENDING_REVIEW') });
   await expect(alert).toBeVisible();
-  await expect(alert).toContainText('ให้ reviewer ตัดสินงานที่รอตรวจ');
-  await expect(alert.getByRole('button', { name: 'เปิด Journey ของรอบนี้' })).toBeVisible();
+  await expect(alert).toContainText(th('journeys:uat.nextAction.DECIDE_REVIEW'));
+  await expect(
+    alert.getByRole('button', { name: th('journeys:uat.openRunJourney') }),
+  ).toBeVisible();
   // do not infer that the new round started — it is still round 2 per the server
-  await expect(panel.getByRole('definition').filter({ hasText: 'รอบที่ 2' })).toBeVisible();
-  await expect(panel.getByRole('definition').filter({ hasText: 'รอบที่ 3' })).toHaveCount(0);
+  await expect(
+    panel
+      .getByRole('definition')
+      .filter({ hasText: th('journeys:uat.sequenceValue', { sequence: 2 }) }),
+  ).toBeVisible();
+  await expect(
+    panel
+      .getByRole('definition')
+      .filter({ hasText: th('journeys:uat.sequenceValue', { sequence: 3 }) }),
+  ).toHaveCount(0);
   expectOpaqueUrl(page);
 });
 
@@ -785,17 +878,19 @@ test("U1.4 simulation in UAT uses the server's fixture exactly and shows SIMULAT
   const { authoring } = await openUat(page, `&journey=${JOURNEY_ID}`);
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
   // there is no browser-built JSON context field in UAT
-  await expect(page.getByLabel('Context สังเคราะห์สำหรับ simulation (JSON)')).toHaveCount(0);
+  await expect(page.getByLabel(th('journeys:review.contextLabel'))).toHaveCount(0);
   const fixture = page.getByRole('definition').filter({ hasText: 'uat-fixture-1' });
   await expect(fixture).toBeVisible();
   await expect(page.getByRole('definition').filter({ hasText: 'seed-uat-1' })).toBeVisible();
 
-  await page.getByRole('button', { name: 'Compile ฉบับร่าง' }).click();
-  await page.getByRole('button', { name: 'จำลองการทำงาน' }).click();
+  await page.getByRole('button', { name: th('journeys:review.compile') }).click();
+  await page.getByRole('button', { name: th('journeys:review.simulate') }).click();
   const result = page.locator('.j5-simulation');
   await expect(result).toContainText('SIMULATION_ONLY');
-  await expect(result).toContainText('เวลาเสมือน');
-  await expect(result).toContainText('ไม่ใช่เวลาจริงใน audit');
+  await expect(result).toContainText(th('journeys:review.virtualAt'));
+  await expect(result).toContainText(
+    th('journeys:review.virtualTimeNote', { fixtureId: UAT_FIXTURE.fixtureId }),
+  );
   await expect(result.locator('time').first()).toHaveAttribute('datetime', UAT_FIXTURE.startAt);
 
   const simulation = authoring.requests.find((request) => request.url().endsWith('/simulations'))!;
@@ -810,15 +905,15 @@ test('U1.4 deep link/refresh/Back/Forward do not dead-end, focus goes to the hea
   await page.goto('/?view=journeys');
   await expect(page.getByRole('heading', { level: 1, name: 'Journey authoring' })).toBeVisible();
   // not UAT (profile 404): no UAT UI at all
-  await expect(page.getByRole('region', { name: 'รอบทดสอบ UAT' })).toHaveCount(0);
-  await expect(page.getByText('UAT / จำลอง (simulated)')).toHaveCount(0);
+  await expect(page.getByRole('region', { name: th('journeys:uat.heading') })).toHaveCount(0);
+  await expect(page.getByText(th('journeys:uat.badge'))).toHaveCount(0);
 
-  await page.getByRole('button', { name: 'ติดตามการชำระ' }).click();
-  const editorHeading = page.getByRole('heading', { level: 1, name: 'ติดตามการชำระ' });
+  await page.getByRole('button', { name: 'Payment follow-up' }).click();
+  const editorHeading = page.getByRole('heading', { level: 1, name: 'Payment follow-up' });
   await expect(editorHeading).toBeFocused();
   expect(new URL(page.url()).searchParams.get('journey')).toBe(JOURNEY_ID);
-  const name = page.getByLabel('ชื่อ Journey');
-  await name.fill('ชื่อที่ยังไม่บันทึก');
+  const name = page.getByLabel(th('journeys:properties.name'));
+  await name.fill('Unsaved name');
   await name.press('Enter');
 
   await page.goBack();
@@ -829,25 +924,25 @@ test('U1.4 deep link/refresh/Back/Forward do not dead-end, focus goes to the hea
   await page.goForward();
   await expect(editorHeading).toBeFocused();
   await expect(
-    page.getByRole('alert').filter({ hasText: 'พบการแก้ไขที่ยังไม่บันทึก' }),
+    page.getByRole('alert').filter({ hasText: th('journeys:editor.recoveryFound', { count: 1 }) }),
   ).toBeVisible();
 
   // refresh on a deep link opens the same Journey and can still restore edits
   await page.reload();
   await expect(
-    page.getByRole('alert').filter({ hasText: 'พบการแก้ไขที่ยังไม่บันทึก' }),
+    page.getByRole('alert').filter({ hasText: th('journeys:editor.recoveryFound', { count: 1 }) }),
   ).toBeVisible();
-  await page.getByRole('button', { name: 'กู้คืนการแก้ไข' }).click();
-  await expect(page.getByRole('heading', { level: 1, name: 'ชื่อที่ยังไม่บันทึก' })).toBeVisible();
-  expect(page.url()).not.toContain(encodeURIComponent('ชื่อที่ยังไม่บันทึก'));
+  await page.getByRole('button', { name: th('journeys:editor.recoveryRestore') }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Unsaved name' })).toBeVisible();
+  expect(page.url()).not.toContain(encodeURIComponent('Unsaved name'));
   expectOpaqueUrl(page);
 
-  await page.getByRole('button', { name: '← รายการ Journey' }).click();
+  await page.getByRole('button', { name: th('journeys:editor.back') }).click();
   await expect(listHeading).toBeFocused();
   // leaving the editor with the back button then Back: the edits remain in session recovery to restore again
   await page.goBack();
   await expect(
-    page.getByRole('alert').filter({ hasText: 'พบการแก้ไขที่ยังไม่บันทึก' }),
+    page.getByRole('alert').filter({ hasText: th('journeys:editor.recoveryFound', { count: 1 }) }),
   ).toBeVisible();
   expect(mock.mutations()).toHaveLength(0);
 });
@@ -861,12 +956,14 @@ test('U1.4 session expired (401) at the UAT API shows a way to sign in again, no
   await authoring.install(page);
   await uat.install(page);
   await page.goto('/?view=journeys');
-  const panel = page.getByRole('region', { name: 'รอบทดสอบ UAT' });
-  const alert = panel.getByRole('alert').filter({ hasText: 'Session หมดอายุ' });
+  const panel = page.getByRole('region', { name: th('journeys:uat.heading') });
+  const alert = panel
+    .getByRole('alert')
+    .filter({ hasText: th('journeys:uat.sessionExpiredTitle') });
   await expect(alert).toBeVisible();
-  await expect(alert).toContainText('เข้าสู่ระบบอีกครั้ง');
-  await expect(alert.getByRole('button', { name: 'เข้าสู่ระบบอีกครั้ง' })).toBeVisible();
-  await expect(panel.getByRole('button', { name: 'เริ่มรอบใหม่' })).toHaveCount(0);
+  await expect(alert).toContainText(th('journeys:uat.signInAgain'));
+  await expect(alert.getByRole('button', { name: th('journeys:uat.signInAgain') })).toBeVisible();
+  await expect(panel.getByRole('button', { name: th('journeys:uat.startNewRun') })).toHaveCount(0);
   await expectNoSeriousA11yViolations(page);
 });
 
@@ -875,14 +972,20 @@ test('U1.4 959px: the UAT panel is read-only with no save-result/start-new-round
 }) => {
   await page.setViewportSize({ width: 959, height: 900 });
   const { uat, panel } = await openUat(page);
-  await expect(panel.getByText('UAT / จำลอง (simulated)')).toBeVisible();
-  await expect(panel.getByRole('definition').filter({ hasText: 'รอบที่ 1' })).toBeVisible();
+  await expect(panel.getByText(th('journeys:uat.badge'))).toBeVisible();
   await expect(
-    panel.getByRole('note').filter({ hasText: 'ดูรอบทดสอบได้อย่างเดียว' }),
+    panel
+      .getByRole('definition')
+      .filter({ hasText: th('journeys:uat.sequenceValue', { sequence: 1 }) }),
   ).toBeVisible();
-  await expect(panel.getByRole('button', { name: 'บันทึกผล', exact: true })).toHaveCount(0);
-  await expect(panel.getByRole('button', { name: 'เริ่มรอบใหม่' })).toHaveCount(0);
-  await expect(panel.getByLabel('สิ่งที่เกิดขึ้นจริง')).toHaveCount(0);
+  await expect(
+    panel.getByRole('note').filter({ hasText: th('journeys:uat.readOnlyNote') }),
+  ).toBeVisible();
+  await expect(
+    panel.getByRole('button', { name: th('journeys:uat.record'), exact: true }),
+  ).toHaveCount(0);
+  await expect(panel.getByRole('button', { name: th('journeys:uat.startNewRun') })).toHaveCount(0);
+  await expect(panel.getByLabel(th('journeys:uat.actualLabel'))).toHaveCount(0);
   const overflow = await page.evaluate(
     () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
   );
@@ -898,9 +1001,11 @@ test('U1.4 the UAT panel is in the page content: seen the same with flag ui.shel
     await page.unrouteAll({ behavior: 'ignoreErrors' });
     await withShell(page, shellV2);
     await openUat(page);
-    await expect(page.getByRole('navigation', { name: 'เมนูหลัก' })).toHaveCount(shellV2 ? 1 : 0);
+    await expect(page.getByRole('navigation', { name: th('ui:shell.mainNav') })).toHaveCount(
+      shellV2 ? 1 : 0,
+    );
     await expect(page.getByRole('main')).toHaveCount(1);
-    await expect(page.getByRole('main').getByText('UAT / จำลอง (simulated)')).toBeVisible();
+    await expect(page.getByRole('main').getByText(th('journeys:uat.badge'))).toBeVisible();
   }
 });
 
@@ -915,18 +1020,20 @@ test('U1.5 attach a screenshot, see the digest, a trace is rejected with a way f
   page,
 }) => {
   const { uat, panel } = await openUat(page);
-  const evidence = panel.getByRole('region', { name: 'ภาพหน้าจอหลักฐาน' });
-  await expect(evidence.getByText('ยังไม่มีภาพหน้าจอในรอบนี้')).toBeVisible();
-  const file = evidence.getByLabel('ไฟล์ภาพหน้าจอ');
+  const evidence = panel.getByRole('region', { name: th('journeys:uat.evidence.heading') });
+  await expect(evidence.getByText(th('journeys:uat.evidence.none'))).toBeVisible();
+  const file = evidence.getByLabel(th('journeys:uat.evidence.fileLabel'));
   await expect(file).toHaveAttribute('accept', 'image/png,image/jpeg');
-  const upload = evidence.getByRole('button', { name: 'อัปโหลดภาพหน้าจอ' });
+  const upload = evidence.getByRole('button', { name: th('journeys:uat.evidence.upload') });
   await expect(upload).toBeDisabled();
 
-  await evidence.getByLabel('ขั้นตอนของภาพหน้าจอ').selectOption('SIMULATE');
+  await evidence.getByLabel(th('journeys:uat.evidence.stepLabel')).selectOption('SIMULATE');
   await file.setInputFiles({ name: 'simulate.png', mimeType: 'image/png', buffer: PNG_BYTES });
   await upload.click();
   await expect(
-    panel.getByRole('status').filter({ hasText: 'แนบภาพหน้าจอของ SIMULATE แล้ว' }),
+    panel
+      .getByRole('status')
+      .filter({ hasText: th('journeys:uat.evidence.uploaded', { stepId: 'SIMULATE' }) }),
   ).toBeVisible();
   const row = evidence.getByRole('table').getByRole('row').nth(1);
   await expect(row).toContainText('SIMULATE');
@@ -941,8 +1048,8 @@ test('U1.5 attach a screenshot, see the digest, a trace is rejected with a way f
   });
   await upload.click();
   const alert = panel.getByRole('alert');
-  await expect(alert).toContainText('รับเฉพาะภาพหน้าจอ PNG/JPEG');
-  await expect(alert).toContainText('เลือกไฟล์ภาพหน้าจอ PNG หรือ JPEG');
+  await expect(alert).toContainText(th('journeys:uat.error.EVIDENCE_TYPE_REJECTED'));
+  await expect(alert).toContainText(th('journeys:uat.nextAction.CHOOSE_SCREENSHOT'));
   await expect(evidence.getByRole('table').getByRole('row')).toHaveCount(2);
 
   const posts = uat.posts('/evidence');
@@ -959,7 +1066,7 @@ test('U1.5 attach a screenshot, see the digest, a trace is rejected with a way f
   // export the bundle: fetch with a bearer header then download from a Blob — no token in the URL
   const [download] = await Promise.all([
     page.waitForEvent('download'),
-    evidence.getByRole('button', { name: 'ส่งออก evidence bundle' }).click(),
+    evidence.getByRole('button', { name: th('journeys:uat.evidence.export') }).click(),
   ]);
   expect(download.suggestedFilename()).toBe('uat-run-1-evidence-bundle.json');
   expect(download.url()).toMatch(/^blob:/);
@@ -971,8 +1078,12 @@ test('U1.5 attach a screenshot, see the digest, a trace is rejected with a way f
   expect(bundleRequest!.headers()['authorization']).toMatch(/^Bearer /);
   for (const request of uat.requests) expect(request.url()).not.toMatch(/token|bearer|eyJ/i);
   const summary = evidence.getByRole('definition');
-  await expect(summary.filter({ hasText: 'ยังไม่ครบ (INCOMPLETE)' })).toBeVisible();
-  await expect(summary.filter({ hasText: 'ไม่พบข้อมูลต้องห้าม' })).toBeVisible();
+  await expect(
+    summary.filter({ hasText: th('journeys:uat.evidence.verdictValue.INCOMPLETE') }),
+  ).toBeVisible();
+  await expect(
+    summary.filter({ hasText: th('journeys:uat.evidence.scanValue.PASSED') }),
+  ).toBeVisible();
   await expect(summary.filter({ hasText: DIGEST('9').slice(0, 12) })).toBeVisible();
   expectOpaqueUrl(page);
   await expectNoSeriousA11yViolations(page);
