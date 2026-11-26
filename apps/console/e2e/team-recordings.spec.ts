@@ -1,4 +1,18 @@
 import { expect, test, type Page } from '@playwright/test';
+import { th } from './support/catalog';
+
+function escapeRegExp(text: string) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+const READY_AGENT = 'Somying Jaidee';
+const [ITEM_HEAD, ITEM_TAIL] = th('recordings:itemTitle', {
+  time: '{TIME}',
+  agent: READY_AGENT,
+}).split('{TIME}');
+const LISTEN_READY = new RegExp(
+  `^${escapeRegExp(th('recordings:listen'))}${escapeRegExp(ITEM_HEAD!)}.*${escapeRegExp(ITEM_TAIL!)}`,
+);
 test.use({ locale: 'th-TH' });
 
 const RATE = 8000;
@@ -59,10 +73,7 @@ async function mockRecordings(page: Page, fixture: Fixture) {
       return route.fulfill({
         json: {
           asOf: '2026-11-22T00:00:00.000Z',
-          items: [
-            item(archiving, 'ARCHIVING', 'ปกรณ์ ศรีสุข'),
-            item(ready, 'READY', 'สมหญิง ใจดี'),
-          ],
+          items: [item(archiving, 'ARCHIVING', 'Pakorn Srisuk'), item(ready, 'READY', READY_AGENT)],
           nextCursor: null,
         },
       });
@@ -117,26 +128,28 @@ test('a Supervisor opens the list, listens range by range, pauses, and seeks', a
   await mockRecordings(page, fixture);
   await page.goto('/?view=team-recordings&tenant=demo');
 
-  await expect(page.getByRole('heading', { name: 'เสียงบันทึกของทีม', level: 1 })).toBeVisible();
-  const grid = page.getByRole('grid', { name: 'รายการเสียงบันทึกของทีม' });
-  await expect(grid).toContainText('สมหญิง ใจดี');
-  await expect(grid).toContainText('กำลังจัดเก็บ');
+  await expect(page.getByRole('heading', { name: th('recordings:title'), level: 1 })).toBeVisible();
+  const grid = page.getByRole('grid', { name: th('recordings:list') });
+  await expect(grid).toContainText(READY_AGENT);
+  await expect(grid).toContainText(th('recordings:recordingStatus.ARCHIVING'));
   // audio not yet stored has no listen button and no download link on the page
-  await expect(grid.getByRole('button', { name: /^ฟัง/ })).toHaveCount(1);
-  await expect(page.getByRole('link', { name: /ดาวน์โหลด|download/i })).toHaveCount(0);
+  await expect(
+    grid.getByRole('button', { name: new RegExp(`^${escapeRegExp(th('recordings:listen'))}`) }),
+  ).toHaveCount(1);
+  await expect(page.getByRole('link', { name: /ดาวน์โหลด|download/i })).toHaveCount(0); // allow-thai: negative check for a Thai download label, not a catalog value
 
-  await grid.getByRole('button', { name: /^ฟังสาย .*สมหญิง ใจดี/ }).click();
-  const player = page.getByRole('region', { name: /สมหญิง ใจดี/ });
+  await grid.getByRole('button', { name: LISTEN_READY }).click();
+  const player = page.getByRole('region', { name: new RegExp(escapeRegExp(READY_AGENT)) });
   await expect(player.getByRole('heading', { level: 2 })).toBeFocused();
   // no audio is requested until play is pressed
   expect(fixture.opened).toBe(0);
-  await player.getByRole('button', { name: 'เล่น', exact: true }).click();
-  await expect(player.getByRole('status')).toHaveText('กำลังเล่น');
-  await expect(player.getByRole('button', { name: 'หยุดชั่วคราว' })).toBeVisible();
+  await player.getByRole('button', { name: th('recordings:player.play'), exact: true }).click();
+  await expect(player.getByRole('status')).toHaveText(th('recordings:player.phase.playing'));
+  await expect(player.getByRole('button', { name: th('recordings:player.pause') })).toBeVisible();
 
   // after playing about 1 second: audio is requested ahead by no more than 4 seconds, not the whole 12-second file
   await expect
-    .poll(() => page.getByRole('slider', { name: 'ตำแหน่งในเสียงบันทึก' }).inputValue())
+    .poll(() => page.getByRole('slider', { name: th('recordings:player.position') }).inputValue())
     .not.toBe('0');
   expect(requestedSeconds(fixture)).toBeLessThanOrEqual(4);
   for (const chunk of fixture.chunks) {
@@ -146,24 +159,26 @@ test('a Supervisor opens the list, listens range by range, pauses, and seeks', a
     expect(chunk.authorization).toMatch(/^Bearer /);
   }
 
-  await player.getByRole('button', { name: 'หยุดชั่วคราว' }).click();
-  await expect(player.getByRole('status')).toHaveText('หยุดชั่วคราว');
+  await player.getByRole('button', { name: th('recordings:player.pause') }).click();
+  await expect(player.getByRole('status')).toHaveText(th('recordings:player.phase.paused'));
   const requestedAtPause = fixture.chunks.length;
   await page.waitForTimeout(700);
   expect(fixture.chunks.length).toBe(requestedAtPause);
 
   // seek to second 8 then keep playing: a new range is requested from that position
-  await page.getByRole('slider', { name: 'ตำแหน่งในเสียงบันทึก' }).fill('8');
-  await player.getByRole('button', { name: 'เล่น', exact: true }).click();
-  await expect(player.getByRole('status')).toHaveText('กำลังเล่น');
+  await page.getByRole('slider', { name: th('recordings:player.position') }).fill('8');
+  await player.getByRole('button', { name: th('recordings:player.play'), exact: true }).click();
+  await expect(player.getByRole('status')).toHaveText(th('recordings:player.phase.playing'));
   expect(fixture.chunks.slice(requestedAtPause)[0]?.startFrame).toBe(RATE * 8);
-  await expect(player.getByRole('status')).toHaveText('เล่นจบแล้ว', { timeout: 10_000 });
+  await expect(player.getByRole('status')).toHaveText(th('recordings:player.phase.ended'), {
+    timeout: 10_000,
+  });
   expect(requestedSeconds(fixture)).toBe(SECONDS);
 
-  await player.getByRole('button', { name: 'ปิดตัวเล่น' }).click();
+  await player.getByRole('button', { name: th('recordings:player.close') }).click();
   await expect(player).toHaveCount(0);
   // after closing, focus returns to the listen button of the original row
-  await expect(grid.getByRole('button', { name: /^ฟังสาย .*สมหญิง ใจดี/ })).toBeFocused();
+  await expect(grid.getByRole('button', { name: LISTEN_READY })).toBeFocused();
   await expect.poll(() => fixture.closed).toBe(1);
 });
 
@@ -173,24 +188,25 @@ test('permission revoked while listening: the audio stops and states the reason,
   const fixture = newFixture();
   await mockRecordings(page, fixture);
   await page.goto('/?view=team-recordings&tenant=demo');
-  await page.getByRole('button', { name: /^ฟังสาย .*สมหญิง ใจดี/ }).click();
-  const player = page.getByRole('region', { name: /สมหญิง ใจดี/ });
-  await player.getByRole('button', { name: 'เล่น', exact: true }).click();
-  await expect(player.getByRole('status')).toHaveText('กำลังเล่น');
+  await page.getByRole('button', { name: LISTEN_READY }).click();
+  const player = page.getByRole('region', { name: new RegExp(escapeRegExp(READY_AGENT)) });
+  await player.getByRole('button', { name: th('recordings:player.play'), exact: true }).click();
+  await expect(player.getByRole('status')).toHaveText(th('recordings:player.phase.playing'));
 
   fixture.revoked = true;
-  await expect(player.getByRole('alert')).toHaveText(
-    'ไม่พบเสียงบันทึกนี้ หรือคุณไม่มีสิทธิ์ฟังแล้ว',
-    { timeout: 10_000 },
-  );
+  await expect(player.getByRole('alert')).toHaveText(th('recordings:player.error.gone'), {
+    timeout: 10_000,
+  });
   // stops within the audio buffered ahead (no more than 4 seconds from what was requested before revocation)
   expect(requestedSeconds(fixture)).toBeLessThanOrEqual(4);
-  await expect(player.getByRole('button', { name: 'เล่น', exact: true })).toBeVisible();
+  await expect(
+    player.getByRole('button', { name: th('recordings:player.play'), exact: true }),
+  ).toBeVisible();
   const position = Number(
-    await page.getByRole('slider', { name: 'ตำแหน่งในเสียงบันทึก' }).inputValue(),
+    await page.getByRole('slider', { name: th('recordings:player.position') }).inputValue(),
   );
   await page.waitForTimeout(700);
   expect(
-    Number(await page.getByRole('slider', { name: 'ตำแหน่งในเสียงบันทึก' }).inputValue()),
+    Number(await page.getByRole('slider', { name: th('recordings:player.position') }).inputValue()),
   ).toBe(position);
 });

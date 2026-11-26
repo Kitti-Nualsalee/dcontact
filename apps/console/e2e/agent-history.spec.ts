@@ -1,5 +1,12 @@
 import { expect, test } from '@playwright/test';
 import { homeNavigation } from './support/home-navigation.js';
+import { th } from './support/catalog';
+
+function escapeRegExp(text: string) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+const NOTE = '<img src=x onerror=alert(1)> Synthetic note';
 test.use({ locale: 'th-TH' });
 
 const interactionId = '7a33ac96-d87d-4ca4-ab75-f27e40e943be';
@@ -32,9 +39,13 @@ test('production auth root opens a history deep link without forcing an Interact
   await page.goto('/?view=agent-history&tenant=demo&authRootHarness=1');
   await expect(page.getByRole('main')).toBeVisible();
   await expect(
-    page.getByRole('heading', { name: 'ไม่พบ Interaction context', exact: true }),
+    page.getByRole('heading', { name: th('common:auth.contextMissing.title'), exact: true }),
   ).toHaveCount(0);
-  await expect(page.getByRole('main')).toContainText(/Identity Provider|เข้าสู่ระบบ|ประวัติงาน/);
+  await expect(page.getByRole('main')).toContainText(
+    new RegExp(
+      `Identity Provider|${escapeRegExp(th('common:auth.signIn'))}|${escapeRegExp(th('history:title'))}`,
+    ),
+  );
 });
 
 test('auth surface: an identity change loads navigation again and drops the old account menu', async ({
@@ -100,33 +111,31 @@ test('Agent opens the list/load more/plain-text detail/deep link without asking 
         ...item,
         policyVersion: 1,
         state: 'COMPLETED',
-        note: '<img src=x onerror=alert(1)> โน้ตสังเคราะห์',
+        note: NOTE,
       },
     }),
   );
   await page.goto('/?view=agent-history&tenant=demo');
-  await expect(page.getByRole('heading', { name: 'ประวัติงานของฉัน' })).toBeVisible();
-  await page.getByRole('button', { name: 'โหลดเพิ่ม', exact: true }).click();
+  await expect(page.getByRole('heading', { name: th('history:title') })).toBeVisible();
+  await page.getByRole('button', { name: th('history:more'), exact: true }).click();
   await expect(page.getByText(nextId, { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: `เปิดงาน ${interactionId}`, exact: true }).click();
-  await expect(
-    page.getByText('<img src=x onerror=alert(1)> โน้ตสังเคราะห์', { exact: true }),
-  ).toBeVisible();
+  await page
+    .getByRole('button', { name: th('history:openItem', { interactionId }), exact: true })
+    .click();
+  await expect(page.getByText(NOTE, { exact: true })).toBeVisible();
   expect(new URL(page.url()).searchParams.get('interaction')).toBe(interactionId);
-  expect(page.url()).not.toContain('โน้ต');
+  expect(page.url()).not.toContain('Synthetic');
   await expect(page.locator('img[src="x"]')).toHaveCount(0);
   await page.reload();
-  await expect(
-    page.getByText('<img src=x onerror=alert(1)> โน้ตสังเคราะห์', { exact: true }),
-  ).toBeVisible();
+  await expect(page.getByText(NOTE, { exact: true })).toBeVisible();
   expect(forbidden).toEqual([]);
 });
 
 for (const [status, message] of [
-  [401, 'session หมดอายุ'],
-  [403, 'ไม่มีสิทธิ์ดูประวัติ'],
-  [404, 'ไม่พบงานนี้'],
-  [503, 'โหลดประวัติไม่สำเร็จ'],
+  [401, th('history:unauthorized')],
+  [403, th('history:forbidden')],
+  [404, th('history:notFound')],
+  [503, th('history:failed')],
 ] as const) {
   test(`history separates ${status} and retry can return to empty`, async ({ page }) => {
     let failed = true;
@@ -141,10 +150,8 @@ for (const [status, message] of [
     await page.goto('/?view=agent-history&tenant=demo');
     await expect(page.getByRole('alert')).toContainText(message);
     failed = false;
-    await page.getByRole('button', { name: 'ลองอีกครั้ง', exact: true }).click();
-    await expect(
-      page.getByText('ไม่มีงาน Voice ที่จบในช่วงเวลานี้', { exact: true }),
-    ).toBeVisible();
+    await page.getByRole('button', { name: th('history:retry'), exact: true }).click();
+    await expect(page.getByText(th('history:summary.emptyPeriod'), { exact: true })).toBeVisible();
   });
 }
 
@@ -192,26 +199,39 @@ test('summary by period: pressing a disposition makes the list use the same peri
     });
   });
   await page.goto('/?view=agent-history&tenant=demo');
-  const summary = page.getByRole('region', { name: 'สรุปงาน' });
-  await expect(summary).toContainText('16 พ.ย. 2569 – 22 พ.ย. 2569 · เวลาอินโดจีน');
+  const summary = page.getByRole('region', { name: th('history:summary.title') });
+  await expect(summary).toContainText('16 พ.ย. 2569 – 22 พ.ย. 2569 · เวลาอินโดจีน'); // allow-thai: Thai Buddhist-era date and time zone formatting
   await expect(summary).toContainText('2:30');
-  await expect(summary).toContainText('จาก 2 งานที่มีเวลารับและวางสาย');
-  await expect(page.getByRole('button', { name: '7 วัน', exact: true })).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  );
+  await expect(summary).toContainText(th('history:summary.talkBasis', { count: 2 }));
   await expect(
-    page.getByRole('heading', { name: 'รายการงาน · 7 วัน · ทุกผลบันทึก · 3 งาน' }),
+    page.getByRole('button', { name: th('history:summary.period.7d'), exact: true }),
+  ).toHaveAttribute('aria-pressed', 'true');
+  await expect(
+    page.getByRole('heading', {
+      name: th('history:summary.listTitle', {
+        period: th('history:summary.period.7d'),
+        disposition: th('history:summary.allDispositions'),
+        count: 3,
+      }),
+    }),
   ).toBeVisible();
   expect(lists.at(-1)?.get('from')).toBe('2026-11-15T17:00:00.000Z');
   expect(lists.at(-1)?.get('to')).toBe('2026-11-22T17:00:00.000Z');
   expect(lists.at(-1)?.has('disposition')).toBe(false);
 
-  const followUp = summary.getByRole('button', { name: /ต้องติดตามต่อ/ });
+  const followUp = summary.getByRole('button', {
+    name: new RegExp(escapeRegExp(th('history:followUp'))),
+  });
   await followUp.click();
   await expect(followUp).toHaveAttribute('aria-pressed', 'true');
   await expect(
-    page.getByRole('heading', { name: 'รายการงาน · 7 วัน · ต้องติดตามต่อ · 1 งาน' }),
+    page.getByRole('heading', {
+      name: th('history:summary.listTitle', {
+        period: th('history:summary.period.7d'),
+        disposition: th('history:followUp'),
+        count: 1,
+      }),
+    }),
   ).toBeVisible();
   await expect(page.getByText(interactionId, { exact: true })).toHaveCount(0);
   await expect(page.getByText(nextId, { exact: true })).toBeVisible();
@@ -220,21 +240,26 @@ test('summary by period: pressing a disposition makes the list use the same peri
   expect(new URL(page.url()).searchParams.get('disposition')).toBe('FOLLOW_UP_REQUIRED');
 
   await page.reload();
-  await expect(summary.getByRole('button', { name: /ต้องติดตามต่อ/ })).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  );
+  await expect(
+    summary.getByRole('button', { name: new RegExp(escapeRegExp(th('history:followUp'))) }),
+  ).toHaveAttribute('aria-pressed', 'true');
   expect(lists.at(-1)?.get('disposition')).toBe('FOLLOW_UP_REQUIRED');
 
-  await summary.getByRole('button', { name: 'แสดงงานที่จบทั้งหมด 3 งาน' }).click();
+  await summary.getByRole('button', { name: th('history:summary.showAll', { count: 3 }) }).click();
   await expect(
-    page.getByRole('heading', { name: 'รายการงาน · 7 วัน · ทุกผลบันทึก · 3 งาน' }),
+    page.getByRole('heading', {
+      name: th('history:summary.listTitle', {
+        period: th('history:summary.period.7d'),
+        disposition: th('history:summary.allDispositions'),
+        count: 3,
+      }),
+    }),
   ).toBeVisible();
   expect(new URL(page.url()).searchParams.has('disposition')).toBe(false);
 
-  await page.getByRole('button', { name: 'วันนี้', exact: true }).click();
-  await expect(summary).toContainText('22 พ.ย. 2569 · เวลาอินโดจีน');
-  await expect(page.getByText('ไม่มีงาน Voice ที่จบในช่วงเวลานี้', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: th('history:summary.period.today'), exact: true }).click();
+  await expect(summary).toContainText('22 พ.ย. 2569 · เวลาอินโดจีน'); // allow-thai: Thai Buddhist-era date and time zone formatting
+  await expect(page.getByText(th('history:summary.emptyPeriod'), { exact: true })).toBeVisible();
   expect(summaries.at(-1)).toBe('today');
   expect(new URL(page.url()).searchParams.get('period')).toBe('today');
 });
@@ -262,7 +287,7 @@ test("an identity change clears the detail cache and does not accept the old ide
   );
   await expect.poll(() => received).toBe(true);
   await page.getByRole('button', { name: 'Switch identity fixture', exact: true }).click();
-  await expect(page.getByRole('alert')).toContainText('ไม่พบงานนี้');
+  await expect(page.getByRole('alert')).toContainText(th('history:notFound'));
   release?.();
   await expect(page.getByText('private synthetic old identity note', { exact: true })).toHaveCount(
     0,
@@ -285,9 +310,7 @@ test('legacy detail says there is no note and reference time, and does not creat
     }),
   );
   await page.goto(`/?view=agent-history&tenant=demo&interaction=${interactionId}`);
-  await expect(page.getByText('งานเดิมก่อนระบบบันทึกโน้ต', { exact: true })).toBeVisible();
-  await expect(
-    page.getByText('งานเดิมไม่มีโน้ต ไม่ได้สร้างข้อความย้อนหลัง', { exact: true }),
-  ).toBeVisible();
-  await expect(page.getByText('เวลาอ้างอิงจากเหตุการณ์ปิดงานเดิม', { exact: true })).toBeVisible();
+  await expect(page.getByText(th('history:legacy'), { exact: true })).toBeVisible();
+  await expect(page.getByText(th('history:noNote'), { exact: true })).toBeVisible();
+  await expect(page.getByText(th('history:LEGACY_EVENT'), { exact: true })).toBeVisible();
 });

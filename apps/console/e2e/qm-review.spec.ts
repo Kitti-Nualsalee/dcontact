@@ -13,7 +13,7 @@ test('a reviewer listens to signed playback, sees the transcript gap, and publis
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        interaction: { id: 'interaction-100', channel: 'VOICE', queueName: 'บริการลูกค้า' },
+        interaction: { id: 'interaction-100', channel: 'VOICE', queueName: 'Customer service' },
         recording: {
           id: 'recording-100',
           status: 'AVAILABLE',
@@ -23,13 +23,13 @@ test('a reviewer listens to signed playback, sees the transcript gap, and publis
           id: 'transcript-100',
           language: 'th-TH',
           segments: [
-            { id: 'segment-1', speaker: 'AGENT', startMs: 0, endMs: 4000, text: 'สวัสดีค่ะ' },
+            { id: 'segment-1', speaker: 'AGENT', startMs: 0, endMs: 4000, text: 'Hello' },
             {
               id: 'segment-2',
               speaker: 'CUSTOMER',
               startMs: 13000,
               endMs: 17000,
-              text: 'ขอบคุณครับ',
+              text: 'Thank you',
             },
           ],
         },
@@ -57,7 +57,7 @@ test('a reviewer listens to signed playback, sees the transcript gap, and publis
   await page.goto('/?context=e5e94bea-4a4f-4f45-a4fb-d0d1db07e899');
   await expect(page.getByRole('heading', { name: 'Interaction interaction-100' })).toBeVisible();
   await expect(page.getByText('PCI pause, no audio evidence')).toBeVisible();
-  await expect(page.getByText('สวัสดีค่ะ')).toBeVisible();
+  await expect(page.getByText('Hello')).toBeVisible();
   await page.getByRole('button', { name: 'Request access to the recording' }).focus();
   await expect(page.getByRole('button', { name: 'Request access to the recording' })).toBeFocused();
   await page.keyboard.press('Enter');
@@ -88,7 +88,7 @@ test('after deleting media the transcript and evaluation are still shown', async
           id: 'transcript-kept',
           language: 'th-TH',
           segments: [
-            { id: 's1', speaker: 'AGENT', startMs: 0, endMs: 1000, text: 'หลักฐานที่เก็บไว้' },
+            { id: 's1', speaker: 'AGENT', startMs: 0, endMs: 1000, text: 'Retained evidence' },
           ],
         },
         evaluation: {
@@ -105,6 +105,6 @@ test('after deleting media the transcript and evaluation are still shown', async
   await expect(
     page.getByText('The audio file was deleted under the retention policy'),
   ).toBeVisible();
-  await expect(page.getByText('หลักฐานที่เก็บไว้')).toBeVisible();
+  await expect(page.getByText('Retained evidence')).toBeVisible();
   await expect(page.getByText('92')).toBeVisible();
 });

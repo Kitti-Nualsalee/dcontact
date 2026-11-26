@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { th } from './support/catalog';
 
 /**
  * D1.11 (#450): switching language must not reload — checked with the same page's `performance` and a marker in `window`
@@ -10,11 +11,11 @@ test('switch TH → EN → TH immediately without reload, and the formatter foll
   page,
 }) => {
   await page.goto('/?view=i18n');
-  await expect(page.getByTestId('language-label')).toHaveText('ภาษา');
+  await expect(page.getByTestId('language-label')).toHaveText(th('common:language.label'));
   await expect(page.locator('html')).toHaveAttribute('lang', 'th');
   // no user/tenant → the system timezone, not the device time (the browser is set to New York)
   await expect(page.getByTestId('time-zone')).toHaveText('Asia/Bangkok');
-  await expect(page.getByTestId('sample-date')).toHaveText('12 ก.ย. 2569 16:40');
+  await expect(page.getByTestId('sample-date')).toHaveText('12 ก.ย. 2569 16:40'); // allow-thai: Thai Buddhist-era date formatting
 
   const before = await page.evaluate(() => {
     (window as unknown as { __d111Marker: string }).__d111Marker = 'same-document';
@@ -35,8 +36,8 @@ test('switch TH → EN → TH immediately without reload, and the formatter foll
     'true',
   );
 
-  await page.getByRole('button', { name: 'ไทย' }).click();
-  await expect(page.getByTestId('language-label')).toHaveText('ภาษา');
+  await page.getByRole('button', { name: th('common:language.th') }).click();
+  await expect(page.getByTestId('language-label')).toHaveText(th('common:language.label'));
 
   const after = await page.evaluate(() => ({
     marker: (window as unknown as { __d111Marker?: string }).__d111Marker,

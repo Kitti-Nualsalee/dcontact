@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { AuthoringMock, JOURNEY_ID, withShell } from '../e2e/support/journey-authoring-mock';
+import { th } from '../e2e/support/catalog';
 
 /**
  * D1.16 (#455): visual evidence for the Phase Contract (#428) — Console screenshots as evidence, not a regular test
@@ -20,9 +21,9 @@ test('D1.16 visual evidence: Journeys TH/EN in the shell and the App launcher', 
   await withShell(page, true);
   await mock.install(page);
   await page.goto('/?view=journeys&tenant=demo');
-  await expect(page.getByRole('navigation', { name: 'เมนูหลัก' })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: th('ui:shell.mainNav') })).toBeVisible();
   await page.screenshot({ path: `${dir}/console-journeys-th.png` });
-  await page.getByRole('button', { name: 'แอปทั้งหมด' }).click();
+  await page.getByRole('button', { name: th('ui:shell.allApps') }).click();
   await expect(page.getByRole('dialog')).toBeVisible();
   await page.screenshot({ path: `${dir}/app-launcher-th.png` });
   await page.keyboard.press('Escape');
@@ -32,7 +33,7 @@ test('D1.16 visual evidence: Journeys TH/EN in the shell and the App launcher', 
   await page.screenshot({ path: `${dir}/console-journeys-en.png` });
 
   await page.goto(`/?view=journeys&tenant=demo&journey=${JOURNEY_ID}`);
-  await expect(page.getByRole('button', { name: 'บันทึกฉบับร่าง' })).toBeVisible();
+  await expect(page.getByRole('button', { name: th('journeys:editor.save') })).toBeVisible();
   await page.screenshot({ path: `${dir}/console-journey-editor-th.png` });
   await page.getByRole('button', { name: 'English' }).click();
   await expect(page.getByRole('button', { name: 'Save draft' })).toBeVisible();
