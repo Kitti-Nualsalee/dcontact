@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { th } from './support/catalog';
 import { AuthoringMock, JOURNEY_ID, withShell } from './support/journey-authoring-mock';
 
 /**
@@ -95,17 +96,17 @@ for (const mode of ['normal', 'forced'] as const) {
     }) => {
       await new AuthoringMock().install(page);
       await page.goto('/?view=journeys');
-      const filter = page.getByRole('group', { name: 'ตัวกรองรายการ' });
+      const filter = page.getByRole('group', { name: th('journeys:list.filterLabel') });
       await expect(filter).toBeVisible();
 
-      const pressed = filter.getByRole('button', { name: 'ทั้งหมด' });
+      const pressed = filter.getByRole('button', { name: th('journeys:list.filterAll') });
       await expectFocusIndicator(page, pressed, 'segmented-pressed', mode, true);
-      const unpressed = filter.getByRole('button', { name: 'รอตรวจ' });
+      const unpressed = filter.getByRole('button', { name: th('journeys:list.filterPending') });
       await expectFocusIndicator(page, unpressed, 'segmented', mode, true);
 
       const language = page.getByRole('button', { name: 'English' });
       await expectFocusIndicator(page, language, 'topbar-language', mode, true);
-      const languagePressed = page.getByRole('button', { name: 'ไทย' });
+      const languagePressed = page.getByRole('button', { name: th('ui:shell.languageNames.th') });
       await expect(languagePressed).toHaveAttribute('aria-pressed', 'true');
       await expectFocusIndicator(page, languagePressed, 'topbar-language-pressed', mode, true);
 
@@ -133,9 +134,11 @@ for (const mode of ['normal', 'forced'] as const) {
     }) => {
       await new AuthoringMock().install(page);
       await page.goto('/?view=journeys');
-      await expect(page.getByRole('group', { name: 'ตัวกรองรายการ' })).toBeVisible();
+      await expect(
+        page.getByRole('group', { name: th('journeys:list.filterLabel') }),
+      ).toBeVisible();
       await page.keyboard.press('Tab');
-      const skip = page.getByRole('link', { name: 'ข้ามไปที่เนื้อหา' });
+      const skip = page.getByRole('link', { name: th('ui:shell.skipToContent') });
       await expect(skip).toBeFocused();
       await page.keyboard.press('Enter');
       const main = page.getByRole('main');
@@ -150,17 +153,17 @@ for (const mode of ['normal', 'forced'] as const) {
       await page.goto(`/?view=journeys&journey=${JOURNEY_ID}`);
       await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
 
-      const button = page.getByRole('button', { name: 'ตรวจฉบับร่างที่บันทึกแล้ว' });
+      const button = page.getByRole('button', { name: th('journeys:editor.validate') });
       await expectFocusIndicator(page, button, 'button', mode, false);
       await expect(button).toHaveAttribute('data-focus-visible', 'true');
 
-      const input = page.getByLabel('ชื่อ Journey');
+      const input = page.getByLabel(th('journeys:properties.name'));
       await expectFocusIndicator(page, input, 'input', mode, false);
 
       if (mode === 'forced') {
         // a selected node on the canvas is indicated by a colored background only; in this mode it must have a Highlight border thicker than other nodes
-        const canvas = page.getByRole('group', { name: 'ผังขั้นตอนของ Journey' });
-        const send = canvas.getByRole('button', { name: 'ส่งข้อความ' });
+        const canvas = page.getByRole('group', { name: th('journeys:canvas.label') });
+        const send = canvas.getByRole('button', { name: th('journeys:node.SEND') });
         await send.focus();
         await page.keyboard.press('Enter');
         await expect(send).toHaveAttribute('aria-pressed', 'true');
@@ -171,7 +174,9 @@ for (const mode of ['normal', 'forced'] as const) {
           });
         await capture(page, send, 'canvas-node-selected', mode);
         const selected = await border(send);
-        const other = await border(canvas.getByRole('button', { name: 'เริ่มเมื่อเกิด event' }));
+        const other = await border(
+          canvas.getByRole('button', { name: th('journeys:node.EVENT_TRIGGER') }),
+        );
         expect.soft(selected.width).toBe('4px');
         expect.soft(other.width).toBe('2px');
         expect.soft(selected.color).not.toBe(other.color);
