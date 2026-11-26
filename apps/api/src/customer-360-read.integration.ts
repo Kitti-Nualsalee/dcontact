@@ -208,8 +208,12 @@ test('C2 S1: NAME prefix, special characters are ordinary characters, PHONE/EMAI
     const phone = await search(f, 'admin', { type: 'PHONE', query: '+1 (213) 373-4253' });
     assert.deepEqual(idsOf(phone.body), [ids.Somchai]);
     assert.equal(phone.body.items[0]!.matchedChannel?.kind, 'PHONE');
-    assert.equal(JSON.stringify(phone.body).includes('373'), false);
-    assert.equal(JSON.stringify(phone.body).includes('Hidden'), false);
+    // the phone number must not leak in E.164 or formatted form; check long fragments only,
+    // because a short one such as 373 may coincidentally appear in a random UUID or cursor
+    const phoneText = JSON.stringify(phone.body);
+    for (const fragment of ['2133734253', '3734253', '373-4253', '373 4253'])
+      assert.equal(phoneText.includes(fragment), false, fragment);
+    assert.equal(phoneText.includes('Hidden'), false);
     assert.deepEqual(
       idsOf((await search(f, 'admin', { type: 'PHONE', query: '+66 81 234 5678' })).body),
       [],
