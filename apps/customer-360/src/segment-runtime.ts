@@ -23,7 +23,7 @@ export const C360_SYSTEM_SEGMENTS: readonly C360SystemSegment[] = Object.freeze(
     segmentId: 'system:all-customers',
     definition: {
       contractVersion: 1,
-      name: 'ลูกค้าทั้งหมด',
+      name: 'ลูกค้าทั้งหมด', // allow-thai: persisted name of the built-in segment
       expression: { language: 'DC_EXPR', version: 1, expression: { type: 'literal', value: true } },
     },
   },

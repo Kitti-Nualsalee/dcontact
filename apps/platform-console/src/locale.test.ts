@@ -76,8 +76,8 @@ test('the tab language survives the OIDC state and restore marker without touchi
 
 test('the platform and ui catalogs switch together; operator time is always separate from the tenant', async () => {
   const i18n = createI18n({ resources, locale: 'th', defaultNamespace: DEFAULT_NAMESPACE });
-  assert.equal(i18n.t('auth.signIn'), 'เข้าสู่ระบบ');
-  assert.equal(i18n.t('dialog.close', { ns: 'ui' }), 'ปิด');
+  assert.equal(i18n.t('auth.signIn'), 'เข้าสู่ระบบ'); // allow-thai: asserts the Thai catalog rendering
+  assert.equal(i18n.t('dialog.close', { ns: 'ui' }), 'ปิด'); // allow-thai: asserts the Thai catalog rendering
   const instant = '2026-10-22T03:05:00.000Z';
   assert.equal(
     createFormatters({ locale: 'th', timeZone: PLATFORM_TIME_ZONE }).time(instant),

@@ -217,7 +217,7 @@ function inertExceptionCheck(
       assertions += 1;
       if (!sameOutcome(baseline, variant)) {
         failures.push(
-          `${label} exception เปลี่ยนผลที่ ${instant.toISOString()}: ` +
+          `${label} exception เปลี่ยนผลที่ ${instant.toISOString()}: ` + // allow-thai: failures are stored in the test artifact and covered by resultDigest/artifactDigest
             `${JSON.stringify(outcomeShape(baseline))} -> ${JSON.stringify(outcomeShape(variant))}`,
         );
       }
@@ -232,13 +232,13 @@ const CHECK_RUNNERS: Readonly<Record<Cg4PolicyCheck['kind'], CheckRunner>> = Obj
     const ruleCode = check.ruleCode ?? '';
     const resolution = resolveCg4RuleMetadata(ruleCode);
     if (resolution.metadata.overridable) {
-      failures.push(`registry ประกาศว่า ${ruleCode} override ได้`);
+      failures.push(`registry ประกาศว่า ${ruleCode} override ได้`); // allow-thai: failures are stored in the test artifact and covered by resultDigest/artifactDigest
     }
     if (compiled.content.overridableRules.includes(ruleCode)) {
-      failures.push(`overridableRules มี ${ruleCode}`);
+      failures.push(`overridableRules มี ${ruleCode}`); // allow-thai: failures are stored in the test artifact and covered by resultDigest/artifactDigest
     }
     if (compiled.content.allowedOperationalRuleCodes.includes(ruleCode)) {
-      failures.push(`allowedOperationalRuleCodes มี ${ruleCode}`);
+      failures.push(`allowedOperationalRuleCodes มี ${ruleCode}`); // allow-thai: failures are stored in the test artifact and covered by resultDigest/artifactDigest
     }
     return { assertions: 3, failures };
   },
@@ -249,7 +249,7 @@ const CHECK_RUNNERS: Readonly<Record<Cg4PolicyCheck['kind'], CheckRunner>> = Obj
     const failures =
       metadata.riskFloor === (check.riskFloor ?? 'HIGH')
         ? []
-        : [`${ruleCode} riskFloor เป็น ${metadata.riskFloor} ไม่ใช่ ${check.riskFloor}`];
+        : [`${ruleCode} riskFloor เป็น ${metadata.riskFloor} ไม่ใช่ ${check.riskFloor}`]; // allow-thai: failures are stored in the test artifact and covered by resultDigest/artifactDigest
     return { assertions: 1, failures };
   },
 
@@ -279,7 +279,7 @@ const CHECK_RUNNERS: Readonly<Record<Cg4PolicyCheck['kind'], CheckRunner>> = Obj
       assertions += 1;
       if (outcome.decision !== 'BLOCK' || outcome.reasonCode !== 'PREFERENCE_BLOCKED') {
         failures.push(
-          `preference BLOCK ถูกยกที่ ${instant.toISOString()}: ${JSON.stringify(outcomeShape(outcome))}`,
+          `preference BLOCK ถูกยกที่ ${instant.toISOString()}: ${JSON.stringify(outcomeShape(outcome))}`, // allow-thai: failures are stored in the test artifact and covered by resultDigest/artifactDigest
         );
       }
     }
@@ -324,12 +324,12 @@ const CHECK_RUNNERS: Readonly<Record<Cg4PolicyCheck['kind'], CheckRunner>> = Obj
         );
         if (variant.decision !== undefined || !pinned) {
           failures.push(
-            `exception ที่ครอบ ${ruleCode} ไม่ยก provisional failure ที่ ${instant.toISOString()}`,
+            `exception ที่ครอบ ${ruleCode} ไม่ยก provisional failure ที่ ${instant.toISOString()}`, // allow-thai: failures are stored in the test artifact and covered by resultDigest/artifactDigest
           );
         }
       } else if (!sameOutcome(baseline, variant)) {
         failures.push(
-          `${ruleCode} ไม่อยู่ใน allowlist แต่ exception เปลี่ยนผลที่ ${instant.toISOString()}`,
+          `${ruleCode} ไม่อยู่ใน allowlist แต่ exception เปลี่ยนผลที่ ${instant.toISOString()}`, // allow-thai: failures are stored in the test artifact and covered by resultDigest/artifactDigest
         );
       }
     }
@@ -356,9 +356,9 @@ const CHECK_RUNNERS: Readonly<Record<Cg4PolicyCheck['kind'], CheckRunner>> = Obj
       assertions += 1;
       if (expectedQuiet !== observedQuiet) {
         failures.push(
-          `quiet hours ไม่ตรง local clock ที่ ${instant.toISOString()} (${timezone} ` +
+          `quiet hours ไม่ตรง local clock ที่ ${instant.toISOString()} (${timezone} ` + // allow-thai: failures are stored in the test artifact and covered by resultDigest/artifactDigest
             `${dateKey} ${String(parts.hour).padStart(2, '0')}:${String(parts.minute).padStart(2, '0')}): ` +
-            `ประกาศ ${expectedQuiet} แต่ประเมินได้ ${observedQuiet}`,
+            `ประกาศ ${expectedQuiet} แต่ประเมินได้ ${observedQuiet}`, // allow-thai: failures are stored in the test artifact and covered by resultDigest/artifactDigest
         );
       }
     }
@@ -385,7 +385,7 @@ const CHECK_RUNNERS: Readonly<Record<Cg4PolicyCheck['kind'], CheckRunner>> = Obj
         assertions += 1;
         if (outcome.reasonCode !== 'TENANT_HOLIDAY') {
           failures.push(
-            `วันหยุด CLOSED ${entry.localDate} ไม่ block ที่นาที ${minute} (${outcome.reasonCode ?? 'PASSED'})`,
+            `วันหยุด CLOSED ${entry.localDate} ไม่ block ที่นาที ${minute} (${outcome.reasonCode ?? 'PASSED'})`, // allow-thai: failures are stored in the test artifact and covered by resultDigest/artifactDigest
           );
         }
       }
@@ -423,11 +423,11 @@ const CHECK_RUNNERS: Readonly<Record<Cg4PolicyCheck['kind'], CheckRunner>> = Obj
         assertions += 1;
         if (!insideWindow && outcome.reasonCode !== 'TENANT_HOLIDAY') {
           failures.push(
-            `วันหยุด WINDOWS ${entry.localDate} ไม่ block นอก window ที่นาที ${minute}`,
+            `วันหยุด WINDOWS ${entry.localDate} ไม่ block นอก window ที่นาที ${minute}`, // allow-thai: failures are stored in the test artifact and covered by resultDigest/artifactDigest
           );
         }
         if (insideWindow && outcome.reasonCode === 'TENANT_HOLIDAY') {
-          failures.push(`วันหยุด WINDOWS ${entry.localDate} block ใน window ที่นาที ${minute}`);
+          failures.push(`วันหยุด WINDOWS ${entry.localDate} block ใน window ที่นาที ${minute}`); // allow-thai: failures are stored in the test artifact and covered by resultDigest/artifactDigest
         }
       }
     }
@@ -443,7 +443,7 @@ const CHECK_RUNNERS: Readonly<Record<Cg4PolicyCheck['kind'], CheckRunner>> = Obj
       const second = evaluateCg3Policy(baseInput(compiled, instant, timezone));
       assertions += 1;
       if (!sameOutcome(first, second)) {
-        failures.push(`ประเมินซ้ำที่ ${instant.toISOString()} ให้ผลต่างกัน`);
+        failures.push(`ประเมินซ้ำที่ ${instant.toISOString()} ให้ผลต่างกัน`); // allow-thai: failures are stored in the test artifact and covered by resultDigest/artifactDigest
       }
     }
     return { assertions, failures };
@@ -459,7 +459,7 @@ function runPack(pack: Cg4PolicyFixturePack, context: CheckContext): Cg4PolicyCh
         kind: check.kind,
         outcome: 'FAIL' as const,
         assertions: 0,
-        failures: [`ไม่รู้จัก check kind ${check.kind}`],
+        failures: [`ไม่รู้จัก check kind ${check.kind}`], // allow-thai: failures are stored in the test artifact and covered by resultDigest/artifactDigest
       };
     }
     const { assertions, failures } = runner(check, context);
