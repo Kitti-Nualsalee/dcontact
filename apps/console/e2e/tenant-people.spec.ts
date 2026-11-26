@@ -1,6 +1,11 @@
 import { expect, test } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { homeNavigation } from './support/home-navigation.js';
+import { th } from './support/catalog';
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 const operationId = '10000000-0000-4000-8000-000000000001';
 const userId = '10000000-0000-4000-8000-000000000002';
@@ -44,7 +49,7 @@ for (const scenario of [
           json: { canWrite: true, peopleProvisioning: { ready: true, reasons: [] } },
         });
       if (path === 'teams')
-        return route.fulfill({ json: { items: [{ id: teamId, name: 'ทีมทดสอบ' }] } });
+        return route.fulfill({ json: { items: [{ id: teamId, name: 'Test Team' }] } });
       if (path === 'extension-pool')
         return route.fulfill({ json: { items: [{ ref: '1104' }], poolRevision: 1 } });
       if (path.startsWith('commands/')) {
@@ -114,60 +119,87 @@ for (const scenario of [
       return route.fulfill({ status: 404, json: { code: 'RESOURCE_NOT_FOUND' } });
     });
     await page.goto('/?view=tenant-people&tenant=demo');
-    await expect(page.getByRole('heading', { name: 'บัญชีผู้ใช้', exact: true })).toBeVisible();
-    await page.getByRole('button', { name: 'สร้างบัญชี', exact: true }).click();
-    await page.getByRole('textbox', { name: 'ชื่อที่แสดง', exact: true }).fill('ผู้ทดสอบ');
-    await page.getByRole('textbox', { name: 'อีเมล', exact: true }).fill('synthetic@example.test');
+    await expect(
+      page.getByRole('heading', { name: th('tenantPeople:title'), exact: true }),
+    ).toBeVisible();
+    await page.getByRole('button', { name: th('tenantPeople:create'), exact: true }).click();
+    await page
+      .getByRole('textbox', { name: th('tenantPeople:name'), exact: true })
+      .fill('Test User');
+    await page
+      .getByRole('textbox', { name: th('tenantPeople:email'), exact: true })
+      .fill('synthetic@example.test');
     if (scenario === 'agent') {
       await page
-        .getByRole('button', { name: 'เลือกหมายเลขภายใน หมายเลขภายใน', exact: true })
+        .getByRole('button', {
+          name: `${th('tenantPeople:chooseExtension')} ${th('tenantPeople:extension')}`,
+          exact: true,
+        })
         .click();
       await page.getByRole('option', { name: '1104', exact: true }).click();
     } else {
-      await page.getByRole('button', { name: 'Agent บทบาท', exact: true }).click();
+      await page
+        .getByRole('button', { name: `Agent ${th('tenantPeople:role')}`, exact: true })
+        .click();
       await page.getByRole('option', { name: 'Admin', exact: true }).click();
     }
-    await page.getByRole('button', { name: 'เลือกทีม ทีม', exact: true }).click();
-    await page.getByRole('option', { name: 'ทีมทดสอบ', exact: true }).click();
-    await page.getByRole('button', { name: 'สร้างบัญชี', exact: true }).click();
+    await page
+      .getByRole('button', {
+        name: `${th('tenantPeople:chooseTeam')} ${th('tenantPeople:team')}`,
+        exact: true,
+      })
+      .click();
+    await page.getByRole('option', { name: 'Test Team', exact: true }).click();
+    await page.getByRole('button', { name: th('tenantPeople:create'), exact: true }).click();
     if (scenario.startsWith('preauth-')) {
       await expect(page.getByRole('alert')).toContainText(
-        scenario === 'preauth-401' ? 'กรุณาเข้าสู่ระบบใหม่' : 'คุณไม่มีสิทธิ์',
+        scenario === 'preauth-401'
+          ? th('tenantPeople:errors.UNAUTHORIZED')
+          : th('tenantPeople:errors.FORBIDDEN'),
       );
       await page.reload();
-      await page.getByRole('button', { name: 'สร้างบัญชี', exact: true }).click();
-      await expect(page.getByRole('textbox', { name: 'อีเมล', exact: true })).toBeEnabled();
+      await page.getByRole('button', { name: th('tenantPeople:create'), exact: true }).click();
+      await expect(
+        page.getByRole('textbox', { name: th('tenantPeople:email'), exact: true }),
+      ).toBeEnabled();
       expect(commandReads).toBe(0);
       expect(reads).toBe(0);
       expect(creates).toBe(1);
       return;
     }
     if (['validation', 'quota', 'conflict'].includes(scenario)) {
-      await expect(page.getByRole('textbox', { name: 'อีเมล', exact: true })).toBeEnabled();
+      await expect(
+        page.getByRole('textbox', { name: th('tenantPeople:email'), exact: true }),
+      ).toBeEnabled();
       if (scenario === 'validation')
         await expect(page.getByRole('alert')).toContainText(
-          'ตรวจชื่อ อีเมล บทบาท ทีม และหมายเลขภายใน แล้วส่งใหม่ได้',
+          th('tenantPeople:errors.VALIDATION_FAILED'),
         );
       await page
-        .getByRole('textbox', { name: 'อีเมล', exact: true })
+        .getByRole('textbox', { name: th('tenantPeople:email'), exact: true })
         .fill('corrected@example.test');
-      await page.getByRole('button', { name: 'สร้างบัญชี', exact: true }).click();
+      await page.getByRole('button', { name: th('tenantPeople:create'), exact: true }).click();
       expect(commands[0]).not.toBe(commands[1]);
     }
     if (lostResponse) {
-      await expect(page.getByRole('button', { name: 'สร้างบัญชี', exact: true })).toBeDisabled();
+      await expect(
+        page.getByRole('button', { name: th('tenantPeople:create'), exact: true }),
+      ).toBeDisabled();
       if (scenario === 'lost-reload') {
         await expect.poll(() => creates).toBe(1);
         await page.reload();
-      } else await page.getByRole('button', { name: 'ตรวจผลคำสั่งเดิม', exact: true }).click();
+      } else
+        await page.getByRole('button', { name: th('tenantPeople:refresh'), exact: true }).click();
     }
     if (scenario === 'attention') {
       await expect(
-        page.getByText('บัญชีนี้ต้องได้รับการตรวจสอบ กรุณาติดต่อผู้ดูแล ยังไม่เปิดใช้งาน', {
+        page.getByText(th('tenantPeople:attention'), {
           exact: true,
         }),
       ).toBeVisible();
-      await expect(page.getByRole('button', { name: 'สร้างบัญชี', exact: true })).toBeEnabled();
+      await expect(
+        page.getByRole('button', { name: th('tenantPeople:create'), exact: true }),
+      ).toBeEnabled();
       const previousReads = reads;
       await page.clock.install();
       await page.clock.runFor(15_000);
@@ -175,18 +207,22 @@ for (const scenario of [
       expect(creates).toBe(1);
       return;
     }
-    await expect(page.getByText(/^จัดเตรียมบัญชีแล้ว — ยังรอผู้ใช้เปิดใช้งาน/)).toBeVisible();
+    await expect(
+      page.getByText(new RegExp(`^${escapeRegExp(th('tenantPeople:banner.body.PROVISIONED'))}`)),
+    ).toBeVisible();
     const storage = await page.evaluate(() => JSON.stringify(sessionStorage));
     expect(storage).not.toContain('synthetic@example.test');
     expect(storage).not.toContain('e2e-access-token');
     await page.reload();
-    await expect(page.getByText(/^จัดเตรียมบัญชีแล้ว — ยังรอผู้ใช้เปิดใช้งาน/)).toBeVisible();
+    await expect(
+      page.getByText(new RegExp(`^${escapeRegExp(th('tenantPeople:banner.body.PROVISIONED'))}`)),
+    ).toBeVisible();
     expect(creates).toBe(['validation', 'quota', 'conflict'].includes(scenario) ? 2 : 1);
     expect(reads).toBeGreaterThanOrEqual(2);
     expect(forbidden).toEqual([]);
-    const banner = page.getByRole('region', { name: 'คำสั่งสร้างบัญชีล่าสุด' });
-    await expect(banner).toContainText('รอเปิดใช้งาน');
-    await expect(banner.getByRole('button', { name: 'ตรวจผลคำสั่งเดิม' })).toHaveCount(0);
+    const banner = page.getByRole('region', { name: th('tenantPeople:banner.title') });
+    await expect(banner).toContainText(th('tenantPeople:banner.chip.PROVISIONED'));
+    await expect(banner.getByRole('button', { name: th('tenantPeople:refresh') })).toHaveCount(0);
     const accessibility = await new AxeBuilder({ page }).analyze();
     expect(
       accessibility.violations.filter(
@@ -194,11 +230,17 @@ for (const scenario of [
       ),
     ).toEqual([]);
     // after the final result the bar can be dismissed and does not come back after reload
-    await banner.getByRole('button', { name: 'ปิดแถบนี้', exact: true }).click();
+    await banner
+      .getByRole('button', { name: th('tenantPeople:banner.dismiss'), exact: true })
+      .click();
     await expect(banner).toHaveCount(0);
     await page.reload();
-    await expect(page.getByRole('button', { name: 'สร้างบัญชี', exact: true })).toBeEnabled();
-    await expect(page.getByRole('region', { name: 'คำสั่งสร้างบัญชีล่าสุด' })).toHaveCount(0);
+    await expect(
+      page.getByRole('button', { name: th('tenantPeople:create'), exact: true }),
+    ).toBeEnabled();
+    await expect(page.getByRole('region', { name: th('tenantPeople:banner.title') })).toHaveCount(
+      0,
+    );
   });
 
 for (const ending of ['success', 'auth', 'unmount'])
@@ -216,7 +258,7 @@ for (const ending of ['success', 'auth', 'unmount'])
       if (path === 'capabilities')
         return route.fulfill({ json: { canWrite: true, peopleProvisioning: { ready: true } } });
       if (path === 'teams')
-        return route.fulfill({ json: { items: [{ id: teamId, name: 'ทีมทดสอบ' }] } });
+        return route.fulfill({ json: { items: [{ id: teamId, name: 'Test Team' }] } });
       if (path === 'extension-pool') return route.fulfill({ json: { items: [] } });
       if (path === 'people/users')
         return route.fulfill({ status: 202, json: { operationId, userId } });
@@ -242,15 +284,26 @@ for (const ending of ['success', 'auth', 'unmount'])
       return route.fulfill({ status: 404 });
     });
     await page.goto('/?view=tenant-people&tenant=demo');
-    await page.getByRole('button', { name: 'สร้างบัญชี', exact: true }).click();
-    await page.getByRole('textbox', { name: 'ชื่อที่แสดง', exact: true }).fill('ผู้ทดสอบ');
-    await page.getByRole('textbox', { name: 'อีเมล', exact: true }).fill('synthetic@example.test');
-    await page.getByRole('button', { name: 'Agent บทบาท', exact: true }).click();
+    await page.getByRole('button', { name: th('tenantPeople:create'), exact: true }).click();
+    await page
+      .getByRole('textbox', { name: th('tenantPeople:name'), exact: true })
+      .fill('Test User');
+    await page
+      .getByRole('textbox', { name: th('tenantPeople:email'), exact: true })
+      .fill('synthetic@example.test');
+    await page
+      .getByRole('button', { name: `Agent ${th('tenantPeople:role')}`, exact: true })
+      .click();
     await page.getByRole('option', { name: 'Admin', exact: true }).click();
-    await page.getByRole('button', { name: 'เลือกทีม ทีม', exact: true }).click();
-    await page.getByRole('option', { name: 'ทีมทดสอบ', exact: true }).click();
-    await page.getByRole('button', { name: 'สร้างบัญชี', exact: true }).click();
-    const refresh = page.getByRole('button', { name: 'ตรวจผลคำสั่งเดิม', exact: true });
+    await page
+      .getByRole('button', {
+        name: `${th('tenantPeople:chooseTeam')} ${th('tenantPeople:team')}`,
+        exact: true,
+      })
+      .click();
+    await page.getByRole('option', { name: 'Test Team', exact: true }).click();
+    await page.getByRole('button', { name: th('tenantPeople:create'), exact: true }).click();
+    const refresh = page.getByRole('button', { name: th('tenantPeople:refresh'), exact: true });
     await expect(refresh).toBeEnabled();
     await page.clock.runFor(5_000);
     await expect.poll(() => reads).toBe(2);
@@ -288,12 +341,14 @@ for (const ending of ['success', 'auth', 'unmount'])
     expect(reads).toBe(3);
     release!();
     if (ending === 'auth') {
-      await expect(page.getByRole('alert')).toContainText('กรุณาเข้าสู่ระบบใหม่');
+      await expect(page.getByRole('alert')).toContainText(th('tenantPeople:errors.UNAUTHORIZED'));
       expect(
         await page.evaluate(() => sessionStorage.getItem('dc:tenant-people:pending:e2e-people')),
       ).toContain(operationId);
     } else
-      await expect(page.getByText(/^จัดเตรียมบัญชีแล้ว — ยังรอผู้ใช้เปิดใช้งาน/)).toBeVisible();
+      await expect(
+        page.getByText(new RegExp(`^${escapeRegExp(th('tenantPeople:banner.body.PROVISIONED'))}`)),
+      ).toBeVisible();
     await page.clock.runFor(15_000);
     expect(reads).toBe(3);
   });
@@ -321,10 +376,10 @@ test('capability not ready must not send a mutation or open the extension pool',
     return route.fulfill({ status: 503 });
   });
   await page.goto('/?view=tenant-people&tenant=demo');
+  await expect(page.getByText(th('tenantPeople:notReady'), { exact: true })).toBeVisible();
   await expect(
-    page.getByText('ยังไม่พร้อมจัดเตรียมบัญชี หรือคุณไม่มีสิทธิ์สร้างบัญชี', { exact: true }),
-  ).toBeVisible();
-  await expect(page.getByRole('button', { name: 'สร้างบัญชี', exact: true })).toBeDisabled();
+    page.getByRole('button', { name: th('tenantPeople:create'), exact: true }),
+  ).toBeDisabled();
   expect(unexpected).toEqual([]);
 });
 
@@ -334,6 +389,6 @@ test('production auth root opens People without asking for an Interaction contex
   await page.goto('/?view=tenant-people&tenant=demo&authRootHarness=1');
   await expect(page.getByRole('main')).toBeVisible();
   await expect(
-    page.getByRole('heading', { name: 'ไม่พบ Interaction context', exact: true }),
+    page.getByRole('heading', { name: th('common:auth.contextMissing.title'), exact: true }),
   ).toHaveCount(0);
 });

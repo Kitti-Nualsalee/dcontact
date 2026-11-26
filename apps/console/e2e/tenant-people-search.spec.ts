@@ -1,7 +1,12 @@
 import { expect, test } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { homeNavigation } from './support/home-navigation.js';
+import { th } from './support/catalog';
 test.use({ locale: 'th-TH' });
+
+const NAME_SOMCHAI = 'สมชาย ใจดี'; // allow-thai: Thai names, this suite checks Thai search
+const NAME_SOMYING = 'สมหญิง รักงาน'; // allow-thai: Thai names, this suite checks Thai search
+const SEARCH_PREFIX = 'สมห'; // allow-thai: Thai search prefix, matches the names above
 
 const TEAM_ID = '10000000-0000-4000-8000-000000000301';
 const account = (index: number, name: string, role = 'AGENT') => ({
@@ -25,9 +30,9 @@ test('server-side search and filter: the query is in the body, not the URL, and 
   page,
 }) => {
   const everyone = [
-    account(1, 'สมชาย ใจดี'),
-    account(2, 'สมหญิง รักงาน', 'SUPERVISOR'),
-    account(3, 'Admin หลัก', 'ADMIN'),
+    account(1, NAME_SOMCHAI),
+    account(2, NAME_SOMYING, 'SUPERVISOR'),
+    account(3, 'Main Admin', 'ADMIN'),
   ];
   const searches: Record<string, unknown>[] = [];
   const urls: string[] = [];
@@ -41,7 +46,9 @@ test('server-side search and filter: the query is in the body, not the URL, and 
     if (path === 'capabilities')
       return route.fulfill({ json: { canWrite: true, peopleProvisioning: { ready: true } } });
     if (path === 'teams')
-      return route.fulfill({ json: { items: [{ id: TEAM_ID, name: 'ทีมขาย', isActive: true }] } });
+      return route.fulfill({
+        json: { items: [{ id: TEAM_ID, name: 'Sales Team', isActive: true }] },
+      });
     if (path === 'extension-pool') return route.fulfill({ json: { items: [] } });
     if (path === 'people/users' && request.method() === 'GET')
       return route.fulfill({ json: { items: everyone, nextCursor: null } });
@@ -64,34 +71,54 @@ test('server-side search and filter: the query is in the body, not the URL, and 
   });
 
   await page.goto('/?view=tenant-people&tenant=demo');
-  await expect(page.getByRole('button', { name: 'ดูบัญชี Admin หลัก', exact: true })).toBeVisible();
-  await expect(page.getByText('3 บัญชี', { exact: true })).toBeVisible();
-
-  const search = page.getByRole('searchbox', { name: 'ค้นหา' });
-  await search.pressSequentially('สมห', { delay: 30 });
-  await expect(page.getByText('พบ 1 บัญชี', { exact: true })).toBeVisible();
   await expect(
-    page.getByRole('button', { name: 'ดูบัญชี สมหญิง รักงาน', exact: true }),
+    page.getByRole('button', {
+      name: `${th('tenantPeople:directory.open')} Main Admin`,
+      exact: true,
+    }),
   ).toBeVisible();
-  await expect(page.getByRole('button', { name: 'ดูบัญชี สมชาย ใจดี', exact: true })).toHaveCount(
-    0,
-  );
-  // continuous typing sends once with the last query, and no query in the URL
-  expect(searches).toEqual([{ limit: 20, q: 'สมห' }]);
-  expect(urls.some((url) => decodeURIComponent(url).includes('สมห'))).toBe(false);
+  await expect(
+    page.getByText(th('tenantPeople:list.countAll', { count: 3 }), { exact: true }),
+  ).toBeVisible();
 
-  await page.getByRole('button', { name: /บทบาท/ }).click();
+  const search = page.getByRole('searchbox', { name: th('tenantPeople:filters.searchLabel') });
+  await search.pressSequentially(SEARCH_PREFIX, { delay: 30 });
+  await expect(
+    page.getByText(th('tenantPeople:list.countMatched', { count: 1 }), { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('button', {
+      name: `${th('tenantPeople:directory.open')} ${NAME_SOMYING}`,
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('button', {
+      name: `${th('tenantPeople:directory.open')} ${NAME_SOMCHAI}`,
+      exact: true,
+    }),
+  ).toHaveCount(0);
+  // continuous typing sends once with the last query, and no query in the URL
+  expect(searches).toEqual([{ limit: 20, q: SEARCH_PREFIX }]);
+  expect(urls.some((url) => decodeURIComponent(url).includes(SEARCH_PREFIX))).toBe(false);
+
+  await page.getByRole('button', { name: th('tenantPeople:role') }).click();
   await page.getByRole('option', { name: 'Admin', exact: true }).click();
-  await expect(page.getByText('ไม่พบบัญชีที่ตรงกับคำค้นหรือตัวกรอง')).toBeVisible();
-  expect(searches.at(-1)).toEqual({ limit: 20, q: 'สมห', role: 'ADMIN' });
+  await expect(page.getByText(th('tenantPeople:list.noMatch'))).toBeVisible();
+  expect(searches.at(-1)).toEqual({ limit: 20, q: SEARCH_PREFIX, role: 'ADMIN' });
 
   const accessibility = await new AxeBuilder({ page }).analyze();
   expect(
     accessibility.violations.filter((item) => ['serious', 'critical'].includes(item.impact ?? '')),
   ).toEqual([]);
 
-  await page.getByRole('button', { name: 'ล้างตัวกรอง', exact: true }).first().click();
-  await expect(page.getByText('3 บัญชี', { exact: true })).toBeVisible();
+  await page
+    .getByRole('button', { name: th('tenantPeople:filters.clear'), exact: true })
+    .first()
+    .click();
+  await expect(
+    page.getByText(th('tenantPeople:list.countAll', { count: 3 }), { exact: true }),
+  ).toBeVisible();
   await expect(search).toHaveValue('');
 });
 
@@ -112,7 +139,9 @@ test('the result of an old, slowly answering query is dropped, and load more sen
     if (path === 'capabilities')
       return route.fulfill({ json: { canWrite: true, peopleProvisioning: { ready: true } } });
     if (path === 'teams')
-      return route.fulfill({ json: { items: [{ id: TEAM_ID, name: 'ทีมขาย', isActive: true }] } });
+      return route.fulfill({
+        json: { items: [{ id: TEAM_ID, name: 'Sales Team', isActive: true }] },
+      });
     if (path === 'extension-pool') return route.fulfill({ json: { items: [] } });
     if (path === 'people/users' && request.method() === 'GET')
       return route.fulfill({ json: { items: agents.slice(0, 20), nextCursor: 'all-page-2' } });
@@ -123,7 +152,7 @@ test('the result of an old, slowly answering query is dropped, and load more sen
         // the first query answers slower than the next query
         await new Promise<void>((resolve) => (releaseSlow = resolve));
         return route.fulfill({
-          json: { items: [account(90, 'ผลเก่าที่ต้องทิ้ง')], nextCursor: null },
+          json: { items: [account(90, 'Stale result to discard')], nextCursor: null },
         });
       }
       if (body.cursor === 'agent-page-2')
@@ -134,21 +163,27 @@ test('the result of an old, slowly answering query is dropped, and load more sen
   });
 
   await page.goto('/?view=tenant-people&tenant=demo');
-  await expect(page.getByText('แสดง 20 บัญชีแรก มีบัญชีเพิ่มเติม')).toBeVisible();
-  const search = page.getByRole('searchbox', { name: 'ค้นหา' });
+  await expect(page.getByText(th('tenantPeople:list.countMore', { count: 20 }))).toBeVisible();
+  const search = page.getByRole('searchbox', { name: th('tenantPeople:filters.searchLabel') });
   await search.fill('slow');
   await expect.poll(() => searches.length).toBe(1);
   await search.fill('agent');
   await expect.poll(() => searches.length).toBe(2);
-  await expect(page.getByText('แสดง 20 บัญชีแรก มีบัญชีเพิ่มเติม')).toBeVisible();
+  await expect(page.getByText(th('tenantPeople:list.countMore', { count: 20 }))).toBeVisible();
   releaseSlow!();
-  await expect(page.getByRole('button', { name: 'ดูบัญชี ผลเก่าที่ต้องทิ้ง' })).toHaveCount(0);
+  await expect(
+    page.getByRole('button', {
+      name: `${th('tenantPeople:directory.open')} Stale result to discard`,
+    }),
+  ).toHaveCount(0);
 
-  await page.getByRole('button', { name: 'ดูบัญชีเพิ่มเติม', exact: true }).click();
-  await expect(page.getByText('พบ 25 บัญชี', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: th('tenantPeople:directory.more'), exact: true }).click();
+  await expect(
+    page.getByText(th('tenantPeople:list.countMatched', { count: 25 }), { exact: true }),
+  ).toBeVisible();
   expect(searches.at(-1)).toEqual({ limit: 20, cursor: 'agent-page-2', q: 'agent' });
 
-  await page.getByRole('button', { name: /สถานะ/ }).click();
-  await page.getByRole('option', { name: 'จัดเตรียมไม่สำเร็จ', exact: true }).click();
+  await page.getByRole('button', { name: th('tenantPeople:filters.status') }).click();
+  await page.getByRole('option', { name: th('tenantPeople:status.REJECTED'), exact: true }).click();
   await expect.poll(() => searches.at(-1)).toEqual({ limit: 20, q: 'agent', status: 'REJECTED' });
 });

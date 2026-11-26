@@ -1,6 +1,11 @@
 import { expect, test } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { homeNavigation } from './support/home-navigation.js';
+import { th } from './support/catalog';
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 test.use({ locale: 'th-TH' });
 const userId = '10000000-0000-4000-8000-000000000713';
@@ -22,7 +27,7 @@ for (const scenario of [
     if (scenario === 'poll') await page.clock.install();
     const user = {
       id: userId,
-      displayName: 'ผู้ใช้ปิดบัญชีทดสอบ',
+      displayName: 'Account To Disable',
       email: 'disable@example.test',
       username: 'disable@example.test',
       role: 'AGENT',
@@ -71,7 +76,7 @@ for (const scenario of [
           'reasonCode',
         ]);
         expect(body.expectedRevision).toBe(1);
-        expect(body.reason).toBe('จบทดสอบบัญชี');
+        expect(body.reason).toBe('Test account closure');
         commandId = body.commandId;
         if (scenario === 'readiness-race' && posts === 1)
           return route.fulfill({ status: 503, json: { code: 'CAPABILITY_NOT_READY' } });
@@ -106,51 +111,86 @@ for (const scenario of [
     });
     await page.goto('/?view=tenant-people&tenant=demo');
     const open = () =>
-      page.getByRole('button', { name: 'ดูบัญชี ผู้ใช้ปิดบัญชีทดสอบ', exact: true }).click();
+      page
+        .getByRole('button', {
+          name: `${th('tenantPeople:directory.open')} Account To Disable`,
+          exact: true,
+        })
+        .click();
     await open();
-    let panel = page.getByRole('region', { name: 'ปิดบัญชี', exact: true });
+    let panel = page.getByRole('region', { name: th('tenantPeople:disable.title'), exact: true });
     if (scenario === 'not-ready') {
-      await expect(panel.getByRole('button', { name: 'ปิดบัญชี…', exact: true })).toBeDisabled();
+      await expect(
+        panel.getByRole('button', { name: th('tenantPeople:disable.start'), exact: true }),
+      ).toBeDisabled();
       expect(posts).toBe(0);
       return;
     }
-    const refreshDisable = panel.getByRole('button', { name: 'ตรวจผลการปิดบัญชี', exact: true });
+    const refreshDisable = panel.getByRole('button', {
+      name: th('tenantPeople:disable.refresh'),
+      exact: true,
+    });
     // no pending command yet: the check-result button is not shown
-    await expect(panel.getByRole('button', { name: 'ปิดบัญชี…', exact: true })).toBeEnabled();
+    await expect(
+      panel.getByRole('button', { name: th('tenantPeople:disable.start'), exact: true }),
+    ).toBeEnabled();
     await expect(refreshDisable).toHaveCount(0);
     const dialog = page.getByRole('alertdialog');
     const confirmDisable = async () => {
-      await panel.getByRole('button', { name: 'ปิดบัญชี…', exact: true }).click();
+      await panel
+        .getByRole('button', { name: th('tenantPeople:disable.start'), exact: true })
+        .click();
       await dialog
-        .getByRole('textbox', { name: 'เหตุผล (1–500 ตัวอักษร)', exact: true })
-        .fill('จบทดสอบบัญชี');
-      await dialog.getByRole('button', { name: 'ยืนยันปิดบัญชี', exact: true }).click();
+        .getByRole('textbox', { name: th('tenantPeople:invitation.reason'), exact: true })
+        .fill('Test account closure');
+      await dialog
+        .getByRole('button', { name: th('tenantPeople:disable.submit'), exact: true })
+        .click();
     };
-    await panel.getByRole('button', { name: 'ปิดบัญชี…', exact: true }).click();
+    await panel
+      .getByRole('button', { name: th('tenantPeople:disable.start'), exact: true })
+      .click();
     await expect(dialog).toBeVisible();
-    const reason = dialog.getByRole('textbox', { name: 'เหตุผล (1–500 ตัวอักษร)', exact: true });
-    await reason.fill('เหตุผลที่ยกเลิก');
+    const reason = dialog.getByRole('textbox', {
+      name: th('tenantPeople:invitation.reason'),
+      exact: true,
+    });
+    await reason.fill('Reason that gets cancelled');
     expect(posts).toBe(0);
-    await dialog.getByRole('button', { name: 'ยกเลิก', exact: true }).click();
+    await dialog
+      .getByRole('button', { name: th('tenantPeople:disable.cancel'), exact: true })
+      .click();
     await expect(dialog).toHaveCount(0);
     // reopening must start from an empty reason field, so an old reason does not follow into the new confirmation
-    await panel.getByRole('button', { name: 'ปิดบัญชี…', exact: true }).click();
+    await panel
+      .getByRole('button', { name: th('tenantPeople:disable.start'), exact: true })
+      .click();
     await expect(reason).toHaveValue('');
     await page.keyboard.press('Escape');
     await expect(dialog).toHaveCount(0);
     await confirmDisable();
     if (scenario === 'readiness-race') {
-      await expect(panel.getByRole('alert')).toContainText('ยังไม่ได้รับคำสั่ง');
-      await panel.getByRole('button', { name: 'ตรวจผลการปิดบัญชี', exact: true }).click();
+      await expect(panel.getByRole('alert')).toContainText(
+        th('tenantPeople:disable.errors.NOT_ACCEPTED'),
+      );
+      await panel
+        .getByRole('button', { name: th('tenantPeople:disable.refresh'), exact: true })
+        .click();
       await confirmDisable();
     }
     if (scenario === 'forbidden') {
-      await expect(dialog.getByRole('alert')).toContainText('คุณไม่มีสิทธิ์ปิดบัญชีนี้');
+      await expect(dialog.getByRole('alert')).toContainText(
+        th('tenantPeople:disable.errors.FORBIDDEN'),
+      );
       // a 403 on the command does not replace the whole People page: the card and detail stay, no pending command
       await expect(panel).toBeVisible();
-      await expect(page.getByText(/ไม่มีสิทธิ์จัดการบัญชี/)).toHaveCount(0);
-      await dialog.getByRole('button', { name: 'ยกเลิก', exact: true }).click();
-      await expect(panel.getByRole('button', { name: 'ปิดบัญชี…', exact: true })).toBeEnabled();
+      await expect(page.getByText(th('tenantPeople:errors.FORBIDDEN'))).toHaveCount(0);
+      await dialog
+        .getByRole('button', { name: th('tenantPeople:disable.cancel'), exact: true })
+        .click();
+      await expect(
+        panel.getByRole('button', { name: th('tenantPeople:disable.start'), exact: true }),
+      ).toBeEnabled();
       await expect(refreshDisable).toHaveCount(0);
       expect(
         await page.evaluate(() =>
@@ -161,12 +201,18 @@ for (const scenario of [
       return;
     }
     if (scenario === 'not-recorded') {
-      await expect(panel).toContainText('ห้ามส่งคำสั่งปิดซ้ำ');
-      await expect(panel.getByRole('button', { name: 'ปิดบัญชี…', exact: true })).toBeDisabled();
+      await expect(panel).toContainText(th('tenantPeople:disable.pending'));
+      await expect(
+        panel.getByRole('button', { name: th('tenantPeople:disable.start'), exact: true }),
+      ).toBeDisabled();
       await refreshDisable.click();
-      await expect(panel.getByRole('alert')).toContainText('ไม่พบคำสั่งปิดบัญชีเดิมในระบบ');
-      await expect(panel).not.toContainText('ห้ามส่งคำสั่งปิดซ้ำ');
-      await expect(panel.getByRole('button', { name: 'ปิดบัญชี…', exact: true })).toBeEnabled();
+      await expect(panel.getByRole('alert')).toContainText(
+        th('tenantPeople:disable.errors.NOT_RECORDED'),
+      );
+      await expect(panel).not.toContainText(th('tenantPeople:disable.pending'));
+      await expect(
+        panel.getByRole('button', { name: th('tenantPeople:disable.start'), exact: true }),
+      ).toBeEnabled();
       expect(
         await page.evaluate(() =>
           Object.keys(sessionStorage).filter((key) => key.startsWith('dc:tenant-disable:')),
@@ -177,7 +223,9 @@ for (const scenario of [
     }
     if (scenario === 'last-admin' || scenario === 'busy') {
       await expect(dialog.getByRole('alert')).toContainText(
-        scenario === 'last-admin' ? 'คนสุดท้าย' : 'มีงานค้าง',
+        scenario === 'last-admin'
+          ? th('tenantPeople:disable.errors.LAST_USABLE_ADMIN')
+          : th('tenantPeople:disable.errors.CONFIG_BUSY'),
       );
       expect(posts).toBe(1);
       return;
@@ -186,15 +234,17 @@ for (const scenario of [
       await expect(panel.getByRole('alert')).toBeVisible();
       await page.reload();
       await open();
-      panel = page.getByRole('region', { name: 'ปิดบัญชี', exact: true });
-      await expect(panel).toContainText('ผลยังไม่ชัดเจน');
-      await expect(panel.getByRole('button', { name: 'ปิดบัญชี…', exact: true })).toBeDisabled();
+      panel = page.getByRole('region', { name: th('tenantPeople:disable.title'), exact: true });
+      await expect(panel).toContainText(th('tenantPeople:disable.states.ACTION_REQUIRED'));
       await expect(
-        panel.getByRole('button', { name: 'ตรวจผลการปิดบัญชี', exact: true }),
+        panel.getByRole('button', { name: th('tenantPeople:disable.start'), exact: true }),
+      ).toBeDisabled();
+      await expect(
+        panel.getByRole('button', { name: th('tenantPeople:disable.refresh'), exact: true }),
       ).toBeVisible();
     }
     if (scenario === 'poll') {
-      await expect(panel).toContainText('รอยืนยัน identity');
+      await expect(panel).toContainText(th('tenantPeople:disable.states.WAITING_EXTERNAL'));
       await page.evaluate(() => {
         Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
         document.dispatchEvent(new Event('visibilitychange'));
@@ -208,11 +258,27 @@ for (const scenario of [
         });
         document.dispatchEvent(new Event('visibilitychange'));
       });
-    } else await panel.getByRole('button', { name: 'ตรวจผลการปิดบัญชี', exact: true }).click();
-    await expect(panel).toContainText('ปิดบัญชีและ session สำเร็จแล้ว');
+    } else
+      await panel
+        .getByRole('button', { name: th('tenantPeople:disable.refresh'), exact: true })
+        .click();
+    await expect(panel).toContainText(th('tenantPeople:disable.states.SUCCEEDED'));
     // closed successfully: no pending command, so no check-result button or disable button remains overlapping the re-enable card
     await expect(panel.getByRole('button')).toHaveCount(0);
-    await expect(page.getByRole('button', { name: /^ตรวจผล/ })).toHaveCount(0);
+    await expect(
+      page.getByRole('button', {
+        name: new RegExp(
+          `^(${[
+            th('tenantPeople:disable.refresh'),
+            th('tenantPeople:enable.refresh'),
+            th('tenantPeople:profile.refresh'),
+            th('tenantPeople:refresh'),
+          ]
+            .map(escapeRegExp)
+            .join('|')})`,
+        ),
+      }),
+    ).toHaveCount(0);
     expect(posts).toBe(scenario === 'readiness-race' ? 2 : 1);
     if (scenario === 'poll') {
       expect(checks).toBe(1);
@@ -223,7 +289,7 @@ for (const scenario of [
       Object.entries(sessionStorage).filter(([key]) => key.startsWith('dc:tenant-disable:')),
     );
     expect(JSON.stringify(stored)).not.toMatch(
-      /disable@example|จบทดสอบบัญชี|access_token|password/,
+      /disable@example|Test account closure|access_token|password/,
     );
     const axe = await new AxeBuilder({ page }).analyze();
     expect(
@@ -237,7 +303,7 @@ test('account already disabled: the disable card shrinks to one line with no but
 }) => {
   const user = {
     id: userId,
-    displayName: 'ผู้ใช้ปิดอยู่แล้ว',
+    displayName: 'Already Disabled User',
     email: 'disabled@example.test',
     username: 'disabled@example.test',
     role: 'AGENT',
@@ -281,18 +347,25 @@ test('account already disabled: the disable card shrinks to one line with no but
     return route.fulfill({ status: 404, json: { code: 'RESOURCE_NOT_FOUND' } });
   });
   await page.goto('/?view=tenant-people&tenant=demo');
-  await page.getByRole('button', { name: 'ดูบัญชี ผู้ใช้ปิดอยู่แล้ว', exact: true }).click();
-  const panel = page.getByRole('region', { name: 'ปิดบัญชี', exact: true });
-  await expect(panel).toContainText('บัญชีนี้ปิดอยู่');
-  await expect(panel).not.toContainText('ปิดบัญชีและ session สำเร็จแล้ว');
-  await expect(panel).not.toContainText('ยังปิดไม่ได้');
+  await page
+    .getByRole('button', {
+      name: `${th('tenantPeople:directory.open')} Already Disabled User`,
+      exact: true,
+    })
+    .click();
+  const panel = page.getByRole('region', { name: th('tenantPeople:disable.title'), exact: true });
+  await expect(panel).toContainText(th('tenantPeople:disable.closed'));
+  await expect(panel).not.toContainText(th('tenantPeople:disable.states.SUCCEEDED'));
+  await expect(panel).not.toContainText(th('tenantPeople:disable.notEligible'));
   await expect(panel.getByRole('button')).toHaveCount(0);
   await expect(panel.getByRole('status')).toHaveCount(0);
-  const enable = page.getByRole('region', { name: 'เปิดบัญชีกลับ' });
+  const enable = page.getByRole('region', { name: th('tenantPeople:enable.title') });
   await expect(enable).toBeVisible();
   expect(checks).toBe(0);
   // wait until the re-enable button changes from checking readiness to pressable and the color transition ends before the contrast scan
-  await expect(enable.getByRole('button', { name: 'เปิดบัญชีกลับ…', exact: true })).toBeEnabled();
+  await expect(
+    enable.getByRole('button', { name: th('tenantPeople:enable.start'), exact: true }),
+  ).toBeEnabled();
   await page.evaluate(() => Promise.all(document.getAnimations().map((item) => item.finished)));
   await page.waitForTimeout(300);
   const axe = await new AxeBuilder({ page }).analyze();

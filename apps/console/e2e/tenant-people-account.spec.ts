@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { homeNavigation } from './support/home-navigation.js';
+import { th } from './support/catalog';
 test.use({ locale: 'th-TH' });
 
 const TEAM = '10000000-0000-4000-8000-000000000501';
@@ -23,7 +24,7 @@ async function mockPeople(
 ) {
   let user: Record<string, unknown> = {
     id: USER_ID,
-    displayName: 'สมหญิง เดิม',
+    displayName: 'Original Name',
     email: 'somying@example.test',
     username: 'somying@example.test',
     role: 'AGENT',
@@ -61,7 +62,7 @@ async function mockPeople(
         },
       });
     if (path === 'teams')
-      return route.fulfill({ json: { items: [{ id: TEAM, name: 'ทีมขาย', isActive: true }] } });
+      return route.fulfill({ json: { items: [{ id: TEAM, name: 'Sales Team', isActive: true }] } });
     if (path === 'extension-pool') return route.fulfill({ json: { items: [] } });
     if (path === 'people/users' && request.method() === 'GET')
       return route.fulfill({ json: { items: [user], nextCursor: null } });
@@ -121,16 +122,27 @@ async function mockPeople(
     return route.fulfill({ status: 404, json: { code: 'RESOURCE_NOT_FOUND' } });
   });
   await page.goto('/?view=tenant-people&tenant=demo');
-  await page.getByRole('button', { name: 'ดูบัญชี สมหญิง เดิม', exact: true }).click();
+  await page
+    .getByRole('button', {
+      name: `${th('tenantPeople:directory.open')} Original Name`,
+      exact: true,
+    })
+    .click();
   return Object.assign(writes, { lookups });
 }
 
 async function fillRename(page: Page) {
-  await page.getByRole('button', { name: 'แก้ชื่อที่แสดง…', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'แก้ชื่อที่แสดงของ สมหญิง เดิม' });
-  await dialog.getByRole('textbox', { name: /ชื่อที่แสดงใหม่/ }).fill('สมหญิง ใหม่');
-  await dialog.getByRole('textbox', { name: /เหตุผล/ }).fill('ผู้ใช้แจ้งเปลี่ยนชื่อ');
-  await dialog.getByRole('button', { name: 'บันทึกชื่อ', exact: true }).click();
+  await page.getByRole('button', { name: th('tenantPeople:profile.start'), exact: true }).click();
+  const dialog = page.getByRole('dialog', {
+    name: th('tenantPeople:profile.title', { name: 'Original Name' }),
+  });
+  await dialog.getByRole('textbox', { name: th('tenantPeople:profile.newName') }).fill('New Name');
+  await dialog
+    .getByRole('textbox', { name: th('tenantPeople:invitation.reason') })
+    .fill('User requested a name change');
+  await dialog
+    .getByRole('button', { name: th('tenantPeople:profile.submit'), exact: true })
+    .click();
   return dialog;
 }
 
@@ -157,21 +169,34 @@ for (const respond of ['success', 'busy', 'unknown'] as const)
   }) => {
     const writes = await mockPeople(page, { disabled: false, respond });
     // an active account has no re-enable panel
-    await expect(page.getByRole('region', { name: 'เปิดบัญชีกลับ' })).toHaveCount(0);
-    await page.getByRole('button', { name: 'แก้ชื่อที่แสดง…', exact: true }).click();
-    const dialog = page.getByRole('dialog', { name: 'แก้ชื่อที่แสดงของ สมหญิง เดิม' });
-    const name = dialog.getByRole('textbox', { name: /ชื่อที่แสดงใหม่/ });
-    await expect(name).toHaveValue('สมหญิง เดิม');
-    const submit = dialog.getByRole('button', { name: 'บันทึกชื่อ', exact: true });
+    await expect(page.getByRole('region', { name: th('tenantPeople:enable.title') })).toHaveCount(
+      0,
+    );
+    await page.getByRole('button', { name: th('tenantPeople:profile.start'), exact: true }).click();
+    const dialog = page.getByRole('dialog', {
+      name: th('tenantPeople:profile.title', { name: 'Original Name' }),
+    });
+    const name = dialog.getByRole('textbox', { name: th('tenantPeople:profile.newName') });
+    await expect(name).toHaveValue('Original Name');
+    const submit = dialog.getByRole('button', {
+      name: th('tenantPeople:profile.submit'),
+      exact: true,
+    });
     await expect(submit).toBeDisabled();
-    await name.fill('  สมหญิง   ใหม่ ');
-    await dialog.getByRole('textbox', { name: /เหตุผล/ }).fill('ผู้ใช้แจ้งเปลี่ยนชื่อ');
+    await name.fill('  New   Name ');
+    await dialog
+      .getByRole('textbox', { name: th('tenantPeople:invitation.reason') })
+      .fill('User requested a name change');
     await axe(page);
     await submit.click();
     await expect.poll(() => writes.length).toBe(1);
     expect(writes[0]).toMatchObject({
       method: 'PATCH',
-      body: { expectedRevision: 6, displayName: 'สมหญิง ใหม่', reason: 'ผู้ใช้แจ้งเปลี่ยนชื่อ' },
+      body: {
+        expectedRevision: 6,
+        displayName: 'New Name',
+        reason: 'User requested a name change',
+      },
     });
     expect(Object.keys(writes[0]!.body).sort()).toEqual([
       'commandId',
@@ -180,28 +205,34 @@ for (const respond of ['success', 'busy', 'unknown'] as const)
       'reason',
     ]);
     if (respond === 'busy') {
-      await expect(dialog.getByRole('alert')).toContainText('มีงานหรือคำสั่งอื่นค้างอยู่');
-      await expect(name).toHaveValue('  สมหญิง   ใหม่ ');
+      await expect(dialog.getByRole('alert')).toContainText(
+        th('tenantPeople:accountChange.errors.CONFIG_BUSY'),
+      );
+      await expect(name).toHaveValue('  New   Name ');
       expect(writes).toHaveLength(1);
       return;
     }
     await expect(dialog).toHaveCount(0);
     if (respond === 'unknown') {
       // not known whether the command was accepted: show the pending command and the check-result button, do not resend, the old name stays
-      await expect(page.getByText(/กำลังเปลี่ยนชื่อ/)).toBeVisible();
-      await expect(page.getByRole('alert').filter({ hasText: 'ยังยืนยันผลไม่ได้' })).toBeVisible();
+      await expect(page.getByText(th('tenantPeople:profile.pending'))).toBeVisible();
       await expect(
-        page.getByRole('button', { name: 'แก้ชื่อที่แสดง…', exact: true }),
+        page.getByRole('alert').filter({ hasText: th('tenantPeople:accountChange.errors.FAILED') }),
+      ).toBeVisible();
+      await expect(
+        page.getByRole('button', { name: th('tenantPeople:profile.start'), exact: true }),
       ).toBeDisabled();
-      await expect(page.getByRole('heading', { name: 'สมหญิง เดิม' })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Original Name' })).toBeVisible();
       expect(writes).toHaveLength(1);
       return;
     }
-    await page.getByRole('button', { name: 'ตรวจผลการแก้ชื่อ', exact: true }).click();
+    await page
+      .getByRole('button', { name: th('tenantPeople:profile.refresh'), exact: true })
+      .click();
     await expect(
-      page.getByRole('status').filter({ hasText: 'เปลี่ยนชื่อที่แสดงแล้ว' }),
+      page.getByRole('status').filter({ hasText: th('tenantPeople:profile.states.SUCCEEDED') }),
     ).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'สมหญิง ใหม่' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'New Name' })).toBeVisible();
     expect(writes).toHaveLength(1);
   });
 
@@ -210,22 +241,31 @@ for (const respond of ['success', 'credentials', 'unknown', 'rejected'] as const
     page,
   }) => {
     const writes = await mockPeople(page, { disabled: true, respond });
-    await expect(page.getByRole('button', { name: 'แก้ชื่อที่แสดง…', exact: true })).toBeDisabled();
-    const panel = page.getByRole('region', { name: 'เปิดบัญชีกลับ' });
-    await expect(panel).toContainText('รหัสยืนยันตัวตน (TOTP) เดิม');
-    await panel.getByRole('button', { name: 'เปิดบัญชีกลับ…', exact: true }).click();
-    const dialog = page.getByRole('alertdialog', { name: 'เปิดบัญชี สมหญิง เดิม กลับ?' });
-    await expect(dialog).toContainText('ทีมขาย');
+    await expect(
+      page.getByRole('button', { name: th('tenantPeople:profile.start'), exact: true }),
+    ).toBeDisabled();
+    const panel = page.getByRole('region', { name: th('tenantPeople:enable.title') });
+    await expect(panel).toContainText(th('tenantPeople:enable.help'));
+    await panel.getByRole('button', { name: th('tenantPeople:enable.start'), exact: true }).click();
+    const dialog = page.getByRole('alertdialog', {
+      name: th('tenantPeople:enable.dialogTitle', { name: 'Original Name' }),
+    });
+    await expect(dialog).toContainText('Sales Team');
     await expect(dialog).toContainText('1501');
-    const submit = dialog.getByRole('button', { name: 'ยืนยันเปิดบัญชีกลับ', exact: true });
+    const submit = dialog.getByRole('button', {
+      name: th('tenantPeople:enable.submit'),
+      exact: true,
+    });
     await expect(submit).toBeDisabled();
-    await dialog.getByRole('textbox', { name: /เหตุผล/ }).fill('กลับมาทำงานหลังลาคลอด');
+    await dialog
+      .getByRole('textbox', { name: th('tenantPeople:invitation.reason') })
+      .fill('Back from leave');
     await axe(page);
     await submit.click();
     await expect.poll(() => writes.length).toBe(1);
     expect(writes[0]).toMatchObject({
       method: 'POST',
-      body: { expectedRevision: 6, reason: 'กลับมาทำงานหลังลาคลอด' },
+      body: { expectedRevision: 6, reason: 'Back from leave' },
     });
     expect(Object.keys(writes[0]!.body).sort()).toEqual([
       'commandId',
@@ -234,31 +274,41 @@ for (const respond of ['success', 'credentials', 'unknown', 'rejected'] as const
     ]);
     if (respond === 'credentials') {
       await expect(dialog.getByRole('alert')).toContainText(
-        'ยังตั้งรหัสผ่านหรือรหัสยืนยันตัวตน (TOTP) ไม่ครบ',
+        th('tenantPeople:accountChange.errors.CREDENTIALS_NOT_READY'),
       );
       expect(writes).toHaveLength(1);
       return;
     }
     await expect(dialog).toHaveCount(0);
     if (respond === 'unknown') {
-      await expect(panel).toContainText('ห้ามส่งคำสั่งซ้ำ');
-      await expect(panel.getByRole('alert')).toContainText('ยังยืนยันผลไม่ได้');
+      await expect(panel).toContainText(th('tenantPeople:enable.pending'));
+      await expect(panel.getByRole('alert')).toContainText(
+        th('tenantPeople:accountChange.errors.FAILED'),
+      );
       await expect(
-        panel.getByRole('button', { name: 'เปิดบัญชีกลับ…', exact: true }),
+        panel.getByRole('button', { name: th('tenantPeople:enable.start'), exact: true }),
       ).toBeDisabled();
       expect(writes).toHaveLength(1);
       return;
     }
-    await panel.getByRole('button', { name: 'ตรวจผลการเปิดบัญชีกลับ', exact: true }).click();
+    await panel
+      .getByRole('button', { name: th('tenantPeople:enable.refresh'), exact: true })
+      .click();
     if (respond === 'rejected') {
-      await expect(panel.getByRole('status')).toContainText('บัญชียังปิดอยู่');
+      await expect(panel.getByRole('status')).toContainText(
+        th('tenantPeople:enable.states.REJECTED'),
+      );
       await expect(
-        panel.getByRole('button', { name: 'เปิดบัญชีกลับ…', exact: true }),
+        panel.getByRole('button', { name: th('tenantPeople:enable.start'), exact: true }),
       ).toBeEnabled();
       return;
     }
-    await expect(panel.getByRole('status')).toContainText('เปิดบัญชีกลับแล้ว');
-    await expect(page.getByRole('region', { name: 'รายละเอียดบัญชี' })).toContainText('ใช้งานได้');
+    await expect(panel.getByRole('status')).toContainText(
+      th('tenantPeople:enable.states.SUCCEEDED'),
+    );
+    await expect(
+      page.getByRole('region', { name: th('tenantPeople:directory.detail') }),
+    ).toContainText(th('tenantPeople:status.ACTIVE'));
     expect(writes).toHaveLength(1);
   });
 
@@ -266,10 +316,12 @@ test('not ready: the edit-name and re-enable buttons cannot be pressed', async (
   const writes = await mockPeople(page, { disabled: true, ready: false, respond: 'success' });
   await expect(
     page
-      .getByRole('region', { name: 'เปิดบัญชีกลับ' })
-      .getByRole('button', { name: 'เปิดบัญชีกลับ…' }),
+      .getByRole('region', { name: th('tenantPeople:enable.title') })
+      .getByRole('button', { name: th('tenantPeople:enable.start') }),
   ).toBeDisabled();
-  await expect(page.getByRole('button', { name: 'แก้ชื่อที่แสดง…', exact: true })).toBeDisabled();
+  await expect(
+    page.getByRole('button', { name: th('tenantPeople:profile.start'), exact: true }),
+  ).toBeDisabled();
   expect(writes).toHaveLength(0);
 });
 
@@ -278,16 +330,26 @@ test('edit name gets 403: show the error in the Dialog, the detail page stays, n
 }) => {
   const writes = await mockPeople(page, { disabled: false, respond: 'forbidden' });
   const dialog = await fillRename(page);
-  await expect(dialog.getByRole('alert')).toContainText('คุณไม่มีสิทธิ์ทำรายการนี้กับบัญชีนี้');
+  await expect(dialog.getByRole('alert')).toContainText(
+    th('tenantPeople:accountChange.errors.FORBIDDEN'),
+  );
   // do not replace the whole page with FORBIDDEN: the account detail stays behind the Dialog
-  await expect(page.getByRole('region', { name: 'รายละเอียดบัญชี' })).toBeVisible();
-  await expect(page.getByText(/ไม่มีสิทธิ์จัดการบัญชี/)).toHaveCount(0);
+  await expect(
+    page.getByRole('region', { name: th('tenantPeople:directory.detail') }),
+  ).toBeVisible();
+  await expect(page.getByText(th('tenantPeople:errors.FORBIDDEN'))).toHaveCount(0);
   expect(await pendingKeys(page)).toEqual([]);
-  await dialog.getByRole('button', { name: 'ยกเลิก', exact: true }).click();
+  await dialog
+    .getByRole('button', { name: th('tenantPeople:accountChange.cancel'), exact: true })
+    .click();
   await expect(dialog).toHaveCount(0);
-  await expect(page.getByText(/กำลังเปลี่ยนชื่อ/)).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'ตรวจผลการแก้ชื่อ' })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'แก้ชื่อที่แสดง…', exact: true })).toBeEnabled();
+  await expect(page.getByText(th('tenantPeople:profile.pending'))).toHaveCount(0);
+  await expect(page.getByRole('button', { name: th('tenantPeople:profile.refresh') })).toHaveCount(
+    0,
+  );
+  await expect(
+    page.getByRole('button', { name: th('tenantPeople:profile.start'), exact: true }),
+  ).toBeEnabled();
   expect(writes).toHaveLength(1);
   expect(writes.lookups).toEqual([]);
 });
@@ -298,14 +360,20 @@ test('a pending command but the server cannot find it (404): clear the pending c
   const writes = await mockPeople(page, { disabled: false, respond: 'unknown' });
   const dialog = await fillRename(page);
   await expect(dialog).toHaveCount(0);
-  await expect(page.getByText(/กำลังเปลี่ยนชื่อ/)).toBeVisible();
+  await expect(page.getByText(th('tenantPeople:profile.pending'))).toBeVisible();
   expect(await pendingKeys(page)).toHaveLength(1);
   // uncertain result: check the original command, the server answers 404 = this command was not recorded
-  await page.getByRole('button', { name: 'ตรวจผลการแก้ชื่อ', exact: true }).click();
-  await expect(page.getByRole('alert')).toContainText('ไม่พบคำสั่งเดิมในระบบ');
-  await expect(page.getByText(/กำลังเปลี่ยนชื่อ/)).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'ตรวจผลการแก้ชื่อ' })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'แก้ชื่อที่แสดง…', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: th('tenantPeople:profile.refresh'), exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText(
+    th('tenantPeople:accountChange.errors.NOT_RECORDED'),
+  );
+  await expect(page.getByText(th('tenantPeople:profile.pending'))).toHaveCount(0);
+  await expect(page.getByRole('button', { name: th('tenantPeople:profile.refresh') })).toHaveCount(
+    0,
+  );
+  await expect(
+    page.getByRole('button', { name: th('tenantPeople:profile.start'), exact: true }),
+  ).toBeEnabled();
   expect(await pendingKeys(page)).toEqual([]);
   expect(writes.lookups).toHaveLength(1);
   // no more polling after clearing the pending command
@@ -318,18 +386,20 @@ test('an account from seed that People cannot edit: the edit-name and disable bu
   page,
 }) => {
   const writes = await mockPeople(page, { disabled: false, unmanaged: true, respond: 'success' });
-  await expect(page.getByRole('region', { name: 'รายละเอียดบัญชี' })).toContainText(
-    'บัญชีนี้ไม่ได้สร้างหรือเปิดใช้งานผ่านหน้า People',
-  );
-  await expect(page.getByRole('button', { name: 'แก้ชื่อที่แสดง…', exact: true })).toBeDisabled();
-  await expect(page.getByText(/บริการยืนยันตัวตนยังไม่พร้อม/)).toHaveCount(0);
+  await expect(
+    page.getByRole('region', { name: th('tenantPeople:directory.detail') }),
+  ).toContainText(th('tenantPeople:profile.notManaged'));
+  await expect(
+    page.getByRole('button', { name: th('tenantPeople:profile.start'), exact: true }),
+  ).toBeDisabled();
+  await expect(page.getByText(th('tenantPeople:accountChange.notReady'))).toHaveCount(0);
   // disabling the account cannot be done through People either
-  const disable = page.getByRole('region', { name: 'ปิดบัญชี', exact: true });
-  await expect(disable).toContainText(
-    'ปิดบัญชีที่นี่ไม่ได้ เพราะบัญชีนี้ไม่ได้สร้างหรือเปิดใช้งานผ่านหน้า People',
-  );
-  await expect(disable.getByRole('button', { name: 'ปิดบัญชี…', exact: true })).toBeDisabled();
-  await expect(disable).not.toContainText('ยังปิดไม่ได้');
+  const disable = page.getByRole('region', { name: th('tenantPeople:disable.title'), exact: true });
+  await expect(disable).toContainText(th('tenantPeople:disable.notManaged'));
+  await expect(
+    disable.getByRole('button', { name: th('tenantPeople:disable.start'), exact: true }),
+  ).toBeDisabled();
+  await expect(disable).not.toContainText(th('tenantPeople:disable.notEligible'));
   expect(writes).toHaveLength(0);
 });
 
@@ -337,13 +407,20 @@ test('while loading capabilities: shows checking readiness, not "not ready"', as
   let release!: () => void;
   const capabilities = new Promise<void>((resolve) => (release = resolve));
   await mockPeople(page, { disabled: false, respond: 'success', capabilities });
-  const detail = page.getByRole('region', { name: 'รายละเอียดบัญชี' });
+  const detail = page.getByRole('region', { name: th('tenantPeople:directory.detail') });
   await expect(
-    detail.getByRole('status').filter({ hasText: 'กำลังตรวจความพร้อม' }).first(),
+    detail
+      .getByRole('status')
+      .filter({ hasText: th('tenantPeople:accountChange.checking') })
+      .first(),
   ).toBeVisible();
-  await expect(page.getByText(/บริการยืนยันตัวตนยังไม่พร้อม/)).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'แก้ชื่อที่แสดง…', exact: true })).toBeDisabled();
+  await expect(page.getByText(th('tenantPeople:accountChange.notReady'))).toHaveCount(0);
+  await expect(
+    page.getByRole('button', { name: th('tenantPeople:profile.start'), exact: true }),
+  ).toBeDisabled();
   release();
-  await expect(page.getByRole('button', { name: 'แก้ชื่อที่แสดง…', exact: true })).toBeEnabled();
-  await expect(page.getByText(/กำลังตรวจความพร้อม/)).toHaveCount(0);
+  await expect(
+    page.getByRole('button', { name: th('tenantPeople:profile.start'), exact: true }),
+  ).toBeEnabled();
+  await expect(page.getByText(th('tenantPeople:accountChange.checking'))).toHaveCount(0);
 });

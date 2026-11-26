@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, type Page } from '@playwright/test';
 import { test } from './platform-test.js';
+import { th } from './catalog.js';
 
 const origin = 'http://127.0.0.1:5182';
 const issuer = `${origin}/oidc`;
@@ -131,10 +132,12 @@ test.describe('OIDC with the production root', () => {
   }, testInfo) => {
     const identity = await mockIdentity(page);
     await page.goto('/');
-    await expect(page.getByRole('button', { name: 'เข้าสู่ระบบ', exact: true })).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: th('common:auth.signIn'), exact: true }),
+    ).toBeVisible();
     await expect(page).toHaveURL(`${origin}/`);
     await accessible(page);
-    const toggle = page.getByRole('button', { name: 'เปลี่ยนเป็นภาษาอังกฤษ' });
+    const toggle = page.getByRole('button', { name: th('common:language.switch') });
     await toggle.focus();
     await page.keyboard.press('Enter');
     await expect(page.locator('html')).toHaveAttribute('lang', 'en');
@@ -178,9 +181,9 @@ test.describe('OIDC with the production root', () => {
     }) => {
       const identity = await mockIdentity(page, { sessionError: code, holdSession: true });
       await page.goto('/');
-      await page.getByRole('button', { name: 'เข้าสู่ระบบ', exact: true }).click();
-      await expect(page.getByRole('heading', { name: 'กำลังตรวจสอบ session' })).toBeVisible();
-      await page.getByRole('button', { name: 'เปลี่ยนเป็นภาษาอังกฤษ' }).click();
+      await page.getByRole('button', { name: th('common:auth.signIn'), exact: true }).click();
+      await expect(page.getByRole('heading', { name: th('common:session.loading') })).toBeVisible();
+      await page.getByRole('button', { name: th('common:language.switch') }).click();
       await expect(page.getByRole('heading', { name: 'Checking session' })).toBeVisible();
       identity.releaseSession();
       await expect(
@@ -191,9 +194,7 @@ test.describe('OIDC with the production root', () => {
       if (code === 'UNAUTHENTICATED')
         await expect(page.getByRole('button', { name: 'Sign in again' })).toBeVisible();
       await page.getByRole('button', { name: 'Switch to Thai' }).click();
-      await expect(
-        page.getByRole('heading', { name: 'เปิด Platform Console ไม่ได้' }),
-      ).toBeVisible();
+      await expect(page.getByRole('heading', { name: th('common:session.title') })).toBeVisible();
       await accessible(page);
     });
   }
@@ -203,10 +204,12 @@ test.describe('configuration before the issuer is set', () => {
   test.use({ baseURL: 'http://127.0.0.1:5183' });
   test('the configuration screen uses TH/EN with keyboard and axe', async ({ page }) => {
     await page.goto('/');
-    await expect(page.getByRole('heading', { name: 'ยังไม่ได้ตั้งค่า' })).toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: th('common:configuration.title') }),
+    ).toBeVisible();
     await accessible(page);
     await page.keyboard.press('Tab');
-    await expect(page.getByRole('button', { name: 'เปลี่ยนเป็นภาษาอังกฤษ' })).toBeFocused();
+    await expect(page.getByRole('button', { name: th('common:language.switch') })).toBeFocused();
     await page.keyboard.press('Enter');
     await expect(page.getByRole('heading', { name: 'Setup required' })).toBeVisible();
     await accessible(page);
