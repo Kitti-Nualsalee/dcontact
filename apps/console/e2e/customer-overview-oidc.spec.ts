@@ -1,6 +1,14 @@
 import { expect, test, type Page, type APIRequestContext } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
+
+import { en, th } from './support/catalog';
+
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/** the same catalog text in either language: the sign-in screen appears before the session locale is known */
+const either = (key: string) => new RegExp(`^(${escapeRegExp(th(key))}|${escapeRegExp(en(key))})$`);
+const T = (key: string, options?: Record<string, unknown>) =>
+  th(`customerOverview:${key}`, options);
 let tenant = '';
 async function login(
   page: Page,
@@ -11,7 +19,7 @@ async function login(
   const cfg = await (await request.get('/__core_test/config')).json();
   tenant = alias === 'foreign' ? cfg.otherTenant : cfg.tenant;
   await page.goto(`/?tenant=${tenant}&view=${view}`);
-  await page.getByRole('button', { name: /^(เข้าสู่ระบบอีกครั้ง|Sign in again)$/ }).click();
+  await page.getByRole('button', { name: either('customerOverview:signIn') }).click();
   await page.getByLabel('Username or email').fill(cfg.users[alias]);
   if (!(await page.getByLabel('Password', { exact: true }).count()))
     await page.getByRole('button', { name: 'Sign In', exact: true }).click();
@@ -39,15 +47,15 @@ test('OIDC: a real empty, partial failure retries per section, and asOf', async 
     else await route.continue();
   });
   await login(page, request);
-  const customers = page.getByRole('region', { name: 'ลูกค้าที่เข้าถึงได้' });
-  const tags = page.getByRole('region', { name: 'ชุดแท็ก' });
-  await expect(customers.getByText('ยังไม่มีลูกค้าที่คุณเข้าถึงได้')).toBeVisible();
+  const customers = page.getByRole('region', { name: T('customers') });
+  const tags = page.getByRole('region', { name: T('tags') });
+  await expect(customers.getByText(T('emptyCustomers'))).toBeVisible();
   await expect(customers.locator('time')).toBeVisible();
-  await expect(tags.getByRole('alert')).toContainText('ไม่สามารถอ่านข้อมูลส่วนนี้ได้');
+  await expect(tags.getByRole('alert')).toContainText(T('unavailable'));
   fail = false;
-  await tags.getByRole('button', { name: 'ลองอีกครั้ง' }).click();
-  await expect(tags.getByText('ยังไม่มีแท็กในชุดข้อมูลนี้')).toBeVisible();
-  await expect(customers.getByText('ยังไม่มีลูกค้าที่คุณเข้าถึงได้')).toBeVisible();
+  await tags.getByRole('button', { name: T('retry') }).click();
+  await expect(tags.getByText(T('emptyTags'))).toBeVisible();
+  await expect(customers.getByText(T('emptyCustomers'))).toBeVisible();
   await page.setViewportSize({ width: 768, height: 900 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   if (process.env.C360_OVERVIEW_EVIDENCE_DIR) {
@@ -73,7 +81,7 @@ test('OIDC: rules version/constraints from the writer registry have no editor, a
       'trim,preserve-local-tokens,lowercase-domain,IDNA-validation-only,no-punycode,no-NFC,no-NFKC',
     ),
   ).toBeVisible();
-  await expect(page.locator('main').getByText('บริษัท', { exact: true })).toBeVisible();
+  await expect(page.locator('main').getByText(T('fields.company'), { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'English', exact: true }).click();
   await expect(
     page.getByRole('heading', { name: 'Data rules', exact: true, level: 1 }),
@@ -86,7 +94,7 @@ test('OIDC: revoke closes every section, an old response returns no data, and re
   request,
 }) => {
   await login(page, request);
-  await expect(page.getByText('ยังไม่มีลูกค้าที่คุณเข้าถึงได้')).toBeVisible();
+  await expect(page.getByText(T('emptyCustomers'))).toBeVisible();
   let release!: () => void;
   let arrived!: () => void;
   const reached = new Promise<void>((r) => (arrived = r));
@@ -98,28 +106,26 @@ test('OIDC: revoke closes every section, an old response returns no data, and re
     await route.fulfill({ response });
   });
   await page
-    .getByRole('region', { name: 'ลูกค้าที่เข้าถึงได้' })
-    .getByRole('button', { name: 'อ่านข้อมูลใหม่' })
+    .getByRole('region', { name: T('customers') })
+    .getByRole('button', { name: T('refresh') })
     .click();
   await reached;
   await request.post('/__core_test/revoke');
   await page
-    .getByRole('region', { name: 'ชุดแท็ก' })
-    .getByRole('button', { name: 'อ่านข้อมูลใหม่' })
+    .getByRole('region', { name: T('tags') })
+    .getByRole('button', { name: T('refresh') })
     .click();
-  await expect(page.getByRole('alert')).toContainText('คุณไม่มีสิทธิ์');
+  await expect(page.getByRole('alert')).toContainText(T('access'));
   release();
   await page.unrouteAll({ behavior: 'wait' });
-  await expect(page.getByText('ยังไม่มีลูกค้าที่คุณเข้าถึงได้')).toHaveCount(0);
+  await expect(page.getByText(T('emptyCustomers'))).toHaveCount(0);
 });
 test('OIDC: a Supervisor does not get Overview permission from the directory permission', async ({
   page,
   request,
 }) => {
   await login(page, request, 'customer-overview', 'supervisor');
-  await expect(page.getByRole('alert')).toContainText(
-    'คุณไม่มีสิทธิ์อ่านข้อมูลนี้ โปรดติดต่อผู้ดูแล tenant',
-  );
+  await expect(page.getByRole('alert')).toContainText(T('access'));
   await page.getByRole('button', { name: 'English', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('Contact your tenant administrator.');
   await expect(page.locator('main time')).toHaveCount(0);
@@ -131,17 +137,15 @@ for (const kind of ['role', 'proof'] as const) {
     request,
   }) => {
     await login(page, request);
-    await expect(
-      page.getByRole('region', { name: 'ลูกค้าที่เข้าถึงได้' }).locator('time'),
-    ).toBeVisible();
+    await expect(page.getByRole('region', { name: T('customers') }).locator('time')).toBeVisible();
     await request.post(`/__core_test/overview/${kind}`);
     await page
-      .getByRole('region', { name: 'ลูกค้าที่เข้าถึงได้' })
-      .getByRole('button', { name: 'อ่านข้อมูลใหม่' })
+      .getByRole('region', { name: T('customers') })
+      .getByRole('button', { name: T('refresh') })
       .click();
-    await expect(page.getByRole('alert')).toContainText('โปรดติดต่อผู้ดูแล tenant');
+    await expect(page.getByRole('alert')).toContainText(T('access'));
     await expect(page.locator('main time')).toHaveCount(0);
-    await expect(page.getByText('ยังไม่มีแท็กในชุดข้อมูลนี้')).toHaveCount(0);
+    await expect(page.getByText(T('emptyTags'))).toHaveCount(0);
   });
 }
 
@@ -150,16 +154,16 @@ test('context: OIDC scope projection stale is unavailable, not zero, and recover
   request,
 }) => {
   await login(page, request);
-  const customers = page.getByRole('region', { name: 'ลูกค้าที่เข้าถึงได้' });
-  await expect(customers.getByText('ยังไม่มีลูกค้าที่คุณเข้าถึงได้')).toBeVisible();
+  const customers = page.getByRole('region', { name: T('customers') });
+  await expect(customers.getByText(T('emptyCustomers'))).toBeVisible();
   await request.post('/__core_test/overview/scope-lag');
-  await customers.getByRole('button', { name: 'อ่านข้อมูลใหม่' }).click();
-  await expect(customers.getByRole('alert')).toContainText('ไม่สามารถอ่านข้อมูลส่วนนี้ได้');
-  await expect(customers.getByText('ยังไม่มีลูกค้าที่คุณเข้าถึงได้')).toHaveCount(0);
-  await expect(page.getByRole('region', { name: 'ชุดแท็ก' }).locator('time')).toBeVisible();
+  await customers.getByRole('button', { name: T('refresh') }).click();
+  await expect(customers.getByRole('alert')).toContainText(T('unavailable'));
+  await expect(customers.getByText(T('emptyCustomers'))).toHaveCount(0);
+  await expect(page.getByRole('region', { name: T('tags') }).locator('time')).toBeVisible();
   await request.post('/__core_test/restore');
-  await customers.getByRole('button', { name: 'ลองอีกครั้ง' }).click();
-  await expect(customers.getByText('ยังไม่มีลูกค้าที่คุณเข้าถึงได้')).toBeVisible();
+  await customers.getByRole('button', { name: T('retry') }).click();
+  await expect(customers.getByText(T('emptyCustomers'))).toBeVisible();
 });
 
 for (const alias of ['admin-two', 'foreign'] as const) {
@@ -169,7 +173,7 @@ for (const alias of ['admin-two', 'foreign'] as const) {
   }) => {
     await request.post('/__core_test/overview/grant-customer');
     await login(page, request);
-    const customers = page.getByRole('region', { name: 'ลูกค้าที่เข้าถึงได้' });
+    const customers = page.getByRole('region', { name: T('customers') });
     await expect(customers.locator('strong')).toHaveText('1');
     let release!: () => void;
     let arrived!: () => void;
@@ -190,24 +194,20 @@ for (const alias of ['admin-two', 'foreign'] as const) {
       // changing the document may abort the old request before it is fulfilled, which is the correct outcome
       await route.fulfill({ response }).catch(() => undefined);
     });
-    await customers.getByRole('button', { name: 'อ่านข้อมูลใหม่' }).click();
+    await customers.getByRole('button', { name: T('refresh') }).click();
     await reached;
     await page.context().clearCookies();
     await login(page, request, 'customer-overview', alias);
     await expect(
-      page
-        .getByRole('region', { name: 'ลูกค้าที่เข้าถึงได้' })
-        .getByText('ยังไม่มีลูกค้าที่คุณเข้าถึงได้'),
+      page.getByRole('region', { name: T('customers') }).getByText(T('emptyCustomers')),
     ).toBeVisible();
     release();
     await page.unrouteAll({ behavior: 'wait' });
+    await expect(page.getByRole('region', { name: T('customers') }).locator('strong')).toHaveCount(
+      0,
+    );
     await expect(
-      page.getByRole('region', { name: 'ลูกค้าที่เข้าถึงได้' }).locator('strong'),
-    ).toHaveCount(0);
-    await expect(
-      page
-        .getByRole('region', { name: 'ลูกค้าที่เข้าถึงได้' })
-        .getByText('ยังไม่มีลูกค้าที่คุณเข้าถึงได้'),
+      page.getByRole('region', { name: T('customers') }).getByText(T('emptyCustomers')),
     ).toBeVisible();
   });
 }

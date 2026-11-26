@@ -1,6 +1,13 @@
 import { expect, test } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
+import { th } from './support/catalog';
+
+const TAGS = (key: string, options?: Record<string, unknown>) => th(`customerTags:${key}`, options);
+// seed tag from scripts/customer-360-browser-server.ts (the seed is not edited)
+const SEED_TAG = 'ลูกค้าสำคัญ'; // allow-thai: seed tag name
+// Thai on purpose: these names must sort after the Thai seed tag so that it stays on the first page
+const PAGE_PREFIX = 'หน้า M1'; // allow-thai: sort position relative to the Thai seed tag
 
 test.beforeEach(async ({ request }) => {
   await request.get('/__c360_test/reset');
@@ -14,34 +21,36 @@ test('Admin creates, renames and retires a tag through the real API/RLS', async 
   await page.setViewportSize({ width: 1440, height: 900 });
   const config = (await (await request.get('/__c360_test/config')).json()) as { tenant: string };
   await page.goto(`/?view=customer-tags&tenant=${config.tenant}`);
-  await expect(page.getByRole('heading', { name: 'จัดการแท็ก' })).toBeVisible();
-  await expect(page.getByRole('navigation', { name: 'ตำแหน่งปัจจุบัน' })).toContainText('ลูกค้า');
-  await expect(page.getByRole('navigation', { name: 'ตำแหน่งปัจจุบัน' })).toContainText(
-    'จัดการแท็ก',
+  await expect(page.getByRole('heading', { name: TAGS('title') })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: th('ui:shell.breadcrumb') })).toContainText(
+    th('common:navigation.apps.customers'),
   );
-  await page.getByRole('button', { name: 'สร้างแท็ก' }).click();
+  await expect(page.getByRole('navigation', { name: th('ui:shell.breadcrumb') })).toContainText(
+    th('common:navigation.apps.customerTags'),
+  );
+  await page.getByRole('button', { name: TAGS('create') }).click();
   const dialog = page.getByRole('dialog');
-  await dialog.getByLabel('ชื่อแท็ก').fill('แท็กทดลอง M1');
+  await dialog.getByLabel(TAGS('name')).fill('M1 trial tag');
   const response = page.waitForResponse(
     (r) => r.url().endsWith('/customer-360/tags') && r.request().method() === 'POST',
   );
-  await dialog.getByRole('button', { name: 'บันทึก' }).click();
+  await dialog.getByRole('button', { name: TAGS('save') }).click();
   expect((await response).status()).toBe(201);
-  const row = page.getByRole('row').filter({ hasText: 'แท็กทดลอง M1' });
+  const row = page.getByRole('row').filter({ hasText: 'M1 trial tag' });
   await expect(row).toBeVisible();
   await page.screenshot({ path: '../../output/playwright/m1a-tags-1440.png' });
-  expect(await page.evaluate(() => JSON.stringify(sessionStorage))).not.toContain('แท็กทดลอง M1');
-  await row.getByRole('button', { name: 'เปลี่ยนชื่อ' }).click();
-  await dialog.getByLabel('ชื่อแท็ก').fill('แท็กใหม่ M1');
-  await dialog.getByRole('button', { name: 'บันทึก' }).click();
-  const renamed = page.getByRole('row').filter({ hasText: 'แท็กใหม่ M1' });
+  expect(await page.evaluate(() => JSON.stringify(sessionStorage))).not.toContain('M1 trial tag');
+  await row.getByRole('button', { name: TAGS('rename') }).click();
+  await dialog.getByLabel(TAGS('name')).fill('M1 renamed tag');
+  await dialog.getByRole('button', { name: TAGS('save') }).click();
+  const renamed = page.getByRole('row').filter({ hasText: 'M1 renamed tag' });
   await expect(renamed).toBeVisible();
-  await renamed.getByRole('button', { name: 'เลิกใช้' }).click();
-  const confirm = page.getByRole('alertdialog', { name: 'ยืนยันการเลิกใช้แท็ก' });
-  await expect(confirm).toContainText('แท็กใหม่ M1');
-  await confirm.getByRole('button', { name: 'เลิกใช้' }).click();
-  await expect(renamed).toContainText('เลิกใช้');
-  await expect(renamed.getByRole('button', { name: 'เปลี่ยนชื่อ' })).toHaveCount(0);
+  await renamed.getByRole('button', { name: TAGS('retire') }).click();
+  const confirm = page.getByRole('alertdialog', { name: TAGS('retireTitle') });
+  await expect(confirm).toContainText('M1 renamed tag');
+  await confirm.getByRole('button', { name: TAGS('retire') }).click();
+  await expect(renamed).toContainText(TAGS('states.RETIRED'));
+  await expect(renamed.getByRole('button', { name: TAGS('rename') })).toHaveCount(0);
 });
 
 test('revoking permission closes the open data, and a narrow screen works with the keyboard', async ({
@@ -51,16 +60,19 @@ test('revoking permission closes the open data, and a narrow screen works with t
   const config = (await (await request.get('/__c360_test/config')).json()) as { tenant: string };
   await page.setViewportSize({ width: 768, height: 900 });
   await page.goto(`/?view=customer-tags&tenant=${config.tenant}`);
-  await expect(page.getByRole('heading', { name: 'จัดการแท็ก' })).toBeVisible();
-  const create = page.getByRole('button', { name: 'สร้างแท็ก' });
+  await expect(page.getByRole('heading', { name: TAGS('title') })).toBeVisible();
+  const create = page.getByRole('button', { name: TAGS('create') });
   await create.focus();
   await page.keyboard.press('Enter');
   await expect(page.getByRole('dialog')).toBeVisible();
-  await page.getByRole('dialog').getByRole('button', { name: 'ยกเลิก' }).click();
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: TAGS('cancel') })
+    .click();
   await page.screenshot({ path: '../../output/playwright/m1a-tags-768.png' });
   await request.get('/__c360_test/actor/supervisor');
   await page.reload();
-  await expect(page.getByRole('alert')).toContainText('ไม่สามารถเข้าถึงแท็ก');
+  await expect(page.getByRole('alert')).toContainText(TAGS('access'));
   await expect(page.getByRole('table')).toHaveCount(0);
 });
 
@@ -70,7 +82,7 @@ test('a revision conflict shows the latest data while keeping the draft for revi
 }) => {
   const config = (await (await request.get('/__c360_test/config')).json()) as { tenant: string };
   const create = await request.post('/api/v1/customer-360/tags', {
-    data: { commandId: randomUUID(), name: 'ก่อนเปลี่ยน M1' },
+    data: { commandId: randomUUID(), name: 'M1 before rename' },
   });
   const receipt = (await create.json()) as {
     command: { resourceRefs: { type: string; id: string }[] };
@@ -79,21 +91,21 @@ test('a revision conflict shows the latest data while keeping the draft for revi
   await page.goto(`/?view=customer-tags&tenant=${config.tenant}`);
   await page
     .getByRole('row')
-    .filter({ hasText: 'ก่อนเปลี่ยน M1' })
-    .getByRole('button', { name: 'เปลี่ยนชื่อ' })
+    .filter({ hasText: 'M1 before rename' })
+    .getByRole('button', { name: TAGS('rename') })
     .click();
   const dialog = page.getByRole('dialog');
-  await dialog.getByLabel('ชื่อแท็ก').fill('ร่างของฉัน M1');
+  await dialog.getByLabel(TAGS('name')).fill('M1 my draft');
   const changed = await request.patch(`/api/v1/customer-360/tags/${tagId}`, {
-    data: { commandId: randomUUID(), expectedRevision: '0', name: 'ผู้อื่นเปลี่ยน M1' },
+    data: { commandId: randomUUID(), expectedRevision: '0', name: 'M1 changed by another' },
   });
   expect(changed.status()).toBe(200);
-  await dialog.getByRole('button', { name: 'บันทึก' }).click();
-  await expect(dialog).toContainText('ผู้อื่นเปลี่ยน M1');
-  await expect(dialog.getByLabel('ชื่อแท็ก')).toHaveValue('ร่างของฉัน M1');
-  await dialog.getByRole('button', { name: 'ลองใหม่' }).click();
-  await dialog.getByRole('button', { name: 'บันทึก' }).click();
-  await expect(page.getByRole('row').filter({ hasText: 'ร่างของฉัน M1' })).toBeVisible();
+  await dialog.getByRole('button', { name: TAGS('save') }).click();
+  await expect(dialog).toContainText('M1 changed by another');
+  await expect(dialog.getByLabel(TAGS('name'))).toHaveValue('M1 my draft');
+  await dialog.getByRole('button', { name: TAGS('retry') }).click();
+  await dialog.getByRole('button', { name: TAGS('save') }).click();
+  await expect(page.getByRole('row').filter({ hasText: 'M1 my draft' })).toBeVisible();
 });
 
 test('a response lost after a successful action recovers the receipt and does not create a duplicate tag', async ({
@@ -110,14 +122,14 @@ test('a response lost after a successful action recovers the receipt and does no
     } else await route.continue();
   });
   await page.goto(`/?view=customer-tags&tenant=${config.tenant}`);
-  await page.getByRole('button', { name: 'สร้างแท็ก' }).click();
+  await page.getByRole('button', { name: TAGS('create') }).click();
   const dialog = page.getByRole('dialog');
-  await dialog.getByLabel('ชื่อแท็ก').fill('กู้ผล M1');
-  await dialog.getByRole('button', { name: 'บันทึก' }).click();
-  await expect(dialog.getByRole('button', { name: 'ตรวจผลการบันทึก' })).toBeVisible();
-  await dialog.getByRole('button', { name: 'ตรวจผลการบันทึก' }).click();
+  await dialog.getByLabel(TAGS('name')).fill('M1 recovery');
+  await dialog.getByRole('button', { name: TAGS('save') }).click();
+  await expect(dialog.getByRole('button', { name: TAGS('check') })).toBeVisible();
+  await dialog.getByRole('button', { name: TAGS('check') }).click();
   await expect(dialog).toHaveCount(0);
-  await expect(page.getByRole('row').filter({ hasText: 'กู้ผล M1' })).toHaveCount(1);
+  await expect(page.getByRole('row').filter({ hasText: 'M1 recovery' })).toHaveCount(1);
 });
 
 test('a list of more than one page can load on without showing duplicate names', async ({
@@ -133,17 +145,17 @@ test('a list of more than one page can load on without showing duplicate names',
       reasonCode: 'APPROVED_CUSTODIAN',
       command: {
         action: 'TAG_SEED',
-        names: Array.from({ length: 52 }, (_, i) => `หน้า M1 ${String(i).padStart(2, '0')}`),
+        names: Array.from({ length: 52 }, (_, i) => `${PAGE_PREFIX} ${String(i).padStart(2, '0')}`),
       },
     },
   });
   expect(response.status()).toBe(201);
   await request.get('/__c360_test/actor/admin');
   await page.goto(`/?view=customer-tags&tenant=${config.tenant}`);
-  const more = page.getByRole('button', { name: 'โหลดเพิ่มเติม' });
+  const more = page.getByRole('button', { name: TAGS('more') });
   await expect(more).toBeVisible();
   await more.click();
-  await expect(page.getByRole('row').filter({ hasText: 'หน้า M1 51' })).toHaveCount(1);
+  await expect(page.getByRole('row').filter({ hasText: `${PAGE_PREFIX} 51` })).toHaveCount(1);
 });
 
 test('a list result arriving late after permission revoke does not come back', async ({
@@ -152,7 +164,7 @@ test('a list result arriving late after permission revoke does not come back', a
 }) => {
   const config = (await (await request.get('/__c360_test/config')).json()) as { tenant: string };
   await page.goto(`/?view=customer-tags&tenant=${config.tenant}`);
-  await expect(page.getByRole('row').filter({ hasText: 'ลูกค้าสำคัญ' })).toBeVisible();
+  await expect(page.getByRole('row').filter({ hasText: SEED_TAG })).toBeVisible();
   let release!: () => void;
   let arrived!: () => void;
   const gate = new Promise<void>((resolve) => {
@@ -173,16 +185,16 @@ test('a list result arriving late after permission revoke does not come back', a
       /* an old request may be aborted when the filter changes */
     }
   });
-  await page.getByLabel('สถานะ').click();
-  await page.getByRole('option', { name: 'ใช้งาน', exact: true }).click();
+  await page.getByLabel(TAGS('filter')).click();
+  await page.getByRole('option', { name: TAGS('states.ACTIVE'), exact: true }).click();
   await held;
   await request.get('/__c360_test/actor/supervisor');
-  await page.getByLabel('สถานะ').click();
-  await page.getByRole('option', { name: 'เลิกใช้', exact: true }).click();
-  await expect(page.getByRole('alert')).toContainText('ไม่สามารถเข้าถึงแท็ก');
+  await page.getByLabel(TAGS('filter')).click();
+  await page.getByRole('option', { name: TAGS('states.RETIRED'), exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText(TAGS('access'));
   release();
   await expect(page.getByRole('table')).toHaveCount(0);
-  await expect(page.getByText('ลูกค้าสำคัญ')).toHaveCount(0);
+  await expect(page.getByText(SEED_TAG)).toHaveCount(0);
 });
 
 test('holding the draft until permission is rechecked and showing the error inside the dialog', async ({
@@ -191,16 +203,16 @@ test('holding the draft until permission is rechecked and showing the error insi
 }) => {
   const config = (await (await request.get('/__c360_test/config')).json()) as { tenant: string };
   await page.goto(`/?view=customer-tags&tenant=${config.tenant}`);
-  await page.getByRole('button', { name: 'สร้างแท็ก' }).click();
+  await page.getByRole('button', { name: TAGS('create') }).click();
   const dialog = page.getByRole('dialog');
-  await dialog.getByLabel('ชื่อแท็ก').fill('ร่างทดสอบสิทธิ์');
+  await dialog.getByLabel(TAGS('name')).fill('Permission test draft');
   await request.get('/__c360_test/fail/429/tags');
-  await dialog.getByRole('button', { name: 'บันทึก' }).click();
-  await expect(dialog.getByRole('alert')).toContainText('ทำรายการไม่สำเร็จ');
+  await dialog.getByRole('button', { name: TAGS('save') }).click();
+  await expect(dialog.getByRole('alert')).toContainText(TAGS('failed'));
   await request.get('/__c360_test/fail/0/tags');
   await request.get('/__c360_test/actor/supervisor');
-  await dialog.getByRole('button', { name: 'บันทึก' }).click();
-  await expect(page.getByRole('alert')).toContainText('ไม่สามารถเข้าถึงแท็ก');
+  await dialog.getByRole('button', { name: TAGS('save') }).click();
+  await expect(page.getByRole('alert')).toContainText(TAGS('access'));
   let release!: () => void;
   let arrived!: () => void;
   const gate = new Promise<void>((resolve) => {
@@ -214,12 +226,12 @@ test('holding the draft until permission is rechecked and showing the error insi
     await gate;
     await route.continue();
   });
-  await page.getByRole('button', { name: 'ลองใหม่' }).click();
+  await page.getByRole('button', { name: TAGS('retry') }).click();
   await held;
   await expect(page.getByRole('dialog')).toHaveCount(0);
-  await expect(page.getByText('ร่างทดสอบสิทธิ์')).toHaveCount(0);
+  await expect(page.getByText('Permission test draft')).toHaveCount(0);
   release();
-  await expect(page.getByRole('alert')).toContainText('ไม่สามารถเข้าถึงแท็ก');
+  await expect(page.getByRole('alert')).toContainText(TAGS('access'));
 });
 
 for (const fault of ['network', 'rate'] as const)
@@ -229,23 +241,23 @@ for (const fault of ['network', 'rate'] as const)
   }) => {
     const config = (await (await request.get('/__c360_test/config')).json()) as { tenant: string };
     const create = await request.post('/api/v1/customer-360/tags', {
-      data: { commandId: randomUUID(), name: `ก่อน conflict readback ${fault}` },
+      data: { commandId: randomUUID(), name: `Before conflict readback ${fault}` },
     });
     const receipt = (await create.json()) as { command: { resourceRefs: { id: string }[] } };
     const id = receipt.command.resourceRefs[0]!.id;
     await page.goto(`/?view=customer-tags&tenant=${config.tenant}`);
     await page
       .getByRole('row')
-      .filter({ hasText: `ก่อน conflict readback ${fault}` })
-      .getByRole('button', { name: 'เปลี่ยนชื่อ' })
+      .filter({ hasText: `Before conflict readback ${fault}` })
+      .getByRole('button', { name: TAGS('rename') })
       .click();
     const dialog = page.getByRole('dialog');
-    await dialog.getByLabel('ชื่อแท็ก').fill('ร่าง conflict readback');
+    await dialog.getByLabel(TAGS('name')).fill('Conflict readback draft');
     const changed = await request.patch(`/api/v1/customer-360/tags/${id}`, {
       data: {
         commandId: randomUUID(),
         expectedRevision: '0',
-        name: `ข้อมูลล่าสุด readback ${fault}`,
+        name: `Latest readback ${fault}`,
       },
     });
     expect(changed.status()).toBe(200);
@@ -262,11 +274,11 @@ for (const fault of ['network', 'rate'] as const)
           });
       } else await route.continue();
     });
-    await dialog.getByRole('button', { name: 'บันทึก' }).click();
-    await expect(dialog.getByRole('button', { name: 'ตรวจผลการบันทึก' })).toBeVisible();
-    await dialog.getByRole('button', { name: 'ตรวจผลการบันทึก' }).click();
-    await expect(dialog).toContainText(`ข้อมูลล่าสุด readback ${fault}`);
-    await expect(dialog.getByLabel('ชื่อแท็ก')).toHaveValue('ร่าง conflict readback');
+    await dialog.getByRole('button', { name: TAGS('save') }).click();
+    await expect(dialog.getByRole('button', { name: TAGS('check') })).toBeVisible();
+    await dialog.getByRole('button', { name: TAGS('check') }).click();
+    await expect(dialog).toContainText(`Latest readback ${fault}`);
+    await expect(dialog.getByLabel(TAGS('name'))).toHaveValue('Conflict readback draft');
   });
 
 test('a tag retired while permission is lost must not allow saving the original draft', async ({
@@ -275,21 +287,21 @@ test('a tag retired while permission is lost must not allow saving the original 
 }) => {
   const config = (await (await request.get('/__c360_test/config')).json()) as { tenant: string };
   const create = await request.post('/api/v1/customer-360/tags', {
-    data: { commandId: randomUUID(), name: 'AAA แท็กก่อนเสียสิทธิ์' },
+    data: { commandId: randomUUID(), name: 'AAA tag before losing access' },
   });
   const receipt = (await create.json()) as { command: { resourceRefs: { id: string }[] } };
   const id = receipt.command.resourceRefs[0]!.id;
   await page.goto(`/?view=customer-tags&tenant=${config.tenant}`);
   await page
     .getByRole('row')
-    .filter({ hasText: 'แท็กก่อนเสียสิทธิ์' })
-    .getByRole('button', { name: 'เปลี่ยนชื่อ' })
+    .filter({ hasText: 'tag before losing access' })
+    .getByRole('button', { name: TAGS('rename') })
     .click();
   const dialog = page.getByRole('dialog');
-  await dialog.getByLabel('ชื่อแท็ก').fill('ร่างที่ต้องกัก');
+  await dialog.getByLabel(TAGS('name')).fill('Draft to hold');
   await request.get('/__c360_test/actor/supervisor');
-  await dialog.getByRole('button', { name: 'บันทึก' }).click();
-  await expect(page.getByRole('alert')).toContainText('ไม่สามารถเข้าถึงแท็ก');
+  await dialog.getByRole('button', { name: TAGS('save') }).click();
+  await expect(page.getByRole('alert')).toContainText(TAGS('access'));
   await request.get('/__c360_test/actor/admin-two');
   expect(
     (
@@ -299,8 +311,8 @@ test('a tag retired while permission is lost must not allow saving the original 
     ).status(),
   ).toBe(200);
   await request.get('/__c360_test/actor/admin');
-  await page.getByRole('button', { name: 'ลองใหม่' }).click();
-  await expect(dialog).toContainText('เลิกใช้');
-  await expect(dialog.getByRole('button', { name: 'ลองใหม่' })).toBeDisabled();
-  await expect(dialog.getByRole('button', { name: 'บันทึก', exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: TAGS('retry') }).click();
+  await expect(dialog).toContainText(TAGS('states.RETIRED'));
+  await expect(dialog.getByRole('button', { name: TAGS('retry') })).toBeDisabled();
+  await expect(dialog.getByRole('button', { name: TAGS('save'), exact: true })).toBeDisabled();
 });

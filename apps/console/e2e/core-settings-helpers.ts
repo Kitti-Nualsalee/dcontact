@@ -1,8 +1,18 @@
 import { expect, type Page, type APIRequestContext } from '@playwright/test';
+import { en, th } from './support/catalog';
+
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 export async function coreLogin(page: Page, request: APIRequestContext, alias = 'admin') {
   const config = await (await request.get('/__core_test/config')).json();
   await page.goto(`/?tenant=${config.tenant}&view=core-settings&page=teams`);
-  await page.getByRole('button', { name: /^(เข้าสู่ระบบอีกครั้ง|Sign in again)$/ }).click();
+  await page
+    .getByRole('button', {
+      name: new RegExp(
+        `^(${escapeRegExp(th('coreSettings:signIn'))}|${escapeRegExp(en('coreSettings:signIn'))})$`,
+      ),
+    })
+    .click();
   await page.getByLabel('Username or email').fill(config.users[alias]);
   if (!(await page.getByLabel('Password', { exact: true }).count()))
     await page.getByRole('button', { name: 'Sign In', exact: true }).click();

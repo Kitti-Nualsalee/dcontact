@@ -1,5 +1,8 @@
 import { expect, test, type Page } from '@playwright/test';
+import { th } from './support/catalog';
 import { homeNavigation } from './support/home-navigation.js';
+
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 const queueId = '7a33ac96-d87d-4ca4-ab75-f27e40e943be';
 const teamId = '7a33ac96-d87d-4ca4-ab75-f27e40e943bf';
@@ -343,13 +346,17 @@ test.describe('Thai B4', () => {
       return route.fallback();
     });
     await page.goto('/?view=voice-routing&section=destinations&tenant=demo');
-    await expect(page.getByRole('alert')).toContainText('ความสามารถนี้ยังไม่พร้อมใช้งาน');
+    await expect(page.getByRole('alert')).toContainText(
+      th('voiceRouting:errors.CAPABILITY_NOT_READY'),
+    );
     fail = false;
-    await page.getByRole('button', { name: 'ลองอีกครั้ง', exact: true }).click();
-    await select(page, 'ปลายทางที่จองไว้', '1000');
-    await expect(page.getByRole('heading', { name: 'ปลายทาง', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: th('voiceRouting:retry'), exact: true }).click();
+    await select(page, th('voiceRouting:config.destination'), '1000');
     await expect(
-      page.getByText('Managed routing ยังไม่พร้อมเปิดใช้งาน', {
+      page.getByRole('heading', { name: th('voiceRouting:config.destinations'), exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText(th('voiceRouting:activation.blocked'), {
         exact: true,
       }),
     ).toBeVisible();
@@ -519,14 +526,29 @@ test.describe('Thai B5', () => {
   }) => {
     const data = await harness(page, { ready: true });
     await page.goto(`/?view=voice-routing&resource=${queueId}&tenant=demo`);
-    await expect(page.getByText(/นโยบายคงที่: เสนอให้ Agent คนละ 20 วินาที/)).toBeVisible();
     await expect(
-      page.getByText(/เหตุผลสิ้นสุดล่าสุดจาก server: หมดเวลารวมก่อน Agent รับสาย/),
+      page.getByText(new RegExp(escapeRegExp(th('voiceRouting:activation.fixedPolicy')))),
     ).toBeVisible();
-    await page.getByRole('textbox', { name: 'เหตุผล (1–500 ตัวอักษร)' }).fill('เปิดเส้นทางรับสาย');
-    await page.getByRole('button', { name: 'เปิดใช้งานคิว', exact: true }).click();
-    await expect(page.getByRole('button', { name: 'ปิดใช้งานคิว', exact: true })).toBeVisible();
-    expect(data.writes[0]).toMatchObject({ isActive: true, reason: 'เปิดเส้นทางรับสาย' });
+    await expect(
+      page.getByText(
+        new RegExp(
+          `${escapeRegExp(th('voiceRouting:activation.terminal'))}: ${escapeRegExp(th('voiceRouting:activation.terminalReasons.PREANSWER_DEADLINE_EXCEEDED'))}`,
+        ),
+      ),
+    ).toBeVisible();
+    await page
+      .getByRole('textbox', { name: th('voiceRouting:config.reason') })
+      .fill('Open the call route');
+    await page
+      .getByRole('button', { name: th('voiceRouting:activation.activateQueue'), exact: true })
+      .click();
+    await expect(
+      page.getByRole('button', {
+        name: th('voiceRouting:activation.deactivateQueue'),
+        exact: true,
+      }),
+    ).toBeVisible();
+    expect(data.writes[0]).toMatchObject({ isActive: true, reason: 'Open the call route' });
   });
 });
 
