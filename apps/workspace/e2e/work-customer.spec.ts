@@ -1,11 +1,12 @@
 import { expect, test, type Page } from '@playwright/test';
+import { th } from './catalog';
 const workId = '11111111-1111-4111-8111-111111111111';
 const contactId = '44444444-4444-4444-8444-444444444444';
 const linked = () => ({
   interactionId: workId,
   state: 'LINKED',
   linkageRevision: '1',
-  contact: { id: contactId, displayName: 'ลูกค้าทดสอบงาน', company: 'บริษัททดสอบ' },
+  contact: { id: contactId, displayName: 'Work Test Customer', company: 'Test Company' },
   revisions: { profile: '0', tag: '0', lineage: '0' },
   canEdit: true,
   canLink: true,
@@ -39,8 +40,8 @@ async function fixture(
           items: [
             {
               candidateRef: 'opaque-reference',
-              displayName: 'ลูกค้าจากผลค้นหา',
-              company: 'บริษัทเลือก',
+              displayName: 'Customer From Search',
+              company: 'Selected Company',
               matchingChannel: '•••11',
             },
           ],
@@ -66,7 +67,11 @@ async function fixture(
       view = path.endsWith('/customer-link')
         ? {
             ...linked(),
-            contact: { id: contactId, displayName: 'ลูกค้าจากผลค้นหา', company: 'บริษัทเลือก' },
+            contact: {
+              id: contactId,
+              displayName: 'Customer From Search',
+              company: 'Selected Company',
+            },
           }
         : {
             ...view,
@@ -93,7 +98,7 @@ async function fixture(
         linkageRevision: '2',
         contact: {
           id: '55555555-5555-4555-8555-555555555555',
-          displayName: 'ลูกค้าคนใหม่',
+          displayName: 'New Customer',
           company: null,
         },
       };
@@ -110,16 +115,16 @@ test('pick a candidate manually without auto-link even with a single result, and
   page,
 }) => {
   const f = await fixture(page, { unlinked: true });
-  await expect(page.getByText('งานนี้ยังไม่เชื่อมกับลูกค้า')).toBeVisible();
-  await page.getByLabel('เบอร์โทรศัพท์สากลหรืออีเมลเต็มค่า').fill('+6621234511');
-  await page.getByRole('button', { name: 'ค้นหาลูกค้าสำหรับงานนี้' }).click();
+  await expect(page.getByText(th('workspace:customer.unlinked'))).toBeVisible();
+  await page.getByLabel(th('workspace:customer.query')).fill('+6621234511');
+  await page.getByRole('button', { name: th('workspace:customer.search') }).click();
   await expect(
-    page.getByRole('status').filter({ hasText: 'รายการที่พบยังไม่ใช่การยืนยันตัวบุคคล' }),
+    page.getByRole('status').filter({ hasText: th('workspace:customer.unverified') }),
   ).toBeVisible();
   expect(f.mutations()).toBe(0);
-  await page.getByRole('button', { name: 'เลือกเชื่อมลูกค้า' }).click();
-  await page.getByRole('button', { name: 'ยืนยัน', exact: true }).click();
-  await expect(page.getByText('บันทึกข้อมูลลูกค้าแล้ว')).toBeVisible();
+  await page.getByRole('button', { name: th('workspace:customer.select') }).click();
+  await page.getByRole('button', { name: th('workspace:customer.confirm'), exact: true }).click();
+  await expect(page.getByText(th('workspace:customer.saved'))).toBeVisible();
   expect(f.mutations()).toBe(1);
   await privateDraft(page, '+6621234511');
 });
@@ -127,31 +132,33 @@ test('the draft lives in memory and pauses when the session is lost, recovering 
   page,
 }) => {
   await fixture(page);
-  await page.getByRole('button', { name: 'แก้ชื่อและบริษัท' }).click();
-  await page.getByLabel('ชื่อลูกค้า').fill('ร่างส่วนตัว');
-  await privateDraft(page, 'ร่างส่วนตัว');
+  await page.getByRole('button', { name: th('workspace:customer.edit') }).click();
+  await page.getByLabel(th('workspace:customer.name')).fill('Private draft');
+  await privateDraft(page, 'Private draft');
   await page.getByRole('button', { name: 'Pause fixture' }).click();
-  await expect(page.getByLabel('ชื่อลูกค้า')).toHaveCount(0);
-  await expect(page.getByText('ลูกค้าทดสอบงาน', { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel(th('workspace:customer.name'))).toHaveCount(0);
+  await expect(page.getByText('Work Test Customer', { exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'Resume fixture' }).click();
-  await expect(page.getByLabel('ชื่อลูกค้า')).toHaveValue('ร่างส่วนตัว');
+  await expect(page.getByLabel(th('workspace:customer.name'))).toHaveValue('Private draft');
   await page.getByRole('button', { name: 'Switch work fixture' }).click();
-  await expect(page.getByLabel('ชื่อลูกค้า')).toHaveCount(0);
-  await expect(page.getByText('งานนี้ยังไม่เชื่อมกับลูกค้า')).toBeVisible();
+  await expect(page.getByLabel(th('workspace:customer.name'))).toHaveCount(0);
+  await expect(page.getByText(th('workspace:customer.unlinked'))).toBeVisible();
 });
 test('response lost after save: use the same command to check the result, without creating a duplicate effect', async ({
   page,
 }) => {
   const f = await fixture(page, { unknown: true });
-  await page.getByRole('button', { name: 'แก้ชื่อและบริษัท' }).click();
-  await page.getByLabel('ชื่อลูกค้า').fill('ร่าง unknown');
-  await page.getByRole('button', { name: 'บันทึกลูกค้า' }).click();
-  await expect(page.getByRole('button', { name: 'ตรวจผลคำสั่งเดิม' })).toBeVisible();
-  await privateDraft(page, 'ร่าง unknown');
+  await page.getByRole('button', { name: th('workspace:customer.edit') }).click();
+  await page.getByLabel(th('workspace:customer.name')).fill('Unknown draft');
+  await page.getByRole('button', { name: th('workspace:customer.save') }).click();
+  await expect(
+    page.getByRole('button', { name: th('workspace:customer.checkCommand') }),
+  ).toBeVisible();
+  await privateDraft(page, 'Unknown draft');
   page.once('dialog', (dialog) => void dialog.accept());
   await page.reload();
-  await page.getByRole('button', { name: 'ตรวจผลคำสั่งเดิม' }).click();
-  await expect(page.getByText('บันทึกข้อมูลลูกค้าแล้ว')).toBeVisible();
+  await page.getByRole('button', { name: th('workspace:customer.checkCommand') }).click();
+  await expect(page.getByText(th('workspace:customer.saved'))).toBeVisible();
   expect(f.mutations()).toBe(1);
 });
 test('removing or changing the customer must confirm with a reason and the 768 screen does not overflow', async ({
@@ -159,10 +166,14 @@ test('removing or changing the customer must confirm with a reason and the 768 s
 }) => {
   await fixture(page);
   await page.setViewportSize({ width: 768, height: 900 });
-  await page.getByRole('button', { name: 'ถอดการเชื่อมลูกค้า', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'ยืนยัน', exact: true })).toBeDisabled();
-  await page.getByLabel('เหตุผล (ไม่ใส่ข้อมูลส่วนบุคคล)').fill('เลือกผิดรายการ');
-  await expect(page.getByRole('button', { name: 'ยืนยัน', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: th('workspace:customer.detach'), exact: true }).click();
+  await expect(
+    page.getByRole('button', { name: th('workspace:customer.confirm'), exact: true }),
+  ).toBeDisabled();
+  await page.getByLabel(th('workspace:customer.reason')).fill('Wrong item selected');
+  await expect(
+    page.getByRole('button', { name: th('workspace:customer.confirm'), exact: true }),
+  ).toBeEnabled();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
@@ -170,28 +181,28 @@ test('admission stuck with no effect must reconcile PENDING to NOT_APPLIED befor
   page,
 }) => {
   await fixture(page, { pending: true });
-  await page.getByRole('button', { name: 'แก้ชื่อและบริษัท' }).click();
-  await page.getByLabel('ชื่อลูกค้า').fill('ร่างที่ยังไม่บันทึก');
-  await page.getByRole('button', { name: 'บันทึกลูกค้า' }).click();
-  await page.getByRole('button', { name: 'ตรวจผลคำสั่งเดิม' }).click();
-  await expect(page.getByText('คำสั่งเดิมไม่มีผลบันทึก ตรวจร่างก่อนส่งใหม่')).toBeVisible();
-  await expect(page.getByLabel('ชื่อลูกค้า')).toHaveValue('ร่างที่ยังไม่บันทึก');
-  await expect(page.getByRole('button', { name: 'บันทึกลูกค้า' })).toBeEnabled();
+  await page.getByRole('button', { name: th('workspace:customer.edit') }).click();
+  await page.getByLabel(th('workspace:customer.name')).fill('Unsaved draft');
+  await page.getByRole('button', { name: th('workspace:customer.save') }).click();
+  await page.getByRole('button', { name: th('workspace:customer.checkCommand') }).click();
+  await expect(page.getByText(th('workspace:customer.notApplied'))).toBeVisible();
+  await expect(page.getByLabel(th('workspace:customer.name'))).toHaveValue('Unsaved draft');
+  await expect(page.getByRole('button', { name: th('workspace:customer.save') })).toBeEnabled();
 });
 
 test('the draft of the same customer does not move to a new one when the original work changes linkage during reauth', async ({
   page,
 }) => {
   const f = await fixture(page);
-  await page.getByRole('button', { name: 'แก้ชื่อและบริษัท' }).click();
-  await page.getByLabel('ชื่อลูกค้า').fill('ร่างของคนเดิม');
+  await page.getByRole('button', { name: th('workspace:customer.edit') }).click();
+  await page.getByLabel(th('workspace:customer.name')).fill('Draft of the previous customer');
   await page.getByRole('button', { name: 'Pause fixture' }).click();
-  await expect(page.getByLabel('ชื่อลูกค้า')).toHaveCount(0);
+  await expect(page.getByLabel(th('workspace:customer.name'))).toHaveCount(0);
   f.replaceLinkedContact();
   await page.getByRole('button', { name: 'Resume fixture' }).click();
-  await expect(page.getByText('ลูกค้าคนใหม่', { exact: true })).toBeVisible();
-  await expect(page.getByLabel('ชื่อลูกค้า')).toHaveCount(0);
-  await page.getByRole('button', { name: 'แก้ชื่อและบริษัท' }).click();
-  await expect(page.getByLabel('ชื่อลูกค้า')).toHaveValue('ลูกค้าคนใหม่');
+  await expect(page.getByText('New Customer', { exact: true })).toBeVisible();
+  await expect(page.getByLabel(th('workspace:customer.name'))).toHaveCount(0);
+  await page.getByRole('button', { name: th('workspace:customer.edit') }).click();
+  await expect(page.getByLabel(th('workspace:customer.name'))).toHaveValue('New Customer');
   expect(f.mutations()).toBe(0);
 });

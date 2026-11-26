@@ -1,5 +1,6 @@
 import { expect, test } from './fixtures';
 import type { Page } from '@playwright/test';
+import { th } from './catalog';
 
 /**
  * keyboard order of the right work panel per docs/ui-principles.md item 2 (Tab order follows reading order)
@@ -41,14 +42,14 @@ async function openWrapup(page: Page) {
     route.fulfill({
       status: 200,
       json: {
-        agent: { id: 'agent-1000', displayName: 'สมชาย ใจดี', extension: '1000', state: 'ACW' },
+        agent: { id: 'agent-1000', displayName: 'Somchai Jaidee', extension: '1000', state: 'ACW' },
         interaction: {
           id: '3f0c6c55-9a3e-4a51-9f53-0d7d1d3b8a21',
           state: 'WRAPUP',
           direction: 'INBOUND',
           version: '7',
           caller: '081-234-5678',
-          queue: { id: 'queue-service', name: 'บริการลูกค้า' },
+          queue: { id: 'queue-service', name: 'Customer Service' },
           offerExpiresAt: null,
           answeredAt: new Date(Date.now() - 95_000).toISOString(),
           endedAt: new Date(Date.now() - 5_000).toISOString(),
@@ -57,11 +58,12 @@ async function openWrapup(page: Page) {
     }),
   );
   await page.goto('/?tenant=demo');
-  await expect(page.getByText('สมชาย ใจดี')).toBeVisible();
+  await expect(page.getByText('Somchai Jaidee')).toBeVisible();
 }
 
-const inspector = (page: Page) => page.getByRole('complementary', { name: 'แผงรายละเอียดงาน' });
-const tools = (page: Page) => page.getByRole('toolbar', { name: 'เครื่องมือด้านขวา' });
+const inspector = (page: Page) =>
+  page.getByRole('complementary', { name: th('workspace:layout.inspector.label') });
+const tools = (page: Page) => page.getByRole('toolbar', { name: th('workspace:layout.utility') });
 
 /** the part of the page that has focus right now */
 function focusedZone(page: Page) {
@@ -80,12 +82,13 @@ test('Tab in the work panel: panel header → tab bar → content, then skip the
   page,
 }) => {
   await openWrapup(page);
-  await expect(inspector(page).getByRole('tab', { name: 'สรุปผล' })).toHaveAttribute(
-    'aria-selected',
-    'true',
-  );
+  await expect(
+    inspector(page).getByRole('tab', { name: th('workspace:layout.inspector.tabs.wrapup') }),
+  ).toHaveAttribute('aria-selected', 'true');
 
-  await inspector(page).getByRole('button', { name: 'ปิดแผงรายละเอียด' }).focus();
+  await inspector(page)
+    .getByRole('button', { name: th('workspace:layout.inspector.close') })
+    .focus();
   const zones = [await focusedZone(page)];
   for (let i = 0; i < 30; i += 1) {
     await page.keyboard.press('Tab');
@@ -111,17 +114,21 @@ test('right tool bar: the Tab entry point is the open tab, arrows move within th
 }) => {
   await openWrapup(page);
   const bar = tools(page);
-  const wrapup = bar.getByRole('button', { name: 'สรุปผล' });
-  const events = bar.getByRole('button', { name: 'เหตุการณ์' });
-  const readiness = bar.getByRole('button', { name: 'ความพร้อม' });
-  const toggle = bar.getByRole('button', { name: 'ปิดแผงรายละเอียด' });
+  const wrapup = bar.getByRole('button', { name: th('workspace:layout.inspector.tabs.wrapup') });
+  const events = bar.getByRole('button', { name: th('workspace:layout.inspector.tabs.events') });
+  const readiness = bar.getByRole('button', {
+    name: th('workspace:layout.inspector.tabs.readiness'),
+  });
+  const toggle = bar.getByRole('button', { name: th('workspace:layout.inspector.close') });
 
   // roving tabindex: exactly one button in the Tab order, and it is the open tab
   await expect(bar.locator('button[tabindex="0"]')).toHaveCount(1);
   await expect(wrapup).toHaveAttribute('tabindex', '0');
 
   // button order: open/close panel, summary, ... (other tabs can be added as capabilities allow, e.g. case), events, readiness
-  await expect(bar.getByRole('button').nth(1)).toHaveAccessibleName('สรุปผล');
+  await expect(bar.getByRole('button').nth(1)).toHaveAccessibleName(
+    th('workspace:layout.inspector.tabs.wrapup'),
+  );
   await wrapup.focus();
   await page.keyboard.press('ArrowDown');
   await expect(bar.getByRole('button').nth(2)).toBeFocused();
@@ -138,10 +145,9 @@ test('right tool bar: the Tab entry point is the open tab, arrows move within th
   await page.keyboard.press('ArrowUp');
   await expect(events).toBeFocused();
   await page.keyboard.press('Enter');
-  await expect(inspector(page).getByRole('tab', { name: 'เหตุการณ์' })).toHaveAttribute(
-    'aria-selected',
-    'true',
-  );
+  await expect(
+    inspector(page).getByRole('tab', { name: th('workspace:layout.inspector.tabs.events') }),
+  ).toHaveAttribute('aria-selected', 'true');
   await expect(events).toHaveAttribute('aria-pressed', 'true');
   await expect(events).toBeFocused();
   await expect(bar.locator('button[tabindex="0"]')).toHaveCount(1);
@@ -150,7 +156,7 @@ test('right tool bar: the Tab entry point is the open tab, arrows move within th
   await page.keyboard.press('Home');
   await page.keyboard.press('Enter');
   await expect(inspector(page)).toHaveCount(0);
-  const reopen = bar.getByRole('button', { name: 'เปิดแผงรายละเอียด' });
+  const reopen = bar.getByRole('button', { name: th('workspace:layout.inspector.open') });
   await expect(reopen).toBeFocused();
   await page.keyboard.press('Space');
   await expect(inspector(page)).toBeVisible();
@@ -166,8 +172,8 @@ test('forced-colors: the selected button in the tool bar and the summary-outcome
 
   // tool bar: the open tab (summary) must not have the same background as other buttons
   const bar = tools(page);
-  const wrapup = bar.getByRole('button', { name: 'สรุปผล' });
-  const events = bar.getByRole('button', { name: 'เหตุการณ์' });
+  const wrapup = bar.getByRole('button', { name: th('workspace:layout.inspector.tabs.wrapup') });
+  const events = bar.getByRole('button', { name: th('workspace:layout.inspector.tabs.events') });
   await expect(wrapup).toHaveAttribute('aria-pressed', 'true');
   expect(await background(wrapup)).not.toBe(await background(events));
 

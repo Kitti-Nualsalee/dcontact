@@ -1,4 +1,6 @@
 import { expect, test } from './fixtures';
+import { th } from './catalog';
+import { thRegExp } from './locale-match';
 
 // #956 happy path of opening a case from the work being talked about; route mocks only, not evidence of the real API
 const workId = '7a33ac96-d87d-4ca4-ab75-f27e40e943be';
@@ -17,7 +19,7 @@ test('open a case from work already linked to a customer: the first unknown resu
         linkageRevision: '1',
         contact: {
           id: '44444444-4444-4444-8444-444444444444',
-          displayName: 'คุณภา จันทร์เพ็ญ',
+          displayName: 'Pa Chanpen',
           company: 'Siam Retail',
         },
         revisions: { profile: '0', tag: '0', lineage: '0' },
@@ -63,7 +65,7 @@ test('open a case from work already linked to a customer: the first unknown resu
     route.fulfill({
       json: {
         capabilities: { voiceWrapupV1: 1, workCustomerV1: 1 },
-        agent: { id: 'agent-one', displayName: 'สมหญิง ใจดี', extension: '1000', state: 'BUSY' },
+        agent: { id: 'agent-one', displayName: 'Somying Jaidee', extension: '1000', state: 'BUSY' },
         interaction: {
           id: workId,
           state,
@@ -98,8 +100,8 @@ test('open a case from work already linked to a customer: the first unknown resu
     route.fulfill({
       json: {
         items: [
-          { userId: 'agent-one', displayName: 'สมหญิง ใจดี' },
-          { userId: 'agent-two', displayName: 'ปกรณ์ ศรีสุข' },
+          { userId: 'agent-one', displayName: 'Somying Jaidee' },
+          { userId: 'agent-two', displayName: 'Pakorn Srisuk' },
         ],
       },
     }),
@@ -112,34 +114,42 @@ test('open a case from work already linked to a customer: the first unknown resu
 
   await page.goto('/?authHarness=1&tenant=demo');
   await page.getByRole('button', { name: 'Sign in fixture', exact: true }).click();
-  await page.getByRole('button', { name: 'ตรวจอุปกรณ์เสียง', exact: true }).click();
-  await page.getByRole('button', { name: 'รับสาย', exact: true }).click();
+  await page.getByRole('button', { name: th('workspace:media.check'), exact: true }).click();
+  await page.getByRole('button', { name: th('dphone:accept'), exact: true }).click();
   state = 'ACTIVE';
-  await expect(page.getByText('คุณภา จันทร์เพ็ญ').first()).toBeVisible();
+  await expect(page.getByText('Pa Chanpen').first()).toBeVisible();
 
-  await page.getByRole('button', { name: 'เปิดเคส', exact: true }).first().click();
-  const subject = page.getByRole('textbox', { name: 'หัวข้อ' });
+  await page
+    .getByRole('button', { name: th('workspace:case.open'), exact: true })
+    .first()
+    .click();
+  const subject = page.getByRole('textbox', { name: th('workspace:case.subject') });
   await expect(subject).toBeFocused();
-  await subject.fill('เครื่อง X200 ชำรุด ขอเปลี่ยนเครื่องใหม่');
-  await page.getByRole('textbox', { name: 'โน้ตแรก' }).fill('รอฝ่ายคลังยืนยันสต็อก');
-  const panel = page.getByRole('tabpanel', { name: 'เคส' });
-  await panel.getByRole('button', { name: /ผู้รับผิดชอบ/ }).click();
-  await page.getByRole('option', { name: 'ปกรณ์ ศรีสุข' }).click();
-  await panel.getByRole('button', { name: 'เปิดเคส', exact: true }).click();
-  await expect(panel.getByRole('alert')).toContainText('ยังไม่ทราบผลการเปิดเคส');
-  await expect(page.getByRole('textbox', { name: 'หัวข้อ' })).toHaveAttribute('readonly', '');
+  await subject.fill('X200 unit defective, replacement requested');
+  await page
+    .getByRole('textbox', { name: th('workspace:case.note') })
+    .fill('Waiting for warehouse to confirm stock');
+  const panel = page.getByRole('tabpanel', { name: th('workspace:layout.inspector.tabs.case') });
+  await panel.getByRole('button', { name: thRegExp('workspace:case.assignee') }).click();
+  await page.getByRole('option', { name: 'Pakorn Srisuk' }).click();
+  await panel.getByRole('button', { name: th('workspace:case.submit'), exact: true }).click();
+  await expect(panel.getByRole('alert')).toContainText(th('workspace:case.unknown'));
+  await expect(page.getByRole('textbox', { name: th('workspace:case.subject') })).toHaveAttribute(
+    'readonly',
+    '',
+  );
 
-  await panel.getByRole('button', { name: 'ส่งคำสั่งเดิมอีกครั้ง' }).click();
-  await expect(panel.getByRole('heading', { name: 'เปิดเคสแล้ว' })).toBeVisible();
+  await panel.getByRole('button', { name: th('workspace:case.retrySame') }).click();
+  await expect(panel.getByRole('heading', { name: th('workspace:case.created') })).toBeVisible();
   expect(attempts).toHaveLength(2);
   expect(attempts[1]).toEqual(attempts[0]);
   expect(attempts[0]).toMatchObject({
     interactionId: workId,
-    subject: 'เครื่อง X200 ชำรุด ขอเปลี่ยนเครื่องใหม่',
-    note: 'รอฝ่ายคลังยืนยันสต็อก',
+    subject: 'X200 unit defective, replacement requested',
+    note: 'Waiting for warehouse to confirm stock',
     assigneeUserId: 'agent-two',
   });
-  const link = panel.getByRole('link', { name: 'เปิดเคสใน Console (แท็บใหม่)' });
+  const link = panel.getByRole('link', { name: th('workspace:case.openInConsole') });
   await expect(link).toHaveAttribute('href', new RegExp(`view=team-cases&case=${caseId}`));
   expect(decodeURIComponent(page.url())).not.toContain('X200');
 });

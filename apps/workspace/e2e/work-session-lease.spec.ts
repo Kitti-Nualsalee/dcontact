@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { expect, test, type Browser, type Page, type WebSocketRoute } from '@playwright/test';
+import { th } from './catalog';
 
 /**
  * E1.12 (#486): two Workspace browsers (two contexts = separate storage/BroadcastChannel) with
@@ -133,13 +134,13 @@ class LeaseServer {
 }
 
 const snapshot = {
-  agent: { id: 'agent-1000', displayName: 'สมชาย ใจดี', extension: '1000', state: 'RESERVED' },
+  agent: { id: 'agent-1000', displayName: 'Somchai Jaidee', extension: '1000', state: 'RESERVED' },
   interaction: {
     id: 'interaction-offer-1',
     state: 'ASSIGNED',
     version: '17',
     caller: '081-234-5678',
-    queue: { id: 'queue-service', name: 'บริการลูกค้า' },
+    queue: { id: 'queue-service', name: 'Customer Service' },
     offerExpiresAt: '2026-09-28T10:00:20.000Z',
     answeredAt: null,
     endedAt: null,
@@ -168,8 +169,8 @@ async function openAgent(browser: Browser, server: LeaseServer, label: string) {
   return page;
 }
 
-const owner = (page: Page) => page.getByRole('status', { name: 'เจ้าของ Workspace' });
-const phone = (page: Page) => page.getByRole('status', { name: 'สถานะ dphone' });
+const owner = (page: Page) => page.getByRole('status', { name: th('workspace:status.owner') });
+const phone = (page: Page) => page.getByRole('status', { name: th('workspace:status.dphone') });
 const sipSession = (page: Page) => page.evaluate(() => window.__dcontactDphone?.sipSessionId());
 const heldLease = (page: Page) =>
   page.evaluate(() => window.__dcontactDphone?.workSessionLeaseId());
@@ -181,50 +182,50 @@ test('two browsers: work can be taken in only one place, a rejected takeover doe
 
   // A: gets the lease first → WS connects with leaseId → registers SIP, then calls can arrive
   const a = await openAgent(browser, server, 'A');
-  await expect(owner(a)).toHaveText('จุดรับงาน');
+  await expect(owner(a)).toHaveText(th('workspace:lease.chip.held'));
   await expect.poll(() => server.open('A').length).toBe(1);
   const leaseA = server.current!.leaseId;
   await expect
     .poll(() => server.open('A')[0]?.messages[0])
     .toMatchObject({ type: 'auth:connect', leaseId: leaseA });
   expect(await heldLease(a)).toBe(leaseA);
-  await a.getByRole('button', { name: 'ตรวจอุปกรณ์เสียง' }).click();
-  await expect(phone(a)).toHaveText('มีสายเรียกเข้า');
+  await a.getByRole('button', { name: th('workspace:media.check') }).click();
+  await expect(phone(a)).toHaveText(th('dphone:phase.RINGING'));
 
   // B: a holder exists → view only, no WS and no SIP register, and sees the holder (surface + start time)
   const b = await openAgent(browser, server, 'B');
-  await expect(b.getByRole('heading', { name: 'คุณกำลังรับงานอยู่ที่อื่น' })).toBeVisible();
-  const holderFacts = b.getByLabel('จุดรับงานปัจจุบัน');
+  await expect(b.getByRole('heading', { name: th('workspace:lease.heldTitle') })).toBeVisible();
+  const holderFacts = b.getByLabel(th('workspace:lease.holderLabel'));
   await expect(holderFacts).toContainText('Agent Workspace');
   await expect(holderFacts).toContainText(/\d{2}:\d{2}/);
-  await expect(owner(b)).toHaveText('ดูอย่างเดียว');
-  await expect(b.getByRole('button', { name: 'ตรวจอุปกรณ์เสียง' })).toBeDisabled();
-  await expect(b.getByRole('button', { name: 'เปิดรับสาย' })).toBeDisabled();
-  await expect(phone(b)).toHaveText('โทรศัพท์ยังไม่พร้อม');
+  await expect(owner(b)).toHaveText(th('workspace:lease.chip.standby'));
+  await expect(b.getByRole('button', { name: th('workspace:media.check') })).toBeDisabled();
+  await expect(b.getByRole('button', { name: th('workspace:availability.open') })).toBeDisabled();
+  await expect(phone(b)).toHaveText(th('dphone:phase.OFFLINE'));
   expect(server.connections.filter((c) => c.label === 'B')).toHaveLength(0);
   expect(server.current?.leaseId).toBe(leaseA);
 
   // A answers — the server sees the agent has work
-  await a.getByRole('button', { name: 'รับสาย', exact: true }).click();
-  await expect(phone(a)).toHaveText('กำลังสนทนา');
+  await a.getByRole('button', { name: th('dphone:accept'), exact: true }).click();
+  await expect(phone(a)).toHaveText(th('dphone:phase.ACTIVE'));
   server.busy = true;
   const callBefore = await sipSession(a);
   expect(callBefore).toMatch(/[0-9a-f-]{36}/);
 
   // B still sees the data before the call starts → press move, must confirm first → server rejects (has work)
-  await b.getByRole('button', { name: 'ย้ายมาที่นี่' }).click();
-  const confirm = b.getByRole('alertdialog', { name: 'ย้ายงานมาที่นี่?' });
+  await b.getByRole('button', { name: th('workspace:lease.move') }).click();
+  const confirm = b.getByRole('alertdialog', { name: th('workspace:lease.confirmTitle') });
   await expect(confirm).toContainText('Agent Workspace');
-  await confirm.getByRole('button', { name: 'ยืนยันย้าย' }).click();
-  await expect(b.getByRole('alert').filter({ hasText: 'ย้ายไม่สำเร็จ' })).toContainText(
-    'มีงานค้างที่จุดรับงานเดิม',
-  );
-  await expect(b.getByRole('button', { name: 'ย้ายมาที่นี่' })).toBeDisabled();
-  await expect(owner(b)).toHaveText('ดูอย่างเดียว');
+  await confirm.getByRole('button', { name: th('workspace:lease.confirm') }).click();
+  await expect(
+    b.getByRole('alert').filter({ hasText: th('workspace:lease.rejected.busy') }),
+  ).toBeVisible();
+  await expect(b.getByRole('button', { name: th('workspace:lease.move') })).toBeDisabled();
+  await expect(owner(b)).toHaveText(th('workspace:lease.chip.standby'));
 
   // a rejected takeover does not touch the old place: the original call, SIP session, WS still open, lease
-  await expect(phone(a)).toHaveText('กำลังสนทนา');
-  await expect(owner(a)).toHaveText('จุดรับงาน');
+  await expect(phone(a)).toHaveText(th('dphone:phase.ACTIVE'));
+  await expect(owner(a)).toHaveText(th('workspace:lease.chip.held'));
   expect(await sipSession(a)).toBe(callBefore);
   expect(server.open('A')).toHaveLength(1);
   expect(server.connections.filter((c) => c.label === 'A')).toHaveLength(1);
@@ -232,19 +233,19 @@ test('two browsers: work can be taken in only one place, a rejected takeover doe
   expect(await heldLease(a)).toBe(leaseA);
 
   // A hangs up → idle; B re-checks and can move
-  await a.getByRole('button', { name: 'วางสาย' }).click();
-  await expect(phone(a)).toHaveText('โทรศัพท์พร้อม');
+  await a.getByRole('button', { name: th('dphone:hangup') }).click();
+  await expect(phone(a)).toHaveText(th('dphone:phase.READY'));
   server.busy = false;
-  await b.getByRole('button', { name: 'ตรวจอีกครั้ง' }).click();
-  await expect(b.getByRole('button', { name: 'ย้ายมาที่นี่' })).toBeEnabled();
-  await b.getByRole('button', { name: 'ย้ายมาที่นี่' }).click();
+  await b.getByRole('button', { name: th('workspace:lease.refresh') }).click();
+  await expect(b.getByRole('button', { name: th('workspace:lease.move') })).toBeEnabled();
+  await b.getByRole('button', { name: th('workspace:lease.move') }).click();
   await b
-    .getByRole('alertdialog', { name: 'ย้ายงานมาที่นี่?' })
-    .getByRole('button', { name: 'ยืนยันย้าย' })
+    .getByRole('alertdialog', { name: th('workspace:lease.confirmTitle') })
+    .getByRole('button', { name: th('workspace:lease.confirm') })
     .click();
 
   // B becomes the work point: a new WS attaches the new lease, then SIP can register
-  await expect(owner(b)).toHaveText('จุดรับงาน');
+  await expect(owner(b)).toHaveText(th('workspace:lease.chip.held'));
   const leaseB = server.current!.leaseId;
   expect(leaseB).not.toBe(leaseA);
   await expect.poll(() => server.open('B').length).toBe(1);
@@ -253,16 +254,16 @@ test('two browsers: work can be taken in only one place, a rejected takeover doe
     .toMatchObject({ type: 'auth:connect', leaseId: leaseB });
 
   // A stops taking work immediately on receiving lease.revoked: SIP withdrawn, WS closed, take-work button disabled, and sees where the work moved
-  await expect(owner(a)).toHaveText('ดูอย่างเดียว');
-  await expect(phone(a)).toHaveText('โทรศัพท์ยังไม่พร้อม');
-  await expect(a.getByText('งานถูกย้ายไปที่อื่นแล้ว ที่นี่หยุดรับงานใหม่')).toBeVisible();
-  await expect(a.getByRole('button', { name: 'ตรวจอุปกรณ์เสียง' })).toBeDisabled();
-  await expect(a.getByRole('button', { name: 'เปิดรับสาย' })).toBeDisabled();
+  await expect(owner(a)).toHaveText(th('workspace:lease.chip.standby'));
+  await expect(phone(a)).toHaveText(th('dphone:phase.OFFLINE'));
+  await expect(a.getByText(th('workspace:lease.loss.takeover'))).toBeVisible();
+  await expect(a.getByRole('button', { name: th('workspace:media.check') })).toBeDisabled();
+  await expect(a.getByRole('button', { name: th('workspace:availability.open') })).toBeDisabled();
   await expect.poll(() => server.open('A').length).toBe(0);
   expect(await heldLease(a)).toBeUndefined();
 
-  await b.getByRole('button', { name: 'ตรวจอุปกรณ์เสียง' }).click();
-  await expect(phone(b)).toHaveText('มีสายเรียกเข้า');
+  await b.getByRole('button', { name: th('workspace:media.check') }).click();
+  await expect(phone(b)).toHaveText(th('dphone:phase.RINGING'));
 
   await a.context().close();
   await b.context().close();
@@ -273,10 +274,10 @@ test('lease revoked during a call: stops taking new work but the call and WS sta
 }) => {
   const server = new LeaseServer();
   const a = await openAgent(browser, server, 'A');
-  await expect(owner(a)).toHaveText('จุดรับงาน');
-  await a.getByRole('button', { name: 'ตรวจอุปกรณ์เสียง' }).click();
-  await a.getByRole('button', { name: 'รับสาย', exact: true }).click();
-  await expect(phone(a)).toHaveText('กำลังสนทนา');
+  await expect(owner(a)).toHaveText(th('workspace:lease.chip.held'));
+  await a.getByRole('button', { name: th('workspace:media.check') }).click();
+  await a.getByRole('button', { name: th('dphone:accept'), exact: true }).click();
+  await expect(phone(a)).toHaveText(th('dphone:phase.ACTIVE'));
   const call = await sipSession(a);
   await expect.poll(() => server.open('A').length).toBe(1);
 
@@ -289,19 +290,19 @@ test('lease revoked during a call: stops taking new work but the call and WS sta
     reason: 'auth_revoked',
   });
 
-  await expect(owner(a)).toHaveText('ดูอย่างเดียว');
-  await expect(a.getByText('ที่นี่หยุดรับงานใหม่แล้ว')).toBeVisible();
-  await expect(phone(a)).toHaveText('กำลังสนทนา');
+  await expect(owner(a)).toHaveText(th('workspace:lease.chip.standby'));
+  await expect(a.getByText(th('workspace:lease.inHand'))).toBeVisible();
+  await expect(phone(a)).toHaveText(th('dphone:phase.ACTIVE'));
   expect(await sipSession(a)).toBe(call);
   expect(server.open('A')).toHaveLength(1);
-  await expect(a.getByRole('button', { name: 'วางสาย' })).toBeEnabled();
+  await expect(a.getByRole('button', { name: th('dphone:hangup') })).toBeEnabled();
 
-  await a.getByRole('button', { name: 'วางสาย' }).click();
+  await a.getByRole('button', { name: th('dphone:hangup') }).click();
   server.busy = false;
   // work ends → SIP withdrawn and WS closed; no lease to request again with the same token
-  await expect(phone(a)).toHaveText('โทรศัพท์ยังไม่พร้อม');
+  await expect(phone(a)).toHaveText(th('dphone:phase.OFFLINE'));
   await expect.poll(() => server.open('A').length).toBe(0);
-  await expect(a.getByRole('heading', { name: 'ตรวจจุดรับงานไม่สำเร็จ' })).toBeVisible();
+  await expect(a.getByRole('heading', { name: th('workspace:lease.errorTitle') })).toBeVisible();
 
   await a.context().close();
 });

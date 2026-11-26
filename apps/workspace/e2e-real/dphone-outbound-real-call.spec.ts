@@ -3,6 +3,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test, type Frame, type Page } from '@playwright/test';
+import { th } from '../e2e/catalog';
 
 const here = resolve(fileURLToPath(new URL('.', import.meta.url)));
 const repoRoot = resolve(here, '../../..');
@@ -31,7 +32,7 @@ async function embeddedFrame(page: Page): Promise<Frame> {
 
 async function login(page: Page, frame: Frame) {
   const popupPromise = page.context().waitForEvent('page');
-  await frame.getByRole('button', { name: 'เข้าสู่ระบบ' }).click();
+  await frame.getByRole('button', { name: th('dphone:embedAuth.signIn') }).click();
   const popup = await popupPromise;
   await popup.waitForURL(/\/realms\/dcontact\//);
   await popup.locator('#username').fill('agent1000@demo.local');
@@ -39,16 +40,16 @@ async function login(page: Page, frame: Frame) {
   await popup.locator('#password').fill('agent1234');
   await popup.locator('#kc-login').click();
   await expect(
-    frame.getByRole('region', { name: 'การเข้าสู่ระบบของ dphone' }).getByRole('status'),
-  ).toHaveText('เข้าสู่ระบบแล้ว');
+    frame.getByRole('region', { name: th('dphone:embedAuth.label') }).getByRole('status'),
+  ).toHaveText(th('dphone:embedAuth.status.signed-in'));
   if (!popup.isClosed()) await popup.close();
 }
 
 async function requestCall(page: Page, frame: Frame, number: string, expected: RegExp) {
-  await page.getByLabel('เบอร์โทร').fill(number);
-  await page.getByRole('button', { name: 'ส่งเบอร์ให้ dphone' }).click();
-  const prompt = frame.getByRole('region', { name: 'โทรออกจากระบบที่ฝัง' });
-  await prompt.getByRole('button', { name: 'โทร', exact: true }).click();
+  await page.getByLabel('Phone number').fill(number);
+  await page.getByRole('button', { name: 'Send number to dphone' }).click();
+  const prompt = frame.getByRole('region', { name: th('dphone:embedCall.label') });
+  await prompt.getByRole('button', { name: th('dphone:embedCall.dial'), exact: true }).click();
   await expect(page.locator('#call-result')).toHaveText(expected);
   return prompt;
 }
@@ -62,15 +63,19 @@ test('E1.18 real stack: ALLOW places a real call; BLOCK/DEFER/REVIEW never touch
   const frame = await embeddedFrame(page);
   await login(page, frame);
 
-  await frame.getByRole('button', { name: 'ตรวจอุปกรณ์เสียง' }).click();
+  await frame.getByRole('button', { name: th('workspace:media.check') }).click();
   const dphone = frame.getByRole('region', { name: 'dphone' });
-  await expect(dphone.getByRole('status', { name: 'dphone' })).toHaveText('โทรศัพท์พร้อม');
-  await frame.getByRole('button', { name: 'เปิดรับสาย' }).click();
+  await expect(dphone.getByRole('status', { name: 'dphone' })).toHaveText(th('dphone:phase.READY'));
+  await frame.getByRole('button', { name: th('workspace:availability.open') }).click();
 
-  const allowPrompt = await requestCall(page, frame, '1001', /^ผล: dialing \(QUEUED\)$/);
-  await expect(dphone.getByRole('status', { name: 'dphone' })).toHaveText('มีสายเรียกเข้า');
-  await dphone.getByRole('button', { name: 'รับสาย' }).click();
-  await expect(dphone.getByRole('status', { name: 'dphone' })).toHaveText('กำลังสนทนา');
+  const allowPrompt = await requestCall(page, frame, '1001', /^Result: dialing \(QUEUED\)$/);
+  await expect(dphone.getByRole('status', { name: 'dphone' })).toHaveText(
+    th('dphone:phase.RINGING'),
+  );
+  await dphone.getByRole('button', { name: th('dphone:accept') }).click();
+  await expect(dphone.getByRole('status', { name: 'dphone' })).toHaveText(
+    th('dphone:phase.ACTIVE'),
+  );
   await expect
     .poll(
       () =>
@@ -80,12 +85,12 @@ test('E1.18 real stack: ALLOW places a real call; BLOCK/DEFER/REVIEW never touch
       { timeout: 30_000 },
     )
     .toBe('1');
-  await dphone.getByRole('button', { name: 'วางสาย' }).click();
-  await allowPrompt.getByRole('button', { name: 'ปิด' }).click();
+  await dphone.getByRole('button', { name: th('dphone:hangup') }).click();
+  await allowPrompt.getByRole('button', { name: th('dphone:embedCall.close') }).click();
 
-  await requestCall(page, frame, '1002', /^ผล: blocked \(CONSENT_REVOKED\)$/);
+  await requestCall(page, frame, '1002', /^Result: blocked \(CONSENT_REVOKED\)$/);
 
-  await requestCall(page, frame, '1003', /^ผล: blocked \(IDENTITY_NOT_FOUND\)$/);
+  await requestCall(page, frame, '1003', /^Result: blocked \(IDENTITY_NOT_FOUND\)$/);
 
   psql(`INSERT INTO cg_policies
     (id, tenant_id, policy_id, version, purpose, channel, timezone_fallback, quiet_hours,
@@ -96,7 +101,7 @@ test('E1.18 real stack: ALLOW places a real call; BLOCK/DEFER/REVIEW never touch
       '[{"daysOfWeek":[1,2,3,4,5,6,7],"startLocal":"00:00","endLocal":"23:59"}]'::jsonb,
       'NO_OVERRIDE', '[]'::jsonb, 'PUBLISHED', repeat('a',64), 'e1-18-maker',
       'e1-18-checker', 'e1-18-acceptance', NOW() - interval '1 day', NOW() - interval '1 day', NOW())`);
-  await requestCall(page, frame, '1001', /^ผล: blocked \(QUIET_HOURS\)$/);
+  await requestCall(page, frame, '1001', /^Result: blocked \(QUIET_HOURS\)$/);
 
   await expect
     .poll(() => psql("SELECT count(*) FROM dl_outbox_entries WHERE adapter='FREESWITCH_ORIGINATE'"))

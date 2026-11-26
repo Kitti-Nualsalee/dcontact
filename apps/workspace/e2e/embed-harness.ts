@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { expect } from './fixtures';
 import type { Frame, Page } from '@playwright/test';
+import { th } from './catalog';
 
 /**
  * E1.14/E1.15: e2e harness of the embedded dphone — a host on another origin + the `/dphone/embed` shell + simulated Keycloak/API/WS
@@ -35,7 +36,7 @@ export const REFRESH_TOKEN = `e2e-refresh-${randomUUID()}`;
 const hostPage = (origin: string) => `<!doctype html>
 <html lang="th"><head><meta charset="utf-8"><title>CRM</title></head>
 <body>
-<h1>CRM ทดสอบ</h1>
+<h1>CRM test</h1>
 <iframe id="dphone" title="dphone" src="${DPHONE}/dphone/embed?tenant=demo"
   allow="microphone; autoplay" style="width:380px;height:720px;border:0"></iframe>
 <script>
@@ -80,7 +81,7 @@ const interaction = (state: 'ASSIGNED' | 'ACTIVE' | 'WRAPUP') => ({
   state,
   version: state === 'ASSIGNED' ? '1' : state === 'ACTIVE' ? '2' : '3',
   caller: '081-234-5678',
-  queue: { id: 'queue-service', name: 'บริการลูกค้า' },
+  queue: { id: 'queue-service', name: 'Customer Service' },
   offerExpiresAt: '2099-01-01T00:00:20.000Z',
   answeredAt: state === 'ASSIGNED' ? null : '2026-09-28T10:00:00.000Z',
   endedAt: state === 'WRAPUP' ? '2026-09-28T10:02:00.000Z' : null,
@@ -189,7 +190,7 @@ export async function setup(
         json: {
           agent: {
             id: 'agent-1000',
-            displayName: 'สมชาย ใจดี',
+            displayName: 'Somchai Jaidee',
             extension: '1000',
             state: 'RESERVED',
           },
@@ -295,8 +296,10 @@ export const dphoneFrame = (page: Page): Frame =>
 export async function signIn(page: Page, frame: ReturnType<Page['frameLocator']>) {
   const [popup] = await Promise.all([
     page.waitForEvent('popup'),
-    frame.getByRole('button', { name: 'เข้าสู่ระบบ' }).click(),
+    frame.getByRole('button', { name: th('dphone:embedAuth.signIn') }).click(),
   ]);
-  await expect(frame.getByRole('status').first()).toHaveText('เข้าสู่ระบบแล้ว');
+  await expect(frame.getByRole('status').first()).toHaveText(
+    th('dphone:embedAuth.status.signed-in'),
+  );
   await expect.poll(() => popup.isClosed()).toBe(true);
 }

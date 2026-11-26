@@ -1,4 +1,6 @@
 import { expect, test } from '@playwright/test';
+import { th } from './catalog';
+import { thRegExp } from './locale-match';
 
 for (const outcome of ['success', 'unknown'] as const) {
   test(`V1 ${outcome}: shows the committed result even when the snapshot after saving cannot be read`, async ({
@@ -54,7 +56,7 @@ for (const outcome of ['success', 'unknown'] as const) {
           policyVersion: 1,
           state: 'COMPLETED',
           disposition: 'CUSTOMER_ASSISTED',
-          note: 'ทดสอบ 😀\nplain text',
+          note: 'Test 😀\nplain text',
           recordedAt: '2026-10-17T07:00:00.000Z',
           legacy: false,
         }),
@@ -75,24 +77,26 @@ for (const outcome of ['success', 'unknown'] as const) {
       }),
     );
     await page.goto('/');
-    await page.getByRole('button', { name: 'ลูกค้าได้รับความช่วยเหลือ' }).click();
-    await expect(page.getByRole('button', { name: 'บันทึกผล' })).toBeDisabled();
-    await page.getByRole('textbox', { name: 'โน้ตสรุป' }).fill('😀'.repeat(2001));
-    await expect(page.getByRole('button', { name: 'บันทึกผล' })).toBeDisabled();
-    await page.getByRole('textbox', { name: 'โน้ตสรุป' }).fill('  ทดสอบ 😀\r\nplain text  ');
-    await page.getByRole('button', { name: 'บันทึกผล' }).click();
+    await page.getByRole('button', { name: th('workspace:wrapup.assisted') }).click();
+    await expect(page.getByRole('button', { name: th('workspace:wrapup.submit') })).toBeDisabled();
+    await page.getByRole('textbox', { name: th('workspace:wrapup.note') }).fill('😀'.repeat(2001));
+    await expect(page.getByRole('button', { name: th('workspace:wrapup.submit') })).toBeDisabled();
+    await page
+      .getByRole('textbox', { name: th('workspace:wrapup.note') })
+      .fill('  Test 😀\r\nplain text  ');
+    await page.getByRole('button', { name: th('workspace:wrapup.submit') }).click();
     if (outcome === 'unknown') {
-      await expect(page.getByText(/ยังไม่ทราบผลบันทึก/)).toBeVisible();
-      await expect(page.getByRole('textbox', { name: 'โน้ตสรุป' })).toBeDisabled();
-      await page.getByRole('button', { name: 'ตรวจผลที่บันทึก' }).click();
-      await expect(page.getByRole('textbox', { name: 'โน้ตสรุป' })).toBeDisabled();
-      await page.getByRole('button', { name: 'บันทึกผล' }).click();
-      await expect(page.getByText(/ยังไม่ทราบผลบันทึก/)).toBeVisible();
-      await expect(page.getByRole('textbox', { name: 'โน้ตสรุป' })).toBeDisabled();
-      await page.getByRole('button', { name: 'บันทึกผล' }).click();
+      await expect(page.getByText(thRegExp('workspace:wrapup.unknown'))).toBeVisible();
+      await expect(page.getByRole('textbox', { name: th('workspace:wrapup.note') })).toBeDisabled();
+      await page.getByRole('button', { name: th('workspace:wrapup.checkResult') }).click();
+      await expect(page.getByRole('textbox', { name: th('workspace:wrapup.note') })).toBeDisabled();
+      await page.getByRole('button', { name: th('workspace:wrapup.submit') }).click();
+      await expect(page.getByText(thRegExp('workspace:wrapup.unknown'))).toBeVisible();
+      await expect(page.getByRole('textbox', { name: th('workspace:wrapup.note') })).toBeDisabled();
+      await page.getByRole('button', { name: th('workspace:wrapup.submit') }).click();
     }
-    await expect(page.getByRole('heading', { name: 'บันทึกผลแล้ว' })).toBeVisible();
-    const history = page.getByRole('link', { name: 'เปิดผลในประวัติงาน (แท็บใหม่)' });
+    await expect(page.getByRole('heading', { name: th('workspace:wrapup.saved') })).toBeVisible();
+    const history = page.getByRole('link', { name: th('workspace:wrapup.history') });
     await expect(history).toHaveAttribute('target', '_blank');
     const historyUrl = new URL((await history.getAttribute('href'))!);
     expect(historyUrl.searchParams.get('interaction')).toBe(interactionId);
@@ -112,17 +116,17 @@ for (const outcome of ['success', 'unknown'] as const) {
       expect(await page.evaluate(() => performance.timeOrigin)).toBe(timeOrigin);
       await resultPage.close();
     }
-    await expect(page.getByText('ทดสอบ 😀\nplain text', { exact: true })).toBeVisible();
+    await expect(page.getByText('Test 😀\nplain text', { exact: true })).toBeVisible();
     expect(submitted).toMatchObject({
       disposition: 'CUSTOMER_ASSISTED',
-      note: 'ทดสอบ 😀\nplain text',
+      note: 'Test 😀\nplain text',
     });
     expect(submitted?.commandId).toEqual(expect.any(String));
     if (outcome === 'unknown') {
       expect(attempts[1]).toEqual(attempts[0]);
       expect(attempts[2]).toEqual(attempts[0]);
     }
-    await expect(page.getByRole('textbox', { name: 'โน้ตสรุป' })).toHaveCount(0);
+    await expect(page.getByRole('textbox', { name: th('workspace:wrapup.note') })).toHaveCount(0);
   });
 }
 
@@ -138,7 +142,7 @@ test('an Agent sends a disposition from WRAPUP and waits for the authoritative s
       body: JSON.stringify({
         agent: {
           id: 'agent-1000',
-          displayName: 'สมชาย ใจดี',
+          displayName: 'Somchai Jaidee',
           extension: '1000',
           state: completed ? 'AVAILABLE' : 'ACW',
         },
@@ -149,7 +153,7 @@ test('an Agent sends a disposition from WRAPUP and waits for the authoritative s
               state: 'WRAPUP',
               version: '19',
               caller: '081-234-5678',
-              queue: { id: 'queue-service', name: 'บริการลูกค้า' },
+              queue: { id: 'queue-service', name: 'Customer Service' },
               offerExpiresAt: null,
               answeredAt: '2026-09-06T10:00:00.000Z',
               endedAt: '2026-09-06T10:03:00.000Z',
@@ -173,14 +177,14 @@ test('an Agent sends a disposition from WRAPUP and waits for the authoritative s
   });
 
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'สรุปผลหลังสาย' })).toBeVisible();
-  await page.getByRole('button', { name: 'ลูกค้าได้รับความช่วยเหลือ' }).focus();
-  await expect(page.getByRole('button', { name: 'ลูกค้าได้รับความช่วยเหลือ' })).toBeFocused();
+  await expect(page.getByRole('heading', { name: th('workspace:wrapup.title') })).toBeVisible();
+  await page.getByRole('button', { name: th('workspace:wrapup.assisted') }).focus();
+  await expect(page.getByRole('button', { name: th('workspace:wrapup.assisted') })).toBeFocused();
   await page.keyboard.press('Enter');
-  await page.getByRole('button', { name: 'บันทึกผล' }).focus();
+  await page.getByRole('button', { name: th('workspace:wrapup.submit') }).focus();
   await page.keyboard.press('Enter');
-  await expect(page.getByText('กำลังบันทึก…')).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'สรุปผลหลังสาย' })).toHaveCount(0);
+  await expect(page.getByText(th('workspace:wrapup.pending'))).toBeVisible();
+  await expect(page.getByRole('heading', { name: th('workspace:wrapup.title') })).toHaveCount(0);
   expect(requestBody).toMatchObject({ disposition: 'CUSTOMER_ASSISTED' });
   expect(requestBody?.commandId).toEqual(expect.any(String));
 });
