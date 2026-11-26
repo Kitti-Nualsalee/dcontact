@@ -14,7 +14,7 @@ import {
 } from './qm-transcription-worker.js';
 import { QmTranscriptionWorkflow } from './qm-transcription-workflow.js';
 
-// QmRetryDispatcher scan ทุก tenant: test ที่ใช้ dispatcher ต้องอยู่ไฟล์เดียวกันเพื่อรันตามลำดับ ไม่หยิบ job ของกันและกัน
+// QmRetryDispatcher scans every tenant: tests that use the dispatcher must share this file so they run in order and do not pick each other's jobs
 const owner = new PrismaClient();
 
 after(async () => {
@@ -160,7 +160,7 @@ test('transcription provider uses encrypted no-training input and stops after bo
   );
 });
 
-// Telephony ส่ง call.hangup ได้ก่อน archive WAV เสร็จ (#988): worker ต้องรอ archivedAt โดยไม่เสีย attempt
+// Telephony can send call.hangup before the WAV archive finishes (#988): the worker must wait for archivedAt without spending an attempt
 const requestedAt = new Date('2026-09-05T03:00:00.000Z');
 
 async function seedJob(
@@ -234,7 +234,7 @@ async function seedJob(
         recordingId,
         trigger: 'AUTOMATIC',
         languageHint: 'th-TH',
-        // คิวที่ตั้ง transcriptionMaxAttempts = 1 ห้ามเสีย attempt เดียวไปกับ object ที่ยังไม่มี
+        // A queue with transcriptionMaxAttempts = 1 must not spend its only attempt on an object that does not exist yet
         maxAttempts: 1,
         createdAt: requestedAt,
         dispatchedAt: options.dispatchedAt === undefined ? requestedAt : options.dispatchedAt,
@@ -289,7 +289,7 @@ function harness(clock: { at: Date }) {
           modelId: 'archive-wait-model',
           language: 'th-TH',
           confidenceAvg: 0.9,
-          segments: [{ speaker: 'AGENT', startMs: 0, endMs: 1_000, text: 'สวัสดีครับ' }],
+          segments: [{ speaker: 'AGENT', startMs: 0, endMs: 1_000, text: 'สวัสดีครับ' }], // allow-thai: Thai transcript from the ASR provider
         };
       },
     },
@@ -316,7 +316,7 @@ async function persistedJob(jobId: string) {
   });
 }
 
-test('job รอ recording archive โดยไม่นับ attempt แล้ว retry dispatcher หยิบมาทำต่อจน READY', async (t) => {
+test('a job waits for the recording archive without counting an attempt, then the retry dispatcher picks it up until READY', async (t) => {
   const seeded = await seedJob(t, {});
   const clock = { at: new Date(requestedAt.getTime() + 60_000) };
   const { worker, retries, dispatched, calls } = harness(clock);
@@ -324,7 +324,7 @@ test('job รอ recording archive โดยไม่นับ attempt แล้
   const deferred = await worker.process(seeded.tenantId, seeded.message);
   assert.equal(deferred.status, 'PENDING');
   assert.equal(deferred.attempts, 0);
-  // รอมาแล้ว 60 วินาที จึงเลื่อนอีก 60 วินาที (ขั้นต่ำ 15 วินาที เพดาน 5 นาที)
+  // Already waited 60 seconds, so postpone another 60 seconds (minimum 15 seconds, ceiling 5 minutes)
   assert.equal(deferred.nextAttemptAt, new Date(clock.at.getTime() + 60_000).toISOString());
   assert.deepEqual(calls, { media: 0, provider: 0 });
   let job = await persistedJob(seeded.jobId);
@@ -333,12 +333,12 @@ test('job รอ recording archive โดยไม่นับ attempt แล้
   assert.equal(job.dispatchedAt, null);
   assert.equal(job.failureCode, RECORDING_NOT_ARCHIVED);
 
-  // message เดิมที่ Kafka ส่งซ้ำก่อนถึงเวลาเป็น no-op ไม่ throw (throw จะกั้น partition) และไม่ claim job
+  // The same message redelivered by Kafka before its time is a no-op: no throw (a throw blocks the partition) and no claim
   assert.deepEqual(await worker.process(seeded.tenantId, seeded.message), deferred);
   assert.deepEqual(calls, { media: 0, provider: 0 });
   assert.deepEqual(await retries.dispatchDue(clock.at), []);
 
-  // ยังไม่ archive เมื่อถึงเวลา: เลื่อนอีกรอบ attempt ยังเป็น 0
+  // Still not archived when due: postpone again, attempt stays 0
   clock.at = new Date(deferred.nextAttemptAt!);
   assert.deepEqual(await retries.dispatchDue(clock.at), [seeded.jobId]);
   assert.equal(dispatched[0]!.attempt, 1);
@@ -347,7 +347,7 @@ test('job รอ recording archive โดยไม่นับ attempt แล้
   assert.equal(deferredAgain.attempts, 0);
   assert.equal(deferredAgain.nextAttemptAt, new Date(clock.at.getTime() + 120_000).toISOString());
 
-  // Telephony archive เสร็จ: รอบถัดไปได้ READY ด้วย attempt แรก
+  // Telephony finished the archive: the next round reaches READY on the first attempt
   await owner.recording.updateMany({
     where: { tenantId: seeded.tenantId },
     data: { archivedAt: new Date(clock.at.getTime() + 1_000) },
@@ -375,13 +375,13 @@ test('job รอ recording archive โดยไม่นับ attempt แล้
   assert.equal((audit[0]!.details as { failureCode?: string }).failureCode, RECORDING_NOT_ARCHIVED);
 });
 
-test('job ที่ recording ไม่ archive ภายในเพดานเป็น FAILED พร้อม RECORDING_NOT_ARCHIVED', async (t) => {
+test('a job whose recording is not archived within the ceiling becomes FAILED with RECORDING_NOT_ARCHIVED', async (t) => {
   const seeded = await seedJob(t, {});
   const deadline = new Date(requestedAt.getTime() + RECORDING_ARCHIVE_WAIT_LIMIT_MS);
   const clock = { at: new Date(deadline.getTime() - 30_000) };
   const { worker, retries, dispatched, calls } = harness(clock);
 
-  // ใกล้เพดาน: เลื่อนได้ไม่เกินเพดาน แม้ช่วงรอปกติจะเป็น 5 นาที
+  // Near the ceiling: postpone no further than the ceiling, even though the normal wait is 5 minutes
   const deferred = await worker.process(seeded.tenantId, seeded.message);
   assert.equal(deferred.status, 'PENDING');
   assert.equal(deferred.nextAttemptAt, deadline.toISOString());
@@ -390,7 +390,7 @@ test('job ที่ recording ไม่ archive ภายในเพดาน�
   assert.deepEqual(await retries.dispatchDue(clock.at), [seeded.jobId]);
   const failed = await worker.process(seeded.tenantId, dispatched[0]!);
   assert.deepEqual(failed, { jobId: seeded.jobId, status: 'FAILED', attempts: 0 });
-  // message ซ้ำหลังปิด job เป็น no-op
+  // A duplicate message after the job closed is a no-op
   assert.deepEqual(await worker.process(seeded.tenantId, dispatched[0]!), failed);
   assert.deepEqual(calls, { media: 0, provider: 0 });
   const job = await persistedJob(seeded.jobId);
@@ -409,7 +409,7 @@ test('job ที่ recording ไม่ archive ภายในเพดาน�
   assert.equal((audit[1]!.details as { failureCode?: string }).failureCode, RECORDING_NOT_ARCHIVED);
 });
 
-test('job ที่ recording ถูกลบ (เช่น ARCHIVE_ABANDONED) เป็น FAILED พร้อม RECORDING_DELETED แทนการค้าง PENDING', async (t) => {
+test('a job whose recording was deleted (e.g. ARCHIVE_ABANDONED) becomes FAILED with RECORDING_DELETED instead of staying PENDING', async (t) => {
   const seeded = await seedJob(t, { deletedAt: new Date(requestedAt.getTime() + 3_000) });
   const clock = { at: new Date(requestedAt.getTime() + 10_000) };
   const { worker, retries, calls } = harness(clock);
@@ -424,7 +424,7 @@ test('job ที่ recording ถูกลบ (เช่น ARCHIVE_ABANDONED) �
   assert.equal(job.nextAttemptAt, null);
   assert.equal(job.completedAt?.toISOString(), clock.at.toISOString());
 
-  // message ที่ Kafka ส่งซ้ำหลังปิด job ไม่เปลี่ยนสถานะ
+  // A message Kafka redelivers after the job closed does not change the status
   assert.deepEqual(await worker.process(seeded.tenantId, seeded.message), failed);
   assert.deepEqual(await retries.dispatchDue(new Date(requestedAt.getTime() + 3_600_000)), []);
 
@@ -436,9 +436,9 @@ test('job ที่ recording ถูกลบ (เช่น ARCHIVE_ABANDONED) �
   assert.equal((audit[0]!.details as { failureCode?: string }).failureCode, RECORDING_DELETED);
 });
 
-test('worker เลื่อน job ก่อนที่ publish ของ workflow จะ return แล้ว job ไม่ค้าง: dispatcher หยิบต่อได้และ event ซ้ำไม่ publish ซ้ำ', async (t) => {
+test('the worker postpones a job before the workflow publish returns and the job does not get stuck: the dispatcher picks it up and a duplicate event does not publish again', async (t) => {
   const seeded = await seedJob(t, {}, { createJob: false });
-  // job ที่ workflow สร้างใช้ createdAt ของฐาน จึงใช้เวลาจริงเป็นนาฬิกาของ worker
+  // A job created by the workflow uses the database createdAt, so the worker clock is real time
   const clock = { at: new Date() };
   const { worker, retries, dispatched } = harness(clock);
   const published: QmTranscriptionJobMessage[] = [];
@@ -446,7 +446,7 @@ test('worker เลื่อน job ก่อนที่ publish ของ work
   const workflow = new QmTranscriptionWorkflow(owner, {
     publish: async ({ tenantId, job }) => {
       published.push(job);
-      // Kafka ส่งถึง worker ได้ก่อนที่ publish ของ workflow จะ return
+      // Kafka can deliver to the worker before the workflow publish returns
       deferrals.push(await worker.process(tenantId, job));
     },
   });
@@ -471,11 +471,11 @@ test('worker เลื่อน job ก่อนที่ publish ของ work
   assert.equal(deferrals[0]!.status, 'PENDING');
   assert.equal(deferrals[0]!.attempts, 0);
   let job = await persistedJob(created.jobId);
-  // workflow ต้องไม่ตั้ง dispatchedAt ทับหลัง worker ล้างไว้ มิฉะนั้น dispatcher จะไม่หยิบอีกเลย
+  // The workflow must not overwrite dispatchedAt after the worker cleared it, or the dispatcher never picks the job again
   assert.equal(job.dispatchedAt, null);
   assert.ok(job.nextAttemptAt);
 
-  // interaction.ended ซ้ำระหว่างรอ: job ที่มี nextAttemptAt เป็นหน้าที่ของ dispatcher จึงไม่ publish ซ้ำ
+  // A duplicate interaction.ended while waiting: a job with nextAttemptAt belongs to the dispatcher, so it is not published again
   await workflow.handleInteractionEnded({ ...event, eventId: randomUUID() });
   assert.equal(published.length, 1);
   job = await persistedJob(created.jobId);
@@ -491,15 +491,15 @@ test('worker เลื่อน job ก่อนที่ publish ของ work
   assert.equal((await worker.process(seeded.tenantId, dispatched[0]!)).status, 'READY');
 });
 
-test('dispatcher ไม่หยิบ job ใหม่ระหว่างที่ workflow/API publish และกวาด job ที่ค้างเกินเกณฑ์', async (t) => {
+test('the dispatcher does not pick a new job while the workflow/API publishes, and sweeps jobs stuck past the threshold', async (t) => {
   const fresh = await seedJob(t, { archivedAt: requestedAt }, { dispatchedAt: null });
   const { retries, dispatched } = harness({ at: requestedAt });
   const staleAfter = (from: Date, deltaMs: number) =>
     new Date(from.getTime() + QM_DISPATCH_STALE_MS + deltaMs);
 
-  // job ใหม่ (attempts = 0, nextAttemptAt = null, dispatchedAt = null) เป็นของ workflow/API ในช่วงแรก
+  // A new job (attempts = 0, nextAttemptAt = null, dispatchedAt = null) belongs to the workflow/API at first
   assert.deepEqual(await retries.dispatchDue(staleAfter(requestedAt, -1_000)), []);
-  // publish ล้มแล้วไม่มีใครเรียกซ้ำ: dispatcher หยิบเมื่อค้างเกินเกณฑ์
+  // The publish failed and nobody retried: the dispatcher picks it up once it is stuck past the threshold
   const firstSweep = staleAfter(requestedAt, 1_000);
   assert.deepEqual(await retries.dispatchDue(firstSweep), [fresh.jobId]);
   assert.equal(dispatched[0]!.attempt, 1);
@@ -508,20 +508,20 @@ test('dispatcher ไม่หยิบ job ใหม่ระหว่างท�
     firstSweep.toISOString(),
   );
 
-  // message หายหลัง claim (process ตายระหว่าง claim กับ publish): dispatchedAt ค้าง แล้วถูกกวาดอีกรอบ
+  // The message was lost after claim (process died between claim and publish): dispatchedAt is stale and gets swept again
   assert.deepEqual(await retries.dispatchDue(staleAfter(firstSweep, -1_000)), []);
   const secondSweep = staleAfter(firstSweep, 1_000);
   assert.deepEqual(await retries.dispatchDue(secondSweep), [fresh.jobId]);
   assert.equal(dispatched[1]!.attempt, 1);
 });
 
-test('job ที่ API เปิดใหม่หลังเพดานรอ archive (#990) ถอดเสียงได้ทันทีเมื่อ archive แล้ว ไม่ถูกปิดด้วยเพดานซ้ำ', async (t) => {
-  // createdAt ของ job ยังเป็นเวลาเดิม เพดานรอใช้เฉพาะตอน archivedAt เป็น null จึงไม่กระทบ job ที่เปิดใหม่
+test('a job the API reopens after the archive wait ceiling (#990) transcribes right away once archived and is not closed by the ceiling again', async (t) => {
+  // The job createdAt keeps its original time; the wait ceiling applies only while archivedAt is null, so a reopened job is not affected
   const seeded = await seedJob(t, { archivedAt: new Date(requestedAt.getTime() + 7_200_000) });
   const clock = { at: new Date(requestedAt.getTime() + 3 * RECORDING_ARCHIVE_WAIT_LIMIT_MS) };
   const { worker, calls } = harness(clock);
 
-  // job อยู่ในสภาพเดียวกับที่ API เปิดใหม่: PENDING, attempts = 0, ล้าง failure และเวลาปิดแล้ว
+  // The job is in the state the API reopen leaves: PENDING, attempts = 0, failure and closed time cleared
   await owner.qmTranscriptionJob.update({
     where: { id: seeded.jobId },
     data: {
@@ -538,7 +538,7 @@ test('job ที่ API เปิดใหม่หลังเพดานร�
   assert.equal(ready.attempts, 1);
   assert.deepEqual(calls, { media: 1, provider: 1 });
 
-  // message attempt 1 เก่าจากก่อนเปิดใหม่ที่ Kafka ส่งซ้ำ เป็น duplicate no-op ไม่เรียก provider ซ้ำ
+  // An old attempt-1 message from before the reopen, redelivered by Kafka, is a duplicate no-op and does not call the provider again
   assert.deepEqual(await worker.process(seeded.tenantId, seeded.message), ready);
   assert.deepEqual(calls, { media: 1, provider: 1 });
 });

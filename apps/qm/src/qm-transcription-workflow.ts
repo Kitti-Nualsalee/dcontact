@@ -57,9 +57,9 @@ function toView(job: {
 }
 
 /**
- * claim ก่อน publish: ตั้ง dispatchedAt ก่อนส่ง Kafka เพื่อไม่ให้ทับค่าที่ worker ล้างไว้ตอนเลื่อน job ที่รอ recording archive
- * job ที่มี nextAttemptAt แล้ว (รอ archive หรือรอ retry) เป็นหน้าที่ของ QmRetryDispatcher จึงไม่ publish ซ้ำ
- * ถ้า process ตายระหว่าง claim กับ publish dispatcher จะกวาด dispatchedAt ที่ค้างเกิน QM_DISPATCH_STALE_MS
+ * Claim before publish: set dispatchedAt before sending to Kafka so it does not overwrite the value the worker cleared when it postponed a job waiting for the recording archive.
+ * A job that already has nextAttemptAt (waiting for the archive or a retry) belongs to QmRetryDispatcher, so it is not published again.
+ * If the process dies between claim and publish, the dispatcher sweeps a dispatchedAt older than QM_DISPATCH_STALE_MS
  */
 export async function dispatchNewTranscriptionJob(
   database: PrismaClient,

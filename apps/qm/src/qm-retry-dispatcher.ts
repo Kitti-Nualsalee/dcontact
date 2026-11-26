@@ -2,15 +2,15 @@ import { PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
 import type { QmTranscriptionJobMessage } from '@d-contact/shared';
 
 /**
- * job ที่ PENDING แต่ค้างเกินนี้ถือว่า message หาย: process ตายระหว่าง claim กับ publish (dispatchedAt ค้าง)
- * หรือ workflow/API publish ล้มแล้วคืน dispatchedAt เป็น null โดยไม่มีใครเรียกซ้ำ (job ใหม่ที่ไม่มีใครดูแล)
+ * A PENDING job stuck longer than this is treated as a lost message: the process died between claim and publish (stale dispatchedAt)
+ * or the workflow/API publish failed and reset dispatchedAt to null with nobody retrying (a new job nobody owns)
  */
 export const QM_DISPATCH_STALE_MS = 5 * 60 * 1_000;
 
 /**
- * - ไม่กรอง attempts: job ที่รอ recording archive ถูกเลื่อน nextAttemptAt ทั้งที่ attempts ยังเป็น 0
- * - job ใหม่ที่ workflow/API กำลัง publish มี dispatchedAt ก่อน publish และ nextAttemptAt เป็น null จึงไม่ถูกหยิบซ้ำ
- * - กวาด job ที่ค้างเกิน QM_DISPATCH_STALE_MS: message ซ้ำปลอดภัยเพราะ worker ตรวจ attempt ของ job
+ * - Does not filter on attempts: a job waiting for the recording archive gets nextAttemptAt moved while attempts is still 0
+ * - A new job the workflow/API is publishing has dispatchedAt set before publish and a null nextAttemptAt, so it is not picked twice
+ * - Sweeps jobs stuck longer than QM_DISPATCH_STALE_MS: a duplicate message is safe because the worker checks the job attempt
  */
 function dueWhere(now: Date) {
   const staleBefore = new Date(now.getTime() - QM_DISPATCH_STALE_MS);
@@ -36,7 +36,7 @@ export interface QmRetryPublisher {
 }
 
 /** Durable retry scan: database time controls eligibility; Kafka messages remain idempotent by job/attempt.
- * ครอบทั้ง retry หลัง provider ล้มและ job ที่รอ recording archive (attempts ยังเป็น 0) */
+ * Covers both retries after a provider failure and jobs waiting for the recording archive (attempts still 0) */
 export class QmRetryDispatcher {
   constructor(
     private readonly database: PrismaClient,
@@ -98,7 +98,7 @@ export class QmRetryDispatcher {
           });
           published.push(candidate.id);
           if (isSwept(candidate)) {
-            // นับได้จาก log ว่ามี job ที่ message หายบ่อยแค่ไหน (ไม่มีข้อมูลส่วนบุคคล)
+            // The log shows how often jobs lose their message (no personal data)
             console.warn('[qm] re-dispatched stale transcription job', {
               tenantId: tenant.id,
               jobId: candidate.id,
@@ -109,7 +109,7 @@ export class QmRetryDispatcher {
           await withTenantDatabaseTransaction(this.database, tenant.id, (transaction) =>
             transaction.qmTranscriptionJob.updateMany({
               where: { id: candidate.id, tenantId: tenant.id, dispatchedAt: now },
-              // คืนค่าเดิม: job ที่ถูกกวาดเพราะค้างต้องถูกกวาดได้อีก ไม่ใช่กลายเป็น null ที่ไม่มีใครหยิบ
+              // Restore the old value: a job swept because it was stuck must be sweepable again, not become a null nobody picks
               data: { dispatchedAt: candidate.dispatchedAt },
             }),
           );

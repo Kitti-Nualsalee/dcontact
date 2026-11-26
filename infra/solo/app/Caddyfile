@@ -1,5 +1,5 @@
-# #923: web ของ VM app ใน UAT Solo — TLS จบที่ nginx บน VM voice แล้วส่งมาที่นี่ด้วย HTTP
-# รับเฉพาะ IP ของ VM voice; ผู้ใช้จริงอ่านจาก X-Forwarded-For ที่ nginx ใส่
+# #923: web on the app VM in UAT Solo. TLS ends at nginx on the voice VM, which forwards here over HTTP.
+# Only the voice VM IP is accepted; the real client comes from the X-Forwarded-For that nginx sets.
 {
 	admin off
 	persist_config off
@@ -21,7 +21,7 @@
 		@notVoice not remote_ip {$SOLO_VOICE_IP}/32
 		respond @notVoice 403
 
-		# directory ของ FreeSWITCH (xml_curl) ตอบเฉพาะคำขอที่มาจาก VM voice ตรง ไม่ผ่าน nginx
+		# The FreeSWITCH directory (xml_curl) answers only requests coming straight from the voice VM, not through nginx
 		@internal path /internal/*
 		@internalFromBrowser {
 			path /internal/*

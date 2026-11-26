@@ -47,7 +47,9 @@ export function ConsoleApp({ api, contextId }: { api: ConsoleApi; contextId: str
             </h1>
           </div>
           <span className="tenant-chip">
-            {context?.interaction.queueName ?? t('interactionReview.loading')}
+            {context
+              ? (context.interaction.queueName ?? t('unknownQueue'))
+              : t('interactionReview.loading')}
           </span>
         </div>
         {error ? (

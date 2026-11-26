@@ -78,7 +78,7 @@ test('ready Thai transcript creates only an evidence-backed auto-QM draft', asyn
       trigger: 'AUTOMATIC',
       languageHint: 'th-TH',
       maxAttempts: 3,
-      // ไม่ตั้ง dispatchedAt: QmRetryDispatcher ใน test ไฟล์อื่นที่รันขนานกันจะกวาด job ที่ dispatchedAt ค้าง
+      // Leave dispatchedAt unset: a QmRetryDispatcher in another test file running in parallel sweeps jobs with a stale dispatchedAt
     },
   });
   t.after(async () => {
@@ -120,14 +120,14 @@ test('ready Thai transcript creates only an evidence-backed auto-QM draft', asyn
               speaker: 'AGENT',
               startMs: 1_200,
               endMs: 4_800,
-              text: 'สวัสดีค่ะ ยินดีให้บริการค่ะ',
+              text: 'สวัสดีค่ะ ยินดีให้บริการค่ะ', // allow-thai: Thai transcript from the ASR provider
               confidence: 0.95,
             },
             {
               speaker: 'CONTACT',
               startMs: 5_000,
               endMs: 8_000,
-              text: 'ต้องการสอบถามยอดชำระค่ะ',
+              text: 'ต้องการสอบถามยอดชำระค่ะ', // allow-thai: Thai transcript from the ASR provider
               confidence: 0.87,
             },
           ],
@@ -152,7 +152,7 @@ test('ready Thai transcript creates only an evidence-backed auto-QM draft', asyn
                   segmentIds: [segments[0]!.id],
                   startMs: 1_200,
                   endMs: 4_800,
-                  quote: 'สวัสดีค่ะ ยินดีให้บริการค่ะ',
+                  quote: 'สวัสดีค่ะ ยินดีให้บริการค่ะ', // allow-thai: quote must match the Thai transcript
                 },
               ],
             },

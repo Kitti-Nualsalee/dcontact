@@ -1,5 +1,5 @@
 export interface QmContext {
-  interaction: { id: string; channel: string; queueName: string };
+  interaction: { id: string; channel: string; queueName: string | null };
   recording: {
     id: string;
     status: 'AVAILABLE' | 'DELETED';
