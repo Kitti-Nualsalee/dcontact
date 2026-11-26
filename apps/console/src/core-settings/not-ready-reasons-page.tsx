@@ -77,18 +77,23 @@ export function CoreNotReadyReasonsPage({
   const attempt = useRef<{ commandId: string; body: string } | undefined>(undefined);
   const statusRef = useRef<HTMLDivElement>(null);
   const nextKey = useRef(0);
+  // each load or save bumps this; a read that answers after a newer one started must not replace the rows
+  // (React StrictMode runs the load effect twice, and a late first reply would overwrite the draft typed since)
+  const generation = useRef(0);
 
   const baseline = saved ? toRows(saved) : [];
   const dirty = saved !== undefined && !sameDrafts(rows, baseline);
   const writable = caps?.notReadyReasons?.write === true;
 
   const load = async () => {
+    const run = (generation.current += 1);
     setStatus('LOADING');
     try {
       const [capabilities, snapshot] = await Promise.all([
         api.capabilities(),
         api.notReadyReasons.read(),
       ]);
+      if (run !== generation.current) return;
       setCaps(capabilities);
       setSaved(snapshot);
       setRows(toRows(snapshot));
@@ -96,6 +101,7 @@ export function CoreNotReadyReasonsPage({
       setBlocked([]);
       setStatus('READY');
     } catch (error) {
+      if (run !== generation.current) return;
       setFailedOn('load');
       setStatus(error instanceof CoreApiError && error.status === 403 ? 'ACCESS_DENIED' : 'FAILED');
     }
@@ -154,6 +160,8 @@ export function CoreNotReadyReasonsPage({
     const reasons = rows.map(toDraft);
     const body = JSON.stringify({ expectedRevision: saved.revision, reasons });
     if (attempt.current?.body !== body) attempt.current = { commandId: crypto.randomUUID(), body };
+    // a read still in flight is older than this save's result
+    generation.current += 1;
     setStatus('SAVING');
     setFieldErrors({});
     setBlocked([]);

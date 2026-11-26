@@ -175,3 +175,39 @@ test('EN: the page text changes with the language without dropping the draft', a
   await expect(page.getByRole('button', { name: 'Add reason' })).toBeVisible();
   await page.getByRole('button', { name: th('ui:shell.languageNames.th'), exact: true }).click();
 });
+
+test('a late reasons reply does not overwrite the draft typed after the list appeared', async ({
+  page,
+  request,
+}) => {
+  // React StrictMode (the dev server) runs the load effect twice — hold the first read so it
+  // answers only after the draft is typed. A single read (production build) is released by the timeout.
+  let held = false;
+  let release!: () => void;
+  const released = new Promise<void>((resolve) => (release = resolve));
+  let late: Promise<unknown> | undefined;
+  await page.route(/\/core-settings\/not-ready-reasons$/, async (route) => {
+    if (route.request().method() !== 'GET' || held) return route.continue();
+    held = true;
+    late = page.waitForResponse((response) => response.request() === route.request());
+    const response = await route.fetch();
+    await Promise.race([released, new Promise((resolve) => setTimeout(resolve, 3_000))]);
+    await route.fulfill({ response });
+  });
+  await coreLogin(page, request);
+  await openReasons(page);
+  const first = row(page, 0).getByRole('textbox', {
+    name: th('coreSettings:notReadyReasons.labelTh'),
+  });
+  await first.fill('Draft typed early');
+  release();
+  await late;
+  // let React apply whatever the late reply would set
+  await page.evaluate(
+    () => new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 100))),
+  );
+  await expect(first).toHaveValue('Draft typed early');
+  await expect(
+    page.getByRole('button', { name: th('coreSettings:save'), exact: true }),
+  ).toBeEnabled();
+});
