@@ -138,7 +138,7 @@ test('sends through SMTP successfully: sender D-Contact, a fixed Message-ID, a C
   assert.equal(rest.length, 0);
   assert.equal(message!.MessageID, messageIdFor(id).slice(1, -1));
   assert.deepEqual(message!.From, { Name: 'D-Contact', Address: 'no-reply@dcontact.local' });
-  assert.equal(message!.Subject, 'ยืนยันอีเมลใหม่ของบัญชี D-Contact');
+  assert.equal(message!.Subject, 'ยืนยันอีเมลใหม่ของบัญชี D-Contact'); // allow-thai: asserts the Thai email catalog
   const detail = (await (await fetch(`${MAILPIT_API}/api/v1/message/${message!.ID}`)).json()) as {
     Text: string;
   };

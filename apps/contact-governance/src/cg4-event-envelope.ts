@@ -83,10 +83,10 @@ export interface ParseCg4CanonicalEventInput {
 
 export function parseCg4CanonicalEvent(input: ParseCg4CanonicalEventInput): Cg4EnvelopeParse {
   if (!EVENT_TYPES.has(input.eventType)) {
-    return reject('UNSUPPORTED_EVENT_TYPE', `event type ${input.eventType} ไม่ใช่ canonical CG4`);
+    return reject('UNSUPPORTED_EVENT_TYPE', `event type ${input.eventType} is not canonical CG4`);
   }
   if (!input.payload || typeof input.payload !== 'object' || Array.isArray(input.payload)) {
-    return reject('MALFORMED_PAYLOAD', 'payload ต้องเป็น object');
+    return reject('MALFORMED_PAYLOAD', 'payload must be an object');
   }
   const payload = input.payload as Record<string, unknown>;
 
@@ -101,47 +101,50 @@ export function parseCg4CanonicalEvent(input: ParseCg4CanonicalEventInput): Cg4E
     ['restrictiveness', 'string'],
   ] as const) {
     if (typeof payload[field] !== expected) {
-      return reject('MALFORMED_PAYLOAD', `payload.${field} ต้องเป็น ${expected}`);
+      return reject('MALFORMED_PAYLOAD', `payload.${field} must be ${expected}`);
     }
   }
   if (!Number.isInteger(payload.subjectVersion)) {
-    return reject('MALFORMED_PAYLOAD', 'payload.subjectVersion ต้องเป็น integer');
+    return reject('MALFORMED_PAYLOAD', 'payload.subjectVersion must be an integer');
   }
   if (!payload.affectedScope || typeof payload.affectedScope !== 'object') {
-    return reject('MALFORMED_PAYLOAD', 'payload.affectedScope ต้องเป็น object');
+    return reject('MALFORMED_PAYLOAD', 'payload.affectedScope must be an object');
   }
   if (!['TIGHTENING', 'NEUTRAL', 'RELAXATION'].includes(payload.restrictiveness as string)) {
-    return reject('MALFORMED_PAYLOAD', 'payload.restrictiveness ไม่ใช่ค่าที่รู้จัก');
+    return reject('MALFORMED_PAYLOAD', 'payload.restrictiveness is not a known value');
   }
 
   if (payload.contractVersion !== CG4_CONTRACT_VERSION) {
     return reject(
       'UNSUPPORTED_CONTRACT_VERSION',
-      `contractVersion ${String(payload.contractVersion)} ไม่รองรับ`,
+      `contractVersion ${String(payload.contractVersion)} is not supported`,
     );
   }
   if (payload.policySchemaVersion !== CG4_POLICY_SCHEMA_VERSION) {
     return reject(
       'UNSUPPORTED_POLICY_SCHEMA_VERSION',
-      `policySchemaVersion ${String(payload.policySchemaVersion)} ไม่รองรับ`,
+      `policySchemaVersion ${String(payload.policySchemaVersion)} is not supported`,
     );
   }
   if (payload.ruleRegistryVersion !== CG4_RULE_REGISTRY_VERSION) {
     return reject(
       'UNSUPPORTED_RULE_REGISTRY_VERSION',
-      `ruleRegistryVersion ${String(payload.ruleRegistryVersion)} ไม่รองรับ`,
+      `ruleRegistryVersion ${String(payload.ruleRegistryVersion)} is not supported`,
     );
   }
   if (payload.evaluatorVersion !== CG4_EVALUATOR_VERSION) {
     return reject(
       'UNSUPPORTED_EVALUATOR_VERSION',
-      `evaluatorVersion ${String(payload.evaluatorVersion)} ไม่รองรับ`,
+      `evaluatorVersion ${String(payload.evaluatorVersion)} is not supported`,
     );
   }
 
   const restricted = findRestrictedKey(payload);
   if (restricted) {
-    return reject('RESTRICTED_FIELD_PRESENT', `${restricted} เป็น field ที่ห้ามอยู่ใน payload`);
+    return reject(
+      'RESTRICTED_FIELD_PRESENT',
+      `${restricted} is a field that must not be in the payload`,
+    );
   }
 
   return {

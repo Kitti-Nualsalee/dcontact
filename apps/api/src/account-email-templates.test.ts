@@ -57,8 +57,8 @@ test('language follows the locale and the content of each template', () => {
   const verifyTh = renderAccountEmail('verify-new-email', 'th', variables['verify-new-email'], {
     consoleUrl: CONSOLE,
   });
-  assert.equal(verifyTh.subject, 'ยืนยันอีเมลใหม่ของบัญชี D-Contact');
-  assert.ok(verifyTh.text.includes('30 นาที'));
+  assert.equal(verifyTh.subject, 'ยืนยันอีเมลใหม่ของบัญชี D-Contact'); // allow-thai: asserts the Thai email catalog
+  assert.ok(verifyTh.text.includes('30 นาที')); // allow-thai: asserts the Thai email catalog
   assert.ok(verifyTh.text.includes(`${CONSOLE}/?view=account&verify=tok_abc-123`));
 
   const verifyEn = renderAccountEmail('verify-new-email', 'en', variables['verify-new-email'], {
@@ -85,8 +85,8 @@ test('language follows the locale and the content of each template', () => {
     variables['password-changed-notice'],
     { consoleUrl: CONSOLE },
   );
-  assert.equal(password.subject, 'รหัสผ่านของบัญชี D-Contact ถูกเปลี่ยน');
-  assert.ok(password.text.includes('ติดต่อผู้ดูแลระบบ'));
+  assert.equal(password.subject, 'รหัสผ่านของบัญชี D-Contact ถูกเปลี่ยน'); // allow-thai: asserts the Thai email catalog
+  assert.ok(password.text.includes('ติดต่อผู้ดูแลระบบ')); // allow-thai: asserts the Thai email catalog
 });
 
 test('untrusted values are escaped and a wrong variable is rejected', () => {

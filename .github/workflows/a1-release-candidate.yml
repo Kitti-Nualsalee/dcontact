@@ -81,7 +81,7 @@ jobs:
           gh release create "a1-rc-${GITHUB_SHA}" a1-rc-bundle.json \
             --prerelease --target "$GITHUB_SHA" \
             --title "A1 release candidate ${GITHUB_SHA::12}" \
-            --notes "Evidence bundle ของ #413 (non-waivable gates PASS) · sha256 ${digest} · run ${GITHUB_RUN_ID}"
+            --notes "Evidence bundle ของ #413 (non-waivable gates PASS) · sha256 ${digest} · run ${GITHUB_RUN_ID}" # allow-thai: GitHub release notes, human-facing like PRs
           {
             echo "### A1 release candidate"
             echo "- commit: \`${GITHUB_SHA}\`"
