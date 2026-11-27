@@ -12,6 +12,8 @@
  * - `pnpm infra:up` must be run first, and ports 3000/5173/5174 must be free
  *
  * run: node scripts/sales-demo-stack.mjs [--reset]   stop with Ctrl-C
+ * env: SALES_DEMO_DATABASE (default `dcontact_demo`) uses another database for a trial that must not share data,
+ *      DCONTACT_DEV_POSTGRES_PORT (default 5433) when the dev PostgreSQL is published on another host port
  * D-Phone: set SALES_DEMO_DPHONE_EXTENSION_ID to use the Chrome extension instead of the built-in browser phone
  */
 import { spawn, spawnSync } from 'node:child_process';
@@ -21,7 +23,13 @@ import { resolve } from 'node:path';
 import { stopChild } from './child-process-lifecycle.mjs';
 
 const compose = ['compose', '-f', 'infra/docker/docker-compose.dev.yml'];
-const database = 'dcontact_demo';
+const database = process.env.SALES_DEMO_DATABASE ?? 'dcontact_demo';
+// the name is written into SQL statements below, so it must be a plain identifier
+if (!/^[a-z][a-z0-9_]{0,62}$/.test(database))
+  throw new Error('SALES_DEMO_DATABASE must be a lowercase identifier');
+const databasePort = process.env.DCONTACT_DEV_POSTGRES_PORT ?? '5433';
+if (!/^[0-9]{2,5}$/.test(databasePort))
+  throw new Error('DCONTACT_DEV_POSTGRES_PORT must be a port number');
 const reset = process.argv.includes('--reset');
 const keycloakBaseUrl = process.env.KEYCLOAK_ADMIN_URL ?? 'http://localhost:8081';
 const nodeId = 'fs-local';
@@ -53,9 +61,9 @@ const extensionId = process.env.SALES_DEMO_DPHONE_EXTENSION_ID;
 const environment = {
   ...dotenv(resolve('.env')),
   ...process.env,
-  DATABASE_URL: `postgresql://dcontact:dcontact@localhost:5433/${database}?schema=public`,
-  APPLICATION_DATABASE_URL: `postgresql://dcontact_app:dcontact_app@localhost:5433/${database}?schema=public`,
-  PLATFORM_DATABASE_URL: `postgresql://dcontact_platform:dcontact_platform@localhost:5433/${database}?schema=public`,
+  DATABASE_URL: `postgresql://dcontact:dcontact@localhost:${databasePort}/${database}?schema=public`,
+  APPLICATION_DATABASE_URL: `postgresql://dcontact_app:dcontact_app@localhost:${databasePort}/${database}?schema=public`,
+  PLATFORM_DATABASE_URL: `postgresql://dcontact_platform:dcontact_platform@localhost:${databasePort}/${database}?schema=public`,
   TELEPHONY_NODE_ID: nodeId,
   ROUTER_INBOUND_VOICE_GROUP_ID: routerGroupId,
   IAM_SEGMENT_PROJECTION_GROUP_ID: 'dcontact-iam-segment-sales-demo',
