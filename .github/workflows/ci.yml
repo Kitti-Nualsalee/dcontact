@@ -80,12 +80,16 @@ jobs:
           docker pull ctaloi/sipp@sha256:c459f2340443ddcc159227efc798217dbdaad0dbe88b76b78b1a876aa271986a
       - name: Prove offer20s/budget60s/restart against a real caller and B-leg
         run: pnpm voice:managed-routing:acceptance
+      - name: Prove an agent callback (#1061) against real FreeSWITCH and SIPp
+        run: pnpm voice:callback:acceptance
       - name: Collect SIP and runtime evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: managed-routing-sip-evidence
-          path: /tmp/managed-*/
+          path: |
+            /tmp/managed-*/
+            /tmp/callback-*/
           if-no-files-found: warn
           retention-days: 7
 
