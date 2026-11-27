@@ -123,21 +123,43 @@ export async function interaction(
 ) {
   tick += 1;
   const queuedAt = new Date(Date.UTC(2026, 9, 1, 0, 0, 0, 0) + tick * 60_000);
-  await f.owner.interaction.create({
+  const id = randomUUID();
+  const agentId = agentToken ? f.actors.get(agentToken)!.id : null;
+  // #1044 a finished web chat always has a recorded result (the database enforces it), so the fixture
+  // writes both rows together; its wrap-up code is then the disposition instead of the secret marker
+  const withResult = channel === 'WEBCHAT' && state === 'COMPLETED' && agentId !== null;
+  const create = f.owner.interaction.create({
     data: {
-      id: randomUUID(),
+      id,
       tenantId: f.tenantId,
       channel,
       direction: 'INBOUND',
       state,
       contactId,
-      agentId: agentToken ? f.actors.get(agentToken)!.id : null,
+      agentId,
       queuedAt,
       endedAt: state === 'COMPLETED' ? new Date(queuedAt.getTime() + 60_000) : null,
-      wrapUpCode: 'SECRET-WRAP-CODE',
+      wrapUpCode: withResult ? 'CUSTOMER_ASSISTED' : 'SECRET-WRAP-CODE',
       metadata: { note: 'SECRET-NOTE' },
     },
   });
+  if (!withResult) {
+    await create;
+    return;
+  }
+  await f.owner.$transaction([
+    create,
+    f.owner.interactionWrapupResult.create({
+      data: {
+        tenantId: f.tenantId,
+        interactionId: id,
+        ownerAgentId: agentId,
+        disposition: 'CUSTOMER_ASSISTED',
+        note: 'SECRET-NOTE',
+        commandId: randomUUID(),
+      },
+    }),
+  ]);
 }
 
 export async function tag(f: Fixture, contactId: string, name: string) {
