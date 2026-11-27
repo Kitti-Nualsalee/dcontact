@@ -226,7 +226,13 @@ export class Customer360WorkController {
       authorize: async (tx) => {
         const actor = await currentC360WorkActor(tx, requestIdentity(req));
         const work = await tx.interaction.findFirst({
-          where: { tenantId: actor.tenantId, id, agentId: actor.userId, channel: 'VOICE' },
+          // #1044 the Agent links a customer to a chat the same way as to a call
+          where: {
+            tenantId: actor.tenantId,
+            id,
+            agentId: actor.userId,
+            channel: { in: ['VOICE', 'WEBCHAT'] },
+          },
           select: { state: true },
         });
         if (!work) throw new C360WorkError(404, 'RESOURCE_NOT_FOUND');

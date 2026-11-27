@@ -4804,6 +4804,93 @@ model MessageAttachment {
   @@map("message_attachments")
 }
 
+// ─────────────────────────── Web chat (#1044) ───────────────────────────
+
+/// #1044 the web chat widget of a tenant; round one allows one per tenant. FKs are declared in the migration
+model WebchatWidget {
+  tenantId         String   @map("tenant_id") @db.Uuid
+  id               String   @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  enabled          Boolean  @default(false)
+  queueId          String?  @map("queue_id") @db.Uuid
+  /// exact origins (scheme://host[:port]) allowed to embed the widget
+  allowedOrigins   String[] @default([]) @map("allowed_origins")
+  greetingTh       String   @default("") @map("greeting_th")
+  greetingEn       String   @default("") @map("greeting_en")
+  maxChatsPerAgent Int      @default(3) @map("max_chats_per_agent")
+  idleTimeoutSec   Int      @default(600) @map("idle_timeout_sec")
+  revision         Int      @default(1)
+  updatedByUserId  String?  @map("updated_by_user_id") @db.Uuid
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime @default(now()) @map("updated_at") @db.Timestamptz(3)
+
+  @@id([tenantId, id])
+  @@unique([tenantId], map: "webchat_widgets_one_per_tenant")
+  @@map("webchat_widgets")
+}
+
+/// #1044 audit of widget configuration changes — append-only for the app role
+model WebchatWidgetAuditEvent {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  widgetId      String   @map("widget_id") @db.Uuid
+  actorUserId   String   @map("actor_user_id") @db.Uuid
+  /// CREATED | UPDATED
+  action        String
+  changedKeys   String[] @default([]) @map("changed_keys")
+  before        Json?
+  after         Json
+  correlationId String   @map("correlation_id")
+  occurredAt    DateTime @default(now()) @map("occurred_at") @db.Timestamptz(3)
+
+  @@index([tenantId, occurredAt(sort: Desc)], map: "webchat_widget_audit_events_tenant_idx")
+  @@map("webchat_widget_audit_events")
+}
+
+/// #1044 one anonymous visitor session = one conversation and at most one Interaction
+model WebchatSession {
+  tenantId       String    @map("tenant_id") @db.Uuid
+  id             String    @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  widgetId       String    @map("widget_id") @db.Uuid
+  conversationId String    @map("conversation_id") @db.Uuid
+  /// null until the visitor sends the first message
+  interactionId  String?   @map("interaction_id") @db.Uuid
+  /// SHA-256 digest of the visitor secret; the secret itself is never stored
+  tokenHash      String    @map("token_hash")
+  origin         String
+  /// short anonymous label shown to the Agent
+  visitorLabel   String    @map("visitor_label")
+  locale         String    @default("th")
+  /// CUSTOMER_ENDED | AGENT_ENDED | IDLE_TIMEOUT | CUSTOMER_LEFT
+  endReason      String?   @map("end_reason")
+  endedAt        DateTime? @map("ended_at") @db.Timestamptz(3)
+  lastSeenAt     DateTime  @default(now()) @map("last_seen_at") @db.Timestamptz(3)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@id([tenantId, id])
+  @@unique([tenantId, conversationId], map: "webchat_sessions_conversation_key")
+  @@unique([tenantId, interactionId], map: "webchat_sessions_interaction_key")
+  @@index([tenantId, widgetId, createdAt(sort: Desc)], map: "webchat_sessions_widget_idx")
+  @@map("webchat_sessions")
+}
+
+/// #1044 every offer of a chat to an Agent; a chat has at most one PENDING offer (partial unique index in the migration)
+model WebchatOffer {
+  tenantId      String    @map("tenant_id") @db.Uuid
+  id            String    @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  interactionId String    @map("interaction_id") @db.Uuid
+  agentId       String    @map("agent_id") @db.Uuid
+  /// PENDING | ACCEPTED | TIMED_OUT | CANCELLED
+  outcome       String    @default("PENDING")
+  offeredAt     DateTime  @default(now()) @map("offered_at") @db.Timestamptz(3)
+  expiresAt     DateTime  @map("expires_at") @db.Timestamptz(3)
+  resolvedAt    DateTime? @map("resolved_at") @db.Timestamptz(3)
+
+  @@id([tenantId, id])
+  @@index([tenantId, agentId, outcome], map: "webchat_offers_agent_idx")
+  @@index([tenantId, interactionId, offeredAt(sort: Desc)], map: "webchat_offers_interaction_idx")
+  @@map("webchat_offers")
+}
+
 // ─────────────────────────── Recordings ───────────────────────────
 
 enum RecordingChannelLayout {

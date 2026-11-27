@@ -93,7 +93,9 @@ BEGIN
     -- #967: the team that actually took the call, and the Supervisor's listening session
     'voice_interaction_handling_attributions', 'recording_playback_sessions',
     -- #971: quality evaluation forms and versions
-    'qm_forms', 'qm_form_versions'
+    'qm_forms', 'qm_form_versions',
+    -- #1044: web chat widget, visitor sessions and offers
+    'webchat_widgets', 'webchat_widget_audit_events', 'webchat_sessions', 'webchat_offers'
   ]
   LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
@@ -127,6 +129,9 @@ GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO dcontact_app;
 REVOKE UPDATE, DELETE ON queue_audit_events FROM dcontact_app;
 REVOKE UPDATE, DELETE ON interaction_wrapup_results FROM dcontact_app;
 REVOKE UPDATE, DELETE ON navigation_audit_events FROM dcontact_app;
+-- #1044: the widget audit is append-only; widgets, sessions and offers change state but are never deleted
+REVOKE UPDATE, DELETE ON webchat_widget_audit_events FROM dcontact_app;
+REVOKE DELETE ON webchat_widgets, webchat_sessions, webchat_offers FROM dcontact_app;
 -- E1.9 (#483): a lease is released only by UPDATE, never deleted; audit is append-only
 REVOKE DELETE ON agent_work_session_leases FROM dcontact_app;
 REVOKE DELETE ON agent_sip_credentials FROM dcontact_app;

@@ -21,6 +21,11 @@ export {
   type StatusChipProps,
 } from './components/Badge.js';
 export { Tab, TabList, TabPanel, Tabs } from './components/Tabs.js';
+export {
+  ChatTranscript,
+  type ChatTranscriptMessage,
+  type ChatTranscriptProps,
+} from './components/ChatTranscript.js';
 export { Dialog, DialogTrigger, type DialogProps } from './components/Dialog.js';
 export {
   createToastQueue,

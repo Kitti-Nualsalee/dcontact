@@ -112,6 +112,20 @@ import {
   VoiceDestinationController,
 } from './tenant-queue-api.js';
 import { fanoutAgentOffer } from './agent-offer-fanout.js';
+import { resolveWebchat } from './webchat-config.js';
+import { WebchatHub } from './webchat-hub.js';
+import { WebchatService } from './webchat-service.js';
+import {
+  WEBCHAT_SERVICE,
+  WEBCHAT_WIDGET_DIR,
+  WebchatPublicController,
+  defaultWebchatWidgetDir,
+} from './webchat-public-api.js';
+import {
+  WEBCHAT_DATABASE,
+  WebchatAgentController,
+  WebchatWidgetController,
+} from './webchat-agent-api.js';
 import {
   SupervisorLiveController,
   SUPERVISOR_LIVE_DATABASE,
@@ -149,6 +163,7 @@ import {
   AgentWorkspaceController,
   AGENT_WORKSPACE_DATABASE,
   AGENT_WORKSPACE_CUSTOMER_AVAILABLE,
+  AGENT_WORKSPACE_WEBCHAT,
 } from './agent-workspace-api.js';
 import { AgentCasesController, AGENT_CASES_DATABASE } from './agent-cases-api.js';
 import {
@@ -453,6 +468,28 @@ startBackgroundLoop({
 supervisorLiveEvents.subscribe(async (event, recipientUserIds) => {
   await socketAdapter.deliverLiveEvent(event, recipientUserIds);
 });
+// #1044: off by default; when on, the widget, Agent and settings routes exist and chats are moved along in the background
+const webchatEnabled = resolveWebchat(process.env);
+console.log(
+  JSON.stringify({ event: 'webchat.readiness', status: webchatEnabled ? 'ENABLED' : 'DISABLED' }),
+);
+const webchatHub = new WebchatHub();
+const webchat = new WebchatService(prisma, webchatHub);
+if (webchatEnabled) {
+  // the socket carries only "your chats changed"; the Workspace reads them again over HTTP
+  webchatHub.onAgents((tenantId, agentIds) => {
+    void socketAdapter
+      .deliverLiveEvent({ type: 'webchat.changed', tenantId }, agentIds)
+      .catch(() => undefined);
+  });
+  void webchat.discover().catch(() => undefined);
+  startBackgroundLoop({
+    name: 'webchat.discover',
+    intervalMs: 30_000,
+    work: () => webchat.discover(),
+  });
+  startBackgroundLoop({ name: 'webchat.round', intervalMs: 1_000, work: () => webchat.tickAll() });
+}
 const handleWorkspaceSession = createWorkspaceSessionHandler(httpAdapter, tenantScope);
 
 const diagnostics: GatewayDiagnosticSink = {
@@ -522,6 +559,9 @@ class WorkspaceSessionController {
     ...CG4_API_CONTROLLERS,
     TenantLocaleDefaultsController,
     NavigationController,
+    ...(webchatEnabled
+      ? [WebchatPublicController, WebchatAgentController, WebchatWidgetController]
+      : []),
   ],
   providers: [
     { provide: CUSTOMER_360_WORK_AUTH, useValue: c360WorkAuth ?? null },
@@ -585,6 +625,10 @@ class WorkspaceSessionController {
     { provide: QM_JOB_PUBLISHER, useValue: qmJobPublisher },
     { provide: AGENT_WORKSPACE_DATABASE, useValue: prisma },
     { provide: AGENT_CASES_DATABASE, useValue: prisma },
+    { provide: AGENT_WORKSPACE_WEBCHAT, useValue: webchatEnabled },
+    { provide: WEBCHAT_SERVICE, useValue: webchat },
+    { provide: WEBCHAT_DATABASE, useValue: prisma },
+    { provide: WEBCHAT_WIDGET_DIR, useFactory: defaultWebchatWidgetDir },
     { provide: TEAM_SEGMENT_SCOPE_DATABASE, useValue: prisma },
     { provide: WORK_SESSION_LEASES, useValue: workSessionLeases },
     { provide: EMBED_ORIGIN_SERVICE, useValue: embedOrigins },

@@ -9,6 +9,7 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import { Prisma, type PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
+import { syncAgentWebchatState } from '@d-contact/router';
 import { findActiveAgent } from './active-agent.js';
 
 type Actor = { tenantId: string; userId: string };
@@ -58,9 +59,16 @@ async function authorize(
   const agent = await findActiveAgent(transaction, actor);
   if (!agent) throw new ForbiddenException({ code: 'AGENT_REQUIRED' });
   const interaction = await transaction.interaction.findFirst({
-    where: { id: interactionId, tenantId: actor.tenantId, agentId: actor.userId, channel: 'VOICE' },
+    where: {
+      id: interactionId,
+      tenantId: actor.tenantId,
+      agentId: actor.userId,
+      // #1044 a chat is closed with the same disposition + note as a call
+      channel: { in: ['VOICE', 'WEBCHAT'] },
+    },
     select: {
       id: true,
+      channel: true,
       state: true,
       voiceWrapupPolicy: true,
       wrapUpCode: true,
@@ -169,7 +177,13 @@ export async function saveAgentWrapup(
         payload: { disposition: input.disposition, commandId: input.commandId },
       },
     });
-    await recordPostWrapupState(transaction, actor.tenantId, actor.userId);
+    // #1044 an Agent may still hold other chats: the state follows what is left in hand, and the
+    // after-work state applies once the last chat is done
+    if (interaction.channel === 'WEBCHAT')
+      await syncAgentWebchatState(transaction, actor.tenantId, actor.userId, {
+        workCompleted: true,
+      });
+    else await recordPostWrapupState(transaction, actor.tenantId, actor.userId);
     const result = await committedResult(transaction, actor, interactionId);
     const {
       note: omittedNote,

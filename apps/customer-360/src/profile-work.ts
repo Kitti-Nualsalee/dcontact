@@ -65,7 +65,7 @@ export async function fenceC360Work(
   }
   const [work] = await tx.$queryRaw<
     { id: string; state: string; contact_id: string | null; customer_link_revision: bigint }[]
-  >`SELECT id,state::text,contact_id,customer_link_revision FROM interactions WHERE tenant_id=${actor.tenantId}::uuid AND id=${interactionId}::uuid AND agent_id=${actor.userId}::uuid AND channel::text='VOICE' FOR NO KEY UPDATE NOWAIT`;
+  >`SELECT id,state::text,contact_id,customer_link_revision FROM interactions WHERE tenant_id=${actor.tenantId}::uuid AND id=${interactionId}::uuid AND agent_id=${actor.userId}::uuid AND channel::text IN ('VOICE','WEBCHAT') FOR NO KEY UPDATE NOWAIT`;
   if (!work) throw denied();
   const active = ['ACTIVE', 'WRAPUP'].includes(work.state);
   if ((write && !active) || (!active && work.state !== 'COMPLETED'))

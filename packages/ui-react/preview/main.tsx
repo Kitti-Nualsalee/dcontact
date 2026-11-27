@@ -18,6 +18,7 @@ import {
   Row,
   SearchField,
   Select,
+  ChatTranscript,
   StatusChip,
   Switch,
   Tab,
@@ -187,6 +188,37 @@ function Preview() {
             {t(`badge.${status}`)}
           </StatusChip>
         ))}
+      </Section>
+
+      <Section title={t('sections.chat')}>
+        <ChatTranscript
+          className={styles.tabs}
+          label={t('chat.label')}
+          messages={[
+            { id: '1', side: 'system', text: t('chat.started'), time: '10:29' },
+            {
+              id: '2',
+              side: 'other',
+              author: t('chat.visitor'),
+              time: '10:29',
+              text: t('chat.first'),
+            },
+            { id: '3', side: 'self', author: t('chat.you'), time: '10:31', text: t('chat.reply') },
+            {
+              id: '4',
+              side: 'self',
+              author: t('chat.you'),
+              text: t('chat.unsent'),
+              status: 'failed',
+              statusLabel: t('chat.failed'),
+            },
+          ]}
+          renderFailedActions={() => (
+            <Button size="sm" variant="ghost">
+              {t('chat.retry')}
+            </Button>
+          )}
+        />
       </Section>
 
       <Section title={t('sections.tabs')}>

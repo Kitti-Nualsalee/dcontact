@@ -11,11 +11,11 @@ Platform Console จะใช้ base components ชุดเดียวกั�
 - CSS Modules อ้าง `var(--dc-*)` จาก `@d-contact/ui/tokens.css` เท่านั้น (stylelint บังคับ)
 - ข้อความของ component อยู่ใน namespace `ui` ของ react-i18next
 
-| กลุ่ม  | component                                                                                                                                                                                   |
-| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| ฟอร์ม  | `Button`, `TextField`, `SearchField`, `Select`, `Checkbox`, `Switch`                                                                                                                        |
-| แสดงผล | `Table` (+ `TableHeader`, `Column`, `TableBody`, `Row`, `Cell`), `Badge`, `StatusChip`, `Tabs` (+ `TabList`, `Tab`, `TabPanel`), `Dialog` (+ `DialogTrigger`), `ToastRegion` / `toastQueue` |
-| Shell  | `AppShell`, `Rail`, `AppLauncher`, `SubNav` — มาใน D1.13 (#452)                                                                                                                             |
+| กลุ่ม  | component                                                                                                                                                                                                     |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ฟอร์ม  | `Button`, `TextField`, `SearchField`, `Select`, `Checkbox`, `Switch`                                                                                                                                          |
+| แสดงผล | `Table` (+ `TableHeader`, `Column`, `TableBody`, `Row`, `Cell`), `Badge`, `StatusChip`, `Tabs` (+ `TabList`, `Tab`, `TabPanel`), `Dialog` (+ `DialogTrigger`), `ToastRegion` / `toastQueue`, `ChatTranscript` |
+| Shell  | `AppShell`, `Rail`, `AppLauncher`, `SubNav` — มาใน D1.13 (#452)                                                                                                                                               |
 
 ## ใช้ในแอป
 

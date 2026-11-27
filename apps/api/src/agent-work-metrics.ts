@@ -3,7 +3,7 @@ import { Prisma } from '@d-contact/db';
 
 /**
  * #964 defines the "my work" numbers in one place (ADR-019 item 1) — the history list and summary use this CTE and filter set
- * finished work = an Agent's VOICE work that is COMPLETED and has a wrap-up result (or is LEGACY work from before the result recording system)
+ * finished work = an Agent's VOICE or WEBCHAT (#1044) work that is COMPLETED and has a wrap-up result (or is LEGACY work from before the result recording system)
  * work falls in a period by recorded_at; conversation time = ended_at - answered_at when both values exist
  */
 export type WorkActor = { tenantId: string; userId: string };
@@ -23,6 +23,18 @@ export interface WorkFilter {
   disposition?: string | null;
   /** #986 only this Agent's work within the team scope */
   agentId?: string;
+  /** #1044 only work of this channel */
+  channel?: WorkChannel;
+}
+
+export const WORK_CHANNELS = ['VOICE', 'WEBCHAT'] as const;
+export type WorkChannel = (typeof WORK_CHANNELS)[number];
+
+export function channelFrom(value: unknown): WorkChannel | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value === 'string' && (WORK_CHANNELS as readonly string[]).includes(value))
+    return value as WorkChannel;
+  throw new BadRequestException({ code: 'INVALID_CHANNEL' });
 }
 
 const PERIOD_DAYS: Record<Exclude<SummaryPeriod, 'all'>, number> = {
@@ -135,16 +147,19 @@ export function workFilterFrom(query: {
   to?: unknown;
   disposition?: unknown;
   agentId?: unknown;
+  channel?: unknown;
 }): WorkFilter {
   const from = instantFrom(query.from, 'INVALID_FROM');
   const to = instantFrom(query.to, 'INVALID_TO');
   if (from && to && from >= to) throw new BadRequestException({ code: 'INVALID_RANGE' });
   const agentId = uuidFrom(query.agentId, 'INVALID_AGENT');
+  const channel = channelFrom(query.channel);
   return {
     from,
     to,
     disposition: dispositionFrom(query.disposition),
     ...(agentId ? { agentId } : {}),
+    ...(channel ? { channel } : {}),
   };
 }
 
@@ -156,6 +171,7 @@ export function filterKey(filter: WorkFilter): string {
     filter.disposition === undefined ? '*' : (filter.disposition ?? NO_DISPOSITION),
     // append only when present — so the key of my work (#964) stays the same and cursors already issued still work
     ...(filter.agentId ? [filter.agentId] : []),
+    ...(filter.channel ? [`channel=${filter.channel}`] : []),
   ].join('|');
 }
 
@@ -175,7 +191,7 @@ export function completedWorkSql(actor: WorkActor): Prisma.Sql {
 export function completedScopeWorkSql(tenantId: string, scope: WorkScope): Prisma.Sql {
   const team = 'teamId' in scope;
   return Prisma.sql`
-    SELECT interaction.id AS interaction_id, interaction.agent_id,
+    SELECT interaction.id AS interaction_id, interaction.agent_id, interaction.channel::text AS channel,
       ${team ? Prisma.sql`attribution.team_id` : Prisma.sql`NULL::uuid`} AS team_id,
       COALESCE(interaction.answered_at, interaction.queued_at) AS started_at,
       interaction.answered_at, interaction.ended_at, interaction.wrap_up_code AS disposition,
@@ -203,7 +219,7 @@ export function completedScopeWorkSql(tenantId: string, scope: WorkScope): Prism
     }
     WHERE interaction.tenant_id = ${tenantId}::uuid
       ${team ? Prisma.empty : Prisma.sql`AND interaction.agent_id = ${(scope as { agentId: string }).agentId}::uuid`}
-      AND interaction.channel = 'VOICE' AND interaction.state = 'COMPLETED'
+      AND interaction.channel IN ('VOICE', 'WEBCHAT') AND interaction.state = 'COMPLETED'
       AND (interaction.voice_wrapup_policy = 'LEGACY' OR result.interaction_id IS NOT NULL)`;
 }
 
@@ -216,6 +232,7 @@ export function workFilterSql(filter: WorkFilter): Prisma.Sql[] {
   else if (filter.disposition !== undefined)
     conditions.push(Prisma.sql`disposition = ${filter.disposition}`);
   if (filter.agentId) conditions.push(Prisma.sql`agent_id = ${filter.agentId}::uuid`);
+  if (filter.channel) conditions.push(Prisma.sql`channel = ${filter.channel}`);
   return conditions;
 }
 

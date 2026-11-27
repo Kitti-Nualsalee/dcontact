@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Prisma, type PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
 import { findActiveAgent } from './active-agent.js';
 import {
@@ -11,7 +11,9 @@ import {
   workFilterFrom,
   workFilterSql,
   type WorkActor,
+  type WorkChannel,
 } from './agent-work-metrics.js';
+import { readWorkTranscript } from './work-transcript.js';
 
 type Cursor = {
   version: 2;
@@ -68,6 +70,7 @@ export interface AgentHistoryQuery {
   from?: unknown;
   to?: unknown;
   disposition?: unknown;
+  channel?: unknown;
 }
 
 export async function readAgentHistory(
@@ -97,6 +100,7 @@ export async function readAgentHistory(
     const rows = await transaction.$queryRaw<
       {
         interaction_id: string;
+        channel: WorkChannel;
         started_at: Date;
         ended_at: Date | null;
         disposition: string | null;
@@ -111,6 +115,7 @@ export async function readAgentHistory(
     `);
     const items = rows.slice(0, limit).map((row) => ({
       interactionId: row.interaction_id,
+      channel: row.channel,
       startedAt: row.started_at.toISOString(),
       endedAt: row.ended_at?.toISOString() ?? null,
       disposition: row.disposition,
@@ -192,5 +197,29 @@ export async function readAgentHistorySummary(
             (left.disposition ?? '￿').localeCompare(right.disposition ?? '￿'),
         ),
     };
+  });
+}
+
+/** #1044 the messages of one of the Agent's own finished chats; a call has none */
+export async function readAgentHistoryTranscript(
+  database: PrismaClient,
+  actor: WorkActor,
+  interactionValue: unknown,
+) {
+  const interactionId =
+    typeof interactionValue === 'string' && uuid.test(interactionValue)
+      ? interactionValue.toLowerCase()
+      : undefined;
+  if (!interactionId) throw new NotFoundException({ code: 'RESOURCE_NOT_FOUND' });
+  return withTenantDatabaseTransaction(database, actor.tenantId, async (transaction) => {
+    const agent = await findActiveAgent(transaction, actor);
+    if (!agent) throw new ForbiddenException({ code: 'AGENT_REQUIRED' });
+    const rows = await transaction.$queryRaw<{ channel: WorkChannel }[]>(Prisma.sql`
+      WITH work AS (${completedWorkSql(actor)})
+      SELECT channel FROM work WHERE interaction_id = ${interactionId}::uuid
+    `);
+    // another Agent's work, another tenant's and a missing item all answer the same
+    if (!rows[0]) throw new NotFoundException({ code: 'RESOURCE_NOT_FOUND' });
+    return readWorkTranscript(transaction, actor.tenantId, interactionId, rows[0].channel);
   });
 }

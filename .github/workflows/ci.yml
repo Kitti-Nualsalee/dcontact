@@ -207,6 +207,9 @@ jobs:
           pnpm --filter @d-contact/api exec tsx --test src/agent-workspace.integration.ts
           pnpm --filter @d-contact/router exec tsx --test src/inbound-voice-router.integration.ts
 
+      - name: Check web chat (#1044) visitor session, Agent work, background round and history permissions under real RLS
+        run: pnpm --filter @d-contact/api exec tsx --test src/webchat.integration.ts
+
       - name: Check B1 catalog, command, quota and cross-tenant/team permissions over HTTP with real RLS
         run: pnpm --filter @d-contact/api exec tsx --test src/tenant-voice-catalog.integration.ts
       - name: Check B2 reservation, fenced worker, mapping and pending activation over HTTP with real RLS
