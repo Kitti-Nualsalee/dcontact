@@ -268,6 +268,10 @@ test('replacing a token: an input appears, and keeping the saved value goes back
   await expect(saveButton(page)).toBeEnabled();
   await page.getByRole('button', { name: T('secret.keep') }).click();
   await expect(secretInput(page, T('connection.token'))).toHaveCount(0);
+  // the keyboard stays on the field: back on its "Replace" button, not lost to the page
+  await expect(
+    page.getByRole('button', { name: T('secret.replaceLabel', { name: T('connection.token') }) }),
+  ).toBeFocused();
   await expect(saveButton(page)).toBeDisabled();
   expect(puts).toHaveLength(0);
 });

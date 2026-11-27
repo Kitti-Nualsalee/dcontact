@@ -88,3 +88,5 @@ TopBar ย่อข้อความและรองรับส่วน act
 
 Platform Console คง header ของตนเองตาม boundary เดิม ตรวจ responsive แยกจาก shared shell
 browser regression ครอบคลุม 390/768/desktop ทั้ง TH/EN พร้อม axe, keyboard และการคง DOM
+
+`ChatTranscript`: ข้อความที่ใส่ `placeholder: true` คือข้อความแทนเนื้อหาที่หน้าจอแสดงไม่ได้ (เช่น สติกเกอร์หรือรูปจาก LINE) แสดงเป็นกรอบเส้นประสีรอง ไม่ใช้ตัวเอียงเพราะฟอนต์ไทยไม่มีตัวเอียงจริง

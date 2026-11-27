@@ -293,11 +293,13 @@ export function LineSettingsPage({
                 size="sm"
                 variant="ghost"
                 isDisabled={pending}
-                onPress={() =>
+                onPress={() => {
                   update({ [input.key]: '', [input.replaceKey]: false } as Partial<LineDraft>, [
                     input.key,
-                  ])
-                }
+                  ]);
+                  // the button goes away: keep the keyboard on this field, at its "Replace" button
+                  focusField(input.key);
+                }}
               >
                 {t('secret.keep')}
               </Button>

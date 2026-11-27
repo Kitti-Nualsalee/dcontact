@@ -203,6 +203,14 @@ function Preview() {
               time: '10:29',
               text: t('chat.first'),
             },
+            {
+              id: '2b',
+              side: 'other',
+              author: t('chat.visitor'),
+              time: '10:30',
+              text: t('chat.sticker'),
+              placeholder: true,
+            },
             { id: '3', side: 'self', author: t('chat.you'), time: '10:31', text: t('chat.reply') },
             {
               id: '4',

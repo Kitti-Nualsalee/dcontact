@@ -78,7 +78,7 @@
 }
 
 .placeholder .bubble {
-  font-style: italic;
+  /* no italics: Thai fonts have none and the browser slants them, which reads worse */
   color: var(--dc-text-secondary);
   background: transparent;
   border: 1px dashed var(--dc-border-default);

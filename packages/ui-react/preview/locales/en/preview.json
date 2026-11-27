@@ -125,6 +125,7 @@
     "first": "Hello, I ordered on the 20th and it has not arrived yet.",
     "reply": "Hello, happy to help. May I have your order number?",
     "unsent": "Please give me a moment to check.",
+    "sticker": "Customer sent a sticker (cannot be shown here)",
     "failed": "Not sent",
     "retry": "Try again"
   }

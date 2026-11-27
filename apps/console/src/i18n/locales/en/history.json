@@ -109,13 +109,13 @@
     "queue": "Queue",
     "lineCustomer": "LINE customer: {{name}}",
     "other": {
-      "sticker": "(Customer sent a sticker)",
-      "image": "(Customer sent an image)",
-      "video": "(Customer sent a video)",
-      "audio": "(Customer sent an audio message)",
-      "file": "(Customer sent a file)",
-      "location": "(Customer sent a location)",
-      "unknown": "(Customer sent a message that cannot be shown here)"
+      "sticker": "Customer sent a sticker (cannot be shown here)",
+      "image": "Customer sent an image (cannot be shown here)",
+      "video": "Customer sent a video (cannot be shown here)",
+      "audio": "Customer sent a voice message (cannot be shown here)",
+      "file": "Customer sent a file (cannot be shown here)",
+      "location": "Customer sent a location (cannot be shown here)",
+      "unknown": "Customer sent a message that cannot be shown here"
     }
   },
   "readOnlyChannels": "Your completed work (calls and chats) is shown. Read-only; your receiving point is not affected.",
