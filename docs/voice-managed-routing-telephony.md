@@ -84,8 +84,10 @@ Solo UAT เปิด flag แล้วตาม owner สั่ง (22 พ.ย.
   event ถัดไปของสายที่วางแล้ว (PARK, HANGUP) ถูกข้าม เพื่อไม่ให้ PARK กลายเป็น `call.created` ซ้ำ
   ถ้า `uuid_kill` ไม่สำเร็จและ channel ยังอยู่ สายยังไป legacy ตามเดิม
   ตอนเปิด flag สายใหม่ของคิว legacy ทุกสายมีการค้น `voice_destinations` เพิ่มหนึ่งครั้ง (legacy router ก็ค้นเงื่อนไขเดียวกันอยู่แล้ว)
-- รายชื่อสาย managed อยู่ในหน่วยความจำ หลัง restart ระหว่างสายรอคิว `DTMF`/`DETECTED_SPEECH` ของสายนั้นอาจถูกส่ง Kafka
-  และ legacy router ปฏิเสธ (noise ใน retry/DLQ) ส่วน CREATE/PARK/HANGUP ยังถูกต้องเพราะ runtime หา call จากฐาน
+- รายชื่อสาย managed อยู่ในหน่วยความจำ ตอน start telephony โหลดสายของ node นี้ที่ยัง QUEUED/ASSIGNED/ACTIVE กลับจาก
+  `voice_managed_calls` ต่อ tenant ที่ ACTIVE (ผ่าน RLS) ทำให้ `DTMF`/`DETECTED_SPEECH` ของสายที่ค้างข้าม restart ไม่หลุดไป Kafka
+  ยังมีช่วงสั้น ๆ ระหว่าง start กับโหลดเสร็จที่ event ของสายค้างอาจหลุดไป legacy ได้ และสายที่ channel หายไปตอน telephony ล่ม
+  ค้างในรายชื่อจน runtime ปิดสายตามเพดานเวลา
 - เมื่อเปิด flag ทุก event ของสาย legacy ต้องผ่าน transaction ของ managed runtime (advisory lock ต่อ tenant) ก่อน และ container
   มี PrismaClient เพิ่ม 2 ตัว ก่อนเปิดบน Solo (`mem_limit: 384m`) ควรดู memory และ latency
 - heartbeat เขียนทุกวินาทีต่อทุก tenant ที่ ACTIVE (รวม tenant ที่ไม่มีคิว managed) เหมาะกับจำนวน tenant ของ Solo/dev
