@@ -105,6 +105,7 @@ export function toTranscriptMessages(
       time,
       text:
         message.text ?? (message.other !== undefined ? (text.other?.(message.other) ?? '') : ''),
+      ...(message.text === undefined && message.other !== undefined ? { placeholder: true } : {}),
     };
   });
 }
