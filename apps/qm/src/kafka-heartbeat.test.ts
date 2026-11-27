@@ -91,3 +91,24 @@ test('the rebalance timeout outlasts every provider call of a job', () => {
   assert.equal(jobRebalanceTimeoutMs([300_000]), 360_000);
   assert.equal(jobRebalanceTimeoutMs([300_000, 120_000]), 480_000);
 });
+
+test('a job stuck past its maximum stops heartbeating so the coordinator can evict the member', async () => {
+  const clock = manualTimer();
+  let nowMs = 0;
+  let beats = 0;
+  let finish!: () => void;
+  const running = whileHeartbeating(
+    async () => void beats++,
+    () => new Promise<void>((resolve) => (finish = resolve)),
+    { timer: clock.timer, now: () => nowMs, maxMs: 10_000 },
+  );
+  nowMs = 5_000;
+  clock.tick();
+  assert.equal(beats, 1);
+  nowMs = 10_001;
+  clock.tick();
+  assert.equal(beats, 1);
+  assert.equal(clock.activeCount(), 0);
+  finish();
+  await running;
+});

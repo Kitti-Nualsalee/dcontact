@@ -71,7 +71,16 @@ export class HttpScoringProvider implements QmScoringProvider {
       throw error;
     }
     if (!response.ok) throw new Error(`scoring provider returned HTTP ${response.status}`);
-    const payload = (await response.json()) as { answers?: unknown };
+    let payload: { answers?: unknown };
+    try {
+      // the same signal bounds reading the body
+      payload = (await response.json()) as { answers?: unknown };
+    } catch (error) {
+      if (error instanceof Error && error.name === 'TimeoutError') {
+        throw new Error(`scoring provider timed out after ${this.timeoutMs} ms`);
+      }
+      throw error;
+    }
     if (!Array.isArray(payload.answers))
       throw new Error('scoring provider returned invalid answers');
     return { answers: payload.answers as QmAutoScoreAnswer[] };

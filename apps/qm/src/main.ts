@@ -63,6 +63,11 @@ async function main(): Promise<void> {
         timeoutMs: scoringTimeoutMs,
       })
     : undefined;
+  // the longest a job may legitimately run: every provider call it makes plus headroom
+  const jobTimeoutMs = jobRebalanceTimeoutMs([
+    transcriptionTimeoutMs,
+    ...(scorer ? [scoringTimeoutMs] : []),
+  ]);
   const worker = new QmTranscriptionWorker(database, media, transcription, undefined, scorer);
   const retries = new QmRetryDispatcher(database, publisher);
   const interactionConsumer = await createConsumer<QmInteractionEndedPayload>({
@@ -81,13 +86,11 @@ async function main(): Promise<void> {
     idempotency: createInMemoryIdempotencyStore(),
     // a job waits for the provider far longer than the 30 s session timeout: heartbeat while it runs
     // and let a rebalance wait for the job to finish instead of evicting this worker
-    rebalanceTimeoutMs: jobRebalanceTimeoutMs([
-      transcriptionTimeoutMs,
-      ...(scorer ? [scoringTimeoutMs] : []),
-    ]),
+    rebalanceTimeoutMs: jobTimeoutMs,
     handler: async ({ event, heartbeat }) => {
       if (event.type === 'qm.transcription.requested') {
         await whileHeartbeating(heartbeat, () => worker.process(event.tenantId, event.payload), {
+          maxMs: jobTimeoutMs,
           onError: (error) => console.warn('[qm] heartbeat failed during a job', error),
         });
       }

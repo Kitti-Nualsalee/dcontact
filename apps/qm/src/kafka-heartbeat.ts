@@ -24,14 +24,26 @@ export async function whileHeartbeating<T>(
   run: () => Promise<T>,
   options: {
     intervalMs?: number;
+    /**
+     * stop heartbeating after this long: a handler stuck past every provider timeout should let the
+     * coordinator evict this member instead of holding the partition forever
+     */
+    maxMs?: number;
     timer?: HeartbeatTimer;
+    now?: () => number;
     onError?: (error: unknown) => void;
   } = {},
 ): Promise<T> {
   if (!heartbeat) return run();
   const timer = options.timer ?? systemTimer;
+  const now = options.now ?? Date.now;
+  const deadline = options.maxMs === undefined ? Infinity : now() + options.maxMs;
   let reported = false;
   const handle = timer.setInterval(() => {
+    if (now() > deadline) {
+      timer.clearInterval(handle);
+      return;
+    }
     // a failed heartbeat (e.g. REBALANCE_IN_PROGRESS) must not abort the job: the job row is the
     // source of truth and a redelivered message is a no-op. Report only the first failure per job.
     heartbeat().catch((error: unknown) => {
