@@ -14,8 +14,16 @@ export const QM_DISPATCH_STALE_MS = 5 * 60 * 1_000;
  */
 export const QM_PROCESSING_STALE_MS = 15 * 60 * 1_000;
 
-/** failureCode of an attempt whose worker disappeared; it counts as a failed attempt */
+/** failureCode of an attempt whose worker disappeared (process killed or crashed mid-job) */
 export const WORKER_INTERRUPTED = 'WORKER_INTERRUPTED';
+
+/**
+ * Owner decision 27 Nov 2026: an interruption (a deploy or restart mid-job) does not use up one of the
+ * queue's transcription attempts, so a queue with transcriptionMaxAttempts = 1 is not failed by a deploy.
+ * Beyond this many interruptions of the same job they do count, so a recording that crashes the worker
+ * every time still ends instead of looping forever.
+ */
+export const QM_FREE_INTERRUPTIONS = 3;
 
 /**
  * - Does not filter on attempts: a job waiting for the recording archive gets nextAttemptAt moved while attempts is still 0
@@ -139,9 +147,10 @@ export class QmRetryDispatcher {
 
   /**
    * A job claimed as PROCESSING whose worker died never finishes on its own: a redelivered message is a
-   * no-op because the claim already counted the attempt. Count that attempt as failed and either make the
-   * job due again right away or close it when no attempts remain. The worker only completes the attempt it
-   * claimed, so a late result from the interrupted attempt cannot overwrite the recovered job.
+   * no-op because the claim already counted the attempt. Give the attempt back (up to
+   * QM_FREE_INTERRUPTIONS times, then count it) and make the job due again right away, or close it when a
+   * counted interruption leaves no attempts. The worker only completes the claim it made (same attempt and
+   * startedAt), so a late result from the interrupted claim cannot overwrite the recovered job.
    */
   private async recoverInterrupted(tenantId: string, now: Date): Promise<void> {
     const startedBefore = new Date(now.getTime() - this.processingStaleMs);
@@ -158,7 +167,19 @@ export class QmRetryDispatcher {
     const dueAt = new Date(now.getTime() - 30_000);
     for (const job of stuck) {
       await withTenantDatabaseTransaction(this.database, tenantId, async (transaction) => {
-        const exhausted = job.attempts >= job.maxAttempts;
+        const earlier = await transaction.qmAuditEvent.count({
+          where: {
+            tenantId,
+            resourceType: 'TRANSCRIPTION_JOB',
+            resourceId: job.id,
+            details: { path: ['failureCode'], equals: WORKER_INTERRUPTED },
+          },
+        });
+        const interruption = earlier + 1;
+        // a free interruption gives the claimed attempt back; past the allowance it counts as a failed attempt
+        const free = interruption <= QM_FREE_INTERRUPTIONS;
+        const attempts = free ? job.attempts - 1 : job.attempts;
+        const exhausted = !free && attempts >= job.maxAttempts;
         const recovered = await transaction.qmTranscriptionJob.updateMany({
           where: {
             id: job.id,
@@ -169,6 +190,7 @@ export class QmRetryDispatcher {
           },
           data: {
             status: exhausted ? 'FAILED' : 'PENDING',
+            attempts,
             failureCode: WORKER_INTERRUPTED,
             failureReason: 'the worker stopped before the attempt finished',
             dispatchedAt: null,
@@ -184,9 +206,11 @@ export class QmRetryDispatcher {
             resourceType: 'TRANSCRIPTION_JOB',
             resourceId: job.id,
             details: {
-              attempt: job.attempts,
+              attempt: attempts,
               maxAttempts: job.maxAttempts,
               failureCode: WORKER_INTERRUPTED,
+              interruption,
+              countedAsAttempt: !free,
               ...(exhausted ? {} : { nextAttemptAt: dueAt.toISOString() }),
             },
           },
@@ -194,7 +218,8 @@ export class QmRetryDispatcher {
         console.warn('[qm] recovered an interrupted transcription job', {
           tenantId,
           jobId: job.id,
-          attempt: job.attempts,
+          interruption,
+          countedAsAttempt: !free,
           exhausted,
         });
       });

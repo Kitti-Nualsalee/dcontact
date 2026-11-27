@@ -6,6 +6,7 @@ import type { KafkaEventEnvelope } from '@d-contact/kafka';
 import type { QmInteractionEndedPayload, QmTranscriptionJobMessage } from '@d-contact/shared';
 import {
   QM_DISPATCH_STALE_MS,
+  QM_FREE_INTERRUPTIONS,
   QmRetryDispatcher,
   WORKER_INTERRUPTED,
 } from './qm-retry-dispatcher.js';
@@ -583,9 +584,9 @@ function hangingWorker(clock: { at: Date }) {
 
 const PROCESSING_STALE_MS = 10 * 60 * 1_000;
 
-test('a job whose worker died mid-attempt is recovered as an interrupted attempt and retried; the late result of the old attempt is dropped', async (t) => {
+test('a job whose worker died mid-attempt gets the attempt back and is retried; the late result of the old claim is dropped', async (t) => {
+  // the queue allows a single attempt: an interruption (deploy mid-job) must not use it up
   const seeded = await seedJob(t, { archivedAt: requestedAt });
-  await owner.qmTranscriptionJob.update({ where: { id: seeded.jobId }, data: { maxAttempts: 2 } });
   const clock = { at: new Date(requestedAt.getTime() + 60_000) };
   const hanging = hangingWorker(clock);
   const { worker, dispatched } = harness(clock);
@@ -607,22 +608,23 @@ test('a job whose worker died mid-attempt is recovered as an interrupted attempt
   assert.deepEqual(await retries.dispatchDue(clock.at), []);
   assert.equal((await persistedJob(seeded.jobId)).status, 'PROCESSING');
 
-  // past the threshold: attempt 1 counts as interrupted and attempt 2 is published in the same pass
+  // past the threshold: the attempt is given back and attempt 1 is published again in the same pass
   clock.at = new Date(clock.at.getTime() + 2_000);
   assert.deepEqual(await retries.dispatchDue(clock.at), [seeded.jobId]);
-  assert.equal(dispatched.at(-1)!.attempt, 2);
+  assert.equal(dispatched.at(-1)!.attempt, 1);
   const recovered = await persistedJob(seeded.jobId);
   assert.equal(recovered.status, 'PENDING');
-  assert.equal(recovered.attempts, 1);
+  assert.equal(recovered.attempts, 0);
   assert.equal(recovered.failureCode, WORKER_INTERRUPTED);
 
+  clock.at = new Date(clock.at.getTime() + 1_000);
   const ready = await worker.process(seeded.tenantId, dispatched.at(-1)!);
   assert.equal(ready.status, 'READY');
-  assert.equal(ready.attempts, 2);
+  assert.equal(ready.attempts, 1);
 
-  // the old attempt finally returns: its result must not replace the recovered job's transcript
+  // the old claim finally returns with the same attempt number: its result must not replace the new one
   hanging.settle('ok');
-  assert.deepEqual(await lost, { jobId: seeded.jobId, status: 'READY', attempts: 2 });
+  assert.deepEqual(await lost, { jobId: seeded.jobId, status: 'READY', attempts: 1 });
   const transcripts = await owner.qmTranscript.findMany({ where: { tenantId: seeded.tenantId } });
   assert.equal(transcripts.length, 1);
   assert.equal(transcripts[0]!.modelId, 'archive-wait-model');
@@ -631,19 +633,21 @@ test('a job whose worker died mid-attempt is recovered as an interrupted attempt
       where: { tenantId: seeded.tenantId },
       orderBy: { createdAt: 'asc' },
     })
-  ).map((event) => [event.action, (event.details as { failureCode?: string }).failureCode]);
+  ).map((event) => {
+    const details = event.details as { failureCode?: string; countedAsAttempt?: boolean };
+    return [event.action, details.failureCode, details.countedAsAttempt];
+  });
   assert.deepEqual(actions, [
-    ['TRANSCRIPTION_STARTED', undefined],
-    ['TRANSCRIPTION_RETRY_SCHEDULED', WORKER_INTERRUPTED],
-    ['TRANSCRIPTION_STARTED', undefined],
-    ['TRANSCRIPTION_READY', undefined],
+    ['TRANSCRIPTION_STARTED', undefined, undefined],
+    ['TRANSCRIPTION_RETRY_SCHEDULED', WORKER_INTERRUPTED, false],
+    ['TRANSCRIPTION_STARTED', undefined, undefined],
+    ['TRANSCRIPTION_READY', undefined, undefined],
   ]);
 });
 
-test('an interrupted last attempt closes the job as FAILED, and a late failure of that attempt does not reopen it', async (t) => {
+test('interruptions are free up to the allowance, then they count, so a recording that kills the worker every time still ends as FAILED', async (t) => {
   const seeded = await seedJob(t, { archivedAt: requestedAt });
   const clock = { at: new Date(requestedAt.getTime() + 60_000) };
-  const hanging = hangingWorker(clock);
   const dispatched: QmTranscriptionJobMessage[] = [];
   const retries = new QmRetryDispatcher(
     owner,
@@ -651,27 +655,53 @@ test('an interrupted last attempt closes the job as FAILED, and a late failure o
     { processingStaleMs: PROCESSING_STALE_MS },
   );
 
-  const lost = hanging.worker().process(seeded.tenantId, seeded.message);
-  await hanging.started;
-  clock.at = new Date(clock.at.getTime() + PROCESSING_STALE_MS + 1_000);
-  assert.deepEqual(await retries.dispatchDue(clock.at), []);
-  let job = await persistedJob(seeded.jobId);
-  assert.equal(job.status, 'FAILED');
-  assert.equal(job.attempts, 1);
-  assert.equal(job.failureCode, WORKER_INTERRUPTED);
-  assert.equal(job.completedAt?.toISOString(), clock.at.toISOString());
+  let message = seeded.message;
+  const lost: Array<{ settle: (outcome: 'ok' | 'fail') => void; result: Promise<QmWorkerResult> }> =
+    [];
+  for (let interruption = 1; interruption <= QM_FREE_INTERRUPTIONS + 1; interruption++) {
+    const hanging = hangingWorker(clock);
+    const result = hanging.worker().process(seeded.tenantId, message);
+    await hanging.started;
+    lost.push({ settle: hanging.settle, result });
+    clock.at = new Date(clock.at.getTime() + PROCESSING_STALE_MS + 1_000);
+    const published = await retries.dispatchDue(clock.at);
+    const job = await persistedJob(seeded.jobId);
+    assert.equal(job.failureCode, WORKER_INTERRUPTED, `interruption ${interruption}`);
+    if (interruption <= QM_FREE_INTERRUPTIONS) {
+      // free: the single attempt is given back and the job is retried right away
+      assert.equal(job.status, 'PENDING', `interruption ${interruption}`);
+      assert.equal(job.attempts, 0);
+      assert.deepEqual(published, [seeded.jobId]);
+      message = dispatched.at(-1)!;
+      assert.equal(message.attempt, 1);
+    } else {
+      // past the allowance the interruption counts: the only attempt is used and the job closes
+      assert.equal(job.status, 'FAILED');
+      assert.equal(job.attempts, 1);
+      assert.equal(job.completedAt?.toISOString(), clock.at.toISOString());
+      assert.deepEqual(published, []);
+    }
+  }
 
-  hanging.settle('fail');
-  assert.equal((await lost).status, 'FAILED');
-  job = await persistedJob(seeded.jobId);
+  // late results of the interrupted claims change nothing and add no audit
+  const before = await owner.qmAuditEvent.count({ where: { tenantId: seeded.tenantId } });
+  lost[0]!.settle('ok');
+  lost[1]!.settle('fail');
+  lost.at(-1)!.settle('fail');
+  await Promise.all(
+    lost
+      .slice(0, 2)
+      .concat(lost.slice(-1))
+      .map((entry) => entry.result),
+  );
+  const job = await persistedJob(seeded.jobId);
   assert.equal(job.status, 'FAILED');
   assert.equal(job.failureCode, WORKER_INTERRUPTED);
-  assert.equal(
-    await owner.qmAuditEvent.count({
-      where: { tenantId: seeded.tenantId, action: 'TRANSCRIPTION_FAILED' },
-    }),
-    1,
-  );
-  // the sweep does not touch a job twice
+  assert.equal(await owner.qmAuditEvent.count({ where: { tenantId: seeded.tenantId } }), before);
+  assert.equal(await owner.qmTranscript.count({ where: { tenantId: seeded.tenantId } }), 0);
+  // the sweep does not touch a closed job again
   assert.deepEqual(await retries.dispatchDue(new Date(clock.at.getTime() + 60_000)), []);
+  lost[2]!.settle('ok');
+  await lost[2]!.result;
+  assert.equal(await owner.qmTranscript.count({ where: { tenantId: seeded.tenantId } }), 0);
 });

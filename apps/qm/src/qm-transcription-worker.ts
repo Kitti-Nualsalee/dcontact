@@ -321,7 +321,8 @@ export class QmTranscriptionWorker {
       };
     }
     if (claimed.settled) return claimed.settled;
-    // the claim incremented attempts to the message's attempt
+    // the claim set attempts to the message's attempt and startedAt to this worker's start time; together
+    // they identify this claim (a recovered interruption gives the attempt number back for a new claim)
     const claimedAttempt = message.attempt;
 
     let transcription: TranscriptionProviderResult;
@@ -362,6 +363,8 @@ export class QmTranscriptionWorker {
         if (current.status !== 'PROCESSING' || current.attempts !== claimedAttempt) {
           return staleResult(current);
         }
+        // the guarded write below also checks startedAt: after a free interruption the same attempt
+        // number is claimed again, and only this worker's own claim may be completed
         const exhausted = current.attempts >= current.maxAttempts;
         const nextAttemptAt = exhausted
           ? undefined
@@ -369,7 +372,13 @@ export class QmTranscriptionWorker {
         // guarded write: the check above does not lock the row, and the dispatcher may recover this
         // attempt between the read and this write
         const written = await transaction.qmTranscriptionJob.updateMany({
-          where: { id: claimed.id, tenantId, status: 'PROCESSING', attempts: claimedAttempt },
+          where: {
+            id: claimed.id,
+            tenantId,
+            status: 'PROCESSING',
+            attempts: claimedAttempt,
+            startedAt,
+          },
           data: {
             status: exhausted ? 'FAILED' : 'PENDING',
             failureCode: problem.code,
@@ -435,7 +444,13 @@ export class QmTranscriptionWorker {
         const completed = await transaction.qmTranscriptionJob.updateMany({
           // only the attempt this worker claimed may complete the job: after the dispatcher recovered it
           // as interrupted, a late result from the old attempt must not overwrite the new one
-          where: { id: claimed.id, tenantId, status: 'PROCESSING', attempts: claimedAttempt },
+          where: {
+            id: claimed.id,
+            tenantId,
+            status: 'PROCESSING',
+            attempts: claimedAttempt,
+            startedAt,
+          },
           data: {
             status: 'READY',
             completedAt,
