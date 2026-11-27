@@ -77,6 +77,13 @@
   border-color: var(--dc-brand-200);
 }
 
+.placeholder .bubble {
+  font-style: italic;
+  color: var(--dc-text-secondary);
+  background: transparent;
+  border: 1px dashed var(--dc-border-default);
+}
+
 .failed .bubble {
   background: var(--dc-critical-bg-subtle);
   border-color: var(--dc-critical-border);

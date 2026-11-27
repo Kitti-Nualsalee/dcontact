@@ -19,6 +19,8 @@ export interface ChatTranscriptMessage {
   status?: 'sending' | 'failed';
   /** text of the status, e.g. "Sending" or "Not sent" */
   statusLabel?: string;
+  /** the text stands in for content this view cannot show (e.g. a sticker); drawn as a note, in italics */
+  placeholder?: boolean;
 }
 
 export interface ChatTranscriptProps {
@@ -107,6 +109,7 @@ export function ChatTranscript({
                 styles.message,
                 message.side === 'self' ? styles.self : styles.other,
                 message.status === 'failed' && styles.failed,
+                message.placeholder && styles.placeholder,
               )}
             >
               <div className={styles.meta}>

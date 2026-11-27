@@ -389,6 +389,7 @@ function transcriptOf(
         author: message.from === 'agent' ? texts.self : texts.visitor,
         time: message.pending ? undefined : clock(message.at),
         text: message.other ? texts.other(message.other) : (message.text ?? ''),
+        ...(message.other ? { placeholder: true } : {}),
         ...(message.pending
           ? {
               status: message.pending,
