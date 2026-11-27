@@ -128,6 +128,12 @@ export interface ManagedVoiceRouting {
   calls: Set<string>;
   handle(event: ManagedVoiceEvent): Promise<unknown>;
   onError(error: unknown): void;
+  /**
+   * Called when `call.created` failed on both attempts. Returns true when the destination belongs to a managed v1 queue
+   * and the caller was hung up: legacy rejects such calls (`VOICE_CONFIG_V1_REQUIRED`) and the caller would stay parked
+   * with no wait limit. Returns false (or throws) to keep the call on legacy as before
+   */
+  rejectFailedCall?(event: ManagedVoiceEvent): Promise<boolean>;
 }
 
 /** A leg the managed runtime originates to an Agent (B-leg) always has `dcontact_offer_id`; it must not be sent to legacy */
@@ -194,6 +200,8 @@ export async function routeManagedCall(
     }
   } catch (error) {
     routing.onError(error);
+    if (!known && event?.type === 'call.created' && (await rejectFailedCall(event, routing)))
+      return 'ignored';
     if (
       known &&
       source['Event-Name'] === 'CHANNEL_HANGUP_COMPLETE' &&
@@ -215,6 +223,19 @@ export async function routeManagedCall(
   // legacy did not subscribe to CHANNEL_ANSWER before — it is there because managed must know that the Agent accepted the offer
   if (source['Event-Name'] === 'CHANNEL_ANSWER') return 'ignored';
   return 'legacy';
+}
+
+async function rejectFailedCall(
+  event: ManagedVoiceEvent,
+  routing: ManagedVoiceRouting,
+): Promise<boolean> {
+  if (!routing.rejectFailedCall) return false;
+  try {
+    return await routing.rejectFailedCall(event);
+  } catch (error) {
+    routing.onError(error);
+    return false;
+  }
 }
 
 export interface ManagedVoiceTelephonyOptions {
@@ -283,7 +304,29 @@ export class ManagedVoiceTelephony {
       calls: this.calls,
       handle: (event) => this.runtime.handle(event),
       onError: (error) => this.log('managed event failed', error),
+      rejectFailedCall: (event) => this.rejectFailedCall(event),
     };
+  }
+
+  /** Hangs up a new caller whose destination is bound to a managed v1 queue after the runtime failed to take the call */
+  private async rejectFailedCall(event: ManagedVoiceEvent): Promise<boolean> {
+    if (!event.destination || !uuidPattern.test(event.callUuid)) return false;
+    const destination = event.destination;
+    const managed = await withTenantDatabaseTransaction(
+      this.options.database,
+      event.tenantId,
+      (transaction) =>
+        transaction.voiceDestination.findFirst({
+          where: { tenantId: event.tenantId, destination, queue: { voiceConfigVersion: 1 } },
+          select: { id: true },
+        }),
+    );
+    if (!managed) return false;
+    await this.options.esl.request(`api uuid_kill ${event.callUuid} NORMAL_TEMPORARY_FAILURE`);
+    this.log(
+      `managed call.created failed; caller ${event.callUuid} hung up instead of falling back to legacy`,
+    );
+    return true;
   }
 
   isKnownCall(callUuid: string): boolean {

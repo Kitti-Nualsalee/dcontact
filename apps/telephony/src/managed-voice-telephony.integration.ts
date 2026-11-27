@@ -80,6 +80,7 @@ function fakeSwitch(password: string) {
   const channels = new Map<string, Record<string, string>>();
   const globals = new Map<string, string>();
   const originates: string[] = [];
+  const kills: string[] = [];
   const server = net.createServer((socket) => {
     socket.write('Content-Type: auth/request\n\n');
     let authenticated = false;
@@ -115,7 +116,10 @@ function fakeSwitch(password: string) {
         }
         if (action === 'status')
           reply('UP 0 years, 0 days, 1 hour\nFreeSWITCH (Version 1.10) is ready');
-        else if (action === 'uuid_exists') reply(String(channels.has(channel)));
+        else if (action === 'uuid_kill') {
+          kills.push(`${channel} ${name}`);
+          reply(channels.delete(channel) ? '+OK' : '-ERR No such channel!');
+        } else if (action === 'uuid_exists') reply(String(channels.has(channel)));
         else if (action === 'uuid_getvar') reply(channels.get(channel)?.[name] ?? '_undef_');
         else if (action === 'uuid_setvar') {
           const target = channels.get(channel);
@@ -130,7 +134,7 @@ function fakeSwitch(password: string) {
       }
     });
   });
-  return { server, channels, originates };
+  return { server, channels, originates, kills };
 }
 
 async function until(check: () => Promise<boolean> | boolean, label: string, timeoutMs = 15_000) {
@@ -247,4 +251,63 @@ test('#979 main.ts managed: heartbeat and offer per tenant use the SIP domain of
   await managed.stop();
   assert.equal(await readiness(alpha.tenantId), false);
   assert.equal(await readiness(beta.tenantId), false);
+});
+
+test('a managed destination whose call.created fails twice is hung up instead of parked on legacy', async (context) => {
+  const owner = new PrismaClient();
+  const database = new PrismaClient({ datasources: { db: { url: applicationUrl } } });
+  const fake = fakeSwitch('fixture-979');
+  await new Promise<void>((resolve) => fake.server.listen(0, '127.0.0.1', resolve));
+  const address = fake.server.address() as net.AddressInfo;
+  const alpha = await managedTenant(owner, 'alpha');
+  const beta = await managedTenant(owner, 'beta');
+  const managed = new ManagedVoiceTelephony({
+    nodeId,
+    database,
+    dispatchDatabase: database,
+    esl: new E1EslCommandClient({ host: '127.0.0.1', port: address.port, password: 'fixture-979' }),
+    directory: new TenantSipDomainDirectory(database),
+    log: () => undefined,
+  });
+  context.after(async () => {
+    fake.server.close();
+    await Promise.all([owner.$disconnect(), database.$disconnect()]);
+  });
+  // The runtime itself fails (e.g. a bug or a lock timeout), the destination lookup still works
+  const routing = {
+    ...managed.routing,
+    handle: async () => {
+      throw new Error('runtime failed');
+    },
+  };
+  const created = (callUuid: string, destination: string) => ({
+    'Event-Name': 'CHANNEL_CREATE',
+    'Unique-ID': callUuid,
+    'Caller-Destination-Number': destination,
+    'Caller-Caller-ID-Number': '0811111111',
+  });
+  const managedCaller = randomUUID();
+  fake.channels.set(managedCaller, { domain_name: alpha.sipDomain });
+  assert.equal(
+    await routeManagedCall(created(managedCaller, '2000'), alpha.tenantId, routing),
+    'ignored',
+  );
+  assert.deepEqual(fake.kills, [`${managedCaller} NORMAL_TEMPORARY_FAILURE`]);
+
+  // A number that is not bound to a managed queue of this tenant stays on legacy and is not hung up
+  const legacyCaller = randomUUID();
+  assert.equal(
+    await routeManagedCall(created(legacyCaller, '2001'), alpha.tenantId, routing),
+    'legacy',
+  );
+  // RLS: the lookup is scoped to the tenant of the event; beta has no destination 3000
+  await owner.voiceDestination.updateMany({
+    where: { tenantId: alpha.tenantId, destination: '2000' },
+    data: { destination: '3000' },
+  });
+  assert.equal(
+    await routeManagedCall(created(randomUUID(), '3000'), beta.tenantId, routing),
+    'legacy',
+  );
+  assert.equal(fake.kills.length, 1);
 });
