@@ -54,7 +54,11 @@ export function TranscriptCard({ api, interactionId }: { api: QualityApi; intera
           <span className="qm-muted">{t('transcript.source', { model: transcript.modelId })}</span>
         ) : null}
       </div>
-      {load.kind === 'loading' ? <ListSkeleton label={t('transcript.loading')} rows={4} /> : null}
+      {load.kind === 'loading' ? (
+        <div className="qm-transcript-loading">
+          <ListSkeleton label={t('transcript.loading')} rows={4} />
+        </div>
+      ) : null}
       {load.kind === 'failed' ? (
         <div role="alert" className="qm-alert">
           <p>{t(load.status === 401 ? 'unauthorized' : 'transcript.loadFailed')}</p>
@@ -62,11 +66,17 @@ export function TranscriptCard({ api, interactionId }: { api: QualityApi; intera
         </div>
       ) : null}
       {view && view.status !== 'READY' ? (
-        <div className="qm-transcript-status" role="status">
+        <div
+          className="qm-transcript-status"
+          role="status"
+          data-tone={view.status === 'FAILED' ? 'critical' : undefined}
+        >
           <p>
-            {t(`transcript.status.${view.status}`, {
-              code: view.failureCode ?? '',
-            })}
+            {view.status === 'FAILED'
+              ? t(`transcript.failed.${view.failureCode ?? 'TRANSCRIPTION_ERROR'}`, {
+                  defaultValue: t('transcript.failed.TRANSCRIPTION_ERROR'),
+                })
+              : t(`transcript.status.${view.status}`)}
           </p>
           {view.status === 'PROCESSING' ? (
             <Button isDisabled={load.kind === 'loaded' && load.checking} onPress={again}>

@@ -29,6 +29,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { Prisma, type PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
+import { QM_RECORDING_FAILURE_CODES } from '@d-contact/shared';
 import { GatewayRoles, type AuthenticatedGatewayRequest } from './gateway-auth.js';
 import {
   QmFormValidationError,
@@ -176,6 +177,13 @@ function validationFailed(error: QmFormValidationError): UnprocessableEntityExce
 
 function storedAnswers(value: Prisma.JsonValue): QmAnswer[] {
   return Array.isArray(value) ? (value as unknown as QmAnswer[]) : [];
+}
+
+/** the worker stores provider exception names as failure codes; only the recording codes are a stable contract */
+const PUBLIC_TRANSCRIPTION_FAILURES = new Set<string>(Object.values(QM_RECORDING_FAILURE_CODES));
+
+function publicFailureCode(code: string | null): string {
+  return code && PUBLIC_TRANSCRIPTION_FAILURES.has(code) ? code : 'TRANSCRIPTION_ERROR';
 }
 
 function questionCount(definition: QmFormDefinition): number {
@@ -633,7 +641,7 @@ export class QmEvaluationController {
             : job.status === 'FAILED'
               ? ('FAILED' as const)
               : ('PROCESSING' as const),
-          failureCode: job?.status === 'FAILED' ? (job.failureCode ?? null) : null,
+          failureCode: job?.status === 'FAILED' ? publicFailureCode(job.failureCode) : null,
           transcript: null,
         };
       }
@@ -644,7 +652,11 @@ export class QmEvaluationController {
           action: 'TRANSCRIPT_ACCESSED',
           resourceType: 'QM_TRANSCRIPT',
           resourceId: transcript.id,
-          details: { via: 'HUMAN_EVALUATION', interactionId },
+          details: {
+            via: 'HUMAN_EVALUATION',
+            interactionId,
+            ip: request.socket.remoteAddress ?? null,
+          },
         },
       });
       return {

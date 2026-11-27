@@ -146,7 +146,8 @@ export interface TranscriptSegment {
 /** the call transcript beside the evaluation form; text only when status is READY */
 export interface TranscriptView {
   status: 'READY' | 'PROCESSING' | 'FAILED' | 'NOT_REQUESTED';
-  failureCode: string | null;
+  /** only when FAILED; unknown provider errors arrive as TRANSCRIPTION_ERROR */
+  failureCode: 'RECORDING_NOT_ARCHIVED' | 'RECORDING_DELETED' | 'TRANSCRIPTION_ERROR' | null;
   transcript: {
     transcriptId: string;
     language: string;

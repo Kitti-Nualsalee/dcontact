@@ -920,13 +920,19 @@ test('a Supervisor reads the transcript of a team call beside the form; every re
   assert.equal((await read()).json.status, 'PROCESSING');
   await owner.qmTranscriptionJob.update({
     where: { id: job.id },
-    data: { status: 'FAILED', failureCode: 'PROVIDER_TIMEOUT' },
+    data: { status: 'FAILED', failureCode: 'AbortError' },
   });
+  // a provider exception name is not a contract: it reaches the UI as TRANSCRIPTION_ERROR
   assert.deepEqual((await read()).json, {
     status: 'FAILED',
-    failureCode: 'PROVIDER_TIMEOUT',
+    failureCode: 'TRANSCRIPTION_ERROR',
     transcript: null,
   });
+  await owner.qmTranscriptionJob.update({
+    where: { id: job.id },
+    data: { failureCode: 'RECORDING_NOT_ARCHIVED' },
+  });
+  assert.equal((await read()).json.failureCode, 'RECORDING_NOT_ARCHIVED');
   assert.equal((await accessAudits()).length, 0);
 
   await owner.qmTranscriptionJob.update({ where: { id: job.id }, data: { status: 'READY' } });
@@ -971,13 +977,25 @@ test('a Supervisor reads the transcript of a team call beside the form; every re
   assert.equal(audits.length, 1);
   assert.equal(audits[0]!.actorUserId, f.ids.supervisorA);
   assert.equal(audits[0]!.resourceId, transcript.id);
-  assert.deepEqual(audits[0]!.details, { via: 'HUMAN_EVALUATION', interactionId: teamCall });
+  const details = audits[0]!.details as Json;
+  assert.equal(details.via, 'HUMAN_EVALUATION');
+  assert.equal(details.interactionId, teamCall);
+  assert.match(String(details.ip), /127\.0\.0\.1/);
 
   // the same gate as the evaluation: another team, another tenant, the Agent role and an unfinished call
   assert.equal((await f.http(f.tokens.supervisorB, 'GET', path)).status, 404);
   assert.equal((await f.http(f.tokens.foreignSupervisor, 'GET', path)).status, 404);
   assert.equal((await f.http(f.tokens.agentA, 'GET', path)).status, 403);
   assert.equal((await f.http(f.tokens.admin, 'GET', path)).status, 403);
+  // a call the Supervisor answered themselves
+  const ownCall = await f.call({
+    agentId: f.ids.supervisorA,
+    team: f.ids.teamA,
+    acceptedAt: '2026-11-20T05:00:00.000Z',
+  });
+  const self = await f.http(f.tokens.supervisorA, 'GET', `/interactions/${ownCall}/transcript`);
+  assert.equal(self.status, 403);
+  assert.equal(self.json.code, 'SELF_EVALUATION_NOT_ALLOWED');
   const wrapUp = await f.call({
     agentId: f.ids.agentA,
     team: f.ids.teamA,

@@ -424,12 +424,20 @@ test('the transcript loads on its own: still processing, then ready; a failure k
 test('a failed or missing transcript says why instead of showing text', async ({ page }) => {
   for (const [json, text] of [
     [
-      { status: 'FAILED', failureCode: 'PROVIDER_TIMEOUT', transcript: null },
-      th('quality:transcript.status.FAILED', { code: 'PROVIDER_TIMEOUT' }),
+      { status: 'FAILED', failureCode: 'TRANSCRIPTION_ERROR', transcript: null },
+      th('quality:transcript.failed.TRANSCRIPTION_ERROR'),
+    ],
+    [
+      { status: 'FAILED', failureCode: 'RECORDING_DELETED', transcript: null },
+      th('quality:transcript.failed.RECORDING_DELETED'),
     ],
     [
       { status: 'NOT_REQUESTED', failureCode: null, transcript: null },
       th('quality:transcript.status.NOT_REQUESTED'),
+    ],
+    [
+      { ...readyTranscript, transcript: { ...readyTranscript.transcript, segments: [] } },
+      th('quality:transcript.noSpeech'),
     ],
   ] as const) {
     const state: State = { evaluation: null, saves: [], publishes: [], transcript: { json } };

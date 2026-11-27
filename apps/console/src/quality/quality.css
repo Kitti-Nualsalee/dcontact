@@ -344,7 +344,7 @@
   }
 }
 
-/* call transcript beside the evaluation form: a fixed-height scroll area so the form stays close */
+/* call transcript above the evaluation form: a short scroll area so the form stays in view */
 .qm-transcript-status {
   display: flex;
   flex-wrap: wrap;
@@ -352,8 +352,15 @@
   gap: var(--dc-space-4);
   color: var(--dc-text-secondary);
 }
+.qm-transcript-status[data-tone='critical'] {
+  color: var(--dc-critical-fg);
+}
+/* about the height of a loaded transcript so the form below does not jump when it arrives */
+.qm-transcript-loading {
+  min-block-size: 12rem;
+}
 .qm-transcript {
-  max-block-size: 24rem;
+  max-block-size: 16rem;
   overflow-y: auto;
   border: 1px solid var(--dc-border-subtle);
   border-radius: var(--dc-radius-md);
@@ -372,7 +379,7 @@
 }
 .qm-transcript li {
   display: grid;
-  grid-template-columns: 7rem minmax(0, 1fr);
+  grid-template-columns: minmax(7rem, max-content) minmax(0, 1fr);
   gap: var(--dc-space-4);
   padding: var(--dc-space-3) var(--dc-space-5);
   border-block-end: 1px solid var(--dc-border-subtle);
@@ -382,6 +389,7 @@
 }
 .qm-transcript-meta {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--dc-space-3);
   color: var(--dc-text-muted);
   font-size: var(--dc-text-sm);
