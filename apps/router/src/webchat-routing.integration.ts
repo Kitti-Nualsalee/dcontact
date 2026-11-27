@@ -414,3 +414,23 @@ test('another tenant cannot see or move a chat', async () => {
   assert.equal(result, null);
   assert.equal((await f.interaction(id)).state, 'QUEUED');
 });
+
+test('a background end decided from a snapshot is skipped when the chat moved on before the lock', async () => {
+  const f = await fixture(1);
+  const [agentId] = f.agents;
+  const id = await f.chat();
+  await f.offer(id);
+  await f.accept(id, agentId!);
+  // the round saw it waiting, but the Agent accepted it since: the re-check under the lock says no
+  const ended = await f.run((tx) =>
+    endWebchat(tx, {
+      tenantId: f.tenantId,
+      interactionId: id,
+      reason: 'CUSTOMER_LEFT',
+      now: new Date(),
+      stillDue: async (state) => state === 'QUEUED' || state === 'ASSIGNED',
+    }),
+  );
+  assert.equal(ended, null);
+  assert.equal((await f.interaction(id)).state, 'ACTIVE');
+});

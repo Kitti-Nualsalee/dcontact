@@ -52,6 +52,11 @@ flag ปิดแล้ว tenant เดิมไม่เห็นอะไร�
 - Agent เปลี่ยนเป็น Not Ready เองไม่ได้ระหว่างมีแชท ให้ตั้ง "สถานะหลังจบงาน": ระบบหยุดส่งแชทใหม่ และเปลี่ยนสถานะให้เมื่อบันทึกผลห้องสุดท้าย
 - คิวที่ผูกทีม Agent ต้องอยู่ทีมนั้นและมีทักษะครบตามคิว เหมือน Voice
 
+## ทำไม widget ไม่ใช้ `@d-contact/ui-react`
+
+widget ฝังบนเว็บของ tenant ทุกหน้า จึงต้องเล็กและไม่ชนกับ CSS หรือ JavaScript ของเว็บนั้น: ตัวโหลด (`widget.js`) วาดแค่ปุ่มลอยด้วย inline style และหน้าต่างแชทอยู่ใน iframe จาก origin ของ D-Contact ทั้งสองส่วนเขียนด้วย DOM ล้วน ไม่มี React เพื่อให้ไฟล์เล็ก (ราว 12 KB และ 23 KB) และไม่ต้องโหลด font หรือ library จากภายนอก
+ภาษาภาพยังมาจากที่เดียวกับแอป: `frame.css` ใช้ `var(--dc-*)` ของ `@d-contact/ui` ที่ถูกต่อเข้าไฟล์ตอน build และตัวโหลดอ่านค่า token จาก `tokens.generated.ts` ส่วนบทสนทนาใน Workspace และ Console ใช้ `ChatTranscript` ของ `ui-react`
+
 ## ความปลอดภัยของ widget
 
 - ผู้เยี่ยมชมไม่ระบุตัว ระบุ tenant และ widget ใน URL และพิสูจน์ session ด้วย secret ที่ server เก็บเฉพาะ SHA-256

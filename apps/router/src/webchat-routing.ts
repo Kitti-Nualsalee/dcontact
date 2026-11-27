@@ -12,6 +12,9 @@ import { recordVoiceHandlingAttribution } from './handling-attribution.js';
  * - Every function runs inside the caller's tenant transaction; the caller owns messages and notifications.
  * - Lock order: the Agent's `users` row first, then the Interaction. Offering a queued chat is the one
  *   exception (the Agent is unknown until picked) and takes the Agent with SKIP LOCKED, so it never waits.
+ * - The Interaction is locked FOR NO KEY UPDATE, never FOR UPDATE: a message being written in the same
+ *   moment takes FOR KEY SHARE on it through its foreign key, and the two must not block each other
+ *   (they would deadlock against the conversation lock the message writer holds).
  */
 
 type Tx = Prisma.TransactionClient;
@@ -113,7 +116,7 @@ async function lockInteraction(tx: Tx, tenantId: string, interactionId: string) 
   >(Prisma.sql`
     SELECT id, state::text AS state, agent_id, queue_id FROM interactions
     WHERE tenant_id = ${tenantId}::uuid AND id = ${interactionId}::uuid AND channel = 'WEBCHAT'
-    FOR UPDATE`);
+    FOR NO KEY UPDATE`);
   return rows[0];
 }
 
@@ -433,7 +436,17 @@ export interface WebchatEndResult {
  */
 export async function endWebchat(
   tx: Tx,
-  input: { tenantId: string; interactionId: string; reason: WebchatEndReason; now: Date },
+  input: {
+    tenantId: string;
+    interactionId: string;
+    reason: WebchatEndReason;
+    now: Date;
+    /**
+     * Checked again once the chat is locked; returning false leaves it as it is. A background round
+     * decides from a snapshot, and the chat may have moved on since (accepted, or the customer wrote).
+     */
+    stillDue?: (state: string) => Promise<boolean>;
+  },
 ): Promise<WebchatEndResult | null> {
   const { tenantId, interactionId, reason, now } = input;
   const current = await tx.interaction.findFirst({
@@ -446,6 +459,7 @@ export async function endWebchat(
   if (!interaction) return null;
   // The owner changed between the read and the lock (an offer moved on): the caller's next round retries.
   if (interaction.agent_id !== current.agentId) return null;
+  if (input.stillDue && !(await input.stillDue(interaction.state))) return null;
   const agentId = interaction.agent_id;
   if (interaction.state === 'ACTIVE' && agentId) {
     await tx.interaction.update({

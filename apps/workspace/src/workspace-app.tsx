@@ -1998,17 +1998,6 @@ function AgentWorkspace({
           </Tab>
         </TabList>
         <TabPanel id="open" className="aw-v3-list-panel">
-          {webchat && chatState ? (
-            <WebchatOffers
-              store={webchat.store}
-              state={chatState}
-              now={now}
-              onAccepted={() => {
-                setChatTab('conversation');
-                setChatFocus((value) => value + 1);
-              }}
-            />
-          ) : null}
           {chatState && chatRooms >= chatState.maxChats ? (
             <p className="aw-copy aw-chat-full">
               {t('chat.offer.full', { max: chatState.maxChats })}
@@ -2026,6 +2015,19 @@ function AgentWorkspace({
                 }}
               />
             </ul>
+          ) : null}
+          {/* below the rooms, so an arriving offer never moves a row the Agent may be about to press
+              (docs/ui-principles.md item 4) */}
+          {webchat && chatState ? (
+            <WebchatOffers
+              store={webchat.store}
+              state={chatState}
+              now={now}
+              onAccepted={() => {
+                setChatTab('conversation');
+                setChatFocus((value) => value + 1);
+              }}
+            />
           ) : null}
           {current ? (
             <ul className="aw-v3-items">

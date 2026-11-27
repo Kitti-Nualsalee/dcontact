@@ -168,9 +168,9 @@ button:disabled {
 
 .dcw-spinner {
   flex: none;
-  width: 14px;
-  height: 14px;
-  margin-top: 2px;
+  width: var(--dc-space-6);
+  height: var(--dc-space-6);
+  margin-top: var(--dc-space-1);
   border: 2px solid var(--dc-border-default);
   border-top-color: var(--dc-text-brand);
   border-radius: var(--dc-radius-pill);
@@ -415,7 +415,7 @@ button:disabled {
   gap: var(--dc-space-4);
   justify-content: space-between;
   margin-top: var(--dc-space-2);
-  font-size: var(--dc-text-2xs);
+  font-size: var(--dc-text-xs);
   color: var(--dc-text-secondary);
 }
 
@@ -479,7 +479,8 @@ button:disabled {
   inset: 0;
   display: flex;
   align-items: flex-end;
-  background: rgb(15 23 42 / 40%);
+  /* the same scrim as the app's Dialog: the inverse surface at partial strength */
+  background: color-mix(in srgb, var(--dc-surface-inverse) 45%, transparent);
 }
 
 .dcw-sheet-card {

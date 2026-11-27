@@ -53,6 +53,15 @@ async function signIn(page: Page, url: string, username: string, password: strin
   await page.locator('#password').fill(password);
   await page.locator('#kc-login').click();
   await page.waitForURL((current) => current.origin === new URL(url).origin);
+  await useThai(page);
+}
+
+/** The language is a saved preference of the user; this run reads the Thai catalogs, so pick Thai. */
+async function useThai(page: Page) {
+  const thai = page.getByRole('button', { name: 'ไทย', exact: true }); // allow-thai: the language name the shell shows
+  await thai.waitFor({ timeout: 30_000 });
+  if ((await thai.getAttribute('aria-pressed')) !== 'true') await thai.click();
+  await expect(thai).toHaveAttribute('aria-pressed', 'true');
 }
 
 /** The Agent holds the work session and is Ready, whatever a previous run left behind. */
@@ -148,6 +157,7 @@ test('web chat: widget → queue → Agent accepts → two-way chat → two room
     text('common', 'auth.signIn'),
   );
   await admin.goto(`${consoleOrigin}/?tenant=demo&view=webchat-settings`);
+  await useThai(admin);
   await expect(
     admin.getByRole('heading', { level: 1, name: text('webchat', 'title') }),
   ).toBeVisible();
@@ -387,6 +397,7 @@ test('web chat: widget → queue → Agent accepts → two-way chat → two room
 
   // ── the Admin reads both conversations in the team history ──
   await admin.goto(`${consoleOrigin}/?tenant=demo&view=team-history&channel=WEBCHAT`);
+  await useThai(admin);
   const rows = admin.getByRole('row').filter({ hasText: text('history', 'channels.webchat') });
   await expect(rows.first()).toBeVisible({ timeout: 20_000 });
   await rows.first().getByRole('button').click();

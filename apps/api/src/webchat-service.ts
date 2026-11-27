@@ -131,10 +131,30 @@ const MESSAGE_SELECT = {
 
 export interface WebchatServiceOptions {
   now?: () => Date;
+  /** structured diagnostics; carries ids and error names only, never message text */
+  log?: (event: Record<string, unknown>) => void;
+}
+
+/** A tenant still being provisioned answers like one without a widget. */
+async function tenantInService(tx: Tx, tenantId: string): Promise<boolean> {
+  const tenant = await tx.tenant.findUnique({
+    where: { id: tenantId },
+    select: { lifecycleStatus: true },
+  });
+  return tenant?.lifecycleStatus === 'ACTIVE';
+}
+
+function errorFields(error: unknown): { error: string; code: string | null } {
+  const code = (error as { code?: unknown } | null)?.code;
+  return {
+    error: error instanceof Error ? error.name : 'Unknown',
+    code: typeof code === 'string' || typeof code === 'number' ? String(code) : null,
+  };
 }
 
 export class WebchatService {
   private readonly now: () => Date;
+  private readonly log: (event: Record<string, unknown>) => void;
   /** tenants that had open chats at the last look; the background round visits only these */
   private readonly activeTenants = new Set<string>();
   /** rounds started by a new chat that have not finished yet */
@@ -146,6 +166,7 @@ export class WebchatService {
     options: WebchatServiceOptions = {},
   ) {
     this.now = options.now ?? (() => new Date());
+    this.log = options.log ?? ((event) => console.error(JSON.stringify(event)));
   }
 
   private tenant<T>(tenantId: string, work: (tx: Tx) => Promise<T>): Promise<T> {
@@ -162,6 +183,7 @@ export class WebchatService {
     const tenantId = webchatUuid(tenantValue);
     const widgetId = webchatUuid(widgetValue);
     return this.tenant(tenantId, async (tx) => {
+      if (!(await tenantInService(tx, tenantId))) return null;
       const widget = await tx.webchatWidget.findFirst({
         where: { tenantId, id: widgetId, enabled: true },
         select: { allowedOrigins: true },
@@ -175,7 +197,9 @@ export class WebchatService {
     });
   }
 
+  /** A widget a visitor may use: switched on, with a queue, of a tenant that is in service. */
   private async enabledWidget(tx: Tx, tenantId: string, widgetId: string) {
+    if (!(await tenantInService(tx, tenantId))) throw new WebchatError('WEBCHAT_DISABLED');
     const widget = await tx.webchatWidget.findFirst({
       where: { tenantId, id: widgetId, enabled: true },
     });
@@ -332,10 +356,23 @@ export class WebchatService {
           });
         return this.visitorState(tx, session, after);
       });
-    const first = await read();
-    if (!query.waitMs || first.version !== query.known || first.status === 'ENDED') return first;
-    const changed = await this.hub.waitForSession(tenantId, sessionId, query.waitMs, query.signal);
-    return changed ? read() : first;
+    if (!query.waitMs) return read();
+    // Wait first, then read: a change committed between the read and the wait still wakes this poll.
+    const stop = new AbortController();
+    query.signal?.addEventListener('abort', () => stop.abort(), { once: true });
+    const changed = this.hub.waitForSession(tenantId, sessionId, query.waitMs, stop.signal);
+    let first: WebchatVisitorState;
+    try {
+      first = await read();
+    } catch (error) {
+      stop.abort();
+      throw error;
+    }
+    if (first.version !== query.known || first.status === 'ENDED') {
+      stop.abort();
+      return first;
+    }
+    return (await changed) ? read() : first;
   }
 
   private async append(
@@ -356,7 +393,7 @@ export class WebchatService {
     const { tenantId, conversationId, now } = input;
     await tx.$queryRaw(Prisma.sql`
       SELECT id FROM conversations WHERE tenant_id = ${tenantId}::uuid AND id = ${conversationId}::uuid
-      FOR UPDATE`);
+      FOR NO KEY UPDATE`);
     if (input.providerMessageId) {
       const repeated = await tx.message.findFirst({
         where: {
@@ -426,10 +463,20 @@ export class WebchatService {
       // One writer per session: two first messages sent together must open a single chat.
       await tx.$queryRaw(Prisma.sql`
         SELECT id FROM webchat_sessions WHERE tenant_id = ${tenantId}::uuid AND id = ${sessionId}::uuid
-        FOR UPDATE`);
+        FOR NO KEY UPDATE`);
       const session = await tx.webchatSession.findFirstOrThrow({
         where: { tenantId, id: sessionId },
       });
+      // A retry of a message that was stored (its answer was lost) succeeds even if the chat ended since.
+      const repeated = await tx.message.findFirst({
+        where: {
+          tenantId,
+          channelAccountId: session.widgetId,
+          providerMessageId: `${sessionId}:${clientMessageId}`,
+        },
+        select: MESSAGE_SELECT,
+      });
+      if (repeated) return { message: messageView(repeated), agentId: null, opened: false };
       if (session.endReason) throw new WebchatError('CHAT_ENDED');
       let interactionId = session.interactionId;
       let agentId: string | null = null;
@@ -490,7 +537,9 @@ export class WebchatService {
     if (result.opened) {
       this.activeTenants.add(tenantId);
       // offer the new chat now instead of waiting for the next background round
-      const kick = this.tick(tenantId).catch(() => undefined);
+      const kick = this.tick(tenantId).catch((error: unknown) =>
+        this.log({ event: 'webchat.round_failed', tenantId, ...errorFields(error) }),
+      );
       this.kicks.add(kick);
       void kick.finally(() => this.kicks.delete(kick));
     }
@@ -523,9 +572,10 @@ export class WebchatService {
     tenantId: string,
     interactionId: string,
     reason: WebchatEndReason,
+    stillDue?: (state: string) => Promise<boolean>,
   ): Promise<WebchatNotice | null> {
     const now = this.now();
-    const ended = await endWebchat(tx, { tenantId, interactionId, reason, now });
+    const ended = await endWebchat(tx, { tenantId, interactionId, reason, now, stillDue });
     if (!ended) return null;
     const session = await tx.webchatSession.findFirst({ where: { tenantId, interactionId } });
     if (!session) return { tenantId, agentIds: ended.agentId ? [ended.agentId] : [] };
@@ -722,9 +772,19 @@ export class WebchatService {
     const { tenantId } = actor;
     const result = await this.tenant(tenantId, async (tx) => {
       await this.agent(tx, actor);
+      // A retry of a message that was stored (its answer was lost) succeeds even if the chat ended since.
       const { session, conversationId } = await this.ownedChat(tx, actor, interactionId, [
         'ACTIVE',
+        'WRAPUP',
       ]);
+      const repeated = await tx.message.findFirst({
+        where: { tenantId, clientToken: commandId, conversationId },
+        select: { ...MESSAGE_SELECT, body: true },
+      });
+      if (repeated) {
+        if (repeated.body !== text) throw new WebchatError('COMMAND_ID_REUSED');
+        return { message: messageView(repeated), sessionId: session.id };
+      }
       const appended = await this.append(tx, {
         tenantId,
         conversationId,
@@ -790,9 +850,39 @@ export class WebchatService {
 
   async tickAll(): Promise<void> {
     for (const tenantId of [...this.activeTenants]) {
-      const open = await this.tick(tenantId);
-      if (!open) this.activeTenants.delete(tenantId);
+      // one tenant's failure must not stop the round for the others
+      try {
+        const open = await this.tick(tenantId);
+        if (!open) this.activeTenants.delete(tenantId);
+      } catch (error) {
+        this.log({ event: 'webchat.round_failed', tenantId, ...errorFields(error) });
+      }
     }
+  }
+
+  /** Whether the visitor has stopped asking for this long, read again under the caller's lock. */
+  private async visitorGone(tx: Tx, tenantId: string, interactionId: string, ms: number) {
+    const session = await tx.webchatSession.findFirst({
+      where: { tenantId, interactionId },
+      select: { lastSeenAt: true },
+    });
+    return !!session && this.now().getTime() - session.lastSeenAt.getTime() > ms;
+  }
+
+  /** Whether an active chat is past its silence deadline, read again under the caller's lock. */
+  private async silencePassed(tx: Tx, tenantId: string, interactionId: string, idleSec: number) {
+    const interaction = await tx.interaction.findFirst({
+      where: { tenantId, id: interactionId },
+      select: {
+        conversation: { select: { lastCustomerMessageAt: true, lastAgentMessageAt: true } },
+      },
+    });
+    const deadline = webchatIdleDeadline({
+      lastCustomerMessageAt: interaction?.conversation?.lastCustomerMessageAt ?? null,
+      lastAgentMessageAt: interaction?.conversation?.lastAgentMessageAt ?? null,
+      idleTimeoutSec: idleSec,
+    });
+    return !!deadline && deadline <= this.now();
   }
 
   /** One round for a tenant. Returns whether it still has chats that are queued, offered or active. */
@@ -851,8 +941,17 @@ export class WebchatService {
         session &&
         now.getTime() - session.lastSeenAt.getTime() > WEBCHAT_VISITOR_GONE_MS
       ) {
+        // an Agent may have taken the chat since the snapshot: leave it to them
         const notice = await this.tenant(tenantId, (tx) =>
-          this.end(tx, tenantId, chat.id, 'CUSTOMER_LEFT'),
+          this.end(
+            tx,
+            tenantId,
+            chat.id,
+            'CUSTOMER_LEFT',
+            async (state) =>
+              (state === 'QUEUED' || state === 'ASSIGNED') &&
+              (await this.visitorGone(tx, tenantId, chat.id, WEBCHAT_VISITOR_GONE_MS)),
+          ),
         );
         if (notice) notices.push(notice);
         continue;
@@ -878,9 +977,43 @@ export class WebchatService {
           lastAgentMessageAt: chat.conversation?.lastAgentMessageAt ?? null,
           idleTimeoutSec: widget?.idleTimeoutSec ?? 600,
         });
+        const idleSec = widget?.idleTimeoutSec ?? 600;
         if (deadline && deadline <= now) {
+          // the customer may have written since the snapshot
           const notice = await this.tenant(tenantId, (tx) =>
-            this.end(tx, tenantId, chat.id, 'IDLE_TIMEOUT'),
+            this.end(
+              tx,
+              tenantId,
+              chat.id,
+              'IDLE_TIMEOUT',
+              async (state) =>
+                state === 'ACTIVE' && (await this.silencePassed(tx, tenantId, chat.id, idleSec)),
+            ),
+          );
+          if (notice) notices.push(notice);
+        } else if (
+          session &&
+          now.getTime() - session.lastSeenAt.getTime() >
+            Math.max(idleSec * 1000, WEBCHAT_VISITOR_GONE_MS)
+        ) {
+          // The customer closed the page and has not come back for the whole silence timeout. Without
+          // this a chat whose last word was the customer's would stay open for ever (and hold the
+          // Agent's slot) when both sides have gone.
+          const notice = await this.tenant(tenantId, (tx) =>
+            this.end(
+              tx,
+              tenantId,
+              chat.id,
+              'CUSTOMER_LEFT',
+              async (state) =>
+                state === 'ACTIVE' &&
+                (await this.visitorGone(
+                  tx,
+                  tenantId,
+                  chat.id,
+                  Math.max(idleSec * 1000, WEBCHAT_VISITOR_GONE_MS),
+                )),
+            ),
           );
           if (notice) notices.push(notice);
         }
