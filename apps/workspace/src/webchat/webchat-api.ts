@@ -11,10 +11,18 @@ export interface WebchatMessage {
   event?: 'AGENT_JOINED' | WebchatEndReason;
   /** the id this client gave a message it sent, to match the server copy with the one still on screen */
   clientId?: string;
+  /** LINE only: a customer message that is not text; the value is LINE's message type */
+  other?: string;
+  /** LINE only, on the Agent's messages: absent = delivered (or a web chat) */
+  delivery?: 'SENDING' | 'FAILED';
 }
+
+export type WebchatChannel = 'WEBCHAT' | 'LINE';
+export type WebchatDelivery = 'SENDING' | 'SENT' | 'FAILED';
 
 export interface WebchatChat {
   interactionId: string;
+  channel: WebchatChannel;
   state: 'ASSIGNED' | 'ACTIVE' | 'WRAPUP';
   visitorLabel: string;
   origin: string;
@@ -24,7 +32,8 @@ export interface WebchatChat {
   answeredAt: string | null;
   endedAt: string | null;
   endReason: WebchatEndReason | null;
-  visitorOnline: boolean;
+  /** null for LINE: nobody can tell whether a LINE user is online */
+  visitorOnline: boolean | null;
   idleClosesAt: string | null;
   lastMessage: WebchatMessage | null;
   visitorMessageCount: number;
@@ -36,6 +45,9 @@ export interface WebchatApi {
     interactionId: string,
     after?: string | null,
   ): Promise<{ messages: WebchatMessage[]; cursor: string | null }>;
+  deliveries(
+    interactionId: string,
+  ): Promise<{ deliveries: { id: string; delivery: WebchatDelivery }[] }>;
   accept(interactionId: string): Promise<void>;
   send(interactionId: string, input: { commandId: string; text: string }): Promise<WebchatMessage>;
   end(interactionId: string): Promise<void>;
@@ -66,6 +78,7 @@ export function createWebchatApi(send: Send): WebchatApi {
     chats: () => call(''),
     messages: (interactionId, after) =>
       call(`${chat(interactionId)}/messages${after ? `?after=${encodeURIComponent(after)}` : ''}`),
+    deliveries: (interactionId) => call(`${chat(interactionId)}/deliveries`),
     async accept(interactionId) {
       await call(`${chat(interactionId)}/accept`, { method: 'POST' });
     },
