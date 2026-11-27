@@ -213,6 +213,9 @@ jobs:
       - name: Check LINE chat (#1054) webhook, Agent work, delivery to LINE and history under real RLS
         run: pnpm --filter @d-contact/api exec tsx --test src/line-chat.integration.ts
 
+      - name: Check agent callbacks (#1061) scheduling, team hand-over and expiry under real RLS
+        run: pnpm --filter @d-contact/api exec tsx --test src/agent-callbacks.integration.ts
+
       - name: Check B1 catalog, command, quota and cross-tenant/team permissions over HTTP with real RLS
         run: pnpm --filter @d-contact/api exec tsx --test src/tenant-voice-catalog.integration.ts
       - name: Check B2 reservation, fenced worker, mapping and pending activation over HTTP with real RLS

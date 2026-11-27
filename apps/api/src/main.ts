@@ -180,6 +180,14 @@ import {
 } from './agent-workspace-api.js';
 import { AgentCasesController, AGENT_CASES_DATABASE } from './agent-cases-api.js';
 import {
+  AGENT_CALLBACKS,
+  AGENT_CALLBACKS_DATABASE,
+  AgentCallbacksController,
+  maintainAgentCallbacks,
+} from './agent-callbacks-api.js';
+import { resolveAgentCallbacks } from './agent-callbacks-config.js';
+import { AgentCallbacks } from '@d-contact/dialer';
+import {
   AGENT_SIP_CREDENTIALS,
   configuredAgentSipCredentialService,
   FreeSwitchDirectoryController,
@@ -518,6 +526,23 @@ console.log(
     status: !lineChatEnabled ? 'DISABLED' : lineChatBox ? 'ENABLED' : 'SECRET_KEY_MISSING',
   }),
 );
+// #1061: off by default; when on, Agents schedule callbacks from their work and dial them from Workspace.
+// The background round expires callbacks, moves them to the team and settles dial attempts.
+const agentCallbacksEnabled = resolveAgentCallbacks(process.env);
+console.log(
+  JSON.stringify({
+    event: 'agent_callbacks.readiness',
+    status: agentCallbacksEnabled ? 'ENABLED' : 'DISABLED',
+  }),
+);
+const agentCallbacks = new AgentCallbacks(prisma, { governance: contactGovernance });
+if (agentCallbacksEnabled) {
+  startBackgroundLoop({
+    name: 'agent_callbacks.maintain',
+    intervalMs: 15_000,
+    work: () => maintainAgentCallbacks(prisma, agentCallbacks),
+  });
+}
 const lineChatClient = new LineChatClient(resolveLineApiBaseUrl(process.env));
 const lineChat = new LineChatService(prisma, lineChatBox, lineChatClient, webchat, webchatHub);
 if (lineChatEnabled) {
@@ -625,6 +650,7 @@ class WorkspaceSessionController {
     ...(webchatEnabled ? [WebchatPublicController, WebchatWidgetController] : []),
     ...(chatChannels.length ? [WebchatAgentController] : []),
     ...(lineChatEnabled ? [LineChatWebhookController, LineChannelController] : []),
+    ...(agentCallbacksEnabled ? [AgentCallbacksController] : []),
   ],
   providers: [
     { provide: CUSTOMER_360_WORK_AUTH, useValue: c360WorkAuth ?? null },
@@ -688,6 +714,8 @@ class WorkspaceSessionController {
     { provide: QM_JOB_PUBLISHER, useValue: qmJobPublisher },
     { provide: AGENT_WORKSPACE_DATABASE, useValue: prisma },
     { provide: AGENT_CASES_DATABASE, useValue: prisma },
+    { provide: AGENT_CALLBACKS, useValue: agentCallbacks },
+    { provide: AGENT_CALLBACKS_DATABASE, useValue: prisma },
     { provide: AGENT_WORKSPACE_WEBCHAT, useValue: chatChannels },
     { provide: TEAM_HISTORY_WEBCHAT, useValue: chatChannels },
     { provide: LINE_CHAT_SERVICE, useValue: lineChat },

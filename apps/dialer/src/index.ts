@@ -9,3 +9,4 @@ export * from './dialer-callback-service.js';
 export * from './dialer-command-inbox.js';
 export * from './dialer-owner-command-service.js';
 export * from './dialer-owner-command-consumer.js';
+export * from './agent-callbacks.js';
