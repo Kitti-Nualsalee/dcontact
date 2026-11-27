@@ -1,0 +1,115 @@
+{
+  "title": "LINE",
+  "description": "Let customers chat with Agents through your LINE Official Account. Chats enter the queue you choose and are routed by the same Router as Voice and Web Chat.",
+  "status": {
+    "enabled": "On",
+    "disabled": "Off",
+    "notConfigured": "Not set up"
+  },
+  "firstTime": "LINE is not set up yet. Enter the details from LINE Developers, choose a queue and save. Default: a chat closes after {{minutes}} minutes without a customer reply.",
+  "readOnly": "You can view these settings only. Only an Admin can change them.",
+  "forbidden": {
+    "title": "This account cannot view the LINE settings",
+    "body": "This page is for the tenant's Admins and Supervisors. Contact your organization's Admin to change the settings."
+  },
+  "locked": {
+    "title": "LINE is not enabled in this system",
+    "body": "Contact the platform administrator to turn it on."
+  },
+  "loading": "Loading LINE settings",
+  "loadFailed": "Could not load the LINE settings",
+  "retryLoad": "Try loading again",
+  "unauthorized": "Your session has expired. Please sign in again.",
+  "routing": {
+    "title": "Receiving chats",
+    "sub": "Applies to new chats. A chat already open keeps its settings until it ends.",
+    "queue": "Queue that receives chats",
+    "queuePlaceholder": "Choose a queue",
+    "queueHint": "Agents in this queue who are Ready receive the chats",
+    "idle": "Close a chat after customer silence (minutes)",
+    "idleHint": "{{min}}–{{max}} minutes, counted from the Agent's last message the customer has not answered"
+  },
+  "connection": {
+    "title": "Connection to LINE",
+    "sub": "Details from LINE Developers for your Messaging API channel. The channel secret and access token are stored encrypted and are never shown again.",
+    "channelId": "Channel ID",
+    "channelIdHint": "6–20 digits, optional",
+    "secret": "Channel secret",
+    "secretHint": "32 characters (0–9, a–f), on the Basic settings tab",
+    "token": "Channel access token (long-lived)",
+    "tokenHint": "On the Messaging API tab, press Issue to create one. The token is checked with LINE when you save.",
+    "typeNew": "Paste the new value",
+    "verified": "Connected to {{bot}}, checked {{when}}",
+    "notVerified": "The token has not been checked with LINE yet",
+    "none": "Not connected to LINE yet"
+  },
+  "secret": {
+    "saved": "Saved ({{hint}})",
+    "replace": "Replace",
+    "replaceLabel": "Replace {{name}}",
+    "keep": "Keep the saved value"
+  },
+  "autoReply": {
+    "title": "Automatic reply",
+    "sub": "Sent once when a customer writes and no Agent is online. It uses LINE's free reply, which does not count against the message quota.",
+    "label": "Message",
+    "emptyHint": "Can be empty; then nothing is sent automatically",
+    "count": "{{count}} / {{limit}}"
+  },
+  "webhook": {
+    "title": "Webhook URL",
+    "sub": "The URL LINE calls when a customer sends a message. It does not change when you edit the settings.",
+    "label": "LINE webhook URL",
+    "copy": "Copy URL",
+    "copied": "Copied",
+    "afterSave": "The webhook URL is ready after the first save"
+  },
+  "steps": {
+    "title": "Setting up the LINE side",
+    "credentials": "In LINE Developers open the Messaging API channel of your Official Account. Copy the Channel ID and Channel secret from the Basic settings tab, and press Issue under Channel access token (long-lived) on the Messaging API tab. Paste them on this page.",
+    "save": "Choose a queue, turn LINE on and save. The token is checked with LINE and the webhook URL appears.",
+    "webhook": "Copy the webhook URL into the Webhook URL field on the Messaging API tab and press Update.",
+    "verify": "Turn on Use webhook and press Verify. It must report success.",
+    "autoResponse": "In LINE Official Account Manager open Response settings and turn off the account's own Auto-response messages and Greeting message. Otherwise customers get two answers."
+  },
+  "quota": "Agent replies are sent as push messages, which count against the Official Account's monthly message quota. The automatic reply uses LINE's reply, which does not.",
+  "state": {
+    "title": "Status",
+    "toggle": "Turn on LINE",
+    "onHint": "Customer messages from LINE enter the chosen queue. When turned off, chats already open continue until they end.",
+    "offHint": "Off. Customer messages from LINE do not enter the system.",
+    "required": "Needed before turning on",
+    "needQueue": "Choose the queue that receives chats",
+    "needSecret": "Enter the Channel secret",
+    "needToken": "Enter the Channel access token",
+    "goToField": "Go to field",
+    "cannotEnable": "Cannot turn on yet. Finish the {{count}} item(s) above."
+  },
+  "errors": {
+    "queueRequired": "Choose a queue before turning on",
+    "queueInvalid": "This queue cannot be used. Choose another.",
+    "channelIdInvalid": "The Channel ID is 6–20 digits",
+    "secretRequired": "Enter the Channel secret before turning on",
+    "secretInvalid": "The Channel secret is 32 characters (0–9, a–f)",
+    "tokenRequired": "Enter the Channel access token before turning on",
+    "tokenInvalid": "The Channel access token is not in the right format. Check that it was copied in full.",
+    "tokenRejected": "LINE did not accept this token. Check that it is the long-lived Channel access token of this channel and has not been reissued.",
+    "idleRange": "Enter a number from {{min}} to {{max}}",
+    "autoReplyTooLong": "Longer than {{limit}} characters",
+    "rejected": "The server did not accept the values. Check them and save again."
+  },
+  "save": "Save",
+  "saveFirst": "Save and create the webhook URL",
+  "saving": "Saving",
+  "cancel": "Discard changes",
+  "saved": "LINE settings saved",
+  "saveFailed": "Could not save. The connection to the server was lost. Your edits are still in the form.",
+  "lineUnavailable": "Could not reach LINE to check the token, so nothing was saved. Your edits are still in the form. Try saving again.",
+  "secretStoreUnavailable": "The server has no secret key configured, so the secret and token cannot be saved. Tell the platform administrator.",
+  "retrySave": "Try saving again",
+  "conflict": "Someone changed these settings after you opened the page. Load the latest and edit again. What you typed is still in the form.",
+  "conflictUseLatest": "Use the latest",
+  "signIn": "Sign in",
+  "lastSaved": "Last changed {{when}} by {{name}}",
+  "lastSavedUnknown": "Last changed {{when}}"
+}

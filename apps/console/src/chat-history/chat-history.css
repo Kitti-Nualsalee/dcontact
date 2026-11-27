@@ -20,6 +20,11 @@
   color: var(--dc-channel-webchat-fg);
 }
 
+.ch-badge--line {
+  background: var(--dc-channel-line-bg);
+  color: var(--dc-channel-line-fg);
+}
+
 .ch-head {
   display: flex;
   flex-wrap: wrap;

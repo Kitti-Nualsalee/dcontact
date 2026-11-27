@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createAgentHistoryApi } from './agent-history/api.js';
-import { channelFrom, filterHref, listQuery } from './agent-history/model.js';
+import {
+  channelFrom,
+  channelsFrom,
+  filterHref,
+  isChatChannel,
+  listQuery,
+} from './agent-history/model.js';
 import {
   closedByKey,
   isWorkTranscript,
@@ -122,4 +128,61 @@ test('the transcript is read from the endpoint of each page and a bad id never r
   } finally {
     globalThis.fetch = realFetch;
   }
+});
+
+test('LINE is a channel of its own: it can be filtered and counts as a chat', () => {
+  assert.equal(channelFrom('LINE'), 'LINE');
+  assert.equal(channelFrom('line'), undefined);
+  assert.equal(
+    new URLSearchParams(listQuery({ from: null, to: null, channel: 'LINE' })).get('channel'),
+    'LINE',
+  );
+  assert.equal(
+    new URL(
+      filterHref('https://c.example/?view=agent-history', '7d', undefined, 'LINE'),
+    ).searchParams.get('channel'),
+    'LINE',
+  );
+  assert.equal(isChatChannel('LINE'), true);
+  assert.equal(isChatChannel('WEBCHAT'), true);
+  assert.equal(isChatChannel('VOICE'), false);
+  assert.equal(isChatChannel(undefined), false);
+});
+
+test('the channels a deployment offers come from the summary, in a fixed order, unknown names dropped', () => {
+  assert.deepEqual(channelsFrom(['LINE', 'VOICE', 'WEBCHAT']), ['VOICE', 'WEBCHAT', 'LINE']);
+  assert.deepEqual(channelsFrom(['VOICE', 'LINE']), ['VOICE', 'LINE']);
+  assert.deepEqual(channelsFrom(['VOICE', 'EMAIL']), ['VOICE']);
+  assert.deepEqual(channelsFrom(undefined), []);
+});
+
+test('a LINE conversation is accepted and a customer sticker reads as a placeholder, not an empty line', () => {
+  const line = transcript({
+    channel: 'LINE',
+    endReason: 'IDLE_TIMEOUT',
+    visitorLabel: 'Khun Somchai',
+    messages: [
+      { id: 'm1', at: '2026-11-27T03:29:00.000Z', from: 'visitor', text: 'Where is my order?' },
+      { id: 'm2', at: '2026-11-27T03:30:00.000Z', from: 'visitor', other: 'sticker' },
+      { id: 'm3', at: '2026-11-27T03:31:00.000Z', from: 'visitor', other: 'hologram' },
+    ],
+  });
+  assert.equal(isWorkTranscript(line), true);
+  assert.equal(isWorkTranscript({ ...line, channel: 'EMAIL' }), false);
+  const lines = toTranscriptMessages(line, {
+    visitor: 'Customer',
+    agent: 'Pakorn',
+    time: (at) => at.slice(11, 16),
+    system: (event) => `system:${event}`,
+    other: (type) => `other:${type}`,
+  });
+  assert.deepEqual(
+    lines.map((entry) => [entry.side, entry.author, entry.text]),
+    [
+      ['other', 'Customer', 'Where is my order?'],
+      ['other', 'Customer', 'other:sticker'],
+      ['other', 'Customer', 'other:hologram'],
+    ],
+  );
+  assert.equal(writtenCount(line), 3);
 });

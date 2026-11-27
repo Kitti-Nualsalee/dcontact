@@ -6,8 +6,20 @@ export const DEFAULT_PERIOD: SummaryPeriod = '7d';
 export const NO_DISPOSITION = '__none__';
 
 /** #1044: the channel of a closed work item; no filter = every channel */
-export const HISTORY_CHANNELS = ['VOICE', 'WEBCHAT'] as const;
+export const HISTORY_CHANNELS = ['VOICE', 'WEBCHAT', 'LINE'] as const;
 export type HistoryChannel = (typeof HISTORY_CHANNELS)[number];
+
+/** #1054: a chat of any kind has a conversation to read; a call does not */
+export const isChatChannel = (channel: HistoryChannel | undefined): boolean =>
+  channel === 'WEBCHAT' || channel === 'LINE';
+
+/**
+ * the channels a deployment offers, from the summary's `channels`; unknown names are dropped.
+ * A single channel is a deployment without chats, so the channel controls stay hidden
+ */
+export function channelsFrom(value: readonly string[] | undefined): HistoryChannel[] {
+  return HISTORY_CHANNELS.filter((channel) => value?.includes(channel));
+}
 
 export function channelFrom(value: string | null): HistoryChannel | undefined {
   return (HISTORY_CHANNELS as readonly string[]).includes(value ?? '')

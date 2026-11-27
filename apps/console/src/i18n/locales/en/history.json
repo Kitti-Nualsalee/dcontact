@@ -64,7 +64,8 @@
   "channels": {
     "all": "All channels",
     "voice": "Calls",
-    "webchat": "Chats"
+    "webchat": "Chats",
+    "line": "LINE"
   },
   "chat": {
     "visitor": "Visitor #{{code}}",
@@ -85,7 +86,8 @@
     },
     "sender": {
       "customer": "Visitor",
-      "agent": "Agent"
+      "agent": "Agent",
+      "lineCustomer": "Customer"
     },
     "system": {
       "AGENT_JOINED": "{{agent}} joined the chat",
@@ -104,7 +106,17 @@
     "interaction": "Interaction",
     "result": "Recorded outcome",
     "heading": "Chat",
-    "queue": "Queue"
+    "queue": "Queue",
+    "lineCustomer": "LINE customer: {{name}}",
+    "other": {
+      "sticker": "(Customer sent a sticker)",
+      "image": "(Customer sent an image)",
+      "video": "(Customer sent a video)",
+      "audio": "(Customer sent an audio message)",
+      "file": "(Customer sent a file)",
+      "location": "(Customer sent a location)",
+      "unknown": "(Customer sent a message that cannot be shown here)"
+    }
   },
   "readOnlyChannels": "Your completed work (calls and chats) is shown. Read-only; your receiving point is not affected.",
   "listChannels": "Work items",

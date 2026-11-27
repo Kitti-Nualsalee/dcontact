@@ -56,6 +56,8 @@ import teamHistoryTh from './locales/th/team-history.json' with { type: 'json' }
 import teamHistoryEn from './locales/en/team-history.json' with { type: 'json' };
 import webchatTh from './locales/th/webchat.json' with { type: 'json' };
 import webchatEn from './locales/en/webchat.json' with { type: 'json' };
+import lineChannelTh from './locales/th/line-channel.json' with { type: 'json' };
+import lineChannelEn from './locales/en/line-channel.json' with { type: 'json' };
 
 export const DEFAULT_NAMESPACE = 'common';
 
@@ -83,6 +85,7 @@ export const resources = {
     account: accountTh,
     governance: governanceTh,
     webchat: webchatTh,
+    lineChannel: lineChannelTh,
     ...uiResources.th,
   },
   en: {
@@ -107,6 +110,7 @@ export const resources = {
     account: accountEn,
     governance: governanceEn,
     webchat: webchatEn,
+    lineChannel: lineChannelEn,
     ...uiResources.en,
   },
 } as const;
