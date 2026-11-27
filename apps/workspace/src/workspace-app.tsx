@@ -6,6 +6,17 @@ import {
   type LinkedCustomer,
 } from './work-customer-panel.js';
 import { CasePanel, useCaseDrafts } from './case-panel.js';
+import {
+  WebchatCapacity,
+  WebchatClosedPanel,
+  WebchatClosedRows,
+  WebchatOffers,
+  WebchatRoomView,
+  WebchatRows,
+  WebchatWrapupPanel,
+  useWebchat,
+  type WebchatRoomTab,
+} from './webchat/webchat-view.js';
 import { useFloatingOverlapInset } from './floating-inset.js';
 /**
  * Agent Workspace — D1.15 (#454): messages come from the `workspace`/`dphone` catalogs, CSS uses tokens only (`aw-*`),
@@ -256,7 +267,7 @@ function AgentWorkspace({
     failure?: PrepFailure;
   }>({ preparing: false, steps: {} });
   const [statusPending, setStatusPending] = useState(false);
-  const [statusError, setStatusError] = useState<PrepFailure | 'change'>();
+  const [statusError, setStatusError] = useState<PrepFailure | 'change' | 'chatBusy'>();
   const [acknowledgedChange, setAcknowledgedChange] = useState<string | null>();
   const [snapshotError, setSnapshotError] = useState<WorkspaceMessage>();
   const [dphoneState, setDphoneState] = useState<DphoneState>({ phase: 'OFFLINE' });
@@ -335,6 +346,28 @@ function AgentWorkspace({
   const customerLease = useRef<string | undefined>(undefined);
   const enforced = lease.phase !== 'disabled';
   const leaseHeld = lease.phase === 'held';
+  // #1044 web chat: the Agent's rooms live in their own store; this page only decides what is in view
+  const webchatEnabled = !embedded && snapshot?.capabilities?.webchatV1 === 1;
+  const webchat = useWebchat({
+    api: api?.webchat,
+    enabled: webchatEnabled,
+    submitWrapup: api?.submitWrapupV1,
+  });
+  const webchatRef = useRef(webchat);
+  webchatRef.current = webchat;
+  const chatState = webchat?.state;
+  const chatRoom = chatState?.rooms.find(
+    (room) => room.chat.interactionId === chatState.selectedId,
+  );
+  const chatClosed = chatRoom
+    ? undefined
+    : chatState?.closed.find((closed) => closed.interactionId === chatState.selectedId);
+  const chatInView = Boolean(chatRoom || chatClosed);
+  const chatRooms = chatState?.rooms.length ?? 0;
+  const chatOffers = chatState?.offers.length ?? 0;
+  const [chatTab, setChatTab] = useState<WebchatRoomTab>('conversation');
+  const [chatFocus, setChatFocus] = useState(0);
+  const [chatWrapupFocus, setChatWrapupFocus] = useState(0);
   const inCall =
     dphoneState.phase === 'CONNECTING' ||
     dphoneState.phase === 'ACTIVE' ||
@@ -347,7 +380,9 @@ function AgentWorkspace({
     wrapupPending ||
     wrapupUnknown ||
     snapshot?.interaction?.state === 'ACTIVE' ||
-    snapshot?.interaction?.state === 'WRAPUP';
+    snapshot?.interaction?.state === 'WRAPUP' ||
+    // #1044 a chat in hand (talking or waiting for its result) is work the server keeps the lease for
+    chatRooms > 0;
   const statusV1 =
     snapshot?.capabilities?.agentStatusV1 === 1 &&
     inShellFrame &&
@@ -379,9 +414,11 @@ function AgentWorkspace({
     return () => window.clearInterval(timer);
   }, [statusV1, gate, workInHand, api]);
   // work in hand when the page opens (including reload during a call) = skip the status picker — UI principle 4
+  // #1044 chats in hand count as work too, so wait until they are known
+  const chatsKnown = !webchatEnabled || !api?.webchat || chatState?.ready === true;
   useEffect(() => {
-    if (statusV1 && gate === 'pending') setGate(workInHand ? 'done' : 'open');
-  }, [statusV1, gate, workInHand]);
+    if (statusV1 && gate === 'pending' && chatsKnown) setGate(workInHand ? 'done' : 'open');
+  }, [statusV1, gate, workInHand, chatsKnown]);
   // can take new work: flag on = holds the lease; flag off = working tab (old)
   const ownsWork =
     acceptingSession && !wrapupPending && !wrapupUnknown && (enforced ? leaseHeld : workingTab);
@@ -390,7 +427,10 @@ function AgentWorkspace({
   // #588: signing out now would cut a call, miss an offered or ringing call, or drop an unsaved wrap-up
   // (an offer is also counted from the snapshot — a tab that does not hold media, or whose INVITE has not arrived, has no RINGING)
   const signOutLosesWork =
-    workInHand || dphoneState.phase === 'RINGING' || snapshot?.interaction?.state === 'ASSIGNED';
+    workInHand ||
+    dphoneState.phase === 'RINGING' ||
+    snapshot?.interaction?.state === 'ASSIGNED' ||
+    chatOffers > 0;
   const onWorkInHandChangeRef = useRef(onWorkInHandChange);
   onWorkInHandChangeRef.current = onWorkInHandChange;
   useEffect(() => {
@@ -438,12 +478,62 @@ function AgentWorkspace({
     if (tab === 'details') setMainTab('customer');
   }, [detailFocus]);
   const callRunning = Boolean(snapshot?.interaction?.answeredAt && !snapshot.interaction.endedAt);
+  // #1044 offers count down and rooms show waiting time, so the clock also runs while chats are in hand
+  const clockRunning = callRunning || chatRooms > 0 || chatOffers > 0;
   useEffect(() => {
-    if (!callRunning) return;
+    if (!clockRunning) return;
     setNow(Date.now());
     const timer = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => window.clearInterval(timer);
-  }, [callRunning]);
+  }, [clockRunning]);
+  // #1044 the Agent's state follows the chats in hand; read it again when they change
+  const chatSignature = chatState
+    ? `${chatState.offers.length}|${chatState.rooms.map((room) => `${room.chat.interactionId}:${room.chat.state}`).join(',')}`
+    : undefined;
+  const chatSignatureSeen = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (chatSignature === undefined || chatSignatureSeen.current === chatSignature) return;
+    const first = chatSignatureSeen.current === undefined;
+    chatSignatureSeen.current = chatSignature;
+    if (!first) void refreshSnapshot();
+    // refreshSnapshot reads only the stable `api`
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatSignature]);
+  // the room in view ended: bring its wrap-up forward, as for a call
+  const chatRoomKey = chatRoom
+    ? `${chatRoom.chat.interactionId}:${chatRoom.chat.state}`
+    : undefined;
+  useEffect(() => {
+    if (!chatRoomKey) return;
+    if (chatRoomKey.endsWith(':WRAPUP')) {
+      setInspectorTab('wrapup');
+      setInspectorOpen(true);
+    }
+    setListTab('open');
+  }, [chatRoomKey]);
+  // Alt+Up / Alt+Down move between rooms and Alt+Shift+A accepts the newest offer, also while typing
+  useEffect(() => {
+    if (!webchatEnabled) return;
+    const onKey = (event: KeyboardEvent) => {
+      const chats = webchatRef.current;
+      if (!chats || !event.altKey || event.ctrlKey || event.metaKey) return;
+      if (!event.shiftKey && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+        if (chats.state.rooms.length === 0) return;
+        event.preventDefault();
+        chats.store.selectRelative(event.key === 'ArrowDown' ? 1 : -1);
+        setChatFocus((value) => value + 1);
+      } else if (event.shiftKey && event.code === 'KeyA') {
+        const offer = chats.state.offers.at(-1);
+        if (!offer) return;
+        event.preventDefault();
+        void chats.store.accept(offer.interactionId).then((taken) => {
+          if (taken) setChatFocus((value) => value + 1);
+        });
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [webchatEnabled]);
   const ownsWorkRef = useRef(ownsWork);
   ownsWorkRef.current = ownsWork;
   const workInHandRef = useRef(workInHand);
@@ -544,6 +634,16 @@ function AgentWorkspace({
             event.type === 'customer.auth'
           ) {
             setCustomerInvalidation((value) => value + 1);
+            return;
+          }
+          if (
+            event &&
+            typeof event === 'object' &&
+            'type' in event &&
+            event.type === 'webchat.changed'
+          ) {
+            // #1044 the event carries no chat data: read the chats again
+            void webchatRef.current?.store.refresh();
             return;
           }
           if (leaseClient.current?.handleSocketEvent(event)) return;
@@ -983,6 +1083,11 @@ function AgentWorkspace({
   }
 
   async function changeStatus(choice: StatusChoice) {
+    // #1044 chats in hand are finished first; the after-work status stops new ones meanwhile
+    if (choice.state !== 'AVAILABLE' && (webchatRef.current?.state.rooms.length ?? 0) > 0) {
+      setStatusError('chatBusy');
+      return;
+    }
     setStatusPending(true);
     setStatusError(undefined);
     const failure = await applyStatus(choice);
@@ -1878,17 +1983,53 @@ function AgentWorkspace({
         onSelectionChange={(key) => setListTab(key as ListTab)}
       >
         <TabList aria-label={t('layout.list.label')}>
-          <Tab id="open">{t('layout.list.open', { count: current ? 1 : 0 })}</Tab>
-          <Tab id="closed">{t('layout.list.closed', { count: savedWrapup ? 1 : 0 })}</Tab>
+          <Tab id="open">{t('layout.list.open', { count: (current ? 1 : 0) + chatRooms })}</Tab>
+          <Tab id="closed">
+            {t('layout.list.closed', {
+              count: (savedWrapup ? 1 : 0) + (chatState?.closed.length ?? 0),
+            })}
+          </Tab>
         </TabList>
         <TabPanel id="open" className="aw-v3-list-panel">
+          {webchat && chatState ? (
+            <WebchatOffers
+              store={webchat.store}
+              state={chatState}
+              now={now}
+              onAccepted={() => {
+                setChatTab('conversation');
+                setChatFocus((value) => value + 1);
+              }}
+            />
+          ) : null}
+          {chatState && chatRooms >= chatState.maxChats ? (
+            <p className="aw-copy aw-chat-full">
+              {t('chat.offer.full', { max: chatState.maxChats })}
+            </p>
+          ) : null}
+          {chatState && chatRooms > 0 ? (
+            <ul className="aw-v3-items" aria-label={t('chat.rooms')}>
+              <WebchatRows
+                state={chatState}
+                now={now}
+                selectedId={chatInView ? chatState.selectedId : null}
+                onSelect={(interactionId) => {
+                  webchat?.store.select(interactionId);
+                  setChatFocus((value) => value + 1);
+                }}
+              />
+            </ul>
+          ) : null}
           {current ? (
             <ul className="aw-v3-items">
               <li className="aw-v3-item">
                 <button
                   type="button"
-                  aria-current={!viewingRecent ? 'true' : undefined}
-                  onClick={() => setSelection('current')}
+                  aria-current={!viewingRecent && !chatInView ? 'true' : undefined}
+                  onClick={() => {
+                    setSelection('current');
+                    webchat?.store.select(null);
+                  }}
                 >
                   <span className="aw-v3-item-icon">
                     <PaneIcon name="phone" />
@@ -1906,7 +2047,7 @@ function AgentWorkspace({
                 </button>
               </li>
             </ul>
-          ) : (
+          ) : chatRooms + chatOffers > 0 ? null : (
             <div className="aw-empty">
               <strong>{t('layout.workEmpty')}</strong>
               <span>{externalControl ? td('external.workHint') : t('layout.workEmptyHint')}</span>
@@ -1914,14 +2055,27 @@ function AgentWorkspace({
           )}
         </TabPanel>
         <TabPanel id="closed" className="aw-v3-list-panel">
+          {chatState?.closed.length ? (
+            <ul className="aw-v3-items">
+              <WebchatClosedRows
+                state={chatState}
+                selectedId={chatClosed ? chatState.selectedId : null}
+                onSelect={(interactionId) => {
+                  webchat?.store.select(interactionId);
+                  showInspector('wrapup');
+                }}
+              />
+            </ul>
+          ) : null}
           {savedWrapup ? (
             <ul className="aw-v3-items">
               <li className="aw-v3-item">
                 <button
                   type="button"
-                  aria-current={viewingRecent ? 'true' : undefined}
+                  aria-current={viewingRecent && !chatInView ? 'true' : undefined}
                   onClick={() => {
                     setSelection('recent');
+                    webchat?.store.select(null);
                     showInspector('wrapup');
                   }}
                 >
@@ -1943,7 +2097,7 @@ function AgentWorkspace({
                 </button>
               </li>
             </ul>
-          ) : (
+          ) : chatState?.closed.length ? null : (
             <p className="aw-copy">{t('layout.list.closedEmpty')}</p>
           )}
         </TabPanel>
@@ -1989,8 +2143,14 @@ function AgentWorkspace({
     savedWrapup && caseDrafts.get(savedWrapup.interactionId).phase === 'unknown'
       ? { id: savedWrapup.interactionId }
       : undefined;
-  const activeCaseWork =
-    current && ['ACTIVE', 'WRAPUP'].includes(current.state) ? current : undefined;
+  const activeCaseWork: { id: string } | undefined = chatRoom
+    ? // #1044 a chat is passed on by opening a case; there is no transfer in round one
+      { id: chatRoom.chat.interactionId }
+    : chatInView
+      ? undefined
+      : current && ['ACTIVE', 'WRAPUP'].includes(current.state)
+        ? current
+        : undefined;
   const caseWork: { id: string } | undefined = api?.openCase
     ? (activeCaseWork ?? unresolvedCaseWork)
     : undefined;
@@ -2001,6 +2161,7 @@ function AgentWorkspace({
   }
   function pickCustomerForCase() {
     setMainTab('customer');
+    setChatTab('customer');
     requestAnimationFrame(() => document.getElementById(WORK_CUSTOMER_QUERY_ID)?.focus());
   }
   function caseConsoleHref(caseId: string) {
@@ -2023,8 +2184,72 @@ function AgentWorkspace({
     }
   }
 
+  const chatCustomerLinked =
+    Boolean(chatRoom) &&
+    workCustomer?.workId === chatRoom?.chat.interactionId &&
+    Boolean(workCustomer?.customer);
+  const chatView =
+    webchat && chatState && chatRoom ? (
+      <WebchatRoomView
+        store={webchat.store}
+        room={chatRoom}
+        now={now}
+        online={chatState.online && sessionReady}
+        agentName={snapshot?.agent.displayName ?? ''}
+        tab={chatTab}
+        onTabChange={setChatTab}
+        customerLinked={chatCustomerLinked}
+        focusToken={chatFocus}
+        onGoWrapup={() => {
+          showInspector('wrapup');
+          setChatWrapupFocus((value) => value + 1);
+        }}
+        actions={
+          caseWork ? (
+            <Button size="sm" variant="secondary" onPress={openCaseTab}>
+              {t('case.open')}
+            </Button>
+          ) : undefined
+        }
+        customerPanel={
+          customerAvailable && api?.customer ? (
+            customerLease.current ? (
+              <WorkCustomerPanel
+                key={`${identityKey}:${chatRoom.chat.interactionId}`}
+                api={api.customer}
+                workId={chatRoom.chat.interactionId}
+                leaseId={customerLease.current}
+                invalidationRevision={customerInvalidation}
+                identityKey={identityKey ?? 'unknown'}
+                sessionReady={sessionReady}
+                onCustomerChange={(customer) =>
+                  setWorkCustomer({ workId: chatRoom.chat.interactionId, customer })
+                }
+              />
+            ) : (
+              <p className="aw-copy">{t('chat.customerPending')}</p>
+            )
+          ) : undefined
+        }
+      />
+    ) : chatClosed ? (
+      <div className="aw-v3-view">
+        <div className="aw-v3-context">
+          <strong className="aw-call-caller">
+            {t('chat.savedView.title', {
+              visitor: t('chat.visitor', { code: chatClosed.visitorLabel }),
+            })}
+          </strong>
+          <span className="aw-v3-context-meta">{chatClosed.interactionId}</span>
+        </div>
+        <div className="aw-v3-body">
+          <p className="aw-copy">{t('chat.savedView.hint')}</p>
+        </div>
+      </div>
+    ) : null;
+
   const currentView = (
-    <div className="aw-v3-view" hidden={viewingRecent}>
+    <div className="aw-v3-view" hidden={viewingRecent || chatInView}>
       <div className="aw-v3-context">
         <strong className="aw-call-caller">{caller ?? t('layout.noCurrent')}</strong>
         {current ? <span className="aw-v3-context-meta">{current.id}</span> : null}
@@ -2101,7 +2326,9 @@ function AgentWorkspace({
                 : statusV1
                   ? t(
                       snapshot?.agent.state === 'AVAILABLE'
-                        ? 'agentStatus.idleReadyHint'
+                        ? webchatEnabled
+                          ? 'chat.idle.hint'
+                          : 'agentStatus.idleReadyHint'
                         : 'agentStatus.idleHint',
                     )
                   : t('layout.noCurrentHint')}
@@ -2117,7 +2344,7 @@ function AgentWorkspace({
   );
 
   const recentView = savedWrapup ? (
-    <div className="aw-v3-view" hidden={!viewingRecent}>
+    <div className="aw-v3-view" hidden={!viewingRecent || chatInView}>
       <div className="aw-v3-context">
         <strong className="aw-call-caller">{t('layout.recent.title')}</strong>
         <span className="aw-v3-context-meta">{savedWrapup.interactionId}</span>
@@ -2147,19 +2374,33 @@ function AgentWorkspace({
       <h2 id="aw-current-title" className="aw-visually-hidden">
         {t('layout.current')}
       </h2>
+      {chatView}
       {currentView}
       {recentView}
     </section>
   );
 
-  const wrapupContent = viewingRecent
-    ? savedPanel
-    : (wrapupForm ??
+  const wrapupContent =
+    webchat && chatRoom ? (
+      <WebchatWrapupPanel
+        store={webchat.store}
+        room={chatRoom}
+        sessionReady={sessionReady}
+        customerLinked={chatCustomerLinked}
+        focusToken={chatWrapupFocus}
+      />
+    ) : chatClosed ? (
+      <WebchatClosedPanel closed={chatClosed} />
+    ) : viewingRecent ? (
+      savedPanel
+    ) : (
+      (wrapupForm ??
       (savedWrapup && (!current || savedWrapup.interactionId === current.id)
         ? savedPanel
         : null) ?? (
         <p className="aw-copy">{current ? t('layout.wrapupEmpty') : t('layout.wrapupNone')}</p>
-      ));
+      ))
+    );
 
   const inspectorTabs: Array<{ id: InspectorTab; icon: PaneIconName }> = [
     { id: 'wrapup', icon: 'notes' },
@@ -2390,9 +2631,19 @@ function AgentWorkspace({
               {identity}
             </div>
             <div className="aw-header-status">
+              {chatState && gate !== 'open' ? <WebchatCapacity state={chatState} /> : null}
               {statusV1 && gate === 'done' && snapshot ? (
                 <StatusSelector
                   state={snapshot.agent.state}
+                  systemLabel={
+                    chatRooms + chatOffers > 0 &&
+                    !snapshot.interaction &&
+                    (snapshot.agent.state === 'RESERVED' ||
+                      snapshot.agent.state === 'BUSY' ||
+                      snapshot.agent.state === 'ACW')
+                      ? t(`chat.agentState.${snapshot.agent.state}`)
+                      : undefined
+                  }
                   reasonCode={snapshot.agent.reasonCode}
                   since={snapshot.agent.stateSince}
                   reasons={reasons}
@@ -2408,9 +2659,11 @@ function AgentWorkspace({
           </header>
           {statusError ? (
             <p className="aw-warning aw-status-error" role="alert">
-              {statusError === 'change'
-                ? t('agentStatus.changeFailed')
-                : t(`agentStatus.failure.${statusError}.title`)}
+              {statusError === 'chatBusy'
+                ? `${t('chat.notReadyBlocked')} · ${t('chat.notReadyBlockedHint', { count: chatRooms })}`
+                : statusError === 'change'
+                  ? t('agentStatus.changeFailed')
+                  : t(`agentStatus.failure.${statusError}.title`)}
             </p>
           ) : null}
           {statusV1 && gate === 'open' && snapshot ? (

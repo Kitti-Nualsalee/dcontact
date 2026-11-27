@@ -230,10 +230,13 @@ export function StatusSelector({
   afterWork,
   changedBy,
   pending,
+  systemLabel,
   onChange,
   onAfterWork,
 }: {
   state: 'OFFLINE' | 'AVAILABLE' | 'RESERVED' | 'BUSY' | 'ACW' | 'BREAK';
+  /** #1044 what the system state means when it comes from web chat instead of a call */
+  systemLabel?: string;
   reasonCode: string | null | undefined;
   changedBy?: 'AGENT' | 'SUPERVISOR' | 'SYSTEM';
   since: string | null | undefined;
@@ -286,7 +289,11 @@ export function StatusSelector({
             className={`aw-chip aw-status-system aw-status-${state.toLowerCase()}`}
             role="status"
           >
-            {t(cooldown ? 'agentStatus.cooldown' : `agentState.${state}`)}
+            {cooldown
+              ? t('agentStatus.cooldown')
+              : system && systemLabel
+                ? systemLabel
+                : t(`agentState.${state}`)}
             {elapsed ? <span className="aw-status-elapsed"> · {elapsed}</span> : null}
           </span>
           {system ? (

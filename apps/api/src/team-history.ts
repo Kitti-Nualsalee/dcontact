@@ -22,6 +22,7 @@ import {
   whereSql,
   workFilterFrom,
   workFilterSql,
+  channelFrom,
   type WorkChannel,
 } from './agent-work-metrics.js';
 import { readWorkTranscript } from './work-transcript.js';
@@ -239,10 +240,12 @@ export async function readTeamHistory(
 export async function readTeamHistorySummary(
   database: PrismaClient,
   actor: Actor,
-  query: { teamId?: unknown; period?: unknown },
+  query: { teamId?: unknown; period?: unknown; channel?: unknown },
   now: Date = new Date(),
 ) {
   const period = summaryPeriodFrom(query.period);
+  // #1044 the same channel filter as the list, so the numbers above the table match its rows
+  const channel = channelFrom(query.channel);
   const requestedTeam = uuidFrom(query.teamId, 'INVALID_TEAM');
   return withTenantDatabaseTransaction(database, actor.tenantId, async (tx) => {
     const access = await accessOf(tx, actor);
@@ -252,7 +255,7 @@ export async function readTeamHistorySummary(
       select: { timezone: true },
     });
     const timeZone = resolveTimeZone(settings?.timezone);
-    const window = periodWindow(period, now, timeZone);
+    const window = { ...periodWindow(period, now, timeZone), ...(channel ? { channel } : {}) };
     const rows = await tx.$queryRaw<
       {
         agent_id: string;
@@ -444,6 +447,7 @@ export class TeamHistoryController {
     return readTeamHistorySummary(this.database, actorOf(request), {
       teamId: query.teamId,
       period: query.period,
+      channel: query.channel,
     });
   }
 

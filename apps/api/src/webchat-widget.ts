@@ -162,6 +162,22 @@ function view(row: (WebchatWidgetSettings & { id: string; revision: number }) | 
   } satisfies WebchatWidgetView;
 }
 
+/** When the settings were last saved and by whom; null until the first save. */
+async function lastSaved(
+  tx: Tx,
+  tenantId: string,
+  row: { updatedAt: Date; updatedByUserId: string | null } | null,
+): Promise<{ at: string; byName: string | null } | null> {
+  if (!row) return null;
+  const user = row.updatedByUserId
+    ? await tx.user.findFirst({
+        where: { tenantId, id: row.updatedByUserId },
+        select: { displayName: true },
+      })
+    : null;
+  return { at: row.updatedAt.toISOString(), byName: user?.displayName ?? null };
+}
+
 async function queueOptions(tx: Tx, tenantId: string) {
   const queues = await tx.queue.findMany({
     where: { tenantId, isActive: true },
@@ -184,6 +200,7 @@ export async function readWebchatWidget(database: PrismaClient, actor: Actor) {
       tenantId: actor.tenantId,
       canEdit: role === 'ADMIN',
       widget: view(row),
+      lastSaved: await lastSaved(tx, actor.tenantId, row),
       queues: await queueOptions(tx, actor.tenantId),
     };
   });
@@ -249,6 +266,7 @@ export async function saveWebchatWidget(
       tenantId: actor.tenantId,
       canEdit: true,
       widget: after,
+      lastSaved: await lastSaved(tx, actor.tenantId, saved),
       queues: await queueOptions(tx, actor.tenantId),
     };
   });

@@ -24,6 +24,9 @@ export interface WorkTranscript {
   endReason: string | null;
   /** whether the Agent linked a customer to this work */
   customerLinked: boolean;
+  /** the short anonymous label the Agent saw for the visitor; null for a call */
+  visitorLabel: string | null;
+  queueName: string | null;
   messages: WorkTranscriptMessage[];
 }
 
@@ -35,14 +38,23 @@ export async function readWorkTranscript(
 ): Promise<WorkTranscript> {
   const interaction = await tx.interaction.findFirst({
     where: { tenantId, id: interactionId },
-    select: { contactId: true },
+    select: { contactId: true, queue: { select: { name: true } } },
   });
   const customerLinked = Boolean(interaction?.contactId);
+  const queueName = interaction?.queue?.name ?? null;
   if (channel !== 'WEBCHAT')
-    return { interactionId, channel, endReason: null, customerLinked, messages: [] };
+    return {
+      interactionId,
+      channel,
+      endReason: null,
+      customerLinked,
+      visitorLabel: null,
+      queueName,
+      messages: [],
+    };
   const session = await tx.webchatSession.findFirst({
     where: { tenantId, interactionId },
-    select: { endReason: true },
+    select: { endReason: true, visitorLabel: true },
   });
   const rows = await tx.message.findMany({
     where: { tenantId, interactionId },
@@ -55,6 +67,8 @@ export async function readWorkTranscript(
     channel,
     endReason: session?.endReason ?? null,
     customerLinked,
+    visitorLabel: session?.visitorLabel ?? null,
+    queueName,
     messages: rows.map((row) =>
       row.contentType === WEBCHAT_EVENT_CONTENT_TYPE
         ? { id: row.id, at: row.createdAt.toISOString(), from: 'system', event: row.body }
