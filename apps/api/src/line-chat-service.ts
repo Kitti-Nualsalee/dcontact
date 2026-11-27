@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
 import { Prisma, type PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
 import { createLineInteraction, isWebchatQueueStaffed } from '@d-contact/router';
@@ -10,7 +11,6 @@ import type { WebchatHub } from './webchat-hub.js';
 import {
   appendChatMessage,
   LINE_OTHER_CONTENT_TYPE,
-  WEBCHAT_MAX_WAITING,
   type WebchatService,
 } from './webchat-service.js';
 
@@ -72,6 +72,8 @@ export class LineChatService {
   private readonly pendingTenants = new Set<string>();
   /** work started by a webhook or an Agent's message that has not finished yet */
   private readonly running = new Set<Promise<unknown>>();
+  /** one delivery round per tenant at a time in this process; a new request waits for the current one */
+  private readonly delivering = new Map<string, Promise<boolean>>();
 
   constructor(
     private readonly database: PrismaClient,
@@ -140,20 +142,26 @@ export class LineChatService {
       throw new WebchatError('NOT_FOUND');
     }
     if (!verifyLineSignature(rawBody, signature, secret)) throw new WebchatError('NOT_FOUND');
-    let body: { destination?: unknown; events?: unknown };
+    let parsed: unknown;
     try {
-      body = JSON.parse(rawBody.toString('utf8')) as typeof body;
+      parsed = JSON.parse(rawBody.toString('utf8'));
     } catch {
       throw new WebchatError('VALIDATION_FAILED');
     }
+    const body = (parsed && typeof parsed === 'object' ? parsed : {}) as {
+      destination?: unknown;
+      events?: unknown;
+    };
     // the bot the token belongs to must be the one LINE delivers for
     if (channel.botUserId && body.destination !== channel.botUserId)
       throw new WebchatError('NOT_FOUND');
     const events = Array.isArray(body.events)
-      ? (body.events as LineWebhookEvent[]).slice(0, MAX_WEBHOOK_EVENTS)
+      ? (body.events as unknown[]).slice(0, MAX_WEBHOOK_EVENTS)
       : [];
     let accepted = 0;
-    for (const event of events) {
+    for (const item of events) {
+      if (!item || typeof item !== 'object') continue;
+      const event = item as LineWebhookEvent;
       // "standby" events belong to another module of the account; LINE chat only takes active ones
       if (event.type !== 'message' || (event.mode !== undefined && event.mode !== 'active'))
         continue;
@@ -171,14 +179,20 @@ export class LineChatService {
         messageType === 'text' && typeof event.message?.text === 'string'
           ? event.message.text.replace(/\r\n?/g, '\n').slice(0, 5000)
           : null;
-      await this.receive(tenantId, channelId, {
-        userId,
-        messageId,
-        messageType,
-        text,
-        replyToken: typeof event.replyToken === 'string' ? event.replyToken : null,
-      });
-      accepted += 1;
+      // One event that cannot be stored must not lose the others of the same delivery. A failure here is
+      // a fault on our side (the database), not a bad request: LINE does not resend, so it is logged.
+      try {
+        await this.receive(tenantId, channelId, {
+          userId,
+          messageId,
+          messageType,
+          text,
+          replyToken: typeof event.replyToken === 'string' ? event.replyToken : null,
+        });
+        accepted += 1;
+      } catch (error) {
+        this.log({ event: 'line.receive_failed', tenantId, ...errorFields(error) });
+      }
     }
     return { accepted };
   }
@@ -247,34 +261,35 @@ export class LineChatService {
       let opened = false;
       let autoReply: string | null = null;
       if (!work) {
-        const waiting = await tx.interaction.count({
-          where: {
-            tenantId,
-            channel: 'LINE',
-            queueId: channel.queueId,
-            state: { in: ['QUEUED', 'ASSIGNED'] },
-          },
-        });
-        if (waiting >= WEBCHAT_MAX_WAITING) {
-          this.log({ event: 'line.queue_full', tenantId });
-          return null;
-        }
+        // Unlike a web visitor, a LINE customer cannot be told "try later" and waits anyway: the queue has
+        // no cap, so no message is ever dropped.
         const conversation = await tx.conversation.findFirst({
           where: { tenantId, id: conversationId },
           select: { contactId: true },
         });
+        // carry the customer over only while their Customer 360 identity is still in use
+        const head = conversation?.contactId
+          ? await tx.c360IdentityHead.findUnique({
+              where: { tenantId_contactId: { tenantId, contactId: conversation.contactId } },
+              select: { state: true },
+            })
+          : null;
         const id = await createLineInteraction(tx, {
           tenantId,
           queueId: channel.queueId,
           conversationId,
-          contactId: conversation?.contactId ?? null,
+          contactId: head?.state === 'ACTIVE' ? conversation!.contactId : null,
           channelId,
           lineUserId: message.userId,
           now,
         });
         work = { id, agentId: null };
         opened = true;
-        if (channel.autoReplyText && !(await isWebchatQueueStaffed(tx, tenantId, channel.queueId)))
+        if (
+          channel.autoReplyText &&
+          message.replyToken &&
+          !(await isWebchatQueueStaffed(tx, tenantId, channel.queueId))
+        )
           autoReply = channel.autoReplyText;
       }
       await appendChatMessage(tx, {
@@ -286,21 +301,21 @@ export class LineChatService {
         body: message.text ?? message.messageType.slice(0, 32),
         ...(message.text === null ? { contentType: LINE_OTHER_CONTENT_TYPE } : {}),
         providerMessageId: message.messageId,
+        // what a LINE customer writes is never refused: they cannot be told to stop
+        unlimited: true,
         now,
       });
-      if (autoReply)
-        await tx.interactionEvent.create({
-          data: {
-            tenantId,
-            interactionId: work.id,
-            type: 'interaction.auto_replied',
-            payload: { channel: 'LINE' },
-          },
-        });
+      // Claim the profile read now, so a burst of messages before LINE answers asks for it once.
       const stale =
         !user.profileFetchedAt ||
         now.getTime() - user.profileFetchedAt.getTime() > PROFILE_REFRESH_MS;
+      if (stale)
+        await tx.lineChatUser.update({
+          where: { tenantId_id: { tenantId, id: user.id } },
+          data: { profileFetchedAt: now },
+        });
       return {
+        interactionId: work.id,
         agentId: work.agentId,
         opened,
         autoReply,
@@ -319,13 +334,25 @@ export class LineChatService {
       this.background('line.auto_reply_failed', tenantId, async () => {
         const token = this.open(tenantId, channelId, sealedToken, 'token');
         const outcome = await this.client.reply(token, replyToken, text);
-        if (outcome.kind !== 'OK')
+        if (outcome.kind !== 'OK') {
           this.log({
             event: 'line.auto_reply_failed',
             tenantId,
             outcome: outcome.kind,
             status: 'status' in outcome ? outcome.status : null,
           });
+          return;
+        }
+        await this.tenant(tenantId, (tx) =>
+          tx.interactionEvent.create({
+            data: {
+              tenantId,
+              interactionId: result.interactionId,
+              type: 'interaction.auto_replied',
+              payload: { channel: 'LINE' },
+            },
+          }),
+        );
       });
     }
     if (result.profileUserId) {
@@ -336,10 +363,7 @@ export class LineChatService {
         await this.tenant(tenantId, (tx) =>
           tx.lineChatUser.update({
             where: { tenantId_id: { tenantId, id: rowId } },
-            data: {
-              profileFetchedAt: this.now(),
-              ...(profile ? { displayName: profile.displayName } : {}),
-            },
+            data: profile ? { displayName: profile.displayName } : {},
           }),
         );
         // the Agent's list shows the name as soon as it is known
@@ -411,8 +435,22 @@ export class LineChatService {
   }
 
   /** Sends what is due for one tenant. Returns whether messages are still waiting (retries). */
-  async deliver(tenantId: string): Promise<boolean> {
+  deliver(tenantId: string): Promise<boolean> {
+    const previous = this.delivering.get(tenantId) ?? Promise.resolve(true);
+    const next = previous.catch(() => true).then(() => this.deliverRound(tenantId));
+    this.delivering.set(tenantId, next);
+    void next
+      .finally(() => {
+        if (this.delivering.get(tenantId) === next) this.delivering.delete(tenantId);
+      })
+      .catch(() => undefined);
+    return next;
+  }
+
+  private async deliverRound(tenantId: string): Promise<boolean> {
     const now = this.now();
+    // each round claims with its own token, so a round never records over another one's send
+    const claim = `${this.worker}:${randomUUID()}`;
     const claimed = await this.tenant(tenantId, async (tx) => {
       const rows = await tx.$queryRaw<
         {
@@ -441,7 +479,7 @@ export class LineChatService {
           data: {
             status: 'SENDING',
             lockedAt: now,
-            lockedBy: this.worker,
+            lockedBy: claim,
             attempts: { increment: 1 },
           },
         });
@@ -449,8 +487,16 @@ export class LineChatService {
     });
     const touched = new Set<string>();
     for (const message of claimed) {
+      // renew the lease right before the send: LINE may have been slow with the ones before it
+      const held = await this.tenant(tenantId, (tx) =>
+        tx.message.updateMany({
+          where: { tenantId, id: message.id, status: 'SENDING', lockedBy: claim },
+          data: { lockedAt: this.now() },
+        }),
+      );
+      if (held.count === 0) continue;
       const outcome = await this.sendOne(tenantId, message);
-      await this.tenant(tenantId, (tx) => this.record(tx, tenantId, message, outcome));
+      await this.tenant(tenantId, (tx) => this.record(tx, tenantId, message, outcome, claim));
       if (message.interaction_id) touched.add(message.interaction_id);
     }
     if (touched.size) {
@@ -488,13 +534,16 @@ export class LineChatService {
       const channel = user
         ? await tx.lineChannel.findFirst({
             where: { tenantId, id: user.channelId },
-            select: { accessTokenSealed: true },
+            select: { accessTokenSealed: true, enabled: true },
           })
         : null;
+      // a channel the Admin turned off sends nothing more
+      if (channel && !channel.enabled) return 'OFF' as const;
       return user && channel?.accessTokenSealed
         ? { userId: user.lineUserId, channelId: user.channelId, sealed: channel.accessTokenSealed }
         : null;
     });
+    if (target === 'OFF') return { kind: 'CHANNEL_OFF' as const };
     if (!target) return { kind: 'REJECTED' as const, status: 0 };
     let token: string;
     try {
@@ -511,6 +560,7 @@ export class LineChatService {
     tenantId: string,
     message: { id: string; created_at: Date },
     outcome: Awaited<ReturnType<LineChatService['sendOne']>>,
+    claim: string,
   ) {
     const now = this.now();
     const current = await tx.message.findFirst({
@@ -518,7 +568,7 @@ export class LineChatService {
       select: { attempts: true, lockedBy: true, status: true },
     });
     // another worker took the send over after this one's lease ran out
-    if (current?.status !== 'SENDING' || current.lockedBy !== this.worker) return;
+    if (current?.status !== 'SENDING' || current.lockedBy !== claim) return;
     const done = { lockedAt: null, lockedBy: null };
     if (outcome.kind === 'OK' || outcome.kind === 'ALREADY_ACCEPTED') {
       await tx.message.update({
@@ -529,14 +579,19 @@ export class LineChatService {
     }
     // created_at is stored without a zone and read as UTC, like every DateTime here
     const tooOld = now.getTime() - message.created_at.getTime() > LINE_DELIVERY_GIVE_UP_MS;
-    if (outcome.kind === 'REJECTED' || tooOld) {
+    if (outcome.kind === 'REJECTED' || outcome.kind === 'CHANNEL_OFF' || tooOld) {
       await tx.message.update({
         where: { id: message.id },
         data: {
           ...done,
           status: 'FAILED',
           nextAttemptAt: null,
-          failureCode: outcome.kind === 'REJECTED' ? `LINE_${outcome.status}` : 'LINE_GAVE_UP',
+          failureCode:
+            outcome.kind === 'REJECTED'
+              ? `LINE_${outcome.status}`
+              : outcome.kind === 'CHANNEL_OFF'
+                ? 'LINE_CHANNEL_OFF'
+                : 'LINE_GAVE_UP',
         },
       });
       return;

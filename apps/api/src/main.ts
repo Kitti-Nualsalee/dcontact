@@ -487,7 +487,12 @@ console.log(
   JSON.stringify({ event: 'webchat.readiness', status: webchatEnabled ? 'ENABLED' : 'DISABLED' }),
 );
 const webchatHub = new WebchatHub();
-const webchat = new WebchatService(prisma, webchatHub);
+const lineChatEnabled = resolveLineChat(process.env);
+const chatChannels = [
+  ...(webchatEnabled ? (['WEBCHAT'] as const) : []),
+  ...(lineChatEnabled ? (['LINE'] as const) : []),
+];
+const webchat = new WebchatService(prisma, webchatHub, { channels: chatChannels });
 if (webchatEnabled) {
   // the socket carries only "your chats changed"; the Workspace reads them again over HTTP
   webchatHub.onAgents((tenantId, agentIds) => {
@@ -506,7 +511,6 @@ if (webchatEnabled) {
 // #1054: off by default; when on, LINE's webhook and the channel settings exist, LINE chats join the
 // chat round above and Agents' messages are sent to LINE in the background. The channel secrets are
 // sealed with the account secret key, so LINE chat needs ACCOUNT_SECRET_KEY as well.
-const lineChatEnabled = resolveLineChat(process.env);
 const lineChatBox = accountSecretKey ? new AccountSecretBox(accountSecretKey) : null;
 console.log(
   JSON.stringify({
@@ -516,10 +520,6 @@ console.log(
 );
 const lineChatClient = new LineChatClient(resolveLineApiBaseUrl(process.env));
 const lineChat = new LineChatService(prisma, lineChatBox, lineChatClient, webchat, webchatHub);
-const chatChannels = [
-  ...(webchatEnabled ? (['WEBCHAT'] as const) : []),
-  ...(lineChatEnabled ? (['LINE'] as const) : []),
-];
 if (lineChatEnabled) {
   webchat.onOutbox((tenantId) => lineChat.kickDelivery(tenantId));
   if (!webchatEnabled) {

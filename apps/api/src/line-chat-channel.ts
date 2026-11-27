@@ -279,7 +279,8 @@ export async function saveLineChannel(
               input.channelSecret,
               lineSealContext(actor.tenantId, channelId, 'secret'),
             ),
-            channelSecretHint: hint(input.channelSecret),
+            // the secret is short: no part of it is kept outside the sealed value
+            channelSecretHint: null,
           }
         : {}),
       ...(input.accessToken && box && bot
@@ -321,26 +322,15 @@ export async function saveLineChannel(
           },
         });
     const after = view(actor.tenantId, saved);
-    const compared = [
-      ...(Object.keys(LINE_CHANNEL_DEFAULTS) as (keyof LineChannelSettings)[]),
-      'channelSecretHint',
-      'accessTokenHint',
-    ] as const;
-    const baseline = before ?? {
-      ...LINE_CHANNEL_DEFAULTS,
-      channelSecretHint: null,
-      accessTokenHint: null,
-    };
-    const changedKeys = compared
-      .filter((key) => JSON.stringify(baseline[key]) !== JSON.stringify(after[key]))
-      .map((key) =>
-        key === 'channelSecretHint'
-          ? 'channelSecret'
-          : key === 'accessTokenHint'
-            ? 'accessToken'
-            : key,
-      )
-      .sort();
+    const baseline = before ?? LINE_CHANNEL_DEFAULTS;
+    const changedKeys = [
+      ...(Object.keys(LINE_CHANNEL_DEFAULTS) as (keyof LineChannelSettings)[]).filter(
+        (key) => JSON.stringify(baseline[key]) !== JSON.stringify(after[key]),
+      ),
+      // a new secret or token is a change even when it ends like the old one
+      ...(input.channelSecret ? ['channelSecret'] : []),
+      ...(input.accessToken ? ['accessToken'] : []),
+    ].sort();
     await tx.lineChannelAuditEvent.create({
       data: {
         tenantId: actor.tenantId,
