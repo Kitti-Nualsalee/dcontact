@@ -1,8 +1,15 @@
 import { createWorkCustomerApi, type WorkCustomerApi } from './work-customer-api.js';
+import { createWebchatApi, type WebchatApi } from './webchat/webchat-api.js';
 import type { SipCredentialLease } from './dphone/dphone.js';
 
 export interface AgentWorkspaceSnapshot {
-  capabilities?: { voiceWrapupV1?: number; workCustomerV1?: number; agentStatusV1?: number };
+  capabilities?: {
+    voiceWrapupV1?: number;
+    workCustomerV1?: number;
+    agentStatusV1?: number;
+    /** #1044 the deployment has web chat on */
+    webchatV1?: number;
+  };
   agent: {
     id: string;
     displayName: string;
@@ -87,6 +94,8 @@ export class AgentApiError extends Error {
 
 export interface AgentWorkspaceApi {
   customer?: WorkCustomerApi;
+  /** #1044 the Agent's web chats */
+  webchat?: WebchatApi;
   snapshot(): Promise<AgentWorkspaceSnapshot>;
   becomeAvailable(workSessionLeaseId: string): Promise<void>;
   /** #937 the Agent sets Not Ready + reason, or Offline, themselves */
@@ -226,6 +235,7 @@ export function createAgentWorkspaceApi(options: AgentWorkspaceApiOptions): Agen
   }
   return {
     customer: createWorkCustomerApi(send),
+    webchat: createWebchatApi(send),
     async openCase(input) {
       const body = await caseRequest('', {
         method: 'POST',
@@ -325,11 +335,13 @@ export function createAgentWorkspaceApi(options: AgentWorkspaceApiOptions): Agen
       });
       if (!response.ok) throw new Error(`availability failed with HTTP ${response.status}`);
       const outcome: unknown = await response.json();
+      // #1044 an Agent who comes back while still holding chats continues them: the server answers the
+      // state those chats put them in instead of AVAILABLE
       if (
         !outcome ||
         typeof outcome !== 'object' ||
         !('state' in outcome) ||
-        outcome.state !== 'AVAILABLE'
+        !['AVAILABLE', 'RESERVED', 'BUSY', 'ACW'].includes(String(outcome.state))
       )
         throw new Error('availability acknowledgement is invalid');
     },

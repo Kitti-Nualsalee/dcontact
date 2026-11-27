@@ -181,7 +181,7 @@
   "layout": {
     "work": "My work",
     "workEmpty": "No work in hand",
-    "workEmptyHint": "Work assigned to you appears here once you are available",
+    "workEmptyHint": "When you're Ready, new calls and chats appear here",
     "current": "Current work",
     "readiness": "Readiness",
     "channelVoice": "Voice",
@@ -251,7 +251,8 @@
       "inspector": "Resize detail panel",
       "hint": "Drag or press Left/Right arrow to resize, double-click to reset"
     },
-    "wrapupNone": "Nothing to wrap up"
+    "wrapupNone": "Nothing to wrap up",
+    "channelWebchat": "Web Chat"
   },
   "customer": {
     "title": "Customer for this work",
@@ -530,6 +531,127 @@
     "idpMissing": {
       "title": "Identity Provider is not configured",
       "detail": "Set VITE_KC_ISSUER and VITE_KC_CLIENT_ID before opening Workspace"
+    }
+  },
+  "chat": {
+    "capacity": "Chats {{count}}/{{max}}",
+    "capacityFull": "At limit",
+    "visitor": "Visitor #{{code}}",
+    "state": {
+      "ACTIVE": "Chatting",
+      "WRAPUP": "Needs wrap-up"
+    },
+    "waiting": "Waiting {{duration}}",
+    "unread": "{{count}} unread messages",
+    "itemLabel": "{{visitor}}, {{state}}",
+    "rooms": "Chats",
+    "offer": {
+      "region": "New chats to accept",
+      "title": "New chat · {{visitor}}",
+      "accept": "Accept chat",
+      "remaining": "{{seconds}} seconds left to accept",
+      "announce": "New chat from {{visitor}}. Accept within {{seconds}} seconds",
+      "after": "You will have {{count}}/{{max}} chats",
+      "missed": "Chat from {{visitor}} timed out and went to the next agent",
+      "dismiss": "Dismiss",
+      "taken": "This chat is no longer available",
+      "full": "{{max}} chats open. New chats arrive when you close one"
+    },
+    "header": {
+      "meta": "{{queue}} · started {{time}}"
+    },
+    "end": "End chat",
+    "endConfirm": "End this chat?",
+    "endCancel": "Keep chatting",
+    "endFailed": "Could not end the chat. Try again",
+    "bar": {
+      "active": "Chatting",
+      "unlinkedHint": "Customer not identified · link a customer in the Customer 360 tab",
+      "visitorAway": "The customer's chat page is not open right now. Messages wait in the chat",
+      "closed": "Chat ended · needs wrap-up"
+    },
+    "duration": "Chat time {{duration}}",
+    "tab": {
+      "label": "Chat views",
+      "conversation": "Conversation",
+      "customer": "Customer 360"
+    },
+    "customerPending": "Customer information appears once you accept the chat",
+    "log": "Messages with {{visitor}}",
+    "sender": {
+      "customer": "Visitor",
+      "self": "You"
+    },
+    "system": {
+      "started": "Visitor started the chat from {{origin}}",
+      "joined": "{{agent}} joined the chat",
+      "agentEnded": "{{agent}} ended the chat",
+      "customerEnded": "The customer ended the chat",
+      "customerLeft": "The customer left the chat",
+      "idleClosed": "Closed because the customer did not reply for {{minutes}} minutes",
+      "idleClosedShort": "Closed because the customer did not reply",
+      "startedPreview": "Visitor started the chat from the preview page"
+    },
+    "idleWarning": "The chat closes in {{remaining}} unless the customer writes",
+    "composer": {
+      "label": "Message to visitor",
+      "placeholder": "Type a message to the customer",
+      "hint": "Enter to send · Shift+Enter for a new line",
+      "count": "{{count}} / 2,000",
+      "tooLong": "Over 2,000 characters. Shorten it before sending"
+    },
+    "send": "Send",
+    "sending": "Sending…",
+    "sendFailed": "Not sent",
+    "retrySend": "Try again",
+    "discard": "Delete",
+    "newMessages": "{{count}} new messages",
+    "loading": "Loading messages",
+    "historyFailed": "Earlier messages did not load. New messages and sending still work",
+    "historyRetry": "Load again",
+    "closed": {
+      "customerLeft": "The customer left the chat",
+      "idle": "Closed because the customer did not reply",
+      "agent": "You ended this chat",
+      "hint": "No more messages can be sent. Record the outcome and note in the work panel to finish",
+      "goWrapup": "Go to wrap-up"
+    },
+    "wrapup": {
+      "title": "Chat wrap-up",
+      "step": "After chat · {{visitor}}",
+      "copy": "Choose an outcome and write a note. This chat counts toward your limit until saved",
+      "notYet": "You can wrap up once {{visitor}}'s chat ends (you end it, the customer leaves, or it closes for no reply)",
+      "saved": "Wrap-up saved for {{visitor}}",
+      "failed": "The wrap-up was not saved. Check it and try again",
+      "retry": "Send the same command again"
+    },
+    "facts": {
+      "title": "Chat details",
+      "customer": "Customer",
+      "customerNone": "Not selected yet",
+      "origin": "Started from"
+    },
+    "savedView": {
+      "title": "Closed chat · {{visitor}}",
+      "hint": "The saved outcome is in the wrap-up panel. Read the conversation again in My work history"
+    },
+    "reconnecting": "Chat connection lost. Reconnecting…",
+    "reconnectingHint": "Your drafts are kept and can be sent once reconnected. Customers stay in their chats",
+    "reconnectNow": "Reconnect now",
+    "notReadyBlocked": "You can't go Not Ready yet",
+    "notReadyBlockedHint": "End and wrap up your {{count}} open chats first, or set your after-work status to stop new chats",
+    "idle": {
+      "hint": "You're ready. New chats appear in your work list to accept"
+    },
+    "shortcut": {
+      "next": "Next chat (Alt+↓)",
+      "prev": "Previous chat (Alt+↑)",
+      "accept": "Accept chat (Alt+Shift+A)"
+    },
+    "agentState": {
+      "RESERVED": "Chat offered",
+      "BUSY": "In chats",
+      "ACW": "Chat wrap-up"
     }
   }
 }

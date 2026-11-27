@@ -1,0 +1,369 @@
+/* ============================================================
+   #1044 Web chat in the Agent Workspace — tokens only (`var(--dc-*)`), classes start with `aw-chat-`
+   Layout pieces shared with calls (`aw-v3-*`, `aw-panel`, `aw-segmented`) stay in agent-workspace.css
+   ============================================================ */
+
+/* two classes: this file loads before agent-workspace.css, whose `.aw-channel` sets the voice colours */
+.aw-channel.aw-channel-webchat {
+  background: var(--dc-channel-webchat-bg);
+  color: var(--dc-channel-webchat-fg);
+}
+
+.aw-chat-capacity {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--dc-space-3);
+  color: var(--dc-text-secondary);
+  font-size: var(--dc-text-sm);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.aw-chat-capacity-full {
+  color: var(--dc-text-primary);
+  font-weight: var(--dc-weight-semibold);
+}
+
+/* ── offers ── */
+.aw-chat-offers {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dc-space-3);
+  margin-bottom: var(--dc-space-4);
+}
+
+.aw-chat-offer {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--dc-space-3);
+  padding: var(--dc-space-4) var(--dc-space-4) var(--dc-space-5);
+  overflow: hidden;
+  border: 1px solid var(--dc-border-brand);
+  border-radius: var(--dc-radius-lg);
+  background: var(--dc-surface-raised);
+}
+
+.aw-chat-offer-time {
+  color: var(--dc-text-primary);
+  font-weight: var(--dc-weight-semibold);
+}
+
+.aw-chat-offer[data-low='true'] .aw-chat-offer-time {
+  color: var(--dc-attention-fg-strong);
+}
+
+.aw-chat-offer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--dc-space-4);
+}
+
+.aw-chat-offer-bar {
+  position: absolute;
+  inset-block-end: 0;
+  inset-inline-start: 0;
+  width: calc(var(--aw-offer-progress, 0) * 100%);
+  height: 3px;
+  background: var(--dc-surface-brand);
+  transition: width var(--dc-duration-base) linear;
+}
+
+.aw-chat-offer[data-low='true'] .aw-chat-offer-bar {
+  background: var(--dc-attention-solid);
+}
+
+.aw-chat-missed {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--dc-space-3);
+  padding: var(--dc-space-3) var(--dc-space-4);
+  border: 1px solid var(--dc-border-subtle);
+  border-radius: var(--dc-radius-lg);
+  background: var(--dc-surface-page);
+  color: var(--dc-text-secondary);
+  font-size: var(--dc-text-sm);
+}
+
+/* ── rows of the work list ── */
+.aw-chat-item .aw-work-time[data-waiting='true'] {
+  color: var(--dc-text-primary);
+  font-weight: var(--dc-weight-semibold);
+}
+
+.aw-chat-preview-row {
+  display: flex;
+  align-items: center;
+  gap: var(--dc-space-3);
+  min-width: 0;
+}
+
+.aw-chat-preview {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dc-text-secondary);
+  font-size: var(--dc-text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.aw-chat-preview[data-unread='true'] {
+  color: var(--dc-text-primary);
+  font-weight: var(--dc-weight-semibold);
+}
+
+.aw-chat-unread {
+  flex: none;
+  min-width: var(--dc-space-7);
+  padding: 0 var(--dc-space-3);
+  border-radius: var(--dc-radius-pill);
+  background: var(--dc-surface-brand);
+  color: var(--dc-text-on-brand);
+  font-size: var(--dc-text-xs);
+  font-weight: var(--dc-weight-semibold);
+  line-height: var(--dc-space-7);
+  text-align: center;
+}
+
+.aw-chat-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--dc-space-3);
+}
+
+.aw-chat-state {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--dc-space-2);
+  padding: 0 var(--dc-space-4);
+  border-radius: var(--dc-radius-pill);
+  background: var(--dc-surface-selected);
+  color: var(--dc-text-brand);
+  font-size: var(--dc-text-xs);
+  font-weight: var(--dc-weight-semibold);
+}
+
+.aw-chat-state::before {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--dc-radius-pill);
+  background: currentColor;
+  content: '';
+}
+
+.aw-chat-state[data-state='wrapup'] {
+  background: var(--dc-agent-acw-bg);
+  color: var(--dc-agent-acw-fg);
+}
+
+/* ── room ── */
+.aw-chat-room > .aw-v3-context {
+  align-items: center;
+}
+
+.aw-chat-room > .aw-v3-context > .aw-call-caller {
+  flex: none;
+}
+
+.aw-chat-meta {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-family: inherit;
+  font-size: var(--dc-text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.aw-chat-end {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--dc-space-3);
+  font-size: var(--dc-text-sm);
+  font-weight: var(--dc-weight-semibold);
+}
+
+.aw-chat-tabs {
+  flex: 1;
+  min-height: 0;
+}
+
+.aw-chat-panel {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.aw-chat-conversation {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.aw-chat-transcript {
+  flex: 1;
+  padding: 0 var(--dc-space-6);
+}
+
+.aw-chat-skeleton {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--dc-space-5);
+  padding: var(--dc-space-6);
+}
+
+.aw-chat-skeleton > span {
+  width: 46%;
+  height: var(--dc-space-10);
+  border-radius: var(--dc-radius-xl);
+  background: var(--dc-surface-sunken);
+}
+
+.aw-chat-skeleton > span[data-side='self'] {
+  align-self: flex-end;
+  width: 38%;
+}
+
+.aw-chat-banner {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--dc-space-4);
+  margin: var(--dc-space-3) var(--dc-space-6);
+  padding: var(--dc-space-3) var(--dc-space-5);
+  border: 1px solid var(--dc-attention-border);
+  border-radius: var(--dc-radius-lg);
+  background: var(--dc-attention-bg-subtle);
+  color: var(--dc-attention-fg-strong);
+  font-size: var(--dc-text-sm);
+}
+
+.aw-chat-banner[data-tone='critical'] {
+  border-color: var(--dc-critical-border);
+  background: var(--dc-critical-bg-subtle);
+  color: var(--dc-critical-fg);
+}
+
+.aw-chat-composer {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: var(--dc-space-3);
+  padding: var(--dc-space-4) var(--dc-space-6) var(--dc-space-5);
+  border-top: 1px solid var(--dc-border-subtle);
+  background: var(--dc-surface-raised);
+}
+
+.aw-chat-composer textarea {
+  width: 100%;
+  min-height: calc(var(--dc-space-10) + var(--dc-space-7));
+  padding: var(--dc-space-4) var(--dc-space-5);
+  border: 1px solid var(--dc-border-strong);
+  border-radius: var(--dc-radius-md);
+  background: var(--dc-surface-raised);
+  color: var(--dc-text-primary);
+  font: inherit;
+  resize: none;
+}
+
+.aw-chat-composer textarea:focus-visible {
+  outline: none;
+  box-shadow: var(--dc-focus-ring);
+}
+
+.aw-chat-composer textarea[aria-invalid='true'] {
+  border-color: var(--dc-critical-solid);
+}
+
+.aw-chat-composer-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--dc-space-5);
+  color: var(--dc-text-secondary);
+  font-size: var(--dc-text-xs);
+}
+
+.aw-chat-composer-meta > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.aw-chat-composer-meta [data-invalid='true'] {
+  color: var(--dc-critical-fg);
+}
+
+.aw-chat-closed {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--dc-space-3) var(--dc-space-5);
+  padding: var(--dc-space-5) var(--dc-space-6);
+  border-top: 1px solid var(--dc-attention-border);
+  background: var(--dc-attention-bg-subtle);
+  font-size: var(--dc-text-sm);
+}
+
+.aw-chat-closed > span {
+  flex: 1;
+  min-width: 0;
+  color: var(--dc-text-secondary);
+}
+
+/* ── wrap-up tab ── */
+.aw-chat-wrapup-wait {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dc-space-5);
+}
+
+.aw-chat-note {
+  width: 100%;
+  min-height: calc(var(--dc-space-10) * 2);
+  padding: var(--dc-space-4) var(--dc-space-5);
+  border: 1px solid var(--dc-border-strong);
+  border-radius: var(--dc-radius-md);
+  background: var(--dc-surface-raised);
+  color: var(--dc-text-primary);
+  font: inherit;
+  resize: vertical;
+}
+
+.aw-chat-note:focus-visible {
+  outline: none;
+  box-shadow: var(--dc-focus-ring);
+}
+
+.aw-chat-note:disabled {
+  background: var(--dc-surface-sunken);
+  color: var(--dc-text-secondary);
+}
+
+.aw-chat-facts [data-missing='true'] {
+  color: var(--dc-attention-fg-strong);
+  font-weight: var(--dc-weight-semibold);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aw-chat-offer-bar {
+    transition: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .aw-chat-offer,
+  .aw-chat-unread,
+  .aw-chat-state {
+    border: 1px solid CanvasText;
+  }
+}

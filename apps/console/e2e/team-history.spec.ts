@@ -47,7 +47,11 @@ const rows = [
   item(callB, { id: agentA, displayName: 'Somchai' }, B, 'CUSTOMER_ASSISTED'),
 ];
 
-async function harness(page: Page, role: 'supervisor' | 'admin') {
+async function harness(
+  page: Page,
+  role: 'supervisor' | 'admin',
+  options: { webchat?: boolean } = {},
+) {
   const requests: string[] = [];
   await page.route('**/api/v1/me/navigation**', (route) => route.fulfill({ status: 404 }));
   await page.route('**/api/v1/team-history/**', (route) => {
@@ -90,6 +94,7 @@ async function harness(page: Page, role: 'supervisor' | 'admin') {
             }))
             .filter((group) => group.count),
           byAgent,
+          channels: options.webchat ? ['VOICE', 'WEBCHAT'] : ['VOICE'],
         },
       });
     }
@@ -156,6 +161,7 @@ test('a Supervisor sees their own team summary, presses an Agent number, and see
     page.getByRole('heading', {
       name: th('teamHistory:summary.listTitle', {
         period: th('teamHistory:summary.period.7d'),
+        channel: th('history:channels.all'),
         agent: 'Somying',
         disposition: th('teamHistory:summary.allDispositions'),
         count: 1,
@@ -179,6 +185,7 @@ test('a Supervisor sees their own team summary, presses an Agent number, and see
     page.getByRole('heading', {
       name: th('teamHistory:summary.listTitle', {
         period: th('teamHistory:summary.period.7d'),
+        channel: th('history:channels.all'),
         agent: 'Somying',
         disposition: th('teamHistory:summary.allDispositions'),
         count: 1,
@@ -193,6 +200,7 @@ test('a Supervisor sees their own team summary, presses an Agent number, and see
     page.getByRole('heading', {
       name: th('teamHistory:summary.listTitleNoCount', {
         period: th('teamHistory:summary.period.7d'),
+        channel: th('history:channels.all'),
         agent: 'Somying',
         disposition: th('teamHistory:followUp'),
       }),
@@ -258,4 +266,102 @@ test('a failed team-list load shows a message instead of a page for the wrong ro
   await page.getByRole('button', { name: th('teamHistory:retry') }).click();
   await expect(page.getByText(th('teamHistory:readOnlyAdmin'))).toBeVisible();
   await expect(page.getByRole('region', { name: th('teamHistory:summary.title') })).toBeVisible();
+});
+
+/** #1044: a team chat shows next to a call, can be filtered and opens as a read-only conversation */
+test('#1044 channel filter and a chat detail with the conversation beside the recorded outcome', async ({
+  page,
+}) => {
+  const chatId = '7a33ac96-d87d-4ca4-ab75-f27e40e94c09';
+  const chatRow = { ...item(chatId, agentOne, A, 'FOLLOW_UP_REQUIRED'), channel: 'WEBCHAT' };
+  const callRow = { ...rows[1]!, channel: 'VOICE' };
+  const requests = await harness(page, 'supervisor', { webchat: true });
+  const channels: (string | null)[] = [];
+  await page.route(
+    (url) => url.pathname.endsWith('/team-history/items'),
+    (route) => {
+      const channel = new URL(route.request().url()).searchParams.get('channel');
+      channels.push(channel);
+      return route.fulfill({
+        json: {
+          teamId: teamA,
+          items: [chatRow, callRow].filter((row) => !channel || row.channel === channel),
+          nextCursor: null,
+        },
+      });
+    },
+  );
+  await page.route(`**/api/v1/team-history/items/${chatId}`, (route) =>
+    route.fulfill({
+      json: { ...chatRow, talkSeconds: 492, note: 'Asked about delivery' },
+    }),
+  );
+  await page.route(`**/api/v1/team-history/items/${chatId}/transcript`, (route) =>
+    route.fulfill({
+      json: {
+        interactionId: chatId,
+        channel: 'WEBCHAT',
+        endReason: 'CUSTOMER_LEFT',
+        customerLinked: true,
+        messages: [
+          { id: 'm1', at: '2026-11-27T03:29:00.000Z', from: 'visitor', text: 'Hello there' },
+          { id: 'm2', at: '2026-11-27T03:31:00.000Z', from: 'agent', text: 'Hi, how can I help?' },
+          { id: 'm3', at: '2026-11-27T03:39:00.000Z', from: 'system', event: 'CUSTOMER_LEFT' },
+        ],
+      },
+    }),
+  );
+  await page.goto('/?view=team-history&tenant=demo');
+  const table = page.getByRole('grid', { name: th('teamHistory:list') });
+  await expect(table.getByRole('columnheader', { name: th('history:channel') })).toBeVisible();
+  await expect(table.getByText(th('history:channels.webchat'), { exact: true })).toBeVisible();
+
+  const group = page.getByRole('group', { name: th('history:channelFilter') });
+  await group.getByRole('button', { name: th('history:channels.webchat'), exact: true }).click();
+  await expect(table.getByText(th('history:channels.voice'), { exact: true })).toHaveCount(0);
+  expect(channels.at(-1)).toBe('WEBCHAT');
+  expect(new URL(page.url()).searchParams.get('channel')).toBe('WEBCHAT');
+
+  await page
+    .getByRole('button', {
+      name: th('teamHistory:openItem', { interactionId: chatId, agent: 'Somchai' }),
+    })
+    .click();
+  const log = page.getByRole('log', { name: th('history:chat.transcript') });
+  await expect(log).toContainText('Hello there');
+  await expect(log).toContainText('Somchai');
+  await expect(log).toContainText(th('history:chat.system.CUSTOMER_LEFT'));
+  await expect(page.getByText('Asked about delivery')).toBeVisible();
+  await expect(page.getByText(th('history:chat.linked'), { exact: true })).toBeVisible();
+  await expect(
+    page.locator('dl > div', { hasText: th('history:chat.closedByLabel') }),
+  ).toContainText(th('history:chat.closedBy.CUSTOMER'));
+  await expect(page.getByText('8:12')).toBeVisible();
+  await page.getByRole('button', { name: th('teamHistory:back') }).click();
+  await expect(group.getByRole('button', { name: th('history:channels.webchat') })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+
+  // a call keeps the detail it always had and loads no conversation
+  await group.getByRole('button', { name: th('history:channels.voice'), exact: true }).click();
+  await page
+    .getByRole('button', {
+      name: th('teamHistory:openItem', { interactionId: callA2, agent: 'Somying' }),
+    })
+    .click();
+  await expect(page.getByRole('heading', { name: th('teamHistory:detail') })).toBeVisible();
+  await expect(page.getByRole('log')).toHaveCount(0);
+  expect(requests.filter((request) => request.includes(`${callA2}/transcript`))).toHaveLength(0);
+});
+
+test('#1044 with web chat off the team history looks as before: no channel filter, column or wording', async ({
+  page,
+}) => {
+  await harness(page, 'supervisor');
+  await page.goto('/?view=team-history&tenant=demo');
+  await expect(page.getByText(th('teamHistory:readOnlySupervisor'), { exact: true })).toBeVisible();
+  await expect(page.getByRole('grid')).toBeVisible();
+  await expect(page.getByRole('group', { name: th('history:channelFilter') })).toHaveCount(0);
+  await expect(page.getByRole('columnheader', { name: th('history:channel') })).toHaveCount(0);
 });

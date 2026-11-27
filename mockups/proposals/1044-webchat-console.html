@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>D-Contact — #1044 Web Chat ใน Console (ข้อเสนอ)</title>
+<link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.24.0/dist/tabler-icons.min.css" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Noto+Sans+Thai:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+/* ข้อเสนอ #1044 Console — ตั้งค่า Web Chat + ประวัติ ตัวแปรตั้งชื่อตาม token ของ packages/ui ค่าเป็นของ mockup */
+:root{
+  --dc-surface-page:#f8fafc;--dc-surface-raised:#fff;--dc-surface-sunken:#f1f5f9;--dc-surface-selected:#f0fdfa;--dc-surface-brand:#0f766e;
+  --dc-border-subtle:#e2e8f0;--dc-border-default:#cbd5e1;--dc-border-brand:#0f766e;
+  --dc-text-primary:#1e293b;--dc-text-secondary:#475569;--dc-text-muted:#64748b;--dc-text-disabled:#94a3b8;--dc-text-brand:#0f766e;
+  --dc-success-bg:#dcfce7;--dc-success-fg:#15803d;--dc-neutral-bg:#f1f5f9;--dc-neutral-fg:#475569;
+  --dc-attention-bg-subtle:#fffbeb;--dc-attention-border:#fde68a;--dc-attention-fg:#b45309;--dc-attention-fg-strong:#92400e;
+  --dc-critical-bg-subtle:#fff1f2;--dc-critical-border:#fecaca;--dc-critical-fg:#b91c1c;--dc-critical-fg-strong:#9f1239;
+  --dc-channel-webchat-bg:#ccfbf1;--dc-channel-webchat-fg:#0f766e;--dc-channel-voice-bg:#e0e7ff;--dc-channel-voice-fg:#4338ca;
+  --dc-focus-ring:0 0 0 2px #fff,0 0 0 4px #0f766e;--dc-focus-ring-inset:inset 0 0 0 2px #0f766e,inset 0 0 0 4px #fff;
+}
+/* utility shim (ชื่อแบบ Tailwind) — ไฟล์นี้เปิดได้โดยไม่ต้องโหลด Tailwind CDN */
+*,::before,::after{box-sizing:border-box;border:0 solid var(--dc-border-subtle)}
+body{margin:0;font-family:'Inter','Noto Sans Thai',system-ui,sans-serif;line-height:1.5}
+h1,h2,h3,h4,p,dl,dd,ul,ol,fieldset,figure{margin:0;padding:0}ul,ol{list-style:none}fieldset{border:0}
+button,input,select,textarea{font:inherit;color:inherit;margin:0}button{background:none;cursor:pointer;padding:0}
+pre,code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.flex{display:flex}.inline-flex{display:inline-flex}.grid{display:grid}.block{display:block}.hidden{display:none}
+.flex-col{flex-direction:column}.flex-1{flex:1 1 0%}.flex-wrap{flex-wrap:wrap}.shrink-0{flex-shrink:0}
+.items-center{align-items:center}.items-end{align-items:flex-end}.items-start{align-items:flex-start}
+.justify-between{justify-content:space-between}.justify-center{justify-content:center}.justify-end{justify-content:flex-end}
+.gap-1{gap:4px}.gap-2{gap:8px}.gap-3{gap:12px}.gap-4{gap:16px}.gap-5{gap:20px}.gap-6{gap:24px}.gap-y-2{row-gap:8px}.gap-x-3{column-gap:12px}
+.space-y-2>*+*{margin-top:8px}.space-y-3>*+*{margin-top:12px}.space-y-4>*+*{margin-top:16px}.space-y-5>*+*{margin-top:20px}
+.min-h-0{min-height:0}.min-w-0{min-width:0}.w-full{width:100%}
+.relative{position:relative}.absolute{position:absolute}.inset-0{top:0;right:0;bottom:0;left:0}.sticky{position:sticky}.top-0{top:0}
+.overflow-auto{overflow:auto}.overflow-hidden{overflow:hidden}
+.p-2{padding:8px}.p-3{padding:12px}.p-4{padding:16px}.p-5{padding:20px}.p-6{padding:24px}
+.px-2{padding-left:8px;padding-right:8px}.px-3{padding-left:12px;padding-right:12px}.px-4{padding-left:16px;padding-right:16px}.px-5{padding-left:20px;padding-right:20px}.px-6{padding-left:24px;padding-right:24px}
+.py-2{padding-top:8px;padding-bottom:8px}.py-3{padding-top:12px;padding-bottom:12px}.py-4{padding-top:16px;padding-bottom:16px}.pt-3{padding-top:12px}.pb-1{padding-bottom:4px}.pb-2{padding-bottom:8px}
+.m-2{margin:8px}.mx-3{margin-left:12px;margin-right:12px}.mx-5{margin-left:20px;margin-right:20px}.ml-auto{margin-left:auto}
+.mt-1{margin-top:4px}.mt-2{margin-top:8px}.mt-3{margin-top:12px}.mt-4{margin-top:16px}.mt-5{margin-top:20px}
+.mb-1{margin-bottom:4px}.mb-2{margin-bottom:8px}.mb-3{margin-bottom:12px}.mb-4{margin-bottom:16px}.mb-5{margin-bottom:20px}
+.bg-white{background:#fff}.bg-slate-50{background:var(--dc-surface-page)}.bg-slate-100{background:var(--dc-surface-sunken)}.bg-slate-200{background:var(--dc-border-subtle)}.bg-teal-700{background:var(--dc-surface-brand)}
+.border{border-width:1px}.border-b{border-bottom-width:1px}.border-t{border-top-width:1px}.border-l{border-left-width:1px}.border-r{border-right-width:1px}
+.border-slate-100{border-color:var(--dc-surface-sunken)}.border-slate-200{border-color:var(--dc-border-subtle)}
+.rounded{border-radius:3px}.rounded-md{border-radius:5px}.rounded-lg{border-radius:7px}.rounded-full{border-radius:999px}
+.text-center{text-align:center}.text-right{text-align:right}.whitespace-nowrap{white-space:nowrap}
+.text-xs{font-size:12px}.text-sm{font-size:13px}.text-lg{font-size:18px}.text-xl{font-size:20px}.text-2xl{font-size:24px}.text-3xl{font-size:30px}
+.text-\[11px\]{font-size:11px}.text-\[12px\]{font-size:12px}.text-\[13px\]{font-size:13px}.text-\[14px\]{font-size:14px}.text-\[15px\]{font-size:15px}.text-\[16px\]{font-size:16px}.text-\[20px\]{font-size:20px}
+.font-medium{font-weight:500}.font-semibold{font-weight:600}
+.text-white{color:#fff}.text-slate-400{color:var(--dc-text-disabled,#94a3b8)}.text-slate-500{color:var(--dc-text-muted)}.text-slate-600{color:var(--dc-text-secondary)}.text-slate-700{color:#334155}.text-slate-800{color:var(--dc-text-primary)}
+.text-teal-700{color:var(--dc-text-brand)}.text-teal-900{color:#134e4a}.text-amber-700{color:var(--dc-attention-fg)}.text-amber-800{color:var(--dc-attention-fg-strong)}.text-emerald-600{color:#16a34a}
+.opacity-80{opacity:.8}
+.h-2{height:8px}.w-2{width:8px}.h-7{height:28px}.w-7{width:28px}.h-11{height:44px}.w-11{width:44px}.h-12{height:48px}.h-14{height:56px}.w-14{width:56px}
+.max-w-\[640px\]{max-width:640px}
+.accent-teal-700{accent-color:var(--dc-surface-brand)}
+
+html{font-size:16px}
+body{font-size:14px;color:var(--dc-text-primary);background:var(--dc-surface-page)}
+.mk-bar{position:sticky;top:0;z-index:90;display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:6px 12px;background:#0f172a;color:#e2e8f0;font-size:12px}
+.mk-bar button{border:1px solid #334155;border-radius:6px;padding:3px 9px;background:#1e293b;color:#e2e8f0}
+.mk-bar button.on{background:#0f766e;border-color:#0f766e}
+.mk-bar select{background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:6px;padding:3px 6px}
+body.shot .mk-bar{display:none}
+:where(a,button,input,select,textarea,[tabindex]):focus-visible{outline:none;box-shadow:var(--dc-focus-ring)}
+a{color:inherit;text-decoration:none}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:32px;padding:0 12px;border-radius:5px;font-size:13px;font-weight:500;border:1px solid var(--dc-border-default);background:#fff;color:var(--dc-text-primary);white-space:nowrap}
+.btn-sm{height:26px;padding:0 8px;font-size:12px}
+.btn-primary{background:var(--dc-surface-brand);border-color:var(--dc-surface-brand);color:#fff}
+.btn-ghost{border-color:transparent;background:none;color:var(--dc-text-brand)}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.card{background:#fff;border:1px solid var(--dc-border-subtle);border-radius:5px;padding:20px}
+.card>h2{font-size:14px;font-weight:600;color:#334155}
+.card>.sub{font-size:12px;color:var(--dc-text-muted);margin-top:2px;margin-bottom:16px;line-height:1.5}
+.fld2{display:block;font-size:13px;font-weight:500;margin-bottom:4px}
+.req{font-weight:400;color:var(--dc-text-muted);font-size:12px;margin-left:4px}
+.ctl{width:100%;height:32px;padding:0 10px;border:1px solid var(--dc-border-default);border-radius:4px;font-size:13px;background:#fff}
+textarea.ctl{height:auto;padding:6px 10px;line-height:1.5;resize:vertical}
+.ctl.bad{border-color:var(--dc-critical-fg)}
+.help{font-size:12px;color:var(--dc-text-muted);margin-top:4px;display:flex;justify-content:space-between;gap:8px;line-height:1.45}
+.err{font-size:12px;color:var(--dc-critical-fg);margin-top:4px;display:flex;gap:4px;align-items:center}
+.note2{display:flex;gap:8px;border-radius:5px;padding:8px 12px;font-size:13px;line-height:1.5;align-items:flex-start}
+.note2>i{font-size:17px;margin-top:1px}
+.n-warn{background:var(--dc-attention-bg-subtle);border:1px solid var(--dc-attention-border);color:var(--dc-attention-fg-strong)}
+.n-info{background:var(--dc-surface-selected);border:1px solid #99f6e4;color:#115e59}
+.n-bad{background:var(--dc-critical-bg-subtle);border:1px solid var(--dc-critical-border);color:var(--dc-critical-fg-strong)}
+.chip{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;border-radius:999px;padding:1px 9px;white-space:nowrap}
+.chip::before{content:'';width:7px;height:7px;border-radius:50%;background:currentColor}
+.chip-on{background:var(--dc-success-bg);color:var(--dc-success-fg)}
+.chip-off{background:var(--dc-neutral-bg);color:var(--dc-neutral-fg)}
+.ch{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;border-radius:3px;padding:0 6px;height:18px;white-space:nowrap}
+.ch-webchat{background:var(--dc-channel-webchat-bg);color:var(--dc-channel-webchat-fg)}
+.ch-voice{background:var(--dc-channel-voice-bg);color:var(--dc-channel-voice-fg)}
+.sw{display:flex;align-items:center;gap:10px;font-size:13px}
+.sw-t{width:36px;height:20px;border-radius:999px;background:var(--dc-border-default);position:relative;flex-shrink:0}
+.sw-t::after{content:'';position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2)}
+.sw-t.on{background:var(--dc-surface-brand)}.sw-t.on::after{left:18px}
+.sw[aria-disabled=true]{opacity:.55}
+.chk li{display:flex;gap:8px;align-items:center;font-size:13px;padding:3px 0}
+.chk .ok{color:var(--dc-success-fg)}.chk .no{color:var(--dc-attention-fg)}
+.orow{display:flex;align-items:center;gap:8px;height:36px;padding:0 4px 0 12px;border-bottom:1px solid var(--dc-surface-sunken);font-size:13px}
+.code{display:flex;gap:8px;align-items:stretch}
+.code pre{flex:1;min-width:0;margin:0;background:#0f172a;color:#e2e8f0;border-radius:5px;padding:8px 12px;font-size:12px;line-height:1.5;overflow:auto;white-space:pre}
+.tbl{width:100%;border-collapse:collapse}
+.tbl th{font-weight:500;color:var(--dc-text-muted);font-size:12px;text-align:left;padding:0 12px;height:36px;background:var(--dc-surface-page);border-bottom:1px solid var(--dc-border-subtle);white-space:nowrap}
+.tbl td{padding:0 12px;height:36px;border-bottom:1px solid var(--dc-surface-sunken);font-size:13px;white-space:nowrap}
+.seg{display:inline-flex;border:1px solid var(--dc-border-default);border-radius:5px;overflow:hidden}
+.seg button{height:30px;padding:0 12px;font-size:13px;border-right:1px solid var(--dc-border-default);background:#fff}
+.seg button:last-child{border-right:0}
+.seg button[aria-pressed=true]{background:var(--dc-surface-selected);color:var(--dc-text-brand);font-weight:600}
+.subnav a{display:flex;align-items:center;gap:8px;height:36px;padding:0 12px;border-radius:4px;font-size:13px;color:#334155}
+.subnav a.on{background:var(--dc-surface-selected);color:var(--dc-text-brand);font-weight:600}
+.subnav .sh{font-size:12px;color:var(--dc-text-muted);padding:10px 12px 4px}
+.tlog{display:flex;flex-direction:column;gap:6px}
+.tm{max-width:72%;width:max-content}
+.tm .who{font-size:11px;color:var(--dc-text-muted);margin-bottom:2px}
+.tm .tb2{padding:7px 11px;border-radius:7px;line-height:1.55;white-space:pre-wrap;overflow-wrap:break-word}
+.tm.c{align-self:flex-start}.tm.c .tb2{background:var(--dc-surface-sunken)}
+.tm.a{align-self:flex-end;text-align:right}.tm.a .tb2{background:var(--dc-surface-selected);border:1px solid #99f6e4;text-align:left}
+.tsys{align-self:center;font-size:12px;color:var(--dc-text-secondary);background:var(--dc-surface-page);border:1px solid var(--dc-border-subtle);border-radius:999px;padding:2px 10px}
+.toast{position:fixed;right:16px;bottom:16px;z-index:85;display:flex;gap:8px;align-items:center;background:#fff;border:1px solid var(--dc-border-subtle);border-left:4px solid #16a34a;border-radius:5px;padding:10px 14px;font-size:13px;box-shadow:0 10px 30px rgba(15,23,42,.18)}
+.sk{display:block;border-radius:3px;background:linear-gradient(90deg,#f1f5f9,#e2e8f0,#f1f5f9);background-size:200% 100%;animation:sk 1.4s infinite}
+@keyframes sk{0%{background-position:100% 0}100%{background-position:-100% 0}}
+@media(prefers-reduced-motion:reduce){.sk{animation:none}}
+.mono{font-variant-numeric:tabular-nums}
+.trunc{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+.g3{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:20px;max-width:1120px;align-items:start}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+</style>
+</head>
+<body>
+<div class="mk-bar" id="mk-bar">
+  <b>#1044 Console</b>
+  <button data-v="settings">1 ตั้งค่า Web Chat</button>
+  <button data-v="team">2 ประวัติงานของทีม</button>
+  <button data-v="detail">3 รายละเอียดงานแชท</button>
+  <button data-v="mine">4 ประวัติงานของฉัน (Agent)</button>
+  <label>state <select id="mk-state"></select></label>
+</div>
+
+<div class="flex" style="min-height:calc(100vh - var(--mk,0px))">
+  <aside class="rail" id="rail"></aside>
+  <nav class="subnav bg-white border-r border-slate-200 p-2 shrink-0" style="width:220px" id="subnav"></nav>
+  <div class="flex-1 min-w-0 flex flex-col">
+    <header class="h-11 shrink-0 bg-white border-b border-slate-200 flex items-center gap-3 px-6 text-[13px]" id="crumb"></header>
+    <main class="p-6" id="c-main"></main>
+  </div>
+</div>
+<div id="layer"></div>
+
+<script>
+const STATES = {
+  settings: ['default','first-time','cannot-enable','validation','save-error','saved','loading','supervisor-readonly','forbidden','long'],
+  team: ['default','filter-chat','empty-chat','loading','error'],
+  detail: ['default','unlinked-idle','partial','long'],
+  mine: ['default'],
+};
+const P = new URLSearchParams(location.search);
+let view = P.get('view') || 'settings';
+let state = P.get('state') || 'default';
+if (P.get('shot')) document.body.classList.add('shot');
+document.documentElement.style.setProperty('--mk', P.get('shot') ? '0px' : document.getElementById('mk-bar').offsetHeight + 'px');
+const $ = id => document.getElementById(id);
+
+function shell() {
+  const hist = view !== 'settings';
+  $('rail').innerHTML = [['ti-home','หน้าแรก'],['ti-history','ประวัติ',hist],['ti-route','การกระจายงาน'],['ti-users','บุคลากร'],['ti-plug-connected','การเชื่อมต่อ',!hist]]
+    .map(([i,l,on]) => `<button class="rail-btn ${on ? 'active' : ''}" ${on ? 'aria-current="page"' : ''} title="${l}"><i class="ti ${i}"></i><span class="rail-label">${l}</span></button>`).join('');
+  $('subnav').setAttribute('aria-label', hist ? 'ประวัติ' : 'การเชื่อมต่อ');
+  $('subnav').innerHTML = hist
+    ? `<div class="h-9 flex items-center px-3 text-[13px] font-semibold">ประวัติ</div><p class="sh">งาน</p>
+       ${view === 'mine' ? `<a href="#" class="on" aria-current="page"><i class="ti ti-user"></i>ประวัติงานของฉัน</a>` : `<a href="#" class="on" aria-current="page"><i class="ti ti-users-group"></i>ประวัติงานของทีม</a>`}`
+    : `<div class="h-9 flex items-center px-3 text-[13px] font-semibold">การเชื่อมต่อ</div>
+       <p class="sh">ช่องทางลูกค้า</p><a href="#" class="on" aria-current="page"><i class="ti ti-message-circle"></i>Web Chat</a>
+       <p class="sh">ฝังระบบ</p><a href="#"><i class="ti ti-phone"></i>ฝัง dphone ในระบบอื่น</a>`;
+  const who = view === 'mine' ? 'ปกรณ์ ศรีสุข' : state === 'supervisor-readonly' ? 'อรทัย พงษ์ไพร (Supervisor)' : 'วิไล ศักดิ์สิทธิ์ (Admin)';
+  $('crumb').innerHTML = `<span class="text-slate-500">demo-retail</span><span class="text-slate-400">/</span><span>${hist ? 'ประวัติ' : 'การเชื่อมต่อ'}</span><span class="text-slate-400">/</span><span>${hist ? (view === 'mine' ? 'ประวัติงานของฉัน' : 'ประวัติงานของทีม') : 'Web Chat'}</span>
+    <div class="flex-1"></div><span class="text-slate-600">${who}</span><span class="w-7 h-7 rounded-full bg-slate-200 flex items-center justify-center text-xs">วศ</span>`;
+}
+
+// ---------- 1) ตั้งค่า Web Chat ----------
+const ORIGINS = ['https://shop.demo-retail.co.th','https://www.demo-retail.co.th'];
+function settings() {
+  const first = state === 'first-time', cannot = state === 'cannot-enable', ro = state === 'supervisor-readonly';
+  const val = state === 'validation', long = state === 'long';
+  const enabled = !(first || cannot);
+  const origins = first || cannot ? [] : long ? [...ORIGINS, 'https://promotion-campaign-2569-very-long-subdomain-for-black-friday.demo-retail-group-holdings.co.th', 'https://m.demo-retail.co.th', 'https://partner.demo-retail.co.th'] : ORIGINS;
+  const queue = first ? '' : cannot ? '' : 'Online Sales';
+  const dis = ro ? 'disabled' : '';
+  if (state === 'loading') return `<div aria-busy="true"><span class="sr-only" role="status">กำลังโหลดการตั้งค่า Web Chat</span>
+    <span class="sk mb-3" style="width:160px;height:24px"></span><span class="sk mb-5" style="width:420px;height:14px"></span>
+    <div class="g3"><div class="space-y-5">${[180,200,220].map(h => `<div class="card"><span class="sk" style="height:${h}px"></span></div>`).join('')}</div>
+    <div class="card"><span class="sk" style="height:180px"></span></div></div></div>`;
+  if (state === 'forbidden') return `<h1 class="text-xl font-semibold mb-2">Web Chat</h1>
+    <div class="card" style="max-width:560px"><div class="flex gap-3"><i class="ti ti-lock text-2xl text-slate-500"></i><div>
+    <h2 class="text-[15px] font-semibold">บัญชีนี้ไม่มีสิทธิ์ดูการตั้งค่า Web Chat</h2>
+    <p class="text-[13px] text-slate-600 mt-1">หน้านี้สำหรับ Admin และ Supervisor ของ tenant ติดต่อ Admin ขององค์กรถ้าต้องการเปลี่ยนการตั้งค่า</p></div></div></div>`;
+  const originRows = origins.length ? origins.map(o => `<li class="orow"><i class="ti ti-world text-slate-500"></i><span class="trunc flex-1" title="${o}">${o}</span>
+      ${ro ? '' : `<button class="btn btn-sm btn-ghost" aria-label="ลบโดเมน ${o}"><i class="ti ti-trash"></i>ลบ</button>`}</li>`).join('')
+    : `<li class="text-[13px] text-slate-600 py-3">ยังไม่มีโดเมน widget จะไม่แสดงบนเว็บใดจนกว่าจะเพิ่มอย่างน้อย 1 โดเมน</li>`;
+  const ok = (b, t, fix) => `<li><i class="ti ${b ? 'ti-circle-check ok' : 'ti-alert-circle no'}"></i><span class="flex-1">${t}</span>${!b && fix ? `<a href="#${fix}" class="text-[12px] text-teal-700 font-medium">ไปที่ช่องนี้</a>` : ''}</li>`;
+  return `
+  <div class="flex items-start justify-between gap-4 mb-5" style="max-width:1120px">
+    <div><h1 class="text-xl font-semibold flex items-center gap-3">Web Chat <span class="chip ${enabled ? 'chip-on' : 'chip-off'}">${enabled ? 'เปิดใช้งาน' : first ? 'ยังไม่ได้ตั้งค่า' : 'ปิดอยู่'}</span></h1>
+      <p class="text-[13px] text-slate-600 mt-1">ปุ่มแชทบนเว็บของคุณ ลูกค้าคุยกับ Agent ได้โดยไม่ต้องระบุตัวตน แชทเข้าคิวที่เลือกและกระจายผ่าน Router เดียวกับ Voice</p></div>
+  </div>
+  ${ro ? `<div class="note2 n-info mb-4" style="max-width:1120px" role="status"><i class="ti ti-eye"></i><p>คุณดูการตั้งค่าได้อย่างเดียว เฉพาะ Admin แก้ไขได้</p></div>` : ''}
+  ${first ? `<div class="note2 n-info mb-4" style="max-width:1120px"><i class="ti ti-info-circle"></i><p>ยังไม่เคยตั้งค่า Web Chat เลือกคิว เพิ่มโดเมนของเว็บ แล้วเปิดใช้งาน ค่าเริ่มต้น: 3 ห้องต่อ Agent และปิดห้องเมื่อลูกค้าเงียบ 10 นาที</p></div>` : ''}
+  ${state === 'save-error' ? `<div class="note2 n-bad mb-4" style="max-width:1120px" role="alert"><i class="ti ti-alert-triangle"></i><div class="flex-1"><p><b>บันทึกไม่สำเร็จ</b> การเชื่อมต่อกับ server ขาด ค่าที่แก้ไว้ยังอยู่ในฟอร์ม</p></div><button class="btn btn-sm">ลองบันทึกอีกครั้ง</button></div>` : ''}
+  <div class="g3">
+    <div class="space-y-5">
+      <section class="card" aria-labelledby="h-route"><h2 id="h-route">การรับแชท</h2><p class="sub">ใช้กับแชทใหม่ ห้องที่เปิดอยู่แล้วใช้ค่าเดิมจนจบ</p>
+        <div class="space-y-4">
+          <div id="f-queue"><label class="fld2" for="q">คิวที่รับแชท</label><select id="q" class="ctl ${cannot && !queue ? 'bad' : ''}" ${dis} ${cannot ? 'aria-invalid="true" aria-describedby="q-e"' : ''}>
+            <option ${!queue ? 'selected' : ''}>${queue ? '' : 'เลือกคิว'}</option><option ${queue ? 'selected' : ''}>Online Sales</option><option>General Support</option></select>
+            ${cannot ? `<p class="err" id="q-e"><i class="ti ti-alert-circle"></i>เลือกคิวก่อนเปิดใช้งาน</p>` : `<p class="help"><span>Agent ที่อยู่ในคิวนี้และ Ready จะได้รับแชท (คิวเดียวในรอบนี้)</span></p>`}</div>
+          <div class="g2">
+            <div><label class="fld2" for="cap">จำนวนแชทพร้อมกันต่อ Agent</label><input id="cap" class="ctl ${val ? 'bad' : ''}" type="number" min="1" max="10" value="${val ? 12 : 3}" ${dis} ${val ? 'aria-invalid="true" aria-describedby="cap-e"' : ''}>
+              ${val ? `<p class="err" id="cap-e"><i class="ti ti-alert-circle"></i>ใส่ตัวเลข 1–10</p>` : `<p class="help"><span>1–10 ห้อง ใช้กับทุก Agent ใน tenant</span></p>`}</div>
+            <div><label class="fld2" for="idle">ปิดห้องเมื่อลูกค้าเงียบ (นาที)</label><input id="idle" class="ctl" type="number" min="1" max="60" value="10" ${dis}>
+              <p class="help"><span>1–60 นาที นับจากข้อความล่าสุดของลูกค้า</span></p></div>
+          </div>
+        </div></section>
+      <section class="card" aria-labelledby="h-origin" id="f-origin"><h2 id="h-origin">โดเมนที่อนุญาต</h2><p class="sub">widget ทำงานเฉพาะบนเว็บที่อยู่ในรายการ ใส่ origin เต็ม เช่น https://shop.example.com (ไม่มี path) สูงสุด 10 โดเมน</p>
+        <ul class="border-t border-slate-100 mb-3">${originRows}</ul>
+        ${ro ? '' : `<div class="flex gap-2 items-start"><div class="flex-1"><label class="sr-only" for="o">โดเมนใหม่</label><input id="o" class="ctl ${val ? 'bad' : ''}" placeholder="https://example.com" value="${val ? 'shop.demo-retail.co.th/checkout' : ''}" ${val ? 'aria-invalid="true" aria-describedby="o-e"' : ''}>
+          ${val ? `<p class="err" id="o-e"><i class="ti ti-alert-circle"></i>ใส่ origin ที่ขึ้นต้นด้วย https:// และไม่มี path เช่น https://shop.demo-retail.co.th</p>` : cannot ? `<p class="err"><i class="ti ti-alert-circle"></i>เพิ่มอย่างน้อย 1 โดเมนก่อนเปิดใช้งาน</p>` : ''}</div>
+          <button class="btn"><i class="ti ti-plus"></i>เพิ่มโดเมน</button></div>`}
+      </section>
+      <section class="card" aria-labelledby="h-wel"><h2 id="h-wel">ข้อความต้อนรับ</h2><p class="sub">แสดงเมื่อลูกค้าเปิดหน้าต่างแชท ภาษาตาม browser ของลูกค้า (ไทย หรืออังกฤษสำหรับภาษาอื่นทั้งหมด)</p>
+        <div class="g2">
+          <div><label class="fld2" for="wth">ภาษาไทย</label><textarea id="wth" class="ctl" rows="4" ${dis}>${first ? '' : 'สวัสดีค่ะ ยินดีต้อนรับสู่ Demo Retail สอบถามเรื่องสินค้า การสั่งซื้อ หรือการจัดส่งได้เลยค่ะ'}</textarea><p class="help"><span>${first ? 'ว่างไว้ได้ ระบบใช้ข้อความมาตรฐาน' : ''}</span><span class="mono">${first ? 0 : 77} / 500</span></p></div>
+          <div><label class="fld2" for="wen">English</label><textarea id="wen" class="ctl" rows="4" ${dis}>${first ? '' : 'Hello, welcome to Demo Retail. Ask us about products, orders or delivery.'}</textarea><p class="help"><span></span><span class="mono">${first ? 0 : 73} / 500</span></p></div>
+        </div></section>
+      <section class="card" aria-labelledby="h-code"><h2 id="h-code">โค้ดฝัง</h2><p class="sub">วางบรรทัดนี้ก่อน &lt;/body&gt; ในทุกหน้าของเว็บที่อยู่ในรายการโดเมน โค้ดไม่เปลี่ยนเมื่อแก้การตั้งค่า</p>
+        <div class="code"><pre aria-label="โค้ดฝัง Web Chat">&lt;script src="https://chat.dcontact.example/widget.js" data-widget="wc_7Hq2Lx9P" async&gt;&lt;/script&gt;</pre>
+          <button class="btn" ${first ? 'disabled' : ''}><i class="ti ti-copy"></i>คัดลอกโค้ด</button></div>
+        ${first ? '<p class="help"><span>โค้ดฝังพร้อมใช้หลังบันทึกครั้งแรก</span></p>' : ''}</section>
+    </div>
+    <div class="space-y-5" style="position:sticky;top:16px">
+      <section class="card" aria-labelledby="h-st"><h2 id="h-st" class="mb-3">สถานะ</h2>
+        <div class="sw" role="switch" aria-checked="${enabled}" tabindex="${ro ? -1 : 0}" ${ro || cannot || first ? `aria-disabled="${ro}"` : ''}><span class="sw-t ${enabled ? 'on' : ''}"></span><span>เปิดใช้งาน Web Chat</span></div>
+        <p class="help"><span>${enabled ? 'ปุ่มแชทแสดงบนเว็บในรายการโดเมน ปิดแล้วห้องที่คุยอยู่ยังคุยต่อจนจบ' : 'ปิดอยู่ ลูกค้าไม่เห็นปุ่มแชท'}</span></p>
+        <h3 class="text-[12px] text-slate-500 mt-4 mb-1">ต้องมีก่อนเปิดใช้งาน</h3>
+        <ul class="chk">${ok(!!queue,'เลือกคิวที่รับแชท','f-queue')}${ok(origins.length > 0,'มีโดเมนที่อนุญาตอย่างน้อย 1 โดเมน','f-origin')}</ul>
+        ${cannot ? `<p class="err mt-2" role="alert"><i class="ti ti-alert-circle"></i>ยังเปิดใช้งานไม่ได้ ทำ 2 ข้อด้านบนให้ครบ</p>` : ''}
+      </section>
+      ${ro ? '' : `<div class="flex gap-3"><button class="btn btn-primary flex-1" style="height:40px">${first ? 'บันทึกและสร้างโค้ดฝัง' : 'บันทึก'}</button><button class="btn flex-1" style="height:40px">ยกเลิกการแก้ไข</button></div>`}
+      <p class="text-[12px] text-slate-500" style="line-height:1.5">แก้ล่าสุด 26 พ.ย. 2569 15:20 โดย วิไล ศักดิ์สิทธิ์</p>
+    </div>
+  </div>`;
+}
+
+// ---------- 2–4) ประวัติ ----------
+const ROWS = [
+  ['ปกรณ์ ศรีสุข','webchat','27 พ.ย. 2569 10:31','08:12','ลูกค้าได้รับความช่วยเหลือ','27 พ.ย. 2569 10:45'],
+  ['อรทัย พงษ์ไพร','voice','27 พ.ย. 2569 10:22','04:51','ต้องติดตามต่อ','27 พ.ย. 2569 10:28'],
+  ['ปกรณ์ ศรีสุข','webchat','27 พ.ย. 2569 10:18','14:40','ต้องติดตามต่อ','27 พ.ย. 2569 10:34'],
+  ['สมชาย วงศ์ประเสริฐ','voice','27 พ.ย. 2569 09:57','02:30','ลูกค้าได้รับความช่วยเหลือ','27 พ.ย. 2569 09:59'],
+  ['อรทัย พงษ์ไพร','webchat','27 พ.ย. 2569 09:40','21:05','ลูกค้าได้รับความช่วยเหลือ','27 พ.ย. 2569 10:02'],
+  ['สมชาย วงศ์ประเสริฐ','voice','27 พ.ย. 2569 09:12','06:44','ลูกค้าได้รับความช่วยเหลือ','27 พ.ย. 2569 09:19'],
+];
+const chCell = c => c === 'webchat' ? `<span class="ch ch-webchat"><i class="ti ti-message"></i>แชท</span>` : `<span class="ch ch-voice"><i class="ti ti-phone"></i>สาย</span>`;
+function historyView(mine) {
+  const f = state === 'filter-chat' || state === 'empty-chat' ? 'webchat' : 'all';
+  let rows = ROWS.filter(r => f === 'all' || r[1] === f);
+  if (mine) rows = ROWS.filter(r => r[0] === 'ปกรณ์ ศรีสุข').concat([['ปกรณ์ ศรีสุข','voice','26 พ.ย. 2569 16:02','03:10','ลูกค้าได้รับความช่วยเหลือ','26 พ.ย. 2569 16:06']]);
+  const filters = `<div class="flex items-center gap-3 mb-3 flex-wrap">
+    <div class="seg" role="group" aria-label="ช่วงเวลา"><button aria-pressed="true">วันนี้</button><button>7 วัน</button><button>30 วัน</button><button>ทั้งหมด</button></div>
+    <div class="seg" role="group" aria-label="ช่องทาง"><button aria-pressed="${f === 'all'}">ทุกช่องทาง</button><button aria-pressed="false"><i class="ti ti-phone"></i> สาย</button><button aria-pressed="${f === 'webchat'}"><i class="ti ti-message"></i> แชท</button></div>
+    ${mine ? '' : `<div style="width:200px"><label class="sr-only" for="tm">ทีม</label><select id="tm" class="ctl"><option>ทุกทีม</option></select></div>`}
+    <div class="flex-1"></div><button class="btn"><i class="ti ti-refresh"></i>รีเฟรช</button></div>`;
+  const head = mine
+    ? `<h1 class="text-xl font-semibold">ประวัติงานของฉัน</h1><p class="text-[13px] text-slate-600 mt-1 mb-4">แสดงงาน Voice และแชทที่ปิดแล้วของคุณ อ่านอย่างเดียว</p>`
+    : `<h1 class="text-xl font-semibold">ประวัติงานของทีม</h1><p class="text-[13px] text-slate-600 mt-1 mb-4">แสดงงาน Voice และแชทที่ปิดแล้วของทุกทีม นับตามทีมของ Agent ตอนรับงาน อ่านอย่างเดียว</p>`;
+  if (state === 'loading') return head + filters + `<div class="card" style="padding:0" aria-busy="true"><span class="sr-only" role="status">กำลังโหลดประวัติของทีม</span>${Array.from({length:6},()=>`<div class="flex gap-4 px-3" style="height:36px;align-items:center;border-bottom:1px solid var(--dc-surface-sunken)"><span class="sk" style="width:140px;height:12px"></span><span class="sk" style="width:48px;height:12px"></span><span class="sk" style="width:140px;height:12px"></span><span class="sk" style="width:60px;height:12px"></span></div>`).join('')}</div>`;
+  if (state === 'error') return head + filters + `<div class="note2 n-bad" role="alert"><i class="ti ti-alert-triangle"></i><div class="flex-1">โหลดประวัติของทีมไม่สำเร็จ</div><button class="btn btn-sm">ลองอีกครั้ง</button></div>`;
+  if (state === 'empty-chat') return head + filters + `<div class="card text-center"><i class="ti ti-message-off text-3xl text-slate-400"></i><p class="font-medium mt-2">ไม่มีงานแชทที่จบในช่วงเวลานี้</p><p class="text-[13px] text-slate-600 mt-1">ลองเลือกช่วงเวลาอื่น หรือดูทุกช่องทาง</p><button class="btn mt-3">ดูทุกช่องทาง</button></div>`;
+  return head + filters + `<h2 class="text-[13px] font-semibold text-slate-700 mb-2">รายการงาน · วันนี้ · ${f === 'all' ? 'ทุกช่องทาง' : 'แชท'} · ${rows.length} งาน</h2>
+    <div class="card" style="padding:0;overflow:auto"><table class="tbl" aria-label="รายการงานของทีม"><thead><tr>
+      ${mine ? '<th>รหัสงาน</th>' : '<th>Agent</th><th>ทีม</th>'}<th>ช่องทาง</th><th>เวลาเริ่ม</th><th>เวลาสนทนา</th><th>ผลสรุป</th><th>เวลาบันทึก</th><th></th></tr></thead>
+      <tbody>${rows.map((r,i) => `<tr>${mine ? `<td class="mono text-slate-500">7f3c${i}e10-…</td>` : `<td>${r[0]}</td><td>Retail Support</td>`}<td>${chCell(r[1])}</td><td class="mono">${r[2]}</td><td class="mono">${r[3]}</td><td>${r[4]}</td><td class="mono">${r[5]}</td>
+        <td><button class="btn btn-sm" aria-label="เปิดงาน${r[1]==='webchat'?'แชท':'สาย'}ของ ${r[0]} เวลา ${r[2]}">เปิด</button></td></tr>`).join('')}</tbody></table></div>
+    <div class="flex justify-center mt-3"><button class="btn">โหลดเพิ่ม</button></div>`;
+}
+function detail() {
+  const idle = state === 'unlinked-idle', partial = state === 'partial', long = state === 'long';
+  const msgs = [
+    ['s','ผู้เยี่ยมชมเริ่มแชทจาก shop.demo-retail.co.th · 10:29'],
+    ['c','สวัสดีค่ะ สั่งของไปเมื่อวันที่ 20 ยังไม่ได้รับเลยค่ะ','10:29'],
+    ['s','ปกรณ์ ศรีสุข เข้าร่วมแชท · 10:31'],
+    ['a','สวัสดีครับ ยินดีให้บริการครับ รบกวนขอเลขคำสั่งซื้อด้วยครับ','10:31','ปกรณ์ ศรีสุข'],
+    ['c', long ? ('สั่งซื้อหม้อทอดไร้น้ำมันรุ่น AF-500 ระบบแจ้งว่าจัดส่งแล้วแต่ยังไม่ได้รับของ ติดต่อขนส่งแล้วบอกว่าพัสดุอยู่ที่ศูนย์กระจายสินค้าบางนา ').repeat(6) : 'SO-2569-118842 ค่ะ','10:33'],
+    ['a','เช็กแล้วครับ พัสดุออกจากศูนย์บางนาเมื่อเช้านี้ คาดว่าจะถึงภายในวันนี้ครับ','10:38','ปกรณ์ ศรีสุข'],
+    ...(idle ? [['s','ระบบปิดแชทเพราะลูกค้าไม่ตอบเกิน 10 นาที · 10:48']] : [['c','ขอบคุณค่ะ','10:39'],['s','ปกรณ์ ศรีสุข จบแชท · 10:39']]),
+  ];
+  const tr = partial ? `<div class="note2 n-bad" role="alert"><i class="ti ti-alert-triangle"></i><div class="flex-1">โหลดบทสนทนาไม่สำเร็จ ผลที่บันทึกด้านขวายังถูกต้อง</div><button class="btn btn-sm">ลองอีกครั้ง</button></div>`
+    : `<ol class="tlog" aria-label="บทสนทนา เรียงตามเวลา">${msgs.map(m => m[0] === 's' ? `<li class="tsys">${m[1]}</li>`
+      : `<li class="tm ${m[0]}"><p class="who">${m[0] === 'c' ? 'ผู้เยี่ยมชม' : m[3]} · <span class="mono">${m[2]}</span></p><p class="tb2">${m[1]}</p></li>`).join('')}</ol>`;
+  return `<a href="#" class="inline-flex items-center gap-1 text-[13px] text-slate-500 mb-3"><i class="ti ti-arrow-left"></i>กลับรายการ</a>
+  <div class="flex items-center gap-3 mb-1"><h1 class="text-xl font-semibold">ผู้เยี่ยมชม #A1B2</h1>${chCell('webchat')}</div>
+  <p class="text-[13px] text-slate-600 mb-5">Agent: ปกรณ์ ศรีสุข · ทีม: Retail Support · คิว: Online Sales · <span class="mono">7f3c2e10-8b1d-4c2a-9e5f-a91e</span></p>
+  <div class="g3">
+    <section class="card" aria-labelledby="h-tr"><div class="flex items-center justify-between mb-3"><h2 id="h-tr" class="text-[14px] font-semibold">บทสนทนา</h2><span class="text-[12px] text-slate-500">อ่านอย่างเดียว · ${partial ? '–' : msgs.filter(m => m[0] !== 's').length} ข้อความ</span></div>${tr}</section>
+    <div class="space-y-5">
+      <section class="card" aria-labelledby="h-res"><h2 id="h-res" class="text-[14px] font-semibold mb-3">ผลที่บันทึก</h2>
+        <dl class="text-[13px] grid gap-y-2" style="grid-template-columns:96px 1fr">
+          <dt class="text-slate-500">ผลสรุป</dt><dd>${idle ? 'ต้องติดตามต่อ' : 'ลูกค้าได้รับความช่วยเหลือ'}</dd>
+          <dt class="text-slate-500">ลูกค้า</dt><dd>${idle ? '<span class="text-slate-600">ไม่ได้ผูกลูกค้า</span>' : 'คุณนภา จันทร์เพ็ญ'}</dd>
+          <dt class="text-slate-500">ปิดโดย</dt><dd>${idle ? 'ระบบ (ลูกค้าไม่ตอบ 10 นาที)' : 'Agent'}</dd>
+          <dt class="text-slate-500">เวลาเริ่ม</dt><dd class="mono">27 พ.ย. 2569 10:29</dd>
+          <dt class="text-slate-500">เวลาสนทนา</dt><dd class="mono">08:12</dd>
+          <dt class="text-slate-500">เวลาบันทึก</dt><dd class="mono">27 พ.ย. 2569 10:45</dd></dl>
+        <h3 class="text-[12px] text-slate-500 mt-4 mb-1">โน้ตสรุป</h3>
+        <p class="text-[13px]" style="white-space:pre-wrap;background:var(--dc-surface-page);border:1px solid var(--dc-border-subtle);border-radius:5px;padding:8px 12px;line-height:1.6">ลูกค้าสอบถามสถานะจัดส่ง SO-2569-118842 แจ้งว่าพัสดุออกจากศูนย์บางนาแล้ว จะถึงภายในวันนี้</p>
+      </section>
+    </div>
+  </div>`;
+}
+
+function render() {
+  shell();
+  const m = $('c-main');
+  m.innerHTML = view === 'settings' ? settings() : view === 'detail' ? detail() : historyView(view === 'mine');
+  $('layer').innerHTML = view === 'settings' && state === 'saved' ? `<div class="toast" role="status"><i class="ti ti-circle-check text-emerald-600 text-lg"></i>บันทึกการตั้งค่า Web Chat แล้ว</div>` : '';
+  document.querySelectorAll('.mk-bar [data-v]').forEach(b => b.classList.toggle('on', b.dataset.v === view));
+  $('mk-state').innerHTML = STATES[view].map(s => `<option ${s === state ? 'selected' : ''}>${s}</option>`).join('');
+}
+document.querySelectorAll('.mk-bar [data-v]').forEach(b => b.onclick = () => { view = b.dataset.v; state = 'default'; sync(); });
+$('mk-state').onchange = e => { state = e.target.value; sync(); };
+function sync() { const u = new URL(location.href); u.searchParams.set('view', view); u.searchParams.set('state', state); history.replaceState(null, '', u); render(); }
+render();
+</script>
+</body>
+</html>

@@ -37,6 +37,12 @@ export interface WorkspaceLiveEvent {
   payload: Record<string, unknown>;
 }
 
+/** #1044 the user's web chats changed — the Workspace reads them again over HTTP; the event carries no chat data */
+export interface WorkspaceWebchatEvent {
+  type: 'webchat.changed';
+  tenantId: string;
+}
+
 export interface WorkspaceSessionDiagnostic {
   event: 'workspace.session.authenticated' | 'workspace.session.denied';
   correlationId: string;
@@ -577,7 +583,7 @@ export class WorkspaceSessionWebSocketAdapter {
   }
 
   async deliverLiveEvent(
-    event: WorkspaceLiveEvent,
+    event: WorkspaceLiveEvent | WorkspaceWebchatEvent,
     recipientUserIds: readonly string[],
   ): Promise<number> {
     const recipients = new Set(recipientUserIds);

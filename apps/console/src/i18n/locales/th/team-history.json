@@ -60,6 +60,13 @@
     "listTitle": "รายการงาน · {{period}} · {{agent}} · {{disposition}} · {{count}} งาน",
     "emptyPeriod": "ไม่มีงาน Voice ที่จบในช่วงเวลานี้",
     "emptyFiltered": "ไม่มีงานที่ตรงกับตัวกรองนี้ในช่วงเวลานี้",
-    "listTitleNoCount": "รายการงาน · {{period}} · {{agent}} · {{disposition}}"
-  }
+    "listTitleNoCount": "รายการงาน · {{period}} · {{agent}} · {{disposition}}",
+    "listTitleChannels": "รายการงาน · {{period}} · {{channel}} · {{agent}} · {{disposition}} · {{count}} งาน",
+    "emptyPeriodChannels": "ไม่มีงานที่จบในช่วงเวลานี้",
+    "listTitleNoCountChannels": "รายการงาน · {{period}} · {{channel}} · {{agent}} · {{disposition}}"
+  },
+  "readOnlySupervisorChannels": "แสดงงาน (สายและแชท) ที่ปิดแล้วซึ่งทีมของคุณรับ นับตามทีมของ Agent ตอนรับงาน อ่านอย่างเดียว",
+  "readOnlyAdminChannels": "แสดงงาน (สายและแชท) ที่ปิดแล้วของทุกทีม นับตามทีมของ Agent ตอนรับงาน อ่านอย่างเดียว",
+  "evidenceNoteChannels": "งานที่ไม่มีหลักฐานทีมตอนรับงาน (เช่นงานก่อนเปิดใช้) ไม่แสดงในหน้านี้",
+  "emptyChannels": "ทีมนี้ยังไม่มีงานที่ปิดแล้ว"
 }

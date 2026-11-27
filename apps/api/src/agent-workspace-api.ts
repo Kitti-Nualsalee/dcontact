@@ -21,11 +21,16 @@ import {
   Req,
 } from '@nestjs/common';
 import { Prisma, PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
+import { syncAgentWebchatState } from '@d-contact/router';
 import { AGENT_SIP_CREDENTIALS, type AgentSipCredentialService } from './agent-sip-credentials.js';
 import { GatewayRoles, type AuthenticatedGatewayRequest } from './gateway-auth.js';
 import { EmbedOriginService } from './embed-origins.js';
 import { saveAgentWrapup, readAgentWrapup, readAgentWrapupCommand } from './agent-wrapup-v1.js';
-import { readAgentHistory, readAgentHistorySummary } from './agent-history.js';
+import {
+  readAgentHistory,
+  readAgentHistorySummary,
+  readAgentHistoryTranscript,
+} from './agent-history.js';
 import {
   activeNotReadyReasons,
   isActiveNotReadyReason,
@@ -37,6 +42,7 @@ import {
 
 export const AGENT_WORKSPACE_DATABASE = Symbol('AGENT_WORKSPACE_DATABASE');
 export const AGENT_WORKSPACE_CUSTOMER_AVAILABLE = Symbol('AGENT_WORKSPACE_CUSTOMER_AVAILABLE');
+export const AGENT_WORKSPACE_WEBCHAT = Symbol('AGENT_WORKSPACE_WEBCHAT');
 
 async function wrapupOperation<Result>(
   request: AuthenticatedGatewayRequest,
@@ -101,6 +107,9 @@ export class AgentWorkspaceController {
     @Optional()
     @Inject(AGENT_WORKSPACE_CUSTOMER_AVAILABLE)
     private readonly customerAvailable = false,
+    @Optional()
+    @Inject(AGENT_WORKSPACE_WEBCHAT)
+    private readonly webchat = false,
   ) {}
 
   @Get('history')
@@ -113,9 +122,30 @@ export class AgentWorkspaceController {
     @Query('from') from: unknown,
     @Query('to') to: unknown,
     @Query('disposition') disposition: unknown,
+    @Query('channel') channel: unknown,
   ) {
     return wrapupOperation(request, () =>
-      readAgentHistory(this.database, identity(request), { limit, cursor, from, to, disposition }),
+      readAgentHistory(this.database, identity(request), {
+        limit,
+        cursor,
+        from,
+        to,
+        disposition,
+        channel,
+      }),
+    );
+  }
+
+  /** #1044 the messages of one of the Agent's own finished chats */
+  @Get('history/:interactionId/transcript')
+  @GatewayRoles('agent')
+  @Header('Cache-Control', 'no-store')
+  async historyTranscript(
+    @Req() request: AuthenticatedGatewayRequest,
+    @Param('interactionId') interactionId: string,
+  ) {
+    return wrapupOperation(request, () =>
+      readAgentHistoryTranscript(this.database, identity(request), interactionId),
     );
   }
 
@@ -125,10 +155,19 @@ export class AgentWorkspaceController {
   async historySummary(
     @Req() request: AuthenticatedGatewayRequest,
     @Query('period') period: unknown,
+    @Query('channel') channel: unknown,
   ) {
-    return wrapupOperation(request, () =>
-      readAgentHistorySummary(this.database, identity(request), period),
-    );
+    return wrapupOperation(request, async () => ({
+      ...(await readAgentHistorySummary(
+        this.database,
+        identity(request),
+        period,
+        undefined,
+        channel,
+      )),
+      // #1044 which channels this deployment has; the page shows channel filters only when there are two
+      channels: this.webchat ? ['VOICE', 'WEBCHAT'] : ['VOICE'],
+    }));
   }
 
   @Get('snapshot')
@@ -179,6 +218,8 @@ export class AgentWorkspaceController {
         where: {
           tenantId: actor.tenantId,
           agentId: actor.userId,
+          // #1044 chats are listed by the web chat API; this is the single call in hand
+          channel: 'VOICE',
           state: { in: ['ASSIGNED', 'ACTIVE', 'WRAPUP'] },
         },
         select: {
@@ -202,6 +243,8 @@ export class AgentWorkspaceController {
           // #938 the server supports Not Ready + reason, Offline and the after-work state (#937) — the Workspace opens the state picker
           agentStatusV1: 1,
           ...(this.customerAvailable ? { workCustomerV1: 1 } : {}),
+          // #1044 the deployment has web chat on — the Workspace lists and answers chats
+          ...(this.webchat ? { webchatV1: 1 } : {}),
         },
         agent: {
           id: agent.id,
@@ -305,16 +348,34 @@ export class AgentWorkspaceController {
         });
         if (!credential) throw new ConflictException({ code: 'AGENT_SIP_NOT_READY' });
       }
-      const busy = await transaction.interaction.count({
+      const busy = await transaction.interaction.groupBy({
+        by: ['channel'],
         where: {
           tenantId: actor.tenantId,
           agentId: actor.userId,
-          channel: 'VOICE',
+          channel: { in: ['VOICE', 'WEBCHAT'] },
           state: { in: ['ASSIGNED', 'ACTIVE', 'WRAPUP'] },
         },
+        _count: true,
       });
+      const chatsInHand = busy.some((row) => row.channel === 'WEBCHAT');
+      // #1044 an Agent who signed in again while still holding chats continues them: the state follows the chats
+      if (
+        chatsInHand &&
+        requested.state === 'AVAILABLE' &&
+        !busy.some((row) => row.channel === 'VOICE')
+      ) {
+        await syncAgentWebchatState(transaction, actor.tenantId, actor.userId, { resume: true });
+        const resumed = await transaction.agentStateLog.findFirst({
+          where: { tenantId: actor.tenantId, userId: actor.userId },
+          orderBy: [{ startedAt: 'desc' }, { id: 'desc' }],
+          select: { state: true },
+        });
+        if (resumed && ['RESERVED', 'BUSY', 'ACW'].includes(resumed.state))
+          return { state: resumed.state };
+      }
       // cannot change on their own during work — use the after-work state (PUT after-work) instead
-      if (busy) throw new ConflictException({ code: 'WORK_SESSION_BUSY' });
+      if (busy.length) throw new ConflictException({ code: 'WORK_SESSION_BUSY' });
       if (
         requested.reasonCode &&
         !(await isActiveNotReadyReason(transaction, actor.tenantId, requested.reasonCode))

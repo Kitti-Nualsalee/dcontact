@@ -52,6 +52,61 @@
     "allDispositions": "ทุกผลบันทึก",
     "listTitle": "รายการงาน · {{period}} · {{disposition}} · {{count}} งาน",
     "emptyPeriod": "ไม่มีงาน Voice ที่จบในช่วงเวลานี้",
-    "emptyFiltered": "ไม่มีงานที่ตรงกับผลบันทึกนี้ในช่วงเวลานี้"
-  }
+    "emptyFiltered": "ไม่มีงานที่ตรงกับผลบันทึกนี้ในช่วงเวลานี้",
+    "listTitleNoCount": "รายการงาน · {{period}} · {{channel}} · {{disposition}}",
+    "emptyChannel": "ไม่มีงาน{{channel}}ที่จบในช่วงเวลานี้",
+    "showAllChannels": "ดูทุกช่องทาง",
+    "listTitleChannels": "รายการงาน · {{period}} · {{channel}} · {{disposition}} · {{count}} งาน",
+    "emptyPeriodChannels": "ไม่มีงานที่จบในช่วงเวลานี้"
+  },
+  "channel": "ช่องทาง",
+  "channelFilter": "ช่องทาง",
+  "channels": {
+    "all": "ทุกช่องทาง",
+    "voice": "สาย",
+    "webchat": "แชท"
+  },
+  "chat": {
+    "visitor": "ผู้เยี่ยมชม #{{code}}",
+    "transcript": "บทสนทนา",
+    "transcriptMeta": "อ่านอย่างเดียว · {{count}} ข้อความ",
+    "transcriptFailed": "โหลดบทสนทนาไม่สำเร็จ ผลที่บันทึกด้านขวายังถูกต้อง",
+    "transcriptLoading": "กำลังโหลดบทสนทนา",
+    "transcriptEmpty": "งานนี้ไม่มีข้อความ",
+    "retry": "ลองอีกครั้ง",
+    "customer": "ลูกค้า",
+    "linked": "ผูกลูกค้าแล้ว",
+    "unlinked": "ไม่ได้ผูกลูกค้า",
+    "closedByLabel": "ปิดโดย",
+    "closedBy": {
+      "AGENT": "Agent",
+      "CUSTOMER": "ลูกค้า",
+      "IDLE": "ระบบ (ลูกค้าไม่ตอบ)"
+    },
+    "sender": {
+      "customer": "ผู้เยี่ยมชม",
+      "agent": "เจ้าหน้าที่"
+    },
+    "system": {
+      "AGENT_JOINED": "{{agent}} เข้าร่วมแชท",
+      "AGENT_ENDED": "{{agent}} จบแชท",
+      "CUSTOMER_ENDED": "ผู้เยี่ยมชมจบแชท",
+      "CUSTOMER_LEFT": "ลูกค้าออกจากแชท",
+      "IDLE_TIMEOUT": "ระบบปิดแชทเพราะลูกค้าไม่ตอบ",
+      "unknown": "เหตุการณ์ของระบบ"
+    },
+    "started": "เวลาเริ่ม",
+    "talk": "เวลาสนทนา",
+    "recorded": "เวลาบันทึก",
+    "disposition": "ผลสรุป",
+    "agent": "Agent",
+    "team": "ทีม",
+    "interaction": "รหัสงาน",
+    "result": "ผลที่บันทึก",
+    "heading": "งานแชท",
+    "queue": "คิว"
+  },
+  "readOnlyChannels": "แสดงงานที่ปิดแล้วของคุณ (สายและแชท) อ่านอย่างเดียวและไม่รบกวนจุดรับงาน",
+  "listChannels": "รายการงาน",
+  "emptyChannels": "ยังไม่มีงานที่ปิดแล้ว"
 }

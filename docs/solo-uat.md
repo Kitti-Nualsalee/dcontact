@@ -144,3 +144,12 @@ service `qm` ใน `infra/solo/app/docker-compose.yml` รัน `apps/qm` (`/a
 - realm ที่ import ไปก่อน #977 ไม่มี SMTP ส่วน `render-realm.mjs` ใส่ Mailpit ให้เฉพาะตอน import ครั้งแรก
   realm เดิมต้องให้ operator ตั้ง SMTP (host `mailpit`, port `1025`) ผ่าน Admin API ก่อนเชิญผู้ใช้ผ่าน Console
 
+
+## Web Chat (#1044)
+
+เปิดด้วย `WEBCHAT=on` ใน `solo.env` แล้วรัน `build` และ `app` (migration `20261127170000_webchat_round_one` ถูก apply ในขั้น `app`) รายละเอียดการทำงานอยู่ใน [webchat.md](webchat.md)
+
+- Admin ของ tenant ตั้งค่าที่ Console **การเชื่อมต่อ → ช่องทางลูกค้า → Web Chat**: เลือกคิว เพิ่มโดเมน และเปิดใช้งาน แล้วกด "เปิดหน้าทดลอง" เพื่อคุยในฐานะลูกค้าได้โดยไม่ต้องมีเว็บ
+- widget, หน้าต่างแชท และหน้าทดลองอยู่ใต้ `https://<console host>/api/v1/webchat/` จึงไม่ต้องแก้ nginx หรือ Caddy
+- เว็บจริงที่จะฝังต้องเข้าถึง console host ได้ ผู้ทดสอบที่ map host ในเครื่องตัวเองต้องเปิดเว็บนั้นจากเครื่องเดียวกัน
+- ปิดได้ด้วย `WEBCHAT=off` แล้วรัน `app` ให้ Agent ปิดและบันทึกผลแชทที่ค้างก่อน มิฉะนั้น Agent ที่ถือห้องจะติดสถานะของแชทและไม่ได้รับสายจนเปิดกลับ ([webchat.md](webchat.md#ข้อจำกัดของรอบแรก))

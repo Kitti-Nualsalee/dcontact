@@ -14,6 +14,7 @@
 
 import { resolveQmHumanEvaluation } from './qm-evaluation-config.js';
 import { resolveRecordingSupervisorPlayback } from './recording-playback-config.js';
+import { resolveWebchat } from './webchat-config.js';
 
 export const MAX_PINS = 15;
 
@@ -101,6 +102,21 @@ export const TEAM_RECORDINGS_APP: NavigationAppDefinition = Object.freeze({
   hostApp: 'console',
   path: '/?view=team-recordings',
   roles: ['supervisor'],
+});
+
+/**
+ * #1044 web chat settings — in the menu only for deployments that set `WEBCHAT=on`
+ * the Admin edits and the Supervisor reads; the API reads the role from the DB on every request
+ */
+export const WEBCHAT_SETTINGS_APP: NavigationAppDefinition = Object.freeze({
+  id: 'webchat-settings',
+  area: 'integrations',
+  section: 'channels',
+  group: 'settings',
+  labelKey: 'navigation.apps.webchatSettings',
+  hostApp: 'console',
+  path: '/?view=webchat-settings',
+  roles: ['supervisor', 'admin'],
 });
 
 /**
@@ -423,6 +439,7 @@ const BASE_NAVIGATION_APPS: readonly NavigationAppDefinition[] = Object.freeze([
 export function navigationApps(
   recordingPlayback: boolean,
   qmHumanEvaluation = false,
+  webchat = false,
 ): readonly NavigationAppDefinition[] {
   const apps = [...BASE_NAVIGATION_APPS];
   if (recordingPlayback) {
@@ -430,12 +447,17 @@ export function navigationApps(
     apps.splice(after, 0, TEAM_RECORDINGS_APP);
   }
   if (qmHumanEvaluation) apps.push(...QM_HUMAN_EVALUATION_APPS);
+  if (webchat) {
+    const after = apps.findIndex((app) => app.id === 'dphone-embedding') + 1;
+    apps.splice(after, 0, WEBCHAT_SETTINGS_APP);
+  }
   return Object.freeze(apps);
 }
 
 export const NAVIGATION_APPS: readonly NavigationAppDefinition[] = navigationApps(
   resolveRecordingSupervisorPlayback(process.env),
   resolveQmHumanEvaluation(process.env),
+  resolveWebchat(process.env),
 );
 
 export interface NavigationAreaItemView {

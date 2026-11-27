@@ -38,7 +38,8 @@
       "customerActivity": "Customer activity",
       "teamEvaluations": "Team quality reviews",
       "myQuality": "My quality scores",
-      "qmForms": "Quality forms"
+      "qmForms": "Quality forms",
+      "webchatSettings": "Web Chat"
     },
     "areas": {
       "home": "Home",
@@ -66,7 +67,8 @@
       "live": "Live",
       "embedding": "Embedding",
       "configuration": "Configuration",
-      "customers": "Customers"
+      "customers": "Customers",
+      "channels": "Customer channels"
     },
     "pages": {
       "contactGovernance": {

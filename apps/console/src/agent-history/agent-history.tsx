@@ -10,12 +10,24 @@ import {
   type HistorySummary,
 } from './api.js';
 import {
+  ChannelBadge,
+  ChannelFilter,
+  ChatResultPanel,
+  ChatTranscriptPanel,
+  useChannelLabel,
+  channelOf,
+} from '../chat-history/chat-history.js';
+import { closedByKey } from '../chat-history/transcript.js';
+import { useTranscript } from '../chat-history/use-transcript.js';
+import {
   SUMMARY_PERIODS,
+  channelFrom,
   dispositionCount,
   dispositionFrom,
   filterHref,
   formatTalk,
   periodFrom,
+  type HistoryChannel,
   type SummaryPeriod,
 } from './model.js';
 import './agent-history.css';
@@ -52,12 +64,19 @@ export function AgentHistory(props: Props) {
 
 function HistorySession({ api, onSignIn }: Props) {
   const { t } = useTranslation('history');
+  const channelName = useChannelLabel();
+  // #1044 with web chat off the page looks exactly as before: no channel filter, column or wording
+  const [channelsOn, setChannelsOn] = useState(false);
+  const ck = <K extends string>(key: K) => (channelsOn ? (`${key}Channels` as K) : key);
   const { locale } = useLocale();
   const ready = useShellTokens();
   const initial = new URL(window.location.href).searchParams;
   const [period, setPeriod] = useState<SummaryPeriod>(() => periodFrom(initial.get('period')));
   const [disposition, setDisposition] = useState<string | null | undefined>(() =>
     dispositionFrom(initial.get('disposition')),
+  );
+  const [channel, setChannel] = useState<HistoryChannel | undefined>(() =>
+    channelFrom(initial.get('channel')),
   );
   const [summaryState, setSummaryState] = useState<SummaryState>({ phase: 'loading' });
   const [items, setItems] = useState<HistoryItem[]>([]);
@@ -94,9 +113,12 @@ function HistorySession({ api, onSignIn }: Props) {
       summary: current.phase === 'error' ? undefined : current.summary,
     }));
     void api
-      .summary(period)
+      .summary(period, channel)
       .then((result) => {
-        if (active) setSummaryState({ phase: 'ready', summary: result });
+        if (active) {
+          setSummaryState({ phase: 'ready', summary: result });
+          if (result.channels?.includes('WEBCHAT')) setChannelsOn(true);
+        }
       })
       .catch((failure: unknown) => {
         if (active) setSummaryState({ phase: 'error', status: statusOf(failure) });
@@ -104,7 +126,7 @@ function HistorySession({ api, onSignIn }: Props) {
     return () => {
       active = false;
     };
-  }, [api, selected, period, revision]);
+  }, [api, selected, period, channel, revision]);
 
   useEffect(() => {
     if (!selected && summaryState.phase !== 'ready') {
@@ -119,7 +141,7 @@ function HistorySession({ api, onSignIn }: Props) {
     if (!selected && !pageCursor) setItems([]);
     const request = selected
       ? api.result(selected)
-      : api.list(pageCursor, { from: windowFrom, to: windowTo, disposition });
+      : api.list(pageCursor, { from: windowFrom, to: windowTo, disposition, channel });
     void request
       .then((result) => {
         if (!active) return;
@@ -139,7 +161,25 @@ function HistorySession({ api, onSignIn }: Props) {
     };
     // summaryState.phase changes with the revision/period — do not include the whole object, to avoid reloading
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [api, selected, pageCursor, revision, windowFrom, windowTo, disposition, summaryState.phase]);
+  }, [
+    api,
+    selected,
+    pageCursor,
+    revision,
+    windowFrom,
+    windowTo,
+    disposition,
+    channel,
+    summaryState.phase,
+  ]);
+
+  // a call has no conversation; a chat (or an item whose channel is not known yet, e.g. a pasted link) loads it
+  const selectedItem = selected ? items.find((item) => item.interactionId === selected) : undefined;
+  const { state: transcriptState, retry: retryTranscript } = useTranscript(
+    api.transcript,
+    selected,
+    !!selected && (!selectedItem || channelOf(selectedItem) === 'WEBCHAT'),
+  );
 
   function open(interactionId?: string) {
     const url = new URL(window.location.href);
@@ -149,14 +189,21 @@ function HistorySession({ api, onSignIn }: Props) {
     setSelected(interactionId ?? null);
     setPageCursor(undefined);
   }
-  function applyFilter(nextPeriod: SummaryPeriod, nextDisposition: string | null | undefined) {
+  function applyFilter(
+    nextPeriod: SummaryPeriod,
+    nextDisposition: string | null | undefined,
+    // wrapped so that "every channel" (`undefined`) can be asked for, and leaving it out keeps the current one
+    change?: { channel: HistoryChannel | undefined },
+  ) {
+    const nextChannel = change ? change.channel : channel;
     window.history.replaceState(
       null,
       '',
-      filterHref(window.location.href, nextPeriod, nextDisposition),
+      filterHref(window.location.href, nextPeriod, nextDisposition, nextChannel),
     );
     setPeriod(nextPeriod);
     setDisposition(nextDisposition);
+    setChannel(nextChannel);
     setPageCursor(undefined);
   }
   if (!ready) return null;
@@ -183,13 +230,18 @@ function HistorySession({ api, onSignIn }: Props) {
     const lastText = dates.format(last);
     return fromText === lastText ? fromText : `${fromText} – ${lastText}`;
   })();
+  const transcript = transcriptState.phase === 'ready' ? transcriptState.transcript : undefined;
+  const closedBy = transcript ? closedByKey(transcript.endReason) : null;
+  const detailChannel: HistoryChannel | undefined = selectedItem
+    ? channelOf(selectedItem)
+    : transcript?.channel;
   const filterCount = shownSummary
     ? dispositionCount(shownSummary.byDisposition, shownSummary.completed, disposition)
     : undefined;
   return (
     <main className="ah-root">
       <h1>{t('title')}</h1>
-      <p>{t('readOnly')}</p>
+      <p>{t(ck('readOnly'))}</p>
       {selected ? (
         <Button onPress={() => open()}>{t('back')}</Button>
       ) : (
@@ -208,6 +260,12 @@ function HistorySession({ api, onSignIn }: Props) {
                 </button>
               ))}
             </div>
+            {channelsOn ? (
+              <ChannelFilter
+                value={channel}
+                onChange={(next) => applyFilter(period, disposition, { channel: next })}
+              />
+            ) : null}
             <Button
               isDisabled={loading || summaryState.phase === 'loading'}
               onPress={() => {
@@ -300,8 +358,9 @@ function HistorySession({ api, onSignIn }: Props) {
       ) : null}
       {!selected && shownSummary && !failure ? (
         <h2 className="ah-list-title">
-          {t('summary.listTitle', {
+          {t(ck('summary.listTitle'), {
             period: periodLabel(period),
+            channel: channelName(channel),
             disposition:
               disposition === undefined ? t('summary.allDispositions') : groupLabel(disposition),
             count: filterCount ?? 0,
@@ -309,19 +368,29 @@ function HistorySession({ api, onSignIn }: Props) {
         </h2>
       ) : null}
       {!selected && !failure && !loading && summary && items.length === 0 ? (
-        <p>
-          {disposition !== undefined
-            ? t('summary.emptyFiltered')
-            : period === 'all'
-              ? t('empty')
-              : t('summary.emptyPeriod')}
-        </p>
+        <div className="ch-empty">
+          <p>
+            {disposition !== undefined
+              ? t('summary.emptyFiltered')
+              : channel && channelsOn
+                ? t('summary.emptyChannel', { channel: channelName(channel) })
+                : period === 'all'
+                  ? t(ck('empty'))
+                  : t(ck('summary.emptyPeriod'))}
+          </p>
+          {channel && channelsOn ? (
+            <Button onPress={() => applyFilter(period, disposition, { channel: undefined })}>
+              {t('summary.showAllChannels')}
+            </Button>
+          ) : null}
+        </div>
       ) : null}
       {!selected && items.length > 0 ? (
         <div className="ah-scroll">
-          <Table aria-label={t('list')}>
+          <Table aria-label={t(ck('list'))}>
             <TableHeader>
               <Column isRowHeader>{t('interaction')}</Column>
+              {channelsOn ? <Column>{t('channel')}</Column> : null}
               <Column>{t('started')}</Column>
               <Column>{t('ended')}</Column>
               <Column>{t('disposition')}</Column>
@@ -333,6 +402,11 @@ function HistorySession({ api, onSignIn }: Props) {
               {items.map((item) => (
                 <Row key={item.interactionId} id={item.interactionId}>
                   <Cell>{item.interactionId}</Cell>
+                  {channelsOn ? (
+                    <Cell>
+                      <ChannelBadge channel={channelOf(item)} />
+                    </Cell>
+                  ) : null}
                   <Cell>{format(item.startedAt)}</Cell>
                   <Cell>{format(item.endedAt)}</Cell>
                   <Cell>{dispositionLabel(item.disposition)}</Cell>
@@ -357,7 +431,54 @@ function HistorySession({ api, onSignIn }: Props) {
           {t('more')}
         </Button>
       ) : null}
-      {selected && detail && !error ? (
+      {selected && detail && !error && detailChannel === 'WEBCHAT' ? (
+        <article className="ch-detail">
+          <div className="ch-head">
+            {/* the visitor's label comes with the conversation, the same one the Agent saw in Workspace */}
+            <h2>
+              {transcript?.visitorLabel
+                ? t('chat.visitor', { code: transcript.visitorLabel })
+                : t('chat.heading')}
+            </h2>
+            <ChannelBadge channel="WEBCHAT" />
+          </div>
+          <p className="ch-sub">
+            {transcript?.queueName ? `${t('chat.queue')}: ${transcript.queueName} · ` : ''}
+            {detail.interactionId}
+          </p>
+          <div className="ch-grid">
+            <ChatTranscriptPanel
+              state={transcriptState}
+              onRetry={retryTranscript}
+              agentName={t('chat.sender.agent')}
+            />
+            <ChatResultPanel
+              rows={[
+                { label: t('disposition'), value: dispositionLabel(detail.disposition) },
+                ...(transcript
+                  ? [
+                      {
+                        label: t('chat.customer'),
+                        value: transcript.customerLinked ? t('chat.linked') : t('chat.unlinked'),
+                      },
+                    ]
+                  : []),
+                ...(closedBy
+                  ? [{ label: t('chat.closedByLabel'), value: t(`chat.closedBy.${closedBy}`) }]
+                  : []),
+                ...(selectedItem
+                  ? [{ label: t('started'), value: format(selectedItem.startedAt) }]
+                  : []),
+                { label: t('recorded'), value: format(detail.recordedAt) },
+              ]}
+              note={detail.note}
+              noteLabel={t('note')}
+              noNote={t('noNote')}
+            />
+          </div>
+        </article>
+      ) : null}
+      {selected && detail && !error && detailChannel !== 'WEBCHAT' ? (
         <article>
           <h2>{t('detail')}</h2>
           <p>{detail.interactionId}</p>

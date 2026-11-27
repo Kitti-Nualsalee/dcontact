@@ -6,6 +6,7 @@ import {
   Header,
   Inject,
   NotFoundException,
+  Optional,
   Param,
   Query,
   Req,
@@ -22,7 +23,10 @@ import {
   whereSql,
   workFilterFrom,
   workFilterSql,
+  channelFrom,
+  type WorkChannel,
 } from './agent-work-metrics.js';
+import { readWorkTranscript } from './work-transcript.js';
 
 /**
  * #986 team history and work summary (the owner decided #859 on 22 Nov 2026)
@@ -35,6 +39,8 @@ import {
  * - counts work with the same definition as my work (#964, `agent-work-metrics.ts`)
  */
 export const TEAM_HISTORY_DATABASE = Symbol('TEAM_HISTORY_DATABASE');
+/** #1044 the deployment has web chat on; the history page then shows channels */
+export const TEAM_HISTORY_WEBCHAT = Symbol('TEAM_HISTORY_WEBCHAT');
 
 type Actor = { tenantId: string; userId: string };
 /** the teams the requester can view: `all` = an Admin sees every team, `team` = a single team */
@@ -132,6 +138,7 @@ export interface TeamHistoryQuery {
   from?: unknown;
   to?: unknown;
   disposition?: unknown;
+  channel?: unknown;
 }
 
 /** the teams the requester can view — a Supervisor gets one team, an Admin gets every team of the tenant */
@@ -178,6 +185,7 @@ export async function readTeamHistory(
     const rows = await tx.$queryRaw<
       {
         interaction_id: string;
+        channel: WorkChannel;
         agent_id: string;
         agent_name: string | null;
         team_id: string;
@@ -201,6 +209,7 @@ export async function readTeamHistory(
     `);
     const items = rows.slice(0, limit).map((row) => ({
       interactionId: row.interaction_id,
+      channel: row.channel,
       agent: { id: row.agent_id, displayName: row.agent_name },
       team: { id: row.team_id, name: row.team_name },
       startedAt: row.started_at.toISOString(),
@@ -234,10 +243,12 @@ export async function readTeamHistory(
 export async function readTeamHistorySummary(
   database: PrismaClient,
   actor: Actor,
-  query: { teamId?: unknown; period?: unknown },
+  query: { teamId?: unknown; period?: unknown; channel?: unknown },
   now: Date = new Date(),
 ) {
   const period = summaryPeriodFrom(query.period);
+  // #1044 the same channel filter as the list, so the numbers above the table match its rows
+  const channel = channelFrom(query.channel);
   const requestedTeam = uuidFrom(query.teamId, 'INVALID_TEAM');
   return withTenantDatabaseTransaction(database, actor.tenantId, async (tx) => {
     const access = await accessOf(tx, actor);
@@ -247,7 +258,7 @@ export async function readTeamHistorySummary(
       select: { timezone: true },
     });
     const timeZone = resolveTimeZone(settings?.timezone);
-    const window = periodWindow(period, now, timeZone);
+    const window = { ...periodWindow(period, now, timeZone), ...(channel ? { channel } : {}) };
     const rows = await tx.$queryRaw<
       {
         agent_id: string;
@@ -337,6 +348,7 @@ export async function readTeamHistoryItem(
     const rows = await tx.$queryRaw<
       {
         interaction_id: string;
+        channel: WorkChannel;
         agent_id: string;
         agent_name: string | null;
         team_id: string;
@@ -364,6 +376,7 @@ export async function readTeamHistoryItem(
     if (!row) throw notFound();
     return {
       interactionId: row.interaction_id,
+      channel: row.channel,
       agent: { id: row.agent_id, displayName: row.agent_name },
       team: { id: row.team_id, name: row.team_name },
       startedAt: row.started_at.toISOString(),
@@ -378,6 +391,27 @@ export async function readTeamHistoryItem(
   });
 }
 
+/** #1044 the messages of a finished chat within the requester's team scope; a call has none */
+export async function readTeamHistoryTranscript(
+  database: PrismaClient,
+  actor: Actor,
+  interactionValue: unknown,
+) {
+  const interactionId = uuidFrom(interactionValue, 'INVALID_INTERACTION');
+  if (!interactionId) throw notFound();
+  return withTenantDatabaseTransaction(database, actor.tenantId, async (tx) => {
+    const access = await accessOf(tx, actor);
+    const teamId = access.kind === 'supervisor' ? access.teamId : null;
+    const rows = await tx.$queryRaw<{ channel: WorkChannel }[]>(Prisma.sql`
+      WITH work AS (${completedScopeWorkSql(actor.tenantId, { teamId })})
+      SELECT channel FROM work WHERE interaction_id = ${interactionId}::uuid
+    `);
+    // another team's work, another tenant's and a missing item all answer the same
+    if (!rows[0]) throw notFound();
+    return readWorkTranscript(tx, actor.tenantId, interactionId, rows[0].channel);
+  });
+}
+
 function actorOf(request: AuthenticatedGatewayRequest): Actor {
   const identity = request.gatewayIdentity;
   if (!identity) throw denied();
@@ -387,7 +421,10 @@ function actorOf(request: AuthenticatedGatewayRequest): Actor {
 @Controller('api/v1/team-history')
 @GatewayRoles('admin', 'supervisor')
 export class TeamHistoryController {
-  constructor(@Inject(TEAM_HISTORY_DATABASE) private readonly database: PrismaClient) {}
+  constructor(
+    @Inject(TEAM_HISTORY_DATABASE) private readonly database: PrismaClient,
+    @Optional() @Inject(TEAM_HISTORY_WEBCHAT) private readonly webchat = false,
+  ) {}
 
   @Get('teams')
   @Header('Cache-Control', 'no-store')
@@ -406,21 +443,36 @@ export class TeamHistoryController {
       from: query.from,
       to: query.to,
       disposition: query.disposition,
+      channel: query.channel,
     });
   }
 
   @Get('summary')
   @Header('Cache-Control', 'no-store')
-  summary(@Req() request: AuthenticatedGatewayRequest, @Query() query: Record<string, unknown>) {
-    return readTeamHistorySummary(this.database, actorOf(request), {
-      teamId: query.teamId,
-      period: query.period,
-    });
+  async summary(
+    @Req() request: AuthenticatedGatewayRequest,
+    @Query() query: Record<string, unknown>,
+  ) {
+    return {
+      ...(await readTeamHistorySummary(this.database, actorOf(request), {
+        teamId: query.teamId,
+        period: query.period,
+        channel: query.channel,
+      })),
+      // #1044 which channels this deployment has; the page shows channel filters only when there are two
+      channels: this.webchat ? ['VOICE', 'WEBCHAT'] : ['VOICE'],
+    };
   }
 
   @Get('items/:interactionId')
   @Header('Cache-Control', 'no-store')
   item(@Req() request: AuthenticatedGatewayRequest, @Param('interactionId') id: string) {
     return readTeamHistoryItem(this.database, actorOf(request), id);
+  }
+
+  @Get('items/:interactionId/transcript')
+  @Header('Cache-Control', 'no-store')
+  transcript(@Req() request: AuthenticatedGatewayRequest, @Param('interactionId') id: string) {
+    return readTeamHistoryTranscript(this.database, actorOf(request), id);
   }
 }

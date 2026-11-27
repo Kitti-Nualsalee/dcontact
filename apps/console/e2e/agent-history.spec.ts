@@ -210,6 +210,7 @@ test('summary by period: pressing a disposition makes the list use the same peri
     page.getByRole('heading', {
       name: th('history:summary.listTitle', {
         period: th('history:summary.period.7d'),
+        channel: th('history:channels.all'),
         disposition: th('history:summary.allDispositions'),
         count: 3,
       }),
@@ -228,6 +229,7 @@ test('summary by period: pressing a disposition makes the list use the same peri
     page.getByRole('heading', {
       name: th('history:summary.listTitle', {
         period: th('history:summary.period.7d'),
+        channel: th('history:channels.all'),
         disposition: th('history:followUp'),
         count: 1,
       }),
@@ -250,6 +252,7 @@ test('summary by period: pressing a disposition makes the list use the same peri
     page.getByRole('heading', {
       name: th('history:summary.listTitle', {
         period: th('history:summary.period.7d'),
+        channel: th('history:channels.all'),
         disposition: th('history:summary.allDispositions'),
         count: 3,
       }),
@@ -313,4 +316,154 @@ test('legacy detail says there is no note and reference time, and does not creat
   await expect(page.getByText(th('history:legacy'), { exact: true })).toBeVisible();
   await expect(page.getByText(th('history:noNote'), { exact: true })).toBeVisible();
   await expect(page.getByText(th('history:LEGACY_EVENT'), { exact: true })).toBeVisible();
+});
+
+/** #1044: a chat shows next to a call, can be filtered, and opens as a read-only conversation */
+const chatId = '7a33ac96-d87d-4ca4-ab75-f27e40e943c0';
+const chatItem = { ...item, interactionId: chatId, channel: 'WEBCHAT' };
+const callItem = { ...item, channel: 'VOICE' };
+const chatTranscript = (change: Record<string, unknown> = {}) => ({
+  interactionId: chatId,
+  channel: 'WEBCHAT',
+  endReason: 'IDLE_TIMEOUT',
+  customerLinked: false,
+  visitorLabel: 'A1B2',
+  queueName: 'Online Sales',
+  messages: [
+    { id: 'm1', at: '2026-11-27T03:29:00.000Z', from: 'visitor', text: 'My order has not arrived' },
+    { id: 'm2', at: '2026-11-27T03:31:00.000Z', from: 'system', event: 'AGENT_JOINED' },
+    { id: 'm3', at: '2026-11-27T03:31:30.000Z', from: 'agent', text: 'Let me check that for you' },
+    { id: 'm4', at: '2026-11-27T03:39:00.000Z', from: 'system', event: 'IDLE_TIMEOUT' },
+  ],
+  ...change,
+});
+
+async function chatHarness(page: import('@playwright/test').Page) {
+  const lists: URLSearchParams[] = [];
+  let transcriptFails = true;
+  await page.route('**/api/v1/me/navigation**', (route) => route.fulfill({ status: 404 }));
+  await page.route('**/api/v1/workspace/agent/history**', (route) => {
+    const url = new URL(route.request().url());
+    if (isSummary(url.href))
+      return route.fulfill({
+        json: {
+          ...emptySummary,
+          completed: 2,
+          byDisposition: [{ disposition: 'CUSTOMER_ASSISTED', count: 2 }],
+          channels: ['VOICE', 'WEBCHAT'],
+        },
+      });
+    if (url.pathname.endsWith('/transcript'))
+      return transcriptFails
+        ? route.fulfill({ status: 503, json: { code: 'UNAVAILABLE' } })
+        : route.fulfill({ json: chatTranscript() });
+    lists.push(url.searchParams);
+    const channel = url.searchParams.get('channel');
+    const all = [chatItem, callItem];
+    return route.fulfill({
+      json: { items: all.filter((row) => !channel || row.channel === channel), nextCursor: null },
+    });
+  });
+  await page.route('**/wrapup-result', (route) =>
+    route.fulfill({ json: { ...chatItem, policyVersion: 1, state: 'COMPLETED', note: NOTE } }),
+  );
+  return { lists, allowTranscript: () => (transcriptFails = false) };
+}
+
+test('#1044 channel column and filter: the choice is sent to the API and kept in the URL', async ({
+  page,
+}) => {
+  const { lists } = await chatHarness(page);
+  await page.goto('/?view=agent-history&tenant=demo');
+  const table = page.getByRole('grid', { name: th('history:listChannels') });
+  await expect(table.getByRole('columnheader', { name: th('history:channel') })).toBeVisible();
+  await expect(table.getByText(th('history:channels.webchat'), { exact: true })).toBeVisible();
+  await expect(table.getByText(th('history:channels.voice'), { exact: true })).toBeVisible();
+  expect(lists.at(-1)?.has('channel')).toBe(false);
+
+  const group = page.getByRole('group', { name: th('history:channelFilter') });
+  await group.getByRole('button', { name: th('history:channels.webchat'), exact: true }).click();
+  await expect(group.getByRole('button', { name: th('history:channels.webchat') })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(table.getByText(th('history:channels.voice'), { exact: true })).toHaveCount(0);
+  expect(lists.at(-1)?.get('channel')).toBe('WEBCHAT');
+  expect(new URL(page.url()).searchParams.get('channel')).toBe('WEBCHAT');
+  await expect(
+    page.getByRole('heading', {
+      name: th('history:summary.listTitleChannels', {
+        period: th('history:summary.period.7d'),
+        channel: th('history:channels.webchat'),
+        disposition: th('history:summary.allDispositions'),
+        count: 2,
+      }),
+    }),
+  ).toBeVisible();
+
+  await page.reload();
+  await expect(group.getByRole('button', { name: th('history:channels.webchat') })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  expect(lists.at(-1)?.get('channel')).toBe('WEBCHAT');
+  await group.getByRole('button', { name: th('history:channels.all') }).click();
+  expect(new URL(page.url()).searchParams.has('channel')).toBe(false);
+});
+
+test('#1044 a chat opens as a read-only conversation; when it fails the outcome stays and retry loads it', async ({
+  page,
+}) => {
+  const { allowTranscript } = await chatHarness(page);
+  await page.goto('/?view=agent-history&tenant=demo');
+  await page
+    .getByRole('button', { name: th('history:openItem', { interactionId: chatId }), exact: true })
+    .click();
+  // partial: the conversation did not load, the recorded outcome beside it is still shown
+  await expect(page.getByRole('alert')).toContainText(th('history:chat.transcriptFailed'));
+  await expect(page.getByText(NOTE, { exact: true })).toBeVisible();
+  allowTranscript();
+  await page.getByRole('button', { name: th('history:chat.retry') }).click();
+  const log = page.getByRole('log', { name: th('history:chat.transcript') });
+  await expect(log).toContainText('My order has not arrived');
+  await expect(log).toContainText(th('history:chat.sender.customer'));
+  await expect(log).toContainText('Let me check that for you');
+  await expect(log).toContainText(th('history:chat.system.IDLE_TIMEOUT'));
+  await expect(page.getByText(th('history:chat.transcriptMeta', { count: 2 }))).toBeVisible();
+  await expect(page.getByText(th('history:chat.unlinked'), { exact: true })).toBeVisible();
+  await expect(page.getByText(th('history:chat.closedBy.IDLE'), { exact: true })).toBeVisible();
+  await expect(page.getByRole('textbox')).toHaveCount(0);
+  // the visitor's label and the queue come with the conversation, the same label the Agent saw in Workspace
+  await expect(
+    page.getByRole('heading', { name: th('history:chat.visitor', { code: 'A1B2' }) }),
+  ).toBeVisible();
+  await expect(page.getByText(/Online Sales/)).toBeVisible();
+  // a link pasted straight to the chat (no list loaded) still finds out it is a chat from the conversation
+  await page.reload();
+  await expect(page.getByRole('log', { name: th('history:chat.transcript') })).toContainText(
+    'My order has not arrived',
+  );
+});
+
+test('#1044 with web chat off my history looks as before: no channel filter, column or wording', async ({
+  page,
+}) => {
+  await page.route('**/api/v1/me/navigation**', (route) => route.fulfill({ status: 404 }));
+  await page.route('**/api/v1/workspace/agent/history**', (route) =>
+    isSummary(route.request().url())
+      ? route.fulfill({
+          json: {
+            ...emptySummary,
+            completed: 1,
+            byDisposition: [{ disposition: 'CUSTOMER_ASSISTED', count: 1 }],
+            channels: ['VOICE'],
+          },
+        })
+      : route.fulfill({ json: { items: [callItem], nextCursor: null } }),
+  );
+  await page.goto('/?view=agent-history&tenant=demo');
+  await expect(page.getByText(th('history:readOnly'), { exact: true })).toBeVisible();
+  await expect(page.getByRole('grid')).toBeVisible();
+  await expect(page.getByRole('group', { name: th('history:channelFilter') })).toHaveCount(0);
+  await expect(page.getByRole('columnheader', { name: th('history:channel') })).toHaveCount(0);
 });

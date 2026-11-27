@@ -38,7 +38,8 @@
       "customerActivity": "กิจกรรมลูกค้า",
       "teamEvaluations": "ประเมินคุณภาพสายของทีม",
       "myQuality": "คะแนนคุณภาพของฉัน",
-      "qmForms": "ฟอร์มประเมินคุณภาพ"
+      "qmForms": "ฟอร์มประเมินคุณภาพ",
+      "webchatSettings": "Web Chat"
     },
     "areas": {
       "home": "หน้าแรก",
@@ -66,7 +67,8 @@
       "live": "งานสด",
       "embedding": "ฝังระบบ",
       "configuration": "การตั้งค่า",
-      "customers": "ลูกค้า"
+      "customers": "ลูกค้า",
+      "channels": "ช่องทางลูกค้า"
     },
     "pages": {
       "contactGovernance": {
