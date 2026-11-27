@@ -177,6 +177,7 @@ import {
   AGENT_WORKSPACE_DATABASE,
   AGENT_WORKSPACE_CUSTOMER_AVAILABLE,
   AGENT_WORKSPACE_WEBCHAT,
+  AGENT_WORKSPACE_CALLBACKS,
 } from './agent-workspace-api.js';
 import { AgentCasesController, AGENT_CASES_DATABASE } from './agent-cases-api.js';
 import {
@@ -720,6 +721,7 @@ class WorkspaceSessionController {
     { provide: AGENT_CALLBACKS_DATABASE, useValue: prisma },
     { provide: AGENT_CALLBACKS_GOVERNANCE, useValue: contactGovernance },
     { provide: AGENT_WORKSPACE_WEBCHAT, useValue: chatChannels },
+    { provide: AGENT_WORKSPACE_CALLBACKS, useValue: agentCallbacksEnabled },
     { provide: TEAM_HISTORY_WEBCHAT, useValue: chatChannels },
     { provide: LINE_CHAT_SERVICE, useValue: lineChat },
     {
