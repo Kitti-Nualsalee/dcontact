@@ -7,3 +7,4 @@ export type {
   InboundVoiceRouterDependencies,
   InboundVoiceRoutingResult,
 } from './inbound-voice-router.js';
+export * from './webchat-routing.js';
