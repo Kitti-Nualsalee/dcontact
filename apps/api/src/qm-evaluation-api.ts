@@ -590,6 +590,84 @@ export class QmEvaluationController {
     });
   }
 
+  /**
+   * The call transcript the Supervisor reads beside the evaluation form.
+   * Same gate as the evaluation itself (team at answer time, COMPLETED, not self) and every read
+   * that returns text is audited as TRANSCRIPT_ACCESSED. The transcript stays readable after its
+   * recording is deleted by retention (ADR-010 item 4: a transcript outlives the audio).
+   */
+  @Get('interactions/:interactionId/transcript')
+  @GatewayRoles('supervisor')
+  @Header('Cache-Control', 'no-store')
+  async getTranscript(
+    @Req() request: AuthenticatedGatewayRequest,
+    @Param('interactionId') id: string,
+  ) {
+    const actor = this.actor(request);
+    const interactionId = uuid(id);
+    return this.transaction(actor, async (tx) => {
+      await this.authorizeInteraction(tx, actor, interactionId);
+      const transcript = await tx.qmTranscript.findFirst({
+        where: { tenantId: actor.tenantId, interactionId },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          language: true,
+          providerId: true,
+          modelId: true,
+          createdAt: true,
+          segments: {
+            orderBy: [{ startMs: 'asc' }, { endMs: 'asc' }],
+            select: { id: true, speaker: true, startMs: true, endMs: true, text: true },
+          },
+        },
+      });
+      if (!transcript) {
+        const job = await tx.qmTranscriptionJob.findFirst({
+          where: { tenantId: actor.tenantId, interactionId },
+          select: { status: true, failureCode: true },
+        });
+        return {
+          status: !job
+            ? ('NOT_REQUESTED' as const)
+            : job.status === 'FAILED'
+              ? ('FAILED' as const)
+              : ('PROCESSING' as const),
+          failureCode: job?.status === 'FAILED' ? (job.failureCode ?? null) : null,
+          transcript: null,
+        };
+      }
+      await tx.qmAuditEvent.create({
+        data: {
+          tenantId: actor.tenantId,
+          actorUserId: actor.userId,
+          action: 'TRANSCRIPT_ACCESSED',
+          resourceType: 'QM_TRANSCRIPT',
+          resourceId: transcript.id,
+          details: { via: 'HUMAN_EVALUATION', interactionId },
+        },
+      });
+      return {
+        status: 'READY' as const,
+        failureCode: null,
+        transcript: {
+          transcriptId: transcript.id,
+          language: transcript.language,
+          providerId: transcript.providerId,
+          modelId: transcript.modelId,
+          createdAt: transcript.createdAt.toISOString(),
+          segments: transcript.segments.map((segment) => ({
+            segmentId: segment.id,
+            speaker: segment.speaker,
+            startMs: segment.startMs,
+            endMs: segment.endMs,
+            text: segment.text,
+          })),
+        },
+      };
+    });
+  }
+
   /** create or edit a draft evaluation — answers may be incomplete, the score is computed on publish */
   @Put('interactions/:interactionId/human-evaluation')
   @GatewayRoles('supervisor')

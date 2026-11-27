@@ -211,6 +211,10 @@ async function fixture(t: TestContext, enabled: boolean) {
         await tx.commandReceipt.deleteMany({ where: { tenantId: tenant } });
         await tx.qmAuditEvent.deleteMany({ where: { tenantId: tenant } });
         await tx.qmEvaluation.deleteMany({ where: { tenantId: tenant } });
+        await tx.qmTranscriptSegment.deleteMany({ where: { tenantId: tenant } });
+        await tx.qmTranscript.deleteMany({ where: { tenantId: tenant } });
+        await tx.qmTranscriptionJob.deleteMany({ where: { tenantId: tenant } });
+        await tx.recording.deleteMany({ where: { tenantId: tenant } });
         await tx.qmFormVersion.deleteMany({ where: { tenantId: tenant } });
         await tx.qmForm.deleteMany({ where: { tenantId: tenant } });
         await tx.voiceInteractionHandlingAttribution.deleteMany({ where: { tenantId: tenant } });
@@ -285,6 +289,7 @@ test('the switch is off by default: every route returns 403 FEATURE_DISABLED', a
     [f.tokens.admin, '/forms'],
     [f.tokens.supervisorA, '/team-interactions'],
     [f.tokens.agentA, '/my-evaluations'],
+    [f.tokens.supervisorA, `/interactions/${randomUUID()}/transcript`],
   ] as const) {
     const response = await f.http(bearer, 'GET', path);
     assert.equal(response.status, 403);
@@ -870,4 +875,125 @@ test('an existing draft can continue on a replaced form version, but a new draft
   );
   assert.equal(published.status, 200);
   assert.equal(published.json.evaluation.score.finalScore, 100);
+});
+
+test('a Supervisor reads the transcript of a team call beside the form; every read of text is audited', async (t) => {
+  const f = await fixture(t, true);
+  const teamCall = await f.call({
+    agentId: f.ids.agentA,
+    team: f.ids.teamA,
+    acceptedAt: '2026-11-20T03:00:00.000Z',
+  });
+  const path = `/interactions/${teamCall}/transcript`;
+  const read = () => f.http(f.tokens.supervisorA, 'GET', path);
+  const accessAudits = () =>
+    owner.qmAuditEvent.findMany({
+      where: { tenantId: f.tenantId, action: 'TRANSCRIPT_ACCESSED' },
+    });
+
+  assert.deepEqual((await read()).json, {
+    status: 'NOT_REQUESTED',
+    failureCode: null,
+    transcript: null,
+  });
+
+  const recording = await owner.recording.create({
+    data: {
+      tenantId: f.tenantId,
+      interactionId: teamCall,
+      storageKey: `recordings/${teamCall}.wav`,
+      telephonyPath: `/recordings/${teamCall}.wav`,
+      startedAt: new Date('2026-11-20T03:00:01.000Z'),
+      endedAt: new Date('2026-11-20T03:01:00.000Z'),
+    },
+  });
+  const job = await owner.qmTranscriptionJob.create({
+    data: {
+      tenantId: f.tenantId,
+      interactionId: teamCall,
+      recordingId: recording.id,
+      trigger: 'AUTOMATIC',
+      languageHint: 'th-TH',
+      maxAttempts: 3,
+    },
+  });
+  assert.equal((await read()).json.status, 'PROCESSING');
+  await owner.qmTranscriptionJob.update({
+    where: { id: job.id },
+    data: { status: 'FAILED', failureCode: 'PROVIDER_TIMEOUT' },
+  });
+  assert.deepEqual((await read()).json, {
+    status: 'FAILED',
+    failureCode: 'PROVIDER_TIMEOUT',
+    transcript: null,
+  });
+  assert.equal((await accessAudits()).length, 0);
+
+  await owner.qmTranscriptionJob.update({ where: { id: job.id }, data: { status: 'READY' } });
+  const transcript = await owner.qmTranscript.create({
+    data: {
+      tenantId: f.tenantId,
+      interactionId: teamCall,
+      recordingId: recording.id,
+      jobId: job.id,
+      providerId: 'test-asr',
+      modelId: 'test-model',
+      language: 'th-TH',
+      confidenceAvg: 0.9,
+      baseline: {},
+    },
+  });
+  // inserted out of order: the API returns them by time
+  await owner.qmTranscriptSegment.createMany({
+    data: [
+      { speaker: 'CONTACT' as const, startMs: 2500, endMs: 4000, text: 'second line' },
+      { speaker: 'AGENT' as const, startMs: 500, endMs: 2000, text: 'first line' },
+    ].map((segment) => ({ ...segment, tenantId: f.tenantId, transcriptId: transcript.id })),
+  });
+  const ready = await read();
+  assert.equal(ready.status, 200, JSON.stringify(ready.json));
+  assert.equal(ready.json.status, 'READY');
+  assert.equal(ready.json.transcript.transcriptId, transcript.id);
+  assert.equal(ready.json.transcript.language, 'th-TH');
+  assert.deepEqual(
+    ready.json.transcript.segments.map((segment: Json) => [
+      segment.speaker,
+      segment.startMs,
+      segment.endMs,
+      segment.text,
+    ]),
+    [
+      ['AGENT', 500, 2000, 'first line'],
+      ['CONTACT', 2500, 4000, 'second line'],
+    ],
+  );
+  const audits = await accessAudits();
+  assert.equal(audits.length, 1);
+  assert.equal(audits[0]!.actorUserId, f.ids.supervisorA);
+  assert.equal(audits[0]!.resourceId, transcript.id);
+  assert.deepEqual(audits[0]!.details, { via: 'HUMAN_EVALUATION', interactionId: teamCall });
+
+  // the same gate as the evaluation: another team, another tenant, the Agent role and an unfinished call
+  assert.equal((await f.http(f.tokens.supervisorB, 'GET', path)).status, 404);
+  assert.equal((await f.http(f.tokens.foreignSupervisor, 'GET', path)).status, 404);
+  assert.equal((await f.http(f.tokens.agentA, 'GET', path)).status, 403);
+  assert.equal((await f.http(f.tokens.admin, 'GET', path)).status, 403);
+  const wrapUp = await f.call({
+    agentId: f.ids.agentA,
+    team: f.ids.teamA,
+    state: 'WRAPUP',
+    acceptedAt: '2026-11-20T04:00:00.000Z',
+  });
+  assert.equal(
+    (await f.http(f.tokens.supervisorA, 'GET', `/interactions/${wrapUp}/transcript`)).status,
+    404,
+  );
+  assert.equal((await accessAudits()).length, 1);
+
+  // ADR-010 item 4: the transcript outlives the audio, so it is still readable after retention deletes the recording
+  await owner.recording.update({ where: { id: recording.id }, data: { deletedAt: new Date() } });
+  const afterDelete = await read();
+  assert.equal(afterDelete.json.status, 'READY');
+  assert.equal(afterDelete.json.transcript.segments.length, 2);
+  assert.equal((await accessAudits()).length, 2);
 });

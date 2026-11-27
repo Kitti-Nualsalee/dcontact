@@ -6,6 +6,7 @@ import {
   cleanAnswers,
   emptyDefinition,
   errorMap,
+  formatOffset,
   formatScore,
   removeQuestion,
   retype,
@@ -78,4 +79,12 @@ test('#971 show the score per locale and the range of the scale', () => {
   assert.deepEqual(errorMap([{ path: 'comment', code: 'COMMENT_REQUIRED' }]), {
     comment: 'COMMENT_REQUIRED',
   });
+});
+
+test('a transcript line time is m:ss from the start of the recording, h:mm:ss past an hour', () => {
+  assert.equal(formatOffset(0), '0:00');
+  assert.equal(formatOffset(960), '0:00');
+  assert.equal(formatOffset(65_000), '1:05');
+  assert.equal(formatOffset(3_725_000), '1:02:05');
+  assert.equal(formatOffset(-5), '0:00');
 });

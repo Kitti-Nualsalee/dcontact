@@ -66,7 +66,40 @@ interface State {
   publishes: Json[];
   /** answer the next PUT with an error */
   nextSaveFailure?: { status: number; json: Json };
+  /** the current answer of GET .../transcript (a READY transcript when unset) */
+  transcript?: { status?: number; json: Json };
 }
+
+const TRANSCRIPT_LINE_AGENT = '[simulated] Hello, how can I help?';
+const TRANSCRIPT_LINE_CONTACT = '[simulated] I would like to ask about my bill';
+
+const readyTranscript = {
+  status: 'READY',
+  failureCode: null,
+  transcript: {
+    transcriptId: '9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d',
+    language: 'th-TH',
+    providerId: 'dcontact-asr-simulator',
+    modelId: 'dcontact-asr-simulator-v1',
+    createdAt: '2026-11-20T03:06:00.000Z',
+    segments: [
+      {
+        segmentId: 'seg-1',
+        speaker: 'AGENT',
+        startMs: 960,
+        endMs: 2400,
+        text: TRANSCRIPT_LINE_AGENT,
+      },
+      {
+        segmentId: 'seg-2',
+        speaker: 'CONTACT',
+        startMs: 65_000,
+        endMs: 68_000,
+        text: TRANSCRIPT_LINE_CONTACT,
+      },
+    ],
+  },
+};
 
 function evaluationOf(state: State, body: Json, status: 'DRAFT' | 'PUBLISHED'): Json {
   const answers = body.answers as Json;
@@ -155,6 +188,10 @@ async function mockSupervisor(page: Page, state: State) {
           definition,
         },
       });
+    if (method === 'GET' && path === `/interactions/${INTERACTION}/transcript`) {
+      const answer = state.transcript ?? { json: readyTranscript };
+      return route.fulfill({ status: answer.status ?? 200, json: answer.json });
+    }
     const base = `/interactions/${INTERACTION}/human-evaluation`;
     if (method === 'GET' && path === base)
       return route.fulfill({ json: { interaction, evaluation: state.evaluation } });
@@ -210,6 +247,23 @@ test('a Supervisor picks a form, saves a draft, answers everything, then publish
       level: 1,
     }),
   ).toBeFocused();
+  // the call transcript is beside the form, in time order with the speaker named in text
+  const transcript = page.getByRole('region', {
+    name: th('quality:transcript.lines', { count: 2 }),
+  });
+  await expect(transcript.getByRole('listitem')).toHaveCount(2);
+  await expect(transcript.getByRole('listitem').first()).toContainText(
+    `0:00${th('quality:transcript.speaker.AGENT')}${TRANSCRIPT_LINE_AGENT}`,
+  );
+  await expect(transcript.getByRole('listitem').last()).toContainText(
+    `1:05${th('quality:transcript.speaker.CONTACT')}${TRANSCRIPT_LINE_CONTACT}`,
+  );
+  await expect(
+    page.getByText(th('quality:transcript.source', { model: 'dcontact-asr-simulator-v1' })),
+  ).toBeVisible();
+  await transcript.focus();
+  await expect(transcript).toBeFocused();
+
   await page
     .getByRole('button', { name: new RegExp(escapeRegExp(th('quality:editor.chooseForm'))) })
     .click();
@@ -331,6 +385,67 @@ test('a save fails: the error is under the wrong item, answers are not lost, and
   await expect(
     greet.getByRole('radio', { name: th('quality:evaluation.yes'), exact: true }),
   ).toBeChecked();
+});
+
+test('the transcript loads on its own: still processing, then ready; a failure keeps the form usable', async ({
+  page,
+}) => {
+  const state: State = {
+    evaluation: null,
+    saves: [],
+    publishes: [],
+    transcript: { status: 500, json: { code: 'INTERNAL' } },
+  };
+  await mockSupervisor(page, state);
+  await page.goto('/?view=team-evaluations&tenant=demo');
+  await page
+    .getByRole('button', {
+      name: new RegExp(
+        `^${escapeRegExp(th('quality:team.open.NOT_EVALUATEDItem', { agent: AGENT_NAME, time: '' }))}`,
+      ),
+    })
+    .click();
+
+  // Partial: the transcript failed but the form can still be chosen
+  await expect(page.getByRole('alert')).toContainText(th('quality:transcript.loadFailed'));
+  await expect(
+    page.getByRole('button', { name: new RegExp(escapeRegExp(th('quality:editor.chooseForm'))) }),
+  ).toBeEnabled();
+  state.transcript = { json: { status: 'PROCESSING', failureCode: null, transcript: null } };
+  await page.getByRole('button', { name: th('quality:retry') }).click();
+  await expect(page.getByText(th('quality:transcript.status.PROCESSING'))).toBeVisible();
+  state.transcript = { json: readyTranscript };
+  await page.getByRole('button', { name: th('quality:transcript.checkAgain') }).click();
+  await expect(
+    page.getByRole('region', { name: th('quality:transcript.lines', { count: 2 }) }),
+  ).toContainText(TRANSCRIPT_LINE_CONTACT);
+});
+
+test('a failed or missing transcript says why instead of showing text', async ({ page }) => {
+  for (const [json, text] of [
+    [
+      { status: 'FAILED', failureCode: 'PROVIDER_TIMEOUT', transcript: null },
+      th('quality:transcript.status.FAILED', { code: 'PROVIDER_TIMEOUT' }),
+    ],
+    [
+      { status: 'NOT_REQUESTED', failureCode: null, transcript: null },
+      th('quality:transcript.status.NOT_REQUESTED'),
+    ],
+  ] as const) {
+    const state: State = { evaluation: null, saves: [], publishes: [], transcript: { json } };
+    await page.unrouteAll();
+    await mockSupervisor(page, state);
+    await page.goto('/?view=team-evaluations&tenant=demo');
+    await page
+      .getByRole('button', {
+        name: new RegExp(
+          `^${escapeRegExp(th('quality:team.open.NOT_EVALUATEDItem', { agent: AGENT_NAME, time: '' }))}`,
+        ),
+      })
+      .click();
+    await expect(page.getByText(text)).toBeVisible();
+    await expect(page.getByText(TRANSCRIPT_LINE_AGENT)).toHaveCount(0);
+  }
 });
 
 test('an Agent opens their own scores list and views the per-item answers', async ({ page }) => {

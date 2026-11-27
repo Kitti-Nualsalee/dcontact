@@ -343,3 +343,52 @@
     position: static;
   }
 }
+
+/* call transcript beside the evaluation form: a fixed-height scroll area so the form stays close */
+.qm-transcript-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--dc-space-4);
+  color: var(--dc-text-secondary);
+}
+.qm-transcript {
+  max-block-size: 24rem;
+  overflow-y: auto;
+  border: 1px solid var(--dc-border-subtle);
+  border-radius: var(--dc-radius-md);
+  background: var(--dc-surface-sunken);
+}
+/* the container clips overflow, so the ring is drawn inside */
+.qm-transcript:focus-visible {
+  outline: none;
+  box-shadow: var(--dc-focus-ring-inset);
+}
+.qm-transcript ol {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.qm-transcript li {
+  display: grid;
+  grid-template-columns: 7rem minmax(0, 1fr);
+  gap: var(--dc-space-4);
+  padding: var(--dc-space-3) var(--dc-space-5);
+  border-block-end: 1px solid var(--dc-border-subtle);
+}
+.qm-transcript li:last-child {
+  border-block-end: 0;
+}
+.qm-transcript-meta {
+  display: flex;
+  gap: var(--dc-space-3);
+  color: var(--dc-text-muted);
+  font-size: var(--dc-text-sm);
+  font-variant-numeric: tabular-nums;
+}
+/* the speaker is named in text; weight only helps scanning (no colour meaning) */
+.qm-transcript li[data-speaker='AGENT'] .qm-transcript-meta span {
+  color: var(--dc-text-secondary);
+  font-weight: var(--dc-weight-semibold);
+}

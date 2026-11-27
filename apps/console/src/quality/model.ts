@@ -154,3 +154,14 @@ export function scaleValues(question: FormQuestion): number[] {
   const [min, max] = question.scale ?? DEFAULT_SCALE;
   return Array.from({ length: max - min + 1 }, (_, i) => min + i);
 }
+
+/** mm:ss from the start of the recording (h:mm:ss past an hour) */
+export function formatOffset(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const seconds = String(total % 60).padStart(2, '0');
+  return hours > 0
+    ? `${hours}:${String(minutes).padStart(2, '0')}:${seconds}`
+    : `${minutes}:${seconds}`;
+}
