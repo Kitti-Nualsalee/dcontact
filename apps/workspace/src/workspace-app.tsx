@@ -2246,7 +2246,10 @@ function AgentWorkspace({
         <div className="aw-v3-context">
           <strong className="aw-call-caller">
             {t('chat.savedView.title', {
-              visitor: t('chat.visitor', { code: chatClosed.visitorLabel }),
+              visitor:
+                chatClosed.channel === 'LINE'
+                  ? chatClosed.visitorLabel
+                  : t('chat.visitor', { code: chatClosed.visitorLabel }),
             })}
           </strong>
           <span className="aw-v3-context-meta">{chatClosed.interactionId}</span>

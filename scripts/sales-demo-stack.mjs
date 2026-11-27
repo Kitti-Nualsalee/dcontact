@@ -82,6 +82,15 @@ const environment = {
   LINE_WEBHOOK_DESTINATION: 'sales-demo-disabled',
   LINE_WEBHOOK_PAYLOAD_KEY_REF: 'sales-demo-disabled',
   PORT: '3000',
+  // #1054 LINE chat on the dev stack talks to the LINE simulator, never to LINE; the channel secrets
+  // are sealed with a dev-only key unless one is given
+  ...(process.env.LINE_CHAT === 'on'
+    ? {
+        LINE_API_BASE_URL: process.env.LINE_API_BASE_URL ?? 'http://127.0.0.1:8890',
+        ACCOUNT_SECRET_KEY:
+          process.env.ACCOUNT_SECRET_KEY ?? Buffer.alloc(32, 7).toString('base64'),
+      }
+    : {}),
   ...(extensionId
     ? { VITE_SOFTPHONE_CONTROL: 'chrome-extension', VITE_D_PHONE_EXTENSION_ID: extensionId }
     : {}),
@@ -626,7 +635,14 @@ try {
     ],
     { env: { ...environment, VITE_API_BASE_URL: consoleOrigin } },
   );
+  const lineSimulator =
+    process.env.LINE_CHAT === 'on' && !process.env.LINE_API_BASE_URL
+      ? start('line-sim', 'node', [resolve('scripts/line-simulator.mjs'), '--port', '8890'])
+      : null;
   await Promise.all([
+    ...(lineSimulator
+      ? [waitForHttp('http://127.0.0.1:8890/sim/config', 'LINE simulator', lineSimulator)]
+      : []),
     waitForHttp(`${apiOrigin}/api/v1/me/navigation`, 'API', api),
     waitForHttp(workspaceOrigin, 'Workspace', workspace),
     waitForHttp(consoleOrigin, 'Console', consoleApp),
@@ -650,6 +666,7 @@ try {
       `Workspace  ${workspaceOrigin}/?tenant=demo   (agent1000@demo.local)`,
       `Console    ${consoleOrigin}/?tenant=demo   (admin@demo.local)`,
       `phone        ${extensionId ? 'D-Phone Chrome extension' : 'the built-in Workspace browser phone'}`,
+      ...(lineSimulator ? ['LINE sim   http://127.0.0.1:8890/   (write as a LINE user)'] : []),
       'stop with Ctrl-C',
       '',
     ].join('\n'),

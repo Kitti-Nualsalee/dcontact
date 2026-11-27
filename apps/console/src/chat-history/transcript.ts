@@ -4,7 +4,7 @@
  * kept free of React so the mapping can be unit tested
  */
 import type { ChatTranscriptMessage } from '@d-contact/ui-react';
-import type { HistoryChannel } from '../agent-history/model.js';
+import { HISTORY_CHANNELS, type HistoryChannel } from '../agent-history/model.js';
 
 export const END_REASONS = [
   'CUSTOMER_ENDED',
@@ -21,6 +21,8 @@ export interface WorkTranscriptMessage {
   text?: string;
   /** a system line: `AGENT_JOINED` or the end reason */
   event?: string;
+  /** #1054 a LINE customer's message that is not text: LINE's type (sticker, image, video, audio, file, location, …) */
+  other?: string;
 }
 
 export interface WorkTranscript {
@@ -39,7 +41,7 @@ export function isWorkTranscript(value: unknown): value is WorkTranscript {
   const transcript = value as WorkTranscript;
   return (
     typeof transcript.interactionId === 'string' &&
-    (transcript.channel === 'VOICE' || transcript.channel === 'WEBCHAT') &&
+    (HISTORY_CHANNELS as readonly string[]).includes(transcript.channel) &&
     (transcript.endReason === null ||
       (END_REASONS as readonly string[]).includes(transcript.endReason)) &&
     typeof transcript.customerLinked === 'boolean' &&
@@ -79,6 +81,8 @@ export interface TranscriptText {
   agent: string;
   /** text of a system line; the agent's name fills `{{agent}}` */
   system(event: string | undefined): string;
+  /** placeholder for a customer's message that is not text; receives LINE's message type */
+  other?(type: string): string;
   time(at: string): string;
 }
 
@@ -99,7 +103,9 @@ export function toTranscriptMessages(
       side: message.from === 'agent' ? 'self' : 'other',
       author: message.from === 'agent' ? text.agent : text.visitor,
       time,
-      text: message.text ?? '',
+      text:
+        message.text ?? (message.other !== undefined ? (text.other?.(message.other) ?? '') : ''),
+      ...(message.text === undefined && message.other !== undefined ? { placeholder: true } : {}),
     };
   });
 }

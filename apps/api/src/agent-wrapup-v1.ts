@@ -64,7 +64,7 @@ async function authorize(
       tenantId: actor.tenantId,
       agentId: actor.userId,
       // #1044 a chat is closed with the same disposition + note as a call
-      channel: { in: ['VOICE', 'WEBCHAT'] },
+      channel: { in: ['VOICE', 'WEBCHAT', 'LINE'] },
     },
     select: {
       id: true,
@@ -179,7 +179,7 @@ export async function saveAgentWrapup(
     });
     // #1044 an Agent may still hold other chats: the state follows what is left in hand, and the
     // after-work state applies once the last chat is done
-    if (interaction.channel === 'WEBCHAT')
+    if (interaction.channel === 'WEBCHAT' || interaction.channel === 'LINE')
       await syncAgentWebchatState(transaction, actor.tenantId, actor.userId, {
         workCompleted: true,
       });

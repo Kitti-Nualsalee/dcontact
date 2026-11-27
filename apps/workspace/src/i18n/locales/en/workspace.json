@@ -252,7 +252,8 @@
       "hint": "Drag or press Left/Right arrow to resize, double-click to reset"
     },
     "wrapupNone": "Nothing to wrap up",
-    "channelWebchat": "Web Chat"
+    "channelWebchat": "Web Chat",
+    "channelLine": "LINE"
   },
   "customer": {
     "title": "Customer for this work",
@@ -580,7 +581,8 @@
     "log": "Messages with {{visitor}}",
     "sender": {
       "customer": "Visitor",
-      "self": "You"
+      "self": "You",
+      "customerLine": "Customer"
     },
     "system": {
       "started": "Visitor started the chat from {{origin}}",
@@ -590,11 +592,12 @@
       "customerLeft": "The customer left the chat",
       "idleClosed": "Closed because the customer did not reply for {{minutes}} minutes",
       "idleClosedShort": "Closed because the customer did not reply",
-      "startedPreview": "Visitor started the chat from the preview page"
+      "startedPreview": "Visitor started the chat from the preview page",
+      "startedLine": "Customer started the chat on LINE · {{account}}"
     },
     "idleWarning": "The chat closes in {{remaining}} unless the customer writes",
     "composer": {
-      "label": "Message to visitor",
+      "label": "Message to customer",
       "placeholder": "Type a message to the customer",
       "hint": "Enter to send · Shift+Enter for a new line",
       "count": "{{count}} / 2,000",
@@ -623,7 +626,8 @@
       "notYet": "You can wrap up once {{visitor}}'s chat ends (you end it, the customer leaves, or it closes for no reply)",
       "saved": "Wrap-up saved for {{visitor}}",
       "failed": "The wrap-up was not saved. Check it and try again",
-      "retry": "Send the same command again"
+      "retry": "Send the same command again",
+      "notYetLine": "You can save the result once the chat with {{visitor}} ends (you end it, or the system closes it after no reply)"
     },
     "facts": {
       "title": "Chat details",
@@ -652,6 +656,19 @@
       "RESERVED": "Chat offered",
       "BUSY": "In chats",
       "ACW": "Chat wrap-up"
+    },
+    "delivery": {
+      "sending": "Sending…",
+      "failed": "Not delivered: LINE refused it. You can type it again"
+    },
+    "other": {
+      "sticker": "Customer sent a sticker (cannot be shown here)",
+      "image": "Customer sent an image (cannot be shown here)",
+      "video": "Customer sent a video (cannot be shown here)",
+      "audio": "Customer sent a voice message (cannot be shown here)",
+      "file": "Customer sent a file (cannot be shown here)",
+      "location": "Customer sent a location (cannot be shown here)",
+      "unknown": "Customer sent a message that cannot be shown here"
     }
   }
 }

@@ -9,6 +9,7 @@ const at = (seconds: number) => new Date(Date.UTC(2026, 10, 27, 3, 0, seconds)).
 function chat(id: string, patch: Partial<WebchatChat> = {}): WebchatChat {
   return {
     interactionId: id,
+    channel: 'WEBCHAT',
     state: 'ACTIVE',
     visitorLabel: id.toUpperCase(),
     origin: 'https://shop.test',
@@ -37,6 +38,8 @@ function harness() {
       wrapup?: Error;
     },
     sent: [] as { commandId: string; text: string }[],
+    deliveries: new Map<string, 'SENDING' | 'SENT' | 'FAILED'>(),
+    deliveryCalls: 0,
     wrapups: [] as WrapupIntentV1[],
   };
   let ids = 0;
@@ -63,6 +66,12 @@ function harness() {
       const all = server.messages.get(id) ?? [];
       const messages = after ? all.filter((message) => message.at > after) : all;
       return { messages, cursor: messages.at(-1)?.at ?? after ?? null };
+    },
+    async deliveries() {
+      server.deliveryCalls += 1;
+      return {
+        deliveries: [...server.deliveries].map(([id, delivery]) => ({ id, delivery })),
+      };
     },
     async accept(id) {
       if (server.fail.accept) throw server.fail.accept;
@@ -214,7 +223,9 @@ test('accepting an offer opens its room; an offer that went elsewhere is reporte
   await h.store.refresh();
   h.server.chats = h.server.chats.filter((entry) => entry.interactionId !== 'b');
   await h.store.refresh();
-  assert.deepEqual(h.store.snapshot().missed, [{ interactionId: 'b', visitorLabel: 'B' }]);
+  assert.deepEqual(h.store.snapshot().missed, [
+    { interactionId: 'b', channel: 'WEBCHAT', visitorLabel: 'B' },
+  ]);
   h.store.dismissMissed('b');
   assert.deepEqual(h.store.snapshot().missed, []);
 
@@ -303,4 +314,62 @@ test('a failed refresh marks the chats offline and keeps what is on screen', asy
   h.server.fail.chats = false;
   await h.store.refresh();
   assert.equal(h.store.snapshot().online, true);
+});
+
+test('a LINE chat keeps its channel, a null online state and non-text messages', async () => {
+  const h = harness();
+  h.server.chats = [
+    chat('l', {
+      channel: 'LINE',
+      visitorLabel: 'Somchai',
+      origin: 'Demo Shop',
+      visitorOnline: null,
+    }),
+  ];
+  h.server.messages.set('l', [{ id: 'm1', at: at(2), from: 'visitor', other: 'sticker' }]);
+  h.server.chats[0]!.lastMessage = h.server.messages.get('l')![0]!;
+  h.server.chats[0]!.visitorMessageCount = 1;
+  await h.store.refresh();
+  const room = h.store.snapshot().rooms[0]!;
+  assert.equal(room.chat.channel, 'LINE');
+  assert.equal(room.chat.visitorOnline, null);
+  assert.equal(room.chat.origin, 'Demo Shop');
+  assert.equal(room.messages[0]!.other, 'sticker');
+  assert.equal(room.messages[0]!.text, undefined);
+});
+
+test('delivery of a LINE message is refreshed while one is sending: sent clears the flag, failed stays', async () => {
+  const h = harness();
+  h.server.chats = [chat('l', { channel: 'LINE', visitorOnline: null })];
+  h.server.messages.set('l', [
+    { id: 'a1', at: at(2), from: 'agent', text: 'one', delivery: 'SENDING' },
+    { id: 'a2', at: at(3), from: 'agent', text: 'two', delivery: 'SENDING' },
+    { id: 'a3', at: at(4), from: 'agent', text: 'three' },
+  ]);
+  await h.store.refresh();
+  const delivery = () => h.store.snapshot().rooms[0]!.messages.map((message) => message.delivery);
+  assert.deepEqual(delivery(), ['SENDING', 'SENDING', undefined]);
+  assert.equal(h.server.deliveryCalls, 1);
+
+  h.server.deliveries.set('a1', 'SENT');
+  h.server.deliveries.set('a2', 'FAILED');
+  await h.store.refresh();
+  assert.deepEqual(delivery(), [undefined, 'FAILED', undefined]);
+
+  // nothing is sending any more, so the next refresh does not ask again
+  const calls = h.server.deliveryCalls;
+  await h.store.refresh();
+  assert.equal(h.server.deliveryCalls, calls);
+});
+
+test('delivery is not read for a web chat or when no message is sending', async () => {
+  const h = harness();
+  h.server.chats = [chat('w'), chat('l', { channel: 'LINE', visitorOnline: null })];
+  h.server.messages.set('w', [
+    { id: 'w1', at: at(2), from: 'agent', text: 'hi', delivery: 'SENDING' },
+  ]);
+  h.server.messages.set('l', [{ id: 'l1', at: at(2), from: 'agent', text: 'hi' }]);
+  await h.store.refresh();
+  await h.store.refresh();
+  assert.equal(h.server.deliveryCalls, 0);
 });

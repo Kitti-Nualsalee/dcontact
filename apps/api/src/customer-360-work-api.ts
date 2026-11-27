@@ -231,7 +231,7 @@ export class Customer360WorkController {
             tenantId: actor.tenantId,
             id,
             agentId: actor.userId,
-            channel: { in: ['VOICE', 'WEBCHAT'] },
+            channel: { in: ['VOICE', 'WEBCHAT', 'LINE'] },
           },
           select: { state: true },
         });

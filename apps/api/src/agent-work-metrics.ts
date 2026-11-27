@@ -3,7 +3,7 @@ import { Prisma } from '@d-contact/db';
 
 /**
  * #964 defines the "my work" numbers in one place (ADR-019 item 1) — the history list and summary use this CTE and filter set
- * finished work = an Agent's VOICE or WEBCHAT (#1044) work that is COMPLETED and has a wrap-up result (or is LEGACY work from before the result recording system)
+ * finished work = an Agent's VOICE, WEBCHAT (#1044) or LINE (#1054) work that is COMPLETED and has a wrap-up result (or is LEGACY work from before the result recording system)
  * work falls in a period by recorded_at; conversation time = ended_at - answered_at when both values exist
  */
 export type WorkActor = { tenantId: string; userId: string };
@@ -27,7 +27,7 @@ export interface WorkFilter {
   channel?: WorkChannel;
 }
 
-export const WORK_CHANNELS = ['VOICE', 'WEBCHAT'] as const;
+export const WORK_CHANNELS = ['VOICE', 'WEBCHAT', 'LINE'] as const;
 export type WorkChannel = (typeof WORK_CHANNELS)[number];
 
 export function channelFrom(value: unknown): WorkChannel | undefined {
@@ -219,7 +219,7 @@ export function completedScopeWorkSql(tenantId: string, scope: WorkScope): Prism
     }
     WHERE interaction.tenant_id = ${tenantId}::uuid
       ${team ? Prisma.empty : Prisma.sql`AND interaction.agent_id = ${(scope as { agentId: string }).agentId}::uuid`}
-      AND interaction.channel IN ('VOICE', 'WEBCHAT') AND interaction.state = 'COMPLETED'
+      AND interaction.channel IN ('VOICE', 'WEBCHAT', 'LINE') AND interaction.state = 'COMPLETED'
       AND (interaction.voice_wrapup_policy = 'LEGACY' OR result.interaction_id IS NOT NULL)`;
 }
 

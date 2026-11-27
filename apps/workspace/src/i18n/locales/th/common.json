@@ -39,7 +39,8 @@
       "teamEvaluations": "ประเมินคุณภาพสายของทีม",
       "myQuality": "คะแนนคุณภาพของฉัน",
       "qmForms": "ฟอร์มประเมินคุณภาพ",
-      "webchatSettings": "Web Chat"
+      "webchatSettings": "Web Chat",
+      "lineSettings": "LINE"
     },
     "areas": {
       "home": "หน้าแรก",

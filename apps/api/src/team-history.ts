@@ -423,7 +423,8 @@ function actorOf(request: AuthenticatedGatewayRequest): Actor {
 export class TeamHistoryController {
   constructor(
     @Inject(TEAM_HISTORY_DATABASE) private readonly database: PrismaClient,
-    @Optional() @Inject(TEAM_HISTORY_WEBCHAT) private readonly webchat = false,
+    /** #1044/#1054 the chat channels this deployment has (WEBCHAT, LINE) */
+    @Optional() @Inject(TEAM_HISTORY_WEBCHAT) private readonly chatChannels: readonly string[] = [],
   ) {}
 
   @Get('teams')
@@ -460,7 +461,7 @@ export class TeamHistoryController {
         channel: query.channel,
       })),
       // #1044 which channels this deployment has; the page shows channel filters only when there are two
-      channels: this.webchat ? ['VOICE', 'WEBCHAT'] : ['VOICE'],
+      channels: ['VOICE', ...this.chatChannels],
     };
   }
 

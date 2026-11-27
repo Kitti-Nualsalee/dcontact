@@ -109,7 +109,7 @@ export class AgentWorkspaceController {
     private readonly customerAvailable = false,
     @Optional()
     @Inject(AGENT_WORKSPACE_WEBCHAT)
-    private readonly webchat = false,
+    private readonly chatChannels: readonly string[] = [],
   ) {}
 
   @Get('history')
@@ -166,7 +166,7 @@ export class AgentWorkspaceController {
         channel,
       )),
       // #1044 which channels this deployment has; the page shows channel filters only when there are two
-      channels: this.webchat ? ['VOICE', 'WEBCHAT'] : ['VOICE'],
+      channels: ['VOICE', ...this.chatChannels],
     }));
   }
 
@@ -244,7 +244,7 @@ export class AgentWorkspaceController {
           agentStatusV1: 1,
           ...(this.customerAvailable ? { workCustomerV1: 1 } : {}),
           // #1044 the deployment has web chat on — the Workspace lists and answers chats
-          ...(this.webchat ? { webchatV1: 1 } : {}),
+          ...(this.chatChannels.length ? { webchatV1: 1 } : {}),
         },
         agent: {
           id: agent.id,
@@ -353,12 +353,12 @@ export class AgentWorkspaceController {
         where: {
           tenantId: actor.tenantId,
           agentId: actor.userId,
-          channel: { in: ['VOICE', 'WEBCHAT'] },
+          channel: { in: ['VOICE', 'WEBCHAT', 'LINE'] },
           state: { in: ['ASSIGNED', 'ACTIVE', 'WRAPUP'] },
         },
         _count: true,
       });
-      const chatsInHand = busy.some((row) => row.channel === 'WEBCHAT');
+      const chatsInHand = busy.some((row) => row.channel === 'WEBCHAT' || row.channel === 'LINE');
       // #1044 an Agent who signed in again while still holding chats continues them: the state follows the chats
       if (
         chatsInHand &&

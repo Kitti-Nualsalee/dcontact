@@ -1,5 +1,10 @@
 import type { Prisma } from '@d-contact/db';
-import { WEBCHAT_EVENT_CONTENT_TYPE } from './webchat-service.js';
+import {
+  chatEndReasons,
+  LINE_OTHER_CONTENT_TYPE,
+  lineLabel,
+  WEBCHAT_EVENT_CONTENT_TYPE,
+} from './webchat-service.js';
 import type { WorkChannel } from './agent-work-metrics.js';
 
 /**
@@ -13,6 +18,8 @@ export interface WorkTranscriptMessage {
   from: 'visitor' | 'agent' | 'system';
   text?: string;
   event?: string;
+  /** #1054 a customer's LINE message that is not text: LINE's type (sticker, image, …) */
+  other?: string;
 }
 
 export const WORK_TRANSCRIPT_LIMIT = 1000;
@@ -24,7 +31,7 @@ export interface WorkTranscript {
   endReason: string | null;
   /** whether the Agent linked a customer to this work */
   customerLinked: boolean;
-  /** the short anonymous label the Agent saw for the visitor; null for a call */
+  /** the label the Agent saw for the customer (web chat: anonymous label; LINE: name); null for a call */
   visitorLabel: string | null;
   queueName: string | null;
   messages: WorkTranscriptMessage[];
@@ -42,7 +49,7 @@ export async function readWorkTranscript(
   });
   const customerLinked = Boolean(interaction?.contactId);
   const queueName = interaction?.queue?.name ?? null;
-  if (channel !== 'WEBCHAT')
+  if (channel !== 'WEBCHAT' && channel !== 'LINE')
     return {
       interactionId,
       channel,
@@ -52,10 +59,29 @@ export async function readWorkTranscript(
       queueName,
       messages: [],
     };
-  const session = await tx.webchatSession.findFirst({
-    where: { tenantId, interactionId },
-    select: { endReason: true, visitorLabel: true },
-  });
+  let endReason: string | null;
+  let visitorLabel: string | null;
+  if (channel === 'WEBCHAT') {
+    const session = await tx.webchatSession.findFirst({
+      where: { tenantId, interactionId },
+      select: { endReason: true, visitorLabel: true },
+    });
+    endReason = session?.endReason ?? null;
+    visitorLabel = session?.visitorLabel ?? null;
+  } else {
+    const work = await tx.interaction.findFirst({
+      where: { tenantId, id: interactionId },
+      select: { conversationId: true },
+    });
+    const user = work?.conversationId
+      ? await tx.lineChatUser.findFirst({
+          where: { tenantId, conversationId: work.conversationId },
+          select: { displayName: true, lineUserId: true },
+        })
+      : null;
+    endReason = (await chatEndReasons(tx, tenantId, [interactionId])).get(interactionId) ?? null;
+    visitorLabel = user ? lineLabel(user) : null;
+  }
   const rows = await tx.message.findMany({
     where: { tenantId, interactionId },
     orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
@@ -65,19 +91,21 @@ export async function readWorkTranscript(
   return {
     interactionId,
     channel,
-    endReason: session?.endReason ?? null,
+    endReason,
     customerLinked,
-    visitorLabel: session?.visitorLabel ?? null,
+    visitorLabel,
     queueName,
     messages: rows.map((row) =>
       row.contentType === WEBCHAT_EVENT_CONTENT_TYPE
         ? { id: row.id, at: row.createdAt.toISOString(), from: 'system', event: row.body }
-        : {
-            id: row.id,
-            at: row.createdAt.toISOString(),
-            from: row.senderType === 'AGENT' ? 'agent' : 'visitor',
-            text: row.body,
-          },
+        : row.contentType === LINE_OTHER_CONTENT_TYPE
+          ? { id: row.id, at: row.createdAt.toISOString(), from: 'visitor', other: row.body }
+          : {
+              id: row.id,
+              at: row.createdAt.toISOString(),
+              from: row.senderType === 'AGENT' ? 'agent' : 'visitor',
+              text: row.body,
+            },
     ),
   };
 }
