@@ -1,0 +1,70 @@
+{
+  "launcher": "Chat with us",
+  "launcherLabel": "Open chat with {{tenant}}",
+  "launcherUnread": "Open chat, {{count}} new messages",
+  "dialogLabel": "Chat with {{tenant}}",
+  "status": {
+    "ready": "Chat with an agent",
+    "waiting": "Looking for an agent",
+    "chatting": "Chatting with an agent",
+    "ended": "Chat ended",
+    "offline": "No agents online",
+    "reconnecting": "Reconnecting",
+    "loading": "Loading chat"
+  },
+  "minimize": "Minimize chat",
+  "end": "End chat",
+  "endTitle": "End this chat?",
+  "endBody": "The agent won't see new messages from you. You can start a new chat anytime",
+  "endConfirm": "End chat",
+  "endCancel": "Keep chatting",
+  "welcomeDefault": "Hello. Type your question and an agent will help you",
+  "safety": "An agent will reply in this chat. Never send passwords, OTP codes or card numbers",
+  "waiting": "Finding an agent for you. You can add details while you wait; keep this page open",
+  "agent": "Agent",
+  "you": "You",
+  "system": {
+    "joined": "An agent joined the chat",
+    "agentEnded": "The agent ended the chat",
+    "idleClosed": "The chat closed because there was no message from you for {{minutes}} minutes",
+    "youEnded": "You ended the chat",
+    "left": "This chat has ended"
+  },
+  "ended": {
+    "agent": "This chat has ended. Start a new chat if you have more questions",
+    "idle": "Still need help? Start a new chat"
+  },
+  "startNew": "Start new chat",
+  "offline": {
+    "title": "No agents are online right now",
+    "body": "You can't start a chat yet. Try again later or contact {{tenant}} another way",
+    "retry": "Check again"
+  },
+  "disabled": {
+    "title": "Chat is unavailable right now",
+    "body": "Please contact {{tenant}} another way"
+  },
+  "reconnecting": "Connection lost. Reconnecting. Your chat and your draft are safe",
+  "composer": {
+    "label": "Message",
+    "placeholder": "Type a message",
+    "placeholderDisabled": "You can't send messages right now",
+    "hint": "Enter to send · Shift+Enter for a new line",
+    "count": "{{count}} / 2000",
+    "tooLong": "Over 2000 characters. Shorten it before sending"
+  },
+  "send": "Send message",
+  "sending": "Sending",
+  "sendFailed": "Not sent",
+  "retry": "Send again",
+  "newMessages": "{{count}} new messages",
+  "error": {
+    "queueFull": "Many people are waiting right now. Try again later",
+    "rate": "You are sending messages too fast. Wait a moment and try again",
+    "limit": "This chat is too long. Start a new chat to continue"
+  },
+  "demo": {
+    "title": "Web Chat preview",
+    "body": "Use this page to try your widget. Press the chat button at the bottom right to start. Messages go to the real queue you configured."
+  }
+}

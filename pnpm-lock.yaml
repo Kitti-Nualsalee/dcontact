@@ -62,12 +62,18 @@ importers:
       '@d-contact/kafka':
         specifier: workspace:*
         version: link:../../packages/kafka
+      '@d-contact/router':
+        specifier: workspace:*
+        version: link:../router
       '@d-contact/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       '@d-contact/ui':
         specifier: workspace:*
         version: link:../../packages/ui
+      '@d-contact/webchat-widget':
+        specifier: workspace:*
+        version: link:../../packages/webchat-widget
       '@d-contact/workspace-session':
         specifier: workspace:*
         version: link:../../packages/workspace-session
@@ -981,6 +987,24 @@ importers:
       stylelint:
         specifier: 17.15.0
         version: 17.15.0(typescript@5.9.3)
+      tsx:
+        specifier: ^4.23.1
+        version: 4.23.1
+      typescript:
+        specifier: ^5.5.4
+        version: 5.9.3
+      vite:
+        specifier: 6.4.3
+        version: 6.4.3(@types/node@20.19.43)(tsx@4.23.1)
+
+  packages/webchat-widget:
+    devDependencies:
+      '@d-contact/ui':
+        specifier: workspace:*
+        version: link:../ui
+      '@types/node':
+        specifier: ^20.14.0
+        version: 20.19.43
       tsx:
         specifier: ^4.23.1
         version: 4.23.1

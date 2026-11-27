@@ -22,7 +22,9 @@ import {
   whereSql,
   workFilterFrom,
   workFilterSql,
+  type WorkChannel,
 } from './agent-work-metrics.js';
+import { readWorkTranscript } from './work-transcript.js';
 
 /**
  * #986 team history and work summary (the owner decided #859 on 22 Nov 2026)
@@ -132,6 +134,7 @@ export interface TeamHistoryQuery {
   from?: unknown;
   to?: unknown;
   disposition?: unknown;
+  channel?: unknown;
 }
 
 /** the teams the requester can view — a Supervisor gets one team, an Admin gets every team of the tenant */
@@ -178,6 +181,7 @@ export async function readTeamHistory(
     const rows = await tx.$queryRaw<
       {
         interaction_id: string;
+        channel: WorkChannel;
         agent_id: string;
         agent_name: string | null;
         team_id: string;
@@ -201,6 +205,7 @@ export async function readTeamHistory(
     `);
     const items = rows.slice(0, limit).map((row) => ({
       interactionId: row.interaction_id,
+      channel: row.channel,
       agent: { id: row.agent_id, displayName: row.agent_name },
       team: { id: row.team_id, name: row.team_name },
       startedAt: row.started_at.toISOString(),
@@ -337,6 +342,7 @@ export async function readTeamHistoryItem(
     const rows = await tx.$queryRaw<
       {
         interaction_id: string;
+        channel: WorkChannel;
         agent_id: string;
         agent_name: string | null;
         team_id: string;
@@ -364,6 +370,7 @@ export async function readTeamHistoryItem(
     if (!row) throw notFound();
     return {
       interactionId: row.interaction_id,
+      channel: row.channel,
       agent: { id: row.agent_id, displayName: row.agent_name },
       team: { id: row.team_id, name: row.team_name },
       startedAt: row.started_at.toISOString(),
@@ -375,6 +382,27 @@ export async function readTeamHistoryItem(
       recordedAtSource: row.recorded_at_source,
       legacy: row.legacy,
     };
+  });
+}
+
+/** #1044 the messages of a finished chat within the requester's team scope; a call has none */
+export async function readTeamHistoryTranscript(
+  database: PrismaClient,
+  actor: Actor,
+  interactionValue: unknown,
+) {
+  const interactionId = uuidFrom(interactionValue, 'INVALID_INTERACTION');
+  if (!interactionId) throw notFound();
+  return withTenantDatabaseTransaction(database, actor.tenantId, async (tx) => {
+    const access = await accessOf(tx, actor);
+    const teamId = access.kind === 'supervisor' ? access.teamId : null;
+    const rows = await tx.$queryRaw<{ channel: WorkChannel }[]>(Prisma.sql`
+      WITH work AS (${completedScopeWorkSql(actor.tenantId, { teamId })})
+      SELECT channel FROM work WHERE interaction_id = ${interactionId}::uuid
+    `);
+    // another team's work, another tenant's and a missing item all answer the same
+    if (!rows[0]) throw notFound();
+    return readWorkTranscript(tx, actor.tenantId, interactionId, rows[0].channel);
   });
 }
 
@@ -406,6 +434,7 @@ export class TeamHistoryController {
       from: query.from,
       to: query.to,
       disposition: query.disposition,
+      channel: query.channel,
     });
   }
 
@@ -422,5 +451,11 @@ export class TeamHistoryController {
   @Header('Cache-Control', 'no-store')
   item(@Req() request: AuthenticatedGatewayRequest, @Param('interactionId') id: string) {
     return readTeamHistoryItem(this.database, actorOf(request), id);
+  }
+
+  @Get('items/:interactionId/transcript')
+  @Header('Cache-Control', 'no-store')
+  transcript(@Req() request: AuthenticatedGatewayRequest, @Param('interactionId') id: string) {
+    return readTeamHistoryTranscript(this.database, actorOf(request), id);
   }
 }
