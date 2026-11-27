@@ -1,5 +1,5 @@
 import { AgentApiError, type WrapupIntentV1, type WrapupResultV1 } from '../agent-api.js';
-import type { WebchatApi, WebchatChat, WebchatMessage } from './webchat-api.js';
+import type { WebchatApi, WebchatChannel, WebchatChat, WebchatMessage } from './webchat-api.js';
 
 /**
  * #1044: the Agent's web chats in Workspace, free of React so the rules can be tested.
@@ -44,6 +44,7 @@ export interface WebchatRoom {
 
 export interface ClosedChat {
   interactionId: string;
+  channel: WebchatChannel;
   visitorLabel: string;
   result: WrapupResultV1;
 }
@@ -55,7 +56,7 @@ export interface WebchatState {
   maxChats: number;
   offers: WebchatChat[];
   /** offers that went away without this Agent accepting them */
-  missed: { interactionId: string; visitorLabel: string }[];
+  missed: { interactionId: string; channel: WebchatChannel; visitorLabel: string }[];
   rooms: WebchatRoom[];
   closed: ClosedChat[];
   selectedId: string | null;
@@ -174,7 +175,11 @@ export class WebchatStore {
             !heldIds.has(offer.interactionId) &&
             !this.accepted.has(offer.interactionId),
         )
-        .map((offer) => ({ interactionId: offer.interactionId, visitorLabel: offer.visitorLabel })),
+        .map((offer) => ({
+          interactionId: offer.interactionId,
+          channel: offer.channel,
+          visitorLabel: offer.visitorLabel,
+        })),
     ];
     const rooms: WebchatRoom[] = [];
     for (const room of this.state.rooms) {
@@ -227,7 +232,39 @@ export class WebchatStore {
         )
         .map((room) => this.loadMessages(room.chat.interactionId)),
     );
+    await this.refreshDeliveries();
     this.markRead();
+  }
+
+  /**
+   * LINE delivery changes create no new message, so the Agent's messages still on screen as "sending" are
+   * asked about again. Only the room in view is read, and only while one of its messages is in that state.
+   */
+  private async refreshDeliveries() {
+    const room = this.state.selectedId ? this.room(this.state.selectedId) : undefined;
+    if (
+      !room ||
+      room.chat.channel !== 'LINE' ||
+      !room.messages.some((message) => message.delivery === 'SENDING')
+    )
+      return;
+    const interactionId = room.chat.interactionId;
+    try {
+      const { deliveries } = await this.deps.api.deliveries(interactionId);
+      const settled = new Map(deliveries.map((entry) => [entry.id, entry.delivery]));
+      this.patchRoom(interactionId, (current) => ({
+        messages: current.messages.map((message) => {
+          const delivery = settled.get(message.id);
+          if (!delivery || !message.delivery) return message;
+          const next = { ...message };
+          if (delivery === 'SENT') delete next.delivery;
+          else next.delivery = delivery;
+          return next;
+        }),
+      }));
+    } catch {
+      // the next refresh asks again; the bubble keeps saying "sending" meanwhile
+    }
   }
 
   private async loadMessages(interactionId: string) {
@@ -458,7 +495,7 @@ export class WebchatStore {
       rooms,
       closed: [
         ...this.state.closed,
-        { interactionId, visitorLabel: room.chat.visitorLabel, result },
+        { interactionId, channel: room.chat.channel, visitorLabel: room.chat.visitorLabel, result },
       ],
       selectedId: this.state.selectedId === interactionId ? next : this.state.selectedId,
     });

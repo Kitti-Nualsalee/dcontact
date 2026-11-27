@@ -43,15 +43,19 @@ interface Message {
   text?: string;
   event?: string;
   clientId?: string;
+  other?: string;
+  delivery?: 'SENDING' | 'FAILED';
 }
 
 const ago = (seconds: number) => new Date(Date.now() - seconds * 1000).toISOString();
 const ROOM = '11111111-1111-4111-8111-111111111111';
 const OFFER = '22222222-2222-4222-8222-222222222222';
+const LINE_ROOM = '33333333-3333-4333-8333-333333333333';
 
 function chat(id: string, label: string, patch: Record<string, unknown> = {}) {
   return {
     interactionId: id,
+    channel: 'WEBCHAT',
     state: 'ACTIVE',
     visitorLabel: label,
     origin: 'https://shop.demo-retail.test',
@@ -69,7 +73,7 @@ function chat(id: string, label: string, patch: Record<string, unknown> = {}) {
   };
 }
 
-async function open(page: Page) {
+async function open(page: Page, options: { line?: boolean } = {}) {
   const messages = new Map<string, Message[]>([
     [
       ROOM,
@@ -87,16 +91,33 @@ async function open(page: Page) {
     ],
     [OFFER, [{ id: 'o1', at: ago(5), from: 'visitor', text: 'Do you ship to Chiang Mai?' }]],
   ]);
+  messages.set(LINE_ROOM, [
+    { id: 'l1', at: ago(120), from: 'visitor', text: 'Hello, is the red bag in stock?' },
+    { id: 'l2', at: ago(100), from: 'system', event: 'AGENT_JOINED' },
+    { id: 'l3', at: ago(90), from: 'agent', text: 'Yes, we have two left.', delivery: 'SENDING' },
+    { id: 'l4', at: ago(60), from: 'visitor', other: 'sticker' },
+    { id: 'l5', at: ago(40), from: 'agent', text: 'Shall I hold one?', delivery: 'FAILED' },
+  ]);
   const server = {
-    chats: [
-      chat(ROOM, 'A1B2'),
-      chat(OFFER, 'G7H8', {
-        state: 'ASSIGNED',
-        answeredAt: null,
-        queuedAt: ago(5),
-        offerExpiresAt: new Date(Date.now() + 25_000).toISOString(),
-      }),
-    ],
+    deliveries: new Map<string, string>(),
+    chats: options.line
+      ? [
+          chat(LINE_ROOM, 'Somchai', {
+            channel: 'LINE',
+            origin: 'Demo Shop',
+            visitorOnline: null,
+            answeredAt: ago(100),
+          }),
+        ]
+      : [
+          chat(ROOM, 'A1B2'),
+          chat(OFFER, 'G7H8', {
+            state: 'ASSIGNED',
+            answeredAt: null,
+            queuedAt: ago(5),
+            offerExpiresAt: new Date(Date.now() + 25_000).toISOString(),
+          }),
+        ],
     wrapups: [] as Record<string, unknown>[],
   };
   const view = () =>
@@ -152,6 +173,13 @@ async function open(page: Page) {
     const page_ = after ? all.filter((message) => message.at > after) : all;
     return route.fulfill({ json: { messages: page_, cursor: page_.at(-1)?.at ?? after } });
   });
+  await page.route('**/api/v1/workspace/agent/webchat/*/deliveries', (route) =>
+    route.fulfill({
+      json: {
+        deliveries: [...server.deliveries].map(([id, delivery]) => ({ id, delivery })),
+      },
+    }),
+  );
   await page.route('**/api/v1/workspace/agent/webchat/*/accept', (route) => {
     const id = new URL(route.request().url()).pathname.split('/').at(-2)!;
     patch(id, { state: 'ACTIVE', answeredAt: new Date().toISOString(), offerExpiresAt: null });
@@ -278,4 +306,39 @@ test('an offer arrives beside the room in view; the Agent accepts, answers, ends
       .filter((violation) => violation.impact === 'serious' || violation.impact === 'critical')
       .map((violation) => violation.id),
   ).toEqual([]);
+});
+
+test('a LINE chat shows its badge and bot name, a placeholder for a sticker and the delivery of the Agent messages', async ({
+  page,
+}) => {
+  const server = await open(page, { line: true });
+  const log = page.getByRole('log');
+  const sending = th('workspace:chat.delivery.sending');
+  const notDelivered = th('workspace:chat.delivery.failed');
+
+  // the list row and the header carry the LINE tag, and the customer is named by their LINE name
+  const row = page.getByRole('button', { name: /^Somchai/ });
+  await expect(row.getByText(th('workspace:layout.channelLine'), { exact: true })).toBeVisible();
+  await expect(row.getByText(th('workspace:layout.channelWebchat'), { exact: true })).toHaveCount(
+    0,
+  );
+  await expect(log).toContainText(
+    th('workspace:chat.system.startedLine', { account: 'Demo Shop' }),
+  );
+  await expect(log).toContainText('Hello, is the red bag in stock?');
+  await expect(log).toContainText(th('workspace:chat.other.sticker'));
+  // nobody can tell whether a LINE user is online, so no "away" hint is shown
+  await expect(page.getByText(th('workspace:chat.bar.visitorAway'))).toHaveCount(0);
+
+  // a message LINE has not confirmed says so, and one it refused says so in plain words
+  await expect(log.getByText(sending)).toHaveCount(1);
+  await expect(log.getByText(notDelivered)).toHaveCount(1);
+  await expect(log.getByRole('button', { name: th('workspace:chat.retrySend') })).toHaveCount(0);
+  await evidence(page, 'workspace-line-room');
+
+  // the delivery is read again on its own and the "sending" note goes away
+  server.deliveries.set('l3', 'SENT');
+  await expect(log.getByText(sending)).toHaveCount(0, { timeout: 15_000 });
+  await expect(log.getByText(notDelivered)).toHaveCount(1);
+  await expect(log).toContainText('Yes, we have two left.');
 });
