@@ -6,8 +6,10 @@ export interface ManagedVoiceDirectCommand {
   callUuid: string;
   offerId: string | null;
   blegUuid: string;
-  type: 'offer.create' | 'call.bridge' | 'call.hangup' | 'offer.cancel';
+  type: 'offer.create' | 'call.bridge' | 'call.hangup' | 'offer.cancel' | 'callback.originate';
   agentId?: string;
+  /** #1061 callback.originate only: the customer's internal number dialed once the Agent answers */
+  destination?: string;
   agentExtension?: string;
   expiresAt?: string;
   reason?: string;

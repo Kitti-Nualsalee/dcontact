@@ -182,8 +182,10 @@ import { AgentCasesController, AGENT_CASES_DATABASE } from './agent-cases-api.js
 import {
   AGENT_CALLBACKS,
   AGENT_CALLBACKS_DATABASE,
+  AGENT_CALLBACKS_GOVERNANCE,
   AgentCallbacksController,
   maintainAgentCallbacks,
+  managedCallbackCalls,
 } from './agent-callbacks-api.js';
 import { resolveAgentCallbacks } from './agent-callbacks-config.js';
 import { AgentCallbacks } from '@d-contact/dialer';
@@ -535,11 +537,11 @@ console.log(
     status: agentCallbacksEnabled ? 'ENABLED' : 'DISABLED',
   }),
 );
-const agentCallbacks = new AgentCallbacks(prisma, { governance: contactGovernance });
+const agentCallbacks = new AgentCallbacks(prisma, { calls: managedCallbackCalls });
 if (agentCallbacksEnabled) {
   startBackgroundLoop({
     name: 'agent_callbacks.maintain',
-    intervalMs: 15_000,
+    intervalMs: 5_000,
     work: () => maintainAgentCallbacks(prisma, agentCallbacks),
   });
 }
@@ -716,6 +718,7 @@ class WorkspaceSessionController {
     { provide: AGENT_CASES_DATABASE, useValue: prisma },
     { provide: AGENT_CALLBACKS, useValue: agentCallbacks },
     { provide: AGENT_CALLBACKS_DATABASE, useValue: prisma },
+    { provide: AGENT_CALLBACKS_GOVERNANCE, useValue: contactGovernance },
     { provide: AGENT_WORKSPACE_WEBCHAT, useValue: chatChannels },
     { provide: TEAM_HISTORY_WEBCHAT, useValue: chatChannels },
     { provide: LINE_CHAT_SERVICE, useValue: lineChat },

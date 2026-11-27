@@ -178,6 +178,7 @@ export class FreeSwitchManagedVoiceAdapter implements ManagedVoiceDirectPort {
           command.agentId,
           command.agentExtension,
           command.expiresAt,
+          ...(command.type === 'callback.originate' ? [command.type, command.destination] : []),
         ]),
       )
       .digest('hex');
@@ -255,6 +256,7 @@ export class FreeSwitchManagedVoiceAdapter implements ManagedVoiceDirectPort {
           (await this.variable(command.blegUuid, 'dcontact_command_id')) === command.commandId,
       };
     }
+    if (command.type === 'callback.originate') return this.originateCallback(command);
     const state = await this.readback(command);
     if (command.type === 'call.bridge') {
       if (!state.callerExists || !state.blegExists || !command.blegUuid)
@@ -297,6 +299,93 @@ export class FreeSwitchManagedVoiceAdapter implements ManagedVoiceDirectPort {
       await this.accepted(`api global_setvar ${this.marker(command)}=SETTLED`);
     return {
       confirmed: !after.blegExists && (command.type === 'offer.cancel' || !after.callerExists),
+    };
+  }
+
+  /**
+   * #1061: ring the Agent first (the offer leg), then FreeSWITCH dials the customer's internal number and bridges
+   * it once the Agent answers. The customer leg gets the call's UUID and scope variables so its events and
+   * readback belong to the same managed call. Replays are confirmed from the offer leg like offer.create
+   */
+  private async originateCallback(
+    command: ManagedVoiceDirectCommand,
+  ): Promise<{ confirmed: boolean }> {
+    if (
+      !command.offerId ||
+      !command.agentId ||
+      !uuid.test(command.agentId) ||
+      !/^[0-9]{4,6}$/.test(command.agentExtension ?? '') ||
+      !/^1[0-9]{3}$/.test(command.destination ?? '') ||
+      !command.expiresAt ||
+      !Number.isFinite(Date.parse(command.expiresAt))
+    )
+      throw new Error('MANAGED_VOICE_INVALID_OFFER');
+    if (await this.exists(command.blegUuid)) {
+      await this.owned(command, command.blegUuid, true);
+      if (
+        (await this.variable(command.blegUuid, 'dcontact_command_fingerprint')) !==
+        this.fingerprint(command)
+      )
+        throw new Error('MANAGED_VOICE_COMMAND_PAYLOAD_MISMATCH');
+      return {
+        confirmed:
+          (await this.variable(command.blegUuid, 'dcontact_command_id')) === command.commandId,
+      };
+    }
+    const remaining = Math.min(20, Math.ceil((Date.parse(command.expiresAt) - Date.now()) / 1000));
+    if (remaining <= 0) return { confirmed: false };
+    const sipDomain = await this.tenantSipDomain(command.tenantId, 'originate');
+    const marker = await this.global(this.marker(command));
+    if (marker !== '_undef_' && marker !== '') {
+      if (marker !== this.fingerprint(command))
+        throw new Error('MANAGED_VOICE_COMMAND_PAYLOAD_MISMATCH');
+      return { confirmed: false };
+    }
+    await this.accepted(`api global_setvar ${this.marker(command)}=${this.fingerprint(command)}`);
+    const agentLeg = {
+      origination_uuid: command.blegUuid,
+      // D-Phone shows the number being called back
+      origination_caller_id_number: command.destination!,
+      origination_caller_id_name: 'Callback',
+      dcontact_command_id: command.commandId,
+      dcontact_command_fingerprint: this.fingerprint(command),
+      dcontact_tenant_id: command.tenantId,
+      dcontact_node_id: this.nodeId,
+      dcontact_call_uuid: command.callUuid,
+      dcontact_offer_id: command.offerId,
+      dcontact_agent_id: command.agentId,
+      dcontact_bleg_uuid: command.blegUuid,
+      domain_name: sipDomain,
+      originate_timeout: String(remaining),
+      hangup_after_bridge: 'true',
+    };
+    const customerLeg = {
+      origination_uuid: command.callUuid,
+      origination_caller_id_number: command.agentExtension!,
+      dcontact_tenant_id: command.tenantId,
+      dcontact_node_id: this.nodeId,
+      dcontact_call_uuid: command.callUuid,
+      domain_name: sipDomain,
+      call_timeout: '30',
+    };
+    const variables = (values: Record<string, string>, open: string, close: string) =>
+      `${open}${Object.entries(values)
+        .map(([name, value]) => `${name}=${value}`)
+        .join(',')}${close}`;
+    const response = await this.esl.request(
+      `bgapi originate ${variables(agentLeg, '{', '}')}user/${command.agentExtension}@${sipDomain} ` +
+        `&bridge(${variables(customerLeg, '[', ']')}user/${command.destination}@${sipDomain})`,
+    );
+    if (!response.startsWith('+OK')) throw new Error('MANAGED_VOICE_COMMAND_UNCONFIRMED');
+    const jobUuid = /Job-UUID:\s*([0-9a-f-]{36})/i.exec(response)?.[1];
+    if (!jobUuid || !uuid.test(jobUuid)) throw new Error('MANAGED_VOICE_JOB_UNCONFIRMED');
+    await this.accepted(`api global_setvar dcontact_job_${jobUuid}=${command.blegUuid}`);
+    if (this.completedJobs.has(jobUuid)) await this.backgroundJob(jobUuid);
+    if (!(await this.exists(command.blegUuid))) return { confirmed: false };
+    await this.owned(command, command.blegUuid, true);
+    return {
+      confirmed:
+        (await this.variable(command.blegUuid, 'dcontact_command_id')) === command.commandId,
     };
   }
 }

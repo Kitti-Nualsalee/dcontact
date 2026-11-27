@@ -25,19 +25,90 @@ import {
   Query,
   Req,
 } from '@nestjs/common';
-import { type PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
+import { type Prisma, type PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
 import {
   AgentCallbackError,
   AgentCallbacks,
   type AgentCallbackActor,
   type AgentCallbackView,
+  type AgentCallbackDecider,
+  type CallbackCallPort,
 } from '@d-contact/dialer';
+import type {
+  AuthorizationOutcome,
+  AuthorizeAndReserveInput,
+  ReservationCommand,
+} from '@d-contact/cxa-contracts';
+import { ManagedCallbackError, startManagedCallback } from '@d-contact/router';
 import { customer360Access, type CaseCustomerAccess } from './agent-cases-api.js';
 import { GatewayRoles, type AuthenticatedGatewayRequest } from './gateway-auth.js';
 
 export const AGENT_CALLBACKS = Symbol('AGENT_CALLBACKS');
 export const AGENT_CALLBACKS_DATABASE = Symbol('AGENT_CALLBACKS_DATABASE');
 export const AGENT_CALLBACKS_CUSTOMER_ACCESS = Symbol('AGENT_CALLBACKS_CUSTOMER_ACCESS');
+export const AGENT_CALLBACKS_GOVERNANCE = Symbol('AGENT_CALLBACKS_GOVERNANCE');
+export const AGENT_CALLBACK_SOURCE = 'AGENT_CALLBACK';
+export const AGENT_CALLBACK_PURPOSE = 'SERVICE';
+
+export interface CallbackGovernance {
+  authorizeAndReserve(
+    tenantId: string,
+    input: AuthorizeAndReserveInput,
+  ): Promise<AuthorizationOutcome>;
+  changeReservationState(
+    tenantId: string,
+    reservationId: string,
+    command: ReservationCommand,
+  ): Promise<unknown>;
+}
+
+/**
+ * Contact Governance for a callback (purpose SERVICE, channel VOICE), asked here because Dialer does not hold the
+ * Governance port (CG4-REG02). When scheduling, the reservation is only a check and is given back at once; when
+ * dialing it is confirmed once the call is placed and given back when nothing was placed
+ */
+export function governanceDecider(
+  governance: CallbackGovernance,
+  tenantId: string,
+): AgentCallbackDecider {
+  return async (request) => {
+    const outcome = await governance.authorizeAndReserve(tenantId, {
+      channel: 'VOICE',
+      purpose: AGENT_CALLBACK_PURPOSE,
+      source: AGENT_CALLBACK_SOURCE,
+      sourceId: request.callbackId ?? request.interactionId ?? request.commandId,
+      actionKey: `agent-callback-${request.stage === 'SCHEDULE' ? 'schedule' : 'dial'}:${request.commandId}`,
+      policyVersion: 1,
+      contactId: request.contactId,
+      identityId: request.identityId,
+    });
+    const decision = {
+      decision: outcome.decision,
+      decisionId: outcome.decisionId,
+      reasonCode: outcome.reasonCode,
+      ...(outcome.nextEligibleAt ? { nextEligibleAt: outcome.nextEligibleAt } : {}),
+    };
+    const reservationId = outcome.reservationId;
+    if (request.stage === 'SCHEDULE') {
+      if (reservationId)
+        await governance.changeReservationState(tenantId, reservationId, 'RELEASE');
+      return decision;
+    }
+    let settled = false;
+    return {
+      ...decision,
+      settle: async (placed) => {
+        if (settled || !reservationId) return;
+        settled = true;
+        await governance.changeReservationState(
+          tenantId,
+          reservationId,
+          placed ? 'CONFIRM' : 'RELEASE',
+        );
+      },
+    };
+  };
+}
 const logger = new Logger('AgentCallbacks');
 
 function errorSummary(error: unknown) {
@@ -101,6 +172,7 @@ export class AgentCallbacksController {
   constructor(
     @Inject(AGENT_CALLBACKS) private readonly callbacks: AgentCallbacks,
     @Inject(AGENT_CALLBACKS_DATABASE) private readonly database: PrismaClient,
+    @Inject(AGENT_CALLBACKS_GOVERNANCE) private readonly governance: CallbackGovernance,
     @Optional() @Inject(AGENT_CALLBACKS_CUSTOMER_ACCESS) customerAccess?: CaseCustomerAccess,
   ) {
     this.customerAccess = customerAccess ?? customer360Access;
@@ -145,7 +217,13 @@ export class AgentCallbacksController {
   @HttpCode(201)
   @GatewayRoles('agent')
   async schedule(@Req() request: AuthenticatedGatewayRequest, @Body() body: unknown) {
-    return this.run(request, (actor) => this.callbacks.schedule(actor, record(body)));
+    return this.run(request, (actor) =>
+      this.callbacks.schedule(
+        actor,
+        record(body),
+        governanceDecider(this.governance, actor.tenantId),
+      ),
+    );
   }
 
   @Post(':callbackId/reschedule')
@@ -168,6 +246,25 @@ export class AgentCallbacksController {
     @Body() body: unknown,
   ) {
     return this.run(request, (actor) => this.callbacks.cancel(actor, callbackId, record(body)));
+  }
+
+  /** dial now: Governance decides first; the answer says whether the call is ringing, moved, cancelled or held */
+  @Post(':callbackId/dial')
+  @HttpCode(200)
+  @GatewayRoles('agent')
+  async dial(
+    @Req() request: AuthenticatedGatewayRequest,
+    @Param('callbackId') callbackId: string,
+    @Body() body: unknown,
+  ) {
+    return this.run(request, (actor) =>
+      this.callbacks.dial(
+        actor,
+        callbackId,
+        record(body),
+        governanceDecider(this.governance, actor.tenantId),
+      ),
+    );
   }
 
   private async run<T>(
@@ -241,3 +338,21 @@ export async function maintainAgentCallbacks(
     }
   }
 }
+
+/** the callback call runs on the managed voice runtime of apps/router; its refusals become Dialer errors */
+export const managedCallbackCalls: CallbackCallPort = {
+  async start(transaction: Prisma.TransactionClient, input) {
+    try {
+      return await startManagedCallback(transaction, input);
+    } catch (error) {
+      if (!(error instanceof ManagedCallbackError)) throw error;
+      throw new AgentCallbackError(
+        error.code === 'VOICE_NOT_READY'
+          ? 'VOICE_NOT_READY'
+          : error.code === 'INVALID_DESTINATION'
+            ? 'NUMBER_NOT_DIALABLE'
+            : 'AGENT_NOT_AVAILABLE',
+      );
+    }
+  },
+};

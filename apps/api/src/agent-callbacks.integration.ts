@@ -3,7 +3,12 @@ import { randomUUID } from 'node:crypto';
 import test, { after } from 'node:test';
 import { PrismaClient } from '@d-contact/db';
 import type { AuthorizationOutcome, AuthorizeAndReserveInput } from '@d-contact/cxa-contracts';
-import { AgentCallbackError, AgentCallbacks, type CallbackGovernance } from '@d-contact/dialer';
+import { AgentCallbackError, AgentCallbacks } from '@d-contact/dialer';
+import {
+  governanceDecider,
+  managedCallbackCalls,
+  type CallbackGovernance,
+} from './agent-callbacks-api.js';
 
 /** #1061 agent-scheduled callbacks against a real database; Contact Governance is a fake. */
 
@@ -27,6 +32,7 @@ class FakeGovernance implements CallbackGovernance {
   nextEligibleAt: string | undefined;
   asked: AuthorizeAndReserveInput[] = [];
   released: string[] = [];
+  confirmed: string[] = [];
   async authorizeAndReserve(_tenantId: string, input: AuthorizeAndReserveInput) {
     this.asked.push(input);
     const reservationId = this.decision === 'ALLOW' ? randomUUID() : undefined;
@@ -40,12 +46,13 @@ class FakeGovernance implements CallbackGovernance {
       ...(this.nextEligibleAt ? { nextEligibleAt: this.nextEligibleAt } : {}),
     } satisfies AuthorizationOutcome;
   }
-  async changeReservationState(_tenantId: string, reservationId: string) {
-    this.released.push(reservationId);
+  async changeReservationState(_tenantId: string, reservationId: string, command: unknown) {
+    (command === 'CONFIRM' ? this.confirmed : this.released).push(reservationId);
     return {};
   }
 }
 
+let extension = 1100;
 async function agent(tenantId: string, teamId: string | null) {
   const id = randomUUID();
   await owner.user.create({
@@ -57,8 +64,10 @@ async function agent(tenantId: string, teamId: string | null) {
       displayName: `Agent ${id.slice(0, 4)}`,
       email: `${id}@test.invalid`,
       passwordHash: 'unused',
+      extension: String((extension += 1)),
     },
   });
+  await owner.agentStateLog.create({ data: { tenantId, userId: id, state: 'AVAILABLE' } });
   return { tenantId, userId: id };
 }
 
@@ -72,13 +81,30 @@ async function fixture(options: { voiceQueue?: boolean } = {}) {
   });
   await owner.team.create({ data: { id: teamId, tenantId, name: 'Care' } });
   await owner.queue.create({
-    data: { id: voiceQueueId, tenantId, teamId, name: 'Voice', channels: ['VOICE'] },
+    data: {
+      id: voiceQueueId,
+      tenantId,
+      teamId,
+      name: 'Voice',
+      channels: ['VOICE'],
+      voiceConfigVersion: 1,
+      voiceWrapupPolicy: 'VOICE_NOTE_V1',
+    },
   });
   await owner.queue.create({
     data: { id: chatQueueId, tenantId, teamId, name: 'Chat', channels: ['WEBCHAT'] },
   });
-  if (options.voiceQueue !== false)
+  if (options.voiceQueue !== false) {
     await owner.$executeRaw`INSERT INTO voice_managed_queue_policies(tenant_id,queue_id) VALUES(${tenantId}::uuid,${voiceQueueId}::uuid)`;
+    const destinationId = randomUUID();
+    await owner.voiceDestination.create({
+      data: { id: destinationId, tenantId, queueId: voiceQueueId, destination: '2000' },
+    });
+    await owner.$executeRaw`INSERT INTO tenant_voice_provisioning_policies(tenant_id,revision,source_kind,accounts_limit,agents_limit,voice_queues_limit,skills_limit,approved_by_operator_subject,approved_at,approval_ref,reason,destination_pool)
+      VALUES(${tenantId}::uuid,1,'UAT_EXPLICIT',10,10,10,10,'test',clock_timestamp(),'test','test',${JSON.stringify([{ destinationId, telephonyNodeId: 'fs-test' }])}::jsonb)`;
+    await owner.$executeRaw`INSERT INTO voice_managed_runtime_readiness(tenant_id,telephony_node_id,version,direct_wired,expires_at)
+      VALUES(${tenantId}::uuid,'fs-test',1,true,clock_timestamp()+interval '1 hour')`;
+  }
   const me = await agent(tenantId, teamId);
   const mate = await agent(tenantId, teamId);
   const otherTeamId = randomUUID();
@@ -119,7 +145,36 @@ async function fixture(options: { voiceQueue?: boolean } = {}) {
   };
   let now = new Date();
   const governance = new FakeGovernance();
-  const callbacks = new AgentCallbacks(application, { governance, now: () => now });
+  const writer = new AgentCallbacks(application, { calls: managedCallbackCalls, now: () => now });
+  // the same calls the controller makes, with Governance asked through the API's decider
+  const decide = () => governanceDecider(governance, tenantId);
+  const callbacks = {
+    options: writer.options.bind(writer),
+    list: writer.list.bind(writer),
+    reschedule: writer.reschedule.bind(writer),
+    cancel: writer.cancel.bind(writer),
+    maintain: writer.maintain.bind(writer),
+    schedule: (actor: { tenantId: string; userId: string }, body: Record<string, unknown>) =>
+      writer.schedule(actor, body, decide()),
+    dial: (
+      actor: { tenantId: string; userId: string },
+      id: string,
+      body: Record<string, unknown>,
+    ) => writer.dial(actor, id, body, decide()),
+  };
+  /** a Work Session for the Agent, as Workspace holds one while signed in */
+  const session = (who = me) =>
+    owner.agentWorkSessionLease.create({
+      data: {
+        id: randomUUID(),
+        tenantId,
+        userId: who.userId,
+        surface: 'workspace',
+        acquiredAt: now,
+        heartbeatAt: now,
+        expiresAt: new Date(now.getTime() + 60 * 60_000),
+      },
+    });
   const advance = (ms: number) => {
     now = new Date(now.getTime() + ms);
   };
@@ -137,6 +192,7 @@ async function fixture(options: { voiceQueue?: boolean } = {}) {
     work,
     governance,
     callbacks,
+    session,
     advance,
     at,
     now: () => now,
@@ -361,4 +417,137 @@ test('15 minutes after the time an offline Agent loses the callback to the team;
     })
   ).map((e) => e.kind);
   assert.deepEqual(kinds, ['SCHEDULED', 'ESCALATED', 'RESCHEDULED', 'EXPIRED']);
+});
+
+async function scheduled(f: Awaited<ReturnType<typeof fixture>>) {
+  // the source work ends before the callback is dialed, as it would in Workspace
+  const interactionId = await f.work();
+  const ref = await f.callbacks.schedule(f.me, {
+    commandId: randomUUID(),
+    interactionId,
+    identityId: f.internal.id,
+    requestedFor: f.at(5 * 60_000),
+  });
+  await owner.interaction.update({ where: { id: interactionId }, data: { state: 'ABANDONED' } });
+  return ref;
+}
+
+test('dialing places a callback call for the Agent; when the Agent does not answer it is scheduled again, when answered it is done', async () => {
+  const f = await fixture();
+  const ref = await scheduled(f);
+  await assert.rejects(
+    f.callbacks.dial(f.me, ref.callbackId, { commandId: randomUUID(), expectedVersion: 1 }),
+    code('NO_WORK_SESSION'),
+  );
+  await f.session();
+  const command = { commandId: randomUUID(), expectedVersion: 1 };
+  const dialing = await f.callbacks.dial(f.me, ref.callbackId, command);
+  assert.equal(dialing.status, 'DIALING');
+  assert.equal(dialing.version, 2);
+  assert.equal(f.governance.confirmed.length, 1);
+  assert.equal(f.governance.asked.at(-1)!.actionKey, `agent-callback-dial:${command.commandId}`);
+  // resending the same command answers the same attempt
+  assert.deepEqual(await f.callbacks.dial(f.me, ref.callbackId, command), dialing);
+  const interactionId = dialing.status === 'DIALING' ? dialing.interactionId : '';
+  const call = await owner.interaction.findUniqueOrThrow({ where: { id: interactionId } });
+  assert.equal(call.direction, 'OUTBOUND');
+  assert.equal(call.state, 'ASSIGNED');
+  assert.equal(call.agentId, f.me.userId);
+  assert.equal(call.queueId, f.voiceQueueId);
+  assert.equal((await f.callbacks.list(f.me)).items[0]!.state, 'ORIGINATING');
+  assert.equal((await f.callbacks.maintain(f.tenantId)).notConnected, 0);
+
+  // the Agent did not answer D-Phone: the runtime abandoned the call, the round puts the callback back
+  await owner.interaction.update({ where: { id: interactionId }, data: { state: 'ABANDONED' } });
+  assert.equal((await f.callbacks.maintain(f.tenantId)).notConnected, 1);
+  let row = await owner.obCallback.findUniqueOrThrow({ where: { id: ref.callbackId } });
+  assert.equal(row.state, 'SCHEDULED');
+  assert.equal(row.lastReasonCode, 'AGENT_NOT_ANSWERED');
+  assert.equal(row.attemptCount, 1);
+
+  // the Agent is Ready again and dials once more; this time the Agent answers
+  await owner.agentStateLog.create({
+    data: { tenantId: f.tenantId, userId: f.me.userId, state: 'AVAILABLE' },
+  });
+  const again = await f.callbacks.dial(f.me, ref.callbackId, {
+    commandId: randomUUID(),
+    expectedVersion: row.version,
+  });
+  assert.equal(again.status, 'DIALING');
+  const second = again.status === 'DIALING' ? again.interactionId : '';
+  await owner.interaction.update({
+    where: { id: second },
+    data: { state: 'WRAPUP', answeredAt: new Date() },
+  });
+  assert.equal((await f.callbacks.maintain(f.tenantId)).connected, 1);
+  row = await owner.obCallback.findUniqueOrThrow({ where: { id: ref.callbackId } });
+  assert.equal(row.state, 'CONSUMED');
+  assert.equal(row.attemptCount, 2);
+  assert.equal((await f.callbacks.list(f.me)).items.length, 0);
+  const kinds = (
+    await owner.obCallbackEvent.findMany({
+      where: { callbackId: ref.callbackId },
+      orderBy: [{ occurredAt: 'asc' }, { id: 'asc' }],
+    })
+  ).map((e) => e.kind);
+  assert.deepEqual(kinds, [
+    'SCHEDULED',
+    'DIAL_STARTED',
+    'NOT_CONNECTED',
+    'DIAL_STARTED',
+    'CONNECTED',
+  ]);
+});
+
+test('Governance at dial time: DEFER moves the callback, REVIEW keeps it, BLOCK cancels it; nothing is dialed', async () => {
+  const f = await fixture();
+  const ref = await scheduled(f);
+  await f.session();
+  f.governance.decision = 'DEFER';
+  f.governance.nextEligibleAt = f.at(14 * 60 * 60_000);
+  const deferred = await f.callbacks.dial(f.me, ref.callbackId, {
+    commandId: randomUUID(),
+    expectedVersion: 1,
+  });
+  assert.equal(deferred.status, 'DEFERRED');
+  assert.equal(
+    deferred.status === 'DEFERRED' && deferred.requestedFor,
+    f.governance.nextEligibleAt,
+  );
+  f.governance.decision = 'REVIEW';
+  const review = await f.callbacks.dial(f.me, ref.callbackId, {
+    commandId: randomUUID(),
+    expectedVersion: deferred.version,
+  });
+  assert.equal(review.status, 'REVIEW');
+  assert.equal((await f.callbacks.list(f.me)).items[0]!.state, 'SCHEDULED');
+  f.governance.decision = 'BLOCK';
+  const blocked = await f.callbacks.dial(f.me, ref.callbackId, {
+    commandId: randomUUID(),
+    expectedVersion: review.version,
+  });
+  assert.equal(blocked.status, 'BLOCKED');
+  const row = await owner.obCallback.findUniqueOrThrow({ where: { id: ref.callbackId } });
+  assert.equal(row.state, 'CANCELLED');
+  assert.equal(row.cancelReasonCode, 'GOVERNANCE_BLOCKED');
+  assert.equal(
+    await owner.interaction.count({ where: { tenantId: f.tenantId, direction: 'OUTBOUND' } }),
+    0,
+  );
+});
+
+test('an Agent with other work cannot dial; the reservation is given back and the callback stays', async () => {
+  const f = await fixture();
+  const ref = await scheduled(f);
+  await f.session();
+  await f.work(); // the Agent is in another conversation
+  await assert.rejects(
+    f.callbacks.dial(f.me, ref.callbackId, { commandId: randomUUID(), expectedVersion: 1 }),
+    code('AGENT_NOT_AVAILABLE'),
+  );
+  assert.equal(f.governance.released.length, 2); // schedule check + this dial
+  assert.equal(f.governance.confirmed.length, 0);
+  const row = await owner.obCallback.findUniqueOrThrow({ where: { id: ref.callbackId } });
+  assert.equal(row.state, 'SCHEDULED');
+  assert.equal(row.version, 1);
 });

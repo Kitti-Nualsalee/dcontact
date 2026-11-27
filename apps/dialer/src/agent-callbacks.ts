@@ -5,21 +5,15 @@
  * it calls the Cases owner writer. Rules confirmed by the owner (28 Nov 2026):
  * - the Agent who scheduled it dials; 15 minutes after the time, if that Agent is not online, it moves to the team
  * - internal numbers only (`1xxx`), there is no PSTN route yet
- * - Contact Governance is asked when scheduling and again before dialing; DNC and calling hours are never skipped
+ * - Contact Governance is asked when scheduling and again before dialing; DNC and calling hours are never skipped.
+ *   Dialer does not hold the Governance port (CG4-REG02): apps/api asks Governance and passes the decision in
  *
  * Every command carries a commandId (`command_receipts`) and, except scheduling, an expectedVersion on
  * `ob_callbacks.version`. The timeline (`ob_callback_events`) never holds the phone number or the note.
  */
 import { createHash, randomUUID } from 'node:crypto';
 import { Prisma, type PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
-import type {
-  AuthorizationOutcome,
-  AuthorizeAndReserveInput,
-  ReservationCommand,
-} from '@d-contact/cxa-contracts';
 
-export const AGENT_CALLBACK_SOURCE = 'AGENT_CALLBACK';
-export const AGENT_CALLBACK_PURPOSE = 'SERVICE';
 export const AGENT_CALLBACK_NOTE_MAX = 500;
 /** an internal number that managed telephony may dial in round one */
 export const AGENT_CALLBACK_DIALABLE = /^1[0-9]{3}$/;
@@ -43,6 +37,9 @@ export type AgentCallbackErrorCode =
   | 'CALLBACK_NOT_SCHEDULED'
   | 'GOVERNANCE_BLOCKED'
   | 'GOVERNANCE_REVIEW'
+  | 'NO_WORK_SESSION'
+  | 'AGENT_NOT_AVAILABLE'
+  | 'VOICE_NOT_READY'
   | 'VERSION_CONFLICT'
   | 'COMMAND_ID_REUSED'
   | 'COMMAND_PAYLOAD_MISMATCH';
@@ -64,6 +61,9 @@ const ERROR_KIND: Record<AgentCallbackErrorCode, AgentCallbackErrorKind> = {
   CALLBACK_NOT_SCHEDULED: 'CONFLICT',
   GOVERNANCE_BLOCKED: 'CONFLICT',
   GOVERNANCE_REVIEW: 'CONFLICT',
+  NO_WORK_SESSION: 'CONFLICT',
+  AGENT_NOT_AVAILABLE: 'CONFLICT',
+  VOICE_NOT_READY: 'CONFLICT',
   VERSION_CONFLICT: 'CONFLICT',
   COMMAND_ID_REUSED: 'CONFLICT',
   COMMAND_PAYLOAD_MISMATCH: 'CONFLICT',
@@ -92,17 +92,29 @@ export interface AgentCallbackRef {
   version: number;
 }
 
-export interface CallbackGovernance {
-  authorizeAndReserve(
-    tenantId: string,
-    input: AuthorizeAndReserveInput,
-  ): Promise<AuthorizationOutcome>;
-  changeReservationState(
-    tenantId: string,
-    reservationId: string,
-    command: ReservationCommand,
-  ): Promise<unknown>;
+/** what Contact Governance is asked about; apps/api turns it into `authorizeAndReserve` */
+export interface AgentCallbackDecisionRequest {
+  stage: 'SCHEDULE' | 'DIAL';
+  commandId: string;
+  callbackId?: string;
+  interactionId?: string;
+  contactId: string;
+  identityId: string;
 }
+
+export interface AgentCallbackDecision {
+  decision: 'ALLOW' | 'BLOCK' | 'DEFER' | 'REVIEW';
+  decisionId: string;
+  reasonCode: string;
+  /** DEFER: the first time Governance would allow, when it can tell */
+  nextEligibleAt?: string;
+  /** DIAL only, called once: true = the call was placed (confirm), false = nothing was placed (release) */
+  settle?(placed: boolean): Promise<void>;
+}
+
+export type AgentCallbackDecider = (
+  request: AgentCallbackDecisionRequest,
+) => Promise<AgentCallbackDecision>;
 
 export interface AgentCallbackNumber {
   identityId: string;
@@ -148,6 +160,30 @@ export interface AgentCallbackMaintenance {
   connected: number;
   notConnected: number;
 }
+
+/** places the callback call in the caller's transaction (apps/api wires the managed voice runtime of apps/router) */
+export interface CallbackCallPort {
+  start(
+    transaction: Prisma.TransactionClient,
+    input: {
+      tenantId: string;
+      queueId: string;
+      agentId: string;
+      contactId: string;
+      destination: string;
+      callbackId: string;
+    },
+  ): Promise<{ interactionId: string }>;
+}
+
+export type AgentCallbackDialResult =
+  | (AgentCallbackRef & { status: 'DIALING'; interactionId: string })
+  /** Governance: not now; the callback moved to the time Governance gave */
+  | (AgentCallbackRef & { status: 'DEFERRED'; requestedFor: string; reasonCode: string })
+  /** Governance: never (e.g. do not call); the callback was cancelled */
+  | (AgentCallbackRef & { status: 'BLOCKED'; reasonCode: string })
+  /** Governance: needs a person to look first; the callback stays */
+  | (AgentCallbackRef & { status: 'REVIEW'; reasonCode: string });
 
 type Transaction = Prisma.TransactionClient;
 
@@ -221,7 +257,8 @@ export class AgentCallbacks {
   constructor(
     private readonly database: PrismaClient,
     private readonly deps: {
-      governance: CallbackGovernance;
+      /** absent = dialing is not wired (`VOICE_NOT_READY`) */
+      calls?: CallbackCallPort;
       id?: () => string;
       now?: () => Date;
     },
@@ -277,6 +314,7 @@ export class AgentCallbacks {
   async schedule(
     actor: AgentCallbackActor,
     body: Record<string, unknown>,
+    decide: AgentCallbackDecider,
   ): Promise<AgentCallbackRef> {
     const commandId = uuidInput(body.commandId, 'commandId');
     const interactionId = uuidInput(body.interactionId, 'interactionId');
@@ -295,24 +333,14 @@ export class AgentCallbacks {
       return work;
     });
     // Scheduling asks only "may this customer be called at all" (DNC, consent): calling hours are checked at dial time,
-    // so DEFER is accepted here. The reservation is a check only and is given back at once
-    const outcome = await this.deps.governance.authorizeAndReserve(actor.tenantId, {
-      channel: 'VOICE',
-      purpose: AGENT_CALLBACK_PURPOSE,
-      source: AGENT_CALLBACK_SOURCE,
-      sourceId: interactionId,
-      actionKey: `agent-callback-schedule:${commandId}`,
-      policyVersion: 1,
+    // so DEFER is accepted here
+    const outcome = await decide({
+      stage: 'SCHEDULE',
+      commandId,
+      interactionId,
       contactId: target.contactId,
       identityId,
     });
-    if (outcome.reservationId) {
-      await this.deps.governance.changeReservationState(
-        actor.tenantId,
-        outcome.reservationId,
-        'RELEASE',
-      );
-    }
     if (outcome.decision === 'BLOCK') throw new AgentCallbackError('GOVERNANCE_BLOCKED');
     if (outcome.decision === 'REVIEW') throw new AgentCallbackError('GOVERNANCE_REVIEW');
 
@@ -432,6 +460,175 @@ export class AgentCallbacks {
       },
       callbackId,
     );
+  }
+
+  /**
+   * Dial a callback now. Contact Governance decides first (calling hours, DNC, caps):
+   * ALLOW places the call and confirms the reservation; DEFER moves the callback to the time Governance gives;
+   * BLOCK cancels it; REVIEW leaves it as it is. The Agent must hold a Work Session and be Ready with no other work
+   * (checked again where the call is placed, under the managed runtime's locks)
+   */
+  async dial(
+    actor: AgentCallbackActor,
+    callbackValue: unknown,
+    body: Record<string, unknown>,
+    decide: AgentCallbackDecider,
+  ): Promise<AgentCallbackDialResult> {
+    const callbackId = uuidInput(callbackValue, 'callbackId');
+    const commandId = uuidInput(body.commandId, 'commandId');
+    const expectedVersion = versionInput(body.expectedVersion);
+    const payloadDigest = digest([1, callbackId, expectedVersion]);
+    const replay = await this.replay(actor, commandId, 'callback.dial', payloadDigest, callbackId);
+    if (replay) return replay as AgentCallbackDialResult;
+    if (!this.deps.calls) throw new AgentCallbackError('VOICE_NOT_READY');
+    const calls = this.deps.calls;
+
+    const target = await this.read(actor, async (transaction, teamActor) => {
+      const row = await this.visible(transaction, teamActor, callbackId, expectedVersion, false);
+      const now = this.now();
+      const session = await transaction.agentWorkSessionLease.findFirst({
+        where: {
+          tenantId: teamActor.tenantId,
+          userId: teamActor.userId,
+          releasedAt: null,
+          expiresAt: { gt: now },
+        },
+        select: { id: true },
+      });
+      if (!session) throw new AgentCallbackError('NO_WORK_SESSION');
+      const destination = await this.dialableIdentity(
+        transaction,
+        teamActor,
+        row.contact_id,
+        row.identity_id,
+      );
+      return { row, destination };
+    });
+
+    const outcome = await decide({
+      stage: 'DIAL',
+      commandId,
+      callbackId,
+      contactId: target.row.contact_id,
+      identityId: target.row.identity_id,
+    });
+
+    if (outcome.decision !== 'ALLOW') {
+      await outcome.settle?.(false);
+      return this.write(
+        actor,
+        commandId,
+        'callback.dial',
+        payloadDigest,
+        async (transaction, teamActor) => {
+          const row = await this.lockVisible(transaction, teamActor, callbackId, expectedVersion);
+          const reasonCode = outcome.reasonCode;
+          if (outcome.decision === 'DEFER') {
+            const now = this.now();
+            const earliest = now.getTime() + AGENT_CALLBACK_MIN_LEAD_MS;
+            const given = outcome.nextEligibleAt ? Date.parse(outcome.nextEligibleAt) : NaN;
+            // without a computable time from Governance, try again in an hour
+            const requestedFor = new Date(
+              Number.isFinite(given) ? Math.max(given, earliest) : now.getTime() + 60 * 60_000,
+            );
+            const version = await this.update(transaction, teamActor.tenantId, row, {
+              requestedFor,
+              expiresAt: new Date(requestedFor.getTime() + AGENT_CALLBACK_EXPIRY_MS),
+              lastReasonCode: reasonCode,
+            });
+            await this.event(transaction, teamActor.tenantId, callbackId, 'DEFERRED', {
+              actorUserId: teamActor.userId,
+              reasonCode,
+              requestedFor,
+              decisionId: outcome.decisionId,
+            });
+            return {
+              status: 'DEFERRED' as const,
+              callbackId,
+              version,
+              requestedFor: requestedFor.toISOString(),
+              reasonCode,
+            };
+          }
+          if (outcome.decision === 'BLOCK') {
+            const version = await this.update(transaction, teamActor.tenantId, row, {
+              state: 'CANCELLED',
+              cancelledAt: this.now(),
+              cancelReasonCode: 'GOVERNANCE_BLOCKED',
+              lastReasonCode: reasonCode,
+            });
+            await this.event(transaction, teamActor.tenantId, callbackId, 'BLOCKED', {
+              actorUserId: teamActor.userId,
+              reasonCode,
+              decisionId: outcome.decisionId,
+            });
+            return { status: 'BLOCKED' as const, callbackId, version, reasonCode };
+          }
+          const version = await this.update(transaction, teamActor.tenantId, row, {
+            lastReasonCode: reasonCode,
+          });
+          await this.event(transaction, teamActor.tenantId, callbackId, 'REVIEW', {
+            actorUserId: teamActor.userId,
+            reasonCode,
+            decisionId: outcome.decisionId,
+          });
+          return { status: 'REVIEW' as const, callbackId, version, reasonCode };
+        },
+        callbackId,
+      );
+    }
+
+    let result: AgentCallbackDialResult;
+    try {
+      result = await this.write(
+        actor,
+        commandId,
+        'callback.dial',
+        payloadDigest,
+        async (transaction, teamActor) => {
+          const row = await this.lockVisible(transaction, teamActor, callbackId, expectedVersion);
+          const destination = await this.dialableIdentity(
+            transaction,
+            teamActor,
+            row.contact_id,
+            row.identity_id,
+          );
+          const call = await calls.start(transaction, {
+            tenantId: teamActor.tenantId,
+            queueId: row.queue_id,
+            agentId: teamActor.userId,
+            contactId: row.contact_id,
+            destination,
+            callbackId,
+          });
+          const version = await this.update(transaction, teamActor.tenantId, row, {
+            state: 'ORIGINATING',
+            attemptInteractionId: call.interactionId,
+            attemptCount: { increment: 1 },
+            lastReasonCode: null,
+          });
+          await this.event(transaction, teamActor.tenantId, callbackId, 'DIAL_STARTED', {
+            actorUserId: teamActor.userId,
+            interactionId: call.interactionId,
+            decisionId: outcome.decisionId,
+          });
+          return {
+            status: 'DIALING' as const,
+            callbackId,
+            version,
+            interactionId: call.interactionId,
+          };
+        },
+        callbackId,
+      );
+    } catch (error) {
+      // nothing was placed: give the permission back at once
+      await outcome.settle?.(false).catch(() => undefined);
+      throw error;
+    }
+    // the attempt happened; a failed confirm leaves the reservation to expire on its own
+    await outcome.settle?.(true).catch(() => undefined);
+    return result;
   }
 
   /** the Agent's own callbacks plus the team's callbacks that moved to the team, oldest time first */
@@ -652,11 +849,21 @@ export class AgentCallbacks {
   }
 
   /** an open callback the Agent may act on: their own, or the team's once it moved to the team */
-  private async lockVisible(
+  private lockVisible(
     transaction: Transaction,
     actor: TeamActor,
     callbackId: string,
     expectedVersion: number,
+  ): Promise<CallbackRow> {
+    return this.visible(transaction, actor, callbackId, expectedVersion, true);
+  }
+
+  private async visible(
+    transaction: Transaction,
+    actor: TeamActor,
+    callbackId: string,
+    expectedVersion: number,
+    lock: boolean,
   ): Promise<CallbackRow> {
     const [row] = await transaction.$queryRaw<CallbackRow[]>(Prisma.sql`
       SELECT id, version, state::text AS state, agent_id, target_owner_team_id, contact_id, identity_id,
@@ -665,7 +872,7 @@ export class AgentCallbacks {
        WHERE tenant_id = ${actor.tenantId}::uuid AND id = ${callbackId}::uuid AND origin = 'AGENT'
          AND (agent_id = ${actor.userId}::uuid
               OR (agent_id IS NULL AND target_owner_team_id = ${actor.teamId}::uuid))
-       FOR UPDATE`);
+       ${lock ? Prisma.sql`FOR UPDATE` : Prisma.empty}`);
     if (!row) throw new AgentCallbackError('CALLBACK_NOT_FOUND');
     if (row.state !== 'SCHEDULED') throw new AgentCallbackError('CALLBACK_NOT_SCHEDULED');
     if (row.version !== expectedVersion) throw new AgentCallbackError('VERSION_CONFLICT');
@@ -719,13 +926,14 @@ export class AgentCallbacks {
     commandId: string,
     action: string,
     payloadDigest: string,
+    resourceId?: string,
   ): Promise<AgentCallbackRef | null> {
     return withTenantDatabaseTransaction(this.database, actor.tenantId, async (transaction) => {
       const receipt = await transaction.commandReceipt.findUnique({
         where: { tenantId_commandId: { tenantId: actor.tenantId, commandId } },
       });
       if (!receipt) return null;
-      return this.checkReceipt(receipt, actor, action, payloadDigest);
+      return this.checkReceipt(receipt, actor, action, payloadDigest, resourceId);
     });
   }
 
@@ -754,14 +962,14 @@ export class AgentCallbacks {
   }
 
   /** lock per commandId, answer an earlier result, then store the receipt with the change */
-  private async write(
+  private async write<T extends AgentCallbackRef>(
     actor: AgentCallbackActor,
     commandId: string,
     action: string,
     payloadDigest: string,
-    work: (transaction: Transaction, actor: TeamActor) => Promise<AgentCallbackRef>,
+    work: (transaction: Transaction, actor: TeamActor) => Promise<T>,
     resourceId?: string,
-  ): Promise<AgentCallbackRef> {
+  ): Promise<T> {
     try {
       return await withTenantDatabaseTransaction(
         this.database,
@@ -774,7 +982,8 @@ export class AgentCallbacks {
           const receipt = await transaction.commandReceipt.findUnique({
             where: { tenantId_commandId: { tenantId: actor.tenantId, commandId } },
           });
-          if (receipt) return this.checkReceipt(receipt, actor, action, payloadDigest, resourceId);
+          if (receipt)
+            return this.checkReceipt(receipt, actor, action, payloadDigest, resourceId) as T;
           const result = await work(transaction, teamActor);
           await transaction.commandReceipt.create({
             data: {
@@ -784,7 +993,7 @@ export class AgentCallbacks {
               resourceId: result.callbackId,
               action,
               payloadDigest,
-              result: { callbackId: result.callbackId, version: result.version },
+              result: result as unknown as Prisma.InputJsonObject,
             },
           });
           return result;
