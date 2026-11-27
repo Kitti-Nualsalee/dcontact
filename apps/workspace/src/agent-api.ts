@@ -1,3 +1,5 @@
+import { AgentApiError } from './agent-api-error.js';
+import { createCallbackApi, type CallbackApi } from './callbacks/callback-api.js';
 import { createWorkCustomerApi, type WorkCustomerApi } from './work-customer-api.js';
 import { createWebchatApi, type WebchatApi } from './webchat/webchat-api.js';
 import type { SipCredentialLease } from './dphone/dphone.js';
@@ -9,6 +11,8 @@ export interface AgentWorkspaceSnapshot {
     agentStatusV1?: number;
     /** #1044 the deployment has web chat on */
     webchatV1?: number;
+    /** #1061 the deployment has agent callbacks on */
+    agentCallbacksV1?: number;
   };
   agent: {
     id: string;
@@ -31,6 +35,8 @@ export interface AgentWorkspaceSnapshot {
     direction: 'INBOUND' | 'OUTBOUND';
     version: string;
     caller: string | null;
+    /** #1061 an agent-scheduled callback (`caller` is the number being called back) */
+    callback?: boolean;
     queue: { id: string; name: string } | null;
     offerExpiresAt: string | null;
     answeredAt: string | null;
@@ -83,19 +89,15 @@ export interface CaseTeamAgent {
   displayName: string;
 }
 
-export class AgentApiError extends Error {
-  constructor(
-    readonly status: number,
-    readonly code: string,
-  ) {
-    super(`Agent API failed with HTTP ${status}`);
-  }
-}
+// in its own module so clients this file imports (callbacks) can extend it without an import cycle
+export { AgentApiError };
 
 export interface AgentWorkspaceApi {
   customer?: WorkCustomerApi;
   /** #1044 the Agent's web chats */
   webchat?: WebchatApi;
+  /** #1061 agent-scheduled callbacks */
+  callbacks?: CallbackApi;
   snapshot(): Promise<AgentWorkspaceSnapshot>;
   becomeAvailable(workSessionLeaseId: string): Promise<void>;
   /** #937 the Agent sets Not Ready + reason, or Offline, themselves */
@@ -236,6 +238,7 @@ export function createAgentWorkspaceApi(options: AgentWorkspaceApiOptions): Agen
   return {
     customer: createWorkCustomerApi(send),
     webchat: createWebchatApi(send),
+    callbacks: createCallbackApi(send),
     async openCase(input) {
       const body = await caseRequest('', {
         method: 'POST',

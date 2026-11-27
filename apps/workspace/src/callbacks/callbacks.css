@@ -1,0 +1,77 @@
+/* #1061 callbacks in the Agent Workspace — tokens only (`var(--dc-*)`), classes start with `aw-callback` */
+.aw-callback {
+  display: grid;
+  gap: var(--dc-space-5);
+}
+
+.aw-callback-slot {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: var(--dc-space-4);
+}
+
+.aw-callback-help {
+  margin: 0;
+  color: var(--dc-text-secondary);
+  font-size: var(--dc-text-sm);
+}
+
+.aw-callback-help[data-invalid='true'] {
+  color: var(--dc-critical-fg);
+}
+
+.aw-callback-hint {
+  margin: 0 0 var(--dc-space-4);
+}
+
+.aw-callback-item {
+  display: grid;
+  gap: var(--dc-space-3);
+  padding: var(--dc-space-4) var(--dc-space-5);
+  border-bottom: 1px solid var(--dc-border-subtle);
+}
+
+.aw-callback-item[data-due='true'] {
+  background: var(--dc-attention-bg-subtle);
+}
+
+.aw-callback-row {
+  display: flex;
+  gap: var(--dc-space-4);
+  min-width: 0;
+}
+
+.aw-callback-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--dc-space-2);
+}
+
+.aw-callback-note {
+  color: var(--dc-text-secondary);
+  font-size: var(--dc-text-sm);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.aw-callback-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--dc-space-2);
+}
+
+/* the number of due callbacks next to the tab name */
+.aw-callback-due-count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  margin-inline-start: var(--dc-space-2);
+  padding: 0 var(--dc-space-2);
+  border-radius: var(--dc-radius-pill);
+  background: var(--dc-attention-bg);
+  color: var(--dc-attention-fg);
+  font-size: var(--dc-text-xs);
+  font-weight: var(--dc-weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
