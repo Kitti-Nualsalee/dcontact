@@ -227,6 +227,7 @@ export function WebchatOffers({
               </span>
             </div>
             <p className="aw-chat-preview">
+              <ChannelBadge channel={offer.channel} />{' '}
               {[offer.queueName, preview ? `“${preview}”` : ''].filter(Boolean).join(' · ')}
             </p>
             <div className="aw-chat-offer-actions">

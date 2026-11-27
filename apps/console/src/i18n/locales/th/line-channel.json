@@ -45,6 +45,7 @@
   },
   "secret": {
     "saved": "บันทึกไว้แล้ว ({{hint}})",
+    "savedNoHint": "บันทึกไว้แล้ว",
     "replace": "เปลี่ยน",
     "replaceLabel": "เปลี่ยน {{name}}",
     "keep": "ใช้ค่าที่บันทึกไว้"

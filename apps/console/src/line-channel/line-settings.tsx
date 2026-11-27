@@ -306,7 +306,11 @@ export function LineSettingsPage({
         ) : (
           <div className="lc__stored" role="group" aria-label={input.label}>
             <p className="lc__stored-label">{input.label}</p>
-            <p className="lc__stored-value">{t('secret.saved', { hint: hintText(input.hint) })}</p>
+            <p className="lc__stored-value">
+              {input.hint
+                ? t('secret.saved', { hint: hintText(input.hint) })
+                : t('secret.savedNoHint')}
+            </p>
             {canEdit ? (
               <Button
                 size="sm"
