@@ -1,0 +1,451 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>D-Contact — #1044 Webchat ใน Workspace (ข้อเสนอ)</title>
+<link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.24.0/dist/tabler-icons.min.css" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Noto+Sans+Thai:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+/* utility shim (ชื่อแบบ Tailwind) — ไฟล์นี้เปิดได้โดยไม่ต้องโหลด Tailwind CDN */
+*,::before,::after{box-sizing:border-box;border:0 solid var(--dc-border-subtle)}
+body{margin:0;font-family:'Inter','Noto Sans Thai',system-ui,sans-serif;line-height:1.5}
+h1,h2,h3,h4,p,dl,dd,ul,ol,fieldset,figure{margin:0;padding:0}ul,ol{list-style:none}fieldset{border:0}
+button,input,select,textarea{font:inherit;color:inherit;margin:0}button{background:none;cursor:pointer;padding:0}
+pre,code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.flex{display:flex}.inline-flex{display:inline-flex}.grid{display:grid}.block{display:block}.hidden{display:none}
+.flex-col{flex-direction:column}.flex-1{flex:1 1 0%}.flex-wrap{flex-wrap:wrap}.shrink-0{flex-shrink:0}
+.items-center{align-items:center}.items-end{align-items:flex-end}.items-start{align-items:flex-start}
+.justify-between{justify-content:space-between}.justify-center{justify-content:center}.justify-end{justify-content:flex-end}
+.gap-1{gap:4px}.gap-2{gap:8px}.gap-3{gap:12px}.gap-4{gap:16px}.gap-5{gap:20px}.gap-6{gap:24px}.gap-y-2{row-gap:8px}.gap-x-3{column-gap:12px}
+.space-y-2>*+*{margin-top:8px}.space-y-3>*+*{margin-top:12px}.space-y-4>*+*{margin-top:16px}.space-y-5>*+*{margin-top:20px}
+.min-h-0{min-height:0}.min-w-0{min-width:0}.w-full{width:100%}
+.relative{position:relative}.absolute{position:absolute}.inset-0{top:0;right:0;bottom:0;left:0}.sticky{position:sticky}.top-0{top:0}
+.overflow-auto{overflow:auto}.overflow-hidden{overflow:hidden}
+.p-2{padding:8px}.p-3{padding:12px}.p-4{padding:16px}.p-5{padding:20px}.p-6{padding:24px}
+.px-2{padding-left:8px;padding-right:8px}.px-3{padding-left:12px;padding-right:12px}.px-4{padding-left:16px;padding-right:16px}.px-5{padding-left:20px;padding-right:20px}.px-6{padding-left:24px;padding-right:24px}
+.py-2{padding-top:8px;padding-bottom:8px}.py-3{padding-top:12px;padding-bottom:12px}.py-4{padding-top:16px;padding-bottom:16px}.pt-3{padding-top:12px}.pb-1{padding-bottom:4px}.pb-2{padding-bottom:8px}
+.m-2{margin:8px}.mx-3{margin-left:12px;margin-right:12px}.mx-5{margin-left:20px;margin-right:20px}.ml-auto{margin-left:auto}
+.mt-1{margin-top:4px}.mt-2{margin-top:8px}.mt-3{margin-top:12px}.mt-4{margin-top:16px}.mt-5{margin-top:20px}
+.mb-1{margin-bottom:4px}.mb-2{margin-bottom:8px}.mb-3{margin-bottom:12px}.mb-4{margin-bottom:16px}.mb-5{margin-bottom:20px}
+.bg-white{background:#fff}.bg-slate-50{background:var(--dc-surface-page)}.bg-slate-100{background:var(--dc-surface-sunken)}.bg-slate-200{background:var(--dc-border-subtle)}.bg-teal-700{background:var(--dc-surface-brand)}
+.border{border-width:1px}.border-b{border-bottom-width:1px}.border-t{border-top-width:1px}.border-l{border-left-width:1px}.border-r{border-right-width:1px}
+.border-slate-100{border-color:var(--dc-surface-sunken)}.border-slate-200{border-color:var(--dc-border-subtle)}
+.rounded{border-radius:3px}.rounded-md{border-radius:5px}.rounded-lg{border-radius:7px}.rounded-full{border-radius:999px}
+.text-center{text-align:center}.text-right{text-align:right}.whitespace-nowrap{white-space:nowrap}
+.text-xs{font-size:12px}.text-sm{font-size:13px}.text-lg{font-size:18px}.text-xl{font-size:20px}.text-2xl{font-size:24px}.text-3xl{font-size:30px}
+.text-\[11px\]{font-size:11px}.text-\[12px\]{font-size:12px}.text-\[13px\]{font-size:13px}.text-\[14px\]{font-size:14px}.text-\[15px\]{font-size:15px}.text-\[16px\]{font-size:16px}.text-\[20px\]{font-size:20px}
+.font-medium{font-weight:500}.font-semibold{font-weight:600}
+.text-white{color:#fff}.text-slate-400{color:var(--dc-text-disabled,#94a3b8)}.text-slate-500{color:var(--dc-text-muted)}.text-slate-600{color:var(--dc-text-secondary)}.text-slate-700{color:#334155}.text-slate-800{color:var(--dc-text-primary)}
+.text-teal-700{color:var(--dc-text-brand)}.text-teal-900{color:#134e4a}.text-amber-700{color:var(--dc-attention-fg)}.text-amber-800{color:var(--dc-attention-fg-strong)}.text-emerald-600{color:#16a34a}
+.opacity-80{opacity:.8}
+.h-2{height:8px}.w-2{width:8px}.h-7{height:28px}.w-7{width:28px}.h-11{height:44px}.w-11{width:44px}.h-12{height:48px}.h-14{height:56px}.w-14{width:56px}
+.max-w-\[640px\]{max-width:640px}
+.accent-teal-700{accent-color:var(--dc-surface-brand)}
+
+/* ข้อเสนอ #1044 — ภาษาภาพจาก mockups/assets/app.css + root 16px ตาม packages/ui (D1.4)
+   ตัวแปรด้านล่างตั้งชื่อตรงกับ token ของ packages/ui เพื่อให้ spec อ้างชื่อได้ ค่าเป็นของ mockup เท่านั้น */
+:root{
+  --dc-surface-page:#f8fafc;--dc-surface-raised:#fff;--dc-surface-sunken:#f1f5f9;--dc-surface-selected:#f0fdfa;--dc-surface-brand:#0f766e;
+  --dc-border-subtle:#e2e8f0;--dc-border-default:#cbd5e1;--dc-border-brand:#0f766e;
+  --dc-text-primary:#1e293b;--dc-text-secondary:#475569;--dc-text-muted:#64748b;--dc-text-brand:#0f766e;--dc-text-on-brand:#fff;
+  --dc-attention-bg:#fef3c7;--dc-attention-bg-subtle:#fffbeb;--dc-attention-fg:#b45309;--dc-attention-fg-strong:#92400e;--dc-attention-border:#fde68a;--dc-attention-solid:#f59e0b;
+  --dc-critical-bg-subtle:#fff1f2;--dc-critical-fg:#b91c1c;--dc-critical-fg-strong:#9f1239;--dc-critical-border:#fecaca;
+  --dc-info-bg-subtle:#eef2ff;--dc-info-fg:#4338ca;--dc-neutral-bg:#f1f5f9;--dc-neutral-fg:#475569;
+  --dc-channel-webchat-bg:#ccfbf1;--dc-channel-webchat-fg:#0f766e;--dc-channel-voice-bg:#e0e7ff;--dc-channel-voice-fg:#4338ca;
+  --dc-agent-acw-bg:#fef3c7;--dc-agent-acw-fg:#b45309;--dc-agent-available-bg:#dcfce7;--dc-agent-available-fg:#15803d;--dc-agent-busy-bg:#fee2e2;--dc-agent-busy-fg:#b91c1c;
+  --dc-party-agent:#0f766e;--dc-party-contact:#4f46e5;
+  --dc-focus-ring:0 0 0 2px #fff,0 0 0 4px #0f766e;--dc-focus-ring-inset:inset 0 0 0 2px #0f766e,inset 0 0 0 4px #fff;
+}
+html{font-size:16px}
+body{font-size:14px;color:var(--dc-text-primary);background:var(--dc-surface-page)}
+.mk-bar{position:sticky;top:0;z-index:90;display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:6px 12px;background:#0f172a;color:#e2e8f0;font-size:12px}
+.mk-bar select{background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:6px;padding:3px 6px}
+body.shot .mk-bar{display:none}
+:where(a,button,input,select,textarea,[tabindex]):focus-visible{outline:none;box-shadow:var(--dc-focus-ring)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:32px;padding:0 12px;border-radius:5px;font-size:13px;font-weight:500;border:1px solid var(--dc-border-default);background:#fff;color:var(--dc-text-primary);white-space:nowrap}
+.btn:hover{background:var(--dc-surface-page)}
+.btn-sm{height:26px;padding:0 8px;font-size:12px}
+.btn-primary{background:var(--dc-surface-brand);border-color:var(--dc-surface-brand);color:#fff}.btn-primary:hover{background:#115e59}
+.btn-danger-ghost{color:var(--dc-critical-fg);border-color:var(--dc-critical-border)}
+.btn-danger{background:#dc2626;border-color:#dc2626;color:#fff}
+.btn-ghost{border-color:transparent;background:none;color:var(--dc-text-brand)}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.act{width:32px;height:32px;display:inline-flex;align-items:center;justify-content:center;border-radius:5px;font-size:18px;color:var(--dc-text-muted)}
+.tab{height:36px;padding:0 10px;font-size:13px;color:var(--dc-text-secondary);border-bottom:2px solid transparent;white-space:nowrap}
+.tab.on{color:var(--dc-text-brand);border-bottom-color:var(--dc-border-brand);font-weight:600}
+.ch{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;border-radius:3px;padding:0 6px;height:18px;white-space:nowrap}
+.ch-webchat{background:var(--dc-channel-webchat-bg);color:var(--dc-channel-webchat-fg)}
+.ch-voice{background:var(--dc-channel-voice-bg);color:var(--dc-channel-voice-fg)}
+.wst{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;border-radius:999px;padding:0 7px;height:18px;white-space:nowrap}
+.wst::before{content:'';width:6px;height:6px;border-radius:50%;background:currentColor}
+.wst-active{background:var(--dc-surface-selected);color:var(--dc-text-brand)}
+.wst-wrap{background:var(--dc-agent-acw-bg);color:var(--dc-agent-acw-fg)}
+.wst-gone{background:var(--dc-neutral-bg);color:var(--dc-neutral-fg)}
+.unread{min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:var(--dc-surface-brand);color:#fff;font-size:11px;font-weight:600;display:inline-flex;align-items:center;justify-content:center}
+.trunc{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mono{font-variant-numeric:tabular-nums}
+.ctl{width:100%;height:32px;padding:0 10px;border:1px solid var(--dc-border-default);border-radius:4px;font-size:13px;background:#fff}
+textarea.ctl{height:auto;padding:6px 10px;line-height:1.5;resize:none}
+.fld2{display:block;font-size:13px;font-weight:500;margin-bottom:4px}
+.help{font-size:12px;color:var(--dc-text-muted);margin-top:4px;display:flex;justify-content:space-between;gap:8px}
+.note2{display:flex;gap:8px;border-radius:5px;padding:8px 12px;font-size:13px;line-height:1.5;align-items:flex-start}
+.note2>i{font-size:17px;margin-top:1px}
+.n-warn{background:var(--dc-attention-bg-subtle);border:1px solid var(--dc-attention-border);color:var(--dc-attention-fg-strong)}
+.n-info{background:var(--dc-surface-selected);border:1px solid #99f6e4;color:#115e59}
+.n-bad{background:var(--dc-critical-bg-subtle);border:1px solid var(--dc-critical-border);color:var(--dc-critical-fg-strong)}
+.n-neutral{background:var(--dc-surface-sunken);border:1px solid var(--dc-border-subtle);color:var(--dc-text-secondary)}
+.sk{display:block;border-radius:3px;background:linear-gradient(90deg,#f1f5f9,#e2e8f0,#f1f5f9);background-size:200% 100%;animation:sk 1.4s infinite}
+@keyframes sk{0%{background-position:100% 0}100%{background-position:-100% 0}}
+@media(prefers-reduced-motion:reduce){.sk{animation:none}.cd-bar>span{transition:none}}
+/* รายการงาน */
+.item{display:flex;gap:10px;width:100%;text-align:left;padding:10px 12px 10px 9px;border-left:3px solid transparent;border-bottom:1px solid var(--dc-border-subtle)}
+.item:hover{background:var(--dc-surface-page)}
+.item[aria-current=true]{background:var(--dc-surface-selected);border-left-color:var(--dc-border-brand)}
+.item:focus-visible{box-shadow:var(--dc-focus-ring-inset)}
+.item-ic{width:32px;height:32px;border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:17px;background:var(--dc-channel-webchat-bg);color:var(--dc-channel-webchat-fg);flex-shrink:0}
+.item.has-unread .prev{color:var(--dc-text-primary);font-weight:500}
+/* offer */
+.offer{margin:8px;border:1px solid var(--dc-border-brand);border-radius:5px;background:#fff;box-shadow:0 1px 2px rgba(15,23,42,.06);overflow:hidden}
+.cd-bar{height:3px;background:var(--dc-surface-sunken)}.cd-bar>span{display:block;height:100%;background:var(--dc-surface-brand)}
+.cd-bar.low>span{background:var(--dc-attention-solid)}
+/* บทสนทนา */
+.msgs{display:flex;flex-direction:column;gap:6px}
+.msg{width:max-content;max-width:72%;display:block}.msg .who{margin-bottom:2px}
+.msg .who{font-size:11px;color:var(--dc-text-muted);display:flex;gap:6px}
+.wbub{padding:7px 11px;border-radius:7px;font-size:14px;line-height:1.55;white-space:pre-wrap;overflow-wrap:break-word}
+.msg.c{align-self:flex-start}.msg.c .wbub{background:var(--dc-surface-sunken);border-top-left-radius:2px}
+.msg.a{align-self:flex-end;text-align:right}.msg.a .who{justify-content:flex-end}.msg.a .wbub{text-align:left;display:inline-block}.msg.c .wbub{display:inline-block}.msg.a.fail>span:last-child{margin-top:4px;justify-content:flex-end}.msg.a .wbub{background:var(--dc-surface-selected);border:1px solid #99f6e4;border-top-right-radius:2px}
+.msg.a.fail .wbub{border-color:var(--dc-critical-border);background:var(--dc-critical-bg-subtle)}
+.msg.a.pending .wbub{opacity:.7}
+.sys{align-self:center;font-size:12px;color:var(--dc-text-secondary);background:var(--dc-surface-page);border:1px solid var(--dc-border-subtle);border-radius:999px;padding:2px 10px;display:inline-flex;gap:6px;align-items:center;margin:6px 0}
+.day{align-self:center;font-size:11px;color:var(--dc-text-muted);margin:4px 0}
+.composer textarea{min-height:64px;max-height:160px}
+.newpill{position:absolute;left:50%;transform:translateX(-50%);bottom:12px;box-shadow:0 4px 12px rgba(15,23,42,.18)}
+.phonebar{display:flex;align-items:center;gap:12px;height:44px;padding:0 16px;border:1px solid var(--dc-border-subtle);border-radius:5px;background:#fff}
+.alert-top{display:flex;align-items:center;gap:8px;padding:6px 16px;font-size:13px}
+.toast{position:fixed;right:60px;bottom:16px;z-index:85;display:flex;gap:8px;align-items:center;background:#fff;border:1px solid var(--dc-border-subtle);border-left:4px solid #16a34a;border-radius:5px;padding:10px 14px;font-size:13px;box-shadow:0 10px 30px rgba(15,23,42,.18)}
+.radio{display:flex;align-items:center;gap:8px;height:32px;padding:0 10px;border:1px solid var(--dc-border-default);border-radius:4px;font-size:13px}
+.radio.on{border-color:var(--dc-border-brand);background:var(--dc-surface-selected)}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+</style>
+</head>
+<body>
+<div class="mk-bar" id="mk-bar">
+  <b>#1044 Workspace · Webchat</b>
+  <label>state <select id="mk-state"></select></label>
+  <span id="mk-desc" class="opacity-80"></span>
+</div>
+
+<div class="flex flex-col" id="app" style="height:calc(100vh - var(--mk,0px))">
+  <!-- TopBar ของ Workspace (เดิม) -->
+  <header class="h-11 shrink-0 bg-white border-b border-slate-200 flex items-center gap-3 px-4">
+    <span class="w-7 h-7 rounded-md bg-teal-700 text-white flex items-center justify-center text-sm font-semibold">D</span>
+    <b class="text-[15px] text-teal-900">Workspace</b>
+    <span class="text-xs px-2 rounded bg-slate-100 text-slate-600">demo-retail</span>
+    <div class="flex-1"></div>
+    <span class="text-[12px] text-slate-600 flex items-center gap-1" id="cap"></span>
+    <button class="btn btn-sm" id="agent-state" aria-haspopup="listbox"></button>
+    <span class="text-[13px] text-slate-600">สมหญิง ใจดี</span>
+    <span class="w-7 h-7 rounded-full bg-slate-200 flex items-center justify-center text-xs">สห</span>
+  </header>
+  <div id="alerts"></div>
+  <div class="flex-1 min-h-0 flex">
+    <!-- รายการงาน -->
+    <section style="width:288px" class="shrink-0 bg-white border-r border-slate-200 flex flex-col" aria-labelledby="work-h">
+      <h2 id="work-h" class="px-4 pt-3 pb-1 text-[13px] font-semibold text-slate-700">งานของฉัน</h2>
+      <div class="flex border-b border-slate-200 px-2" role="tablist" aria-label="รายการงาน">
+        <button class="tab on" role="tab" aria-selected="true" id="t-open"></button><button class="tab" role="tab" id="t-closed"></button>
+      </div>
+      <div id="offers" aria-live="polite"></div>
+      <ul id="list" class="flex-1 min-h-0 overflow-auto"></ul>
+    </section>
+    <!-- งานปัจจุบัน -->
+    <main class="flex-1 min-w-0 flex flex-col bg-slate-50" id="main" aria-label="งานปัจจุบัน"></main>
+    <!-- แผงงาน -->
+    <aside style="width:352px" class="shrink-0 bg-white border-l border-slate-200 flex flex-col" aria-label="แผงรายละเอียดงาน">
+      <div class="h-12 shrink-0 flex items-center justify-between px-4 border-b border-slate-100">
+        <h2 class="text-[13px] font-semibold text-slate-700">แผงงาน</h2><button class="act" aria-label="ปิดแผงรายละเอียด"><i class="ti ti-layout-sidebar-right"></i></button>
+      </div>
+      <div class="flex border-b border-slate-200 px-2" role="tablist" aria-label="แผงรายละเอียดงาน" id="itabs"></div>
+      <div class="flex-1 min-h-0 overflow-auto p-4" id="inspector"></div>
+    </aside>
+    <div class="w-11 shrink-0 bg-white border-l border-slate-200 flex flex-col items-center gap-2 py-3 text-slate-500" role="toolbar" aria-label="เครื่องมือ">
+      <button class="act" aria-label="ปิดแผงรายละเอียด"><i class="ti ti-layout-sidebar-right"></i></button>
+      <button class="act" aria-label="สรุปผล"><i class="ti ti-notes"></i></button>
+      <button class="act" aria-label="รายละเอียด"><i class="ti ti-info-circle"></i></button>
+      <button class="act" aria-label="เหตุการณ์"><i class="ti ti-timeline-event"></i></button>
+    </div>
+  </div>
+</div>
+<div id="layer"></div>
+
+<script>
+// ---------- ข้อมูลตัวอย่าง ----------
+const LONG_MSG = ('สวัสดีค่ะ สั่งซื้อหม้อทอดไร้น้ำมันรุ่น AF-500 ไปเมื่อวันที่ 20 พ.ย. เลขคำสั่งซื้อ SO-2569-118842 ระบบแจ้งว่าจัดส่งแล้วแต่ยังไม่ได้รับของ ' +
+  'ติดต่อขนส่งแล้วบอกว่าพัสดุอยู่ที่ศูนย์กระจายสินค้าบางนาตั้งแต่สามวันก่อน อยากทราบว่าต้องทำอย่างไรต่อ และถ้าไม่ได้รับภายในสัปดาห์นี้ขอยกเลิกและคืนเงินได้ไหมคะ ').repeat(5).trim();
+const ROOMS = {
+  A1B2: {name:'ผู้เยี่ยมชม #A1B2', queue:'Online Sales', started:'10:31', elapsed:'08:12', state:'active', unread:0, wait:null,
+    preview:'ได้ค่ะ รบกวนเช็กให้หน่อยนะคะ', msgs:[
+      ['day','วันนี้'],
+      ['sys','ti-message-circle','ผู้เยี่ยมชมเริ่มแชทจาก shop.demo-retail.co.th','10:29'],
+      ['c','สวัสดีค่ะ สั่งของไปเมื่อวันที่ 20 ยังไม่ได้รับเลยค่ะ','10:29'],
+      ['sys','ti-user-check','สมหญิง ใจดี เข้าร่วมแชท','10:31'],
+      ['a','สวัสดีค่ะ ยินดีให้บริการค่ะ รบกวนขอเลขคำสั่งซื้อด้วยนะคะ','10:31'],
+      ['c','SO-2569-118842 ค่ะ','10:33'],
+      ['a','ขอบคุณค่ะ ขอเวลาตรวจสอบกับขนส่งสักครู่นะคะ','10:34'],
+      ['c','ได้ค่ะ รบกวนเช็กให้หน่อยนะคะ','10:35'],
+    ]},
+  C3D4: {name:'ผู้เยี่ยมชม #C3D4', queue:'Online Sales', started:'10:36', elapsed:'03:05', state:'active', unread:2, wait:'1:12',
+    preview:'แล้วถ้าผ่อน 0% ต้องใช้บัตรธนาคารไหนคะ', msgs:[
+      ['sys','ti-message-circle','ผู้เยี่ยมชมเริ่มแชทจาก shop.demo-retail.co.th','10:35'],
+      ['c','โปรเดือนนี้ลดเพิ่มสำหรับสมาชิกใช่ไหมคะ','10:35'],
+      ['sys','ti-user-check','สมหญิง ใจดี เข้าร่วมแชท','10:36'],
+      ['a','ใช่ค่ะ สมาชิกลดเพิ่ม 5% เมื่อซื้อครบ 1,500 บาทค่ะ','10:37'],
+      ['c','ขอบคุณค่ะ','10:38'],
+      ['c','แล้วถ้าผ่อน 0% ต้องใช้บัตรธนาคารไหนคะ','10:38'],
+    ]},
+  E5F6: {name:'ผู้เยี่ยมชม #E5F6', queue:'Online Sales', started:'10:18', elapsed:'14:40', state:'wrap', reason:'left', unread:0, wait:null,
+    preview:'ลูกค้าออกจากแชท', msgs:[
+      ['sys','ti-message-circle','ผู้เยี่ยมชมเริ่มแชทจาก shop.demo-retail.co.th','10:17'],
+      ['c','เปลี่ยนที่อยู่จัดส่งได้ไหมคะ','10:17'],
+      ['sys','ti-user-check','สมหญิง ใจดี เข้าร่วมแชท','10:18'],
+      ['a','ได้ค่ะ ถ้ายังไม่ออกจากคลัง รบกวนแจ้งเลขคำสั่งซื้อค่ะ','10:19'],
+      ['c','เดี๋ยวขอหาเลขก่อนนะคะ','10:21'],
+      ['sys','ti-logout','ลูกค้าออกจากแชท','10:32'],
+    ]},
+};
+const STATES = {
+  'default':'3 ห้องพร้อมกัน, ห้อง #C3D4 มีข้อความใหม่ 2 ข้อความที่ยังไม่เปิด, ร่างข้อความใน #A1B2 ค้างอยู่',
+  'offer':'แชทใหม่เข้าระหว่าง Agent พิมพ์ในห้อง #A1B2 — ไม่ขโมย focus ไม่มี modal',
+  'offer-low':'offer เหลือไม่ถึง 10 วินาที แถบเปลี่ยนเป็นสีเตือน',
+  'offer-missed':'offer หมดเวลา ระบบส่งให้คนถัดไป (แจ้งในรายการ ไม่ขวางงาน)',
+  'full':'ครบเพดาน 3/3 ห้อง ระบบไม่ส่ง offer ใหม่',
+  'send-failed':'ข้อความส่งไม่สำเร็จ + ลองส่งอีกครั้ง',
+  'silence-warn':'ลูกค้าเงียบใกล้ครบเวลา (เหลือ 2 นาที) แจ้งใน main',
+  'left':'ลูกค้าออกจากแชท → รอบันทึกผล ฟอร์มสรุปผลในแผงงาน',
+  'idle-closed':'ระบบปิดห้องเพราะลูกค้าเงียบเกิน 10 นาที → รอบันทึกผล',
+  'end-confirm':'Agent กดจบแชท → ยืนยันแบบ inline ในหัวห้อง (ไม่ใช้ modal)',
+  'saved':'บันทึกผลแล้ว ห้องย้ายไปแท็บปิดแล้ว + toast',
+  'customer-tab':'แท็บ Customer 360 ของห้องแชท (WorkCustomerPanel เดิม) ยัง unlinked',
+  'reconnecting':'การเชื่อมต่อหลุด กำลังเชื่อมใหม่ ร่างข้อความยังอยู่ ปุ่มส่งปิด',
+  'long':'ข้อความยาว 2,000 ตัวอักษร + เลื่อนขึ้นไปอ่าน มีข้อความใหม่ด้านล่าง',
+  'room-loading':'สลับห้องครั้งแรก กำลังโหลดข้อความ (skeleton)',
+  'room-error':'โหลดข้อความเก่าไม่สำเร็จ แต่ข้อความสดและการส่งยังทำงาน (partial)',
+  'not-ready-blocked':'Agent พยายามเปลี่ยนเป็น Not Ready ขณะยังมีห้องค้าง',
+  'empty':'Ready ไม่มีงาน',
+};
+const P = new URLSearchParams(location.search);
+let state = P.get('state') || 'default';
+if (P.get('shot')) document.body.classList.add('shot');
+document.documentElement.style.setProperty('--mk', P.get('shot') ? '0px' : document.getElementById('mk-bar').offsetHeight + 'px');
+
+const $ = id => document.getElementById(id);
+const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;');
+
+function roomsFor(s) {
+  const r = JSON.parse(JSON.stringify(ROOMS));
+  if (s === 'left') { /* เลือกห้องที่ลูกค้าออก */ }
+  if (s === 'idle-closed') { r.E5F6.reason = 'idle'; r.E5F6.preview = 'ปิดเพราะไม่มีการตอบ'; r.E5F6.msgs[5] = ['sys','ti-clock-off','ระบบปิดแชทเพราะลูกค้าไม่ตอบเกิน 10 นาที','10:31']; }
+  if (s === 'offer' || s === 'offer-low' || s === 'offer-missed') delete r.E5F6;
+  if (s === 'saved') delete r.E5F6;
+  if (s === 'empty') return {};
+  if (s === 'long') { r.A1B2.msgs.splice(5, 0, ['c', LONG_MSG, '10:32']); }
+  return r;
+}
+function selectedFor(s) {
+  if (['left','idle-closed'].includes(s)) return 'E5F6';
+  if (s === 'empty') return null;
+  return 'A1B2';
+}
+
+// ---------- TopBar ----------
+function renderTop(rooms) {
+  const n = Object.keys(rooms).length;
+  $('cap').innerHTML = n ? `<i class="ti ti-messages text-teal-700"></i>แชท <b class="mono">${n}/3</b>${n >= 3 ? ' <span class="text-slate-500">· ครบเพดาน</span>' : ''}` : '';
+  const ready = state !== 'not-ready-blocked';
+  $('agent-state').innerHTML = `<span class="w-2 h-2 rounded-full" style="background:${n ? 'var(--dc-agent-busy-fg)' : 'var(--dc-agent-available-fg)'}"></span>${n ? 'กำลังแชท' : 'Ready'}<i class="ti ti-chevron-down"></i>`;
+}
+
+// ---------- แจ้งเตือนบนสุด ----------
+function renderAlerts() {
+  let h = '';
+  if (state === 'reconnecting') h = `<div class="alert-top n-warn border-b" role="status"><i class="ti ti-plug-connected-x"></i><b>การเชื่อมต่อแชทหลุด กำลังเชื่อมต่อใหม่…</b><span>ข้อความที่พิมพ์ไว้ยังอยู่ ส่งได้เมื่อเชื่อมต่อแล้ว ลูกค้ายังอยู่ในห้องเดิม</span><span class="flex-1"></span><button class="btn btn-sm">ลองเชื่อมต่อตอนนี้</button></div>`;
+  if (state === 'not-ready-blocked') h = `<div class="alert-top n-warn border-b" role="alert"><i class="ti ti-alert-triangle"></i><b>ยังเปลี่ยนเป็น Not Ready ไม่ได้</b><span>ปิดและบันทึกผลแชทที่ค้างอีก 3 ห้องก่อน ระหว่างนี้ระบบยังไม่ส่งแชทใหม่เพราะครบเพดาน</span></div>`;
+  $('alerts').innerHTML = h;
+}
+
+// ---------- รายการงาน ----------
+function stChip(r) {
+  if (r.state === 'wrap') return `<span class="wst wst-wrap">รอบันทึกผล</span>`;
+  return `<span class="wst wst-active">กำลังคุย</span>`;
+}
+function renderList(rooms, sel) {
+  const ids = Object.keys(rooms);
+  $('t-open').textContent = `เปิดอยู่ (${ids.length})`;
+  $('t-closed').textContent = `ปิดแล้ว (${state === 'saved' ? 1 : 0})`;
+  let offers = '';
+  if (state === 'offer' || state === 'offer-low') {
+    const low = state === 'offer-low';
+    offers = `<div class="offer" role="group" aria-labelledby="of-t" aria-describedby="of-d">
+      <div class="p-3 flex" style="gap:10px">
+        <span class="item-ic"><i class="ti ti-message-plus"></i></span>
+        <div class="min-w-0 flex-1">
+          <div class="flex items-center justify-between gap-2"><b id="of-t" class="text-[13px]">แชทใหม่ · ผู้เยี่ยมชม #G7H8</b>
+            <span class="mono text-[12px] font-semibold ${low ? 'text-amber-700' : 'text-slate-600'}" role="timer" aria-label="เหลือเวลารับ ${low ? 7 : 18} วินาที">0:${low ? '07' : '18'}</span></div>
+          <p id="of-d" class="text-[12px] text-slate-600 trunc">Online Sales · “สอบถามการรับประกันเครื่องฟอกอากาศ…”</p>
+          <div class="flex items-center gap-2 mt-2"><button class="btn btn-sm btn-primary" id="of-accept"><i class="ti ti-check"></i>รับแชท</button>
+            <span class="text-[11px] text-slate-500">รับแล้วจะมี 3/3 ห้อง</span></div>
+        </div>
+      </div>
+      <div class="cd-bar ${low ? 'low' : ''}" aria-hidden="true"><span style="width:${low ? 23 : 60}%"></span></div>
+    </div>`;
+  }
+  if (state === 'offer-missed') offers = `<div class="note2 n-neutral m-2" role="status"><i class="ti ti-clock-x"></i><div class="flex-1"><p>แชทจาก #G7H8 หมดเวลารับ ระบบส่งให้เจ้าหน้าที่คนถัดไปแล้ว</p></div><button class="act" style="width:24px;height:24px" aria-label="ปิดข้อความ"><i class="ti ti-x text-sm"></i></button></div>`;
+  if (state === 'full') offers = `<p class="mx-3 mt-2 mb-1 text-[12px] text-slate-600 flex gap-1 items-center"><i class="ti ti-lock"></i>ครบ 3 ห้อง แชทใหม่จะเข้าเมื่อปิดห้องใดห้องหนึ่ง</p>`;
+  $('offers').innerHTML = offers;
+  if (!ids.length) {
+    $('list').innerHTML = `<li class="p-6 text-center text-[13px] text-slate-600"><i class="ti ti-inbox text-3xl text-slate-400 block mb-2"></i><b class="block text-slate-800">ยังไม่มีงานในมือ</b>เมื่อสถานะเป็น Ready แชทหรือสายใหม่จะแสดงที่นี่</li>`;
+    return;
+  }
+  $('list').innerHTML = ids.map(id => {
+    const r = rooms[id];
+    const cur = id === sel;
+    const time = r.state === 'wrap' ? `<span class="mono text-[12px] text-slate-500">${r.reason === 'idle' ? '10:31' : '10:32'}</span>`
+      : r.wait ? `<span class="mono text-[12px] font-semibold text-slate-700" title="ลูกค้ารอคำตอบ">รอ ${r.wait}</span>` : `<span class="mono text-[12px] text-slate-500">${r.elapsed}</span>`;
+    return `<li><button class="item ${r.unread ? 'has-unread' : ''}" ${cur ? 'aria-current="true"' : ''}
+      aria-label="${r.name}, ${r.state === 'wrap' ? 'รอบันทึกผล' : 'กำลังคุย'}${r.unread ? `, ยังไม่อ่าน ${r.unread} ข้อความ` : ''}">
+      <span class="item-ic"><i class="ti ti-message"></i></span>
+      <span class="min-w-0 flex-1">
+        <span class="flex items-center justify-between gap-2"><b class="text-[13px] trunc">${r.name}</b>${time}</span>
+        <span class="flex items-center gap-2"><span class="prev text-[12px] text-slate-600 trunc flex-1">${r.state==='wrap' ? '<i class="ti ti-logout text-[12px]"></i> ' : ''}${esc(r.preview)}</span>${r.unread ? `<span class="unread" aria-hidden="true">${r.unread}</span>` : ''}</span>
+        <span class="flex items-center gap-1 mt-1"><span class="ch ch-webchat"><i class="ti ti-message"></i>Web Chat</span>${stChip(r)}</span>
+      </span></button></li>`;
+  }).join('');
+}
+
+// ---------- main ----------
+function msgHtml(m, idx, total) {
+  if (m[0] === 'day') return `<p class="day">${m[1]}</p>`;
+  if (m[0] === 'sys') return `<p class="sys"><i class="ti ${m[1]}"></i>${m[2]}<span class="mono text-slate-500">${m[3]}</span></p>`;
+  const c = m[0] === 'c';
+  return `<div class="msg ${m[0]}"><span class="who">${c ? 'ผู้เยี่ยมชม' : 'คุณ'}<span class="mono">${m[2]}</span></span><div class="wbub">${esc(m[1])}</div></div>`;
+}
+function renderMain(rooms, sel) {
+  const m = $('main');
+  if (!sel) {
+    m.innerHTML = `<div class="flex-1 flex flex-col items-center justify-center text-center gap-2 text-[13px] text-slate-600">
+      <span class="w-14 h-14 rounded-full bg-white border border-slate-200 flex items-center justify-center"><i class="ti ti-circle-check text-2xl text-teal-700"></i></span>
+      <b class="text-slate-800 text-[15px]">ไม่มีงานที่กำลังทำ</b><span>คุณพร้อมรับงาน แชทใหม่จะเด้งในรายการงานด้านซ้ายให้กดรับ</span></div>`;
+    return;
+  }
+  const r = rooms[sel];
+  const closed = r.state === 'wrap';
+  const endBtn = closed ? '' : state === 'end-confirm'
+    ? `<span class="flex items-center gap-2 text-[13px]" role="group" aria-label="ยืนยันจบแชท"><span class="whitespace-nowrap">จบแชทนี้?</span><button class="btn btn-sm btn-danger" style="box-shadow:var(--dc-focus-ring)">จบแชท</button><button class="btn btn-sm">ยังไม่จบ</button></span>`
+    : `<button class="btn btn-sm btn-danger-ghost"><i class="ti ti-message-off"></i>จบแชท</button>`;
+  const head = `<div class="h-12 shrink-0 bg-white border-b border-slate-200 flex items-center gap-3 px-5">
+      <strong class="text-[15px] whitespace-nowrap">${r.name}</strong><span class="ch ch-webchat"><i class="ti ti-message"></i>Web Chat</span>
+      <span class="text-[12px] text-slate-500 trunc min-w-0">${r.queue} · เริ่ม ${r.started}</span>
+      <div class="flex-1"></div>${endBtn}</div>`;
+  const bar = `<div class="mx-5 mt-3 phonebar">
+      <i class="ti ti-messages text-teal-700 text-lg"></i>
+      <b class="text-[13px] whitespace-nowrap">${closed ? 'แชทจบแล้ว · รอบันทึกผล' : 'กำลังแชท'}</b>
+      <span class="text-[12px] text-slate-500 trunc flex-1">${closed ? (r.reason === 'idle' ? 'ระบบปิดเพราะลูกค้าไม่ตอบเกิน 10 นาที' : 'ลูกค้าออกจากแชท') : 'ลูกค้ายังไม่ได้ระบุตัวตน · ผูกลูกค้าได้ในแท็บ Customer 360'}</span>
+      <span class="mono text-[13px] whitespace-nowrap" role="timer">เวลาในแชท ${r.elapsed}</span></div>`;
+  const ctab = state === 'customer-tab';
+  const tabs = `<div class="mx-5 mt-2 flex border-b border-slate-200" role="tablist" aria-label="มุมมองงาน">
+      <button class="tab ${ctab ? '' : 'on'}" role="tab" aria-selected="${!ctab}">บทสนทนา</button><button class="tab ${ctab ? 'on' : ''}" role="tab" aria-selected="${ctab}">Customer 360</button></div>`;
+  if (ctab) {
+    m.innerHTML = head + bar + tabs + `<div class="flex-1 min-h-0 overflow-auto px-5 py-4">
+      <section class="bg-white border border-slate-200 rounded-md p-4 max-w-[640px]" aria-label="ข้อมูลลูกค้าของงานนี้">
+        <h3 class="text-[13px] font-semibold mb-2">ข้อมูลลูกค้าของงานนี้</h3>
+        <p class="text-[13px] text-slate-600 mb-3">แชทนี้ยังไม่เชื่อมกับลูกค้า ลูกค้าเว็บไม่ได้ระบุตัวตน ถามเบอร์หรืออีเมลในแชทแล้วค้นหาที่นี่ หรือปล่อยไว้ได้</p>
+        <div class="grid gap-2 items-end" style="grid-template-columns:150px 1fr auto">
+          <div><label class="fld2">ค้นหาด้วย</label><select class="ctl"><option>เบอร์โทรศัพท์เต็มค่า</option></select></div>
+          <div><label class="fld2">เบอร์โทรศัพท์สากลหรืออีเมลเต็มค่า</label><input class="ctl" value="+66812345678"></div>
+          <button class="btn btn-primary">ค้นหาลูกค้าสำหรับงานนี้</button></div>
+        <p class="help">แผงเดียวกับงาน Voice (WorkCustomerPanel) ไม่มีการเปลี่ยนพฤติกรรม</p>
+      </section></div>`;
+    return;
+  }
+  // ข้อความ
+  let msgs = r.msgs.slice();
+  if (state === 'send-failed') msgs.push(['a-fail','เช็กแล้วค่ะ พัสดุออกจากศูนย์บางนาเมื่อเช้านี้ คาดว่าจะถึงภายในวันนี้ค่ะ','10:41']);
+  if (state === 'room-error') msgs = msgs.slice(4);
+  let body = '';
+  if (state === 'room-loading') {
+    const sk = (w, right) => `<div class="flex ${right ? 'justify-end' : ''}"><span class="sk" style="width:${w};height:34px;border-radius:7px"></span></div>`;
+    body = `<div class="msgs" aria-busy="true"><span class="sr-only" role="status">กำลังโหลดข้อความ</span>${sk('46%')}${sk('38%',1)}${sk('22%')}${sk('52%',1)}${sk('30%')}</div>`;
+  } else {
+    body = (state === 'room-error' ? `<div class="note2 n-bad mb-2" role="alert"><i class="ti ti-alert-triangle"></i><div class="flex-1">โหลดข้อความก่อนหน้าไม่สำเร็จ ข้อความใหม่และการส่งยังใช้ได้</div><button class="btn btn-sm">โหลดอีกครั้ง</button></div>` : '') +
+      `<div class="msgs">` + msgs.map(x => {
+        if (x[0] === 'a-fail') return `<div class="msg a fail"><span class="who">คุณ<span class="mono">${x[2]}</span></span><div class="wbub">${esc(x[1])}</div>
+          <span class="flex items-center gap-2 text-[12px]" style="color:var(--dc-critical-fg)" role="alert"><i class="ti ti-alert-circle"></i>ส่งไม่สำเร็จ<button class="btn btn-sm">ลองส่งอีกครั้ง</button><button class="btn btn-sm btn-ghost">ลบ</button></span></div>`;
+        return msgHtml(x);
+      }).join('') + `</div>`;
+    if (state === 'silence-warn') body += `<p class="sys" style="background:var(--dc-attention-bg-subtle);border-color:var(--dc-attention-border);color:var(--dc-attention-fg-strong)" role="status"><i class="ti ti-hourglass"></i>ลูกค้าไม่ตอบ 8 นาที แชทจะปิดเองในอีก 2 นาทีถ้ายังไม่มีข้อความจากลูกค้า</p>`;
+  }
+  const scroller = `<div class="relative flex-1 min-h-0"><div class="absolute inset-0 overflow-auto px-5 py-3" id="scroll" role="log" aria-label="ข้อความในแชท ${r.name}" aria-live="polite">${body}</div>
+    ${state === 'long' ? `<button class="btn btn-sm btn-primary newpill"><i class="ti ti-arrow-down"></i>ข้อความใหม่ 2 ข้อความ</button>` : ''}</div>`;
+  // ช่องพิมพ์
+  let composer;
+  if (closed) {
+    composer = `<div class="shrink-0 mx-5 mb-4 note2 n-neutral" role="status"><i class="ti ti-lock"></i><div class="flex-1">
+      <p><b>${r.reason === 'idle' ? 'ระบบปิดแชทเพราะลูกค้าไม่ตอบเกิน 10 นาที' : 'ลูกค้าออกจากแชทแล้ว'}</b> ส่งข้อความเพิ่มไม่ได้ บันทึกผลและโน้ตในแผงงานด้านขวาเพื่อปิดงาน</p></div>
+      <button class="btn btn-sm btn-primary">ไปบันทึกผล</button></div>`;
+  } else {
+    const draft = state === 'send-failed' ? '' : state === 'long' ? '' : 'พัสดุออกจากศูนย์บางนาแล้วค่ะ คาดว่า';
+    const off = state === 'reconnecting';
+    const over = false;
+    composer = `<div class="composer shrink-0 bg-white border-t border-slate-200 px-5 py-3">
+      <label class="sr-only" for="cmp">ข้อความถึงผู้เยี่ยมชม</label>
+      <textarea id="cmp" class="ctl" rows="2" placeholder="พิมพ์ข้อความถึงลูกค้า" style="${['offer','offer-low','default'].includes(state) ? 'box-shadow:var(--dc-focus-ring)' : ''}">${draft}</textarea>
+      <div class="flex items-center gap-3 mt-2"><span class="text-[12px] text-slate-500">Enter ส่ง · Shift+Enter ขึ้นบรรทัดใหม่</span><span class="flex-1"></span>
+        <span class="mono text-[12px] text-slate-500">${draft.length} / 2,000</span>
+        <button class="btn btn-primary" ${off || !draft ? 'disabled' : ''}><i class="ti ti-send"></i>ส่ง</button></div></div>`;
+  }
+  m.innerHTML = head + bar + tabs + scroller + composer;
+  const sc = $('scroll'); if (sc && state !== 'long') sc.scrollTop = sc.scrollHeight;
+  if (sc && state === 'long') sc.scrollTop = 120;
+}
+
+// ---------- inspector ----------
+function renderInspector(rooms, sel) {
+  const r = sel ? rooms[sel] : null;
+  $('itabs').innerHTML = ['สรุปผล','รายละเอียด','เหตุการณ์','ความพร้อม'].map((t,i) => `<button class="tab ${i===0?'on':''}" role="tab">${t}</button>`).join('');
+  const ins = $('inspector');
+  if (!r) { ins.innerHTML = `<p class="text-[13px] text-slate-600">ยังไม่มีงานที่ต้องสรุปผล</p>`; return; }
+  if (r.state !== 'wrap') {
+    ins.innerHTML = `<p class="text-[13px] text-slate-600">บันทึกผลได้เมื่อแชท <b>${r.name}</b> จบ (Agent กดจบแชท, ลูกค้าออก หรือระบบปิดเพราะไม่มีการตอบ)</p>
+      <dl class="mt-4 grid gap-y-2 text-[13px]" style="grid-template-columns:96px 1fr"><dt class="text-slate-500">ช่องทาง</dt><dd>Web Chat</dd><dt class="text-slate-500">คิว</dt><dd>${r.queue}</dd><dt class="text-slate-500">ลูกค้า</dt><dd><span class="text-amber-800 font-medium">ยังไม่ได้เลือก</span></dd><dt class="text-slate-500">รหัสงาน</dt><dd class="mono text-[12px] text-slate-500">7f3c2e10-…-a91e</dd></dl>`;
+    return;
+  }
+  ins.innerHTML = `<div class="space-y-4">
+    <div><p class="text-[12px] text-slate-500">หลังจบแชท · ${r.name}</p><h3 class="text-[15px] font-semibold">สรุปผลหลังแชท</h3>
+      <p class="text-[13px] text-slate-600 mt-1">เลือกผลการติดต่อและเขียนโน้ตก่อนปิดงาน ห้องนี้นับในเพดานจนกว่าจะบันทึกผล</p></div>
+    <fieldset><legend class="fld2">ผลการติดต่อ</legend><div class="space-y-2">
+      <label class="radio on"><input type="radio" name="d" checked class="accent-teal-700">ลูกค้าได้รับความช่วยเหลือ</label>
+      <label class="radio"><input type="radio" name="d" class="accent-teal-700">ต้องติดตามต่อ</label></div></fieldset>
+    <div><label class="fld2" for="wn">โน้ตสรุป</label><textarea id="wn" class="ctl" rows="5">ลูกค้าขอเปลี่ยนที่อยู่จัดส่ง ยังไม่ได้ให้เลขคำสั่งซื้อก่อนออกจากแชท</textarea>
+      <p class="help"><span></span><span class="mono">58 / 2,000 ตัวอักษร</span></p></div>
+    <button class="btn btn-primary w-full">บันทึกผล</button>
+  </div>`;
+}
+
+function render() {
+  const rooms = roomsFor(state);
+  const sel = selectedFor(state);
+  renderTop(rooms); renderAlerts(); renderList(rooms, sel); renderMain(rooms, sel); renderInspector(rooms, sel);
+  $('layer').innerHTML = state === 'saved' ? `<div class="toast" role="status"><i class="ti ti-circle-check text-emerald-600 text-lg"></i>บันทึกผลแชท #E5F6 แล้ว</div>` : '';
+  const sel2 = $('mk-state');
+  sel2.innerHTML = Object.keys(STATES).map(s => `<option ${s === state ? 'selected' : ''}>${s}</option>`).join('');
+  $('mk-desc').textContent = STATES[state];
+}
+$('mk-state').onchange = e => { state = e.target.value; const u = new URL(location.href); u.searchParams.set('state', state); history.replaceState(null,'',u); render(); };
+render();
+</script>
+</body>
+</html>
