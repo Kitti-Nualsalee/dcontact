@@ -19,6 +19,12 @@ Agent นัดโทรกลับลูกค้าจากงานที�
 | Governance ก่อนโทร | ตรวจอีกครั้งตอนกดโทร ALLOW = โทรและ CONFIRM reservation; DEFER = เลื่อนนัดไปเวลาที่ Governance บอกให้เอง; BLOCK = ยกเลิกนัด; REVIEW = ยังไม่โทร นัดคงอยู่ |
 | ก่อนโทร Agent ต้อง | Ready, ไม่มีงานอื่นค้าง (รวมแชท), มี Work Session ของ Workspace และบัญชี SIP ที่ใช้ได้ |
 
+## Governance และความยินยอม
+
+ADR-027 ให้ทุกการติดต่อมีความยินยอม (`cg_consents` สถานะ GRANTED) ของ purpose และ channel นั้น ลูกค้าที่ยังไม่มีความยินยอมจะนัดไม่ได้ (`CONSENT_REQUIRED`) แบบเดียวกับ click-to-call
+Workspace บอกเหตุผลแยกกัน: ยังไม่ได้ยินยอม, ยืนยันเบอร์ไม่ได้ (`IDENTITY_*`), ห้ามติดต่อ (DNC และข้อจำกัดอื่น)
+รอบนี้การนัดไม่ได้บันทึกเป็นคำขอโทรกลับของลูกค้า (callback request ของ Governance) จึงไม่ได้รับข้อยกเว้นใด ๆ
+
 ## สถานะของนัด
 
 `SCHEDULED` → กดโทร → `ORIGINATING` (มีสายแล้ว) → Agent รับสาย D-Phone → `CONSUMED`
@@ -40,6 +46,19 @@ Agent นัดโทรกลับลูกค้าจากงานที�
 4. FreeSWITCH โทรเบอร์ลูกค้าและต่อสายเมื่อรับ วางสายฝั่งใดก็ได้ → `WRAPUP` → บันทึกผลแบบ `VOICE_NOTE_V1`
 
 offer ของสายโทรกลับไม่ย้ายไป Agent คนอื่น หมดเวลาแล้วสายจบเป็น `ABANDONED` และนัดกลับเป็น `SCHEDULED`
+
+## หน้าจอ Workspace
+
+- แผงงานมีแท็บ "โทรกลับ" เมื่อถือสายหรือแชทอยู่: เลือกเบอร์ (เบอร์ภายนอกแสดงแต่เลือกไม่ได้) วันเวลา (แนะนำอีกหนึ่งชั่วโมง) และโน้ต
+- รายการงานมีแท็บ "โทรกลับ" นัดเรียงตามเวลา ป้าย "ถึงเวลาแล้ว" "ของทีม" และตัวเลขนัดที่ถึงเวลาข้างชื่อแท็บ อ่านใหม่ทุก 20 วินาทีและหลังทุกคำสั่ง เตือนครั้งเดียวเมื่อนัดถึงเวลา
+- ปุ่มโทรใช้ได้เมื่อ Agent เป็นเจ้าของ Work Session, Ready และไม่มีงานอื่น กดแล้ว D-Phone ที่ดังภายใน 25 วินาทีถูกรับให้เอง
+- ชื่อและเบอร์ลูกค้าแสดงเฉพาะเมื่อทีมยังมีสิทธิ์ WORK/VIEW ใน Customer 360
+
+## ทดลอง
+
+- integration: `pnpm --filter @d-contact/api exec tsx --test src/agent-callbacks.integration.ts` และ `pnpm --filter @d-contact/router exec tsx --test src/managed-callback.integration.ts`
+- FreeSWITCH และ SIPp จริง: `pnpm voice:callback:acceptance` (Agent รับแล้วลูกค้ารับและวางสาย, ลูกค้าสายไม่ว่าง, Agent ไม่รับ 20 วินาที) ใช้ images เดียวกับ `pnpm voice:managed-routing:acceptance`
+- หน้าจอ: `apps/workspace/e2e/callbacks.spec.ts`
 
 ## เปิดใช้
 

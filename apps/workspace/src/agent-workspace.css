@@ -511,6 +511,9 @@
 .aw-v3-inspector-tabs > [role='tablist'] {
   gap: 0;
   padding: 0 var(--dc-space-3);
+  /* #1061 six tabs do not fit a narrow panel in English: scroll instead of cutting the last one */
+  overflow-x: auto;
+  scrollbar-width: thin;
 }
 
 .aw-v3-inspector-tabs [role='tab'] {

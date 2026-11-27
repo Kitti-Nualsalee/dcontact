@@ -43,6 +43,8 @@ const e2eApi: AgentWorkspaceApi = {
   wrapupCommand: (interactionId, commandId) => e2eHttpApi.wrapupCommand!(interactionId, commandId),
   // #1044 web chat — only specs whose snapshot answers `webchatV1` use it
   webchat: e2eHttpApi.webchat,
+  // #1061 agent callbacks — only specs whose snapshot answers `agentCallbacksV1` use it
+  callbacks: e2eHttpApi.callbacks,
   sipCredentials: async (workSessionLeaseId) => ({
     leaseId: workSessionLeaseId,
     extension: '1000',

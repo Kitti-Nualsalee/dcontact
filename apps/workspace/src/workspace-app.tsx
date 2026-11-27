@@ -6,6 +6,16 @@ import {
   type LinkedCustomer,
 } from './work-customer-panel.js';
 import { CasePanel, useCaseDrafts } from './case-panel.js';
+import type { AgentCallback } from './callbacks/callback-api.js';
+import { CallbackList, useCallbackWhen } from './callbacks/callback-list.js';
+import { CallbackSchedulePanel } from './callbacks/callback-schedule-panel.js';
+import {
+  callbackErrorKey,
+  dueCount,
+  governanceBlockKey,
+  newlyDue,
+  noticeKey,
+} from './callbacks/callback-model.js';
 import {
   WebchatCapacity,
   WebchatClosedPanel,
@@ -31,6 +41,7 @@ import { useFloatingOverlapInset } from './floating-inset.js';
  * flag off = exactly the old behavior (tab leader election decides)
  */
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -40,7 +51,7 @@ import {
 } from 'react';
 import { WrapupRuntime } from './wrapup-runtime.js';
 import { useLocale, useTranslation } from '@d-contact/i18n/react';
-import { Button, Tab, TabList, TabPanel, Tabs, useInShell } from '@d-contact/ui-react';
+import { Button, Tab, TabList, TabPanel, Tabs, toastQueue, useInShell } from '@d-contact/ui-react';
 import {
   AgentApiError,
   type AgentWorkspaceApi,
@@ -90,9 +101,9 @@ import './agent-workspace.css';
 import './dphone/dphone.css';
 
 /** V3: right panel tabs · main view · work list and the work selected in the list */
-type InspectorTab = 'wrapup' | 'case' | 'details' | 'events' | 'readiness';
+type InspectorTab = 'wrapup' | 'case' | 'callback' | 'details' | 'events' | 'readiness';
 type MainTab = 'customer' | 'voice';
-type ListTab = 'open' | 'closed';
+type ListTab = 'open' | 'closed' | 'callbacks';
 type Selection = 'current' | 'recent';
 type MediaReadiness = 'UNCHECKED' | 'CHECKING' | 'READY' | 'BLOCKED';
 type Availability = 'OFFLINE' | 'AVAILABLE';
@@ -365,6 +376,55 @@ function AgentWorkspace({
   const chatInView = Boolean(chatRoom || chatClosed);
   const chatRooms = chatState?.rooms.length ?? 0;
   const chatOffers = chatState?.offers.length ?? 0;
+  // #1061 agent-scheduled callbacks: the list is read again every 20 seconds and after each command
+  const callbacksApi =
+    !embedded && snapshot?.capabilities?.agentCallbacksV1 === 1 ? api?.callbacks : undefined;
+  const [callbacks, setCallbacks] = useState<{
+    status: 'loading' | 'ready' | 'failed';
+    items: AgentCallback[];
+  }>({ status: 'loading', items: [] });
+  const [callbackBusy, setCallbackBusy] = useState<string | null>(null);
+  const callbackNoticed = useRef(new Set<string>());
+  // set when the Agent dials a callback: the D-Phone call that rings next is that callback and is answered for them
+  const callbackAutoAnswerUntil = useRef(0);
+  const refreshCallbacks = useCallback(async () => {
+    if (!callbacksApi) return;
+    try {
+      const list = await callbacksApi.list();
+      setCallbacks({ status: 'ready', items: list.items });
+    } catch {
+      setCallbacks((current) => ({ ...current, status: 'failed' }));
+    }
+  }, [callbacksApi]);
+  useEffect(() => {
+    if (!callbacksApi) return;
+    void refreshCallbacks();
+    const timer = window.setInterval(() => void refreshCallbacks(), 20_000);
+    return () => window.clearInterval(timer);
+  }, [callbacksApi, refreshCallbacks]);
+  const callbackWhen = useCallbackWhen(locale);
+  const callbacksDue = dueCount(callbacks.items, now);
+  // a one-time notice when a callback's time comes (again after it was moved)
+  useEffect(() => {
+    const fresh = newlyDue(callbacks.items, now, callbackNoticed.current);
+    if (fresh.length === 0) return;
+    for (const item of fresh) callbackNoticed.current.add(noticeKey(item));
+    const first = fresh[0]!;
+    toastQueue.add(
+      {
+        title:
+          fresh.length === 1
+            ? t('callback.dueToast', {
+                name: first.customerVisible
+                  ? (first.contactName ?? first.number ?? '')
+                  : t('callback.customerHidden'),
+              })
+            : t('callback.dueToastMany', { count: fresh.length }),
+        tone: 'attention',
+      },
+      { timeout: 10000 },
+    );
+  }, [callbacks.items, now, t]);
   // a system state (offered, busy, wrapping up) reads as chat work when it comes from chats, not a call
   const agentStateLabel = (state: NonNullable<AgentWorkspaceSnapshot['agent']>['state']) =>
     chatRooms + chatOffers > 0 &&
@@ -493,6 +553,14 @@ function AgentWorkspace({
     const timer = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => window.clearInterval(timer);
   }, [clockRunning]);
+  // #1061 a callback becomes due without any other change: keep a slow clock while callbacks are listed
+  const callbacksListed = callbacks.items.length > 0;
+  useEffect(() => {
+    if (clockRunning || !callbacksListed) return;
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 15_000);
+    return () => window.clearInterval(timer);
+  }, [clockRunning, callbacksListed]);
   // #1044 the Agent's state follows the chats in hand; read it again when they change
   const chatSignature = chatState
     ? `${chatState.offers.length}|${chatState.rooms.map((room) => `${room.chat.interactionId}:${room.chat.state}`).join(',')}`
@@ -1132,6 +1200,106 @@ function AgentWorkspace({
     } catch {
       setDphoneError(extensionControl ? 'extensionCallFailed' : 'offerConfirmFailed');
     }
+  }
+
+  // #1061 the Agent pressed "Call" on a callback: D-Phone rings with that call, answer it for them
+  useEffect(() => {
+    if (dphoneState.phase !== 'RINGING' || Date.now() > callbackAutoAnswerUntil.current) return;
+    callbackAutoAnswerUntil.current = 0;
+    void acceptCall();
+    // only the ringing edge matters
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dphoneState.phase]);
+
+  async function callbackCommand<T>(
+    item: AgentCallback,
+    work: () => Promise<T>,
+  ): Promise<T | undefined> {
+    setCallbackBusy(item.id);
+    try {
+      return await work();
+    } catch (error) {
+      toastQueue.add(
+        { title: t(`callback.error.${callbackErrorKey(error).key}`), tone: 'critical' },
+        { timeout: 8000 },
+      );
+      return undefined;
+    } finally {
+      setCallbackBusy(null);
+      void refreshCallbacks();
+    }
+  }
+
+  function callbackName(item: AgentCallback) {
+    return item.customerVisible
+      ? (item.contactName ?? item.number ?? '')
+      : t('callback.customerHiddenShort');
+  }
+
+  async function dialCallback(item: AgentCallback) {
+    if (!callbacksApi) return;
+    const result = await callbackCommand(item, () =>
+      callbacksApi.dial(item.id, { commandId: crypto.randomUUID(), expectedVersion: item.version }),
+    );
+    if (!result) return;
+    if (result.status === 'DIALING') {
+      callbackAutoAnswerUntil.current = Date.now() + 25_000;
+      toastQueue.add({ title: t('callback.dialingToast'), tone: 'info' }, { timeout: 6000 });
+      void refreshSnapshot();
+      return;
+    }
+    const message =
+      result.status === 'DEFERRED'
+        ? t('callback.deferredToast', { when: callbackWhen(result.requestedFor) })
+        : result.status === 'BLOCKED'
+          ? t('callback.blockedToast', {
+              reason: t(`callback.error.${governanceBlockKey(result.reasonCode)}`),
+            })
+          : t('callback.reviewToast');
+    toastQueue.add(
+      { title: message, tone: result.status === 'BLOCKED' ? 'critical' : 'attention' },
+      { timeout: 10000 },
+    );
+  }
+
+  async function rescheduleCallback(item: AgentCallback, requestedFor: string) {
+    if (!callbacksApi) return false;
+    const result = await callbackCommand(item, () =>
+      callbacksApi.reschedule(item.id, {
+        commandId: crypto.randomUUID(),
+        expectedVersion: item.version,
+        requestedFor,
+      }),
+    );
+    if (!result) return false;
+    callbackNoticed.current.delete(noticeKey(item));
+    toastQueue.add(
+      {
+        title: t('callback.rescheduledToast', {
+          name: callbackName(item),
+          when: callbackWhen(requestedFor),
+        }),
+        tone: 'success',
+      },
+      { timeout: 6000 },
+    );
+    return true;
+  }
+
+  async function cancelCallback(item: AgentCallback) {
+    if (!callbacksApi) return false;
+    const result = await callbackCommand(item, () =>
+      callbacksApi.cancel(item.id, {
+        commandId: crypto.randomUUID(),
+        expectedVersion: item.version,
+      }),
+    );
+    if (!result) return false;
+    toastQueue.add(
+      { title: t('callback.cancelledToast', { name: callbackName(item) }), tone: 'success' },
+      { timeout: 6000 },
+    );
+    return true;
   }
 
   function toggleMute() {
@@ -1975,6 +2143,11 @@ function AgentWorkspace({
   };
   const controlHint = externalControl ? td('external.serverWork') : t('layout.inDphone');
 
+  // #1061 dialing needs a Ready Agent who holds the work session and has nothing else in hand
+  const canDialCallback = Boolean(
+    ownsWork && snapshot?.agent.state === 'AVAILABLE' && !current && chatRooms + chatOffers === 0,
+  );
+
   const workList = (
     <section
       className="aw-v3-list"
@@ -1996,6 +2169,23 @@ function AgentWorkspace({
               count: (savedWrapup ? 1 : 0) + (chatState?.closed.length ?? 0),
             })}
           </Tab>
+          {callbacksApi ? (
+            <Tab id="callbacks">
+              <span className="aw-callback-tab">
+                {t('layout.list.callbacksTab')}
+                {callbacksDue > 0 ? (
+                  <>
+                    <span className="aw-callback-due-count" aria-hidden="true">
+                      {callbacksDue}
+                    </span>{' '}
+                    <span className="aw-visually-hidden">
+                      {t('layout.list.callbacksDue', { count: callbacksDue })}
+                    </span>
+                  </>
+                ) : null}
+              </span>
+            </Tab>
+          ) : null}
         </TabList>
         <TabPanel id="open" className="aw-v3-list-panel">
           {chatState && chatRooms >= chatState.maxChats ? (
@@ -2049,9 +2239,14 @@ function AgentWorkspace({
                       {callDuration ? <span className="aw-work-time">{callDuration}</span> : null}
                     </span>
                     <span className="aw-work-meta">
-                      {t(`layout.state.${current.state}`)} · {queueName}
+                      {current.callback
+                        ? t(`layout.callbackState.${current.state}`)
+                        : t(`layout.state.${current.state}`)}{' '}
+                      · {queueName}
                     </span>
-                    <span className="aw-channel">{t('layout.channelVoice')}</span>
+                    <span className="aw-channel">
+                      {current.callback ? t('layout.channelCallback') : t('layout.channelVoice')}
+                    </span>
                   </span>
                 </button>
               </li>
@@ -2110,6 +2305,23 @@ function AgentWorkspace({
             <p className="aw-copy">{t('layout.list.closedEmpty')}</p>
           )}
         </TabPanel>
+        {callbacksApi ? (
+          <TabPanel id="callbacks" className="aw-v3-list-panel">
+            <CallbackList
+              items={callbacks.items}
+              status={callbacks.status}
+              now={now}
+              locale={locale}
+              busyId={callbackBusy}
+              canDial={canDialCallback}
+              dialHint={canDialCallback ? undefined : t('callback.error.notReady')}
+              onRetry={() => void refreshCallbacks()}
+              onDial={(item) => void dialCallback(item)}
+              onReschedule={rescheduleCallback}
+              onCancel={cancelCallback}
+            />
+          </TabPanel>
+        ) : null}
       </Tabs>
     </section>
   );
@@ -2163,6 +2375,8 @@ function AgentWorkspace({
   const caseWork: { id: string } | undefined = api?.openCase
     ? (activeCaseWork ?? unresolvedCaseWork)
     : undefined;
+  // #1061 a callback is scheduled from the work in hand (call or chat), like a case
+  const callbackWork: { id: string } | undefined = callbacksApi ? activeCaseWork : undefined;
   function openCaseTab() {
     setInspectorOpen(true);
     setInspectorTab('case');
@@ -2417,6 +2631,7 @@ function AgentWorkspace({
   const inspectorTabs: Array<{ id: InspectorTab; icon: PaneIconName }> = [
     { id: 'wrapup', icon: 'notes' },
     ...(caseWork ? [{ id: 'case' as const, icon: 'notes' as const }] : []),
+    ...(callbackWork ? [{ id: 'callback' as const, icon: 'phone' as const }] : []),
     { id: 'details', icon: 'details' },
     { id: 'events', icon: 'events' },
     { id: 'readiness', icon: 'readiness' },
@@ -2442,7 +2657,11 @@ function AgentWorkspace({
       </div>
       <Tabs
         className="aw-v3-tabs aw-v3-inspector-tabs"
-        selectedKey={inspectorTab === 'case' && !caseWork ? 'wrapup' : inspectorTab}
+        selectedKey={
+          (inspectorTab === 'case' && !caseWork) || (inspectorTab === 'callback' && !callbackWork)
+            ? 'wrapup'
+            : inspectorTab
+        }
         onSelectionChange={(key) => setInspectorTab(key as InspectorTab)}
       >
         <TabList aria-label={t('layout.inspector.label')}>
@@ -2471,6 +2690,32 @@ function AgentWorkspace({
               consoleHref={caseConsoleHref}
               onPickCustomer={pickCustomerForCase}
               focusToken={caseFocus}
+            />
+          </TabPanel>
+        ) : null}
+        {callbackWork && callbacksApi ? (
+          <TabPanel id="callback" className="aw-v3-inspector-body">
+            <CallbackSchedulePanel
+              key={callbackWork.id}
+              api={callbacksApi}
+              workId={callbackWork.id}
+              customer={
+                workCustomer?.workId === callbackWork.id ? workCustomer.customer : undefined
+              }
+              locale={locale}
+              onPickCustomer={pickCustomerForCase}
+              onShowList={() => {
+                setListTab('callbacks');
+                requestAnimationFrame(() =>
+                  document
+                    .querySelector<HTMLElement>(
+                      '.aw-v3-list-tabs [role="tab"][aria-selected="true"]',
+                    )
+                    ?.focus(),
+                );
+              }}
+              onScheduled={() => void refreshCallbacks()}
+              listRevision={callbacks.items.map((item) => `${item.id}:${item.version}`).join(',')}
             />
           </TabPanel>
         ) : null}
