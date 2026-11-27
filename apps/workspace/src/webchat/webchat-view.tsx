@@ -26,7 +26,7 @@ import {
 } from '@d-contact/ui-react';
 import type { WrapupIntentV1, WrapupResultV1 } from '../agent-api.js';
 import { PaneIcon } from '../workspace-pane.js';
-import type { WebchatApi, WebchatChat, WebchatMessage } from './webchat-api.js';
+import type { WebchatApi, WebchatChannel, WebchatChat, WebchatMessage } from './webchat-api.js';
 import {
   WEBCHAT_MAX_LENGTH,
   WebchatStore,
@@ -92,9 +92,30 @@ export function useWebchat(options: {
 const noSubscription = () => () => undefined;
 const noState = () => undefined;
 
+/** A web chat visitor is anonymous and shown by code; a LINE customer is shown by their LINE name. */
 function useVisitorName() {
   const { t } = useTranslation('workspace');
-  return (label: string) => t('chat.visitor', { code: label });
+  return (label: string, channel: WebchatChannel = 'WEBCHAT') =>
+    channel === 'LINE' ? label : t('chat.visitor', { code: label });
+}
+
+/** The channel tag of a chat: Web Chat or LINE, from the channel tokens. */
+function ChannelBadge({ channel }: { channel: WebchatChannel }) {
+  const { t } = useTranslation('workspace');
+  return channel === 'LINE' ? (
+    <span className="aw-channel aw-channel-line">{t('layout.channelLine')}</span>
+  ) : (
+    <span className="aw-channel aw-channel-webchat">{t('layout.channelWebchat')}</span>
+  );
+}
+
+const LINE_OTHER_TYPES = ['sticker', 'image', 'video', 'audio', 'file', 'location'];
+
+/** What stands in for a LINE message that is not text: one text per known type and a generic one. */
+function otherText(other: string, t: (key: never) => string): string {
+  return t(
+    (LINE_OTHER_TYPES.includes(other) ? `chat.other.${other}` : 'chat.other.unknown') as never,
+  );
 }
 
 /** "Chats 2/3" next to the status selector, so the Agent sees how many more chats may arrive. */
@@ -115,7 +136,8 @@ export function WebchatCapacity({ state }: { state: WebchatState }) {
 
 function previewOf(message: WebchatMessage | null, t: (key: never) => string): string {
   if (!message) return '';
-  if (message.from !== 'system') return message.text ?? '';
+  if (message.from !== 'system')
+    return message.other ? otherText(message.other, t) : (message.text ?? '');
   const key =
     message.event === 'AGENT_JOINED'
       ? undefined
@@ -154,7 +176,9 @@ export function WebchatOffers({
       const seconds = offer.offerExpiresAt
         ? Math.max(0, Math.round((Date.parse(offer.offerExpiresAt) - Date.now()) / 1000))
         : 0;
-      setAnnouncement(t('chat.offer.announce', { visitor: visitor(offer.visitorLabel), seconds }));
+      setAnnouncement(
+        t('chat.offer.announce', { visitor: visitor(offer.visitorLabel, offer.channel), seconds }),
+      );
     }
   }, [state.offers, t, visitor]);
 
@@ -191,7 +215,9 @@ export function WebchatOffers({
             style={{ '--aw-offer-progress': String(progress) } as CSSProperties}
           >
             <div className="aw-work-row">
-              <strong>{t('chat.offer.title', { visitor: visitor(offer.visitorLabel) })}</strong>
+              <strong>
+                {t('chat.offer.title', { visitor: visitor(offer.visitorLabel, offer.channel) })}
+              </strong>
               <span
                 className="aw-work-time aw-chat-offer-time"
                 role="timer"
@@ -231,7 +257,9 @@ export function WebchatOffers({
       ) : null}
       {state.missed.map((missed) => (
         <p key={missed.interactionId} className="aw-chat-missed" role="status">
-          <span>{t('chat.offer.missed', { visitor: visitor(missed.visitorLabel) })}</span>
+          <span>
+            {t('chat.offer.missed', { visitor: visitor(missed.visitorLabel, missed.channel) })}
+          </span>
           <Button
             size="sm"
             variant="ghost"
@@ -267,7 +295,7 @@ export function WebchatRows({
         const unread = unreadOf(room);
         const waiting = waitingSince(room);
         const stateLabel = t(`chat.state.${chat.state === 'WRAPUP' ? 'WRAPUP' : 'ACTIVE'}`);
-        const name = visitor(chat.visitorLabel);
+        const name = visitor(chat.visitorLabel, chat.channel);
         return (
           <li key={chat.interactionId} className="aw-v3-item aw-chat-item">
             <button
@@ -309,9 +337,7 @@ export function WebchatRows({
                   ) : null}
                 </span>
                 <span className="aw-chat-tags">
-                  <span className="aw-channel aw-channel-webchat">
-                    {t('layout.channelWebchat')}
-                  </span>
+                  <ChannelBadge channel={chat.channel} />
                   <span className="aw-chat-state" data-state={chat.state.toLowerCase()}>
                     {stateLabel}
                   </span>
@@ -332,7 +358,10 @@ function transcriptOf(
     self: string;
     sending: string;
     failed: string;
+    deliverySending: string;
+    notDelivered: string;
     started: string;
+    other: (kind: string) => string;
     system: (event: WebchatMessage['event']) => string;
   },
   clock: (iso: string) => string,
@@ -359,13 +388,19 @@ function transcriptOf(
         side: message.from === 'agent' ? 'self' : 'other',
         author: message.from === 'agent' ? texts.self : texts.visitor,
         time: message.pending ? undefined : clock(message.at),
-        text: message.text ?? '',
+        text: message.other ? texts.other(message.other) : (message.text ?? ''),
         ...(message.pending
           ? {
               status: message.pending,
               statusLabel: message.pending === 'failed' ? texts.failed : texts.sending,
             }
-          : {}),
+          : message.delivery
+            ? {
+                status: message.delivery === 'FAILED' ? 'failed' : 'sending',
+                statusLabel:
+                  message.delivery === 'FAILED' ? texts.notDelivered : texts.deliverySending,
+              }
+            : {}),
       });
   }
   return messages;
@@ -406,7 +441,8 @@ export function WebchatRoomView({
   const { locale } = useLocale();
   const visitor = useVisitorName();
   const { chat } = room;
-  const name = visitor(chat.visitorLabel);
+  const name = visitor(chat.visitorLabel, chat.channel);
+  const line = chat.channel === 'LINE';
   const [confirming, setConfirming] = useState(false);
   const field = useRef<HTMLTextAreaElement>(null);
   const endButton = useRef<HTMLSpanElement>(null);
@@ -443,12 +479,16 @@ export function WebchatRoomView({
   const transcript = transcriptOf(
     room,
     {
-      visitor: t('chat.sender.customer'),
+      visitor: line ? t('chat.sender.customerLine') : t('chat.sender.customer'),
       self: t('chat.sender.self'),
       sending: t('chat.sending'),
       failed: t('chat.sendFailed'),
-      started:
-        chat.origin === 'preview'
+      deliverySending: t('chat.delivery.sending'),
+      notDelivered: t('chat.delivery.failed'),
+      other: (kind) => otherText(kind, t as never),
+      started: line
+        ? t('chat.system.startedLine', { account: chat.origin })
+        : chat.origin === 'preview'
           ? t('chat.system.startedPreview')
           : t('chat.system.started', { origin: originLabel(chat.origin) }),
       system,
@@ -494,24 +534,27 @@ export function WebchatRoomView({
           messages={transcript}
           live
           newMessagesLabel={(count) => t('chat.newMessages', { count })}
-          renderFailedActions={(message) => (
-            <>
-              <Button
-                size="sm"
-                variant="ghost"
-                onPress={() => void store.retry(chat.interactionId, message.id)}
-              >
-                {t('chat.retrySend')}
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                onPress={() => store.discard(chat.interactionId, message.id)}
-              >
-                {t('chat.discard')}
-              </Button>
-            </>
-          )}
+          renderFailedActions={(message) =>
+            // a message LINE did not deliver has no local copy to send again or delete
+            room.messages.find((entry) => entry.id === message.id)?.pending ? (
+              <>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onPress={() => void store.retry(chat.interactionId, message.id)}
+                >
+                  {t('chat.retrySend')}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onPress={() => store.discard(chat.interactionId, message.id)}
+                >
+                  {t('chat.discard')}
+                </Button>
+              </>
+            ) : null
+          }
         />
       )}
       {active && idleRemaining !== undefined && idleRemaining <= IDLE_WARNING_MS ? (
@@ -572,7 +615,7 @@ export function WebchatRoomView({
     <div className="aw-v3-view aw-chat-room">
       <div className="aw-v3-context">
         <strong className="aw-call-caller">{name}</strong>
-        <span className="aw-channel aw-channel-webchat">{t('layout.channelWebchat')}</span>
+        <ChannelBadge channel={chat.channel} />
         <span className="aw-v3-context-meta aw-chat-meta">
           {t('chat.header.meta', {
             queue: chat.queueName ?? t('offer.unknownQueue'),
@@ -635,7 +678,7 @@ export function WebchatRoomView({
         <span className="aw-call-meta">
           {!active
             ? closedReason
-            : !chat.visitorOnline
+            : chat.visitorOnline === false
               ? t('chat.bar.visitorAway')
               : customerLinked
                 ? ''
@@ -698,7 +741,7 @@ export function WebchatWrapupPanel({
   const { t } = useTranslation('workspace');
   const visitor = useVisitorName();
   const { chat, wrapup } = room;
-  const name = visitor(chat.visitorLabel);
+  const name = visitor(chat.visitorLabel, chat.channel);
   const first = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (focusToken > 0) first.current?.focus();
@@ -720,7 +763,7 @@ export function WebchatWrapupPanel({
     <dl className="aw-v3-facts aw-chat-facts">
       <div>
         <dt>{t('layout.main.channel')}</dt>
-        <dd>{t('layout.channelWebchat')}</dd>
+        <dd>{chat.channel === 'LINE' ? t('layout.channelLine') : t('layout.channelWebchat')}</dd>
       </div>
       <div>
         <dt>{t('layout.main.queue')}</dt>
@@ -742,7 +785,11 @@ export function WebchatWrapupPanel({
   if (chat.state !== 'WRAPUP')
     return (
       <section className="aw-chat-wrapup-wait">
-        <p className="aw-copy">{t('chat.wrapup.notYet', { visitor: name })}</p>
+        <p className="aw-copy">
+          {t(chat.channel === 'LINE' ? 'chat.wrapup.notYetLine' : 'chat.wrapup.notYet', {
+            visitor: name,
+          })}
+        </p>
         {facts}
       </section>
     );
@@ -847,7 +894,7 @@ export function WebchatClosedRows({
               <PaneIcon name="chat" />
             </span>
             <span className="aw-v3-item-copy">
-              <strong>{visitor(closed.visitorLabel)}</strong>
+              <strong>{visitor(closed.visitorLabel, closed.channel)}</strong>
               <span className="aw-work-meta">
                 {t('layout.list.closedMeta', {
                   time: new Date(closed.result.recordedAt).toLocaleTimeString(locale, {
@@ -856,7 +903,7 @@ export function WebchatClosedRows({
                   }),
                 })}
               </span>
-              <span className="aw-channel aw-channel-webchat">{t('layout.channelWebchat')}</span>
+              <ChannelBadge channel={closed.channel} />
             </span>
           </button>
         </li>

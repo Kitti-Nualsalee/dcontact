@@ -9,6 +9,11 @@
   color: var(--dc-channel-webchat-fg);
 }
 
+.aw-channel.aw-channel-line {
+  background: var(--dc-channel-line-bg);
+  color: var(--dc-channel-line-fg);
+}
+
 .aw-chat-capacity {
   display: inline-flex;
   align-items: center;
