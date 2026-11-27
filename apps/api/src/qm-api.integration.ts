@@ -14,6 +14,12 @@ import {
   TENANT_LIFECYCLE,
 } from './gateway-auth.js';
 import { QmController, QM_DATABASE, QM_JOB_PUBLISHER } from './qm-api.js';
+import {
+  RECORDING_DATABASE,
+  RECORDING_STORAGE,
+  RecordingController,
+  TELEPHONY_COMMAND_PUBLISHER,
+} from './recording-api.js';
 
 const owner = new PrismaClient();
 const application = new PrismaClient({
@@ -586,8 +592,10 @@ test("a Supervisor reaches legacy QM routes through the team that handled the ca
       transcriptionMode: 'MANUAL',
     },
   });
-  const fixtures: Record<string, { transcriptId: string; jobId: string; evaluationId: string }> =
-    {};
+  const fixtures: Record<
+    string,
+    { transcriptId: string; jobId: string; evaluationId: string; recordingId: string }
+  > = {};
   for (const interactionId of [ids.handled, ids.noEvidence]) {
     await owner.$executeRaw(
       Prisma.sql`INSERT INTO interactions (id, tenant_id, channel, direction, state, queue_id, agent_id, ended_at)
@@ -646,6 +654,7 @@ test("a Supervisor reaches legacy QM routes through the team that handled the ca
       transcriptId: transcript.id,
       jobId: job.id,
       evaluationId: evaluation.id,
+      recordingId: recording.id,
     };
   }
   // only the first call has evidence of which team answered it
@@ -668,10 +677,23 @@ test("a Supervisor reaches legacy QM routes through the team that handled the ca
     admin: claims(tenantId, ids.admin, 'admin'),
   };
   @Module({
-    controllers: [QmController],
+    controllers: [QmController, RecordingController],
     providers: [
       { provide: QM_DATABASE, useValue: application },
       { provide: QM_JOB_PUBLISHER, useValue: { publish: async () => undefined } },
+      // the legacy presigned playback used by the Console review page follows the same rule
+      { provide: RECORDING_DATABASE, useValue: application },
+      { provide: TELEPHONY_COMMAND_PUBLISHER, useValue: { publish: async () => undefined } },
+      {
+        provide: RECORDING_STORAGE,
+        useValue: {
+          presignPlayback: async () => ({
+            url: 'https://storage.test/recording?signature=short-lived',
+            expiresAt: new Date(Date.now() + 300_000),
+          }),
+          deleteObject: async () => undefined,
+        },
+      },
       {
         provide: OIDC_ACCESS_TOKEN_VERIFIER,
         useValue: {
@@ -694,6 +716,8 @@ test("a Supervisor reaches legacy QM routes through the team that handled the ca
     await app.close();
     await owner.qmConsoleContext.deleteMany({ where: { tenantId } });
     await owner.qmAuditEvent.deleteMany({ where: { tenantId } });
+    await owner.recordingAuditEvent.deleteMany({ where: { tenantId } });
+    await owner.commandReceipt.deleteMany({ where: { tenantId } });
     await owner.qmEvaluation.deleteMany({ where: { tenantId } });
     await owner.qmTranscriptSegment.deleteMany({ where: { tenantId } });
     await owner.qmTranscript.deleteMany({ where: { tenantId } });
@@ -714,27 +738,75 @@ test("a Supervisor reaches legacy QM routes through the team that handled the ca
       job: ['GET', `/qm/transcription-jobs/${fixture.jobId}`],
       context: ['POST', `/qm/interactions/${interactionId}/console-context`],
       evaluation: ['GET', `/qm/evaluations/${fixture.evaluationId}`],
+      playback: ['POST', `/recordings/${fixture.recordingId}/playback`],
     }[route]!;
     const response = await fetch(`${root}${path}`, {
       method,
       headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-      ...(method === 'POST' ? { body: '{}' } : {}),
+      ...(method === 'POST'
+        ? { body: route === 'playback' ? JSON.stringify({ download: false }) : '{}' }
+        : {}),
     });
     return response.status;
   };
-  const routes = ['transcript', 'job', 'context', 'evaluation'];
-  const ok = { transcript: 200, job: 200, context: 201, evaluation: 200 } as Record<string, number>;
+  const routes = ['transcript', 'job', 'context', 'evaluation', 'playback'];
+  const ok = {
+    transcript: 200,
+    job: 200,
+    context: 201,
+    evaluation: 200,
+    playback: 201,
+  } as Record<string, number>;
+  // a route that answers 403 rather than 404 when the caller may not see the call
+  const deniedStatus = (route: string) => (route === 'playback' ? 403 : 404);
 
   for (const route of routes) {
     // the team that answered keeps the call after the agent moved
     assert.equal(await status('supervisor-a', ids.handled, route), ok[route], `A ${route}`);
     // the agent's new team does not inherit it
-    assert.equal(await status('supervisor-b', ids.handled, route), 404, `B ${route}`);
+    assert.equal(
+      await status('supervisor-b', ids.handled, route),
+      deniedStatus(route),
+      `B ${route}`,
+    );
     // no evidence, no Supervisor
-    assert.equal(await status('supervisor-a', ids.noEvidence, route), 404, `no evidence ${route}`);
+    assert.equal(
+      await status('supervisor-a', ids.noEvidence, route),
+      deniedStatus(route),
+      `no evidence ${route}`,
+    );
     // Admin is unchanged: every team
     assert.equal(await status('admin', ids.noEvidence, route), ok[route], `admin ${route}`);
   }
+  const json = { authorization: 'Bearer supervisor-a', 'content-type': 'application/json' };
+  // the context issued to the answering team's Supervisor can be read back
+  const issued = await fetch(`${root}/qm/interactions/${ids.handled}/console-context`, {
+    method: 'POST',
+    headers: json,
+    body: '{}',
+  });
+  const { contextId } = (await issued.json()) as { contextId: string };
+  assert.equal(
+    (await fetch(`${root}/qm/console-contexts/${contextId}`, { headers: json })).status,
+    200,
+  );
+  // the answering team's Supervisor can publish the auto-QM draft, the agent's new team cannot
+  const publish = (token: string) =>
+    fetch(`${root}/qm/evaluations/${fixtures[ids.handled]!.evaluationId}/publish`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ commandId: randomUUID() }),
+    });
+  assert.equal((await publish('supervisor-b')).status, 404);
+  assert.equal((await publish('supervisor-a')).status, 201);
+  // a manual transcription request reaches the gate and passes for the answering team
+  const manual = await fetch(`${root}/qm/interactions/${ids.handled}/transcription-jobs`, {
+    method: 'POST',
+    headers: json,
+    body: '{}',
+  });
+  assert.notEqual(manual.status, 403);
+  assert.notEqual(manual.status, 404);
   const reviewTranscription = await fetch(
     `${root}/qm/interactions/${ids.noEvidence}/transcription-jobs`,
     { method: 'POST', headers: { authorization: 'Bearer supervisor-a' } },
@@ -744,6 +816,10 @@ test("a Supervisor reaches legacy QM routes through the team that handled the ca
   // a deactivated Supervisor loses access at once
   await owner.user.update({ where: { id: ids.supervisorA }, data: { isActive: false } });
   for (const route of routes) {
-    assert.equal(await status('supervisor-a', ids.handled, route), 404, `inactive ${route}`);
+    assert.equal(
+      await status('supervisor-a', ids.handled, route),
+      deniedStatus(route),
+      `inactive ${route}`,
+    );
   }
 });
