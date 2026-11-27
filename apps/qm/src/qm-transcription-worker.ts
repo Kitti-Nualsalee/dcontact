@@ -366,8 +366,10 @@ export class QmTranscriptionWorker {
         const nextAttemptAt = exhausted
           ? undefined
           : new Date(failedAt.getTime() + retryDelayMs(current.attempts));
-        const job = await transaction.qmTranscriptionJob.update({
-          where: { id: claimed.id },
+        // guarded write: the check above does not lock the row, and the dispatcher may recover this
+        // attempt between the read and this write
+        const written = await transaction.qmTranscriptionJob.updateMany({
+          where: { id: claimed.id, tenantId, status: 'PROCESSING', attempts: claimedAttempt },
           data: {
             status: exhausted ? 'FAILED' : 'PENDING',
             failureCode: problem.code,
@@ -376,8 +378,21 @@ export class QmTranscriptionWorker {
             nextAttemptAt: nextAttemptAt ?? null,
             ...(exhausted ? { completedAt: failedAt } : {}),
           },
-          select: { id: true, status: true, attempts: true, nextAttemptAt: true },
         });
+        if (written.count !== 1) {
+          return staleResult(
+            await transaction.qmTranscriptionJob.findFirstOrThrow({
+              where: { id: claimed.id, tenantId },
+              select: { id: true, status: true, attempts: true, nextAttemptAt: true },
+            }),
+          );
+        }
+        const job = {
+          id: claimed.id,
+          status: exhausted ? ('FAILED' as const) : ('PENDING' as const),
+          attempts: current.attempts,
+          nextAttemptAt: nextAttemptAt ?? null,
+        };
         await transaction.qmAuditEvent.create({
           data: {
             tenantId,

@@ -153,6 +153,9 @@ export class QmRetryDispatcher {
         select: { id: true, attempts: true, maxAttempts: true, startedAt: true },
       }),
     );
+    // due slightly in the past: the worker checks "not yet due" with its own clock, so a worker clock a
+    // little behind the dispatcher must not turn the retry message into a no-op
+    const dueAt = new Date(now.getTime() - 30_000);
     for (const job of stuck) {
       await withTenantDatabaseTransaction(this.database, tenantId, async (transaction) => {
         const exhausted = job.attempts >= job.maxAttempts;
@@ -169,7 +172,7 @@ export class QmRetryDispatcher {
             failureCode: WORKER_INTERRUPTED,
             failureReason: 'the worker stopped before the attempt finished',
             dispatchedAt: null,
-            nextAttemptAt: exhausted ? null : now,
+            nextAttemptAt: exhausted ? null : dueAt,
             ...(exhausted ? { completedAt: now } : {}),
           },
         });
@@ -184,7 +187,7 @@ export class QmRetryDispatcher {
               attempt: job.attempts,
               maxAttempts: job.maxAttempts,
               failureCode: WORKER_INTERRUPTED,
-              ...(exhausted ? {} : { nextAttemptAt: now.toISOString() }),
+              ...(exhausted ? {} : { nextAttemptAt: dueAt.toISOString() }),
             },
           },
         });
