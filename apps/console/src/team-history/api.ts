@@ -1,9 +1,11 @@
 import {
   NO_DISPOSITION,
   listQuery,
+  type HistoryChannel,
   type HistoryFilter,
   type SummaryPeriod,
 } from '../agent-history/model.js';
+import { isWorkTranscript, type WorkTranscript } from '../chat-history/transcript.js';
 import type { RecordedAtSource } from '../agent-history/api.js';
 
 /** #986 team work history and summary — the API checks permission and team scope itself on every request */
@@ -22,6 +24,7 @@ export interface TeamOption {
 }
 export interface TeamHistoryItem {
   interactionId: string;
+  channel: HistoryChannel;
   agent: AgentRef;
   team: TeamRef;
   startedAt: string;
@@ -34,6 +37,7 @@ export interface TeamHistoryItem {
 }
 export interface TeamHistoryDetail {
   interactionId: string;
+  channel: HistoryChannel;
   agent: AgentRef;
   team: TeamRef;
   startedAt: string;
@@ -74,6 +78,8 @@ export interface TeamHistoryApi {
   ): Promise<{ teamId: string | null; items: TeamHistoryItem[]; nextCursor: string | null }>;
   summary(period: SummaryPeriod, teamId?: string): Promise<TeamHistorySummary>;
   item(interactionId: string): Promise<TeamHistoryDetail>;
+  /** #1044: the conversation of a chat (a call answers an empty list); 404 = not found or not in scope */
+  transcript(interactionId: string): Promise<WorkTranscript>;
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -165,6 +171,14 @@ export function createTeamHistoryApi(options: {
     async item(interactionId) {
       if (!UUID.test(interactionId)) throw new TeamHistoryApiError(404);
       return (await read(`items/${encodeURIComponent(interactionId)}`)) as TeamHistoryDetail;
+    },
+    async transcript(interactionId) {
+      if (!UUID.test(interactionId)) throw new TeamHistoryApiError(404);
+      const transcript: unknown = await read(
+        `items/${encodeURIComponent(interactionId)}/transcript`,
+      );
+      if (!isWorkTranscript(transcript)) throw new TeamHistoryApiError(502);
+      return transcript;
     },
   };
 }

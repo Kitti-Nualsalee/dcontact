@@ -1,0 +1,98 @@
+{
+  "title": "Web Chat",
+  "description": "A chat button on your website. Customers chat with agents without signing in. Chats go to the selected queue through the same router as Voice",
+  "status": {
+    "enabled": "On",
+    "disabled": "Off",
+    "notConfigured": "Not set up"
+  },
+  "firstTime": "Web Chat isn't set up yet. Choose a queue, add your website's domains, then turn it on. Defaults: {{capacity}} chats per agent, close after {{minutes}} minutes of silence",
+  "readOnly": "You can view these settings. Only admins can change them",
+  "forbidden": {
+    "title": "This account can't view Web Chat settings",
+    "body": "This page is for tenant admins and supervisors. Contact your organization's admin to change settings"
+  },
+  "locked": {
+    "title": "Web Chat isn't included in this plan",
+    "body": "Contact your platform administrator to enable it"
+  },
+  "loading": "Loading Web Chat settings",
+  "loadFailed": "Web Chat settings didn't load",
+  "retryLoad": "Try loading again",
+  "unauthorized": "Your session expired. Please sign in again",
+  "routing": {
+    "title": "Chat handling",
+    "sub": "Applies to new chats. Open chats keep their settings until they end",
+    "queue": "Queue for chats",
+    "queuePlaceholder": "Choose a queue",
+    "queueHint": "Ready agents in this queue receive chats (one queue for now)",
+    "capacity": "Concurrent chats per agent",
+    "capacityHint": "1–10, applies to every agent in the tenant",
+    "idle": "Close when the customer is silent (minutes)",
+    "idleHint": "1–60, counted from the customer's last message"
+  },
+  "origins": {
+    "title": "Allowed domains",
+    "sub": "The widget only works on these sites. Enter a full origin such as https://shop.example.com (no path), up to {{limit}}",
+    "list": "Allowed domains",
+    "empty": "No domains yet. The widget won't show anywhere until you add one",
+    "newLabel": "New domain",
+    "add": "Add domain",
+    "remove": "Remove {{origin}}",
+    "removeShort": "Remove",
+    "invalid": "Enter an origin that starts with https:// and has no path, such as https://shop.example.com",
+    "duplicate": "This domain is already listed",
+    "limit": "{{limit}} domains is the limit. Remove one first",
+    "placeholder": "https://example.com"
+  },
+  "welcome": {
+    "title": "Welcome message",
+    "sub": "Shown when a customer opens the chat. Language follows the customer's browser (Thai, or English for all other languages)",
+    "th": "Thai",
+    "en": "English",
+    "emptyHint": "Leave empty to use the standard message",
+    "count": "{{count}} / {{limit}}"
+  },
+  "snippet": {
+    "title": "Embed code",
+    "sub": "Paste this line before </body> on every page of your allowed sites. It doesn't change when you edit settings",
+    "label": "Web Chat embed code",
+    "copy": "Copy code",
+    "copied": "Copied",
+    "afterSave": "The embed code is ready after the first save"
+  },
+  "preview": {
+    "open": "Open preview page",
+    "hint": "Messages from the preview page go into the real queue. Agents see them as real chats"
+  },
+  "state": {
+    "title": "Status",
+    "toggle": "Turn on Web Chat",
+    "onHint": "The chat button shows on your allowed sites. Turning it off lets open chats finish",
+    "offHint": "Off. Customers don't see the chat button",
+    "required": "Needed before turning on",
+    "needQueue": "Choose a queue",
+    "needOrigin": "Add at least one allowed domain",
+    "goToField": "Go to field",
+    "cannotEnable": "Can't turn on yet. Complete the {{count}} items above"
+  },
+  "errors": {
+    "queueRequired": "Choose a queue before turning on",
+    "queueInvalid": "This queue can't be used. Choose another",
+    "originRequired": "Add at least one domain before turning on",
+    "capacityRange": "Enter a number from 1 to 10",
+    "idleRange": "Enter a number from 1 to 60",
+    "welcomeTooLong": "Over {{limit}} characters",
+    "rejected": "The server rejected a value. Check the form and save again"
+  },
+  "save": "Save",
+  "saveFirst": "Save and create embed code",
+  "saving": "Saving",
+  "cancel": "Discard changes",
+  "saved": "Web Chat settings saved",
+  "saveFailed": "Not saved. The connection to the server failed; your changes are still in the form",
+  "retrySave": "Try saving again",
+  "conflict": "Someone changed these settings after you opened the page. Reload the latest and edit again. What you entered is still in the form",
+  "conflictUseLatest": "Use latest values",
+  "signIn": "Sign in"
+}

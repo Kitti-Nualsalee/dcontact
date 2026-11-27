@@ -12,11 +12,23 @@ import {
 } from '@d-contact/ui-react';
 import { useShellTokens } from '../shell/tokens.js';
 import {
+  ChannelBadge,
+  ChannelFilter,
+  ChatResultPanel,
+  ChatTranscriptPanel,
+  channelOf,
+  useChannelLabel,
+} from '../chat-history/chat-history.js';
+import { closedByKey, visitorCode } from '../chat-history/transcript.js';
+import { useTranscript } from '../chat-history/use-transcript.js';
+import {
   SUMMARY_PERIODS,
+  channelFrom,
   dispositionFrom,
   filterHref,
   formatTalk,
   periodFrom,
+  type HistoryChannel,
   type SummaryPeriod,
 } from '../agent-history/model.js';
 import {
@@ -77,12 +89,17 @@ export function TeamHistory(props: Props) {
 
 function TeamHistorySession({ api, onSignIn }: Props) {
   const { t } = useTranslation('teamHistory');
+  const { t: chatText } = useTranslation('history');
+  const channelName = useChannelLabel();
   const { locale } = useLocale();
   const ready = useShellTokens();
   const initial = new URL(window.location.href).searchParams;
   const [period, setPeriod] = useState<SummaryPeriod>(() => periodFrom(initial.get('period')));
   const [disposition, setDisposition] = useState<string | null | undefined>(() =>
     dispositionFrom(initial.get('disposition')),
+  );
+  const [channel, setChannel] = useState<HistoryChannel | undefined>(() =>
+    channelFrom(initial.get('channel')),
   );
   const [teamId, setTeamId] = useState<string | undefined>(() => uuidParam(initial.get('team')));
   const [agentId, setAgentId] = useState<string | undefined>(() => uuidParam(initial.get('agent')));
@@ -168,7 +185,14 @@ function TeamHistorySession({ api, onSignIn }: Props) {
     if (!selected && !pageCursor) setItems([]);
     const request = selected
       ? api.item(selected)
-      : api.list(pageCursor, { from: windowFrom, to: windowTo, disposition, teamId, agentId });
+      : api.list(pageCursor, {
+          from: windowFrom,
+          to: windowTo,
+          disposition,
+          channel,
+          teamId,
+          agentId,
+        });
     void request
       .then((result) => {
         if (!active) return;
@@ -196,10 +220,19 @@ function TeamHistorySession({ api, onSignIn }: Props) {
     windowFrom,
     windowTo,
     disposition,
+    channel,
     teamId,
     agentId,
     summaryState.phase,
   ]);
+
+  // a call has no conversation; a chat (or an item whose channel is not known yet, e.g. a pasted link) loads it
+  const selectedItem = selected ? items.find((item) => item.interactionId === selected) : undefined;
+  const { state: transcriptState, retry: retryTranscript } = useTranscript(
+    api.transcript,
+    selected,
+    !!selected && (!selectedItem || channelOf(selectedItem) === 'WEBCHAT'),
+  );
 
   function open(interactionId?: string) {
     const url = new URL(window.location.href);
@@ -209,14 +242,21 @@ function TeamHistorySession({ api, onSignIn }: Props) {
     setSelected(interactionId ?? null);
     setPageCursor(undefined);
   }
-  function applyFilter(nextPeriod: SummaryPeriod, nextDisposition: string | null | undefined) {
+  function applyFilter(
+    nextPeriod: SummaryPeriod,
+    nextDisposition: string | null | undefined,
+    // wrapped so that "every channel" (`undefined`) can be asked for, and leaving it out keeps the current one
+    change?: { channel: HistoryChannel | undefined },
+  ) {
+    const nextChannel = change ? change.channel : channel;
     window.history.replaceState(
       null,
       '',
-      filterHref(window.location.href, nextPeriod, nextDisposition),
+      filterHref(window.location.href, nextPeriod, nextDisposition, nextChannel),
     );
     setPeriod(nextPeriod);
     setDisposition(nextDisposition);
+    setChannel(nextChannel);
     setPageCursor(undefined);
   }
   function applyScope(nextTeam: string | undefined, nextAgent: string | undefined) {
@@ -267,6 +307,8 @@ function TeamHistorySession({ api, onSignIn }: Props) {
     const lastText = dates.format(new Date(new Date(shownSummary.period.to).getTime() - 1));
     return fromText === lastText ? fromText : `${fromText} – ${lastText}`;
   })();
+  const transcript = transcriptState.phase === 'ready' ? transcriptState.transcript : undefined;
+  const closedBy = transcript ? closedByKey(transcript.endReason) : null;
   const selectedAgent = shownSummary?.byAgent.find((row) => row.agent.id === agentId);
   // counts for the selected filters: disposition counts per Agent are not in the summary, so they are shown when either one is selected
   const filterCount = shownSummary
@@ -325,6 +367,10 @@ function TeamHistorySession({ api, onSignIn }: Props) {
                   </button>
                 ))}
               </div>
+              <ChannelFilter
+                value={channel}
+                onChange={(next) => applyFilter(period, disposition, { channel: next })}
+              />
               <Button
                 isDisabled={loading || summaryState.phase === 'loading'}
                 onPress={() => {
@@ -458,23 +504,37 @@ function TeamHistorySession({ api, onSignIn }: Props) {
       {!selected && shownSummary && !failure ? (
         <h2 className="ah-list-title">
           {/* both Agent and disposition selected: the summary has no count for this pair, so no count is shown rather than guessing from the loaded page */}
-          {t(filterCount === undefined ? 'summary.listTitleNoCount' : 'summary.listTitle', {
-            period: periodLabel(period),
-            agent: selectedAgent ? agentName(selectedAgent.agent) : t('allAgents'),
-            disposition:
-              disposition === undefined ? t('summary.allDispositions') : groupLabel(disposition),
-            count: filterCount,
-          })}
+          {/* the summary counts every channel, so with a channel filter the count would not match the list */}
+          {t(
+            filterCount === undefined || channel ? 'summary.listTitleNoCount' : 'summary.listTitle',
+            {
+              period: periodLabel(period),
+              channel: channelName(channel),
+              agent: selectedAgent ? agentName(selectedAgent.agent) : t('allAgents'),
+              disposition:
+                disposition === undefined ? t('summary.allDispositions') : groupLabel(disposition),
+              count: filterCount,
+            },
+          )}
         </h2>
       ) : null}
       {!selected && !failure && !loading && summary && items.length === 0 ? (
-        <p>
-          {disposition !== undefined || agentId !== undefined
-            ? t('summary.emptyFiltered')
-            : period === 'all'
-              ? t('empty')
-              : t('summary.emptyPeriod')}
-        </p>
+        <div className="ch-empty">
+          <p>
+            {disposition !== undefined || agentId !== undefined
+              ? t('summary.emptyFiltered')
+              : channel
+                ? chatText('summary.emptyChannel', { channel: channelName(channel) })
+                : period === 'all'
+                  ? t('empty')
+                  : t('summary.emptyPeriod')}
+          </p>
+          {channel ? (
+            <Button onPress={() => applyFilter(period, disposition, { channel: undefined })}>
+              {chatText('summary.showAllChannels')}
+            </Button>
+          ) : null}
+        </div>
       ) : null}
       {!selected && items.length > 0 ? (
         <div className="ah-scroll">
@@ -482,6 +542,7 @@ function TeamHistorySession({ api, onSignIn }: Props) {
             <TableHeader>
               <Column isRowHeader>{t('agent')}</Column>
               {teams?.allTeams && !teamId ? <Column>{t('team')}</Column> : null}
+              <Column>{chatText('channel')}</Column>
               <Column>{t('started')}</Column>
               <Column>{t('talk')}</Column>
               <Column>{t('disposition')}</Column>
@@ -495,6 +556,9 @@ function TeamHistorySession({ api, onSignIn }: Props) {
                   {teams?.allTeams && !teamId ? (
                     <Cell>{item.team.name ?? t('unavailable')}</Cell>
                   ) : null}
+                  <Cell>
+                    <ChannelBadge channel={channelOf(item)} />
+                  </Cell>
                   <Cell>{format(item.startedAt)}</Cell>
                   <Cell>
                     {item.talkSeconds === null ? t('unavailable') : formatTalk(item.talkSeconds)}
@@ -523,7 +587,59 @@ function TeamHistorySession({ api, onSignIn }: Props) {
           {t('more')}
         </Button>
       ) : null}
-      {selected && detail && !error ? (
+      {selected && detail && !error && channelOf(detail) === 'WEBCHAT' ? (
+        <article className="ch-detail">
+          <div className="ch-head">
+            <h2>{chatText('chat.visitor', { code: visitorCode(detail.interactionId) })}</h2>
+            <ChannelBadge channel="WEBCHAT" />
+          </div>
+          <p className="ch-sub">
+            {t('agent')}: {agentName(detail.agent)} · {t('team')}:{' '}
+            {detail.team.name ?? t('unavailable')} · {detail.interactionId}
+          </p>
+          <div className="ch-grid">
+            <ChatTranscriptPanel
+              state={transcriptState}
+              onRetry={retryTranscript}
+              agentName={detail.agent.displayName ?? chatText('chat.sender.agent')}
+            />
+            <ChatResultPanel
+              rows={[
+                { label: t('disposition'), value: dispositionLabel(detail.disposition) },
+                ...(transcript
+                  ? [
+                      {
+                        label: chatText('chat.customer'),
+                        value: transcript.customerLinked
+                          ? chatText('chat.linked')
+                          : chatText('chat.unlinked'),
+                      },
+                    ]
+                  : []),
+                ...(closedBy
+                  ? [
+                      {
+                        label: chatText('chat.closedByLabel'),
+                        value: chatText(`chat.closedBy.${closedBy}`),
+                      },
+                    ]
+                  : []),
+                { label: t('started'), value: format(detail.startedAt) },
+                {
+                  label: t('talk'),
+                  value:
+                    detail.talkSeconds === null ? t('unavailable') : formatTalk(detail.talkSeconds),
+                },
+                { label: t('recorded'), value: format(detail.recordedAt) },
+              ]}
+              note={detail.note}
+              noteLabel={t('note')}
+              noNote={t('noNote')}
+            />
+          </div>
+        </article>
+      ) : null}
+      {selected && detail && !error && channelOf(detail) !== 'WEBCHAT' ? (
         <article>
           <h2>{t('detail')}</h2>
           <p>{detail.interactionId}</p>
