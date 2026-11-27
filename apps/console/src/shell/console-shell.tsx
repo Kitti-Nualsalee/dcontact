@@ -54,6 +54,7 @@ export type ConsoleShellApp =
   | 'journeys'
   | 'contact-governance'
   | 'dphone-embedding'
+  | 'webchat-settings'
   // AC5 (#598): account page — not in the app registry, so no app is selected in the rail
   | 'account'
   | 'account-policy';

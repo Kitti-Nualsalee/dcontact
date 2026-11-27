@@ -1,8 +1,16 @@
-import { NO_DISPOSITION, listQuery, type HistoryFilter, type SummaryPeriod } from './model.js';
+import {
+  NO_DISPOSITION,
+  listQuery,
+  type HistoryChannel,
+  type HistoryFilter,
+  type SummaryPeriod,
+} from './model.js';
+import { isWorkTranscript, type WorkTranscript } from '../chat-history/transcript.js';
 
 export type RecordedAtSource = 'SERVER_COMMIT' | 'LEGACY_EVENT' | 'LEGACY_FALLBACK';
 export interface HistoryItem {
   interactionId: string;
+  channel: HistoryChannel;
   startedAt: string;
   endedAt: string | null;
   disposition: string | null;
@@ -35,8 +43,11 @@ export interface AgentHistoryApi {
     cursor?: string,
     filter?: HistoryFilter,
   ): Promise<{ items: HistoryItem[]; nextCursor: string | null }>;
-  summary(period: SummaryPeriod): Promise<HistorySummary>;
+  /** `channel` narrows the numbers the same way it narrows the list */
+  summary(period: SummaryPeriod, channel?: HistoryChannel): Promise<HistorySummary>;
   result(interactionId: string): Promise<HistoryDetail>;
+  /** #1044: the conversation of a chat (a call answers an empty list); 404 = not found or not yours */
+  transcript(interactionId: string): Promise<WorkTranscript>;
 }
 
 const count = (value: unknown) => Number.isInteger(value) && (value as number) >= 0;
@@ -65,6 +76,8 @@ export function isHistorySummary(value: unknown): value is HistorySummary {
   );
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 export function createAgentHistoryApi(options: {
   baseUrl: string;
   accessToken(): string | undefined;
@@ -89,10 +102,10 @@ export function createAgentHistoryApi(options: {
         nextCursor: string | null;
       };
     },
-    async summary(period) {
-      const summary: unknown = await read(
-        `history/summary?${new URLSearchParams({ period }).toString()}`,
-      );
+    async summary(period, channel) {
+      const query = new URLSearchParams({ period });
+      if (channel) query.set('channel', channel);
+      const summary: unknown = await read(`history/summary?${query.toString()}`);
       if (!isHistorySummary(summary)) throw new HistoryApiError(502);
       return summary;
     },
@@ -106,6 +119,14 @@ export function createAgentHistoryApi(options: {
       return (await read(
         `interactions/${encodeURIComponent(interactionId)}/wrapup-result`,
       )) as HistoryDetail;
+    },
+    async transcript(interactionId) {
+      if (!UUID.test(interactionId)) throw new HistoryApiError(404);
+      const transcript: unknown = await read(
+        `history/${encodeURIComponent(interactionId)}/transcript`,
+      );
+      if (!isWorkTranscript(transcript)) throw new HistoryApiError(502);
+      return transcript;
     },
   };
 }
