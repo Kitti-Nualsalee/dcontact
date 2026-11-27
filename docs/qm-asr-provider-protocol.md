@@ -116,9 +116,10 @@ QM บันทึก `HTTP {status} {code}` เป็นเหตุผลข�
 - QM รอ response ไม่เกิน `QM_TRANSCRIPTION_TIMEOUT_MS` (ค่าเริ่มต้น 300000 = 5 นาที) แล้วนับเป็น attempt ที่ล้ม
 - signed URL มีอายุ 5 นาที ไฟล์เสียงจึงต้องเริ่มดาวน์โหลดทันทีที่รับคำขอ
 - reverse proxy ข้างหน้า provider ต้องตั้ง read timeout มากกว่า `QM_TRANSCRIPTION_TIMEOUT_MS`
-- ข้อจำกัดของ QM ตอนนี้: worker เรียก provider ภายใน handler ของ Kafka consumer ซึ่งใช้ session timeout เริ่มต้น 30 วินาทีและไม่ส่ง heartbeat ระหว่างรอ
-  provider ที่ตอบช้ากว่าราว 30 วินาทีจะทำให้ consumer rebalance และ message ถูกส่งซ้ำ (ข้อมูลไม่เสีย เพราะ job ที่ `PROCESSING` อยู่ถูกนับเป็น duplicate)
-  ต้องแก้ฝั่ง QM ก่อนใช้โมเดลจริงที่ถอดไฟล์ยาวช้ากว่านั้น
+- worker เรียก provider ภายใน handler ของ Kafka consumer จึงส่ง heartbeat ทุก 5 วินาทีระหว่างรอ (`whileHeartbeating` ใน `apps/qm/src/kafka-heartbeat.ts`)
+  provider ที่ตอบช้ากว่า session timeout 30 วินาทีจึงไม่ทำให้ worker ถูกถอดออกจาก consumer group
+  และ rebalance timeout ของ consumer job ตั้งไว้เท่ากับเวลารอ provider ทุกตัวของ job บวก 60 วินาที (ค่าเริ่มต้น 6 นาที หรือ 8 นาทีเมื่อเปิด scorer)
+  ให้ rebalance รอ job ที่กำลังทำจบก่อน ไม่ถอด worker กลางทาง
 
 ## Health (ไม่บังคับ)
 
