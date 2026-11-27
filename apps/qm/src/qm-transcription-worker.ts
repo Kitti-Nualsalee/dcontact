@@ -149,6 +149,20 @@ function normalizeAnswers(
   });
 }
 
+function staleResult(job: {
+  id: string;
+  status: QmTranscriptionStatus;
+  attempts: number;
+  nextAttemptAt: Date | null;
+}): QmWorkerResult {
+  return {
+    jobId: job.id,
+    status: job.status,
+    attempts: job.attempts,
+    ...(job.nextAttemptAt ? { nextAttemptAt: job.nextAttemptAt.toISOString() } : {}),
+  };
+}
+
 export class QmTranscriptionWorker {
   constructor(
     private readonly database: PrismaClient,
@@ -307,6 +321,8 @@ export class QmTranscriptionWorker {
       };
     }
     if (claimed.settled) return claimed.settled;
+    // the claim incremented attempts to the message's attempt
+    const claimedAttempt = message.attempt;
 
     let transcription: TranscriptionProviderResult;
     try {
@@ -334,8 +350,18 @@ export class QmTranscriptionWorker {
       return withTenantDatabaseTransaction(this.database, tenantId, async (transaction) => {
         const current = await transaction.qmTranscriptionJob.findFirstOrThrow({
           where: { id: claimed.id, tenantId },
-          select: { attempts: true, maxAttempts: true },
+          select: {
+            id: true,
+            status: true,
+            attempts: true,
+            maxAttempts: true,
+            nextAttemptAt: true,
+          },
         });
+        // the dispatcher may have recovered this attempt as interrupted and started a new one: leave it alone
+        if (current.status !== 'PROCESSING' || current.attempts !== claimedAttempt) {
+          return staleResult(current);
+        }
         const exhausted = current.attempts >= current.maxAttempts;
         const nextAttemptAt = exhausted
           ? undefined
@@ -391,6 +417,24 @@ export class QmTranscriptionWorker {
       this.database,
       tenantId,
       async (transaction) => {
+        const completed = await transaction.qmTranscriptionJob.updateMany({
+          // only the attempt this worker claimed may complete the job: after the dispatcher recovered it
+          // as interrupted, a late result from the old attempt must not overwrite the new one
+          where: { id: claimed.id, tenantId, status: 'PROCESSING', attempts: claimedAttempt },
+          data: {
+            status: 'READY',
+            completedAt,
+            failureCode: null,
+            failureReason: null,
+          },
+        });
+        if (completed.count !== 1) {
+          const current = await transaction.qmTranscriptionJob.findFirstOrThrow({
+            where: { id: claimed.id, tenantId },
+            select: { id: true, status: true, attempts: true, nextAttemptAt: true },
+          });
+          return { stale: staleResult(current) };
+        }
         const transcript = await transaction.qmTranscript.create({
           data: {
             tenantId,
@@ -427,28 +471,26 @@ export class QmTranscriptionWorker {
             },
           },
         });
-        const completed = await transaction.qmTranscriptionJob.update({
-          where: { id: claimed.id },
-          data: {
-            status: 'READY',
-            completedAt,
-            failureCode: null,
-            failureReason: null,
-          },
-          select: { id: true, status: true, attempts: true },
-        });
         await transaction.qmAuditEvent.create({
           data: {
             tenantId,
             action: 'TRANSCRIPTION_READY',
             resourceType: 'TRANSCRIPTION_JOB',
             resourceId: claimed.id,
-            details: { attempt: completed.attempts, providerId: this.provider.id, baseline },
+            details: { attempt: claimedAttempt, providerId: this.provider.id, baseline },
           },
         });
-        return { completed, segments: transcript.segments };
+        return { stale: undefined, segments: transcript.segments };
       },
     );
+    if (ready.stale) {
+      console.warn('[qm] dropped the result of an attempt that was already recovered', {
+        tenantId,
+        jobId: claimed.id,
+        attempt: claimedAttempt,
+      });
+      return ready.stale;
+    }
 
     if (this.scorer && claimed.interaction.queue?.autoQmEnabled && claimed.interaction.agentId) {
       const segments = ready.segments.map((segment) => ({
@@ -494,11 +536,7 @@ export class QmTranscriptionWorker {
         });
       });
     }
-    return {
-      jobId: ready.completed.id,
-      status: ready.completed.status,
-      attempts: ready.completed.attempts,
-    };
+    return { jobId: claimed.id, status: 'READY', attempts: claimedAttempt };
   }
 
   /** Closes a job that cannot continue because of its recording, without counting an attempt, so it does not stay PENDING with dispatchedAt set */

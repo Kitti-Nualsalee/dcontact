@@ -35,6 +35,10 @@ Telephony อาจส่ง `call.hangup` ก่อน archive WAV ขึ้น
   - หยิบ job ที่ `dispatchedAt` ค้างเกิน 5 นาทีด้วย เผื่อ process ตายระหว่าง claim กับ publish
   - หยิบ job ใหม่ที่ไม่มีทั้ง `dispatchedAt` และ `nextAttemptAt` เมื่อสร้างมาเกิน 5 นาที (publish ล้มแล้วไม่มีใครเรียกซ้ำ)
   - log `[qm] re-dispatched stale transcription job` ทุกครั้งที่หยิบ job สองแบบนี้
+  - คืน job ที่ค้าง `PROCESSING` นานเกินเวลาที่ job หนึ่งทำได้ (เวลารอ provider ทุกตัว + 3 นาที) เพราะ worker ตายกลางทาง เช่น deploy ระหว่าง job
+    นับ attempt นั้นเป็นล้มด้วย `failureCode = WORKER_INTERRUPTED` แล้วส่ง attempt ถัดไปทันที หรือปิดเป็น `FAILED` ถ้าครบจำนวนแล้ว
+    log `[qm] recovered an interrupted transcription job`
+- worker บันทึกผล (READY หรือล้ม) เฉพาะ attempt ที่ตัวเอง claim ไว้ ผลที่มาช้าจาก attempt ที่ถูกคืนแล้วจะถูกทิ้ง
 - message ที่มาก่อนถึงเวลา หรือมาถึง job ที่ `FAILED` แล้ว เป็น no-op ไม่ throw
 
 ## Provider contract

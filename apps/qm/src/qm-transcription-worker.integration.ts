@@ -4,7 +4,11 @@ import test, { after } from 'node:test';
 import { Prisma, PrismaClient } from '@d-contact/db';
 import type { KafkaEventEnvelope } from '@d-contact/kafka';
 import type { QmInteractionEndedPayload, QmTranscriptionJobMessage } from '@d-contact/shared';
-import { QM_DISPATCH_STALE_MS, QmRetryDispatcher } from './qm-retry-dispatcher.js';
+import {
+  QM_DISPATCH_STALE_MS,
+  QmRetryDispatcher,
+  WORKER_INTERRUPTED,
+} from './qm-retry-dispatcher.js';
 import {
   QmTranscriptionWorker,
   RECORDING_ARCHIVE_WAIT_LIMIT_MS,
@@ -541,4 +545,133 @@ test('a job the API reopens after the archive wait ceiling (#990) transcribes ri
   // An old attempt-1 message from before the reopen, redelivered by Kafka, is a duplicate no-op and does not call the provider again
   assert.deepEqual(await worker.process(seeded.tenantId, seeded.message), ready);
   assert.deepEqual(calls, { media: 1, provider: 1 });
+});
+
+/** a worker whose provider call stays open until the test settles it: a job that is still PROCESSING */
+function hangingWorker(clock: { at: Date }) {
+  let settle: (outcome: 'ok' | 'fail') => void = () => undefined;
+  let markStarted: () => void = () => undefined;
+  const started = new Promise<void>((resolve) => (markStarted = resolve));
+  const worker = new QmTranscriptionWorker(
+    owner,
+    {
+      createEncryptedReadUrl: async ({ storageKey }) => ({
+        url: `https://storage.test/${storageKey}?signature=short-lived`,
+        expiresAt: new Date(clock.at.getTime() + 300_000),
+      }),
+    },
+    {
+      id: 'hanging-provider',
+      transcribe: () =>
+        new Promise((resolve, reject) => {
+          settle = (outcome) =>
+            outcome === 'ok'
+              ? resolve({
+                  modelId: 'late-model',
+                  language: 'th-TH',
+                  confidenceAvg: 0.5,
+                  segments: [{ speaker: 'AGENT', startMs: 0, endMs: 1_000, text: 'late' }],
+                })
+              : reject(new Error('late provider failure'));
+          markStarted();
+        }),
+    },
+    { now: () => new Date(clock.at) },
+  );
+  return { worker: () => worker, started, settle: (outcome: 'ok' | 'fail') => settle(outcome) };
+}
+
+const PROCESSING_STALE_MS = 10 * 60 * 1_000;
+
+test('a job whose worker died mid-attempt is recovered as an interrupted attempt and retried; the late result of the old attempt is dropped', async (t) => {
+  const seeded = await seedJob(t, { archivedAt: requestedAt });
+  await owner.qmTranscriptionJob.update({ where: { id: seeded.jobId }, data: { maxAttempts: 2 } });
+  const clock = { at: new Date(requestedAt.getTime() + 60_000) };
+  const hanging = hangingWorker(clock);
+  const { worker, dispatched } = harness(clock);
+  const retries = new QmRetryDispatcher(
+    owner,
+    { publish: async ({ job }) => void dispatched.push(job) },
+    { processingStaleMs: PROCESSING_STALE_MS },
+  );
+
+  // attempt 1 is claimed and its worker never returns (the process was killed during a deploy)
+  const lost = hanging.worker().process(seeded.tenantId, seeded.message);
+  await hanging.started;
+  assert.equal((await persistedJob(seeded.jobId)).status, 'PROCESSING');
+  // Kafka redelivering attempt 1 is a no-op: the claim already counted it
+  assert.equal((await worker.process(seeded.tenantId, seeded.message)).status, 'PROCESSING');
+
+  // not stale yet: nothing happens
+  clock.at = new Date(clock.at.getTime() + PROCESSING_STALE_MS - 1_000);
+  assert.deepEqual(await retries.dispatchDue(clock.at), []);
+  assert.equal((await persistedJob(seeded.jobId)).status, 'PROCESSING');
+
+  // past the threshold: attempt 1 counts as interrupted and attempt 2 is published in the same pass
+  clock.at = new Date(clock.at.getTime() + 2_000);
+  assert.deepEqual(await retries.dispatchDue(clock.at), [seeded.jobId]);
+  assert.equal(dispatched.at(-1)!.attempt, 2);
+  const recovered = await persistedJob(seeded.jobId);
+  assert.equal(recovered.status, 'PENDING');
+  assert.equal(recovered.attempts, 1);
+  assert.equal(recovered.failureCode, WORKER_INTERRUPTED);
+
+  const ready = await worker.process(seeded.tenantId, dispatched.at(-1)!);
+  assert.equal(ready.status, 'READY');
+  assert.equal(ready.attempts, 2);
+
+  // the old attempt finally returns: its result must not replace the recovered job's transcript
+  hanging.settle('ok');
+  assert.deepEqual(await lost, { jobId: seeded.jobId, status: 'READY', attempts: 2 });
+  const transcripts = await owner.qmTranscript.findMany({ where: { tenantId: seeded.tenantId } });
+  assert.equal(transcripts.length, 1);
+  assert.equal(transcripts[0]!.modelId, 'archive-wait-model');
+  const actions = (
+    await owner.qmAuditEvent.findMany({
+      where: { tenantId: seeded.tenantId },
+      orderBy: { createdAt: 'asc' },
+    })
+  ).map((event) => [event.action, (event.details as { failureCode?: string }).failureCode]);
+  assert.deepEqual(actions, [
+    ['TRANSCRIPTION_STARTED', undefined],
+    ['TRANSCRIPTION_RETRY_SCHEDULED', WORKER_INTERRUPTED],
+    ['TRANSCRIPTION_STARTED', undefined],
+    ['TRANSCRIPTION_READY', undefined],
+  ]);
+});
+
+test('an interrupted last attempt closes the job as FAILED, and a late failure of that attempt does not reopen it', async (t) => {
+  const seeded = await seedJob(t, { archivedAt: requestedAt });
+  const clock = { at: new Date(requestedAt.getTime() + 60_000) };
+  const hanging = hangingWorker(clock);
+  const dispatched: QmTranscriptionJobMessage[] = [];
+  const retries = new QmRetryDispatcher(
+    owner,
+    { publish: async ({ job }) => void dispatched.push(job) },
+    { processingStaleMs: PROCESSING_STALE_MS },
+  );
+
+  const lost = hanging.worker().process(seeded.tenantId, seeded.message);
+  await hanging.started;
+  clock.at = new Date(clock.at.getTime() + PROCESSING_STALE_MS + 1_000);
+  assert.deepEqual(await retries.dispatchDue(clock.at), []);
+  let job = await persistedJob(seeded.jobId);
+  assert.equal(job.status, 'FAILED');
+  assert.equal(job.attempts, 1);
+  assert.equal(job.failureCode, WORKER_INTERRUPTED);
+  assert.equal(job.completedAt?.toISOString(), clock.at.toISOString());
+
+  hanging.settle('fail');
+  assert.equal((await lost).status, 'FAILED');
+  job = await persistedJob(seeded.jobId);
+  assert.equal(job.status, 'FAILED');
+  assert.equal(job.failureCode, WORKER_INTERRUPTED);
+  assert.equal(
+    await owner.qmAuditEvent.count({
+      where: { tenantId: seeded.tenantId, action: 'TRANSCRIPTION_FAILED' },
+    }),
+    1,
+  );
+  // the sweep does not touch a job twice
+  assert.deepEqual(await retries.dispatchDue(new Date(clock.at.getTime() + 60_000)), []);
 });
