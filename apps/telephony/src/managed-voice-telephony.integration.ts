@@ -340,3 +340,50 @@ test('a managed destination whose call.created fails twice is hung up instead of
   // No kill for the legacy number or the other tenant
   assert.equal(fake.kills.length, 3);
 });
+
+test('a managed destination the runtime does not take (inactive) is hung up instead of parked on legacy', async (context) => {
+  const owner = new PrismaClient();
+  const database = new PrismaClient({ datasources: { db: { url: applicationUrl } } });
+  const fake = fakeSwitch('fixture-979');
+  await new Promise<void>((resolve) => fake.server.listen(0, '127.0.0.1', resolve));
+  const address = fake.server.address() as net.AddressInfo;
+  const alpha = await managedTenant(owner, 'alpha');
+  const managed = new ManagedVoiceTelephony({
+    nodeId,
+    database,
+    dispatchDatabase: database,
+    esl: new E1EslCommandClient({ host: '127.0.0.1', port: address.port, password: 'fixture-979' }),
+    directory: new TenantSipDomainDirectory(database),
+    log: () => undefined,
+  });
+  context.after(async () => {
+    fake.server.close();
+    await Promise.all([owner.$disconnect(), database.$disconnect()]);
+  });
+  // The real runtime returns no call for an inactive destination; legacy would still reject it as managed
+  await owner.voiceDestination.updateMany({
+    where: { tenantId: alpha.tenantId, destination: '2000' },
+    data: { isActive: false },
+  });
+  const caller = randomUUID();
+  fake.channels.set(caller, { domain_name: alpha.sipDomain });
+  const routing = managed.routing;
+  assert.equal(
+    await routeManagedCall(
+      {
+        'Event-Name': 'CHANNEL_CREATE',
+        'Unique-ID': caller,
+        'Caller-Destination-Number': '2000',
+        'Caller-Caller-ID-Number': '0811111111',
+      },
+      alpha.tenantId,
+      routing,
+    ),
+    'ignored',
+  );
+  assert.deepEqual(fake.kills, [`${caller} NORMAL_TEMPORARY_FAILURE`]);
+  const [interactions] = await owner.$queryRaw<{ count: bigint }[]>`
+    SELECT count(*) AS count FROM interactions WHERE tenant_id=${alpha.tenantId}::uuid`;
+  assert.equal(Number(interactions.count), 0);
+  assert.equal(managed.isKnownCall(caller), true);
+});

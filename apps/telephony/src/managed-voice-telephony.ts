@@ -129,13 +129,14 @@ export interface ManagedVoiceRouting {
   handle(event: ManagedVoiceEvent): Promise<unknown>;
   onError(error: unknown): void;
   /**
-   * Called when `call.created` failed on both attempts. Returns true when the destination belongs to a managed v1 queue
-   * and the caller was hung up: legacy rejects such calls (`VOICE_CONFIG_V1_REQUIRED`) and the caller would stay parked
-   * with no wait limit. Returns false (or throws) to keep the call on legacy as before
+   * Called when the runtime did not take a new call: `call.created` failed on both attempts, or it returned no call
+   * (e.g. the destination is inactive or not in this node's `destination_pool`). Returns true when the destination
+   * belongs to a managed v1 queue and the caller was hung up: legacy rejects such calls (`VOICE_CONFIG_V1_REQUIRED`)
+   * and the caller would stay parked with no wait limit. Returns false (or throws) to keep the call on legacy as before
    */
-  rejectFailedCall?(event: ManagedVoiceEvent): Promise<boolean>;
+  rejectUnroutedCall?(event: ManagedVoiceEvent): Promise<boolean>;
   /**
-   * Customer calls hung up by `rejectFailedCall`: their later events (PARK, HANGUP) are ignored so a PARK is not
+   * Customer calls hung up by `rejectUnroutedCall`: their later events (PARK, HANGUP) are ignored so a PARK is not
    * turned into another `call.created` for a channel that is already being killed
    */
   rejected?: Set<string>;
@@ -212,7 +213,7 @@ export async function routeManagedCall(
     }
   } catch (error) {
     routing.onError(error);
-    if (!known && event?.type === 'call.created' && (await rejectFailedCall(event, routing)))
+    if (!known && event?.type === 'call.created' && (await rejectUnroutedCall(event, routing)))
       return 'ignored';
     if (
       known &&
@@ -227,6 +228,8 @@ export async function routeManagedCall(
     else routing.calls.add(event.callUuid);
     return 'managed';
   }
+  if (!known && event?.type === 'call.created' && (await rejectUnroutedCall(event, routing)))
+    return 'ignored';
   if (known) {
     if (source['Event-Name'] === 'CHANNEL_HANGUP_COMPLETE' && source['Unique-ID'] === callUuid)
       routing.calls.delete(callUuid);
@@ -237,13 +240,13 @@ export async function routeManagedCall(
   return 'legacy';
 }
 
-async function rejectFailedCall(
+async function rejectUnroutedCall(
   event: ManagedVoiceEvent,
   routing: ManagedVoiceRouting,
 ): Promise<boolean> {
-  if (!routing.rejectFailedCall) return false;
+  if (!routing.rejectUnroutedCall) return false;
   try {
-    if (!(await routing.rejectFailedCall(event))) return false;
+    if (!(await routing.rejectUnroutedCall(event))) return false;
     if (routing.rejected) {
       if (routing.rejected.size >= rejectedCallsLimit)
         routing.rejected.delete(routing.rejected.values().next().value!);
@@ -323,13 +326,13 @@ export class ManagedVoiceTelephony {
       calls: this.calls,
       handle: (event) => this.runtime.handle(event),
       onError: (error) => this.log('managed event failed', error),
-      rejectFailedCall: (event) => this.rejectFailedCall(event),
+      rejectUnroutedCall: (event) => this.rejectUnroutedCall(event),
       rejected: this.rejectedCalls,
     };
   }
 
-  /** Hangs up a new caller whose destination is bound to a managed v1 queue after the runtime failed to take the call */
-  private async rejectFailedCall(event: ManagedVoiceEvent): Promise<boolean> {
+  /** Hangs up a new caller whose destination is bound to a managed v1 queue when the runtime did not take the call */
+  private async rejectUnroutedCall(event: ManagedVoiceEvent): Promise<boolean> {
     if (!event.destination || !uuidPattern.test(event.callUuid)) return false;
     const destination = event.destination;
     const managed = await withTenantDatabaseTransaction(
@@ -350,11 +353,11 @@ export class ManagedVoiceTelephony {
       const exists = await this.options.esl.request(`api uuid_exists ${event.callUuid}`);
       if (exists.trim() !== 'false')
         throw new Error(`MANAGED_VOICE_REJECT_KILL_FAILED: ${reply.trim()}`);
-      this.log(`managed call.created failed; caller ${event.callUuid} was already gone`);
+      this.log(`managed runtime did not take caller ${event.callUuid}; it was already gone`);
       return true;
     }
     this.log(
-      `managed call.created failed; caller ${event.callUuid} hung up instead of falling back to legacy`,
+      `managed runtime did not take caller ${event.callUuid} to a managed number; hung up instead of legacy`,
     );
     return true;
   }
