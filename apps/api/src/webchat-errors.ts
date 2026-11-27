@@ -13,7 +13,11 @@ export type WebchatErrorCode =
   | 'QUEUE_FULL'
   | 'MESSAGE_LIMIT'
   | 'COMMAND_ID_REUSED'
-  | 'RATE_LIMITED';
+  | 'RATE_LIMITED'
+  // #1054 LINE chat settings
+  | 'LINE_TOKEN_REJECTED'
+  | 'LINE_UNAVAILABLE'
+  | 'SECRET_STORE_UNAVAILABLE';
 
 const STATUS: Record<WebchatErrorCode, number> = {
   VALIDATION_FAILED: 400,
@@ -30,6 +34,9 @@ const STATUS: Record<WebchatErrorCode, number> = {
   MESSAGE_LIMIT: 429,
   COMMAND_ID_REUSED: 409,
   RATE_LIMITED: 429,
+  LINE_TOKEN_REJECTED: 422,
+  LINE_UNAVAILABLE: 503,
+  SECRET_STORE_UNAVAILABLE: 503,
 };
 
 export class WebchatError extends Error {

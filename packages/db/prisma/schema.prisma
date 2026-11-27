@@ -4891,6 +4891,72 @@ model WebchatOffer {
   @@map("webchat_offers")
 }
 
+// ─────────────────────────── LINE chat (#1054) ───────────────────────────
+
+/// #1054 the LINE Official Account of a tenant; round one allows one per tenant. FKs are declared in the migration
+model LineChannel {
+  tenantId              String    @map("tenant_id") @db.Uuid
+  id                    String    @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  enabled               Boolean   @default(false)
+  queueId               String?   @map("queue_id") @db.Uuid
+  /// the Channel ID shown in LINE Developers, for reference
+  lineChannelId         String    @default("") @map("line_channel_id")
+  /// the bot's user id; a webhook names it as `destination`
+  botUserId             String?   @map("bot_user_id")
+  botName               String    @default("") @map("bot_name")
+  /// sealed with the account secret key; never returned to a client
+  channelSecretSealed   String?   @map("channel_secret_sealed")
+  accessTokenSealed     String?   @map("access_token_sealed")
+  channelSecretHint     String?   @map("channel_secret_hint")
+  accessTokenHint       String?   @map("access_token_hint")
+  credentialsVerifiedAt DateTime? @map("credentials_verified_at") @db.Timestamptz(3)
+  autoReplyText         String    @default("") @map("auto_reply_text")
+  idleTimeoutSec        Int       @default(1800) @map("idle_timeout_sec")
+  revision              Int       @default(1)
+  updatedByUserId       String?   @map("updated_by_user_id") @db.Uuid
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime  @default(now()) @map("updated_at") @db.Timestamptz(3)
+
+  @@id([tenantId, id])
+  @@unique([tenantId], map: "line_channels_one_per_tenant")
+  @@map("line_channels")
+}
+
+/// #1054 audit of LINE channel configuration changes — append-only for the app role; never holds secrets
+model LineChannelAuditEvent {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  channelId     String   @map("channel_id") @db.Uuid
+  actorUserId   String   @map("actor_user_id") @db.Uuid
+  /// CREATED | UPDATED
+  action        String
+  changedKeys   String[] @default([]) @map("changed_keys")
+  before        Json?
+  after         Json
+  correlationId String   @map("correlation_id")
+  occurredAt    DateTime @default(now()) @map("occurred_at") @db.Timestamptz(3)
+
+  @@index([tenantId, occurredAt(sort: Desc)], map: "line_channel_audit_events_tenant_idx")
+  @@map("line_channel_audit_events")
+}
+
+/// #1054 a LINE user of a channel and the one long-lived conversation of everything they wrote (ADR-023)
+model LineChatUser {
+  tenantId         String    @map("tenant_id") @db.Uuid
+  id               String    @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  channelId        String    @map("channel_id") @db.Uuid
+  lineUserId       String    @map("line_user_id")
+  conversationId   String    @map("conversation_id") @db.Uuid
+  displayName      String    @default("") @map("display_name")
+  profileFetchedAt DateTime? @map("profile_fetched_at") @db.Timestamptz(3)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@id([tenantId, id])
+  @@unique([tenantId, channelId, lineUserId], map: "line_chat_users_user_key")
+  @@unique([tenantId, conversationId], map: "line_chat_users_conversation_key")
+  @@map("line_chat_users")
+}
+
 // ─────────────────────────── Recordings ───────────────────────────
 
 enum RecordingChannelLayout {

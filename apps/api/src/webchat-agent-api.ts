@@ -54,6 +54,16 @@ export class WebchatAgentController {
     );
   }
 
+  /** #1054 the delivery state of the Agent's LINE messages */
+  @Get(':interactionId/deliveries')
+  @Header('Cache-Control', 'no-store')
+  deliveries(
+    @Req() request: AuthenticatedGatewayRequest,
+    @Param('interactionId') interactionId: string,
+  ) {
+    return webchatMapped(null, () => this.webchat.agentDeliveries(actorOf(request), interactionId));
+  }
+
   @Post(':interactionId/accept')
   @HttpCode(200)
   accept(

@@ -14,6 +14,7 @@
 
 import { resolveQmHumanEvaluation } from './qm-evaluation-config.js';
 import { resolveRecordingSupervisorPlayback } from './recording-playback-config.js';
+import { resolveLineChat } from './line-chat-config.js';
 import { resolveWebchat } from './webchat-config.js';
 
 export const MAX_PINS = 15;
@@ -116,6 +117,21 @@ export const WEBCHAT_SETTINGS_APP: NavigationAppDefinition = Object.freeze({
   labelKey: 'navigation.apps.webchatSettings',
   hostApp: 'console',
   path: '/?view=webchat-settings',
+  roles: ['supervisor', 'admin'],
+});
+
+/**
+ * #1054 LINE chat settings — in the menu only for deployments that set `LINE_CHAT=on`
+ * the Admin edits and the Supervisor reads; the API reads the role from the DB on every request
+ */
+export const LINE_SETTINGS_APP: NavigationAppDefinition = Object.freeze({
+  id: 'line-settings',
+  area: 'integrations',
+  section: 'channels',
+  group: 'settings',
+  labelKey: 'navigation.apps.lineSettings',
+  hostApp: 'console',
+  path: '/?view=line-settings',
   roles: ['supervisor', 'admin'],
 });
 
@@ -440,6 +456,7 @@ export function navigationApps(
   recordingPlayback: boolean,
   qmHumanEvaluation = false,
   webchat = false,
+  lineChat = false,
 ): readonly NavigationAppDefinition[] {
   const apps = [...BASE_NAVIGATION_APPS];
   if (recordingPlayback) {
@@ -451,6 +468,11 @@ export function navigationApps(
     const after = apps.findIndex((app) => app.id === 'dphone-embedding') + 1;
     apps.splice(after, 0, WEBCHAT_SETTINGS_APP);
   }
+  if (lineChat) {
+    const after =
+      apps.findIndex((app) => app.id === (webchat ? 'webchat-settings' : 'dphone-embedding')) + 1;
+    apps.splice(after, 0, LINE_SETTINGS_APP);
+  }
   return Object.freeze(apps);
 }
 
@@ -458,6 +480,7 @@ export const NAVIGATION_APPS: readonly NavigationAppDefinition[] = navigationApp
   resolveRecordingSupervisorPlayback(process.env),
   resolveQmHumanEvaluation(process.env),
   resolveWebchat(process.env),
+  resolveLineChat(process.env),
 );
 
 export interface NavigationAreaItemView {
