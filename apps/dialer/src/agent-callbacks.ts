@@ -341,8 +341,11 @@ export class AgentCallbacks {
       contactId: target.contactId,
       identityId,
     });
-    if (outcome.decision === 'BLOCK') throw new AgentCallbackError('GOVERNANCE_BLOCKED');
-    if (outcome.decision === 'REVIEW') throw new AgentCallbackError('GOVERNANCE_REVIEW');
+    // the reason (e.g. CONSENT_REQUIRED) travels as the field so the Agent sees why
+    if (outcome.decision === 'BLOCK')
+      throw new AgentCallbackError('GOVERNANCE_BLOCKED', outcome.reasonCode);
+    if (outcome.decision === 'REVIEW')
+      throw new AgentCallbackError('GOVERNANCE_REVIEW', outcome.reasonCode);
 
     return this.write(
       actor,
