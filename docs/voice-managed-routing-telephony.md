@@ -92,7 +92,13 @@ Solo UAT เปิด flag แล้วตาม owner สั่ง (22 พ.ย.
   ยังมีช่วงสั้น ๆ ระหว่าง start กับโหลดเสร็จที่ event ของสายค้างอาจหลุดไป legacy ได้ และสายที่ channel หายไปตอน telephony ล่ม
   ค้างในรายชื่อจน runtime ปิดสายตามเพดานเวลา
 - เมื่อเปิด flag ทุก event ของสาย legacy ต้องผ่าน transaction ของ managed runtime (advisory lock ต่อ tenant) ก่อน และ container
-  มี PrismaClient เพิ่ม 2 ตัว ก่อนเปิดบน Solo (`mem_limit: 384m`) ควรดู memory และ latency
+  มี PrismaClient เพิ่ม 2 ตัว วัดบน Solo แล้ว (27 พ.ย. 2569, release `10151dec6f08`, 2 tenant ที่ ACTIVE, VM app 2 vCPU):
+  telephony ใช้ memory ประมาณ 81 MiB จาก `mem_limit` 384 MiB ไม่มี restart/OOM, CPU ตอนว่าง 13–16% ของหนึ่ง core
+  (router ตอนว่าง 8–15%) ส่วนใหญ่มาจาก timer heartbeat/tick/dispatch ทุกวินาที จากสร้างสายถึง offer 29 ms
+  และจากวางสายถึง `interaction.managed_terminal` ประมาณ 90 ms ถ้าจำนวน tenant เพิ่มมากควรวัด CPU ซ้ำ
 - heartbeat เขียนทุกวินาทีต่อทุก tenant ที่ ACTIVE (รวม tenant ที่ไม่มีคิว managed) เหมาะกับจำนวน tenant ของ Solo/dev
 - Node 20 ในเครื่อง dev รัน `dist` ของ telephony ไม่ได้ (`ERR_REQUIRE_ESM` จาก `apps/delivery`) ให้ใช้ `pnpm --filter @d-contact/telephony dev`
-- ยังไม่ได้ทดสอบบน Solo UAT
+- ทดสอบบน Solo UAT แล้ว (27 พ.ย. 2569, release `10151dec6f08`): เบอร์ 021000004 (trunk `lan-sim-app`) เข้าคิว Managed Line ของ `demo`
+  SIPp เป็นลูกค้า และ agent1100 รับผ่าน Workspace จริง: ลูกค้าวางหลังคุย 46 วินาที ได้ `CALLER_HANGUP`
+  ส่วน Agent วางจาก Workspace หลังคุย 98 วินาที ได้ `AGENT_HANGUP` log ของ telephony/router ไม่มี error
+  กรณีที่ runtime ล้ม, เบอร์ปิดอยู่ และ restart ระหว่างสาย ยังไม่ได้จำลองบน Solo (มี unit/integration ครอบไว้)
