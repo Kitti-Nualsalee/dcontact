@@ -15,7 +15,7 @@ Authority: [#979](https://github.com/Kitti-Nualsalee/dcontact/issues/979) ต่
 | `TELEPHONY_NODE_ID` | เช่น `fs-local`, `fs-solo` | ต้องตรงกับ `telephonyNodeId` ใน `destination_pool` ของ tenant ที่ operator จองเบอร์ไว้ |
 | `APPLICATION_DATABASE_URL` | role `dcontact_app` | managed runtime ใช้ค่านี้ (ไม่มีจึงใช้ `DATABASE_URL`) เพราะ trigger ของ managed runtime ตรวจ role นี้ |
 
-**Solo UAT ยังไม่เปิด** การเปิดบน Solo ต้องรอ owner สั่ง (เพิ่มค่าใน `solo.env` แล้ว restart service `telephony`)
+Solo UAT เปิด flag แล้วตาม owner สั่ง (22 พ.ย. 2569, ค่าใน `solo.env` แล้ว restart service `telephony`)
 
 ## สิ่งที่ทำเมื่อเปิด
 
@@ -77,8 +77,14 @@ Authority: [#979](https://github.com/Kitti-Nualsalee/dcontact/issues/979) ต่
   และปิด wrap-up ผ่านฐาน ไม่ได้ผ่าน Workspace/dphone (ส่วนนั้นผ่านแล้วใน #977) ไม่ได้ตรวจเสียงสองทาง
 - เมื่อลูกค้าวางหลัง bridge ผลจบของ managed runtime เป็น `AGENT_HANGUP` น่าจะเพราะ event วางสายของขา Agent มาถึงก่อน
   ซึ่งเป็นพฤติกรรมเดิมของ runtime ไม่ได้แก้ในงานนี้
-- ถ้าสายใหม่ของเบอร์ managed เจอ runtime ล้มทั้งสองครั้ง สายจะไป legacy ซึ่งปฏิเสธคิว managed (`VOICE_CONFIG_V1_REQUIRED`)
-  และ managed จะไม่ได้รับสายนี้อีก ลูกค้าถูก park จนวางเอง ไม่มีเพดาน 60 วินาที
+- ถ้าสายใหม่ของเบอร์ managed เจอ runtime ล้มทั้งสองครั้ง telephony ตรวจ `voice_destinations` ของ tenant นั้น (ผ่าน RLS)
+  ถ้าเบอร์ผูกกับคิว managed v1 จะวางสายลูกค้าด้วย `uuid_kill ... NORMAL_TEMPORARY_FAILURE` แทนการส่งให้ legacy
+  ซึ่งปฏิเสธคิว managed (`VOICE_CONFIG_V1_REQUIRED`) และทิ้งลูกค้า park ไม่มีเพดาน ถ้าตรวจเบอร์ไม่ได้ (เช่น ฐานล่ม)
+  สายยังไป legacy ตามเดิม ลูกค้าได้สัญญาณล้มทันทีแทนการรอ ยังไม่มีข้อความเสียงแจ้งก่อนวาง
+  event ถัดไปของสายที่วางแล้ว (PARK, HANGUP) ถูกข้าม เพื่อไม่ให้ PARK กลายเป็น `call.created` ซ้ำ
+  ถ้า `uuid_kill` ไม่สำเร็จและ channel ยังอยู่ สายยังไป legacy ตามเดิม
+  ช่องที่ยังเหลือ: ถ้า runtime ไม่ล้มแต่ไม่รับสาย (เบอร์ v1 ที่ปิดอยู่ หรือไม่อยู่ใน `destination_pool` ของ node นี้)
+  สายยังไป legacy และถูก park ค้างแบบเดิม
 - รายชื่อสาย managed อยู่ในหน่วยความจำ หลัง restart ระหว่างสายรอคิว `DTMF`/`DETECTED_SPEECH` ของสายนั้นอาจถูกส่ง Kafka
   และ legacy router ปฏิเสธ (noise ใน retry/DLQ) ส่วน CREATE/PARK/HANGUP ยังถูกต้องเพราะ runtime หา call จากฐาน
 - เมื่อเปิด flag ทุก event ของสาย legacy ต้องผ่าน transaction ของ managed runtime (advisory lock ต่อ tenant) ก่อน และ container

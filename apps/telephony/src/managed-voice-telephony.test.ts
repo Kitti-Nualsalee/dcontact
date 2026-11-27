@@ -152,6 +152,67 @@ test('managed runtime fails: an unknown call continues on legacy, a managed call
   assert.match(String(mismatch.errors[0]), /MANAGED_VOICE_EVENT_TENANT_MISMATCH/);
 });
 
+test('a new call whose runtime fails twice is hung up when its destination is managed, otherwise it stays legacy', async () => {
+  const rejected: ManagedVoiceEvent[] = [];
+  const route = routing();
+  route.handle = async () => {
+    throw new Error('database unavailable');
+  };
+  route.rejectFailedCall = async (event) => {
+    rejected.push(event);
+    return event.destination === '2000';
+  };
+  // Managed destination: the caller is hung up and nothing goes to legacy
+  assert.equal(await routeManagedCall(parked('2000'), tenantA, route), 'ignored');
+  assert.equal(rejected.length, 1);
+  assert.equal(rejected[0].type, 'call.created');
+  assert.equal(rejected[0].callUuid, caller);
+  assert.equal(route.calls.size, 0);
+  // Later events of the rejected call are ignored: a PARK turned into CREATE must not reach the runtime or legacy again
+  route.rejected = new Set();
+  rejected.length = 0;
+  assert.equal(await routeManagedCall(parked('2000'), tenantA, route), 'ignored');
+  assert.deepEqual([...route.rejected], [caller]);
+  const handledBefore = route.handled.length;
+  assert.equal(await routeManagedCall(parked('2000'), tenantA, route), 'ignored');
+  assert.equal(rejected.length, 1);
+  assert.equal(route.handled.length, handledBefore);
+  assert.equal(
+    await routeManagedCall(
+      { 'Event-Name': 'CHANNEL_HANGUP_COMPLETE', 'Unique-ID': caller },
+      tenantA,
+      route,
+    ),
+    'ignored',
+  );
+  assert.equal(route.rejected.size, 0);
+  // Legacy destination: kept on legacy as before
+  assert.equal(await routeManagedCall(parked('2001'), tenantA, route), 'legacy');
+  // The check itself fails (e.g. the database is down for both): fall back to legacy and report the error
+  route.rejectFailedCall = async () => {
+    throw new Error('lookup failed');
+  };
+  const errors = route.errors.length;
+  assert.equal(await routeManagedCall(parked('2000'), tenantA, route), 'legacy');
+  assert.match(String(route.errors.at(-1)), /lookup failed/);
+  assert.equal(route.errors.length, errors + 3);
+  // Only new calls are checked: a later event of an unknown call still goes to legacy without a lookup
+  rejected.length = 0;
+  route.rejectFailedCall = async (event) => {
+    rejected.push(event);
+    return true;
+  };
+  assert.equal(
+    await routeManagedCall(
+      { 'Event-Name': 'CHANNEL_HANGUP_COMPLETE', 'Unique-ID': caller },
+      tenantA,
+      route,
+    ),
+    'legacy',
+  );
+  assert.equal(rejected.length, 0);
+});
+
 test('a B-leg with an offer goes to the managed runtime of the tenant on the channel, and a caller hangup after bridge closes the call', async () => {
   const route = routing();
   route.calls.add(caller);
