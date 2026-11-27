@@ -13,7 +13,7 @@ export function classifyPaths(paths) {
     if (
       /^docs\//.test(path) ||
       /\.md$/.test(path) ||
-      /^packages\/(ui|ui-react|i18n)\//.test(path) ||
+      /^packages\/(ui|ui-react|i18n|webchat-widget)\//.test(path) ||
       /^apps\/api\/src\/customer-(360|overview|activity).*\.(test|integration)\.ts$/.test(path) ||
       /^apps\/api\/scripts\/cus360-[^/]+\.(mjs|mts)$/.test(path)
     )

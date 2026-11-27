@@ -69,6 +69,8 @@ export interface WebchatAgentChat {
   interactionId: string;
   state: 'ASSIGNED' | 'ACTIVE' | 'WRAPUP';
   visitorLabel: string;
+  /** the site the visitor started the chat from, as the widget reported it */
+  origin: string;
   queueName: string | null;
   queuedAt: string;
   offerExpiresAt: string | null;
@@ -608,6 +610,7 @@ export class WebchatService {
           interactionId: interaction.id,
           state: interaction.state as WebchatAgentChat['state'],
           visitorLabel: session.visitorLabel,
+          origin: session.origin,
           queueName: interaction.queue?.name ?? null,
           queuedAt: interaction.queuedAt.toISOString(),
           offerExpiresAt: interaction.offerExpiresAt?.toISOString() ?? null,
