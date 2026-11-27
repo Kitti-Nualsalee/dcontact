@@ -22,7 +22,7 @@ type WorkTestBody = {
   canEdit: boolean;
 };
 /** HTTP/PG/RLS uses a synthetic verifier/introspection; the actual Keycloak is in a separate boundary */
-async function fixture(options: { voiceNoteWrapup?: boolean } = {}) {
+async function fixture(options: { voiceNoteWrapup?: boolean; channel?: 'WEBCHAT' } = {}) {
   let online = true;
   let shortProof = false;
   let service!: C360WorkAuthService;
@@ -68,7 +68,7 @@ async function fixture(options: { voiceNoteWrapup?: boolean } = {}) {
       id: interactionId,
       tenantId: f.tenantId,
       agentId: actor.id,
-      channel: 'VOICE',
+      channel: options.channel ?? 'VOICE',
       direction: 'INBOUND',
       state: 'ACTIVE',
       ...(queue ? { queueId: queue.id } : {}),
@@ -233,6 +233,24 @@ test('C5 HTTP/PG/RLS: explicit opaque candidate, link/replay, limited fields and
     ).status,
     409,
   );
+});
+
+test('#1044 a web chat is linked to a customer through the same work API as a call', async (t) => {
+  const f = await fixture({ channel: 'WEBCHAT' });
+  t.after(() => f.close());
+  assert.equal((await f.call('customer')).body.state, 'UNLINKED');
+  const result = await f.search();
+  assert.equal(result.status, 201);
+  const linked = await f.call('customer-link', {
+    commandId: randomUUID(),
+    expectedLinkageRevision: '0',
+    candidateRef: result.body.items[0].candidateRef,
+  });
+  assert.equal(linked.status, 200);
+  assert.equal(linked.body.command.outcome, 'APPLIED');
+  const current = await f.call('customer');
+  assert.equal(current.body.contact.id, f.contactId);
+  assert.equal(current.body.canEdit, true);
 });
 
 test('C5 a deadline that expires during the receipt INSERT must roll back link/history/audit/receipt as a whole', async (t) => {

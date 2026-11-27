@@ -29,7 +29,7 @@ import {
   Res,
 } from '@nestjs/common';
 import { GatewayPublic, type AuthenticatedGatewayRequest } from './gateway-auth.js';
-import { WebchatError } from './webchat-errors.js';
+import { WebchatError, webchatUuid } from './webchat-errors.js';
 import { WebchatRateLimiter } from './webchat-rate-limit.js';
 import type { WebchatService } from './webchat-service.js';
 
@@ -73,6 +73,16 @@ function clientAddress(request: AuthenticatedGatewayRequest): string {
   const forwarded = request.headers['x-forwarded-for'];
   const first = (Array.isArray(forwarded) ? forwarded[0] : forwarded)?.split(',')[0]?.trim();
   return first || request.socket.remoteAddress || 'unknown';
+}
+
+/** Rejects ids that are not UUIDs before anything (like a rate-limit key) is built from them. */
+function ids(
+  tenantId: string,
+  otherId: string,
+  otherCode: 'NOT_FOUND' | 'SESSION_INVALID' = 'NOT_FOUND',
+) {
+  webchatUuid(tenantId);
+  webchatUuid(otherId, otherCode);
 }
 
 function bearer(authorization: string | undefined): string {
@@ -281,8 +291,9 @@ export class WebchatPublicController {
     const origin = request.headers.origin;
     const headers: Record<string, string> = { 'cache-control': 'no-store', vary: 'Origin' };
     const deny = (status: number) => {
-      // overwrite the API-wide CORS header so no other origin can read the answer
-      response.writeHead(status, { ...headers, 'access-control-allow-origin': 'null' });
+      // drop the API-wide CORS header so no other origin (not even an opaque `null` one) can read the answer
+      response.removeHeader('access-control-allow-origin');
+      response.writeHead(status, headers);
       response.end();
     };
     if (this.limiter.consume(`embed:${clientAddress(request)}`, 120, 60_000)) return deny(429);
@@ -309,6 +320,7 @@ export class WebchatPublicController {
     @Param('widgetId') widgetId: string,
   ) {
     return webchatMapped(response, async () => {
+      ids(tenantId, widgetId);
       this.limit(`bootstrap:${clientAddress(request)}`, 120);
       return this.webchat.bootstrap(tenantId, widgetId);
     });
@@ -325,8 +337,11 @@ export class WebchatPublicController {
     @Body() body: Record<string, unknown> | undefined,
   ) {
     return webchatMapped(response, async () => {
+      ids(tenantId, widgetId);
       this.limit(`session:${clientAddress(request)}`, 20);
-      this.limit(`session-widget:${tenantId}:${widgetId}`, 120);
+      // A ceiling for the whole widget too, set well above real traffic: it bounds a flood from many
+      // addresses without letting a handful of them lock real visitors out.
+      this.limit(`session-widget:${tenantId}:${widgetId}`, 600);
       const origin = typeof body?.origin === 'string' ? body.origin : 'unknown';
       return this.webchat.startSession(tenantId, widgetId, { origin, locale: body?.locale });
     });
@@ -344,6 +359,7 @@ export class WebchatPublicController {
     @Query('known') known: unknown,
   ) {
     return webchatMapped(response, async () => {
+      ids(tenantId, sessionId, 'SESSION_INVALID');
       this.limit(`state:${tenantId}:${sessionId}`, 120);
       const abort = new AbortController();
       request.once('close', () => abort.abort());
@@ -368,6 +384,7 @@ export class WebchatPublicController {
     @Body() body: unknown,
   ) {
     return webchatMapped(response, async () => {
+      ids(tenantId, sessionId, 'SESSION_INVALID');
       this.limit(`send:${tenantId}:${sessionId}`, 30);
       this.limit(`send-address:${clientAddress(request)}`, 120);
       return this.webchat.visitorSend(tenantId, sessionId, bearer(authorization), body);
@@ -385,6 +402,7 @@ export class WebchatPublicController {
     @Headers('authorization') authorization: string | undefined,
   ) {
     return webchatMapped(response, async () => {
+      ids(tenantId, sessionId, 'SESSION_INVALID');
       this.limit(`end:${clientAddress(request)}`, 60);
       return this.webchat.visitorEnd(tenantId, sessionId, bearer(authorization));
     });

@@ -54,6 +54,8 @@ export interface TalkSummary {
   measuredCount: number;
 }
 export interface TeamHistorySummary {
+  /** #1044 the channels of this deployment; channel filters and wording appear only when there are two */
+  channels?: string[];
   teamId: string | null;
   period: { key: SummaryPeriod; from: string | null; to: string | null; timeZone: string };
   completed: number;

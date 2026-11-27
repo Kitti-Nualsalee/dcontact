@@ -365,6 +365,13 @@ function AgentWorkspace({
   const chatInView = Boolean(chatRoom || chatClosed);
   const chatRooms = chatState?.rooms.length ?? 0;
   const chatOffers = chatState?.offers.length ?? 0;
+  // a system state (offered, busy, wrapping up) reads as chat work when it comes from chats, not a call
+  const agentStateLabel = (state: NonNullable<AgentWorkspaceSnapshot['agent']>['state']) =>
+    chatRooms + chatOffers > 0 &&
+    !snapshot?.interaction &&
+    (state === 'RESERVED' || state === 'BUSY' || state === 'ACW')
+      ? t(`chat.agentState.${state}`)
+      : t(`agentState.${state}`);
   const [chatTab, setChatTab] = useState<WebchatRoomTab>('conversation');
   const [chatFocus, setChatFocus] = useState(0);
   const [chatWrapupFocus, setChatWrapupFocus] = useState(0);
@@ -1991,17 +1998,6 @@ function AgentWorkspace({
           </Tab>
         </TabList>
         <TabPanel id="open" className="aw-v3-list-panel">
-          {webchat && chatState ? (
-            <WebchatOffers
-              store={webchat.store}
-              state={chatState}
-              now={now}
-              onAccepted={() => {
-                setChatTab('conversation');
-                setChatFocus((value) => value + 1);
-              }}
-            />
-          ) : null}
           {chatState && chatRooms >= chatState.maxChats ? (
             <p className="aw-copy aw-chat-full">
               {t('chat.offer.full', { max: chatState.maxChats })}
@@ -2019,6 +2015,19 @@ function AgentWorkspace({
                 }}
               />
             </ul>
+          ) : null}
+          {/* below the rooms, so an arriving offer never moves a row the Agent may be about to press
+              (docs/ui-principles.md item 4) */}
+          {webchat && chatState ? (
+            <WebchatOffers
+              store={webchat.store}
+              state={chatState}
+              now={now}
+              onAccepted={() => {
+                setChatTab('conversation');
+                setChatFocus((value) => value + 1);
+              }}
+            />
           ) : null}
           {current ? (
             <ul className="aw-v3-items">
@@ -2503,7 +2512,7 @@ function AgentWorkspace({
                 </div>
                 <div>
                   <dt>{t('agentStatus.selectorLabel')}</dt>
-                  <dd>{t(`agentState.${snapshot?.agent.state ?? 'OFFLINE'}`)}</dd>
+                  <dd>{agentStateLabel(snapshot?.agent.state ?? 'OFFLINE')}</dd>
                 </div>
               </dl>
             ) : (
@@ -2636,12 +2645,10 @@ function AgentWorkspace({
                 <StatusSelector
                   state={snapshot.agent.state}
                   systemLabel={
-                    chatRooms + chatOffers > 0 &&
-                    !snapshot.interaction &&
-                    (snapshot.agent.state === 'RESERVED' ||
-                      snapshot.agent.state === 'BUSY' ||
-                      snapshot.agent.state === 'ACW')
-                      ? t(`chat.agentState.${snapshot.agent.state}`)
+                    snapshot.agent.state === 'RESERVED' ||
+                    snapshot.agent.state === 'BUSY' ||
+                    snapshot.agent.state === 'ACW'
+                      ? agentStateLabel(snapshot.agent.state)
                       : undefined
                   }
                   reasonCode={snapshot.agent.reasonCode}

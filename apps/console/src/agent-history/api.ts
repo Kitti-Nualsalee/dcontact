@@ -32,6 +32,8 @@ export interface HistorySummary {
   completed: number;
   talk: { averageSeconds: number | null; measuredCount: number };
   byDisposition: { disposition: string | null; count: number }[];
+  /** #1044 the channels of this deployment; channel filters and wording appear only when there are two */
+  channels?: string[];
 }
 export class HistoryApiError extends Error {
   constructor(readonly status: number) {

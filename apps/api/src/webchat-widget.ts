@@ -58,6 +58,13 @@ export function normalizeWebchatOrigin(value: unknown): string {
     throw invalid('allowedOrigins');
   }
   const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+  // The origin goes into `Content-Security-Policy: frame-ancestors`, so it must be one exact host:
+  // no wildcard and nothing a CSP parser would read as another source or directive.
+  if (
+    !loopback &&
+    !/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(url.hostname)
+  )
+    throw invalid('allowedOrigins');
   if (
     (url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback)) ||
     url.username ||

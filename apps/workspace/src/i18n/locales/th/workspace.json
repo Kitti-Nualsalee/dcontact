@@ -589,7 +589,8 @@
       "customerEnded": "ลูกค้าจบแชท",
       "customerLeft": "ลูกค้าออกจากแชท",
       "idleClosed": "ระบบปิดแชทเพราะลูกค้าไม่ตอบเกิน {{minutes}} นาที",
-      "idleClosedShort": "ระบบปิดแชทเพราะลูกค้าไม่ตอบ"
+      "idleClosedShort": "ระบบปิดแชทเพราะลูกค้าไม่ตอบ",
+      "startedPreview": "ผู้เยี่ยมชมเริ่มแชทจากหน้าทดลอง"
     },
     "idleWarning": "แชทจะปิดเองในอีก {{remaining}} ถ้ายังไม่มีข้อความจากลูกค้า",
     "composer": {

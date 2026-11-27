@@ -13,7 +13,7 @@
     "body": "This page is for tenant admins and supervisors. Contact your organization's admin to change settings"
   },
   "locked": {
-    "title": "Web Chat isn't included in this plan",
+    "title": "Web Chat is not turned on for this system",
     "body": "Contact your platform administrator to enable it"
   },
   "loading": "Loading Web Chat settings",
@@ -29,7 +29,7 @@
     "capacity": "Concurrent chats per agent",
     "capacityHint": "1–10, applies to every agent in the tenant",
     "idle": "Close when the customer is silent (minutes)",
-    "idleHint": "1–60, counted from the customer's last message"
+    "idleHint": "1–60 minutes, counted from the Agent's latest message the customer has not answered"
   },
   "origins": {
     "title": "Allowed domains",

@@ -350,6 +350,7 @@ async function chatHarness(page: import('@playwright/test').Page) {
           ...emptySummary,
           completed: 2,
           byDisposition: [{ disposition: 'CUSTOMER_ASSISTED', count: 2 }],
+          channels: ['VOICE', 'WEBCHAT'],
         },
       });
     if (url.pathname.endsWith('/transcript'))
@@ -374,7 +375,7 @@ test('#1044 channel column and filter: the choice is sent to the API and kept in
 }) => {
   const { lists } = await chatHarness(page);
   await page.goto('/?view=agent-history&tenant=demo');
-  const table = page.getByRole('grid', { name: th('history:list') });
+  const table = page.getByRole('grid', { name: th('history:listChannels') });
   await expect(table.getByRole('columnheader', { name: th('history:channel') })).toBeVisible();
   await expect(table.getByText(th('history:channels.webchat'), { exact: true })).toBeVisible();
   await expect(table.getByText(th('history:channels.voice'), { exact: true })).toBeVisible();
@@ -391,10 +392,11 @@ test('#1044 channel column and filter: the choice is sent to the API and kept in
   expect(new URL(page.url()).searchParams.get('channel')).toBe('WEBCHAT');
   await expect(
     page.getByRole('heading', {
-      name: th('history:summary.listTitleNoCount', {
+      name: th('history:summary.listTitleChannels', {
         period: th('history:summary.period.7d'),
         channel: th('history:channels.webchat'),
         disposition: th('history:summary.allDispositions'),
+        count: 2,
       }),
     }),
   ).toBeVisible();
@@ -441,4 +443,27 @@ test('#1044 a chat opens as a read-only conversation; when it fails the outcome 
   await expect(page.getByRole('log', { name: th('history:chat.transcript') })).toContainText(
     'My order has not arrived',
   );
+});
+
+test('#1044 with web chat off my history looks as before: no channel filter, column or wording', async ({
+  page,
+}) => {
+  await page.route('**/api/v1/me/navigation**', (route) => route.fulfill({ status: 404 }));
+  await page.route('**/api/v1/workspace/agent/history**', (route) =>
+    isSummary(route.request().url())
+      ? route.fulfill({
+          json: {
+            ...emptySummary,
+            completed: 1,
+            byDisposition: [{ disposition: 'CUSTOMER_ASSISTED', count: 1 }],
+            channels: ['VOICE'],
+          },
+        })
+      : route.fulfill({ json: { items: [callItem], nextCursor: null } }),
+  );
+  await page.goto('/?view=agent-history&tenant=demo');
+  await expect(page.getByText(th('history:readOnly'), { exact: true })).toBeVisible();
+  await expect(page.getByRole('grid')).toBeVisible();
+  await expect(page.getByRole('group', { name: th('history:channelFilter') })).toHaveCount(0);
+  await expect(page.getByRole('columnheader', { name: th('history:channel') })).toHaveCount(0);
 });

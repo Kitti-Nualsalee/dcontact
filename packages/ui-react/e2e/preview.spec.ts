@@ -326,3 +326,22 @@ test('forced-colors: a pressed Button (aria-pressed) uses a Highlight background
   });
   expect(focused).toEqual({ outline: 'solid', offset: '2px', shadow: 'none' });
 });
+
+test('#1044 ChatTranscript: the log is reachable by keyboard with the inset focus ring, and names every sender', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const log = page.getByRole('log', { name: pth('chat.label') });
+  await expect(log).toBeVisible();
+  await log.focus();
+  await expect(log).toBeFocused();
+  expect(await focusRingOf(page)).toMatch(FOCUS_RING_INSET);
+  // side and colour are never the only cue: each line written by a person says who wrote it
+  await expect(log).toContainText(pth('chat.visitor'));
+  await expect(log).toContainText(pth('chat.you'));
+  // a message that was not sent says so in words and offers its action
+  await expect(log).toContainText(pth('chat.failed'));
+  await expect(log.getByRole('button', { name: pth('chat.retry') })).toBeVisible();
+  // a finished conversation is not announced; the preview shows a static one
+  await expect(log).toHaveAttribute('aria-live', 'off');
+});

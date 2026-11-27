@@ -8,7 +8,7 @@
 ## เปิดใช้
 
 1. ตั้ง `WEBCHAT=on` ที่ API ค่าเริ่มต้นปิด: route ของ widget, ของ Agent และของการตั้งค่าไม่มี (404), เมนูไม่แสดง และไม่มีรอบเบื้องหลัง ค่าที่ไม่ใช่ `on`/`off` ทำให้ API ไม่ start
-2. apply migration `20261127100000_webchat_round_one` และ `pnpm db:rls`
+2. apply migration `20261127170000_webchat_round_one` และ `pnpm db:rls`
 3. Admin ของ tenant ตั้งค่าที่ Console **การเชื่อมต่อ → ช่องทางลูกค้า → Web Chat**: เลือกคิว ใส่โดเมนที่อนุญาต แล้วเปิดใช้งาน
 4. วางโค้ดฝังในเว็บของ tenant หรือกด "เปิดหน้าทดลอง" เพื่อลองโดยไม่ต้องมีเว็บ
 
@@ -52,6 +52,11 @@ flag ปิดแล้ว tenant เดิมไม่เห็นอะไร�
 - Agent เปลี่ยนเป็น Not Ready เองไม่ได้ระหว่างมีแชท ให้ตั้ง "สถานะหลังจบงาน": ระบบหยุดส่งแชทใหม่ และเปลี่ยนสถานะให้เมื่อบันทึกผลห้องสุดท้าย
 - คิวที่ผูกทีม Agent ต้องอยู่ทีมนั้นและมีทักษะครบตามคิว เหมือน Voice
 
+## ทำไม widget ไม่ใช้ `@d-contact/ui-react`
+
+widget ฝังบนเว็บของ tenant ทุกหน้า จึงต้องเล็กและไม่ชนกับ CSS หรือ JavaScript ของเว็บนั้น: ตัวโหลด (`widget.js`) วาดแค่ปุ่มลอยด้วย inline style และหน้าต่างแชทอยู่ใน iframe จาก origin ของ D-Contact ทั้งสองส่วนเขียนด้วย DOM ล้วน ไม่มี React เพื่อให้ไฟล์เล็ก (ราว 12 KB และ 23 KB) และไม่ต้องโหลด font หรือ library จากภายนอก
+ภาษาภาพยังมาจากที่เดียวกับแอป: `frame.css` ใช้ `var(--dc-*)` ของ `@d-contact/ui` ที่ถูกต่อเข้าไฟล์ตอน build และตัวโหลดอ่านค่า token จาก `tokens.generated.ts` ส่วนบทสนทนาใน Workspace และ Console ใช้ `ChatTranscript` ของ `ui-react`
+
 ## ความปลอดภัยของ widget
 
 - ผู้เยี่ยมชมไม่ระบุตัว ระบุ tenant และ widget ใน URL และพิสูจน์ session ด้วย secret ที่ server เก็บเฉพาะ SHA-256
@@ -75,6 +80,10 @@ flag ปิดแล้ว tenant เดิมไม่เห็นอะไร�
 
 ## ข้อจำกัดของรอบแรก
 
+- **ปิด flag ระหว่างมีแชทค้าง**: Agent ที่ยังถือห้องจะติดสถานะของแชท (กำลังแชท/สรุปผลหลังแชท) เปลี่ยนเองไม่ได้และไม่ได้รับสาย เพราะหน้าจอแชทหายไป ก่อนตั้ง `WEBCHAT=off` ให้ Agent ปิดและบันทึกผลแชทที่ค้างให้หมด (ดูได้จาก `SELECT count(*) FROM interactions WHERE channel = 'WEBCHAT' AND state IN ('QUEUED','ASSIGNED','ACTIVE','WRAPUP')`)
+- **เพดานการเปิดแชท**: ต่อ address 20 ครั้งต่อนาที และต่อ widget 600 ครั้งต่อนาที แชทที่รอได้ 200 ห้องต่อคิว ผู้ที่ตั้งใจส่งจากหลาย address ยังเติมคิวจนลูกค้าจริงเปิดแชทใหม่ไม่ได้ชั่วคราวได้ ตัวนับอยู่ในหน่วยความจำของ API แต่ละตัว
+- ลูกค้าที่ปิดหน้าเว็บไปนานเกินเวลาเงียบ ห้องที่กำลังคุยจะถูกปิดเป็น "ลูกค้าออกจากแชท" แม้ลูกค้าพูดล่าสุด เพื่อไม่ให้ห้องค้างกินเพดานของ Agent
+
 - ตัวแจ้งเตือนแบบ realtime อยู่ในหน่วยความจำของ API ตัวเดียว ถ้ารัน API หลายตัว การอัปเดตจะมาจากการอ่านซ้ำตามรอบ (Workspace 4 วินาที, widget 25 วินาที) แทน
 - Agent ต้องเป็น Ready ซึ่งยังต้องมีโทรศัพท์ (SIP) พร้อม เหมือนการรับสาย
 - Agent ที่ปิดหน้า Workspace ระหว่างมีแชท: แชทยังอยู่กับ Agent คนนั้นจนกลับมาปิดเอง ลูกค้ากดจบแชทเองได้
@@ -93,3 +102,18 @@ pnpm --filter @d-contact/workspace exec playwright test e2e/webchat.spec.ts --pr
 ```
 
 สองคำสั่งแรกต้องใช้ PostgreSQL แยกที่ migrate และ `db:rls` แล้ว ตั้ง `DATABASE_URL` และ `APPLICATION_DATABASE_URL` (role `dcontact_app` ไม่ bypass RLS) ชุด browser จำลอง API ด้วย route จึงยืนยันเฉพาะหน้าจอ
+
+## ทดลองทั้งเส้นบน dev
+
+ใช้ stack ของ `scripts/sales-demo-stack.mjs` (API 3000, Workspace 5173, Console 5174) กับฐานแยก และเปิด `WEBCHAT=on`
+
+```sh
+pnpm infra:up
+SALES_DEMO_DATABASE=dcontact_webchat_demo WEBCHAT=on node scripts/sales-demo-stack.mjs
+pnpm --filter @d-contact/workspace exec playwright test --config playwright.webchat-trial.config.ts
+```
+
+- ถ้าพอร์ต 5433 ของเครื่องถูกใช้อยู่ ให้เปิด PostgreSQL ของ dev ที่พอร์ตอื่นแล้วส่ง `DCONTACT_DEV_POSTGRES_PORT=<พอร์ต>` ให้สคริปต์
+- ชุดทดลอง (`apps/workspace/e2e-real/webchat-trial.spec.ts`) เดิน: Admin เปิด widget ใน Console → ผู้เยี่ยมชมพิมพ์จากหน้าทดลอง → Agent รับใน Workspace → คุยสองทางโดยไม่รีเฟรช → รีเฟรชหน้าผู้เยี่ยมชมแล้วกลับห้องเดิม → ผู้เยี่ยมชมคนที่สองเป็นห้องที่สอง → ลูกค้าจบห้องหนึ่ง Agent จบอีกห้อง → บันทึกผลทั้งสอง → Admin อ่านบทสนทนาในประวัติงานของทีม
+- เป็นเครื่องมือทดลอง ไม่ใช่หลักฐานของ identity: tenant ถูก seed โดยสคริปต์ และโทรศัพท์ของ Agent ใช้ fake media
+

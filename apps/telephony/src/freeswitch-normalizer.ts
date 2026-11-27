@@ -22,6 +22,7 @@ export interface FreeSwitchEvent {
   variable_dcontact_agent_id?: unknown;
   variable_dcontact_bleg_uuid?: unknown;
   'Hangup-Cause'?: unknown;
+  variable_sip_hangup_disposition?: unknown;
 }
 
 export interface FreeSwitchNormalizationDependencies {

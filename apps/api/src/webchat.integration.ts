@@ -447,9 +447,12 @@ test('the background round passes an ignored offer on, drops a visitor who left 
   assert.equal((await f.service.agentChats(next)).chats[0]?.interactionId, id);
   await f.service.agentAccept(next, id);
 
-  // the customer is still waiting for a reply: silence does not close the chat
-  f.advance(10 * 60_000);
-  assert.equal(await f.service.tick(f.tenantId), true);
+  // the customer is still waiting for a reply with the page open: silence does not close the chat
+  for (let minute = 0; minute < 10; minute++) {
+    f.advance(60_000);
+    await visitor.state();
+    assert.equal(await f.service.tick(f.tenantId), true);
+  }
   assert.equal((await visitor.state()).status, 'ACTIVE');
   // the Agent answered and the customer stays silent past the timeout
   await f.service.agentSend(next, id, { commandId: randomUUID(), text: 'Are you there?' });
@@ -516,4 +519,145 @@ test('an Agent holds chats up to the limit and finishes them before leaving afte
     assert.equal(await latest(), index === 0 ? 'BUSY' : 'BREAK');
   }
   assert.equal((await visitors[2]!.state()).status, 'WAITING');
+});
+
+test('a message written while the chat is accepted or ended does not deadlock either side', async () => {
+  const f = await fixture();
+  const [agent] = f.agents;
+  for (let round = 0; round < 5; round++) {
+    const visitor = await f.visitor();
+    await visitor.send(`first ${round}`);
+    await f.service.tick(f.tenantId);
+    const { chats } = await f.service.agentChats(agent!);
+    const id = chats.find((chat) => chat.state === 'ASSIGNED')!.interactionId;
+    // the customer keeps typing while the Agent takes the chat, then while it is ended
+    const accepting = await Promise.allSettled([
+      f.service.agentAccept(agent!, id),
+      visitor.send(`while accepting ${round}`),
+      visitor.send(`and again ${round}`),
+    ]);
+    assert.deepEqual(
+      accepting.map((outcome) => outcome.status),
+      ['fulfilled', 'fulfilled', 'fulfilled'],
+    );
+    const ending = await Promise.allSettled([
+      f.service.agentEnd(agent!, id),
+      visitor.send(`while ending ${round}`),
+      f.service.agentSend(agent!, id, { commandId: randomUUID(), text: 'bye' }),
+    ]);
+    // ending always succeeds; a message that arrives after the end is refused cleanly, never a deadlock
+    assert.equal(ending[0].status, 'fulfilled');
+    for (const outcome of ending.slice(1))
+      if (outcome.status === 'rejected')
+        assert.ok(
+          outcome.reason instanceof WebchatError &&
+            ['CHAT_ENDED', 'CHAT_NOT_ACTIVE'].includes(outcome.reason.code),
+          String(outcome.reason),
+        );
+    await saveAgentWrapup(application, agent!, id, {
+      disposition: 'CUSTOMER_ASSISTED',
+      note: 'done',
+      commandId: randomUUID(),
+    });
+  }
+});
+
+test('a retried message that was stored succeeds even after the chat ended', async () => {
+  const f = await fixture();
+  const [agent] = f.agents;
+  const visitor = await f.visitor();
+  const clientMessageId = randomUUID();
+  const first = await visitor.send('hello', clientMessageId);
+  await f.service.tick(f.tenantId);
+  const id = (await f.service.agentChats(agent!)).chats[0]!.interactionId;
+  await f.service.agentAccept(agent!, id);
+  const commandId = randomUUID();
+  const reply = await f.service.agentSend(agent!, id, { commandId, text: 'hi' });
+  await f.service.agentEnd(agent!, id);
+  // both answers were lost and both sides send the same message again
+  assert.equal((await visitor.send('hello', clientMessageId)).message.id, first.message.id);
+  assert.equal(
+    (await f.service.agentSend(agent!, id, { commandId, text: 'hi' })).message.id,
+    reply.message.id,
+  );
+  await assert.rejects(
+    f.service.agentSend(agent!, id, { commandId: randomUUID(), text: 'new' }),
+    code('CHAT_NOT_ACTIVE'),
+  );
+});
+
+test('a chat whose customer left the page for the whole silence timeout is closed, even if they spoke last', async () => {
+  const f = await fixture({ idleTimeoutSec: 120 });
+  const [agent] = f.agents;
+  const visitor = await f.visitor();
+  await visitor.send('hello');
+  await f.service.tick(f.tenantId);
+  const id = (await f.service.agentChats(agent!)).chats[0]!.interactionId;
+  await f.service.agentAccept(agent!, id);
+  await f.service.agentSend(agent!, id, { commandId: randomUUID(), text: 'how can I help?' });
+  f.advance(1000);
+  await visitor.send('one more thing');
+  // the customer spoke last, so the silence rule does not apply; then the page is closed for good
+  f.advance(119_000);
+  await f.service.tick(f.tenantId);
+  assert.equal((await f.service.agentChats(agent!)).chats[0]?.state, 'ACTIVE');
+  f.advance(3_000);
+  await f.service.tick(f.tenantId);
+  const room = (await f.service.agentChats(agent!)).chats[0]!;
+  assert.equal(room.state, 'WRAPUP');
+  assert.equal(room.endReason, 'CUSTOMER_LEFT');
+});
+
+test('origins that are not one exact host are refused, and a tenant not in service has no public widget', async () => {
+  const f = await fixture();
+  const current = await readWebchatWidget(application, f.admin);
+  const base = {
+    expectedRevision: current.widget.revision,
+    enabled: true,
+    queueId: current.widget.queueId,
+    greetingTh: '',
+    greetingEn: '',
+    maxChatsPerAgent: 3,
+    idleTimeoutSec: 600,
+  };
+  for (const origin of ['https://*.com', 'https://a.com;sandbox', 'https://a.com,b', 'https://com'])
+    await assert.rejects(
+      saveWebchatWidget(application, f.admin, { ...base, allowedOrigins: [origin] }, 'test'),
+      code('VALIDATION_FAILED'),
+      origin,
+    );
+  await saveWebchatWidget(
+    application,
+    f.admin,
+    { ...base, allowedOrigins: ['https://shop.example.co.th', 'http://localhost:8080'] },
+    'test',
+  );
+  // a tenant still being provisioned, with a widget switched on all the same
+  const provisioning = randomUUID();
+  const queue = randomUUID();
+  const widget = randomUUID();
+  await owner.tenant.create({
+    data: {
+      id: provisioning,
+      name: 'Not yet',
+      // a tenant being provisioned carries placeholder names until it is ready
+      slug: `~pv-${provisioning}`,
+      sipDomain: `~pv-${provisioning}`,
+      lifecycleStatus: 'PROVISIONING',
+    },
+  });
+  await owner.queue.create({
+    data: { id: queue, tenantId: provisioning, name: 'Chat', channels: ['WEBCHAT'] },
+  });
+  await owner.webchatWidget.create({
+    data: {
+      tenantId: provisioning,
+      id: widget,
+      enabled: true,
+      queueId: queue,
+      allowedOrigins: ['https://shop.example.co.th'],
+    },
+  });
+  assert.equal(await f.service.embedPolicy(provisioning, widget), null);
+  await assert.rejects(f.service.bootstrap(provisioning, widget), code('WEBCHAT_DISABLED'));
 });

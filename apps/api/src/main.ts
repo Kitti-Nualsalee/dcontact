@@ -144,7 +144,11 @@ import {
   RecordingPlaybackController,
 } from './recording-playback-api.js';
 import { resolveRecordingSupervisorPlayback } from './recording-playback-config.js';
-import { TEAM_HISTORY_DATABASE, TeamHistoryController } from './team-history.js';
+import {
+  TEAM_HISTORY_DATABASE,
+  TEAM_HISTORY_WEBCHAT,
+  TeamHistoryController,
+} from './team-history.js';
 import {
   TEAM_SEGMENT_SCOPE_DATABASE,
   TeamSegmentScopeController,
@@ -626,6 +630,7 @@ class WorkspaceSessionController {
     { provide: AGENT_WORKSPACE_DATABASE, useValue: prisma },
     { provide: AGENT_CASES_DATABASE, useValue: prisma },
     { provide: AGENT_WORKSPACE_WEBCHAT, useValue: webchatEnabled },
+    { provide: TEAM_HISTORY_WEBCHAT, useValue: webchatEnabled },
     { provide: WEBCHAT_SERVICE, useValue: webchat },
     { provide: WEBCHAT_DATABASE, useValue: prisma },
     { provide: WEBCHAT_WIDGET_DIR, useFactory: defaultWebchatWidgetDir },

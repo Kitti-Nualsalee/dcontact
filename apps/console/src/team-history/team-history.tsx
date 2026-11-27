@@ -91,6 +91,9 @@ function TeamHistorySession({ api, onSignIn }: Props) {
   const { t } = useTranslation('teamHistory');
   const { t: chatText } = useTranslation('history');
   const channelName = useChannelLabel();
+  // #1044 with web chat off the page looks exactly as before: no channel filter, column or wording
+  const [channelsOn, setChannelsOn] = useState(false);
+  const ck = <K extends string>(key: K) => (channelsOn ? (`${key}Channels` as K) : key);
   const { locale } = useLocale();
   const ready = useShellTokens();
   const initial = new URL(window.location.href).searchParams;
@@ -162,7 +165,10 @@ function TeamHistorySession({ api, onSignIn }: Props) {
     void api
       .summary(period, teamId, channel)
       .then((result) => {
-        if (active) setSummaryState({ phase: 'ready', summary: result });
+        if (active) {
+          setSummaryState({ phase: 'ready', summary: result });
+          if (result.channels?.includes('WEBCHAT')) setChannelsOn(true);
+        }
       })
       .catch((failure: unknown) => {
         if (active) setSummaryState({ phase: 'error', status: statusOf(failure) });
@@ -326,8 +332,8 @@ function TeamHistorySession({ api, onSignIn }: Props) {
   return (
     <main className="ah-root">
       <h1>{t('title')}</h1>
-      <p>{teams.allTeams ? t('readOnlyAdmin') : t('readOnlySupervisor')}</p>
-      <p className="th-note">{t('evidenceNote')}</p>
+      <p>{teams.allTeams ? t(ck('readOnlyAdmin')) : t(ck('readOnlySupervisor'))}</p>
+      <p className="th-note">{t(ck('evidenceNote'))}</p>
       {selected ? (
         <Button onPress={() => open()}>{t('back')}</Button>
       ) : (
@@ -367,10 +373,12 @@ function TeamHistorySession({ api, onSignIn }: Props) {
                   </button>
                 ))}
               </div>
-              <ChannelFilter
-                value={channel}
-                onChange={(next) => applyFilter(period, disposition, { channel: next })}
-              />
+              {channelsOn ? (
+                <ChannelFilter
+                  value={channel}
+                  onChange={(next) => applyFilter(period, disposition, { channel: next })}
+                />
+              ) : null}
               <Button
                 isDisabled={loading || summaryState.phase === 'loading'}
                 onPress={() => {
@@ -504,7 +512,7 @@ function TeamHistorySession({ api, onSignIn }: Props) {
       {!selected && shownSummary && !failure ? (
         <h2 className="ah-list-title">
           {/* both Agent and disposition selected: the summary has no count for this pair, so no count is shown rather than guessing from the loaded page */}
-          {t(filterCount === undefined ? 'summary.listTitleNoCount' : 'summary.listTitle', {
+          {t(ck(filterCount === undefined ? 'summary.listTitleNoCount' : 'summary.listTitle'), {
             period: periodLabel(period),
             channel: channelName(channel),
             agent: selectedAgent ? agentName(selectedAgent.agent) : t('allAgents'),
@@ -519,13 +527,13 @@ function TeamHistorySession({ api, onSignIn }: Props) {
           <p>
             {disposition !== undefined || agentId !== undefined
               ? t('summary.emptyFiltered')
-              : channel
+              : channel && channelsOn
                 ? chatText('summary.emptyChannel', { channel: channelName(channel) })
                 : period === 'all'
-                  ? t('empty')
-                  : t('summary.emptyPeriod')}
+                  ? t(ck('empty'))
+                  : t(ck('summary.emptyPeriod'))}
           </p>
-          {channel ? (
+          {channel && channelsOn ? (
             <Button onPress={() => applyFilter(period, disposition, { channel: undefined })}>
               {chatText('summary.showAllChannels')}
             </Button>
@@ -538,7 +546,7 @@ function TeamHistorySession({ api, onSignIn }: Props) {
             <TableHeader>
               <Column isRowHeader>{t('agent')}</Column>
               {teams?.allTeams && !teamId ? <Column>{t('team')}</Column> : null}
-              <Column>{chatText('channel')}</Column>
+              {channelsOn ? <Column>{chatText('channel')}</Column> : null}
               <Column>{t('started')}</Column>
               <Column>{t('talk')}</Column>
               <Column>{t('disposition')}</Column>
@@ -552,9 +560,11 @@ function TeamHistorySession({ api, onSignIn }: Props) {
                   {teams?.allTeams && !teamId ? (
                     <Cell>{item.team.name ?? t('unavailable')}</Cell>
                   ) : null}
-                  <Cell>
-                    <ChannelBadge channel={channelOf(item)} />
-                  </Cell>
+                  {channelsOn ? (
+                    <Cell>
+                      <ChannelBadge channel={channelOf(item)} />
+                    </Cell>
+                  ) : null}
                   <Cell>{format(item.startedAt)}</Cell>
                   <Cell>
                     {item.talkSeconds === null ? t('unavailable') : formatTalk(item.talkSeconds)}
