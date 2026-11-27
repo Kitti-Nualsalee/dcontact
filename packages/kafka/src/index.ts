@@ -106,6 +106,13 @@ export interface ConsumedEvent<TPayload extends Record<string, unknown> = Record
     tenantId: string;
     eventId: string;
   }>;
+  /**
+   * additive: tells the group coordinator this member is still alive while a slow handler runs.
+   * KafkaJS only heartbeats between messages, so a handler longer than the session timeout is
+   * evicted and its partition rebalanced unless it calls this. Throttled by KafkaJS to the
+   * heartbeat interval; throws while a rebalance is in progress.
+   */
+  heartbeat?: () => Promise<void>;
 }
 
 export interface InvalidKafkaMessage {
@@ -195,6 +202,10 @@ export interface CreateConsumerOptions<
   handler: (message: ConsumedEvent<TPayload>, context: TContext) => Promise<void> | void;
   onInvalidMessage?: (message: InvalidKafkaMessage) => Promise<void> | void;
   onDuplicate?: (message: ConsumedEvent<TPayload>) => Promise<void> | void;
+  /** KafkaJS session timeout (default 30 s): how long the coordinator waits for a heartbeat */
+  sessionTimeoutMs?: number;
+  /** KafkaJS rebalance timeout (default 60 s): how long a rebalance waits for this member to rejoin */
+  rebalanceTimeoutMs?: number;
 }
 
 export interface DcConsumer {
@@ -240,6 +251,8 @@ export async function createConsumer<
   const kafka = createKafka(options.clientId, options);
   const consumer: Consumer = kafka.consumer({
     groupId: options.groupId,
+    ...(options.sessionTimeoutMs ? { sessionTimeout: options.sessionTimeoutMs } : {}),
+    ...(options.rebalanceTimeoutMs ? { rebalanceTimeout: options.rebalanceTimeoutMs } : {}),
   });
   await consumer.connect();
 
@@ -277,7 +290,7 @@ export async function createConsumer<
   });
 
   await consumer.run({
-    eachMessage: async ({ topic, partition, message }) => {
+    eachMessage: async ({ topic, partition, message, heartbeat }) => {
       let event: KafkaEventEnvelope<TPayload>;
       try {
         if (!message.value) {
@@ -328,6 +341,7 @@ export async function createConsumer<
         timestamp: message.timestamp,
         partition,
         offset: message.offset,
+        heartbeat,
         idempotencyKey: {
           consumerGroup: options.groupId,
           tenantId: event.tenantId,

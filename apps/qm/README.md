@@ -43,6 +43,8 @@ QM เรียก ASR ตาม [D-Contact ASR Provider Protocol v1](../../docs
 
 - `QM_MEDIA_ENDPOINT` และ `QM_TRANSCRIPTION_ENDPOINT` เป็น `https:` เท่านั้น ค่า credential/API key ต้องมาจาก environment-specific secret boundary
 - `QM_TRANSCRIPTION_TIMEOUT_MS` เวลารอ provider ต่อคำขอ ค่าเริ่มต้น 300000 (5 นาที)
+- `QM_SCORING_TIMEOUT_MS` เวลารอ scorer ต่อคำขอ ค่าเริ่มต้น 120000 (2 นาที)
+- ระหว่างรอ provider worker ส่ง heartbeat ของ Kafka ทุก 5 วินาที และ rebalance timeout ของ consumer job เท่ากับเวลารอ provider รวมกันบวก 60 วินาที
 - response ต้องผ่าน `parseTranscriptionResult()` ใน `src/asr-provider-protocol.ts`: `modelId`, `language`, `confidenceAvg` และ `segments` ที่มี speaker/timestamp/text
 - provider ใหม่ต้องผ่าน `runAsrProviderContract()` ใน `src/asr-provider-contract.ts`
 

@@ -7,8 +7,12 @@ import {
   readS3Bucket,
   readS3Configuration,
 } from '@d-contact/shared';
-import { HttpScoringProvider } from './http-scoring-provider.js';
-import { HttpTranscriptionProvider } from './http-transcription-provider.js';
+import { DEFAULT_SCORING_TIMEOUT_MS, HttpScoringProvider } from './http-scoring-provider.js';
+import {
+  DEFAULT_TRANSCRIPTION_TIMEOUT_MS,
+  HttpTranscriptionProvider,
+} from './http-transcription-provider.js';
+import { jobRebalanceTimeoutMs, whileHeartbeating } from './kafka-heartbeat.js';
 import { S3QmMediaSource } from './s3-qm-media-source.js';
 import { createQmJobPublisher } from './qm-kafka.js';
 import { QmRetryDispatcher } from './qm-retry-dispatcher.js';
@@ -39,12 +43,16 @@ async function main(): Promise<void> {
     s3: { ...s3, endpoint: process.env.QM_MEDIA_ENDPOINT?.trim() || s3.endpoint },
     bucket: readS3Bucket('RECORDINGS'),
   });
+  const transcriptionTimeoutMs =
+    optionalPositiveInteger('QM_TRANSCRIPTION_TIMEOUT_MS') ?? DEFAULT_TRANSCRIPTION_TIMEOUT_MS;
   const transcription = new HttpTranscriptionProvider({
     id: required('QM_TRANSCRIPTION_PROVIDER_ID'),
     endpoint: required('QM_TRANSCRIPTION_ENDPOINT'),
     apiKey: process.env.QM_TRANSCRIPTION_API_KEY,
-    timeoutMs: optionalPositiveInteger('QM_TRANSCRIPTION_TIMEOUT_MS'),
+    timeoutMs: transcriptionTimeoutMs,
   });
+  const scoringTimeoutMs =
+    optionalPositiveInteger('QM_SCORING_TIMEOUT_MS') ?? DEFAULT_SCORING_TIMEOUT_MS;
   const scorer = process.env.QM_SCORING_ENDPOINT
     ? new HttpScoringProvider({
         id: required('QM_SCORING_PROVIDER_ID'),
@@ -52,6 +60,7 @@ async function main(): Promise<void> {
         modelId: required('QM_SCORING_MODEL_ID'),
         promptVersion: required('QM_SCORING_PROMPT_VERSION'),
         apiKey: process.env.QM_SCORING_API_KEY,
+        timeoutMs: scoringTimeoutMs,
       })
     : undefined;
   const worker = new QmTranscriptionWorker(database, media, transcription, undefined, scorer);
@@ -70,9 +79,17 @@ async function main(): Promise<void> {
     groupId: 'dcontact-qm-transcription-worker-v1',
     topics: [KAFKA_TOPICS.QM_JOBS],
     idempotency: createInMemoryIdempotencyStore(),
-    handler: async ({ event }) => {
+    // a job waits for the provider far longer than the 30 s session timeout: heartbeat while it runs
+    // and let a rebalance wait for the job to finish instead of evicting this worker
+    rebalanceTimeoutMs: jobRebalanceTimeoutMs([
+      transcriptionTimeoutMs,
+      ...(scorer ? [scoringTimeoutMs] : []),
+    ]),
+    handler: async ({ event, heartbeat }) => {
       if (event.type === 'qm.transcription.requested') {
-        await worker.process(event.tenantId, event.payload);
+        await whileHeartbeating(heartbeat, () => worker.process(event.tenantId, event.payload), {
+          onError: (error) => console.warn('[qm] heartbeat failed during a job', error),
+        });
       }
     },
   });
