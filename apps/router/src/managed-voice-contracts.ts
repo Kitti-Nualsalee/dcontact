@@ -30,6 +30,8 @@ export interface ManagedVoiceEvent {
   offerId?: string;
   agentId?: string;
   blegUuid?: string;
+  /** Which side ended a bridged call, from the SIP hangup disposition; absent when it cannot be told */
+  hangupInitiator?: 'caller' | 'agent';
 }
 
 export interface ManagedVoiceResult {

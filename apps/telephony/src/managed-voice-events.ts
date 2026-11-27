@@ -34,6 +34,7 @@ export function normalizeManagedVoiceEvent(
     return undefined;
   if (type === 'call.created' && offerId !== undefined) return undefined;
   const callerHangup = type === 'call.hangup' && source['Unique-ID'] === callUuid;
+  const hangupInitiator = type === 'call.hangup' ? initiator(source, callerHangup) : undefined;
   return {
     tenantId,
     telephonyNodeId: nodeId,
@@ -48,5 +49,22 @@ export function normalizeManagedVoiceEvent(
     ...(!callerHangup && typeof offerId === 'string' ? { offerId } : {}),
     ...(!callerHangup && typeof agentId === 'string' ? { agentId } : {}),
     ...(!callerHangup && typeof blegUuid === 'string' ? { blegUuid } : {}),
+    ...(hangupInitiator ? { hangupInitiator } : {}),
   };
+}
+
+/**
+ * Which side ended the call. `sip_hangup_disposition` is per leg: `recv_*` means the far end of this leg hung up,
+ * `send_*` means the switch ended this leg because the other side (or the switch itself) did. The caller leg (A)
+ * faces the customer and the offer leg (B) faces the Agent, so both legs agree on who hung up whichever event
+ * arrives first. A `send_*` is trusted only with `NORMAL_CLEARING`: a switch-side end (media timeout, kill,
+ * shutdown) sends BYE on both legs and must not be read as the other party hanging up
+ */
+function initiator(source: FreeSwitchEvent, callerLeg: boolean): 'caller' | 'agent' | undefined {
+  const disposition = source.variable_sip_hangup_disposition;
+  if (typeof disposition !== 'string') return undefined;
+  const received = disposition.startsWith('recv_');
+  if (!received && !disposition.startsWith('send_')) return undefined;
+  if (!received && source['Hangup-Cause'] !== 'NORMAL_CLEARING') return undefined;
+  return received === callerLeg ? 'caller' : 'agent';
 }
