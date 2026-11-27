@@ -69,7 +69,10 @@ async function main(): Promise<void> {
     ...(scorer ? [scoringTimeoutMs] : []),
   ]);
   const worker = new QmTranscriptionWorker(database, media, transcription, undefined, scorer);
-  const retries = new QmRetryDispatcher(database, publisher);
+  // a PROCESSING job older than the longest a live job can run lost its worker
+  const retries = new QmRetryDispatcher(database, publisher, {
+    processingStaleMs: jobTimeoutMs + 120_000,
+  });
   const interactionConsumer = await createConsumer<QmInteractionEndedPayload>({
     clientId: 'dcontact-qm-interaction-events-v1',
     groupId: 'dcontact-qm-interaction-ended-v1',

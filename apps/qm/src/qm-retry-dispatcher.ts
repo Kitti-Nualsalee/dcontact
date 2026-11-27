@@ -8,6 +8,24 @@ import type { QmTranscriptionJobMessage } from '@d-contact/shared';
 export const QM_DISPATCH_STALE_MS = 5 * 60 * 1_000;
 
 /**
+ * A PROCESSING job older than this lost its worker (the process died or was killed mid-job, e.g. a deploy).
+ * Must exceed the longest a live job can run (every provider timeout plus headroom), so main.ts passes the
+ * job timeout plus a margin; this default covers the default 5-minute ASR and 2-minute scorer timeouts.
+ */
+export const QM_PROCESSING_STALE_MS = 15 * 60 * 1_000;
+
+/** failureCode of an attempt whose worker disappeared (process killed or crashed mid-job) */
+export const WORKER_INTERRUPTED = 'WORKER_INTERRUPTED';
+
+/**
+ * Owner decision 27 Nov 2026: an interruption (a deploy or restart mid-job) does not use up one of the
+ * queue's transcription attempts, so a queue with transcriptionMaxAttempts = 1 is not failed by a deploy.
+ * Beyond this many interruptions of the same job they do count, so a recording that crashes the worker
+ * every time still ends instead of looping forever.
+ */
+export const QM_FREE_INTERRUPTIONS = 3;
+
+/**
  * - Does not filter on attempts: a job waiting for the recording archive gets nextAttemptAt moved while attempts is still 0
  * - A new job the workflow/API is publishing has dispatchedAt set before publish and a null nextAttemptAt, so it is not picked twice
  * - Sweeps jobs stuck longer than QM_DISPATCH_STALE_MS: a duplicate message is safe because the worker checks the job attempt
@@ -38,15 +56,22 @@ export interface QmRetryPublisher {
 /** Durable retry scan: database time controls eligibility; Kafka messages remain idempotent by job/attempt.
  * Covers both retries after a provider failure and jobs waiting for the recording archive (attempts still 0) */
 export class QmRetryDispatcher {
+  private readonly processingStaleMs: number;
+
   constructor(
     private readonly database: PrismaClient,
     private readonly publisher: QmRetryPublisher,
-  ) {}
+    options: { processingStaleMs?: number } = {},
+  ) {
+    this.processingStaleMs = options.processingStaleMs ?? QM_PROCESSING_STALE_MS;
+  }
 
   async dispatchDue(now = new Date()): Promise<string[]> {
     const tenants = await this.database.tenant.findMany({ select: { id: true } });
     const published: string[] = [];
     for (const tenant of tenants) {
+      // recover first, so an interrupted job that still has attempts left is published in this same pass
+      await this.recoverInterrupted(tenant.id, now);
       const candidates = await withTenantDatabaseTransaction(
         this.database,
         tenant.id,
@@ -118,5 +143,89 @@ export class QmRetryDispatcher {
       }
     }
     return published;
+  }
+
+  /**
+   * A job claimed as PROCESSING whose worker died never finishes on its own: a redelivered message is a
+   * no-op because the claim already counted the attempt. Give the attempt back (up to
+   * QM_FREE_INTERRUPTIONS times, then count it) and make the job due again right away, or close it when a
+   * counted interruption leaves no attempts. The worker only completes the claim it made (same attempt and
+   * startedAt), so a late result from the interrupted claim cannot overwrite the recovered job.
+   */
+  private async recoverInterrupted(tenantId: string, now: Date): Promise<void> {
+    const startedBefore = new Date(now.getTime() - this.processingStaleMs);
+    const stuck = await withTenantDatabaseTransaction(this.database, tenantId, (transaction) =>
+      transaction.qmTranscriptionJob.findMany({
+        where: { tenantId, status: 'PROCESSING', startedAt: { lt: startedBefore } },
+        orderBy: [{ startedAt: 'asc' }, { id: 'asc' }],
+        take: 100,
+        select: { id: true, attempts: true, maxAttempts: true, startedAt: true },
+      }),
+    );
+    // due slightly in the past: the worker checks "not yet due" with its own clock, so a worker clock a
+    // little behind the dispatcher must not turn the retry message into a no-op
+    const dueAt = new Date(now.getTime() - 30_000);
+    for (const job of stuck) {
+      await withTenantDatabaseTransaction(this.database, tenantId, async (transaction) => {
+        const earlier = await transaction.qmAuditEvent.count({
+          where: {
+            tenantId,
+            resourceType: 'TRANSCRIPTION_JOB',
+            resourceId: job.id,
+            details: { path: ['failureCode'], equals: WORKER_INTERRUPTED },
+          },
+        });
+        const interruption = earlier + 1;
+        // a free interruption gives the claimed attempt back; past the allowance it counts as a failed attempt
+        const free = interruption <= QM_FREE_INTERRUPTIONS;
+        const attempts = free ? job.attempts - 1 : job.attempts;
+        const exhausted = !free && attempts >= job.maxAttempts;
+        const recovered = await transaction.qmTranscriptionJob.updateMany({
+          where: {
+            id: job.id,
+            tenantId,
+            status: 'PROCESSING',
+            attempts: job.attempts,
+            startedAt: job.startedAt,
+          },
+          data: {
+            status: exhausted ? 'FAILED' : 'PENDING',
+            attempts,
+            failureCode: WORKER_INTERRUPTED,
+            failureReason: 'the worker stopped before the attempt finished',
+            dispatchedAt: null,
+            nextAttemptAt: exhausted ? null : dueAt,
+            ...(exhausted ? { completedAt: now } : {}),
+          },
+        });
+        if (recovered.count !== 1) return;
+        await transaction.qmAuditEvent.create({
+          data: {
+            tenantId,
+            action: exhausted ? 'TRANSCRIPTION_FAILED' : 'TRANSCRIPTION_RETRY_SCHEDULED',
+            resourceType: 'TRANSCRIPTION_JOB',
+            resourceId: job.id,
+            details: {
+              // attempts after recovery (given back when free); interruptedAttempt is the claim that died
+              attempt: attempts,
+              interruptedAttempt: job.attempts,
+              maxAttempts: job.maxAttempts,
+              failureCode: WORKER_INTERRUPTED,
+              interruption,
+              countedAsAttempt: !free,
+              ...(exhausted ? {} : { nextAttemptAt: dueAt.toISOString() }),
+            },
+          },
+        });
+        console.warn('[qm] recovered an interrupted transcription job', {
+          tenantId,
+          jobId: job.id,
+          interruptedAttempt: job.attempts,
+          interruption,
+          countedAsAttempt: !free,
+          exhausted,
+        });
+      });
+    }
   }
 }

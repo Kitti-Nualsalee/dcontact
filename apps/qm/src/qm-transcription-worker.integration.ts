@@ -4,7 +4,12 @@ import test, { after } from 'node:test';
 import { Prisma, PrismaClient } from '@d-contact/db';
 import type { KafkaEventEnvelope } from '@d-contact/kafka';
 import type { QmInteractionEndedPayload, QmTranscriptionJobMessage } from '@d-contact/shared';
-import { QM_DISPATCH_STALE_MS, QmRetryDispatcher } from './qm-retry-dispatcher.js';
+import {
+  QM_DISPATCH_STALE_MS,
+  QM_FREE_INTERRUPTIONS,
+  QmRetryDispatcher,
+  WORKER_INTERRUPTED,
+} from './qm-retry-dispatcher.js';
 import {
   QmTranscriptionWorker,
   RECORDING_ARCHIVE_WAIT_LIMIT_MS,
@@ -541,4 +546,254 @@ test('a job the API reopens after the archive wait ceiling (#990) transcribes ri
   // An old attempt-1 message from before the reopen, redelivered by Kafka, is a duplicate no-op and does not call the provider again
   assert.deepEqual(await worker.process(seeded.tenantId, seeded.message), ready);
   assert.deepEqual(calls, { media: 1, provider: 1 });
+});
+
+/** a worker whose provider call stays open until the test settles it: a job that is still PROCESSING */
+function hangingWorker(clock: { at: Date }) {
+  let settle: (outcome: 'ok' | 'fail') => void = () => undefined;
+  let markStarted: () => void = () => undefined;
+  const started = new Promise<void>((resolve) => (markStarted = resolve));
+  const worker = new QmTranscriptionWorker(
+    owner,
+    {
+      createEncryptedReadUrl: async ({ storageKey }) => ({
+        url: `https://storage.test/${storageKey}?signature=short-lived`,
+        expiresAt: new Date(clock.at.getTime() + 300_000),
+      }),
+    },
+    {
+      id: 'hanging-provider',
+      transcribe: () =>
+        new Promise((resolve, reject) => {
+          settle = (outcome) =>
+            outcome === 'ok'
+              ? resolve({
+                  modelId: 'late-model',
+                  language: 'th-TH',
+                  confidenceAvg: 0.5,
+                  segments: [{ speaker: 'AGENT', startMs: 0, endMs: 1_000, text: 'late' }],
+                })
+              : reject(new Error('late provider failure'));
+          markStarted();
+        }),
+    },
+    { now: () => new Date(clock.at) },
+  );
+  return { worker: () => worker, started, settle: (outcome: 'ok' | 'fail') => settle(outcome) };
+}
+
+const PROCESSING_STALE_MS = 10 * 60 * 1_000;
+
+test('a job whose worker died mid-attempt gets the attempt back and is retried; the late result of the old claim is dropped', async (t) => {
+  // the queue allows a single attempt: an interruption (deploy mid-job) must not use it up
+  const seeded = await seedJob(t, { archivedAt: requestedAt });
+  const clock = { at: new Date(requestedAt.getTime() + 60_000) };
+  const hanging = hangingWorker(clock);
+  const { worker, dispatched } = harness(clock);
+  const retries = new QmRetryDispatcher(
+    owner,
+    { publish: async ({ job }) => void dispatched.push(job) },
+    { processingStaleMs: PROCESSING_STALE_MS },
+  );
+
+  // attempt 1 is claimed and its worker never returns (the process was killed during a deploy)
+  const lost = hanging.worker().process(seeded.tenantId, seeded.message);
+  await hanging.started;
+  assert.equal((await persistedJob(seeded.jobId)).status, 'PROCESSING');
+  // Kafka redelivering attempt 1 is a no-op: the claim already counted it
+  assert.equal((await worker.process(seeded.tenantId, seeded.message)).status, 'PROCESSING');
+
+  // not stale yet: nothing happens
+  clock.at = new Date(clock.at.getTime() + PROCESSING_STALE_MS - 1_000);
+  assert.deepEqual(await retries.dispatchDue(clock.at), []);
+  assert.equal((await persistedJob(seeded.jobId)).status, 'PROCESSING');
+
+  // past the threshold: the attempt is given back and attempt 1 is published again in the same pass
+  clock.at = new Date(clock.at.getTime() + 2_000);
+  assert.deepEqual(await retries.dispatchDue(clock.at), [seeded.jobId]);
+  assert.equal(dispatched.at(-1)!.attempt, 1);
+  const recovered = await persistedJob(seeded.jobId);
+  assert.equal(recovered.status, 'PENDING');
+  assert.equal(recovered.attempts, 0);
+  assert.equal(recovered.failureCode, WORKER_INTERRUPTED);
+
+  clock.at = new Date(clock.at.getTime() + 1_000);
+  const ready = await worker.process(seeded.tenantId, dispatched.at(-1)!);
+  assert.equal(ready.status, 'READY');
+  assert.equal(ready.attempts, 1);
+
+  // the old claim finally returns with the same attempt number: its result must not replace the new one
+  hanging.settle('ok');
+  assert.deepEqual(await lost, { jobId: seeded.jobId, status: 'READY', attempts: 1 });
+  const transcripts = await owner.qmTranscript.findMany({ where: { tenantId: seeded.tenantId } });
+  assert.equal(transcripts.length, 1);
+  assert.equal(transcripts[0]!.modelId, 'archive-wait-model');
+  const actions = (
+    await owner.qmAuditEvent.findMany({
+      where: { tenantId: seeded.tenantId },
+      orderBy: { createdAt: 'asc' },
+    })
+  ).map((event) => {
+    const details = event.details as { failureCode?: string; countedAsAttempt?: boolean };
+    return [event.action, details.failureCode, details.countedAsAttempt];
+  });
+  assert.deepEqual(actions, [
+    ['TRANSCRIPTION_STARTED', undefined, undefined],
+    ['TRANSCRIPTION_RETRY_SCHEDULED', WORKER_INTERRUPTED, false],
+    ['TRANSCRIPTION_STARTED', undefined, undefined],
+    ['TRANSCRIPTION_READY', undefined, undefined],
+  ]);
+});
+
+test('interruptions are free up to the allowance, then they count, so a recording that kills the worker every time still ends as FAILED', async (t) => {
+  const seeded = await seedJob(t, { archivedAt: requestedAt });
+  const clock = { at: new Date(requestedAt.getTime() + 60_000) };
+  const dispatched: QmTranscriptionJobMessage[] = [];
+  const retries = new QmRetryDispatcher(
+    owner,
+    { publish: async ({ job }) => void dispatched.push(job) },
+    { processingStaleMs: PROCESSING_STALE_MS },
+  );
+
+  let message = seeded.message;
+  const lost: Array<{ settle: (outcome: 'ok' | 'fail') => void; result: Promise<QmWorkerResult> }> =
+    [];
+  for (let interruption = 1; interruption <= QM_FREE_INTERRUPTIONS + 1; interruption++) {
+    const hanging = hangingWorker(clock);
+    const result = hanging.worker().process(seeded.tenantId, message);
+    await hanging.started;
+    lost.push({ settle: hanging.settle, result });
+    clock.at = new Date(clock.at.getTime() + PROCESSING_STALE_MS + 1_000);
+    const published = await retries.dispatchDue(clock.at);
+    const job = await persistedJob(seeded.jobId);
+    assert.equal(job.failureCode, WORKER_INTERRUPTED, `interruption ${interruption}`);
+    if (interruption <= QM_FREE_INTERRUPTIONS) {
+      // free: the single attempt is given back and the job is retried right away
+      assert.equal(job.status, 'PENDING', `interruption ${interruption}`);
+      assert.equal(job.attempts, 0);
+      assert.deepEqual(published, [seeded.jobId]);
+      message = dispatched.at(-1)!;
+      assert.equal(message.attempt, 1);
+      const audit = await owner.qmAuditEvent.findFirstOrThrow({
+        where: { tenantId: seeded.tenantId, action: 'TRANSCRIPTION_RETRY_SCHEDULED' },
+        orderBy: { createdAt: 'desc' },
+      });
+      assert.deepEqual(
+        [
+          (audit.details as { interruptedAttempt?: number }).interruptedAttempt,
+          (audit.details as { interruption?: number }).interruption,
+        ],
+        [1, interruption],
+      );
+    } else {
+      // past the allowance the interruption counts: the only attempt is used and the job closes
+      assert.equal(job.status, 'FAILED');
+      assert.equal(job.attempts, 1);
+      assert.equal(job.completedAt?.toISOString(), clock.at.toISOString());
+      assert.deepEqual(published, []);
+    }
+  }
+
+  // late results of the interrupted claims change nothing and add no audit
+  const before = await owner.qmAuditEvent.count({ where: { tenantId: seeded.tenantId } });
+  lost[0]!.settle('ok');
+  lost[1]!.settle('fail');
+  lost.at(-1)!.settle('fail');
+  await Promise.all(
+    lost
+      .slice(0, 2)
+      .concat(lost.slice(-1))
+      .map((entry) => entry.result),
+  );
+  const job = await persistedJob(seeded.jobId);
+  assert.equal(job.status, 'FAILED');
+  assert.equal(job.failureCode, WORKER_INTERRUPTED);
+  assert.equal(await owner.qmAuditEvent.count({ where: { tenantId: seeded.tenantId } }), before);
+  assert.equal(await owner.qmTranscript.count({ where: { tenantId: seeded.tenantId } }), 0);
+  // the sweep does not touch a closed job again
+  assert.deepEqual(await retries.dispatchDue(new Date(clock.at.getTime() + 60_000)), []);
+  lost[2]!.settle('ok');
+  await lost[2]!.result;
+  assert.equal(await owner.qmTranscript.count({ where: { tenantId: seeded.tenantId } }), 0);
+});
+
+test('while a new claim of the same attempt is running, the late result of the interrupted claim (success or failure) changes nothing', async (t) => {
+  for (const lateOutcome of ['ok', 'fail'] as const) {
+    const seeded = await seedJob(t, { archivedAt: requestedAt });
+    const clock = { at: new Date(requestedAt.getTime() + 60_000) };
+    const dispatched: QmTranscriptionJobMessage[] = [];
+    const retries = new QmRetryDispatcher(
+      owner,
+      { publish: async ({ job }) => void dispatched.push(job) },
+      { processingStaleMs: PROCESSING_STALE_MS },
+    );
+
+    // claim A of attempt 1 hangs, is recovered for free, and claim B of the same attempt 1 starts
+    const first = hangingWorker(clock);
+    const lostA = first.worker().process(seeded.tenantId, seeded.message);
+    await first.started;
+    clock.at = new Date(clock.at.getTime() + PROCESSING_STALE_MS + 1_000);
+    assert.deepEqual(await retries.dispatchDue(clock.at), [seeded.jobId]);
+    clock.at = new Date(clock.at.getTime() + 1_000);
+    const second = hangingWorker(clock);
+    const runningB = second.worker().process(seeded.tenantId, dispatched.at(-1)!);
+    await second.started;
+    const claimB = await owner.qmTranscriptionJob.findUniqueOrThrow({
+      where: { id: seeded.jobId },
+      select: { status: true, attempts: true, startedAt: true },
+    });
+    assert.equal(claimB.status, 'PROCESSING');
+    assert.equal(claimB.attempts, 1);
+    const auditsBefore = await owner.qmAuditEvent.count({ where: { tenantId: seeded.tenantId } });
+
+    // A returns now, with the same attempt number as the running claim B: only startedAt tells them apart
+    first.settle(lateOutcome);
+    const resultA = await lostA;
+    assert.equal(resultA.status, 'PROCESSING', lateOutcome);
+    const afterA = await owner.qmTranscriptionJob.findUniqueOrThrow({
+      where: { id: seeded.jobId },
+      select: { status: true, attempts: true, startedAt: true, failureCode: true },
+    });
+    assert.equal(afterA.status, 'PROCESSING', lateOutcome);
+    assert.equal(afterA.attempts, 1);
+    assert.equal(afterA.startedAt?.toISOString(), claimB.startedAt?.toISOString());
+    assert.equal(await owner.qmTranscript.count({ where: { tenantId: seeded.tenantId } }), 0);
+    assert.equal(
+      await owner.qmAuditEvent.count({ where: { tenantId: seeded.tenantId } }),
+      auditsBefore,
+    );
+
+    // claim B finishes and is the one recorded
+    second.settle('ok');
+    assert.deepEqual(await runningB, { jobId: seeded.jobId, status: 'READY', attempts: 1 });
+    assert.equal(await owner.qmTranscript.count({ where: { tenantId: seeded.tenantId } }), 1);
+  }
+});
+
+test('two consumers handling the same attempt at once claim the job only once', async (t) => {
+  const seeded = await seedJob(t, { archivedAt: requestedAt });
+  const clock = { at: new Date(requestedAt.getTime() + 60_000) };
+  const one = hangingWorker(clock);
+  const two = hangingWorker(clock);
+  const results = [
+    one.worker().process(seeded.tenantId, seeded.message),
+    two.worker().process(seeded.tenantId, seeded.message),
+  ];
+  await Promise.race([one.started, two.started]);
+  // give the other claim a moment to reach the database
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  const job = await persistedJob(seeded.jobId);
+  assert.equal(job.status, 'PROCESSING');
+  assert.equal(job.attempts, 1);
+  assert.equal(
+    await owner.qmAuditEvent.count({
+      where: { tenantId: seeded.tenantId, action: 'TRANSCRIPTION_STARTED' },
+    }),
+    1,
+  );
+  one.settle('ok');
+  two.settle('ok');
+  const settled = await Promise.all(results);
+  assert.deepEqual(settled.map((result) => result.status).sort(), ['PROCESSING', 'READY'].sort());
+  assert.equal(await owner.qmTranscript.count({ where: { tenantId: seeded.tenantId } }), 1);
 });
