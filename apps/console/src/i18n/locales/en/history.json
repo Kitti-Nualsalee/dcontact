@@ -100,6 +100,8 @@
     "agent": "Agent",
     "team": "Team",
     "interaction": "Interaction",
-    "result": "Recorded outcome"
+    "result": "Recorded outcome",
+    "heading": "Chat",
+    "queue": "Queue"
   }
 }

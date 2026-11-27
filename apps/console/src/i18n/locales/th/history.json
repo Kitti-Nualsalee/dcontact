@@ -100,6 +100,8 @@
     "agent": "Agent",
     "team": "ทีม",
     "interaction": "รหัสงาน",
-    "result": "ผลที่บันทึก"
+    "result": "ผลที่บันทึก",
+    "heading": "งานแชท",
+    "queue": "คิว"
   }
 }

@@ -43,7 +43,8 @@ export interface AgentHistoryApi {
     cursor?: string,
     filter?: HistoryFilter,
   ): Promise<{ items: HistoryItem[]; nextCursor: string | null }>;
-  summary(period: SummaryPeriod): Promise<HistorySummary>;
+  /** `channel` narrows the numbers the same way it narrows the list */
+  summary(period: SummaryPeriod, channel?: HistoryChannel): Promise<HistorySummary>;
   result(interactionId: string): Promise<HistoryDetail>;
   /** #1044: the conversation of a chat (a call answers an empty list); 404 = not found or not yours */
   transcript(interactionId: string): Promise<WorkTranscript>;
@@ -101,10 +102,10 @@ export function createAgentHistoryApi(options: {
         nextCursor: string | null;
       };
     },
-    async summary(period) {
-      const summary: unknown = await read(
-        `history/summary?${new URLSearchParams({ period }).toString()}`,
-      );
+    async summary(period, channel) {
+      const query = new URLSearchParams({ period });
+      if (channel) query.set('channel', channel);
+      const summary: unknown = await read(`history/summary?${query.toString()}`);
       if (!isHistorySummary(summary)) throw new HistoryApiError(502);
       return summary;
     },

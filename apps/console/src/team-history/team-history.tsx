@@ -19,7 +19,7 @@ import {
   channelOf,
   useChannelLabel,
 } from '../chat-history/chat-history.js';
-import { closedByKey, visitorCode } from '../chat-history/transcript.js';
+import { closedByKey } from '../chat-history/transcript.js';
 import { useTranscript } from '../chat-history/use-transcript.js';
 import {
   SUMMARY_PERIODS,
@@ -160,7 +160,7 @@ function TeamHistorySession({ api, onSignIn }: Props) {
       summary: current.phase === 'error' ? undefined : current.summary,
     }));
     void api
-      .summary(period, teamId)
+      .summary(period, teamId, channel)
       .then((result) => {
         if (active) setSummaryState({ phase: 'ready', summary: result });
       })
@@ -170,7 +170,7 @@ function TeamHistorySession({ api, onSignIn }: Props) {
     return () => {
       active = false;
     };
-  }, [api, selected, period, teamId, revision]);
+  }, [api, selected, period, teamId, channel, revision]);
 
   useEffect(() => {
     if (!selected && summaryState.phase !== 'ready') {
@@ -504,18 +504,14 @@ function TeamHistorySession({ api, onSignIn }: Props) {
       {!selected && shownSummary && !failure ? (
         <h2 className="ah-list-title">
           {/* both Agent and disposition selected: the summary has no count for this pair, so no count is shown rather than guessing from the loaded page */}
-          {/* the summary counts every channel, so with a channel filter the count would not match the list */}
-          {t(
-            filterCount === undefined || channel ? 'summary.listTitleNoCount' : 'summary.listTitle',
-            {
-              period: periodLabel(period),
-              channel: channelName(channel),
-              agent: selectedAgent ? agentName(selectedAgent.agent) : t('allAgents'),
-              disposition:
-                disposition === undefined ? t('summary.allDispositions') : groupLabel(disposition),
-              count: filterCount,
-            },
-          )}
+          {t(filterCount === undefined ? 'summary.listTitleNoCount' : 'summary.listTitle', {
+            period: periodLabel(period),
+            channel: channelName(channel),
+            agent: selectedAgent ? agentName(selectedAgent.agent) : t('allAgents'),
+            disposition:
+              disposition === undefined ? t('summary.allDispositions') : groupLabel(disposition),
+            count: filterCount,
+          })}
         </h2>
       ) : null}
       {!selected && !failure && !loading && summary && items.length === 0 ? (
@@ -590,12 +586,20 @@ function TeamHistorySession({ api, onSignIn }: Props) {
       {selected && detail && !error && channelOf(detail) === 'WEBCHAT' ? (
         <article className="ch-detail">
           <div className="ch-head">
-            <h2>{chatText('chat.visitor', { code: visitorCode(detail.interactionId) })}</h2>
+            {/* the visitor's label comes with the conversation, the same one the Agent saw in Workspace */}
+            <h2>
+              {transcript?.visitorLabel
+                ? chatText('chat.visitor', { code: transcript.visitorLabel })
+                : chatText('chat.heading')}
+            </h2>
             <ChannelBadge channel="WEBCHAT" />
           </div>
           <p className="ch-sub">
             {t('agent')}: {agentName(detail.agent)} · {t('team')}:{' '}
-            {detail.team.name ?? t('unavailable')} · {detail.interactionId}
+            {detail.team.name ?? t('unavailable')}
+            {transcript?.queueName ? ` · ${chatText('chat.queue')}: ${transcript.queueName}` : ''}
+            {' · '}
+            {detail.interactionId}
           </p>
           <div className="ch-grid">
             <ChatTranscriptPanel

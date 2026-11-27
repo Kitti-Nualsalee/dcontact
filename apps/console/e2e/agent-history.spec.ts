@@ -327,6 +327,8 @@ const chatTranscript = (change: Record<string, unknown> = {}) => ({
   channel: 'WEBCHAT',
   endReason: 'IDLE_TIMEOUT',
   customerLinked: false,
+  visitorLabel: 'A1B2',
+  queueName: 'Online Sales',
   messages: [
     { id: 'm1', at: '2026-11-27T03:29:00.000Z', from: 'visitor', text: 'My order has not arrived' },
     { id: 'm2', at: '2026-11-27T03:31:00.000Z', from: 'system', event: 'AGENT_JOINED' },
@@ -429,7 +431,11 @@ test('#1044 a chat opens as a read-only conversation; when it fails the outcome 
   await expect(page.getByText(th('history:chat.unlinked'), { exact: true })).toBeVisible();
   await expect(page.getByText(th('history:chat.closedBy.IDLE'), { exact: true })).toBeVisible();
   await expect(page.getByRole('textbox')).toHaveCount(0);
-  await expect(page.getByRole('heading', { name: /#7A33/ })).toBeVisible();
+  // the visitor's label and the queue come with the conversation, the same label the Agent saw in Workspace
+  await expect(
+    page.getByRole('heading', { name: th('history:chat.visitor', { code: 'A1B2' }) }),
+  ).toBeVisible();
+  await expect(page.getByText(/Online Sales/)).toBeVisible();
   // a link pasted straight to the chat (no list loaded) still finds out it is a chat from the conversation
   await page.reload();
   await expect(page.getByRole('log', { name: th('history:chat.transcript') })).toContainText(

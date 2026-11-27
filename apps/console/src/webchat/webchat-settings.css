@@ -258,3 +258,9 @@
 .wc__skeleton-block {
   block-size: 8rem;
 }
+
+.wc__meta {
+  margin: 0;
+  color: var(--dc-text-secondary);
+  font-size: var(--dc-text-xs);
+}

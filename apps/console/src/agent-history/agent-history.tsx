@@ -17,7 +17,7 @@ import {
   useChannelLabel,
   channelOf,
 } from '../chat-history/chat-history.js';
-import { closedByKey, visitorCode } from '../chat-history/transcript.js';
+import { closedByKey } from '../chat-history/transcript.js';
 import { useTranscript } from '../chat-history/use-transcript.js';
 import {
   SUMMARY_PERIODS,
@@ -110,7 +110,7 @@ function HistorySession({ api, onSignIn }: Props) {
       summary: current.phase === 'error' ? undefined : current.summary,
     }));
     void api
-      .summary(period)
+      .summary(period, channel)
       .then((result) => {
         if (active) setSummaryState({ phase: 'ready', summary: result });
       })
@@ -120,7 +120,7 @@ function HistorySession({ api, onSignIn }: Props) {
     return () => {
       active = false;
     };
-  }, [api, selected, period, revision]);
+  }, [api, selected, period, channel, revision]);
 
   useEffect(() => {
     if (!selected && summaryState.phase !== 'ready') {
@@ -350,8 +350,7 @@ function HistorySession({ api, onSignIn }: Props) {
       ) : null}
       {!selected && shownSummary && !failure ? (
         <h2 className="ah-list-title">
-          {/* the summary counts every channel, so with a channel filter the count would not match the list */}
-          {t(channel ? 'summary.listTitleNoCount' : 'summary.listTitle', {
+          {t('summary.listTitle', {
             period: periodLabel(period),
             channel: channelName(channel),
             disposition:
@@ -425,10 +424,18 @@ function HistorySession({ api, onSignIn }: Props) {
       {selected && detail && !error && detailChannel === 'WEBCHAT' ? (
         <article className="ch-detail">
           <div className="ch-head">
-            <h2>{t('chat.visitor', { code: visitorCode(detail.interactionId) })}</h2>
+            {/* the visitor's label comes with the conversation, the same one the Agent saw in Workspace */}
+            <h2>
+              {transcript?.visitorLabel
+                ? t('chat.visitor', { code: transcript.visitorLabel })
+                : t('chat.heading')}
+            </h2>
             <ChannelBadge channel="WEBCHAT" />
           </div>
-          <p className="ch-sub">{detail.interactionId}</p>
+          <p className="ch-sub">
+            {transcript?.queueName ? `${t('chat.queue')}: ${transcript.queueName} · ` : ''}
+            {detail.interactionId}
+          </p>
           <div className="ch-grid">
             <ChatTranscriptPanel
               state={transcriptState}

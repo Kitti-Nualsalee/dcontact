@@ -27,6 +27,8 @@ export interface WebchatSettings {
   tenantId: string;
   canEdit: boolean;
   widget: WebchatWidget;
+  /** when the settings were last saved and by whom; null until the first save */
+  lastSaved?: { at: string; byName: string | null } | null;
   queues: WebchatQueueOption[];
 }
 

@@ -76,7 +76,12 @@ export interface TeamHistoryApi {
     cursor?: string,
     filter?: TeamHistoryFilter,
   ): Promise<{ teamId: string | null; items: TeamHistoryItem[]; nextCursor: string | null }>;
-  summary(period: SummaryPeriod, teamId?: string): Promise<TeamHistorySummary>;
+  /** `channel` narrows the numbers the same way it narrows the list */
+  summary(
+    period: SummaryPeriod,
+    teamId?: string,
+    channel?: HistoryChannel,
+  ): Promise<TeamHistorySummary>;
   item(interactionId: string): Promise<TeamHistoryDetail>;
   /** #1044: the conversation of a chat (a call answers an empty list); 404 = not found or not in scope */
   transcript(interactionId: string): Promise<WorkTranscript>;
@@ -161,9 +166,10 @@ export function createTeamHistoryApi(options: {
         nextCursor: string | null;
       };
     },
-    async summary(period, teamId) {
+    async summary(period, teamId, channel) {
       const query = new URLSearchParams({ period });
       if (teamId) query.set('teamId', teamId);
+      if (channel) query.set('channel', channel);
       const summary: unknown = await read(`summary?${query.toString()}`);
       if (!isTeamHistorySummary(summary)) throw new TeamHistoryApiError(502);
       return summary;

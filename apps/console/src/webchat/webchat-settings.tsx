@@ -6,7 +6,7 @@
  * - real permission is at the API on every request — `canEdit` here only decides what to draw
  */
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
-import { useTranslation } from '@d-contact/i18n/react';
+import { useLocale, useTranslation } from '@d-contact/i18n/react';
 import { Button, Select, StatusChip, Switch, TextField, toastQueue } from '@d-contact/ui-react';
 import { useShellTokens } from '../shell/tokens.js';
 import { WebchatApiError, type WebchatApi, type WebchatSettings } from './api.js';
@@ -65,6 +65,7 @@ export function WebchatSettingsPage({
 }) {
   const { t: translate } = useTranslation('webchat');
   const t = translate as unknown as (key: string, options?: Record<string, unknown>) => string;
+  const { locale } = useLocale();
   const ready = useShellTokens();
   const headingId = useId();
   const [loaded, setLoaded] = useState<Loaded>({ phase: 'loading' });
@@ -569,6 +570,18 @@ export function WebchatSettingsPage({
                 {t('cancel')}
               </Button>
             </div>
+          ) : null}
+          {settings?.lastSaved ? (
+            <p className="wc__meta">
+              {settings.lastSaved.byName
+                ? t('lastSaved', {
+                    when: new Date(settings.lastSaved.at).toLocaleString(locale),
+                    name: settings.lastSaved.byName,
+                  })
+                : t('lastSavedUnknown', {
+                    when: new Date(settings.lastSaved.at).toLocaleString(locale),
+                  })}
+            </p>
           ) : null}
         </aside>
       </div>

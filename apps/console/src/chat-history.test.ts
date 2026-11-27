@@ -6,7 +6,6 @@ import {
   closedByKey,
   isWorkTranscript,
   toTranscriptMessages,
-  visitorCode,
   writtenCount,
   type WorkTranscript,
 } from './chat-history/transcript.js';
@@ -92,7 +91,6 @@ test('who closed the chat comes from how it ended', () => {
   assert.equal(closedByKey('CUSTOMER_LEFT'), 'CUSTOMER');
   assert.equal(closedByKey('IDLE_TIMEOUT'), 'IDLE');
   assert.equal(closedByKey(null), null);
-  assert.equal(visitorCode('7f3c2e10-8b1d-4c2a-9e5f-a91e00000001'), '7F3C');
 });
 
 test('the transcript is read from the endpoint of each page and a bad id never reaches the network', async () => {

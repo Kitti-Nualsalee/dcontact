@@ -28,6 +28,9 @@ export interface WorkTranscript {
   channel: HistoryChannel;
   endReason: EndReason | null;
   customerLinked: boolean;
+  /** the short label the Agent saw for the visitor in Workspace */
+  visitorLabel?: string | null;
+  queueName?: string | null;
   messages: WorkTranscriptMessage[];
 }
 
@@ -64,11 +67,6 @@ export function closedByKey(endReason: EndReason | null): 'AGENT' | 'CUSTOMER' |
     default:
       return null;
   }
-}
-
-/** short code of a chat in the page title; the history has no visitor name, so the work id gives the reader something to quote */
-export function visitorCode(interactionId: string): string {
-  return interactionId.replace(/-/g, '').slice(0, 4).toUpperCase();
 }
 
 /** the number of lines a person wrote (system lines are not counted) */

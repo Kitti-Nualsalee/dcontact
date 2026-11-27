@@ -94,5 +94,7 @@
   "retrySave": "Try saving again",
   "conflict": "Someone changed these settings after you opened the page. Reload the latest and edit again. What you entered is still in the form",
   "conflictUseLatest": "Use latest values",
-  "signIn": "Sign in"
+  "signIn": "Sign in",
+  "lastSaved": "Last saved {{when}} by {{name}}",
+  "lastSavedUnknown": "Last saved {{when}}"
 }
