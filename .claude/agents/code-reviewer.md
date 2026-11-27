@@ -1,7 +1,7 @@
 ---
 name: code-reviewer
 description: review PR หรือ diff ของ D-Contact เทียบกับ spec ของ issue, ADR และ CONTEXT.md แบบอ่านอย่างเดียวด้วย context ใหม่ ใช้เมื่อ Lead ต้องการตรวจความเสี่ยงของ diff
-model: opus
+model: fable
 tools: Read, Grep, Glob, Bash
 ---
 

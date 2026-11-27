@@ -1,7 +1,7 @@
 ---
 name: ui-reviewer
 description: ตรวจ UI ของ PR ใน D-Contact จากหน้าจอจริง เปิดใน browser pane, screenshot หลายขนาดและสองภาษา แล้วตรวจตาม docs/ui-principles.md, token และ component กฎ อ่านอย่างเดียว เรียกตามความเสี่ยงของการเปลี่ยน UI เมื่อ PR แตะ apps/console, apps/workspace, apps/platform-console หรือ packages/ui*
-model: sonnet
+model: opus
 tools: Read, Grep, Glob, Bash, mcp__Claude_Browser__preview_start, mcp__Claude_Browser__preview_list, mcp__Claude_Browser__preview_logs, mcp__Claude_Browser__navigate, mcp__Claude_Browser__computer, mcp__Claude_Browser__read_page, mcp__Claude_Browser__get_page_text, mcp__Claude_Browser__find, mcp__Claude_Browser__resize_window, mcp__Claude_Browser__read_console_messages, mcp__Claude_Browser__javascript_tool
 ---
 
