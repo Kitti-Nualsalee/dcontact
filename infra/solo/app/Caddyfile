@@ -61,6 +61,21 @@
 			}
 		}
 
+		# #1054 LINE simulator page for testers (line-sim profile), Console host only; LINE's API paths stay internal
+		@lineSimBare {
+			not host {$SOLO_WORKSPACE_HOST}
+			path /line-sim
+		}
+		redir @lineSimBare /line-sim/
+		@lineSim {
+			not host {$SOLO_WORKSPACE_HOST}
+			path /line-sim/ /line-sim/sim/*
+		}
+		handle @lineSim {
+			uri strip_prefix /line-sim
+			reverse_proxy line-simulator:8890
+		}
+
 		@keycloakAdmin path /auth/admin /auth/admin/* /auth/realms/master /auth/realms/master/* /auth/metrics /auth/health /auth/health/*
 		respond @keycloakAdmin 404
 		handle /auth/* {

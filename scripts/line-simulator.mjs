@@ -17,6 +17,7 @@
  *   POST /sim/reset
  *
  * Usage: node scripts/line-simulator.mjs [--port 8890]
+ * Env: LINE_SIMULATOR_HOST (bind address), LINE_SIMULATOR_WEBHOOK_ORIGIN (see webhookTarget)
  */
 import { createHmac, randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
@@ -27,6 +28,19 @@ const port = Number(
 );
 const BOT_USER_ID = 'U' + '5'.repeat(32);
 const BOT_NAME = 'D-Contact Demo OA';
+/** bind address: 127.0.0.1 on a dev machine, 0.0.0.0 inside a container (Solo) */
+const host = process.env.LINE_SIMULATOR_HOST ?? '127.0.0.1';
+/**
+ * When set (Solo: http://api:3000), webhooks go to this origin with the path of the URL the tester pasted,
+ * so the Console URL works as is from inside the container network
+ */
+const webhookOrigin = process.env.LINE_SIMULATOR_WEBHOOK_ORIGIN?.trim() ?? '';
+
+function webhookTarget(value) {
+  if (!webhookOrigin) return value;
+  const pasted = new URL(value);
+  return new URL(pasted.pathname + pasted.search, webhookOrigin).toString();
+}
 
 const state = {
   webhookUrl: process.env.LINE_SIMULATOR_WEBHOOK_URL ?? '',
@@ -97,7 +111,7 @@ async function deliver(userId, message) {
     id,
   });
   try {
-    const answer = await fetch(state.webhookUrl, {
+    const answer = await fetch(webhookTarget(state.webhookUrl), {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-line-signature': signature },
       body,
@@ -134,12 +148,12 @@ label{display:block;font-size:13px;margin:6px 0 2px}input,select{width:100%;box-
 </main><script>
 const users=['U${'a'.repeat(32)}','U${'b'.repeat(32)}','U${'c'.repeat(32)}'];
 const sel=document.getElementById('user');users.forEach((u,i)=>sel.add(new Option('Customer '+(i+1)+' · '+u.slice(-4),u)));
-async function load(){const c=await (await fetch('/sim/config')).json();url.value=c.webhookUrl;secret.value=c.channelSecret;}
-save.onclick=async()=>{await fetch('/sim/config',{method:'POST',body:JSON.stringify({webhookUrl:url.value.trim(),channelSecret:secret.value.trim()})});saved.textContent='saved';};
-async function post(body){const r=await (await fetch('/sim/send',{method:'POST',body:JSON.stringify({userId:sel.value,...body})})).json();if(r.status!==200)alert('Webhook answered '+r.status+' '+(r.error||''));refresh();}
+async function load(){const c=await (await fetch('sim/config')).json();url.value=c.webhookUrl;secret.value=c.channelSecret;}
+save.onclick=async()=>{await fetch('sim/config',{method:'POST',body:JSON.stringify({webhookUrl:url.value.trim(),channelSecret:secret.value.trim()})});saved.textContent='saved';};
+async function post(body){const r=await (await fetch('sim/send',{method:'POST',body:JSON.stringify({userId:sel.value,...body})})).json();if(r.status!==200)alert('Webhook answered '+r.status+' '+(r.error||''));refresh();}
 form.onsubmit=e=>{e.preventDefault();const t=text.value.trim();if(t){post({text:t});text.value='';}};
 sticker.onclick=()=>post({type:'sticker'});
-async function refresh(){const list=await (await fetch('/sim/messages?userId='+sel.value)).json();
+async function refresh(){const list=await (await fetch('sim/messages?userId='+sel.value)).json();
 log.replaceChildren(...list.messages.map(m=>{const d=document.createElement('div');d.className='m '+(m.from==='user'?'user':'bot');
 d.textContent=(m.text??'['+m.type+']');const s=document.createElement('div');s.className='meta';s.textContent=m.kind+' · '+m.at.slice(11,19);d.append(s);return d;}));}
 sel.onchange=refresh;setInterval(refresh,1500);load();refresh();
@@ -265,11 +279,11 @@ const server = createServer(async (request, response) => {
   }
 });
 
-server.listen(port, '127.0.0.1', () => {
+server.listen(port, host, () => {
   console.log(
     JSON.stringify({
       event: 'line_simulator.ready',
-      url: `http://127.0.0.1:${port}/`,
+      url: `http://${host}:${port}/`,
       botUserId: BOT_USER_ID,
     }),
   );

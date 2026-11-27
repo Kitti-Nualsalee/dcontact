@@ -224,6 +224,24 @@ services:
       - '${SOLO_MEDIA_HOST:-media.invalid}:${SOLO_VOICE_IP:?SOLO_VOICE_IP is required}'
     mem_limit: 448m
 
+  line-simulator:
+    <<: *service
+    # #1054 LINE simulator (scripts/line-simulator.mjs) until the tenant has a real LINE OA and a public webhook URL
+    # Plays LINE's Messaging API for the API (LINE_API_BASE_URL=http://line-simulator:8890 + LINE_API_SIMULATOR=on)
+    # and LINE users for the tester at https://SOLO_CONSOLE_HOST/line-sim/ (Caddy). No host port
+    # Behind the `line-sim` profile: add it to COMPOSE_PROFILES in solo.env. How to: docs/solo-uat.md, section LINE
+    profiles: ['line-sim']
+    image: dcontact-solo/ops:${SOLO_IMAGE_TAG}
+    env_file: []
+    working_dir: /repo
+    command: ['node', 'scripts/line-simulator.mjs']
+    environment:
+      LINE_SIMULATOR_HOST: 0.0.0.0
+      LINE_SIMULATOR_PORT: '8890'
+      # the tester pastes the Console webhook URL; the simulator sends it straight to the API inside the network
+      LINE_SIMULATOR_WEBHOOK_ORIGIN: http://api:3000
+    mem_limit: 128m
+
   web:
     <<: *service
     image: dcontact-solo/web:${SOLO_IMAGE_TAG}

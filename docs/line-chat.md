@@ -81,4 +81,6 @@ Agent ถือแชทของทุกช่องทาง chat รวม�
 ใน Console ตั้งค่า LINE ด้วย token อะไรก็ได้ (ยกเว้น `reject-token` ที่ตัวจำลองปฏิเสธ) และ secret 32 ตัวอักษร hex จากนั้นใส่ webhook URL และ secret เดียวกันในหน้าตัวจำลอง แล้วพิมพ์ในฐานะผู้ใช้ LINE ได้
 ตัวจำลองรับคำสั่ง `/sim/faults` เพื่อจำลอง LINE ตอบ 429/500/400
 
+บน Solo ตัวจำลองรันเป็น container หลัง profile `line-sim` วิธีเปิดอยู่ใน [solo-uat.md](solo-uat.md#line-แชท-1054)
+
 ชุดทดลองทั้งเส้นบน stack จริง: `pnpm exec playwright test -c playwright.webchat-trial.config.ts e2e-real/line-trial.spec.ts` ใน `apps/workspace` (stack ต้องเปิดด้วย `LINE_CHAT=on`) ครอบคลุมตั้งค่าใน Console → ตอบอัตโนมัติ → Agent รับและตอบ (push) → สติกเกอร์ → push ที่ LINE ปฏิเสธ → บันทึกผล → งานใหม่ของลูกค้าเดิม → ประวัติของทีม

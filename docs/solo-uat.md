@@ -154,3 +154,19 @@ service `qm` ใน `infra/solo/app/docker-compose.yml` รัน `apps/qm` (`/a
 - เว็บจริงที่จะฝังต้องเข้าถึง console host ได้ ผู้ทดสอบที่ map host ในเครื่องตัวเองต้องเปิดเว็บนั้นจากเครื่องเดียวกัน
 - ชุดทดลองทั้งเส้น `apps/workspace/e2e-real/webchat-trial.spec.ts` รันกับ Solo ได้โดยตั้ง `WEBCHAT_TRIAL_WORKSPACE`, `WEBCHAT_TRIAL_CONSOLE`, `WEBCHAT_TRIAL_ADMIN_PASSWORD`, `WEBCHAT_TRIAL_AGENT_PASSWORD` (อ่านจาก `solo.env` ห้ามพิมพ์ออกจอ) และ `WEBCHAT_TRIAL_HOST_RULES="MAP dcontact-solo-uat.osd.co.th 192.168.31.206, MAP dcontact-solo-workspace-uat.osd.co.th 192.168.31.206"` แล้วรัน `pnpm exec playwright test -c playwright.webchat-trial.config.ts` ใน `apps/workspace` ชุดนี้เพิ่ม `http://127.0.0.1:8899` ในโดเมนที่อนุญาตของ tenant demo
 - ปิดได้ด้วย `WEBCHAT=off` แล้วรัน `app` ให้ Agent ปิดและบันทึกผลแชทที่ค้างก่อน มิฉะนั้น Agent ที่ถือห้องจะติดสถานะของแชทและไม่ได้รับสายจนเปิดกลับ ([webchat.md](webchat.md#ข้อจำกัดของรอบแรก))
+
+## LINE แชท (#1054)
+
+เปิดด้วย `LINE_CHAT=on` ใน `solo.env` แล้วรัน `build` และ `app` (migration `20261128090000_line_chat_round_one` ถูก apply ในขั้น `app`) API ต้องมี `ACCOUNT_SECRET_KEY` อยู่แล้ว (ตัวเดียวกับ TOTP) รายละเอียดการทำงานอยู่ใน [line-chat.md](line-chat.md)
+
+LINE จริงต้องเรียก webhook ผ่าน HTTPS จากอินเทอร์เน็ต แต่ Solo อยู่ในวง 192.168.31.x จนกว่าจะมี URL สาธารณะและ LINE OA ทดสอบ ให้ใช้ตัวจำลอง LINE ที่รันเป็น container บน VM app:
+
+1. ใน `solo.env` ตั้ง `LINE_API_BASE_URL=http://line-simulator:8890`, `LINE_API_SIMULATOR=on` และเพิ่ม `line-sim` ใน `COMPOSE_PROFILES` (คั่นด้วย comma ถ้ามี `qm` อยู่แล้ว) แล้วรัน `app`
+2. Admin ตั้งค่าที่ Console **การเชื่อมต่อ → ช่องทางลูกค้า → LINE**: Channel ID อะไรก็ได้, secret เป็นตัวอักษร hex 32 ตัว, token อะไรก็ได้ (ยกเว้น `reject-token`) แล้วเปิดใช้งาน
+3. เปิด `https://<console host>/line-sim/` ใส่ webhook URL จากหน้าตั้งค่าและ secret เดียวกัน กด Save แล้วพิมพ์ในฐานะผู้ใช้ LINE ได้ ข้อความของ Agent และข้อความตอบอัตโนมัติขึ้นทางซ้าย
+4. ตัวจำลองส่ง webhook เข้า `http://api:3000` ภายในวง container โดยใช้ path ของ URL ที่วาง (`LINE_SIMULATOR_WEBHOOK_ORIGIN`) จึงไม่ผ่าน nginx
+
+- หน้าตัวจำลองไม่มี login และอ่าน secret ที่ใส่ไว้กลับได้ ใช้กับ secret ทดสอบเท่านั้น และเปิดได้เฉพาะ console host (workspace host ไม่มี path นี้) ตอน profile ปิด path นี้ตอบ 502
+- ตัวจำลองเก็บข้อความในหน่วยความจำ รัน `app` ใหม่แล้วประวัติในหน้าตัวจำลองหาย (ข้อมูลใน D-Contact ยังอยู่)
+- เปลี่ยนไปใช้ LINE จริง: ลบ `LINE_API_BASE_URL` และ `LINE_API_SIMULATOR` เอา `line-sim` ออกจาก `COMPOSE_PROFILES` รัน `app` แล้วบันทึก secret และ token จริงใหม่ในหน้าตั้งค่า (token ของตัวจำลองจะถูก LINE จริงปฏิเสธ)
+- ปิดได้ด้วย `LINE_CHAT=off` แล้วรัน `app` ข้อจำกัดเหมือน Web Chat ([line-chat.md](line-chat.md#ข้อจำกัดของรอบแรก))
