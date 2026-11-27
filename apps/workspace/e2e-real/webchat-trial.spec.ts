@@ -1,4 +1,5 @@
 import { mkdirSync, readFileSync } from 'node:fs';
+import { createServer, type Server } from 'node:http';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test, type Browser, type FrameLocator, type Page } from '@playwright/test';
@@ -197,27 +198,48 @@ test('web chat: widget → queue → Agent accepts → two-way chat → two room
   );
 
   // ── the tenant's own site shows the widget; a site that is not on the list shows nothing ──
-  const sites = await browser.newContext({ locale: 'th-TH' });
+  // Real local servers, not routed pages: Chrome treats a routed page as public and blocks its requests
+  // to the loopback API, which says nothing about the widget.
   const hostPage = (title: string) =>
     `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title></head><body><h1>${title}</h1>${snippet}</body></html>`;
-  await sites.route(`${tenantSite}/**`, (route) =>
-    route.fulfill({ contentType: 'text/html', body: hostPage('Demo Retail shop') }),
-  );
-  await sites.route(`${otherSite}/**`, (route) =>
-    route.fulfill({ contentType: 'text/html', body: hostPage('Another site') }),
-  );
+  const serve = (origin: string, title: string) =>
+    new Promise<Server>((done) => {
+      const server = createServer((_, response) => {
+        response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+        response.end(hostPage(title));
+      });
+      server.listen(Number(new URL(origin).port), '127.0.0.1', () => done(server));
+    });
+  const servers = await Promise.all([
+    serve(tenantSite, 'Demo Retail shop'),
+    serve(otherSite, 'Another site'),
+  ]);
+  const sites = await browser.newContext({ locale: 'th-TH' });
   const launcher = new RegExp(escapeRegExp(text('widget', 'launcher')));
   const shop = await sites.newPage();
   await shop.goto(`${tenantSite}/`);
-  await shop.getByRole('button', { name: launcher }).click();
-  await expect(
-    shop.frameLocator('iframe').getByRole('textbox', { name: text('widget', 'composer.label') }),
-  ).toBeEnabled();
+  // on a real site the button names the tenant (the preview page has no tenant name to show)
+  const siteLauncher = text('widget', 'launcherLabel', { tenant: 'Demo Company' });
+  await shop.getByRole('button', { name: siteLauncher }).click();
+  // Before the Agent signs in the widget says no agent is online and nothing can be sent; a previous
+  // run may have left the Agent Ready, and then it opens for chat. Either way the state must be one of them.
+  const shopFrame = shop.frameLocator('iframe');
+  const shopComposer = shopFrame.getByRole('textbox', { name: text('widget', 'composer.label') });
+  const offline = shopFrame.getByText(text('widget', 'offline.title'));
+  await expect(offline.or(shopFrame.getByText(text('widget', 'safety')))).toBeVisible();
+  if (await offline.isVisible()) await expect(shopComposer).toBeDisabled();
+  else await expect(shopComposer).toBeEnabled();
   await shot(shop, '02a-widget-on-tenant-site');
   const other = await sites.newPage();
-  const embedAnswer = other.waitForResponse((response) => response.url().endsWith('/embed'));
+  // the loader asks the API first; the answer to a site not on the list is a 404 the page may not read
+  const asked = other.waitForRequest((request) => request.url().endsWith('/embed'));
   await other.goto(`${otherSite}/`);
-  expect((await embedAnswer).status()).toBe(404);
+  const embedUrl = (await asked).url();
+  const direct = await other.request.get(embedUrl, { headers: { origin: otherSite } });
+  expect(direct.status()).toBe(404);
+  expect(direct.headers()['access-control-allow-origin']).not.toBe(otherSite);
+  await other.waitForTimeout(1_500);
+  await expect(other.getByRole('button', { name: siteLauncher })).toHaveCount(0);
   await expect(other.getByRole('button', { name: launcher })).toHaveCount(0);
   // even framing the chat directly is refused by the browser for a site that is not on the list
   const framed = await other.evaluate(
@@ -239,6 +261,7 @@ test('web chat: widget → queue → Agent accepts → two-way chat → two room
   );
   expect(framed).not.toBe('readable');
   await sites.close();
+  for (const server of servers) server.close();
 
   // ── the Agent signs in and is Ready ──
   // the socket must carry the "your chats changed" notice; the slow re-read alone would also pass the rest
