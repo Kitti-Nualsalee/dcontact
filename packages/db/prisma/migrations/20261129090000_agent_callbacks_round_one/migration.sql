@@ -13,7 +13,9 @@ ALTER TABLE ob_callbacks
   ADD COLUMN escalated_at timestamptz,
   ADD COLUMN last_reason_code text,
   ADD COLUMN attempt_interaction_id uuid,
-  ADD COLUMN attempt_count integer NOT NULL DEFAULT 0 CHECK (attempt_count >= 0);
+  ADD COLUMN attempt_count integer NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+  -- the Governance reservation of the dial attempt in progress: confirmed when the Agent answered, released otherwise
+  ADD COLUMN attempt_reservation_id uuid;
 
 ALTER TABLE ob_callbacks ADD CONSTRAINT ob_callbacks_agent_fields CHECK (
   origin <> 'AGENT'
@@ -38,7 +40,7 @@ CREATE INDEX ob_callbacks_agent_due_idx ON ob_callbacks (tenant_id, state, reque
 CREATE TABLE ob_callback_events (
   id uuid PRIMARY KEY,
   tenant_id uuid NOT NULL REFERENCES tenants(id),
-  callback_id uuid NOT NULL REFERENCES ob_callbacks(id),
+  callback_id uuid NOT NULL,
   kind text NOT NULL CHECK (kind IN (
     'SCHEDULED', 'RESCHEDULED', 'CANCELLED', 'ESCALATED', 'EXPIRED',
     'DIAL_STARTED', 'DEFERRED', 'BLOCKED', 'REVIEW', 'CONNECTED', 'NOT_CONNECTED'
@@ -50,6 +52,9 @@ CREATE TABLE ob_callback_events (
   decision_id text,
   occurred_at timestamptz NOT NULL DEFAULT clock_timestamp()
 );
+CREATE UNIQUE INDEX ob_callbacks_tenant_id_key ON ob_callbacks (tenant_id, id);
+ALTER TABLE ob_callback_events ADD CONSTRAINT ob_callback_events_callback_fk
+  FOREIGN KEY (tenant_id, callback_id) REFERENCES ob_callbacks(tenant_id, id);
 CREATE INDEX ob_callback_events_callback_idx ON ob_callback_events (tenant_id, callback_id, occurred_at, id);
 
 ALTER TABLE ob_callback_events ENABLE ROW LEVEL SECURITY;

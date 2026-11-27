@@ -3144,12 +3144,15 @@ model ObCallback {
   lastReasonCode            String?         @map("last_reason_code")
   attemptInteractionId      String?         @map("attempt_interaction_id") @db.Uuid
   attemptCount              Int             @default(0) @map("attempt_count")
+  /// #1061: Governance reservation of the dial attempt in progress (confirmed or released when it settles)
+  attemptReservationId      String?         @map("attempt_reservation_id") @db.Uuid
   createdAt                 DateTime        @default(now()) @map("created_at")
   updatedAt                 DateTime        @updatedAt @map("updated_at")
 
   tenant  Tenant  @relation(fields: [tenantId], references: [id])
   contact Contact @relation(fields: [tenantId, contactId], references: [tenantId, id])
 
+  @@unique([tenantId, id], map: "ob_callbacks_tenant_id_key")
   @@index([tenantId, contactId, state])
   @@index([tenantId, state, originateLeaseExpiresAt], map: "ob_callbacks_originate_lease_idx")
   @@map("ob_callbacks")

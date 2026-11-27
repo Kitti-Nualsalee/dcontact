@@ -5,6 +5,7 @@
  * and maps errors to a status. The customer's name and number are shown only while the viewer's team still has
  * WORK or VIEW permission on that customer in Customer 360 (the same rule as cases); dialing never needs them.
  */
+import { randomUUID } from 'node:crypto';
 import {
   BadRequestException,
   Body,
@@ -77,7 +78,9 @@ export function governanceDecider(
       purpose: AGENT_CALLBACK_PURPOSE,
       source: AGENT_CALLBACK_SOURCE,
       sourceId: request.callbackId ?? request.interactionId ?? request.commandId,
-      actionKey: `agent-callback-${request.stage === 'SCHEDULE' ? 'schedule' : 'dial'}:${request.commandId}`,
+      // a fresh key per attempt: a command that failed after ALLOW (no receipt) and is sent again must be decided
+      // again, not answered with the earlier ALLOW (a committed command never gets here: its receipt answers it)
+      actionKey: `agent-callback-${request.stage === 'SCHEDULE' ? 'schedule' : 'dial'}:${request.commandId}:${randomUUID()}`,
       policyVersion: 1,
       contactId: request.contactId,
       identityId: request.identityId,
@@ -97,6 +100,7 @@ export function governanceDecider(
     let settled = false;
     return {
       ...decision,
+      ...(reservationId ? { reservationId } : {}),
       settle: async (placed) => {
         if (settled || !reservationId) return;
         settled = true;
@@ -315,10 +319,14 @@ export class AgentCallbacksController {
   }
 }
 
-/** the background round: every active tenant, one tenant failing does not stop the others */
+/**
+ * the background round: every active tenant, one tenant failing does not stop the others. Settled dial attempts
+ * confirm their Governance reservation when the Agent answered and release it when nothing reached the customer
+ */
 export async function maintainAgentCallbacks(
   database: PrismaClient,
   callbacks: AgentCallbacks,
+  governance: CallbackGovernance,
 ): Promise<void> {
   const tenants = await database.tenant.findMany({
     where: { lifecycleStatus: 'ACTIVE' },
@@ -326,7 +334,18 @@ export async function maintainAgentCallbacks(
   });
   for (const { id } of tenants) {
     try {
-      const result = await callbacks.maintain(id);
+      const { reservations, ...result } = await callbacks.maintain(id);
+      for (const { reservationId, placed } of reservations)
+        await governance
+          .changeReservationState(id, reservationId, placed ? 'CONFIRM' : 'RELEASE')
+          // an unsettled reservation expires on its own (releaseExpiredReservations)
+          .catch((error: unknown) =>
+            logger.warn({
+              event: 'agent_callbacks.reservation_settle_failed',
+              tenantId: id,
+              ...errorSummary(error),
+            }),
+          );
       if (result.expired || result.escalated || result.connected || result.notConnected)
         logger.log({ event: 'agent_callbacks.maintained', tenantId: id, ...result });
     } catch (error) {

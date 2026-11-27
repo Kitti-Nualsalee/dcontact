@@ -58,8 +58,13 @@ export class ManagedRecordingTrigger {
     }
     if (!managed) return undefined;
     if (managed.type === 'call.bridge') {
-      // A managed bridge must be the customer leg with the Agent: Bridge-A-Unique-ID matches the customer call the runtime holds
-      if (source['Bridge-A-Unique-ID'] !== managed.callUuid) return undefined;
+      // A managed bridge must be the customer leg with the Agent: Bridge-A-Unique-ID matches the customer call the runtime holds.
+      // #1061 a callback bridges the other way round (the Agent leg dials the customer), so the customer is the B side
+      if (
+        source['Bridge-A-Unique-ID'] !== managed.callUuid &&
+        source['Bridge-B-Unique-ID'] !== managed.callUuid
+      )
+        return undefined;
       if (this.begun.has(managed.callUuid)) return undefined;
       const event = this.envelope(source, tenantId, 'call.answered');
       if (event) {

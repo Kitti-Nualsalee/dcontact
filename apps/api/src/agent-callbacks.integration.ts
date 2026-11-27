@@ -388,9 +388,15 @@ test('15 minutes after the time an offline Agent loses the callback to the team;
   assert.equal((await f.callbacks.list(f.me)).items[0]!.due, true);
   assert.equal((await f.callbacks.maintain(f.tenantId)).escalated, 0);
   // the Work Session ends: the next round moves it to the team
+  // a short reconnect does not lose the callback: only 2 minutes away moves it
   await owner.agentWorkSessionLease.update({
     where: { id: lease.id },
-    data: { releasedAt: f.now(), releaseReason: 'released' },
+    data: { releasedAt: new Date(f.now().getTime() - 60_000), releaseReason: 'released' },
+  });
+  assert.equal((await f.callbacks.maintain(f.tenantId)).escalated, 0);
+  await owner.agentWorkSessionLease.update({
+    where: { id: lease.id },
+    data: { releasedAt: new Date(f.now().getTime() - 3 * 60_000) },
   });
   assert.equal((await f.callbacks.maintain(f.tenantId)).escalated, 1);
   assert.equal((await f.callbacks.maintain(f.tenantId)).escalated, 0);
@@ -444,8 +450,11 @@ test('dialing places a callback call for the Agent; when the Agent does not answ
   const dialing = await f.callbacks.dial(f.me, ref.callbackId, command);
   assert.equal(dialing.status, 'DIALING');
   assert.equal(dialing.version, 2);
-  assert.equal(f.governance.confirmed.length, 1);
-  assert.equal(f.governance.asked.at(-1)!.actionKey, `agent-callback-dial:${command.commandId}`);
+  // the reservation stays open until the attempt settles
+  assert.equal(f.governance.confirmed.length, 0);
+  assert.ok(
+    f.governance.asked.at(-1)!.actionKey.startsWith(`agent-callback-dial:${command.commandId}:`),
+  );
   // resending the same command answers the same attempt
   assert.deepEqual(await f.callbacks.dial(f.me, ref.callbackId, command), dialing);
   const interactionId = dialing.status === 'DIALING' ? dialing.interactionId : '';
@@ -459,7 +468,13 @@ test('dialing places a callback call for the Agent; when the Agent does not answ
 
   // the Agent did not answer D-Phone: the runtime abandoned the call, the round puts the callback back
   await owner.interaction.update({ where: { id: interactionId }, data: { state: 'ABANDONED' } });
-  assert.equal((await f.callbacks.maintain(f.tenantId)).notConnected, 1);
+  const missed = await f.callbacks.maintain(f.tenantId);
+  assert.equal(missed.notConnected, 1);
+  // nothing reached the customer: the reservation is given back
+  assert.deepEqual(
+    missed.reservations.map((item) => item.placed),
+    [false],
+  );
   let row = await owner.obCallback.findUniqueOrThrow({ where: { id: ref.callbackId } });
   assert.equal(row.state, 'SCHEDULED');
   assert.equal(row.lastReasonCode, 'AGENT_NOT_ANSWERED');
@@ -479,7 +494,12 @@ test('dialing places a callback call for the Agent; when the Agent does not answ
     where: { id: second },
     data: { state: 'WRAPUP', answeredAt: new Date() },
   });
-  assert.equal((await f.callbacks.maintain(f.tenantId)).connected, 1);
+  const reached = await f.callbacks.maintain(f.tenantId);
+  assert.equal(reached.connected, 1);
+  assert.deepEqual(
+    reached.reservations.map((item) => item.placed),
+    [true],
+  );
   row = await owner.obCallback.findUniqueOrThrow({ where: { id: ref.callbackId } });
   assert.equal(row.state, 'CONSUMED');
   assert.equal(row.attemptCount, 2);
@@ -541,13 +561,27 @@ test('an Agent with other work cannot dial; the reservation is given back and th
   const ref = await scheduled(f);
   await f.session();
   await f.work(); // the Agent is in another conversation
+  const failedCommand = { commandId: randomUUID(), expectedVersion: 1 };
   await assert.rejects(
-    f.callbacks.dial(f.me, ref.callbackId, { commandId: randomUUID(), expectedVersion: 1 }),
+    f.callbacks.dial(f.me, ref.callbackId, failedCommand),
     code('AGENT_NOT_AVAILABLE'),
   );
   assert.equal(f.governance.released.length, 2); // schedule check + this dial
   assert.equal(f.governance.confirmed.length, 0);
+  // the same command sent again after the Agent is free asks Governance again (no stale ALLOW)
+  const asked = f.governance.asked.length;
+  await owner.interaction.updateMany({
+    where: { tenantId: f.tenantId, agentId: f.me.userId, state: 'ACTIVE' },
+    data: { state: 'ABANDONED' },
+  });
+  f.governance.decision = 'DEFER';
+  f.governance.nextEligibleAt = f.at(3 * 60 * 60_000);
+  const retried = await f.callbacks.dial(f.me, ref.callbackId, failedCommand);
+  assert.equal(retried.status, 'DEFERRED');
+  assert.equal(f.governance.asked.length, asked + 1);
   const row = await owner.obCallback.findUniqueOrThrow({ where: { id: ref.callbackId } });
   assert.equal(row.state, 'SCHEDULED');
-  assert.equal(row.version, 1);
+  // moved once by the DEFER of the retry, never dialed
+  assert.equal(row.version, 2);
+  assert.equal(row.attemptCount, 0);
 });

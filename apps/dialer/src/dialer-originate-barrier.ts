@@ -211,7 +211,7 @@ export class DialerOriginateBarrier {
     if (gateState === 'DISABLED' || gateState === 'KILLED') return 'GATE_CLOSED';
 
     const callback = await withTenantDatabaseTransaction(this.database, tenantId, (transaction) =>
-      transaction.obCallback.findFirst({ where: { id: callbackId, tenantId } }),
+      transaction.obCallback.findFirst({ where: { id: callbackId, tenantId, origin: 'JOURNEY' } }),
     );
     if (!callback || callback.state !== 'SCHEDULED') return 'NOT_ELIGIBLE';
 

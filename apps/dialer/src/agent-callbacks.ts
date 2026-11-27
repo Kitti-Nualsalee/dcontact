@@ -108,6 +108,8 @@ export interface AgentCallbackDecision {
   reasonCode: string;
   /** DEFER: the first time Governance would allow, when it can tell */
   nextEligibleAt?: string;
+  /** DIAL + ALLOW: kept on the callback until the attempt settles */
+  reservationId?: string;
   /** DIAL only, called once: true = the call was placed (confirm), false = nothing was placed (release) */
   settle?(placed: boolean): Promise<void>;
 }
@@ -159,7 +161,17 @@ export interface AgentCallbackMaintenance {
   escalated: number;
   connected: number;
   notConnected: number;
+  /**
+   * Governance reservations of the attempts settled in this round, for apps/api to confirm (the Agent answered,
+   * the customer was dialed) or release (nothing reached the customer). Dialer does not hold the port (CG4-REG02)
+   */
+  reservations: { reservationId: string; placed: boolean }[];
 }
+
+/** an Agent must be away this long before their callback moves to the team, so a short reconnect does not lose it */
+export const AGENT_CALLBACK_OFFLINE_GRACE_MS = 2 * 60_000;
+/** a dial attempt whose call never left ASSIGNED for this long (e.g. the telephony node stopped) is given back */
+export const AGENT_CALLBACK_STALE_ATTEMPT_MS = 5 * 60_000;
 
 /** places the callback call in the caller's transaction (apps/api wires the managed voice runtime of apps/router) */
 export interface CallbackCallPort {
@@ -489,16 +501,7 @@ export class AgentCallbacks {
     const target = await this.read(actor, async (transaction, teamActor) => {
       const row = await this.visible(transaction, teamActor, callbackId, expectedVersion, false);
       const now = this.now();
-      const session = await transaction.agentWorkSessionLease.findFirst({
-        where: {
-          tenantId: teamActor.tenantId,
-          userId: teamActor.userId,
-          releasedAt: null,
-          expiresAt: { gt: now },
-        },
-        select: { id: true },
-      });
-      if (!session) throw new AgentCallbackError('NO_WORK_SESSION');
+      await this.requireWorkSession(transaction, teamActor, now);
       const destination = await this.dialableIdentity(
         transaction,
         teamActor,
@@ -596,6 +599,10 @@ export class AgentCallbacks {
             row.contact_id,
             row.identity_id,
           );
+          // checked again where the call is placed: the Work Session may have ended, the queue may have changed
+          await this.requireWorkSession(transaction, teamActor);
+          const queue = await this.callbackQueue(transaction, teamActor, row.queue_id);
+          if (!queue || queue.id !== row.queue_id) throw new AgentCallbackError('NO_VOICE_QUEUE');
           const call = await calls.start(transaction, {
             tenantId: teamActor.tenantId,
             queueId: row.queue_id,
@@ -608,6 +615,7 @@ export class AgentCallbacks {
             state: 'ORIGINATING',
             attemptInteractionId: call.interactionId,
             attemptCount: { increment: 1 },
+            attemptReservationId: outcome.reservationId ?? null,
             lastReasonCode: null,
           });
           await this.event(transaction, teamActor.tenantId, callbackId, 'DIAL_STARTED', {
@@ -629,8 +637,7 @@ export class AgentCallbacks {
       await outcome.settle?.(false).catch(() => undefined);
       throw error;
     }
-    // the attempt happened; a failed confirm leaves the reservation to expire on its own
-    await outcome.settle?.(true).catch(() => undefined);
+    // the reservation stays open until the attempt settles: confirmed once the Agent answered (maintain())
     return result;
   }
 
@@ -721,7 +728,8 @@ export class AgentCallbacks {
            AND NOT EXISTS (
              SELECT 1 FROM agent_work_session_leases l
               WHERE l.tenant_id = cb.tenant_id AND l.user_id = cb.agent_id
-                AND l.released_at IS NULL AND l.expires_at > ${now})
+                AND ((l.released_at IS NULL AND l.expires_at > ${now})
+                  OR coalesce(l.released_at, l.expires_at) > ${new Date(now.getTime() - AGENT_CALLBACK_OFFLINE_GRACE_MS)}))
         RETURNING cb.id`);
       for (const row of escalated)
         await this.event(transaction, tenantId, row.id, 'ESCALATED', {
@@ -730,28 +738,47 @@ export class AgentCallbacks {
 
       // A dial attempt is settled once its call has left ASSIGNED: answered by the Agent = called,
       // abandoned before the Agent answered = back to SCHEDULED so it can be dialed again
+      // A call still ASSIGNED long after dialing means the telephony node never settled it: give the callback back
       const attempts = await transaction.$queryRaw<
-        { id: string; interaction_id: string; answered: boolean }[]
+        {
+          id: string;
+          answered: boolean;
+          stale: boolean;
+          reservation_id: string | null;
+        }[]
       >(Prisma.sql`
-        SELECT cb.id, cb.attempt_interaction_id AS interaction_id, (i.answered_at IS NOT NULL) AS answered
+        SELECT cb.id, (i.answered_at IS NOT NULL) AS answered, (i.state IN ('QUEUED', 'ASSIGNED')) AS stale,
+               cb.attempt_reservation_id::text AS reservation_id
           FROM ob_callbacks cb
           JOIN interactions i ON i.tenant_id = cb.tenant_id AND i.id = cb.attempt_interaction_id
          WHERE cb.tenant_id = ${tenantId}::uuid AND cb.origin = 'AGENT' AND cb.state = 'ORIGINATING'
-           AND i.state NOT IN ('QUEUED', 'ASSIGNED')
+           AND (i.state NOT IN ('QUEUED', 'ASSIGNED')
+             OR cb.updated_at <= ${new Date(now.getTime() - AGENT_CALLBACK_STALE_ATTEMPT_MS)})
          FOR UPDATE OF cb`);
       let connected = 0;
       let notConnected = 0;
+      const reservations: AgentCallbackMaintenance['reservations'] = [];
       for (const attempt of attempts) {
-        const settled = await this.settleAttempt(
+        const answered = attempt.answered && !attempt.stale;
+        await this.settleAttempt(
           transaction,
           tenantId,
           attempt.id,
-          attempt.answered,
+          answered,
+          attempt.stale ? 'DIAL_UNCONFIRMED' : 'AGENT_NOT_ANSWERED',
         );
-        if (settled === 'CONNECTED') connected += 1;
-        if (settled === 'NOT_CONNECTED') notConnected += 1;
+        if (answered) connected += 1;
+        else notConnected += 1;
+        if (attempt.reservation_id)
+          reservations.push({ reservationId: attempt.reservation_id, placed: answered });
       }
-      return { expired: expired.length, escalated: escalated.length, connected, notConnected };
+      return {
+        expired: expired.length,
+        escalated: escalated.length,
+        connected,
+        notConnected,
+        reservations,
+      };
     });
   }
 
@@ -760,6 +787,7 @@ export class AgentCallbacks {
     tenantId: string,
     callbackId: string,
     answered: boolean,
+    reasonCode: string,
   ): Promise<'CONNECTED' | 'NOT_CONNECTED'> {
     const now = this.now();
     const [row] = await transaction.$queryRaw<
@@ -767,18 +795,36 @@ export class AgentCallbacks {
     >(Prisma.sql`
       UPDATE ob_callbacks SET
              state = ${answered ? 'CONSUMED' : 'SCHEDULED'}::"ObCallbackState",
-             last_reason_code = ${answered ? null : 'AGENT_NOT_ANSWERED'},
+             last_reason_code = ${answered ? null : reasonCode},
+             attempt_reservation_id = NULL,
              version = version + 1, updated_at = ${now}
        WHERE tenant_id = ${tenantId}::uuid AND id = ${callbackId}::uuid AND state = 'ORIGINATING'
       RETURNING attempt_interaction_id`);
     await this.event(transaction, tenantId, callbackId, answered ? 'CONNECTED' : 'NOT_CONNECTED', {
       interactionId: row?.attempt_interaction_id ?? undefined,
-      ...(answered ? {} : { reasonCode: 'AGENT_NOT_ANSWERED' }),
+      ...(answered ? {} : { reasonCode }),
     });
     return answered ? 'CONNECTED' : 'NOT_CONNECTED';
   }
 
   // ── shared pieces ──
+
+  private async requireWorkSession(
+    transaction: Transaction,
+    actor: TeamActor,
+    now: Date = this.now(),
+  ): Promise<void> {
+    const session = await transaction.agentWorkSessionLease.findFirst({
+      where: {
+        tenantId: actor.tenantId,
+        userId: actor.userId,
+        releasedAt: null,
+        expiresAt: { gt: now },
+      },
+      select: { id: true },
+    });
+    if (!session) throw new AgentCallbackError('NO_WORK_SESSION');
+  }
 
   private async teamActor(transaction: Transaction, actor: AgentCallbackActor): Promise<TeamActor> {
     const user = await transaction.user.findFirst({

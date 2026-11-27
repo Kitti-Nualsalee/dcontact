@@ -543,7 +543,7 @@ if (agentCallbacksEnabled) {
   startBackgroundLoop({
     name: 'agent_callbacks.maintain',
     intervalMs: 5_000,
-    work: () => maintainAgentCallbacks(prisma, agentCallbacks),
+    work: () => maintainAgentCallbacks(prisma, agentCallbacks, contactGovernance),
   });
 }
 const lineChatClient = new LineChatClient(resolveLineApiBaseUrl(process.env));
