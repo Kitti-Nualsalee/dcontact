@@ -415,8 +415,10 @@
   overflow: auto;
 }
 
+/* an unselected panel that stays mounted (`shouldForceMount`) is rendered inert and without the tabpanel role */
 .aw-v3-tabs [role='tabpanel'][hidden],
-.aw-v3-tabs [role='tabpanel'][inert] {
+.aw-v3-tabs [role='tabpanel'][inert],
+.aw-v3-tabs > [data-inert='true'] {
   display: none;
 }
 

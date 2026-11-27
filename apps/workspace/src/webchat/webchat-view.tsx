@@ -447,7 +447,10 @@ export function WebchatRoomView({
       self: t('chat.sender.self'),
       sending: t('chat.sending'),
       failed: t('chat.sendFailed'),
-      started: t('chat.system.started', { origin: originLabel(chat.origin) }),
+      started:
+        chat.origin === 'preview'
+          ? t('chat.system.startedPreview')
+          : t('chat.system.started', { origin: originLabel(chat.origin) }),
       system,
     },
     clock,

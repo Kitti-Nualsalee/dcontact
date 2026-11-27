@@ -589,7 +589,8 @@
       "customerEnded": "The customer ended the chat",
       "customerLeft": "The customer left the chat",
       "idleClosed": "Closed because the customer did not reply for {{minutes}} minutes",
-      "idleClosedShort": "Closed because the customer did not reply"
+      "idleClosedShort": "Closed because the customer did not reply",
+      "startedPreview": "Visitor started the chat from the preview page"
     },
     "idleWarning": "The chat closes in {{remaining}} unless the customer writes",
     "composer": {

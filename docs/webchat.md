@@ -93,3 +93,18 @@ pnpm --filter @d-contact/workspace exec playwright test e2e/webchat.spec.ts --pr
 ```
 
 สองคำสั่งแรกต้องใช้ PostgreSQL แยกที่ migrate และ `db:rls` แล้ว ตั้ง `DATABASE_URL` และ `APPLICATION_DATABASE_URL` (role `dcontact_app` ไม่ bypass RLS) ชุด browser จำลอง API ด้วย route จึงยืนยันเฉพาะหน้าจอ
+
+## ทดลองทั้งเส้นบน dev
+
+ใช้ stack ของ `scripts/sales-demo-stack.mjs` (API 3000, Workspace 5173, Console 5174) กับฐานแยก และเปิด `WEBCHAT=on`
+
+```sh
+pnpm infra:up
+SALES_DEMO_DATABASE=dcontact_webchat_demo WEBCHAT=on node scripts/sales-demo-stack.mjs
+pnpm --filter @d-contact/workspace exec playwright test --config playwright.webchat-trial.config.ts
+```
+
+- ถ้าพอร์ต 5433 ของเครื่องถูกใช้อยู่ ให้เปิด PostgreSQL ของ dev ที่พอร์ตอื่นแล้วส่ง `DCONTACT_DEV_POSTGRES_PORT=<พอร์ต>` ให้สคริปต์
+- ชุดทดลอง (`apps/workspace/e2e-real/webchat-trial.spec.ts`) เดิน: Admin เปิด widget ใน Console → ผู้เยี่ยมชมพิมพ์จากหน้าทดลอง → Agent รับใน Workspace → คุยสองทางโดยไม่รีเฟรช → รีเฟรชหน้าผู้เยี่ยมชมแล้วกลับห้องเดิม → ผู้เยี่ยมชมคนที่สองเป็นห้องที่สอง → ลูกค้าจบห้องหนึ่ง Agent จบอีกห้อง → บันทึกผลทั้งสอง → Admin อ่านบทสนทนาในประวัติงานของทีม
+- เป็นเครื่องมือทดลอง ไม่ใช่หลักฐานของ identity: tenant ถูก seed โดยสคริปต์ และโทรศัพท์ของ Agent ใช้ fake media
+
