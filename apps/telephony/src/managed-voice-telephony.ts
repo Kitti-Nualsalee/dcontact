@@ -376,7 +376,37 @@ export class ManagedVoiceTelephony {
     if (uuidPattern.test(jobUuid)) this.backgroundJobs.add(jobUuid);
   }
 
+  /**
+   * Reloads the customer calls this node still holds (QUEUED/ASSIGNED/ACTIVE) after a restart, so their DTMF/speech
+   * and other events are not sent to legacy (which rejects managed calls) while the set in memory is empty.
+   * Runs per ACTIVE tenant under RLS; returns how many calls were restored
+   */
+  async restoreCalls(): Promise<number> {
+    let restored = 0;
+    for (const tenantId of await this.activeTenantIds()) {
+      const rows = await withTenantDatabaseTransaction(
+        this.options.database,
+        tenantId,
+        (transaction) => transaction.$queryRaw<{ callUuid: string }[]>`
+          SELECT c.call_uuid AS "callUuid" FROM voice_managed_calls c
+          JOIN interactions i ON i.tenant_id=c.tenant_id AND i.id=c.interaction_id
+          WHERE c.tenant_id=${tenantId}::uuid AND c.telephony_node_id=${this.options.nodeId}
+            AND i.state IN ('QUEUED','ASSIGNED','ACTIVE')`,
+      );
+      for (const row of rows) {
+        if (!this.calls.has(row.callUuid)) restored++;
+        this.calls.add(row.callUuid);
+      }
+    }
+    return restored;
+  }
+
   start() {
+    void this.restoreCalls()
+      .then((restored) => {
+        if (restored) this.log(`managed calls restored after start: ${restored}`);
+      })
+      .catch((error: unknown) => this.log('managed call restore failed', error));
     const every = (index: number, work: () => Promise<void>) => {
       const timer = setInterval(() => {
         if (this.busy[index]) return;

@@ -387,3 +387,79 @@ test('a managed destination the runtime does not take (inactive) is hung up inst
   assert.equal(Number(interactions.count), 0);
   assert.equal(managed.isKnownCall(caller), true);
 });
+
+test('after a restart the calls this node still holds are restored, so their DTMF does not go to legacy', async (context) => {
+  const owner = new PrismaClient();
+  const database = new PrismaClient({ datasources: { db: { url: applicationUrl } } });
+  const fake = fakeSwitch('fixture-979');
+  await new Promise<void>((resolve) => fake.server.listen(0, '127.0.0.1', resolve));
+  const address = fake.server.address() as net.AddressInfo;
+  const alpha = await managedTenant(owner, 'alpha', 0);
+  const telephony = () =>
+    new ManagedVoiceTelephony({
+      nodeId,
+      database,
+      dispatchDatabase: database,
+      esl: new E1EslCommandClient({
+        host: '127.0.0.1',
+        port: address.port,
+        password: 'fixture-979',
+      }),
+      directory: new TenantSipDomainDirectory(database),
+      log: () => undefined,
+    });
+  context.after(async () => {
+    fake.server.close();
+    await Promise.all([owner.$disconnect(), database.$disconnect()]);
+  });
+  const created = (callUuid: string) => ({
+    'Event-Name': 'CHANNEL_CREATE',
+    'Unique-ID': callUuid,
+    'Caller-Destination-Number': '2000',
+    'Caller-Caller-ID-Number': '0811111111',
+  });
+  // No Agent: the call stays QUEUED in the managed runtime
+  const queued = randomUUID();
+  const before = telephony();
+  assert.equal(await routeManagedCall(created(queued), alpha.tenantId, before.routing), 'managed');
+  // A call on another node and a call that already ended must not be restored
+  const ended = randomUUID();
+  assert.equal(await routeManagedCall(created(ended), alpha.tenantId, before.routing), 'managed');
+  await owner.$executeRaw`UPDATE interactions SET state='ABANDONED',ended_at=clock_timestamp()
+    WHERE tenant_id=${alpha.tenantId}::uuid AND external_id=${ended}`;
+  const otherNode = new ManagedVoiceTelephony({
+    nodeId: 'fs-it-other',
+    database,
+    dispatchDatabase: database,
+    esl: new E1EslCommandClient({ host: '127.0.0.1', port: address.port, password: 'fixture-979' }),
+    directory: new TenantSipDomainDirectory(database),
+    log: () => undefined,
+  });
+
+  // Restart: a new instance starts with an empty set
+  const after = telephony();
+  assert.equal(after.isKnownCall(queued), false);
+  // Other tests share this node and database, so check the calls of this test rather than the total
+  assert.ok((await after.restoreCalls()) >= 1);
+  assert.equal(after.isKnownCall(queued), true);
+  assert.equal(after.isKnownCall(ended), false);
+  assert.equal(await otherNode.restoreCalls(), 0);
+  assert.equal(
+    await routeManagedCall(
+      { 'Event-Name': 'DTMF', 'Unique-ID': queued, 'DTMF-Digit': '1' },
+      alpha.tenantId,
+      after.routing,
+    ),
+    'ignored',
+  );
+  // The caller hangs up: the runtime closes the call and the restored entry is removed
+  assert.equal(
+    await routeManagedCall(
+      { 'Event-Name': 'CHANNEL_HANGUP_COMPLETE', 'Unique-ID': queued },
+      alpha.tenantId,
+      after.routing,
+    ),
+    'managed',
+  );
+  assert.equal(after.isKnownCall(queued), false);
+});
