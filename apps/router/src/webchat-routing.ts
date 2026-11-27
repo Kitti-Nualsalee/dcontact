@@ -2,7 +2,8 @@ import { Prisma } from '@d-contact/db';
 import { recordVoiceHandlingAttribution } from './handling-attribution.js';
 
 /**
- * #1044 Web chat assignment (ADR-001: one router decides assignment for every channel).
+ * #1044 Chat assignment (ADR-001: one router decides assignment for every channel). Web chat (#1044) and
+ * LINE (#1054) are both chat channels: they share an Agent's chat limit and the same offers.
  *
  * - An Agent holds several chats at once, up to the widget's limit; an offer, an active chat and a chat
  *   waiting for its wrap-up all count against the limit.
@@ -18,6 +19,11 @@ import { recordVoiceHandlingAttribution } from './handling-attribution.js';
  */
 
 type Tx = Prisma.TransactionClient;
+
+/** the channels whose work is a chat; an Agent holds several of these at once, of any of them */
+export const CHAT_CHANNELS = ['WEBCHAT', 'LINE'] as const;
+export type ChatChannel = (typeof CHAT_CHANNELS)[number];
+const CHAT_CHANNEL_SQL = Prisma.sql`('WEBCHAT','LINE')`;
 
 /** `agent_state_logs.reason` of a state that web chat owns */
 export const WEBCHAT_STATE_REASON = 'webchat';
@@ -115,7 +121,8 @@ async function lockInteraction(tx: Tx, tenantId: string, interactionId: string) 
     { id: string; state: string; agent_id: string | null; queue_id: string | null }[]
   >(Prisma.sql`
     SELECT id, state::text AS state, agent_id, queue_id FROM interactions
-    WHERE tenant_id = ${tenantId}::uuid AND id = ${interactionId}::uuid AND channel = 'WEBCHAT'
+    WHERE tenant_id = ${tenantId}::uuid AND id = ${interactionId}::uuid
+      AND channel::text IN ${CHAT_CHANNEL_SQL}
     FOR NO KEY UPDATE`);
   return rows[0];
 }
@@ -137,8 +144,8 @@ export async function syncAgentWebchatState(
       count(*) FILTER (WHERE state = 'ACTIVE')::int AS active,
       count(*) FILTER (WHERE state = 'WRAPUP')::int AS wrapup
     FROM interactions
-    WHERE tenant_id = ${tenantId}::uuid AND agent_id = ${agentId}::uuid AND channel = 'WEBCHAT'
-      AND state IN ${OPEN_STATES}`,
+    WHERE tenant_id = ${tenantId}::uuid AND agent_id = ${agentId}::uuid
+      AND channel::text IN ${CHAT_CHANNEL_SQL} AND state IN ${OPEN_STATES}`,
   );
   const latest = await tx.agentStateLog.findFirst({
     where: { tenantId, userId: agentId },
@@ -191,6 +198,44 @@ export async function syncAgentWebchatState(
       reason: options.workCompleted ? 'wrapup_completed' : 'webchat_released',
     },
   });
+}
+
+/**
+ * Creates the work item of a LINE user's message in the queue, in their long-lived conversation. A
+ * customer the conversation is already linked to is carried over to the new work (#1054).
+ */
+export async function createLineInteraction(
+  tx: Tx,
+  input: {
+    tenantId: string;
+    queueId: string;
+    conversationId: string;
+    contactId: string | null;
+    channelId: string;
+    lineUserId: string;
+    now: Date;
+  },
+): Promise<string> {
+  const interaction = await tx.interaction.create({
+    data: {
+      tenantId: input.tenantId,
+      channel: 'LINE',
+      direction: 'INBOUND',
+      state: 'QUEUED',
+      queueId: input.queueId,
+      conversationId: input.conversationId,
+      queuedAt: input.now,
+      ...(input.contactId ? { contactId: input.contactId, customerLinkRevision: 1n } : {}),
+      metadata: { line: { channelId: input.channelId, userId: input.lineUserId } },
+    },
+    select: { id: true },
+  });
+  await logEvent(tx, input.tenantId, interaction.id, 'interaction.queued', {
+    channel: 'LINE',
+    queueId: input.queueId,
+    ...(input.contactId ? { contactCarriedOver: true } : {}),
+  });
+  return interaction.id;
 }
 
 /** Creates the work item of a visitor's chat in the queue. The caller links it to the session. */
@@ -258,7 +303,7 @@ export async function offerQueuedWebchat(
     AND NOT EXISTS (
       SELECT 1 FROM interactions other
       WHERE other.tenant_id = u.tenant_id AND other.agent_id = u.id
-        AND other.channel <> 'WEBCHAT' AND other.state IN ${OPEN_STATES}
+        AND other.channel::text NOT IN ${CHAT_CHANNEL_SQL} AND other.state IN ${OPEN_STATES}
     )
     -- an Agent who asked to go Not Ready after work gets no new chat while finishing the ones in hand
     AND NOT (chats.open > 0 AND EXISTS (
@@ -269,7 +314,7 @@ export async function offerQueuedWebchat(
     JOIN LATERAL (
       SELECT count(*)::int AS open FROM interactions held
       WHERE held.tenant_id = u.tenant_id AND held.agent_id = u.id
-        AND held.channel = 'WEBCHAT' AND held.state IN ${OPEN_STATES}
+        AND held.channel::text IN ${CHAT_CHANNEL_SQL} AND held.state IN ${OPEN_STATES}
     ) chats ON true`;
   const [picked] = await tx.$queryRaw<{ id: string }[]>(Prisma.sql`
     SELECT u.id FROM users u ${latestState} ${chats}
@@ -368,7 +413,7 @@ export async function releaseWebchatOffer(
     where: {
       tenantId,
       agentId,
-      channel: { not: 'WEBCHAT' },
+      channel: { notIn: [...CHAT_CHANNELS] },
       state: { in: ['ASSIGNED', 'ACTIVE', 'WRAPUP'] },
     },
   });
@@ -395,7 +440,7 @@ export async function acceptWebchatOffer(
     where: {
       tenantId,
       agentId,
-      channel: { not: 'WEBCHAT' },
+      channel: { notIn: [...CHAT_CHANNELS] },
       state: { in: ['ASSIGNED', 'ACTIVE', 'WRAPUP'] },
     },
   });
@@ -450,7 +495,7 @@ export async function endWebchat(
 ): Promise<WebchatEndResult | null> {
   const { tenantId, interactionId, reason, now } = input;
   const current = await tx.interaction.findFirst({
-    where: { tenantId, id: interactionId, channel: 'WEBCHAT' },
+    where: { tenantId, id: interactionId, channel: { in: [...CHAT_CHANNELS] } },
     select: { agentId: true },
   });
   if (!current) return null;

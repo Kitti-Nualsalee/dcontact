@@ -65,7 +65,7 @@ export async function fenceC360Work(
   }
   const [work] = await tx.$queryRaw<
     { id: string; state: string; contact_id: string | null; customer_link_revision: bigint }[]
-  >`SELECT id,state::text,contact_id,customer_link_revision FROM interactions WHERE tenant_id=${actor.tenantId}::uuid AND id=${interactionId}::uuid AND agent_id=${actor.userId}::uuid AND channel::text IN ('VOICE','WEBCHAT') FOR NO KEY UPDATE NOWAIT`;
+  >`SELECT id,state::text,contact_id,customer_link_revision FROM interactions WHERE tenant_id=${actor.tenantId}::uuid AND id=${interactionId}::uuid AND agent_id=${actor.userId}::uuid AND channel::text IN ('VOICE','WEBCHAT','LINE') FOR NO KEY UPDATE NOWAIT`;
   if (!work) throw denied();
   const active = ['ACTIVE', 'WRAPUP'].includes(work.state);
   if ((write && !active) || (!active && work.state !== 'COMPLETED'))
@@ -436,10 +436,17 @@ export async function changeC360WorkLink(
   if ((action === 'LINK' && reason !== null) || (action !== 'LINK' && !reason))
     throw new C360ProfileCommandError('INVALID_REQUEST', 400);
   const after = BigInt(work.linkageRevision) + 1n;
-  await tx.interaction.update({
+  const updated = await tx.interaction.update({
     where: { id: work.interactionId },
     data: { contactId: selected, customerLinkRevision: after },
+    select: { channel: true, conversationId: true },
   });
+  // #1054 a LINE conversation remembers its customer: the next piece of work starts linked to them
+  if (updated.channel === 'LINE' && updated.conversationId)
+    await tx.conversation.update({
+      where: { id: updated.conversationId },
+      data: { contactId: selected },
+    });
   await tx.c360InteractionCustomerChange.create({
     data: {
       id: randomUUID(),

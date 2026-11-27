@@ -113,6 +113,15 @@ import {
 } from './tenant-queue-api.js';
 import { fanoutAgentOffer } from './agent-offer-fanout.js';
 import { resolveWebchat } from './webchat-config.js';
+import { resolveLineApiBaseUrl, resolveLineChat } from './line-chat-config.js';
+import { LineChatClient } from './line-chat-client.js';
+import { LineChatService } from './line-chat-service.js';
+import {
+  LINE_CHAT_DEPENDENCIES,
+  LINE_CHAT_SERVICE,
+  LineChannelController,
+  LineChatWebhookController,
+} from './line-chat-api.js';
 import { WebchatHub } from './webchat-hub.js';
 import { WebchatService } from './webchat-service.js';
 import {
@@ -494,6 +503,56 @@ if (webchatEnabled) {
   });
   startBackgroundLoop({ name: 'webchat.round', intervalMs: 1_000, work: () => webchat.tickAll() });
 }
+// #1054: off by default; when on, LINE's webhook and the channel settings exist, LINE chats join the
+// chat round above and Agents' messages are sent to LINE in the background. The channel secrets are
+// sealed with the account secret key, so LINE chat needs ACCOUNT_SECRET_KEY as well.
+const lineChatEnabled = resolveLineChat(process.env);
+const lineChatBox = accountSecretKey ? new AccountSecretBox(accountSecretKey) : null;
+console.log(
+  JSON.stringify({
+    event: 'line_chat.readiness',
+    status: !lineChatEnabled ? 'DISABLED' : lineChatBox ? 'ENABLED' : 'SECRET_KEY_MISSING',
+  }),
+);
+const lineChatClient = new LineChatClient(resolveLineApiBaseUrl(process.env));
+const lineChat = new LineChatService(prisma, lineChatBox, lineChatClient, webchat, webchatHub);
+const chatChannels = [
+  ...(webchatEnabled ? (['WEBCHAT'] as const) : []),
+  ...(lineChatEnabled ? (['LINE'] as const) : []),
+];
+if (lineChatEnabled) {
+  webchat.onOutbox((tenantId) => lineChat.kickDelivery(tenantId));
+  if (!webchatEnabled) {
+    // the chat round and the Agents' notices run for LINE alone as well
+    webchatHub.onAgents((tenantId, agentIds) => {
+      void socketAdapter
+        .deliverLiveEvent({ type: 'webchat.changed', tenantId }, agentIds)
+        .catch(() => undefined);
+    });
+    void webchat.discover().catch(() => undefined);
+    startBackgroundLoop({
+      name: 'webchat.discover',
+      intervalMs: 30_000,
+      work: () => webchat.discover(),
+    });
+    startBackgroundLoop({
+      name: 'webchat.round',
+      intervalMs: 1_000,
+      work: () => webchat.tickAll(),
+    });
+  }
+  void lineChat.discover().catch(() => undefined);
+  startBackgroundLoop({
+    name: 'line.discover',
+    intervalMs: 60_000,
+    work: () => lineChat.discover(),
+  });
+  startBackgroundLoop({
+    name: 'line.deliver',
+    intervalMs: 2_000,
+    work: () => lineChat.deliverAll(),
+  });
+}
 const handleWorkspaceSession = createWorkspaceSessionHandler(httpAdapter, tenantScope);
 
 const diagnostics: GatewayDiagnosticSink = {
@@ -563,9 +622,9 @@ class WorkspaceSessionController {
     ...CG4_API_CONTROLLERS,
     TenantLocaleDefaultsController,
     NavigationController,
-    ...(webchatEnabled
-      ? [WebchatPublicController, WebchatAgentController, WebchatWidgetController]
-      : []),
+    ...(webchatEnabled ? [WebchatPublicController, WebchatWidgetController] : []),
+    ...(chatChannels.length ? [WebchatAgentController] : []),
+    ...(lineChatEnabled ? [LineChatWebhookController, LineChannelController] : []),
   ],
   providers: [
     { provide: CUSTOMER_360_WORK_AUTH, useValue: c360WorkAuth ?? null },
@@ -629,8 +688,13 @@ class WorkspaceSessionController {
     { provide: QM_JOB_PUBLISHER, useValue: qmJobPublisher },
     { provide: AGENT_WORKSPACE_DATABASE, useValue: prisma },
     { provide: AGENT_CASES_DATABASE, useValue: prisma },
-    { provide: AGENT_WORKSPACE_WEBCHAT, useValue: webchatEnabled },
-    { provide: TEAM_HISTORY_WEBCHAT, useValue: webchatEnabled },
+    { provide: AGENT_WORKSPACE_WEBCHAT, useValue: chatChannels },
+    { provide: TEAM_HISTORY_WEBCHAT, useValue: chatChannels },
+    { provide: LINE_CHAT_SERVICE, useValue: lineChat },
+    {
+      provide: LINE_CHAT_DEPENDENCIES,
+      useValue: { database: prisma, box: lineChatBox, client: lineChatClient },
+    },
     { provide: WEBCHAT_SERVICE, useValue: webchat },
     { provide: WEBCHAT_DATABASE, useValue: prisma },
     { provide: WEBCHAT_WIDGET_DIR, useFactory: defaultWebchatWidgetDir },

@@ -2,6 +2,8 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypt
 import { Prisma, type PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
 import {
   acceptWebchatOffer,
+  CHAT_CHANNELS,
+  type ChatChannel,
   closeOrphanWebchatOffers,
   createWebchatInteraction,
   endWebchat,
@@ -32,6 +34,8 @@ type Actor = { tenantId: string; userId: string };
 
 /** `messages.content_type` of a system line; the body is one of `WebchatSystemEvent` */
 export const WEBCHAT_EVENT_CONTENT_TYPE = 'application/vnd.dcontact.webchat-event';
+/** #1054 a LINE message that is not text (sticker, image, …); the body is LINE's message type */
+export const LINE_OTHER_CONTENT_TYPE = 'application/vnd.dcontact.line-message';
 /** a waiting visitor whose page stopped asking for this long has left */
 export const WEBCHAT_VISITOR_GONE_MS = 120_000;
 export const WEBCHAT_MAX_MESSAGES = 500;
@@ -49,6 +53,10 @@ export interface WebchatMessageView {
   event?: WebchatSystemEvent;
   /** the id the sender gave the message, so the sender can match it with the copy it is still showing */
   clientId?: string;
+  /** #1054 a customer's LINE message that is not text: LINE's type (sticker, image, video, …) */
+  other?: string;
+  /** #1054 an Agent's LINE message on its way to LINE; absent once LINE accepted it (and for web chat) */
+  delivery?: 'SENDING' | 'FAILED';
 }
 
 export type WebchatVisitorStatus = 'NEW' | 'WAITING' | 'ACTIVE' | 'ENDED';
@@ -67,9 +75,11 @@ export interface WebchatVisitorState {
 
 export interface WebchatAgentChat {
   interactionId: string;
+  /** #1054 web chat or LINE */
+  channel: ChatChannel;
   state: 'ASSIGNED' | 'ACTIVE' | 'WRAPUP';
   visitorLabel: string;
-  /** the site the visitor started the chat from, as the widget reported it */
+  /** the site the visitor started the chat from, as the widget reported it; for LINE, the bot's name */
   origin: string;
   queueName: string | null;
   queuedAt: string;
@@ -77,7 +87,8 @@ export interface WebchatAgentChat {
   answeredAt: string | null;
   endedAt: string | null;
   endReason: WebchatEndReason | null;
-  visitorOnline: boolean;
+  /** whether the visitor's page is still open; null for LINE, where nobody can tell */
+  visitorOnline: boolean | null;
   /** when an active chat will close for silence if the customer does not answer; null = not counting */
   idleClosesAt: string | null;
   lastMessage: WebchatMessageView | null;
@@ -86,7 +97,7 @@ export interface WebchatAgentChat {
 
 const digest = (secret: string) => createHash('sha256').update(secret, 'utf8').digest();
 
-function messageView(row: {
+export function messageView(row: {
   id: string;
   createdAt: Date;
   senderType: string;
@@ -94,17 +105,29 @@ function messageView(row: {
   body: string;
   providerMessageId: string | null;
   clientToken: string | null;
+  status?: string;
 }): WebchatMessageView {
   const base = { id: row.id, at: row.createdAt.toISOString() };
   if (row.contentType === WEBCHAT_EVENT_CONTENT_TYPE)
     return { ...base, from: 'system', event: row.body as WebchatSystemEvent };
-  if (row.senderType === 'AGENT')
+  if (row.senderType === 'AGENT') {
+    const delivery =
+      row.status === 'FAILED'
+        ? 'FAILED'
+        : row.status === 'QUEUED' || row.status === 'SENDING'
+          ? 'SENDING'
+          : null;
     return {
       ...base,
       from: 'agent',
       text: row.body,
       ...(row.clientToken ? { clientId: row.clientToken } : {}),
+      ...(delivery ? { delivery } : {}),
     };
+  }
+  if (row.contentType === LINE_OTHER_CONTENT_TYPE)
+    return { ...base, from: 'visitor', other: row.body.slice(0, 32) };
+  // a LINE message id has no colon, so a LINE message never carries a client id
   // a visitor message is stored as `<session>:<client id>`
   const clientId = row.providerMessageId?.split(':')[1];
   return { ...base, from: 'visitor', text: row.body, ...(clientId ? { clientId } : {}) };
@@ -119,7 +142,7 @@ function cursorDate(value: unknown): Date | undefined {
   throw new WebchatError('VALIDATION_FAILED', { field: 'after' });
 }
 
-const MESSAGE_SELECT = {
+export const MESSAGE_SELECT = {
   id: true,
   createdAt: true,
   senderType: true,
@@ -127,7 +150,100 @@ const MESSAGE_SELECT = {
   body: true,
   providerMessageId: true,
   clientToken: true,
+  status: true,
 } as const;
+
+export interface ChatAppendInput {
+  tenantId: string;
+  conversationId: string;
+  channelAccountId: string;
+  interactionId: string | null;
+  sender: 'CONTACT' | 'AGENT' | 'SYSTEM';
+  body: string;
+  event?: boolean;
+  /** #1054 a stored content type other than text, e.g. a LINE sticker */
+  contentType?: string;
+  providerMessageId?: string;
+  clientToken?: string;
+  /** #1054 an Agent's message that a worker still has to send (LINE): the row is the outbox (ADR-024) */
+  outbox?: boolean;
+  now: Date;
+}
+
+/**
+ * Writes one message of a conversation. Messages of one conversation are written one at a time (the
+ * conversation row is locked) with a strictly increasing time, so "messages after this cursor" never
+ * skips one. A message already stored under the same provider id or client token is answered again.
+ */
+export async function appendChatMessage(tx: Tx, input: ChatAppendInput) {
+  const { tenantId, conversationId, now } = input;
+  await tx.$queryRaw(Prisma.sql`
+    SELECT id FROM conversations WHERE tenant_id = ${tenantId}::uuid AND id = ${conversationId}::uuid
+    FOR NO KEY UPDATE`);
+  if (input.providerMessageId) {
+    const repeated = await tx.message.findFirst({
+      where: {
+        tenantId,
+        channelAccountId: input.channelAccountId,
+        providerMessageId: input.providerMessageId,
+      },
+      select: MESSAGE_SELECT,
+    });
+    if (repeated) return { message: messageView(repeated), repeated: true };
+  }
+  if (input.clientToken) {
+    const repeated = await tx.message.findFirst({
+      where: { tenantId, clientToken: input.clientToken },
+      select: { ...MESSAGE_SELECT, conversationId: true },
+    });
+    if (repeated) {
+      if (repeated.conversationId !== conversationId || repeated.body !== input.body)
+        throw new WebchatError('COMMAND_ID_REUSED');
+      return { message: messageView(repeated), repeated: true };
+    }
+  }
+  // the limit is per piece of work: a LINE conversation lives on across many (ADR-023)
+  const [{ count, latest }] = await tx.$queryRaw<
+    { count: number; latest: Date | null }[]
+  >(Prisma.sql`
+    SELECT count(*) FILTER (WHERE ${input.interactionId}::uuid IS NULL
+        OR interaction_id = ${input.interactionId}::uuid)::int AS count,
+      max(created_at) AS latest FROM messages
+    WHERE tenant_id = ${tenantId}::uuid AND conversation_id = ${conversationId}::uuid`);
+  if (!input.event && count >= WEBCHAT_MAX_MESSAGES) throw new WebchatError('MESSAGE_LIMIT');
+  // max(created_at) is a timestamp without zone that the driver reads as UTC, like every DateTime here
+  const createdAt =
+    latest && latest.getTime() >= now.getTime() ? new Date(latest.getTime() + 1) : now;
+  const outbound = input.sender !== 'CONTACT';
+  const row = await tx.message.create({
+    data: {
+      tenantId,
+      conversationId,
+      channelAccountId: input.channelAccountId,
+      interactionId: input.interactionId,
+      senderType: input.sender,
+      direction: outbound ? 'OUTBOUND' : 'INBOUND',
+      contentType: input.event ? WEBCHAT_EVENT_CONTENT_TYPE : (input.contentType ?? 'text/plain'),
+      body: input.body,
+      status: !outbound ? 'RECEIVED' : input.outbox ? 'QUEUED' : 'SENT',
+      ...(outbound && !input.outbox ? { sentAt: createdAt } : {}),
+      ...(input.outbox ? { nextAttemptAt: now } : {}),
+      ...(input.providerMessageId ? { providerMessageId: input.providerMessageId } : {}),
+      ...(input.clientToken ? { clientToken: input.clientToken } : {}),
+      createdAt,
+    },
+    select: MESSAGE_SELECT,
+  });
+  if (!input.event)
+    await tx.conversation.update({
+      where: { id: conversationId },
+      data:
+        input.sender === 'CONTACT'
+          ? { lastCustomerMessageAt: createdAt, state: 'OPEN' }
+          : { lastAgentMessageAt: createdAt },
+    });
+  return { message: messageView(row), repeated: false };
+}
 
 export interface WebchatServiceOptions {
   now?: () => Date;
@@ -159,6 +275,7 @@ export class WebchatService {
   private readonly activeTenants = new Set<string>();
   /** rounds started by a new chat that have not finished yet */
   private readonly kicks = new Set<Promise<unknown>>();
+  private readonly outboxListeners = new Set<(tenantId: string) => void>();
 
   constructor(
     private readonly database: PrismaClient,
@@ -375,80 +492,8 @@ export class WebchatService {
     return (await changed) ? read() : first;
   }
 
-  private async append(
-    tx: Tx,
-    input: {
-      tenantId: string;
-      conversationId: string;
-      channelAccountId: string;
-      interactionId: string | null;
-      sender: 'CONTACT' | 'AGENT' | 'SYSTEM';
-      body: string;
-      event?: boolean;
-      providerMessageId?: string;
-      clientToken?: string;
-      now: Date;
-    },
-  ) {
-    const { tenantId, conversationId, now } = input;
-    await tx.$queryRaw(Prisma.sql`
-      SELECT id FROM conversations WHERE tenant_id = ${tenantId}::uuid AND id = ${conversationId}::uuid
-      FOR NO KEY UPDATE`);
-    if (input.providerMessageId) {
-      const repeated = await tx.message.findFirst({
-        where: {
-          tenantId,
-          channelAccountId: input.channelAccountId,
-          providerMessageId: input.providerMessageId,
-        },
-        select: MESSAGE_SELECT,
-      });
-      if (repeated) return { message: messageView(repeated), repeated: true };
-    }
-    if (input.clientToken) {
-      const repeated = await tx.message.findFirst({
-        where: { tenantId, clientToken: input.clientToken },
-        select: { ...MESSAGE_SELECT, conversationId: true },
-      });
-      if (repeated) {
-        if (repeated.conversationId !== conversationId || repeated.body !== input.body)
-          throw new WebchatError('COMMAND_ID_REUSED');
-        return { message: messageView(repeated), repeated: true };
-      }
-    }
-    const [{ count, last }] = await tx.$queryRaw<{ count: number; last: Date | null }[]>(Prisma.sql`
-      SELECT count(*)::int AS count, max(created_at) AS last FROM messages
-      WHERE tenant_id = ${tenantId}::uuid AND conversation_id = ${conversationId}::uuid`);
-    if (!input.event && count >= WEBCHAT_MAX_MESSAGES) throw new WebchatError('MESSAGE_LIMIT');
-    // max(created_at) is a timestamp without zone that the driver reads as UTC, like every DateTime here
-    const createdAt = last && last.getTime() >= now.getTime() ? new Date(last.getTime() + 1) : now;
-    const row = await tx.message.create({
-      data: {
-        tenantId,
-        conversationId,
-        channelAccountId: input.channelAccountId,
-        interactionId: input.interactionId,
-        senderType: input.sender,
-        direction: input.sender === 'CONTACT' ? 'INBOUND' : 'OUTBOUND',
-        contentType: input.event ? WEBCHAT_EVENT_CONTENT_TYPE : 'text/plain',
-        body: input.body,
-        status: input.sender === 'CONTACT' ? 'RECEIVED' : 'SENT',
-        ...(input.sender === 'CONTACT' ? {} : { sentAt: createdAt }),
-        ...(input.providerMessageId ? { providerMessageId: input.providerMessageId } : {}),
-        ...(input.clientToken ? { clientToken: input.clientToken } : {}),
-        createdAt,
-      },
-      select: MESSAGE_SELECT,
-    });
-    if (!input.event)
-      await tx.conversation.update({
-        where: { id: conversationId },
-        data:
-          input.sender === 'CONTACT'
-            ? { lastCustomerMessageAt: createdAt, state: 'OPEN' }
-            : { lastAgentMessageAt: createdAt },
-      });
-    return { message: messageView(row), repeated: false };
+  private append(tx: Tx, input: ChatAppendInput) {
+    return appendChatMessage(tx, input);
   }
 
   async visitorSend(tenantValue: string, sessionValue: string, token: unknown, body: unknown) {
@@ -534,15 +579,7 @@ export class WebchatService {
       sessionIds: [sessionId],
       agentIds: result.agentId ? [result.agentId] : [],
     });
-    if (result.opened) {
-      this.activeTenants.add(tenantId);
-      // offer the new chat now instead of waiting for the next background round
-      const kick = this.tick(tenantId).catch((error: unknown) =>
-        this.log({ event: 'webchat.round_failed', tenantId, ...errorFields(error) }),
-      );
-      this.kicks.add(kick);
-      void kick.finally(() => this.kicks.delete(kick));
-    }
+    if (result.opened) this.kick(tenantId);
     return { message: result.message };
   }
 
@@ -566,6 +603,21 @@ export class WebchatService {
     return { status: 'ENDED' as const };
   }
 
+  /** Starts a round for the tenant now instead of waiting for the next background one (a new chat). */
+  kick(tenantId: string): void {
+    this.activeTenants.add(tenantId);
+    const kick = this.tick(tenantId).catch((error: unknown) =>
+      this.log({ event: 'webchat.round_failed', tenantId, ...errorFields(error) }),
+    );
+    this.kicks.add(kick);
+    void kick.finally(() => this.kicks.delete(kick));
+  }
+
+  /** #1054 called after an Agent's LINE message is stored, so a worker sends it at once */
+  onOutbox(listener: (tenantId: string) => void): void {
+    this.outboxListeners.add(listener);
+  }
+
   /** Ends the chat and writes everything that goes with it. Null when it had already ended. */
   private async end(
     tx: Tx,
@@ -577,31 +629,43 @@ export class WebchatService {
     const now = this.now();
     const ended = await endWebchat(tx, { tenantId, interactionId, reason, now, stillDue });
     if (!ended) return null;
-    const session = await tx.webchatSession.findFirst({ where: { tenantId, interactionId } });
-    if (!session) return { tenantId, agentIds: ended.agentId ? [ended.agentId] : [] };
-    await tx.webchatSession.update({
-      where: { tenantId_id: { tenantId, id: session.id } },
-      data: { endReason: reason, endedAt: now },
+    const agentIds = ended.agentId ? [ended.agentId] : [];
+    const interaction = await tx.interaction.findFirst({
+      where: { tenantId, id: interactionId },
+      select: { conversation: { select: { id: true, channelAccountId: true } } },
     });
+    const conversation = interaction?.conversation;
+    if (!conversation) return { tenantId, agentIds };
+    const session = await tx.webchatSession.findFirst({ where: { tenantId, interactionId } });
+    if (session)
+      await tx.webchatSession.update({
+        where: { tenantId_id: { tenantId, id: session.id } },
+        data: { endReason: reason, endedAt: now },
+      });
     await this.append(tx, {
       tenantId,
-      conversationId: session.conversationId,
-      channelAccountId: session.widgetId,
+      conversationId: conversation.id,
+      channelAccountId: conversation.channelAccountId,
       interactionId,
       sender: 'SYSTEM',
       body: reason,
       event: true,
       now,
     });
-    await tx.conversation.update({
-      where: { id: session.conversationId },
-      data: { state: 'RESOLVED', lastResolvedAt: now },
+    // A LINE customer may already have written again, which opened the next piece of work.
+    const stillOpen = await tx.interaction.count({
+      where: {
+        tenantId,
+        conversationId: conversation.id,
+        state: { in: ['QUEUED', 'ASSIGNED', 'ACTIVE'] },
+      },
     });
-    return {
-      tenantId,
-      sessionIds: [session.id],
-      agentIds: ended.agentId ? [ended.agentId] : [],
-    };
+    if (stillOpen === 0)
+      await tx.conversation.update({
+        where: { id: conversation.id },
+        data: { state: 'RESOLVED', lastResolvedAt: now },
+      });
+    return { tenantId, sessionIds: session ? [session.id] : [], agentIds };
   }
 
   // ───────────────────────────── Agent ─────────────────────────────
@@ -619,11 +683,12 @@ export class WebchatService {
         where: {
           tenantId,
           agentId: actor.userId,
-          channel: 'WEBCHAT',
+          channel: { in: [...CHAT_CHANNELS] },
           state: { in: ['ASSIGNED', 'ACTIVE', 'WRAPUP'] },
         },
         select: {
           id: true,
+          channel: true,
           state: true,
           queuedAt: true,
           offerExpiresAt: true,
@@ -635,19 +700,47 @@ export class WebchatService {
         },
         orderBy: [{ queuedAt: 'asc' }, { id: 'asc' }],
       });
+      const ids = interactions.map((row) => row.id);
       const sessions = await tx.webchatSession.findMany({
-        where: { tenantId, interactionId: { in: interactions.map((row) => row.id) } },
+        where: { tenantId, interactionId: { in: ids } },
       });
+      const lineUsers = await tx.lineChatUser.findMany({
+        where: {
+          tenantId,
+          conversationId: {
+            in: interactions.flatMap((row) =>
+              row.channel === 'LINE' && row.conversationId ? [row.conversationId] : [],
+            ),
+          },
+        },
+        select: { conversationId: true, displayName: true, lineUserId: true },
+      });
+      const lineEndReasons = await chatEndReasons(
+        tx,
+        tenantId,
+        interactions.flatMap((row) => (row.channel === 'LINE' ? [row.id] : [])),
+      );
       const widget = await tx.webchatWidget.findFirst({
         where: { tenantId },
         select: { maxChatsPerAgent: true, idleTimeoutSec: true },
       });
+      const lineChannel = await tx.lineChannel.findFirst({
+        where: { tenantId },
+        select: { botName: true, idleTimeoutSec: true },
+      });
       const now = this.now().getTime();
       const chats: WebchatAgentChat[] = [];
       for (const interaction of interactions) {
-        const session = sessions.find((row) => row.interactionId === interaction.id);
-        if (!session || !interaction.conversationId) continue;
-        const where = { tenantId, conversationId: interaction.conversationId };
+        if (!interaction.conversationId) continue;
+        const line = interaction.channel === 'LINE';
+        const session = line
+          ? undefined
+          : sessions.find((row) => row.interactionId === interaction.id);
+        const lineUser = line
+          ? lineUsers.find((row) => row.conversationId === interaction.conversationId)
+          : undefined;
+        if (!session && !lineUser) continue;
+        const where = { tenantId, interactionId: interaction.id };
         const [last, visitorMessageCount] = await Promise.all([
           tx.message.findFirst({
             where,
@@ -656,25 +749,32 @@ export class WebchatService {
           }),
           tx.message.count({ where: { ...where, senderType: 'CONTACT' } }),
         ]);
+        const idleTimeoutSec = line
+          ? (lineChannel?.idleTimeoutSec ?? 1800)
+          : (widget?.idleTimeoutSec ?? 600);
         chats.push({
           interactionId: interaction.id,
+          channel: line ? 'LINE' : 'WEBCHAT',
           state: interaction.state as WebchatAgentChat['state'],
-          visitorLabel: session.visitorLabel,
-          origin: session.origin,
+          visitorLabel: session?.visitorLabel ?? lineLabel(lineUser!),
+          origin: session?.origin ?? (lineChannel?.botName || 'LINE'),
           queueName: interaction.queue?.name ?? null,
           queuedAt: interaction.queuedAt.toISOString(),
           offerExpiresAt: interaction.offerExpiresAt?.toISOString() ?? null,
           answeredAt: interaction.answeredAt?.toISOString() ?? null,
           endedAt: interaction.endedAt?.toISOString() ?? null,
-          endReason: (session.endReason as WebchatEndReason | null) ?? null,
-          visitorOnline:
-            !session.endReason && now - session.lastSeenAt.getTime() < WEBCHAT_VISITOR_GONE_MS,
+          endReason: session
+            ? ((session.endReason as WebchatEndReason | null) ?? null)
+            : (lineEndReasons.get(interaction.id) ?? null),
+          visitorOnline: session
+            ? !session.endReason && now - session.lastSeenAt.getTime() < WEBCHAT_VISITOR_GONE_MS
+            : null,
           idleClosesAt:
             interaction.state === 'ACTIVE'
               ? (webchatIdleDeadline({
                   lastCustomerMessageAt: interaction.conversation?.lastCustomerMessageAt ?? null,
                   lastAgentMessageAt: interaction.conversation?.lastAgentMessageAt ?? null,
-                  idleTimeoutSec: widget?.idleTimeoutSec ?? 600,
+                  idleTimeoutSec,
                 })?.toISOString() ?? null)
               : null,
           lastMessage: last ? messageView(last) : null,
@@ -691,18 +791,30 @@ export class WebchatService {
         tenantId: actor.tenantId,
         id: interactionId,
         agentId: actor.userId,
-        channel: 'WEBCHAT',
+        channel: { in: [...CHAT_CHANNELS] },
       },
-      select: { id: true, state: true, conversationId: true },
+      select: {
+        id: true,
+        state: true,
+        channel: true,
+        conversation: { select: { id: true, channelAccountId: true } },
+      },
     });
     // another Agent's chat, another tenant's and a missing one all answer the same
-    if (!interaction?.conversationId) throw new WebchatError('NOT_FOUND');
+    if (!interaction?.conversation) throw new WebchatError('NOT_FOUND');
     if (!states.includes(interaction.state)) throw new WebchatError('CHAT_NOT_ACTIVE');
-    const session = await tx.webchatSession.findFirst({
-      where: { tenantId: actor.tenantId, interactionId },
-    });
-    if (!session) throw new WebchatError('NOT_FOUND');
-    return { interaction, session, conversationId: interaction.conversationId };
+    const session =
+      interaction.channel === 'WEBCHAT'
+        ? await tx.webchatSession.findFirst({ where: { tenantId: actor.tenantId, interactionId } })
+        : null;
+    if (interaction.channel === 'WEBCHAT' && !session) throw new WebchatError('NOT_FOUND');
+    return {
+      interaction,
+      line: interaction.channel === 'LINE',
+      sessionIds: session ? [session.id] : [],
+      conversationId: interaction.conversation.id,
+      channelAccountId: interaction.conversation.channelAccountId,
+    };
   }
 
   async agentMessages(actor: Actor, interactionValue: string, afterValue?: unknown) {
@@ -710,14 +822,12 @@ export class WebchatService {
     const after = cursorDate(afterValue);
     return this.tenant(actor.tenantId, async (tx) => {
       await this.agent(tx, actor);
-      const { conversationId } = await this.ownedChat(tx, actor, interactionId, [
-        'ACTIVE',
-        'WRAPUP',
-      ]);
+      await this.ownedChat(tx, actor, interactionId, ['ACTIVE', 'WRAPUP']);
+      // only this piece of work: a LINE conversation goes on across many (ADR-023)
       const rows = await tx.message.findMany({
         where: {
           tenantId: actor.tenantId,
-          conversationId,
+          interactionId,
           ...(after ? { createdAt: { gt: after } } : {}),
         },
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
@@ -729,11 +839,40 @@ export class WebchatService {
     });
   }
 
+  /**
+   * #1054 the delivery state of the Agent's LINE messages that changed after it was first read: a
+   * message the Agent sees as sending turns sent or failed without a new message after the cursor.
+   */
+  async agentDeliveries(actor: Actor, interactionValue: string) {
+    const interactionId = webchatUuid(interactionValue);
+    return this.tenant(actor.tenantId, async (tx) => {
+      await this.agent(tx, actor);
+      await this.ownedChat(tx, actor, interactionId, ['ACTIVE', 'WRAPUP']);
+      const rows = await tx.message.findMany({
+        where: { tenantId: actor.tenantId, interactionId, senderType: 'AGENT' },
+        select: { id: true, status: true },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        take: WEBCHAT_MAX_MESSAGES + 20,
+      });
+      return {
+        deliveries: rows.map((row) => ({
+          id: row.id,
+          delivery:
+            row.status === 'FAILED'
+              ? ('FAILED' as const)
+              : row.status === 'QUEUED' || row.status === 'SENDING'
+                ? ('SENDING' as const)
+                : ('SENT' as const),
+        })),
+      };
+    });
+  }
+
   async agentAccept(actor: Actor, interactionValue: string) {
     const interactionId = webchatUuid(interactionValue);
     const { tenantId } = actor;
     const now = this.now();
-    const sessionId = await this.tenant(tenantId, async (tx) => {
+    const sessionIds = await this.tenant(tenantId, async (tx) => {
       await this.agent(tx, actor);
       const result = await acceptWebchatOffer(tx, {
         tenantId,
@@ -742,25 +881,21 @@ export class WebchatService {
         now,
       });
       if (result === 'OFFER_GONE') throw new WebchatError('OFFER_GONE');
-      const session = await tx.webchatSession.findFirst({ where: { tenantId, interactionId } });
-      if (result === 'ACCEPTED' && session)
+      const owned = await this.ownedChat(tx, actor, interactionId, ['ACTIVE']);
+      if (result === 'ACCEPTED')
         await this.append(tx, {
           tenantId,
-          conversationId: session.conversationId,
-          channelAccountId: session.widgetId,
+          conversationId: owned.conversationId,
+          channelAccountId: owned.channelAccountId,
           interactionId,
           sender: 'SYSTEM',
           body: 'AGENT_JOINED',
           event: true,
           now,
         });
-      return session?.id;
+      return owned.sessionIds;
     });
-    this.hub.publish({
-      tenantId,
-      sessionIds: sessionId ? [sessionId] : [],
-      agentIds: [actor.userId],
-    });
+    this.hub.publish({ tenantId, sessionIds, agentIds: [actor.userId] });
     return { interactionId, state: 'ACTIVE' as const };
   }
 
@@ -773,26 +908,24 @@ export class WebchatService {
     const result = await this.tenant(tenantId, async (tx) => {
       await this.agent(tx, actor);
       // A retry of a message that was stored (its answer was lost) succeeds even if the chat ended since.
-      const { session, conversationId } = await this.ownedChat(tx, actor, interactionId, [
-        'ACTIVE',
-        'WRAPUP',
-      ]);
+      const owned = await this.ownedChat(tx, actor, interactionId, ['ACTIVE', 'WRAPUP']);
       const repeated = await tx.message.findFirst({
-        where: { tenantId, clientToken: commandId, conversationId },
-        select: { ...MESSAGE_SELECT, body: true },
+        where: { tenantId, clientToken: commandId, conversationId: owned.conversationId },
+        select: MESSAGE_SELECT,
       });
       if (repeated) {
         if (repeated.body !== text) throw new WebchatError('COMMAND_ID_REUSED');
-        return { message: messageView(repeated), sessionId: session.id };
+        return { message: messageView(repeated), owned, stored: false };
       }
       const appended = await this.append(tx, {
         tenantId,
-        conversationId,
-        channelAccountId: session.widgetId,
+        conversationId: owned.conversationId,
+        channelAccountId: owned.channelAccountId,
         interactionId,
         sender: 'AGENT',
         body: text,
         clientToken: commandId,
+        outbox: owned.line,
         now: this.now(),
       });
       // The chat may have ended while this waited for the conversation; an ended chat takes no new message.
@@ -802,9 +935,11 @@ export class WebchatService {
       });
       if (current?.state !== 'ACTIVE' && !appended.repeated)
         throw new WebchatError('CHAT_NOT_ACTIVE');
-      return { message: appended.message, sessionId: session.id };
+      return { message: appended.message, owned, stored: !appended.repeated };
     });
-    this.hub.publish({ tenantId, sessionIds: [result.sessionId], agentIds: [actor.userId] });
+    this.hub.publish({ tenantId, sessionIds: result.owned.sessionIds, agentIds: [actor.userId] });
+    if (result.owned.line && result.stored)
+      for (const listener of this.outboxListeners) listener(tenantId);
     return { message: result.message };
   }
 
@@ -834,7 +969,7 @@ export class WebchatService {
         tx.interaction.count({
           where: {
             tenantId: id,
-            channel: 'WEBCHAT',
+            channel: { in: [...CHAT_CHANNELS] },
             state: { in: ['QUEUED', 'ASSIGNED', 'ACTIVE'] },
           },
         }),
@@ -896,9 +1031,14 @@ export class WebchatService {
 
     const snapshot = await this.tenant(tenantId, async (tx) => {
       const open = await tx.interaction.findMany({
-        where: { tenantId, channel: 'WEBCHAT', state: { in: ['QUEUED', 'ASSIGNED', 'ACTIVE'] } },
+        where: {
+          tenantId,
+          channel: { in: [...CHAT_CHANNELS] },
+          state: { in: ['QUEUED', 'ASSIGNED', 'ACTIVE'] },
+        },
         select: {
           id: true,
+          channel: true,
           state: true,
           agentId: true,
           offerExpiresAt: true,
@@ -910,15 +1050,19 @@ export class WebchatService {
         where: { tenantId, interactionId: { in: open.map((row) => row.id) } },
         select: { id: true, interactionId: true, widgetId: true, lastSeenAt: true },
       });
-      const widgets = await tx.webchatWidget.findMany({
+      const widget = await tx.webchatWidget.findFirst({
         where: { tenantId },
-        select: { id: true, maxChatsPerAgent: true, idleTimeoutSec: true },
+        select: { maxChatsPerAgent: true, idleTimeoutSec: true },
+      });
+      const lineChannel = await tx.lineChannel.findFirst({
+        where: { tenantId },
+        select: { idleTimeoutSec: true },
       });
       // an offered Agent who has since taken a call (the rare race with a voice router)
       const onCall = await tx.interaction.findMany({
         where: {
           tenantId,
-          channel: { not: 'WEBCHAT' },
+          channel: { notIn: [...CHAT_CHANNELS] },
           state: { in: ['ASSIGNED', 'ACTIVE', 'WRAPUP'] },
           agentId: {
             in: open.flatMap((row) =>
@@ -928,15 +1072,25 @@ export class WebchatService {
         },
         select: { agentId: true },
       });
-      return { open, sessions, widgets, onCall: new Set(onCall.map((row) => row.agentId)) };
+      return {
+        open,
+        sessions,
+        widget,
+        lineChannel,
+        onCall: new Set(onCall.map((row) => row.agentId)),
+      };
     });
 
-    const queued: { id: string; maxChatsPerAgent: number }[] = [];
+    // the chat limit is the Agent's, shared by every chat channel; web chat's settings hold it
+    const maxChatsPerAgent = snapshot.widget?.maxChatsPerAgent ?? 3;
+    const queued: string[] = [];
     for (const chat of snapshot.open) {
+      const line = chat.channel === 'LINE';
       const session = snapshot.sessions.find((row) => row.interactionId === chat.id);
-      const widget = snapshot.widgets.find((row) => row.id === session?.widgetId);
       const waiting = chat.state === 'QUEUED' || chat.state === 'ASSIGNED';
+      // a LINE customer has no page to leave: their chat waits in the queue until an Agent takes it
       if (
+        !line &&
         waiting &&
         session &&
         now.getTime() - session.lastSeenAt.getTime() > WEBCHAT_VISITOR_GONE_MS
@@ -967,17 +1121,19 @@ export class WebchatService {
           : null;
         if (released) {
           notices.push({ tenantId, agentIds: [released.agentId] });
-          queued.push({ id: chat.id, maxChatsPerAgent: widget?.maxChatsPerAgent ?? 3 });
+          queued.push(chat.id);
         }
         continue;
       }
       if (chat.state === 'ACTIVE') {
+        const idleSec = line
+          ? (snapshot.lineChannel?.idleTimeoutSec ?? 1800)
+          : (snapshot.widget?.idleTimeoutSec ?? 600);
         const deadline = webchatIdleDeadline({
           lastCustomerMessageAt: chat.conversation?.lastCustomerMessageAt ?? null,
           lastAgentMessageAt: chat.conversation?.lastAgentMessageAt ?? null,
-          idleTimeoutSec: widget?.idleTimeoutSec ?? 600,
+          idleTimeoutSec: idleSec,
         });
-        const idleSec = widget?.idleTimeoutSec ?? 600;
         if (deadline && deadline <= now) {
           // the customer may have written since the snapshot
           const notice = await this.tenant(tenantId, (tx) =>
@@ -992,6 +1148,7 @@ export class WebchatService {
           );
           if (notice) notices.push(notice);
         } else if (
+          !line &&
           session &&
           now.getTime() - session.lastSeenAt.getTime() >
             Math.max(idleSec * 1000, WEBCHAT_VISITOR_GONE_MS)
@@ -1019,22 +1176,52 @@ export class WebchatService {
         }
         continue;
       }
-      if (chat.state === 'QUEUED')
-        queued.push({ id: chat.id, maxChatsPerAgent: widget?.maxChatsPerAgent ?? 3 });
+      if (chat.state === 'QUEUED') queued.push(chat.id);
     }
 
-    for (const chat of queued) {
+    for (const interactionId of queued) {
       const offer = await this.tenant(tenantId, (tx) =>
-        offerQueuedWebchat(tx, {
-          tenantId,
-          interactionId: chat.id,
-          maxChatsPerAgent: chat.maxChatsPerAgent,
-          now,
-        }),
+        offerQueuedWebchat(tx, { tenantId, interactionId, maxChatsPerAgent, now }),
       );
       if (offer) notices.push({ tenantId, agentIds: [offer.agentId] });
     }
     for (const notice of notices) this.hub.publish(notice);
     return snapshot.open.length > 0;
   }
+}
+
+/** #1054 how a LINE user is shown: their LINE name, or the end of their id before it is known */
+export function lineLabel(user: { displayName: string; lineUserId: string }): string {
+  return user.displayName || `LINE ${user.lineUserId.slice(-4).toUpperCase()}`;
+}
+
+const END_REASONS: readonly string[] = [
+  'CUSTOMER_ENDED',
+  'AGENT_ENDED',
+  'IDLE_TIMEOUT',
+  'CUSTOMER_LEFT',
+] satisfies WebchatEndReason[];
+
+/** #1054 how chats without a web chat session (LINE) ended: the system line their end wrote */
+export async function chatEndReasons(
+  tx: Tx,
+  tenantId: string,
+  interactionIds: string[],
+): Promise<Map<string, WebchatEndReason>> {
+  if (interactionIds.length === 0) return new Map();
+  const rows = await tx.message.findMany({
+    where: {
+      tenantId,
+      interactionId: { in: interactionIds },
+      contentType: WEBCHAT_EVENT_CONTENT_TYPE,
+      body: { in: [...END_REASONS] },
+    },
+    select: { interactionId: true, body: true },
+    orderBy: [{ createdAt: 'asc' }],
+  });
+  return new Map(
+    rows.flatMap((row) =>
+      row.interactionId ? [[row.interactionId, row.body as WebchatEndReason] as const] : [],
+    ),
+  );
 }
