@@ -19,12 +19,15 @@ import { escapeRegExp } from '../e2e/locale-match';
  */
 const here = dirname(fileURLToPath(import.meta.url));
 const shots = resolve(here, '../test-results-real/webchat-trial');
-const workspaceOrigin = 'http://localhost:5173';
-const consoleOrigin = 'http://localhost:5174';
+// The dev stack by default; set these to run the same trial against another deployment (e.g. UAT Solo).
+const workspaceOrigin = process.env.WEBCHAT_TRIAL_WORKSPACE ?? 'http://localhost:5173';
+const consoleOrigin = process.env.WEBCHAT_TRIAL_CONSOLE ?? 'http://localhost:5174';
+/** dev realm passwords unless given; never printed */
+const adminPassword = process.env.WEBCHAT_TRIAL_ADMIN_PASSWORD ?? 'admin1234';
+const agentPassword = process.env.WEBCHAT_TRIAL_AGENT_PASSWORD ?? 'agent1234';
 /** pages the test serves itself: a site the widget is allowed on and one it is not */
 const tenantSite = 'http://127.0.0.1:8899';
 const otherSite = 'http://127.0.0.1:8898';
-const apiOrigin = 'http://localhost:3000';
 
 type Catalog = Record<string, unknown>;
 const load = (path: string) => JSON.parse(readFileSync(resolve(here, path), 'utf8')) as Catalog;
@@ -153,7 +156,7 @@ test('web chat: widget → queue → Agent accepts → two-way chat → two room
     admin,
     `${consoleOrigin}/?tenant=demo&view=webchat-settings`,
     'admin@demo.local',
-    'admin1234',
+    adminPassword,
     text('common', 'auth.signIn'),
   );
   await admin.goto(`${consoleOrigin}/?tenant=demo&view=webchat-settings`);
@@ -201,7 +204,9 @@ test('web chat: widget → queue → Agent accepts → two-way chat → two room
   const tenantId = /data-tenant="([0-9a-f-]{36})"/.exec(snippet)?.[1];
   const widgetId = /data-widget="([0-9a-f-]{36})"/.exec(snippet)?.[1];
   expect(tenantId && widgetId, `embed code: ${snippet}`).toBeTruthy();
-  const previewUrl = `${apiOrigin}/api/v1/webchat/demo?tenant=${tenantId}&widget=${widgetId}`;
+  // the preview page lives next to widget.js, on the origin visitors reach the API through
+  const widgetBase = /src="([^"]+)widget\.js"/.exec(snippet)![1];
+  const previewUrl = `${widgetBase}demo?tenant=${tenantId}&widget=${widgetId}`;
   await expect(admin.getByRole('link', { name: text('webchat', 'preview.open') })).toHaveAttribute(
     'href',
     /\/api\/v1\/webchat\/demo\?tenant=/,
@@ -286,7 +291,7 @@ test('web chat: widget → queue → Agent accepts → two-way chat → two room
     agent,
     `${workspaceOrigin}/?tenant=demo`,
     'agent1000@demo.local',
-    'agent1234',
+    agentPassword,
     th('dphone:embedAuth.signIn'),
   );
   await agentReady(agent);

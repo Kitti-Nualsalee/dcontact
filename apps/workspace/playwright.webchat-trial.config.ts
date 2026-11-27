@@ -16,7 +16,9 @@ export default defineConfig({
   expect: { timeout: 20_000 },
   reporter: [['list']],
   use: {
-    baseURL: 'http://localhost:5173',
+    baseURL: process.env.WEBCHAT_TRIAL_WORKSPACE ?? 'http://localhost:5173',
+    // a deployment whose hosts are not in DNS (UAT Solo is reached through a hosts entry)
+    ignoreHTTPSErrors: Boolean(process.env.WEBCHAT_TRIAL_HOST_RULES),
     permissions: ['microphone'],
     locale: 'th-TH',
     viewport: { width: 1440, height: 900 },
@@ -30,7 +32,13 @@ export default defineConfig({
         ...devices['Desktop Chrome'],
         viewport: { width: 1440, height: 900 },
         launchOptions: {
-          args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'],
+          args: [
+            '--use-fake-ui-for-media-stream',
+            '--use-fake-device-for-media-stream',
+            ...(process.env.WEBCHAT_TRIAL_HOST_RULES
+              ? [`--host-resolver-rules=${process.env.WEBCHAT_TRIAL_HOST_RULES}`]
+              : []),
+          ],
         },
       },
     },
