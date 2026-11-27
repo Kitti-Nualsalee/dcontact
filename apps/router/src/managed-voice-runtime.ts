@@ -407,14 +407,16 @@ export class ManagedVoiceRuntime {
         reason: call.interactionId,
       },
     });
-    await this.intent(transaction, event.tenantId, call, current, 'call.hangup', 'AGENT_HANGUP');
-    await transaction.$executeRaw`UPDATE voice_managed_calls SET terminal_reason='AGENT_HANGUP' WHERE tenant_id=${event.tenantId}::uuid AND interaction_id=${call.interactionId}::uuid`;
+    // Without a known initiator keep the previous AGENT_HANGUP so older telephony nodes behave as before
+    const reason = event.hangupInitiator === 'caller' ? 'CALLER_HANGUP' : 'AGENT_HANGUP';
+    await this.intent(transaction, event.tenantId, call, current, 'call.hangup', reason);
+    await transaction.$executeRaw`UPDATE voice_managed_calls SET terminal_reason=${reason} WHERE tenant_id=${event.tenantId}::uuid AND interaction_id=${call.interactionId}::uuid`;
     await this.log(
       transaction,
       event.tenantId,
       call.interactionId,
       'interaction.managed_terminal',
-      { reason: 'AGENT_HANGUP' },
+      { reason },
     );
     await this.log(transaction, event.tenantId, call.interactionId, 'interaction.ended', {
       agentId: current.agentId,

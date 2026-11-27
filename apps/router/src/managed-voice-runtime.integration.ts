@@ -183,16 +183,68 @@ test('managed answer correlation, duplicate events, caller cancel and ACTIVE tim
     ),
     /VOICE_CONFIG_V1_REQUIRED/,
   );
-  await handleAndFlush(runtime, { ...event, type: 'call.hangup' });
-  await handleAndFlush(runtime, { ...event, type: 'call.hangup' });
+  // The customer hangs up after bridge: the reason is CALLER_HANGUP, and a later hangup does not change it
+  await handleAndFlush(runtime, { ...event, type: 'call.hangup', hangupInitiator: 'caller' });
+  await handleAndFlush(runtime, { ...event, type: 'call.hangup', hangupInitiator: 'agent' });
   assert.equal(
     await owner.interactionEvent.count({ where: { tenantId, type: 'interaction.ended' } }),
     1,
   );
+  const [terminal] = await owner.$queryRaw<{ reason: string }[]>`
+    SELECT terminal_reason AS reason FROM voice_managed_calls
+    WHERE tenant_id=${tenantId}::uuid AND interaction_id=${created!.interactionId}::uuid`;
+  assert.equal(terminal.reason, 'CALLER_HANGUP');
+  const managedTerminal = await owner.interactionEvent.findFirstOrThrow({
+    where: {
+      tenantId,
+      interactionId: created!.interactionId,
+      type: 'interaction.managed_terminal',
+    },
+  });
+  assert.deepEqual(managedTerminal.payload, { reason: 'CALLER_HANGUP' });
   assert.equal(
     (await owner.interaction.findUniqueOrThrow({ where: { id: created!.interactionId } })).state,
     'WRAPUP',
   );
+});
+
+test('the terminal reason of a bridged call follows the hangup initiator from either leg', async (testContext) => {
+  const cases: {
+    leg: 'caller' | 'agent';
+    hangupInitiator?: 'caller' | 'agent';
+    reason: string;
+  }[] = [
+    // The Agent leg event can arrive first when the customer hangs up
+    { leg: 'agent', hangupInitiator: 'caller', reason: 'CALLER_HANGUP' },
+    { leg: 'agent', hangupInitiator: 'agent', reason: 'AGENT_HANGUP' },
+    { leg: 'caller', hangupInitiator: 'agent', reason: 'AGENT_HANGUP' },
+    // No initiator (older telephony or a switch-side end) keeps the previous reason
+    { leg: 'caller', reason: 'AGENT_HANGUP' },
+  ];
+  for (const item of cases) {
+    const context = await fixture();
+    testContext.after(context.close);
+    const { runtime, event, commands, owner, tenantId } = context;
+    const created = await handleAndFlush(runtime, event);
+    const offer = commands.find((command) => command.type === 'offer.create')!;
+    const answer: ManagedVoiceEvent = {
+      ...event,
+      type: 'call.answered',
+      agentId: offer.agentId,
+      offerId: offer.offerId!,
+      blegUuid: offer.blegUuid,
+    };
+    assert.equal((await handleAndFlush(runtime, answer))?.status, 'ACTIVE');
+    const hangup: ManagedVoiceEvent =
+      item.leg === 'agent'
+        ? { ...answer, type: 'call.hangup', hangupInitiator: item.hangupInitiator }
+        : { ...event, type: 'call.hangup', hangupInitiator: item.hangupInitiator };
+    assert.equal((await handleAndFlush(runtime, hangup))?.status, 'WRAPUP');
+    const [terminal] = await owner.$queryRaw<{ reason: string }[]>`
+      SELECT terminal_reason AS reason FROM voice_managed_calls
+      WHERE tenant_id=${tenantId}::uuid AND interaction_id=${created!.interactionId}::uuid`;
+    assert.equal(terminal.reason, item.reason, JSON.stringify(item));
+  }
 });
 
 test('restart preserves capped deadline; terminal and all teardown intents survive response loss', async (testContext) => {
