@@ -107,8 +107,8 @@
   --dc-channel-voice-fg: #4338ca;
   --dc-channel-webchat-bg: #ccfbf1;
   --dc-channel-webchat-fg: #0f766e;
-  --dc-channel-line-bg: #dcfce7;
-  --dc-channel-line-fg: #15803d;
+  --dc-channel-line-bg: #ecfccb; /* lime, kept apart from --dc-success-* (severity) */
+  --dc-channel-line-fg: #3f6212;
   --dc-channel-facebook-bg: #dbeafe;
   --dc-channel-facebook-fg: #1d4ed8;
   --dc-channel-whatsapp-bg: #d1fae5;
