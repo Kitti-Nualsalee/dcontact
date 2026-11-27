@@ -25,7 +25,9 @@ import { GatewayPublic, GatewayRoles, type AuthenticatedGatewayRequest } from '.
 import { readLineChannel, saveLineChannel } from './line-chat-channel.js';
 import type { LineChatClient } from './line-chat-client.js';
 import type { LineChatService } from './line-chat-service.js';
-import { webchatMapped } from './webchat-public-api.js';
+import { WebchatError } from './webchat-errors.js';
+import { clientAddress, webchatMapped } from './webchat-public-api.js';
+import { WebchatRateLimiter } from './webchat-rate-limit.js';
 
 export const LINE_CHAT_SERVICE = Symbol('LINE_CHAT_SERVICE');
 export const LINE_CHAT_DEPENDENCIES = Symbol('LINE_CHAT_DEPENDENCIES');
@@ -44,6 +46,9 @@ function actorOf(request: AuthenticatedGatewayRequest) {
 @Controller('api/v1/line/webhook')
 @GatewayPublic()
 export class LineChatWebhookController {
+  /** checked before the database is touched; LINE's own rate is far below these */
+  private readonly limiter = new WebchatRateLimiter();
+
   constructor(@Inject(LINE_CHAT_SERVICE) private readonly line: LineChatService) {}
 
   @Post(':tenantId/:channelId')
@@ -55,9 +60,13 @@ export class LineChatWebhookController {
     @Param('channelId') channelId: string,
     @Headers('x-line-signature') signature: unknown,
   ) {
-    await webchatMapped(null, () =>
-      this.line.webhook(tenantId, channelId, request.rawBody, signature),
-    );
+    await webchatMapped(null, async () => {
+      const limited =
+        this.limiter.consume(`ip:${clientAddress(request)}`, 1200, 60_000) ??
+        this.limiter.consume(`channel:${tenantId}:${channelId}`, 3000, 60_000);
+      if (limited) throw new WebchatError('RATE_LIMITED', { retryAfterSeconds: limited });
+      return this.line.webhook(tenantId, channelId, request.rawBody, signature);
+    });
     // LINE reads only the status; the body says nothing about what was stored
     return {};
   }
