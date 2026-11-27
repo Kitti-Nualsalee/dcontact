@@ -2,9 +2,17 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test, { after } from 'node:test';
 import { PrismaClient } from '@d-contact/db';
-import { readAgentHistory, readAgentHistoryTranscript } from './agent-history.js';
+import {
+  readAgentHistory,
+  readAgentHistorySummary,
+  readAgentHistoryTranscript,
+} from './agent-history.js';
 import { saveAgentWrapup } from './agent-wrapup-v1.js';
-import { readTeamHistory, readTeamHistoryTranscript } from './team-history.js';
+import {
+  readTeamHistory,
+  readTeamHistorySummary,
+  readTeamHistoryTranscript,
+} from './team-history.js';
 import { WebchatError } from './webchat-errors.js';
 import { WebchatHub, type WebchatNotice } from './webchat-hub.js';
 import { WEBCHAT_VISITOR_GONE_MS, WebchatService } from './webchat-service.js';
@@ -138,6 +146,7 @@ test('the Admin saves the widget; the Supervisor reads it; nobody else does and 
   const f = await fixture();
   const read = await readWebchatWidget(application, f.supervisor);
   assert.equal(read.canEdit, false);
+  assert.match(read.lastSaved?.byName ?? '', /^ADMIN /);
   assert.deepEqual(read.widget.allowedOrigins, ['https://shop.test']);
   assert.equal(read.widget.revision, 1);
   assert.deepEqual(
@@ -299,6 +308,22 @@ test('a visitor chats with an Agent to the end, the result is saved and the conv
   const transcript = await readAgentHistoryTranscript(application, agent!, chat.interactionId);
   assert.equal(transcript.endReason, 'AGENT_ENDED');
   assert.equal(transcript.customerLinked, false);
+  assert.equal(transcript.visitorLabel, chat.visitorLabel);
+  assert.equal(transcript.queueName, 'Web chat');
+  // the summary counts by the same channel filter as the list
+  assert.equal(
+    (await readAgentHistorySummary(application, agent!, 'all', undefined, 'WEBCHAT')).completed,
+    1,
+  );
+  assert.equal(
+    (await readAgentHistorySummary(application, agent!, 'all', undefined, 'VOICE')).completed,
+    0,
+  );
+  assert.equal(
+    (await readTeamHistorySummary(application, f.supervisor, { period: 'all', channel: 'WEBCHAT' }))
+      .completed,
+    1,
+  );
   assert.deepEqual(
     transcript.messages.map((message) => message.text ?? message.event),
     ['Where is my order?', 'AGENT_JOINED', 'Let me check.', 'Thanks', 'AGENT_ENDED'],

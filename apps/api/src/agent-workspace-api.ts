@@ -155,9 +155,10 @@ export class AgentWorkspaceController {
   async historySummary(
     @Req() request: AuthenticatedGatewayRequest,
     @Query('period') period: unknown,
+    @Query('channel') channel: unknown,
   ) {
     return wrapupOperation(request, () =>
-      readAgentHistorySummary(this.database, identity(request), period),
+      readAgentHistorySummary(this.database, identity(request), period, undefined, channel),
     );
   }
 

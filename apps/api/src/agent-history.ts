@@ -10,6 +10,7 @@ import {
   whereSql,
   workFilterFrom,
   workFilterSql,
+  channelFrom,
   type WorkActor,
   type WorkChannel,
 } from './agent-work-metrics.js';
@@ -147,8 +148,11 @@ export async function readAgentHistorySummary(
   actor: WorkActor,
   periodValue: unknown,
   now: Date = new Date(),
+  channelValue?: unknown,
 ) {
   const period = summaryPeriodFrom(periodValue);
+  // #1044 the same channel filter as the list, so the numbers above the table match its rows
+  const channel = channelFrom(channelValue);
   return withTenantDatabaseTransaction(database, actor.tenantId, async (transaction) => {
     const agent = await findActiveAgent(transaction, actor);
     if (!agent) throw new ForbiddenException({ code: 'AGENT_REQUIRED' });
@@ -157,7 +161,7 @@ export async function readAgentHistorySummary(
       select: { timezone: true },
     });
     const timeZone = resolveTimeZone(settings?.timezone);
-    const window = periodWindow(period, now, timeZone);
+    const window = { ...periodWindow(period, now, timeZone), ...(channel ? { channel } : {}) };
     const rows = await transaction.$queryRaw<
       {
         disposition: string | null;
