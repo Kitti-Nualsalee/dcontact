@@ -14,6 +14,12 @@ import {
   TENANT_LIFECYCLE,
 } from './gateway-auth.js';
 import { QmController, QM_DATABASE, QM_JOB_PUBLISHER } from './qm-api.js';
+import {
+  RECORDING_DATABASE,
+  RECORDING_STORAGE,
+  RecordingController,
+  TELEPHONY_COMMAND_PUBLISHER,
+} from './recording-api.js';
 
 const owner = new PrismaClient();
 const application = new PrismaClient({
@@ -25,6 +31,8 @@ const application = new PrismaClient({
     },
   },
 });
+
+test.after(() => Promise.all([owner.$disconnect(), application.$disconnect()]));
 
 function claims(
   tenantId: string,
@@ -158,6 +166,27 @@ test('supervisor starts manual transcription, audits transcript access, and huma
       (${interactionId}::uuid, ${tenantId}::uuid, 'VOICE', 'INBOUND', 'WRAPUP', ${queueId}::uuid, ${agentId}::uuid, NOW()),
       (${foreignInteractionId}::uuid, ${foreignTenantId}::uuid, 'VOICE', 'INBOUND', 'WRAPUP', ${foreignQueueId}::uuid, ${foreignAgentId}::uuid, NOW())`,
   );
+  // the Router's evidence of which team answered each call: the Supervisor gate reads it
+  await owner.voiceInteractionHandlingAttribution.createMany({
+    data: [
+      {
+        tenantId,
+        interactionId,
+        agentId,
+        teamId,
+        acceptedAt: new Date('2026-09-05T04:59:45.000Z'),
+        sourceEventId: `test:${interactionId}`,
+      },
+      {
+        tenantId: foreignTenantId,
+        interactionId: foreignInteractionId,
+        agentId: foreignAgentId,
+        teamId: foreignTeamId,
+        acceptedAt: new Date('2026-09-05T04:59:45.000Z'),
+        sourceEventId: `test:${foreignInteractionId}`,
+      },
+    ],
+  });
   await owner.recording.create({
     data: {
       id: recordingId,
@@ -228,6 +257,7 @@ test('supervisor starts manual transcription, audits transcript access, and huma
     await owner.qmTranscript.deleteMany({ where: { tenantId } });
     await owner.qmTranscriptionJob.deleteMany({ where: { tenantId } });
     await owner.recording.deleteMany({ where: { tenantId } });
+    await owner.voiceInteractionHandlingAttribution.deleteMany({ where: { tenantId } });
     await owner.interaction.deleteMany({ where: { tenantId } });
     await owner.queueAuditEvent.deleteMany({ where: { tenantId } });
     await owner.queue.deleteMany({ where: { tenantId } });
@@ -237,12 +267,14 @@ test('supervisor starts manual transcription, audits transcript access, and huma
     await owner.qmConsoleContext.deleteMany({ where: { tenantId: foreignTenantId } });
     await owner.qmAuditEvent.deleteMany({ where: { tenantId: foreignTenantId } });
     await owner.qmEvaluation.deleteMany({ where: { tenantId: foreignTenantId } });
+    await owner.voiceInteractionHandlingAttribution.deleteMany({
+      where: { tenantId: foreignTenantId },
+    });
     await owner.interaction.deleteMany({ where: { tenantId: foreignTenantId } });
     await owner.queue.deleteMany({ where: { tenantId: foreignTenantId } });
     await owner.user.deleteMany({ where: { tenantId: foreignTenantId } });
     await owner.team.deleteMany({ where: { tenantId: foreignTenantId } });
     await owner.tenant.deleteMany({ where: { id: { in: [tenantId, foreignTenantId] } } });
-    await Promise.all([owner.$disconnect(), application.$disconnect()]);
   });
 
   const address = app.getHttpServer().address() as AddressInfo;
@@ -505,4 +537,289 @@ test('supervisor starts manual transcription, audits transcript access, and huma
       auditActions: ['TRANSCRIPTION_REQUESTED', 'TRANSCRIPT_ACCESSED', 'EVALUATION_PUBLISHED'],
     })}`,
   );
+});
+
+test("a Supervisor reaches legacy QM routes through the team that handled the call, not the agent's current team", async (t) => {
+  const tenantId = randomUUID();
+  const ids = {
+    teamA: randomUUID(),
+    teamB: randomUUID(),
+    supervisorA: randomUUID(),
+    supervisorB: randomUUID(),
+    admin: randomUUID(),
+    agent: randomUUID(),
+    queue: randomUUID(),
+    handled: randomUUID(),
+    noEvidence: randomUUID(),
+  };
+  await owner.tenant.create({
+    data: {
+      id: tenantId,
+      name: `QM gate ${tenantId}`,
+      slug: `qm-gate-${tenantId}`,
+      sipDomain: `${tenantId}.qm-gate.test`,
+    },
+  });
+  await owner.team.createMany({
+    data: [
+      { id: ids.teamA, tenantId, name: 'Team A' },
+      { id: ids.teamB, tenantId, name: 'Team B' },
+    ],
+  });
+  const user = (id: string, role: 'AGENT' | 'SUPERVISOR' | 'ADMIN', teamId: string | null) => ({
+    id,
+    tenantId,
+    teamId,
+    role,
+    email: `${id}@test.local`,
+    passwordHash: 'test',
+    displayName: role,
+  });
+  await owner.user.createMany({
+    data: [
+      user(ids.supervisorA, 'SUPERVISOR', ids.teamA),
+      user(ids.supervisorB, 'SUPERVISOR', ids.teamB),
+      user(ids.admin, 'ADMIN', null),
+      user(ids.agent, 'AGENT', ids.teamA),
+    ],
+  });
+  await owner.queue.create({
+    data: {
+      id: ids.queue,
+      tenantId,
+      name: `Gate queue ${tenantId}`,
+      channels: ['VOICE'],
+      transcriptionMode: 'MANUAL',
+    },
+  });
+  const fixtures: Record<
+    string,
+    { transcriptId: string; jobId: string; evaluationId: string; recordingId: string }
+  > = {};
+  for (const interactionId of [ids.handled, ids.noEvidence]) {
+    await owner.$executeRaw(
+      Prisma.sql`INSERT INTO interactions (id, tenant_id, channel, direction, state, queue_id, agent_id, ended_at)
+        VALUES (${interactionId}::uuid, ${tenantId}::uuid, 'VOICE', 'INBOUND', 'COMPLETED',
+          ${ids.queue}::uuid, ${ids.agent}::uuid, NOW())`,
+    );
+    const recording = await owner.recording.create({
+      data: {
+        tenantId,
+        interactionId,
+        storageKey: `recordings/${interactionId}.wav`,
+        telephonyPath: `/recordings/${interactionId}.wav`,
+        startedAt: new Date('2026-11-20T03:00:00.000Z'),
+        endedAt: new Date('2026-11-20T03:01:00.000Z'),
+        archivedAt: new Date('2026-11-20T03:01:01.000Z'),
+      },
+    });
+    const job = await owner.qmTranscriptionJob.create({
+      data: {
+        tenantId,
+        interactionId,
+        recordingId: recording.id,
+        trigger: 'AUTOMATIC',
+        status: 'READY',
+        languageHint: 'th-TH',
+        maxAttempts: 1,
+      },
+    });
+    const transcript = await owner.qmTranscript.create({
+      data: {
+        tenantId,
+        interactionId,
+        recordingId: recording.id,
+        jobId: job.id,
+        providerId: 'test-asr',
+        modelId: 'test-model',
+        language: 'th-TH',
+        confidenceAvg: 0.9,
+        baseline: {},
+      },
+    });
+    const evaluation = await owner.qmEvaluation.create({
+      data: {
+        tenantId,
+        interactionId,
+        agentId: ids.agent,
+        source: 'AUTO_DRAFT',
+        status: 'DRAFT',
+        providerId: 'scorer',
+        modelId: 'score-v1',
+        promptVersion: 'prompt-1',
+        answers: [],
+      },
+    });
+    fixtures[interactionId] = {
+      transcriptId: transcript.id,
+      jobId: job.id,
+      evaluationId: evaluation.id,
+      recordingId: recording.id,
+    };
+  }
+  // only the first call has evidence of which team answered it
+  await owner.voiceInteractionHandlingAttribution.create({
+    data: {
+      tenantId,
+      interactionId: ids.handled,
+      agentId: ids.agent,
+      teamId: ids.teamA,
+      acceptedAt: new Date('2026-11-20T02:59:50.000Z'),
+      sourceEventId: `test:${ids.handled}`,
+    },
+  });
+  // the agent moves to team B after the call
+  await owner.user.update({ where: { id: ids.agent }, data: { teamId: ids.teamB } });
+
+  const tokens: Record<string, VerifiedOidcClaims> = {
+    'supervisor-a': claims(tenantId, ids.supervisorA, 'supervisor'),
+    'supervisor-b': claims(tenantId, ids.supervisorB, 'supervisor'),
+    admin: claims(tenantId, ids.admin, 'admin'),
+  };
+  @Module({
+    controllers: [QmController, RecordingController],
+    providers: [
+      { provide: QM_DATABASE, useValue: application },
+      { provide: QM_JOB_PUBLISHER, useValue: { publish: async () => undefined } },
+      // the legacy presigned playback used by the Console review page follows the same rule
+      { provide: RECORDING_DATABASE, useValue: application },
+      { provide: TELEPHONY_COMMAND_PUBLISHER, useValue: { publish: async () => undefined } },
+      {
+        provide: RECORDING_STORAGE,
+        useValue: {
+          presignPlayback: async () => ({
+            url: 'https://storage.test/recording?signature=short-lived',
+            expiresAt: new Date(Date.now() + 300_000),
+          }),
+          deleteObject: async () => undefined,
+        },
+      },
+      {
+        provide: OIDC_ACCESS_TOKEN_VERIFIER,
+        useValue: {
+          verifyAccessToken: async (token: string) => {
+            const found = tokens[token];
+            if (!found) throw new Error('invalid token');
+            return found;
+          },
+        },
+      },
+      { provide: TENANT_LIFECYCLE, useValue: { isActive: async () => true } },
+      { provide: GATEWAY_DIAGNOSTICS, useValue: { write: () => undefined } },
+      { provide: APP_GUARD, useClass: OidcGlobalGuard },
+    ],
+  })
+  class GateModule {}
+  const app = await NestFactory.create(GateModule, { logger: false });
+  await app.listen(0, '127.0.0.1');
+  t.after(async () => {
+    await app.close();
+    await owner.qmConsoleContext.deleteMany({ where: { tenantId } });
+    await owner.qmAuditEvent.deleteMany({ where: { tenantId } });
+    await owner.recordingAuditEvent.deleteMany({ where: { tenantId } });
+    await owner.commandReceipt.deleteMany({ where: { tenantId } });
+    await owner.qmEvaluation.deleteMany({ where: { tenantId } });
+    await owner.qmTranscriptSegment.deleteMany({ where: { tenantId } });
+    await owner.qmTranscript.deleteMany({ where: { tenantId } });
+    await owner.qmTranscriptionJob.deleteMany({ where: { tenantId } });
+    await owner.recording.deleteMany({ where: { tenantId } });
+    await owner.voiceInteractionHandlingAttribution.deleteMany({ where: { tenantId } });
+    await owner.interaction.deleteMany({ where: { tenantId } });
+    await owner.queue.deleteMany({ where: { tenantId } });
+    await owner.user.deleteMany({ where: { tenantId } });
+    await owner.team.deleteMany({ where: { tenantId } });
+    await owner.tenant.delete({ where: { id: tenantId } });
+  });
+  const root = `http://127.0.0.1:${(app.getHttpServer().address() as AddressInfo).port}/api/v1`;
+  const status = async (token: string, interactionId: string, route: string) => {
+    const fixture = fixtures[interactionId]!;
+    const [method, path] = {
+      transcript: ['GET', `/qm/transcripts/${fixture.transcriptId}`],
+      job: ['GET', `/qm/transcription-jobs/${fixture.jobId}`],
+      context: ['POST', `/qm/interactions/${interactionId}/console-context`],
+      evaluation: ['GET', `/qm/evaluations/${fixture.evaluationId}`],
+      playback: ['POST', `/recordings/${fixture.recordingId}/playback`],
+    }[route]!;
+    const response = await fetch(`${root}${path}`, {
+      method,
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      ...(method === 'POST'
+        ? { body: route === 'playback' ? JSON.stringify({ download: false }) : '{}' }
+        : {}),
+    });
+    return response.status;
+  };
+  const routes = ['transcript', 'job', 'context', 'evaluation', 'playback'];
+  const ok = {
+    transcript: 200,
+    job: 200,
+    context: 201,
+    evaluation: 200,
+    playback: 201,
+  } as Record<string, number>;
+  // a route that answers 403 rather than 404 when the caller may not see the call
+  const deniedStatus = (route: string) => (route === 'playback' ? 403 : 404);
+
+  for (const route of routes) {
+    // the team that answered keeps the call after the agent moved
+    assert.equal(await status('supervisor-a', ids.handled, route), ok[route], `A ${route}`);
+    // the agent's new team does not inherit it
+    assert.equal(
+      await status('supervisor-b', ids.handled, route),
+      deniedStatus(route),
+      `B ${route}`,
+    );
+    // no evidence, no Supervisor
+    assert.equal(
+      await status('supervisor-a', ids.noEvidence, route),
+      deniedStatus(route),
+      `no evidence ${route}`,
+    );
+    // Admin is unchanged: every team
+    assert.equal(await status('admin', ids.noEvidence, route), ok[route], `admin ${route}`);
+  }
+  const json = { authorization: 'Bearer supervisor-a', 'content-type': 'application/json' };
+  // the context issued to the answering team's Supervisor can be read back
+  const issued = await fetch(`${root}/qm/interactions/${ids.handled}/console-context`, {
+    method: 'POST',
+    headers: json,
+    body: '{}',
+  });
+  const { contextId } = (await issued.json()) as { contextId: string };
+  assert.equal(
+    (await fetch(`${root}/qm/console-contexts/${contextId}`, { headers: json })).status,
+    200,
+  );
+  // the answering team's Supervisor can publish the auto-QM draft, the agent's new team cannot
+  const publish = (token: string) =>
+    fetch(`${root}/qm/evaluations/${fixtures[ids.handled]!.evaluationId}/publish`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ commandId: randomUUID() }),
+    });
+  assert.equal((await publish('supervisor-b')).status, 404);
+  assert.equal((await publish('supervisor-a')).status, 201);
+  // a manual transcription request reaches the gate and passes for the answering team
+  const manual = await fetch(`${root}/qm/interactions/${ids.handled}/transcription-jobs`, {
+    method: 'POST',
+    headers: json,
+    body: '{}',
+  });
+  assert.notEqual(manual.status, 403);
+  assert.notEqual(manual.status, 404);
+  const reviewTranscription = await fetch(
+    `${root}/qm/interactions/${ids.noEvidence}/transcription-jobs`,
+    { method: 'POST', headers: { authorization: 'Bearer supervisor-a' } },
+  );
+  assert.equal(reviewTranscription.status, 403);
+
+  // a deactivated Supervisor loses access at once
+  await owner.user.update({ where: { id: ids.supervisorA }, data: { isActive: false } });
+  for (const route of routes) {
+    assert.equal(
+      await status('supervisor-a', ids.handled, route),
+      deniedStatus(route),
+      `inactive ${route}`,
+    );
+  }
 });

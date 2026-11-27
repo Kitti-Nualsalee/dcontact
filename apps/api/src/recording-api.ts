@@ -16,6 +16,7 @@ import {
 import { Prisma, PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
 import type { TelephonyCommand, TelephonyVendor } from '@d-contact/shared';
 import { GatewayRoles, type AuthenticatedGatewayRequest } from './gateway-auth.js';
+import { supervisesHandlingTeam } from './supervisor-team-access.js';
 
 export const RECORDING_DATABASE = Symbol('RECORDING_DATABASE');
 export const TELEPHONY_COMMAND_PUBLISHER = Symbol('TELEPHONY_COMMAND_PUBLISHER');
@@ -323,8 +324,8 @@ export class RecordingController {
             storageKey: true,
             interaction: {
               select: {
+                id: true,
                 agentId: true,
-                agent: { select: { teamId: true } },
                 queue: {
                   select: { recordingAgentSelfAccess: true, recordingDownloadAllowed: true },
                 },
@@ -338,16 +339,10 @@ export class RecordingController {
           actor.roles.includes('agent') &&
           selected.interaction.agentId === actor.userId &&
           selected.interaction.queue?.recordingAgentSelfAccess;
-        let isTeamSupervisor = false;
-        if (!isAdmin && !isOwnAgent && actor.roles.includes('supervisor')) {
-          const supervisor = await transaction.user.findFirst({
-            where: { id: actor.userId, tenantId: actor.tenantId, role: 'SUPERVISOR' },
-            select: { teamId: true },
-          });
-          isTeamSupervisor = Boolean(
-            supervisor?.teamId && supervisor.teamId === selected.interaction.agent?.teamId,
-          );
-        }
+        const isTeamSupervisor =
+          !isAdmin &&
+          !isOwnAgent &&
+          (await supervisesHandlingTeam(transaction, actor, selected.interaction.id));
         if (!isAdmin && !isOwnAgent && !isTeamSupervisor) throw new ForbiddenException();
         if (download && !selected.interaction.queue?.recordingDownloadAllowed) {
           await transaction.recordingAuditEvent.create({

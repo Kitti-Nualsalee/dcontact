@@ -15,6 +15,7 @@ import {
 import { PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
 import { QM_RECORDING_FAILURE_CODES, type QmTranscriptionJobMessage } from '@d-contact/shared';
 import { GatewayRoles, type AuthenticatedGatewayRequest } from './gateway-auth.js';
+import { supervisesHandlingTeam } from './supervisor-team-access.js';
 
 export const QM_DATABASE = Symbol('QM_DATABASE');
 export const QM_JOB_PUBLISHER = Symbol('QM_JOB_PUBLISHER');
@@ -116,19 +117,6 @@ function qmPolicy(body: QmQueuePolicyBody): {
   };
 }
 
-function isTeamSupervisor(
-  actor: { roles: readonly string[]; userId: string },
-  supervisor: { teamId: string | null } | null,
-  targetTeamId: string | null | undefined,
-): boolean {
-  return Boolean(
-    actor.roles.includes('supervisor') &&
-    supervisor?.teamId &&
-    targetTeamId &&
-    supervisor.teamId === targetTeamId,
-  );
-}
-
 @Controller('api/v1')
 export class QmController {
   constructor(
@@ -200,7 +188,6 @@ export class QmController {
           },
           select: {
             id: true,
-            agent: { select: { teamId: true } },
             queue: {
               select: {
                 transcriptionMode: true,
@@ -218,15 +205,9 @@ export class QmController {
         if (!interaction?.queue || interaction.queue.transcriptionMode === 'OFF') {
           throw new NotFoundException();
         }
-        const supervisor = actor.roles.includes('supervisor')
-          ? await transaction.user.findFirst({
-              where: { id: actor.userId, tenantId: actor.tenantId, role: 'SUPERVISOR' },
-              select: { teamId: true },
-            })
-          : null;
         if (
           !actor.roles.includes('admin') &&
-          !isTeamSupervisor(actor, supervisor, interaction.agent?.teamId)
+          !(await supervisesHandlingTeam(transaction, actor, interaction.id))
         ) {
           throw new ForbiddenException();
         }
@@ -401,19 +382,12 @@ export class QmController {
           failureCode: true,
           failureReason: true,
           nextAttemptAt: true,
-          interaction: { select: { agent: { select: { teamId: true } } } },
         },
       });
       if (!job) throw new NotFoundException();
-      const supervisor = actor.roles.includes('supervisor')
-        ? await transaction.user.findFirst({
-            where: { id: actor.userId, tenantId: actor.tenantId, role: 'SUPERVISOR' },
-            select: { teamId: true },
-          })
-        : null;
       if (
         !actor.roles.includes('admin') &&
-        !isTeamSupervisor(actor, supervisor, job.interaction.agent?.teamId)
+        !(await supervisesHandlingTeam(transaction, actor, job.interactionId))
       ) {
         throw new NotFoundException();
       }
@@ -441,18 +415,12 @@ export class QmController {
     return withTenantDatabaseTransaction(this.database, actor.tenantId, async (transaction) => {
       const interaction = await transaction.interaction.findFirst({
         where: { id: uuid(interactionId, 'interactionId'), tenantId: actor.tenantId },
-        select: { id: true, agent: { select: { teamId: true } } },
+        select: { id: true },
       });
       if (!interaction) throw new NotFoundException();
-      const supervisor = actor.roles.includes('supervisor')
-        ? await transaction.user.findFirst({
-            where: { id: actor.userId, tenantId: actor.tenantId, role: 'SUPERVISOR' },
-            select: { teamId: true },
-          })
-        : null;
       if (
         !actor.roles.includes('admin') &&
-        !isTeamSupervisor(actor, supervisor, interaction.agent?.teamId)
+        !(await supervisesHandlingTeam(transaction, actor, interaction.id))
       ) {
         throw new NotFoundException();
       }
@@ -494,7 +462,6 @@ export class QmController {
           id: true,
           channel: true,
           queue: { select: { name: true } },
-          agent: { select: { teamId: true } },
           recordings: {
             orderBy: { startedAt: 'desc' },
             take: 1,
@@ -522,15 +489,9 @@ export class QmController {
         },
       });
       if (!interaction) throw new NotFoundException();
-      const supervisor = actor.roles.includes('supervisor')
-        ? await transaction.user.findFirst({
-            where: { id: actor.userId, tenantId: actor.tenantId, role: 'SUPERVISOR' },
-            select: { teamId: true },
-          })
-        : null;
       if (
         !actor.roles.includes('admin') &&
-        !isTeamSupervisor(actor, supervisor, interaction.agent?.teamId)
+        !(await supervisesHandlingTeam(transaction, actor, interaction.id))
       ) {
         throw new NotFoundException();
       }
@@ -590,7 +551,6 @@ export class QmController {
           interaction: {
             select: {
               agentId: true,
-              agent: { select: { teamId: true } },
               queue: { select: { recordingAgentSelfAccess: true } },
             },
           },
@@ -608,12 +568,6 @@ export class QmController {
         },
       });
       if (!transcript) throw new NotFoundException();
-      const supervisor = actor.roles.includes('supervisor')
-        ? await transaction.user.findFirst({
-            where: { id: actor.userId, tenantId: actor.tenantId, role: 'SUPERVISOR' },
-            select: { teamId: true },
-          })
-        : null;
       const ownAgent =
         actor.roles.includes('agent') &&
         transcript.interaction.agentId === actor.userId &&
@@ -621,7 +575,7 @@ export class QmController {
       if (
         !actor.roles.includes('admin') &&
         !ownAgent &&
-        !isTeamSupervisor(actor, supervisor, transcript.interaction.agent?.teamId)
+        !(await supervisesHandlingTeam(transaction, actor, transcript.interactionId))
       ) {
         throw new NotFoundException();
       }
@@ -666,26 +620,18 @@ export class QmController {
           promptVersion: true,
           answers: true,
           publishedAt: true,
-          interaction: { select: { agent: { select: { teamId: true } } } },
         },
       });
       if (!evaluation) throw new NotFoundException();
-      const supervisor = actor.roles.includes('supervisor')
-        ? await transaction.user.findFirst({
-            where: { id: actor.userId, tenantId: actor.tenantId, role: 'SUPERVISOR' },
-            select: { teamId: true },
-          })
-        : null;
       const mayReview =
         actor.roles.includes('admin') ||
-        isTeamSupervisor(actor, supervisor, evaluation.interaction.agent?.teamId);
+        (await supervisesHandlingTeam(transaction, actor, evaluation.interactionId));
       const ownPublished =
         evaluation.status === 'PUBLISHED' &&
         actor.roles.includes('agent') &&
         evaluation.agentId === actor.userId;
       if (!mayReview && !ownPublished) throw new NotFoundException();
-      const { interaction: _interaction, ...view } = evaluation;
-      return view;
+      return evaluation;
     });
   }
 
@@ -723,19 +669,13 @@ export class QmController {
         },
         select: {
           id: true,
-          interaction: { select: { agent: { select: { teamId: true } } } },
+          interactionId: true,
         },
       });
       if (!evaluation) throw new NotFoundException();
-      const supervisor = actor.roles.includes('supervisor')
-        ? await transaction.user.findFirst({
-            where: { id: actor.userId, tenantId: actor.tenantId, role: 'SUPERVISOR' },
-            select: { teamId: true },
-          })
-        : null;
       if (
         !actor.roles.includes('admin') &&
-        !isTeamSupervisor(actor, supervisor, evaluation.interaction.agent?.teamId)
+        !(await supervisesHandlingTeam(transaction, actor, evaluation.interactionId))
       ) {
         throw new NotFoundException();
       }

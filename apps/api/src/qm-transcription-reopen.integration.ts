@@ -151,6 +151,16 @@ test('a manual request reopens a job that is FAILED because the recording was no
         VALUES (${fixture.interactionId}::uuid, ${tenantId}::uuid, 'VOICE', 'INBOUND', 'COMPLETED',
           ${queueId}::uuid, ${agentId}::uuid, ${endedAt})`,
     );
+    await owner.voiceInteractionHandlingAttribution.create({
+      data: {
+        tenantId,
+        interactionId: fixture.interactionId,
+        agentId,
+        teamId,
+        acceptedAt: new Date(endedAt.getTime() - 20_000),
+        sourceEventId: `test:${fixture.interactionId}`,
+      },
+    });
     await owner.recording.create({
       data: {
         id: fixture.recordingId,
@@ -227,6 +237,7 @@ test('a manual request reopens a job that is FAILED because the recording was no
     await owner.qmAuditEvent.deleteMany({ where: { tenantId } });
     await owner.qmTranscriptionJob.deleteMany({ where: { tenantId } });
     await owner.recording.deleteMany({ where: { tenantId } });
+    await owner.voiceInteractionHandlingAttribution.deleteMany({ where: { tenantId } });
     await owner.interaction.deleteMany({ where: { tenantId } });
     await owner.queue.deleteMany({ where: { tenantId } });
     await owner.user.deleteMany({ where: { tenantId } });
