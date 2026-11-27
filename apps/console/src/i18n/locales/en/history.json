@@ -2,8 +2,8 @@
   "title": "My work history",
   "assisted": "Customer assisted",
   "followUp": "Follow-up required",
-  "readOnly": "Only your completed Voice work is shown. Read-only; your receiving point is not affected.",
-  "list": "Voice work",
+  "readOnly": "Your completed work (calls and chats) is shown. Read-only; your receiving point is not affected.",
+  "list": "Work items",
   "interaction": "Interaction",
   "started": "Started",
   "ended": "Ended",
@@ -16,7 +16,7 @@
   "refresh": "Refresh",
   "back": "Back to list",
   "loading": "Loading history",
-  "empty": "No completed Voice work yet",
+  "empty": "No completed work yet",
   "failed": "Could not load history",
   "unauthorized": "Session expired. Sign in again.",
   "forbidden": "This account cannot read Agent history",
@@ -50,8 +50,58 @@
     "byDisposition": "By disposition",
     "noDisposition": "No disposition (legacy)",
     "allDispositions": "All dispositions",
-    "listTitle": "Work items · {{period}} · {{disposition}} · {{count}} items",
-    "emptyPeriod": "No completed Voice work in this period",
-    "emptyFiltered": "No work with this disposition in this period"
+    "listTitle": "Work items · {{period}} · {{channel}} · {{disposition}} · {{count}} items",
+    "emptyPeriod": "No work closed in this period",
+    "emptyFiltered": "No work with this disposition in this period",
+    "listTitleNoCount": "Work items · {{period}} · {{channel}} · {{disposition}}",
+    "emptyChannel": "No {{channel}} ended in this period",
+    "showAllChannels": "Show all channels"
+  },
+  "channel": "Channel",
+  "channelFilter": "Channel",
+  "channels": {
+    "all": "All channels",
+    "voice": "Calls",
+    "webchat": "Chats"
+  },
+  "chat": {
+    "visitor": "Visitor #{{code}}",
+    "transcript": "Conversation",
+    "transcriptMeta": "Read only · {{count}} messages",
+    "transcriptFailed": "The conversation didn't load. The recorded outcome is still correct",
+    "transcriptLoading": "Loading the conversation",
+    "transcriptEmpty": "This work has no messages",
+    "retry": "Try again",
+    "customer": "Customer",
+    "linked": "Customer linked",
+    "unlinked": "Not linked",
+    "closedByLabel": "Closed by",
+    "closedBy": {
+      "AGENT": "Agent",
+      "CUSTOMER": "Customer",
+      "IDLE": "System (customer did not reply)"
+    },
+    "sender": {
+      "customer": "Visitor",
+      "agent": "Agent"
+    },
+    "system": {
+      "AGENT_JOINED": "{{agent}} joined the chat",
+      "AGENT_ENDED": "{{agent}} ended the chat",
+      "CUSTOMER_ENDED": "The visitor ended the chat",
+      "CUSTOMER_LEFT": "The customer left the chat",
+      "IDLE_TIMEOUT": "Closed because the customer did not reply",
+      "unknown": "System event"
+    },
+    "started": "Started",
+    "talk": "Talk time",
+    "recorded": "Recorded",
+    "disposition": "Disposition",
+    "agent": "Agent",
+    "team": "Team",
+    "interaction": "Interaction",
+    "result": "Recorded outcome",
+    "heading": "Chat",
+    "queue": "Queue"
   }
 }

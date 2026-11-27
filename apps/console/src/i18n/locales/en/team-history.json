@@ -1,8 +1,8 @@
 {
   "title": "Team work history",
-  "readOnlySupervisor": "Closed Voice work handled by your team, counted by the Agent's team when they answered. Read-only.",
-  "readOnlyAdmin": "Closed Voice work of every team, counted by the Agent's team when they answered. Read-only.",
-  "evidenceNote": "Work without team evidence at answer time (for example before this was enabled) is not shown here.",
+  "readOnlySupervisor": "Closed work (calls and chats) handled by your team, counted by the Agent's team when the work was accepted. Read-only.",
+  "readOnlyAdmin": "Closed work (calls and chats) of every team, counted by the Agent's team when the work was accepted. Read-only.",
+  "evidenceNote": "Work without team evidence when the work was accepted (for example before this was enabled) is not shown here.",
   "team": "Team",
   "allTeams": "All teams",
   "teamInactive": "{{name}} (inactive)",
@@ -21,7 +21,7 @@
   "refresh": "Refresh",
   "back": "Back to list",
   "loading": "Loading team history",
-  "empty": "This team has no closed Voice work yet",
+  "empty": "This team has no closed work yet",
   "failed": "Could not load team history",
   "unauthorized": "Your session expired. Please sign in again.",
   "forbidden": "This account cannot view team history. It needs to be a Supervisor with a team, or an Admin.",
@@ -57,9 +57,9 @@
     "allDispositions": "All outcomes",
     "agentCount": "{{agent}}: {{count}} items · average {{talk}}",
     "agentCountNoTalk": "{{agent}}: {{count}} items",
-    "listTitle": "Work · {{period}} · {{agent}} · {{disposition}} · {{count}} items",
-    "emptyPeriod": "No Voice work closed in this period",
+    "listTitle": "Work · {{period}} · {{channel}} · {{agent}} · {{disposition}} · {{count}} items",
+    "emptyPeriod": "No work closed in this period",
     "emptyFiltered": "No work matches this filter in this period",
-    "listTitleNoCount": "Work · {{period}} · {{agent}} · {{disposition}}"
+    "listTitleNoCount": "Work · {{period}} · {{channel}} · {{agent}} · {{disposition}}"
   }
 }

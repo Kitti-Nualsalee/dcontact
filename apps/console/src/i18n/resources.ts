@@ -54,6 +54,8 @@ import qualityTh from './locales/th/quality.json' with { type: 'json' };
 import qualityEn from './locales/en/quality.json' with { type: 'json' };
 import teamHistoryTh from './locales/th/team-history.json' with { type: 'json' };
 import teamHistoryEn from './locales/en/team-history.json' with { type: 'json' };
+import webchatTh from './locales/th/webchat.json' with { type: 'json' };
+import webchatEn from './locales/en/webchat.json' with { type: 'json' };
 
 export const DEFAULT_NAMESPACE = 'common';
 
@@ -80,6 +82,7 @@ export const resources = {
     integrations: integrationsTh,
     account: accountTh,
     governance: governanceTh,
+    webchat: webchatTh,
     ...uiResources.th,
   },
   en: {
@@ -103,6 +106,7 @@ export const resources = {
     integrations: integrationsEn,
     account: accountEn,
     governance: governanceEn,
+    webchat: webchatEn,
     ...uiResources.en,
   },
 } as const;

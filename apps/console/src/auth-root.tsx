@@ -35,6 +35,8 @@ import { QmForms } from './quality/qm-forms.js';
 import { TeamEvaluations } from './quality/team-evaluations.js';
 import { createCasesApi } from './cases/api.js';
 import { DphoneEmbedding } from './dphone-embedding/dphone-embedding.js';
+import { createWebchatApi } from './webchat/api.js';
+import { WebchatSettingsPage } from './webchat/webchat-settings.js';
 import { createAccountApi, createAccountPolicyApi } from './account/api.js';
 import { AccountPage, AccountPolicyPage } from './account/account.js';
 import { createTeamScopeApi } from './team-scopes/api.js';
@@ -132,7 +134,7 @@ function SigningIn() {
 }
 
 type SignInSurface =
-  'qm' | 'governance' | 'dphoneEmbedding' | 'lineInbound' | 'journeys' | 'account';
+  'qm' | 'governance' | 'dphoneEmbedding' | 'webchat' | 'lineInbound' | 'journeys' | 'account';
 
 function SignInRequired({ surface, auth }: { surface: SignInSurface; auth: AuthContextProps }) {
   const { t } = useTranslation('common');
@@ -246,6 +248,8 @@ export function ConsoleAuthRoot() {
   const governanceView = view === 'governance';
   const journeyView = view === 'journeys';
   const embeddingView = view === 'dphone-embedding';
+  // #1044: Customer channels › Web Chat (Admin edits, Supervisor reads)
+  const webchatView = view === 'webchat-settings';
   const routingView = view === 'voice-routing';
   const peopleView = view === 'tenant-people';
   const coreSettingsView = view === 'core-settings';
@@ -275,6 +279,7 @@ export function ConsoleAuthRoot() {
       governanceView ||
       journeyView ||
       embeddingView ||
+      webchatView ||
       routingView ||
       peopleView ||
       customersView ||
@@ -367,6 +372,8 @@ export function ConsoleAuthRoot() {
               <LineInboundSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
             ) : embeddingView ? (
               <DphoneEmbeddingSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
+            ) : webchatView ? (
+              <WebchatSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
             ) : governanceView ? (
               <GovernanceSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
             ) : (
@@ -874,6 +881,36 @@ function DphoneEmbeddingSurface({
         dev={import.meta.env.DEV}
         docsUrl={import.meta.env.VITE_DPHONE_EMBED_DOCS_URL as string | undefined}
         teamScopes={teamScopes}
+      />
+    </ConsoleShell>
+  );
+}
+
+/** #1044: Web Chat settings — the API says whether this user can edit (`canEdit`) and answers 403 to other roles */
+function WebchatSurface({ apiBaseUrl, tenantAlias }: { apiBaseUrl: string; tenantAlias: string }) {
+  const auth = useAuth();
+  const accessToken = auth.user?.access_token;
+  const latestToken = useRef(accessToken);
+  latestToken.current = auth.isAuthenticated ? accessToken : undefined;
+  const api = useMemo(
+    () => createWebchatApi({ baseUrl: apiBaseUrl, accessToken: () => latestToken.current }),
+    [apiBaseUrl],
+  );
+  if (auth.activeNavigator === 'signinRedirect' || auth.isLoading) return <SigningIn />;
+  if (auth.error || !auth.isAuthenticated || !accessToken)
+    return <SignInRequired surface="webchat" auth={auth} />;
+  return (
+    <ConsoleShell
+      {...shellUserProps(auth, tenantAlias)}
+      apiBaseUrl={apiBaseUrl}
+      accessToken={() => accessToken}
+      tenantAlias={tenantAlias}
+      appId="webchat-settings"
+    >
+      <WebchatSettingsPage
+        api={api}
+        apiBaseUrl={apiBaseUrl}
+        onSignIn={() => void signInFromCurrentPage(auth)}
       />
     </ConsoleShell>
   );

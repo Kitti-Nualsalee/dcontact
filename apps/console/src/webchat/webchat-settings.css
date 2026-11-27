@@ -1,0 +1,266 @@
+/* #1044: Customer channels › Web Chat settings — tokens only */
+.wc {
+  display: grid;
+  gap: var(--dc-space-5);
+  max-inline-size: 1120px;
+  padding: var(--dc-space-6);
+  color: var(--dc-text-primary);
+}
+
+.wc__title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--dc-space-3);
+  margin: 0;
+  font-size: var(--dc-text-xl);
+}
+
+.wc__lead,
+.wc__sub {
+  margin: var(--dc-space-2) 0 0;
+  color: var(--dc-text-secondary);
+  font-size: var(--dc-text-sm);
+}
+
+.wc__sr {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.wc__banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--dc-space-3);
+  margin: 0;
+  padding: var(--dc-space-3) var(--dc-space-4);
+  border: 1px solid var(--dc-border-subtle);
+  border-radius: var(--dc-radius-md);
+  background: var(--dc-surface-raised);
+}
+
+.wc__banner p {
+  flex: 1 1 16rem;
+  margin: 0;
+}
+
+.wc__banner--critical {
+  border-color: var(--dc-critical-border);
+  background: var(--dc-critical-bg-subtle);
+  color: var(--dc-critical-fg-strong);
+}
+
+.wc__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(16rem, 1fr);
+  gap: var(--dc-space-5);
+  align-items: start;
+}
+
+@media (width <= 960px) {
+  .wc__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.wc__main,
+.wc__side,
+.wc__stack {
+  display: grid;
+  gap: var(--dc-space-5);
+  min-inline-size: 0;
+}
+
+.wc__side {
+  position: sticky;
+  inset-block-start: var(--dc-space-5);
+}
+
+@media (width <= 960px) {
+  .wc__side {
+    position: static;
+  }
+}
+
+.wc__card {
+  display: grid;
+  gap: var(--dc-space-3);
+  padding: var(--dc-space-5);
+  border: 1px solid var(--dc-border-subtle);
+  border-radius: var(--dc-radius-lg);
+  background: var(--dc-surface-raised);
+}
+
+.wc__card h2 {
+  margin: 0;
+  font-size: var(--dc-text-md);
+}
+
+.wc__card--notice {
+  max-inline-size: 36rem;
+}
+
+.wc__card--notice p {
+  margin: 0;
+  color: var(--dc-text-secondary);
+}
+
+.wc__pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--dc-space-4);
+}
+
+@media (width <= 640px) {
+  .wc__pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.wc__origins {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-block-start: 1px solid var(--dc-border-subtle);
+}
+
+.wc__origin {
+  display: flex;
+  align-items: center;
+  gap: var(--dc-space-3);
+  min-block-size: var(--dc-control-md);
+  border-block-end: 1px solid var(--dc-border-subtle);
+}
+
+.wc__origin-text {
+  flex: 1;
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wc__empty {
+  margin: 0;
+  color: var(--dc-text-secondary);
+  font-size: var(--dc-text-sm);
+}
+
+.wc__add {
+  display: flex;
+  align-items: start;
+  gap: var(--dc-space-3);
+}
+
+.wc__add-field {
+  flex: 1;
+  min-inline-size: 0;
+}
+
+/* the label stays for screen readers but the add row reads as one line, so the button lines up with the input */
+.wc__add > button {
+  margin-block-start: var(--dc-space-6);
+}
+
+.wc__error {
+  margin: 0;
+  color: var(--dc-critical-fg-strong);
+  font-size: var(--dc-text-sm);
+  font-weight: var(--dc-weight-semibold);
+}
+
+.wc__code {
+  margin: 0;
+  padding: var(--dc-space-4);
+  overflow-x: auto;
+  border-radius: var(--dc-radius-md);
+  background: var(--dc-surface-sunken);
+  font-size: var(--dc-text-xs);
+}
+
+.wc__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--dc-space-4);
+}
+
+.wc__link {
+  color: var(--dc-brand-700);
+  font-size: var(--dc-text-sm);
+  font-weight: var(--dc-weight-semibold);
+}
+
+.wc__subhead {
+  margin: var(--dc-space-3) 0 0;
+  color: var(--dc-text-secondary);
+  font-size: var(--dc-text-xs);
+  font-weight: var(--dc-weight-semibold);
+}
+
+.wc__checklist {
+  display: grid;
+  gap: var(--dc-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--dc-text-sm);
+}
+
+.wc__check {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--dc-space-2);
+  color: var(--dc-attention-fg-strong);
+}
+
+.wc__check--met {
+  color: var(--dc-success-fg);
+}
+
+.wc__check-mark {
+  inline-size: var(--dc-space-4);
+  font-weight: var(--dc-weight-semibold);
+  text-align: center;
+}
+
+.wc__buttons {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--dc-space-3);
+}
+
+/* loading skeleton: static blocks, so there is nothing to switch off for reduced motion */
+.wc__skeleton {
+  display: grid;
+  gap: var(--dc-space-4);
+}
+
+.wc__skeleton-line,
+.wc__skeleton-block {
+  display: block;
+  border-radius: var(--dc-radius-md);
+  background: var(--dc-surface-sunken);
+}
+
+.wc__skeleton-line--title {
+  inline-size: 12rem;
+  block-size: var(--dc-space-6);
+}
+
+.wc__skeleton-block {
+  block-size: 8rem;
+}
+
+.wc__meta {
+  margin: 0;
+  color: var(--dc-text-secondary);
+  font-size: var(--dc-text-xs);
+}

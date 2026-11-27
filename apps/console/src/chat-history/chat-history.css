@@ -1,0 +1,145 @@
+/* #1044: chat rows of the history pages — tokens only */
+.ch-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--dc-space-2);
+  padding: var(--dc-space-1) var(--dc-space-3);
+  border-radius: var(--dc-radius-sm);
+  font-size: var(--dc-text-xs);
+  font-weight: var(--dc-weight-semibold);
+  white-space: nowrap;
+}
+
+.ch-badge--voice {
+  background: var(--dc-channel-voice-bg);
+  color: var(--dc-channel-voice-fg);
+}
+
+.ch-badge--webchat {
+  background: var(--dc-channel-webchat-bg);
+  color: var(--dc-channel-webchat-fg);
+}
+
+.ch-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--dc-space-3);
+}
+
+.ch-head h2 {
+  margin: 0;
+}
+
+.ch-sub {
+  margin-block: var(--dc-space-2) 0;
+  color: var(--dc-text-secondary);
+  font-size: var(--dc-text-sm);
+  overflow-wrap: anywhere;
+}
+
+.ch-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(16rem, 1fr);
+  gap: var(--dc-space-5);
+  align-items: start;
+  margin-block-start: var(--dc-space-5);
+}
+
+@media (width <= 960px) {
+  .ch-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.ch-card {
+  min-inline-size: 0;
+  padding: var(--dc-space-5);
+  border: 1px solid var(--dc-border-subtle);
+  border-radius: var(--dc-radius-lg);
+  background: var(--dc-surface-raised);
+}
+
+.ch-card h2,
+.ch-card h3 {
+  margin: 0;
+  font-size: var(--dc-text-md);
+}
+
+.ch-card h3 {
+  margin-block-start: var(--dc-space-5);
+  color: var(--dc-text-secondary);
+  font-size: var(--dc-text-xs);
+}
+
+.ch-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--dc-space-3);
+  margin-block-end: var(--dc-space-3);
+}
+
+.ch-meta {
+  margin: 0;
+  color: var(--dc-text-secondary);
+  font-size: var(--dc-text-xs);
+}
+
+/* a long conversation scrolls inside the card, so the recorded outcome never leaves the screen */
+.ch-transcript {
+  max-block-size: 36rem;
+}
+
+.ch-partial {
+  display: grid;
+  gap: var(--dc-space-3);
+  justify-items: start;
+  padding: var(--dc-space-4);
+  border: 1px solid var(--dc-critical-border);
+  border-radius: var(--dc-radius-md);
+  background: var(--dc-critical-bg-subtle);
+  color: var(--dc-critical-fg-strong);
+}
+
+.ch-partial p {
+  margin: 0;
+}
+
+.ch-rows {
+  display: grid;
+  gap: var(--dc-space-3);
+  margin: var(--dc-space-3) 0 0;
+  font-size: var(--dc-text-sm);
+}
+
+.ch-row {
+  display: grid;
+  grid-template-columns: 7rem minmax(0, 1fr);
+  gap: var(--dc-space-3);
+}
+
+.ch-row dt {
+  color: var(--dc-text-secondary);
+}
+
+.ch-row dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.ch-note {
+  margin: var(--dc-space-2) 0 0;
+  padding: var(--dc-space-3) var(--dc-space-4);
+  border: 1px solid var(--dc-border-subtle);
+  border-radius: var(--dc-radius-md);
+  background: var(--dc-surface-page);
+  font-size: var(--dc-text-sm);
+}
+
+.ch-empty {
+  display: grid;
+  gap: var(--dc-space-3);
+  justify-items: start;
+}

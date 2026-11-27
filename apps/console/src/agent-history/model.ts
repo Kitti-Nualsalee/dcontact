@@ -5,9 +5,21 @@ export const DEFAULT_PERIOD: SummaryPeriod = '7d';
 /** value in the URL/API for work with no disposition */
 export const NO_DISPOSITION = '__none__';
 
+/** #1044: the channel of a closed work item; no filter = every channel */
+export const HISTORY_CHANNELS = ['VOICE', 'WEBCHAT'] as const;
+export type HistoryChannel = (typeof HISTORY_CHANNELS)[number];
+
+export function channelFrom(value: string | null): HistoryChannel | undefined {
+  return (HISTORY_CHANNELS as readonly string[]).includes(value ?? '')
+    ? (value as HistoryChannel)
+    : undefined;
+}
+
 export interface HistoryFilter {
   from: string | null;
   to: string | null;
+  /** undefined = every channel */
+  channel?: HistoryChannel;
   /** undefined = every disposition, null = no disposition */
   disposition?: string | null;
 }
@@ -34,6 +46,7 @@ export function listQuery(filter: HistoryFilter | undefined, cursor?: string): s
   if (filter?.to) query.set('to', filter.to);
   const disposition = dispositionParam(filter?.disposition);
   if (disposition !== undefined) query.set('disposition', disposition);
+  if (filter?.channel) query.set('channel', filter.channel);
   if (cursor) query.set('cursor', cursor);
   return query.toString();
 }
@@ -43,8 +56,11 @@ export function filterHref(
   href: string,
   period: SummaryPeriod,
   disposition: string | null | undefined,
+  channel?: HistoryChannel,
 ): string {
   const url = new URL(href);
+  if (channel) url.searchParams.set('channel', channel);
+  else url.searchParams.delete('channel');
   if (period === DEFAULT_PERIOD) url.searchParams.delete('period');
   else url.searchParams.set('period', period);
   const value = dispositionParam(disposition);
