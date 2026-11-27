@@ -289,16 +289,25 @@ export class QmTranscriptionWorker {
             },
           };
         }
-        await transaction.qmTranscriptionJob.update({
-          where: { id: job.id },
+        // guarded claim: after a free interruption both the old and the re-published message carry this
+        // attempt number, and two consumers handling them at once must not both claim the job
+        const claim = await transaction.qmTranscriptionJob.updateMany({
+          where: { id: job.id, tenantId, status: 'PENDING', attempts: message.attempt - 1 },
           data: {
             status: 'PROCESSING',
-            attempts: { increment: 1 },
+            attempts: message.attempt,
             providerId: this.provider.id,
             startedAt,
             nextAttemptAt: null,
           },
         });
+        if (claim.count !== 1) {
+          const current = await transaction.qmTranscriptionJob.findFirstOrThrow({
+            where: { id: job.id, tenantId },
+            select: { status: true, attempts: true, nextAttemptAt: true },
+          });
+          return { ...job, ...current, duplicate: true as const };
+        }
         await transaction.qmAuditEvent.create({
           data: {
             tenantId,

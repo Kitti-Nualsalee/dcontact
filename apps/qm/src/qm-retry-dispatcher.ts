@@ -206,7 +206,9 @@ export class QmRetryDispatcher {
             resourceType: 'TRANSCRIPTION_JOB',
             resourceId: job.id,
             details: {
+              // attempts after recovery (given back when free); interruptedAttempt is the claim that died
               attempt: attempts,
+              interruptedAttempt: job.attempts,
               maxAttempts: job.maxAttempts,
               failureCode: WORKER_INTERRUPTED,
               interruption,
@@ -218,6 +220,7 @@ export class QmRetryDispatcher {
         console.warn('[qm] recovered an interrupted transcription job', {
           tenantId,
           jobId: job.id,
+          interruptedAttempt: job.attempts,
           interruption,
           countedAsAttempt: !free,
           exhausted,
