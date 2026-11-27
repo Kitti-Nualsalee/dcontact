@@ -65,6 +65,9 @@ export function AgentHistory(props: Props) {
 function HistorySession({ api, onSignIn }: Props) {
   const { t } = useTranslation('history');
   const channelName = useChannelLabel();
+  // #1044 with web chat off the page looks exactly as before: no channel filter, column or wording
+  const [channelsOn, setChannelsOn] = useState(false);
+  const ck = <K extends string>(key: K) => (channelsOn ? (`${key}Channels` as K) : key);
   const { locale } = useLocale();
   const ready = useShellTokens();
   const initial = new URL(window.location.href).searchParams;
@@ -112,7 +115,10 @@ function HistorySession({ api, onSignIn }: Props) {
     void api
       .summary(period, channel)
       .then((result) => {
-        if (active) setSummaryState({ phase: 'ready', summary: result });
+        if (active) {
+          setSummaryState({ phase: 'ready', summary: result });
+          if (result.channels?.includes('WEBCHAT')) setChannelsOn(true);
+        }
       })
       .catch((failure: unknown) => {
         if (active) setSummaryState({ phase: 'error', status: statusOf(failure) });
@@ -235,7 +241,7 @@ function HistorySession({ api, onSignIn }: Props) {
   return (
     <main className="ah-root">
       <h1>{t('title')}</h1>
-      <p>{t('readOnly')}</p>
+      <p>{t(ck('readOnly'))}</p>
       {selected ? (
         <Button onPress={() => open()}>{t('back')}</Button>
       ) : (
@@ -254,10 +260,12 @@ function HistorySession({ api, onSignIn }: Props) {
                 </button>
               ))}
             </div>
-            <ChannelFilter
-              value={channel}
-              onChange={(next) => applyFilter(period, disposition, { channel: next })}
-            />
+            {channelsOn ? (
+              <ChannelFilter
+                value={channel}
+                onChange={(next) => applyFilter(period, disposition, { channel: next })}
+              />
+            ) : null}
             <Button
               isDisabled={loading || summaryState.phase === 'loading'}
               onPress={() => {
@@ -350,7 +358,7 @@ function HistorySession({ api, onSignIn }: Props) {
       ) : null}
       {!selected && shownSummary && !failure ? (
         <h2 className="ah-list-title">
-          {t('summary.listTitle', {
+          {t(ck('summary.listTitle'), {
             period: periodLabel(period),
             channel: channelName(channel),
             disposition:
@@ -364,13 +372,13 @@ function HistorySession({ api, onSignIn }: Props) {
           <p>
             {disposition !== undefined
               ? t('summary.emptyFiltered')
-              : channel
+              : channel && channelsOn
                 ? t('summary.emptyChannel', { channel: channelName(channel) })
                 : period === 'all'
-                  ? t('empty')
-                  : t('summary.emptyPeriod')}
+                  ? t(ck('empty'))
+                  : t(ck('summary.emptyPeriod'))}
           </p>
-          {channel ? (
+          {channel && channelsOn ? (
             <Button onPress={() => applyFilter(period, disposition, { channel: undefined })}>
               {t('summary.showAllChannels')}
             </Button>
@@ -379,10 +387,10 @@ function HistorySession({ api, onSignIn }: Props) {
       ) : null}
       {!selected && items.length > 0 ? (
         <div className="ah-scroll">
-          <Table aria-label={t('list')}>
+          <Table aria-label={t(ck('list'))}>
             <TableHeader>
               <Column isRowHeader>{t('interaction')}</Column>
-              <Column>{t('channel')}</Column>
+              {channelsOn ? <Column>{t('channel')}</Column> : null}
               <Column>{t('started')}</Column>
               <Column>{t('ended')}</Column>
               <Column>{t('disposition')}</Column>
@@ -394,9 +402,11 @@ function HistorySession({ api, onSignIn }: Props) {
               {items.map((item) => (
                 <Row key={item.interactionId} id={item.interactionId}>
                   <Cell>{item.interactionId}</Cell>
-                  <Cell>
-                    <ChannelBadge channel={channelOf(item)} />
-                  </Cell>
+                  {channelsOn ? (
+                    <Cell>
+                      <ChannelBadge channel={channelOf(item)} />
+                    </Cell>
+                  ) : null}
                   <Cell>{format(item.startedAt)}</Cell>
                   <Cell>{format(item.endedAt)}</Cell>
                   <Cell>{dispositionLabel(item.disposition)}</Cell>

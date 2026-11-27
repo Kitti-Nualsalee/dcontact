@@ -1,8 +1,8 @@
 {
   "title": "ประวัติงานของทีม",
-  "readOnlySupervisor": "แสดงงาน (สายและแชท) ที่ปิดแล้วซึ่งทีมของคุณรับ นับตามทีมของ Agent ตอนรับงาน อ่านอย่างเดียว",
-  "readOnlyAdmin": "แสดงงาน (สายและแชท) ที่ปิดแล้วของทุกทีม นับตามทีมของ Agent ตอนรับงาน อ่านอย่างเดียว",
-  "evidenceNote": "งานที่ไม่มีหลักฐานทีมตอนรับงาน (เช่นงานก่อนเปิดใช้) ไม่แสดงในหน้านี้",
+  "readOnlySupervisor": "แสดงงาน Voice ที่ปิดแล้วซึ่งทีมของคุณรับ นับตามทีมของ Agent ตอนรับสาย อ่านอย่างเดียว",
+  "readOnlyAdmin": "แสดงงาน Voice ที่ปิดแล้วของทุกทีม นับตามทีมของ Agent ตอนรับสาย อ่านอย่างเดียว",
+  "evidenceNote": "งานที่ไม่มีหลักฐานทีมตอนรับสาย (เช่นงานก่อนเปิดใช้) ไม่แสดงในหน้านี้",
   "team": "ทีม",
   "allTeams": "ทุกทีม",
   "teamInactive": "{{name}} (ปิดใช้งาน)",
@@ -21,7 +21,7 @@
   "refresh": "รีเฟรช",
   "back": "กลับรายการ",
   "loading": "กำลังโหลดประวัติของทีม",
-  "empty": "ทีมนี้ยังไม่มีงานที่ปิดแล้ว",
+  "empty": "ทีมนี้ยังไม่มีงาน Voice ที่ปิดแล้ว",
   "failed": "โหลดประวัติของทีมไม่สำเร็จ",
   "unauthorized": "session หมดอายุ กรุณาเข้าสู่ระบบอีกครั้ง",
   "forbidden": "บัญชีนี้ไม่มีสิทธิ์ดูประวัติของทีม ต้องเป็น Supervisor ที่มีทีม หรือ Admin",
@@ -57,9 +57,16 @@
     "allDispositions": "ทุกผลบันทึก",
     "agentCount": "{{agent}}: {{count}} งาน · เฉลี่ย {{talk}}",
     "agentCountNoTalk": "{{agent}}: {{count}} งาน",
-    "listTitle": "รายการงาน · {{period}} · {{channel}} · {{agent}} · {{disposition}} · {{count}} งาน",
-    "emptyPeriod": "ไม่มีงานที่จบในช่วงเวลานี้",
+    "listTitle": "รายการงาน · {{period}} · {{agent}} · {{disposition}} · {{count}} งาน",
+    "emptyPeriod": "ไม่มีงาน Voice ที่จบในช่วงเวลานี้",
     "emptyFiltered": "ไม่มีงานที่ตรงกับตัวกรองนี้ในช่วงเวลานี้",
-    "listTitleNoCount": "รายการงาน · {{period}} · {{channel}} · {{agent}} · {{disposition}}"
-  }
+    "listTitleNoCount": "รายการงาน · {{period}} · {{agent}} · {{disposition}}",
+    "listTitleChannels": "รายการงาน · {{period}} · {{channel}} · {{agent}} · {{disposition}} · {{count}} งาน",
+    "emptyPeriodChannels": "ไม่มีงานที่จบในช่วงเวลานี้",
+    "listTitleNoCountChannels": "รายการงาน · {{period}} · {{channel}} · {{agent}} · {{disposition}}"
+  },
+  "readOnlySupervisorChannels": "แสดงงาน (สายและแชท) ที่ปิดแล้วซึ่งทีมของคุณรับ นับตามทีมของ Agent ตอนรับงาน อ่านอย่างเดียว",
+  "readOnlyAdminChannels": "แสดงงาน (สายและแชท) ที่ปิดแล้วของทุกทีม นับตามทีมของ Agent ตอนรับงาน อ่านอย่างเดียว",
+  "evidenceNoteChannels": "งานที่ไม่มีหลักฐานทีมตอนรับงาน (เช่นงานก่อนเปิดใช้) ไม่แสดงในหน้านี้",
+  "emptyChannels": "ทีมนี้ยังไม่มีงานที่ปิดแล้ว"
 }

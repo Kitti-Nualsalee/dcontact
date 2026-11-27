@@ -6,6 +6,7 @@ import {
   Header,
   Inject,
   NotFoundException,
+  Optional,
   Param,
   Query,
   Req,
@@ -38,6 +39,8 @@ import { readWorkTranscript } from './work-transcript.js';
  * - counts work with the same definition as my work (#964, `agent-work-metrics.ts`)
  */
 export const TEAM_HISTORY_DATABASE = Symbol('TEAM_HISTORY_DATABASE');
+/** #1044 the deployment has web chat on; the history page then shows channels */
+export const TEAM_HISTORY_WEBCHAT = Symbol('TEAM_HISTORY_WEBCHAT');
 
 type Actor = { tenantId: string; userId: string };
 /** the teams the requester can view: `all` = an Admin sees every team, `team` = a single team */
@@ -418,7 +421,10 @@ function actorOf(request: AuthenticatedGatewayRequest): Actor {
 @Controller('api/v1/team-history')
 @GatewayRoles('admin', 'supervisor')
 export class TeamHistoryController {
-  constructor(@Inject(TEAM_HISTORY_DATABASE) private readonly database: PrismaClient) {}
+  constructor(
+    @Inject(TEAM_HISTORY_DATABASE) private readonly database: PrismaClient,
+    @Optional() @Inject(TEAM_HISTORY_WEBCHAT) private readonly webchat = false,
+  ) {}
 
   @Get('teams')
   @Header('Cache-Control', 'no-store')
@@ -443,12 +449,19 @@ export class TeamHistoryController {
 
   @Get('summary')
   @Header('Cache-Control', 'no-store')
-  summary(@Req() request: AuthenticatedGatewayRequest, @Query() query: Record<string, unknown>) {
-    return readTeamHistorySummary(this.database, actorOf(request), {
-      teamId: query.teamId,
-      period: query.period,
-      channel: query.channel,
-    });
+  async summary(
+    @Req() request: AuthenticatedGatewayRequest,
+    @Query() query: Record<string, unknown>,
+  ) {
+    return {
+      ...(await readTeamHistorySummary(this.database, actorOf(request), {
+        teamId: query.teamId,
+        period: query.period,
+        channel: query.channel,
+      })),
+      // #1044 which channels this deployment has; the page shows channel filters only when there are two
+      channels: this.webchat ? ['VOICE', 'WEBCHAT'] : ['VOICE'],
+    };
   }
 
   @Get('items/:interactionId')

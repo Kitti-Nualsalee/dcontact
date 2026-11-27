@@ -42,6 +42,8 @@ function harness(options: { staffed?: boolean; stored?: StoredSession | null } =
     },
     async startSession() {
       calls.push('startSession');
+      // a slow network: a second message can be sent before the session exists
+      await new Promise((resolve) => setTimeout(resolve, 2));
       return { sessionId: 's1', token: 'secret' };
     },
     async state(_session, query) {
@@ -184,5 +186,25 @@ test('a widget that is off shows as unavailable', async () => {
   h.server.bootstrapError = true;
   await h.controller.init();
   assert.equal(h.controller.current().phase, 'unavailable');
+  h.controller.dispose();
+});
+
+test('two messages sent before the session exists open a single chat', async () => {
+  const h = harness();
+  await h.controller.init();
+  await Promise.all([h.controller.send('first'), h.controller.send('second')]);
+  await h.settle();
+  assert.equal(h.calls.filter((call) => call === 'startSession').length, 1);
+  assert.deepEqual(
+    h.calls.filter((call) => call.startsWith('send:')),
+    ['send:first', 'send:second'],
+  );
+  assert.deepEqual(
+    h.controller.current().messages.map((message) => [message.text, message.pending]),
+    [
+      ['first', undefined],
+      ['second', undefined],
+    ],
+  );
   h.controller.dispose();
 });

@@ -2,8 +2,8 @@
   "title": "ประวัติงานของฉัน",
   "assisted": "ลูกค้าได้รับความช่วยเหลือ",
   "followUp": "ต้องติดตามต่อ",
-  "readOnly": "แสดงงานที่ปิดแล้วของคุณ (สายและแชท) อ่านอย่างเดียวและไม่รบกวนจุดรับงาน",
-  "list": "รายการงาน",
+  "readOnly": "แสดงเฉพาะงาน Voice ที่ปิดแล้วของคุณ อ่านอย่างเดียวและไม่รบกวนจุดรับงาน",
+  "list": "รายการงาน Voice",
   "interaction": "รหัสงาน",
   "started": "เวลาเริ่ม",
   "ended": "เวลาจบ",
@@ -16,7 +16,7 @@
   "refresh": "รีเฟรช",
   "back": "กลับรายการ",
   "loading": "กำลังโหลดประวัติ",
-  "empty": "ยังไม่มีงานที่ปิดแล้ว",
+  "empty": "ยังไม่มีงาน Voice ที่ปิดแล้ว",
   "failed": "โหลดประวัติไม่สำเร็จ",
   "unauthorized": "session หมดอายุ กรุณาเข้าสู่ระบบอีกครั้ง",
   "forbidden": "บัญชีนี้ไม่มีสิทธิ์ดูประวัติงาน Agent",
@@ -50,12 +50,14 @@
     "byDisposition": "แยกตามผลบันทึก",
     "noDisposition": "ไม่มีผลบันทึก (งานเดิม)",
     "allDispositions": "ทุกผลบันทึก",
-    "listTitle": "รายการงาน · {{period}} · {{channel}} · {{disposition}} · {{count}} งาน",
-    "emptyPeriod": "ไม่มีงานที่จบในช่วงเวลานี้",
+    "listTitle": "รายการงาน · {{period}} · {{disposition}} · {{count}} งาน",
+    "emptyPeriod": "ไม่มีงาน Voice ที่จบในช่วงเวลานี้",
     "emptyFiltered": "ไม่มีงานที่ตรงกับผลบันทึกนี้ในช่วงเวลานี้",
     "listTitleNoCount": "รายการงาน · {{period}} · {{channel}} · {{disposition}}",
     "emptyChannel": "ไม่มีงาน{{channel}}ที่จบในช่วงเวลานี้",
-    "showAllChannels": "ดูทุกช่องทาง"
+    "showAllChannels": "ดูทุกช่องทาง",
+    "listTitleChannels": "รายการงาน · {{period}} · {{channel}} · {{disposition}} · {{count}} งาน",
+    "emptyPeriodChannels": "ไม่มีงานที่จบในช่วงเวลานี้"
   },
   "channel": "ช่องทาง",
   "channelFilter": "ช่องทาง",
@@ -103,5 +105,8 @@
     "result": "ผลที่บันทึก",
     "heading": "งานแชท",
     "queue": "คิว"
-  }
+  },
+  "readOnlyChannels": "แสดงงานที่ปิดแล้วของคุณ (สายและแชท) อ่านอย่างเดียวและไม่รบกวนจุดรับงาน",
+  "listChannels": "รายการงาน",
+  "emptyChannels": "ยังไม่มีงานที่ปิดแล้ว"
 }

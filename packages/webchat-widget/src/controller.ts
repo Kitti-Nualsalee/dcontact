@@ -74,6 +74,8 @@ export class ChatController {
     notice: null,
   };
   private session: StoredSession | null = null;
+  /** the session being created; every message sent meanwhile waits for this one instead of making another */
+  private creating: Promise<StoredSession> | null = null;
   private cursor: string | null = null;
   private version = '';
   private poll: AbortController | null = null;
@@ -208,6 +210,7 @@ export class ChatController {
     this.poll?.abort();
     this.poll = null;
     this.session = null;
+    this.creating = null;
     this.cursor = null;
     this.version = '';
     this.deps.store.save(null);
@@ -249,13 +252,20 @@ export class ChatController {
   private async deliver(clientId: string, text: string) {
     try {
       if (!this.session) {
-        this.session = await this.deps.api.startSession({
-          origin: this.deps.origin,
-          locale: this.deps.locale,
-        });
-        this.deps.store.save(this.session);
+        // Two messages sent before the session exists must share it: otherwise each opens its own chat.
+        this.creating ??= this.deps.api
+          .startSession({ origin: this.deps.origin, locale: this.deps.locale })
+          .then((session) => {
+            this.session = session;
+            this.deps.store.save(session);
+            return session;
+          })
+          .finally(() => {
+            this.creating = null;
+          });
+        await this.creating;
       }
-      const sent = await this.deps.api.send(this.session, { clientMessageId: clientId, text });
+      const sent = await this.deps.api.send(this.session!, { clientMessageId: clientId, text });
       const exists = this.view.messages.some((message) => message.id === sent.id);
       this.set({
         messages: this.view.messages.flatMap((message) =>

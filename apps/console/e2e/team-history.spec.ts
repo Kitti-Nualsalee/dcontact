@@ -47,7 +47,11 @@ const rows = [
   item(callB, { id: agentA, displayName: 'Somchai' }, B, 'CUSTOMER_ASSISTED'),
 ];
 
-async function harness(page: Page, role: 'supervisor' | 'admin') {
+async function harness(
+  page: Page,
+  role: 'supervisor' | 'admin',
+  options: { webchat?: boolean } = {},
+) {
   const requests: string[] = [];
   await page.route('**/api/v1/me/navigation**', (route) => route.fulfill({ status: 404 }));
   await page.route('**/api/v1/team-history/**', (route) => {
@@ -90,6 +94,7 @@ async function harness(page: Page, role: 'supervisor' | 'admin') {
             }))
             .filter((group) => group.count),
           byAgent,
+          channels: options.webchat ? ['VOICE', 'WEBCHAT'] : ['VOICE'],
         },
       });
     }
@@ -270,7 +275,7 @@ test('#1044 channel filter and a chat detail with the conversation beside the re
   const chatId = '7a33ac96-d87d-4ca4-ab75-f27e40e94c09';
   const chatRow = { ...item(chatId, agentOne, A, 'FOLLOW_UP_REQUIRED'), channel: 'WEBCHAT' };
   const callRow = { ...rows[1]!, channel: 'VOICE' };
-  const requests = await harness(page, 'supervisor');
+  const requests = await harness(page, 'supervisor', { webchat: true });
   const channels: (string | null)[] = [];
   await page.route(
     (url) => url.pathname.endsWith('/team-history/items'),
@@ -348,4 +353,15 @@ test('#1044 channel filter and a chat detail with the conversation beside the re
   await expect(page.getByRole('heading', { name: th('teamHistory:detail') })).toBeVisible();
   await expect(page.getByRole('log')).toHaveCount(0);
   expect(requests.filter((request) => request.includes(`${callA2}/transcript`))).toHaveLength(0);
+});
+
+test('#1044 with web chat off the team history looks as before: no channel filter, column or wording', async ({
+  page,
+}) => {
+  await harness(page, 'supervisor');
+  await page.goto('/?view=team-history&tenant=demo');
+  await expect(page.getByText(th('teamHistory:readOnlySupervisor'), { exact: true })).toBeVisible();
+  await expect(page.getByRole('grid')).toBeVisible();
+  await expect(page.getByRole('group', { name: th('history:channelFilter') })).toHaveCount(0);
+  await expect(page.getByRole('columnheader', { name: th('history:channel') })).toHaveCount(0);
 });

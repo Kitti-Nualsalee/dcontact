@@ -157,9 +157,17 @@ export class AgentWorkspaceController {
     @Query('period') period: unknown,
     @Query('channel') channel: unknown,
   ) {
-    return wrapupOperation(request, () =>
-      readAgentHistorySummary(this.database, identity(request), period, undefined, channel),
-    );
+    return wrapupOperation(request, async () => ({
+      ...(await readAgentHistorySummary(
+        this.database,
+        identity(request),
+        period,
+        undefined,
+        channel,
+      )),
+      // #1044 which channels this deployment has; the page shows channel filters only when there are two
+      channels: this.webchat ? ['VOICE', 'WEBCHAT'] : ['VOICE'],
+    }));
   }
 
   @Get('snapshot')

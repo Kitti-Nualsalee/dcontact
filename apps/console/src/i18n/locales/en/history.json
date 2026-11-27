@@ -2,8 +2,8 @@
   "title": "My work history",
   "assisted": "Customer assisted",
   "followUp": "Follow-up required",
-  "readOnly": "Your completed work (calls and chats) is shown. Read-only; your receiving point is not affected.",
-  "list": "Work items",
+  "readOnly": "Only your completed Voice work is shown. Read-only; your receiving point is not affected.",
+  "list": "Voice work",
   "interaction": "Interaction",
   "started": "Started",
   "ended": "Ended",
@@ -16,7 +16,7 @@
   "refresh": "Refresh",
   "back": "Back to list",
   "loading": "Loading history",
-  "empty": "No completed work yet",
+  "empty": "No completed Voice work yet",
   "failed": "Could not load history",
   "unauthorized": "Session expired. Sign in again.",
   "forbidden": "This account cannot read Agent history",
@@ -50,12 +50,14 @@
     "byDisposition": "By disposition",
     "noDisposition": "No disposition (legacy)",
     "allDispositions": "All dispositions",
-    "listTitle": "Work items · {{period}} · {{channel}} · {{disposition}} · {{count}} items",
-    "emptyPeriod": "No work closed in this period",
+    "listTitle": "Work items · {{period}} · {{disposition}} · {{count}} items",
+    "emptyPeriod": "No completed Voice work in this period",
     "emptyFiltered": "No work with this disposition in this period",
     "listTitleNoCount": "Work items · {{period}} · {{channel}} · {{disposition}}",
     "emptyChannel": "No {{channel}} ended in this period",
-    "showAllChannels": "Show all channels"
+    "showAllChannels": "Show all channels",
+    "listTitleChannels": "Work items · {{period}} · {{channel}} · {{disposition}} · {{count}} items",
+    "emptyPeriodChannels": "No work closed in this period"
   },
   "channel": "Channel",
   "channelFilter": "Channel",
@@ -103,5 +105,8 @@
     "result": "Recorded outcome",
     "heading": "Chat",
     "queue": "Queue"
-  }
+  },
+  "readOnlyChannels": "Your completed work (calls and chats) is shown. Read-only; your receiving point is not affected.",
+  "listChannels": "Work items",
+  "emptyChannels": "No completed work yet"
 }
