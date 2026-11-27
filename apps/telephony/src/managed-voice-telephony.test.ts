@@ -168,6 +168,24 @@ test('a new call whose runtime fails twice is hung up when its destination is ma
   assert.equal(rejected[0].type, 'call.created');
   assert.equal(rejected[0].callUuid, caller);
   assert.equal(route.calls.size, 0);
+  // Later events of the rejected call are ignored: a PARK turned into CREATE must not reach the runtime or legacy again
+  route.rejected = new Set();
+  rejected.length = 0;
+  assert.equal(await routeManagedCall(parked('2000'), tenantA, route), 'ignored');
+  assert.deepEqual([...route.rejected], [caller]);
+  const handledBefore = route.handled.length;
+  assert.equal(await routeManagedCall(parked('2000'), tenantA, route), 'ignored');
+  assert.equal(rejected.length, 1);
+  assert.equal(route.handled.length, handledBefore);
+  assert.equal(
+    await routeManagedCall(
+      { 'Event-Name': 'CHANNEL_HANGUP_COMPLETE', 'Unique-ID': caller },
+      tenantA,
+      route,
+    ),
+    'ignored',
+  );
+  assert.equal(route.rejected.size, 0);
   // Legacy destination: kept on legacy as before
   assert.equal(await routeManagedCall(parked('2001'), tenantA, route), 'legacy');
   // The check itself fails (e.g. the database is down for both): fall back to legacy and report the error

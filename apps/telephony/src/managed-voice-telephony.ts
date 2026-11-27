@@ -134,7 +134,14 @@ export interface ManagedVoiceRouting {
    * with no wait limit. Returns false (or throws) to keep the call on legacy as before
    */
   rejectFailedCall?(event: ManagedVoiceEvent): Promise<boolean>;
+  /**
+   * Customer calls hung up by `rejectFailedCall`: their later events (PARK, HANGUP) are ignored so a PARK is not
+   * turned into another `call.created` for a channel that is already being killed
+   */
+  rejected?: Set<string>;
 }
+
+const rejectedCallsLimit = 1000;
 
 /** A leg the managed runtime originates to an Agent (B-leg) always has `dcontact_offer_id`; it must not be sent to legacy */
 export function isManagedOfferLeg(source: FreeSwitchEvent): boolean {
@@ -183,6 +190,11 @@ export async function routeManagedCall(
 ): Promise<ManagedVoiceRoute> {
   if (source.variable_dcontact_delivery_id !== undefined) return 'legacy';
   const callUuid = callerUuid(source);
+  if (callUuid !== undefined && routing.rejected?.has(callUuid)) {
+    if (source['Event-Name'] === 'CHANNEL_HANGUP_COMPLETE' && source['Unique-ID'] === callUuid)
+      routing.rejected.delete(callUuid);
+    return 'ignored';
+  }
   const known = callUuid !== undefined && routing.calls.has(callUuid);
   let event: ManagedVoiceEvent | undefined;
   let handled: unknown = null;
@@ -231,7 +243,13 @@ async function rejectFailedCall(
 ): Promise<boolean> {
   if (!routing.rejectFailedCall) return false;
   try {
-    return await routing.rejectFailedCall(event);
+    if (!(await routing.rejectFailedCall(event))) return false;
+    if (routing.rejected) {
+      if (routing.rejected.size >= rejectedCallsLimit)
+        routing.rejected.delete(routing.rejected.values().next().value!);
+      routing.rejected.add(event.callUuid);
+    }
+    return true;
   } catch (error) {
     routing.onError(error);
     return false;
@@ -250,6 +268,7 @@ export interface ManagedVoiceTelephonyOptions {
 /** Heartbeat/tick/dispatch of the managed runtime for every ACTIVE tenant on this node */
 export class ManagedVoiceTelephony {
   readonly calls = new Set<string>();
+  readonly rejectedCalls = new Set<string>();
   private readonly adapter: FreeSwitchManagedVoiceAdapter;
   private readonly runtime: ManagedVoiceRuntime;
   private readonly tenants = new Set<string>();
@@ -305,6 +324,7 @@ export class ManagedVoiceTelephony {
       handle: (event) => this.runtime.handle(event),
       onError: (error) => this.log('managed event failed', error),
       rejectFailedCall: (event) => this.rejectFailedCall(event),
+      rejected: this.rejectedCalls,
     };
   }
 
@@ -322,7 +342,17 @@ export class ManagedVoiceTelephony {
         }),
     );
     if (!managed) return false;
-    await this.options.esl.request(`api uuid_kill ${event.callUuid} NORMAL_TEMPORARY_FAILURE`);
+    const reply = await this.options.esl.request(
+      `api uuid_kill ${event.callUuid} NORMAL_TEMPORARY_FAILURE`,
+    );
+    if (!reply.trim().startsWith('+OK')) {
+      // -ERR usually means the caller already hung up; if the channel is still there, keep the legacy fallback
+      const exists = await this.options.esl.request(`api uuid_exists ${event.callUuid}`);
+      if (exists.trim() !== 'false')
+        throw new Error(`MANAGED_VOICE_REJECT_KILL_FAILED: ${reply.trim()}`);
+      this.log(`managed call.created failed; caller ${event.callUuid} was already gone`);
+      return true;
+    }
     this.log(
       `managed call.created failed; caller ${event.callUuid} hung up instead of falling back to legacy`,
     );
@@ -330,7 +360,7 @@ export class ManagedVoiceTelephony {
   }
 
   isKnownCall(callUuid: string): boolean {
-    return this.calls.has(callUuid);
+    return this.calls.has(callUuid) || this.rejectedCalls.has(callUuid);
   }
 
   /** Readiness may be announced only after ESL confirms `events plain ...` */

@@ -81,6 +81,7 @@ function fakeSwitch(password: string) {
   const globals = new Map<string, string>();
   const originates: string[] = [];
   const kills: string[] = [];
+  const refuseKill = new Set<string>();
   const server = net.createServer((socket) => {
     socket.write('Content-Type: auth/request\n\n');
     let authenticated = false;
@@ -118,7 +119,8 @@ function fakeSwitch(password: string) {
           reply('UP 0 years, 0 days, 1 hour\nFreeSWITCH (Version 1.10) is ready');
         else if (action === 'uuid_kill') {
           kills.push(`${channel} ${name}`);
-          reply(channels.delete(channel) ? '+OK' : '-ERR No such channel!');
+          if (refuseKill.has(channel)) reply('-ERR kill refused');
+          else reply(channels.delete(channel) ? '+OK' : '-ERR No such channel!');
         } else if (action === 'uuid_exists') reply(String(channels.has(channel)));
         else if (action === 'uuid_getvar') reply(channels.get(channel)?.[name] ?? '_undef_');
         else if (action === 'uuid_setvar') {
@@ -134,7 +136,7 @@ function fakeSwitch(password: string) {
       }
     });
   });
-  return { server, channels, originates, kills };
+  return { server, channels, originates, kills, refuseKill };
 }
 
 async function until(check: () => Promise<boolean> | boolean, label: string, timeoutMs = 15_000) {
@@ -293,6 +295,32 @@ test('a managed destination whose call.created fails twice is hung up instead of
     'ignored',
   );
   assert.deepEqual(fake.kills, [`${managedCaller} NORMAL_TEMPORARY_FAILURE`]);
+  // The PARK that follows is not turned into another call.created for the killed channel
+  assert.equal(managed.isKnownCall(managedCaller), true);
+  assert.equal(
+    await routeManagedCall(
+      { 'Event-Name': 'CHANNEL_HANGUP_COMPLETE', 'Unique-ID': managedCaller },
+      alpha.tenantId,
+      routing,
+    ),
+    'ignored',
+  );
+  assert.equal(managed.isKnownCall(managedCaller), false);
+
+  // The caller already hung up (-ERR, channel gone): nothing left to park, do not send it to legacy
+  assert.equal(
+    await routeManagedCall(created(randomUUID(), '2000'), alpha.tenantId, routing),
+    'ignored',
+  );
+  // The kill is refused while the channel still exists: keep the legacy fallback rather than claim it was hung up
+  const stubborn = randomUUID();
+  fake.channels.set(stubborn, { domain_name: alpha.sipDomain });
+  fake.refuseKill.add(stubborn);
+  assert.equal(
+    await routeManagedCall(created(stubborn, '2000'), alpha.tenantId, routing),
+    'legacy',
+  );
+  assert.equal(managed.isKnownCall(stubborn), false);
 
   // A number that is not bound to a managed queue of this tenant stays on legacy and is not hung up
   const legacyCaller = randomUUID();
@@ -300,7 +328,7 @@ test('a managed destination whose call.created fails twice is hung up instead of
     await routeManagedCall(created(legacyCaller, '2001'), alpha.tenantId, routing),
     'legacy',
   );
-  // RLS: the lookup is scoped to the tenant of the event; beta has no destination 3000
+  // The lookup is scoped to the tenant of the event (where clause under the tenant transaction); beta has no 3000
   await owner.voiceDestination.updateMany({
     where: { tenantId: alpha.tenantId, destination: '2000' },
     data: { destination: '3000' },
@@ -309,5 +337,6 @@ test('a managed destination whose call.created fails twice is hung up instead of
     await routeManagedCall(created(randomUUID(), '3000'), beta.tenantId, routing),
     'legacy',
   );
-  assert.equal(fake.kills.length, 1);
+  // No kill for the legacy number or the other tenant
+  assert.equal(fake.kills.length, 3);
 });
