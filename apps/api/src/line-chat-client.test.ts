@@ -136,4 +136,13 @@ test('LINE chat is off unless the deployment turns it on; the API base can be a 
   assert.throws(() =>
     resolveLineApiBaseUrl({ LINE_API_BASE_URL: 'http://line.example', NODE_ENV: 'production' }),
   );
+  // a UAT that runs the simulator as a container says so explicitly
+  assert.equal(
+    resolveLineApiBaseUrl({
+      LINE_API_BASE_URL: 'http://line-simulator:8890',
+      LINE_API_SIMULATOR: 'on',
+      NODE_ENV: 'production',
+    }),
+    'http://line-simulator:8890',
+  );
 });

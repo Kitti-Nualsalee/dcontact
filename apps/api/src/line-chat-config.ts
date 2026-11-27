@@ -17,9 +17,11 @@ export function resolveLineApiBaseUrl(env: NodeJS.ProcessEnv): string {
   if (!value) return LINE_API_DEFAULT_BASE_URL;
   const url = new URL(value);
   const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+  // LINE_API_SIMULATOR=on: a UAT points the API at the LINE simulator container over plain http (Solo)
+  const simulator = env.LINE_API_SIMULATOR === 'on';
   if (
     url.protocol !== 'https:' &&
-    !(url.protocol === 'http:' && loopback) &&
+    !(url.protocol === 'http:' && (loopback || simulator)) &&
     env.NODE_ENV === 'production'
   )
     throw new Error('LINE_API_BASE_URL must be https outside a loopback host');
