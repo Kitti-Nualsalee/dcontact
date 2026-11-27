@@ -467,3 +467,88 @@ test('#1044 with web chat off my history looks as before: no channel filter, col
   await expect(page.getByRole('group', { name: th('history:channelFilter') })).toHaveCount(0);
   await expect(page.getByRole('columnheader', { name: th('history:channel') })).toHaveCount(0);
 });
+
+/** #1054: a LINE chat is a channel of its own: filter, badge, the customer's name and a sticker placeholder */
+test('#1054 a LINE chat can be filtered and opens with the customer name and a sticker placeholder', async ({
+  page,
+}) => {
+  const lineId = '7a33ac96-d87d-4ca4-ab75-f27e40e943c1';
+  const lineItem = { ...item, interactionId: lineId, channel: 'LINE' };
+  await page.route('**/api/v1/me/navigation**', (route) => route.fulfill({ status: 404 }));
+  const lists: URLSearchParams[] = [];
+  await page.route('**/api/v1/workspace/agent/history**', (route) => {
+    const url = new URL(route.request().url());
+    if (isSummary(url.href))
+      return route.fulfill({
+        json: {
+          ...emptySummary,
+          completed: 2,
+          byDisposition: [{ disposition: 'CUSTOMER_ASSISTED', count: 2 }],
+          channels: ['VOICE', 'LINE'],
+        },
+      });
+    if (url.pathname.endsWith('/transcript'))
+      return route.fulfill({
+        json: {
+          interactionId: lineId,
+          channel: 'LINE',
+          endReason: 'IDLE_TIMEOUT',
+          customerLinked: true,
+          visitorLabel: 'Khun Somchai',
+          queueName: 'LINE Support',
+          messages: [
+            {
+              id: 'm1',
+              at: '2026-11-27T03:29:00.000Z',
+              from: 'visitor',
+              text: 'Where is my order?',
+            },
+            { id: 'm2', at: '2026-11-27T03:30:00.000Z', from: 'visitor', other: 'sticker' },
+            { id: 'm3', at: '2026-11-27T03:31:00.000Z', from: 'visitor', other: 'hologram' },
+            { id: 'm4', at: '2026-11-27T03:32:00.000Z', from: 'agent', text: 'Let me check' },
+            { id: 'm5', at: '2026-11-27T03:39:00.000Z', from: 'system', event: 'IDLE_TIMEOUT' },
+          ],
+        },
+      });
+    lists.push(url.searchParams);
+    const channel = url.searchParams.get('channel');
+    return route.fulfill({
+      json: {
+        items: [lineItem, callItem].filter((row) => !channel || row.channel === channel),
+        nextCursor: null,
+      },
+    });
+  });
+  await page.route('**/wrapup-result', (route) =>
+    route.fulfill({ json: { ...lineItem, policyVersion: 1, state: 'COMPLETED', note: NOTE } }),
+  );
+  await page.goto('/?view=agent-history&tenant=demo');
+  const table = page.getByRole('grid', { name: th('history:listChannels') });
+  await expect(table.getByText(th('history:channels.line'), { exact: true })).toBeVisible();
+  // only the channels this deployment has are offered: no "chats" filter when there is no web chat
+  const group = page.getByRole('group', { name: th('history:channelFilter') });
+  await expect(group.getByRole('button')).toHaveText([
+    th('history:channels.all'),
+    th('history:channels.voice'),
+    th('history:channels.line'),
+  ]);
+  await group.getByRole('button', { name: th('history:channels.line'), exact: true }).click();
+  expect(lists.at(-1)?.get('channel')).toBe('LINE');
+  expect(new URL(page.url()).searchParams.get('channel')).toBe('LINE');
+  await expect(table.getByText(th('history:channels.voice'), { exact: true })).toHaveCount(0);
+
+  await page
+    .getByRole('button', { name: th('history:openItem', { interactionId: lineId }), exact: true })
+    .click();
+  const log = page.getByRole('log', { name: th('history:chat.transcript') });
+  await expect(log).toContainText('Where is my order?');
+  await expect(log).toContainText(th('history:chat.sender.lineCustomer'));
+  await expect(log).toContainText(th('history:chat.other.sticker'));
+  await expect(log).toContainText(th('history:chat.other.unknown'));
+  await expect(log).toContainText(th('history:chat.system.IDLE_TIMEOUT'));
+  await expect(
+    page.getByRole('heading', { name: th('history:chat.lineCustomer', { name: 'Khun Somchai' }) }),
+  ).toBeVisible();
+  await expect(page.getByText(th('history:chat.closedBy.IDLE'), { exact: true })).toBeVisible();
+  await expect(page.getByText(NOTE, { exact: true })).toBeVisible();
+});

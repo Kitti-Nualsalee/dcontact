@@ -45,6 +45,8 @@ import { createEmbedOriginApi } from './dphone-embedding/api.js';
 import { DphoneEmbedding } from './dphone-embedding/dphone-embedding.js';
 import { createWebchatApi } from './webchat/api.js';
 import { WebchatSettingsPage } from './webchat/webchat-settings.js';
+import { createLineApi } from './line-channel/api.js';
+import { LineSettingsPage } from './line-channel/line-settings.js';
 import { createTeamScopeApi } from './team-scopes/api.js';
 import { createLineInboundApi } from './line-inbound/api.js';
 import { LineInbound } from './line-inbound/line-inbound.js';
@@ -353,6 +355,24 @@ function ConsoleE2eRoot() {
       >
         <WebchatSettingsPage
           api={createWebchatApi({ baseUrl, accessToken: () => 'e2e-access-token' })}
+          apiBaseUrl={baseUrl}
+        />
+      </ConsoleShell>
+    );
+  }
+  if (view === 'line-settings') {
+    const baseUrl =
+      (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? window.location.origin;
+    return (
+      <ConsoleShell
+        {...e2eShellUser(url.searchParams.get('tenant') ?? undefined)}
+        apiBaseUrl={baseUrl}
+        accessToken={() => 'e2e-access-token'}
+        tenantAlias={url.searchParams.get('tenant') ?? 'demo'}
+        appId="line-settings"
+      >
+        <LineSettingsPage
+          api={createLineApi({ baseUrl, accessToken: () => 'e2e-access-token' })}
           apiBaseUrl={baseUrl}
         />
       </ConsoleShell>

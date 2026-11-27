@@ -22,6 +22,8 @@ import { useTranscript } from '../chat-history/use-transcript.js';
 import {
   SUMMARY_PERIODS,
   channelFrom,
+  channelsFrom,
+  isChatChannel,
   dispositionCount,
   dispositionFrom,
   filterHref,
@@ -67,6 +69,7 @@ function HistorySession({ api, onSignIn }: Props) {
   const channelName = useChannelLabel();
   // #1044 with web chat off the page looks exactly as before: no channel filter, column or wording
   const [channelsOn, setChannelsOn] = useState(false);
+  const [offered, setOffered] = useState<HistoryChannel[]>([]);
   const ck = <K extends string>(key: K) => (channelsOn ? (`${key}Channels` as K) : key);
   const { locale } = useLocale();
   const ready = useShellTokens();
@@ -117,7 +120,11 @@ function HistorySession({ api, onSignIn }: Props) {
       .then((result) => {
         if (active) {
           setSummaryState({ phase: 'ready', summary: result });
-          if (result.channels?.includes('WEBCHAT')) setChannelsOn(true);
+          const channels = channelsFrom(result.channels);
+          if (channels.some(isChatChannel)) {
+            setChannelsOn(true);
+            setOffered(channels);
+          }
         }
       })
       .catch((failure: unknown) => {
@@ -178,7 +185,7 @@ function HistorySession({ api, onSignIn }: Props) {
   const { state: transcriptState, retry: retryTranscript } = useTranscript(
     api.transcript,
     selected,
-    !!selected && (!selectedItem || channelOf(selectedItem) === 'WEBCHAT'),
+    !!selected && (!selectedItem || isChatChannel(channelOf(selectedItem))),
   );
 
   function open(interactionId?: string) {
@@ -263,6 +270,7 @@ function HistorySession({ api, onSignIn }: Props) {
             {channelsOn ? (
               <ChannelFilter
                 value={channel}
+                channels={offered}
                 onChange={(next) => applyFilter(period, disposition, { channel: next })}
               />
             ) : null}
@@ -431,16 +439,18 @@ function HistorySession({ api, onSignIn }: Props) {
           {t('more')}
         </Button>
       ) : null}
-      {selected && detail && !error && detailChannel === 'WEBCHAT' ? (
+      {selected && detail && !error && isChatChannel(detailChannel) ? (
         <article className="ch-detail">
           <div className="ch-head">
             {/* the visitor's label comes with the conversation, the same one the Agent saw in Workspace */}
             <h2>
               {transcript?.visitorLabel
-                ? t('chat.visitor', { code: transcript.visitorLabel })
+                ? detailChannel === 'LINE'
+                  ? t('chat.lineCustomer', { name: transcript.visitorLabel })
+                  : t('chat.visitor', { code: transcript.visitorLabel })
                 : t('chat.heading')}
             </h2>
-            <ChannelBadge channel="WEBCHAT" />
+            <ChannelBadge channel={detailChannel ?? 'WEBCHAT'} />
           </div>
           <p className="ch-sub">
             {transcript?.queueName ? `${t('chat.queue')}: ${transcript.queueName} · ` : ''}
@@ -451,6 +461,7 @@ function HistorySession({ api, onSignIn }: Props) {
               state={transcriptState}
               onRetry={retryTranscript}
               agentName={t('chat.sender.agent')}
+              channel={detailChannel}
             />
             <ChatResultPanel
               rows={[
@@ -478,7 +489,7 @@ function HistorySession({ api, onSignIn }: Props) {
           </div>
         </article>
       ) : null}
-      {selected && detail && !error && detailChannel !== 'WEBCHAT' ? (
+      {selected && detail && !error && !isChatChannel(detailChannel) ? (
         <article>
           <h2>{t('detail')}</h2>
           <p>{detail.interactionId}</p>

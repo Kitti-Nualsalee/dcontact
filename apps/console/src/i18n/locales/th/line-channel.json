@@ -1,0 +1,116 @@
+{
+  "title": "LINE",
+  "description": "ให้ลูกค้าแชทกับ Agent ผ่าน LINE Official Account ของคุณ แชทเข้าคิวที่เลือกและกระจายผ่าน Router เดียวกับ Voice และ Web Chat",
+  "status": {
+    "enabled": "เปิดใช้งาน",
+    "disabled": "ปิดอยู่",
+    "notConfigured": "ยังไม่ได้ตั้งค่า"
+  },
+  "firstTime": "ยังไม่เคยตั้งค่า LINE กรอกข้อมูลจาก LINE Developers เลือกคิว แล้วบันทึก ค่าเริ่มต้น: ปิดห้องเมื่อลูกค้าเงียบ {{minutes}} นาที",
+  "readOnly": "คุณดูการตั้งค่าได้อย่างเดียว เฉพาะ Admin แก้ไขได้",
+  "forbidden": {
+    "title": "บัญชีนี้ไม่มีสิทธิ์ดูการตั้งค่า LINE",
+    "body": "หน้านี้สำหรับ Admin และ Supervisor ของ tenant ติดต่อ Admin ขององค์กรถ้าต้องการเปลี่ยนการตั้งค่า"
+  },
+  "locked": {
+    "title": "LINE ยังไม่เปิดใช้ในระบบนี้",
+    "body": "ติดต่อผู้ดูแลแพลตฟอร์มเพื่อเปิดใช้"
+  },
+  "loading": "กำลังโหลดการตั้งค่า LINE",
+  "loadFailed": "โหลดการตั้งค่า LINE ไม่สำเร็จ",
+  "retryLoad": "ลองโหลดอีกครั้ง",
+  "unauthorized": "session หมดอายุ กรุณาเข้าสู่ระบบอีกครั้ง",
+  "routing": {
+    "title": "การรับแชท",
+    "sub": "ใช้กับแชทใหม่ ห้องที่เปิดอยู่แล้วใช้ค่าเดิมจนจบ",
+    "queue": "คิวที่รับแชท",
+    "queuePlaceholder": "เลือกคิว",
+    "queueHint": "Agent ที่อยู่ในคิวนี้และ Ready จะได้รับแชท",
+    "idle": "ปิดห้องเมื่อลูกค้าเงียบ (นาที)",
+    "idleHint": "{{min}}–{{max}} นาที นับจากข้อความล่าสุดของ Agent ที่ลูกค้ายังไม่ตอบ"
+  },
+  "connection": {
+    "title": "การเชื่อมต่อกับ LINE",
+    "sub": "ข้อมูลจาก LINE Developers ของ Messaging API channel ระบบเก็บ Channel secret และ access token แบบเข้ารหัส และไม่แสดงกลับมาอีก",
+    "channelId": "Channel ID",
+    "channelIdHint": "ตัวเลข 6–20 หลัก ไม่บังคับ",
+    "secret": "Channel secret",
+    "secretHint": "อักขระ 32 ตัว (0–9, a–f) อยู่ที่แท็บ Basic settings",
+    "token": "Channel access token (long-lived)",
+    "tokenHint": "อยู่ที่แท็บ Messaging API กด Issue เพื่อสร้าง ระบบตรวจ token กับ LINE ตอนบันทึก",
+    "typeNew": "วางค่าใหม่",
+    "verified": "เชื่อมต่อกับ {{bot}} แล้ว ตรวจเมื่อ {{when}}",
+    "notVerified": "ยังไม่ได้ตรวจ token กับ LINE",
+    "none": "ยังไม่ได้เชื่อมต่อกับ LINE"
+  },
+  "secret": {
+    "saved": "บันทึกไว้แล้ว ({{hint}})",
+    "savedNoHint": "บันทึกไว้แล้ว",
+    "replace": "เปลี่ยน",
+    "replaceLabel": "เปลี่ยน {{name}}",
+    "keep": "ใช้ค่าที่บันทึกไว้"
+  },
+  "autoReply": {
+    "title": "ข้อความตอบรับอัตโนมัติ",
+    "sub": "ส่งหนึ่งครั้งเมื่อลูกค้าทักเข้ามาและยังไม่มี Agent ออนไลน์ ใช้ reply ของ LINE ซึ่งไม่นับโควตาข้อความ",
+    "label": "ข้อความ",
+    "emptyHint": "ว่างไว้ได้ ระบบจะไม่ตอบอัตโนมัติ",
+    "count": "{{count}} / {{limit}}"
+  },
+  "webhook": {
+    "title": "Webhook URL",
+    "sub": "URL ที่ LINE เรียกเมื่อลูกค้าส่งข้อความ ไม่เปลี่ยนเมื่อแก้การตั้งค่า",
+    "label": "Webhook URL ของ LINE",
+    "copy": "คัดลอก URL",
+    "copied": "คัดลอกแล้ว",
+    "afterSave": "Webhook URL พร้อมใช้หลังบันทึกครั้งแรก"
+  },
+  "steps": {
+    "title": "ขั้นตอนตั้งค่าฝั่ง LINE",
+    "credentials": "ใน LINE Developers เปิด channel ประเภท Messaging API ของ Official Account คัดลอก Channel ID และ Channel secret จากแท็บ Basic settings และกด Issue ที่ Channel access token (long-lived) ในแท็บ Messaging API แล้วคัดลอกมาวางในหน้านี้",
+    "save": "เลือกคิว เปิดใช้งาน แล้วบันทึกในหน้านี้ ระบบจะตรวจ token กับ LINE และแสดง Webhook URL",
+    "webhook": "คัดลอก Webhook URL ไปวางในแท็บ Messaging API ช่อง Webhook URL แล้วกด Update",
+    "verify": "เปิด Use webhook แล้วกด Verify ต้องขึ้นว่าสำเร็จ",
+    "autoResponse": "ใน LINE Official Account Manager ไปที่ Response settings แล้วปิด Auto-response messages และ Greeting message ของ OA เอง ไม่เช่นนั้นลูกค้าจะได้รับคำตอบสองชุด"
+  },
+  "quota": "ข้อความที่ Agent ตอบกลับส่งเป็น push message ซึ่งนับรวมในโควตาข้อความรายเดือนของ Official Account ส่วนข้อความตอบรับอัตโนมัติใช้ reply ซึ่งไม่นับโควตา",
+  "state": {
+    "title": "สถานะ",
+    "toggle": "เปิดใช้งาน LINE",
+    "onHint": "ข้อความจากลูกค้าทาง LINE เข้าคิวที่เลือก ปิดแล้วห้องที่คุยอยู่ยังคุยต่อจนจบ",
+    "offHint": "ปิดอยู่ ข้อความจากลูกค้าทาง LINE ไม่เข้าระบบ",
+    "required": "ต้องมีก่อนเปิดใช้งาน",
+    "needQueue": "เลือกคิวที่รับแชท",
+    "needSecret": "ใส่ Channel secret",
+    "needToken": "ใส่ Channel access token",
+    "goToField": "ไปที่ช่องนี้",
+    "cannotEnable": "ยังเปิดใช้งานไม่ได้ ทำ {{count}} ข้อด้านบนให้ครบ"
+  },
+  "errors": {
+    "queueRequired": "เลือกคิวก่อนเปิดใช้งาน",
+    "queueInvalid": "คิวนี้ใช้ไม่ได้ เลือกคิวอื่น",
+    "channelIdInvalid": "Channel ID เป็นตัวเลข 6–20 หลัก",
+    "secretRequired": "ใส่ Channel secret ก่อนเปิดใช้งาน",
+    "secretInvalid": "Channel secret ต้องเป็นอักขระ 32 ตัว (0–9, a–f)",
+    "tokenRequired": "ใส่ Channel access token ก่อนเปิดใช้งาน",
+    "tokenInvalid": "Channel access token ไม่ถูกรูปแบบ ตรวจว่าคัดลอกมาครบ",
+    "tokenRejected": "LINE ไม่รับ token นี้ ตรวจว่าเป็น Channel access token (long-lived) ของ channel นี้ และยังไม่ถูกออกใหม่",
+    "idleRange": "ใส่ตัวเลข {{min}}–{{max}}",
+    "autoReplyTooLong": "ยาวเกิน {{limit}} ตัวอักษร",
+    "rejected": "ค่าที่กรอกไม่ผ่านการตรวจของ server ตรวจแล้วบันทึกอีกครั้ง"
+  },
+  "save": "บันทึก",
+  "saveFirst": "บันทึกและสร้าง Webhook URL",
+  "saving": "กำลังบันทึก",
+  "cancel": "ยกเลิกการแก้ไข",
+  "saved": "บันทึกการตั้งค่า LINE แล้ว",
+  "saveFailed": "บันทึกไม่สำเร็จ การเชื่อมต่อกับ server ขาด ค่าที่แก้ไว้ยังอยู่ในฟอร์ม",
+  "lineUnavailable": "ติดต่อ LINE เพื่อตรวจ token ไม่ได้ในตอนนี้ ยังไม่ได้บันทึก ค่าที่แก้ไว้ยังอยู่ในฟอร์ม ลองบันทึกอีกครั้ง",
+  "secretStoreUnavailable": "เซิร์ฟเวอร์ยังไม่ได้ตั้งกุญแจเก็บความลับ จึงบันทึก secret และ token ไม่ได้ แจ้งผู้ดูแลแพลตฟอร์ม",
+  "retrySave": "ลองบันทึกอีกครั้ง",
+  "conflict": "มีคนแก้การตั้งค่านี้หลังคุณเปิดหน้า โหลดค่าล่าสุดแล้วแก้อีกครั้ง ค่าที่คุณกรอกยังอยู่ในฟอร์ม",
+  "conflictUseLatest": "ใช้ค่าล่าสุด",
+  "signIn": "เข้าสู่ระบบ",
+  "lastSaved": "แก้ล่าสุด {{when}} โดย {{name}}",
+  "lastSavedUnknown": "แก้ล่าสุด {{when}}"
+}

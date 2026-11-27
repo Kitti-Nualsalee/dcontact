@@ -1,0 +1,309 @@
+/* #1054: Customer channels › LINE settings — tokens only */
+.lc {
+  display: grid;
+  gap: var(--dc-space-5);
+  max-inline-size: 1120px;
+  padding: var(--dc-space-6);
+  color: var(--dc-text-primary);
+}
+
+.lc__title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--dc-space-3);
+  margin: 0;
+  font-size: var(--dc-text-xl);
+}
+
+.lc__lead,
+.lc__sub {
+  margin: var(--dc-space-2) 0 0;
+  color: var(--dc-text-secondary);
+  font-size: var(--dc-text-sm);
+}
+
+.lc__sr {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.lc__banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--dc-space-3);
+  margin: 0;
+  padding: var(--dc-space-3) var(--dc-space-4);
+  border: 1px solid var(--dc-border-subtle);
+  border-radius: var(--dc-radius-md);
+  background: var(--dc-surface-raised);
+}
+
+.lc__banner p {
+  flex: 1 1 16rem;
+  margin: 0;
+}
+
+.lc__banner--critical {
+  border-color: var(--dc-critical-border);
+  background: var(--dc-critical-bg-subtle);
+  color: var(--dc-critical-fg-strong);
+}
+
+.lc__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(16rem, 1fr);
+  gap: var(--dc-space-5);
+  align-items: start;
+}
+
+@media (width <= 960px) {
+  .lc__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.lc__main,
+.lc__side,
+.lc__stack {
+  display: grid;
+  gap: var(--dc-space-5);
+  min-inline-size: 0;
+}
+
+.lc__side {
+  position: sticky;
+  inset-block-start: var(--dc-space-5);
+}
+
+@media (width <= 960px) {
+  .lc__side {
+    position: static;
+  }
+}
+
+.lc__card {
+  display: grid;
+  gap: var(--dc-space-3);
+  padding: var(--dc-space-5);
+  border: 1px solid var(--dc-border-subtle);
+  border-radius: var(--dc-radius-lg);
+  background: var(--dc-surface-raised);
+}
+
+.lc__card h2 {
+  margin: 0;
+  font-size: var(--dc-text-md);
+}
+
+.lc__card--notice {
+  max-inline-size: 36rem;
+}
+
+.lc__card--notice p {
+  margin: 0;
+  color: var(--dc-text-secondary);
+}
+
+.lc__pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--dc-space-4);
+}
+
+@media (width <= 640px) {
+  .lc__pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.lc__origins {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-block-start: 1px solid var(--dc-border-subtle);
+}
+
+.lc__origin {
+  display: flex;
+  align-items: center;
+  gap: var(--dc-space-3);
+  min-block-size: var(--dc-control-md);
+  border-block-end: 1px solid var(--dc-border-subtle);
+}
+
+.lc__origin-text {
+  flex: 1;
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lc__empty {
+  margin: 0;
+  color: var(--dc-text-secondary);
+  font-size: var(--dc-text-sm);
+}
+
+.lc__add {
+  display: flex;
+  align-items: start;
+  gap: var(--dc-space-3);
+}
+
+.lc__add-field {
+  flex: 1;
+  min-inline-size: 0;
+}
+
+/* the label stays for screen readers but the add row reads as one line, so the button lines up with the input */
+.lc__add > button {
+  margin-block-start: var(--dc-space-6);
+}
+
+.lc__error {
+  margin: 0;
+  color: var(--dc-critical-fg-strong);
+  font-size: var(--dc-text-sm);
+  font-weight: var(--dc-weight-semibold);
+}
+
+.lc__code {
+  margin: 0;
+  padding: var(--dc-space-4);
+  overflow-x: auto;
+  border-radius: var(--dc-radius-md);
+  background: var(--dc-surface-sunken);
+  font-size: var(--dc-text-xs);
+}
+
+.lc__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--dc-space-4);
+}
+
+.lc__link {
+  color: var(--dc-brand-700);
+  font-size: var(--dc-text-sm);
+  font-weight: var(--dc-weight-semibold);
+}
+
+.lc__subhead {
+  margin: var(--dc-space-3) 0 0;
+  color: var(--dc-text-secondary);
+  font-size: var(--dc-text-xs);
+  font-weight: var(--dc-weight-semibold);
+}
+
+.lc__checklist {
+  display: grid;
+  gap: var(--dc-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--dc-text-sm);
+}
+
+.lc__check {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--dc-space-2);
+  color: var(--dc-attention-fg-strong);
+}
+
+.lc__check--met {
+  color: var(--dc-success-fg);
+}
+
+.lc__check-mark {
+  inline-size: var(--dc-space-4);
+  font-weight: var(--dc-weight-semibold);
+  text-align: center;
+}
+
+.lc__buttons {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--dc-space-3);
+}
+
+/* loading skeleton: static blocks, so there is nothing to switch off for reduced motion */
+.lc__skeleton {
+  display: grid;
+  gap: var(--dc-space-4);
+}
+
+.lc__skeleton-line,
+.lc__skeleton-block {
+  display: block;
+  border-radius: var(--dc-radius-md);
+  background: var(--dc-surface-sunken);
+}
+
+.lc__skeleton-line--title {
+  inline-size: 12rem;
+  block-size: var(--dc-space-6);
+}
+
+.lc__skeleton-block {
+  block-size: 8rem;
+}
+
+.lc__meta {
+  margin: 0;
+  color: var(--dc-text-secondary);
+  font-size: var(--dc-text-xs);
+}
+
+/* secrets: a stored value is shown as a hint row, never as an input holding the value */
+.lc__stored {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--dc-space-3);
+  min-block-size: var(--dc-control-md);
+}
+
+.lc__stored-label {
+  margin: 0;
+  color: var(--dc-text-primary);
+  font-size: var(--dc-text-sm);
+  font-weight: var(--dc-weight-semibold);
+}
+
+.lc__stored-value {
+  flex: 1 1 12rem;
+  min-inline-size: 0;
+  color: var(--dc-text-secondary);
+  font-size: var(--dc-text-sm);
+}
+
+.lc__verified {
+  margin: 0;
+  color: var(--dc-text-secondary);
+  font-size: var(--dc-text-sm);
+}
+
+.lc__steps {
+  display: grid;
+  gap: var(--dc-space-3);
+  margin: 0;
+  padding-inline-start: var(--dc-space-6);
+  color: var(--dc-text-primary);
+  font-size: var(--dc-text-sm);
+}
+
+.lc__url {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

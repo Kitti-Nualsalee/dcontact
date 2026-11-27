@@ -24,6 +24,8 @@ import { useTranscript } from '../chat-history/use-transcript.js';
 import {
   SUMMARY_PERIODS,
   channelFrom,
+  channelsFrom,
+  isChatChannel,
   dispositionFrom,
   filterHref,
   formatTalk,
@@ -93,6 +95,7 @@ function TeamHistorySession({ api, onSignIn }: Props) {
   const channelName = useChannelLabel();
   // #1044 with web chat off the page looks exactly as before: no channel filter, column or wording
   const [channelsOn, setChannelsOn] = useState(false);
+  const [offered, setOffered] = useState<HistoryChannel[]>([]);
   const ck = <K extends string>(key: K) => (channelsOn ? (`${key}Channels` as K) : key);
   const { locale } = useLocale();
   const ready = useShellTokens();
@@ -167,7 +170,11 @@ function TeamHistorySession({ api, onSignIn }: Props) {
       .then((result) => {
         if (active) {
           setSummaryState({ phase: 'ready', summary: result });
-          if (result.channels?.includes('WEBCHAT')) setChannelsOn(true);
+          const channels = channelsFrom(result.channels);
+          if (channels.some(isChatChannel)) {
+            setChannelsOn(true);
+            setOffered(channels);
+          }
         }
       })
       .catch((failure: unknown) => {
@@ -237,7 +244,7 @@ function TeamHistorySession({ api, onSignIn }: Props) {
   const { state: transcriptState, retry: retryTranscript } = useTranscript(
     api.transcript,
     selected,
-    !!selected && (!selectedItem || channelOf(selectedItem) === 'WEBCHAT'),
+    !!selected && (!selectedItem || isChatChannel(channelOf(selectedItem))),
   );
 
   function open(interactionId?: string) {
@@ -376,6 +383,7 @@ function TeamHistorySession({ api, onSignIn }: Props) {
               {channelsOn ? (
                 <ChannelFilter
                   value={channel}
+                  channels={offered}
                   onChange={(next) => applyFilter(period, disposition, { channel: next })}
                 />
               ) : null}
@@ -593,16 +601,18 @@ function TeamHistorySession({ api, onSignIn }: Props) {
           {t('more')}
         </Button>
       ) : null}
-      {selected && detail && !error && channelOf(detail) === 'WEBCHAT' ? (
+      {selected && detail && !error && isChatChannel(channelOf(detail)) ? (
         <article className="ch-detail">
           <div className="ch-head">
             {/* the visitor's label comes with the conversation, the same one the Agent saw in Workspace */}
             <h2>
               {transcript?.visitorLabel
-                ? chatText('chat.visitor', { code: transcript.visitorLabel })
+                ? channelOf(detail) === 'LINE'
+                  ? chatText('chat.lineCustomer', { name: transcript.visitorLabel })
+                  : chatText('chat.visitor', { code: transcript.visitorLabel })
                 : chatText('chat.heading')}
             </h2>
-            <ChannelBadge channel="WEBCHAT" />
+            <ChannelBadge channel={channelOf(detail)} />
           </div>
           <p className="ch-sub">
             {t('agent')}: {agentName(detail.agent)} · {t('team')}:{' '}
@@ -616,6 +626,7 @@ function TeamHistorySession({ api, onSignIn }: Props) {
               state={transcriptState}
               onRetry={retryTranscript}
               agentName={detail.agent.displayName ?? chatText('chat.sender.agent')}
+              channel={channelOf(detail)}
             />
             <ChatResultPanel
               rows={[
@@ -653,7 +664,7 @@ function TeamHistorySession({ api, onSignIn }: Props) {
           </div>
         </article>
       ) : null}
-      {selected && detail && !error && channelOf(detail) !== 'WEBCHAT' ? (
+      {selected && detail && !error && !isChatChannel(channelOf(detail)) ? (
         <article>
           <h2>{t('detail')}</h2>
           <p>{detail.interactionId}</p>

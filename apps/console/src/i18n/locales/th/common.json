@@ -41,7 +41,8 @@
       "teamEvaluations": "ประเมินคุณภาพสายของทีม",
       "myQuality": "คะแนนคุณภาพของฉัน",
       "qmForms": "ฟอร์มประเมินคุณภาพ",
-      "webchatSettings": "Web Chat"
+      "webchatSettings": "Web Chat",
+      "lineSettings": "LINE"
     },
     "areas": {
       "home": "หน้าแรก",
@@ -175,6 +176,10 @@
       "webchat": {
         "title": "Web Chat",
         "detail": "เข้าสู่ระบบก่อนจัดการการตั้งค่า Web Chat"
+      },
+      "line": {
+        "title": "LINE",
+        "detail": "เข้าสู่ระบบก่อนจัดการการตั้งค่า LINE"
       }
     },
     "notFound": {

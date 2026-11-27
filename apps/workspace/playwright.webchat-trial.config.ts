@@ -1,13 +1,13 @@
 import { defineConfig, devices } from '@playwright/test';
 
 /**
- * #1044 web chat end to end on the stack that `node scripts/sales-demo-stack.mjs` brings up with `WEBCHAT=on`
+ * #1044 web chat (and #1054 LINE chat with `LINE_CHAT=on`) end to end on the stack that `node scripts/sales-demo-stack.mjs` brings up with `WEBCHAT=on`
  * (Workspace 5173, Console 5174, API 3000). Not in CI and not acceptance of identity: the stack seeds its
  * tenant directly, and the Agent's phone uses fake media.
  */
 export default defineConfig({
   testDir: './e2e-real',
-  testMatch: 'webchat-trial.spec.ts',
+  testMatch: ['webchat-trial.spec.ts', 'line-trial.spec.ts'],
   outputDir: 'test-results-real',
   fullyParallel: false,
   workers: 1,

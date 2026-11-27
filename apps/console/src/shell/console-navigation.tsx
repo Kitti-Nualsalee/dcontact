@@ -19,6 +19,7 @@ const VIEWS = new Set([
   'journeys',
   'dphone-embedding',
   'webchat-settings',
+  'line-settings',
   'voice-routing',
   'tenant-people',
   'customers',

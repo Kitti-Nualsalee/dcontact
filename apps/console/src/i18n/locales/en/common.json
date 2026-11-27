@@ -41,7 +41,8 @@
       "teamEvaluations": "Team quality reviews",
       "myQuality": "My quality scores",
       "qmForms": "Quality forms",
-      "webchatSettings": "Web Chat"
+      "webchatSettings": "Web Chat",
+      "lineSettings": "LINE"
     },
     "areas": {
       "home": "Home",
@@ -175,6 +176,10 @@
       "webchat": {
         "title": "Web Chat",
         "detail": "Sign in before managing Web Chat settings"
+      },
+      "line": {
+        "title": "LINE",
+        "detail": "Sign in before managing LINE settings"
       }
     },
     "notFound": {

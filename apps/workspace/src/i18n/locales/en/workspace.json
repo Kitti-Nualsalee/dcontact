@@ -597,7 +597,7 @@
     },
     "idleWarning": "The chat closes in {{remaining}} unless the customer writes",
     "composer": {
-      "label": "Message to visitor",
+      "label": "Message to customer",
       "placeholder": "Type a message to the customer",
       "hint": "Enter to send · Shift+Enter for a new line",
       "count": "{{count}} / 2,000",
@@ -627,7 +627,7 @@
       "saved": "Wrap-up saved for {{visitor}}",
       "failed": "The wrap-up was not saved. Check it and try again",
       "retry": "Send the same command again",
-      "notYetLine": "The result can be saved once chat {{visitor}} has ended (the Agent ends it, or the system closes it after no reply)"
+      "notYetLine": "You can save the result once the chat with {{visitor}} ends (you end it, or the system closes it after no reply)"
     },
     "facts": {
       "title": "Chat details",
@@ -659,16 +659,16 @@
     },
     "delivery": {
       "sending": "Sending…",
-      "failed": "Not delivered to LINE"
+      "failed": "Not delivered: LINE refused it. You can type it again"
     },
     "other": {
-      "sticker": "Sent a sticker (open LINE to see it)",
-      "image": "Sent an image (open LINE to see it)",
-      "video": "Sent a video (open LINE to see it)",
-      "audio": "Sent a voice message (open LINE to listen)",
-      "file": "Sent a file (open LINE to see it)",
-      "location": "Sent a location (open LINE to see it)",
-      "unknown": "Sent a message that cannot be shown here (open LINE to see it)"
+      "sticker": "Customer sent a sticker (cannot be shown here)",
+      "image": "Customer sent an image (cannot be shown here)",
+      "video": "Customer sent a video (cannot be shown here)",
+      "audio": "Customer sent a voice message (cannot be shown here)",
+      "file": "Customer sent a file (cannot be shown here)",
+      "location": "Customer sent a location (cannot be shown here)",
+      "unknown": "Customer sent a message that cannot be shown here"
     }
   }
 }

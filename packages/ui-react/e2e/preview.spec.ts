@@ -341,6 +341,10 @@ test('#1044 ChatTranscript: the log is reachable by keyboard with the inset focu
   await expect(log).toContainText(pth('chat.you'));
   // a message that was not sent says so in words and offers its action
   await expect(log).toContainText(pth('chat.failed'));
+  // #1054 content the view cannot show stands as a note with a dashed outline, not a normal message
+  const note = log.getByText(pth('chat.sticker'));
+  await expect(note).toBeVisible();
+  await expect(note).toHaveCSS('border-top-style', 'dashed');
   await expect(log.getByRole('button', { name: pth('chat.retry') })).toBeVisible();
   // a finished conversation is not announced; the preview shows a static one
   await expect(log).toHaveAttribute('aria-live', 'off');
