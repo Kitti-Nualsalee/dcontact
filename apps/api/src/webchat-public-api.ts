@@ -69,7 +69,7 @@ type AssetName = keyof typeof ASSETS;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-function clientAddress(request: AuthenticatedGatewayRequest): string {
+export function clientAddress(request: AuthenticatedGatewayRequest): string {
   const forwarded = request.headers['x-forwarded-for'];
   const first = (Array.isArray(forwarded) ? forwarded[0] : forwarded)?.split(',')[0]?.trim();
   return first || request.socket.remoteAddress || 'unknown';

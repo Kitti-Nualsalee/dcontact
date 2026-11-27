@@ -167,6 +167,8 @@ export interface ChatAppendInput {
   clientToken?: string;
   /** #1054 an Agent's message that a worker still has to send (LINE): the row is the outbox (ADR-024) */
   outbox?: boolean;
+  /** #1054 skip the per-work message limit (a LINE customer's message is never refused) */
+  unlimited?: boolean;
   now: Date;
 }
 
@@ -203,14 +205,18 @@ export async function appendChatMessage(tx: Tx, input: ChatAppendInput) {
     }
   }
   // the limit is per piece of work: a LINE conversation lives on across many (ADR-023)
-  const [{ count, latest }] = await tx.$queryRaw<
-    { count: number; latest: Date | null }[]
-  >(Prisma.sql`
-    SELECT count(*) FILTER (WHERE ${input.interactionId}::uuid IS NULL
-        OR interaction_id = ${input.interactionId}::uuid)::int AS count,
-      max(created_at) AS latest FROM messages
+  if (!input.event && !input.unlimited) {
+    const count = await tx.message.count({
+      where: input.interactionId
+        ? { tenantId, interactionId: input.interactionId }
+        : { tenantId, conversationId },
+    });
+    if (count >= WEBCHAT_MAX_MESSAGES) throw new WebchatError('MESSAGE_LIMIT');
+  }
+  // the newest message only, through the (tenant, conversation, created_at) index
+  const [{ latest }] = await tx.$queryRaw<{ latest: Date | null }[]>(Prisma.sql`
+    SELECT max(created_at) AS latest FROM messages
     WHERE tenant_id = ${tenantId}::uuid AND conversation_id = ${conversationId}::uuid`);
-  if (!input.event && count >= WEBCHAT_MAX_MESSAGES) throw new WebchatError('MESSAGE_LIMIT');
   // max(created_at) is a timestamp without zone that the driver reads as UTC, like every DateTime here
   const createdAt =
     latest && latest.getTime() >= now.getTime() ? new Date(latest.getTime() + 1) : now;
@@ -247,6 +253,11 @@ export async function appendChatMessage(tx: Tx, input: ChatAppendInput) {
 
 export interface WebchatServiceOptions {
   now?: () => Date;
+  /**
+   * #1054 the chat channels this deployment has on; work of a channel that is off is left alone (it
+   * cannot be answered: nothing would send an Agent's LINE message). All of them when not given.
+   */
+  channels?: readonly ChatChannel[];
   /** structured diagnostics; carries ids and error names only, never message text */
   log?: (event: Record<string, unknown>) => void;
 }
@@ -284,7 +295,10 @@ export class WebchatService {
   ) {
     this.now = options.now ?? (() => new Date());
     this.log = options.log ?? ((event) => console.error(JSON.stringify(event)));
+    this.channels = options.channels ?? CHAT_CHANNELS;
   }
+
+  private readonly channels: readonly ChatChannel[];
 
   private tenant<T>(tenantId: string, work: (tx: Tx) => Promise<T>): Promise<T> {
     return withTenantDatabaseTransaction(this.database, tenantId, work);
@@ -683,7 +697,7 @@ export class WebchatService {
         where: {
           tenantId,
           agentId: actor.userId,
-          channel: { in: [...CHAT_CHANNELS] },
+          channel: { in: [...this.channels] },
           state: { in: ['ASSIGNED', 'ACTIVE', 'WRAPUP'] },
         },
         select: {
@@ -791,7 +805,7 @@ export class WebchatService {
         tenantId: actor.tenantId,
         id: interactionId,
         agentId: actor.userId,
-        channel: { in: [...CHAT_CHANNELS] },
+        channel: { in: [...this.channels] },
       },
       select: {
         id: true,
@@ -969,7 +983,7 @@ export class WebchatService {
         tx.interaction.count({
           where: {
             tenantId: id,
-            channel: { in: [...CHAT_CHANNELS] },
+            channel: { in: [...this.channels] },
             state: { in: ['QUEUED', 'ASSIGNED', 'ACTIVE'] },
           },
         }),
@@ -1033,7 +1047,7 @@ export class WebchatService {
       const open = await tx.interaction.findMany({
         where: {
           tenantId,
-          channel: { in: [...CHAT_CHANNELS] },
+          channel: { in: [...this.channels] },
           state: { in: ['QUEUED', 'ASSIGNED', 'ACTIVE'] },
         },
         select: {

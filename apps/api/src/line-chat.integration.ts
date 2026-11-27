@@ -353,6 +353,14 @@ test('a customer the conversation is linked to is carried over to the next work'
   const contact = await owner.contact.create({
     data: { tenantId: f.tenantId, displayName: 'Somchai' },
   });
+  await owner.c360IdentityHead.create({
+    data: {
+      tenantId: f.tenantId,
+      contactId: contact.id,
+      canonicalContactId: contact.id,
+      stateDigest: '0'.repeat(64),
+    },
+  });
   // what linking the customer to LINE work does to the conversation (customer-360 profile-work)
   const conversation = await owner.conversation.findFirstOrThrow({
     where: { tenantId: f.tenantId },
@@ -477,4 +485,70 @@ test('LINE and web chat share the Agent chat limit; a silent LINE chat closes fo
     where: { interactionId: closed.id, body: 'IDLE_TIMEOUT' },
   });
   assert.ok(reason);
+});
+
+test('a broken event does not lose the others; two first messages at once open one piece of work', async () => {
+  const f = await fixture();
+  const body = Buffer.from(
+    JSON.stringify({
+      destination: BOT,
+      events: [
+        null,
+        { type: 'message', source: { type: 'user', userId: 'not-a-user' }, message: { id: '1' } },
+        {
+          type: 'message',
+          mode: 'active',
+          source: { type: 'user', userId: f.lineUser },
+          message: { id: '7001', type: 'text', text: 'still here' },
+        },
+      ],
+    }),
+  );
+  const signature = createHmac('sha256', SECRET).update(body).digest('base64');
+  assert.deepEqual(await f.service.webhook(f.tenantId, f.channelId, body, signature), {
+    accepted: 1,
+  });
+  // a signed body that is not an object names no bot: refused like any other mismatch, not a crash
+  const odd = Buffer.from('null');
+  await assert.rejects(
+    f.service.webhook(
+      f.tenantId,
+      f.channelId,
+      odd,
+      createHmac('sha256', SECRET).update(odd).digest('base64'),
+    ),
+    code('NOT_FOUND'),
+  );
+  const other = `U${randomBytes(16).toString('hex')}`;
+  await Promise.all([f.write('first', { user: other }), f.write('second', { user: other })]);
+  await f.service.settled();
+  const opened = await owner.interaction.count({
+    where: { tenantId: f.tenantId, conversation: { externalThreadId: other } },
+  });
+  assert.equal(opened, 1);
+});
+
+test('a message to a channel the Admin turned off is not sent; with only web chat on LINE work is left alone', async () => {
+  const f = await fixture();
+  await f.write('hello');
+  const chat = (await f.chats.agentChats(f.agent)).chats[0]!;
+  await f.chats.agentAccept(f.agent, chat.interactionId);
+  await owner.lineChannel.updateMany({ where: { tenantId: f.tenantId }, data: { enabled: false } });
+  const sent = await f.chats.agentSend(f.agent, chat.interactionId, {
+    commandId: randomUUID(),
+    text: 'are you there?',
+  });
+  await f.service.settled();
+  const row = await owner.message.findFirstOrThrow({ where: { id: sent.message.id } });
+  assert.equal(row.status, 'FAILED');
+  assert.equal(row.failureCode, 'LINE_CHANNEL_OFF');
+  assert.equal(f.line.pushes.length, 0);
+
+  // a deployment that turned LINE chat off: its round and the Agent's list leave LINE work alone
+  const webOnly = new WebchatService(application, new WebchatHub(), { channels: ['WEBCHAT'] });
+  assert.deepEqual((await webOnly.agentChats(f.agent)).chats, []);
+  await assert.rejects(
+    webOnly.agentSend(f.agent, chat.interactionId, { commandId: randomUUID(), text: 'x' }),
+    code('NOT_FOUND'),
+  );
 });
