@@ -158,7 +158,7 @@ test('a new call whose runtime fails twice is hung up when its destination is ma
   route.handle = async () => {
     throw new Error('database unavailable');
   };
-  route.rejectFailedCall = async (event) => {
+  route.rejectUnroutedCall = async (event) => {
     rejected.push(event);
     return event.destination === '2000';
   };
@@ -189,7 +189,7 @@ test('a new call whose runtime fails twice is hung up when its destination is ma
   // Legacy destination: kept on legacy as before
   assert.equal(await routeManagedCall(parked('2001'), tenantA, route), 'legacy');
   // The check itself fails (e.g. the database is down for both): fall back to legacy and report the error
-  route.rejectFailedCall = async () => {
+  route.rejectUnroutedCall = async () => {
     throw new Error('lookup failed');
   };
   const errors = route.errors.length;
@@ -198,7 +198,7 @@ test('a new call whose runtime fails twice is hung up when its destination is ma
   assert.equal(route.errors.length, errors + 3);
   // Only new calls are checked: a later event of an unknown call still goes to legacy without a lookup
   rejected.length = 0;
-  route.rejectFailedCall = async (event) => {
+  route.rejectUnroutedCall = async (event) => {
     rejected.push(event);
     return true;
   };
@@ -211,6 +211,35 @@ test('a new call whose runtime fails twice is hung up when its destination is ma
     'legacy',
   );
   assert.equal(rejected.length, 0);
+});
+
+test('a new call the runtime does not take is hung up when its destination is managed, otherwise it stays legacy', async () => {
+  const rejected: ManagedVoiceEvent[] = [];
+  // The runtime returns no call for any destination (e.g. inactive or not in this node's destination pool)
+  const route = routing();
+  route.rejected = new Set();
+  route.rejectUnroutedCall = async (event) => {
+    rejected.push(event);
+    return event.destination === '2000';
+  };
+  assert.equal(await routeManagedCall(parked('2000'), tenantA, route), 'ignored');
+  assert.deepEqual([...route.rejected], [caller]);
+  assert.equal(route.errors.length, 0);
+  assert.equal(route.calls.size, 0);
+  route.rejected.clear();
+  assert.equal(await routeManagedCall(parked('2001'), tenantA, route), 'legacy');
+  // Events other than a new call are not checked
+  rejected.length = 0;
+  for (const name of ['CHANNEL_HANGUP_COMPLETE', 'DTMF', 'CHANNEL_BRIDGE'])
+    assert.equal(
+      await routeManagedCall({ 'Event-Name': name, 'Unique-ID': caller }, tenantA, route),
+      'legacy',
+    );
+  assert.equal(rejected.length, 0);
+  // A managed call the runtime does take is never checked
+  const taken = routing({ [tenantA]: ['2000'] });
+  taken.rejectUnroutedCall = async () => assert.fail('must not check a call the runtime took');
+  assert.equal(await routeManagedCall(parked('2000'), tenantA, taken), 'managed');
 });
 
 test('a B-leg with an offer goes to the managed runtime of the tenant on the channel, and a caller hangup after bridge closes the call', async () => {
