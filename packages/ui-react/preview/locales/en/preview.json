@@ -9,6 +9,7 @@
     "toggles": "Checkbox and Switch",
     "table": "Table",
     "badges": "Badges and status",
+    "chat": "Chat transcript",
     "tabs": "Tabs",
     "dialog": "Dialog",
     "toast": "Notifications"
@@ -115,5 +116,16 @@
       "description": "The current call will be disconnected and unsaved work will be lost.",
       "confirm": "Sign out"
     }
+  },
+  "chat": {
+    "label": "Sample conversation",
+    "started": "Visitor started the chat",
+    "visitor": "Visitor",
+    "you": "You",
+    "first": "Hello, I ordered on the 20th and it has not arrived yet.",
+    "reply": "Hello, happy to help. May I have your order number?",
+    "unsent": "Please give me a moment to check.",
+    "failed": "Not sent",
+    "retry": "Try again"
   }
 }
