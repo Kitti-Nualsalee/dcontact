@@ -75,8 +75,11 @@ Solo UAT เปิด flag แล้วตาม owner สั่ง (22 พ.ย.
   - การทดลองนี้พบว่า `createCall` ของ managed runtime ใน router ยังกันคิวที่เปิดบันทึก ทำให้สายไป legacy แก้แล้วในงานเดียวกัน
 - Agent ในการทดลองเป็น SIPp ที่ลงทะเบียนด้วย SIP credential/work-session lease ที่สร้างลงฐานแยกโดยตรง และตั้งสถานะ AVAILABLE
   และปิด wrap-up ผ่านฐาน ไม่ได้ผ่าน Workspace/dphone (ส่วนนั้นผ่านแล้วใน #977) ไม่ได้ตรวจเสียงสองทาง
-- เมื่อลูกค้าวางหลัง bridge ผลจบของ managed runtime เป็น `AGENT_HANGUP` น่าจะเพราะ event วางสายของขา Agent มาถึงก่อน
-  ซึ่งเป็นพฤติกรรมเดิมของ runtime ไม่ได้แก้ในงานนี้
+- ผลจบหลัง bridge แยกฝ่ายที่วางจาก `sip_hangup_disposition` ของขาที่ event มาถึงก่อน: ขาลูกค้า `recv_*` หรือขา Agent `send_*`
+  เป็น `CALLER_HANGUP` ส่วนกรณีกลับกันเป็น `AGENT_HANGUP` ถ้าไม่มี disposition (เช่น telephony รุ่นเก่า) ยังเป็น `AGENT_HANGUP` ตามเดิม
+  `send_*` นับเฉพาะเมื่อ `Hangup-Cause` เป็น `NORMAL_CLEARING` ระบบวางเองระหว่างคุย (media timeout, `uuid_kill`, shutdown)
+  จึงไม่มีฝ่ายที่วางและเป็น `AGENT_HANGUP` ส่วนสายที่ปิดผ่าน reconcile หลัง event หาย (เช่นข้าม restart) ก็เป็น `AGENT_HANGUP`
+  ต้อง migrate ก่อนเริ่ม router รุ่นนี้ (`solo-uat.sh app` ทำตามลำดับนี้อยู่แล้ว) ถ้า rollback ให้ย้อนเฉพาะโค้ดและคง CHECK ใหม่ไว้
 - ถ้า runtime ไม่รับสายใหม่ ไม่ว่าจะล้มทั้งสองครั้ง หรือไม่สร้างสายเพราะเบอร์ปิดอยู่หรือไม่อยู่ใน `destination_pool` ของ node นี้ telephony ตรวจ `voice_destinations` ของ tenant นั้น (ผ่าน RLS)
   ถ้าเบอร์ผูกกับคิว managed v1 จะวางสายลูกค้าด้วย `uuid_kill ... NORMAL_TEMPORARY_FAILURE` แทนการส่งให้ legacy
   ซึ่งปฏิเสธคิว managed (`VOICE_CONFIG_V1_REQUIRED`) และทิ้งลูกค้า park ไม่มีเพดาน ถ้าตรวจเบอร์ไม่ได้ (เช่น ฐานล่ม)
