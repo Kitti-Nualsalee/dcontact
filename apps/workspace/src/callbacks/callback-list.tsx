@@ -2,11 +2,11 @@
  * #1061 the "Callbacks" tab of the work list: due callbacks first, each with call / move / cancel.
  * The parent (WorkspaceApp) owns the data and the API calls; this file only shows them.
  */
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button, Dialog, StatusChip, TextField } from '@d-contact/ui-react';
 import { useTranslation } from '@d-contact/i18n/react';
 import type { AgentCallback } from './callback-api.js';
-import { localParts, slotInstant } from './callback-model.js';
+import { localParts, slotInstant, slotProblemKey, type SlotProblem } from './callback-model.js';
 import './callbacks.css';
 
 /** "Today 14:30" or "29 Nov 14:30" in the Agent's language */
@@ -61,7 +61,24 @@ export function CallbackList({
   const formatWhen = useCallbackWhen(locale);
   const when = (item: AgentCallback) => formatWhen(item.requestedFor, new Date(now));
   const name = (item: AgentCallback) =>
-    item.customerVisible ? (item.contactName ?? item.number ?? '—') : t('callback.customerHidden');
+    item.customerVisible
+      ? (item.contactName ?? item.number ?? '—')
+      : t('callback.customerHiddenShort');
+  // after a cancel the row is gone: focus moves to the next row (its move button: the call button may be
+  // disabled), or to the empty state; after the dialog has given focus back, which would land on <body>
+  const [focusAfter, setFocusAfter] = useState<string | null>(null);
+  const emptyRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!focusAfter) return;
+    const target = focusAfter;
+    setFocusAfter(null);
+    // not cancelled on the re-render that clearing `focusAfter` causes
+    requestAnimationFrame(() => {
+      const next = document.querySelector<HTMLElement>(`[data-callback-move="${target}"]`);
+      if (next) next.focus();
+      else emptyRef.current?.focus();
+    });
+  }, [items, focusAfter]);
 
   if (status === 'failed' && items.length === 0) {
     return (
@@ -75,9 +92,9 @@ export function CallbackList({
   }
   if (items.length === 0) {
     return status === 'loading' ? (
-      <p className="aw-copy">…</p>
+      <CallbackSkeleton label={t('callback.loading')} />
     ) : (
-      <div className="aw-empty">
+      <div className="aw-empty" ref={emptyRef} tabIndex={-1}>
         <strong>{t('callback.empty')}</strong>
         <span>{t('callback.emptyHint')}</span>
       </div>
@@ -89,6 +106,14 @@ export function CallbackList({
 
   return (
     <>
+      {status === 'failed' ? (
+        <div className="aw-callback-stale" role="status">
+          <span>{t('callback.stale')}</span>
+          <Button size="sm" variant="secondary" onPress={onRetry}>
+            {t('callback.retry')}
+          </Button>
+        </div>
+      ) : null}
       {!canDial && dialHint ? <p className="aw-copy aw-callback-hint">{dialHint}</p> : null}
       <ul className="aw-v3-items aw-callback-items" aria-label={t('callback.listLabel')}>
         {items.map((item) => {
@@ -141,6 +166,7 @@ export function CallbackList({
                   variant={due ? 'primary' : 'secondary'}
                   isDisabled={busy || !canDial}
                   aria-label={t('callback.dialLabel', { name: name(item) })}
+                  data-callback-dial={item.id}
                   onPress={() => onDial(item)}
                 >
                   {t('callback.dial')}
@@ -149,6 +175,8 @@ export function CallbackList({
                   size="sm"
                   variant="ghost"
                   isDisabled={busy}
+                  aria-label={t('callback.rescheduleLabel', { name: name(item) })}
+                  data-callback-move={item.id}
                   onPress={() => {
                     setSlot(
                       localParts(
@@ -165,6 +193,7 @@ export function CallbackList({
                   size="sm"
                   variant="ghost"
                   isDisabled={busy}
+                  aria-label={t('callback.cancelLabel', { name: name(item) })}
                   onPress={() => setCancelling(item)}
                 >
                   {t('callback.cancel')}
@@ -177,7 +206,11 @@ export function CallbackList({
       <Dialog
         isOpen={moving !== null}
         onOpenChange={(open) => !open && setMoving(null)}
-        title={t('callback.rescheduleTitle')}
+        title={
+          moving
+            ? t('callback.rescheduleTitleFor', { name: name(moving) })
+            : t('callback.rescheduleTitle')
+        }
         footer={(close) => (
           <>
             <Button variant="secondary" onPress={close}>
@@ -197,42 +230,16 @@ export function CallbackList({
           </>
         )}
       >
-        <div className="aw-callback-slot">
-          <TextField
-            type="date"
-            label={t('callback.date')}
-            isRequired
-            value={slot.date}
-            onChange={(date) => setSlot((current) => ({ ...current, date }))}
-            isInvalid={attempted && problem !== undefined}
-          />
-          <TextField
-            type="time"
-            label={t('callback.time')}
-            isRequired
-            value={slot.time}
-            onChange={(time) => setSlot((current) => ({ ...current, time }))}
-            isInvalid={attempted && problem !== undefined}
-          />
-        </div>
-        <p
-          className="aw-callback-help"
-          data-invalid={attempted && problem ? 'true' : undefined}
-          role={attempted && problem ? 'alert' : undefined}
-        >
-          {attempted && problem
-            ? t(
-                problem === 'missing'
-                  ? 'callback.timeMissing'
-                  : problem === 'tooSoon'
-                    ? 'callback.timeTooSoon'
-                    : 'callback.timeTooFar',
-              )
-            : t('callback.timeHelp')}
-        </p>
+        <SlotFields
+          idPrefix="callback-move"
+          slot={slot}
+          onChange={setSlot}
+          problem={attempted ? problem : undefined}
+        />
       </Dialog>
       <Dialog
         role="alertdialog"
+        describedBy="callback-cancel-copy"
         isOpen={cancelling !== null}
         onOpenChange={(open) => !open && setCancelling(null)}
         title={t('callback.cancelTitle')}
@@ -246,7 +253,13 @@ export function CallbackList({
               isDisabled={busyId === cancelling?.id}
               onPress={() => {
                 if (!cancelling) return;
-                void onCancel(cancelling).then((done) => done && close());
+                const index = items.findIndex((item) => item.id === cancelling.id);
+                const next = items[index + 1] ?? items[index - 1];
+                void onCancel(cancelling).then((done) => {
+                  if (!done) return;
+                  close();
+                  setFocusAfter(next?.id ?? 'none');
+                });
               }}
             >
               {t('callback.cancelConfirm')}
@@ -254,13 +267,69 @@ export function CallbackList({
           </>
         )}
       >
-        <p className="aw-copy">
+        <p className="aw-copy" id="callback-cancel-copy">
           {cancelling
             ? t('callback.cancelCopy', { name: name(cancelling), when: when(cancelling) })
             : null}
         </p>
       </Dialog>
     </>
+  );
+}
+
+/** date and time of a callback; the message for a time that cannot be used belongs to the date field */
+export function SlotFields({
+  idPrefix,
+  slot,
+  onChange,
+  problem,
+  readOnly = false,
+}: {
+  idPrefix: string;
+  slot: { date: string; time: string };
+  onChange(slot: { date: string; time: string }): void;
+  /** shown only after the Agent tried to save */
+  problem: SlotProblem | undefined;
+  readOnly?: boolean;
+}) {
+  const { t } = useTranslation('workspace');
+  const message = problem ? t(slotProblemKey(problem)) : undefined;
+  return (
+    <div className="aw-callback-slot">
+      <TextField
+        id={`${idPrefix}-date`}
+        type="date"
+        label={t('callback.date')}
+        isRequired
+        isReadOnly={readOnly}
+        value={slot.date}
+        onChange={(date) => onChange({ ...slot, date })}
+        description={t('callback.timeHelp')}
+        isInvalid={message !== undefined}
+        errorMessage={message}
+      />
+      <TextField
+        id={`${idPrefix}-time`}
+        type="time"
+        label={t('callback.time')}
+        isRequired
+        isReadOnly={readOnly}
+        value={slot.time}
+        onChange={(time) => onChange({ ...slot, time })}
+        isInvalid={message !== undefined}
+      />
+    </div>
+  );
+}
+
+/** placeholder rows the size of real ones while the list loads */
+export function CallbackSkeleton({ label }: { label: string }) {
+  return (
+    <div className="aw-callback-skeleton" role="status" aria-busy="true" aria-label={label}>
+      {[0, 1].map((row) => (
+        <span key={row} className="aw-callback-skeleton-row" aria-hidden="true" />
+      ))}
+    </div>
   );
 }
 

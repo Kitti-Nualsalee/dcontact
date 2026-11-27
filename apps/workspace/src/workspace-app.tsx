@@ -1230,6 +1230,12 @@ function AgentWorkspace({
     }
   }
 
+  function callbackName(item: AgentCallback) {
+    return item.customerVisible
+      ? (item.contactName ?? item.number ?? '')
+      : t('callback.customerHiddenShort');
+  }
+
   async function dialCallback(item: AgentCallback) {
     if (!callbacksApi) return;
     const result = await callbackCommand(item, () =>
@@ -1269,7 +1275,10 @@ function AgentWorkspace({
     callbackNoticed.current.delete(noticeKey(item));
     toastQueue.add(
       {
-        title: t('callback.rescheduledToast', { when: callbackWhen(requestedFor) }),
+        title: t('callback.rescheduledToast', {
+          name: callbackName(item),
+          when: callbackWhen(requestedFor),
+        }),
         tone: 'success',
       },
       { timeout: 6000 },
@@ -1286,7 +1295,10 @@ function AgentWorkspace({
       }),
     );
     if (!result) return false;
-    toastQueue.add({ title: t('callback.cancelledToast'), tone: 'success' }, { timeout: 6000 });
+    toastQueue.add(
+      { title: t('callback.cancelledToast', { name: callbackName(item) }), tone: 'success' },
+      { timeout: 6000 },
+    );
     return true;
   }
 
@@ -2159,12 +2171,19 @@ function AgentWorkspace({
           </Tab>
           {callbacksApi ? (
             <Tab id="callbacks">
-              {t('layout.list.callbacks', { count: callbacks.items.length })}
-              {callbacksDue > 0 ? (
-                <span className="aw-callback-due-count" aria-hidden="true">
-                  {callbacksDue}
-                </span>
-              ) : null}
+              <span className="aw-callback-tab">
+                {t('layout.list.callbacksTab')}
+                {callbacksDue > 0 ? (
+                  <>
+                    <span className="aw-callback-due-count" aria-hidden="true">
+                      {callbacksDue}
+                    </span>{' '}
+                    <span className="aw-visually-hidden">
+                      {t('layout.list.callbacksDue', { count: callbacksDue })}
+                    </span>
+                  </>
+                ) : null}
+              </span>
             </Tab>
           ) : null}
         </TabList>
@@ -2685,9 +2704,18 @@ function AgentWorkspace({
               }
               locale={locale}
               onPickCustomer={pickCustomerForCase}
-              onShowList={() => setListTab('callbacks')}
+              onShowList={() => {
+                setListTab('callbacks');
+                requestAnimationFrame(() =>
+                  document
+                    .querySelector<HTMLElement>(
+                      '.aw-v3-list-tabs [role="tab"][aria-selected="true"]',
+                    )
+                    ?.focus(),
+                );
+              }}
               onScheduled={() => void refreshCallbacks()}
-              focusToken={0}
+              listRevision={callbacks.items.map((item) => `${item.id}:${item.version}`).join(',')}
             />
           </TabPanel>
         ) : null}

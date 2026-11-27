@@ -177,7 +177,11 @@ test('the list puts due callbacks first, shows the team ones and hides a custome
   page,
 }) => {
   await open(page);
-  const tab = page.getByRole('tab', { name: th('workspace:layout.list.callbacks', { count: 3 }) });
+  const tab = page
+    .locator('.aw-v3-list-tabs')
+    .getByRole('tab', { name: th('workspace:layout.list.callbacksTab') });
+  // the tab says how many are due, also to screen readers
+  await expect(tab).toContainText(th('workspace:layout.list.callbacksDue', { count: 2 }));
   await tab.click();
   const list = page.getByRole('list', { name: th('workspace:callback.listLabel') });
   const rows = list.getByRole('listitem');
@@ -189,7 +193,7 @@ test('the list puts due callbacks first, shows the team ones and hides a custome
   );
   await expect(rows.nth(1)).toContainText('Anan Thongdee');
   await expect(rows.nth(1)).toContainText('After the meeting');
-  await expect(rows.nth(2)).toContainText(th('workspace:callback.customerHidden'));
+  await expect(rows.nth(2)).toContainText(th('workspace:callback.customerHiddenShort'));
   await expect(rows.nth(2)).toContainText(th('workspace:callback.upcoming'));
   // the Agent is in a call: dialing waits and says why
   await expect(page.getByText(th('workspace:callback.error.notReady'))).toBeVisible();
@@ -232,8 +236,14 @@ test('the Agent schedules a callback from the call in hand, then moves and cance
 
   // move Anan's callback
   const anan = list.getByRole('listitem').filter({ hasText: 'Anan Thongdee' });
-  await anan.getByRole('button', { name: th('workspace:callback.reschedule') }).click();
-  const move = page.getByRole('dialog', { name: th('workspace:callback.rescheduleTitle') });
+  await anan
+    .getByRole('button', {
+      name: th('workspace:callback.rescheduleLabel', { name: 'Anan Thongdee' }),
+    })
+    .click();
+  const move = page.getByRole('dialog', {
+    name: th('workspace:callback.rescheduleTitleFor', { name: 'Anan Thongdee' }),
+  });
   await move.getByLabel(th('workspace:callback.time')).fill('23:59');
   await move.getByRole('button', { name: th('workspace:callback.rescheduleSave') }).click();
   await expect(move).toBeHidden();
@@ -244,7 +254,11 @@ test('the Agent schedules a callback from the call in hand, then moves and cance
 
   // cancel the team's callback after confirming
   const somchai = list.getByRole('listitem').filter({ hasText: 'Somchai Prasert' });
-  await somchai.getByRole('button', { name: th('workspace:callback.cancel') }).click();
+  await somchai
+    .getByRole('button', {
+      name: th('workspace:callback.cancelLabel', { name: 'Somchai Prasert' }),
+    })
+    .click();
   const confirm = page.getByRole('alertdialog', { name: th('workspace:callback.cancelTitle') });
   await confirm.getByRole('button', { name: th('workspace:callback.cancelConfirm') }).click();
   await expect(confirm).toBeHidden();
@@ -253,4 +267,6 @@ test('the Agent schedules a callback from the call in hand, then moves and cance
     body: { expectedVersion: 2 },
   });
   await expect(list.getByRole('listitem').filter({ hasText: 'Somchai Prasert' })).toHaveCount(0);
+  // the row is gone: focus moved to the next callback, not lost on the page
+  await expect(page.locator(':focus')).toHaveAttribute('data-callback-move', /.+/);
 });

@@ -14,7 +14,7 @@ import {
   suggestedSlot,
   type CallbackErrorKey,
 } from './callback-model.js';
-import { useCallbackWhen } from './callback-list.js';
+import { CallbackSkeleton, SlotFields, useCallbackWhen } from './callback-list.js';
 import './callbacks.css';
 
 interface Props {
@@ -26,8 +26,8 @@ interface Props {
   onPickCustomer(): void;
   onShowList(): void;
   onScheduled(): void;
-  /** changes when the Agent opens this tab from elsewhere, to move focus into it */
-  focusToken: number;
+  /** changes when the callbacks list changes (a callback cancelled or moved), so "already scheduled" is read again */
+  listRevision: string;
 }
 
 type Load =
@@ -43,7 +43,7 @@ export function CallbackSchedulePanel({
   onPickCustomer,
   onShowList,
   onScheduled,
-  focusToken,
+  listRevision,
 }: Props) {
   const { t } = useTranslation('workspace');
   const formatWhen = useCallbackWhen(locale);
@@ -80,11 +80,7 @@ export function CallbackSchedulePanel({
     return () => {
       active = false;
     };
-  }, [api, workId, customerId]);
-
-  useEffect(() => {
-    if (focusToken > 0) titleRef.current?.focus();
-  }, [focusToken]);
+  }, [api, workId, customerId, listRevision]);
 
   const chosen = slotInstant(slot.date, slot.time, new Date());
   const timeProblem = 'problem' in chosen ? chosen.problem : undefined;
@@ -178,7 +174,7 @@ export function CallbackSchedulePanel({
           <dd>
             {options?.contactName ??
               customer?.displayName ??
-              (load.status === 'loading' ? '…' : t('callback.customerMissing'))}
+              (load.status === 'loading' ? '' : t('callback.customerMissing'))}
           </dd>
         </div>
         {options?.queue ? (
@@ -245,43 +241,13 @@ export function CallbackSchedulePanel({
               options.numbers.length > dialable.length ? t('callback.numberNotDialable') : undefined
             }
           />
-          <div className="aw-callback-slot">
-            <TextField
-              id="callback-date"
-              type="date"
-              label={t('callback.date')}
-              isRequired
-              isReadOnly={locked}
-              value={slot.date}
-              onChange={(date) => setSlot((current) => ({ ...current, date }))}
-              isInvalid={attempted && timeProblem !== undefined}
-            />
-            <TextField
-              id="callback-time"
-              type="time"
-              label={t('callback.time')}
-              isRequired
-              isReadOnly={locked}
-              value={slot.time}
-              onChange={(time) => setSlot((current) => ({ ...current, time }))}
-              isInvalid={attempted && timeProblem !== undefined}
-            />
-          </div>
-          <p
-            className="aw-callback-help"
-            data-invalid={attempted && timeProblem ? 'true' : undefined}
-            role={attempted && timeProblem ? 'alert' : undefined}
-          >
-            {attempted && timeProblem
-              ? t(
-                  timeProblem === 'missing'
-                    ? 'callback.timeMissing'
-                    : timeProblem === 'tooSoon'
-                      ? 'callback.timeTooSoon'
-                      : 'callback.timeTooFar',
-                )
-              : t('callback.timeHelp')}
-          </p>
+          <SlotFields
+            idPrefix="callback"
+            slot={slot}
+            onChange={setSlot}
+            problem={attempted ? timeProblem : undefined}
+            readOnly={locked}
+          />
           <TextField
             id="callback-note"
             multiline
@@ -294,14 +260,14 @@ export function CallbackSchedulePanel({
               count: [...note.trim()].length,
             })}`}
           />
-          <div className="aw-actions">
+          <div className="aw-callback-actions">
             <Button type="submit" variant="primary" isDisabled={locked}>
               {locked ? t('callback.pending') : t('callback.submit')}
             </Button>
           </div>
         </form>
       ) : load.status === 'loading' ? (
-        <p className="aw-copy">…</p>
+        <CallbackSkeleton label={t('callback.loading')} />
       ) : null}
     </section>
   );

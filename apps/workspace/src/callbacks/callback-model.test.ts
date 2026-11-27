@@ -28,6 +28,7 @@ test('a chosen time must be at least a minute and at most 30 days ahead', () => 
   const now = new Date(2026, 10, 28, 9, 0);
   assert.deepEqual(slotInstant('2026-11-28', '09:30', now), { at: new Date(2026, 10, 28, 9, 30) });
   assert.deepEqual(slotInstant('2026-11-28', '09:00', now), { problem: 'tooSoon' });
+  assert.deepEqual(slotInstant('2026-11-28', '08:59', now), { problem: 'past' });
   assert.deepEqual(slotInstant('2026-12-29', '09:00', now), { problem: 'tooFar' });
   assert.deepEqual(slotInstant('', '09:00', now), { problem: 'missing' });
   assert.deepEqual(slotInstant('2026-11-28', '9:30', now), { problem: 'missing' });

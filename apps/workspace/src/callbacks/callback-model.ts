@@ -24,7 +24,7 @@ export function suggestedSlot(now: Date): { date: string; time: string } {
   return localParts(at);
 }
 
-export type SlotProblem = 'missing' | 'tooSoon' | 'tooFar';
+export type SlotProblem = 'missing' | 'past' | 'tooSoon' | 'tooFar';
 
 /** the chosen local date and time as an instant, or why it cannot be used */
 export function slotInstant(
@@ -43,6 +43,7 @@ export function slotInstant(
     Number(clock[2]),
   );
   if (!Number.isFinite(at.getTime())) return { problem: 'missing' };
+  if (at.getTime() < now.getTime()) return { problem: 'past' };
   if (at.getTime() < now.getTime() + MIN_LEAD_MS) return { problem: 'tooSoon' };
   if (at.getTime() > now.getTime() + MAX_AHEAD_MS) return { problem: 'tooFar' };
   return { at };
@@ -136,4 +137,16 @@ export function governanceBlockKey(
   if (reasonCode?.startsWith('CONSENT_')) return 'blockedConsent';
   if (reasonCode?.startsWith('IDENTITY_')) return 'blockedIdentity';
   return 'blocked';
+}
+
+/** the catalog key of the message for a time that cannot be used */
+export function slotProblemKey(problem: SlotProblem) {
+  return (
+    {
+      missing: 'callback.timeMissing',
+      past: 'callback.timePast',
+      tooSoon: 'callback.timeTooSoon',
+      tooFar: 'callback.timeTooFar',
+    } as const
+  )[problem];
 }

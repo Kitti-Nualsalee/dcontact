@@ -212,7 +212,8 @@
       "closed": "Closed ({{count}})",
       "closedEmpty": "No work closed in this session yet",
       "closedMeta": "Wrap-up saved · {{time}}",
-      "callbacks": "Callbacks ({{count}})"
+      "callbacksTab": "Callbacks",
+      "callbacksDue": "{{count}} due"
     },
     "main": {
       "label": "Work view",
@@ -244,7 +245,7 @@
         "events": "Events",
         "readiness": "Readiness",
         "case": "Case",
-        "callback": "Callback"
+        "callback": "Callbacks"
       }
     },
     "utility": "Right toolbar",
@@ -688,7 +689,7 @@
     "pickCustomer": "Choose customer",
     "number": "Number to call",
     "numberNone": "The customer has no phone number",
-    "numberNotDialable": "Only internal numbers (4 digits starting with 1) can be dialed for now",
+    "numberNotDialable": "Only the organisation's internal numbers can be dialed for now",
     "date": "Date",
     "time": "Time",
     "timeHelp": "At least 1 minute from now, at most 30 days ahead",
@@ -708,7 +709,7 @@
     "showList": "Open callbacks list",
     "listLabel": "Callbacks",
     "empty": "No callbacks",
-    "emptyHint": "Schedule one from the Callback tab of the work panel",
+    "emptyHint": "Schedule one from the \"Callbacks\" tab of the work panel while handling a customer",
     "loadFailed": "Callbacks could not be loaded. Try again.",
     "retry": "Try again",
     "due": "Due now",
@@ -732,8 +733,8 @@
     "cancelConfirm": "Cancel callback",
     "keep": "Keep it",
     "close": "Close",
-    "cancelledToast": "Callback cancelled",
-    "rescheduledToast": "Callback moved to {{when}}",
+    "cancelledToast": "Callback to {{name}} cancelled",
+    "rescheduledToast": "Callback to {{name}} moved to {{when}}",
     "dialingToast": "Calling. D-Phone rings and answers for you, then the customer is dialed.",
     "deferredToast": "Cannot call now (outside contact hours). Moved to {{when}}.",
     "blockedToast": "Callback cancelled: {{reason}}",
@@ -757,6 +758,13 @@
       "voiceDown": "The phone system is not ready. Try again.",
       "invalidTime": "That time cannot be used. Choose another.",
       "failed": "Could not save. Try again."
-    }
+    },
+    "loading": "Loading callbacks",
+    "timePast": "That time has passed. Choose a time ahead.",
+    "customerHiddenShort": "Customer (hidden)",
+    "rescheduleLabel": "Move the callback to {{name}}",
+    "cancelLabel": "Cancel the callback to {{name}}",
+    "rescheduleTitleFor": "Move the callback to {{name}}",
+    "stale": "The list could not be updated; it may be out of date"
   }
 }

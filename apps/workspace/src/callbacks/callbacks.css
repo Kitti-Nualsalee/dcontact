@@ -75,3 +75,47 @@
   font-weight: var(--dc-weight-semibold);
   font-variant-numeric: tabular-nums;
 }
+
+/* the tab name and its due badge stay on one line so the tab row does not grow when a callback falls due */
+.aw-callback-tab {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+}
+
+/* like the case form: lift the main action above the floating dphone when it overlaps the panel */
+.aw-callback-actions {
+  position: sticky;
+  bottom: var(--aw-dphone-inset, 0px);
+  display: flex;
+  gap: var(--dc-space-3);
+  padding-block: var(--dc-space-4);
+  background: var(--dc-surface-raised);
+}
+
+.aw-callback-stale {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--dc-space-3);
+  margin: 0 0 var(--dc-space-4);
+  padding: var(--dc-space-3) var(--dc-space-4);
+  border-radius: var(--dc-radius-md);
+  background: var(--dc-attention-bg-subtle);
+  color: var(--dc-attention-fg-strong);
+  font-size: var(--dc-text-sm);
+}
+
+.aw-callback-skeleton {
+  display: grid;
+  gap: var(--dc-space-3);
+  padding: var(--dc-space-4) var(--dc-space-5);
+}
+
+.aw-callback-skeleton-row {
+  display: block;
+  block-size: 4.5rem;
+  border-radius: var(--dc-radius-md);
+  background: var(--dc-surface-sunken);
+}
