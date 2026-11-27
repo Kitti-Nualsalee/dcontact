@@ -96,7 +96,9 @@ BEGIN
     'qm_forms', 'qm_form_versions',
     -- #1044: web chat widget, visitor sessions and offers
     'webchat_widgets', 'webchat_widget_audit_events', 'webchat_sessions', 'webchat_offers',
-    'line_channels', 'line_channel_audit_events', 'line_chat_users'
+    'line_channels', 'line_channel_audit_events', 'line_chat_users',
+    -- #1061: agent callback timeline
+    'ob_callback_events'
   ]
   LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
@@ -135,6 +137,7 @@ REVOKE UPDATE, DELETE ON webchat_widget_audit_events FROM dcontact_app;
 REVOKE DELETE ON webchat_widgets, webchat_sessions, webchat_offers FROM dcontact_app;
 REVOKE UPDATE, DELETE ON line_channel_audit_events FROM dcontact_app;
 REVOKE DELETE ON line_channels, line_chat_users FROM dcontact_app;
+REVOKE UPDATE, DELETE ON ob_callback_events FROM dcontact_app;
 -- E1.9 (#483): a lease is released only by UPDATE, never deleted; audit is append-only
 REVOKE DELETE ON agent_work_session_leases FROM dcontact_app;
 REVOKE DELETE ON agent_sip_credentials FROM dcontact_app;

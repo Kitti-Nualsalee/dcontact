@@ -42,6 +42,7 @@
     "voice:demo": "node scripts/inbound-voice-demo.mjs",
     "d1:real-call": "node scripts/d1-real-call-acceptance.mjs",
     "voice:managed-routing:acceptance": "node scripts/managed-routing-acceptance.mjs",
+    "voice:callback:acceptance": "node scripts/callback-acceptance.mjs",
     "voice:ivr:demo": "INBOUND_DEMO_DTMF=2 node scripts/inbound-voice-demo.mjs",
     "voice:acceptance": "node scripts/phase-one-readiness.mjs",
     "voice:v1b:readiness": "node scripts/voice-v1b-readiness.mjs",

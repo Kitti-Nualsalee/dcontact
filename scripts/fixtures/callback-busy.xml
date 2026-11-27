@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<!DOCTYPE scenario SYSTEM "sipp.dtd">
+<scenario name="callback customer is busy">
+  <recv request="INVITE"/>
+  <send><![CDATA[
+SIP/2.0 486 Busy Here
+[last_Via:]
+[last_From:]
+[last_To:];tag=busy-[call_number]
+[last_Call-ID:]
+[last_CSeq:]
+Content-Length: 0
+
+]]></send>
+  <recv request="ACK"/>
+</scenario>

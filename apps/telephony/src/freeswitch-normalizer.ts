@@ -12,6 +12,7 @@ export interface FreeSwitchEvent {
   'DTMF-Digit'?: unknown;
   'Speech-Result'?: unknown;
   'Bridge-A-Unique-ID'?: unknown;
+  'Bridge-B-Unique-ID'?: unknown;
   variable_domain_name?: unknown;
   variable_dcontact_tenant_id?: unknown;
   variable_dcontact_delivery_id?: unknown;

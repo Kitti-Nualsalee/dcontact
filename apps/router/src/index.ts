@@ -8,3 +8,4 @@ export type {
   InboundVoiceRoutingResult,
 } from './inbound-voice-router.js';
 export * from './webchat-routing.js';
+export * from './managed-callback.js';

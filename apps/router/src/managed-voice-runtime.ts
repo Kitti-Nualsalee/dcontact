@@ -19,6 +19,9 @@ interface ManagedCall {
   preanswerDeadline: Date;
   currentOfferId: string | null;
   terminalReason: string | null;
+  /** #1061: CALLBACK = the Agent leg is dialed first and bridged to `destination` once answered */
+  kind: 'INBOUND' | 'CALLBACK';
+  destination: string | null;
 }
 
 interface ManagedOffer {
@@ -87,7 +90,7 @@ export class ManagedVoiceRuntime {
         ManagedCall[]
       >`SELECT i.id AS "interactionId",i.state,i.agent_id AS "agentId",i.queue_id AS "queueId",
         c.call_uuid AS "callUuid",c.telephony_node_id AS "telephonyNodeId",c.first_queue_entered_at AS "firstQueueEnteredAt",
-        c.preanswer_deadline AS "preanswerDeadline",c.current_offer_id AS "currentOfferId",c.terminal_reason AS "terminalReason"
+        c.preanswer_deadline AS "preanswerDeadline",c.current_offer_id AS "currentOfferId",c.terminal_reason AS "terminalReason",c.kind,c.destination
         FROM voice_managed_calls c JOIN interactions i ON i.tenant_id=c.tenant_id AND i.id=c.interaction_id
         WHERE c.tenant_id=${tenantId}::uuid AND c.telephony_node_id=${telephonyNodeId} AND i.state IN ('QUEUED','ASSIGNED')
         ORDER BY c.first_queue_entered_at,i.id FOR UPDATE OF i,c SKIP LOCKED`;
@@ -124,7 +127,7 @@ export class ManagedVoiceRuntime {
       tenantId,
       (transaction) => transaction.$queryRaw<{ payload: ManagedVoiceDirectCommand }[]>`
       SELECT cmd.payload FROM voice_managed_calls c JOIN interactions i ON i.tenant_id=c.tenant_id AND i.id=c.interaction_id
-      JOIN voice_managed_commands cmd ON cmd.tenant_id=c.tenant_id AND cmd.interaction_id=c.interaction_id AND cmd.offer_id=c.current_offer_id AND cmd.command_type='call.bridge'
+      JOIN voice_managed_commands cmd ON cmd.tenant_id=c.tenant_id AND cmd.interaction_id=c.interaction_id AND cmd.offer_id=c.current_offer_id AND cmd.command_type IN ('call.bridge','callback.originate')
       WHERE c.tenant_id=${tenantId}::uuid AND c.telephony_node_id=${nodeId} AND c.call_uuid=${callUuid} AND i.state='ACTIVE' LIMIT 1`,
     );
     if (!snapshot) return;
@@ -134,7 +137,13 @@ export class ManagedVoiceRuntime {
     } catch {
       return;
     }
-    if (actual.callerExists && actual.blegExists) return;
+    // A callback's customer leg exists only once FreeSWITCH dials it after the Agent answers: only the Agent leg counts
+    if (
+      snapshot.payload.type === 'callback.originate'
+        ? actual.blegExists
+        : actual.callerExists && actual.blegExists
+    )
+      return;
     await this.transaction(tenantId, async (transaction) => {
       const call = await this.findCall(transaction, tenantId, callUuid, nodeId);
       if (!call || call.state !== 'ACTIVE' || call.currentOfferId !== snapshot.payload.offerId)
@@ -176,7 +185,7 @@ export class ManagedVoiceRuntime {
       ManagedCall[]
     >`SELECT i.id AS "interactionId",i.state,i.agent_id AS "agentId",i.queue_id AS "queueId",
       c.call_uuid AS "callUuid",c.telephony_node_id AS "telephonyNodeId",c.first_queue_entered_at AS "firstQueueEnteredAt",
-      c.preanswer_deadline AS "preanswerDeadline",c.current_offer_id AS "currentOfferId",c.terminal_reason AS "terminalReason"
+      c.preanswer_deadline AS "preanswerDeadline",c.current_offer_id AS "currentOfferId",c.terminal_reason AS "terminalReason",c.kind,c.destination
       FROM voice_managed_calls c JOIN interactions i ON i.tenant_id=c.tenant_id AND i.id=c.interaction_id
       WHERE c.tenant_id=${tenantId}::uuid AND c.call_uuid=${callUuid} AND c.telephony_node_id=${nodeId} ${lock ? Prisma.sql`FOR UPDATE OF i,c` : Prisma.empty}`;
     return call ?? null;
@@ -244,6 +253,18 @@ export class ManagedVoiceRuntime {
     now: Date,
   ) {
     if (call.state !== 'QUEUED' && call.state !== 'ASSIGNED') return;
+    if (call.kind === 'CALLBACK') {
+      // A callback belongs to the Agent who dialed it: it is never offered to someone else
+      const offer = await this.offer(transaction, tenantId, call.currentOfferId);
+      if (
+        !offer ||
+        offer.outcome !== 'PENDING' ||
+        now >= offer.expiresAt ||
+        now >= call.preanswerDeadline
+      )
+        await this.terminal(transaction, tenantId, call, 'CALLBACK_NOT_ANSWERED', now);
+      return;
+    }
     if (now >= call.preanswerDeadline) {
       await this.terminal(transaction, tenantId, call, 'PREANSWER_DEADLINE_EXCEEDED', now);
       return;
@@ -365,7 +386,9 @@ export class ManagedVoiceRuntime {
       agentId: offer.agentId,
       offerId: offer.id,
     });
-    await this.intent(transaction, event.tenantId, call, offer, 'call.bridge');
+    // A callback is bridged by FreeSWITCH itself (`&bridge` of callback.originate) once the Agent answers
+    if (call.kind !== 'CALLBACK')
+      await this.intent(transaction, event.tenantId, call, offer, 'call.bridge');
   }
 
   private async hangup(
@@ -386,10 +409,14 @@ export class ManagedVoiceRuntime {
       )
         return;
       if (call.state === 'ASSIGNED') {
+        if (call.kind === 'CALLBACK')
+          return this.terminal(transaction, event.tenantId, call, 'CALLBACK_NOT_ANSWERED', now);
         await this.advance(transaction, event.tenantId, call, now);
         return;
       }
     }
+    if (call.kind === 'CALLBACK' && call.state === 'ASSIGNED')
+      return this.terminal(transaction, event.tenantId, call, 'CALLBACK_NOT_ANSWERED', now);
     if (call.state === 'QUEUED' || call.state === 'ASSIGNED')
       return this.terminal(transaction, event.tenantId, call, 'CALLER_CANCELLED', now);
     if (call.state !== 'ACTIVE' || !current) return;
@@ -549,7 +576,7 @@ export class ManagedVoiceRuntime {
             { id: string }[]
           >`SELECT id FROM voice_managed_commands WHERE tenant_id=${tenantId}::uuid AND id=${row.id}::uuid AND status='PENDING'`;
           if (!pending) return;
-          if (row.payload.type === 'offer.create') {
+          if (row.payload.type === 'offer.create' || row.payload.type === 'callback.originate') {
             const [cleanup] = await dispatcher.$queryRaw<
               { id: string }[]
             >`SELECT id FROM voice_managed_commands WHERE tenant_id=${tenantId}::uuid
@@ -567,7 +594,7 @@ export class ManagedVoiceRuntime {
           const offer = await this.offer(dispatcher, tenantId, row.payload.offerId);
           const now = await this.now(dispatcher);
           if (
-            (row.payload.type === 'offer.create' &&
+            ((row.payload.type === 'offer.create' || row.payload.type === 'callback.originate') &&
               (!offer ||
                 offer.outcome !== 'PENDING' ||
                 call.state !== 'ASSIGNED' ||
