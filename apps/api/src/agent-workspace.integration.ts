@@ -276,6 +276,7 @@ test('the Agent snapshot uses the tenant/user from the token and returns the aut
       voiceWrapupPolicy: 'LEGACY',
       version: interactionVersion.id.toString(),
       caller: '0812345678',
+      callback: false,
       queue: { id: queueAId, name: 'Customer service A' },
       offerExpiresAt: '2026-09-06T10:00:20.000Z',
       answeredAt: null,
