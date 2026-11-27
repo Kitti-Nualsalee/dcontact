@@ -133,6 +133,31 @@ export interface MyEvaluationItem {
   publishedAt: string;
 }
 
+export type TranscriptSpeaker = 'AGENT' | 'CONTACT' | 'SYSTEM' | 'IVR';
+
+export interface TranscriptSegment {
+  segmentId: string;
+  speaker: TranscriptSpeaker;
+  startMs: number;
+  endMs: number;
+  text: string;
+}
+
+/** the call transcript beside the evaluation form; text only when status is READY */
+export interface TranscriptView {
+  status: 'READY' | 'PROCESSING' | 'FAILED' | 'NOT_REQUESTED';
+  /** only when FAILED; unknown provider errors arrive as TRANSCRIPTION_ERROR */
+  failureCode: 'RECORDING_NOT_ARCHIVED' | 'RECORDING_DELETED' | 'TRANSCRIPTION_ERROR' | null;
+  transcript: {
+    transcriptId: string;
+    language: string;
+    providerId: string;
+    modelId: string;
+    createdAt: string;
+    segments: TranscriptSegment[];
+  } | null;
+}
+
 export interface FieldError {
   path: string;
   code: string;
@@ -187,6 +212,7 @@ export interface QualityApi {
     interactionId: string,
     input: { commandId: string; revision: number },
   ): Promise<{ interaction: TeamInteraction; evaluation: Evaluation }>;
+  transcript(interactionId: string): Promise<TranscriptView>;
   myEvaluations(cursor?: string): Promise<Page<MyEvaluationItem>>;
   myEvaluation(evaluationId: string): Promise<Evaluation>;
 }
@@ -243,6 +269,7 @@ export function createQualityApi(options: {
       call('PUT', `/interactions/${id(interactionId)}/human-evaluation`, input),
     publishEvaluation: (interactionId, input) =>
       call('POST', `/interactions/${id(interactionId)}/human-evaluation/publish`, input),
+    transcript: (interactionId) => call('GET', `/interactions/${id(interactionId)}/transcript`),
     myEvaluations: (cursor) =>
       call(
         'GET',

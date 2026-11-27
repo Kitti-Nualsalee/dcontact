@@ -105,6 +105,33 @@
       "confirm": "Change form"
     }
   },
+  "transcript": {
+    "title": "Call transcript",
+    "loading": "Loading transcript",
+    "loadFailed": "Couldn't load the transcript. The evaluation form still works.",
+    "source": "Transcribed by {{model}}",
+    "machineNote": "This text comes from automatic transcription and may contain mistakes. Check the recording before scoring anything you're unsure of.",
+    "noSpeech": "No speech was found in this call",
+    "lines_one": "Transcript, {{count}} line",
+    "lines_other": "Transcript, {{count}} lines",
+    "checkAgain": "Check again",
+    "checking": "Checking…",
+    "status": {
+      "NOT_REQUESTED": "This call hasn't been transcribed. Its queue may not have automatic transcription on, or the call has no recording.",
+      "PROCESSING": "Transcribing. The text will appear here when it's ready."
+    },
+    "failed": {
+      "RECORDING_NOT_ARCHIVED": "Couldn't transcribe: this call's recording wasn't stored in time.",
+      "RECORDING_DELETED": "Couldn't transcribe: this call's recording was deleted or couldn't be stored.",
+      "TRANSCRIPTION_ERROR": "Transcription didn't work for this call. You can review it from the recording instead."
+    },
+    "speaker": {
+      "AGENT": "Agent",
+      "CONTACT": "Customer",
+      "SYSTEM": "System",
+      "IVR": "IVR"
+    }
+  },
   "evaluation": {
     "weight": "Weight {{weight}}",
     "sectionScore": "Score {{score}}",

@@ -31,6 +31,7 @@ import { EvaluationForm } from './evaluation-form.js';
 import { cleanAnswers, errorMap, formatScore, scoredQuestions, unanswered } from './model.js';
 import { ScoreSummary } from './score-summary.js';
 import { EditorSkeleton, ListSkeleton } from './skeleton.js';
+import { TranscriptCard } from './transcript-card.js';
 import './quality.css';
 
 interface Props {
@@ -511,6 +512,7 @@ function EvaluationEditor({
       </header>
       <div className="qm-layout">
         <div className="qm-main">
+          <TranscriptCard api={api} interactionId={interactionId} />
           {!evaluation ? (
             forms.length === 0 ? (
               <p className="qm-empty">{t('editor.noForms')}</p>
