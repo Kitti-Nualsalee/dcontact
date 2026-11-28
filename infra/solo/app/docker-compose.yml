@@ -224,6 +224,38 @@ services:
       - '${SOLO_MEDIA_HOST:-media.invalid}:${SOLO_VOICE_IP:?SOLO_VOICE_IP is required}'
     mem_limit: 448m
 
+  journey:
+    <<: *service
+    # #1067 Journey worker: takes interaction.outcome_recorded from dc.interaction.events, matches published journeys and
+    # sends owner commands (ENSURE_CASE to dc.case.commands). Behind the `journey` profile together with `cases`:
+    # add it to COMPOSE_PROFILES in solo.env, with INTERACTION_OUTCOME_EVENTS=on for the API to emit the outcome facts.
+    # How to turn it on/off: docs/solo-uat.md, section Journey
+    profiles: ['journey']
+    image: dcontact-solo/services:${SOLO_IMAGE_TAG}
+    working_dir: /app/journey
+    command: ['node', 'dist/main.js']
+    environment:
+      # NOBYPASSRLS app role: every Journey query runs in a tenant transaction except reading tenants (no RLS)
+      DATABASE_URL: ${APPLICATION_DATABASE_URL:?APPLICATION_DATABASE_URL is required}
+    mem_limit: 384m
+    depends_on:
+      redpanda-init:
+        condition: service_completed_successfully
+
+  cases:
+    <<: *service
+    # #1067 Cases owner worker: consumes ENSURE_CASE from dc.case.commands, writes cs_* and answers on dc.case.events
+    profiles: ['journey']
+    image: dcontact-solo/services:${SOLO_IMAGE_TAG}
+    working_dir: /app/cases
+    command: ['node', 'dist/main.js']
+    environment:
+      DATABASE_URL: ${APPLICATION_DATABASE_URL:?APPLICATION_DATABASE_URL is required}
+    mem_limit: 256m
+    depends_on:
+      redpanda-init:
+        condition: service_completed_successfully
+
   line-simulator:
     <<: *service
     # #1054 LINE simulator (scripts/line-simulator.mjs) until the tenant has a real LINE OA and a public webhook URL

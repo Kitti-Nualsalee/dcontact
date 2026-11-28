@@ -14,6 +14,8 @@
  * run: node scripts/sales-demo-stack.mjs [--reset]   stop with Ctrl-C
  * env: SALES_DEMO_DATABASE (default `dcontact_demo`) uses another database for a trial that must not share data,
  *      DCONTACT_DEV_POSTGRES_PORT (default 5433) when the dev PostgreSQL is published on another host port
+ * Journey (#1067): JOURNEY=on starts the Journey and Cases workers, turns on the outcome events of the API and the
+ *      authoring flags, and seeds the authoring permissions of the demo users (see `seedJourneyTrial`)
  * D-Phone: set SALES_DEMO_DPHONE_EXTENSION_ID to use the Chrome extension instead of the built-in browser phone
  */
 import { spawn, spawnSync } from 'node:child_process';
@@ -93,6 +95,20 @@ const environment = {
     : {}),
   ...(extensionId
     ? { VITE_SOFTPHONE_CONTROL: 'chrome-extension', VITE_D_PHONE_EXTENSION_ID: extensionId }
+    : {}),
+  // #1067 Journey trial: the API emits outcome facts and serves authoring; the workers use their own consumer groups
+  // so they never share offsets with another stack on the same broker
+  ...(process.env.JOURNEY === 'on'
+    ? {
+        INTERACTION_OUTCOME_EVENTS: 'on',
+        J5_CANVAS_WRITE_ENABLED: 'true',
+        J5_PUBLISH_UI_ENABLED: 'true',
+        JOURNEY_CONSUMER_GROUP_ID: 'dcontact-journey-events-sales-demo',
+        JOURNEY_OUTCOME_CONSUMER_GROUP_ID: 'dcontact-journey-outcomes-sales-demo',
+        JOURNEY_OWNER_RESULT_CONSUMER_GROUP_ID: 'dcontact-journey-owner-results-sales-demo',
+        JOURNEY_GOVERNANCE_CONSUMER_GROUP_ID: 'dcontact-journey-cg3-sales-demo',
+        CASES_OWNER_COMMAND_CONSUMER_GROUP_ID: 'dcontact-cases-owner-commands-sales-demo',
+      }
     : {}),
 };
 delete environment.FREESWITCH_AGENT_DIAL_TEMPLATE;
@@ -453,6 +469,53 @@ function seedDemoScope(claims) {
   run('node', ['node_modules/tsx/dist/cli.mjs', '--eval', code], { cwd: resolve('apps/api') });
 }
 
+/**
+ * #1067 Journey trial on this stack only (not acceptance evidence of authorization):
+ * - turns on the authoring rollout of the demo tenant
+ * - the Admin authors and publishes; Agent 1001 is the independent reviewer (maker-checker needs two people)
+ * - the case type and routing references an ENSURE_CASE step points at: both are named `follow-up`
+ * Authoring authorization state is managed outside the application role, so it is written with the owner role here.
+ */
+function seedJourneyTrial(claims) {
+  const tenantId = claims[0].tenantId;
+  const maker = claims.find((claim) => claim.role === 'ADMIN');
+  const reviewer = claims.find((claim) => claim.username === 'agent1001@demo.local');
+  const grants = [
+    ...['journey.read', 'journey.edit', 'journey.publish', 'journey.lifecycle'].map(
+      (capability) => [maker.userId, capability],
+    ),
+    ...['journey.read', 'journey.review'].map((capability) => [reviewer.userId, capability]),
+  ];
+  psql(
+    `BEGIN;
+     INSERT INTO jr_authoring_rollout_state
+       (id, tenant_id, stage, canvas_write_enabled, publish_ui_enabled, updated_by_ref, evidence_ref, updated_at)
+     VALUES (gen_random_uuid(), '${tenantId}', 'INTERNAL_SYNTHETIC', true, true, 'sales-demo-seed', 'sales-demo-seed', now())
+     ON CONFLICT (tenant_id) DO UPDATE SET canvas_write_enabled = true, publish_ui_enabled = true, updated_at = now();
+     INSERT INTO iam_authoring_subjects (id, tenant_id, subject_id, authentication_strength, updated_at)
+     VALUES ${[maker, reviewer]
+       .map((claim) => `(gen_random_uuid(), '${tenantId}', '${claim.userId}', 'STANDARD', now())`)
+       .join(', ')}
+     ON CONFLICT (tenant_id, subject_id) DO NOTHING;
+     INSERT INTO iam_authoring_capability_grants
+       (id, tenant_id, subject_id, capability, scope_kind, scope_id, granted_by_ref)
+     VALUES ${grants
+       .map(
+         ([subjectId, capability]) =>
+           `(gen_random_uuid(), '${tenantId}', '${subjectId}', '${capability}', 'TENANT', '${tenantId}', 'sales-demo-seed')`,
+       )
+       .join(', ')}
+     ON CONFLICT (tenant_id, subject_id, capability, scope_kind, scope_id) DO NOTHING;
+     INSERT INTO cs_case_type_policies (id, tenant_id, policy_ref, case_type_key, reopen_allowed)
+     VALUES (gen_random_uuid(), '${tenantId}', 'follow-up', 'FOLLOW_UP', false)
+     ON CONFLICT (tenant_id, policy_ref) DO NOTHING;
+     INSERT INTO cs_routing_policies (id, tenant_id, policy_ref, queue_ref)
+     VALUES (gen_random_uuid(), '${tenantId}', 'follow-up', 'follow-up')
+     ON CONFLICT (tenant_id, policy_ref) DO NOTHING;
+     COMMIT;`,
+  );
+}
+
 /** Cus360 E1 D: grant CONTACT_CREATE to the Admin through the real operator command (dry-run first) - idempotent */
 async function grantCustomerCreate(admin, claims) {
   const adminClaim = claims.find((claim) => claim.role === 'ADMIN');
@@ -602,6 +665,8 @@ try {
   const created = prepareDatabase(claims);
   seedDemoAccess(claims, organizationId);
   seedDemoScope(claims);
+  const journeyTrial = process.env.JOURNEY === 'on';
+  if (journeyTrial) seedJourneyTrial(claims);
   environment.LINE_WEBHOOK_TENANT_ID = claims[0].tenantId;
   process.stdout.write(
     `# DB ${database} ${created ? 'recreated' : 'kept existing data'} (tenant ${claims[0].tenantId})\n`,
@@ -639,7 +704,19 @@ try {
     process.env.LINE_CHAT === 'on' && !process.env.LINE_API_BASE_URL
       ? start('line-sim', 'node', [resolve('scripts/line-simulator.mjs'), '--port', '8890'])
       : null;
+  // the workers connect with the application role, as on Solo, so RLS applies to them
+  const workerEnv = { env: { ...environment, DATABASE_URL: environment.APPLICATION_DATABASE_URL } };
+  if (journeyTrial) {
+    start('journey', 'pnpm', ['--filter', '@d-contact/journey', 'dev'], workerEnv);
+    start('cases', 'pnpm', ['--filter', '@d-contact/cases', 'dev'], workerEnv);
+  }
   await Promise.all([
+    ...(journeyTrial
+      ? [
+          waitForConsumerGroup(environment.JOURNEY_OUTCOME_CONSUMER_GROUP_ID),
+          waitForConsumerGroup(environment.CASES_OWNER_COMMAND_CONSUMER_GROUP_ID),
+        ]
+      : []),
     ...(lineSimulator
       ? [waitForHttp('http://127.0.0.1:8890/sim/config', 'LINE simulator', lineSimulator)]
       : []),
@@ -667,6 +744,11 @@ try {
       `Console    ${consoleOrigin}/?tenant=demo   (admin@demo.local)`,
       `phone        ${extensionId ? 'D-Phone Chrome extension' : 'the built-in Workspace browser phone'}`,
       ...(lineSimulator ? ['LINE sim   http://127.0.0.1:8890/   (write as a LINE user)'] : []),
+      ...(journeyTrial
+        ? [
+            `Journey    ${consoleOrigin}/?tenant=demo&view=journeys   (admin authors, agent1001 reviews; case refs: follow-up)`,
+          ]
+        : []),
       'stop with Ctrl-C',
       '',
     ].join('\n'),
