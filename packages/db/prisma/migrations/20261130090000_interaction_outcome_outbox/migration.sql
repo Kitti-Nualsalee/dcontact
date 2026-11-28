@@ -39,4 +39,8 @@ DO $$ BEGIN
   END IF;
 END $$;
 
+-- The results page of a journey lists its enrollments newest first
+CREATE INDEX jr_enrollments_tenant_journey_created_idx
+  ON jr_enrollments (tenant_id, journey_id, created_at DESC, id DESC);
+
 COMMIT;

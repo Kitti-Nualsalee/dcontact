@@ -81,7 +81,9 @@ async function setup(t: TestContext) {
   t.after(async () => {
     const where = { tenantId: { in: [tenantId, otherTenantId] } };
     await owner.jrStepRun.deleteMany({ where });
+    await owner.jrOwnerAction.deleteMany({ where });
     await owner.jrEnrollment.deleteMany({ where });
+    await owner.jrOutcomeReceipt.deleteMany({ where });
     await owner.jrScheduleOccurrence.deleteMany({ where });
     await owner.jrAuthoringOutbox.deleteMany({ where });
     await owner.jrAuthoringAudit.deleteMany({ where });
@@ -350,6 +352,136 @@ test('J5-AU02 rollout off or no permission fails closed and other tenants cannot
   await rejects(
     f.repository().getJourneyAuthoringState(f.tenantId, f.context().actor, randomUUID()),
     'JOURNEY_NOT_FOUND',
+  );
+});
+
+test('#1067 journey runs: lists enrollments newest first with trigger outcome and owner actions, under journey.read', async (t) => {
+  const f = await setup(t);
+  const created = await f.repository().createJourneyDraft(f.context(), {
+    ownerTeamId: f.teamId,
+    document: f.document('j2-outcome'),
+  });
+  const other = await f.repository().createJourneyDraft(f.context(), {
+    ownerTeamId: f.teamId,
+    document: f.document('j2-outcome'),
+  });
+  const enrol = async (journeyId: string, at: string, action?: { state: string; ref?: string }) => {
+    const outcomeId = randomUUID();
+    const interactionId = randomUUID();
+    const receipt = await f.owner.jrOutcomeReceipt.create({
+      data: {
+        tenantId: f.tenantId,
+        source: 'INTERACTION',
+        eventId: randomUUID(),
+        outcomeType: 'INTERACTION_DISPOSITION_RECORDED',
+        outcomeId,
+        outcomeVersion: 1,
+        payloadHash: 'a'.repeat(64),
+        payload: { interactionId, outcomeCode: 'FOLLOW_UP_REQUIRED', effectiveAt: at },
+        state: 'APPLIED',
+        correlationId: 'corr',
+      },
+    });
+    const enrollment = await f.owner.jrEnrollment.create({
+      data: {
+        tenantId: f.tenantId,
+        outcomeReceiptId: receipt.id,
+        journeyId,
+        journeyVersion: 1,
+        state: 'AUTHORIZED',
+        runState: 'WAITING',
+        currentStepId: 'ensure-case',
+        createdAt: new Date(at),
+      },
+    });
+    if (action)
+      await f.owner.jrOwnerAction.create({
+        data: {
+          tenantId: f.tenantId,
+          actionKey: `${enrollment.id}:1:ensure-case`,
+          enrollmentId: enrollment.id,
+          stepId: 'ensure-case',
+          stepSequence: 0,
+          kind: 'ENSURE_CASE',
+          requestHash: 'b'.repeat(64),
+          state: action.state as 'PENDING',
+          ...(action.ref ? { ownerAggregateRef: action.ref, acknowledgedAt: new Date(at) } : {}),
+          correlationId: 'corr',
+        },
+      });
+    return { enrollmentId: enrollment.id, interactionId };
+  };
+  const caseId = randomUUID();
+  const first = await enrol(created.journeyId, '2026-11-28T01:00:00.000Z', {
+    state: 'ACKNOWLEDGED',
+    ref: caseId,
+  });
+  const second = await enrol(created.journeyId, '2026-11-28T02:00:00.000Z', { state: 'PENDING' });
+  const third = await enrol(created.journeyId, '2026-11-28T03:00:00.000Z');
+  await enrol(other.journeyId, '2026-11-28T04:00:00.000Z');
+
+  const actor = f.context().actor;
+  const page = await f
+    .repository()
+    .listJourneyRuns(f.tenantId, actor, { journeyId: created.journeyId, limit: 2 });
+  assert.deepEqual(
+    page.items.map((item) => item.enrollmentId),
+    [third.enrollmentId, second.enrollmentId],
+  );
+  assert.deepEqual(page.items[0]!.actions, []);
+  assert.deepEqual(page.items[1]!.actions, [
+    {
+      stepId: 'ensure-case',
+      kind: 'ENSURE_CASE',
+      state: 'PENDING',
+      ownerAggregateId: null,
+      acknowledgedAt: null,
+    },
+  ]);
+  assert.ok(page.nextCursor);
+  const rest = await f.repository().listJourneyRuns(f.tenantId, actor, {
+    journeyId: created.journeyId,
+    limit: 2,
+    cursor: page.nextCursor!,
+  });
+  assert.equal(rest.nextCursor, null);
+  assert.deepEqual(rest.items, [
+    {
+      enrollmentId: first.enrollmentId,
+      journeyVersion: 1,
+      contactId: null,
+      state: 'AUTHORIZED',
+      runState: 'WAITING',
+      terminalReason: null,
+      startedAt: '2026-11-28T01:00:00.000Z',
+      updatedAt: rest.items[0]!.updatedAt,
+      trigger: {
+        outcomeType: 'INTERACTION_DISPOSITION_RECORDED',
+        outcomeCode: 'FOLLOW_UP_REQUIRED',
+        interactionId: first.interactionId,
+      },
+      actions: [
+        {
+          stepId: 'ensure-case',
+          kind: 'ENSURE_CASE',
+          state: 'ACKNOWLEDGED',
+          ownerAggregateId: caseId,
+          acknowledgedAt: '2026-11-28T01:00:00.000Z',
+        },
+      ],
+    },
+  ]);
+
+  const input = { journeyId: created.journeyId };
+  // a viewer without journey.read gets the same not-found as a journey that does not exist
+  await rejects(
+    f.repository({ authorization: deny }).listJourneyRuns(f.tenantId, actor, input),
+    'JOURNEY_NOT_FOUND',
+  );
+  await rejects(f.repository().listJourneyRuns(f.otherTenantId, actor, input), 'JOURNEY_NOT_FOUND');
+  await rejects(
+    f.repository().listJourneyRuns(f.tenantId, actor, { ...input, cursor: 'bm90LWEtY3Vyc29y' }),
+    'REQUEST_MALFORMED',
   );
 });
 

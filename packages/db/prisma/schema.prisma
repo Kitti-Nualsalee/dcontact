@@ -2603,6 +2603,7 @@ model JrEnrollment {
   @@index([tenantId, contactId, state])
   @@index([tenantId, runState, waitUntil], map: "jr_enrollments_tenant_run_state_wait_until_idx")
   @@index([tenantId, runState, maxAgeAt], map: "jr_enrollments_tenant_run_state_max_age_idx")
+  @@index([tenantId, journeyId, createdAt(sort: Desc), id(sort: Desc)], map: "jr_enrollments_tenant_journey_created_idx")
   @@map("jr_enrollments")
 }
 
