@@ -58,6 +58,10 @@ import { createWorkspaceSessionHandler } from './workspace-session-api.js';
 import { WorkSessionLeases } from './work-session.js';
 import { startBackgroundLoop } from './background-loop.js';
 import { startC360SegmentWorker } from './customer-360-segment-worker.js';
+import {
+  resolveInteractionOutcomeEvents,
+  startInteractionOutcomeWorker,
+} from './interaction-outcome-outbox.js';
 import { EmbedOriginService } from './embed-origins.js';
 import { AccountPolicyService } from './account-policy.js';
 import { ACCOUNT_SELF_SERVICE, AccountController } from './account-api.js';
@@ -178,6 +182,7 @@ import {
   AGENT_WORKSPACE_CUSTOMER_AVAILABLE,
   AGENT_WORKSPACE_WEBCHAT,
   AGENT_WORKSPACE_CALLBACKS,
+  AGENT_WORKSPACE_OUTCOME_EVENTS,
 } from './agent-workspace-api.js';
 import { AgentCasesController, AGENT_CASES_DATABASE } from './agent-cases-api.js';
 import {
@@ -722,6 +727,10 @@ class WorkspaceSessionController {
     { provide: AGENT_CALLBACKS_GOVERNANCE, useValue: contactGovernance },
     { provide: AGENT_WORKSPACE_WEBCHAT, useValue: chatChannels },
     { provide: AGENT_WORKSPACE_CALLBACKS, useValue: agentCallbacksEnabled },
+    {
+      provide: AGENT_WORKSPACE_OUTCOME_EVENTS,
+      useValue: resolveInteractionOutcomeEvents(process.env),
+    },
     { provide: TEAM_HISTORY_WEBCHAT, useValue: chatChannels },
     { provide: LINE_CHAT_SERVICE, useValue: lineChat },
     {
@@ -810,6 +819,8 @@ async function bootstrap(): Promise<void> {
   });
   // #911: system segments → IAM projection; starts without blocking the API and can fail on its own while the API keeps working
   startC360SegmentWorker({ database: prisma });
+  // #1067: outcome facts for Journey; off unless INTERACTION_OUTCOME_EVENTS=on
+  startInteractionOutcomeWorker({ database: prisma });
   await app.listen(Number(process.env.PORT ?? 3000));
 }
 

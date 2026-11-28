@@ -30,7 +30,8 @@ export type InteractionOutcomeType = (typeof INTERACTION_OUTCOME_TYPES)[number];
 
 export const INTERACTION_OUTCOME_CODES = {
   INTERACTION_ABANDONED: ['ABANDONED'],
-  INTERACTION_DISPOSITION_RECORDED: ['CALLBACK_REQUESTED'],
+  // #1067: the wrap-up dispositions an Agent can record (agent-wrapup-v1) are canonical outcome codes
+  INTERACTION_DISPOSITION_RECORDED: ['CALLBACK_REQUESTED', 'CUSTOMER_ASSISTED', 'FOLLOW_UP_REQUIRED'],
   FEEDBACK_DETRACTOR_RECORDED: ['DETRACTOR'],
 } as const;
 
