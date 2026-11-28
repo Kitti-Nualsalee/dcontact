@@ -353,10 +353,10 @@ test('People directory HTTP/RLS: pagination/detail and positive tenant authority
           ),
           [target.userId],
         );
-        assert.deepEqual(await readPage(await search({ q: '104', role: 'ADMIN' })), {
-          items: [],
-          nextCursor: null,
-        });
+        // the role filter excludes the Supervisor with extension 104; an Admin fixture may still match because
+        // its email is a random UUID that can contain "104"
+        const admins = await readPage(await search({ q: '104', role: 'ADMIN' }));
+        assert.ok(admins.items.every((item) => item.id !== target.userId));
         // the LIKE wildcard is interpreted as an ordinary character
         assert.deepEqual(await readPage(await search({ q: '%' })), { items: [], nextCursor: null });
         assert.deepEqual(await readPage(await search({ q: '_' })), { items: [], nextCursor: null });
