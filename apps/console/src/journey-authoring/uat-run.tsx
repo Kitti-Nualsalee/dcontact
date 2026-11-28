@@ -22,7 +22,17 @@ import {
   type ReactNode,
 } from 'react';
 import { useLocale, useTranslation } from '@d-contact/i18n/react';
-import { Badge, Button } from '@d-contact/ui-react';
+import {
+  Badge,
+  Button,
+  Cell,
+  Column,
+  Row,
+  Select,
+  Table,
+  TableBody,
+  TableHeader,
+} from '@d-contact/ui-react';
 import { appI18n } from '../i18n/index.js';
 import { JourneyAuthoringApiError } from './api.js';
 import { errorMessage, journeyText } from './model.js';
@@ -230,7 +240,7 @@ function RecordStepForm({
   onFailure: (failure: UatFailure | null) => void;
 }) {
   const { t } = useTranslation('journeys');
-  const ids = { step: useId(), actual: useId(), severity: useId(), correlation: useId() };
+  const ids = { step: useId(), actual: useId(), correlation: useId() };
   const outcomeName = useId();
   const [stepId, setStepId] = useState(run.steps[0]?.stepId ?? '');
   const [outcome, setOutcome] = useState<UatOutcome>('PASS');
@@ -291,16 +301,18 @@ function RecordStepForm({
       }}
     >
       <h3 id={`${ids.step}-heading`}>{t('uat.recordHeading')}</h3>
-      <div className="j5-field">
-        <label htmlFor={ids.step}>{t('uat.stepLabel')}</label>
-        <select id={ids.step} value={stepId} onChange={(event) => setStepId(event.target.value)}>
-          {run.steps.map((entry) => (
-            <option key={entry.stepId} value={entry.stepId}>
-              {entry.stepId} · {entry.title}
-            </option>
-          ))}
-        </select>
-      </div>
+      <Select
+        className="j5-field"
+        label={t('uat.stepLabel')}
+        options={run.steps.map((entry) => ({
+          id: entry.stepId,
+          label: `${entry.stepId} · ${entry.title}`,
+        }))}
+        selectedKey={stepId || null}
+        onSelectionChange={(key) => {
+          if (key !== null) setStepId(String(key));
+        }}
+      />
       {step ? (
         <dl className="j5-facts">
           <div>
@@ -329,23 +341,18 @@ function RecordStepForm({
         ))}
       </fieldset>
       {outcome === 'FAIL' ? (
-        <div className="j5-field">
-          <label htmlFor={ids.severity}>{t('uat.severityLabel')}</label>
-          <select
-            id={ids.severity}
-            value={severity}
-            required
-            aria-required="true"
-            onChange={(event) => setSeverity(event.target.value as UatSeverity | '')}
-          >
-            <option value="">{t('uat.severityChoose')}</option>
-            {UAT_SEVERITIES.map((choice) => (
-              <option key={choice} value={choice}>
-                {t(`uat.severity.${choice}`)}
-              </option>
-            ))}
-          </select>
-        </div>
+        <Select
+          className="j5-field"
+          label={t('uat.severityLabel')}
+          placeholder={t('uat.severityChoose')}
+          isRequired
+          options={UAT_SEVERITIES.map((choice) => ({
+            id: choice,
+            label: t(`uat.severity.${choice}`),
+          }))}
+          selectedKey={severity || null}
+          onSelectionChange={(key) => setSeverity(key === null ? '' : (key as UatSeverity))}
+        />
       ) : null}
       <div className="j5-field">
         <label htmlFor={ids.actual}>{t('uat.actualLabel')}</label>
@@ -396,7 +403,7 @@ function EvidenceSection({
 }) {
   const { t } = useTranslation('journeys');
   const { formatters } = useLocale();
-  const ids = { heading: useId(), step: useId(), file: useId() };
+  const ids = { heading: useId(), file: useId() };
   const [items, setItems] = useState<UatEvidenceView[] | null>(null);
   const [stepId, setStepId] = useState(run.steps[0]?.stepId ?? '');
   const [file, setFile] = useState<File | null>(null);
@@ -481,20 +488,18 @@ function EvidenceSection({
             void upload();
           }}
         >
-          <div className="j5-field">
-            <label htmlFor={ids.step}>{t('uat.evidence.stepLabel')}</label>
-            <select
-              id={ids.step}
-              value={stepId}
-              onChange={(event) => setStepId(event.target.value)}
-            >
-              {run.steps.map((entry) => (
-                <option key={entry.stepId} value={entry.stepId}>
-                  {entry.stepId} · {entry.title}
-                </option>
-              ))}
-            </select>
-          </div>
+          <Select
+            className="j5-field"
+            label={t('uat.evidence.stepLabel')}
+            options={run.steps.map((entry) => ({
+              id: entry.stepId,
+              label: `${entry.stepId} · ${entry.title}`,
+            }))}
+            selectedKey={stepId || null}
+            onSelectionChange={(key) => {
+              if (key !== null) setStepId(String(key));
+            }}
+          />
           <div className="j5-field">
             <label htmlFor={ids.file}>{t('uat.evidence.fileLabel')}</label>
             <input
@@ -518,37 +523,36 @@ function EvidenceSection({
         <p>{t('uat.evidence.none')}</p>
       ) : (
         <div className="j5-table-scroll">
-          <table className="j5-table">
-            <caption className="j5-sr">{t('uat.evidence.caption')}</caption>
-            <thead>
-              <tr>
-                <th scope="col">{t('uat.col.step')}</th>
-                <th scope="col">{t('uat.evidence.col.digest')}</th>
-                <th scope="col">{t('uat.evidence.col.size')}</th>
-                <th scope="col">{t('uat.evidence.col.type')}</th>
-                <th scope="col">{t('uat.col.recordedAt')}</th>
-              </tr>
-            </thead>
-            <tbody>
+          <Table aria-label={t('uat.evidence.caption')} className="j5-table">
+            <TableHeader>
+              <Column isRowHeader>{t('uat.col.step')}</Column>
+              <Column>{t('uat.evidence.col.digest')}</Column>
+              <Column>{t('uat.evidence.col.size')}</Column>
+              <Column>{t('uat.evidence.col.type')}</Column>
+              <Column>{t('uat.col.recordedAt')}</Column>
+            </TableHeader>
+            <TableBody>
               {items.map((item) => (
-                <tr key={item.evidenceId}>
-                  <td>
+                <Row key={item.evidenceId} id={item.evidenceId}>
+                  <Cell>
                     <code>{item.stepId}</code>
-                  </td>
-                  <td>
+                  </Cell>
+                  <Cell>
                     <code title={item.sha256}>{short(item.sha256, 12)}</code>
-                  </td>
-                  <td>{t('uat.evidence.sizeValue', { kb: Math.ceil(item.sizeBytes / 1024) })}</td>
-                  <td>{item.contentType}</td>
-                  <td>
+                  </Cell>
+                  <Cell>
+                    {t('uat.evidence.sizeValue', { kb: Math.ceil(item.sizeBytes / 1024) })}
+                  </Cell>
+                  <Cell>{item.contentType}</Cell>
+                  <Cell>
                     <time dateTime={item.recordedAt}>
                       {serverTime(formatters, item.recordedAt)}
                     </time>
-                  </td>
-                </tr>
+                  </Cell>
+                </Row>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       )}
       <div className="j5-button-row">
@@ -735,25 +739,25 @@ export function UatRunPanel({
             <p>{t('uat.noResults')}</p>
           ) : (
             <div className="j5-table-scroll">
-              <table className="j5-table">
-                <caption className="j5-sr">{t('uat.resultsCaption')}</caption>
-                <thead>
-                  <tr>
-                    <th scope="col">{t('uat.col.step')}</th>
-                    <th scope="col">{t('uat.col.outcome')}</th>
-                    <th scope="col">{t('uat.col.severity')}</th>
-                    <th scope="col">{t('uat.col.actual')}</th>
-                    <th scope="col">{t('uat.col.stateLabel')}</th>
-                    <th scope="col">{t('uat.col.recordedAt')}</th>
-                  </tr>
-                </thead>
-                <tbody>
+              <Table aria-label={t('uat.resultsCaption')} className="j5-table">
+                <TableHeader>
+                  <Column isRowHeader>{t('uat.col.step')}</Column>
+                  <Column>{t('uat.col.outcome')}</Column>
+                  <Column>{t('uat.col.severity')}</Column>
+                  <Column>{t('uat.col.actual')}</Column>
+                  <Column>{t('uat.col.stateLabel')}</Column>
+                  <Column>{t('uat.col.recordedAt')}</Column>
+                </TableHeader>
+                <TableBody>
                   {run.stepResults.map((result, index) => (
-                    <tr key={`${result.stepId}-${result.recordedAt}-${index}`}>
-                      <td>
+                    <Row
+                      key={`${result.stepId}-${result.recordedAt}-${index}`}
+                      id={`${result.stepId}-${result.recordedAt}-${index}`}
+                    >
+                      <Cell>
                         <code>{result.stepId}</code>
-                      </td>
-                      <td>
+                      </Cell>
+                      <Cell>
                         <Badge
                           tone={
                             result.outcome === 'PASS'
@@ -765,19 +769,19 @@ export function UatRunPanel({
                         >
                           {t(`uat.outcome.${result.outcome}`)}
                         </Badge>
-                      </td>
-                      <td>{result.severity ?? t('common.none')}</td>
-                      <td>{result.actual}</td>
-                      <td>{t(`uat.stateLabel.${result.stateLabel}`)}</td>
-                      <td>
+                      </Cell>
+                      <Cell>{result.severity ?? t('common.none')}</Cell>
+                      <Cell>{result.actual}</Cell>
+                      <Cell>{t(`uat.stateLabel.${result.stateLabel}`)}</Cell>
+                      <Cell>
                         <time dateTime={result.recordedAt}>
                           {serverTime(formatters, result.recordedAt)}
                         </time>
-                      </td>
-                    </tr>
+                      </Cell>
+                    </Row>
                   ))}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             </div>
           )}
         </>

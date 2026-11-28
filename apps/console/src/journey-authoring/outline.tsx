@@ -2,10 +2,10 @@
  * J5.6 (#344): semantic outline — every authoring operation (add/connect/disconnect/reorder/delete) can also be done here
  * with ordinary controls without dragging, and sends the same commands as the canvas
  */
-import { useId, useState } from 'react';
+import { useState } from 'react';
 import type { AuthoringDocumentV1, JourneyPortId } from '@d-contact/cxa-contracts';
 import { useTranslation } from '@d-contact/i18n/react';
-import { Button } from '@d-contact/ui-react';
+import { Button, Select } from '@d-contact/ui-react';
 import { nodeDomId } from './canvas.js';
 import {
   NODE_LABELS,
@@ -21,6 +21,9 @@ import {
   type StepNodeType,
 } from './model.js';
 
+/** option id for an unconnected port — node ids are generated, so this never clashes with one */
+const NOT_CONNECTED = '__not-connected__';
+
 function AddStep({
   label,
   after,
@@ -31,22 +34,20 @@ function AddStep({
   onCommand: (command: AuthoringCommand) => void;
 }) {
   const { t } = useTranslation('journeys');
-  const selectId = useId();
   const [type, setType] = useState<StepNodeType>('SEND');
   return (
     <div className="j5-add-step">
-      <label htmlFor={selectId}>{label}</label>
-      <select
-        id={selectId}
-        value={type}
-        onChange={(event) => setType(event.target.value as StepNodeType)}
-      >
-        {STEP_NODE_TYPES.map((nodeType) => (
-          <option key={nodeType} value={nodeType}>
-            {NODE_LABELS[nodeType]}
-          </option>
-        ))}
-      </select>
+      <Select
+        label={label}
+        options={STEP_NODE_TYPES.map((nodeType) => ({
+          id: nodeType,
+          label: NODE_LABELS[nodeType],
+        }))}
+        selectedKey={type}
+        onSelectionChange={(key) => {
+          if (key !== null) setType(key as StepNodeType);
+        }}
+      />
       <Button
         size="sm"
         onPress={() =>
@@ -119,43 +120,42 @@ export function Outline({
                 const selectId = `${nodeDomId('outline', nodeId)}-${portId}`;
                 return (
                   <div key={portId} className="j5-port-row">
-                    <label htmlFor={selectId}>
-                      {t('outline.portTarget', {
+                    <Select
+                      id={selectId}
+                      label={t('outline.portTarget', {
                         port: PORT_LABELS[portId],
                         node: nodeTitle(document, nodeId),
                       })}
-                    </label>
-                    <select
-                      id={selectId}
-                      value={target}
-                      disabled={!editable}
-                      onChange={(event) =>
+                      isDisabled={!editable}
+                      options={[
+                        { id: NOT_CONNECTED, label: t('outline.notConnected') },
+                        ...order
+                          .filter(
+                            (candidate) =>
+                              candidate !== nodeId &&
+                              candidate !== document.trigger.nodeId &&
+                              nodeTypeOf(document, candidate) !== 'UNSUPPORTED',
+                          )
+                          .map((candidate) => ({
+                            id: candidate,
+                            label: nodeTitle(document, candidate),
+                          })),
+                      ]}
+                      selectedKey={target || NOT_CONNECTED}
+                      onSelectionChange={(key) => {
+                        if (key === null || key === (target || NOT_CONNECTED)) return;
                         onCommand(
-                          event.target.value
-                            ? {
+                          key === NOT_CONNECTED
+                            ? { kind: 'DISCONNECT', nodeId, portId }
+                            : {
                                 kind: 'CONNECT',
                                 edgeId: newId('edge'),
                                 source: { nodeId, portId },
-                                targetNodeId: event.target.value,
-                              }
-                            : { kind: 'DISCONNECT', nodeId, portId },
-                        )
-                      }
-                    >
-                      <option value="">{t('outline.notConnected')}</option>
-                      {order
-                        .filter(
-                          (candidate) =>
-                            candidate !== nodeId &&
-                            candidate !== document.trigger.nodeId &&
-                            nodeTypeOf(document, candidate) !== 'UNSUPPORTED',
-                        )
-                        .map((candidate) => (
-                          <option key={candidate} value={candidate}>
-                            {nodeTitle(document, candidate)}
-                          </option>
-                        ))}
-                    </select>
+                                targetNodeId: String(key),
+                              },
+                        );
+                      }}
+                    />
                     {editable ? (
                       <AddStep
                         label={t('outline.insertAfter', { port: PORT_LABELS[portId] })}

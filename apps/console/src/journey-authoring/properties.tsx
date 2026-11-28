@@ -7,6 +7,7 @@
 import { useEffect, useId, useState } from 'react';
 import type { AuthoringDocumentV1 } from '@d-contact/cxa-contracts';
 import { useTranslation } from '@d-contact/i18n/react';
+import { Select } from '@d-contact/ui-react';
 import {
   CONFIG_FIELDS,
   NODE_LABELS,
@@ -106,24 +107,22 @@ function ConfigField({
   onChange: (value: unknown) => void;
 }) {
   const { t } = useTranslation('journeys');
-  const selectId = useId();
   if (spec.kind === 'select' || spec.kind === 'fixed') {
     return (
-      <div className="j5-field">
-        <label htmlFor={selectId}>{spec.label}</label>
-        <select
-          id={selectId}
-          value={String(value ?? '')}
-          disabled={readOnly || spec.kind === 'fixed'}
-          onChange={(event) => onChange(event.target.value)}
-        >
-          {(spec.options ?? []).map((option) => (
-            <option key={option} value={option}>
-              {option}
-            </option>
-          ))}
-        </select>
-      </div>
+      <Select
+        className="j5-field"
+        label={spec.label}
+        isDisabled={readOnly || spec.kind === 'fixed'}
+        options={(spec.options ?? []).map((option) => ({
+          id: option,
+          // the code stays the fallback so an option without a catalog entry is still shown
+          label: t(`option.${spec.key}.${option}`, { defaultValue: option }),
+        }))}
+        selectedKey={value === undefined || value === null || value === '' ? null : String(value)}
+        onSelectionChange={(key) => {
+          if (key !== null) onChange(String(key));
+        }}
+      />
     );
   }
   if (spec.kind === 'expression') {

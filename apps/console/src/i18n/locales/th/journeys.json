@@ -502,5 +502,24 @@
     "INTERACTION_ABANDONED": "สายที่ลูกค้าวางก่อนรับ",
     "INTERACTION_DISPOSITION_RECORDED": "ผลที่ Agent บันทึก",
     "FEEDBACK_DETRACTOR_RECORDED": "ความเห็นไม่พอใจจากลูกค้า"
+  },
+  "option": {
+    "channel": {
+      "VOICE": "โทรศัพท์",
+      "WEBCHAT": "Web Chat",
+      "LINE": "LINE",
+      "FACEBOOK": "Facebook",
+      "WHATSAPP": "WhatsApp",
+      "EMAIL": "อีเมล"
+    },
+    "coalescingPolicy": {
+      "PER_LOGICAL_OUTCOME": "หนึ่งครั้งต่อผลการติดต่อ",
+      "PER_SEGMENT_ENTRY": "หนึ่งครั้งต่อการเข้า segment"
+    },
+    "outcomeType": {
+      "INTERACTION_ABANDONED": "สายที่ลูกค้าวางก่อนรับ",
+      "INTERACTION_DISPOSITION_RECORDED": "ผลที่ Agent บันทึก",
+      "FEEDBACK_DETRACTOR_RECORDED": "ความเห็นไม่พอใจจากลูกค้า"
+    }
   }
 }

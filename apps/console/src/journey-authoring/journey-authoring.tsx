@@ -13,7 +13,17 @@
  */
 import { useCallback, useEffect, useId, useReducer, useRef, useState } from 'react';
 import { useLocale, useTranslation } from '@d-contact/i18n/react';
-import { Button, useInShell } from '@d-contact/ui-react';
+import {
+  Button,
+  Cell,
+  Column,
+  Row,
+  Select,
+  Table,
+  TableBody,
+  TableHeader,
+  useInShell,
+} from '@d-contact/ui-react';
 import { useShellTokens } from '../shell/tokens.js';
 import {
   JourneyAuthoringApiError,
@@ -512,10 +522,6 @@ function JourneyEditor({
             onChanged={refresh}
           />
         </section>
-        {head.activeVersion !== null ? (
-          <RunResults api={api} journeyId={state.snapshot.head.journeyId} />
-        ) : null}
-        <AuditTimeline api={api} journeyId={state.snapshot.head.journeyId} />
         <TemplateUpgrade
           api={api}
           snapshot={state.snapshot}
@@ -523,6 +529,11 @@ function JourneyEditor({
           readOnly={!editable}
           onChanged={refresh}
         />
+        {/* audit and results take full rows, so they come last and leave no lone panel in a row */}
+        <AuditTimeline api={api} journeyId={state.snapshot.head.journeyId} />
+        {head.activeVersion !== null ? (
+          <RunResults api={api} journeyId={state.snapshot.head.journeyId} />
+        ) : null}
       </div>
       {discarding ? (
         <Dialog
@@ -551,8 +562,6 @@ function BlankJourneyForm({
   const ids = {
     name: useId(),
     team: useId(),
-    triggerKind: useId(),
-    outcomeType: useId(),
     outcomeCode: useId(),
     event: useId(),
     sender: useId(),
@@ -622,33 +631,32 @@ function BlankJourneyForm({
       >
         {field('name', t('blank.name'))}
         {field('team', t('blank.team'))}
-        <div className="j5-field">
-          <label htmlFor={ids.triggerKind}>{t('blank.triggerKind')}</label>
-          <select
-            id={ids.triggerKind}
-            value={triggerKind}
-            onChange={(event) => setTriggerKind(event.target.value as BlankTrigger['kind'])}
-          >
-            <option value="EVENT">{t('node.EVENT_TRIGGER')}</option>
-            <option value="INTERACTION_OUTCOME">{t('node.INTERACTION_OUTCOME_TRIGGER')}</option>
-          </select>
-        </div>
+        <Select
+          className="j5-field"
+          label={t('blank.triggerKind')}
+          options={[
+            { id: 'EVENT', label: t('node.EVENT_TRIGGER') },
+            { id: 'INTERACTION_OUTCOME', label: t('node.INTERACTION_OUTCOME_TRIGGER') },
+          ]}
+          selectedKey={triggerKind}
+          onSelectionChange={(key) => {
+            if (key !== null) setTriggerKind(key as BlankTrigger['kind']);
+          }}
+        />
         {triggerKind === 'INTERACTION_OUTCOME' ? (
           <>
-            <div className="j5-field">
-              <label htmlFor={ids.outcomeType}>{t('field.outcomeType')}</label>
-              <select
-                id={ids.outcomeType}
-                value={outcomeType}
-                onChange={(event) => setOutcomeType(event.target.value)}
-              >
-                {INTERACTION_OUTCOME_TYPES.map((type) => (
-                  <option key={type} value={type}>
-                    {t(`outcomeType.${type}`, { defaultValue: type })}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <Select
+              className="j5-field"
+              label={t('field.outcomeType')}
+              options={INTERACTION_OUTCOME_TYPES.map((type) => ({
+                id: type,
+                label: t(`outcomeType.${type}`, { defaultValue: type }),
+              }))}
+              selectedKey={outcomeType}
+              onSelectionChange={(key) => {
+                if (key !== null) setOutcomeType(String(key));
+              }}
+            />
             <div className="j5-field">
               <label htmlFor={ids.outcomeCode}>{t('field.outcomeCode')}</label>
               <input
@@ -720,41 +728,38 @@ function PendingReviewList({
       {items?.length === 0 ? <p>{t('pending.empty')}</p> : null}
       {items && items.length > 0 ? (
         <div className="j5-table-scroll">
-          <table className="j5-table">
-            <caption className="j5-sr">{t('pending.caption')}</caption>
-            <thead>
-              <tr>
-                <th scope="col">{t('pending.col.journey')}</th>
-                <th scope="col">{t('pending.col.draft')}</th>
-                <th scope="col">{t('pending.col.compileDigest')}</th>
-                <th scope="col">{t('pending.col.submittedAt')}</th>
-              </tr>
-            </thead>
-            <tbody>
+          <Table aria-label={t('pending.caption')} className="j5-table">
+            <TableHeader>
+              <Column isRowHeader>{t('pending.col.journey')}</Column>
+              <Column>{t('pending.col.draft')}</Column>
+              <Column>{t('pending.col.compileDigest')}</Column>
+              <Column>{t('pending.col.submittedAt')}</Column>
+            </TableHeader>
+            <TableBody>
               {items.map((item) => (
-                <tr key={item.reviewId}>
-                  <td>
-                    <button
-                      type="button"
+                <Row key={item.reviewId} id={item.reviewId}>
+                  <Cell>
+                    <Button
+                      variant="ghost"
                       className="j5-link"
-                      onClick={() => onOpen(item.journeyId)}
+                      onPress={() => onOpen(item.journeyId)}
                     >
                       {item.journeyName}
-                    </button>
-                  </td>
-                  <td>{t('common.revision', { revision: item.draftRevision })}</td>
-                  <td>
+                    </Button>
+                  </Cell>
+                  <Cell>{t('common.revision', { revision: item.draftRevision })}</Cell>
+                  <Cell>
                     <code>{shortDigest(item.compileDigest)}</code>
-                  </td>
-                  <td>
+                  </Cell>
+                  <Cell>
                     <time dateTime={item.submittedAt}>
                       {serverTime(formatters, item.submittedAt)}
                     </time>
-                  </td>
-                </tr>
+                  </Cell>
+                </Row>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       ) : null}
       {cursor ? <Button onPress={() => void load(cursor)}>{t('common.loadMore')}</Button> : null}
@@ -832,40 +837,38 @@ function JourneyList({
             {items?.length === 0 ? <p>{t('list.empty')}</p> : null}
             {items && items.length > 0 ? (
               <div className="j5-table-scroll">
-                <table className="j5-table">
-                  <thead>
-                    <tr>
-                      <th scope="col">{t('list.col.name')}</th>
-                      <th scope="col">{t('list.col.status')}</th>
-                      <th scope="col">{t('list.col.review')}</th>
-                      <th scope="col">{t('list.col.activeVersion')}</th>
-                      <th scope="col">{t('list.col.draft')}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
+                <Table aria-label={t('list.headingAll')} className="j5-table">
+                  <TableHeader>
+                    <Column isRowHeader>{t('list.col.name')}</Column>
+                    <Column>{t('list.col.status')}</Column>
+                    <Column>{t('list.col.review')}</Column>
+                    <Column>{t('list.col.activeVersion')}</Column>
+                    <Column>{t('list.col.draft')}</Column>
+                  </TableHeader>
+                  <TableBody>
                     {items.map((item) => (
-                      <tr key={item.journeyId}>
-                        <td>
-                          <button
-                            type="button"
+                      <Row key={item.journeyId} id={item.journeyId}>
+                        <Cell>
+                          <Button
+                            variant="ghost"
                             className="j5-link"
-                            onClick={() => onOpen(item.journeyId)}
+                            onPress={() => onOpen(item.journeyId)}
                           >
                             {item.name}
-                          </button>
-                        </td>
-                        <td>{item.lifecycle}</td>
-                        <td>
+                          </Button>
+                        </Cell>
+                        <Cell>{item.lifecycle}</Cell>
+                        <Cell>
                           {item.reviewState
                             ? t(`list.reviewState.${item.reviewState}`)
                             : t('common.none')}
-                        </td>
-                        <td>{item.activeVersion ?? t('common.none')}</td>
-                        <td>{t('common.revision', { revision: item.currentDraftRevision })}</td>
-                      </tr>
+                        </Cell>
+                        <Cell>{item.activeVersion ?? t('common.none')}</Cell>
+                        <Cell>{t('common.revision', { revision: item.currentDraftRevision })}</Cell>
+                      </Row>
                     ))}
-                  </tbody>
-                </table>
+                  </TableBody>
+                </Table>
               </div>
             ) : null}
             {cursor ? (
@@ -906,7 +909,7 @@ function AuditTimeline({ api, journeyId }: { api: JourneyAuthoringApi; journeyId
     }
   };
   return (
-    <section className="j5-panel" aria-labelledby="j5-audit-heading">
+    <section className="j5-panel j5-panel-wide" aria-labelledby="j5-audit-heading">
       <h2 id="j5-audit-heading">{t('audit.heading')}</h2>
       <Button isDisabled={busy} onPress={() => void load()}>
         {items === null ? t('audit.show') : t('audit.reload')}

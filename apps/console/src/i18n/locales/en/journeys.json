@@ -509,5 +509,24 @@
     "INTERACTION_ABANDONED": "Abandoned before answer",
     "INTERACTION_DISPOSITION_RECORDED": "Outcome recorded by the agent",
     "FEEDBACK_DETRACTOR_RECORDED": "Detractor feedback"
+  },
+  "option": {
+    "channel": {
+      "VOICE": "Voice",
+      "WEBCHAT": "Web Chat",
+      "LINE": "LINE",
+      "FACEBOOK": "Facebook",
+      "WHATSAPP": "WhatsApp",
+      "EMAIL": "Email"
+    },
+    "coalescingPolicy": {
+      "PER_LOGICAL_OUTCOME": "Once per outcome",
+      "PER_SEGMENT_ENTRY": "Once per segment entry"
+    },
+    "outcomeType": {
+      "INTERACTION_ABANDONED": "Abandoned before answer",
+      "INTERACTION_DISPOSITION_RECORDED": "Outcome recorded by the agent",
+      "FEEDBACK_DETRACTOR_RECORDED": "Detractor feedback"
+    }
   }
 }

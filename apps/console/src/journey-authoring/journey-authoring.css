@@ -324,7 +324,7 @@
 }
 
 /* ── forms ── */
-.j5-root :where(select, input:not([type='radio'], [type='checkbox']), textarea) {
+.j5-root :where(input:not([type='radio'], [type='checkbox']), textarea) {
   min-height: var(--dc-control-md);
   padding: var(--dc-space-3) var(--dc-space-4);
   border: 1px solid var(--dc-border-default);
@@ -334,7 +334,7 @@
   font: inherit;
 }
 
-.j5-root :where(select, input, textarea):hover {
+.j5-root :where(input, textarea):hover {
   border-color: var(--dc-border-strong);
 }
 
@@ -347,13 +347,13 @@
   border-color: var(--dc-critical-border);
 }
 
-.j5-root :where(select, input, textarea):focus-visible {
+.j5-root :where(input, textarea):focus-visible {
   outline: none;
   border-color: var(--dc-border-brand);
   box-shadow: var(--dc-focus-ring);
 }
 
-.j5-root :where(select, input, textarea):disabled,
+.j5-root :where(input, textarea):disabled,
 .j5-root :where(input, textarea)[readonly] {
   background: var(--dc-surface-sunken);
   color: var(--dc-text-secondary);
@@ -421,7 +421,7 @@
   margin-top: 0;
 }
 
-/* the results table needs the full row: six columns do not fit one auto-fit cell */
+/* audit and results are tables/timelines: they need the full row, six columns do not fit one auto-fit cell */
 .j5-lower > .j5-panel-wide {
   grid-column: 1 / -1;
 }
@@ -600,25 +600,9 @@
   overflow-x: auto;
 }
 
-.j5-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: var(--dc-text-sm);
-}
-
-.j5-table th {
-  height: var(--dc-row-table);
-  background: var(--dc-surface-page);
-  color: var(--dc-text-muted);
-  font-size: var(--dc-text-xs);
-  font-weight: var(--dc-weight-semibold);
-}
-
-.j5-table th,
+/* ui-react Table draws the rows; cells here may wrap (actual results, names), so give them vertical room */
 .j5-table td {
-  padding: var(--dc-space-3) var(--dc-space-5);
-  border-bottom: 1px solid var(--dc-border-subtle);
-  text-align: start;
+  padding-block: var(--dc-space-3);
 }
 
 .j5-upgrade fieldset {
@@ -686,6 +670,18 @@
   justify-content: flex-end;
   gap: var(--dc-space-4);
   margin-top: var(--dc-space-7);
+}
+
+/* 960–1279px: the shell rail and sub-navigation leave too little room for three columns, so properties
+   moves to a full row under outline and canvas (reading order stays outline → canvas → properties) */
+@media (min-width: 960px) and (max-width: 1279.98px) {
+  .j5-workspace {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  }
+
+  .j5-workspace > .j5-pane-properties {
+    grid-column: 1 / -1;
+  }
 }
 
 /* below 960px: read-only and in a single column, with no horizontal scroll on the page */
