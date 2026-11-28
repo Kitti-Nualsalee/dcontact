@@ -16,6 +16,7 @@ import {
   type EnsureCaseIntentV1,
   type J2CaseOwnerCommandV1,
 } from '@d-contact/cxa-contracts';
+import { AgentCases } from './agent-cases.js';
 import { CasePolicyFixtures } from './case-policy-fixtures.js';
 import {
   CaseCommandHashConflictError,
@@ -76,6 +77,8 @@ async function fixture(t: TestContext) {
     await owner.csRoutingPolicy.deleteMany({ where: { tenantId: rawTenantId } });
     await owner.csCaseTypePolicy.deleteMany({ where: { tenantId: rawTenantId } });
     await owner.contact.deleteMany({ where: { tenantId: rawTenantId } });
+    await owner.commandReceipt.deleteMany({ where: { tenantId: rawTenantId } });
+    await owner.user.deleteMany({ where: { tenantId: rawTenantId } });
     await owner.team.deleteMany({ where: { tenantId: rawTenantId } });
     await owner.tenant.deleteMany({ where: { id: rawTenantId } });
     await Promise.all([owner.$disconnect(), application.$disconnect()]);
@@ -471,4 +474,96 @@ test('#956: a case opened by an Agent is not linked/reopened by ENSURE_CASE even
     await f.owner.csCase.deleteMany({ where: { tenantId: f.rawTenantId } });
     await f.owner.user.deleteMany({ where: { id: agentId } });
   }
+});
+
+test('#1067: the new case belongs to the target team, which sees and handles it in its team case list', async (t) => {
+  const f = await fixture(t);
+  const service = new CasesEnsureCaseService(f.application);
+  const tenant = toTenantId(f.rawTenantId);
+  const agentId = randomUUID();
+  const otherTeamId = randomUUID();
+  const outsiderId = randomUUID();
+  await f.owner.team.create({ data: { id: otherTeamId, tenantId: f.rawTenantId, name: 'Other' } });
+  for (const [id, team] of [
+    [agentId, f.rawTeamId],
+    [outsiderId, otherTeamId],
+  ] as const)
+    await f.owner.user.create({
+      data: {
+        id,
+        tenantId: f.rawTenantId,
+        teamId: team,
+        role: 'AGENT',
+        displayName: 'Agent',
+        email: `${id}@test.invalid`,
+        passwordHash: 'unused',
+      },
+    });
+
+  const command = commandFor(f);
+  await service.persistCommand(tenant, command);
+  const cases = new AgentCases(f.application);
+  const actor = { tenantId: f.rawTenantId, userId: agentId };
+  const page = await cases.list(actor);
+  assert.equal(page.items.length, 1);
+  assert.equal(page.items[0]!.subject, null);
+  assert.equal(page.items[0]!.contactId, f.rawContactId);
+  // the source work rides on CREATED and still counts as linked work
+  assert.equal(page.items[0]!.linkedWorkCount, 1);
+
+  const detail = await cases.detail(actor, page.items[0]!.id);
+  assert.equal(detail.linkedWorkCount, 1);
+  assert.equal(detail.teamId, f.rawTeamId);
+  assert.equal(detail.createdByUserId, null);
+  assert.deepEqual(
+    detail.activities.map((activity) => [activity.kind, activity.actorUserId]),
+    [['CREATED', null]],
+  );
+  // the team works the case like one of its own
+  const noted = await cases.addNote(actor, detail.id, {
+    commandId: randomUUID(),
+    expectedVersion: detail.version,
+    note: 'called the customer back',
+  });
+  assert.equal(noted.version, detail.version + 1);
+
+  // once the team closes the case, the next outcome opens a new one instead of linking into the closed case
+  const resolved = await cases.changeStatus(actor, detail.id, {
+    commandId: randomUUID(),
+    expectedVersion: noted.version,
+    status: 'RESOLVED',
+  });
+  await cases.changeStatus(actor, detail.id, {
+    commandId: randomUUID(),
+    expectedVersion: resolved.version,
+    status: 'CLOSED',
+  });
+  const later = commandFor(f);
+  await service.persistCommand(tenant, later);
+  const reopened = await service.queryAction(tenant, {
+    contractVersion: 1,
+    actionKey: later.actionKey,
+    requestHash: later.requestHash,
+  });
+  assert.equal(reopened?.status, 'CREATED');
+  assert.notEqual(reopened?.ownerAggregate?.id, detail.id);
+  assert.deepEqual((await cases.list(actor)).items.map((item) => item.status).sort(), [
+    'CLOSED',
+    'OPEN',
+  ]);
+
+  // another team neither sees it nor gets its own work linked into it
+  const outsider = { tenantId: f.rawTenantId, userId: outsiderId };
+  assert.deepEqual((await cases.list(outsider)).items, []);
+  await assert.rejects(cases.detail(outsider, detail.id), { code: 'CASE_NOT_FOUND' });
+  const elsewhere = commandFor(f, { targetOwnerTeamId: teamId(otherTeamId) });
+  await service.persistCommand(tenant, elsewhere);
+  const result = await service.queryAction(tenant, {
+    contractVersion: 1,
+    actionKey: elsewhere.actionKey,
+    requestHash: elsewhere.requestHash,
+  });
+  assert.equal(result?.status, 'CREATED');
+  assert.notEqual(result?.ownerAggregate?.id, detail.id);
+  assert.equal((await cases.list(outsider)).items.length, 1);
 });

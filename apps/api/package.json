@@ -7,6 +7,7 @@
     "test": "tsx --test src/*.test.ts",
     "test:integration": "node scripts/run-integration.mjs",
     "test:e1-10:dev-stack": "tsx scripts/e1-10-dev-stack.ts",
+    "trial:journey-round-one": "tsx scripts/journey-round-one-trial.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "dev": "tsx watch src/main.ts",
     "test:boundary": "tsx --test --test-concurrency=1 src/*.boundary.ts",

@@ -163,7 +163,8 @@ export class AgentCasesController {
   async detail(@Req() request: AuthenticatedGatewayRequest, @Param('caseId') caseId: string) {
     return this.run(request, async (actor) => {
       const detail = await this.cases.detail(actor, caseId);
-      const ids = new Set<string>([detail.createdByUserId]);
+      const ids = new Set<string>();
+      if (detail.createdByUserId) ids.add(detail.createdByUserId);
       if (detail.assigneeUserId) ids.add(detail.assigneeUserId);
       for (const activity of detail.activities) {
         if (activity.actorUserId) ids.add(activity.actorUserId);

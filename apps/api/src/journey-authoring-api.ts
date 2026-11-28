@@ -635,6 +635,25 @@ export class JourneyAuthoringController {
     );
   }
 
+  /** #1067: what the journey did at runtime — enrollments with their trigger outcome and owner actions */
+  @Get('journeys/:journeyId/runs')
+  runs(
+    @Req() request: AuthenticatedGatewayRequest,
+    @Param('journeyId') journeyId: string,
+    @Query('limit') limit?: string,
+    @Query('cursor') cursor?: string,
+  ) {
+    const { tenantId, actor } = authoringActor(request);
+    const id = pathUuid(journeyId, 'journeyId');
+    return handle(() =>
+      this.repository.listJourneyRuns(tenantId, actor, {
+        journeyId: id,
+        limit: queryLimit(limit),
+        ...(cursor !== undefined ? { cursor: parse.opaque(cursor, 'cursor') } : {}),
+      }),
+    );
+  }
+
   @Get('journeys/:journeyId/audit')
   audit(
     @Req() request: AuthenticatedGatewayRequest,

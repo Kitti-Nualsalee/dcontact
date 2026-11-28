@@ -2603,6 +2603,7 @@ model JrEnrollment {
   @@index([tenantId, contactId, state])
   @@index([tenantId, runState, waitUntil], map: "jr_enrollments_tenant_run_state_wait_until_idx")
   @@index([tenantId, runState, maxAgeAt], map: "jr_enrollments_tenant_run_state_max_age_idx")
+  @@index([tenantId, journeyId, createdAt(sort: Desc), id(sort: Desc)], map: "jr_enrollments_tenant_journey_created_idx")
   @@map("jr_enrollments")
 }
 
@@ -4655,6 +4656,7 @@ model Interaction {
   qmEvaluations       QmEvaluation[]
   qmConsoleContexts   QmConsoleContext[]
   wrapupResults       InteractionWrapupResult[]
+  outcomeOutbox       InteractionOutcomeOutbox[]
 
   @@unique([tenantId, id, agentId])
   @@unique([tenantId, id], map: "interactions_tenant_managed_id")
@@ -4680,6 +4682,32 @@ model InteractionWrapupResult {
 
   @@index([tenantId, ownerAgentId, recordedAt(sort: Desc), interactionId(sort: Desc)], map: "interaction_wrapup_results_owner_recorded_idx")
   @@map("interaction_wrapup_results")
+}
+
+/// #1067 transactional outbox of `interaction.outcome_recorded` (J2 contract): the row is written in the
+/// same transaction as the wrap-up result and a relay publishes it to dc.interaction.events at-least-once.
+/// `id` is the Kafka eventId, so a re-publish is the same event for every consumer
+model InteractionOutcomeOutbox {
+  id             String    @id @default(uuid()) @db.Uuid
+  tenantId       String    @map("tenant_id") @db.Uuid
+  interactionId  String    @map("interaction_id") @db.Uuid
+  outcomeType    String    @map("outcome_type")
+  outcomeId      String    @map("outcome_id") @db.Uuid
+  outcomeVersion Int       @map("outcome_version")
+  payload        Json
+  correlationId  String    @map("correlation_id")
+  state          String    @default("PENDING")
+  attempts       Int       @default(0)
+  availableAt    DateTime  @default(now()) @map("available_at") @db.Timestamptz(3)
+  sentAt         DateTime? @map("sent_at") @db.Timestamptz(3)
+  lastError      String?   @map("last_error")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  interaction Interaction @relation(fields: [tenantId, interactionId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction, map: "interaction_outcome_outbox_interaction_fk")
+
+  @@unique([tenantId, outcomeType, outcomeId, outcomeVersion], map: "interaction_outcome_outbox_outcome_key")
+  @@index([tenantId, state, availableAt], map: "interaction_outcome_outbox_pending_idx")
+  @@map("interaction_outcome_outbox")
 }
 
 model InteractionEvent {
