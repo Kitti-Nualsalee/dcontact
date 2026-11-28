@@ -410,6 +410,11 @@
   margin-top: 0;
 }
 
+/* the results table needs the full row: six columns do not fit one auto-fit cell */
+.j5-lower > .j5-panel-wide {
+  grid-column: 1 / -1;
+}
+
 .j5-lower {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));

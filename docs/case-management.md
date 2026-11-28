@@ -141,4 +141,5 @@ model cs_link      { id String @id  caseId String  kind String  // PARENT|CHILD|
 ## เอกสารเกี่ยวข้อง
 
 [ADR-016](adr/016-case-management.md) · [interaction-data-flow.md](interaction-data-flow.md) ·
-[customer-360.md](customer-360.md) · [feedback-survey.md](feedback-survey.md)
+[customer-360.md](customer-360.md) · [feedback-survey.md](feedback-survey.md) ·
+[journey-round-one.md](journey-round-one.md) (เคสที่ Journey เปิดให้ทีมปลายทาง #1067)

@@ -26,6 +26,7 @@ import {
   JOURNEY_ID,
   NEW_JOURNEY_ID,
   REVIEW_ID,
+  RUN_CASE_ID,
   DIGEST,
   type Json,
   authoringDocument,
@@ -420,6 +421,47 @@ test('U1.3 a reviewer finds the candidate awaiting review from the list, opens t
   await expect(timeline.getByRole('listitem')).toHaveCount(2);
   await expect(timeline).toContainText('REVIEW_APPROVED');
   await expect(timeline).toContainText('corr-synthetic-1');
+  await expectNoSeriousA11yViolations(page);
+});
+
+test('#1067 run results: a published journey lists its runs with the result and a link to the case; a draft-only journey has no results', async ({
+  page,
+}) => {
+  const mock = new AuthoringMock();
+  await mock.install(page);
+  await page.goto('/?view=journeys&tenant=demo');
+  await page.getByRole('button', { name: 'Payment follow-up' }).click();
+  // never published: nothing can have run
+  await expect(page.getByRole('heading', { name: th('journeys:audit.heading') })).toBeVisible();
+  await expect(page.getByRole('heading', { name: th('journeys:runs.heading') })).toHaveCount(0);
+
+  const journey = mock.journeys.get(JOURNEY_ID)!;
+  journey.activeVersion = 1;
+  journey.lifecycle = 'ACTIVE';
+  await page.reload();
+  await expect(page.getByRole('heading', { name: th('journeys:runs.heading') })).toBeVisible();
+  // results load only when asked for
+  expect(mock.requests.some((request) => request.url().includes('/runs'))).toBe(false);
+  await page.getByRole('button', { name: th('journeys:runs.show') }).click();
+
+  const table = page.getByRole('table', { name: th('journeys:runs.caption') });
+  const rows = table.getByRole('row');
+  await expect(rows).toHaveCount(3);
+  await expect(rows.nth(1)).toContainText('FOLLOW_UP_REQUIRED');
+  await expect(rows.nth(1)).toContainText(th('journeys:runs.result.waiting'));
+  await expect(rows.nth(1).getByRole('link')).toHaveCount(0);
+  await expect(rows.nth(2)).toContainText(th('journeys:runs.result.done'));
+  const link = rows.nth(2).getByRole('link', { name: th('journeys:runs.openCase') });
+  const href = new URL((await link.getAttribute('href'))!, 'http://console.test');
+  expect(Object.fromEntries(href.searchParams)).toEqual({
+    tenant: 'demo',
+    view: 'team-cases',
+    assignee: 'team',
+    case: RUN_CASE_ID,
+  });
+  // no customer data on this page: the contact id is not rendered
+  await expect(table).not.toContainText('c0000000');
+  await expect(page.getByRole('button', { name: th('journeys:runs.reload') })).toBeVisible();
   await expectNoSeriousA11yViolations(page);
 });
 

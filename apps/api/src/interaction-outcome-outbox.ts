@@ -194,8 +194,7 @@ export function startInteractionOutcomeWorker(
   const connectProducer =
     options.connectProducer ?? (() => createProducer('dcontact-api-interaction-outcomes'));
   const reconnectDelayMs =
-    options.reconnectDelayMs ??
-    ((failures: number) => Math.min(2 ** failures * 5_000, 5 * 60_000));
+    options.reconnectDelayMs ?? ((failures: number) => Math.min(2 ** failures * 5_000, 5 * 60_000));
 
   let stopped = false;
   let producer: DcProducer | undefined;
@@ -203,7 +202,10 @@ export function startInteractionOutcomeWorker(
   let reconnect: ReturnType<typeof setTimeout> | undefined;
 
   async function publishAll(relay: InteractionOutcomeRelay): Promise<void> {
-    const tenants = await database.tenant.findMany({ select: { id: true }, orderBy: { id: 'asc' } });
+    const tenants = await database.tenant.findMany({
+      select: { id: true },
+      orderBy: { id: 'asc' },
+    });
     for (const tenant of tenants) {
       for (let handled = 0; handled < PUBLISH_PER_TENANT; handled += 1) {
         if ((await relay.publishNext(tenant.id)) !== 'SENT') break;

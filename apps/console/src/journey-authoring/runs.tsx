@@ -61,7 +61,7 @@ export function RunResults({ api, journeyId }: { api: JourneyAuthoringApi; journ
     }
   };
   return (
-    <section className="j5-panel" aria-labelledby="j5-runs-heading">
+    <section className="j5-panel j5-panel-wide" aria-labelledby="j5-runs-heading">
       <h2 id="j5-runs-heading">{t('runs.heading')}</h2>
       <p className="j5-help">{t('runs.help')}</p>
       <Button isDisabled={busy} onPress={() => void load()}>

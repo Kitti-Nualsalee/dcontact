@@ -65,9 +65,7 @@ function TimelineItem({ activity, people }: { activity: CaseActivity; people: Ca
     userId ? (people[userId] ?? t('actor.unknown')) : t('actor.unknown');
   // a row without an actor was written by an automation (Journey), not by a person who left the team
   const actor = (
-    <strong>
-      {activity.actorUserId ? name(activity.actorUserId) : t('actor.automation')}
-    </strong>
+    <strong>{activity.actorUserId ? name(activity.actorUserId) : t('actor.automation')}</strong>
   );
   const assignee = <strong>{name(activity.assigneeUserId)}</strong>;
   let text: ReactNode;
