@@ -36,6 +36,7 @@ import { Outline } from './outline.js';
 import { JourneySettings, NodeProperties } from './properties.js';
 import { Dialog, PublishPanel, reasonField } from './publish.js';
 import { ReviewPanel } from './review.js';
+import { RunResults } from './runs.js';
 import {
   clearRecovery,
   editorDocument,
@@ -509,6 +510,9 @@ function JourneyEditor({
             onChanged={refresh}
           />
         </section>
+        {head.activeVersion !== null ? (
+          <RunResults api={api} journeyId={state.snapshot.head.journeyId} />
+        ) : null}
         <AuditTimeline api={api} journeyId={state.snapshot.head.journeyId} />
         <TemplateUpgrade
           api={api}

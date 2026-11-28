@@ -65,6 +65,27 @@ export interface PendingReview {
   submittedAt: string;
 }
 
+/** #1067: one enrollment of a journey at runtime — ids and codes only, no customer data */
+export interface JourneyRun {
+  enrollmentId: string;
+  journeyVersion: number;
+  contactId: string | null;
+  state: string;
+  runState: string;
+  terminalReason: string | null;
+  startedAt: string;
+  updatedAt: string;
+  trigger: { outcomeType: string; outcomeCode: string | null; interactionId: string | null } | null;
+  actions: {
+    stepId: string | null;
+    kind: string;
+    state: string;
+    /** what the owner created or matched: a case id for ENSURE_CASE */
+    ownerAggregateId: string | null;
+    acknowledgedAt: string | null;
+  }[];
+}
+
 /** Journey audit row — the actor is an opaque subject id with no name/email */
 export interface JourneyAuditEntry {
   id: string;
@@ -157,6 +178,10 @@ export interface JourneyAuthoringApi {
     nextCursor: string | null;
   }>;
   audit(journeyId: string): Promise<{ items: JourneyAuditEntry[] }>;
+  runs(
+    journeyId: string,
+    query?: { cursor?: string },
+  ): Promise<{ items: JourneyRun[]; nextCursor: string | null }>;
   createJourney(
     input: { ownerTeamId: string; document: AuthoringDocumentV1 },
     key: string,
@@ -307,6 +332,11 @@ export function createJourneyAuthoringApi(input: {
     pendingReviews: (query = {}) =>
       call('GET', `/reviews${query.cursor ? `?cursor=${id(query.cursor)}` : ''}`),
     audit: (journeyId) => call('GET', `/journeys/${id(journeyId)}/audit`),
+    runs: (journeyId, query = {}) =>
+      call(
+        'GET',
+        `/journeys/${id(journeyId)}/runs${query.cursor ? `?cursor=${id(query.cursor)}` : ''}`,
+      ),
     createJourney: (body, key) => call('POST', '/journeys', { body, key }),
     journey: (journeyId) => call('GET', `/journeys/${id(journeyId)}`),
     saveDraft: (journeyId, body, key) =>

@@ -108,6 +108,30 @@
     "reason": "reason",
     "correlation": "correlation"
   },
+  "runs": {
+    "heading": "Run results",
+    "help": "Each row is one time this journey started for a customer. No customer data is shown here; open the case to see it.",
+    "show": "Show results",
+    "reload": "Reload results",
+    "empty": "This journey has not run yet",
+    "caption": "Runs of this journey, newest first",
+    "openCase": "Open case",
+    "col": {
+      "startedAt": "Started",
+      "trigger": "Trigger",
+      "version": "Version",
+      "action": "Action",
+      "result": "Result",
+      "link": "Link"
+    },
+    "result": {
+      "done": "Done",
+      "waiting": "In progress",
+      "rejected": "Rejected by owner",
+      "blocked": "Not allowed",
+      "cancelled": "Cancelled"
+    }
+  },
   "uat": {
     "heading": "UAT test run",
     "badge": "UAT / simulated",
