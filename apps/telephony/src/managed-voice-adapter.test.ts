@@ -378,3 +378,66 @@ test('#979 a tenant suspended during a call: cleanup commands can still bind and
   assert.deepEqual(await adapter.execute(hangup), { confirmed: true });
   assert.equal(transport.channels.has(command.callUuid), false);
 });
+
+test('#1061 a callback rings the Agent first and bridges the customer internal number on answer, once', async () => {
+  const callback: ManagedVoiceDirectCommand = {
+    ...command,
+    type: 'callback.originate',
+    destination: '1201',
+    expiresAt: new Date(Date.now() + 20000).toISOString(),
+  };
+  const channels = new Map<string, Record<string, string>>();
+  const globals = new Map<string, string>();
+  const sent: string[] = [];
+  const esl: ManagedVoiceEslTransport = {
+    async request(value) {
+      sent.push(value);
+      const [, action, channel, name] = value.split(' ');
+      if (action === 'global_getvar') return globals.get(channel) ?? '-ERR no reply';
+      if (action === 'global_setvar') {
+        const separator = channel.indexOf('=');
+        globals.set(channel.slice(0, separator), channel.slice(separator + 1));
+        return '+OK';
+      }
+      if (action === 'uuid_exists') return String(channels.has(channel));
+      if (action === 'uuid_getvar') return channels.get(channel)?.[name] ?? '_undef_';
+      if (action === 'originate') {
+        // only the Agent leg exists until the Agent answers
+        const agentLeg = /\{([^}]*)\}/.exec(value)![1]!;
+        channels.set(
+          callback.blegUuid,
+          Object.fromEntries(
+            agentLeg.split(',').map((pair) => pair.split('=') as [string, string]),
+          ),
+        );
+        return '+OK Job-UUID: a0000000-0000-4000-8000-000000000008';
+      }
+      return '+OK';
+    },
+  };
+  const adapter = new FreeSwitchManagedVoiceAdapter(esl, 'fs-test', 'test.local');
+  assert.deepEqual(await adapter.execute(callback), { confirmed: true });
+  const originate = sent.filter((value) => value.startsWith('bgapi originate'));
+  assert.equal(originate.length, 1);
+  assert.match(
+    originate[0]!,
+    new RegExp(
+      `^bgapi originate \\{origination_uuid=${callback.blegUuid},origination_caller_id_number=1201,.*\\}user/1101@test\\.local ` +
+        `&bridge\\(\\[origination_uuid=${callback.callUuid},.*dcontact_call_uuid=${callback.callUuid},.*\\]user/1201@test\\.local\\)$`,
+    ),
+  );
+  assert.ok(originate[0]!.includes(`dcontact_offer_id=${callback.offerId}`));
+  // a replay finds the Agent leg and does not ring again
+  assert.deepEqual(await adapter.execute({ ...callback }), { confirmed: true });
+  assert.equal(sent.filter((value) => value.startsWith('bgapi originate')).length, 1);
+  // only internal numbers, and no injection through the number
+  for (const destination of ['2001', '1201 &park', undefined])
+    await assert.rejects(
+      adapter.execute({
+        ...callback,
+        commandId: 'a0000000-0000-4000-8000-000000000009',
+        destination,
+      }),
+      /MANAGED_VOICE_INVALID_OFFER/,
+    );
+});

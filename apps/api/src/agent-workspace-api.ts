@@ -43,6 +43,8 @@ import {
 export const AGENT_WORKSPACE_DATABASE = Symbol('AGENT_WORKSPACE_DATABASE');
 export const AGENT_WORKSPACE_CUSTOMER_AVAILABLE = Symbol('AGENT_WORKSPACE_CUSTOMER_AVAILABLE');
 export const AGENT_WORKSPACE_WEBCHAT = Symbol('AGENT_WORKSPACE_WEBCHAT');
+/** #1061: the deployment has agent callbacks on */
+export const AGENT_WORKSPACE_CALLBACKS = Symbol('AGENT_WORKSPACE_CALLBACKS');
 
 async function wrapupOperation<Result>(
   request: AuthenticatedGatewayRequest,
@@ -75,8 +77,19 @@ function identity(request: AuthenticatedGatewayRequest) {
 
 function callerFrom(metadata: unknown): string | null {
   if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return null;
-  const caller = (metadata as Record<string, unknown>).caller;
+  const record = metadata as Record<string, unknown>;
+  // #1061 a callback shows the number being called back
+  const caller = record.source === 'AGENT_CALLBACK' ? record.destination : record.caller;
   return typeof caller === 'string' ? caller : null;
+}
+
+function isCallback(metadata: unknown): boolean {
+  return (
+    Boolean(metadata) &&
+    typeof metadata === 'object' &&
+    !Array.isArray(metadata) &&
+    (metadata as Record<string, unknown>).source === 'AGENT_CALLBACK'
+  );
 }
 
 function requiredUuid(value: string, field: string): string {
@@ -110,6 +123,9 @@ export class AgentWorkspaceController {
     @Optional()
     @Inject(AGENT_WORKSPACE_WEBCHAT)
     private readonly chatChannels: readonly string[] = [],
+    @Optional()
+    @Inject(AGENT_WORKSPACE_CALLBACKS)
+    private readonly callbacksAvailable = false,
   ) {}
 
   @Get('history')
@@ -245,6 +261,8 @@ export class AgentWorkspaceController {
           ...(this.customerAvailable ? { workCustomerV1: 1 } : {}),
           // #1044 the deployment has web chat on — the Workspace lists and answers chats
           ...(this.chatChannels.length ? { webchatV1: 1 } : {}),
+          // #1061 the deployment has agent callbacks on — the Workspace schedules and dials them
+          ...(this.callbacksAvailable ? { agentCallbacksV1: 1 } : {}),
         },
         agent: {
           id: agent.id,
@@ -273,6 +291,7 @@ export class AgentWorkspaceController {
               voiceWrapupPolicy: interaction.voiceWrapupPolicy,
               version: (interaction.events[0]?.id ?? 0n).toString(),
               caller: callerFrom(interaction.metadata),
+              callback: isCallback(interaction.metadata),
               queue: interaction.queue,
               offerExpiresAt: interaction.offerExpiresAt?.toISOString() ?? null,
               answeredAt: interaction.answeredAt?.toISOString() ?? null,

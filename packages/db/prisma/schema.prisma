@@ -3132,15 +3132,47 @@ model ObCallback {
   supersedingOutcomeVersion Int?            @map("superseding_outcome_version")
   /// J2.9 follow-up: same meaning as ObCampaignTarget.originateLeaseExpiresAt
   originateLeaseExpiresAt   DateTime?       @map("originate_lease_expires_at")
+  /// #1061: JOURNEY (J2) or AGENT (scheduled by an Agent from their work)
+  origin                    String          @default("JOURNEY")
+  sourceInteractionId       String?         @map("source_interaction_id") @db.Uuid
+  /// #1061: the PHONE identity to dial (an internal number in round one)
+  identityId                String?         @map("identity_id") @db.Uuid
+  note                      String?
+  createdByUserId           String?         @map("created_by_user_id") @db.Uuid
+  /// #1061: moved to the team because the Agent was not online 15 minutes after the time
+  escalatedAt               DateTime?       @map("escalated_at") @db.Timestamptz
+  lastReasonCode            String?         @map("last_reason_code")
+  attemptInteractionId      String?         @map("attempt_interaction_id") @db.Uuid
+  attemptCount              Int             @default(0) @map("attempt_count")
+  /// #1061: Governance reservation of the dial attempt in progress (confirmed or released when it settles)
+  attemptReservationId      String?         @map("attempt_reservation_id") @db.Uuid
   createdAt                 DateTime        @default(now()) @map("created_at")
   updatedAt                 DateTime        @updatedAt @map("updated_at")
 
   tenant  Tenant  @relation(fields: [tenantId], references: [id])
   contact Contact @relation(fields: [tenantId, contactId], references: [tenantId, id])
 
+  @@unique([tenantId, id], map: "ob_callbacks_tenant_id_key")
   @@index([tenantId, contactId, state])
   @@index([tenantId, state, originateLeaseExpiresAt], map: "ob_callbacks_originate_lease_idx")
   @@map("ob_callbacks")
+}
+
+/// #1061: timeline of an agent callback (no phone number, no note text); append-only
+model ObCallbackEvent {
+  id            String    @id @db.Uuid
+  tenantId      String    @map("tenant_id") @db.Uuid
+  callbackId    String    @map("callback_id") @db.Uuid
+  kind          String
+  actorUserId   String?   @map("actor_user_id") @db.Uuid
+  reasonCode    String?   @map("reason_code")
+  requestedFor  DateTime? @map("requested_for") @db.Timestamptz
+  interactionId String?   @map("interaction_id") @db.Uuid
+  decisionId    String?   @map("decision_id")
+  occurredAt    DateTime  @default(dbgenerated("clock_timestamp()")) @map("occurred_at") @db.Timestamptz
+
+  @@index([tenantId, callbackId, occurredAt, id], map: "ob_callback_events_callback_idx")
+  @@map("ob_callback_events")
 }
 
 // ─────────────────────── J2.3: outcome/action durable foundation ───────────────────────
@@ -7077,6 +7109,9 @@ model VoiceManagedCall {
   preanswerDeadline   DateTime @map("preanswer_deadline") @db.Timestamptz
   currentOfferId      String?  @map("current_offer_id") @db.Uuid
   terminalReason      String?  @map("terminal_reason")
+  /// #1061: INBOUND or CALLBACK (Agent leg first, then the customer's internal number)
+  kind                String   @default("INBOUND")
+  destination         String?
 
   @@id([tenantId, interactionId])
   @@unique([tenantId, telephonyNodeId, callUuid])

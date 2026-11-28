@@ -177,8 +177,19 @@ import {
   AGENT_WORKSPACE_DATABASE,
   AGENT_WORKSPACE_CUSTOMER_AVAILABLE,
   AGENT_WORKSPACE_WEBCHAT,
+  AGENT_WORKSPACE_CALLBACKS,
 } from './agent-workspace-api.js';
 import { AgentCasesController, AGENT_CASES_DATABASE } from './agent-cases-api.js';
+import {
+  AGENT_CALLBACKS,
+  AGENT_CALLBACKS_DATABASE,
+  AGENT_CALLBACKS_GOVERNANCE,
+  AgentCallbacksController,
+  maintainAgentCallbacks,
+  managedCallbackCalls,
+} from './agent-callbacks-api.js';
+import { resolveAgentCallbacks } from './agent-callbacks-config.js';
+import { AgentCallbacks } from '@d-contact/dialer';
 import {
   AGENT_SIP_CREDENTIALS,
   configuredAgentSipCredentialService,
@@ -518,6 +529,23 @@ console.log(
     status: !lineChatEnabled ? 'DISABLED' : lineChatBox ? 'ENABLED' : 'SECRET_KEY_MISSING',
   }),
 );
+// #1061: off by default; when on, Agents schedule callbacks from their work and dial them from Workspace.
+// The background round expires callbacks, moves them to the team and settles dial attempts.
+const agentCallbacksEnabled = resolveAgentCallbacks(process.env);
+console.log(
+  JSON.stringify({
+    event: 'agent_callbacks.readiness',
+    status: agentCallbacksEnabled ? 'ENABLED' : 'DISABLED',
+  }),
+);
+const agentCallbacks = new AgentCallbacks(prisma, { calls: managedCallbackCalls });
+if (agentCallbacksEnabled) {
+  startBackgroundLoop({
+    name: 'agent_callbacks.maintain',
+    intervalMs: 5_000,
+    work: () => maintainAgentCallbacks(prisma, agentCallbacks, contactGovernance),
+  });
+}
 const lineChatClient = new LineChatClient(resolveLineApiBaseUrl(process.env));
 const lineChat = new LineChatService(prisma, lineChatBox, lineChatClient, webchat, webchatHub);
 if (lineChatEnabled) {
@@ -625,6 +653,7 @@ class WorkspaceSessionController {
     ...(webchatEnabled ? [WebchatPublicController, WebchatWidgetController] : []),
     ...(chatChannels.length ? [WebchatAgentController] : []),
     ...(lineChatEnabled ? [LineChatWebhookController, LineChannelController] : []),
+    ...(agentCallbacksEnabled ? [AgentCallbacksController] : []),
   ],
   providers: [
     { provide: CUSTOMER_360_WORK_AUTH, useValue: c360WorkAuth ?? null },
@@ -688,7 +717,11 @@ class WorkspaceSessionController {
     { provide: QM_JOB_PUBLISHER, useValue: qmJobPublisher },
     { provide: AGENT_WORKSPACE_DATABASE, useValue: prisma },
     { provide: AGENT_CASES_DATABASE, useValue: prisma },
+    { provide: AGENT_CALLBACKS, useValue: agentCallbacks },
+    { provide: AGENT_CALLBACKS_DATABASE, useValue: prisma },
+    { provide: AGENT_CALLBACKS_GOVERNANCE, useValue: contactGovernance },
     { provide: AGENT_WORKSPACE_WEBCHAT, useValue: chatChannels },
+    { provide: AGENT_WORKSPACE_CALLBACKS, useValue: agentCallbacksEnabled },
     { provide: TEAM_HISTORY_WEBCHAT, useValue: chatChannels },
     { provide: LINE_CHAT_SERVICE, useValue: lineChat },
     {

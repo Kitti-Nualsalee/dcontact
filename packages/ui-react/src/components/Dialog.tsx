@@ -21,6 +21,8 @@ export interface DialogProps extends Omit<ModalOverlayProps, 'className' | 'chil
   footer?: (close: () => void) => ReactNode;
   /** `alertdialog` for irreversible confirmations */
   role?: 'dialog' | 'alertdialog';
+  /** id of the element that describes the dialog (read with the title), e.g. what a confirmation will do */
+  describedBy?: string;
   className?: string;
 }
 
@@ -34,6 +36,7 @@ export function Dialog({
   footer,
   role = 'dialog',
   className,
+  describedBy,
   isDismissable = true,
   ...props
 }: DialogProps) {
@@ -41,7 +44,7 @@ export function Dialog({
   return (
     <ModalOverlay {...props} isDismissable={isDismissable} className={styles.overlay}>
       <Modal className={cx(styles.modal, className)}>
-        <AriaDialog role={role} className={styles.dialog}>
+        <AriaDialog role={role} className={styles.dialog} aria-describedby={describedBy}>
           {({ close }) => (
             <>
               <header className={styles.header}>

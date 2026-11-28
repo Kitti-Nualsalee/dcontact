@@ -274,7 +274,14 @@ export class DialerCallbackService implements J2DialerOwnerPort {
 
     const now = this.now();
     const pending = await transaction.obCallback.findFirst({
-      where: { tenantId, contactId: command.contactId, state: 'SCHEDULED', expiresAt: { gt: now } },
+      // #1061 agent callbacks share the table; Journey only sees its own
+      where: {
+        tenantId,
+        contactId: command.contactId,
+        origin: 'JOURNEY',
+        state: 'SCHEDULED',
+        expiresAt: { gt: now },
+      },
       orderBy: { createdAt: 'desc' },
     });
     if (pending) {
@@ -326,7 +333,7 @@ export class DialerCallbackService implements J2DialerOwnerPort {
     }
 
     const callback = await transaction.obCallback.findFirst({
-      where: { id: original.recordId, tenantId },
+      where: { id: original.recordId, tenantId, origin: 'JOURNEY' },
     });
     if (!callback)
       return callbackRejection('OWNER_REJECTED', 'BUSINESS', 'ORIGINAL_ACTION_NOT_FOUND');
