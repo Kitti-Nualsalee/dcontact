@@ -14,7 +14,7 @@ import type {
   JourneyTemplateVersionViewV1,
 } from '@d-contact/cxa-contracts';
 import { useTranslation } from '@d-contact/i18n/react';
-import { Button } from '@d-contact/ui-react';
+import { Button, Select } from '@d-contact/ui-react';
 import { JourneyAuthoringApiError, type JourneyAuthoringApi, type JourneySnapshot } from './api.js';
 import { errorMessage } from './model.js';
 
@@ -49,28 +49,32 @@ function ParameterInput({
       : parameter.type === 'INTEGER' || parameter.type === 'DURATION_SECONDS'
         ? t('templates.hintRange', { min: parameter.min, max: parameter.max })
         : parameter.type;
+  if (parameter.type === 'ENUM' || parameter.type === 'BOOLEAN') {
+    return (
+      <Select
+        className="j5-field"
+        label={label}
+        placeholder={t('templates.choose')}
+        description={hint}
+        options={(parameter.type === 'ENUM' ? parameter.values : ['true', 'false']).map(
+          (option) => ({ id: option, label: option }),
+        )}
+        selectedKey={value === '' ? null : value}
+        onSelectionChange={(key) => onChange(key === null ? '' : String(key))}
+      />
+    );
+  }
   return (
     <div className="j5-field">
       <label htmlFor={inputId}>{label}</label>
-      {parameter.type === 'ENUM' || parameter.type === 'BOOLEAN' ? (
-        <select id={inputId} value={value} onChange={(event) => onChange(event.target.value)}>
-          <option value="">{t('templates.choose')}</option>
-          {(parameter.type === 'ENUM' ? parameter.values : ['true', 'false']).map((option) => (
-            <option key={option} value={option}>
-              {option}
-            </option>
-          ))}
-        </select>
-      ) : (
-        <input
-          id={inputId}
-          type="text"
-          autoComplete="off"
-          value={value}
-          aria-required={parameter.required}
-          onChange={(event) => onChange(event.target.value)}
-        />
-      )}
+      <input
+        id={inputId}
+        type="text"
+        autoComplete="off"
+        value={value}
+        aria-required={parameter.required}
+        onChange={(event) => onChange(event.target.value)}
+      />
       <small className="j5-help">{hint}</small>
     </div>
   );

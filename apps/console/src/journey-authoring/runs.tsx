@@ -5,7 +5,7 @@
  */
 import { useState } from 'react';
 import { useLocale, useTranslation } from '@d-contact/i18n/react';
-import { Button } from '@d-contact/ui-react';
+import { Button, Cell, Column, Row, Table, TableBody, TableHeader } from '@d-contact/ui-react';
 import { casesHref } from '../cases/model.js';
 import { useConsoleNavigation } from '../shell/console-navigation.js';
 import { JourneyAuthoringApiError, type JourneyAuthoringApi, type JourneyRun } from './api.js';
@@ -80,28 +80,25 @@ export function RunResults({ api, journeyId }: { api: JourneyAuthoringApi; journ
       {items?.length === 0 ? <p role="status">{t('runs.empty')}</p> : null}
       {items && items.length > 0 ? (
         <div className="j5-table-scroll">
-          <table className="j5-table">
-            <caption className="j5-sr">{t('runs.caption')}</caption>
-            <thead>
-              <tr>
-                <th scope="col">{t('runs.col.startedAt')}</th>
-                <th scope="col">{t('runs.col.trigger')}</th>
-                <th scope="col">{t('runs.col.version')}</th>
-                <th scope="col">{t('runs.col.action')}</th>
-                <th scope="col">{t('runs.col.result')}</th>
-                <th scope="col">{t('runs.col.link')}</th>
-              </tr>
-            </thead>
-            <tbody>
+          <Table aria-label={t('runs.caption')} className="j5-table">
+            <TableHeader>
+              <Column isRowHeader>{t('runs.col.startedAt')}</Column>
+              <Column>{t('runs.col.trigger')}</Column>
+              <Column>{t('runs.col.version')}</Column>
+              <Column>{t('runs.col.action')}</Column>
+              <Column>{t('runs.col.result')}</Column>
+              <Column>{t('runs.col.link')}</Column>
+            </TableHeader>
+            <TableBody>
               {items.map((run) => {
                 const action = run.actions.at(-1);
                 const result = runResult(run);
                 return (
-                  <tr key={run.enrollmentId}>
-                    <td>
+                  <Row key={run.enrollmentId} id={run.enrollmentId}>
+                    <Cell>
                       <time dateTime={run.startedAt}>{serverTime(formatters, run.startedAt)}</time>
-                    </td>
-                    <td>
+                    </Cell>
+                    <Cell>
                       {run.trigger?.outcomeCode ??
                         (run.trigger?.outcomeType
                           ? t(`outcomeType.${run.trigger.outcomeType}`, {
@@ -116,30 +113,32 @@ export function RunResults({ api, journeyId }: { api: JourneyAuthoringApi; journ
                           </code>
                         </>
                       ) : null}
-                    </td>
-                    <td>{run.journeyVersion}</td>
-                    <td>
+                    </Cell>
+                    <Cell>{run.journeyVersion}</Cell>
+                    <Cell>
                       {action
                         ? t(`node.${action.kind}`, { defaultValue: action.kind })
                         : t('common.none')}
-                    </td>
-                    <td
-                      title={[run.state, run.runState, action?.state].filter(Boolean).join(' · ')}
-                    >
-                      {t(`runs.result.${result}`)}
-                    </td>
-                    <td>
+                    </Cell>
+                    <Cell>
+                      <span
+                        title={[run.state, run.runState, action?.state].filter(Boolean).join(' · ')}
+                      >
+                        {t(`runs.result.${result}`)}
+                      </span>
+                    </Cell>
+                    <Cell>
                       {action?.kind === 'ENSURE_CASE' && action.ownerAggregateId ? (
                         <CaseLink caseId={action.ownerAggregateId} />
                       ) : (
                         t('common.none')
                       )}
-                    </td>
-                  </tr>
+                    </Cell>
+                  </Row>
                 );
               })}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       ) : null}
       {cursor ? (

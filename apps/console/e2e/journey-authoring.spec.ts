@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type Page, type Request } from '@playwright/test';
+import { expect, test, type Locator, type Page, type Request } from '@playwright/test';
 import { th } from './support/catalog';
 
 // D1.14 (#453): text comes from the catalog per the browser language — this suite checks the original J5 flow in Thai
@@ -13,6 +13,19 @@ const UNSAVED_ONE = new RegExp(
 
 function escapeRegExp(text: string) {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** option label of the UAT step `SIMULATE` (stepId · title) */
+const SIMULATE_STEP = 'SIMULATE · Run the simulation';
+
+/** the ui-react Select trigger is a button whose name holds the field label and the current value */
+function selectTrigger(scope: Page | Locator, label: string) {
+  return scope.getByRole('button', { name: new RegExp(escapeRegExp(label)) });
+}
+
+async function choose(page: Page, trigger: Locator, option: string) {
+  await trigger.click();
+  await page.getByRole('option', { name: option, exact: true }).click();
 }
 
 /**
@@ -69,22 +82,25 @@ test('keyboard-only authoring: add/configure/connect/reorder/delete, then save w
   ).toBeVisible();
 
   // outline: insert WAIT after SEND with ordinary controls
-  const insertType = page
-    .getByLabel(th('journeys:outline.insertAfter', { port: th('journeys:port.next') }))
-    .first();
-  await insertType.selectOption('WAIT');
-  await insertType.focus();
+  const insertType = selectTrigger(
+    page,
+    th('journeys:outline.insertAfter', { port: th('journeys:port.next') }),
+  ).first();
+  await choose(page, insertType, th('journeys:node.WAIT'));
+  // focus returns to the trigger once the option is chosen; the add button is next
+  await expect(insertType).toBeFocused();
   await page.keyboard.press('Tab');
   await page.keyboard.press('Enter');
   await expect(canvas.getByRole('button', { name: th('journeys:node.WAIT') })).toBeVisible();
   await expect(
-    page.getByLabel(
+    selectTrigger(
+      page,
       th('journeys:outline.portTarget', {
         port: th('journeys:port.next'),
         node: th('journeys:node.WAIT'),
       }),
     ),
-  ).toHaveValue('done');
+  ).toContainText(th('journeys:node.EXIT'));
 
   // properties: commit on Enter
   const wait = page.getByLabel(th('journeys:field.waitSeconds'));
@@ -381,7 +397,7 @@ test('U1.3 a reviewer finds the candidate awaiting review from the list, opens t
 
   // the list shows the review state from the server; the "awaiting review" filter shows work the reviewer can decide
   await expect(
-    page.getByRole('cell', { name: th('journeys:list.reviewState.IN_REVIEW') }),
+    page.getByRole('gridcell', { name: th('journeys:list.reviewState.IN_REVIEW') }),
   ).toBeVisible();
   await page.getByRole('button', { name: th('journeys:list.filterPending') }).click();
   await expect(
@@ -444,7 +460,7 @@ test('#1067 run results: a published journey lists its runs with the result and 
   expect(mock.requests.some((request) => request.url().includes('/runs'))).toBe(false);
   await page.getByRole('button', { name: th('journeys:runs.show') }).click();
 
-  const table = page.getByRole('table', { name: th('journeys:runs.caption') });
+  const table = page.getByRole('grid', { name: th('journeys:runs.caption') });
   const rows = table.getByRole('row');
   await expect(rows).toHaveCount(3);
   await expect(rows.nth(1)).toContainText('FOLLOW_UP_REQUIRED');
@@ -813,11 +829,15 @@ test('U1.4 UAT: badge/scope + run data from the server, record PASS and FAIL wit
   ).toBeVisible();
 
   // FAIL: a severity must be chosen before sending
-  await panel.getByLabel(th('journeys:uat.stepLabel')).selectOption('SIMULATE');
+  await choose(page, selectTrigger(panel, th('journeys:uat.stepLabel')), SIMULATE_STEP);
   await panel.getByLabel(th('journeys:uat.outcome.FAIL')).check();
   await panel.getByLabel(th('journeys:uat.actualLabel')).fill('Ended at MAX_DURATION');
   await expect(record).toBeDisabled();
-  await panel.getByLabel(th('journeys:uat.severityLabel')).selectOption('S2');
+  await choose(
+    page,
+    selectTrigger(panel, th('journeys:uat.severityLabel')),
+    th('journeys:uat.severity.S2'),
+  );
   await record.click();
   await expect(
     panel
@@ -825,7 +845,7 @@ test('U1.4 UAT: badge/scope + run data from the server, record PASS and FAIL wit
       .filter({ hasText: th('journeys:uat.recorded', { stepId: 'SIMULATE' }) }),
   ).toBeVisible();
 
-  const rows = panel.getByRole('table').getByRole('row');
+  const rows = panel.getByRole('grid').getByRole('row');
   await expect(rows).toHaveCount(3);
   await expect(rows.nth(1)).toContainText(th('journeys:uat.outcome.PASS'));
   await expect(rows.nth(1)).toContainText('REAL_STATE');
@@ -1067,7 +1087,7 @@ test('U1.5 attach a screenshot, see the digest, a trace is rejected with a way f
   const upload = evidence.getByRole('button', { name: th('journeys:uat.evidence.upload') });
   await expect(upload).toBeDisabled();
 
-  await evidence.getByLabel(th('journeys:uat.evidence.stepLabel')).selectOption('SIMULATE');
+  await choose(page, selectTrigger(evidence, th('journeys:uat.evidence.stepLabel')), SIMULATE_STEP);
   await file.setInputFiles({ name: 'simulate.png', mimeType: 'image/png', buffer: PNG_BYTES });
   await upload.click();
   await expect(
@@ -1075,7 +1095,7 @@ test('U1.5 attach a screenshot, see the digest, a trace is rejected with a way f
       .getByRole('status')
       .filter({ hasText: th('journeys:uat.evidence.uploaded', { stepId: 'SIMULATE' }) }),
   ).toBeVisible();
-  const row = evidence.getByRole('table').getByRole('row').nth(1);
+  const row = evidence.getByRole('grid').getByRole('row').nth(1);
   await expect(row).toContainText('SIMULATE');
   await expect(row).toContainText(DIGEST('7').slice(0, 12));
   await expect(row).toContainText('image/png');
@@ -1090,7 +1110,7 @@ test('U1.5 attach a screenshot, see the digest, a trace is rejected with a way f
   const alert = panel.getByRole('alert');
   await expect(alert).toContainText(th('journeys:uat.error.EVIDENCE_TYPE_REJECTED'));
   await expect(alert).toContainText(th('journeys:uat.nextAction.CHOOSE_SCREENSHOT'));
-  await expect(evidence.getByRole('table').getByRole('row')).toHaveCount(2);
+  await expect(evidence.getByRole('grid').getByRole('row')).toHaveCount(2);
 
   const posts = uat.posts('/evidence');
   expect(posts).toHaveLength(2);
@@ -1145,9 +1165,11 @@ test('#1067 a blank journey can start from a contact outcome: the trigger is cho
   const form = page.getByRole('region', { name: th('journeys:blank.heading') });
   await form.getByLabel(th('journeys:blank.name')).fill('Follow-up case after a call');
   await form.getByLabel(th('journeys:blank.team')).fill('team-synthetic');
-  await form
-    .getByLabel(th('journeys:blank.triggerKind'))
-    .selectOption({ label: th('journeys:node.INTERACTION_OUTCOME_TRIGGER') });
+  await choose(
+    page,
+    selectTrigger(form, th('journeys:blank.triggerKind')),
+    th('journeys:node.INTERACTION_OUTCOME_TRIGGER'),
+  );
   await expect(form.getByLabel(th('journeys:blank.event'))).toHaveCount(0);
   await form.getByLabel(th('journeys:field.outcomeCode')).fill('FOLLOW_UP_REQUIRED');
   await form.getByLabel(th('journeys:blank.goalEvent')).fill('case.resolved');
