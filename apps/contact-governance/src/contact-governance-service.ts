@@ -8,15 +8,24 @@ import {
   withTenantDatabaseTransaction,
   lockTeamReferences,
 } from '@d-contact/db';
-import { evaluateContactPolicy, type ContactPolicyTraceEntry } from './contact-policy.js';
+import {
+  CONSENT_NOT_REQUIRED,
+  evaluateContactPolicy,
+  type ContactPolicyTraceEntry,
+} from './contact-policy.js';
 import {
   evaluateCg3Policy,
   type Cg3GateOutcome,
   type Cg3PolicyFacts,
+  type ContactConsentWaiver,
 } from './cg3-policy-evaluator.js';
 import { loadCg3Facts } from './cg3-fact-loader.js';
 import { toCg4PolicyBinding } from './cg4-exception-evaluation.js';
-import { buildCg4PolicyScopeKey, parseCg4PolicyScopeKey } from './cg4-policy-compiler.js';
+import {
+  buildCg4PolicyScopeKey,
+  cg4ConsentWaiverScopeProblem,
+  parseCg4PolicyScopeKey,
+} from './cg4-policy-compiler.js';
 import {
   cg4PolicyFailClosedOutcome,
   cg4ShadowDecisionDigest,
@@ -122,6 +131,34 @@ function shadowOutcome(
 }
 
 /** the request scope is an opaque dimension key for mismatch evidence (no contact identity) */
+/**
+ * #1065: whether the policy that decides this work lets it go ahead without a consent record. The policy
+ * comes from the same reader the rollout stage uses for the rest of the decision: a CG3 policy has no such
+ * option, so consent stays required until the tenant decides with CG4 policies. Anything the reader cannot
+ * resolve keeps consent required (the policy phase that follows fails closed on its own).
+ */
+async function consentWaiverFor(
+  transaction: Prisma.TransactionClient,
+  tenantId: string,
+  request: Cg4PolicyRequestScope,
+  now: Date,
+): Promise<ContactConsentWaiver | undefined> {
+  const reader = cg4PolicyReaderFor(await loadCg4RolloutState(transaction, tenantId), request);
+  if (reader.mode !== 'CG4') return undefined;
+  const read = await loadCg4PolicyFacts(transaction, { tenantId, request, now });
+  if (read.outcome !== 'RESOLVED' || !read.facts.consent) return undefined;
+  // the lifecycle refuses a wider scope; checked again so a head written another way cannot waive consent broadly
+  if (cg4ConsentWaiverScopeProblem(read.scopeKey)) return undefined;
+  return read.facts.consent;
+}
+
+/** the CONSENT entry that let the decision continue: keeps why consent was not needed for the audit trail */
+function passedEntry(entry: ContactPolicyTraceEntry): ContactPolicyTraceEntry {
+  return entry.reasonCode === CONSENT_NOT_REQUIRED
+    ? { ...entry, outcome: 'PASS' }
+    : { gate: entry.gate, outcome: 'PASS' };
+}
+
 function requestScopeKey(request: Cg4PolicyRequestScope): string {
   try {
     return buildCg4PolicyScopeKey({ ...request });
@@ -497,8 +534,23 @@ export class ContactGovernanceService
       ) {
         return review(GOVERNANCE_KILL_SWITCH_ACTIVE, facts.aggregateVersion, facts.policy?.version);
       }
+      const consentWaiver =
+        identity && !restriction && !consent
+          ? await consentWaiverFor(
+              transaction,
+              tenantId,
+              cg4PolicyRequestScope({
+                channel: reservation.channel,
+                purpose: reservation.purpose,
+                contactKind: reservation.authorizationContactKind,
+                source: reservation.source,
+              }),
+              now,
+            )
+          : undefined;
       const baseline = evaluateContactPolicy({
         policyVersion: facts.policy?.version ?? 0,
+        ...(consentWaiver ? { consentWaiver } : {}),
         identityResolution: identity ? 'RESOLVED' : 'NOT_FOUND',
         ...(restriction
           ? {
@@ -705,9 +757,14 @@ export class ContactGovernanceService
             })
           : null;
 
+      const consentWaiver =
+        contact && identityResolution === 'RESOLVED' && !restriction && !consent
+          ? await consentWaiverFor(transaction, tenantId, cg4PolicyRequestScope(input), now)
+          : undefined;
       const policyResult = evaluateContactPolicy({
         policyVersion: input.policyVersion,
         identityResolution,
+        ...(consentWaiver ? { consentWaiver } : {}),
         ...(restriction
           ? {
               activeRestriction: {
@@ -772,7 +829,7 @@ export class ContactGovernanceService
         trace = [
           ...policyResult.trace.map((entry, index) =>
             index === policyResult.trace.length - 1 && entry.outcome === 'ALLOW'
-              ? { gate: entry.gate, outcome: 'PASS' as const }
+              ? passedEntry(entry)
               : entry,
           ),
           { gate: 'KILL_SWITCH', outcome: 'REVIEW', reasonCode: GOVERNANCE_KILL_SWITCH_ACTIVE },
@@ -862,7 +919,7 @@ export class ContactGovernanceService
         trace = [
           ...policyResult.trace.map((entry, index) =>
             index === policyResult.trace.length - 1 && entry.outcome === 'ALLOW'
-              ? { gate: entry.gate, outcome: 'PASS' as const }
+              ? passedEntry(entry)
               : entry,
           ),
           ...cg3.trace,

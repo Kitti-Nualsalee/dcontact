@@ -130,6 +130,32 @@ flowchart TD
 `teamId` ต้อง resolve จาก access token หรือ service context ที่เชื่อถือได้ ไม่รับค่าจาก browser โดยตรง;
 Campaign/Journey ที่รันแบบ background ใช้ `sourceOwnerTeamId` ที่บันทึกและตรวจสิทธิ์ไว้ตั้งแต่ publish
 
+### ความยินยอมที่ policy ไม่บังคับ (#1065)
+
+ด่าน purpose + lawful basis/consent บังคับรายการความยินยอมที่ตรง purpose × channel เป็นค่าเริ่มต้น
+policy ของ CG4 ที่ scope ระบุทั้ง purpose และ channel (ไม่ใช่ `MARKETING`) ประกาศได้ว่าไม่บังคับ
+พร้อม lawful basis อื่น ตัวอย่างเนื้อหา policy:
+
+```json
+{
+  "timezoneFallback": "Asia/Bangkok",
+  "quietHours": [{ "daysOfWeek": [1, 2, 3, 4, 5, 6, 7], "startLocal": "20:00", "endLocal": "08:00" }],
+  "callbackMode": "SCOPED_OVERRIDE",
+  "consent": { "requirement": "NOT_REQUIRED", "lawfulBasis": "CONTRACT" }
+}
+```
+
+| สถานะความยินยอมของลูกค้า | policy บังคับ (ค่าเริ่มต้น) | policy ไม่บังคับ |
+|---|---|---|
+| ไม่มีรายการ | `BLOCK CONSENT_REQUIRED` | ผ่านด่านด้วย `CONSENT_NOT_REQUIRED` + lawful basis แล้วตรวจด่านถัดไป |
+| `GRANTED` ที่ยังไม่หมดอายุ | ผ่าน | ผ่าน |
+| `GRANTED` ที่หมดอายุแล้ว | `BLOCK CONSENT_EXPIRED` | `BLOCK CONSENT_EXPIRED` |
+| `REVOKED` | `BLOCK CONSENT_REVOKED` | `BLOCK CONSENT_REVOKED` |
+
+การเผยแพร่ policy ที่ไม่บังคับความยินยอมเป็น `RELAXATION` ต้องสอง checker และมีผลเฉพาะ tenant ที่ rollout
+ใช้ policy ของ CG4 ตัดสินแล้ว ส่วนใน `SHADOW_EVALUATION` ตัวเปรียบเทียบเงายังไม่เทียบด่านความยินยอม
+(CG3 ยังเป็นผู้ตัดสินและบังคับความยินยอม)
+
 ## 6. Attempt และ Frequency policy
 
 Policy รองรับอย่างน้อย:

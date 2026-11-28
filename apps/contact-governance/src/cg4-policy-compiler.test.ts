@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  assertCg4ConsentScope,
   assertCg4PolicyRegistryConsistent,
   buildCg4PolicyScopeKey,
   cg4PolicyScopeMatches,
@@ -176,5 +177,75 @@ test('a timezone that is not an IANA zone and a malformed holiday are rejected',
         ],
       }),
     ),
+  );
+});
+
+test('#1065 consent required is the default: saying so keeps the digest of content written before the option', () => {
+  const before = compileCg4Policy({ content: content(), version: 1 });
+  const explicit = compileCg4Policy({
+    content: content({ consent: { requirement: 'REQUIRED' } }),
+    version: 1,
+  });
+  assert.equal(explicit.contentDigest, before.contentDigest);
+  assert.equal(before.facts.consent, undefined);
+});
+
+test('#1065 a policy that does not require consent compiles to the waiver the runtime reads', () => {
+  const compiled = compileCg4Policy({
+    content: content({ consent: { requirement: 'NOT_REQUIRED', lawfulBasis: ' CONTRACT ' } }),
+    version: 2,
+  });
+  assert.deepEqual(compiled.content.consent, {
+    requirement: 'NOT_REQUIRED',
+    lawfulBasis: 'CONTRACT',
+  });
+  assert.deepEqual(compiled.facts.consent, compiled.content.consent);
+  assert.notEqual(
+    compiled.contentDigest,
+    compileCg4Policy({ content: content(), version: 2 }).contentDigest,
+  );
+});
+
+test('#1065 not requiring consent needs a lawful basis other than consent, and nothing else', () => {
+  for (const consent of [
+    { requirement: 'NOT_REQUIRED' },
+    { requirement: 'NOT_REQUIRED', lawfulBasis: 'CONSENT' },
+    { requirement: 'NOT_REQUIRED', lawfulBasis: 'BECAUSE' },
+    { requirement: 'REQUIRED', lawfulBasis: 'CONTRACT' },
+    { requirement: 'SOMETIMES' },
+    { requirement: 'NOT_REQUIRED', lawfulBasis: 'CONTRACT', purposes: ['SERVICE'] },
+  ]) {
+    assert.throws(
+      () => normalizeCg4PolicyContent(content({ consent })),
+      (error: unknown) =>
+        error instanceof Cg4PolicyValidationError && error.code === 'VALIDATION_FAILED',
+      JSON.stringify(consent),
+    );
+  }
+});
+
+test('#1065 only a scope that names a purpose and a channel, and not marketing, may stop requiring consent', () => {
+  const waived = normalizeCg4PolicyContent(
+    content({ consent: { requirement: 'NOT_REQUIRED', lawfulBasis: 'CONTRACT' } }),
+  );
+  assert.doesNotThrow(() =>
+    assertCg4ConsentScope(buildCg4PolicyScopeKey({ channel: 'VOICE', purpose: 'SERVICE' }), waived),
+  );
+  for (const scope of [
+    {},
+    { channel: 'VOICE' },
+    { purpose: 'SERVICE' },
+    { channel: 'VOICE', purpose: 'MARKETING' },
+  ] as const) {
+    assert.throws(
+      () => assertCg4ConsentScope(buildCg4PolicyScopeKey(scope), waived),
+      (error: unknown) =>
+        error instanceof Cg4PolicyValidationError && error.code === 'SCOPE_INVALID',
+      JSON.stringify(scope),
+    );
+  }
+  // a policy that requires consent may have any scope
+  assert.doesNotThrow(() =>
+    assertCg4ConsentScope(buildCg4PolicyScopeKey({}), normalizeCg4PolicyContent(content())),
   );
 });

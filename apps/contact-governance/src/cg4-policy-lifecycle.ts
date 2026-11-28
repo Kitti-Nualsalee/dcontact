@@ -32,6 +32,7 @@ import {
   evaluateCg4Quorum,
 } from './cg4-authorization-engine.js';
 import {
+  assertCg4ConsentScope,
   cg4EventScopeDimensions,
   cg4PolicyScopesAmbiguous,
   compileCg4Policy,
@@ -481,6 +482,7 @@ export class Cg4PolicyLifecycleRepository {
     const occurredAt = instant(input.occurredAt, 'occurredAt');
     const effectiveFrom = instant(input.effectiveFrom, 'effectiveFrom');
     const compiled = compileCg4Policy({ content: input.content, version: 1 });
+    assertCg4ConsentScope(input.scopeKey, compiled.content);
 
     const requestHash = stableDigest({
       tenantId: input.tenantId,
@@ -620,6 +622,7 @@ export class Cg4PolicyLifecycleRepository {
         where: { tenantId: input.tenantId, policyId: input.policyId, version: input.version },
       });
       if (!row) throw new Cg3ResourceNotFoundError();
+      assertCg4ConsentScope(row.scopeKey, compiled.content);
       await this.lockScope(transaction, input.tenantId, row.scopeKey);
       assertCg4RequestAuthorization({
         subject: input.actor,
@@ -743,6 +746,7 @@ export class Cg4PolicyLifecycleRepository {
         'the stored content digest does not match the current compiler',
       );
     }
+    assertCg4ConsentScope(row.scopeKey, compiled.content);
     const head = await this.loadHead(transaction, input.tenantId, row.scopeKey);
     const baseContent = await this.loadHeadContent(transaction, input.tenantId, head);
     return { row, compiled, head, baseContent };

@@ -92,6 +92,20 @@ Campaign, Journey, Survey และระบบภายนอกติดต่
    เป็นผู้ใช้ ไม่ใช่เจ้าของกติกา ส่วน Customer 360 และ Administration/IAM ยังคงเป็นเจ้าของ segment membership
    และ team scope ตามลำดับ
 
+10. **Policy เลือกได้ว่าจะบังคับความยินยอมหรือไม่ แยกตาม purpose × channel** (#1065, owner ตัดสิน 28 พฤศจิกายน 2569)
+
+    ค่าเริ่มต้นคือบังคับ: ไม่พบรายการความยินยอมที่ตรง purpose × channel แล้วผลเป็น `BLOCK CONSENT_REQUIRED`
+    policy ของ CG4 ประกาศ `consent: { requirement: 'NOT_REQUIRED', lawfulBasis }` ได้เมื่องานนั้นมีฐานทางกฎหมายอื่น
+    ตาม PDPA มาตรา 24 (`CONTRACT`, `LEGITIMATE_INTEREST`, `LEGAL_OBLIGATION`, `VITAL_INTEREST`, `PUBLIC_TASK`)
+
+    - ใช้ได้เฉพาะ scope ที่ระบุทั้ง purpose และ channel และ purpose ไม่ใช่ `MARKETING`
+    - ครอบคลุมเฉพาะกรณีไม่มีรายการ: ความยินยอมที่ลูกค้าถอน (`REVOKED`) หรือหมดอายุ (`EXPIRED`) ยังบล็อก
+      และ hard restriction, preference, ช่วงเวลา, เพดานครั้งตรวจตามเดิม
+    - ด่าน CONSENT บันทึก `CONSENT_NOT_REQUIRED` พร้อม `lawfulBasis` ใน trace และ decision pin policy version ที่ใช้
+    - การเปลี่ยนเป็นไม่บังคับ หรือเปลี่ยน lawful basis เป็น `RELAXATION` (ต้องสอง checker) การกลับไปบังคับเป็น `TIGHTENING`
+    - มีผลเฉพาะเมื่อ rollout stage ของ tenant ใช้ policy ของ CG4 ตัดสิน (`INTERNAL_ENABLED` หรือ scope นำร่อง)
+      policy ของ CG3 ไม่มีตัวเลือกนี้ จึงยังบังคับความยินยอม
+
 ## ผลที่ตามมา
 
 - Outbound เลิกเป็นเจ้าของ DNC/consent และเรียก Contact Governance ก่อน originate/send

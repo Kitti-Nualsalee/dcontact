@@ -151,3 +151,51 @@ test('having no consent blocks promotional contact fail-closed', () => {
     ],
   });
 });
+
+test('#1065 a policy that does not require consent lets work without a consent record continue, naming its lawful basis', () => {
+  const result = evaluateContactPolicy({
+    policyVersion: 4,
+    identityResolution: 'RESOLVED',
+    consentWaiver: { requirement: 'NOT_REQUIRED', lawfulBasis: 'CONTRACT' },
+  });
+
+  assert.deepEqual(result, {
+    decision: 'ALLOW',
+    reasonCode: 'POLICY_PASSED',
+    policyVersion: 4,
+    trace: [
+      { gate: 'IDENTITY', outcome: 'PASS' },
+      { gate: 'HARD_RESTRICTION', outcome: 'PASS' },
+      {
+        gate: 'CONSENT',
+        outcome: 'ALLOW',
+        reasonCode: 'CONSENT_NOT_REQUIRED',
+        lawfulBasis: 'CONTRACT',
+      },
+    ],
+  });
+});
+
+test('#1065 consent the customer revoked or that expired still blocks under a policy that does not require consent', () => {
+  for (const status of ['REVOKED', 'EXPIRED'] as const) {
+    const result = evaluateContactPolicy({
+      policyVersion: 4,
+      identityResolution: 'RESOLVED',
+      consent: { status, lawfulBasis: 'CONSENT' },
+      consentWaiver: { requirement: 'NOT_REQUIRED', lawfulBasis: 'CONTRACT' },
+    });
+    assert.equal(result.decision, 'BLOCK');
+    assert.equal(result.reasonCode, `CONSENT_${status}`);
+  }
+});
+
+test('#1065 a hard restriction still blocks under a policy that does not require consent', () => {
+  const result = evaluateContactPolicy({
+    policyVersion: 4,
+    identityResolution: 'RESOLVED',
+    activeRestriction: { type: 'DNC', reasonCode: 'DNC_GLOBAL', overridable: false },
+    consentWaiver: { requirement: 'NOT_REQUIRED', lawfulBasis: 'CONTRACT' },
+  });
+  assert.equal(result.decision, 'BLOCK');
+  assert.equal(result.reasonCode, 'DNC_GLOBAL');
+});
