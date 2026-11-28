@@ -23,9 +23,15 @@ relay จองแถวด้วยการเลื่อน `available_at` 6
 
 - เคสผูกทีมปลายทางของขั้น `ENSURE_CASE` (`cs_cases.team_id`) ทีมนั้นเห็นในหน้า **เคสของทีม** และเพิ่มโน้ต มอบหมาย เปลี่ยนสถานะได้เหมือนเคสที่ Agent เปิด
 - ไม่มีหัวข้อและไม่มีผู้เปิด หน้าจอแสดง "เคสติดตามจาก Journey" และ "ระบบอัตโนมัติ" ยังไม่มีผู้รับผิดชอบจนกว่าทีมจะมอบหมาย
-- เหตุการณ์แรกในไทม์ไลน์อ้างงานต้นทาง
+- เหตุการณ์แรกในไทม์ไลน์อ้างงานต้นทาง "งานที่ผูก" นับงานที่ไม่ซ้ำจากทุกเหตุการณ์ในไทม์ไลน์ (งานต้นทางนับด้วย)
 - เคส OPEN เดิมจะถูกผูกงานเพิ่มเฉพาะเมื่อเป็นเคสจาก Journey ของลูกค้า ประเภท และทีมเดียวกัน เคสที่ Agent เปิดเองและเคสของทีมอื่นไม่ถูกแตะ
 - เคสจาก J2 ที่สร้างก่อน #1067 ไม่มีทีม จึงยังไม่แสดงในหน้าเคสของทีม
+
+## สร้าง journey ใน Console
+
+ฟอร์ม **สร้าง Journey เปล่า** เลือกได้ว่า journey เริ่มเมื่อเกิด event หรือเริ่มจากผลการติดต่อ (ชนิดผล และรหัสผลซึ่งไม่บังคับ) ชนิด trigger เปลี่ยนในตัวแก้ไขไม่ได้ จึงต้องเลือกตอนสร้าง
+เมื่อเริ่มจากผลการติดต่อ ช่อง event ของฟอร์มคือ event ที่ถือว่าบรรลุเป้าหมาย (เช่น `case.resolved`)
+จากนั้นเพิ่มขั้น **สร้างหรือผูก Case** ต่อจาก trigger กรอก case type, routing intent และทีมที่รับผิดชอบ ต่อทั้งสองทาง (สำเร็จ/ถูกปฏิเสธ) ไปที่ **จบ Journey** บันทึก ตรวจ compile ส่งตรวจ ให้ผู้ตรวจอีกคนอนุมัติ แล้ว publish
 
 ## หน้าผลการทำงาน
 
@@ -53,6 +59,10 @@ migration: `20261130090000_interaction_outcome_outbox` (ตาราง outbox �
 
 - ทั้งเส้นผ่าน broker จริง ไม่ใช้ browser: `pnpm --filter @d-contact/api trial:journey-round-one` ต้องมี broker ของ dev (`pnpm infra:up`) และฐานที่ migrate + apply RLS แล้วใน `DATABASE_URL`/`APPLICATION_DATABASE_URL` สคริปต์สร้าง tenant ของตัวเอง สร้างและ publish journey ผ่าน repository ของ authoring (รวมขั้นผู้ตรวจ) เริ่ม worker journey/cases ด้วย consumer group ของรอบนั้น แล้วตรวจว่า disposition ที่ตรงเปิดเคสหนึ่งเคส disposition อื่นไม่เปิด และส่ง outcome ซ้ำไม่เปิดเคสเพิ่ม
 - dev stack พร้อมหน้าจอ: `JOURNEY=on node scripts/sales-demo-stack.mjs` เริ่ม worker ทั้งสอง เปิด flag และ seed สิทธิ์ authoring ของ tenant demo (Admin เป็นผู้สร้างและ publish, `agent1001@demo.local` เป็นผู้ตรวจ) ค่าอ้างอิงของเคสชื่อ `follow-up` ทั้งสองช่อง
+- ทดลองบนหน้าจอจริง (28 พ.ย. 2569 ผ่าน): หลังเปิด stack ข้างบนด้วย `SALES_DEMO_DATABASE=<ฐานทดลอง>` Admin สร้าง journey ตามหัวข้อ "สร้าง journey ใน Console" ให้ `agent1001` อนุมัติ แล้ว Admin publish
+  นำเข้า `examples/sales-demo/customers.csv` ใน Console แล้วรันชุดซ้อมสายจำลองให้ Agent บันทึก "ต้องติดตามต่อ":
+  `SALES_DEMO_DATABASE=<ฐานทดลอง> SALES_DEMO_OUTCOME=followUp npx playwright test -c playwright.sales-demo.config.ts` (ใน `apps/workspace`)
+  ผลที่ได้: แถวผลการทำงาน `ENSURE_CASE` สำเร็จ, `agent1000` เปิดเคสจากลิงก์ได้, สายที่สองของลูกค้าเดิมผูกกับเคส OPEN เดิม, สายที่บันทึก "ได้รับความช่วยเหลือ" ไม่เริ่ม journey
 - integration: `interaction-outcome-outbox.integration.ts` (API), `cases-ensure-case-service.integration.ts` (Cases), `journey-authoring-repository.integration.ts` (ผลการทำงาน)
 - หน้าจอ: `apps/console/e2e/journey-authoring.spec.ts` และ `team-cases.spec.ts` (กรณี #1067)
 
