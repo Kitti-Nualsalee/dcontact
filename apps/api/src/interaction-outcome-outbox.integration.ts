@@ -106,10 +106,23 @@ test('nothing is written while the deployment flag is off', async () => {
   assert.deepEqual(await f.outbox(), []);
 });
 
+test('work without a linked customer writes no outcome fact', async () => {
+  const f = await fixture();
+  const work = await f.interaction(false);
+  await saveAgentWrapup(
+    application,
+    f.actor,
+    work.id,
+    { commandId: randomUUID(), disposition: 'FOLLOW_UP_REQUIRED', note: 'x' },
+    { emitOutcome: true },
+  );
+  assert.deepEqual(await f.outbox(), []);
+});
+
 test('the relay publishes the canonical V2 envelope and marks the row SENT only after the broker accepts it', async () => {
   const f = await fixture();
   const first = await f.interaction();
-  const second = await f.interaction(false);
+  const second = await f.interaction();
   for (const work of [first, second])
     await saveAgentWrapup(
       application,
@@ -131,7 +144,7 @@ test('the relay publishes the canonical V2 envelope and marks the row SENT only 
         sent.push({ topic, event });
       },
     },
-    { now: () => now, retryDelayMs: 1_000 },
+    { now: () => now, retryDelayMs: 1_000, log: () => undefined },
   );
 
   assert.equal(await relay.publishNext(f.tenantId), 'RETRY');
@@ -153,7 +166,7 @@ test('the relay publishes the canonical V2 envelope and marks the row SENT only 
     [KAFKA_TOPICS.INTERACTION_EVENTS, KAFKA_TOPICS.INTERACTION_EVENTS],
   );
   const envelopes = sent.map(({ event }) => assertInteractionOutcomeEnvelope(event));
-  assert.equal(envelopes[0]!.payload.contactId, undefined);
+  assert.equal(envelopes[0]!.orderingKey, second.id);
   const published = envelopes[1]!;
   assert.equal(published.eventId, firstRow!.id);
   assert.equal(published.tenantId, f.tenantId);

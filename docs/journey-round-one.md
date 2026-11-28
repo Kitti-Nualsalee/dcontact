@@ -15,7 +15,9 @@ Admin publish journey หนึ่งตัว → เหตุการณ์�
 
 `outcomeId` ของ disposition คือ id ของ Interaction (ผล wrap-up มีได้หนึ่งชุดต่องาน) รหัสที่ส่งได้คือ `CUSTOMER_ASSISTED`, `FOLLOW_UP_REQUIRED` และ `CALLBACK_REQUESTED` (allowlist ใน `packages/cxa-contracts`) outcome ไม่มีโน้ตของ Agent
 
-งานที่ไม่ได้ผูกลูกค้าไม่มี `contactId` ใน outcome Journey จึงตั้ง receipt เป็น REVIEW และไม่เปิดเคส
+งานที่ไม่ได้ผูกลูกค้าไม่ส่ง outcome (journey รับลูกค้าเข้าไม่ได้อยู่แล้ว)
+
+relay จองแถวด้วยการเลื่อน `available_at` 60 วินาที commit แล้วจึงส่ง ไม่ถือ transaction ระหว่างรอ broker ส่งไม่สำเร็จจะลองใหม่แบบ backoff (สูงสุดราว 5 นาที) และ log `interaction.outcome_relay.publish_failed`
 
 ## เคสที่ Journey เปิด
 
@@ -31,7 +33,8 @@ Admin publish journey หนึ่งตัว → เหตุการณ์�
 
 - หนึ่งแถวต่อ enrollment ใหม่ไปเก่า: เวลาเริ่ม, รหัสที่กระตุ้นและ id งานต้นทาง (ย่อ), เวอร์ชัน, action, ผล และลิงก์ "เปิดเคส"
 - ใช้สิทธิ์ `journey.read` เดียวกับตัว journey ผู้ที่ไม่มีสิทธิ์ได้ "ไม่พบ" เหมือน journey ที่ไม่มีอยู่
-- ไม่มีข้อมูลลูกค้า ลิงก์เคสเปิดหน้าเคสของทีม ซึ่งตรวจสิทธิ์ของผู้ดูเอง (คนนอกทีมของเคสเห็น "ไม่พบเคส")
+- ไม่มีข้อมูลลูกค้าและไม่มี id ของลูกค้า มีเฉพาะ id ของงานต้นทางและของเคส
+- ลิงก์เคสเปิดหน้าเคสของทีม ซึ่งรับเฉพาะ Agent ที่อยู่ในทีมของเคส Admin, Supervisor และ Agent ทีมอื่นเปิดเคสจากลิงก์นี้ไม่ได้
 
 ## เปิดใช้
 
@@ -44,7 +47,7 @@ Admin publish journey หนึ่งตัว → เหตุการณ์�
 | ข้อมูลอ้างอิงของเคส | `cs_case_type_policies` และ `cs_routing_policies` ที่ขั้น `ENSURE_CASE` อ้าง (`caseTypeId`, `routingIntentRef`) |
 | สิทธิ์ของทีม | ทีมเจ้าของ journey และทีมปลายทางต้องมี WORK ต่อลูกค้า ([agent-usecase-dev.md](agent-usecase-dev.md)) |
 
-migration: `20261130090000_interaction_outcome_outbox` (ตาราง outbox และ index ของ `jr_enrollments` สำหรับหน้าผลการทำงาน)
+migration: `20261130090000_interaction_outcome_outbox` (ตาราง outbox และ index ของ `jr_enrollments` สำหรับหน้าผลการทำงาน) ต้อง apply ก่อนเปิด `INTERACTION_OUTCOME_EVENTS` มิฉะนั้นการบันทึกผลงานจะล้ม
 
 ## ทดลอง
 
@@ -59,4 +62,7 @@ migration: `20261130090000_interaction_outcome_outbox` (ตาราง outbox �
 - ยังไม่มีการแก้ disposition ย้อนหลัง จึงมี outcome เวอร์ชัน 1 เท่านั้น
 - ช่อง `outcomeCode`, `caseTypeId`, `routingIntentRef` และทีมปลายทางในหน้า authoring ยังเป็นช่องพิมพ์รหัส ไม่มีตัวเลือก
 - ยังไม่มีหน้าจัดการประเภทเคสและสิทธิ์ authoring ต้อง seed โดย operator
+- เคสผูกทีมตรงจากขั้น `ENSURE_CASE` ยังไม่ผ่าน work item ของ router (เหมือนรอบแรกของ #956)
+- เคส J2 ที่ไม่มีทีมจากก่อน #1067 ไม่ถูกนับเป็นเคสเดิม ลูกค้าที่มีเคสแบบนั้นค้างอยู่จะได้เคสใหม่
+- outbox ยังไม่มีการลบแถวเก่า (หนึ่งแถวต่อผลงานที่ผูกลูกค้า)
 - action `SEND`, `SCHEDULE_CALLBACK` และ trigger `EVENT` จาก journey ที่ publish อยู่นอกรอบนี้ (ติดตามใน #888)

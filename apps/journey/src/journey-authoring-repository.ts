@@ -89,7 +89,6 @@ const LIST_SCAN_BATCH = 200;
 export interface JourneyRunSummary {
   readonly enrollmentId: string;
   readonly journeyVersion: number;
-  readonly contactId: string | null;
   readonly state: string;
   readonly runState: string;
   readonly terminalReason: string | null;
@@ -1305,7 +1304,6 @@ export class JourneyAuthoringRepository {
         select: {
           id: true,
           journeyVersion: true,
-          contactId: true,
           state: true,
           runState: true,
           terminalReason: true,
@@ -1336,7 +1334,6 @@ export class JourneyAuthoringRepository {
         return {
           enrollmentId: row.id,
           journeyVersion: row.journeyVersion,
-          contactId: row.contactId,
           state: row.state,
           runState: row.runState,
           terminalReason: row.terminalReason,

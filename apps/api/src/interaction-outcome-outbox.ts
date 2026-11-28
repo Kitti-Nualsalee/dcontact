@@ -44,20 +44,23 @@ export interface DispositionOutcomeInput {
 /**
  * Writes the outcome fact in the caller's transaction. One wrap-up result exists per interaction, so the
  * logical outcome id is the interaction id and the first recording is version 1.
- * A disposition outside the contract allowlist is not a canonical outcome and is skipped.
+ * A disposition outside the contract allowlist is not a canonical outcome and is skipped, and so is work
+ * without a linked customer.
  */
 export async function recordDispositionOutcome(
   transaction: Prisma.TransactionClient,
   input: DispositionOutcomeInput,
 ): Promise<boolean> {
   if (!DISPOSITION_OUTCOME_CODES.includes(input.disposition)) return false;
+  // work without a linked customer cannot enrol in a journey (Journey would park it for review every time)
+  if (!input.contactId) return false;
   const payload = validateInteractionOutcomePayload({
     contractVersion: 1,
     outcomeType: DISPOSITION_OUTCOME_TYPE,
     outcomeId: input.interactionId,
     outcomeVersion: 1,
     interactionId: input.interactionId,
-    ...(input.contactId ? { contactId: input.contactId } : {}),
+    contactId: input.contactId,
     outcomeCode: input.disposition,
     effectiveAt: input.recordedAt.toISOString(),
   });
@@ -89,76 +92,104 @@ export type InteractionOutcomePublishResult = 'SENT' | 'RETRY' | undefined;
 export class InteractionOutcomeRelay {
   private readonly now: () => Date;
   private readonly retryDelayMs: number;
+  private readonly leaseMs: number;
+  private readonly log: Log;
 
   constructor(
     private readonly database: PrismaClient,
     private readonly producer: Pick<DcProducer, 'send'>,
-    options: { now?: () => Date; retryDelayMs?: number } = {},
+    options: { now?: () => Date; retryDelayMs?: number; leaseMs?: number; log?: Log } = {},
   ) {
     this.now = options.now ?? (() => new Date());
     this.retryDelayMs = options.retryDelayMs ?? 5_000;
+    this.leaseMs = options.leaseMs ?? 60_000;
+    this.log = options.log ?? defaultLog;
   }
 
   /**
-   * Publishes at most one due row. The row stays locked (SKIP LOCKED) until the broker acks, so two API
-   * instances never publish the same row at once; SENT is committed only after the ack.
-   * A failed send leaves the row PENDING with a later `available_at` — the error name is kept, never the message.
+   * Publishes at most one due row in three steps so no transaction is open while waiting for the broker:
+   *   1. claim: lock the row (SKIP LOCKED), push `available_at` past the lease and commit
+   *   2. send and wait for the broker ack
+   *   3. mark SENT, or on failure leave it PENDING with a backoff — the error name is kept, never the message
+   * A crash between 2 and 3 publishes the row again after the lease: the same eventId, which consumers dedup.
    */
   async publishNext(tenantId: string): Promise<InteractionOutcomePublishResult> {
-    return withTenantDatabaseTransaction(this.database, tenantId, async (transaction) => {
-      const [row] = await transaction.$queryRaw<PendingRow[]>(Prisma.sql`
+    const claimedAt = this.now();
+    const row = await withTenantDatabaseTransaction(
+      this.database,
+      tenantId,
+      async (transaction) => {
+        const [next] = await transaction.$queryRaw<PendingRow[]>(Prisma.sql`
         SELECT id, payload, correlation_id, created_at, attempts
         FROM interaction_outcome_outbox
-        WHERE tenant_id = ${tenantId}::uuid AND state = 'PENDING' AND available_at <= ${this.now()}
+        WHERE tenant_id = ${tenantId}::uuid AND state = 'PENDING' AND available_at <= ${claimedAt}
         ORDER BY created_at, id
         LIMIT 1
         FOR UPDATE SKIP LOCKED
       `);
-      if (!row) return undefined;
-      try {
-        const payload = validateInteractionOutcomePayload(row.payload);
-        const envelope = assertInteractionOutcomeEnvelope({
-          schemaVersion: 2,
-          eventKind: 'CANONICAL',
-          eventId: row.id,
-          type: J2_EVENT_TYPES.INTERACTION_OUTCOME_RECORDED,
-          tenantId,
-          occurredAt: row.created_at.toISOString(),
-          correlationId: row.correlation_id,
-          orderingKey: payload.interactionId,
-          aggregateType: 'interaction_outcome',
-          aggregateId: payload.outcomeId,
-          aggregateVersion: payload.outcomeVersion,
-          payload,
-        });
-        await this.producer.send(
-          KAFKA_TOPICS.INTERACTION_EVENTS,
-          envelope as unknown as Parameters<DcProducer['send']>[1],
-        );
-      } catch (error) {
+        if (!next) return undefined;
         await transaction.interactionOutcomeOutbox.update({
-          where: { id: row.id },
+          where: { id: next.id },
           data: {
             attempts: { increment: 1 },
-            availableAt: new Date(
-              this.now().getTime() + this.retryDelayMs * Math.min(2 ** row.attempts, 64),
-            ),
-            lastError: error instanceof Error ? error.name : 'Unknown',
+            availableAt: new Date(claimedAt.getTime() + this.leaseMs),
           },
         });
-        return 'RETRY';
-      }
-      await transaction.interactionOutcomeOutbox.update({
-        where: { id: row.id },
-        data: {
-          state: 'SENT',
-          sentAt: this.now(),
-          attempts: { increment: 1 },
-          lastError: null,
-        },
+        return next;
+      },
+    );
+    if (!row) return undefined;
+
+    let failure: string | undefined;
+    try {
+      const payload = validateInteractionOutcomePayload(row.payload);
+      const envelope = assertInteractionOutcomeEnvelope({
+        schemaVersion: 2,
+        eventKind: 'CANONICAL',
+        eventId: row.id,
+        type: J2_EVENT_TYPES.INTERACTION_OUTCOME_RECORDED,
+        tenantId,
+        occurredAt: row.created_at.toISOString(),
+        correlationId: row.correlation_id,
+        orderingKey: payload.interactionId,
+        aggregateType: 'interaction_outcome',
+        aggregateId: payload.outcomeId,
+        aggregateVersion: payload.outcomeVersion,
+        payload,
       });
-      return 'SENT';
-    });
+      await this.producer.send(
+        KAFKA_TOPICS.INTERACTION_EVENTS,
+        envelope as unknown as Parameters<DcProducer['send']>[1],
+      );
+    } catch (error) {
+      failure = error instanceof Error ? error.name : 'Unknown';
+    }
+
+    // only a row that is still PENDING moves: another instance may have sent it after the lease ran out
+    await withTenantDatabaseTransaction(this.database, tenantId, (transaction) =>
+      transaction.interactionOutcomeOutbox.updateMany({
+        where: { tenantId, id: row.id, state: 'PENDING' },
+        data: failure
+          ? {
+              availableAt: new Date(
+                this.now().getTime() + this.retryDelayMs * Math.min(2 ** row.attempts, 64),
+              ),
+              lastError: failure,
+            }
+          : { state: 'SENT', sentAt: this.now(), lastError: null },
+      }),
+    );
+    if (failure) {
+      this.log({
+        event: 'interaction.outcome_relay.publish_failed',
+        tenantId,
+        outboxId: row.id,
+        attempts: row.attempts + 1,
+        error: failure,
+      });
+      return 'RETRY';
+    }
+    return 'SENT';
   }
 }
 
@@ -222,7 +253,7 @@ export function startInteractionOutcomeWorker(
         return;
       }
       producer = opened;
-      const relay = new InteractionOutcomeRelay(database, opened);
+      const relay = new InteractionOutcomeRelay(database, opened, { log });
       loop = startBackgroundLoop({
         name: 'interaction.outcome_relay',
         intervalMs: options.intervalMs ?? 1_000,

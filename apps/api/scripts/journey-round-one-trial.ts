@@ -396,7 +396,6 @@ async function main(): Promise<void> {
   });
   assert.equal(done.trigger?.outcomeCode, 'FOLLOW_UP_REQUIRED');
   assert.equal(done.trigger?.interactionId, followUp);
-  assert.equal(done.contactId, f.contactId);
   const caseId = done.actions[0]!.ownerAggregateId;
   assert.ok(caseId);
   step(`results of the journey: 1 run, ENSURE_CASE acknowledged, case ${caseId}`);

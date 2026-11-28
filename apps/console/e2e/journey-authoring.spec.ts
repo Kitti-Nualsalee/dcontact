@@ -459,8 +459,6 @@ test('#1067 run results: a published journey lists its runs with the result and 
     assignee: 'team',
     case: RUN_CASE_ID,
   });
-  // no customer data on this page: the contact id is not rendered
-  await expect(table).not.toContainText('c0000000');
   await expect(page.getByRole('button', { name: th('journeys:runs.reload') })).toBeVisible();
   await expectNoSeriousA11yViolations(page);
 });

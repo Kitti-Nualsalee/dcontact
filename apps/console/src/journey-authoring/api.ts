@@ -69,7 +69,6 @@ export interface PendingReview {
 export interface JourneyRun {
   enrollmentId: string;
   journeyVersion: number;
-  contactId: string | null;
   state: string;
   runState: string;
   terminalReason: string | null;

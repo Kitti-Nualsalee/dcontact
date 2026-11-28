@@ -11,30 +11,30 @@ datasource db {
 // ─────────────────────────── Tenancy & Users ───────────────────────────
 
 model Tenant {
-  coreCommands        TenantCoreCommand[]
-  coreAudits          TenantCoreConfigAudit[]
+  coreCommands TenantCoreCommand[]
+  coreAudits TenantCoreConfigAudit[]
   coreProfileRevision TenantCoreProfileRevision?
 
-  voiceIdentityBindings     TenantVoiceIdentityBinding[]
+  voiceIdentityBindings TenantVoiceIdentityBinding[]
   voiceIdentityBindingAudit TenantVoiceIdentityBindingAudit[]
   voiceConfigCommands       VoiceConfigCommand[]
   voiceConfigAudit          VoiceConfigAudit[]
   voiceProvisioningPolicy   TenantVoiceProvisioningPolicy?
   voicePolicyAudit          TenantVoicePolicyAudit[]
-  id                        String                            @id @default(uuid()) @db.Uuid
+  id                        String                  @id @default(uuid()) @db.Uuid
   name                      String
-  slug                      String                            @unique
-  sipDomain                 String                            @unique @map("sip_domain")
-  defaultOfferTimeoutSec    Int                               @default(20) @map("default_offer_timeout_sec")
-  defaultOfferTimeoutAction QueueOfferTimeoutAction           @default(COOLDOWN_REQUEUE) @map("default_offer_timeout_action")
-  defaultOfferCooldownSec   Int                               @default(60) @map("default_offer_cooldown_sec")
-  defaultMaxWaitSec         Int?                              @map("default_max_wait_sec")
-  defaultMaxWaitAction      QueueMaxWaitAction                @default(VOICEMAIL) @map("default_max_wait_action")
-  createdAt                 DateTime                          @default(now()) @map("created_at")
+  slug                      String                  @unique
+  sipDomain                 String                  @unique @map("sip_domain")
+  defaultOfferTimeoutSec    Int                     @default(20) @map("default_offer_timeout_sec")
+  defaultOfferTimeoutAction QueueOfferTimeoutAction @default(COOLDOWN_REQUEUE) @map("default_offer_timeout_action")
+  defaultOfferCooldownSec   Int                     @default(60) @map("default_offer_cooldown_sec")
+  defaultMaxWaitSec         Int?                    @map("default_max_wait_sec")
+  defaultMaxWaitAction      QueueMaxWaitAction      @default(VOICEMAIL) @map("default_max_wait_action")
+  createdAt                 DateTime                @default(now()) @map("created_at")
   /// A1.1 (#406): a tenant created through provisioning starts at PROVISIONING; all existing tenants are ACTIVE
-  lifecycleStatus           TenantLifecycleStatus             @default(ACTIVE) @map("lifecycle_status")
+  lifecycleStatus           TenantLifecycleStatus   @default(ACTIVE) @map("lifecycle_status")
   /// domain of the customer organization (IDNA lowercase) — NULL for existing tenants; uniqueness/tombstone is controlled by reservation
-  primaryDomain             String?                           @unique @map("primary_domain")
+  primaryDomain             String?                 @unique @map("primary_domain")
 
   pfProvisioningRequests       PfProvisioningRequest[]
   settings                     TenantSettings?
@@ -146,8 +146,8 @@ model Tenant {
   agentWorkSessionEvents AgentWorkSessionEvent[]
   agentSipCredentials    AgentSipCredential[]
 
-  embedOrigins             TenantEmbedOrigin[]
-  embedOriginAuditEvents   TenantEmbedOriginAuditEvent[]
+  embedOrigins           TenantEmbedOrigin[]
+  embedOriginAuditEvents TenantEmbedOriginAuditEvent[]
   // AC1 (#594): account policy and account self-service (#589)
   accountPolicy            TenantAccountPolicy?
   accountPolicyAuditEvents TenantAccountPolicyAuditEvent[]
@@ -155,7 +155,7 @@ model Tenant {
   accountTotpEnrolments    AccountTotpEnrolment[]
   accountAuditEvents       AccountAuditEvent[]
   accountEmailOutbox       AccountEmailOutbox[]
-  clickToCallAuditEvents   DphoneClickToCallAuditEvent[]
+  clickToCallAuditEvents DphoneClickToCallAuditEvent[]
 
   @@map("tenants")
 }
@@ -167,23 +167,23 @@ enum UserRole {
 }
 
 model User {
-  coreInitializedSettings TenantSettings[]    @relation("CoreSettingsInitializer")
-  coreCommands            TenantCoreCommand[]
+  coreInitializedSettings TenantSettings[] @relation("CoreSettingsInitializer")
+  coreCommands TenantCoreCommand[]
 
   voiceIdentityBindings TenantVoiceIdentityBinding[]
-  id                    String                       @id @default(uuid()) @db.Uuid
-  keycloakId            String?                      @unique @map("keycloak_id") @db.Uuid
-  tenantId              String                       @map("tenant_id") @db.Uuid
-  email                 String
-  passwordHash          String                       @map("password_hash")
-  displayName           String                       @map("display_name")
-  configRevision        Int                          @default(1) @map("config_revision")
-  role                  UserRole                     @default(AGENT)
+  id           String   @id @default(uuid()) @db.Uuid
+  keycloakId   String?  @unique @map("keycloak_id") @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  email        String
+  passwordHash String   @map("password_hash")
+  displayName  String   @map("display_name")
+  configRevision Int @default(1) @map("config_revision")
+  role         UserRole @default(AGENT)
   // SIP extension for the softphone (agents only)
-  extension             String?
-  teamId                String?                      @map("team_id") @db.Uuid
-  isActive              Boolean                      @default(true) @map("is_active")
-  createdAt             DateTime                     @default(now()) @map("created_at")
+  extension    String?
+  teamId       String?  @map("team_id") @db.Uuid
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
 
   tenant       Tenant          @relation(fields: [tenantId], references: [id])
   team         Team?           @relation(fields: [teamId], references: [id])
@@ -191,8 +191,8 @@ model User {
   stateLogs    AgentStateLog[]
   interactions Interaction[]
 
-  workSessionLeases     AgentWorkSessionLease[]
-  sipCredentials        AgentSipCredential[]
+  workSessionLeases AgentWorkSessionLease[]
+  sipCredentials    AgentSipCredential[]
   // AC1 (#594)
   accountEmailChanges   AccountEmailChange[]
   accountTotpEnrolments AccountTotpEnrolment[]
@@ -206,11 +206,11 @@ model User {
 
 model Team {
   managedSkills Skill[]
-  id            String  @id @default(uuid()) @db.Uuid
-  tenantId      String  @map("tenant_id") @db.Uuid
-  name          String
-  isActive      Boolean @default(true) @map("is_active")
-  revision      BigInt  @default(1)
+  id       String  @id @default(uuid()) @db.Uuid
+  tenantId String  @map("tenant_id") @db.Uuid
+  name     String
+  isActive Boolean @default(true) @map("is_active")
+  revision BigInt @default(1)
 
   tenant  Tenant  @relation(fields: [tenantId], references: [id])
   members User[]
@@ -311,17 +311,17 @@ enum VoiceDestinationEntryMode {
 }
 
 model VoiceDestination {
-  configRevision     Int                       @default(1) @map("config_revision")
-  voiceConfigVersion Int?                      @map("voice_config_version")
-  id                 String                    @id @default(uuid()) @db.Uuid
-  tenantId           String                    @map("tenant_id") @db.Uuid
-  destination        String
-  entryMode          VoiceDestinationEntryMode @default(DIRECT_QUEUE) @map("entry_mode")
-  queueId            String                    @map("queue_id") @db.Uuid
-  ivrConfig          Json?                     @map("ivr_config")
-  isActive           Boolean                   @default(true) @map("is_active")
-  createdAt          DateTime                  @default(now()) @map("created_at")
-  updatedAt          DateTime                  @updatedAt @map("updated_at")
+  configRevision Int @default(1) @map("config_revision")
+  voiceConfigVersion Int? @map("voice_config_version")
+  id          String                    @id @default(uuid()) @db.Uuid
+  tenantId    String                    @map("tenant_id") @db.Uuid
+  destination String
+  entryMode   VoiceDestinationEntryMode @default(DIRECT_QUEUE) @map("entry_mode")
+  queueId     String                    @map("queue_id") @db.Uuid
+  ivrConfig   Json?                     @map("ivr_config")
+  isActive    Boolean                   @default(true) @map("is_active")
+  createdAt   DateTime                  @default(now()) @map("created_at")
+  updatedAt   DateTime                  @updatedAt @map("updated_at")
 
   tenant Tenant @relation(fields: [tenantId], references: [id])
   queue  Queue  @relation(fields: [tenantId, queueId], references: [tenantId, id])
@@ -363,9 +363,9 @@ model Skill {
   revision           Int      @default(1)
   voiceConfigVersion Int?     @map("voice_config_version")
   createdAt          DateTime @default(now()) @map("created_at")
-  id                 String   @id @default(uuid()) @db.Uuid
-  tenantId           String   @map("tenant_id") @db.Uuid
-  name               String
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  name     String
 
   tenant Tenant       @relation(fields: [tenantId], references: [id])
   agents AgentSkill[]
@@ -380,9 +380,9 @@ model Skill {
 
 model AgentSkill {
   tenantId String @map("tenant_id") @db.Uuid
-  userId   String @map("user_id") @db.Uuid
-  skillId  String @map("skill_id") @db.Uuid
-  level    Int    @default(1) // 1-5
+  userId  String @map("user_id") @db.Uuid
+  skillId String @map("skill_id") @db.Uuid
+  level   Int    @default(1) // 1-5
 
   user  User  @relation(fields: [tenantId, userId], references: [tenantId, id], onDelete: Restrict, onUpdate: Cascade)
   skill Skill @relation(fields: [tenantId, skillId], references: [tenantId, id], onDelete: Restrict, onUpdate: Cascade)
@@ -460,15 +460,15 @@ enum IdentityType {
 }
 
 model Contact {
-  id              String   @id @default(uuid()) @db.Uuid
-  tenantId        String   @map("tenant_id") @db.Uuid
-  displayName     String?  @map("display_name")
-  company         String?
-  vip             Boolean  @default(false)
-  vipSource       String   @default("LEGACY_DEFAULT") @map("vip_source")
-  profileRevision BigInt   @default(0) @map("profile_revision")
-  tagRevision     BigInt   @default(0) @map("tag_revision")
-  createdAt       DateTime @default(now()) @map("created_at")
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  displayName String?  @map("display_name")
+  company     String?
+  vip         Boolean  @default(false)
+  vipSource   String   @default("LEGACY_DEFAULT") @map("vip_source")
+  profileRevision BigInt @default(0) @map("profile_revision")
+  tagRevision BigInt   @default(0) @map("tag_revision")
+  createdAt   DateTime @default(now()) @map("created_at")
 
   tenant                 Tenant                        @relation(fields: [tenantId], references: [id])
   identities             ContactIdentity[]
@@ -1005,20 +1005,20 @@ model C360ContactPoint {
 
 /// A per-contact custodian permission (R1 C) — append-only; revoked with C360ContactCustodianRevocation
 model C360ContactCustodianGrant {
-  integrationPrincipalId String?  @map("integration_principal_id") @db.Uuid
-  id                     String   @id @db.Uuid
-  tenantId               String   @map("tenant_id") @db.Uuid
-  contactId              String   @map("contact_id") @db.Uuid
-  granteeUserId          String   @map("grantee_user_id") @db.Uuid
+  integrationPrincipalId String? @map("integration_principal_id") @db.Uuid
+  id               String   @id @db.Uuid
+  tenantId         String   @map("tenant_id") @db.Uuid
+  contactId        String   @map("contact_id") @db.Uuid
+  granteeUserId    String   @map("grantee_user_id") @db.Uuid
   /// READ | MANAGE
-  permission             String
+  permission       String
   /// CREATOR | OPERATOR | INTEGRATION
-  origin                 String
-  evidenceRef            String?  @map("evidence_ref")
-  actorIdentityKey       String   @map("actor_identity_key")
-  commandId              String   @map("command_id") @db.Uuid
-  actorUserId            String?  @map("actor_user_id") @db.Uuid
-  grantedAt              DateTime @default(dbgenerated("clock_timestamp()")) @map("granted_at") @db.Timestamptz(6)
+  origin           String
+  evidenceRef      String?  @map("evidence_ref")
+  actorIdentityKey String   @map("actor_identity_key")
+  commandId        String   @map("command_id") @db.Uuid
+  actorUserId      String?  @map("actor_user_id") @db.Uuid
+  grantedAt        DateTime @default(dbgenerated("clock_timestamp()")) @map("granted_at") @db.Timestamptz(6)
 
   @@unique([tenantId, id], map: "c360_contact_custodian_grants_tenant_id_key")
   @@index([tenantId, granteeUserId, contactId], map: "c360_contact_custodian_grants_grantee_idx")
@@ -4081,14 +4081,14 @@ model DlVoiceAllowlistEntry {
 }
 
 model DlVoiceCapLedgerEntry {
-  id          String            @id @default(uuid()) @db.Uuid
-  tenantId    String            @map("tenant_id") @db.Uuid
-  gateId      String            @map("gate_id") @db.Uuid
-  deliveryId  String            @map("delivery_id")
-  agentUserId String            @map("agent_user_id") @db.Uuid
-  adapter     DlDeliveryAdapter @default(FREESWITCH_ORIGINATE)
-  reservedAt  DateTime          @map("reserved_at")
-  createdAt   DateTime          @default(now()) @map("created_at")
+  id         String           @id @default(uuid()) @db.Uuid
+  tenantId   String           @map("tenant_id") @db.Uuid
+  gateId     String           @map("gate_id") @db.Uuid
+  deliveryId String           @map("delivery_id")
+  agentUserId String           @map("agent_user_id") @db.Uuid
+  adapter    DlDeliveryAdapter @default(FREESWITCH_ORIGINATE)
+  reservedAt DateTime          @map("reserved_at")
+  createdAt  DateTime          @default(now()) @map("created_at")
 
   @@unique([tenantId, deliveryId], map: "dl_voice_cap_ledger_delivery_key")
   @@index([tenantId, gateId, reservedAt], map: "dl_voice_cap_ledger_window_idx")
@@ -4641,13 +4641,13 @@ model Interaction {
   ivrAttempts       Int            @default(0) @map("ivr_attempts")
   ivrInputExpiresAt DateTime?      @map("ivr_input_expires_at")
 
-  tenant              Tenant                     @relation(fields: [tenantId], references: [id])
-  queue               Queue?                     @relation(fields: [queueId], references: [id])
-  agent               User?                      @relation(fields: [agentId], references: [id])
-  contact             Contact?                   @relation(fields: [contactId], references: [id])
-  conversation        Conversation?              @relation(fields: [conversationId], references: [id])
-  reopenedFrom        Interaction?               @relation("InteractionReopenChain", fields: [reopenedFromInteractionId], references: [id])
-  reopenedBy          Interaction[]              @relation("InteractionReopenChain")
+  tenant              Tenant                    @relation(fields: [tenantId], references: [id])
+  queue               Queue?                    @relation(fields: [queueId], references: [id])
+  agent               User?                     @relation(fields: [agentId], references: [id])
+  contact             Contact?                  @relation(fields: [contactId], references: [id])
+  conversation        Conversation?             @relation(fields: [conversationId], references: [id])
+  reopenedFrom        Interaction?              @relation("InteractionReopenChain", fields: [reopenedFromInteractionId], references: [id])
+  reopenedBy          Interaction[]             @relation("InteractionReopenChain")
   events              InteractionEvent[]
   messages            Message[]
   recordings          Recording[]
@@ -6690,20 +6690,20 @@ enum BusinessHoursStatus {
 
 /// tenant defaults from provisioning — locale/timezone and the bootstrap manifest used for seeding
 model TenantSettings {
-  initializationSource     String             @default("PROVISIONING") @map("initialization_source")
-  initializedByUserId      String?            @map("initialized_by_user_id") @db.Uuid
-  initializedByIdentityKey String?            @map("initialized_by_identity_key") @db.Char(64)
-  initializedByCommandId   String?            @map("initialized_by_command_id") @db.Uuid
-  initializedByUser        User?              @relation("CoreSettingsInitializer", fields: [tenantId, initializedByUserId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction, map: "core_settings_initializer_user")
-  initializedByCommand     TenantCoreCommand? @relation(fields: [tenantId, initializedByIdentityKey, initializedByCommandId], references: [tenantId, actorIdentityKey, commandId], onDelete: NoAction, onUpdate: NoAction, map: "core_settings_initializer_command")
-  tenantId                 String             @id @map("tenant_id") @db.Uuid
+  initializationSource String @default("PROVISIONING") @map("initialization_source")
+  initializedByUserId String? @map("initialized_by_user_id") @db.Uuid
+  initializedByIdentityKey String? @map("initialized_by_identity_key") @db.Char(64)
+  initializedByCommandId String? @map("initialized_by_command_id") @db.Uuid
+  initializedByUser User? @relation("CoreSettingsInitializer", fields: [tenantId, initializedByUserId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction, map: "core_settings_initializer_user")
+  initializedByCommand TenantCoreCommand? @relation(fields: [tenantId, initializedByIdentityKey, initializedByCommandId], references: [tenantId, actorIdentityKey, commandId], onDelete: NoAction, onUpdate: NoAction, map: "core_settings_initializer_command")
+  tenantId                 String   @id @map("tenant_id") @db.Uuid
   locale                   String
   timezone                 String
-  bootstrapTemplateVersion String?            @map("bootstrap_template_version")
-  bootstrapTemplateDigest  String?            @map("bootstrap_template_digest") @db.Char(64)
-  provisioningRequestId    String?            @map("provisioning_request_id") @db.Uuid
-  createdAt                DateTime           @default(now()) @map("created_at")
-  updatedAt                DateTime           @updatedAt @map("updated_at")
+  bootstrapTemplateVersion String?  @map("bootstrap_template_version")
+  bootstrapTemplateDigest  String?  @map("bootstrap_template_digest") @db.Char(64)
+  provisioningRequestId    String?  @map("provisioning_request_id") @db.Uuid
+  createdAt                DateTime @default(now()) @map("created_at")
+  updatedAt                DateTime @updatedAt @map("updated_at")
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
 
@@ -7250,7 +7250,7 @@ model TenantVoiceIdentityBinding {
   isActive                  Boolean  @map("is_active")
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  user   User   @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  user User @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@id([tenantId, userId])
   @@unique([issuer, subjectId])
@@ -7274,22 +7274,22 @@ model TenantVoiceIdentityBindingAudit {
 /// Core Settings: admission has no payload; terminal effects/audit/receipt commit together
 model TenantCoreCommand {
   initializedSettings TenantSettings[]
-  tenantId            String                    @map("tenant_id") @db.Uuid
-  actorIdentityKey    String                    @map("actor_identity_key") @db.Char(64)
-  commandId           String                    @map("command_id") @db.Uuid
-  actorUserId         String                    @map("actor_user_id") @db.Uuid
-  schemaVersion       Int                       @default(1) @map("schema_version")
-  action              String?
-  resourceType        String?                   @map("resource_type")
-  resourceId          String?                   @map("resource_id") @db.Uuid
-  payloadDigest       String?                   @map("payload_digest") @db.Char(64)
-  expectedRevision    BigInt?                   @map("expected_revision")
-  isTombstone         Boolean                   @default(false) @map("is_tombstone")
-  createdAt           DateTime                  @default(now()) @map("created_at") @db.Timestamptz
-  tenant              Tenant                    @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  actor               User                      @relation(fields: [tenantId, actorUserId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
-  receipt             TenantCoreCommandReceipt?
-  audit               TenantCoreConfigAudit?
+  tenantId         String                    @map("tenant_id") @db.Uuid
+  actorIdentityKey String                    @map("actor_identity_key") @db.Char(64)
+  commandId        String                    @map("command_id") @db.Uuid
+  actorUserId      String                    @map("actor_user_id") @db.Uuid
+  schemaVersion    Int                       @default(1) @map("schema_version")
+  action           String?
+  resourceType     String?                   @map("resource_type")
+  resourceId       String?                   @map("resource_id") @db.Uuid
+  payloadDigest    String?                   @map("payload_digest") @db.Char(64)
+  expectedRevision BigInt?                   @map("expected_revision")
+  isTombstone      Boolean                   @default(false) @map("is_tombstone")
+  createdAt        DateTime                  @default(now()) @map("created_at") @db.Timestamptz
+  tenant           Tenant                    @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  actor            User                      @relation(fields: [tenantId, actorUserId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  receipt          TenantCoreCommandReceipt?
+  audit            TenantCoreConfigAudit?
 
   @@id([tenantId, actorIdentityKey, commandId])
   @@index([tenantId, resourceType, resourceId, createdAt], map: "tenant_core_commands_resource")
@@ -7336,11 +7336,11 @@ model TenantCoreConfigAudit {
 }
 
 model TenantCoreProfileRevision {
-  transactionId  BigInt? @map("transaction_id")
-  capturedBefore Json?   @map("captured_before")
-  tenantId       String  @id @map("tenant_id") @db.Uuid
-  revision       BigInt
-  tenant         Tenant  @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  transactionId BigInt? @map("transaction_id")
+  capturedBefore Json? @map("captured_before")
+  tenantId String @id @map("tenant_id") @db.Uuid
+  revision BigInt
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@map("tenant_core_profile_revisions")
 }

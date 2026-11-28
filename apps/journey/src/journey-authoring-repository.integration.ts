@@ -449,7 +449,6 @@ test('#1067 journey runs: lists enrollments newest first with trigger outcome an
     {
       enrollmentId: first.enrollmentId,
       journeyVersion: 1,
-      contactId: null,
       state: 'AUTHORIZED',
       runState: 'WAITING',
       terminalReason: null,

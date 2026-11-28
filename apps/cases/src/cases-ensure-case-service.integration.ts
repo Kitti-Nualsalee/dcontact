@@ -524,6 +524,31 @@ test('#1067: the new case belongs to the target team, which sees and handles it 
   });
   assert.equal(noted.version, detail.version + 1);
 
+  // once the team closes the case, the next outcome opens a new one instead of linking into the closed case
+  const resolved = await cases.changeStatus(actor, detail.id, {
+    commandId: randomUUID(),
+    expectedVersion: noted.version,
+    status: 'RESOLVED',
+  });
+  await cases.changeStatus(actor, detail.id, {
+    commandId: randomUUID(),
+    expectedVersion: resolved.version,
+    status: 'CLOSED',
+  });
+  const later = commandFor(f);
+  await service.persistCommand(tenant, later);
+  const reopened = await service.queryAction(tenant, {
+    contractVersion: 1,
+    actionKey: later.actionKey,
+    requestHash: later.requestHash,
+  });
+  assert.equal(reopened?.status, 'CREATED');
+  assert.notEqual(reopened?.ownerAggregate?.id, detail.id);
+  assert.deepEqual((await cases.list(actor)).items.map((item) => item.status).sort(), [
+    'CLOSED',
+    'OPEN',
+  ]);
+
   // another team neither sees it nor gets its own work linked into it
   const outsider = { tenantId: f.rawTenantId, userId: outsiderId };
   assert.deepEqual((await cases.list(outsider)).items, []);

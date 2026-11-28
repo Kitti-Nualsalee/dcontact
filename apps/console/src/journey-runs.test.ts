@@ -6,7 +6,6 @@ import { runResult } from './journey-authoring/run-result.js';
 const run = (overrides: Partial<JourneyRun> = {}): JourneyRun => ({
   enrollmentId: 'e',
   journeyVersion: 1,
-  contactId: null,
   state: 'AUTHORIZED',
   runState: 'WAITING',
   terminalReason: null,

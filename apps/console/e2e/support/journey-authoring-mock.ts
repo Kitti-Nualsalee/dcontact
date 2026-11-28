@@ -281,7 +281,6 @@ export class AuthoringMock {
             {
               enrollmentId: '5e000000-0000-4000-8000-000000000002',
               journeyVersion: 1,
-              contactId: 'c0000000-0000-4000-8000-000000000002',
               state: 'AUTHORIZED',
               runState: 'WAITING',
               terminalReason: null,
@@ -305,7 +304,6 @@ export class AuthoringMock {
             {
               enrollmentId: '5e000000-0000-4000-8000-000000000001',
               journeyVersion: 1,
-              contactId: 'c0000000-0000-4000-8000-000000000001',
               state: 'AUTHORIZED',
               runState: 'WAITING',
               terminalReason: null,
