@@ -210,15 +210,21 @@ export class CasesEnsureCaseService implements J2CaseOwnerPort {
     );
 
     // #956 a case opened by an Agent is written by AgentCases, so it is not linked/reopened even when the type matches
-    const existingCase = await transaction.csCase.findFirst({
-      where: {
-        tenantId,
-        contactId: command.contactId,
-        caseTypeKey: typePolicy.caseTypeKey,
-        createdByUserId: null,
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+    // #1067 a case belongs to its target team: a case of another team (or an older one without a team) is not
+    // linked/reopened either, otherwise work would land in a case the target team cannot see
+    // The row is locked before its status is read: since #1067 an Agent of the team can resolve or close this
+    // case concurrently (AgentCases locks the same row), and work must never be linked into a closed case
+    const [candidate] = await transaction.$queryRaw<{ id: string }[]>(Prisma.sql`
+      SELECT id FROM cs_cases
+       WHERE tenant_id = ${tenantId}::uuid AND contact_id = ${command.contactId}::uuid
+         AND case_type_key = ${typePolicy.caseTypeKey}
+         AND created_by_user_id IS NULL AND team_id = ${command.targetOwnerTeamId}::uuid
+       ORDER BY created_at DESC, id DESC
+       LIMIT 1
+       FOR UPDATE`);
+    const existingCase = candidate
+      ? await transaction.csCase.findUnique({ where: { id: candidate.id } })
+      : null;
 
     if (existingCase?.status === 'OPEN') {
       const linked = await transaction.csCase.update({
@@ -252,6 +258,8 @@ export class CasesEnsureCaseService implements J2CaseOwnerPort {
         contactId: command.contactId,
         caseTypeKey: typePolicy.caseTypeKey,
         routingRef: routingPolicy.queueRef,
+        // #1067 the target team sees and handles the case in its team case list (no subject, no author)
+        teamId: command.targetOwnerTeamId,
         status: 'OPEN',
         version: 1,
       },

@@ -25,7 +25,8 @@
     "OUTBOUND": "สายออก"
   },
   "actor": {
-    "unknown": "ผู้ใช้ที่ไม่พบในทีม"
+    "unknown": "ผู้ใช้ที่ไม่พบในทีม",
+    "automation": "ระบบอัตโนมัติ"
   },
   "unassigned": "ยังไม่มีผู้รับผิดชอบ",
   "list": "รายการเคสของทีม",
@@ -41,6 +42,7 @@
   "you": "คุณ",
   "open": "เปิด",
   "openItem": "เปิดเคส {{subject}}",
+  "automationSubject": "เคสติดตามจาก Journey",
   "unnamed": "ไม่ระบุชื่อ",
   "customerUnavailable": "ไม่มีข้อมูลลูกค้า",
   "page": {
@@ -92,6 +94,7 @@
     "loadEarlier": "โหลดรายการก่อนหน้า ({{count}})",
     "opened": "{{actor}} เปิดเคส และให้ {{assignee}} เป็นผู้รับผิดชอบ",
     "openedSelf": "{{actor}} เปิดเคส และให้ตัวเองเป็นผู้รับผิดชอบ",
+    "openedAuto": "{{actor}} เปิดเคสจากงานที่จบแล้ว",
     "linked": "{{actor}} ผูกงาน {{channel}} {{direction}}",
     "openHistory": "เปิดในประวัติงาน",
     "note": "{{actor}} เพิ่มโน้ต",

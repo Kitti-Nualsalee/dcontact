@@ -45,6 +45,8 @@ export const AGENT_WORKSPACE_CUSTOMER_AVAILABLE = Symbol('AGENT_WORKSPACE_CUSTOM
 export const AGENT_WORKSPACE_WEBCHAT = Symbol('AGENT_WORKSPACE_WEBCHAT');
 /** #1061: the deployment has agent callbacks on */
 export const AGENT_WORKSPACE_CALLBACKS = Symbol('AGENT_WORKSPACE_CALLBACKS');
+/** #1067: the deployment emits `interaction.outcome_recorded` when a disposition is recorded */
+export const AGENT_WORKSPACE_OUTCOME_EVENTS = Symbol('AGENT_WORKSPACE_OUTCOME_EVENTS');
 
 async function wrapupOperation<Result>(
   request: AuthenticatedGatewayRequest,
@@ -126,6 +128,9 @@ export class AgentWorkspaceController {
     @Optional()
     @Inject(AGENT_WORKSPACE_CALLBACKS)
     private readonly callbacksAvailable = false,
+    @Optional()
+    @Inject(AGENT_WORKSPACE_OUTCOME_EVENTS)
+    private readonly outcomeEvents = false,
   ) {}
 
   @Get('history')
@@ -556,7 +561,9 @@ export class AgentWorkspaceController {
     @Body() body: unknown,
   ) {
     return wrapupOperation(request, () =>
-      saveAgentWrapup(this.database, identity(request), interactionId, body),
+      saveAgentWrapup(this.database, identity(request), interactionId, body, {
+        emitOutcome: this.outcomeEvents,
+      }),
     );
   }
 

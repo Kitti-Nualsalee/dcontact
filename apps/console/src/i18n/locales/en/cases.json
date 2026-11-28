@@ -25,7 +25,8 @@
     "OUTBOUND": "outbound"
   },
   "actor": {
-    "unknown": "User no longer in team"
+    "unknown": "User no longer in team",
+    "automation": "Automation"
   },
   "unassigned": "No assignee",
   "list": "Team case list",
@@ -41,6 +42,7 @@
   "you": "You",
   "open": "Open",
   "openItem": "Open case {{subject}}",
+  "automationSubject": "Follow-up case from Journey",
   "unnamed": "Unnamed",
   "customerUnavailable": "Customer unavailable",
   "page": {
@@ -92,6 +94,7 @@
     "loadEarlier": "Load earlier ({{count}})",
     "opened": "{{actor}} opened the case and assigned {{assignee}}",
     "openedSelf": "{{actor}} opened the case and assigned themselves",
+    "openedAuto": "{{actor}} opened the case from finished work",
     "linked": "{{actor}} linked {{channel}} {{direction}} work",
     "openHistory": "Open in work history",
     "note": "{{actor}} added a note",

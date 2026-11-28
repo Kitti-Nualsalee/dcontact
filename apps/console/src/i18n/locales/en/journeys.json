@@ -49,7 +49,9 @@
     "heading": "Create a blank journey",
     "name": "Journey name",
     "team": "Owner team (team ID)",
+    "triggerKind": "Start the journey on",
     "event": "Event that starts the journey",
+    "goalEvent": "Goal event",
     "sender": "Sender identity",
     "purpose": "Purpose (e.g. SERVICE)",
     "submit": "Create draft"
@@ -107,6 +109,31 @@
     "user": "user",
     "reason": "reason",
     "correlation": "correlation"
+  },
+  "runs": {
+    "heading": "Run results",
+    "help": "Each row is one time this journey started for a customer. No customer data is shown here; open the case to see it.",
+    "show": "Show results",
+    "reload": "Reload results",
+    "empty": "This journey has not run yet",
+    "caption": "Runs of this journey, newest first",
+    "openCase": "Open case",
+    "col": {
+      "startedAt": "Started",
+      "trigger": "Trigger",
+      "version": "Version",
+      "action": "Action",
+      "result": "Result",
+      "link": "Link"
+    },
+    "result": {
+      "done": "Done",
+      "waiting": "In progress",
+      "rejected": "Rejected by target",
+      "blocked": "Not allowed",
+      "cancelled": "Cancelled"
+    },
+    "loading": "Loading results…"
   },
   "uat": {
     "heading": "UAT test run",
@@ -477,5 +504,10 @@
     "PUBLISH_OUTCOME_UNKNOWN": "Publish outcome unknown; check it with the same command",
     "SIMULATION_CONTEXT_INVALID": "The simulation context must be a JSON object of synthetic values",
     "fallback": "The command failed. Try again or contact your administrator."
+  },
+  "outcomeType": {
+    "INTERACTION_ABANDONED": "Abandoned before answer",
+    "INTERACTION_DISPOSITION_RECORDED": "Outcome recorded by the agent",
+    "FEEDBACK_DETRACTOR_RECORDED": "Detractor feedback"
   }
 }

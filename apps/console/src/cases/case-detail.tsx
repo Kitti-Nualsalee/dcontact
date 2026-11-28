@@ -143,6 +143,7 @@ export function CaseDetailView({ api, caseId, viewerUserId, onBack, onSignIn }: 
 
   const { case: item, people, customer, teamName } = data;
   const closed = item.status === 'CLOSED';
+  const subject = item.subject ?? t('automationSubject');
   const name = (userId: string | null | undefined) =>
     userId ? (people[userId] ?? t('actor.unknown')) : t('unassigned');
   const customerName = customer
@@ -318,8 +319,8 @@ export function CaseDetailView({ api, caseId, viewerUserId, onBack, onSignIn }: 
       <header className="cs-detail-head">
         <div className="cs-detail-title">
           <div className="cs-title-line">
-            <h1 ref={headingRef} tabIndex={-1} title={item.subject}>
-              {item.subject}
+            <h1 ref={headingRef} tabIndex={-1} title={subject}>
+              {subject}
             </h1>
             <CaseStatusChip status={item.status} />
           </div>
@@ -467,7 +468,7 @@ export function CaseDetailView({ api, caseId, viewerUserId, onBack, onSignIn }: 
               <dt>{t('summary.team')}</dt>
               <dd>{teamName}</dd>
               <dt>{t('summary.openedBy')}</dt>
-              <dd>{name(item.createdByUserId)}</dd>
+              <dd>{item.createdByUserId ? name(item.createdByUserId) : t('actor.automation')}</dd>
               <dt>{t('summary.openedAt')}</dt>
               <dd>{format(item.createdAt)}</dd>
               {item.closedAt ? (
@@ -569,7 +570,7 @@ export function CaseDetailView({ api, caseId, viewerUserId, onBack, onSignIn }: 
         isDismissable={false}
         isOpen={dialog === 'close'}
         onOpenChange={(open) => !open && !busy && setDialog(undefined)}
-        title={t('close.title', { subject: item.subject })}
+        title={t('close.title', { subject })}
         footer={(close) => (
           <>
             <Button autoFocus variant="ghost" isDisabled={busy === 'close'} onPress={close}>

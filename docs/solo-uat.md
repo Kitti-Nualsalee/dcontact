@@ -155,6 +155,17 @@ service `qm` ใน `infra/solo/app/docker-compose.yml` รัน `apps/qm` (`/a
 - ชุดทดลองทั้งเส้น `apps/workspace/e2e-real/webchat-trial.spec.ts` รันกับ Solo ได้โดยตั้ง `WEBCHAT_TRIAL_WORKSPACE`, `WEBCHAT_TRIAL_CONSOLE`, `WEBCHAT_TRIAL_ADMIN_PASSWORD`, `WEBCHAT_TRIAL_AGENT_PASSWORD` (อ่านจาก `solo.env` ห้ามพิมพ์ออกจอ) และ `WEBCHAT_TRIAL_HOST_RULES="MAP dcontact-solo-uat.osd.co.th 192.168.31.206, MAP dcontact-solo-workspace-uat.osd.co.th 192.168.31.206"` แล้วรัน `pnpm exec playwright test -c playwright.webchat-trial.config.ts` ใน `apps/workspace` ชุดนี้เพิ่ม `http://127.0.0.1:8899` ในโดเมนที่อนุญาตของ tenant demo
 - ปิดได้ด้วย `WEBCHAT=off` แล้วรัน `app` ให้ Agent ปิดและบันทึกผลแชทที่ค้างก่อน มิฉะนั้น Agent ที่ถือห้องจะติดสถานะของแชทและไม่ได้รับสายจนเปิดกลับ ([webchat.md](webchat.md#ข้อจำกัดของรอบแรก))
 
+## Journey (#1067)
+
+service `journey` และ `cases` ใน `infra/solo/app/docker-compose.yml` อยู่หลัง compose profile `journey` (image `services` เดียวกับ API) รายละเอียดการทำงานอยู่ใน [journey-round-one.md](journey-round-one.md)
+
+1. ใน `solo.env` ตั้ง `INTERACTION_OUTCOME_EVENTS=on`, `J5_CANVAS_WRITE_ENABLED=true`, `J5_PUBLISH_UI_ENABLED=true` และเพิ่ม `journey` ใน `COMPOSE_PROFILES` (คั่นด้วย comma กับ profile ที่มีอยู่) แล้วรัน `build` และ `app` (migration `20261130090000_interaction_outcome_outbox` ถูก apply ในขั้น `app`)
+2. ข้อมูลที่ยังไม่มีหน้าจัดการต้อง seed ด้วย role owner ก่อนใช้: แถว rollout ของ tenant, สิทธิ์ authoring ของผู้สร้างและผู้ตรวจ, และค่าอ้างอิงประเภทเคส/routing รายการตารางอยู่ใน [journey-round-one.md](journey-round-one.md#เปิดใช้)
+3. ทั้งสอง worker ต่อฐานด้วย `APPLICATION_DATABASE_URL` (`dcontact_app`) และไม่มี host port
+
+- ปิดได้โดยเอา `journey` ออกจาก `COMPOSE_PROFILES` และตั้ง `INTERACTION_OUTCOME_EVENTS=off` แล้วรัน `app` outcome ที่ค้างใน outbox จะถูกส่งเมื่อเปิดกลับ
+- ถ้าเปิด `INTERACTION_OUTCOME_EVENTS` โดยไม่เปิด profile `journey` outcome จะถูกส่งเข้า topic โดยไม่มีผู้รับ และ worker ที่เปิดทีหลังจะไม่เห็น event ก่อนหน้า (consumer group ใหม่เริ่มที่ offset ล่าสุด)
+
 ## LINE แชท (#1054)
 
 เปิดด้วย `LINE_CHAT=on` ใน `solo.env` แล้วรัน `build` และ `app` (migration `20261128090000_line_chat_round_one` ถูก apply ในขั้น `app`) API ต้องมี `ACCOUNT_SECRET_KEY` อยู่แล้ว (ตัวเดียวกับ TOTP) รายละเอียดการทำงานอยู่ใน [line-chat.md](line-chat.md)

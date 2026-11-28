@@ -85,6 +85,40 @@ const REFERENCE_CODES = new Set([
 /** Number of rows scanned per round when list filters permissions per row */
 const LIST_SCAN_BATCH = 200;
 
+/** #1067: one enrollment of a journey as shown on the results page — ids and codes only */
+export interface JourneyRunSummary {
+  readonly enrollmentId: string;
+  readonly journeyVersion: number;
+  readonly state: string;
+  readonly runState: string;
+  readonly terminalReason: string | null;
+  readonly startedAt: string;
+  readonly updatedAt: string;
+  readonly trigger: {
+    readonly outcomeType: string;
+    readonly outcomeCode: string | null;
+    readonly interactionId: string | null;
+  } | null;
+  readonly actions: ReadonlyArray<{
+    readonly stepId: string | null;
+    readonly kind: string;
+    readonly state: string;
+    /** id of what the owner created or matched (a case for ENSURE_CASE); null until the owner answers */
+    readonly ownerAggregateId: string | null;
+    readonly acknowledgedAt: string | null;
+  }>;
+}
+
+const RUN_CURSOR =
+  /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z)\|([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
+
+function decodeRunCursor(value: string | undefined): { createdAt: Date; id: string } | undefined {
+  if (value === undefined) return undefined;
+  const match = RUN_CURSOR.exec(Buffer.from(value, 'base64url').toString('utf8'));
+  if (!match) throw new JourneyAuthoringError('REQUEST_MALFORMED', { field: 'cursor' });
+  return { createdAt: new Date(match[1]!), id: match[2]! };
+}
+
 export interface JourneyAuthoringSummary {
   readonly journeyId: string;
   readonly name: string;
@@ -1234,6 +1268,105 @@ export class JourneyAuthoringRepository {
         }
         if (rows.length < LIST_SCAN_BATCH) return { items, nextCursor: null };
       }
+    });
+  }
+
+  /**
+   * #1067: what a journey did at runtime — one row per enrollment with its trigger outcome and owner actions.
+   * Gated by the same `journey.read` scope as the journey itself; carries internal ids and codes only
+   * (no customer data, no free text), so the owner aggregate (e.g. a case) is opened under its own permission.
+   */
+  async listJourneyRuns(
+    tenantId: string,
+    actor: JourneyAuthoringActor,
+    input: { readonly journeyId: string; readonly limit?: number; readonly cursor?: string },
+  ): Promise<{ readonly items: JourneyRunSummary[]; readonly nextCursor: string | null }> {
+    const limit = Math.min(Math.max(input.limit ?? 50, 1), 100);
+    const cursor = decodeRunCursor(input.cursor);
+    return withTenantDatabaseTransaction(this.database, tenantId, async (tx) => {
+      const head = await this.head(tx, tenantId, input.journeyId);
+      await this.authorize(tx, { tenantId, actor }, 'journey.read', this.scopeOf(head));
+      const rows = await tx.jrEnrollment.findMany({
+        where: {
+          tenantId,
+          journeyId: input.journeyId,
+          ...(cursor
+            ? {
+                OR: [
+                  { createdAt: { lt: cursor.createdAt } },
+                  { createdAt: cursor.createdAt, id: { lt: cursor.id } },
+                ],
+              }
+            : {}),
+        },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: limit + 1,
+        select: {
+          id: true,
+          journeyVersion: true,
+          state: true,
+          runState: true,
+          terminalReason: true,
+          createdAt: true,
+          updatedAt: true,
+          outcomeReceipt: { select: { outcomeType: true, payload: true } },
+        },
+      });
+      const page = rows.slice(0, limit);
+      const actions =
+        page.length === 0
+          ? []
+          : await tx.jrOwnerAction.findMany({
+              where: { tenantId, enrollmentId: { in: page.map((row) => row.id) } },
+              orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+              select: {
+                enrollmentId: true,
+                stepId: true,
+                kind: true,
+                state: true,
+                ownerAggregateRef: true,
+                acknowledgedAt: true,
+              },
+            });
+      const items = page.map((row): JourneyRunSummary => {
+        const payload = (row.outcomeReceipt?.payload ?? {}) as Record<string, unknown>;
+        const text = (value: unknown) => (typeof value === 'string' ? value : null);
+        return {
+          enrollmentId: row.id,
+          journeyVersion: row.journeyVersion,
+          state: row.state,
+          runState: row.runState,
+          terminalReason: row.terminalReason,
+          startedAt: row.createdAt.toISOString(),
+          updatedAt: row.updatedAt.toISOString(),
+          trigger: row.outcomeReceipt
+            ? {
+                outcomeType: row.outcomeReceipt.outcomeType,
+                outcomeCode: text(payload.outcomeCode),
+                interactionId: text(payload.interactionId),
+              }
+            : null,
+          actions: actions
+            .filter((action) => action.enrollmentId === row.id)
+            .map((action) => ({
+              stepId: action.stepId,
+              kind: action.kind,
+              state: action.state,
+              ownerAggregateId: action.ownerAggregateRef,
+              acknowledgedAt: action.acknowledgedAt?.toISOString() ?? null,
+            })),
+        };
+      });
+      const last = page.at(-1);
+      return {
+        items,
+        nextCursor:
+          rows.length > limit && last
+            ? Buffer.from(`${last.createdAt.toISOString()}|${last.id}`, 'utf8').toString(
+                'base64url',
+              )
+            : null,
+      };
     });
   }
 

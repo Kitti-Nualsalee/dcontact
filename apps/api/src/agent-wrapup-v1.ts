@@ -11,6 +11,7 @@ import {
 import { Prisma, type PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
 import { syncAgentWebchatState } from '@d-contact/router';
 import { findActiveAgent } from './active-agent.js';
+import { recordDispositionOutcome } from './interaction-outcome-outbox.js';
 
 type Actor = { tenantId: string; userId: string };
 const action = 'AGENT_WRAPUP_V1_SUBMIT';
@@ -69,6 +70,7 @@ async function authorize(
     select: {
       id: true,
       channel: true,
+      contactId: true,
       state: true,
       voiceWrapupPolicy: true,
       wrapUpCode: true,
@@ -106,6 +108,8 @@ export async function saveAgentWrapup(
   actor: Actor,
   resourceId: string,
   body: unknown,
+  /** #1067: write the `interaction.outcome_recorded` outbox row with the result (deployment flag) */
+  options: { emitOutcome?: boolean } = {},
 ) {
   const interactionId = uuid(resourceId, 'interactionId');
   const input = inputFrom(body);
@@ -185,6 +189,15 @@ export async function saveAgentWrapup(
       });
     else await recordPostWrapupState(transaction, actor.tenantId, actor.userId);
     const result = await committedResult(transaction, actor, interactionId);
+    if (options.emitOutcome)
+      await recordDispositionOutcome(transaction, {
+        tenantId: actor.tenantId,
+        interactionId,
+        contactId: interaction.contactId,
+        disposition: input.disposition,
+        commandId: input.commandId,
+        recordedAt: new Date(result.recordedAt),
+      });
     const {
       note: omittedNote,
       legacy: omittedLegacy,

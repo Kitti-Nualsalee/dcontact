@@ -8,7 +8,8 @@ export type CaseActivityKind =
 
 export interface CaseSummary {
   id: string;
-  subject: string;
+  /** null for a case opened by an automation (Journey), which has no subject */
+  subject: string | null;
   contactId: string;
   /**
    * customer name from Customer 360 per the viewer's WORK permission
@@ -44,7 +45,8 @@ export interface CaseDetail extends CaseSummary {
   /** false when the owner moved teams or was deactivated */
   assigneeInTeam: boolean;
   reopenCount: number;
-  createdByUserId: string;
+  /** null for a case opened by an automation (Journey) */
+  createdByUserId: string | null;
   sourceInteractionId: string | null;
   resolvedAt: string | null;
   closedAt: string | null;

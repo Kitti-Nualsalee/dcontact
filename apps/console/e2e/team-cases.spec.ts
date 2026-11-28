@@ -22,6 +22,8 @@ interface Fixture {
   commands: { path: string; commandId: string }[];
   failNext?: 'network' | 'conflict';
   seen: Set<string>;
+  /** #1067: a case opened by a Journey has no subject and no author */
+  automation?: boolean;
 }
 
 function activities(fixture: Fixture) {
@@ -35,6 +37,19 @@ function activities(fixture: Fixture) {
     toStatus: null,
     assigneeUserId: null,
   };
+  if (fixture.automation)
+    return [
+      {
+        ...blank,
+        id: 'a1',
+        kind: 'CREATED',
+        occurredAt: '2026-11-18T10:02:00.000Z',
+        actorUserId: null,
+        interactionId: '7f3c0000-0000-4000-8000-00000000a91e',
+        interactionChannel: 'VOICE',
+        interactionDirection: 'INBOUND',
+      },
+    ];
   return [
     {
       ...blank,
@@ -75,7 +90,7 @@ async function mockCases(page: Page, fixture: Fixture) {
     if (request.method() === 'GET' && path === '') {
       const mine = url.searchParams.get('mine') === '1';
       const include =
-        (!mine || fixture.assignee === me) &&
+        (!mine || (fixture.assignee === me && !fixture.automation)) &&
         (url.searchParams.get('status') !== 'NOT_CLOSED' || fixture.status !== 'CLOSED');
       return route.fulfill({
         json: {
@@ -83,11 +98,11 @@ async function mockCases(page: Page, fixture: Fixture) {
             ? [
                 {
                   id: caseId,
-                  subject: SUBJECT,
+                  subject: fixture.automation ? null : SUBJECT,
                   contactId: 'c1',
                   contactDisplayName: 'Napa Chanphen',
                   status: fixture.status,
-                  assigneeUserId: fixture.assignee,
+                  assigneeUserId: fixture.automation ? null : fixture.assignee,
                   version: fixture.version,
                   linkedWorkCount: 1,
                   createdAt: '2026-11-18T10:02:00.000Z',
@@ -115,11 +130,11 @@ async function mockCases(page: Page, fixture: Fixture) {
         json: {
           case: {
             id: caseId,
-            subject: SUBJECT,
+            subject: fixture.automation ? null : SUBJECT,
             contactId: 'c1',
             contactDisplayName: 'Napa Chanphen',
             status: fixture.status,
-            assigneeUserId: fixture.assignee,
+            assigneeUserId: fixture.automation ? null : fixture.assignee,
             version: fixture.version,
             linkedWorkCount: 1,
             createdAt: '2026-11-18T10:02:00.000Z',
@@ -127,7 +142,7 @@ async function mockCases(page: Page, fixture: Fixture) {
             teamId: 't1',
             assigneeInTeam: true,
             reopenCount: 0,
-            createdByUserId: me,
+            createdByUserId: fixture.automation ? null : me,
             sourceInteractionId: null,
             resolvedAt: null,
             closedAt: fixture.status === 'CLOSED' ? '2026-11-20T03:00:00.000Z' : null,
@@ -318,4 +333,33 @@ test('conflict: show the bar, keep the note draft, and load the latest case', as
   await page.getByRole('button', { name: th('cases:note.submit') }).click();
   expect(fixture.commands[1].commandId).not.toBe(fixture.commands[0].commandId);
   expect(fixture.notes).toContain('A draft that must not be lost');
+});
+
+test('#1067 a case opened by a Journey shows a fallback subject and the automation as its author, and the team works it as usual', async ({
+  page,
+}) => {
+  const fixture = { ...newFixture(), notes: [], automation: true };
+  await mockCases(page, fixture);
+  await page.goto(`/?view=team-cases&tenant=demo&assignee=team&case=${caseId}`);
+
+  const subject = th('cases:automationSubject');
+  await expect(page.getByRole('heading', { name: subject, level: 1 })).toBeVisible();
+  const summary = page.locator('.cs-summary, .cs-detail').first();
+  await expect(summary).toContainText(th('cases:actor.automation'));
+  // the timeline names the automation instead of "user no longer in team"
+  await expect(page.getByText(th('cases:actor.unknown'))).toHaveCount(0);
+  await expect(page.locator('.cs-event-created')).toContainText(th('cases:actor.automation'));
+  await expect(page.locator('.cs-event-created')).toContainText('7f3c');
+
+  // nobody is assigned yet; the team takes it over with the normal commands
+  await page
+    .getByRole('textbox', { name: th('cases:note.label') })
+    .fill('Called the customer back');
+  await page.getByRole('button', { name: th('cases:note.submit') }).click();
+  await expect
+    .poll(() => fixture.commands.map((command) => command.path))
+    .toEqual([`/${caseId}/notes`]);
+
+  await page.getByRole('button', { name: th('cases:detail.back') }).click();
+  await expect(page.getByRole('button', { name: th('cases:openItem', { subject }) })).toBeVisible();
 });

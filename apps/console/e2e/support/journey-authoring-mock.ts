@@ -45,6 +45,9 @@ export function authoringDocument(name = 'Payment follow-up') {
   };
 }
 
+/** #1067: the case the acknowledged run of the mocked results points at */
+export const RUN_CASE_ID = '7a33ac96-d87d-4ca4-ab75-f27e40e94001';
+
 export interface JourneyState {
   headVersion: number;
   revision: number;
@@ -269,6 +272,60 @@ export class AuthoringMock {
               occurredAt: '2026-09-22T00:00:00.000Z',
             },
           ],
+        });
+      }
+      // #1067: results of the journey at runtime — ids and codes only
+      if (method === 'GET' && tail === '/runs') {
+        return reply(200, {
+          items: [
+            {
+              enrollmentId: '5e000000-0000-4000-8000-000000000002',
+              journeyVersion: 1,
+              state: 'AUTHORIZED',
+              runState: 'WAITING',
+              terminalReason: null,
+              startedAt: '2026-11-28T03:00:00.000Z',
+              updatedAt: '2026-11-28T03:00:00.000Z',
+              trigger: {
+                outcomeType: 'INTERACTION_DISPOSITION_RECORDED',
+                outcomeCode: 'FOLLOW_UP_REQUIRED',
+                interactionId: '7f3c0000-0000-4000-8000-00000000b002',
+              },
+              actions: [
+                {
+                  stepId: 'ensure-case',
+                  kind: 'ENSURE_CASE',
+                  state: 'DISPATCHED',
+                  ownerAggregateId: null,
+                  acknowledgedAt: null,
+                },
+              ],
+            },
+            {
+              enrollmentId: '5e000000-0000-4000-8000-000000000001',
+              journeyVersion: 1,
+              state: 'AUTHORIZED',
+              runState: 'WAITING',
+              terminalReason: null,
+              startedAt: '2026-11-28T01:00:00.000Z',
+              updatedAt: '2026-11-28T01:00:05.000Z',
+              trigger: {
+                outcomeType: 'INTERACTION_DISPOSITION_RECORDED',
+                outcomeCode: 'FOLLOW_UP_REQUIRED',
+                interactionId: '7f3c0000-0000-4000-8000-00000000b001',
+              },
+              actions: [
+                {
+                  stepId: 'ensure-case',
+                  kind: 'ENSURE_CASE',
+                  state: 'ACKNOWLEDGED',
+                  ownerAggregateId: RUN_CASE_ID,
+                  acknowledgedAt: '2026-11-28T01:00:05.000Z',
+                },
+              ],
+            },
+          ],
+          nextCursor: null,
         });
       }
       if (method === 'PUT' && tail === '/draft') {
