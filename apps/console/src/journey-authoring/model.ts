@@ -342,12 +342,25 @@ export function applyCommand(
         0,
       );
       const position = anchor ? { x: anchor.x, y: anchor.y + 140 } : { x: 80, y: lowest + 140 };
+      // inserting between two nodes: push everything at or below the new slot down one row, so the new node
+      // never lands on top of the node it now leads to
+      const occupied = Object.values(document.layout.nodes).some(
+        (point) => point.x === position.x && Math.abs(point.y - position.y) < 140,
+      );
+      const shifted = occupied
+        ? Object.fromEntries(
+            Object.entries(document.layout.nodes).map(([nodeId, point]) => [
+              nodeId,
+              point.y >= position.y ? { ...point, y: point.y + 140 } : point,
+            ]),
+          )
+        : document.layout.nodes;
       let next: AuthoringDocumentV1 = {
         ...document,
         nodes: [...document.nodes, node],
         layout: {
           ...document.layout,
-          nodes: { ...document.layout.nodes, [command.nodeId]: position },
+          nodes: { ...shifted, [command.nodeId]: position },
         },
       };
       if (command.after) {
@@ -551,17 +564,42 @@ export function errorMessage(code: string | undefined): string {
     : journeyText('error.fallback');
 }
 
-/** initial draft the server can save: an event trigger leading to EXIT — the rest is edited in the editor */
+export type BlankTrigger =
+  { kind: 'EVENT' } | { kind: 'INTERACTION_OUTCOME'; outcomeType: string; outcomeCode?: string };
+
+/**
+ * initial draft the server can save: a trigger leading to EXIT — the rest is edited in the editor.
+ * The trigger type cannot change in the editor, so it is chosen here (#1067: an interaction outcome trigger).
+ * `eventType` is the trigger event for an event trigger and always the goal event.
+ */
 export function blankDocument(input: {
   name: string;
   eventType: string;
   senderIdentityId: string;
   purpose: string;
+  trigger?: BlankTrigger;
 }): AuthoringDocumentV1 {
+  const choice = input.trigger ?? { kind: 'EVENT' };
+  const trigger =
+    choice.kind === 'INTERACTION_OUTCOME'
+      ? {
+          nodeId: 'trigger',
+          type: 'INTERACTION_OUTCOME_TRIGGER' as const,
+          config: {
+            outcomeType: choice.outcomeType,
+            ...(choice.outcomeCode ? { outcomeCode: choice.outcomeCode } : {}),
+            coalescingPolicy: 'PER_LOGICAL_OUTCOME',
+          },
+        }
+      : {
+          nodeId: 'trigger',
+          type: 'EVENT_TRIGGER' as const,
+          config: { eventType: input.eventType },
+        };
   return {
     schemaVersion: 'J5_AUTHORING_V1',
     registryVersion: 'J5_PALETTE_V1',
-    trigger: { nodeId: 'trigger', type: 'EVENT_TRIGGER', config: { eventType: input.eventType } },
+    trigger: trigger as AuthoringDocumentV1['trigger'],
     nodes: [{ nodeId: 'done', type: 'EXIT', config: { reason: 'COMPLETED' } }],
     edges: [
       {

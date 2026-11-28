@@ -141,6 +141,37 @@ test('J5.6 inserting a step after a port keeps the original wiring complete, and
   assert.equal(deleted.layout.nodes['send-1'], undefined);
 });
 
+test('#1067 inserting between two nodes pushes the lower nodes down instead of stacking on them', () => {
+  const inserted = applyCommand(base(), addAfter('trigger', 'start', 'send-1'));
+  assert.deepEqual(inserted.layout.nodes['send-1'], { x: 80, y: 180 });
+  assert.deepEqual(inserted.layout.nodes.done, { x: 80, y: 320 });
+  assert.deepEqual(inserted.layout.nodes.trigger, { x: 80, y: 40 });
+});
+
+test('#1067 a blank journey can start from an interaction outcome', () => {
+  const document = blankDocument({
+    name: 'follow-up',
+    eventType: 'case.resolved',
+    senderIdentityId: 'sender-1',
+    purpose: 'SERVICE',
+    trigger: {
+      kind: 'INTERACTION_OUTCOME',
+      outcomeType: 'INTERACTION_DISPOSITION_RECORDED',
+      outcomeCode: 'FOLLOW_UP_REQUIRED',
+    },
+  });
+  assert.deepEqual(document.trigger, {
+    nodeId: 'trigger',
+    type: 'INTERACTION_OUTCOME_TRIGGER',
+    config: {
+      outcomeType: 'INTERACTION_DISPOSITION_RECORDED',
+      outcomeCode: 'FOLLOW_UP_REQUIRED',
+      coalescingPolicy: 'PER_LOGICAL_OUTCOME',
+    },
+  });
+  assert.deepEqual(document.settings.goal, { kind: 'EVENT', eventType: 'case.resolved' });
+});
+
 test('J5.6 an unknown node is read-only: it cannot be edited/deleted and its original source stays intact', () => {
   const legacy: AuthoringDocumentV1 = {
     ...base(),

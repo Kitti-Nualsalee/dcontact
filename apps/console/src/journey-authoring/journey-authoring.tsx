@@ -29,8 +29,10 @@ import {
   blankDocument,
   changedNodeIds,
   errorMessage,
+  INTERACTION_OUTCOME_TYPES,
   nodeTitle,
   type AuthoringCommand,
+  type BlankTrigger,
 } from './model.js';
 import { Outline } from './outline.js';
 import { JourneySettings, NodeProperties } from './properties.js';
@@ -549,6 +551,9 @@ function BlankJourneyForm({
   const ids = {
     name: useId(),
     team: useId(),
+    triggerKind: useId(),
+    outcomeType: useId(),
+    outcomeCode: useId(),
     event: useId(),
     sender: useId(),
     purpose: useId(),
@@ -560,6 +565,9 @@ function BlankJourneyForm({
     sender: '',
     purpose: 'SERVICE',
   });
+  const [triggerKind, setTriggerKind] = useState<BlankTrigger['kind']>('EVENT');
+  const [outcomeType, setOutcomeType] = useState('INTERACTION_DISPOSITION_RECORDED');
+  const [outcomeCode, setOutcomeCode] = useState('');
   const { t } = useTranslation('journeys');
   const [error, setError] = useState<{ code?: string } | null>(null);
   const [key, setKey] = useState<string | null>(null);
@@ -593,6 +601,14 @@ function BlankJourneyForm({
                   eventType: values.event.trim(),
                   senderIdentityId: values.sender.trim(),
                   purpose: values.purpose.trim(),
+                  trigger:
+                    triggerKind === 'INTERACTION_OUTCOME'
+                      ? {
+                          kind: 'INTERACTION_OUTCOME',
+                          outcomeType,
+                          outcomeCode: outcomeCode.trim() || undefined,
+                        }
+                      : { kind: 'EVENT' },
                 }),
               },
               intent,
@@ -606,7 +622,44 @@ function BlankJourneyForm({
       >
         {field('name', t('blank.name'))}
         {field('team', t('blank.team'))}
-        {field('event', t('blank.event'))}
+        <div className="j5-field">
+          <label htmlFor={ids.triggerKind}>{t('blank.triggerKind')}</label>
+          <select
+            id={ids.triggerKind}
+            value={triggerKind}
+            onChange={(event) => setTriggerKind(event.target.value as BlankTrigger['kind'])}
+          >
+            <option value="EVENT">{t('node.EVENT_TRIGGER')}</option>
+            <option value="INTERACTION_OUTCOME">{t('node.INTERACTION_OUTCOME_TRIGGER')}</option>
+          </select>
+        </div>
+        {triggerKind === 'INTERACTION_OUTCOME' ? (
+          <>
+            <div className="j5-field">
+              <label htmlFor={ids.outcomeType}>{t('field.outcomeType')}</label>
+              <select
+                id={ids.outcomeType}
+                value={outcomeType}
+                onChange={(event) => setOutcomeType(event.target.value)}
+              >
+                {INTERACTION_OUTCOME_TYPES.map((type) => (
+                  <option key={type} value={type}>
+                    {type}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="j5-field">
+              <label htmlFor={ids.outcomeCode}>{t('field.outcomeCode')}</label>
+              <input
+                id={ids.outcomeCode}
+                value={outcomeCode}
+                onChange={(event) => setOutcomeCode(event.target.value)}
+              />
+            </div>
+          </>
+        ) : null}
+        {field('event', triggerKind === 'EVENT' ? t('blank.event') : t('blank.goalEvent'))}
         {field('sender', t('blank.sender'))}
         {field('purpose', t('blank.purpose'))}
         <Button type="submit" variant="primary" isDisabled={!complete}>

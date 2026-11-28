@@ -508,8 +508,11 @@ test('#1067: the new case belongs to the target team, which sees and handles it 
   assert.equal(page.items.length, 1);
   assert.equal(page.items[0]!.subject, null);
   assert.equal(page.items[0]!.contactId, f.rawContactId);
+  // the source work rides on CREATED and still counts as linked work
+  assert.equal(page.items[0]!.linkedWorkCount, 1);
 
   const detail = await cases.detail(actor, page.items[0]!.id);
+  assert.equal(detail.linkedWorkCount, 1);
   assert.equal(detail.teamId, f.rawTeamId);
   assert.equal(detail.createdByUserId, null);
   assert.deepEqual(

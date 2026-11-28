@@ -49,7 +49,9 @@
     "heading": "สร้าง Journey เปล่า",
     "name": "ชื่อ Journey",
     "team": "ทีมเจ้าของ (team ID)",
+    "triggerKind": "เริ่ม Journey เมื่อ",
     "event": "Event ที่เริ่ม Journey",
+    "goalEvent": "Event ที่ถือว่าบรรลุเป้าหมาย",
     "sender": "Sender identity",
     "purpose": "วัตถุประสงค์ (เช่น SERVICE)",
     "submit": "สร้างฉบับร่าง"

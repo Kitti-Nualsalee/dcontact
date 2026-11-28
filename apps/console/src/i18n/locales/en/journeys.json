@@ -49,7 +49,9 @@
     "heading": "Create a blank journey",
     "name": "Journey name",
     "team": "Owner team (team ID)",
+    "triggerKind": "Start the journey on",
     "event": "Event that starts the journey",
+    "goalEvent": "Goal event",
     "sender": "Sender identity",
     "purpose": "Purpose (e.g. SERVICE)",
     "submit": "Create draft"

@@ -306,8 +306,8 @@ export class AgentCases {
       >(Prisma.sql`
         SELECT c.id, c.subject, c.contact_id, c.status::text AS status, c.assignee_user_id,
                c.version, c.created_at, c.updated_at,
-               (SELECT count(*) FROM cs_case_activities a
-                 WHERE a.tenant_id = c.tenant_id AND a.case_id = c.id AND a.kind = 'LINKED')
+               (SELECT count(DISTINCT a.interaction_id) FROM cs_case_activities a
+                 WHERE a.tenant_id = c.tenant_id AND a.case_id = c.id AND a.interaction_id IS NOT NULL)
                  AS linked_work_count
           FROM cs_cases c
          WHERE c.tenant_id = ${teamActor.tenantId}::uuid
@@ -720,7 +720,10 @@ export class AgentCases {
       status: found.status,
       assigneeUserId: found.assigneeUserId,
       version: found.version,
-      linkedWorkCount: activities.filter((activity) => activity.kind === 'LINKED').length,
+      // every work the timeline refers to: a case opened by Journey carries its source work on CREATED (#1067)
+      linkedWorkCount: new Set(
+        activities.flatMap((activity) => (activity.interactionId ? [activity.interactionId] : [])),
+      ).size,
       createdAt: found.createdAt.toISOString(),
       updatedAt: found.updatedAt.toISOString(),
       teamId: found.teamId,

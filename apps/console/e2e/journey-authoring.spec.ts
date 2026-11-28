@@ -1128,3 +1128,46 @@ test('U1.5 attach a screenshot, see the digest, a trace is rejected with a way f
   expectOpaqueUrl(page);
   await expectNoSeriousA11yViolations(page);
 });
+
+test('#1067 a blank journey can start from a contact outcome: the trigger is chosen in the create form', async ({
+  page,
+}) => {
+  const mock = new AuthoringMock();
+  await mock.install(page);
+  let created: Json | undefined;
+  // registered after the mock, so this route answers the create call first
+  await page.route('**/api/v1/journey-authoring/journeys', async (route) => {
+    if (route.request().method() !== 'POST') return route.fallback();
+    created = route.request().postDataJSON() as Json;
+    await route.fulfill({ status: 201, json: { journeyId: JOURNEY_ID, revision: 1 } });
+  });
+  await page.goto('/?view=journeys');
+  const form = page.getByRole('region', { name: th('journeys:blank.heading') });
+  await form.getByLabel(th('journeys:blank.name')).fill('Follow-up case after a call');
+  await form.getByLabel(th('journeys:blank.team')).fill('team-synthetic');
+  await form
+    .getByLabel(th('journeys:blank.triggerKind'))
+    .selectOption({ label: th('journeys:node.INTERACTION_OUTCOME_TRIGGER') });
+  await expect(form.getByLabel(th('journeys:blank.event'))).toHaveCount(0);
+  await form.getByLabel(th('journeys:field.outcomeCode')).fill('FOLLOW_UP_REQUIRED');
+  await form.getByLabel(th('journeys:blank.goalEvent')).fill('case.resolved');
+  // checked while submit is still disabled: right after it enables, its colour is mid-transition
+  await expectNoSeriousA11yViolations(page);
+  await form.getByLabel(th('journeys:blank.sender')).fill('sender-synthetic');
+  await form.getByRole('button', { name: th('journeys:blank.submit') }).click();
+  await expect.poll(() => created).toBeDefined();
+  const document = (created as { document: Json }).document as {
+    trigger: Json;
+    settings: { goal: Json };
+  };
+  expect(document.trigger).toEqual({
+    nodeId: 'trigger',
+    type: 'INTERACTION_OUTCOME_TRIGGER',
+    config: {
+      outcomeType: 'INTERACTION_DISPOSITION_RECORDED',
+      outcomeCode: 'FOLLOW_UP_REQUIRED',
+      coalescingPolicy: 'PER_LOGICAL_OUTCOME',
+    },
+  });
+  expect(document.settings.goal).toEqual({ kind: 'EVENT', eventType: 'case.resolved' });
+});

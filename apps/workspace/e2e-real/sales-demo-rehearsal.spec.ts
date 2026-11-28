@@ -25,6 +25,10 @@ const shots = resolve(here, '../test-results-real/sales-demo');
 const sippImage =
   'ctaloi/sipp@sha256:c459f2340443ddcc159227efc798217dbdaad0dbe88b76b78b1a876aa271986a';
 const customerPhone = process.env.SALES_DEMO_CUSTOMER_PHONE ?? '+66895550110';
+// the same database the stack uses (scripts/sales-demo-stack.mjs reads the same variable)
+// SALES_DEMO_OUTCOME=followUp saves FOLLOW_UP_REQUIRED instead (the Journey trial, #1067)
+const wrapupOutcome = process.env.SALES_DEMO_OUTCOME === 'followUp' ? 'followUp' : 'assisted';
+const demoDatabase = process.env.SALES_DEMO_DATABASE ?? 'dcontact_demo';
 
 function placeCall(): ChildProcess {
   return spawn(
@@ -69,7 +73,7 @@ function customerPhoneCount(): number {
       '-U',
       'dcontact',
       '-d',
-      'dcontact_demo',
+      demoDatabase,
       '-v',
       'ON_ERROR_STOP=1',
       '-v',
@@ -88,7 +92,7 @@ function customerPhoneCount(): number {
   );
   if (result.status !== 0)
     throw new Error(
-      `cannot read the dcontact_demo DB — bring up the stack with node scripts/sales-demo-stack.mjs first (${result.stderr.trim().split('\n')[0]})`,
+      `cannot read the ${demoDatabase} DB — bring up the stack with node scripts/sales-demo-stack.mjs first (${result.stderr.trim().split('\n')[0]})`,
     );
   return Number(result.stdout.trim());
 }
@@ -102,6 +106,10 @@ async function login(page: Page) {
   await page.locator('#password').fill('agent1234');
   await page.locator('#kc-login').click();
   await page.waitForURL((url) => url.origin === 'http://localhost:5173');
+  // the rehearsal reads the Thai catalog: switch back when the user's saved language (Keycloak `locale`) is English
+  const thai = page.getByRole('button', { name: 'ไทย', exact: true }); // allow-thai: the button is named in its own language in both catalogs
+  await thai.waitFor({ timeout: 30_000 });
+  if ((await thai.getAttribute('aria-pressed')) !== 'true') await thai.click();
 }
 
 test('Demo rehearsal: answer, link the customer, edit data, save the outcome, and open the history', async ({
@@ -110,7 +118,7 @@ test('Demo rehearsal: answer, link the customer, edit data, save the outcome, an
 }) => {
   expect(
     customerPhoneCount(),
-    `the dcontact_demo DB has no customer with number ${customerPhone} in tenant demo — ` +
+    `the ${demoDatabase} DB has no customer with number ${customerPhone} in tenant demo — ` +
       'import examples/sales-demo/customers.csv in Console before rehearsing (after --reset it must be imported again)',
   ).toBeGreaterThan(0);
   mkdirSync(shots, { recursive: true });
@@ -283,7 +291,7 @@ test('Demo rehearsal: answer, link the customer, edit data, save the outcome, an
     }
 
     await expect(page.getByRole('heading', { name: th('workspace:wrapup.title') })).toBeVisible();
-    await page.getByRole('button', { name: th('workspace:wrapup.assisted') }).click();
+    await page.getByRole('button', { name: th(`workspace:wrapup.${wrapupOutcome}`) }).click();
     await page
       .getByRole('textbox', { name: th('workspace:wrapup.note') })
       .fill('Customer asked about delivery status, delivery date given');

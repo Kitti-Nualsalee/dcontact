@@ -491,7 +491,10 @@ function seedJourneyTrial(claims) {
      INSERT INTO jr_authoring_rollout_state
        (id, tenant_id, stage, canvas_write_enabled, publish_ui_enabled, updated_by_ref, evidence_ref, updated_at)
      VALUES (gen_random_uuid(), '${tenantId}', 'INTERNAL_SYNTHETIC', true, true, 'sales-demo-seed', 'sales-demo-seed', now())
-     ON CONFLICT (tenant_id) DO UPDATE SET canvas_write_enabled = true, publish_ui_enabled = true, updated_at = now();
+     ON CONFLICT (tenant_id) DO UPDATE SET canvas_write_enabled = true, publish_ui_enabled = true, updated_at = now(),
+       version = jr_authoring_rollout_state.version + 1
+     -- the rollout guard requires each update to bump version by one; a rerun on enabled flags changes nothing
+     WHERE NOT (jr_authoring_rollout_state.canvas_write_enabled AND jr_authoring_rollout_state.publish_ui_enabled);
      INSERT INTO iam_authoring_subjects (id, tenant_id, subject_id, authentication_strength, updated_at)
      VALUES ${[maker, reviewer]
        .map((claim) => `(gen_random_uuid(), '${tenantId}', '${claim.userId}', 'STANDARD', now())`)
