@@ -6,7 +6,8 @@
  *
  * First-round scope: an agent sees and edits only cases of their own team, statuses OPEN/RESOLVED/CLOSED,
  * every command carries a commandId (command_receipts) and an expectedVersion on `cs_cases.version`.
- * Cases from J2 ENSURE_CASE have no team_id, so they do not appear in this view.
+ * #1067: a case from J2 ENSURE_CASE carries the target team, so that team sees and handles it here; it has no
+ * subject and no author (both null). J2 cases created before #1067 have no team and stay out of this view.
  */
 import { createHash, randomUUID } from 'node:crypto';
 import { Prisma, type PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
@@ -79,7 +80,8 @@ export interface AgentCaseRef {
 
 export interface AgentCaseSummary {
   id: string;
-  subject: string;
+  /** null for a case created by an automation (J2 ENSURE_CASE) */
+  subject: string | null;
   contactId: string;
   status: AgentCaseStatus;
   assigneeUserId: string | null;
@@ -113,7 +115,8 @@ export interface AgentCaseDetail extends AgentCaseSummary {
   /** false when the assignee moved team or the account was disabled; must be reassigned */
   assigneeInTeam: boolean;
   reopenCount: number;
-  createdByUserId: string;
+  /** null for a case created by an automation (J2 ENSURE_CASE) */
+  createdByUserId: string | null;
   sourceInteractionId: string | null;
   resolvedAt: string | null;
   closedAt: string | null;
@@ -291,7 +294,7 @@ export class AgentCases {
       const rows = await transaction.$queryRaw<
         {
           id: string;
-          subject: string;
+          subject: string | null;
           contact_id: string;
           status: AgentCaseStatus;
           assignee_user_id: string | null;
@@ -680,17 +683,14 @@ export class AgentCases {
     const found = await transaction.csCase.findFirst({
       where: { id: caseId, tenantId: actor.tenantId, teamId: actor.teamId },
     });
-    if (!found || !found.subject || !found.teamId || !found.createdByUserId) {
-      throw new AgentCaseError('CASE_NOT_FOUND');
-    }
+    if (!found || !found.teamId) throw new AgentCaseError('CASE_NOT_FOUND');
     const activities = await transaction.csCaseActivity.findMany({
       where: { tenantId: actor.tenantId, caseId },
       orderBy: [{ occurredAt: 'asc' }, { id: 'asc' }],
     });
+    // an automation records its source work on CREATED/REOPENED as well as LINKED
     const linkedIds = activities.flatMap((activity) =>
-      activity.kind === 'LINKED' && activity.interactionId && UUID.test(activity.interactionId)
-        ? [activity.interactionId]
-        : [],
+      activity.interactionId && UUID.test(activity.interactionId) ? [activity.interactionId] : [],
     );
     const [linkedWork, assignee] = await Promise.all([
       linkedIds.length === 0

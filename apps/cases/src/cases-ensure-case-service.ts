@@ -210,12 +210,15 @@ export class CasesEnsureCaseService implements J2CaseOwnerPort {
     );
 
     // #956 a case opened by an Agent is written by AgentCases, so it is not linked/reopened even when the type matches
+    // #1067 a case belongs to its target team: a case of another team (or an older one without a team) is not
+    // linked/reopened either, otherwise work would land in a case the target team cannot see
     const existingCase = await transaction.csCase.findFirst({
       where: {
         tenantId,
         contactId: command.contactId,
         caseTypeKey: typePolicy.caseTypeKey,
         createdByUserId: null,
+        teamId: command.targetOwnerTeamId,
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -252,6 +255,8 @@ export class CasesEnsureCaseService implements J2CaseOwnerPort {
         contactId: command.contactId,
         caseTypeKey: typePolicy.caseTypeKey,
         routingRef: routingPolicy.queueRef,
+        // #1067 the target team sees and handles the case in its team case list (no subject, no author)
+        teamId: command.targetOwnerTeamId,
         status: 'OPEN',
         version: 1,
       },

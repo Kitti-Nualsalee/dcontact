@@ -63,19 +63,35 @@ function TimelineItem({ activity, people }: { activity: CaseActivity; people: Ca
   const navigate = useConsoleNavigation();
   const name = (userId: string | null) =>
     userId ? (people[userId] ?? t('actor.unknown')) : t('actor.unknown');
-  const actor = <strong>{name(activity.actorUserId)}</strong>;
+  // a row without an actor was written by an automation (Journey), not by a person who left the team
+  const actor = (
+    <strong>
+      {activity.actorUserId ? name(activity.actorUserId) : t('actor.automation')}
+    </strong>
+  );
   const assignee = <strong>{name(activity.assigneeUserId)}</strong>;
   let text: ReactNode;
   switch (activity.kind) {
     case 'CREATED':
-      text = renderTemplate(
-        t(
-          activity.assigneeUserId && activity.assigneeUserId !== activity.actorUserId
-            ? 'timeline.opened'
-            : 'timeline.openedSelf',
-          { actor: marker('actor'), assignee: marker('assignee') },
-        ),
-        { actor, assignee },
+      text = activity.actorUserId ? (
+        renderTemplate(
+          t(
+            activity.assigneeUserId && activity.assigneeUserId !== activity.actorUserId
+              ? 'timeline.opened'
+              : 'timeline.openedSelf',
+            { actor: marker('actor'), assignee: marker('assignee') },
+          ),
+          { actor, assignee },
+        )
+      ) : (
+        <>
+          {renderTemplate(t('timeline.openedAuto', { actor: marker('actor') }), { actor })}{' '}
+          {activity.interactionId ? (
+            <code className="cs-code" title={activity.interactionId}>
+              {shortId(activity.interactionId)}
+            </code>
+          ) : null}
+        </>
       );
       break;
     case 'LINKED': {

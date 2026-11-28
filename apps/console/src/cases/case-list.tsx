@@ -238,6 +238,7 @@ function CaseRow({
   onOpen: (caseId: string) => void;
 }) {
   const { t } = useTranslation('cases');
+  const subject = item.subject ?? t('automationSubject');
   const customer =
     item.contactDisplayName === undefined
       ? { text: t('customerUnavailable'), muted: true }
@@ -254,7 +255,7 @@ function CaseRow({
       <Cell className="cs-trunc">
         <a
           href={href.pathname + href.search}
-          title={item.subject}
+          title={subject}
           className="cs-link"
           onClick={(event) => {
             if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
@@ -262,7 +263,7 @@ function CaseRow({
             onOpen(item.id);
           }}
         >
-          {item.subject}
+          {subject}
         </a>
       </Cell>
       <Cell className={customer.muted ? 'cs-trunc cs-muted' : 'cs-trunc'}>
@@ -285,7 +286,7 @@ function CaseRow({
         <Button
           id={openButtonId(item.id)}
           size="sm"
-          aria-label={t('openItem', { subject: item.subject })}
+          aria-label={t('openItem', { subject })}
           onPress={() => onOpen(item.id)}
         >
           {t('open')}
