@@ -38,6 +38,7 @@ import {
   cg4PolicyRequestScope,
   GOVERNANCE_SHADOW_MISMATCH,
   loadCg4RolloutState,
+  type Cg4RolloutSnapshot,
 } from './cg4-rollout.js';
 import {
   CG4_CONTRACT_VERSION,
@@ -130,26 +131,91 @@ function shadowOutcome(
   return evaluate(read.outcome === 'RESOLVED' ? read.facts : undefined);
 }
 
-/** the request scope is an opaque dimension key for mismatch evidence (no contact identity) */
+/** #1065: what the policy that decides this work says about consent, read once per decision */
+interface ConsentPolicyCheck {
+  /** the rollout snapshot and CG4 head read, reused by the policy phase so both see the same policy version */
+  rollout: Cg4RolloutSnapshot;
+  read?: Cg4PolicyReadResult;
+  waiver?: ContactConsentWaiver;
+  /** a consent the customer revoked, or that expired, on any identity of the contact */
+  withdrawn?: 'REVOKED' | 'EXPIRED';
+}
+
 /**
  * #1065: whether the policy that decides this work lets it go ahead without a consent record. The policy
  * comes from the same reader the rollout stage uses for the rest of the decision: a CG3 policy has no such
- * option, so consent stays required until the tenant decides with CG4 policies. Anything the reader cannot
- * resolve keeps consent required (the policy phase that follows fails closed on its own).
+ * option, so consent stays required until the tenant decides with CG4 policies. Called only when no consent
+ * record matched the request.
  */
-async function consentWaiverFor(
+async function consentPolicyCheck(
   transaction: Prisma.TransactionClient,
-  tenantId: string,
-  request: Cg4PolicyRequestScope,
-  now: Date,
-): Promise<ContactConsentWaiver | undefined> {
-  const reader = cg4PolicyReaderFor(await loadCg4RolloutState(transaction, tenantId), request);
-  if (reader.mode !== 'CG4') return undefined;
-  const read = await loadCg4PolicyFacts(transaction, { tenantId, request, now });
-  if (read.outcome !== 'RESOLVED' || !read.facts.consent) return undefined;
+  query: { tenantId: string; contactId: string; request: Cg4PolicyRequestScope; now: Date },
+): Promise<ConsentPolicyCheck> {
+  const rollout = await loadCg4RolloutState(transaction, query.tenantId);
+  if (cg4PolicyReaderFor(rollout, query.request).mode !== 'CG4') return { rollout };
+  const read = await loadCg4PolicyFacts(transaction, {
+    tenantId: query.tenantId,
+    request: query.request,
+    now: query.now,
+  });
+  if (read.outcome !== 'RESOLVED' || !read.facts.consent) return { rollout, read };
   // the lifecycle refuses a wider scope; checked again so a head written another way cannot waive consent broadly
-  if (cg4ConsentWaiverScopeProblem(read.scopeKey)) return undefined;
-  return read.facts.consent;
+  if (cg4ConsentWaiverScopeProblem(read.scopeKey)) return { rollout, read };
+  // the request matched no record on its own identity, but a withdrawal on another identity of the same
+  // customer (or on the contact) still stands: the latest record of each identity counts
+  const records = await transaction.cgConsent.findMany({
+    where: {
+      tenantId: query.tenantId,
+      contactId: query.contactId,
+      purpose: query.request.purpose,
+      channel: query.request.channel,
+    },
+    orderBy: { createdAt: 'desc' },
+    select: { identityId: true, status: true, expiresAt: true },
+  });
+  const latest = new Map<string | null, (typeof records)[number]>();
+  for (const record of records)
+    if (!latest.has(record.identityId)) latest.set(record.identityId, record);
+  const statuses = [...latest.values()].map((record) =>
+    record.status === 'GRANTED' && record.expiresAt && record.expiresAt <= query.now
+      ? 'EXPIRED'
+      : record.status,
+  );
+  const withdrawn = statuses.includes('REVOKED')
+    ? ('REVOKED' as const)
+    : statuses.includes('EXPIRED')
+      ? ('EXPIRED' as const)
+      : undefined;
+  return { rollout, read, waiver: read.facts.consent, ...(withdrawn ? { withdrawn } : {}) };
+}
+
+/** the consent facts the baseline evaluates, with what the policy said folded in */
+function consentFacts(check: ConsentPolicyCheck | undefined) {
+  if (check?.withdrawn) return { consent: { status: check.withdrawn, lawfulBasis: 'CONSENT' } };
+  return check?.waiver ? { consentWaiver: check.waiver } : {};
+}
+
+/**
+ * #1065: no consent record and a policy reader that fails closed: nobody can say whether consent is required,
+ * so the work waits for REVIEW with the reader's reason instead of a BLOCK that would cancel it
+ */
+function withConsentPolicyUnavailable(
+  result: ReturnType<typeof evaluateContactPolicy>,
+  check: ConsentPolicyCheck | undefined,
+): ReturnType<typeof evaluateContactPolicy> {
+  if (result.reasonCode !== 'CONSENT_REQUIRED' || check?.read?.outcome !== 'FAIL_CLOSED') {
+    return result;
+  }
+  const reasonCode = check.read.reason;
+  return {
+    ...result,
+    decision: 'REVIEW',
+    reasonCode,
+    trace: [
+      ...result.trace.filter((entry) => entry.gate !== 'CONSENT'),
+      { gate: 'POLICY_HEAD', outcome: 'REVIEW', reasonCode },
+    ],
+  };
 }
 
 /** the CONSENT entry that let the decision continue: keeps why consent was not needed for the audit trail */
@@ -159,6 +225,7 @@ function passedEntry(entry: ContactPolicyTraceEntry): ContactPolicyTraceEntry {
     : { gate: entry.gate, outcome: 'PASS' };
 }
 
+/** the request scope is an opaque dimension key for mismatch evidence (no contact identity) */
 function requestScopeKey(request: Cg4PolicyRequestScope): string {
   try {
     return buildCg4PolicyScopeKey({ ...request });
@@ -534,45 +601,49 @@ export class ContactGovernanceService
       ) {
         return review(GOVERNANCE_KILL_SWITCH_ACTIVE, facts.aggregateVersion, facts.policy?.version);
       }
-      const consentWaiver =
-        identity && !restriction && !consent
-          ? await consentWaiverFor(
-              transaction,
-              tenantId,
-              cg4PolicyRequestScope({
-                channel: reservation.channel,
-                purpose: reservation.purpose,
-                contactKind: reservation.authorizationContactKind,
-                source: reservation.source,
-              }),
-              now,
-            )
-          : undefined;
-      const baseline = evaluateContactPolicy({
-        policyVersion: facts.policy?.version ?? 0,
-        ...(consentWaiver ? { consentWaiver } : {}),
-        identityResolution: identity ? 'RESOLVED' : 'NOT_FOUND',
-        ...(restriction
-          ? {
-              activeRestriction: {
-                type: restriction.type,
-                reasonCode: restriction.reasonCode,
-                overridable: restriction.overridable,
-              },
-            }
-          : {}),
-        ...(consent
-          ? {
-              consent: {
-                status:
-                  consent.status === 'GRANTED' && consent.expiresAt && consent.expiresAt <= now
-                    ? ('EXPIRED' as const)
-                    : consent.status,
-                lawfulBasis: consent.lawfulBasis,
-              },
-            }
-          : {}),
+      const policyRequest = cg4PolicyRequestScope({
+        channel: reservation.channel,
+        purpose: reservation.purpose,
+        contactKind: reservation.authorizationContactKind,
+        source: reservation.source,
       });
+      const consentCheck =
+        identity && !restriction && !consent
+          ? await consentPolicyCheck(transaction, {
+              tenantId,
+              contactId: reservation.contactId,
+              request: policyRequest,
+              now,
+            })
+          : undefined;
+      const baseline = withConsentPolicyUnavailable(
+        evaluateContactPolicy({
+          policyVersion: facts.policy?.version ?? 0,
+          ...consentFacts(consentCheck),
+          identityResolution: identity ? 'RESOLVED' : 'NOT_FOUND',
+          ...(restriction
+            ? {
+                activeRestriction: {
+                  type: restriction.type,
+                  reasonCode: restriction.reasonCode,
+                  overridable: restriction.overridable,
+                },
+              }
+            : {}),
+          ...(consent
+            ? {
+                consent: {
+                  status:
+                    consent.status === 'GRANTED' && consent.expiresAt && consent.expiresAt <= now
+                      ? ('EXPIRED' as const)
+                      : consent.status,
+                  lawfulBasis: consent.lawfulBasis,
+                },
+              }
+            : {}),
+        }),
+        consentCheck,
+      );
       if (baseline.decision !== 'ALLOW') {
         return {
           decision: baseline.decision,
@@ -606,23 +677,19 @@ export class ContactGovernanceService
         });
       // CG4.10 (#193): re-authorization uses the same reader as authorizeAndReserve under the same rollout
       // but does not record a shadow mismatch because this call must not create a new fact
-      const policyRequest = cg4PolicyRequestScope({
-        channel: reservation.channel,
-        purpose: reservation.purpose,
-        contactKind: reservation.authorizationContactKind,
-        source: reservation.source,
-      });
       const reader = cg4PolicyReaderFor(
-        await loadCg4RolloutState(transaction, tenantId),
+        consentCheck?.rollout ?? (await loadCg4RolloutState(transaction, tenantId)),
         policyRequest,
       );
       let cg3: Cg3GateOutcome;
       if (reader.mode === 'CG4') {
-        const read = await loadCg4PolicyFacts(transaction, {
-          tenantId,
-          request: policyRequest,
-          now,
-        });
+        const read =
+          consentCheck?.read ??
+          (await loadCg4PolicyFacts(transaction, {
+            tenantId,
+            request: policyRequest,
+            now,
+          }));
         if (read.outcome === 'FAIL_CLOSED') {
           return review(read.reason, facts.aggregateVersion, facts.policy?.version);
         }
@@ -757,35 +824,43 @@ export class ContactGovernanceService
             })
           : null;
 
-      const consentWaiver =
+      const consentCheck =
         contact && identityResolution === 'RESOLVED' && !restriction && !consent
-          ? await consentWaiverFor(transaction, tenantId, cg4PolicyRequestScope(input), now)
+          ? await consentPolicyCheck(transaction, {
+              tenantId,
+              contactId: contact.id,
+              request: cg4PolicyRequestScope(input),
+              now,
+            })
           : undefined;
-      const policyResult = evaluateContactPolicy({
-        policyVersion: input.policyVersion,
-        identityResolution,
-        ...(consentWaiver ? { consentWaiver } : {}),
-        ...(restriction
-          ? {
-              activeRestriction: {
-                type: restriction.type,
-                reasonCode: restriction.reasonCode,
-                overridable: restriction.overridable,
-              },
-            }
-          : {}),
-        ...(consent
-          ? {
-              consent: {
-                status:
-                  consent.status === 'GRANTED' && consent.expiresAt && consent.expiresAt <= now
-                    ? ('EXPIRED' as const)
-                    : consent.status,
-                lawfulBasis: consent.lawfulBasis,
-              },
-            }
-          : {}),
-      });
+      const policyResult = withConsentPolicyUnavailable(
+        evaluateContactPolicy({
+          policyVersion: input.policyVersion,
+          identityResolution,
+          ...consentFacts(consentCheck),
+          ...(restriction
+            ? {
+                activeRestriction: {
+                  type: restriction.type,
+                  reasonCode: restriction.reasonCode,
+                  overridable: restriction.overridable,
+                },
+              }
+            : {}),
+          ...(consent
+            ? {
+                consent: {
+                  status:
+                    consent.status === 'GRANTED' && consent.expiresAt && consent.expiresAt <= now
+                      ? ('EXPIRED' as const)
+                      : consent.status,
+                  lawfulBasis: consent.lawfulBasis,
+                },
+              }
+            : {}),
+        }),
+        consentCheck,
+      );
       const decisionId = this.id();
 
       let trace: ContactPolicyTraceEntry[] = policyResult.trace;
@@ -862,18 +937,20 @@ export class ContactGovernanceService
         // CG4.10 (#193): the rollout stage chooses whether the policy comes from the CG3 loader or the CG4 head (#179 §6)
         const policyRequest = cg4PolicyRequestScope(input);
         const reader = cg4PolicyReaderFor(
-          await loadCg4RolloutState(transaction, tenantId),
+          consentCheck?.rollout ?? (await loadCg4RolloutState(transaction, tenantId)),
           policyRequest,
         );
         let cg3: Cg3GateOutcome;
         let headBinding: Cg4PolicyBinding | undefined;
         let evaluatedPolicyVersion = facts.policy?.version;
         if (reader.mode === 'CG4') {
-          const read = await loadCg4PolicyFacts(transaction, {
-            tenantId,
-            request: policyRequest,
-            now,
-          });
+          const read =
+            consentCheck?.read ??
+            (await loadCg4PolicyFacts(transaction, {
+              tenantId,
+              request: policyRequest,
+              now,
+            }));
           if (read.outcome === 'FAIL_CLOSED') {
             cg3 = cg4PolicyFailClosedOutcome('POLICY_HEAD', read.reason);
             evaluatedPolicyVersion = undefined;

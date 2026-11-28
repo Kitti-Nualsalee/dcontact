@@ -187,6 +187,11 @@ test('#1065 consent required is the default: saying so keeps the digest of conte
     version: 1,
   });
   assert.equal(explicit.contentDigest, before.contentDigest);
+  // golden value compiled by main before the option existed (#1065)
+  assert.equal(
+    before.contentDigest,
+    '5517a7fa501f67f3297b4049685a4f9f3003cdd364e4d25034956631e84eb6f2',
+  );
   assert.equal(before.facts.consent, undefined);
 });
 
@@ -236,6 +241,7 @@ test('#1065 only a scope that names a purpose and a channel, and not marketing, 
     { channel: 'VOICE' },
     { purpose: 'SERVICE' },
     { channel: 'VOICE', purpose: 'MARKETING' },
+    { channel: 'VOICE', purpose: 'marketing' },
   ] as const) {
     assert.throws(
       () => assertCg4ConsentScope(buildCg4PolicyScopeKey(scope), waived),

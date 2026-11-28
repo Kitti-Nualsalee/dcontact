@@ -152,10 +152,12 @@ async function fixture(t: TestContext) {
     scopeKey: string,
     policyContent: Record<string, unknown>,
     checkers: string[],
+    policyId?: string,
   ) => {
     const maker = subject(MAKER, ['cg.policy.draft'], scopeKey);
     const draft = await lifecycle.createDraft({
       tenantId: tenant,
+      ...(policyId ? { policyId } : {}),
       scopeKey,
       content: policyContent,
       effectiveFrom: '2026-01-01T00:00:00.000Z',
@@ -254,11 +256,12 @@ async function fixture(t: TestContext) {
       },
     });
 
-  const consent = (status: 'GRANTED' | 'REVOKED', expiresAt?: Date) =>
+  const consent = (status: 'GRANTED' | 'REVOKED', expiresAt?: Date, identityId?: string) =>
     owner.cgConsent.create({
       data: {
         tenantId: tenant,
         contactId: contact,
+        ...(identityId ? { identityId } : {}),
         purpose: 'SERVICE',
         channel: 'VOICE',
         status,
@@ -287,10 +290,22 @@ async function fixture(t: TestContext) {
       .then((outcome) => ({ outcome, key }));
   };
 
+  const otherIdentity = randomUUID();
+  await owner.contactIdentity.create({
+    data: {
+      id: otherIdentity,
+      tenantId: tenant,
+      contactId: contact,
+      type: 'PHONE',
+      value: `+6681${tenant.replace(/\D/g, '').slice(0, 7).padEnd(7, '0')}`,
+    },
+  });
+
   return {
     owner,
     tenant,
     contact,
+    otherIdentity,
     service,
     publishPolicy,
     readCg4Policies,
@@ -410,4 +425,77 @@ test('#1065 the policy studio refuses a waiver for marketing or for a scope with
       scope,
     );
   }
+});
+
+test('#1065 a consent the customer revoked on another of their numbers still blocks under the waiver', async (t) => {
+  const f = await fixture(t);
+  await f.readCg4Policies();
+  await f.publishPolicy(VOICE_SERVICE, content(WAIVER), ['consent-checker-1', 'consent-checker-2']);
+  await f.consent('REVOKED', undefined, f.otherIdentity);
+  const revoked = await f.authorize();
+  assert.equal(revoked.outcome.decision, 'BLOCK');
+  assert.equal(revoked.outcome.reasonCode, 'CONSENT_REVOKED');
+});
+
+test('#1065 without a consent record, a policy head that cannot be read means REVIEW, not BLOCK', async (t) => {
+  const f = await fixture(t);
+  await f.readCg4Policies();
+  await f.publishPolicy(VOICE_SERVICE, content(WAIVER), ['consent-checker-1', 'consent-checker-2']);
+  const policy = await f.owner.cg4Policy.findFirstOrThrow({
+    where: { tenantId: f.tenant, scopeKey: VOICE_SERVICE, status: 'ACTIVE' },
+  });
+  // a scheduled activation that is due but the worker has not activated yet
+  await f.owner.cg4PolicyActivationJob.create({
+    data: {
+      tenantId: f.tenant,
+      policyId: policy.policyId,
+      policyVersion: policy.version,
+      scopeKey: VOICE_SERVICE,
+      scheduledFor: new Date(NOW.getTime() - 60_000),
+    },
+  });
+  const { outcome, key } = await f.authorize();
+  assert.equal(outcome.decision, 'REVIEW');
+  assert.equal(outcome.reasonCode, 'POLICY_ACTIVATION_PENDING');
+  const log = await f.owner.cgDecisionLog.findFirstOrThrow({
+    where: { tenantId: f.tenant, actionKey: key },
+  });
+  assert.equal(consentEntry(log.trace), undefined);
+});
+
+test('#1065 once the policy requires consent again, work allowed by the waiver no longer revalidates', async (t) => {
+  const f = await fixture(t);
+  await f.readCg4Policies();
+  await f.publishPolicy(VOICE_SERVICE, content(WAIVER), ['consent-checker-1', 'consent-checker-2']);
+  const { outcome, key } = await f.authorize();
+  assert.equal(outcome.decision, 'ALLOW');
+  const waived = await f.owner.cg4Policy.findFirstOrThrow({
+    where: { tenantId: f.tenant, scopeKey: VOICE_SERVICE, status: 'ACTIVE' },
+  });
+  const diffClass = await f.publishPolicy(
+    VOICE_SERVICE,
+    content(),
+    ['consent-checker-1'],
+    waived.policyId,
+  );
+  assert.equal(diffClass, 'TIGHTENING');
+  await f.owner.cgContactStateHead.create({
+    data: {
+      tenantId: f.tenant,
+      contactId: f.contact,
+      aggregateVersion: 1,
+      currentDigest: 'c'.repeat(64),
+    },
+  });
+  const revalidated = await f.service.revalidateAuthorizedAction({
+    tenantId: tenantIdBrand(f.tenant),
+    reservationId: reservationIdBrand(outcome.reservationId!),
+    actionKey: actionKeyBrand(key),
+    correlationId: 'consent-revalidate-tightened',
+    sourceAggregateType: 'CONTACT',
+    sourceAggregateId: f.contact,
+    sourceAggregateVersion: 1,
+  });
+  assert.equal(revalidated.decision, 'BLOCK');
+  assert.equal(revalidated.reasonCode, 'CONSENT_REQUIRED');
 });

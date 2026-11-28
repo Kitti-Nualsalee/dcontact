@@ -247,7 +247,12 @@ export function cg4ConsentWaiverScopeProblem(scopeKey: string): string | undefin
   if (!dimensions.purpose || !dimensions.channel) {
     return 'a policy that does not require consent must name both a purpose and a channel';
   }
-  if ((CG4_CONSENT_ALWAYS_REQUIRED_PURPOSES as readonly string[]).includes(dimensions.purpose)) {
+  // purposes are free strings: compared without case so `marketing` cannot slip past
+  if (
+    (CG4_CONSENT_ALWAYS_REQUIRED_PURPOSES as readonly string[]).includes(
+      dimensions.purpose.toUpperCase(),
+    )
+  ) {
     return `purpose ${dimensions.purpose} always requires consent`;
   }
   return undefined;
