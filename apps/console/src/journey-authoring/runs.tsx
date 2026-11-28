@@ -61,12 +61,17 @@ export function RunResults({ api, journeyId }: { api: JourneyAuthoringApi; journ
     }
   };
   return (
-    <section className="j5-panel j5-panel-wide" aria-labelledby="j5-runs-heading">
+    <section
+      className="j5-panel j5-panel-wide j5-runs"
+      aria-labelledby="j5-runs-heading"
+      aria-busy={busy}
+    >
       <h2 id="j5-runs-heading">{t('runs.heading')}</h2>
       <p className="j5-help">{t('runs.help')}</p>
       <Button isDisabled={busy} onPress={() => void load()}>
         {items === null ? t('runs.show') : t('runs.reload')}
       </Button>
+      {busy ? <p role="status">{t('runs.loading')}</p> : null}
       {error ? (
         <p className="j5-status-error" role="alert">
           {errorMessage(error.code)}
@@ -97,7 +102,12 @@ export function RunResults({ api, journeyId }: { api: JourneyAuthoringApi; journ
                       <time dateTime={run.startedAt}>{serverTime(formatters, run.startedAt)}</time>
                     </td>
                     <td>
-                      {run.trigger?.outcomeCode ?? run.trigger?.outcomeType ?? t('common.none')}
+                      {run.trigger?.outcomeCode ??
+                        (run.trigger?.outcomeType
+                          ? t(`outcomeType.${run.trigger.outcomeType}`, {
+                              defaultValue: run.trigger.outcomeType,
+                            })
+                          : t('common.none'))}
                       {run.trigger?.interactionId ? (
                         <>
                           {' '}
@@ -108,7 +118,11 @@ export function RunResults({ api, journeyId }: { api: JourneyAuthoringApi; journ
                       ) : null}
                     </td>
                     <td>{run.journeyVersion}</td>
-                    <td>{action ? action.kind : t('common.none')}</td>
+                    <td>
+                      {action
+                        ? t(`node.${action.kind}`, { defaultValue: action.kind })
+                        : t('common.none')}
+                    </td>
                     <td
                       title={[run.state, run.runState, action?.state].filter(Boolean).join(' · ')}
                     >

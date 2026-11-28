@@ -644,7 +644,7 @@ function BlankJourneyForm({
               >
                 {INTERACTION_OUTCOME_TYPES.map((type) => (
                   <option key={type} value={type}>
-                    {type}
+                    {t(`outcomeType.${type}`, { defaultValue: type })}
                   </option>
                 ))}
               </select>

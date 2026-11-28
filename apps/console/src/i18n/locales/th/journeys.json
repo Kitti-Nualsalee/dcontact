@@ -129,7 +129,8 @@
       "rejected": "ปลายทางปฏิเสธ",
       "blocked": "ไม่ได้รับอนุญาต",
       "cancelled": "ยกเลิก"
-    }
+    },
+    "loading": "กำลังโหลดผลการทำงาน…"
   },
   "uat": {
     "heading": "รอบทดสอบ UAT",
@@ -496,5 +497,10 @@
     "PUBLISH_OUTCOME_UNKNOWN": "ยังไม่ทราบผล publish ให้ตรวจผลด้วยคำสั่งเดิม",
     "SIMULATION_CONTEXT_INVALID": "context ของ simulation ต้องเป็น JSON object ของค่าสังเคราะห์",
     "fallback": "คำสั่งไม่สำเร็จ ลองอีกครั้งหรือติดต่อผู้ดูแล"
+  },
+  "outcomeType": {
+    "INTERACTION_ABANDONED": "สายที่ลูกค้าวางก่อนรับ",
+    "INTERACTION_DISPOSITION_RECORDED": "ผลที่ Agent บันทึก",
+    "FEEDBACK_DETRACTOR_RECORDED": "ความเห็นไม่พอใจจากลูกค้า"
   }
 }

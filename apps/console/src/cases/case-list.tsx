@@ -286,7 +286,10 @@ function CaseRow({
         <Button
           id={openButtonId(item.id)}
           size="sm"
-          aria-label={t('openItem', { subject })}
+          aria-label={t('openItem', {
+            // cases opened by automation share one fallback subject: add the customer so each row reads apart
+            subject: item.subject === null ? `${subject} ${customer.text}` : subject,
+          })}
           onPress={() => onOpen(item.id)}
         >
           {t('open')}

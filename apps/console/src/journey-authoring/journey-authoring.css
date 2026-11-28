@@ -367,6 +367,17 @@
   margin-top: var(--dc-space-4);
 }
 
+.j5-field > * {
+  /* a long option (e.g. an outcome type) must not stretch the field past its card */
+  min-width: 0;
+  max-width: 100%;
+}
+
+.j5-runs time,
+.j5-runs .j5-link {
+  white-space: nowrap;
+}
+
 .j5-field label,
 .j5-port-row label,
 .j5-add-step label {

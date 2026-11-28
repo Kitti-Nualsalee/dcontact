@@ -129,10 +129,11 @@
     "result": {
       "done": "Done",
       "waiting": "In progress",
-      "rejected": "Rejected by owner",
+      "rejected": "Rejected by target",
       "blocked": "Not allowed",
       "cancelled": "Cancelled"
-    }
+    },
+    "loading": "Loading results…"
   },
   "uat": {
     "heading": "UAT test run",
@@ -503,5 +504,10 @@
     "PUBLISH_OUTCOME_UNKNOWN": "Publish outcome unknown; check it with the same command",
     "SIMULATION_CONTEXT_INVALID": "The simulation context must be a JSON object of synthetic values",
     "fallback": "The command failed. Try again or contact your administrator."
+  },
+  "outcomeType": {
+    "INTERACTION_ABANDONED": "Abandoned before answer",
+    "INTERACTION_DISPOSITION_RECORDED": "Outcome recorded by the agent",
+    "FEEDBACK_DETRACTOR_RECORDED": "Detractor feedback"
   }
 }
