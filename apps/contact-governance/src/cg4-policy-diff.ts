@@ -23,7 +23,8 @@ export type Cg4PolicyDiffDimension =
   | 'callbackMode'
   | 'overridableRules'
   | 'allowedOperationalRuleCodes'
-  | 'timezoneFallback';
+  | 'timezoneFallback'
+  | 'consent';
 
 export interface Cg4PolicyDiffChange {
   dimension: Cg4PolicyDiffDimension;
@@ -130,6 +131,16 @@ const CALLBACK_MODE_RANK: Readonly<Record<Cg3CallbackMode, number>> = Object.fre
   TIME_POLICY_OVERRIDE: 2,
 });
 
+function consentDiffDirection(
+  base: Cg4PolicyContentV1,
+  candidate: Cg4PolicyContentV1,
+): Cg4PolicyDiffDirection {
+  if (!base.consent && !candidate.consent) return 'EQUAL';
+  if (!candidate.consent) return 'TIGHTENING';
+  if (!base.consent) return 'RELAXATION';
+  return base.consent.lawfulBasis === candidate.consent.lawfulBasis ? 'EQUAL' : 'RELAXATION';
+}
+
 export function classifyCg4PolicyDiff(
   base: Cg4PolicyContentV1 | null,
   candidate: Cg4PolicyContentV1,
@@ -177,6 +188,13 @@ export function classifyCg4PolicyDiff(
           : 'RELAXATION',
     },
   ];
+
+  // #1065: no longer requiring consent (or naming another lawful basis for it) loosens the policy;
+  // requiring it again tightens. Listed only when it changes, so the digest of every other diff stays the same
+  const consentDirection = consentDiffDirection(from, candidate);
+  if (consentDirection !== 'EQUAL') {
+    changes.push({ dimension: 'consent', direction: consentDirection });
+  }
 
   const diffClass: Cg4PolicyDiffClass = changes.some((change) => change.direction === 'RELAXATION')
     ? 'RELAXATION'

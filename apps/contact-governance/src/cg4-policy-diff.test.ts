@@ -109,3 +109,32 @@ test('the diff digest differs when the base or candidate differs, and is stable 
   assert.equal(a.diffDigest, b.diffDigest);
   assert.notEqual(a.diffDigest, c.diffDigest);
 });
+
+test('#1065 no longer requiring consent is RELAXATION, requiring it again is TIGHTENING, and other diffs keep their digest', () => {
+  const waived = content({ consent: { requirement: 'NOT_REQUIRED', lawfulBasis: 'CONTRACT' } });
+  const relax = classifyCg4PolicyDiff(content(), waived);
+  assert.equal(relax.diffClass, 'RELAXATION');
+  assert.deepEqual(relax.changes.at(-1), { dimension: 'consent', direction: 'RELAXATION' });
+  assert.equal(classifyCg4PolicyDiff(waived, content()).diffClass, 'TIGHTENING');
+  assert.equal(classifyCg4PolicyDiff(waived, waived).diffClass, 'NEUTRAL');
+  // another lawful basis cannot be proven narrower
+  assert.equal(
+    classifyCg4PolicyDiff(
+      waived,
+      content({ consent: { requirement: 'NOT_REQUIRED', lawfulBasis: 'LEGITIMATE_INTEREST' } }),
+    ).diffClass,
+    'RELAXATION',
+  );
+  // a diff that does not touch consent lists the same dimensions as before the option existed
+  assert.equal(
+    classifyCg4PolicyDiff(content(), content()).changes.some(
+      (change) => change.dimension === 'consent',
+    ),
+    false,
+  );
+});
+
+test('#1065 a first version that does not require consent is RELAXATION', () => {
+  const waived = content({ consent: { requirement: 'NOT_REQUIRED', lawfulBasis: 'CONTRACT' } });
+  assert.equal(classifyCg4PolicyDiff(null, waived).diffClass, 'RELAXATION');
+});

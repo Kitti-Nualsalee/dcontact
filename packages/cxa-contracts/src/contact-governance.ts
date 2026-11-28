@@ -37,6 +37,8 @@ export interface ContactPolicyTraceEntry {
   gate: ContactPolicyGate;
   outcome: 'PASS' | 'ALLOW' | 'BLOCK' | 'DEFER' | 'REVIEW';
   reasonCode?: string;
+  /** #1065: the lawful basis a policy named when it did not require consent (CONSENT gate only) */
+  lawfulBasis?: string;
 }
 
 export type ReservationState = 'RESERVED' | 'CONFIRMED' | 'RELEASED' | 'REFUNDED';

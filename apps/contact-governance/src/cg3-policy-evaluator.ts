@@ -42,6 +42,14 @@ export interface Cg3PolicyFacts {
   /** names of the temporal-rule reasons that this policy lets a callback exception override */
   overridableRules: string[];
   holidays: Cg3HolidayEntry[];
+  /** #1065: present only when the policy does not require consent; absent = consent required */
+  consent?: ContactConsentWaiver;
+}
+
+/** #1065: a policy that lets work go ahead without a consent record, on another lawful basis */
+export interface ContactConsentWaiver {
+  requirement: 'NOT_REQUIRED';
+  lawfulBasis: string;
 }
 
 export interface Cg3CallbackFacts {

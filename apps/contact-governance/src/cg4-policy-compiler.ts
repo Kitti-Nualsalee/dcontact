@@ -9,7 +9,12 @@ import {
   type ContactChannel,
 } from '@d-contact/cxa-contracts';
 import { normalizeLocalTimeWindows, type LocalTimeWindow } from './cg3-persistence.js';
-import type { Cg3CallbackMode, Cg3HolidayEntry, Cg3PolicyFacts } from './cg3-policy-evaluator.js';
+import type {
+  Cg3CallbackMode,
+  Cg3HolidayEntry,
+  Cg3PolicyFacts,
+  ContactConsentWaiver,
+} from './cg3-policy-evaluator.js';
 import { resolveCg4RuleMetadata } from './cg4-rule-registry.js';
 
 /**
@@ -168,6 +173,95 @@ export interface Cg4PolicyContentV1 {
   /** CG4 rules an Approved exception may lift under this policy version. */
   allowedOperationalRuleCodes: string[];
   holidays: Cg3HolidayEntry[];
+  /**
+   * #1065: present only when consent is not required. Omitted for `REQUIRED` so content written before
+   * this field keeps its digest.
+   */
+  consent?: ContactConsentWaiver;
+}
+
+/**
+ * #1065: lawful bases other than consent (PDPA section 24). `CONSENT` is not one: a policy that relies on
+ * consent simply requires it.
+ */
+export const CG4_CONSENT_WAIVER_LAWFUL_BASES = Object.freeze([
+  'CONTRACT',
+  'LEGITIMATE_INTEREST',
+  'LEGAL_OBLIGATION',
+  'VITAL_INTEREST',
+  'PUBLIC_TASK',
+] as const);
+
+/** #1065: purposes that always need consent, whatever a policy says */
+export const CG4_CONSENT_ALWAYS_REQUIRED_PURPOSES = Object.freeze(['MARKETING'] as const);
+
+function consentRequirement(value: unknown): ContactConsentWaiver | undefined {
+  if (value === undefined || value === null) return undefined;
+  const consent = record(value, 'consent');
+  const unknown = Object.keys(consent).filter(
+    (key) => key !== 'requirement' && key !== 'lawfulBasis',
+  );
+  if (unknown.length > 0) {
+    throw new Cg4PolicyValidationError(
+      'VALIDATION_FAILED',
+      `consent has an unknown field: ${unknown.sort().join(', ')}`,
+    );
+  }
+  if (consent.requirement === 'REQUIRED') {
+    if (consent.lawfulBasis !== undefined && consent.lawfulBasis !== null) {
+      throw new Cg4PolicyValidationError(
+        'VALIDATION_FAILED',
+        'consent.lawfulBasis applies only when consent.requirement is NOT_REQUIRED',
+      );
+    }
+    return undefined;
+  }
+  if (consent.requirement !== 'NOT_REQUIRED') {
+    throw new Cg4PolicyValidationError(
+      'VALIDATION_FAILED',
+      'consent.requirement must be REQUIRED | NOT_REQUIRED',
+    );
+  }
+  const lawfulBasis = typeof consent.lawfulBasis === 'string' ? consent.lawfulBasis.trim() : '';
+  if (!(CG4_CONSENT_WAIVER_LAWFUL_BASES as readonly string[]).includes(lawfulBasis)) {
+    throw new Cg4PolicyValidationError(
+      'VALIDATION_FAILED',
+      `consent.lawfulBasis must be ${CG4_CONSENT_WAIVER_LAWFUL_BASES.join(' | ')}`,
+    );
+  }
+  return { requirement: 'NOT_REQUIRED', lawfulBasis };
+}
+
+/**
+ * #1065: a policy may stop requiring consent only for one named purpose on one named channel, and never
+ * for a purpose that always needs consent. A wider scope could waive consent for work the author did not
+ * mean (a wildcard purpose would cover marketing).
+ */
+export function cg4ConsentWaiverScopeProblem(scopeKey: string): string | undefined {
+  let dimensions: Cg4PolicyScopeDimensions;
+  try {
+    dimensions = parseCg4PolicyScopeKey(scopeKey);
+  } catch {
+    return 'the scope is not in canonical form';
+  }
+  if (!dimensions.purpose || !dimensions.channel) {
+    return 'a policy that does not require consent must name both a purpose and a channel';
+  }
+  // purposes are free strings: compared without case so `marketing` cannot slip past
+  if (
+    (CG4_CONSENT_ALWAYS_REQUIRED_PURPOSES as readonly string[]).includes(
+      dimensions.purpose.toUpperCase(),
+    )
+  ) {
+    return `purpose ${dimensions.purpose} always requires consent`;
+  }
+  return undefined;
+}
+
+export function assertCg4ConsentScope(scopeKey: string, content: Cg4PolicyContentV1): void {
+  if (!content.consent) return;
+  const problem = cg4ConsentWaiverScopeProblem(scopeKey);
+  if (problem) throw new Cg4PolicyValidationError('SCOPE_INVALID', problem);
 }
 
 function record(value: unknown, field: string): Record<string, unknown> {
@@ -280,6 +374,7 @@ export function normalizeCg4PolicyContent(raw: unknown): Cg4PolicyContentV1 {
     'overridableRules',
     'allowedOperationalRuleCodes',
     'holidays',
+    'consent',
   ]);
   const unknown = Object.keys(content).filter((key) => !allowed.has(key));
   if (unknown.length > 0) {
@@ -294,6 +389,7 @@ export function normalizeCg4PolicyContent(raw: unknown): Cg4PolicyContentV1 {
       `callbackMode must be ${CALLBACK_MODES.join(' | ')}`,
     );
   }
+  const consent = consentRequirement(content.consent);
   return {
     timezoneFallback: timezone(content.timezoneFallback),
     quietHours: sortWindows(
@@ -306,6 +402,7 @@ export function normalizeCg4PolicyContent(raw: unknown): Cg4PolicyContentV1 {
       'allowedOperationalRuleCodes',
     ),
     holidays: holidays(content.holidays ?? []),
+    ...(consent ? { consent } : {}),
   };
 }
 
@@ -404,6 +501,7 @@ export function compileCg4Policy(input: CompileCg4PolicyInput): Cg4CompiledPolic
       callbackMode: content.callbackMode,
       overridableRules: content.overridableRules,
       holidays: content.holidays,
+      ...(content.consent ? { consent: content.consent } : {}),
     },
   };
 }

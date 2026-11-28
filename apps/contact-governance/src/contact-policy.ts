@@ -13,7 +13,17 @@ export interface ContactPolicyFacts {
     status: 'GRANTED' | 'REVOKED' | 'EXPIRED';
     lawfulBasis: string;
   };
+  /**
+   * #1065: the policy that decides this work does not require consent. Only a missing consent record is
+   * covered: a revoked or expired one still blocks.
+   */
+  consentWaiver?: {
+    requirement: 'NOT_REQUIRED';
+    lawfulBasis: string;
+  };
 }
+
+export const CONSENT_NOT_REQUIRED = 'CONSENT_NOT_REQUIRED';
 
 export interface ContactPolicyResult {
   decision: ContactDecision;
@@ -89,6 +99,21 @@ export function evaluateContactPolicy(facts: ContactPolicyFacts): ContactPolicyR
 
   if (facts.consent?.status === 'GRANTED') {
     trace.push({ gate: 'CONSENT', outcome: 'ALLOW', reasonCode: 'POLICY_PASSED' });
+    return {
+      decision: 'ALLOW',
+      reasonCode: 'POLICY_PASSED',
+      policyVersion: facts.policyVersion,
+      trace,
+    };
+  }
+
+  if (!facts.consent && facts.consentWaiver?.requirement === 'NOT_REQUIRED') {
+    trace.push({
+      gate: 'CONSENT',
+      outcome: 'ALLOW',
+      reasonCode: CONSENT_NOT_REQUIRED,
+      lawfulBasis: facts.consentWaiver.lawfulBasis,
+    });
     return {
       decision: 'ALLOW',
       reasonCode: 'POLICY_PASSED',
